@@ -19,6 +19,7 @@ mod folders;
 mod listing;
 mod operations;
 mod presets;
+pub mod rename_plan;
 mod thumbnails;
 mod xmp_sync;
 

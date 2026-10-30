@@ -2,6 +2,15 @@ import { CATALOG_CHANGED, FILE_OPERATIONS_CHANGED, catalogChanged } from './cata
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 import { IMPORTS_CHANGED } from './folderSync';
 import { OFFLINE_CHANGED } from './offline';
+import { submitPhotoWrite } from './photoWrites';
+
+/** The photographs a catalog write is for: `paths`, or the `path` of each
+ * of its `values` (restoring culling). */
+function writtenPaths(args: InvokeArgs): string[] {
+  const { paths, values } = args as { paths?: unknown; values?: unknown };
+  const listed = Array.isArray(paths) ? paths : Array.isArray(values) ? values.map((value) => (value as { path?: unknown })?.path) : [];
+  return listed.filter((path): path is string => typeof path === 'string');
+}
 
 let last: Promise<unknown> = Promise.resolve();
 /** Photographs this window rated, with how many of those writes did not
@@ -22,15 +31,20 @@ export function metadataWritten(path: string): boolean {
  * catalog may be locked for seconds; the main thread must not wait), so two
  * quick key presses would otherwise race and the older value could land
  * last. A failed write does not stop the ones after it.
+ *
+ * `kind` names the write in its `PHOTO_WRITES_SETTLED` announcement (default:
+ * the command), which the session bar's XMP count follows — also a failed one.
  */
-export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> {
+export function invokeInOrder<T>(command: string, args: InvokeArgs, kind = command): Promise<T> {
   const paths = (args as { paths?: unknown }).paths;
   const ratedPaths =
     command === 'set_rating_for_paths' && Array.isArray(paths)
       ? paths.filter((path): path is string => typeof path === 'string')
       : [];
   for (const path of ratedPaths) rated.set(path, (rated.get(path) ?? 0) + 1);
-  const run = last.then(() => invoke<T>(command, args));
+  // Also after the photographs' recipe writes given before (their XMP
+  // carries rating, label and keywords too).
+  const run = submitPhotoWrite(writtenPaths(args), () => invoke<T>(command, args), { kind, after: last });
   run.catch((error: unknown) => {
     // A save that failed for some photographs names them; the others were
     // rated.

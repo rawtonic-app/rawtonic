@@ -260,7 +260,10 @@ export function StudioMaskComponentSettings() {
   const activeKind = kindOf(active);
   const setParameters = (patch: Record<string, unknown>) =>
     updateComponent(active.id, { parameters: { ...active.parameters, ...patch } });
-  const onInteraction = (dragging: boolean) => setEditor({ isSliderDragging: dragging });
+  // These sliders shape the mask (depth range, colour refine, people parts,
+  // selection refine): it shows while they are dragged, like the luma range.
+  const onInteraction = (dragging: boolean) =>
+    setEditor({ isSliderDragging: dragging, isMaskRangeDragging: dragging });
   const hint = activeKind ? KIND_HINTS[activeKind] : undefined;
   const selection =
     activeKind === "subject" || activeKind === "background" || activeKind === "sky" || activeKind === "object";

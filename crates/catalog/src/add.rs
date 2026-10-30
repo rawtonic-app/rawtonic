@@ -5,8 +5,8 @@
 //! (`insert_planned`). A failure keeps none of them, so a retry adds them
 //! complete; nothing is ever written to or beside the files.
 use crate::{
-    Asset, Library, Mode, external_root_key, fingerprint, insert_root, search_text,
-    validate_relative, write_metadata, write_recipe,
+    Asset, Library, Mode, external_root_key, fingerprint, insert_root, search_text, write_metadata,
+    write_recipe,
 };
 use anyhow::{Context, Result, ensure};
 use rawtonic_metadata::Metadata;
@@ -277,11 +277,7 @@ impl Library {
                 parent.to_string_lossy().into_owned(),
             )
         };
-        validate_relative(&relative)?;
-        let rel = relative
-            .to_str()
-            .context("Paths must be valid UTF-8")?
-            .to_string();
+        let rel = crate::portable_relative(&relative)?;
         Ok(Place {
             path,
             root,
@@ -409,7 +405,12 @@ impl Library {
                         }
                     ],
                 )?,
-                None => tx.execute("INSERT INTO metadata(asset_id) VALUES(?)", [&id])?,
+                // Nothing the library holds that the file does not: no
+                // XMP to write (`Library::summary` counts none pending).
+                None => tx.execute(
+                    "INSERT INTO metadata(asset_id,xmp_status) VALUES(?,'synced')",
+                    [&id],
+                )?,
             };
             let version = Uuid::new_v4().to_string();
             tx.execute(
@@ -708,8 +709,9 @@ mod tests {
         let c = lib.asset_at(&paths[2]).unwrap().unwrap();
         assert!(!lib.metadata_initialized(&c.id).unwrap());
         assert_eq!(lib.summary().unwrap().assets, 3);
-        // B's XMP is the metadata the library holds: nothing to write back.
-        assert_eq!(lib.summary().unwrap().xmp_pending, 2);
+        // B's XMP is the metadata the library holds and bare C has none:
+        // only A's editor sidecar has an XMP to write.
+        assert_eq!(lib.summary().unwrap().xmp_pending, 1);
         assert!(lib.assets(Some("harbour")).unwrap().len() == 1);
     }
 
@@ -989,6 +991,7 @@ mod tests {
         // Back to schema 5: batches limited to ingest, add and sync.
         lib.conn
             .execute_batch(concat!(
+                include_str!("../tests/undo_0017.sql"),
                 include_str!("../tests/undo_0016.sql"),
                 include_str!("../tests/undo_0015.sql"),
                 include_str!("../tests/undo_0014.sql"),

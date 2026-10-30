@@ -168,7 +168,7 @@ export default function StudioLut({
   const builtIn = entries.filter((e) => e.isBuiltIn);
   return (
     <>
-      <div className="studio-inline">
+      <div className="studio-inline studio-inline-wrap">
         <label>
           LUT
           <select

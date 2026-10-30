@@ -172,7 +172,7 @@ fn sample(image: &Rgb32FImage, x: f64, y: f64) -> [f32; 3] {
 
 /// Coverage of a pixel at `distance` from the centre: full inside the
 /// feathered edge, a smoothstep to zero at the radius.
-fn coverage(distance: f64, radius: f64, feather: f64) -> f32 {
+pub(crate) fn coverage(distance: f64, radius: f64, feather: f64) -> f32 {
     let inner = radius * (1.0 - feather.clamp(0.0, 1.0));
     if distance <= inner {
         return 1.0;

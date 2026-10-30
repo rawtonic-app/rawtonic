@@ -65,3 +65,53 @@ export function previewsMenu(t: TFunction, paths: string[]): Option {
     ],
   };
 }
+
+/**
+ * The long edge (px) the Develop preview renders at for a viewer of
+ * `display` CSS px. Without grain: the display size (device pixels with full
+ * DPI rendering) with 25 % headroom, in steps of 256 px, the full size from
+ * 80 % of it. With grain: exactly the display's device pixels, so each
+ * screen pixel shows one rendered pixel. Grain is a per-pixel texture: a
+ * smaller render shown enlarged (the default, 1536 px for a 2070 px fit
+ * view) showed 0.58× the grain strength of an export scaled to that size,
+ * a larger one shown reduced 0.87× (notes: reference/grain.md).
+ */
+export function previewTargetResolution({
+  display,
+  dpr,
+  fullDpi,
+  zoomMultiplier,
+  original,
+  grain,
+}: {
+  display: { width: number; height: number };
+  dpr: number;
+  fullDpi: boolean;
+  zoomMultiplier: number;
+  original: { width: number; height: number } | null;
+  grain: boolean;
+}): number {
+  const origMax = original && original.width > 0 && original.height > 0 ? Math.max(original.width, original.height) : 0;
+  const shown = Math.max(display.width, display.height) * zoomMultiplier;
+  if (grain) {
+    const target = Math.max(Math.round(shown * dpr), 512);
+    return origMax ? Math.min(target, origMax) : target;
+  }
+  let targetRes = Math.max(shown * (fullDpi ? dpr : 1) * 1.25, 512);
+  if (origMax) {
+    targetRes = Math.min(targetRes, origMax);
+    if (targetRes >= origMax * 0.8) targetRes = origMax;
+  }
+  if (origMax && targetRes !== origMax) targetRes = Math.ceil(targetRes / 256) * 256;
+  return Math.round(targetRes);
+}
+
+/**
+ * Whether the viewer needs a new frame of `target` px for its current size:
+ * a larger one for more detail; with grain also a smaller one (zooming back
+ * to fit, a smaller window), since a frame shown reduced no longer shows the
+ * grain one rendered pixel per screen pixel.
+ */
+export function needsFrameSize(target: number, current: number, grain: boolean): boolean {
+  return grain ? target !== current : target > current;
+}

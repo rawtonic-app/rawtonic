@@ -102,6 +102,14 @@ fn bulk_editor_states_match_primary_heads_metadata_overrides_and_path_scope() {
         .unwrap();
     // A non-primary recipe must not replace or duplicate the primary state.
     let db = Connection::open(lib.directory.join("session.sqlite")).unwrap();
+    // The library's own connections index versions' AI facts (schema 17).
+    db.create_scalar_function(
+        "rawtonic_ai_facts",
+        1,
+        rusqlite::functions::FunctionFlags::SQLITE_UTF8,
+        |_| Ok(0),
+    )
+    .unwrap();
     db.execute(
         "INSERT INTO versions(id,asset_id,name,is_primary) VALUES('copy',?,'Copy',0)",
         [&assets[0].id],

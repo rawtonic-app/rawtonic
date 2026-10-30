@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/rawtonic-app/rawtonic/releases"><img alt="Release" src="https://img.shields.io/github/v/release/rawtonic-app/rawtonic?include_prereleases&label=release&color=e8590c"></a>
   <img alt="Status: early alpha" src="https://img.shields.io/badge/status-early%20alpha-e8590c">
-  <img alt="Platform: macOS (Apple Silicon) and Linux (x86-64)" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20%C2%B7%20Linux%20x86--64-1f6feb">
+  <img alt="Platform: macOS Apple Silicon (Intel experimental) and Linux x86-64" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20(Intel%20experimental)%20%C2%B7%20Linux%20x86--64-1f6feb">
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
 </p>
 
@@ -28,7 +28,7 @@
 
 <p align="center">
   <a href="docs/images/readme-develop.jpg">
-    <img src="docs/images/readme-develop.jpg" alt="Rawtonic Develop: a mountain lake in the workspace, with tone controls, histogram and filmstrip" width="860">
+    <img src="docs/images/readme-develop.jpg" alt="Rawtonic Develop: a Dolomites landscape in the workspace, with layers, tone controls, histogram and filmstrip" width="860">
   </a>
 </p>
 
@@ -83,10 +83,10 @@ Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can 
 ### 2 · Find the keepers
 
 <p align="center">
-  <a href="docs/images/readme-library.jpg"><img src="docs/images/readme-library.jpg" alt="Library workspace with landscapes and studio portraits, ratings, picks, keywords and metadata" width="860"></a>
+  <a href="docs/images/readme-library.jpg"><img src="docs/images/readme-library.jpg" alt="Library workspace filtered by a Sony camera search, with landscapes, cats, ratings and picks" width="860"></a>
 </p>
 
-The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and ⇧X, add colour labels, then filter down to the frames that matter. Press E or Space to see a photograph large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. A double-click (or D) opens it in Develop. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
+The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and X, add colour labels, then filter down to the frames that matter. Press E or Space to see a photograph large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. A double-click (or D) opens it in Develop. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
 
 ### 3 · Develop
 
@@ -95,7 +95,7 @@ The **Develop** room gives the photograph the space: a filmstrip, a histogram an
 <table>
 <tr>
 <td width="50%" valign="top">
-<a href="docs/images/readme-color.jpg"><img src="docs/images/readme-color.jpg" alt="Colour grading of a sunset landscape: cool shadows, warm highlights"></a>
+<a href="docs/images/readme-color.jpg"><img src="docs/images/readme-color.jpg" alt="Colour grading of a lighthouse at golden hour: cool shadows, warm highlights"></a>
 <br><b>Colour.</b> White balance from the RAW, a colour editor, colour grading for shadows, midtones and highlights, black-and-white mixing and your own camera profiles or LUTs.
 </td>
 <td width="50%" valign="top">
@@ -105,7 +105,7 @@ The **Develop** room gives the photograph the space: a filmstrip, a histogram an
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="docs/images/readme-multiview.jpg"><img src="docs/images/readme-multiview.jpg" alt="Multi view: four portraits side by side, the first one the reference"></a>
+<a href="docs/images/readme-multiview.jpg"><img src="docs/images/readme-multiview.jpg" alt="Multi view: eleven photographs (landscapes, cats and a still life), with Edit all selected enabled"></a>
 <br><b>Multi view.</b> Compare up to twelve selected photographs side by side, with a reference photo and a locked zoom, and edit them all at once.
 </td>
 <td width="50%" valign="top">
@@ -160,7 +160,9 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **G** / **E** / **D**        | grid / loupe / Develop         |
 | ← / →                        | previous / next photograph     |
 | **1**–**5** / **0**          | star rating / clear it         |
-| **P** / **⇧X** / **U**       | pick / reject / clear the flag |
+| **P** / **X** / **U**       | pick / reject / clear the flag (⇧X also rejects) |
+| **6**–**9**                  | red / yellow / green / blue label |
+| **Caps Lock**                | auto-advance (also in the Photo menu) |
 | **Y**                        | toggle before / after split    |
 | **⇧Y**                       | cycle Off / left-right / top-bottom |
 | hold **\\**                  | whole photograph before        |
@@ -172,7 +174,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **C** / **R** / **B**        | crop / straighten / brush      |
 | **M**                        | show or hide the mask overlay  |
 | **J**                        | clipping warnings              |
-| **X**                        | proof margin                   |
+| **Alt+X**                    | proof margin                   |
 | **Tab** (on the photograph)  | hide or show the panels        |
 | ⌘Z / ⇧⌘Z                     | undo / redo                    |
 
@@ -189,9 +191,12 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 - **macOS on Apple Silicon and Linux (x86-64 AppImage).** The Intel Mac build is experimental (not yet run on Intel hardware); Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
+- **Batch export is still slower than Lightroom and Capture One.** A set of 20 Nikon Z RAWs (38 web JPEG and 16-bit print TIFF outputs; one unsupported RAW) took about 14 s in a headless Rawtonic run on a Mac mini M4 Pro, versus Lightroom’s 8 s and Capture One’s 9 s on an M5 Pro laptop. These were not measured on the same machine; the [alpha.4 same-machine comparison](CHANGELOG.md#010-alpha4--2026-10-24) was about 17 s versus 8/9 s, and has not been repeated. Across successive A/B measurements since alpha.4, app export time on a separate 27-RAW batch on the Mac mini fell by about 40 % (about 41 s to 25 s).[^batch-export]
 - **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
 - **Tethering is experimental.** The Tether tool (session bar) connects a camera on USB through libgphoto2 in a separate helper process, fires it, shows its settings and live view and copies each photo into Capture. It has been tested on a Mac with a Sony a7 III and a7 IV and a Fujifilm X-H2S and GFX 50R (capture, settings, focus, cable pulled and plugged in again, long series); Fujifilm live view does not work yet, the GFX 50R shows a new photo a little later than Capture One, Canon cameras are not supported yet, and other cameras and Linux have not been tried with a body. The tether panel's **Camera test** checks a camera step by step and makes an anonymous report you can send in one click (after seeing exactly what is sent) or paste into a camera report; tested and reported cameras are listed in [docs/TETHER_CAMERAS.md](docs/TETHER_CAMERAS.md). The hot folder works with your camera maker's tethering app.
 - Expect rough edges in the interface, missing shortcuts and the occasional crash. Please [report them](#bug-reports--feedback).
+
+[^batch-export]: Measurement basis: October 26, 2026, Mac mini M4 Pro (12 cores, 24 GB), macOS 27, Metal. Headless CLI build `1c8ec78b` (export change merged in [#363](https://github.com/rawtonic-app/rawtonic/pull/363)), warm A/B/B/A runs: 13.87, 14.07, 14.36 and 13.88 s. Each supported RAW produced a 2048 px sRGB JPEG (quality 80, watermark, sharpening) and a full-size 16-bit Adobe RGB TIFF (print sharpening). Lightroom/Capture One’s 8/9 s were measured on the M5 Pro laptop on October 21. The separate app series used 27 mixed RAWs and two recipes while dragging Develop sliders: build `8de96220` took 41.2/41.3 s; successive changes through #363 reached 24.5–25.0 s. This combines successive A/B measurements, not one direct alpha.4-versus-alpha.7 run (see [alpha.6 and alpha.7 release notes](CHANGELOG.md)).
 
 ## Bug reports & feedback
 
@@ -219,4 +224,4 @@ Rawtonic's editor started from [RapidRAW](https://github.com/CyberTimon/RapidRAW
 
 Rawtonic is an independent project and is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera maker. Their names are trademarks of their owners and appear only to say what Rawtonic imports from or works with ([trademarks](TRADEMARKS.md)).
 
-Screenshots show a demo project with photographs from Pexels ([photography credits](docs/images/CREDITS.md)).
+Screenshots show demo projects with photographs from pixls.us PlayRaw and Pexels ([photography credits and image licenses](docs/images/CREDITS.md)).

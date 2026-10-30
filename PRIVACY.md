@@ -18,8 +18,14 @@ Each check sends one GET to GitHub's public Releases API for
 `Rawtonic/<version>`; no cookies, identifiers, photos, paths or settings are sent.
 Requests time out after 10 seconds; failures count toward the 24-hour interval.
 Startup failures are silent; a failed manual check shows a short message. Alpha/beta builds include pre-releases; stable builds ignore
-them by default. “Download” opens the release page in your browser. Rawtonic
-never downloads or installs an update itself.
+them by default. “Download” opens the installer for your computer in your
+browser, which downloads it from GitHub; Rawtonic picks it from the file names in
+the same response, using only its own build, processor and, on Linux,
+`/etc/os-release`, and opens the release page when no file fits. “What's new”
+shows the release notes from the same response; pictures and other remote
+content in them are not loaded, and links open in your browser. Rawtonic never
+downloads or installs an update itself. The “What's new” shown once after an
+update comes from the notes bundled with the app and needs no network access.
 
 ## Other network access
 
@@ -37,9 +43,6 @@ Rawtonic otherwise goes online only when you ask it to:
 - **Map.** In the Library's EXIF tool, "Show on map" loads a map of the photo's
   GPS position from openstreetmap.org, which then learns that position and
   your IP address. Nothing is loaded until you click.
-- **Generative AI server.** If you set up a generative AI server yourself
-  (ComfyUI, in Preferences), Rawtonic sends the photo and mask you edit to
-  that address. You control that server.
 - **Links** in the app open in your browser.
 
 Tethered shooting talks to the camera over its USB cable only; Rawtonic's

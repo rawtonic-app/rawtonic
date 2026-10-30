@@ -12,7 +12,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
-import { useTextMetadataCache } from "../studio/StudioMetadata";
+import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
+import { debouncedSave } from "../../hooks/useEditorActions";
+import type { Adjustments } from "../../utils/adjustments";
 
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
@@ -78,6 +80,15 @@ beforeEach(() => {
 });
 
 describe("Session workspace keyboard flows", () => {
+  it("suggests today's local date in the project name", async () => {
+    const user = userEvent.setup();
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    const now = new Date();
+    const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+    expect((screen.getByLabelText("Project name") as HTMLInputElement).placeholder).toBe(`${date}_Client_Job`);
+  });
+
   it("keeps the chosen tools side visible after opening and cancelling a form", async () => {
     const user = userEvent.setup();
     render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
@@ -131,86 +142,71 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Location" }));
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("img", { name: "3 offline" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "2 photos need XMP sync – click to review" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
   });
 
-  it("opens the XMP review from the pending count and shows its photos in the grid", async () => {
+  it("re-reads the XMP count after a rating settles and after a Develop save is written", async () => {
     const user = userEvent.setup();
     const base = vi.mocked(invoke).getMockImplementation()!;
-    let pending = 2;
-    const entries = [
-      { path: "/jobs/Acme/Capture/a.nef", state: "pending", offline: true, volume: "Card", copies: [] },
-      { path: "/jobs/Acme/Capture/b.nef", state: "conflict", offline: false, volume: null, copies: ["v1"] },
-    ];
-    vi.mocked(invoke).mockImplementation(async (command, args) =>
-      command === "session_create" || command === "session_summary"
-        ? { ...summary, xmp_pending: pending }
-        : command === "session_xmp_review"
-          ? entries.slice(0, pending)
-          : command === "session_xmp_resolve"
-            ? ((pending = 1), { done: ["/jobs/Acme/Capture/b.nef"], offline: [], conflicts: [], failed: [], undo: [] })
-            : base(command, args));
-    const selectView = vi.fn();
-    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} onSelectView={selectView} />);
-    await user.click(screen.getByRole("button", { name: "Create a project" }));
-    await user.type(screen.getByLabelText("Project name"), "Acme");
-    await user.click(screen.getByRole("button", { name: "Location" }));
-    await user.click(screen.getByRole("button", { name: "Create project" }));
-    const count = await screen.findByRole("button", { name: "2 photos need XMP sync – click to review" });
-    expect(count.getAttribute("title")).toBe("2 photos need XMP sync – click to review");
-    await user.click(count);
-    const dialog = await screen.findByRole("dialog", { name: "XMP sidecars" });
-    await waitFor(() =>
-      expect(selectView).toHaveBeenCalledWith(
-        "session-xmp",
-        "XMP to review",
-        ["/jobs/Acme/Capture/a.nef", "/jobs/Acme/Capture/b.nef", "/jobs/Acme/Capture/b.nef?vc=v1"],
-        false,
-      ),
-    );
-    expect(within(dialog).getByRole("heading", { name: "1 pending" })).toBeTruthy();
-    expect(within(dialog).getByRole("heading", { name: "1 conflict" })).toBeTruthy();
-    useTextMetadataCache.setState({ session: "/jobs/Acme", loaded: true, byPath: {} });
-    await user.click(within(dialog).getByRole("button", { name: "Keep library for b.nef" }));
-    await waitFor(() =>
-      expect(selectView).toHaveBeenLastCalledWith("session-xmp", "XMP to review", ["/jobs/Acme/Capture/a.nef"], true),
-    );
-    expect(await screen.findByRole("button", { name: "1 photo needs XMP sync – click to review" })).toBeTruthy();
-    // Only an offline photograph is left: nothing to write until it is back.
-    expect(within(dialog).getByText("1 photo is offline: its XMP is written when its file or drive is back.")).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(true);
-    // Flags and the text/IPTC metadata the library shows are read again.
-    expect(invoke).toHaveBeenCalledWith("session_flags", { directory: "/jobs/Acme" });
-    expect(invoke).toHaveBeenCalledWith("session_all_text_metadata", { directory: "/jobs/Acme" });
-    expect(invoke).toHaveBeenCalledWith("session_xmp_resolve", {
-      directory: "/jobs/Acme",
-      paths: ["/jobs/Acme/Capture/b.nef"],
-      keep: "library",
+    let pending = 0;
+    let finishSave: () => void = () => {};
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_create" || command === "session_summary") return { ...summary, xmp_pending: pending };
+      // Develop's last save is still being written when the view changes;
+      // its XMP fails.
+      if (command === "save_metadata_and_update_thumbnail")
+        return new Promise<void>((resolve) => { finishSave = () => { pending = 2; resolve(); }; });
+      return base(command, args);
     });
-  });
-
-  it("hides the pending count once nothing is pending", async () => {
-    const user = userEvent.setup();
-    const base = vi.mocked(invoke).getMockImplementation()!;
-    let pending = 1;
-    vi.mocked(invoke).mockImplementation(async (command, args) =>
-      command === "session_create" || command === "session_summary"
-        ? { ...summary, xmp_pending: pending }
-        : command === "session_xmp_review"
-          ? pending ? [{ path: "/jobs/Acme/Capture/a.nef", state: "pending", offline: false, volume: null, copies: [] }] : []
-          : command === "session_xmp_sync"
-            ? ((pending = 0), { done: ["/jobs/Acme/Capture/a.nef"], offline: [], conflicts: [], failed: [], undo: [] })
-            : base(command, args));
-    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} onSelectView={vi.fn()} />);
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
     await user.click(screen.getByRole("button", { name: "Create a project" }));
     await user.type(screen.getByLabelText("Project name"), "Acme");
     await user.click(screen.getByRole("button", { name: "Location" }));
     await user.click(screen.getByRole("button", { name: "Create project" }));
-    await user.click(await screen.findByRole("button", { name: "1 photo needs XMP sync – click to review" }));
-    const dialog = await screen.findByRole("dialog", { name: "XMP sidecars" });
-    await user.click(await within(dialog).findByRole("button", { name: "Sync now" }));
-    expect(await within(dialog).findByText("All XMP sidecars are in sync.")).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("button", { name: /XMP sync/ })).toBeNull());
+    await screen.findByText("Acme");
+    expect(screen.queryByRole("button", { name: /XMP not updated/ })).toBeNull();
+    // A rating's XMP could not be written: its write settles.
+    pending = 1;
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, {
+        detail: { id: 1, kind: "set_rating_for_paths", paths: ["/a"], failed: [] },
+      }));
+    });
+    expect(await screen.findByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
+    // Opening an album leaves Develop first and flushes its save after.
+    act(() => useUIStore.setState({ activeView: "editor" }));
+    debouncedSave("/jobs/Acme/Capture/a.ARW", {} as Adjustments);
+    act(() => useUIStore.setState({ activeView: "library" }));
+    debouncedSave.flush();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Not counted before the save is written.
+    expect(screen.getByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
+    act(() => finishSave());
+    expect(await screen.findByRole("button", { name: "2 XMP not updated" }, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it("counts pending XMP files again when a batch write settles, also one that failed", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let pendingXmp = 0;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary"
+        ? { ...summary, xmp_pending: pendingXmp } : base(command, args));
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await screen.findByText("Acme");
+    expect(screen.queryByRole("button", { name: /XMP not updated/ })).toBeNull();
+    // A paste onto closed photographs whose XMP could not be written.
+    pendingXmp = 2;
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, {
+        detail: { id: 1, kind: "paste", paths: ["/a", "/b"], failed: ["/a", "/b"] },
+      }));
+    });
+    expect(await screen.findByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {
@@ -273,7 +269,7 @@ it("owns P in a managed session instead of also invoking the legacy preset short
   window.removeEventListener("keydown", legacyShortcut);
 });
 
-it("rejects with ⇧X and leaves plain X to the proof margin", async () => {
+it("rejects with X and keeps ⇧X", async () => {
   const user = userEvent.setup();
   const navigate = vi.fn(async () => {});
   render(<SessionWorkspace onNavigate={navigate} />);
@@ -288,8 +284,8 @@ it("rejects with ⇧X and leaves plain X to the proof margin", async () => {
   const later = vi.fn();
   window.addEventListener("keydown", later);
   await user.keyboard("x");
-  expect(later).toHaveBeenCalledTimes(1);
-  expect(invoke).not.toHaveBeenCalledWith("session_set_flag", expect.anything());
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_set_flag", expect.objectContaining({ flag: -1 })));
+  vi.mocked(invoke).mockClear();
   await user.keyboard("{Shift>}X{/Shift}");
   await waitFor(() =>
     expect(invoke).toHaveBeenCalledWith("session_set_flag", {
@@ -564,7 +560,7 @@ it("previews and imports a Lightroom catalog into the open catalog", async () =>
   await user.click(await screen.findByRole("menuitem", { name: /Import from Lightroom/ }));
   await user.type(screen.getByLabelText("Library to import"), "/LR/Catalog.lrcat");
   await user.click(screen.getByRole("button", { name: "Check" }));
-  expect(await screen.findByText(/12 photographs, 5 with edits, 2 albums/)).toBeTruthy();
+  expect(await screen.findByText(/12 photos, 5 with edits, 2 albums/)).toBeTruthy();
   await user.type(screen.getByLabelText("New location of /Volumes/Old/2026"), "/Volumes/New/2026");
   await user.click(screen.getByRole("button", { name: /Import into Acme/ }));
   await waitFor(() =>
@@ -575,7 +571,7 @@ it("previews and imports a Lightroom catalog into the open catalog", async () =>
     }),
   );
   expect(toast.success).toHaveBeenCalledWith(
-    expect.stringContaining("12 photographs imported (5 with edits, 2 albums)"),
+    expect.stringContaining("12 photos imported (5 with edits, 2 albums)"),
     expect.anything(),
   );
 });

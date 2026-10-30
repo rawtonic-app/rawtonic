@@ -806,6 +806,40 @@ fn links_existing_targets_and_full_volumes_are_refused_before_copying() {
     // system allows (ext4 caps a file at 16 TiB, btrfs/APFS take 1 PiB).
     let huge = world.source.join("HUGE.RAF");
     let file = fs::File::create(&huge).unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn DeviceIoControl(
+                device: *mut std::ffi::c_void,
+                code: u32,
+                input: *const std::ffi::c_void,
+                input_size: u32,
+                output: *mut std::ffi::c_void,
+                output_size: u32,
+                returned: *mut u32,
+                overlapped: *mut std::ffi::c_void,
+            ) -> i32;
+        }
+        // Windows does not infer a sparse file from set_len. Mark only this
+        // fresh synthetic file sparse before attempting any enormous length.
+        let mut returned = 0;
+        // SAFETY: writable live file handle, FSCTL_SET_SPARSE, no buffers.
+        let result = unsafe {
+            DeviceIoControl(
+                file.as_raw_handle(),
+                0x0009_00c4,
+                std::ptr::null(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut returned,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_ne!(result, 0, "{}", io::Error::last_os_error());
+    }
     assert!(
         [50, 46, 43, 40]
             .into_iter()

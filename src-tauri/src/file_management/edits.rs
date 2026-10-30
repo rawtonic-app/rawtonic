@@ -24,6 +24,7 @@ use std::fs;
 use std::path::Path;
 use std::thread;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 
 pub use rawtonic_engine::lens_recipe::{
@@ -32,9 +33,9 @@ pub use rawtonic_engine::lens_recipe::{
 
 /// Off the main thread: it opens the session catalog, reads settings and
 /// writes sidecars, and a busy database must not stall the interface. The
-/// webview chains saves per photograph and reads a recipe only after its
-/// pending save finished (`debouncedSave`, `afterRecipeSaves`), so no order
-/// is lost by leaving the main thread.
+/// webview submits every write of a photograph to its one write queue and
+/// reads a recipe only after the writes before (`src/utils/photoWrites.ts`),
+/// so no order is lost by leaving the main thread.
 #[tauri::command]
 pub async fn save_metadata_and_update_thumbnail(
     path: String,
@@ -262,6 +263,71 @@ async fn save_then_regenerate(
     SaveFailure::check(total, failures)
 }
 
+/// One photograph's whole recipe before and after a batch edit: its part of
+/// the edit's undo step (`replace_recipes` writes either back).
+#[derive(serde::Serialize, Debug, Clone)]
+pub struct RecipeChange {
+    pub path: String,
+    pub before: Value,
+    pub after: Value,
+}
+
+/// What a batch recipe edit wrote: each written photograph's recipe before
+/// and after, and the photographs not written with the first errors.
+#[derive(serde::Serialize, Debug, Default)]
+pub struct RecipeBatch {
+    pub changes: Vec<RecipeChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<SaveFailure>,
+}
+
+/// `edit_sidecars` that also returns the recipe changes of the photographs
+/// written (read in the same sidecar turn as the edit).
+fn edit_sidecars_recorded(
+    paths: &[String],
+    xmp: Option<bool>,
+    edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
+) -> (Vec<RecipeChange>, Vec<(String, String)>) {
+    let changes = std::sync::Mutex::new(Vec::new());
+    let failures = edit_sidecars(paths, xmp, |path, source_path, sidecar_path| {
+        let before = crate::exif_processing::load_sidecar(sidecar_path).adjustments;
+        let metadata = edit(path, source_path, sidecar_path)?;
+        changes.lock().unwrap().push(RecipeChange {
+            path: path.to_string(),
+            before,
+            after: metadata.adjustments.clone(),
+        });
+        Ok(metadata)
+    });
+    let mut changes = changes.into_inner().unwrap();
+    // An edit whose save failed was not written.
+    changes.retain(|change| !failures.iter().any(|(path, _)| *path == change.path));
+    (changes, failures)
+}
+
+/// `save_then_regenerate` for a recorded batch edit (`edit_sidecars_recorded`).
+async fn recorded_batch(
+    app_handle: AppHandle,
+    paths: Vec<String>,
+    work: impl FnOnce(&AppHandle, &[String]) -> (Vec<RecipeChange>, Vec<(String, String)>)
+    + Send
+    + 'static,
+) -> RecipeBatch {
+    let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = recorded.clone();
+    let result = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
+        let (changes, failures) = work(app_handle, paths);
+        *sink.lock().unwrap() = changes;
+        failures
+    })
+    .await;
+    let changes = std::mem::take(&mut *recorded.lock().unwrap());
+    RecipeBatch {
+        changes,
+        failure: result.err(),
+    }
+}
+
 /// Where pasted or synced settings come from (`apply_adjustments_to_paths`).
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -286,18 +352,32 @@ pub struct NewEditResponses {
     pub other: serde_json::Map<String, Value>,
 }
 
+/// A style applied from the styles list (`apply_adjustments_to_paths`): it
+/// replaces the style last applied to each photograph, or with `remove`
+/// takes `id` back from the photographs it is the last applied style of
+/// (`rawtonic_engine::applied_style`).
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct StyleOp {
+    pub id: String,
+    #[serde(default)]
+    pub remove: bool,
+}
+
 /// Applies `adjustments` to `paths`. With `paste` (copied or synced
 /// settings), their layers join each photograph's own
 /// (`masks::paste_layers`: same layer replaced, others added, AI detections
 /// waiting for their own photograph); otherwise (presets) they replace them.
+/// With `style`, each photograph's last applied style is taken back first
+/// and the style recorded with that photograph's own values before it.
 #[tauri::command]
 pub async fn apply_adjustments_to_paths(
     paths: Vec<String>,
     adjustments: Value,
     paste: Option<PasteFrom>,
+    style: Option<StyleOp>,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
-    save_then_regenerate(app_handle, paths, move |app_handle, paths| {
+) -> Result<RecipeBatch, String> {
+    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let lens_db = crate::lens_correction::global_lens_db();
 
@@ -345,7 +425,7 @@ pub async fn apply_adjustments_to_paths(
             Default::default()
         };
 
-        edit_sidecars(
+        edit_sidecars_recorded(
             paths,
             xmp_sync(app_handle),
             |path, source_path, sidecar_path| {
@@ -358,13 +438,14 @@ pub async fn apply_adjustments_to_paths(
                     sidecar_path,
                     adjustments,
                     paste.as_ref(),
+                    style.as_ref(),
                     size,
                     lens_db.as_deref(),
                 )
             },
         )
     })
-    .await
+    .await)
 }
 
 /// The editor sidecar of `path` with `adjustments` applied
@@ -372,12 +453,14 @@ pub async fn apply_adjustments_to_paths(
 /// as `paste` says; its drawn masks stay on its content and its lens data is
 /// resolved again. Refused when the layers would exceed what the renderer
 /// applies (it would keep but ignore the extra ones).
+#[allow(clippy::too_many_arguments)]
 fn pasted_metadata(
     path: &str,
     source_path: &Path,
     sidecar_path: &Path,
     adjustments: &Value,
     paste: Option<&PasteFrom>,
+    style: Option<&StyleOp>,
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
 ) -> Result<ImageMetadata, String> {
@@ -390,6 +473,7 @@ fn pasted_metadata(
         source_path,
         adjustments,
         paste,
+        style,
         size,
         lens_db,
     )?;
@@ -407,9 +491,18 @@ fn pasted_into(
     source_path: &Path,
     adjustments: &Value,
     paste: Option<&PasteFrom>,
+    style: Option<&StyleOp>,
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
 ) -> Result<Value, String> {
+    use rawtonic_engine::applied_style;
+    // Taking back a style the photograph does not have as its last: unchanged.
+    if let Some(op) = style
+        && op.remove
+        && applied_style::applied_style_id(&base) != Some(op.id.as_str())
+    {
+        return Ok(base);
+    }
     let mut new_adjustments = base;
     let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
     // A photo without an edit starts one: the current render
@@ -432,6 +525,11 @@ fn pasted_into(
         }
     }
     let previous = new_adjustments.clone();
+    // The style before replaces or removes: the photograph as it was without it.
+    let reverted = style.map(|_| {
+        applied_style::revert(&mut new_adjustments);
+        new_adjustments.clone()
+    });
 
     if let (Some(new_map), Some(pasted_map)) =
         (new_adjustments.as_object_mut(), adjustments.as_object())
@@ -457,6 +555,10 @@ fn pasted_into(
                         uuid::Uuid::new_v4().to_string()
                     });
                     layers
+                }
+                // A style's groups join the photograph's own settings.
+                _ if style.is_some() => {
+                    applied_style::merged(&mut vec![k.clone()], new_map.get(k), v)
                 }
                 _ => v.clone(),
             };
@@ -486,6 +588,9 @@ fn pasted_into(
         lens_db,
         source_path,
     );
+    if let (Some(op), Some(reverted)) = (style.filter(|op| !op.remove), reverted.as_ref()) {
+        applied_style::record(reverted, &mut new_adjustments, adjustments, &op.id, 100.0);
+    }
     Ok(new_adjustments)
 }
 
@@ -550,25 +655,55 @@ fn same_photograph(a: &str, b: &str) -> bool {
 pub async fn reset_adjustments_for_paths(
     paths: Vec<String>,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
-    save_then_regenerate(app_handle, paths, |app_handle, paths| {
-        edit_sidecars(paths, xmp_sync(app_handle), |_, _, sidecar_path| {
+) -> Result<RecipeBatch, String> {
+    Ok(recorded_batch(app_handle, paths, |app_handle, paths| {
+        edit_sidecars_recorded(paths, xmp_sync(app_handle), |_, _, sidecar_path| {
             let mut existing_metadata = crate::exif_processing::load_sidecar(sidecar_path);
             existing_metadata.adjustments = serde_json::json!({});
             Ok(existing_metadata)
         })
     })
-    .await
+    .await)
+}
+
+/// One photograph's whole recipe for `replace_recipes`.
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct RecipeReplacement {
+    pub path: String,
+    pub adjustments: Value,
+}
+
+/// Writes each photograph's whole recipe back as it was (the undo and redo
+/// of a batch edit, `RecipeChange`). Writing it again is harmless, so a
+/// partly failed undo can be retried.
+#[tauri::command]
+pub async fn replace_recipes(
+    changes: Vec<RecipeReplacement>,
+    app_handle: AppHandle,
+) -> Result<RecipeBatch, String> {
+    let paths: Vec<String> = changes.iter().map(|c| c.path.clone()).collect();
+    let by_path: HashMap<String, Value> = changes
+        .into_iter()
+        .map(|c| (c.path, c.adjustments))
+        .collect();
+    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
+        edit_sidecars_recorded(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+            metadata.adjustments = by_path.get(path).ok_or("no recipe")?.clone();
+            Ok(metadata)
+        })
+    })
+    .await)
 }
 
 #[tauri::command]
 pub async fn apply_auto_lens_correction_to_paths(
     paths: Vec<String>,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
-    save_then_regenerate(app_handle, paths, |app_handle, paths| {
+) -> Result<RecipeBatch, String> {
+    Ok(recorded_batch(app_handle, paths, |app_handle, paths| {
         let lens_db = crate::lens_correction::global_lens_db();
-        edit_sidecars(
+        edit_sidecars_recorded(
             paths,
             xmp_sync(app_handle),
             |_, source_path, sidecar_path| {
@@ -596,15 +731,142 @@ pub async fn apply_auto_lens_correction_to_paths(
             },
         )
     })
-    .await
+    .await)
+}
+
+/// Top-level recipe values of one photo (`set_recipe_values`): a value of
+/// `null` removes the key.
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeValues {
+    pub path: String,
+    pub values: serde_json::Map<String, Value>,
+}
+
+/// What `set_recipe_values` wrote: each written photo's values before
+/// (`null` for keys it did not have), and the photos not written with the
+/// first errors.
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeWrite {
+    pub before: Vec<RecipeValues>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<SaveFailure>,
+}
+
+/// Sets per photo its own top-level recipe values (series match, and the
+/// undo and redo of it). Writing the same values again is harmless, so a
+/// partly failed undo can be retried.
+#[tauri::command]
+pub async fn set_recipe_values(
+    changes: Vec<RecipeValues>,
+    app_handle: AppHandle,
+) -> Result<RecipeWrite, String> {
+    let paths: Vec<String> = changes.iter().map(|c| c.path.clone()).collect();
+    let by_path: HashMap<String, serde_json::Map<String, Value>> =
+        changes.into_iter().map(|c| (c.path, c.values)).collect();
+    let before = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let written = before.clone();
+    let result = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
+        edit_sidecars(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
+            let values = by_path.get(path).ok_or("no values")?;
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+            crate::image_processing::apply_render_default(&mut metadata.adjustments);
+            let old = set_values(&mut metadata.adjustments, values)?;
+            written.lock().unwrap().push(RecipeValues {
+                path: path.to_string(),
+                values: old,
+            });
+            Ok(metadata)
+        })
+    })
+    .await;
+    let mut before = std::mem::take(&mut *before.lock().unwrap());
+    let failure = result.err();
+    // A photo whose edit succeeded but whose save failed was not written.
+    if let Some(failure) = &failure {
+        before.retain(|b| !failure.failed.contains(&b.path));
+    }
+    Ok(RecipeWrite { before, failure })
+}
+
+/// Sets `values` in `recipe` (`null` removes a key) and returns the values
+/// they replaced (`null` for keys it did not have).
+fn set_values(
+    recipe: &mut Value,
+    values: &serde_json::Map<String, Value>,
+) -> Result<serde_json::Map<String, Value>, String> {
+    let recipe = recipe.as_object_mut().ok_or("recipe is not an object")?;
+    let mut old = serde_json::Map::new();
+    for (key, value) in values {
+        old.insert(key.clone(), recipe.get(key).cloned().unwrap_or(Value::Null));
+        if value.is_null() {
+            recipe.remove(key);
+        } else {
+            recipe.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(old)
+}
+
+/// One photograph of a batch command whose write of its recipe, sidecar or
+/// XMP is finished (`batch_writes`). The webview answers the quit request
+/// (`quit_saving`) for each, so quitting waits for a long batch photo by
+/// photo instead of dropping it after the save timeout, and takes a failed
+/// one into the unsaved-changes prompt.
+pub const BATCH_WRITE_SETTLED: &str = "batch-write-settled";
+
+/// A photograph of a batch command that finished: whether its write
+/// succeeded, and why it did not.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BatchWriteSettled {
+    /// The command's `batch` tag (the webview's write queue entry).
+    pub batch: String,
+    pub path: String,
+    pub ok: Option<String>,
+    /// Photos this command writes besides `path` (a failed one may not know
+    /// which), which also count as settled.
+    pub also: Vec<String>,
+}
+
+/// Tells the webview that the photograph `path` of batch command `batch` is
+/// written (`ok` false: it is not, the user hears it when quitting).
+pub(crate) fn emit_batch_write_settled(
+    app_handle: &AppHandle,
+    batch: &str,
+    path: &str,
+    ok: Option<&str>,
+    also: &[String],
+) {
+    let _ = app_handle.emit(
+        BATCH_WRITE_SETTLED,
+        BatchWriteSettled {
+            batch: batch.to_string(),
+            path: path.to_string(),
+            ok: ok.map(str::to_string),
+            also: also.to_vec(),
+        },
+    );
+}
+
+/// The `SaveFailure` of a face retouch that did not write `path`
+/// (`ai_faces::apply_face_retouch_to_paths` reports each photo with it).
+pub(crate) fn face_retouch_failure(path: &str, reason: &str) -> SaveFailure {
+    SaveFailure {
+        message: format!("Face retouch of {path} failed: {reason}"),
+        failed: vec![path.to_string()],
+        culling: Vec::new(),
+    }
 }
 
 /// Decodes each photo for its auto adjustments, so it waits until every
 /// recipe is written (or failed) and makes the thumbnails from the decoded
-/// photos meanwhile.
+/// photos meanwhile. Each photo's finished write is announced
+/// (`BATCH_WRITE_SETTLED`, tagged `batch`).
 #[tauri::command]
 pub async fn apply_auto_adjustments_to_paths(
     paths: Vec<String>,
+    batch: Option<String>,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
     let state = app_handle.state::<AppState>();
@@ -612,6 +874,11 @@ pub async fn apply_auto_adjustments_to_paths(
     let total = paths.len();
     let all = paths.clone();
     let failures = tauri::async_runtime::spawn_blocking(move || {
+        let settle = |path: &str, why: Option<&str>| {
+            if let Some(batch) = batch.as_deref() {
+                emit_batch_write_settled(&app_handle, batch, path, why, &[]);
+            }
+        };
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
         let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -719,6 +986,8 @@ pub async fn apply_auto_adjustments_to_paths(
                     Err(e) => emit_thumbnail_cache_setup_error(&app_handle, path, e),
                 }
                 increment_thumbnail_progress(&state, &app_handle);
+                // Its recipe is on disk, or failed: after the thumbnail.
+                settle(path, applied.as_ref().err().map(String::as_str));
 
                 applied.err().map(|e| (path.clone(), e))
             })
@@ -1188,11 +1457,170 @@ mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
 
+    #[test]
+    fn set_values_returns_what_it_replaced_and_null_removes() {
+        let mut recipe = serde_json::json!({"exposure": 0.5, "contrast": 10});
+        let values = serde_json::json!({"exposure": 1.25, "wbTemperature": 4200, "contrast": null});
+        let old = set_values(&mut recipe, values.as_object().unwrap()).unwrap();
+        assert_eq!(
+            recipe,
+            serde_json::json!({"exposure": 1.25, "wbTemperature": 4200})
+        );
+        assert_eq!(
+            Value::Object(old.clone()),
+            serde_json::json!({"exposure": 0.5, "wbTemperature": null, "contrast": 10})
+        );
+        // Writing the old values back restores the recipe exactly.
+        set_values(&mut recipe, &old).unwrap();
+        assert_eq!(recipe, serde_json::json!({"exposure": 0.5, "contrast": 10}));
+    }
+
+    /// A batch edit returns each written photograph's whole recipe before
+    /// and after; the photographs it failed on are not part of it, and
+    /// writing the recipe before back restores the sidecar exactly.
+    #[test]
+    fn a_recorded_batch_edit_returns_whole_recipes_and_writes_them_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths: Vec<String> = ["a.jpg", "b.jpg"]
+            .iter()
+            .map(|name| {
+                let path = temp.path().join(name);
+                fs::write(&path, b"photo").unwrap();
+                path.to_string_lossy().into_owned()
+            })
+            .collect();
+        let edited = |exposure: f64| {
+            move |path: &str, _: &Path, sidecar_path: &Path| {
+                if path.ends_with("b.jpg") && exposure > 1.0 {
+                    return Err("refused".to_string());
+                }
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+                metadata.adjustments = serde_json::json!({"exposure": exposure, "contrast": 5});
+                Ok(metadata)
+            }
+        };
+        let (first, failures) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        assert!(failures.is_empty(), "{failures:?}");
+        assert_eq!(first.len(), 2);
+        let (changes, failures) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        assert_eq!(failures.len(), 1);
+        assert_eq!(changes.len(), 1);
+        let change = &changes[0];
+        assert_eq!(change.path, paths[0]);
+        assert_eq!(
+            change.before,
+            serde_json::json!({"exposure": 0.5, "contrast": 5})
+        );
+        assert_eq!(
+            change.after,
+            serde_json::json!({"exposure": 1.5, "contrast": 5})
+        );
+        let (restored, failures) =
+            edit_sidecars_recorded(&paths[..1], None, |_, _, sidecar_path| {
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+                metadata.adjustments = change.before.clone();
+                Ok(metadata)
+            });
+        assert!(failures.is_empty());
+        assert_eq!(restored[0].after, change.before);
+        let (_, sidecar_path) = parse_virtual_path(&paths[0]);
+        assert_eq!(
+            crate::exif_processing::load_sidecar(&sidecar_path).adjustments,
+            change.before
+        );
+    }
+
     fn successful_targets(
         (values, failures): (Vec<CullingWrite>, Vec<(String, String)>),
     ) -> Vec<CullingWrite> {
         assert!(failures.is_empty(), "{failures:?}");
         values
+    }
+
+    /// A style replaces the photograph's last applied style with that
+    /// photograph's own values before it; applying it again removes it.
+    #[test]
+    fn a_style_replaces_the_last_one_per_photograph_and_toggles_off() {
+        use rawtonic_engine::applied_style::APPLIED_STYLE;
+        let source = Path::new("/nowhere/photo.jpg");
+        let apply = |base: Value, values: Value, id: &str, remove: bool| {
+            let op = StyleOp {
+                id: id.into(),
+                remove,
+            };
+            pasted_into(
+                base,
+                &None,
+                "/nowhere/photo.jpg",
+                source,
+                &values,
+                None,
+                Some(&op),
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let own = serde_json::json!({"renderVersion": 6, "exposure": 0.2, "contrast": 5, "saturation": 0});
+        let a = apply(
+            own.clone(),
+            serde_json::json!({"exposure": 1.0, "saturation": 20}),
+            "a",
+            false,
+        );
+        assert_eq!(a[APPLIED_STYLE]["id"], "a");
+        // The user changes saturation after A; B then replaces A.
+        let mut edited = a.clone();
+        edited["saturation"] = serde_json::json!(35);
+        edited["contrast"] = serde_json::json!(9);
+        let b = apply(edited, serde_json::json!({"contrast": 30}), "b", false);
+        assert_eq!(
+            b["exposure"], 0.2,
+            "A's exposure goes back to the photograph's own"
+        );
+        assert_eq!(b["saturation"], 35, "the user's later change stays");
+        assert_eq!(b["contrast"], 30);
+        assert_eq!(
+            b[APPLIED_STYLE]["changes"],
+            serde_json::json!([{"path": ["contrast"], "from": 9, "to": 30}])
+        );
+        // Removing a style the photograph does not have changes nothing.
+        assert_eq!(apply(b.clone(), serde_json::json!({}), "a", true), b);
+        let removed = apply(b, serde_json::json!({}), "b", true);
+        assert_eq!(removed.get(APPLIED_STYLE), None);
+        assert_eq!(removed["contrast"], 9);
+        assert_eq!(removed["exposure"], 0.2);
+        assert_eq!(removed["saturation"], 35);
+        // A style that sets one HSL slider leaves the others; taken back,
+        // the group is as it was.
+        let own = serde_json::json!({"renderVersion": 6, "hsl": {"reds": {"hue": 0, "saturation": 4}, "blues": {"hue": 22}}});
+        let red = apply(
+            own.clone(),
+            serde_json::json!({"hsl": {"reds": {"hue": 5}}}),
+            "red",
+            false,
+        );
+        assert_eq!(
+            red["hsl"],
+            serde_json::json!({"reds": {"hue": 5, "saturation": 4}, "blues": {"hue": 22}})
+        );
+        let mut back = apply(red, serde_json::json!({}), "red", true);
+        // The lens a style sets is the photograph's own: taking the style
+        // back leaves it.
+        let manual =
+            serde_json::json!({"renderVersion": 6, "lensCorrectionMode": "manual", "exposure": 0});
+        let auto = apply(
+            manual,
+            serde_json::json!({"lensCorrectionMode": "auto", "exposure": 1}),
+            "auto",
+            false,
+        );
+        let off = apply(auto, serde_json::json!({}), "auto", true);
+        assert_eq!(off["lensCorrectionMode"], "auto");
+        assert_eq!(off["exposure"], 0);
+        // (Every save stamps the lens choice.)
+        back.as_object_mut().unwrap().remove(LENS_PROFILE_FOR);
+        assert_eq!(back, own);
     }
 
     #[test]
@@ -1754,7 +2182,16 @@ mod tests {
             new_edit: None,
         };
         let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
         let (_, sidecar) = parse_virtual_path(&paths[1]);
@@ -1775,7 +2212,16 @@ mod tests {
             std::slice::from_ref(&copy),
             None,
             |path, source, sidecar| {
-                pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+                pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &pasted,
+                    Some(&paste),
+                    None,
+                    None,
+                    None,
+                )
             },
         );
         assert!(failed.is_empty(), "{failed:?}");
@@ -1809,7 +2255,16 @@ mod tests {
         };
         let pasted = serde_json::json!({"shadows": 80});
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
         let new = crate::exif_processing::load_sidecar(&sidecar).adjustments;
@@ -1839,7 +2294,16 @@ mod tests {
         let pasted =
             serde_json::json!({"whiteBalance": null, "wbTemperature": null, "temperature": 0});
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
         let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
@@ -1862,7 +2326,16 @@ mod tests {
         // The photograph has one layer; 32 more would be 33.
         let pasted = serde_json::json!({ "masks": layers });
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert_eq!(failed.len(), 1);
         assert!(failed[0].1.contains("at most 32"), "{failed:?}");
@@ -1876,7 +2349,16 @@ mod tests {
         // 31 fit.
         let pasted = serde_json::json!({ "masks": layers[..31] });
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
     }
@@ -1894,6 +2376,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(after.adjustments["masks"], before["masks"]);
@@ -1908,7 +2391,7 @@ mod tests {
             let preset =
                 serde_json::json!({"masks": [sky], "lutPath": null, "lutData": null, "crop": null});
             let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-                pasted_metadata(path, source, sidecar, &preset, None, None, None)
+                pasted_metadata(path, source, sidecar, &preset, None, None, None, None)
             });
             assert!(failed.is_empty(), "{failed:?}");
             let mut ids = Vec::new();
@@ -1961,7 +2444,16 @@ mod tests {
         for _ in 0..5 {
             let start = std::time::Instant::now();
             let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
-                pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+                pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &pasted,
+                    Some(&paste),
+                    None,
+                    None,
+                    None,
+                )
             });
             assert!(failed.is_empty());
             runs.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -1987,6 +2479,7 @@ mod tests {
                 sidecar,
                 &settings_only,
                 Some(&paste),
+                None,
                 None,
                 None,
             )

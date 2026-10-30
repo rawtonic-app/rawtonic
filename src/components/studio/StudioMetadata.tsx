@@ -13,6 +13,7 @@ import { useLibraryActions } from "../../hooks/useLibraryActions";
 import { COLOR_LABELS } from "../../utils/adjustments";
 import { ToolGroup } from "./StudioDevelop";
 import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
+import { submitPhotoWrite } from "../../utils/photoWrites";
 
 /** The editor's marker for keywords the user typed; other tags are automatic. */
 const USER_TAG_PREFIX = "user:";
@@ -267,7 +268,7 @@ export function StudioKeywords() {
         const missing = paths.filter((path) => !has(path));
         if (!missing.length) continue;
         const tag = `${USER_TAG_PREFIX}${keyword}`;
-        await invokeInOrder(Invokes.AddTagForPaths, { paths: missing, tag });
+        await invokeInOrder(Invokes.AddTagForPaths, { paths: missing, tag }, 'keyword');
         updateTags(missing, (tags) => [...tags, tag]);
       }
       setDraft("");
@@ -277,7 +278,7 @@ export function StudioKeywords() {
   };
   const remove = async (entry: (typeof keywords)[number]) => {
     try {
-      for (const tag of entry.tags) await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag });
+      for (const tag of entry.tags) await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, 'keyword');
       updateTags(paths, (tags) => tags.filter((tag) => !entry.tags.has(tag)));
     } catch (e) {
       toast.error(t("studio.metadata.toasts.keywordsRemoveFailed", { error: String(e) }));
@@ -536,11 +537,16 @@ export function StudioMetadataTool() {
   const save = async (field: TextField, value: string) => {
     if (!session) return;
     try {
-      const written = await invoke<Record<string, TextMetadata>>(Invokes.SessionSetTextMetadata, {
-        directory: session,
+      const written = await submitPhotoWrite(
         paths,
-        update: { [field]: value },
-      });
+        () =>
+          invoke<Record<string, TextMetadata>>(Invokes.SessionSetTextMetadata, {
+            directory: session,
+            paths,
+            update: { [field]: value },
+          }),
+        { kind: 'text' },
+      );
       catalogChanged();
       cache.merge(written);
     } catch (e) {

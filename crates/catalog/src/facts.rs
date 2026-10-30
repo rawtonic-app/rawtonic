@@ -33,6 +33,11 @@ pub struct CaptureFacts {
     pub iso: Option<u32>,
     /// Seconds.
     pub exposure: Option<f64>,
+    /// The IPTC Digital Source Type the file's own XMP states (a generator
+    /// or another editor marked it), as its IPTC code
+    /// (`rawtonic_metadata::provenance::source_type_code`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
     /// The rating the camera wrote into the file (1–5): the photograph's
     /// rating while nobody has set its metadata (`write_facts`). Not kept
     /// with the facts.
@@ -69,6 +74,12 @@ impl CaptureFacts {
             aperture: positive(self.aperture),
             iso: self.iso.filter(|n| *n > 0),
             exposure: positive(self.exposure),
+            source_type: text(
+                &self
+                    .source_type
+                    .as_deref()
+                    .map(rawtonic_metadata::provenance::source_type_code),
+            ),
             camera_rating: self.camera_rating.filter(|r| (1..=5).contains(r)),
         }
     }
@@ -89,7 +100,7 @@ pub(crate) fn write_facts(
     let facts = facts.sanitized();
     let written = conn.execute(
         "UPDATE assets SET capture_time=?,make=?,camera=?,lens=?,focal_length=?,aperture=?,iso=?,
-                exposure=?,facts_read=1 WHERE id=?",
+                exposure=?,source_type=?,facts_read=1 WHERE id=?",
         params![
             facts.captured,
             facts.make.unwrap_or_default(),
@@ -99,6 +110,7 @@ pub(crate) fn write_facts(
             facts.aperture,
             facts.iso,
             facts.exposure,
+            facts.source_type.unwrap_or_default(),
             id
         ],
     )? == 1;
@@ -110,8 +122,18 @@ pub(crate) fn write_facts(
             rating,
             ..Default::default()
         };
+        // The rating is the file's own: the XMP has nothing to catch up
+        // on, so its state stays as it was.
+        let status: String = conn.query_row(
+            "SELECT xmp_status FROM metadata WHERE asset_id=?",
+            [id],
+            |r| r.get(0),
+        )?;
         crate::write_metadata(conn, id, &metadata)?;
-        conn.execute("UPDATE metadata SET from_camera=1 WHERE asset_id=?", [id])?;
+        conn.execute(
+            "UPDATE metadata SET from_camera=1,xmp_status=? WHERE asset_id=?",
+            params![status, id],
+        )?;
         return Ok((true, Some(rating)));
     }
     Ok((written, None))
@@ -132,7 +154,8 @@ impl Library {
         Ok(self
             .conn
             .query_row(
-                "SELECT capture_time,make,camera,lens,focal_length,aperture,iso,exposure,facts_read
+                "SELECT capture_time,make,camera,lens,focal_length,aperture,iso,exposure,facts_read,
+                        source_type
                  FROM assets WHERE id=?",
                 [id],
                 |r| {
@@ -149,6 +172,7 @@ impl Library {
                             aperture: r.get(5)?,
                             iso: r.get(6)?,
                             exposure: r.get(7)?,
+                            source_type: text(9)?,
                             camera_rating: None,
                         },
                         r.get(8)?,

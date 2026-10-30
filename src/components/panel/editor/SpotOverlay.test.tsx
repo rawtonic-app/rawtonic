@@ -1,10 +1,22 @@
+import "../../../i18n";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+const { invoke, listeners } = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+const { toastWarn, toastInfo } = vi.hoisted(() => ({ toastWarn: vi.fn(), toastInfo: vi.fn() }));
+vi.mock("react-toastify", () => ({ toast: Object.assign(vi.fn(), { warn: toastWarn, info: toastInfo, error: vi.fn() }) }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (name: string, handler: (event: { payload: unknown }) => void) => {
+    listeners.set(name, handler);
+    return Promise.resolve(() => listeners.delete(name));
+  },
+}));
 
-import SpotOverlay from "./SpotOverlay";
+import SpotOverlay, { pathToBox } from "./SpotOverlay";
 import { useEditorStore } from "../../../store/useEditorStore";
 import { INITIAL_ADJUSTMENTS } from "../../../utils/adjustments";
 
@@ -167,6 +179,166 @@ describe("spot removal overlay", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  // A heal circle of radius 20 at mask (x, y): box ((x − 100) / 2, (y − 50) / 2).
+  const circle = (id: string, x: number, y: number, visible = true) => ({
+    id,
+    mode: "heal" as const,
+    x,
+    y,
+    radius: 20,
+    sourceX: x + 60,
+    sourceY: y,
+    feather: 50,
+    opacity: 100,
+    visible,
+  });
+  // A removal painted as a circle of radius 20 at mask (x, y).
+  const removal = (id: string, x: number, y: number) => ({
+    id,
+    name: "Remove",
+    isLoading: false,
+    invert: false,
+    visible: true,
+    prompt: "",
+    patchData: null,
+    subMasks: [
+      {
+        id: `${id}-m`,
+        type: "brush",
+        mode: "additive",
+        invert: false,
+        opacity: 100,
+        visible: true,
+        parameters: { lines: [{ points: [{ x, y }], brushSize: 40, feather: 0.2, tool: "brush" }] },
+      },
+    ],
+  });
+
+  it("deletes the spot or removal under an Alt-click (Lightroom) and places nothing", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150), circle("s2", 400, 250)],
+        aiPatches: [removal("r1", 300, 300)] as never,
+      },
+      activeSpotId: "s1",
+    });
+    const el = overlay();
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s2"]);
+    expect(useEditorStore.getState().activeSpotId).toBeNull();
+    // The removal at mask (300, 300) is at box (100, 125).
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 100, clientY: 125, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 100, clientY: 125, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(0);
+    // An Alt-click on the empty photo neither places nor deletes.
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 10, clientY: 140, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 10, clientY: 140, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s2"]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("deletes every spot and removal an Alt-drag box reaches, in one change", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150), circle("s2", 400, 250), circle("s3", 480, 330)],
+        aiPatches: [removal("r1", 300, 200)] as never,
+      },
+    });
+    const el = overlay();
+    const changes = vi.fn();
+    const stop = useEditorStore.subscribe((s, before) => s.adjustments !== before.adjustments && changes());
+    // From box (30, 30) to (160, 110): mask 160…420 × 110…270.
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 30, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    expect(screen.getByTestId("spot-erase-box")).toBeTruthy();
+    fireEvent.pointerUp(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    stop();
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s3"]);
+    expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(0);
+    expect(changes).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("spot-erase-box")).toBeNull();
+  });
+
+  it("deletes by an Alt-drag that starts on a spot, and strokes crossing the box between their points", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [
+          circle("s1", 200, 150),
+          circle("s2", 400, 150),
+          // A stroke with two points only, crossing the box between them.
+          { ...circle("st", 150, 300), points: [{ x: 150, y: 300 }, { x: 480, y: 300 }] },
+          circle("far", 480, 120),
+        ],
+        aiPatches: [{ ...removal("r1", 120, 250), subMasks: [] }] as never,
+      },
+    });
+    const el = overlay();
+    // From s1's centre (box 50, 50) to box (150, 140): mask 200…400 × 150…330.
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 150, clientY: 140, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 150, clientY: 140, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["far"]);
+  });
+
+  it("deletes nothing when an Alt-click or Alt-drag is cancelled", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150), circle("s2", 400, 250)],
+      },
+    });
+    const el = overlay();
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerCancel(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 30, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    fireEvent.pointerCancel(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s1", "s2"]);
+    expect(screen.queryByTestId("spot-erase-box")).toBeNull();
+  });
+
+  it("measures a path's distance to a box, zero where a segment crosses it", () => {
+    const lo = { x: 250, y: 150 };
+    const hi = { x: 350, y: 250 };
+    expect(pathToBox([{ x: 100, y: 200 }, { x: 500, y: 200 }], lo, hi)).toBe(0);
+    expect(pathToBox([{ x: 300, y: 200 }], lo, hi)).toBe(0);
+    expect(pathToBox([{ x: 100, y: 300 }, { x: 500, y: 300 }], lo, hi)).toBeCloseTo(50);
+    expect(pathToBox([{ x: 360, y: 100 }], lo, hi)).toBeCloseTo(Math.hypot(10, 50));
+    // A segment passing a corner diagonally.
+    expect(pathToBox([{ x: 340, y: 270 }, { x: 370, y: 240 }], lo, hi)).toBeCloseTo(10 / Math.SQRT2);
+  });
+
+  it("selects the spot under a right-click for the settings popover, placing nothing", () => {
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [circle("s1", 200, 150)] },
+    });
+    const el = overlay();
+    fireEvent.pointerDown(el, { button: 2, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(el, { button: 2, clientX: 50, clientY: 50, pointerId: 1 });
+    expect(useEditorStore.getState().activeSpotId).toBe("s1");
+    expect(useEditorStore.getState().adjustments.spots).toHaveLength(1);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("draws a hidden spot faintly, still there to select", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150, false), circle("s2", 400, 250)],
+      },
+    });
+    const el = overlay();
+    const groups = [...el.querySelectorAll("svg > g")];
+    expect(groups.map((g) => g.getAttribute("opacity"))).toEqual(["0.4", null]);
+    fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    expect(useEditorStore.getState().activeSpotId).toBe("s1");
+  });
+
   it("removes an area with the local inpainting model as an AI patch, and deletes it again", async () => {
     const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
     invoke.mockResolvedValue(JSON.stringify(patchData));
@@ -178,7 +350,11 @@ describe("spot removal overlay", () => {
     });
     expect(invoke).toHaveBeenCalledWith(
       "invoke_generative_replace_with_mask_def",
-      expect.objectContaining({ path: "/s/a.NEF", useFastInpaint: true }),
+      expect.objectContaining({ patchDefinition: expect.anything() }),
+    );
+    // Inpainting is always local: no backend choice reaches the command.
+    expect(invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")![1]).not.toHaveProperty(
+      "useFastInpaint",
     );
     const [patch] = useEditorStore.getState().adjustments.aiPatches;
     expect(patch).toMatchObject({ name: "Remove", isLoading: false, patchData });
@@ -190,6 +366,132 @@ describe("spot removal overlay", () => {
     expect(useEditorStore.getState().activeSpotId).toBe(patch.id);
     fireEvent.keyDown(window, { key: "Delete" });
     expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(0);
+  });
+
+  it("shows a slow removal's download and steps, and Cancel stops it", async () => {
+    let failFill: (error: unknown) => void = () => {};
+    invoke.mockImplementation((command: string) =>
+      command === "invoke_generative_replace_with_mask_def"
+        ? new Promise((_, reject) => {
+            failFill = reject;
+          })
+        : Promise.resolve(),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const { taskId } = fill[1] as { taskId: string };
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
+    act(() => listeners.get("ai-model-download-progress")!({ payload: { received: 50, total: 200 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("25");
+    // Another task's steps are not shown.
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: "other", done: 1, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("25");
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId, done: 3, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/3\D+9/);
+    fireEvent.click(screen.getByRole("button"));
+    expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId });
+    await act(async () => failFill("Task cancelled"));
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
+    expect(useEditorStore.getState().adjustments.aiPatches ?? []).toHaveLength(0);
+  });
+
+  it("shows one percent over a model of several files and says when the smaller model filled", async () => {
+    invoke.mockImplementation((command: string) =>
+      command === "invoke_generative_replace_with_mask_def" ? new Promise(() => {}) : Promise.resolve(),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const { taskId } = fill[1] as { taskId: string };
+    // The second file's first half: 60 % of the whole, not 50 % of the file.
+    act(() =>
+      listeners.get("ai-model-download-progress")!({
+        payload: { received: 100, total: 200, batchReceived: 600, batchTotal: 1000 },
+      }),
+    );
+    expect(screen.getByTestId("remove-progress").textContent).toContain("60");
+    toastWarn.mockClear();
+    act(() => listeners.get("ai-fill-notice")!({ payload: { taskId: "other", reason: "download" } }));
+    expect(toastWarn).not.toHaveBeenCalled();
+    act(() => listeners.get("ai-fill-notice")!({ payload: { taskId, reason: "download" } }));
+    expect(toastWarn).toHaveBeenCalledWith(expect.stringContaining("MI-GAN"), expect.anything());
+    // Moebius too slow on this GPU: said once for the session, whatever the task.
+    toastInfo.mockClear();
+    act(() => listeners.get("ai-fill-notice")!({ payload: { taskId: null, reason: "tooSlow" } }));
+    expect(toastInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a slow removal's progress and Cancel when a quicker one finishes meanwhile", async () => {
+    const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
+    let fills = 0;
+    invoke.mockImplementation((command: string) => {
+      if (command !== "invoke_generative_replace_with_mask_def") return Promise.resolve();
+      fills += 1;
+      // The first fill is slow (pending), the second finishes at once.
+      return fills === 1 ? new Promise(() => {}) : Promise.resolve(JSON.stringify(patchData));
+    });
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const slow = (invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")![1] as {
+      taskId: string;
+    }).taskId;
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: slow, done: 2, total: 9 } }));
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 150, clientY: 100, pointerId: 2 });
+      fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 2 });
+    });
+    expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(1);
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/2\D+9/);
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: slow, done: 3, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/3\D+9/);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId: slow });
+  });
+
+  it("shows the newest of two running removals and keeps it when the older one finishes", async () => {
+    const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
+    const finish: Array<(value: unknown) => void> = [];
+    invoke.mockImplementation((command: string) =>
+      command === "invoke_generative_replace_with_mask_def"
+        ? new Promise((resolve) => finish.push(resolve))
+        : Promise.resolve(),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    for (const [x, id] of [[50, 1], [150, 2]]) {
+      await act(async () => {
+        fireEvent.pointerDown(el, { button: 0, clientX: x, clientY: 50, pointerId: id });
+        fireEvent.pointerUp(el, { clientX: x, clientY: 50, pointerId: id });
+      });
+    }
+    const [a, b] = invoke.mock.calls
+      .filter(([name]) => name === "invoke_generative_replace_with_mask_def")
+      .map(([, args]) => (args as { taskId: string }).taskId);
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: a, done: 2, total: 9 } }));
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: b, done: 4, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/4\D+9/);
+    // The older one reports its last step and finishes: the newer one stays shown.
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: a, done: 9, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/4\D+9/);
+    await act(async () => finish[0](JSON.stringify(patchData)));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/4\D+9/);
+    fireEvent.click(screen.getByRole("button"));
+    expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId: b });
+    await act(async () => finish[1](JSON.stringify(patchData)));
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
   });
 
   it("removes an object selected by a click: object mask, then fill, as one AI patch", async () => {
@@ -225,7 +527,6 @@ describe("spot removal overlay", () => {
     const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
     const definition = (fill[1] as { patchDefinition: { subMasks: { type: string; parameters: object }[] } })
       .patchDefinition;
-    expect(fill[1]).toMatchObject({ useFastInpaint: true });
     expect(definition.subMasks).toHaveLength(1);
     expect(definition.subMasks[0].type).toBe("quick-eraser");
     // The selection is grown and feathered, so the fill takes the object's edge along.

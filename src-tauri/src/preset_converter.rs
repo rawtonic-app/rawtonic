@@ -441,16 +441,16 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         }
     }
 
-    // Lightroom's grain gathers into clumps as Roughness rises; Clumped is
-    // the structure that does the same (notes: reference/grain.md), and the
-    // one new edits start with (user decision 2026-10-12), with the newest
-    // grain as new edits.
+    // Lightroom's grain becomes film grain, the grain new edits get (user
+    // decision 2026-10-27): monochrome like Lightroom's (Colour 0), Amount,
+    // Size and Roughness 1:1 — film grain's scales were calibrated on
+    // Lightroom's (notes: reference/grain.md "Imports").
     if adjustments
         .get("grainAmount")
         .and_then(Value::as_f64)
         .is_some_and(|amount| amount > 0.0)
     {
-        adjustments.insert("grainStructure".to_string(), json!("clumped"));
+        adjustments.insert("grainColor".to_string(), json!(0));
         adjustments.insert(
             rawtonic_engine::image_processing::GRAIN_VERSION_KEY.to_string(),
             json!(rawtonic_engine::image_processing::GRAIN_VERSION),
@@ -1794,13 +1794,14 @@ mod tests {
     }
 
     #[test]
-    fn lightroom_grain_becomes_clumped_grain() {
+    fn lightroom_grain_becomes_film_grain() {
         let xmp = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="35"
             crs:GrainSize="30" crs:GrainFrequency="60"/></rdf:RDF></x:xmpmeta>"#;
         let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
         assert_eq!(adjustments["grainAmount"], 35);
         assert_eq!(adjustments["grainRoughness"], 60);
-        assert_eq!(adjustments["grainStructure"], "clumped");
+        assert!(adjustments.get("grainStructure").is_none());
+        assert_eq!(adjustments["grainColor"], 0);
         assert_eq!(
             adjustments["grainVersion"],
             rawtonic_engine::image_processing::GRAIN_VERSION
@@ -1808,7 +1809,7 @@ mod tests {
         let none =
             r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="0"/></rdf:RDF></x:xmpmeta>"#;
         let adjustments = convert_xmp_to_preset(none).unwrap().adjustments;
-        assert!(adjustments.get("grainStructure").is_none());
+        assert!(adjustments.get("grainColor").is_none());
         assert!(adjustments.get("grainVersion").is_none());
     }
 

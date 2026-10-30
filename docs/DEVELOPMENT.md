@@ -4,7 +4,11 @@ For the photography workflow and feature overview, start with the [README](../RE
 
 ## Run the desktop app
 
-Prerequisites: Node.js 24+, Rust 1.98.1 (`rustup` honors `rust-toolchain.toml`), and the native Tauri SDK. macOS needs Xcode command-line tools and CMake (libjpeg-turbo is built from source; `brew install cmake`, optionally `nasm`). On Ubuntu 24.04:
+Prerequisites: Node.js 24+, Rust 1.98.1 (`rustup` honors `rust-toolchain.toml`), Python 3 for license generation, and the native Tauri SDK. macOS needs Xcode command-line tools and CMake (libjpeg-turbo is built from source; `brew install cmake`, optionally `nasm`).
+
+Windows source builds need the MSVC Rust toolchain, Visual Studio 2022 Build Tools with the C++ desktop workload and Windows SDK, CMake, and WebView2. Make Python 3 available through `py -3` or `python`; `npm run licenses` finds it without relying on the Microsoft Store's `python3` alias. The directory-symlink tests require Windows Developer Mode or an elevated test shell; the app itself does not require elevation.
+
+On Ubuntu 24.04:
 
 ```sh
 sudo apt-get install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev librsvg2-dev patchelf libxdo-dev cmake nasm
@@ -165,7 +169,7 @@ Criterion benchmarks guard the CPU paths whose speed users feel; run them A/B ag
 | Bench target | Package | Groups |
 |---|---|---|
 | `decode` | `rawtonic-rawdecode` | `raw_decode/{bayer,xtrans}/…` (file bytes in memory → oriented linear RGB, CPU demosaic), `demosaic/{bayer,xtrans}/…` (demosaic alone, X-Trans with its fine-grain smoothing) |
-| `develop` | `rawtonic-engine` | `color_nr_v6/…`, `color_nr_v7/{pyramid,cpu_filter_6mp}` (the chroma pyramid every development builds; the whole CPU filter on a 6 MP centre), `lens/{edge_fringe_v2,edge_fringe_v3,edge_fringe_v4,lateral_ca_estimate_v2}`, `mask/{brush_stroke_preview,auto_mask_v2_stroke_preview,refine_edge_10_preview,refine_edge_40_full}` (one whole stroke on a 1536 px preview with the brush cache emptied; Refine edge on a radial layer) |
+| `develop` | `rawtonic-engine` | `color_nr_v6/…`, `color_nr_v7/{pyramid,cpu_filter_6mp}` (the chroma pyramid every development builds; the whole CPU filter on a 6 MP centre), `lens/{edge_fringe_v2,edge_fringe_v3,edge_fringe_v4,lateral_ca_estimate_v2,lateral_ca_estimate_v3_versus}`, `mask/{brush_stroke_preview,auto_mask_v2_stroke_preview,refine_edge_10_preview,refine_edge_40_full}` (one whole stroke on a 1536 px preview with the brush cache emptied; Refine edge on a radial layer) |
 | `encode` | `rawtonic-export` | `export_encode/{jpeg_q90,jpeg_q100,tiff_16bit}` (full-resolution sRGB encode with ICC profile) |
 
 Inputs: public RAW files from raw.pixls.us (CC0: Nikon D7200 NEF, Canon EOS R10 CR3, Fujifilm X-T3 RAF), fetched outside the repository and checked by SHA-256 — never commit them. Without them every benchmark runs on a synthetic 6000 × 4000 stand-in (an uncompressed DNG, or the scene it is made from), and its id says `synthetic_…`, so results on fixtures and on stand-ins never mix. The develop and encode groups work on the developed NEF.

@@ -119,7 +119,9 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// 58: highlight reconstruction without pink or green casts: two clipped
 /// colours solved from the recorded one, fully clipped areas neutral at the
 /// brightness around them (2026-10-16).
-pub const ENGINE_VERSION: u32 = 58;
+/// 59: Panasonic RW2 (v4) samples where a split block wraps, as LibRaw reads
+/// them (2026-10-28).
+pub const ENGINE_VERSION: u32 = 59;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;
@@ -1408,7 +1410,15 @@ mod tests {
         let header = read_header(&path).unwrap();
         assert_eq!(header.encoding, Encoding::Jxl);
         assert_eq!(header.transfer, Some(proxy_codec::TRANSFER));
-        assert_eq!(header.source.as_deref(), Some("Capture/A.RAF"));
+        assert_eq!(
+            header.source,
+            Some(
+                Path::new("Capture")
+                    .join("A.RAF")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
     }
 
     /// A proxy file as format 2 wrote it (linear JPEG XL at distance 0.25,
@@ -1482,7 +1492,15 @@ mod tests {
         assert_eq!(fs::read(&moved).unwrap()[4..8], 2u32.to_le_bytes());
         assert_eq!(image_bytes(&moved), pixels);
         let header = read_header(&moved).unwrap();
-        assert_eq!(header.source.as_deref(), Some("Capture/B.RAF"));
+        assert_eq!(
+            header.source,
+            Some(
+                Path::new("Capture")
+                    .join("B.RAF")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
         assert_eq!(header.transfer, None);
     }
 
@@ -1996,7 +2014,15 @@ mod tests {
         ] {
             let path = proxy_path_of(&moved, kind).unwrap();
             let header = read_header(&path).unwrap();
-            assert_eq!(header.source.as_deref(), Some("Capture/Renamed.RAF"));
+            assert_eq!(
+                header.source,
+                Some(
+                    Path::new("Capture")
+                        .join("Renamed.RAF")
+                        .to_string_lossy()
+                        .into_owned()
+                )
+            );
             assert!(labels_file(header.source.as_deref().unwrap(), &path));
             // Same pixels, not re-encoded.
             assert_eq!(image_bytes(&path), before);
@@ -2024,7 +2050,15 @@ mod tests {
         fs::rename(&photo, &moved).unwrap();
         fs::rename(proxy_path(&photo).unwrap(), proxy_path(&moved).unwrap()).unwrap();
         let header = read_header(&proxy_path(&moved).unwrap()).unwrap();
-        assert_eq!(header.source.as_deref(), Some("Capture/A.RAF"));
+        assert_eq!(
+            header.source,
+            Some(
+                Path::new("Capture")
+                    .join("A.RAF")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
         // A photograph really offline keeps its preview.
         let offline = moved.with_file_name("Offline.RAF");
         fs::write(&offline, b"offline raw").unwrap();

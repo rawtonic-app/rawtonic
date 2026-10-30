@@ -1,7 +1,8 @@
 //! The real helper process with the scripted mock camera, driven through
 //! the client as the app drives it.
+use rawtonic_tether::camera::{Storage, VIRTUAL_STORAGE};
 use rawtonic_tether::client::{Client, Incoming};
-use rawtonic_tether::mock::MockSpec;
+use rawtonic_tether::mock::{MockSpec, QueueState};
 use rawtonic_tether::protocol::{Captured, ErrorKind, Event, Reply, Request};
 use rawtonic_tether::staging;
 use std::collections::HashSet;
@@ -20,8 +21,17 @@ struct Helper {
 }
 
 fn start_with(spec: &MockSpec, session: &Path, shot_timeout_ms: u64) -> Helper {
+    start_with_env(spec, session, shot_timeout_ms, &[])
+}
+
+fn start_with_env(
+    spec: &MockSpec,
+    session: &Path,
+    shot_timeout_ms: u64,
+    extra: &[(&str, &str)],
+) -> Helper {
     let (tx, rx) = mpsc::channel();
-    let envs: Vec<(OsString, OsString)> = vec![
+    let mut envs: Vec<(OsString, OsString)> = vec![
         (
             "RAWTONIC_TETHER_MOCK".into(),
             serde_json::to_string(spec).unwrap().into(),
@@ -32,6 +42,7 @@ fn start_with(spec: &MockSpec, session: &Path, shot_timeout_ms: u64) -> Helper {
         ),
         ("RAWTONIC_TETHER_ONE_AT_A_TIME_MS".into(), "1500".into()),
     ];
+    envs.extend(extra.iter().map(|(k, v)| (k.into(), v.into())));
     let (client, library) = Client::spawn(Path::new(HELPER), &["--mock".into()], &envs, move |i| {
         let _ = tx.send(i);
     })
@@ -50,14 +61,29 @@ fn start(spec: &MockSpec, session: &Path) -> Helper {
 
 impl Helper {
     fn connect(&self) -> Result<Reply, rawtonic_tether::protocol::TetherError> {
+        self.connect_with(false)
+    }
+
+    /// Connects with the user's opt-in to experimental driver paths or not.
+    fn connect_with(
+        &self,
+        experimental: bool,
+    ) -> Result<Reply, rawtonic_tether::protocol::TetherError> {
         self.client.request(
             Request::Connect {
                 port: None,
                 staging: self.staging.clone(),
                 serial: None,
+                experimental,
             },
             WAIT,
         )
+    }
+
+    /// Nothing reached the transfer folder.
+    fn nothing_downloaded(&self) -> bool {
+        let incoming = self.staging.join(staging::INCOMING);
+        !incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none()
     }
 
     /// Fires; the request's number.
@@ -309,6 +335,7 @@ fn another_body_of_the_model_is_closed_before_anything_of_it_is_read() {
                 port: None,
                 staging: helper.staging.clone(),
                 serial: Some("SOMEONE ELSE".into()),
+                experimental: false,
             },
             WAIT,
         )
@@ -539,6 +566,219 @@ fn interleaved_raw_and_jpeg_under_one_reused_name_keep_their_exposures() {
         other.push(helper.next_event(Duration::from_millis(200)));
     }
     assert_eq!(timeouts(&other), 2, "{other:?}");
+}
+
+/// A Canon EOS body as libgphoto2 drives it: an experimental path, Save to
+/// "Internal RAM" or "Memory card".
+fn canon() -> MockSpec {
+    MockSpec {
+        model: "Canon EOS R6".into(),
+        experimental: true,
+        capture_target: Some("Internal RAM".into()),
+        capture_target_choices: vec!["Internal RAM".into(), "Memory card".into()],
+        ..MockSpec::default()
+    }
+}
+
+#[test]
+fn an_experimental_camera_is_not_opened_without_the_opt_in() {
+    let dir = tempfile::tempdir().unwrap();
+    // Nothing of the camera is read before the refusal (a settings read
+    // prepares an EOS body for capture).
+    let reads = dir.path().join("config-reads");
+    let spec = MockSpec {
+        body_shots_ms: vec![0],
+        config_reads: Some(reads.clone()),
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let refused = helper.connect().unwrap_err();
+    assert!(!reads.exists(), "the camera was read before the refusal");
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    assert!(
+        refused.message.contains("Preferences"),
+        "{}",
+        refused.message
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.nothing_downloaded());
+}
+
+#[test]
+fn an_experimental_camera_without_a_card_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        no_card: true,
+        body_shots_ms: vec![0],
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let refused = helper.connect_with(true).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    assert!(
+        refused.message.contains("no card in"),
+        "{}",
+        refused.message
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.nothing_downloaded());
+}
+
+#[test]
+fn an_experimental_camera_listing_only_its_virtual_storage_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // A Canon without a card lists its virtual storage; one whose storage
+    // says nothing of being a card is no card either.
+    for storages in [
+        vec![Storage {
+            id: Some(VIRTUAL_STORAGE),
+            ..Storage::card()
+        }],
+        vec![Storage {
+            removable: None,
+            ..Storage::card()
+        }],
+    ] {
+        let spec = MockSpec {
+            storages: Some(storages),
+            body_shots_ms: vec![0],
+            ..canon()
+        };
+        let helper = start(&spec, dir.path());
+        let refused = helper.connect_with(true).unwrap_err();
+        assert!(
+            refused.message.contains("no card in"),
+            "{}",
+            refused.message
+        );
+        assert!(helper.nothing_downloaded());
+    }
+}
+
+#[test]
+fn an_experimental_camera_whose_capture_destination_is_not_the_card_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // Save to set to the card and a card in, but the camera still captures
+    // to the computer's side, or does not say where.
+    for destination in ["4", ""] {
+        let spec = MockSpec {
+            capture_destination: Some(destination.into()),
+            body_shots_ms: vec![0],
+            ..canon()
+        };
+        let helper = start(&spec, dir.path());
+        assert_eq!(
+            helper.connect_with(true).unwrap_err().kind,
+            ErrorKind::Unsupported
+        );
+        assert!(helper.nothing_downloaded());
+    }
+}
+
+#[test]
+fn an_experimental_camera_whose_save_to_cannot_take_the_card_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // Already on the card, but the card cannot be chosen: refused all the
+    // same (the opt-in needs Save to set by Rawtonic).
+    let spec = MockSpec {
+        capture_target: Some("Memory card".into()),
+        capture_target_choices: vec!["Internal RAM".into()],
+        body_shots_ms: vec![0],
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let refused = helper.connect_with(true).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    assert!(refused.message.contains("Save to"), "{}", refused.message);
+    assert!(helper.nothing_downloaded());
+}
+
+#[test]
+fn an_experimental_camera_with_a_card_connects_on_the_card_and_frees_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    // A transfer queue on the driver side too: the helper must not ask to
+    // free even then.
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let status = match helper.connect_with(true).unwrap() {
+        Reply::Connected { status } => status,
+        other => panic!("{other:?}"),
+    };
+    assert!(status.experimental);
+    assert_eq!(status.capture_target.as_deref(), Some("Memory card"));
+    helper.capture();
+    let photo = helper.photos(1).0.remove(0);
+    let release = Request::Release {
+        connection: photo.connection,
+        download: photo.download,
+        camera_folder: photo.camera_folder.clone(),
+        camera_name: photo.camera_name.clone(),
+    };
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: false }
+    );
+    // Switching Save to to the camera's memory is refused as anywhere.
+    let set = Request::SetSetting {
+        key: "capturetarget".into(),
+        value: "Internal RAM".into(),
+    };
+    assert!(helper.client.request(set, WAIT).is_err());
+}
+
+#[test]
+fn an_experimental_shot_without_its_photo_is_reported_as_kept_on_the_card() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        lost_shots: vec![1],
+        ..canon()
+    };
+    let helper = start_with(&spec, dir.path(), 500);
+    helper.connect_with(true).unwrap();
+    let request = helper.capture();
+    match helper.next_event(Duration::from_secs(5)) {
+        Some(Event::CaptureFailed {
+            error, request: r, ..
+        }) => {
+            assert_eq!(error.kind, ErrorKind::Timeout);
+            assert_eq!(r, Some(request));
+            assert!(
+                error.message.contains(&format!("Shot {request} ")),
+                "{}",
+                error.message
+            );
+            assert!(error.message.contains("memory card"), "{}", error.message);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A known limit, said in the UI and the docs: libgphoto2 gives no exposure
+/// identity, so photos answer the app's shots in order. When an app shot's
+/// report is lost and a photo taken on the body arrives before its timeout,
+/// that photo is taken as the app shot's and no "not received" follows (the
+/// camera test reports such steps as not certain on the experimental path).
+#[test]
+fn an_experimental_lost_shot_is_hidden_by_a_body_photo_arriving_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        lost_shots: vec![1],
+        body_shots_ms: vec![400],
+        ..canon()
+    };
+    let helper = start_with(&spec, dir.path(), 2000);
+    helper.connect_with(true).unwrap();
+    let request = helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].request, Some(request));
+    std::thread::sleep(Duration::from_millis(2300));
+    assert!(
+        helper.next_event(Duration::from_millis(200)).is_none(),
+        "no shot reported as not received"
+    );
 }
 
 #[test]
@@ -1052,6 +1292,241 @@ fn live_view_frames_arrive_while_on() {
     );
 }
 
+/// Live-view frames (and whether live view stopped) for `span`.
+fn frames_for(helper: &Helper, span: Duration) -> (usize, bool) {
+    let mut frames = 0;
+    let mut stopped = false;
+    let deadline = Instant::now() + span;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match helper.incoming.recv_timeout(left) {
+            Ok(Incoming::LiveView(_)) => frames += 1,
+            Ok(Incoming::Event(Event::LiveViewStopped { .. })) => stopped = true,
+            _ => {}
+        }
+    }
+    (frames, stopped)
+}
+
+#[test]
+fn live_view_event_reads_can_be_spaced_out() {
+    // Each event read takes 300 ms, as libgphoto2's Fujifilm event wait does
+    // even when asked for 1 ms: a frame per read, about 3 a second.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        event_poll_ms: 300,
+        ..MockSpec::default()
+    };
+    let span = Duration::from_millis(1500);
+    let run = |extra: &[(&str, &str)]| {
+        let helper = start_with_env(&spec, dir.path(), 60_000, extra);
+        helper.connect().unwrap();
+        helper
+            .client
+            .request(Request::LiveView { on: true }, WAIT)
+            .unwrap();
+        let (frames, stopped) = frames_for(&helper, span);
+        assert!(!stopped);
+        frames
+    };
+    let every_frame = run(&[]);
+    assert!(every_frame <= 8, "{every_frame} frames");
+    // The experiment reads them once a second: frames in between.
+    let spaced = run(&[("RAWTONIC_TETHER_LV_EXPERIMENT", "poll-ms=1000")]);
+    assert!(spaced >= 15, "{spaced} frames (every frame: {every_frame})");
+}
+
+#[test]
+fn live_view_goes_on_through_tolerated_frame_failures() {
+    // After a shot, three frames fail before the camera has frames again.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        live_view_gap_after_shot: 3,
+        ..MockSpec::default()
+    };
+    let run = |extra: &[(&str, &str)]| {
+        let helper = start_with_env(&spec, dir.path(), 60_000, extra);
+        helper.connect().unwrap();
+        helper
+            .client
+            .request(Request::LiveView { on: true }, WAIT)
+            .unwrap();
+        helper.capture();
+        frames_for(&helper, Duration::from_millis(600))
+    };
+    // As before: the first failed frame stops live view.
+    let (_, stopped) = run(&[]);
+    assert!(stopped);
+    let (frames, stopped) = run(&[("RAWTONIC_TETHER_LV_EXPERIMENT", "tolerate=5")]);
+    assert!(!stopped && frames > 0, "{frames} frames, stopped {stopped}");
+}
+
+#[test]
+fn the_live_view_sequence_reports_each_phase_and_writes_a_new_trace() {
+    let dir = tempfile::tempdir().unwrap();
+    // A trace file already there is kept; the helper writes FILE.2.
+    let trace = dir.path().join("trace.txt");
+    std::fs::write(&trace, b"mine").unwrap();
+    let out = dir.path().join("out");
+    // Live view never comes back after a shot (the X-H2S's symptom).
+    let spec = MockSpec {
+        live_view_gap_after_shot: 1000,
+        ..MockSpec::default()
+    };
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "2",
+            "--shots",
+            "1",
+            "--out",
+        ])
+        .arg(&out)
+        .env(
+            "RAWTONIC_TETHER_MOCK",
+            serde_json::to_string(&spec).unwrap(),
+        )
+        .env("RAWTONIC_TETHER_TRACE", &trace)
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let phases = report["phases"].as_array().unwrap();
+    let names: Vec<&str> = phases
+        .iter()
+        .map(|p| p["phase"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["before shots", "shot 1", "started again"],
+        "{report}"
+    );
+    assert!(phases[0]["frames"].as_u64().unwrap() > 3, "{report}");
+    assert!(phases[0]["stopped"].as_array().unwrap().is_empty());
+    let shot = &phases[1];
+    assert_eq!(shot["framesAfterShot"], 0, "{report}");
+    assert!(shot["request"].is_u64(), "{report}");
+    let photos = report["photos"].as_array().unwrap();
+    assert_eq!(photos.len(), 1, "{report}");
+    assert_eq!(photos[0]["shot"], "shot 1", "{report}");
+    assert_eq!(photos[0]["request"], shot["request"], "{report}");
+    assert!(
+        shot["stopped"][0]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no frame"),
+        "{report}"
+    );
+    assert!(shot["turnedOnAgain"]["result"].is_string(), "{report}");
+    assert_eq!(std::fs::read(&trace).unwrap(), b"mine");
+    let written = std::fs::read_to_string(dir.path().join("trace.txt.2")).unwrap();
+    assert!(
+        written.contains("live view frame 1: 4 bytes in"),
+        "{written}"
+    );
+    assert!(written.contains("live view stopped after"), "{written}");
+}
+
+#[test]
+fn a_photo_that_comes_after_its_phase_still_belongs_to_its_shot() {
+    let dir = tempfile::tempdir().unwrap();
+    // The photo comes 2.5 s after the shot, fired half a second into a
+    // 2 s phase: it arrives in a later phase.
+    let spec = MockSpec {
+        event_delay_ms: 2500,
+        ..MockSpec::default()
+    };
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "2",
+            "--shots",
+            "1",
+            "--out",
+        ])
+        .arg(dir.path().join("out"))
+        .env(
+            "RAWTONIC_TETHER_MOCK",
+            serde_json::to_string(&spec).unwrap(),
+        )
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let photos = report["photos"].as_array().unwrap();
+    assert_eq!(photos.len(), 1, "{report}");
+    assert_eq!(photos[0]["shot"], "shot 1", "{report}");
+    assert_ne!(photos[0]["arrivedIn"], "shot 1", "{report}");
+    assert!(
+        photos[0]["msAfterFire"].as_f64().unwrap() >= 2400.0,
+        "{report}"
+    );
+}
+
+/// The `liveview` sequence's photos with `spec`, 1.5 s phases, two shots.
+fn sequence_photos(spec: &MockSpec) -> (Vec<serde_json::Value>, serde_json::Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "1.5",
+            "--shots",
+            "2",
+            "--out",
+        ])
+        .arg(dir.path().join("out"))
+        .env("RAWTONIC_TETHER_MOCK", serde_json::to_string(spec).unwrap())
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    (report["photos"].as_array().unwrap().clone(), report)
+}
+
+#[test]
+fn the_sequence_waits_for_every_shot_and_its_companion_files() {
+    // RAW+JPEG; the second shot's files come 4 s late, after the last phase
+    // began; the first shot's two files must not count for it.
+    let (photos, report) = sequence_photos(&MockSpec {
+        raw_and_jpeg: true,
+        late_shots: vec![2],
+        late_ms: 4000,
+        ..MockSpec::default()
+    });
+    let of = |shot: &str| photos.iter().filter(|p| p["shot"] == shot).count();
+    assert_eq!((of("shot 1"), of("shot 2")), (2, 2), "{report}");
+    assert!(photos.iter().all(|p| p["certain"] == true), "{report}");
+}
+
+#[test]
+fn the_sequence_marks_a_photo_whose_shot_cannot_be_told() {
+    // A reused name: shot 1 RAW only, shot 2 RAW+JPEG — the JPEG may be
+    // either's.
+    let (photos, report) = sequence_photos(&MockSpec {
+        restart_numbering_every: Some(1),
+        raw_and_jpeg: true,
+        jpeg_from_shot: Some(2),
+        ..MockSpec::default()
+    });
+    assert_eq!(photos.len(), 3, "{report}");
+    let jpeg = photos.iter().find(|p| p["file"] == "DSC00001.JPG").unwrap();
+    assert_eq!(jpeg["certain"], false, "{report}");
+    assert!(jpeg["msAfterFire"].is_null(), "{report}");
+    assert!(
+        !jpeg["ambiguous"].as_array().unwrap().is_empty(),
+        "{report}"
+    );
+    assert!(
+        photos
+            .iter()
+            .filter(|p| p["file"] == "DSC00001.ARW")
+            .all(|p| p["certain"] == true && p["msAfterFire"].is_number()),
+        "{report}"
+    );
+}
+
 #[test]
 fn the_probe_never_writes_over_a_file_in_its_output_folder() {
     let dir = tempfile::tempdir().unwrap();
@@ -1458,4 +1933,331 @@ fn a_slow_set_is_read_back_after_it_returned() {
             value: Some("400".into())
         }
     );
+}
+
+fn release(p: &Captured) -> Request {
+    Request::Release {
+        connection: p.connection,
+        download: p.download,
+        camera_folder: p.camera_folder.clone(),
+        camera_name: p.camera_name.clone(),
+    }
+}
+
+/// The photos of a transfer queue (`MockSpec::queue_state`).
+fn queue_now(state: &Path) -> Vec<String> {
+    QueueState::read(state).unwrap().names()
+}
+
+/// Photos left in the camera's transfer queue (taken while no computer took
+/// them; a GFX 50R keeps no other copy) are fetched at the connect, like
+/// photos fired on the body, and stay on the camera until each is released.
+#[test]
+fn photos_left_in_the_transfer_queue_are_fetched_at_the_connect_and_kept_until_released() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["DSCF0001.RAF".into(), "DSCF0002.RAF".into()],
+        queue_state: Some(state.clone()),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let (photos, other) = helper.photos(2);
+    assert!(other.is_empty(), "{other:?}");
+    let names: Vec<_> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    assert_eq!(names, ["DSCF0001.RAF", "DSCF0002.RAF"]);
+    for photo in &photos {
+        assert!(!photo.requested && photo.request.is_none());
+        assert_eq!(std::fs::metadata(&photo.path).unwrap().len(), photo.size);
+    }
+    assert_eq!(photos[0].exposure + 1, photos[1].exposure);
+    // Downloaded, not freed: the camera still has both.
+    assert_eq!(queue_now(&state).len(), 2);
+    assert_eq!(
+        helper.client.request(release(&photos[0]), WAIT).unwrap(),
+        Reply::Released { freed: true }
+    );
+    assert_eq!(queue_now(&state), ["DSCF0002.RAF"]);
+    // Nothing more arrives (each photo once).
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.photos(1).0.is_empty());
+}
+
+/// A shot fired while the queue is still being fetched gets its own photo;
+/// no queued photo is taken for it, also when the camera reports the queued
+/// photos as new ones (libgphoto2's Fujifilm event wait), and each queued
+/// photo arrives once.
+#[test]
+fn a_shot_fired_while_the_queue_is_fetched_gets_its_own_photo() {
+    let dir = tempfile::tempdir().unwrap();
+    let queued: Vec<String> = (1..=30).map(|n| format!("DSCF{n:04}.RAF")).collect();
+    let spec = MockSpec {
+        queue_limit: Some(100),
+        queued: queued.clone(),
+        queued_reported_ms: Some(0),
+        report_twice: true,
+        file_size: 512 * 1024,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let request = helper.capture();
+    let (photos, other) = helper.photos(31);
+    assert!(other.is_empty(), "{other:?}");
+    let mine: Vec<_> = photos.iter().filter(|p| p.requested).collect();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0].request, Some(request));
+    assert_eq!(mine[0].camera_name, "DSC00001.ARW");
+    let fetched: HashSet<_> = photos
+        .iter()
+        .filter(|p| !p.requested)
+        .map(|p| p.camera_name.clone())
+        .collect();
+    assert_eq!(fetched.len(), 30);
+    assert_eq!(fetched, queued.into_iter().collect());
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.photos(1).0.is_empty(), "a photo arrived twice");
+}
+
+/// A crash while the queue is fetched leaves the partial download as
+/// incomplete (never ingested) and every photo on the camera: the next
+/// helper fetches them all again.
+#[test]
+fn a_crash_while_the_queue_is_fetched_keeps_every_photo_on_the_camera() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into(), "Q2.RAF".into(), "Q3.RAF".into()],
+        queue_state: Some(state.clone()),
+        abort_mid_download: Some(2),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let (photos, other) = helper.photos(3);
+    assert_eq!(photos.len(), 1);
+    assert_eq!(other.last(), Some(&None), "the helper ended");
+    assert_eq!(queue_now(&state).len(), 3, "nothing freed");
+    let recovered = staging::recover(&helper.staging).unwrap();
+    assert_eq!(recovered.complete, vec![photos[0].path.clone()]);
+    assert_eq!(recovered.incomplete.len(), 1);
+    // The next helper (the app starts one) fetches all three again; the
+    // one fetched before is the same photo (the library takes it once).
+    let again = start(
+        &MockSpec {
+            abort_mid_download: None,
+            ..spec
+        },
+        dir.path(),
+    );
+    again.connect().unwrap();
+    let (photos_again, _) = again.photos(3);
+    let names: Vec<_> = photos_again
+        .iter()
+        .map(|p| p.camera_name.as_str())
+        .collect();
+    assert_eq!(names, ["Q1.RAF", "Q2.RAF", "Q3.RAF"]);
+    assert_eq!(
+        std::fs::read(&photos_again[0].path).unwrap(),
+        std::fs::read(&recovered.complete[0]).unwrap()
+    );
+    assert_eq!(queue_now(&state).len(), 3);
+}
+
+/// A queue that cannot be listed does not stop the connect; it is
+/// reported, and its photos stay on the camera.
+#[test]
+fn a_transfer_queue_that_cannot_be_listed_is_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into()],
+        queue_list_fails: true,
+        queued_reported_ms: Some(100),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    match helper.next_event(WAIT) {
+        Some(Event::CaptureFailed {
+            error,
+            request: None,
+            exposure: None,
+            ..
+        }) => assert!(error.message.contains("stay on the camera"), "{error:?}"),
+        other => panic!("{other:?}"),
+    }
+    // A photo reported later could be one of the queue's: no shot is fired
+    // whose photo could not be told from them.
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert!(
+        refused.message.contains("Connect the camera again"),
+        "{refused:?}"
+    );
+    // What the camera reports still comes in (here the queued photo).
+    std::thread::sleep(Duration::from_millis(300));
+    let (photos, _) = helper.photos(1);
+    assert!(!photos.is_empty() && !photos[0].requested, "{photos:?}");
+}
+
+/// A held camera fetches nothing more from its queue either.
+#[test]
+fn a_held_camera_fetches_nothing_more_from_its_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(100),
+        queued: (1..=40).map(|n| format!("Q{n}.RAF")).collect(),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.client.request(Request::Hold, WAIT).unwrap();
+    // One per turn of 20 ms: a few came before the hold, never all.
+    std::thread::sleep(Duration::from_millis(500));
+    let (photos, _) = helper.photos(40);
+    assert!(photos.len() < 40, "{}", photos.len());
+}
+
+/// A queued photo and a new shot under one file name are different
+/// exposures: the new shot's file keeps its request.
+#[test]
+fn a_new_shot_never_pairs_with_a_queued_photo_of_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["DSC00001.JPG".into()],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let queued = helper.photos(1).0.remove(0);
+    assert_eq!(queued.camera_name, "DSC00001.JPG");
+    let request = helper.capture();
+    let shot = helper.photos(1).0.remove(0);
+    assert_eq!(shot.camera_name, "DSC00001.ARW");
+    assert_eq!(shot.request, Some(request));
+    assert!(shot.requested && shot.ambiguous.is_empty());
+    assert_ne!(shot.exposure, queued.exposure);
+}
+
+/// A photo left on the camera (freeing off) is the same photo when the next
+/// connection fetches it from the queue: byte for byte, so the library
+/// recognises it.
+#[test]
+fn a_photo_kept_on_the_camera_is_fetched_again_unchanged_after_a_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queue_state: Some(state.clone()),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let first = helper.photos(1).0.remove(0);
+    let bytes = std::fs::read(&first.path).unwrap();
+    assert_eq!(queue_now(&state), ["DSC00001.ARW"]);
+    // The next helper (an app restart) finds it in the queue.
+    drop(helper);
+    let again = start(&spec, dir.path());
+    again.connect().unwrap();
+    let fetched = again.photos(1).0.remove(0);
+    assert_eq!(fetched.camera_name, "DSC00001.ARW");
+    assert!(!fetched.requested);
+    assert_eq!(std::fs::read(&fetched.path).unwrap(), bytes);
+}
+
+/// A queued photo whose download failed stays a queued photo: reported
+/// again later by the camera, it is fetched without taking the request of
+/// a shot fired meanwhile.
+#[test]
+fn a_queued_photo_reported_after_a_failed_download_takes_no_shot_s_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into()],
+        failed_downloads: vec![1],
+        queued_reported_ms: Some(400),
+        event_delay_ms: 900,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    match helper.next_event(WAIT) {
+        Some(Event::CaptureFailed {
+            request: None,
+            exposure: Some(_),
+            ..
+        }) => {}
+        other => panic!("{other:?}"),
+    }
+    let request = helper.capture();
+    let (photos, other) = helper.photos(2);
+    assert!(other.is_empty(), "{other:?}");
+    let names: Vec<_> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    assert_eq!(names, ["Q1.RAF", "DSC00001.ARW"]);
+    assert!(!photos[0].requested && photos[0].request.is_none());
+    assert_eq!(photos[1].request, Some(request));
+}
+
+/// After a reconnect that fetched a kept photo, a new shot under the same
+/// (restarted) file name is a new photo with its own request.
+#[test]
+fn a_new_shot_after_a_reconnect_is_not_taken_for_the_kept_photo_of_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queue_state: Some(state.clone()),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let kept = helper.photos(1).0.remove(0);
+    drop(helper);
+    let again = start(&spec, dir.path());
+    again.connect().unwrap();
+    let fetched = again.photos(1).0.remove(0);
+    assert_eq!(fetched.camera_name, kept.camera_name);
+    let request = again.capture();
+    let new = again.photos(1).0.remove(0);
+    assert_eq!(new.camera_name, kept.camera_name);
+    assert_eq!(new.request, Some(request));
+    assert_ne!(
+        std::fs::read(&new.path).unwrap(),
+        std::fs::read(&fetched.path).unwrap()
+    );
+}
+
+/// After a queued photo was fetched, a file of its name the camera reports
+/// again that cannot be downloaded (that photo again, or a new one) takes
+/// no request: the shot fired meanwhile keeps its own.
+#[test]
+fn a_failed_report_under_a_queued_photo_s_name_takes_no_shot_s_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into()],
+        queued_reported_ms: Some(400),
+        failed_downloads: vec![2],
+        event_delay_ms: 900,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let queued = helper.photos(1).0.remove(0);
+    assert_eq!(queued.camera_name, "Q1.RAF");
+    let request = helper.capture();
+    let (photos, other) = helper.photos(1);
+    match other.as_slice() {
+        [Some(Event::CaptureFailed { request: None, .. })] => {}
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(photos[0].camera_name, "DSC00001.ARW");
+    assert_eq!(photos[0].request, Some(request));
 }

@@ -231,7 +231,10 @@ pub fn load_corrected(
     let corrected = rawtonic_engine::image_processing::apply_geometry_warp(
         image::DynamicImage::ImageRgb32F(std::mem::take(&mut frame.image)),
         &adjustments,
-    );
+        // Frames are linear light (`load_frame_from_bytes`).
+        true,
+    )
+    .map_err(|e| anyhow!(e))?;
     frame.image = corrected.into_owned().into_rgb32f();
     if let Some(m) = rebalance(frame.color.as_ref(), reference) {
         let raw: &mut [f32] = &mut frame.image;

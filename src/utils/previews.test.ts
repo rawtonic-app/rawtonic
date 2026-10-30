@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { TFunction } from 'i18next';
 import { toast } from 'react-toastify';
 import { Invokes } from '../components/ui/AppProperties';
-import { formatBytes, previewsMenu, viewerDimHint } from './previews';
+import { formatBytes, previewTargetResolution, previewsMenu, viewerDimHint } from './previews';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
@@ -50,4 +50,23 @@ it('formats disk use in decimal units', () => {
   expect(formatBytes(10_743_467)).toBe('10.7 MB');
   expect(formatBytes(253_000_000)).toBe('253 MB');
   expect(formatBytes(4_200_000_000)).toBe('4.2 GB');
+});
+
+it('renders a grain preview at the display device pixels, other previews with headroom', () => {
+  const fit = {
+    display: { width: 1034.893, height: 691 },
+    dpr: 2,
+    fullDpi: false,
+    zoomMultiplier: 1,
+    original: { width: 5796, height: 3870 },
+  };
+  // Without grain: 1035 × 1.25 in 256 px steps (1536), or with full DPI 2070 × 1.25 (2816).
+  expect(previewTargetResolution({ ...fit, grain: false })).toBe(1536);
+  expect(previewTargetResolution({ ...fit, fullDpi: true, grain: false })).toBe(2816);
+  // With grain: one rendered pixel per screen pixel, whatever the DPI setting.
+  expect(previewTargetResolution({ ...fit, grain: true })).toBe(2070);
+  expect(previewTargetResolution({ ...fit, fullDpi: true, grain: true })).toBe(2070);
+  // Never above the photograph's own size (100 % = the export).
+  expect(previewTargetResolution({ ...fit, display: { width: 4000, height: 2670 }, grain: true })).toBe(5796);
+  expect(previewTargetResolution({ ...fit, display: { width: 4000, height: 2670 }, grain: false })).toBe(5796);
 });

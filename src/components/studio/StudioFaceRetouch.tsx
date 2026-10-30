@@ -3,12 +3,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
+import { recipeWrite, useEditorActions } from "../../hooks/useEditorActions";
 import { Invokes } from "../ui/AppProperties";
-import type { Adjustments, FaceRetouch, FaceRetouchSettings, RetouchFace } from "../../utils/adjustments";
+import type {
+  Adjustments,
+  FaceProtectStroke,
+  FaceRetouch,
+  FaceRetouchSettings,
+  RetouchFace,
+} from "../../utils/adjustments";
 import { aiErrorMessage } from "../../utils/aiErrors";
 import AdjustmentControl from "./AdjustmentControl";
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../utils/geometryKeys";
+import { frameGeometry as shownGeometry, reframePoint } from "../../utils/maskGeometry";
 
 /** Geometry keys that correct colour, not where a pixel is (the engine's
  * `face_retouch::COLOUR_ONLY_KEYS`): faces stay valid when they change. */
@@ -107,6 +114,32 @@ function carryOver(previous: RetouchFace[], next: RetouchFace[]): RetouchFace[] 
   });
 }
 
+/** Protection strokes painted on the photo shown with the panel geometry
+ * `from` (a `FaceRetouch.geometry`), where that spot of the photo is shown
+ * with `to`'s orientation, flips and straightening; `width` × `height` is
+ * the photo's own size. Lens and perspective corrections that changed
+ * meanwhile are not followed (the strokes are a brush radius wide). */
+export function reframeProtection(
+  strokes: FaceProtectStroke[] | undefined,
+  from: string,
+  to: Adjustments,
+  width: number | undefined,
+  height: number | undefined,
+): FaceProtectStroke[] | undefined {
+  if (!strokes?.length || !width || !height) return strokes;
+  let before: Record<string, unknown>;
+  try {
+    before = JSON.parse(from) as Record<string, unknown>;
+  } catch {
+    return strokes;
+  }
+  const [a, b] = [shownGeometry(before), shownGeometry(to)];
+  return strokes.map((stroke) => ({
+    ...stroke,
+    points: stroke.points.map((p) => reframePoint(p, a, b, width, height)),
+  }));
+}
+
 /** Least prominence of the blemishes removed at `amount` (0–1), as
  * crates/engine/src/face_retouch.rs `blemish_threshold`. */
 export function blemishThreshold(amount: number) {
@@ -182,19 +215,39 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       .map((f) => ({ center: [(f.box[0] + f.box[2] / 2) / w, (f.box[1] + f.box[3] / 2) / h], settings: f.settings }));
     setApplying(t("studio.faceRetouch.applying", { count: others.length }));
     try {
-      const done = await invoke<number>(Invokes.ApplyFaceRetouchToPaths, {
-        paths: others,
-        settings: current.settings,
-        faceSettings,
-      });
+      // A long command (faces found in each photo): it reports each photo's
+      // write, which quitting counts.
+      const done = await recipeWrite(
+        others,
+        (batch) =>
+          invoke<number>(Invokes.ApplyFaceRetouchToPaths, {
+            paths: others,
+            settings: current.settings,
+            faceSettings,
+            ...(batch ? { batch } : {}),
+          }),
+        /** It answers how many it wrote; short of all it failed with the
+         * photos not written (a single one: any may have failed). */
+        { kind: "faceRetouch", failedOf: (written) => (written < others.length ? others : []), batch: true },
+      );
       setApplying(t("studio.faceRetouch.applied", { done, total: others.length }));
     } catch (e) {
       setApplying(aiErrorMessage(e));
     }
   };
   const setEditor = useEditorStore((s) => s.setEditor);
-  // The overlay belongs to this tool.
-  useEffect(() => () => setEditor({ showFaceBlemishes: false }), [setEditor]);
+  const protectBrush = useEditorStore((s) => s.faceProtect);
+  const showProtection = useEditorStore((s) => s.showFaceProtection);
+  // The overlays and the brush belong to this tool.
+  useEffect(
+    () => () =>
+      setEditor({
+        showFaceBlemishes: false,
+        showFaceProtection: false,
+        faceProtect: { ...useEditorStore.getState().faceProtect, painting: false },
+      }),
+    [setEditor],
+  );
   const key = `${path}\n${geometry}`;
 
   const [download, setDownload] = useState(0);
@@ -205,10 +258,13 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       .then((analysis) => {
         if (!live) return;
         setFound({ key: `${path}\n${geometry}`, analysis });
-        // Retouch made in another geometry follows the faces.
+        // Retouch made in another geometry follows the faces, and the
+        // protected areas the photo.
         setAdjustments((prev: Adjustments) => {
           const old = prev.faceRetouch;
           if (!old || faceRetouchIsCurrent(old, prev)) return prev;
+          const { width, height } = useEditorStore.getState().selectedImage ?? {};
+          const protect = reframeProtection(old.protect, old.geometry, prev, width, height);
           return {
             ...prev,
             faceRetouch: {
@@ -216,6 +272,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
               frame: analysis.frame,
               geometry: frameGeometry(prev, analysis.frame),
               faces: carryOver(old.faces, analysis.faces),
+              ...(protect && { protect }),
             },
           };
         });
@@ -355,6 +412,91 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           />
           {t("studio.faceRetouch.showBlemishes")}
         </label>
+      )}
+      {faces.length > 0 && (
+        <div className="studio-face-protect">
+          <div
+            className="studio-segments"
+            role="radiogroup"
+            aria-label={t("studio.faceRetouch.protect.brush")}
+            title={t("studio.faceRetouch.protect.hint")}
+          >
+            {(["off", "paint", "erase"] as const).map((mode) => {
+              const on = protectBrush.painting && (mode === "erase") === protectBrush.erase;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === "off" ? !protectBrush.painting : on}
+                  onClick={() => {
+                    // The brush paints on the recipe's faces: keep them there.
+                    if (mode !== "off" && !current) update((r) => r);
+                    setEditor({
+                      faceProtect: {
+                        ...protectBrush,
+                        painting: mode !== "off",
+                        erase: mode === "erase",
+                      },
+                    });
+                  }}
+                >
+                  {t(`studio.faceRetouch.protect.modes.${mode}`)}
+                </button>
+              );
+            })}
+          </div>
+          {protectBrush.painting && (
+            <>
+              <AdjustmentControl
+                label={t("studio.faceRetouch.protect.size")}
+                ariaLabel={t("studio.faceRetouch.protect.sizeAria")}
+                min={2}
+                max={500}
+                step={1}
+                unit=" px"
+                value={protectBrush.size}
+                defaultValue={30}
+                onChange={(size) => setEditor({ faceProtect: { ...useEditorStore.getState().faceProtect, size } })}
+              />
+              <AdjustmentControl
+                label={t("studio.faceRetouch.protect.feather")}
+                ariaLabel={t("studio.faceRetouch.protect.featherAria")}
+                min={0}
+                max={100}
+                value={protectBrush.feather}
+                defaultValue={50}
+                onChange={(feather) =>
+                  setEditor({ faceProtect: { ...useEditorStore.getState().faceProtect, feather } })
+                }
+              />
+              <p className="studio-hint">{t("studio.faceRetouch.protect.hint")}</p>
+            </>
+          )}
+          <label className="studio-check">
+            <input
+              type="checkbox"
+              checked={showProtection || protectBrush.painting}
+              disabled={protectBrush.painting}
+              onChange={(e) => setEditor({ showFaceProtection: e.target.checked })}
+            />
+            {t("studio.faceRetouch.protect.show")}
+          </label>
+          {(current?.protect?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              className="studio-text-button"
+              onClick={() =>
+                update((r) => {
+                  const { protect: _cleared, ...rest } = r;
+                  return rest;
+                })
+              }
+            >
+              {t("studio.faceRetouch.protect.clear")}
+            </button>
+          )}
+        </div>
       )}
       {(() => {
         const n = (face ? [face] : faces).reduce((sum, f) => sum + removedBlemishes(f, settings), 0);

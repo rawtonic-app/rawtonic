@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { updateAdjustments } from '../../../hooks/useEditorActions';
 import { useEditorStore } from '../../../store/useEditorStore';
@@ -6,10 +8,12 @@ import type { AiPatch, AiPatchData, Spot } from '../../../utils/adjustments';
 import { Invokes } from '../../ui/AppProperties';
 import { Mask, SubMaskMode, ToolType } from '../right/Masks';
 import { useProcessStore } from '../../../store/useProcessStore';
-import { toastAiError } from '../../../utils/aiErrors';
+import { isAiTaskCancelled, toastAiError } from '../../../utils/aiErrors';
+import { toast } from 'react-toastify';
 import { getTransformAdjustments } from '../../../hooks/useAiMasking';
 import { createSubMask } from '../../../utils/maskUtils';
 import { shapeAsShown, shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
+import { withoutSpotItems } from '../../../utils/spotItems';
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -33,6 +37,7 @@ type Drag =
   | { kind: 'radius'; id: string; spot: Spot }
   | { kind: 'paint'; points: Point[] }
   | { kind: 'box'; start: Point; end: Point; op: SelectOp }
+  | { kind: 'erase'; start: Point; end: Point }
   | { kind: 'objectStroke'; points: Point[]; op: SelectOp };
 
 /** Screen pixels within which a press on a circle's rim resizes it. */
@@ -40,6 +45,9 @@ const RIM = 6;
 
 /** Screen radius of the pin marking an object removed by a click. */
 const PIN = 8;
+
+/** Outline opacity of a hidden spot or removal: still there to select. */
+const HIDDEN_OPACITY = 0.4;
 
 /** Screen pixels a press must travel to draw a box rather than click. */
 const BOX_MIN = 5;
@@ -112,6 +120,40 @@ function distanceToPath(x: number, y: number, points: Point[]) {
   return best;
 }
 
+/** Whether the segment a–b meets the box lo–hi (Liang–Barsky clipping). */
+function segmentMeetsBox(a: Point, b: Point, lo: Point, hi: Point) {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  for (const [p, q] of [
+    [-dx, a.x - lo.x],
+    [dx, hi.x - a.x],
+    [-dy, a.y - lo.y],
+    [dy, hi.y - a.y],
+  ]) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else if (p < 0) t0 = Math.max(t0, q / p);
+    else t1 = Math.min(t1, q / p);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/** Distance from the path `points` (one point or a polyline) to the box
+ * lo–hi: 0 where they meet. */
+export function pathToBox(points: Point[], lo: Point, hi: Point) {
+  const toBox = (p: Point) => Math.hypot(Math.max(lo.x - p.x, 0, p.x - hi.x), Math.max(lo.y - p.y, 0, p.y - hi.y));
+  const segments = points.length > 1 ? points.slice(1).map((b, i) => [points[i], b]) : [[points[0], points[0]]];
+  if (segments.some(([a, b]) => segmentMeetsBox(a, b, lo, hi))) return 0;
+  const corners = [lo, hi, { x: lo.x, y: hi.y }, { x: hi.x, y: lo.y }];
+  return Math.min(
+    ...points.map(toBox),
+    ...(points.length > 1 ? corners.map((c) => distanceToPath(c.x, c.y, points)) : []),
+  );
+}
+
 /** Distance from (x, y) to a spot's area edge-in: negative inside. */
 function distanceToSpot(x: number, y: number, spot: Spot, dx = 0, dy = 0) {
   if (isStroke(spot)) return distanceToPath(x - dx, y - dy, spot.points) - spot.radius;
@@ -124,16 +166,24 @@ function distanceToSpot(x: number, y: number, spot: Spot, dx = 0, dy = 0) {
  * a drag paints a brush stroke (Lightroom's heal strokes) that copies from
  * one automatically chosen offset; the spot or its source can be dragged, a
  * circle's rim resizes it, Delete removes the selected spot and [ ] change
- * its size. Changes reach the recipe when a drag ends, because the backend
+ * its size. As in Lightroom, Alt-click deletes a spot or removal and an
+ * Alt-drag deletes every one the box reaches; a right-click selects the
+ * one under it for the tool's settings popover. Changes reach the recipe when a drag ends, because the backend
  * heals the full-resolution base image.
  *
  * Remove fills the area with the local inpainting model; with Detect
  * objects (Lightroom's object-aware Remove) a click on an object or a box
  * drawn around it selects it with the object mask model, and the selection,
  * grown a little to take its edge along, is filled. Removals are AI patches,
- * so exports carry the generated-content marking.
+ * so exports carry the generated-content marking. A large hole on macOS is
+ * filled with Moebius, which takes a few seconds (and downloads its model
+ * the first time): the overlay shows its progress with Cancel (or Escape).
  */
+/** A running removal's progress: its model's download, then the network's runs. */
+type FillProgress = { taskId: string; download?: number; done?: number; total?: number };
+
 export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) {
+  const { t } = useTranslation();
   const spots = useEditorStore((s) => s.adjustments.spots ?? []);
   const aiPatches = useEditorStore((s) => s.adjustments.aiPatches);
   const rotation = useEditorStore((s) => s.adjustments.rotation);
@@ -154,6 +204,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const [pending, setPending] = useState<{ x: number; y: number; radius: number; points?: Point[] } | null>(null);
   // An object being drawn around (box) or being selected and removed.
   const [box, setBox] = useState<{ start: Point; end: Point } | null>(null);
+  // A box being drawn with Alt: what it reaches is deleted.
+  const [eraseBox, setEraseBox] = useState<{ start: Point; end: Point } | null>(null);
   const [pendingObject, setPendingObject] = useState<{ start: Point; end: Point; op: SelectOp } | null>(null);
   // A loose stroke over an object (Detect objects with the brush).
   const [objectStroke, setObjectStroke] = useState<{ points: Point[]; op: SelectOp } | null>(null);
@@ -161,6 +213,20 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const objectBrush = detectObjects && (settings.objectSelect ?? 'brush') === 'brush';
   const drag = useRef<Drag | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // The removals being filled (task ids, newest last) and what the backend
+  // reported of each; the newest one with a report is shown.
+  const filling = useRef<string[]>([]);
+  const [reports, setReports] = useState<FillProgress[]>([]);
+  const report = (next: FillProgress) =>
+    setReports((all) => [...all.filter((r) => r.taskId !== next.taskId), next]);
+  const progress =
+    filling.current
+      .toReversed()
+      .map((id) => reports.find((r) => r.taskId === id))
+      .find((r) => r !== undefined) ?? null;
+  const cancelFill = (taskId: string) => {
+    invoke(Invokes.CancelAiTask, { taskId }).catch(() => {});
+  };
 
   const toBox = (x: number, y: number) => [(x - cropX) * scale, (y - cropY) * scale] as const;
   const toImage = (clientX: number, clientY: number) => {
@@ -202,14 +268,13 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const path = selectedImage.path;
     const { registerAiTask, unregisterAiTask } = useProcessStore.getState();
     registerAiTask(patch.id, 'inpaint');
+    filling.current = [...filling.current, patch.id];
     try {
       const definition = select ? await select(patch) : patch;
       if (useEditorStore.getState().selectedImage?.path !== path) return;
       const json = await invoke<string>(Invokes.InvokeGenerativeReplaseWithMaskDef, {
         currentAdjustments: adjustments,
         patchDefinition: definition,
-        path,
-        useFastInpaint: true,
         taskId: patch.id,
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
@@ -226,10 +291,14 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       });
       useEditorStore.getState().setEditor({ activeSpotId: patch.id });
     } catch (error) {
-      console.error('Remove failed:', error);
+      // A cancel is the user's choice, not a failure.
+      if (isAiTaskCancelled(error)) console.info('Remove cancelled');
+      else console.error('Remove failed:', error);
       toastAiError(error, `Remove failed: ${error}`);
     } finally {
       unregisterAiTask(patch.id);
+      filling.current = filling.current.filter((id) => id !== patch.id);
+      setReports((all) => all.filter((r) => r.taskId !== patch.id));
     }
   };
 
@@ -375,13 +444,64 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     }
   };
 
+  // The selected spot first, then the others from the top.
+  const ordered = [...shown].sort((a, b) => Number(b.id === activeSpotId) - Number(a.id === activeSpotId));
+
+  /** The spot or removal under (x, y): a spot's area or rim, a painted
+   * removal's area or an object removal's pin. */
+  const itemAt = (x: number, y: number): string | undefined =>
+    ordered.find((spot) => distanceToSpot(x, y, spot) <= (isStroke(spot) ? 0 : RIM * pixel))?.id ??
+    removals.find((removal) => {
+      if (removal.kind === 'object') {
+        const pin = pinOf(removal.start, removal.end);
+        return Math.hypot(x - pin.x, y - pin.y) <= (PIN + 2) * pixel;
+      }
+      return removal.points.length > 1
+        ? distanceToPath(x, y, removal.points) < removal.radius
+        : Math.hypot(x - removal.points[0].x, y - removal.points[0].y) < removal.radius;
+    })?.patch.id;
+
+  /** Deletes spots and removals (one undo step) and their selection. */
+  const deleteItems = (ids: Set<string>) => {
+    if (ids.size === 0) return;
+    updateAdjustments((prev) => withoutSpotItems(prev, ids));
+    const { activeSpotId: selected, setEditor } = useEditorStore.getState();
+    if (selected && ids.has(selected)) setEditor({ activeSpotId: null });
+  };
+
+  /** The spots and removals an Alt-drag box from `a` to `b` reaches: a
+   * circle or stroke (or painted removal) whose area it touches, an object
+   * removal whose pin it holds. */
+  const itemsIn = (a: Point, b: Point) => {
+    const lo = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) };
+    const hi = { x: Math.max(a.x, b.x), y: Math.max(a.y, b.y) };
+    const touches = (points: Point[], radius: number) => pathToBox(points, lo, hi) < radius;
+    return new Set([
+      ...shown
+        .filter((spot) => touches(isStroke(spot) ? spot.points : [spot], spot.radius))
+        .map((spot) => spot.id),
+      ...removals
+        .filter((removal) =>
+          removal.kind === 'object'
+            ? pathToBox([pinOf(removal.start, removal.end)], lo, hi) === 0
+            : touches(removal.points, removal.radius),
+        )
+        .map((removal) => removal.patch.id),
+    ]);
+  };
+
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
     const [x, y] = toImage(e.clientX, e.clientY);
     const { setEditor } = useEditorStore.getState();
-    // The selected spot first, then the others from the top.
-    const ordered = [...shown].sort((a, b) => Number(b.id === activeSpotId) - Number(a.id === activeSpotId));
+    // A right-click selects what is under it; the press goes on to the
+    // viewer, whose context menu is the tool's settings popover.
+    if (e.button === 2) {
+      const id = itemAt(x, y);
+      if (id) setEditor({ activeSpotId: id });
+      return;
+    }
+    if (e.button !== 0) return;
+    e.stopPropagation();
     // Shift or Alt with an object removal selected: the press refines its
     // selection (anywhere, also on pins).
     const refining =
@@ -395,6 +515,15 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         // Synthetic input without a tracked pointer: no capture.
       }
     };
+    // Alt (unless it refines an object removal): a click deletes the spot
+    // or removal under it, a drag (also one starting on a spot) deletes
+    // what its box reaches; which of the two is decided on release.
+    if (e.altKey && !refining) {
+      capture();
+      drag.current = { kind: 'erase', start: { x, y }, end: { x, y } };
+      setEraseBox({ start: { x, y }, end: { x, y } });
+      return;
+    }
     for (const spot of ordered) {
       const toTarget = distanceToSpot(x, y, spot);
       const toSource = distanceToSpot(x, y, spot, spot.sourceX - spot.x, spot.sourceY - spot.y);
@@ -456,6 +585,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     if (d.kind === 'box') {
       d.end = { x, y };
       setBox({ start: d.start, end: d.end });
+    } else if (d.kind === 'erase') {
+      d.end = { x, y };
+      setEraseBox({ start: d.start, end: d.end });
     } else if (d.kind === 'objectStroke') {
       const last = d.points[d.points.length - 1];
       if (Math.hypot(x - last.x, y - last.y) >= Math.max(settings.size * 0.2, pixel)) {
@@ -498,6 +630,17 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       // See setPointerCapture.
+    }
+    if (d?.kind === 'erase') {
+      setEraseBox(null);
+      // A cancelled press (the system took the pointer) deletes nothing.
+      if (e.type === 'pointercancel') return;
+      // Travelled less than a few screen pixels: a click on one.
+      if (Math.hypot(d.end.x - d.start.x, d.end.y - d.start.y) < BOX_MIN * pixel) {
+        const id = itemAt(d.start.x, d.start.y);
+        if (id) deleteItems(new Set([id]));
+      } else deleteItems(itemsIn(d.start, d.end));
+      return;
     }
     if (d?.kind === 'box') {
       setBox(null);
@@ -565,8 +708,46 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     };
   }, [visualize?.on, visualize?.sensitivity, spotsKey]);
 
+  // Progress of the running removal: the model's download (any file of it
+  // while the removal waits) and the network's runs.
+  useEffect(() => {
+    const unlisten = [
+      listen<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ payload }) => {
+        if (payload.taskId && filling.current.includes(payload.taskId))
+          report({ taskId: payload.taskId, done: payload.done, total: payload.total });
+      }),
+      listen<{ received: number; total: number; batchReceived?: number; batchTotal?: number }>(
+        'ai-model-download-progress',
+        ({ payload }) => {
+          // A download serves the newest removal waiting for it; a model of
+          // several files reports its progress over all of them.
+          const id = filling.current.at(-1);
+          const received = payload.batchReceived ?? payload.received;
+          const total = payload.batchTotal ?? payload.total;
+          if (id && total > 0) report({ taskId: id, download: Math.min(100, Math.floor((received / total) * 100)) });
+        },
+      ),
+      // Moebius could not be used for a large hole: MI-GAN filled it, and
+      // the user is told why the fill is weaker.
+      // The GPU took too long per network run: large holes use the fast
+      // method for the rest of the session (inpainting::MOEBIUS_TOO_SLOW).
+      listen<{ taskId: string | null; reason: 'download' | 'unavailable' | 'tooSlow' }>('ai-fill-notice', ({ payload }) => {
+        if (payload.reason === 'tooSlow') {
+          toast.info(t('spotRemoval.largeHoleTooSlow'));
+          return;
+        }
+        if (!payload.taskId || !filling.current.includes(payload.taskId)) return;
+        toast.warn(
+          t(payload.reason === 'download' ? 'spotRemoval.fallbackDownload' : 'spotRemoval.fallbackUnavailable'),
+          { toastId: `ai-fill-notice-${payload.reason}` },
+        );
+      }),
+    ].map((p) => p.catch(() => null));
+    return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
+  }, [t]);
+
   // Delete removes the selected spot; [ and ] resize it (or the next one);
-  // Escape deselects.
+  // Escape cancels the removals being filled, else deselects.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -588,6 +769,10 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         const spot = adjustments.spots?.find((s) => s.id === id);
         if (spot) commit({ ...spot, radius: Math.max(2, spot.radius * factor) });
         else setEditor({ spotSettings: { ...spotSettings, size: Math.max(2, Math.round(spotSettings.size * factor)) } });
+      } else if (e.key === 'Escape' && filling.current.length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        filling.current.forEach(cancelFill);
       } else if (e.key === 'Escape' && id) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -715,11 +900,13 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       >
         {shown.map((spot) => {
           const active = spot.id === activeSpotId;
+          const style = { color: active ? 'var(--studio-accent, #9cc2e0)' : '#fff' };
+          const opacity = spot.visible === false ? HIDDEN_OPACITY : undefined;
           if (isStroke(spot)) {
             const dx = spot.sourceX - spot.x;
             const dy = spot.sourceY - spot.y;
             return (
-              <g key={spot.id} style={{ color: active ? 'var(--studio-accent, #9cc2e0)' : '#fff' }}>
+              <g key={spot.id} style={style} opacity={opacity}>
                 {strokeArea(`${spot.id}-t`, spot.points, spot.radius, 'spot-target')}
                 {active && strokeArea(`${spot.id}-s`, spot.points, spot.radius, 'spot-source', dx, dy, true)}
               </g>
@@ -733,7 +920,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           const ux = length > 0 ? (sx - tx) / length : 0;
           const uy = length > 0 ? (sy - ty) / length : 0;
           return (
-            <g key={spot.id} style={{ color: active ? 'var(--studio-accent, #9cc2e0)' : '#fff' }}>
+            <g key={spot.id} style={style} opacity={opacity}>
               {active && length > 2 * r && (
                 <line
                   x1={tx + ux * r}
@@ -753,10 +940,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           const { patch } = removal;
           const active = patch.id === activeSpotId;
           const color = patch.isLoading ? '#f0c060' : active ? 'var(--studio-accent, #9cc2e0)' : '#fff';
+          const opacity = patch.visible === false ? HIDDEN_OPACITY : undefined;
           if (removal.kind === 'object') {
             const { start, end } = removal;
             return (
-              <g key={patch.id} style={{ color }} data-testid="remove-object">
+              <g key={patch.id} style={{ color }} opacity={opacity} data-testid="remove-object">
                 {active && !isClick(start, end) && rectangle(`${patch.id}-b`, start, end, true)}
                 {pin(`${patch.id}-p`, pinOf(start, end), active)}
               </g>
@@ -764,7 +952,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           }
           const { points, radius } = removal;
           return (
-            <g key={patch.id} style={{ color }} data-testid="remove-area">
+            <g key={patch.id} style={{ color }} opacity={opacity} data-testid="remove-area">
               {points.length > 1
                 ? strokeArea(`${patch.id}-r`, points, radius, 'spot-remove', 0, 0, true)
                 : circle(`${patch.id}-r`, points[0].x, points[0].y, radius, 'spot-remove', true)}
@@ -772,6 +960,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           );
         })}
         {box && <g style={{ color: '#fff' }}>{rectangle('drawing-box', box.start, box.end, false)}</g>}
+        {eraseBox && (
+          <g style={{ color: OP_COLOUR.subtract }} data-testid="spot-erase-box">
+            {rectangle('erase-box', eraseBox.start, eraseBox.end, true)}
+          </g>
+        )}
         {objectStroke && objectStroke.points.length > 1 && (
           <g style={{ color: OP_COLOUR[objectStroke.op] }} data-testid="remove-object-stroke">
             {strokeArea('object-stroke', objectStroke.points, settings.size, 'spot-painting')}
@@ -795,6 +988,49 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           </g>
         )}
       </svg>
+      {progress && (
+        <div
+          data-testid="remove-progress"
+          role="status"
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: 16,
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '6px 8px 6px 12px',
+            borderRadius: 6,
+            background: 'rgba(20, 20, 20, 0.85)',
+            color: '#eee',
+            fontSize: 12,
+            cursor: 'default',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span>
+            {progress.download !== undefined
+              ? t('spotRemoval.downloadingModel', { percent: progress.download })
+              : t('spotRemoval.filling', { done: progress.done ?? 0, total: progress.total ?? 0 })}
+          </span>
+          <button
+            type="button"
+            onClick={() => cancelFill(progress.taskId)}
+            style={{
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid rgba(255,255,255,0.3)',
+              background: 'transparent',
+              color: 'inherit',
+              cursor: 'pointer',
+            }}
+          >
+            {t('spotRemoval.cancel')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

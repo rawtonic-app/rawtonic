@@ -1,4 +1,5 @@
 import "../../i18n";
+import { useState } from "react";
 import {
   cleanup,
   fireEvent,
@@ -13,7 +14,11 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import { INITIAL_ADJUSTMENTS } from "../../utils/adjustments";
 import { useEditorStore } from "../../store/useEditorStore";
-import { StudioBlackAndWhite, StudioColorGrading } from "./StudioColorTools";
+import {
+  StudioBlackAndWhite,
+  StudioColorGrading,
+  linkedGrades,
+} from "./StudioColorTools";
 
 afterEach(() => {
   cleanup();
@@ -311,4 +316,172 @@ describe("black & white Auto", () => {
     );
     expect(change).not.toHaveBeenCalled();
   });
+});
+
+describe("linked tonal wheels", () => {
+  const grading = {
+    ...INITIAL_ADJUSTMENTS.colorGrading,
+    shadows: { hue: 350, saturation: 20, luminance: -10 },
+    midtones: { hue: 110, saturation: 40, luminance: 5 },
+    highlights: { hue: 230, saturation: 70, luminance: 15 },
+  };
+
+  it("wraps hue and preserves saturation offsets and individual luminance", () => {
+    const result = linkedGrades(grading, "shadows", {
+      ...grading.shadows,
+      hue: 10,
+      saturation: 30,
+    });
+    expect(result.shadows).toEqual({ hue: 10, saturation: 30, luminance: -10 });
+    expect(result.midtones).toEqual({ hue: 130, saturation: 50, luminance: 5 });
+    expect(result.highlights).toEqual({
+      hue: 250,
+      saturation: 80,
+      luminance: 15,
+    });
+    expect(result.global).toEqual(grading.global);
+    expect(grading.shadows.hue).toBe(350);
+  });
+
+  it("stops all wheels together at either saturation boundary", () => {
+    const high = linkedGrades(grading, "shadows", {
+      ...grading.shadows,
+      saturation: 100,
+    });
+    expect([
+      high.shadows.saturation,
+      high.midtones.saturation,
+      high.highlights.saturation,
+    ]).toEqual([50, 70, 100]);
+    const low = linkedGrades(grading, "highlights", {
+      ...grading.highlights,
+      saturation: 0,
+    });
+    expect([
+      low.shadows.saturation,
+      low.midtones.saturation,
+      low.highlights.saturation,
+    ]).toEqual([0, 20, 50]);
+  });
+
+  it("can tint neutral wheels without adding luminance", () => {
+    const result = linkedGrades(INITIAL_ADJUSTMENTS.colorGrading, "midtones", {
+      hue: 240,
+      saturation: 20,
+      luminance: 0,
+    });
+    for (const key of ["shadows", "midtones", "highlights"] as const)
+      expect(result[key]).toEqual({ hue: 240, saturation: 20, luminance: 0 });
+  });
+
+  it("links keyboard wheel edits in one patch; toggling makes no recipe edit", async () => {
+    const change = renderGrading(grading);
+    const link = screen.getByRole("checkbox", { name: "Link tonal wheels" });
+    fireEvent.click(link);
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.keyDown(
+      screen.getByRole("slider", { name: "Shadows hue and saturation" }),
+      { key: "ArrowRight", shiftKey: true },
+    );
+    await waitFor(() => expect(change).toHaveBeenCalledTimes(1));
+    expect(lastGrading(change).shadows.hue).toBe(0);
+    expect(lastGrading(change).midtones.hue).toBe(120);
+    expect(lastGrading(change).highlights.hue).toBe(240);
+    fireEvent.keyDown(
+      screen.getByRole("slider", { name: "Highlights luminance" }),
+      { key: "ArrowUp" },
+    );
+    expect(lastGrading(change).shadows).toEqual(grading.shadows);
+    expect(lastGrading(change).highlights.luminance).toBe(16);
+    fireEvent.click(link);
+    fireEvent.keyDown(
+      screen.getByRole("slider", { name: "Midtones hue and saturation" }),
+      { key: "ArrowUp" },
+    );
+    await waitFor(() =>
+      expect(lastGrading(change).midtones.saturation).toBe(41),
+    );
+    expect(lastGrading(change).shadows).toEqual(grading.shadows);
+  });
+});
+
+it("keeps a linked drag constrained on screen and in one interaction", async () => {
+  const interaction = vi.fn();
+  const change = vi.fn();
+  function Controlled() {
+    const [colorGrading, setGrading] = useState({
+      ...INITIAL_ADJUSTMENTS.colorGrading,
+      shadows: { hue: 0, saturation: 20, luminance: 0 },
+      midtones: { hue: 120, saturation: 40, luminance: 0 },
+      highlights: { hue: 240, saturation: 90, luminance: 0 },
+    });
+    return (
+      <StudioColorGrading
+        values={{
+          colorGrading,
+          sectionVisibility: INITIAL_ADJUSTMENTS.sectionVisibility,
+        }}
+        disabled={false}
+        onInteraction={interaction}
+        change={(patch) => {
+          change(patch);
+          setGrading(patch.colorGrading!);
+        }}
+      />
+    );
+  }
+  render(<Controlled />);
+  const header = screen.queryByRole("button", { name: /Color grading/ });
+  if (header && !screen.queryByText("Blending")) fireEvent.click(header);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Link tonal wheels" }));
+  const wheel = screen.getByRole("slider", {
+    name: "Shadows hue and saturation",
+  });
+  vi.spyOn(wheel, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 100,
+  } as DOMRect);
+  wheel.setPointerCapture = vi.fn();
+  fireEvent.pointerDown(wheel, { button: 0, clientX: 100, clientY: 50 });
+  await waitFor(() =>
+    expect(lastGrading(change).highlights.saturation).toBe(100),
+  );
+  expect(wheel.getAttribute("aria-valuenow")).toBe("30");
+  fireEvent.pointerMove(wheel, { clientX: 50, clientY: 0 });
+  await waitFor(() => expect(lastGrading(change).shadows.hue).toBe(90));
+  expect(lastGrading(change).midtones).toEqual({
+    hue: 210,
+    saturation: 50,
+    luminance: 0,
+  });
+  fireEvent.pointerUp(wheel);
+  expect(interaction.mock.calls).toEqual([[true], [false]]);
+});
+
+it("previews all linked indicators before the parent commits a drag", async () => {
+  const change = renderGrading();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Link tonal wheels" }));
+  const wheel = screen.getByRole("slider", {
+    name: "Shadows hue and saturation",
+  });
+  vi.spyOn(wheel, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 100,
+  } as DOMRect);
+  wheel.setPointerCapture = vi.fn();
+  fireEvent.pointerDown(wheel, { button: 0, clientX: 75, clientY: 50 });
+  await waitFor(() => expect(change).toHaveBeenCalled());
+  await waitFor(() => {
+    for (const name of ["Shadows", "Midtones", "Highlights"])
+      expect(
+        screen
+          .getByRole("slider", { name: `${name} hue and saturation` })
+          .getAttribute("aria-valuenow"),
+      ).toBe("50");
+  });
+  fireEvent.pointerUp(wheel);
 });

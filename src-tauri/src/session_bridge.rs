@@ -233,8 +233,10 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             lib.asset_at(&source).map_err(io_error)?
         };
         if let Some(asset) = &asset {
-            lib.save_copy_state(&asset.id, &copy, &state)
-                .map_err(io_error)?;
+            crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
+                lib.save_copy_state(&asset.id, &copy, &state)
+            })
+            .map_err(io_error)?;
             if !online {
                 return Ok(());
             }
@@ -254,7 +256,10 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
         let lib = Library::open(&dir).map_err(io_error)?;
         if let Some(asset) = lib.asset_at(&source).map_err(io_error)? {
             let state: Value = serde_json::from_slice(bytes).map_err(io_error)?;
-            return lib.save_editor_state(&asset.id, &state).map_err(io_error);
+            return crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
+                lib.save_editor_state(&asset.id, &state)
+            })
+            .map_err(io_error);
         }
         // A virtual copy's sidecar or an unregistered file: a plain file.
         rawtonic_metadata::atomic_write(path, bytes).map_err(io_error)
@@ -266,7 +271,10 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
         let asset = lib.add_asset(&source).map_err(io_error)?;
         // The first save of a photograph whose sidecar the library has not
         // adopted takes over that sidecar's snapshots (`save_editor_state`).
-        lib.save_editor_state(&asset.id, &state).map_err(io_error)?;
+        crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
+            lib.save_editor_state(&asset.id, &state)
+        })
+        .map_err(io_error)?;
         let version = lib.primary_version(&asset.id).map_err(io_error)?;
         let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)?;
         // SQLite committed first. A failed derived write can be retried without losing edits.
@@ -582,6 +590,28 @@ pub async fn session_summary(directory: String) -> Result<Summary, String> {
         Library::open(Path::new(&directory))
             .and_then(|l| l.summary())
             .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// The photographs whose XMP sidecar lags behind the library (the session
+/// bar's count), for showing them in the grid.
+#[tauri::command]
+pub async fn session_pending_xmp(directory: String) -> Result<Vec<PathBuf>, String> {
+    with_library(directory, false, |lib| {
+        lib.pending_xmp_paths().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// Writes those sidecars again (the session bar's "Try again"); only XMP
+/// sidecars are written, a sidecar changed elsewhere is never replaced.
+#[tauri::command]
+pub async fn session_write_pending_xmp(
+    directory: String,
+) -> Result<rawtonic_catalog::XmpRetry, String> {
+    with_library(directory, true, |lib| {
+        lib.write_pending_xmp().map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1398,13 +1428,13 @@ pub(crate) fn reconcile_copy(sidecar: &Path) {
     let Ok(Some(asset)) = lib.asset_at(&source) else {
         return;
     };
-    let result = match fs::read(sidecar)
+    let state = fs::read(sidecar)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-    {
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    let result = crate::library_search::announcing_ai_facts(&lib, &asset.id, || match state {
         Some(state) => lib.save_copy_state(&asset.id, &copy, &state),
         None => lib.remove_copy(&asset.id, &copy).map(|_| ()),
-    };
+    });
     if let Err(e) = result {
         log::warn!("Virtual copy {} not updated: {e}", sidecar.display());
     }
@@ -1444,7 +1474,9 @@ pub(crate) fn adopt_virtual_copies(found: &[(PathBuf, String, PathBuf)]) {
         else {
             continue;
         };
-        if let Err(e) = lib.save_copy_state(id, copy, &state) {
+        if let Err(e) = crate::library_search::announcing_ai_facts(&lib, id, || {
+            lib.save_copy_state(id, copy, &state)
+        }) {
             log::warn!("Virtual copy {} not kept: {e}", sidecar.display());
         } else {
             copies.push(copy.clone());
@@ -2304,6 +2336,7 @@ mod tests {
             crate::exif_processing::export_metadata_with(
                 path,
                 "jpeg",
+                rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
                 true,
                 false,
                 false,

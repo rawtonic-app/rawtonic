@@ -249,6 +249,56 @@ pub(crate) fn available_monitor_bounds(window: &tauri::WebviewWindow) -> Vec<Mon
         .unwrap_or_default()
 }
 
+/// Restores window geometry using the platform's stored-size convention.
+/// Windows stores outer bounds, but Tauri's setter takes an inner size.
+/// Move first so the frame measurements use the destination monitor's DPI.
+pub(crate) fn restore_window_bounds(
+    window: &tauri::WebviewWindow,
+    state: &WindowState,
+    _configured_size: tauri::LogicalSize<f64>,
+) {
+    let position = tauri::Position::Physical(tauri::PhysicalPosition::new(state.x, state.y));
+    #[cfg(windows)]
+    let _ = window.set_position(position);
+
+    #[cfg(windows)]
+    let size = match (window.outer_size(), window.inner_size()) {
+        (Ok(outer), Ok(inner)) => inner_size_for_saved_outer(
+            tauri::PhysicalSize::new(state.width, state.height),
+            outer,
+            inner,
+        ),
+        _ => None,
+    }
+    .map(tauri::Size::Physical)
+    .unwrap_or_else(|| {
+        log::warn!("Could not measure the window frame; using the configured window size.");
+        tauri::Size::Logical(_configured_size)
+    });
+    #[cfg(target_os = "linux")]
+    let size = linux_restored_window_size(state.width, state.height, state.scale_factor)
+        .unwrap_or(tauri::Size::Logical(_configured_size));
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let size = tauri::Size::Physical(tauri::PhysicalSize::new(state.width, state.height));
+
+    let _ = window.set_size(size);
+    #[cfg(not(windows))]
+    let _ = window.set_position(position);
+}
+
+#[cfg(any(windows, test))]
+fn inner_size_for_saved_outer(
+    saved_outer: tauri::PhysicalSize<u32>,
+    current_outer: tauri::PhysicalSize<u32>,
+    current_inner: tauri::PhysicalSize<u32>,
+) -> Option<tauri::PhysicalSize<u32>> {
+    let frame_width = current_outer.width.checked_sub(current_inner.width)?;
+    let frame_height = current_outer.height.checked_sub(current_inner.height)?;
+    let width = saved_outer.width.checked_sub(frame_width)?;
+    let height = saved_outer.height.checked_sub(frame_height)?;
+    (width > 0 && height > 0).then_some(tauri::PhysicalSize::new(width, height))
+}
+
 /// Saved sizes are physical pixels. A hidden GTK window and its monitor have
 /// not yet adopted Wayland's scale, so use the scale stored with those pixels.
 /// Older files migrate to the configured logical size once.
@@ -443,6 +493,58 @@ mod window_scale_tests {
     use super::linux_restored_window_size;
 
     #[test]
+    fn saved_outer_bounds_do_not_grow_across_restarts_or_frame_styles() {
+        use super::inner_size_for_saved_outer;
+        use tauri::PhysicalSize;
+        let saved = PhysicalSize::new(1280, 900);
+        for frame in [(0, 0), (16, 39), (24, 59), (32, 78)] {
+            let mut inner = PhysicalSize::new(900, 650);
+            for _ in 0..10 {
+                let outer = PhysicalSize::new(inner.width + frame.0, inner.height + frame.1);
+                inner = inner_size_for_saved_outer(saved, outer, inner).unwrap();
+                assert_eq!(
+                    PhysicalSize::new(inner.width + frame.0, inner.height + frame.1),
+                    saved,
+                    "restoring an outer size as an inner size would add the frame each time"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn inconsistent_or_oversized_frames_request_the_configured_size() {
+        use super::inner_size_for_saved_outer;
+        use tauri::PhysicalSize;
+        let saved = PhysicalSize::new(1280, 900);
+        assert_eq!(
+            inner_size_for_saved_outer(
+                saved,
+                PhysicalSize::new(900, 700),
+                PhysicalSize::new(901, 650)
+            ),
+            None
+        );
+        assert_eq!(
+            inner_size_for_saved_outer(
+                saved,
+                PhysicalSize::new(900, 700),
+                PhysicalSize::new(850, 701)
+            ),
+            None
+        );
+        for saved in [PhysicalSize::new(16, 900), PhysicalSize::new(1280, 38)] {
+            assert_eq!(
+                inner_size_for_saved_outer(
+                    saved,
+                    PhysicalSize::new(916, 689),
+                    PhysicalSize::new(900, 650)
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
     fn hidpi_physical_sizes_restore_without_growing_on_restart() {
         for scale in [1.0, 1.25, 2.0] {
             let size = linux_restored_window_size(2400, 1600, Some(scale)).unwrap();
@@ -468,7 +570,23 @@ mod window_scale_tests {
 
 #[cfg(test)]
 mod gpu_crash_flag_tests {
-    use super::{GL_BACKEND_COMPILED, GpuCrashCheck, gpu_crash_check};
+    use super::{GL_BACKEND_COMPILED, GpuCrashCheck, gpu_crash_check, process_alive};
+
+    #[test]
+    fn gpu_flag_child_waits_for_stdin() {
+        if std::env::var_os("RAWTONIC_GPU_FLAG_TEST_CHILD").is_some() {
+            use std::io::Read;
+            let _ = std::io::stdin().read(&mut [0]);
+        }
+    }
+
+    struct TestChild(std::process::Child);
+    impl Drop for TestChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
 
     #[test]
     fn a_flag_of_a_running_process_is_not_a_crash() {
@@ -476,11 +594,37 @@ mod gpu_crash_flag_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let flag = dir.join(".gpu_init_crash_flag");
         assert_eq!(gpu_crash_check(&flag, None), GpuCrashCheck::Clean);
-        // PID 1 (launchd/init) is always running.
-        std::fs::write(&flag, "1").unwrap();
+        // Keep an actual child alive until stdin closes: Windows has no
+        // launchd/init PID 1, and a short-lived --list child could exit before
+        // the liveness query. The guard also reaps it if an assertion fails.
+        let mut child = TestChild(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "startup::gpu_crash_flag_tests::gpu_flag_child_waits_for_stdin",
+                ])
+                .env("RAWTONIC_GPU_FLAG_TEST_CHILD", "1")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let pid = child.0.id();
+        assert!(process_alive(pid));
+        std::fs::write(&flag, pid.to_string()).unwrap();
         assert_eq!(
             gpu_crash_check(&flag, None),
             GpuCrashCheck::InProgressElsewhere
+        );
+        drop(child.0.stdin.take());
+        child.0.wait().unwrap();
+        assert!(!process_alive(pid));
+        assert_eq!(
+            gpu_crash_check(&flag, None),
+            GpuCrashCheck::Crashed {
+                fall_back_to_gl: GL_BACKEND_COMPILED,
+            }
         );
         // A legacy flag or a dead owner is a crash; OpenGL only where built.
         std::fs::write(&flag, "initializing_gpu").unwrap();

@@ -29,6 +29,20 @@ describe('collectPresetAdjustments', () => {
     expect(current.masks[0].subMasks[0].parameters.maskDataBase64).toBe('data:source');
   });
 
+  it("saves film grain's default Colour, so applying the preset sets it", () => {
+    const current = { ...initialAdjustmentsFor(true), grainAmount: 40, grainVersion: 3 } as Adjustments;
+    for (const presetType of ['tool', 'style'] as const) {
+      const saved = JSON.parse(JSON.stringify(collectPresetAdjustments(current, initialAdjustmentsFor(true), { ...options, presetType })));
+      expect(saved.grainColor, presetType).toBe(0);
+      const destination = { ...initialAdjustmentsFor(true), grainAmount: 40, grainVersion: 3, grainColor: 74 };
+      expect({ ...destination, ...saved }.grainColor, presetType).toBe(0);
+    }
+    // Without grain, or with older grain, no Colour is saved.
+    expect(collectPresetAdjustments({ ...initialAdjustmentsFor(true), exposure: 0.5 } as Adjustments, initialAdjustmentsFor(true), options)).not.toHaveProperty('grainColor');
+    const v2 = { ...initialAdjustmentsFor(true), grainAmount: 40, grainVersion: 2 } as Adjustments;
+    expect(collectPresetAdjustments(v2, initialAdjustmentsFor(true), options)).not.toHaveProperty('grainColor');
+  });
+
   it('never takes the sharpening response on its own', () => {
     // A response-1 photo with RAW defaults and a changed exposure: the tool
     // preset changes exposure only, not the sharpening of where it is applied.

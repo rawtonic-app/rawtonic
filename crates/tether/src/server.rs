@@ -3,6 +3,7 @@
 //! downloaded like the ones the app asks for, and sends live-view frames
 //! while they are wanted.
 use crate::camera::{AbortPoint, Camera, CameraEvent, CameraFile, Driver, Fired};
+use crate::experiment::LiveViewExperiment;
 use crate::frame;
 use crate::protocol::{
     Captured, Envelope, ErrorKind, Event, Message, PROTOCOL, Reply, Request, TetherError,
@@ -31,6 +32,9 @@ struct Exposure {
     request: Option<Asked>,
     /// `Captured::exposure`.
     number: u64,
+    /// It was in the camera's transfer queue at the connect: its files pair
+    /// only with each other, never with a new shot's under the same name.
+    queued: bool,
 }
 
 /// An app shot request: when it fired, and its number (`Reply::Fired`).
@@ -47,6 +51,9 @@ enum Shot {
     Waiting,
     /// The blocking capture fired at this time returned it.
     At(Asked),
+    /// None: it was in the camera's transfer queue when the camera was
+    /// connected (`Open::queue`).
+    Queued,
 }
 
 fn content_hash(data: &[u8]) -> u64 {
@@ -59,6 +66,20 @@ const MEMORY_ONLY: &str = "The camera keeps photos only in its memory now (no ca
      without the card), where a photo could be lost on its way: Rawtonic no longer fires it or \
      takes photos from it. Put a card in, set Save to with the card, and connect again.";
 
+const EXPERIMENTAL_OFF: &str = "Canon cameras have not been tested with Rawtonic yet, so they are \
+     not connected by default. To help test one, turn on Preferences > Tethering > Experimental: \
+     Canon cameras, keep a memory card in the camera and connect again.";
+
+const EXPERIMENTAL_SAVE_TO: &str = "Rawtonic could not set the camera to save each photo on its \
+     memory card, so it is not connected: with this camera a photo's report can get lost on its \
+     way, and the card copy is what keeps it. Set Save to (or Capture target) to the memory card \
+     on the camera and connect again.";
+
+const EXPERIMENTAL_NO_CARD: &str = "Rawtonic could not confirm that the camera saves each photo \
+     on a memory card (no card in, or it still saves to its own memory), so it is not connected: \
+     with this camera a photo's report can get lost on its way, and the card copy is what keeps \
+     it. Put a memory card in, set Save to on the camera to the card, and connect again.";
+
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -67,6 +88,13 @@ struct Open {
     camera: Box<dyn Camera>,
     staging: PathBuf,
     live_view: bool,
+    /// Live-view frames sent on this connection (for the log).
+    frames: u64,
+    /// Failed live-view frames in a row (`LiveViewExperiment::tolerate`).
+    frame_failures: u32,
+    /// When the camera's events were last read during live view
+    /// (`LiveViewExperiment::poll_every`).
+    events_read_at: Option<Instant>,
     /// App shots still waiting for their file, oldest first.
     waiting: VecDeque<Asked>,
     /// Files downloaded from this camera.
@@ -87,6 +115,10 @@ struct Open {
     /// the card, or no card): not polled or fired for the rest of this
     /// connection (photos it took meanwhile have no card copy).
     memory_only: bool,
+    /// On a driver path no body was tested on (`CameraStatus::experimental`):
+    /// nothing is freed on the camera, and a shot without its photo is
+    /// reported as kept on the card.
+    experimental: bool,
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
@@ -99,7 +131,36 @@ struct Open {
     /// shot's last file, so a RAW+JPEG's JPEG may still be on its way. A
     /// shot reported as not delivered ends it too.
     transferring: bool,
+    /// The photos that were in the camera's USB transfer queue when it was
+    /// connected and are still to be downloaded, one per turn of the loop
+    /// (requests and new photos are served in between). They were taken
+    /// while no computer took them, and a camera may keep no other copy:
+    /// they go in like any photo and are freed only after their commit
+    /// (`Request::Release`). One that cannot be downloaded stays on the
+    /// camera and is reported.
+    queue: VecDeque<CameraFile>,
+    /// The photos the transfer queue held at the connect that are not safely
+    /// downloaded yet: one the camera reports as new (also after a failed
+    /// download) is fetched as a queued photo, never taken for an app
+    /// shot's. Once one is in the transfer folder, a later file of its name
+    /// is a repeated report (same bytes, `published`) or a new photo.
+    from_queue: std::collections::HashSet<CameraFile>,
+    /// Every photo the transfer queue held at the connect. A file of one of
+    /// these names that cannot be downloaded may be that photo reported
+    /// again or a new one: it takes no app shot's request.
+    listed: std::collections::HashSet<CameraFile>,
+    /// Why the transfer queue could not be listed, told once after the
+    /// connect (its photos stay on the camera).
+    queue_unlisted: Option<TetherError>,
+    /// The transfer queue could not be listed: a file the camera reports
+    /// could be an old photo of it, so no shot is fired on this connection
+    /// (its photo could not be told from them).
+    queue_unknown: bool,
 }
+
+const QUEUE_UNKNOWN: &str = "The photos already waiting on the camera could not be listed, so a \
+     new shot could not be told from them: shots are not fired on this connection. Connect the \
+     camera again.";
 
 pub struct Server<W: Write> {
     driver: Box<dyn Driver>,
@@ -112,6 +173,7 @@ pub struct Server<W: Write> {
     connections: u64,
     /// App shot requests so far (`Asked::id`).
     asked: u64,
+    experiment: LiveViewExperiment,
 }
 
 /// Reads requests on their own thread, so the loop can wait for the camera
@@ -168,7 +230,14 @@ impl<W: Write> Server<W> {
             one_at_a_time_wait: ONE_AT_A_TIME_WAIT,
             connections: 0,
             asked: 0,
+            experiment: LiveViewExperiment::default(),
         }
+    }
+
+    /// Live-view experiments for a session with a body (`experiment`).
+    pub fn with_live_view_experiment(mut self, experiment: LiveViewExperiment) -> Self {
+        self.experiment = experiment;
+        self
     }
 
     pub fn with_shot_timeout(mut self, timeout: Duration) -> Self {
@@ -287,6 +356,7 @@ impl<W: Write> Server<W> {
                 port,
                 staging,
                 serial,
+                experimental,
             } => {
                 if !staging.is_absolute() {
                     return Err(TetherError::new(
@@ -296,6 +366,12 @@ impl<W: Write> Server<W> {
                 }
                 self.open = None;
                 let mut camera = self.driver.open(port.as_deref())?;
+                // Before any read of the camera: on libgphoto2's Canon path a
+                // settings read already prepares it for capture (and may
+                // apply a capture target), which the opt-in must precede.
+                if camera.experimental() && !experimental {
+                    return Err(TetherError::new(ErrorKind::Unsupported, EXPERIMENTAL_OFF));
+                }
                 let status = camera.status();
                 if serial.is_some() && status.serial != serial {
                     // Closed (dropped) before any event or download.
@@ -304,12 +380,57 @@ impl<W: Write> Server<W> {
                         "Another body of that model is on this port.",
                     ));
                 }
+                // A path no body was tested on (libgphoto2's Canon EOS
+                // path) only with the user's opt-in, and only with every
+                // photo kept on the memory card: its trigger can discard a
+                // photo's report, and the card copy is then the only one.
+                // notes: reference/tether.md
+                if camera.experimental() {
+                    if !camera.prefer_card() {
+                        return Err(TetherError::new(
+                            ErrorKind::Unsupported,
+                            EXPERIMENTAL_SAVE_TO,
+                        ));
+                    }
+                    if camera.memory_only()? {
+                        return Err(TetherError::new(
+                            ErrorKind::Unsupported,
+                            EXPERIMENTAL_NO_CARD,
+                        ));
+                    }
+                    log::info!(
+                        "{} on an experimental driver path: Save to on the card, nothing freed",
+                        status.model
+                    );
+                }
                 // A connection never starts with photos kept only in the
                 // camera's memory: Save to goes to the card where the camera
                 // offers that; else the camera is not opened.
                 if camera.memory_only()? && (!camera.prefer_card() || camera.memory_only()?) {
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
+                // Listed before the reply; downloaded afterwards, one per
+                // turn (`tick`).
+                let (queue, queue_unlisted): (VecDeque<CameraFile>, _) = match camera.queued() {
+                    Ok(queued) => {
+                        if !queued.is_empty() {
+                            log::info!(
+                                "{} photo(s) of {} MB in the camera's transfer queue; fetching them",
+                                queued.len(),
+                                queued.iter().filter_map(|(_, size)| *size).sum::<u64>() >> 20
+                            );
+                        }
+                        (queued.into_iter().map(|(file, _)| file).collect(), None)
+                    }
+                    Err(e) if e.kind == ErrorKind::Disconnected => return Err(e),
+                    Err(e) => {
+                        log::warn!("transfer queue not listed: {e}");
+                        (VecDeque::new(), Some(e))
+                    }
+                };
+                // Save to may have changed since the first look.
+                let status = camera.status();
+                let on_experimental_path = camera.experimental();
                 self.connections += 1;
                 log::info!(
                     "connection {}: {} (firmware {})",
@@ -321,6 +442,9 @@ impl<W: Write> Server<W> {
                     camera,
                     staging,
                     live_view: false,
+                    frames: 0,
+                    frame_failures: 0,
+                    events_read_at: None,
                     waiting: VecDeque::new(),
                     downloaded: 0,
                     published: Default::default(),
@@ -328,9 +452,15 @@ impl<W: Write> Server<W> {
                     exposures_by_stem: Default::default(),
                     exposures: 0,
                     memory_only: false,
+                    experimental: on_experimental_path,
                     connection: self.connections,
                     held: false,
                     transferring: false,
+                    from_queue: queue.iter().cloned().collect(),
+                    listed: queue.iter().cloned().collect(),
+                    queue,
+                    queue_unknown: queue_unlisted.is_some(),
+                    queue_unlisted,
                 });
                 Ok(Reply::Connected { status })
             }
@@ -367,6 +497,9 @@ impl<W: Write> Server<W> {
                 if open.memory_only || open.camera.memory_only()? {
                     open.memory_only = true;
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
+                }
+                if open.queue_unknown {
+                    return Err(TetherError::new(ErrorKind::Other, QUEUE_UNKNOWN));
                 }
                 let at = Instant::now();
                 let shot = open.camera.fire().inspect_err(|e| {
@@ -430,6 +563,12 @@ impl<W: Write> Server<W> {
                 // A photo of an earlier connection stays on its camera (the
                 // camera now open may be another one with a file of that
                 // name), and so does one whose name stands for a newer photo.
+                // Nothing is freed on an experimental path: there the card
+                // copy is what keeps a photo whose report got lost.
+                if open.experimental {
+                    log::info!("{}: kept on the camera (experimental path)", file.name);
+                    return Ok(Reply::Released { freed: false });
+                }
                 if open.connection != connection || open.downloads.get(&file) != Some(&download) {
                     log::info!("{} is not the photo to release any more; kept", file.name);
                     return Ok(Reply::Released { freed: false });
@@ -554,17 +693,52 @@ impl<W: Write> Server<W> {
             return Ok(());
         };
         let mut wait = EVENT_POLL;
-        if open.live_view {
+        let mut read = true;
+        let live_view = open.live_view;
+        if live_view {
             wait = Duration::from_millis(1);
+            // Every frame's timing goes to the debug log (a body session's
+            // trace: how long a frame takes, how long the event reads).
+            let started = Instant::now();
             match open.camera.preview() {
-                Ok(jpeg) => frame::write(&mut self.out, frame::LIVE_VIEW, &jpeg)?,
+                Ok(jpeg) => {
+                    open.frames += 1;
+                    open.frame_failures = 0;
+                    log::debug!(
+                        "live view frame {}: {} bytes in {} ms",
+                        open.frames,
+                        jpeg.len(),
+                        ms(started)
+                    );
+                    frame::write(&mut self.out, frame::LIVE_VIEW, &jpeg)?
+                }
+                Err(error) if error.kind == ErrorKind::Disconnected => {
+                    open.live_view = false;
+                    return self.lost(error);
+                }
+                Err(error) if open.frame_failures < self.experiment.tolerate => {
+                    open.frame_failures += 1;
+                    log::info!(
+                        "live view frame failed after {} ms ({} in a row, tolerated): {error}",
+                        ms(started),
+                        open.frame_failures
+                    );
+                }
                 Err(error) => {
                     open.live_view = false;
-                    if error.kind == ErrorKind::Disconnected {
-                        return self.lost(error);
-                    }
+                    log::info!(
+                        "live view stopped after {} frames: frame failed after {} ms ({:?}: {error})",
+                        open.frames,
+                        ms(started),
+                        error.kind
+                    );
                     self.event(Event::LiveViewStopped { error })?;
                 }
+            }
+            if let Some(open) = self.open.as_ref()
+                && let Some(every) = self.experiment.poll_every
+            {
+                read = open.events_read_at.is_none_or(|at| at.elapsed() >= every);
             }
         }
         while let Some(open) = self.open.as_mut()
@@ -577,6 +751,7 @@ impl<W: Write> Server<W> {
             if open.waiting.is_empty() {
                 open.transferring = false;
             }
+            let experimental = open.experimental;
             if let Some(asked) = asked {
                 log::warn!(
                     "request {}: no photo {} s after the shot; reported as not delivered, not fired again",
@@ -584,19 +759,70 @@ impl<W: Write> Server<W> {
                     self.shot_timeout.as_secs()
                 );
             }
+            let message = if experimental {
+                // The known risk of this path (libgphoto2's EOS trigger can
+                // discard a photo's report): said every time, never silent.
+                format!(
+                    "Shot {} was not received within {} s. If the camera took it, it is on the \
+                     memory card: with this camera (experimental support) a photo's report can get \
+                     lost on its way. It was not fired again.",
+                    asked.map_or(0, |asked| asked.id),
+                    self.shot_timeout.as_secs()
+                )
+            } else {
+                "No photo came within a minute of the shot: the camera may not have fired (with \
+                 autofocus, a shot that finds no focus is not taken) or did not hand it over. It \
+                 was not fired again."
+                    .to_string()
+            };
             self.event(Event::CaptureFailed {
-                error: TetherError::new(
-                    ErrorKind::Timeout,
-                    "No photo came within a minute of the shot: the camera may not have fired (with \
-                     autofocus, a shot that finds no focus is not taken) or did not hand it over. It \
-                     was not fired again.",
-                ),
+                error: TetherError::new(ErrorKind::Timeout, message),
                 request: asked.map(|asked| asked.id),
                 exposure: None,
                 ambiguous: Vec::new(),
             })?;
         }
-        self.read_events(wait).map(|_| ())
+        if let Some(open) = self.open.as_mut()
+            && let Some(error) = open.queue_unlisted.take()
+        {
+            self.event(Event::CaptureFailed {
+                error: TetherError::new(
+                    error.kind,
+                    format!(
+                        "The photos left in the camera's transfer queue could not be listed, so \
+                         they were not fetched; they stay on the camera. Connect it again to fetch \
+                         them. ({})",
+                        error.message
+                    ),
+                ),
+                request: None,
+                exposure: None,
+                ambiguous: Vec::new(),
+            })?;
+        }
+        // Not while held (nothing more is downloaded) or while the camera
+        // keeps photos only in its memory (nothing is read then).
+        if let Some(open) = self.open.as_mut()
+            && !open.held
+            && !open.memory_only
+            && let Some(file) = open.queue.pop_front()
+        {
+            self.download(file, Shot::Queued)?;
+        }
+        if !read {
+            return Ok(());
+        }
+        let started = Instant::now();
+        let handled = self.read_events(wait)?;
+        if live_view && let Some(open) = self.open.as_mut() {
+            open.events_read_at = Some(Instant::now());
+            log::debug!(
+                "live view: camera events read in {} ms{}",
+                ms(started),
+                if handled { " (one handled)" } else { "" }
+            );
+        }
+        Ok(())
     }
 
     /// Reads the camera's events for up to `wait` (after checking that a
@@ -646,6 +872,13 @@ impl<W: Write> Server<W> {
         }
         match open.camera.wait_event(wait) {
             Ok(CameraEvent::FileAdded(file)) => {
+                // A photo of the transfer queue reported as new (libgphoto2's
+                // Fujifilm event wait reports every object it has not listed
+                // itself): fetched now, never taken for an app shot's photo.
+                if open.from_queue.contains(&file) {
+                    open.queue.retain(|queued| *queued != file);
+                    return self.download(file, Shot::Queued).map(|()| true);
+                }
                 if open.camera.one_shot_at_a_time() {
                     open.transferring = true;
                 }
@@ -682,11 +915,20 @@ impl<W: Write> Server<W> {
             return Ok(());
         };
         let reported = Instant::now();
-        log::info!(
-            "camera reported {} ({} shot(s) waiting)",
-            file.name,
-            open.waiting.len()
-        );
+        let queued = matches!(shot_of, Shot::Queued);
+        if queued {
+            log::info!(
+                "{} from the camera's transfer queue ({} more to fetch)",
+                file.name,
+                open.queue.len()
+            );
+        } else {
+            log::info!(
+                "camera reported {} ({} shot(s) waiting)",
+                file.name,
+                open.waiting.len()
+            );
+        }
         let shot = open.downloaded + 1;
         let downloaded = open.camera.download(&file);
         // The same photo reported twice (libgphoto2's Fujifilm event polling
@@ -703,6 +945,34 @@ impl<W: Write> Server<W> {
             log::info!("{} reported again; already downloaded", file.name);
             return Ok(());
         }
+        // A file under the name of a photo the queue held at the connect
+        // that cannot be downloaded: it may be that photo reported again or
+        // a new one, so it answers no request (the request stays waiting).
+        if !queued
+            && open.listed.contains(&file)
+            && let Err(error) = &downloaded
+        {
+            if error.kind == ErrorKind::Disconnected {
+                return self.lost(error.clone());
+            }
+            log::warn!(
+                "{} not downloaded after {} ms ({:?}: {}); its name was in the transfer queue, \
+                 so it answers no request",
+                file.name,
+                ms(reported),
+                error.kind,
+                error.message
+            );
+            return self.event(Event::CaptureFailed {
+                error: TetherError::new(
+                    error.kind,
+                    format!("{} could not be downloaded: {}", file.name, error.message),
+                ),
+                request: None,
+                exposure: None,
+                ambiguous: Vec::new(),
+            });
+        }
         let (stem, extension) = match file.name.rsplit_once('.') {
             Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),
             None => (file.name.clone(), String::new()),
@@ -716,18 +986,23 @@ impl<W: Write> Server<W> {
         // JPEG-only ones (likewise A.RAW; A.RAW+A.JPG; A.JPG). Such a file
         // names the exposures it may belong to (`ambiguous`) (the camera test then reports its step as
         // inconclusive). notes: reference/tether.md
+        // A queued photo's file and a new shot's file under one name belong
+        // to different exposures (the queued one was taken before the
+        // connect): each looks only among its own kind.
         let ambiguous: Vec<u64> = match (&shot_of, open.exposures_by_stem.get(&stem)) {
-            (Shot::Waiting, Some(exposures)) => {
+            (Shot::Waiting | Shot::Queued, Some(exposures)) => {
                 let candidates: Vec<u64> = exposures
                     .iter()
-                    .filter(|e| !e.kinds.contains(&extension))
+                    .filter(|e| e.queued == queued && !e.kinds.contains(&extension))
                     .map(|e| e.number)
                     .collect();
                 // Another exposure of the name could have taken it (more
                 // than one open), or it may be a new exposure (the one open
                 // is not the newest: a newer one already has this kind).
                 let newest_has_it = exposures
-                    .back()
+                    .iter()
+                    .rev()
+                    .find(|e| e.queued == queued)
                     .is_some_and(|e| e.kinds.contains(&extension));
                 if candidates.len() > 1 || (candidates.len() == 1 && newest_has_it) {
                     candidates
@@ -738,12 +1013,14 @@ impl<W: Write> Server<W> {
             _ => Vec::new(),
         };
         let companion = match shot_of {
-            Shot::Waiting => open.exposures_by_stem.get_mut(&stem).and_then(|exposures| {
-                exposures
-                    .iter_mut()
-                    .rev()
-                    .find(|e| !e.kinds.contains(&extension))
-            }),
+            Shot::Waiting | Shot::Queued => {
+                open.exposures_by_stem.get_mut(&stem).and_then(|exposures| {
+                    exposures
+                        .iter_mut()
+                        .rev()
+                        .find(|e| e.queued == queued && !e.kinds.contains(&extension))
+                })
+            }
             Shot::At(_) => None,
         };
         let (requested, exposure) = match companion {
@@ -756,12 +1033,14 @@ impl<W: Write> Server<W> {
                 let request = match shot_of {
                     Shot::Waiting => open.waiting.pop_front(),
                     Shot::At(at) => Some(at),
+                    Shot::Queued => None,
                 };
                 open.exposures += 1;
                 let exposure = Exposure {
                     kinds: vec![extension],
                     request,
                     number: open.exposures,
+                    queued,
                 };
                 open.exposures_by_stem
                     .entry(stem)
@@ -834,6 +1113,9 @@ impl<W: Write> Server<W> {
         // downloaded (a repeat of a failed one is taken again).
         open.published.insert(file.clone(), identity);
         open.downloads.insert(file.clone(), shot);
+        if queued {
+            open.from_queue.remove(&file);
+        }
         if open.camera.abort_at(AbortPoint::BeforeEvent, shot) {
             std::process::exit(70);
         }
@@ -842,10 +1124,11 @@ impl<W: Write> Server<W> {
             file.name,
             expected,
             ms(reported),
-            requested.map_or("fired on the body".to_string(), |asked| format!(
-                "request {}",
-                asked.id
-            )),
+            match requested {
+                Some(asked) => format!("request {}", asked.id),
+                None if queued => "left in the camera's transfer queue".to_string(),
+                None => "fired on the body".to_string(),
+            },
             if ambiguous.is_empty() {
                 String::new()
             } else {

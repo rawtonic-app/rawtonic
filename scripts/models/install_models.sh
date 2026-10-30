@@ -18,7 +18,7 @@
 set -eu
 
 REPO=rawtonic-app/models
-TAG=pack-2026-10-18
+TAG=pack-2026-10-27b
 RUNTIME=0
 CUDA=0
 while [ $# -gt 0 ]; do
@@ -60,7 +60,7 @@ fi
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern '*.onnx' --pattern 'siglip2_tags.bin' \
-  --pattern 'siglip2_tokenizer.json' --pattern 'nlmf_coreml_*' --pattern 'nlmf_mixed640_macos13_coreml_*' --pattern 'birefnet_fp16_coreml_*' --pattern 'skyseg_coreml_*' --pattern models.json
+  --pattern 'siglip2_tokenizer.json' --pattern 'nlmf_coreml_*' --pattern 'nlmf_mixed640_macos13_coreml_*' --pattern 'birefnet_fp16_coreml_*' --pattern 'skyseg_coreml_*' --pattern 'moebius_unet_fp16_coreml_*' --pattern 'sdxl_vae_*_fp16_coreml_*' --pattern moebius_embeddings.bin --pattern models.json
 if [ "$RUNTIME" = 1 ]; then
   for pair in $LIBS; do
     gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern "${pair%%:*}"
@@ -98,7 +98,7 @@ install_file() {
 }
 
 mkdir -p "$MODELS"
-for file in "$WORK"/*.onnx "$WORK"/siglip2_tags.bin "$WORK"/siglip2_tokenizer.json "$WORK"/nlmf_coreml_* "$WORK"/nlmf_mixed640_macos13_coreml_* "$WORK"/birefnet_fp16_coreml_* "$WORK"/skyseg_coreml_*; do
+for file in "$WORK"/*.onnx "$WORK"/siglip2_tags.bin "$WORK"/siglip2_tokenizer.json "$WORK"/nlmf_coreml_* "$WORK"/nlmf_mixed640_macos13_coreml_* "$WORK"/birefnet_fp16_coreml_* "$WORK"/skyseg_coreml_* "$WORK"/moebius_unet_fp16_coreml_* "$WORK"/sdxl_vae_*_fp16_coreml_* "$WORK"/moebius_embeddings.bin; do
   [ -e "$file" ] || continue
   install_file "$file" "$MODELS" "$(basename "$file")"
 done
@@ -106,7 +106,7 @@ done
 # the app does on first use (the `rawtonic` CLI loads them as they are and
 # downloads nothing). "file prefix:package".
 if [ "$(uname -s)" = Darwin ]; then
-  for pair in nlmf_coreml_:nlmf nlmf_mixed640_macos13_coreml_:nlmf_mixed640 birefnet_fp16_coreml_:birefnet_fp16 skyseg_coreml_:skyseg_upernet; do
+  for pair in nlmf_coreml_:nlmf nlmf_mixed640_macos13_coreml_:nlmf_mixed640 birefnet_fp16_coreml_:birefnet_fp16 skyseg_coreml_:skyseg_upernet moebius_unet_fp16_coreml_:moebius_unet_fp16 sdxl_vae_encoder_fp16_coreml_:sdxl_vae_encoder_fp16 sdxl_vae_decoder_fp16_coreml_:sdxl_vae_decoder_fp16; do
     prefix=${pair%%:*}; package="$MODELS/${pair##*:}.mlpackage"
     [ -e "$MODELS/${prefix}weight.bin" ] || continue
     changed=0

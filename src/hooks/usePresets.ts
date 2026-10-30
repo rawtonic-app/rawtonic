@@ -45,7 +45,14 @@ export function collectPresetAdjustments(
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  return presetToSave(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current), current));
+  const versioned = withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current), current);
+  // Film grain's Colour goes with its grain even at its default (missing = 0),
+  // so applying the preset does not keep another photo's Colour.
+  const grainSaved = ['grainAmount', 'grainSize', 'grainRoughness'].some((key) => key in versioned);
+  if (grainSaved && (versioned.grainVersion ?? 0) >= 3 && versioned.grainColor == null) {
+    versioned.grainColor = current.grainColor ?? 0;
+  }
+  return presetToSave(versioned);
 }
 
 export enum PresetListType {

@@ -5,9 +5,12 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+// Common Controls v6 is also required by the dialog imports of lib unit tests.
+#[cfg(all(test, target_os = "windows", target_env = "msvc"))]
+include!(concat!(env!("OUT_DIR"), "/windows-test-resources.rs"));
+
 mod adjustment_utils;
 mod ai_commands;
-mod ai_connector;
 mod ai_denoise;
 mod ai_faces;
 mod ai_lifecycle;
@@ -59,6 +62,7 @@ mod lut_processing;
 mod mask_generation;
 mod memory_pressure;
 mod merges;
+mod moebius;
 mod multi_view;
 mod multi_view_prefetch;
 mod negative_conversion;
@@ -73,6 +77,7 @@ mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
 mod red_eye;
+mod series_match;
 mod session_bridge;
 mod snapshots;
 mod spot_removal;
@@ -217,11 +222,8 @@ pub fn run() {
             }
             let tauri::WindowEvent::Resized(size) = event else { return };
             let state = window.state::<AppState>();
-            if let Some(ctx) = state.gpu_context.lock().unwrap().as_ref()
-                && let Ok(mut display_lock) = ctx.display.try_lock()
-                    && let Some(display) = display_lock.as_mut() {
-                        display.resize(&ctx.device, &ctx.queue, size.width, size.height);
-                    }
+            let Some(ctx) = state.gpu_context.lock().unwrap().clone() else { return };
+            gpu_processing::resize_display(ctx, size.width, size.height);
         })
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).
@@ -537,30 +539,14 @@ pub fn run() {
                         if let Ok(state) = serde_json::from_str::<WindowState>(&contents) {
                             let monitor_bounds = startup::available_monitor_bounds(&window);
                             if startup::saved_window_state_is_usable(&state, &monitor_bounds) {
-                                #[cfg(target_os = "linux")]
-                                let size = startup::linux_restored_window_size(
-                                    state.width,
-                                    state.height,
-                                    state.scale_factor,
-                                )
-                                .unwrap_or_else(|| {
-                                    // Neither GTK nor its monitor reports the final
-                                    // scale before Wayland maps the window. Migrate
-                                    // older files once using the configured size.
-                                    tauri::Size::Logical(tauri::LogicalSize::new(
+                                startup::restore_window_bounds(
+                                    &window,
+                                    &state,
+                                    tauri::LogicalSize::new(
                                         main_window_cfg.width,
                                         main_window_cfg.height,
-                                    ))
-                                });
-                                #[cfg(not(target_os = "linux"))]
-                                let size = tauri::Size::Physical(tauri::PhysicalSize::new(
-                                    state.width,
-                                    state.height,
-                                ));
-                                let _ = window.set_size(size);
-                                let _ = window.set_position(tauri::Position::Physical(
-                                    tauri::PhysicalPosition::new(state.x, state.y),
-                                ));
+                                    ),
+                                );
                             } else {
                                 log::warn!(
                                     "Saved window state was unusable ({}x{} at {},{}), centering instead.",
@@ -673,6 +659,8 @@ pub fn run() {
             session_bridge::session_open,
             session_bridge::session_last,
             session_bridge::session_summary,
+            session_bridge::session_pending_xmp,
+            session_bridge::session_write_pending_xmp,
             session_bridge::session_ingest,
             session_bridge::session_naming_preview,
             session_bridge::session_ingest_scan,
@@ -716,6 +704,7 @@ pub fn run() {
             editor_preview::apply_adjustments,
             gpu_processing::sample_preview_color,
             editor_preview::sample_curve_input,
+            editor_preview::levels_input_histogram,
             gpu_processing::sample_preview_white_balance,
             gpu_processing::sample_preview_grey_world,
             editor_preview::generate_preview_for_path,
@@ -853,6 +842,7 @@ pub fn run() {
             file_management::plan_move_folder,
             file_management::rename_folder,
             file_management::rename_files,
+            file_management::preview_rename,
             file_management::duplicate_file,
             file_management::show_in_finder,
             file_management::save_metadata_and_update_thumbnail,
@@ -865,6 +855,11 @@ pub fn run() {
             file_management::apply_auto_lens_correction_to_paths,
             file_management::resolve_pasted_lens,
             file_management::apply_auto_adjustments_to_paths,
+            file_management::set_recipe_values,
+            file_management::replace_recipes,
+            series_match::analyze_series_match,
+            series_match::cancel_series_match,
+            series_match::clear_series_match_cache,
             file_management::handle_import_presets_from_file,
             file_management::handle_import_legacy_presets_from_file,
             file_management::handle_import_presets_from_files,

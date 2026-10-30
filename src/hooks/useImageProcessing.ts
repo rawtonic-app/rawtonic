@@ -10,6 +10,7 @@ import { useRelightStore } from '../store/useRelightStore';
 import { useSnapshotStore } from '../store/useSnapshotStore';
 import { stripSentRelightData } from '../utils/relight';
 import { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
+import { showClippingValue } from '../utils/clippingWarnings';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import { referToSentMaskBitmaps } from '../utils/bitmapIds';
@@ -37,6 +38,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { interactivePreview } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
+import { needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import {
   MASK_PARAMETERS_MISSING,
@@ -98,6 +100,8 @@ export function useImageProcessing(
   const displaySize = useEditorStore((state) => state.displaySize);
   const baseRenderSize = useEditorStore((state) => state.baseRenderSize);
   const originalSize = useEditorStore((state) => state.originalSize);
+  // The recipe being rendered: a hovered preset's grain too.
+  const hasGrain = useEditorStore((state) => ((state.previewOverride ?? state.adjustments).grainAmount ?? 0) > 0);
   const isSliderDragging = useEditorStore((state) => state.isSliderDragging);
   const setEditor = useEditorStore((state) => state.setEditor);
 
@@ -454,7 +458,8 @@ export function useImageProcessing(
     () =>
       useEditorStore.subscribe((state, previous) => {
         const viewChanged =
-          state.clippingWarnings !== previous.clippingWarnings ||
+          state.clipHighlights !== previous.clipHighlights ||
+          state.clipShadows !== previous.clipShadows ||
           state.softProof !== previous.softProof ||
           state.softProofSpace !== previous.softProofSpace ||
           state.softProofWarning !== previous.softProofWarning ||
@@ -532,11 +537,9 @@ export function useImageProcessing(
         const editor = useEditorStore.getState();
         if (editor.selectedImage?.path !== path) return settleBusy();
         settleBusy();
+        // The native side keeps the bitmaps sent for this photograph (its
+        // patch cache does not depend on the source's development).
         editor.setEditor({
-          // The source developed again cleared the native side's bitmaps
-          // (patch cache): send them again. A new set, so requests still
-          // under way acknowledge theirs into the old one.
-          patchesSentToBackend: new Set<string>(),
           selectedImage: {
             ...editor.selectedImage,
             aiDenoise: Math.round(applied),
@@ -638,27 +641,14 @@ export function useImageProcessing(
       return baseTargetRes;
     }
 
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    const sharpnessFactor = 1.25;
-    const zoomMultiplier = appSettings?.highResZoomMultiplier || 1.0;
-    const effectiveDpr = appSettings?.useFullDpiRendering ? dpr : 1;
-
-    let targetRes = Math.max(displaySize.width, displaySize.height) * effectiveDpr * sharpnessFactor * zoomMultiplier;
-    targetRes = Math.max(targetRes, 512);
-
-    if (originalSize && originalSize.width > 0 && originalSize.height > 0) {
-      const origMax = Math.max(originalSize.width, originalSize.height);
-      targetRes = Math.min(targetRes, origMax);
-      if (targetRes >= origMax * 0.8) {
-        targetRes = origMax;
-      }
-    }
-
-    if (originalSize && targetRes !== Math.max(originalSize.width, originalSize.height)) {
-      targetRes = Math.ceil(targetRes / 256) * 256;
-    }
-
-    return Math.round(targetRes);
+    return previewTargetResolution({
+      display: displaySize,
+      dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+      fullDpi: !!appSettings?.useFullDpiRendering,
+      zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
+      original: originalSize,
+      grain: hasGrain,
+    });
   }, [
     appSettings?.enableZoomHifi,
     appSettings?.editorPreviewResolution,
@@ -667,6 +657,7 @@ export function useImageProcessing(
     displaySize.width,
     displaySize.height,
     originalSize,
+    hasGrain,
   ]);
 
   // A slider drag's moves between store commits (utils/sliderDraft.ts), as
@@ -709,9 +700,9 @@ export function useImageProcessing(
   const requestHiFiZoom = useMemo(
     () =>
       debounce((targetRes: number) => {
-        if (targetRes > currentResRef.current) {
+        const { adjustments, previewOverride } = useEditorStore.getState();
+        if (needsFrameSize(targetRes, currentResRef.current, ((previewOverride ?? adjustments).grainAmount ?? 0) > 0)) {
           currentResRef.current = targetRes;
-          const { adjustments, previewOverride } = useEditorStore.getState();
           const renderAdjustments = previewOverride ?? adjustments;
           applyAdjustments(renderAdjustments, false, targetRes);
         }
@@ -729,7 +720,7 @@ export function useImageProcessing(
       }
       const finalRes = Math.round(baseRes);
 
-      if (finalRes > currentResRef.current) {
+      if (needsFrameSize(finalRes, currentResRef.current, hasGrain)) {
         requestHiFiZoom(finalRes);
       }
     }
@@ -748,6 +739,7 @@ export function useImageProcessing(
     requestHiFiZoom,
     originalSize,
     currentResRef,
+    hasGrain,
   ]);
 
   useLayoutEffect(() => {
@@ -835,7 +827,8 @@ export function useImageProcessing(
 export function withViewStates(adjustments: Adjustments): Adjustments {
   const payload = structuredClone(adjustments);
   const view = useEditorStore.getState();
-  if (view.clippingWarnings) payload.showClipping = true;
+  // Which clipping warnings the renderer marks (0 = none).
+  payload.showClipping = showClippingValue(view.clipHighlights, view.clipShadows);
   if (view.softProof) {
     payload.softProof = view.softProofSpace;
     payload.softProofWarning = view.softProofWarning;

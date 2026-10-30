@@ -139,6 +139,7 @@
       "flag_unflag": "フラグなし",
       "import_photos": "写真を読み込む…",
       "keyboard_shortcuts": "キーボードショートカット",
+      "match_light": "光を揃える…",
       "move_to_selects": "セレクトに移動",
       "new_session": "新規プロジェクトまたはカタログ…",
       "open_session": "プロジェクトまたはカタログを開く…",
@@ -161,6 +162,7 @@
       "sync_settings": "設定を同期",
       "tether_capture": "撮影（テザーカメラ）",
       "toggle_all_panels": "すべてのパネルとバー",
+      "toggle_auto_advance": "自動送り",
       "toggle_bottom_panel": "フィルムストリップ",
       "toggle_clipping": "クリッピング警告",
       "toggle_export": "書き出す…",
@@ -221,7 +223,10 @@
     "empty": "一致するコマンドがありません。別の語句で検索してください。",
     "keys": "↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
     "recent": "最近使ったコマンドを優先 · ↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
-    "search": "コマンドを検索…"
+    "search": "コマンドを検索…",
+    "selectAtMostPhotos": "写真は最大{{max}}枚まで選択してください",
+    "selectFourPhotos": "写真を4枚以上選択してください",
+    "selectTwoPhotos": "写真を2枚以上選択してください"
   },
   "contextMenus": {
     "album": {
@@ -312,6 +317,8 @@
       "duplicateImage": "画像を複製",
       "exportImage_one": "画像を書き出し",
       "exportImage_other": "{{count}} 枚の画像を書き出し",
+      "matchLight_one": "光を揃える…",
+      "matchLight_other": "光を揃える…",
       "noAlbums": "利用可能なアルバムがありません",
       "pasteAdjustments_one": "補正設定を貼り付け",
       "pasteAdjustments_other": "{{count}} 枚の画像に補正設定を貼り付け",
@@ -844,15 +851,35 @@
       "zoomInTooltip": "拡大",
       "zoomOutTooltip": "縮小"
     },
+    "quit": {
+      "quitAnyway": "終了する",
+      "unsavedMessage": "次の変更を保存できませんでした: {{changes}}。今終了すると、これらの変更は失われます。キャンセルすると Rawtonic を開いたまま再試行できます。",
+      "unsavedTitle": "未保存の変更"
+    },
     "renameFile": {
+      "blocked": "上の問題をすべて解決するまで名前は変更できません。",
       "cancel": "キャンセル",
+      "checking": "名前を確認しています…",
       "fileNamingTemplate": "ファイル命名テンプレート",
+      "more": "一覧に表示されていない写真: {{hidden}}",
       "newName": "新しい名前",
+      "noteXmpStays": "{{xmp}} は名前を変更しない {{owner}} に残ります。",
+      "noteXmpWithRaw": "{{xmp}} はこの RAW と一緒に名前が変わります。{{others}} は XMP なしで元の名前のままです。",
+      "nothingChanges": "名前は変わりません。",
+      "preview": "プレビュー",
+      "previewFailed": "プレビューに失敗しました: {{error}}",
+      "problemInvalidName": "「{{name}}」は有効なファイル名ではありません。",
+      "problemNotFound": "ファイルがもうありません。",
+      "problemOccupied": "{{name}} はすでに存在します。",
+      "problemSameTarget": "この名前変更の別のファイルも {{name}} になります。",
       "save": "保存",
+      "summary": "名前が変わる写真: {{photos}} · ファイル合計: {{files}}",
       "titleMultiple": "{{count}} 件の画像名を変更",
       "titleMultiple_one": "{{count}} 件の画像名を変更",
       "titleMultiple_other": "{{count}} 件の画像名を変更",
-      "titleSingle": "画像名を変更"
+      "titleSingle": "画像名を変更",
+      "unchanged": "名前は変わりません",
+      "withFiles": "一緒に名前が変わるファイル: {{files}}"
     },
     "renameFolder": {
       "cancel": "キャンセル",
@@ -940,6 +967,13 @@
       "year": "年",
       "yearShort": "年 · 2桁"
     }
+  },
+  "notifications": {
+    "close": "通知を閉じる",
+    "quitCancelled": "保存が完了しなかったため、Rawtonic は終了しませんでした。保留中の変更は引き続き保存されています。",
+    "quitSaving": "Rawtonic を終了する前に変更を保存しています…",
+    "quitSavingPhotos": "Rawtonic を終了する前に変更を保存しています…（{{done}}/{{total}}）",
+    "region": "通知"
   },
   "offline": {
     "badge": "オフライン",
@@ -1047,9 +1081,7 @@
       "picked_other": "採用 {{count}}",
       "tether": "テザー",
       "tetherConnected": "{{camera}} 接続中",
-      "tetherTitle": "テザー撮影：USB 接続したカメラの写真がこのライブラリに直接入ります",
-      "xmpPending_other": "XMP 保留 {{count}}",
-      "xmpPendingAction_other": "{{count}} 枚の写真に XMP 同期が必要です – クリックして確認"
+      "tetherTitle": "テザー撮影：USB 接続したカメラの写真がこのライブラリに直接入ります"
     },
     "create": {
       "catalog": "カタログ",
@@ -1065,7 +1097,7 @@
       "location": "場所",
       "modeLabel": "整理方法",
       "name": "プロジェクト名",
-      "namePlaceholder": "2026-10-01_クライアント_案件",
+      "namePlaceholder": "{{date}}_クライアント_案件",
       "namePreview": "あなたの仕事",
       "originalsUntouched": "元の写真は変更されません。",
       "session": "プロジェクト",
@@ -1212,6 +1244,7 @@
       "failed": "前回のライブラリを開けませんでした: {{error}}",
       "opening": "{{name}} を開いています（{{directory}}）… macOS がこのボリュームへのアクセスを求めた場合は許可してください。"
     },
+    "switching": "ライブラリを開いています…",
     "sync": {
       "applied": "移動 {{moved}} · 追加 {{added}} · 削除 {{removed}}",
       "apply": "適用（{{n}}）",
@@ -1269,6 +1302,13 @@
     "tether": {
       "battery": "バッテリー {{level}}",
       "camera": "カメラ",
+      "canon": {
+        "badge": "試験的",
+        "connectedNote": "試験的機能：写真がここに表示されなくても、失われたわけではありません。メモリーカードに残っています。カードはカメラに入れたままにしてください。Rawtonic から撮影した写真が届かなかったときは Rawtonic がお知らせします。ただし、その間にカメラ側で撮影した写真が届いて、その代わりになった場合は除きます。セッションの後は、カードとライブラリを見比べてください。",
+        "notReceived": "{{n}} 枚目の写真を受信できませんでした。カメラが撮影していれば、メモリーカードに残っています。",
+        "openPreferences": "テザーの環境設定を開く",
+        "optInNeeded": "Canon のカメラはまだ Rawtonic でテストされていません。お使いのカメラを試してテストに協力するには、環境設定 > テザーで「試験的：Canon カメラ」をオンにしてください。"
+      },
       "capture": "撮影",
       "captureFailed": "撮影に失敗しました：{{error}}",
       "captureTitle": "カメラのシャッターを切る（⌘K / Ctrl+K）",
@@ -1285,6 +1325,7 @@
       "lastIn": "{{file}} はライブラリにあります",
       "lastTiming": "{{file}} は撮影の {{ms}} ms 後にライブラリへ",
       "level": {
+        "experimental": "試験的 — テスターを募集しています。まだ Rawtonic でテストされていません。写真がここに表示されず、メモリーカードにしか残らないことがあります。",
         "notSupported": "このカメラはまだサポートされていません。",
         "reported": "このカメラ機種のユーザーから動作の報告があります。",
         "tested": "このカメラ機種で {{systems}} にてテスト済み（{{date}}）。",
@@ -1302,6 +1343,14 @@
         "bursting": "{{shots}} 枚を連続撮影中…",
         "button": "カメラテスト…",
         "buttonTitle": "このカメラを手順ごとにテストし、匿名レポートを作成",
+        "canonGuide": {
+          "card": "テストの間は、カメラにメモリーカードを入れたままにしてください。",
+          "missing": "写真が表示されない場合も、それは大切な情報です。写真はメモリーカードに残っていて、テストにも数えられます。",
+          "send": "最後に「{{button}}」をクリックします。送信される内容が正確に表示されます（写真、ファイル名、シリアル番号は含まれません）。確認するまで、何もコンピューターの外には出ません。",
+          "sendNote": "この結果は試験的な Canon 対応によるものです。ご協力ありがとうございます。写真が届かなかった結果も含め、どの結果も役に立ちます。",
+          "steps": "下の手順を順番に進めてください。「実行」をクリックして、手順の指示どおりに操作します。お使いのカメラでできない手順は「スキップ」をクリックしてください。",
+          "title": "Canon カメラのテスト方法"
+        },
         "close": "カメラテストを閉じる",
         "how": {
           "autofocus": "1 回ピントを合わせます。MF レンズやカメラの MF 設定ではスキップしてください。",
@@ -1402,6 +1451,13 @@
       "unsaved": "変更を保存できませんでした: {{files}}",
       "verifyProgress_other": "検証中 · {{count}} ファイル確認済み"
     },
+    "unsaved": {
+      "cancel": "キャンセル",
+      "discard": "未保存の編集を破棄",
+      "message": "次の編集を保存できませんでした: {{files}}。今ほかのライブラリを開くと失われます。先に保存するには再試行、破棄、またはこのライブラリに留まるにはキャンセルを選んでください。",
+      "retry": "再試行",
+      "title": "編集が保存されていません"
+    },
     "welcome": {
       "body": "次の撮影のために持ち運べるプロジェクトを作成しましょう。撮影データ、補正、納品物を、最初のコマから最終セレクトまでひとまとめにできます。",
       "create": "プロジェクトを作成",
@@ -1416,37 +1472,75 @@
       "toolsSide": "現像ツールをどちら側に配置しますか？"
     },
     "xmp": {
-      "conflictHeading_other": "競合 {{count}}",
-      "conflictHint": "前回の同期以降、XMP サイドカーが Rawtonic の外部で変更されました。どちらのメタデータを残すか選んでください。",
-      "editNotAdopted": "保存された補正がまだライブラリにありません。先に現像でこの写真を補正してから解決してください。",
-      "inSync": "すべての XMP サイドカーは同期済みです。",
-      "keepLibrary": "ライブラリを保持",
-      "keepLibraryAll": "すべてライブラリを保持",
-      "keepLibraryFor": "{{name}} でライブラリを保持",
-      "keepLibraryTitle": "ライブラリのメタデータを XMP サイドカーに書き込みます",
-      "leftOut_other": "{{count}} 枚の写真を「XMP を使用」から除外しました。先に現像で補正してください。",
-      "loading": "XMP サイドカーを確認しています…",
-      "more_other": "ほか {{count}} 件",
-      "offline": "オフライン",
-      "offlineNote_other": "{{count}} 枚の写真がオフラインです。ファイルまたはドライブが戻ると XMP が書き込まれます。",
-      "originalsUntouched": "書き込まれるのは XMP サイドカーのみで、写真は変更されません。",
-      "pendingHeading_other": "保留 {{count}}",
-      "pendingHint": "ライブラリの方が新しく、XMP サイドカーはまだ書き込まれていません(写真がオフライン、読み取り専用、または書き込み失敗)。",
-      "prefsOff": "環境設定で XMP 同期がオフになっています。この設定はライブラリなしで開いたフォルダーに適用されます。このライブラリの写真の XMP サイドカーは最新の状態に保たれます。",
-      "result": "完了: {{done}} · オフライン: {{offline}} · 競合: {{conflicts}} · 失敗: {{failed}}",
-      "subtitle": "他のアプリケーション向けに、各写真の横に保存されるレーティング、ラベル、キーワード、IPTC メタデータ。",
-      "syncNow": "今すぐ同期",
-      "title": "XMP サイドカー",
-      "undo_other": "「XMP を使用」を取り消す ({{count}})",
-      "useXmp": "XMP を使用",
-      "useXmpAll": "すべて XMP を使用",
-      "useXmpFor": "{{name}} で XMP を使用",
-      "useXmpTitle": "サイドカーのレーティング、ラベル、キーワード、IPTC メタデータをライブラリに読み込みます(取り消し可能)",
-      "view": "確認する XMP"
+      "buttonTitle": "一部の XMP ファイルがライブラリの内容に追いついていません。クリックすると詳細を表示し、再書き込みできます。",
+      "count_other": "{{count}} 件の XMP が未更新",
+      "explain": "編集、レーティング、キーワードはライブラリに安全に保存されています。XMP ファイルを読むほかのプログラムには、これらの変更がまだ見えません。写真そのものが変更されることはありません。",
+      "heading_other": "{{count}} 枚の写真の XMP ファイルが最新ではありません",
+      "reason": {
+        "changedElsewhere_other": "{{count}} 件の XMP ファイルがほかのプログラムで変更されました。Rawtonic は上書きしません。ライブラリにはあなたの内容が保持されます。",
+        "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
+        "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
+        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (RAW と JPEG)。両方が同じ XMP ファイルに書き込むことになります。"
+      },
+      "retry": "再試行",
+      "retryFailed": "XMP ファイルを書き込めませんでした: {{error}}",
+      "show": "写真を表示",
+      "title": "更新されていない XMP ファイル",
+      "view": "未更新の XMP",
+      "writing": "書き込み中…",
+      "written_other": "{{count}} 枚の写真の XMP ファイルを更新しました"
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "ライブラリ用データベース。Windows の WAL ロック処理に Rawtonic 独自の修正を適用しています。",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "このアプリについて",
       "general": "一般",
       "processing": "画像処理",
       "shortcuts": "操作設定"
@@ -1519,7 +1613,7 @@
     },
     "general": {
       "autoAdvance": "自動送り",
-      "autoAdvanceDesc": "現像で、レーティング・採用・不採用・フラグ解除のキーを押すと次の写真に進むため、選別は写真ごとに 1 キーで済みます。",
+      "autoAdvanceDesc": "評価やフラグの後、表示中の写真またはグリッドで1枚選択した写真から次へ進みます。Caps Lockまたは写真メニューで切り替えます。",
       "builtinPresets": "内蔵プリセット",
       "builtinPresetsDesc": "Rawtonic 独自のスタイルとプリセットを「スタイルとプリセット」とツールのプリセットメニューに表示します。",
       "createXmp": "見つからないXMPファイルを作成",
@@ -1535,7 +1629,7 @@
       "nativeTitlebar": "OS標準のタイトルバー",
       "nativeTitlebarDesc": "Rawtonicカスタムのもの代わりに、システムのデフォルトのウィンドウタイトルバーを使用します。",
       "proofMargin": "プルーフマージン",
-      "proofMarginDesc": "プルーフマージンがオンのとき（X）、全体表示の写真の周りに空ける余白。ビューアの短辺に対する割合。",
+      "proofMarginDesc": "プルーフマージンがオンのとき（Alt+X）、全体表示の写真の周りに空ける余白。ビューアの短辺に対する割合。",
       "showBuiltinPresets": "内蔵プリセットを表示",
       "title": "全般設定",
       "uiScale": "インターフェイスのサイズ",
@@ -1788,18 +1882,48 @@
       "shortcutsDesc": "タグコンテキストメニューにショートカットとして表示されるタグのリスト。",
       "title": "タグ付け"
     },
+    "tethering": {
+      "camerasLink": "対応しているカメラと、お使いのカメラの報告方法",
+      "canon": "試験的：Canon カメラ（テストに協力）",
+      "canonDesc": "Rawtonic が USB で Canon カメラに接続できるようになります。カメラを試して、短いテスト結果を送信できます。",
+      "canonSwitch": "Canon カメラに接続する",
+      "howToTest": "協力するには、テザーパネルでカメラを接続し、「カメラテスト…」をクリックして手順に従ってください。最後に、何かがコンピューターの外に出る前に、送信される内容が正確に表示されます。",
+      "title": "テザー",
+      "warningCard": "撮影した写真が Rawtonic に表示されないことがあります。その場合はカメラのメモリーカードにしか残っていないので、カメラにはずっとカードを入れておいてください。",
+      "warningNothingDeleted": "Rawtonic がカメラやカードの内容を削除することはありません。",
+      "warningUntested": "未テスト：これまでに Canon のカメラを Rawtonic で試した例はありません。"
+    },
     "title": "設定",
     "tooltips": {
       "goHome": "ホームへ移動"
     }
   },
   "spotRemoval": {
+    "cancel": "キャンセル",
+    "deleteSelected": "選択を削除",
+    "deleteSelectedHint": "Delete または Backspace。写真上で Alt+クリックで1つ削除、Alt+ドラッグで枠に触れたものをすべて削除します。",
     "detectObjects": "オブジェクトを検出",
     "detectObjectsBoxHint": "オブジェクトを矩形で囲むか、クリックして削除します。",
     "detectObjectsHint": "オブジェクトの上を大まかにブラシでなぞるか、クリックして削除します。",
     "detectObjectsRefineHint": "Shift で選択中の削除に追加、Alt (⌥) で除外します。",
+    "downloadingModel": "オブジェクト削除モデルをダウンロード中… {{percent}} %",
+    "fallbackDownload": "オブジェクト削除モデルをダウンロードできませんでした（オフライン？）。この領域は小さいモデル（MI-GAN）で塗りつぶしました。オンライン時に取り消してもう一度削除すると、よりきれいに仕上がります。",
+    "fallbackUnavailable": "オブジェクト削除モデルを実行できませんでした。この領域は小さいモデル（MI-GAN）で塗りつぶしました。",
     "feather": "ぼかし",
     "featherAria": "スポットのぼかし",
+    "filling": "削除中… ステップ {{done}}/{{total}}",
+    "largeHoleTooSlow": "このGPUは大きな領域の削除には遅すぎます。このセッションの間、削除は高速な方法を使います。",
+    "list": {
+      "aria": "スポットと除去",
+      "count": "補正 ({{number}})",
+      "delete": "{{name}} を削除",
+      "deleteAll": "すべて削除",
+      "hideAll": "すべて非表示",
+      "item": "{{kind}} {{number}}",
+      "select": "{{name}} を選択",
+      "showAll": "すべて表示",
+      "toggle": "{{name}} を表示"
+    },
     "mode": "スポットモード",
     "modes": {
       "clone": "コピー",
@@ -1832,6 +1956,7 @@
     },
     "sensitivity": "感度",
     "sensitivityAria": "スポット視覚化の感度",
+    "showRemovals": "削除箇所を表示",
     "size": "サイズ",
     "sizeAria": "スポットのサイズ",
     "visualize": "スポットを視覚化"
@@ -2002,6 +2127,7 @@
       },
       "grading": {
         "hueAria": "{{range}}の色相",
+        "link": "階調ホイールを連動",
         "luminanceArcTitle": "{{range}}の輝度 {{value}} · ドラッグまたは矢印キー · Shift で微調整 · ダブルクリックでリセット",
         "luminanceAria": "{{range}}の輝度",
         "ranges": "範囲",
@@ -2150,9 +2276,11 @@
         "channel": "カーブのチャンネル",
         "input": "入力",
         "maxPoints": "チャンネルごとに最大 {{max}} ポイントです。ポイントを移動または削除してカーブを調整してください。",
-        "output": "出力"
+        "output": "出力",
+        "point": "ポイント{{index}}、入力{{input}}、出力{{output}}。矢印キーで移動、Aで追加、Deleteで削除。"
       },
       "effects": {
+        "grainColor": "粒子の色",
         "grainStructure": "粒子の構造",
         "grainStructures": {
           "clumped": "凝集",
@@ -2203,6 +2331,7 @@
         "opened": "画像を開いた",
         "other": "補正",
         "redEyes": "赤目",
+        "remove": "削除",
         "spots": "スポット除去",
         "title": "履歴"
       },
@@ -2294,6 +2423,7 @@
           "red": "レッド",
           "white": "ホワイト"
         },
+        "currentMode": "マスクの表示: {{mode}}",
         "custom": "カスタムのマスク色",
         "display": "マスクの表示",
         "modes": {
@@ -2542,11 +2672,14 @@
           "minutes": "残り約 {{minutes}} 分",
           "seconds": "残り約 {{seconds}} 秒"
         },
+        "exportedTo": "書き出し先:",
         "failed": "{{total}} 枚中 {{failed}} 枚が失敗",
         "failures": "書き出されなかった写真",
+        "fullResolution": "フル解像度",
         "held": "キューは停止中です。キューを開始すると待機中の書き出しが始まります。",
         "holdQueue": "キューを停止",
         "interrupted": "中断（{{total}} 枚中 {{done}} 枚書き出し済み）",
+        "originalFolder": "元のフォルダー",
         "pause": "一時停止",
         "paused": "一時停止中（{{total}} 枚中 {{done}} 枚書き出し済み）",
         "pausing": "処理中の写真の後で一時停止します…",
@@ -2633,7 +2766,8 @@
       },
       "toasts": {
         "queuedMany_other": "{{count}} 件の書き出しをキューに追加しました。",
-        "queuedOne": "書き出しキューに追加しました。"
+        "queuedOne": "書き出しキューに追加しました。",
+        "unsavedEdits": "{{names}} の編集を保存できなかったため、何も書き出していません。保存されたら、もう一度書き出してください。"
       },
       "watermark": {
         "add": "透かしを追加",
@@ -2693,6 +2827,21 @@
       "includeNeck": "首を含める",
       "modelsMissing": "顔のレタッチには顔モデルが必要です。GitHub 上の Rawtonic モデルパックから一度だけダウンロードされ、このコンピューターで実行されます。",
       "noFaces": "この写真に顔は見つかりませんでした。",
+      "protect": {
+        "brush": "保護ブラシ",
+        "clear": "保護をクリア",
+        "feather": "ぼかし",
+        "featherAria": "保護ブラシのぼかし",
+        "hint": "レタッチで残したいそばかす、ほくろ、ビューティーマークの上を塗ります。Alt（Option）を押しながらで消去、[ と ] でサイズを変更します。",
+        "modes": {
+          "erase": "消去",
+          "off": "オフ",
+          "paint": "保護"
+        },
+        "show": "保護領域を表示",
+        "size": "サイズ",
+        "sizeAria": "保護ブラシのサイズ"
+      },
       "showBlemishes": "シミ・傷を表示（クリックで残すか補正するかを切り替え）",
       "sliders": {
         "blemishes": "シミ・傷",
@@ -2707,16 +2856,21 @@
     },
     "histogram": {
       "aria": "画像のヒストグラム",
-      "clipping": "クリッピング",
-      "clippingTitle": "クリッピング警告: 白飛びは赤、黒つぶれは青（{{shortcut}}）",
+      "clippingAria": "クリッピングの警告",
       "gamut": "色域外警告",
       "gamutTitle": "色域外警告: 校正カラースペース外の色を赤で表示",
       "graphAria": "選択した写真の RGB 輝度分布",
       "graphEmpty": "写真を開くとヒストグラムを表示できます",
+      "highlightClipping": "ハイライトの警告",
+      "highlightClippingLit": "ハイライトの警告、白飛び",
+      "highlightClippingTitle": "ハイライトの警告（白飛びしたハイライト。{{shortcut}} で両方を切り替え）",
       "proof": "校正",
       "proofSpace": "校正のカラースペース",
       "proofTitle": "ソフト校正: 選択したカラースペースで書き出したときの見え方で写真を表示（{{shortcut}}）",
       "selectPhoto": "写真を選択してください",
+      "shadowClipping": "シャドウの警告",
+      "shadowClippingLit": "シャドウの警告、黒つぶれ",
+      "shadowClippingTitle": "シャドウの警告（黒つぶれしたシャドウ。{{shortcut}} で両方を切り替え）",
       "title": "ヒストグラム"
     },
     "layers": {
@@ -2989,10 +3143,23 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "AI ノイズ除去",
+          "aiMask": "AI 選択範囲",
+          "fillExternal": "塗りつぶし: 外部サービス",
+          "fillMiGan": "削除: MI-GAN",
+          "fillMoebius": "削除: Moebius",
+          "fillUnrecorded": "削除: モデル未記録",
+          "generated": "生成された領域",
+          "missingFill": "ピクセルのない塗りつぶし",
+          "olderDenoise": "旧バージョンの AI ノイズ除去",
+          "pendingDetection": "AI 選択範囲が未検出"
+        },
         "all_other": "すべて（{{count}} 件の値）",
         "apertureValue": "f/{{value}}",
         "button": "メタデータ",
         "fields": {
+          "ai": "AI 編集",
           "aperture": "絞り",
           "camera": "カメラ",
           "captureDate": "撮影日",
@@ -3000,7 +3167,8 @@
           "focalLength": "焦点距離",
           "iso": "ISO",
           "keyword": "キーワード",
-          "lens": "レンズ"
+          "lens": "レンズ",
+          "sourceType": "デジタルソースの種類"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3016,6 +3184,7 @@
         "isoValue": "ISO {{value}}",
         "label": "メタデータフィルター",
         "none": {
+          "ai": "AI 編集なし",
           "aperture": "絞り不明",
           "camera": "カメラ不明",
           "captureDate": "日付なし",
@@ -3023,11 +3192,30 @@
           "focalLength": "焦点距離不明",
           "iso": "ISO 不明",
           "keyword": "キーワードなし",
-          "lens": "レンズ不明"
+          "lens": "レンズ不明",
+          "sourceType": "記載なし"
         },
         "rangeHint": "クリックで値を選択、Shift クリックで最後にクリックした値からすべて選択",
         "showMonths": "{{year}} 年の月を表示",
-        "toggle": "メタデータの一覧を表示/非表示（撮影日、カメラ、レンズ、キーワード、ファイルの種類、ISO、焦点距離、絞り）"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "アルゴリズムにより補正",
+          "algorithmicMedia": "アルゴリズムにより作成",
+          "compositeCapture": "撮影画像の合成",
+          "compositeSynthetic": "合成要素の合成",
+          "compositeWithTrainedAlgorithmicMedia": "AI 生成部分を含む合成",
+          "computationalCapture": "コンピュテーショナル撮影",
+          "dataDrivenMedia": "データ駆動型メディア",
+          "digitalArt": "デジタルアート",
+          "digitalCapture": "デジタル撮影",
+          "humanEdits": "人による編集",
+          "negativeFilm": "フィルムネガ",
+          "positiveFilm": "フィルムポジ",
+          "print": "プリント",
+          "screenCapture": "スクリーンショット",
+          "trainedAlgorithmicMedia": "AI により生成",
+          "virtualRecording": "仮想記録"
+        },
+        "toggle": "メタデータの一覧を表示/非表示（撮影日、カメラ、レンズ、キーワード、ファイルの種類、ISO、焦点距離、絞り、AI 編集、デジタルソースの種類）"
       },
       "navigator": {
         "empty": "写真を選択してください",
@@ -3075,6 +3263,7 @@
         "editTitle": "スマートアルバムを編集",
         "fieldLabel": "項目",
         "fields": {
+          "ai": "AI 編集",
           "album": "アルバム",
           "aperture": "絞り（F 値）",
           "camera": "カメラ",
@@ -3095,6 +3284,7 @@
           "offline": "見つからない写真",
           "previousImport": "前回の読み込みに含まれる",
           "rating": "レーティング",
+          "sourceType": "デジタルソースの種類（ファイル内）",
           "text": "検索可能なすべてのテキスト"
         },
         "folderPlaceholder": "フォルダのパス",
@@ -3392,7 +3582,9 @@
     "multiView": {
       "controls": "{{name}} の採用・評価・除外",
       "editAll": "選択した写真をすべて編集",
+      "editAllNotSaved": "「選択した写真をすべて編集」でこれらの写真を保存できませんでした: {{names}}。再試行するまで以前の設定のままです。",
       "editAllTitle": "選択した写真をすべて編集：メイン写真への変更を、表示中の他のすべての写真にも適用します（オレンジの枠）",
+      "editAllTryAgain": "再試行",
       "makePrimary": "{{name}} を編集（メイン写真にする）",
       "more_other": "ほか {{n}} 枚",
       "pick": "{{name}} を採用",
@@ -3434,6 +3626,7 @@
     },
     "presets": {
       "amount": "プリセットの適用量",
+      "appliedStyle": "適用中のスタイル：クリックすると元に戻します",
       "appliesAll": "保存時のすべての設定を適用します",
       "appliesBuiltin": "Rawtonic 独自のプリセット：含まれる設定を適用します",
       "appliesSaved": "保存時に含めた設定を適用します",
@@ -3460,11 +3653,10 @@
         "grading-warm-shadows-cool-highlights": "暖かいシャドウ、冷たいハイライト",
         "grading-warm-tone": "暖調",
         "grading-warm-up": "暖かく",
-        "grain-coarse": "粗い",
-        "grain-fine": "細かい",
-        "grain-heavy": "強い",
-        "grain-medium": "中程度",
-        "grain-speckled": "斑点",
+        "grain-bw-100": "モノクロ 100 微粒子",
+        "grain-bw-400": "モノクロ 400 クラシック",
+        "grain-colour-100": "カラーネガ 100 控えめ",
+        "grain-colour-400": "カラーネガ 400",
         "muted-colour": "控えめな色",
         "noise-light": "弱",
         "noise-medium": "中",
@@ -3486,7 +3678,7 @@
       "deleteFolder": "フォルダを削除",
       "deleteFolderWithPresets_other": "「{{name}}」とその中の {{count}} 個のプリセットを削除しますか？",
       "deletePreset": "プリセットを削除",
-      "empty": "プリセットはまだありません。写真を補正し、+ を押して設定を保存してください。",
+      "empty": "独自のスタイルはまだありません。写真を調整し、+ を押して設定を保存してください。",
       "exportTitle": "{{name}} を書き出し",
       "fileType": "Rawtonic プリセット",
       "find": "プリセットを検索",
@@ -3639,7 +3831,56 @@
       "x": "X位置",
       "y": "Y位置"
     },
+    "seriesMatch": {
+      "after": "調整後",
+      "analysing": "分析中 {{done}} / {{total}}…",
+      "applied_one": "{{count}} 枚の光を揃えました",
+      "applied_other": "{{count}} 枚の光を揃えました",
+      "apply_one": "{{count}} 枚に適用",
+      "apply_other": "{{count}} 枚に適用",
+      "applyTo": "{{name}} に適用",
+      "before": "現在",
+      "cancel": "キャンセル",
+      "change": "変更",
+      "confidence": "信頼度",
+      "downloadFaces": "顔モデルをダウンロード",
+      "exposure": "露光量",
+      "exposureChange": "露光量 {{value}} EV",
+      "faces": "顔を使う（肌の色）",
+      "facesTitle": "顔はこのコンピューター上で検出され、肌が露光量とホワイトバランスの基準になります。",
+      "facesUsed": "（顔）",
+      "failed": "光を揃えられませんでした: {{error}}",
+      "intro": "各写真の露光量とホワイトバランスを基準写真（★）に揃えます。顔が写っていれば肌の色を手がかりにします。その後、ひとつのルックをシリーズ全体に同期できます。ブラケット、シルエット、色付きのステージ照明はそのままです。",
+      "isReference": "基準",
+      "note": "メモ",
+      "notSaved": "一部の写真は保存されませんでした: {{error}}",
+      "reasons": {
+        "alreadyMatches": "すでに揃っています",
+        "anchorsDisagree": "顔とシーンが一致しない – 要確認",
+        "bracket": "露出ブラケット – 変更なし",
+        "cameraCompensation": "カメラで露出補正済み – 要確認",
+        "colouredLight": "色付きの光 – ホワイトバランスは変更なし",
+        "largeChange": "露光量の大きな変更 – 要確認",
+        "littleInCommon": "基準との共通点が少ない – 要確認",
+        "noReference": "基準なし",
+        "noWhiteBalance": "このファイルにはホワイトバランスがありません",
+        "silhouette": "シルエット – 暗いまま",
+        "unreadable": "読み込めませんでした"
+      },
+      "reference": "基準",
+      "referenceTitle": "基準にする",
+      "results": "結果",
+      "summary": "揃える {{match}} · 確認 {{review}} · 変更なし {{keep}} · {{seconds}} 秒",
+      "thenSync": "その後、「設定を同期」で基準写真のルックを同期します（露光量とホワイトバランスはオフ）。",
+      "title_one": "{{count}} 枚の光を揃える",
+      "title_other": "{{count}} 枚の光を揃える",
+      "whiteBalance": "ホワイトバランス",
+      "whiteBalanceChange": "{{from}} K → {{to}} K、色かぶり補正 {{tint}}",
+      "whiteBalanceTo": "ホワイトバランス {{to}} K"
+    },
     "spot": {
+      "done": "スポット修正を終了",
+      "start": "スポット修正を開始",
       "withShortcut": "{{text}}（{{key}}）"
     },
     "tone": {
@@ -3656,14 +3897,20 @@
         "auto": "自動",
         "autoAria": "自動レベル補正",
         "autoTitle": "ヒストグラムから黒点と白点を設定",
-        "black": "黒",
         "channelAria": "レベル補正のチャンネル",
-        "highlight": "ハイライト",
+        "fieldAria": "{{name}}の値",
+        "histogramAria": "レベル補正のヒストグラム",
+        "inBlack": "入力の黒",
+        "inWhite": "入力の白",
         "midtone": "中間調",
+        "outBlack": "出力の黒",
         "output": "出力",
-        "shadow": "シャドウ",
-        "title": "レベル補正",
-        "white": "白"
+        "outWhite": "出力の白",
+        "pickBlack": "黒点スポイト",
+        "pickBlackTitle": "黒にしたい場所を写真上でクリック",
+        "pickWhite": "白点スポイト",
+        "pickWhiteTitle": "白にしたい場所を写真上でクリック",
+        "title": "レベル補正"
       },
       "regionCurve": {
         "aria": {
@@ -4003,17 +4250,25 @@
     }
   },
   "undoHistory": {
+    "apply": "設定を適用",
     "color": "カラーラベルの設定",
     "edit": "編集",
     "file": "ファイルの変更",
     "flag": "フラグの設定",
+    "lensCorrection": "レンズ補正",
+    "matchLight": "光を揃える",
     "move": "移動",
     "notice": "{{action}}: {{name}}",
     "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
+    "paste": "設定をペースト",
     "rating": "評価の設定",
+    "recipesNotAll": "一部の写真を書き込めませんでした",
     "redoAction": "{{action}}をやり直す",
     "rename": "名前の変更",
+    "reset": "リセット",
     "skipFailed": "失敗した項目をスキップ",
+    "style": "スタイルを適用",
+    "sync": "設定を同期",
     "trash": "ゴミ箱に移動",
     "undoAction": "{{action}}を取り消す"
   },
@@ -4022,12 +4277,22 @@
     "available": "Rawtonic {{version}} が利用可能です",
     "checking": "確認中…",
     "checkNow": "今すぐ確認",
+    "close": "閉じる",
+    "dontShowAgain": "アップデート後に表示しない",
     "download": "ダウンロード",
     "failed": "更新を確認できませんでした。後でもう一度お試しください。",
+    "fileWithSize": "{{file}}（{{size}} MB）",
+    "manual": "アップデートを確認",
+    "noFile": "このリリースにはこのコンピュータ用のダウンロードがありません。リリースページにすべてのファイルがあります。",
+    "noNotes": "リリースノートはありません。リリースページに詳細があるかもしれません。",
+    "notesTitle": "Rawtonic {{version}} の新機能",
     "notNow": "後で",
     "noUpdate": "新しいリリースは見つかりませんでした。",
     "prereleases": "プレリリースを含める",
     "privacy": "1日1回 GitHub に確認します。IP アドレスとアプリのバージョンを送信します。写真や識別子は送信しません。",
-    "startup": "起動時に更新を確認"
+    "releasePage": "リリースページ",
+    "showWhatsNew": "アップデート後に新機能を表示",
+    "startup": "起動時に更新を確認",
+    "whatsNew": "新機能"
   }
 }

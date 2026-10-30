@@ -54,7 +54,7 @@ pub enum Target {
     OtherVolume {
         path: PathBuf,
         #[serde(default)]
-        copy: CopyState,
+        copy: Box<CopyState>,
     },
 }
 
@@ -155,7 +155,7 @@ impl Step {
             from: from.into(),
             to: Target::OtherVolume {
                 path: to.into(),
-                copy: CopyState::default(),
+                copy: Box::default(),
             },
         }
     }
@@ -342,9 +342,35 @@ pub trait SystemTrash {
     fn trash(&self, path: &Path) -> Result<String>;
     /// Puts a trashed item back at `original` without replacing anything.
     fn restore(&self, item: &str, original: &Path) -> Result<()>;
+    /// Completes a restore interrupted before the journal commit. Legacy
+    /// adapters accept an original already back in place. Adapters with
+    /// identity-bearing receipts override this to verify that identity.
+    fn restore_for_recovery(&self, item: &str, original: &Path) -> Result<()> {
+        if exists(original) {
+            Ok(())
+        } else if !self.contains(item) {
+            Err(anyhow::Error::new(UnavailableTrashItem).context(format!(
+                "{} may be in the system Trash; put it back from there",
+                original.display()
+            )))
+        } else {
+            self.restore(item, original)
+        }
+    }
     /// Whether the item is still in the Trash.
     fn contains(&self, item: &str) -> bool;
 }
+
+/// Legacy adapters cannot recover a receipt they no longer list. Keep the
+/// recovery note, without retrying that terminal outcome on every startup.
+#[derive(Debug)]
+struct UnavailableTrashItem;
+impl std::fmt::Display for UnavailableTrashItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The recorded item is no longer available in the system Trash")
+    }
+}
+impl std::error::Error for UnavailableTrashItem {}
 
 /// A trash that refuses: for callers that only rename.
 pub struct NoSystemTrash;
@@ -1058,7 +1084,7 @@ impl Journal {
                         && is_kind(path, copy.folder)
                         && is_kind(&from, copy.folder)
                         && same_entry(&from, path, copy.folder).unwrap_or(false);
-                    *copy = CopyState {
+                    **copy = CopyState {
                         original_mode: copy.original_mode,
                         folder: copy.folder,
                         modes: std::mem::take(&mut copy.modes),
@@ -1304,6 +1330,7 @@ impl Journal {
             }
             payload.note = None;
             let mut problems = Vec::new();
+            let mut receipt_restore_failed = false;
             if state == State::Undoing && payload.has_copies() {
                 // An undo copying back is rolled back: the move stays done.
                 for step in &payload.steps {
@@ -1317,6 +1344,9 @@ impl Journal {
             } else {
                 for step in payload.steps.iter().rev() {
                     if let Err(e) = restore_if_moved(step, trash) {
+                        receipt_restore_failed |=
+                            matches!(step.to, Target::SystemTrash { item: Some(_) })
+                                && !e.is::<UnavailableTrashItem>();
                         problems.push(format!("{e:#}"));
                     }
                 }
@@ -1331,6 +1361,12 @@ impl Journal {
             }
             if !problems.is_empty() {
                 payload.note = Some(format!("Recovery: {}", problems.join("; ")));
+            }
+            if receipt_restore_failed {
+                // Preserve the receipt and interrupted state for a safe retry.
+                // An occupied path is not proof that its trashed entry returned.
+                self.store(&id, state, &payload)?;
+                continue;
             }
             match state {
                 State::Undoing if payload.has_copies() => {
@@ -1876,6 +1912,12 @@ fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
         // copy is taken back.
         return unpublish(step, Direction::Forward);
     }
+    if let Target::SystemTrash { item: Some(item) } = &step.to {
+        if let Some(parent) = step.from.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        return trash.restore_for_recovery(item, &step.from);
+    }
     if exists(&step.from) {
         return Ok(());
     }
@@ -2052,13 +2094,20 @@ pub fn copy_needs(pairs: &[(PathBuf, PathBuf)]) -> Result<Vec<CopyNeed>> {
             "{} is a network drive; moving photos to network drives is not supported yet",
             to.name
         );
-        let need = needs
-            .entry(to.mount_point.clone())
-            .or_insert_with(|| CopyNeed {
-                volume: to,
-                bytes: 0,
-                files: 0,
-            });
+        // One need per volume: a folder a volume is mounted into makes a
+        // different mount point for the same drive, so the root decides.
+        let key = match needs
+            .iter()
+            .find(|(mount, _)| volume::same_mount(mount, &to.mount_point))
+        {
+            Some((mount, _)) => mount.clone(),
+            None => to.mount_point.clone(),
+        };
+        let need = needs.entry(key).or_insert_with(|| CopyNeed {
+            volume: to,
+            bytes: 0,
+            files: 0,
+        });
         need.bytes += bytes;
         need.files += files;
     }
@@ -2559,8 +2608,10 @@ fn reapply_after_undo_if_reversed(step: &Step, trash: &dyn SystemTrash) -> Resul
     }
 }
 
+/// Whether `a` and `b` are one file (a case-only rename on a
+/// case-insensitive volume), as the journal's no-clobber checks see it.
 #[cfg(unix)]
-fn same_file(a: &Path, b: &Path) -> bool {
+pub fn same_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
         (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
@@ -2569,7 +2620,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn same_file(a: &Path, b: &Path) -> bool {
+pub fn same_file(a: &Path, b: &Path) -> bool {
     // Case-only renames on case-insensitive volumes.
     a.parent() == b.parent()
         && a.file_name().map(|n| n.to_string_lossy().to_lowercase())
@@ -2601,8 +2652,12 @@ fn same_volume(from: &Path, to: &Path) -> Result<bool> {
 }
 
 /// Renames `from` to `to`, failing if `to` exists (except for a case-only
-/// rename of the same file). Atomic on macOS and Linux.
+/// rename of the same file). Atomic on macOS, Linux and Windows.
 pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
+    // Windows MoveFileExW handles case-only renames itself. Never select a
+    // replacing rename using a case-folded spelling: NTFS directories can be
+    // case-sensitive, with two different entries named a.RAF and A.RAF.
+    #[cfg(not(windows))]
     if same_file(from, to) {
         return fs::rename(from, to);
     }
@@ -2639,14 +2694,22 @@ pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
             return Err(error);
         }
     }
-    // Volumes without an exclusive rename: check, then rename.
-    if exists(to) {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!("{} already exists", to.display()),
-        ));
+    // Windows: the system's own move without replacement, atomic there.
+    #[cfg(windows)]
+    {
+        volume::rename_exclusive(from, to)
     }
-    fs::rename(from, to)
+    #[cfg(not(windows))]
+    {
+        // Volumes without an exclusive rename: check, then rename.
+        if exists(to) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{} already exists", to.display()),
+            ));
+        }
+        fs::rename(from, to)
+    }
 }
 
 #[cfg(unix)]
@@ -2709,6 +2772,33 @@ pub(crate) mod crash {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copy_journal_records_keep_their_existing_object_shape() {
+        let legacy = serde_json::json!({
+            "kind": "otherVolume",
+            "path": "destination.RAF",
+            "copy": {"folder": true, "kept": true, "trashed": "saved-item"}
+        });
+        let target: Target = serde_json::from_value(legacy).unwrap();
+        let Target::OtherVolume { copy, .. } = &target else {
+            panic!("copy target");
+        };
+        assert!(copy.folder && copy.kept);
+        assert_eq!(copy.trashed.as_deref(), Some("saved-item"));
+        let saved = serde_json::to_value(target).unwrap();
+        assert!(saved["copy"].is_object());
+        assert_eq!(saved["copy"]["trashed"], "saved-item");
+        // Journals from before copy progress was recorded omit this object.
+        let target: Target = serde_json::from_value(serde_json::json!({
+            "kind": "otherVolume", "path": "destination.RAF"
+        }))
+        .unwrap();
+        let Target::OtherVolume { copy, .. } = target else {
+            panic!("copy target");
+        };
+        assert_eq!(*copy, CopyState::default());
+    }
 
     fn journal_with(root: &Path, state: State, steps: Vec<Step>) -> (Journal, String) {
         let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
@@ -2781,6 +2871,124 @@ mod tests {
         assert_eq!(pending[0].id, id);
         assert_eq!(pending[0].state, State::Undone);
         assert!(root.join("a").is_file() && root.join("b").is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_no_clobber_retains_case_only_rename_on_ordinary_windows_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("a.RAF");
+        let destination = temp.path().join("A.RAF");
+        fs::write(&source, b"synthetic original").unwrap();
+        rename_no_clobber(&source, &destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"synthetic original");
+        let names: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("A.RAF")]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Enables case sensitivity only on a fresh synthetic directory; run explicitly on NTFS"]
+    fn native_no_clobber_refuses_distinct_case_sensitive_windows_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let enabled = std::process::Command::new("fsutil.exe")
+            .args(["file", "setCaseSensitiveInfo"])
+            .arg(temp.path())
+            .arg("enable")
+            .output()
+            .unwrap();
+        assert!(
+            enabled.status.success(),
+            "Case-sensitive NTFS setup is unavailable: {}",
+            String::from_utf8_lossy(&enabled.stdout)
+        );
+        let source = temp.path().join("a.RAF");
+        let destination = temp.path().join("A.RAF");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&destination, b"occupied").unwrap();
+        assert!(rename_no_clobber(&source, &destination).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"source");
+        assert_eq!(fs::read(&destination).unwrap(), b"occupied");
+    }
+
+    #[test]
+    fn receipt_recovery_does_not_certify_an_unrelated_existing_original() {
+        struct RefuseRestore;
+        impl SystemTrash for RefuseRestore {
+            fn trash(&self, _: &Path) -> Result<String> {
+                unreachable!()
+            }
+            fn restore(&self, _: &str, _: &Path) -> Result<()> {
+                bail!("occupied by another entry")
+            }
+            fn restore_for_recovery(&self, item: &str, original: &Path) -> Result<()> {
+                self.restore(item, original)
+            }
+            fn contains(&self, _: &str) -> bool {
+                true
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.raw");
+        fs::write(&source, b"unrelated original").unwrap();
+        let mut step = Step::system_trash(source.clone());
+        step.to = Target::SystemTrash {
+            item: Some("recoverable receipt".into()),
+        };
+        let (journal, id) = journal_with(temp.path(), State::Undoing, vec![step]);
+        let later_source = temp.path().join("later.raw");
+        let later_destination = temp.path().join("renamed.raw");
+        fs::write(&later_source, b"later operation").unwrap();
+        let later = journal
+            .execute(
+                "rename",
+                "Later operation",
+                vec![Step::rename(&later_source, &later_destination)],
+                &NoSystemTrash,
+            )
+            .unwrap();
+        journal
+            .conn
+            .execute(
+                "UPDATE operations SET state='applying' WHERE id=?",
+                [&later.id],
+            )
+            .unwrap();
+        let pending_source = temp.path().join("pending.raw");
+        fs::write(&pending_source, b"awaiting catalog sync").unwrap();
+        let pending = journal
+            .execute(
+                "rename",
+                "Pending sync",
+                vec![Step::rename(
+                    &pending_source,
+                    temp.path().join("pending-renamed.raw"),
+                )],
+                &NoSystemTrash,
+            )
+            .unwrap();
+        let recovered = journal.recover(&RefuseRestore).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].id, pending.id);
+        assert_eq!(
+            journal.operation(&later.id).unwrap().state,
+            State::RolledBack
+        );
+        assert_eq!(fs::read(&later_source).unwrap(), b"later operation");
+        assert!(!later_destination.exists());
+        assert_eq!(journal.operation(&id).unwrap().state, State::Undoing);
+        assert!(
+            journal
+                .operation(&id)
+                .unwrap()
+                .note
+                .unwrap()
+                .contains("occupied by another entry")
+        );
+        assert_eq!(fs::read(source).unwrap(), b"unrelated original");
     }
 
     #[test]

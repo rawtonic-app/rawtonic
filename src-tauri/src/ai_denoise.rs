@@ -127,6 +127,7 @@ async fn assemble_package(
         files,
         true,
         "AI Denoise model",
+        None,
     )
     .await
     .map(|_| ())

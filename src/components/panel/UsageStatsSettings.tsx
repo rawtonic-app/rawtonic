@@ -61,39 +61,44 @@ export default function UsageStatsSettings({
 
   return (
     <div className="flex flex-col gap-2">
-      <Switch
-        checked={on}
-        label={t('contribute.stats.setting')}
-        onChange={(checked) => {
-          void (async () => {
-            setError(null);
-            // The app saves the choice itself and says when it could not:
-            // a choice shown here is a choice kept.
-            try {
-              await enable(checked);
-            } catch {
-              setError(checked ? t('contribute.stats.onNotSaved') : t('contribute.stats.offNotSaved'));
-              load();
-              return;
-            }
-            await onSettingsChange({ ...appSettings, usageStats: checked });
-            // Before the first send: what will be sent.
-            if (checked) setShowing(true);
-            else load();
-          })();
-        }}
-      />
-      <Text variant={TextVariants.small} color="secondary">
-        {t('contribute.stats.description')}
-      </Text>
-      {error && (
-        <Text variant={TextVariants.small} color="error" role="alert">
-          {error}
-        </Text>
-      )}
-      <button type="button" className="self-start text-sm underline" onClick={() => setShowing((v) => !v)}>
-        {showing ? t('contribute.stats.hide') : t('contribute.stats.show')}
-      </button>
+      <div className="pref-row">
+        <div className="pref-text">
+          <div className="pref-label">{t('contribute.stats.setting')}</div>
+          <p className="pref-description">{t('contribute.stats.description')}</p>
+          {error && (
+            <Text variant={TextVariants.small} color="error" role="alert">
+              {error}
+            </Text>
+          )}
+          <button type="button" className="mt-1 text-[11px] underline" onClick={() => setShowing((v) => !v)}>
+            {showing ? t('contribute.stats.hide') : t('contribute.stats.show')}
+          </button>
+        </div>
+        <div className="pref-control">
+          <Switch
+            checked={on}
+            label={t('contribute.stats.setting')}
+            onChange={(checked) => {
+              void (async () => {
+                setError(null);
+                // The app saves the choice itself and says when it could not:
+                // a choice shown here is a choice kept.
+                try {
+                  await enable(checked);
+                } catch {
+                  setError(checked ? t('contribute.stats.onNotSaved') : t('contribute.stats.offNotSaved'));
+                  load();
+                  return;
+                }
+                await onSettingsChange({ ...appSettings, usageStats: checked });
+                // Before the first send: what will be sent.
+                if (checked) setShowing(true);
+                else load();
+              })();
+            }}
+          />
+        </div>
+      </div>
       {showing && shown && (
         <div className="rounded border border-surface p-3 flex flex-col gap-3" data-testid="usage-stats-preview">
           <label className="flex items-center gap-2 text-sm">

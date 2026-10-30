@@ -208,6 +208,7 @@ fn names(taken: &AiState) -> Vec<&'static str> {
         ("people normals", taken.people_normals_model.is_some()),
         ("depth map", taken.depth_map.is_some()),
         ("MI-GAN", taken.inpaint_model.is_some()),
+        ("Moebius", taken.moebius.is_some()),
         ("tagging", taken.tag_models.is_some()),
         ("subject masks", !taken.subject_masks.is_empty()),
         ("sky masks", !taken.sky_masks.is_empty()),
@@ -228,6 +229,7 @@ fn models_loaded(state: &AppState) -> bool {
             || ai.relight_model.is_some()
             || ai.people_normals_model.is_some()
             || ai.inpaint_model.is_some()
+            || ai.moebius.is_some()
     });
     drop(ai);
     ai_models

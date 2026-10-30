@@ -52,7 +52,9 @@ fn main() -> Result<()> {
     frame.image = rawtonic_engine::image_processing::apply_geometry_warp(
         image::DynamicImage::ImageRgb32F(std::mem::take(&mut frame.image)),
         &adjustments,
+        true,
     )
+    .expect("the lens warp")
     .into_owned()
     .into_rgb32f();
     let to_camera = working_to_camera(frame.color.as_ref());

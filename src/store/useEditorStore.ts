@@ -84,6 +84,18 @@ interface EditorState {
   tatTarget: import('../utils/targetedAdjustment').TatTarget | null;
   /** The colour mixer channel the last targeted drag acted on most. */
   tatFocus: string | null;
+  /** The Levels channel shown (its pickers set that channel's points). */
+  levelsChannel: import('../utils/levels').LevelChannel;
+  /** The latest Levels picker press (each press takes the next value;
+   * turning a picker off or on voids the presses before it). A picker's
+   * sample applies only while its press still holds this value. */
+  levelsPickerPress: number;
+  /** The point curve channel the curve panel shows (and the targeted
+   * curve moves). */
+  curveChannel: import('../utils/targetedAdjustment').CurveChannel;
+  /** The curve input level (0–255) under the targeted curve's pointer,
+   * marked on the curve; null when the pointer is off the photo. */
+  tatCurveMarker: number | null;
   /** Spot removal tool: on/off, the selected spot and the settings new
    * spots get (and the selected one shows). */
   isSpotToolActive: boolean;
@@ -116,6 +128,12 @@ interface EditorState {
   };
   /** The face retouch's blemishes on the photograph (Retouch tab). */
   showFaceBlemishes: boolean;
+  /** The face retouch's protection brush (Retouch tab): painting on the
+   * photograph, erasing, and what new strokes get (`size`: radius in
+   * mask-frame pixels; `feather`: 0–100 % of it). */
+  faceProtect: { painting: boolean; erase: boolean; size: number; feather: number };
+  /** The protected areas shown on the photograph (always while painting). */
+  showFaceProtection: boolean;
   /** Colour editor picker: 'new' adds a range, an id re-samples that range. */
   colorPickerTarget: string | null;
   /** The mask layer the picker edits, or null for the photo. */
@@ -123,9 +141,11 @@ interface EditorState {
   /** The colour editor range shown in the tool. */
   activeColorRangeId: string | null;
   /** View only, never in the recipe: the colour range whose selection is
-   * shown, and clipping warnings (Lightroom's J). */
+   * shown, and the clipping warnings (red for clipped highlights, blue for
+   * clipped shadows; J switches both, utils/clippingWarnings). */
   colorRangeShow: string | null;
-  clippingWarnings: boolean;
+  clipHighlights: boolean;
+  clipShadows: boolean;
   /** View only: one layer or component shown alone (utils/layerSolo). */
   layerSolo: LayerSolo | null;
   /** View only: soft proofing (Lightroom's Soft Proofing) shows the photo as
@@ -176,6 +196,10 @@ interface EditorState {
   showMaskWithSelectTool: boolean;
   /** Lightroom's automatic mask overlay (`MaskOverlayAuto`). */
   maskOverlayAuto: MaskOverlayAuto;
+  /** Develop shows a tab that does not edit masks (Color, Detail, Crop,
+   * Retouch): the overlay shows only while a mask is drawn there. Kept
+   * apart from `maskOverlayAuto`, which edits in those tabs still move. */
+  maskOverlayOutsideMaskTab: boolean;
   /** The layer whose luma range the eyedropper sets from the photo, or null
    * when it is off (Lightroom's Luminance Range sampling). */
   lumaPickerLayer: string | null;
@@ -197,7 +221,13 @@ interface EditorState {
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
-  pushHistory: (newAdjustments: Adjustments) => void;
+
+  /** Arms or turns off a Levels picker (a new `target` in `tatTarget`) and
+   * voids every sample of an earlier press: only the latest one applies. */
+  setTatTarget: (target: EditorState['tatTarget']) => void;
+  /** `order`: the undo order of a batch step this entry is the open
+   * photograph's part of (appUndo.ts; default: a new edit's). */
+  pushHistory: (newAdjustments: Adjustments, order?: number) => void;
   undo: () => void;
   redo: () => void;
   resetHistory: (initialState: Adjustments) => void;
@@ -261,18 +291,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isWbPickerActive: false,
   tatTarget: null,
   tatFocus: null,
+  levelsChannel: 'rgb',
+  levelsPickerPress: 0,
+  curveChannel: 'luma',
+  tatCurveMarker: null,
   isSpotToolActive: false,
   activeSpotId: null,
   spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 },
   spotVisualize: { on: false, sensitivity: 50 },
   redEyeSettings: { kind: 'red', size: 40, pupilSize: 50, darken: 50, catchlight: true },
   showFaceBlemishes: false,
+  faceProtect: { painting: false, erase: false, size: 30, feather: 50 },
+  showFaceProtection: false,
   colorPickerTarget: null,
   colorPickerLayer: null,
   activeColorRangeId: null,
   colorRangeShow: null,
   layerSolo: null,
-  clippingWarnings: false,
+  clipHighlights: false,
+  clipShadows: false,
   softProof: false,
   softProofSpace: 'srgb',
   softProofWarning: false,
@@ -298,18 +335,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   nativeMaskOverlay: null,
   showMaskWithSelectTool: false,
   maskOverlayAuto: 'auto',
+  maskOverlayOutsideMaskTab: false,
   lumaPickerLayer: null,
   shapeDrawTarget: null,
   patchesSentToBackend: new Set<string>(),
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
 
-  pushHistory: (newAdj) => {
+  setTatTarget: (target) =>
+    set((state) =>
+      state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 },
+    ),
+
+  pushHistory: (newAdj, batchOrder) => {
     scheduledHistory.cancel();
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
-    const order = newEditOrder();
+    const order = batchOrder ?? newEditOrder();
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);

@@ -3,13 +3,16 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import StudioLayerControls from "./StudioLayerControls";
 import StudioCropControls from "./StudioCropControls";
-import StudioSpotControls from "./StudioSpotControls";
+import StudioSpotControls, { resetSpotSettings } from "./StudioSpotControls";
 import { RotateCcw } from "lucide-react";
 import { useStudioTools, type StudioTool } from "./useStudioTools";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { usePopoverFocus } from "./usePopoverFocus";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
+
+/** The spot tool's layer on the photograph (`SpotOverlay`). */
+const SPOT_OVERLAY = '[data-testid="spot-overlay"]';
 
 /** Horizontal distance of the pointer from the panel's left edge on opening. */
 const TITLE_POINTER_INSET = 32;
@@ -80,11 +83,21 @@ export default function StudioToolPopover({
     if (!open) onClose();
   }, [open, onClose]);
 
+  const spotTool = tools.activeTool === "spot";
   useEffect(() => {
     // A press beside the panel closes it and still acts: painting or
-    // dragging a shape starts at once, as in Capture One.
+    // dragging a shape starts at once, as in Capture One. Not on the photo
+    // with the spot tool: there a press heals or removes (a removal can
+    // take the whole background), so the press that closes the panel only
+    // closes it.
     const onPointerDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
+      const target = e.target as Element | null;
+      if (ref.current?.contains(target)) return;
+      if (spotTool && target?.closest?.(SPOT_OVERLAY)) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      onClose();
     };
     // Capture phase, so the viewer's own Escape handling (deselecting the
     // layer) does not run for the same key.
@@ -100,7 +113,7 @@ export default function StudioToolPopover({
       document.removeEventListener("pointerdown", onPointerDown, true);
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [onClose]);
+  }, [onClose, spotTool]);
 
   if (!open) return null;
   const titleId: (typeof TITLES)[keyof typeof TITLES] =
@@ -134,10 +147,7 @@ export default function StudioToolPopover({
     if (tools.activeTool === "spot")
       return {
         label: t("studio.tools.popover.resetSpot"),
-        run: () =>
-          useEditorStore.getState().setEditor({
-            spotSettings: { mode: "heal", size: 60, feather: 0, opacity: 100 },
-          }),
+        run: resetSpotSettings,
       };
     const layerId = tools.layer?.id;
     const radialId = tools.radialMask?.id;

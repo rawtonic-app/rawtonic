@@ -15,7 +15,7 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useProcessStore } from "../../store/useProcessStore";
 import { debouncedSetHistory, useEditorActions } from "../../hooks/useEditorActions";
-import { COLOR_NOISE_VERSION, INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from "../../utils/adjustments";
+import { COLOR_NOISE_VERSION, GRAIN_VERSION, INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from "../../utils/adjustments";
 import { Panel, type AppSettings, type SelectedImage } from "../ui/AppProperties";
 import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -264,12 +264,11 @@ describe("Develop tool contracts", () => {
     openGroups();
     edit("Size", 70);
     edit("Grain", 40);
-    const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
-    // Grain turned on in a new edit starts as Clumped.
-    expect(structure.value).toBe("clumped");
-    expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
-    fireEvent.change(structure, { target: { value: "gritty" } });
-    expect(useEditorStore.getState().adjustments.grainStructure).toBe("gritty");
+    // A new edit's grain is film grain: Colour instead of a structure.
+    expect(useEditorStore.getState().adjustments.grainVersion).toBe(GRAIN_VERSION);
+    expect(screen.queryByRole("combobox", { name: "Grain structure" })).toBeNull();
+    edit("Grain color", 30);
+    expect(useEditorStore.getState().adjustments.grainColor).toBe(30);
     fireEvent.click(screen.getByRole("button", { name: "Reset Grain" }));
     const a = useEditorStore.getState().adjustments;
     expect([
@@ -278,11 +277,23 @@ describe("Develop tool contracts", () => {
       a.vignetteFeather,
       a.grainAmount,
       a.grainSize,
-      a.grainStructure,
+      a.grainColor,
     ]).toEqual([0, 50, 50, 0, 25, undefined]);
-    // After a reset, grain turned on again starts as a new edit's.
-    edit("Grain", 30);
-    expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
+  });
+
+  it("keeps the structure choice for grain made before film grain", () => {
+    useEditorStore.setState({ adjustments: {
+      ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 30, grainStructure: "clumped", grainVersion: 2,
+    } });
+    mount();
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+    openGroups();
+    expect(screen.queryByRole("slider", { name: "Grain color" })).toBeNull();
+    const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
+    expect(structure.value).toBe("clumped");
+    fireEvent.change(structure, { target: { value: "gritty" } });
+    expect(useEditorStore.getState().adjustments.grainStructure).toBe("gritty");
+    expect(useEditorStore.getState().adjustments.grainVersion).toBe(2);
   });
 
   it("copies and resets each effect tool independently and exposes the saved master bypass", () => {
@@ -381,13 +392,10 @@ describe("Develop tool contracts", () => {
     });
     mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     fireEvent.pointerDown(curve, { button: 0, clientX: 100, clientY: 200 });
     expect(useEditorStore.getState().adjustments.curves.luma).toHaveLength(16);
     expect(useEditorStore.getState().isSliderDragging).toBe(false);
@@ -397,13 +405,10 @@ describe("Develop tool contracts", () => {
     mount();
     openGroups();
     fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
-    const curve = screen.getByRole("img", { name: /^luminance point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^luminance point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     curve.setPointerCapture = vi.fn();
     fireEvent.pointerDown(curve, { button: 0, clientX: 100, clientY: 135 });
     const { curves } = useEditorStore.getState().adjustments;
@@ -436,7 +441,7 @@ describe("Develop tool contracts", () => {
     mount();
     openGroups();
     fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
-    const curve = screen.getByRole("img", { name: /^luminance point curve/ });
+    const curve = screen.getByRole("group", { name: /^luminance point curve/ });
     const line = curve.querySelector("polyline.curve-line")!;
     const drawn = line
       .getAttribute("points")!
@@ -458,7 +463,7 @@ describe("Develop tool contracts", () => {
     openGroups();
     fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
     const neutral = screen
-      .getByRole("img", { name: /^luminance point curve/ })
+      .getByRole("group", { name: /^luminance point curve/ })
       .querySelector("polyline.curve-line")!
       .getAttribute("points")!
       .split(" ")
@@ -471,13 +476,10 @@ describe("Develop tool contracts", () => {
     const unregister = registerSliderDraftRenderer(() => true);
     mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     curve.setPointerCapture = vi.fn();
     curve.hasPointerCapture = vi.fn(() => false);
     fireEvent.pointerDown(curve, { button: 0, clientX: 128, clientY: 127 });
@@ -509,7 +511,7 @@ describe("Develop tool contracts", () => {
     const unregister = registerSliderDraftRenderer(() => true);
     mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
     const region = () => curve.querySelector("polyline.curve-region")?.getAttribute("points") ?? null;
     expect(region()).toBeNull();
     const slider = screen.getByRole("slider", { name: "Region curve highlights" });
@@ -530,13 +532,10 @@ describe("Develop tool contracts", () => {
   it("ends a curve drag on cancellation and unmount", () => {
     const view = mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     curve.setPointerCapture = vi.fn();
     fireEvent.pointerDown(curve, { button: 0, clientX: 120, clientY: 120 });
     expect(useEditorStore.getState().isSliderDragging).toBe(true);
@@ -948,7 +947,7 @@ describe("selections, ranges and components (Lightroom's mask menu)", () => {
     }
     expect(last().subMasks[0].parameters).toMatchObject({ minDepth: 30, maxDepth: 80 });
     newLayer("New color range layer", "Color range");
-    edit("Colour range refine", 45);
+    edit("Color range refine", 45);
     expect(last().subMasks[0].parameters).toMatchObject({ refine: 45 });
     expect(last().subMasks[0].parameters.tolerance).toBeUndefined();
   });
@@ -1443,4 +1442,166 @@ it("anchors keyboard copy at its trigger and restores focus after closing", () =
   expect(panel.contains(document.activeElement)).toBe(true);
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   expect(document.activeElement).toBe(trigger);
+});
+
+
+describe("mask display mode hint", () => {
+  it.each([
+    ["drawing", "While drawing"],
+    ["grayscale", "Grayscale"],
+    ["never", "Never"],
+  ] as const)("marks %s and names the mode while options are closed", (mode, label) => {
+    useSettingsStore.setState({ appSettings: { maskDisplay: mode } as AppSettings });
+    mount();
+    openLayersTab();
+    openGroups();
+    const button = screen.getByRole("button", { name: `Mask display: ${label}` });
+    expect(button.title).toBe(`Mask display: ${label}`);
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.querySelector(".studio-mask-display-dot")?.getAttribute("aria-hidden")).toBe("true");
+    fireEvent.click(button);
+    const select = screen.getByRole("combobox", { name: "Mask display" });
+    expect((select as HTMLSelectElement).value).toBe(mode);
+    fireEvent.change(select, { target: { value: "always" } });
+    expect(button.querySelector(".studio-mask-display-dot")).toBeNull();
+    expect(button.getAttribute("aria-label")).toBe("Mask overlay");
+    expect(button.title).toBe("Mask overlay: when and how masks are shown");
+  });
+});
+
+describe("spot removal in the Retouch tab (Lightroom's Remove panel)", () => {
+  const tab = (name: string) =>
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name }));
+  const pressed = () =>
+    within(screen.getByRole("navigation"))
+      .getAllByRole("button")
+      .find((b) => b.getAttribute("aria-pressed") === "true")?.textContent;
+
+  it("shows the spot settings in the tab; a mode or the button starts the tool, opening the panel passively", () => {
+    mount();
+    tab("Retouch");
+    const group = document.querySelector<HTMLElement>('[data-tool-title="Spot removal"]')!;
+    expect(within(group).getByRole("radiogroup", { name: "Spot mode" })).toBeTruthy();
+    // Showing the settings does not start the tool.
+    expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+    // The button names the tool's key.
+    const start = within(group).getByRole("button", { name: /^Start spot removal/ });
+    expect(start.textContent).toMatch(/\(Q\)$/);
+    fireEvent.click(start);
+    expect(useEditorStore.getState().isSpotToolActive).toBe(true);
+    fireEvent.click(within(group).getByRole("button", { name: /^End spot removal/ }));
+    expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+    // Choosing a mode chooses the tool (Lightroom); choosing again keeps it on.
+    fireEvent.click(within(group).getByRole("radio", { name: "Clone" }));
+    expect(useEditorStore.getState().spotSettings.mode).toBe("clone");
+    expect(useEditorStore.getState().isSpotToolActive).toBe(true);
+    fireEvent.click(within(group).getByRole("radio", { name: "Heal" }));
+    expect(useEditorStore.getState().isSpotToolActive).toBe(true);
+    // The size only sets what the tool does.
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    tab("Retouch");
+    fireEvent.change(within(group).getByLabelText("Spot size"), { target: { value: "80" } });
+    expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+    fireEvent.click(within(group).getByRole("button", { name: "Reset Spot removal" }));
+    expect(useEditorStore.getState().spotSettings.mode).toBe("heal");
+  });
+
+  it("opens a closed spot removal group when the tool starts", () => {
+    mount();
+    tab("Retouch");
+    const group = document.querySelector<HTMLDetailsElement>('[data-tool-title="Spot removal"]')!;
+    act(() => {
+      group.open = false;
+      group.dispatchEvent(new Event("toggle"));
+    });
+    expect(group.open).toBe(false);
+    act(() => useEditorStore.setState({ isSpotToolActive: true }));
+    expect(document.querySelector<HTMLDetailsElement>('[data-tool-title="Spot removal"]')!.open).toBe(true);
+  });
+
+  it("opens the Retouch tab with the tool and returns to the tab it came from", () => {
+    mount();
+    tab("Detail");
+    act(() => useEditorStore.setState({ isSpotToolActive: true }));
+    expect(pressed()).toBe("Retouch");
+    expect(document.querySelector('[data-tool-title="Spot removal"]')).toBeTruthy();
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    expect(pressed()).toBe("Detail");
+    // A tab chosen while the tool is on is kept when it ends.
+    act(() => useEditorStore.setState({ isSpotToolActive: true }));
+    tab("Color");
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    expect(pressed()).toBe("Color");
+  });
+
+  it("returns to Adjust when started from Crop, which the tool ends", () => {
+    useUIStore.setState({ activePanel: Panel.Crop });
+    mount();
+    expect(pressed()).toBe("Crop");
+    act(() => {
+      useEditorStore.setState({ isSpotToolActive: true });
+      useUIStore.setState({ activePanel: Panel.Adjustments });
+    });
+    expect(pressed()).toBe("Retouch");
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    expect(pressed()).toBe("Adjust");
+  });
+});
+
+describe("Develop column on a laptop screen", () => {
+  const isOpen = (title: string) =>
+    document.querySelector<HTMLDetailsElement>(`[data-tool-title="${title}"]`)!.open;
+
+  it("folds empty Layers & masks and Snapshots, so White balance and Exposure lead", () => {
+    mount();
+    expect(isOpen("Layers & masks")).toBe(false);
+    expect(isOpen("Snapshots")).toBe(false);
+    expect(isOpen("White balance")).toBe(true);
+    expect(isOpen("Exposure")).toBe(true);
+    // The Layers tab shows its list open.
+    openLayersTab();
+    expect(isOpen("Layers & masks")).toBe(true);
+  });
+
+  it("opens Layers & masks in Adjust when the photo has layers", () => {
+    const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
+    adjustments.masks = [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: "sky", name: "Sky", subMasks: [] }];
+    useEditorStore.setState({ adjustments });
+    mount();
+    expect(isOpen("Layers & masks")).toBe(true);
+  });
+});
+
+describe("mask overlay outside the mask tabs", () => {
+  const tab = (name: string) =>
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name }));
+  const outside = () => useEditorStore.getState().maskOverlayOutsideMaskTab;
+
+  it("shows only while drawing in tabs that do not edit masks", () => {
+    mount();
+    expect(outside()).toBe(false);
+    tab("Retouch");
+    expect(outside()).toBe(true);
+    tab("Color");
+    expect(outside()).toBe(true);
+    tab("Adjustments");
+    expect(outside()).toBe(false);
+    tab("Layers & masks");
+    expect(outside()).toBe(false);
+  });
+
+  it("leaves the automatic overlay to the edits made in those tabs", () => {
+    mount();
+    tab("Color");
+    // A stroke there shows the overlay again ('auto'); the tab still hides
+    // it after the stroke.
+    act(() => useEditorStore.setState({ maskOverlayAuto: "auto" }));
+    expect(outside()).toBe(true);
+    // The layer's first adjustment there hides it; back in Adjust it stays
+    // hidden.
+    act(() => useEditorStore.setState({ maskOverlayAuto: "hidden" }));
+    tab("Adjustments");
+    expect(useEditorStore.getState().maskOverlayAuto).toBe("hidden");
+    expect(outside()).toBe(false);
+  });
 });

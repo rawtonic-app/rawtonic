@@ -14,9 +14,9 @@
 use crate::file_management::{AlbumItem, add_to_album, get_albums, sync_album_path_changes};
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
-use rawtonic_fileops::{
-    CopyObserver, Journal, KeptCopy, Operation, State, Step, SystemTrash, Target,
-};
+#[cfg(any(not(windows), test))]
+use rawtonic_fileops::SystemTrash;
+use rawtonic_fileops::{CopyObserver, Journal, KeptCopy, Operation, State, Step, Target};
 use serde::Serialize;
 use std::{
     cell::Cell,
@@ -65,7 +65,10 @@ impl SystemTrash for PlatformTrash {
     }
 }
 
-#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
+mod windows_trash;
+
+#[cfg(all(unix, not(target_os = "macos")))]
 impl SystemTrash for PlatformTrash {
     fn trash(&self, path: &Path) -> anyhow::Result<String> {
         use trash::os_limited;
@@ -1282,12 +1285,48 @@ mod tests {
 
     #[test]
     fn virtual_copy_sidecars_name_their_copy() {
+        // Paths in the platform's own form, as the library stores them: the
+        // key is the image's path, not a string taken apart.
+        let folder = tempfile::tempdir().unwrap();
+        let photo = folder.path().join("DSCF0135.RAF");
+        let key = album_key(&folder.path().join("DSCF0135.RAF.9b8208.rrdata"));
+        assert_eq!(key, Some(format!("{}?vc=9b8208", photo.to_string_lossy())));
+        assert_eq!(album_key(&folder.path().join("DSCF0135.RAF.rrdata")), None);
+        assert_eq!(album_key(&folder.path().join("DSCF0135.xmp")), None);
+        // A key and a photo path compare equal only in the same form, so
+        // the library's native path matches its virtual copy's key.
+        let key_path = key.unwrap();
+        let (image, id) = key_path.rsplit_once("?vc=").unwrap();
+        assert_eq!(Path::new(image), photo);
+        assert!(is_supported_image_file(image));
+        assert_eq!(id, "9b8208");
+    }
+
+    /// A session photo's virtual copy is named after the photo's native
+    /// path, and that key parses back to the photo beside it on every
+    /// platform (a literal such as `/p/…` would need the platform's
+    /// separators); a key that is not one of an image is still refused.
+    #[test]
+    fn a_virtual_copy_key_names_the_photo_beside_its_sidecar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let photo = dir.join("Capture/B.NEF");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, "b").unwrap();
+        let sidecar = dir.join("Capture/B.NEF.a1b2c3.rrdata");
+        fs::write(&sidecar, "{}").unwrap();
+        let key = album_key(&sidecar).unwrap();
+        let (image, id) = key.rsplit_once("?vc=").unwrap();
+        assert_eq!((Path::new(image), id), (photo.as_path(), "a1b2c3"));
+        // The sidecar is a virtual copy of the photo in the same folder.
         assert_eq!(
-            album_key(Path::new("/p/DSCF0135.RAF.9b8208.rrdata")).as_deref(),
-            Some("/p/DSCF0135.RAF?vc=9b8208")
+            Path::new(image).parent(),
+            sidecar.parent(),
+            "the key names the photo beside the sidecar, not the sidecar"
         );
-        assert_eq!(album_key(Path::new("/p/DSCF0135.RAF.rrdata")), None);
-        assert_eq!(album_key(Path::new("/p/DSCF0135.xmp")), None);
+        // Still refused: a copy id must follow an image name.
+        assert_eq!(album_key(&dir.join("Capture/B.NEF..rrdata")), None);
+        assert_eq!(album_key(&dir.join("Capture/B.NEF.notes.txt.rrdata")), None);
     }
 
     /// A RAW's recorded companion JPEG moves and goes to the Trash with it,

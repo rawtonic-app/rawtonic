@@ -223,10 +223,7 @@ fn redo_of_a_system_trash_step_records_the_new_item() {
     let Target::SystemTrash { item: Some(item) } = &redone.steps[0].to else {
         panic!("item not recorded: {:?}", redone.steps[0]);
     };
-    assert!(
-        item.ends_with("/1"),
-        "a new item, not the first one: {item}"
-    );
+    assert_eq!(Path::new(item), root.join("system-trash").join("1"));
     assert_eq!(read(Path::new(item)), "a");
     journal.undo(&op.id, &trash).unwrap();
     assert_eq!(read(&root.join("a.RAF")), "a");

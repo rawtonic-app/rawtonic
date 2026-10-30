@@ -129,7 +129,10 @@ pub fn usage(directory: &Path, cancelled: &AtomicBool, budget: Duration) -> io::
             let Some(entry) = if_present(entry)? else {
                 continue;
             };
-            let Some(metadata) = if_present(fs::symlink_metadata(entry.path()))? else {
+            // DirEntry::metadata does not follow symlinks. Windows can use
+            // the enumeration's metadata without reopening a staging file
+            // that is already pending deletion.
+            let Some(metadata) = if_present(entry.metadata())? else {
                 continue;
             };
             if metadata.file_type().is_symlink() {

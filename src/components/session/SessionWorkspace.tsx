@@ -4,8 +4,7 @@ import { validNamingTemplate, validSequenceStart, type NamePreview } from "../..
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
-import XmpSyncDialog from "./XmpSyncDialog";
-import { XMP_VIEW_ID, xmpViewPaths } from "../../utils/xmpReview";
+import SessionXmpStatus from "./SessionXmpStatus";
 import {
   useCallback,
   useEffect,
@@ -27,8 +26,6 @@ import {
   ChevronDown,
   Database,
   FolderOpen,
-  FileWarning,
-  RefreshCw,
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
@@ -62,10 +59,7 @@ import {
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
-import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes, type SelectView } from "../../utils/offline";
-import { catalogChanged } from "../../utils/catalogEvents";
-import { reloadSessionFlags } from "../../utils/pathKeyedState";
-import { useTextMetadataCache } from "../studio/StudioMetadata";
+import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
 import { requestAutoAdvance } from "../../utils/photoStepping";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
@@ -80,6 +74,7 @@ import {
   type OpenIngestDetail,
 } from "./fileDrop";
 import { throttleAsync } from "../../utils/throttle";
+import { onPhotoWritesSettled } from "../../utils/photoWrites";
 import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
@@ -89,6 +84,7 @@ import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
 import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
+import { switchLibraryAfterSaves } from "../../utils/quit";
 
 export interface SessionSummary {
   directory: string;
@@ -272,8 +268,6 @@ interface ImportReport {
 
 interface Props {
   onNavigate: (path: string | null, newRoot?: boolean) => Promise<void>;
-  /** Shows a list of photographs in the grid (the XMP review's view). */
-  onSelectView?: SelectView;
   nativeTitlebar?: boolean;
   windowControls?: ReactNode;
 }
@@ -304,10 +298,16 @@ export function restoreLastSession(
     window.clearTimeout(slow);
     toast.dismiss(notice);
   };
-  return invoke<SessionSummary | null>(Invokes.SessionLast)
-    .then((last) => {
-      done();
-      if (last) void navigate(last).catch((e) => setError(String(e)));
+  // Edits made in a folder while the library is still restoring are
+  // saved there first, as before any library switch.
+  return switchLibraryAfterSaves(async () => {
+    const last = await invoke<SessionSummary | null>(Invokes.SessionLast);
+    done();
+    if (last) await navigate(last).catch((e) => setError(String(e)));
+    return true;
+  })
+    .then((restored) => {
+      if (!restored) done();
     })
     .catch((e) => {
       done();
@@ -323,7 +323,12 @@ export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: s
   return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
 }
 
-export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitlebar = false, windowControls }: Props) {
+function localDateStamp(): string {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+}
+
+export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [form, setForm] = useState<"create" | "ingest" | "hotfolder" | "import" | null>(null);
@@ -345,8 +350,6 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
   const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
   /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
   const [syncing, setSyncing] = useState<{ folder: string | null } | null>(null);
-  const [xmpReview, setXmpReview] = useState(false);
-  const xmpSyncEnabled = useSettingsStore((state) => state.appSettings?.enableXmpSync ?? true);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
   const [importAfterCreate, setImportAfterCreate] = useState(false);
   const [sources, setSources] = useState<IngestCandidate[]>([]);
@@ -828,6 +831,16 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
   useEffect(() => useCatalogUndoStore.subscribe((state, previous) => {
     if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
   }), []);
+  // Each settled photo write (editor save, batch paste/preset/reset, rating,
+  // label…; written or not) can change how many XMP files are behind.
+  useEffect(() => {
+    const recount = throttleAsync(() => refreshRef.current().catch(() => {}), 1000);
+    const stop = onPhotoWritesSettled(() => void recount());
+    return () => {
+      stop();
+      recount.cancel();
+    };
+  }, []);
   // The folder list's "Synchronize Folder…".
   useEffect(() => {
     const open = (e: Event) => setSyncing({ folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder });
@@ -895,10 +908,6 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
     (center: HTMLDivElement | null) => useSessionBar.getState().set({ center }),
     [],
   );
-  const setLibrarySlot = useCallback(
-    (library: HTMLDivElement | null) => useSessionBar.getState().set({ library }),
-    [],
-  );
   const setEndSlot = useCallback(
     (end: HTMLDivElement | null) => useSessionBar.getState().set({ end }),
     [],
@@ -909,7 +918,7 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
   }, [mark, session]);
 
   // The File and Photo menus' commands (useAppMenu) run what the identity
-  // menu, the Import button and P/U/⇧X run; the latest closures, by ref.
+  // menu, the Import button and P/U/X run; the latest closures, by ref.
   const menuCommands = useRef({
     flag: (_flag: number) => {},
     newSession: () => {},
@@ -923,7 +932,8 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
   menuCommands.current = {
     flag: (flag: number) => {
       void mark(flag);
-      if (viewerShown(useUIStore.getState())) requestAutoAdvance(useEditorStore.getState().selectedImage?.path);
+      const ui = useUIStore.getState();
+      requestAutoAdvance(viewerShown(ui) ? useEditorStore.getState().selectedImage?.path : useLibraryStore.getState().libraryActivePath ?? undefined);
     },
     newSession: () => {
       setImportAfterCreate(false);
@@ -1045,8 +1055,8 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
     setBusy(true);
     setError("");
     try {
-      await navigate(
-        await invoke<SessionSummary>(Invokes.SessionOpen, { directory }),
+      await switchLibraryAfterSaves(async () =>
+        navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })),
       );
     } catch (e) {
       setError(String(e));
@@ -1076,12 +1086,15 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
         parent,
         name.trim() + (asCatalog ? ".catalog" : ""),
       );
-      const summary = await invoke<SessionSummary>(Invokes.SessionCreate, {
-        directory,
-        name: name.trim(),
-        catalog: asCatalog,
+      const created = await switchLibraryAfterSaves(async () => {
+        await navigate(await invoke<SessionSummary>(Invokes.SessionCreate, {
+          directory,
+          name: name.trim(),
+          catalog: asCatalog,
+        }));
+        return true;
       });
-      await navigate(summary);
+      if (!created) return;
       if (importAfterCreate) {
         setImportAfterCreate(false);
         openImport();
@@ -1392,20 +1405,11 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
                 <span className="session-count-offline" role="img"
                   aria-label={t("offline.sessionCount", { count: session.missing })}
                   title={t("offline.sessionCountTitle")}>
-                  <FileWarning className="session-count-status-icon" size={13} aria-hidden />
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
-              {session.xmp_pending > 0 && (
-                <button type="button" className="session-count-pending"
-                  aria-label={t("session.bar.xmpPendingAction", { count: session.xmp_pending })}
-                  aria-haspopup="dialog"
-                  title={t("session.bar.xmpPendingAction", { count: session.xmp_pending })}
-                  onClick={() => setXmpReview(true)}>
-                  <RefreshCw className="session-count-status-icon" size={13} aria-hidden />
-                  <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
-                </button>
-              )}
+              <SessionXmpStatus key={session.directory} directory={session.directory} count={session.xmp_pending}
+                onChanged={() => refresh().catch(() => {})} />
             </span>
           )}
         </div>
@@ -1413,7 +1417,6 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
           className="session-bar-center"
           ref={setCenterSlot}
         />
-        <div className="session-library-slot" ref={setLibrarySlot} />
         <div className="session-bar-end" data-tauri-drag-region={nativeTitlebar || undefined}>
           <button
             className="session-action"
@@ -1581,29 +1584,10 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
           }}
         />
       )}
-      {xmpReview && session && (
-        <XmpSyncDialog
-          directory={session.directory}
-          syncEnabled={xmpSyncEnabled}
-          onClose={() => setXmpReview(false)}
-          onEntries={(entries, first) => {
-            // The grid shows the photographs still to review (`openXmpView`
-            // lists them again on later refreshes).
-            onSelectView?.(XMP_VIEW_ID, t("session.xmp.view"), xmpViewPaths(entries), !first);
-            if (!first) {
-              // Use XMP and its undo change flags, titles and IPTC too.
-              void refresh().catch(() => {});
-              void reloadSessionFlags();
-              const text = useTextMetadataCache.getState();
-              if (text.session === session.directory) void text.load(session.directory);
-              catalogChanged();
-            }
-          }}
-        />
-      )}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {
-          await navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }));
+          await switchLibraryAfterSaves(async () =>
+            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
         }} />}
       <dialog
         ref={dialog}
@@ -1874,7 +1858,7 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
                 placeholder={
                   catalog || importAfterCreate
                     ? t("session.create.catalogPlaceholder")
-                    : t("session.create.namePlaceholder")
+                    : t("session.create.namePlaceholder", { date: localDateStamp() })
                 }
               />
             </label>

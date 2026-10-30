@@ -10,6 +10,8 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, PasteMode, type Adjustments } from "../../utils/adjustments";
 import { Invokes, type AppSettings } from "../ui/AppProperties";
+import { undo, useCatalogUndoStore } from "../../utils/appUndo";
+import { useUIStore } from "../../store/useUIStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
@@ -62,12 +64,16 @@ it("copies exactly the chosen tools and layers and remembers the choice", async 
   const { result } = renderHook(useEditorActions);
   await act(() => result.current.handleCopyAdjustments());
   expect(screen.getByRole("dialog", { name: "Copy settings" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Light effects" })).toBeTruthy();
+  const clarity = screen.getByRole("checkbox", { name: "Presence: clarity, structure & dehaze" });
+  expect(clarity.closest("fieldset")?.querySelector("legend")?.textContent).toContain("Light");
+  expect(screen.getByText(/copy this photo.s processing versions/i)).toBeTruthy();
   // Remembered: the group holding exposure; layers were not chosen.
-  expect((screen.getByRole("checkbox", { name: /Exposure & Tone Mapper/ }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: /Exposure & base characteristics/ }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }) as HTMLInputElement).checked).toBe(false);
   // Capture One's "adjusted tools": those this photo changed, all layers.
   fireEvent.click(screen.getByRole("button", { name: "Changed" }));
-  expect((screen.getByRole("checkbox", { name: /^Tone/ }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: /^Tone(?:•)?$/ }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: /^Grain/ }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "Dodge" }));
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
@@ -188,14 +194,14 @@ it("remembers the layers chosen on a photograph and None clears the versions too
   const { result } = renderHook(useEditorActions);
   await act(() => result.current.handleCopyAdjustments());
   fireEvent.click(screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "This photo's processing versions" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }));
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
   // Again on the same photo: Sky only, not Dodge.
   await act(() => result.current.handleCopyAdjustments());
   expect((screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "Dodge" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "None" }));
-  expect((screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   // Option-copy honours the same layers.
   await act(() => result.current.handleCopyAdjustments(undefined, { quick: true }));
@@ -207,14 +213,14 @@ it("takes the processing versions only when they are chosen", async () => {
   const { result } = renderHook(useEditorActions);
   useEditorStore.setState({ adjustments: { ...structuredClone(source), toneVersion: 2 } as Adjustments });
   await act(() => result.current.handleCopyAdjustments());
-  const versions = screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement;
+  const versions = screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }) as HTMLInputElement;
   expect(versions.checked).toBe(false);
   fireEvent.click(versions);
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
   expect(useEditorStore.getState().copiedAdjustments).toMatchObject({ toneVersion: 2, exposure: 1 });
   // Remembered: on next time.
   await act(() => result.current.handleCopyAdjustments());
-  expect((screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }) as HTMLInputElement).checked).toBe(true);
 });
 
 it("leaves the processing versions out of quick copies when preferences list them without the choice", async () => {
@@ -283,7 +289,7 @@ it("Previous frames drawn masks with the size the previous photo was shown at", 
   expect([frame?.width, frame?.height]).toEqual([6000, 4000]);
 });
 
-it("pastes onto the open photo at once, as one undoable edit, the others in the backend", () => {
+it("pastes onto the open photo at once, as one undoable edit, the others in the backend", async () => {
   const { result } = renderHook(useEditorActions);
   useEditorStore.setState({ copiedAdjustments: { exposure: 2, masks: [sky] } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
   const opened = structuredClone(INITIAL_ADJUSTMENTS);
@@ -291,6 +297,8 @@ it("pastes onto the open photo at once, as one undoable edit, the others in the 
   useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
   useLibraryStore.setState({ multiSelectedPaths: ["/s/B.ARW", "/s/C.ARW"] });
   act(() => result.current.handlePasteAdjustments());
+  // The others' write is queued with their undo step.
+  await act(async () => {});
   expect(applied().map((call) => call.paths)).toEqual([["/s/C.ARW"]]);
   const shown = useEditorStore.getState().adjustments;
   expect([shown.exposure, shown.clarity]).toEqual([2, 7]);
@@ -557,4 +565,41 @@ it("keeps a pasted lens unresolved while its data cannot be resolved for the ope
   await settle();
   expect(useEditorStore.getState().adjustments).toBe(pasted);
   expect(pasted.lensProfileFor).toBe("unresolved");
+});
+
+it("a paste onto the open photo and others undoes on all of them after another photo opened (O-01)", async () => {
+  const disk: Record<string, unknown> = { "/s/C.ARW": { exposure: -1 } };
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    if (name === Invokes.ApplyAdjustmentsToPaths) {
+      const { paths } = args as { paths: string[] };
+      return {
+        changes: paths.map((path) => {
+          const before = disk[path];
+          disk[path] = { exposure: 2 };
+          return { path, before, after: disk[path] };
+        }),
+      };
+    }
+    if (name === Invokes.ReplaceRecipes) {
+      const { changes } = args as { changes: { path: string; adjustments: unknown }[] };
+      changes.forEach(({ path, adjustments }) => (disk[path] = adjustments));
+      return { changes: changes.map(({ path, adjustments }) => ({ path, before: null, after: adjustments })) };
+    }
+    return undefined;
+  });
+  useUIStore.setState({ activeView: "editor" });
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  const own = { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 0.5 };
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [own], historyIndex: 0 });
+  useLibraryStore.setState({ multiSelectedPaths: ["/s/B.ARW", "/s/C.ARW"] });
+  act(() => result.current.handlePasteAdjustments());
+  await act(async () => {});
+  expect(useEditorStore.getState().adjustments.exposure).toBe(2);
+  // Another photograph opens; one Undo still takes the paste back on both.
+  useEditorStore.setState({ selectedImage: photo("/s/D.ARW") as never, history: [own], historyIndex: 0 });
+  await act(() => undo());
+  expect(disk["/s/C.ARW"]).toEqual({ exposure: -1 });
+  expect((disk["/s/B.ARW"] as Adjustments).exposure).toBe(0.5);
 });

@@ -4,9 +4,7 @@ use base64::{Engine as _, engine::general_purpose};
 use image::{DynamicImage, GenericImageView, Rgb, RgbImage, RgbaImage};
 use serde_json::Value;
 
-use crate::ai_connector;
 use crate::ai_processing;
-use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::image_loader::composite_patches_on_image;
 use crate::image_processing::apply_linear_to_srgb;
@@ -114,6 +112,7 @@ fn encode_patch_result(
     is_srgb: bool,
     quality: u8,
     mask_as_png: bool,
+    model: Option<&str>,
 ) -> Result<String, String> {
     let mut color_buf = Cursor::new(Vec::with_capacity(32768));
     color_image
@@ -139,7 +138,7 @@ fn encode_patch_result(
     }
     let mask_base64 = general_purpose::STANDARD.encode(mask_buf.get_ref());
 
-    let result_json = serde_json::json!({
+    let mut result = serde_json::json!({
         "color": color_base64,
         "mask": mask_base64,
         "offsetX": offset_x,
@@ -147,8 +146,13 @@ fn encode_patch_result(
         "width": width,
         "height": height,
         "isSrgbEncoded": is_srgb
-    })
-    .to_string();
+    });
+    // The model that guided a fill, so the library can find its photographs
+    // (`rawtonic_metadata::provenance::fill_model`).
+    if let Some(model) = model {
+        result["model"] = Value::from(model);
+    }
+    let result_json = result.to_string();
 
     Ok(result_json)
 }
@@ -168,13 +172,93 @@ fn fill_removal(
     mask: &image::GrayImage,
     model: &rawtonic_onnx::Model,
 ) -> anyhow::Result<RgbaImage> {
-    let (w, h) = mask.dimensions();
-    let hole_mask = image::GrayImage::from_fn(w, h, |x, y| {
-        image::Luma([if mask.get_pixel(x, y)[0] > 0 { 255 } else { 0 }])
-    });
+    let hole_mask = binary_hole(mask);
     let guided = ai_processing::run_inpainting(source, &hole_mask, model)?;
-    let Ok((min_x, max_x, min_y, max_y)) = calculate_mask_bounds(&hole_mask) else {
-        return Ok(guided);
+    Ok(complete_with_guide(source, &hole_mask, guided))
+}
+
+/// Every pixel the selection touches (`mask` > 0) as 255.
+fn binary_hole(mask: &image::GrayImage) -> image::GrayImage {
+    let (w, h) = mask.dimensions();
+    image::GrayImage::from_fn(w, h, |x, y| {
+        image::Luma([if mask.get_pixel(x, y)[0] > 0 { 255 } else { 0 }])
+    })
+}
+
+/// Holes at least this thick (the diameter of the largest disc inside,
+/// in photo pixels) are large: MI-GAN would see them at full resolution
+/// with `moebius::CONTEXT` × their size around them only up to its 512 px
+/// view / 2.5. Thicker, the hole fills more than 40 % of its view's side
+/// (where it painted objects back, docs/MODELS.md) or the view is scaled
+/// down, and Moebius guides the fill instead. The thickness rather
+/// than the longer side: a thin line is filled from its two sides, however
+/// long it is.
+const LARGE_HOLE_THICKNESS: f32 = crate::moebius::SIZE as f32 / crate::moebius::CONTEXT;
+
+/// The slowest network run (one UNet step of the CFG batch) at which
+/// Moebius stays on: 1.5 s, so about 15 s per removal, three times our 5 s
+/// budget for a large hole. Not fitted: the GPUs measured take 0.2 s (Apple
+/// M4 Pro, Core ML) and 0.4 s (RTX 3080, WebGPU); an integrated GPU may take
+/// many times that (notes: benchmark-results/moebius-onnx-2026-10-27).
+const MOEBIUS_MAX_SECONDS_PER_RUN: f64 = 1.5;
+
+/// Set for the rest of the session when a removal measured Moebius slower
+/// than `MOEBIUS_MAX_SECONDS_PER_RUN`: large holes go to MI-GAN.
+static MOEBIUS_TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set once Remove has said Moebius cannot run on this computer.
+static MOEBIUS_UNAVAILABLE_SAID: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Moebius fills (running now, started so far). Overlapping removals wait
+/// for each other's network runs (one session per model), so a fill's time
+/// per run counts for `MOEBIUS_TOO_SLOW` only when it ran alone: none was
+/// running when it started and none started before it ended.
+static MOEBIUS_FILLS: std::sync::Mutex<(usize, u64)> = std::sync::Mutex::new((0, 0));
+
+/// Seconds per network run from the instants each run finished: the mean
+/// gap after the first run (which also holds the encoder and, on the first
+/// use, shader compilation). `None` with fewer than two runs.
+fn seconds_per_run(finished: &[std::time::Instant]) -> Option<f64> {
+    let (first, last) = (finished.first()?, finished.last()?);
+    (finished.len() >= 2)
+        .then(|| last.duration_since(*first).as_secs_f64() / (finished.len() - 1) as f64)
+}
+
+/// The hole's thickness (`LARGE_HOLE_THICKNESS`), within `bounds`
+/// (x0, x1, y0, y1 inclusive), measured on a grid of at most 1024 cells
+/// across (a cell holds the hole when any of its pixels does).
+fn hole_thickness(mask: &image::GrayImage, bounds: (usize, usize, usize, usize)) -> f32 {
+    let (x0, x1, y0, y1) = bounds;
+    let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
+    let cell = bw.max(bh).div_ceil(1024);
+    // One empty cell around the hole, so its edge counts as outside.
+    let (gw, gh) = (bw.div_ceil(cell) + 2, bh.div_ceil(cell) + 2);
+    let mut grid = vec![false; gw * gh];
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            if mask.get_pixel(x as u32, y as u32)[0] > 0 {
+                grid[((y - y0) / cell + 1) * gw + (x - x0) / cell + 1] = true;
+            }
+        }
+    }
+    let radius = ai_processing::edt_2d(&grid, gw, gh)
+        .into_iter()
+        .fold(0.0f32, f32::max);
+    2.0 * radius * cell as f32
+}
+
+/// Rebuilds the hole (`hole_mask` 255) of `source` at full resolution by
+/// patch-based completion guided by `guided` (the photo with a network's
+/// fill in the hole).
+fn complete_with_guide(
+    source: &DynamicImage,
+    hole_mask: &image::GrayImage,
+    guided: RgbaImage,
+) -> RgbaImage {
+    let (w, h) = hole_mask.dimensions();
+    let Ok((min_x, max_x, min_y, max_y)) = calculate_mask_bounds(hole_mask) else {
+        return guided;
     };
     // The region the completion copies from: 1.5 × the hole around it, as
     // the model's crop (at least 128 px).
@@ -215,7 +299,129 @@ fn fill_removal(
             out.put_pixel(x, y, image::Rgba([px[0], px[1], px[2], 255]));
         }
     }
-    Ok(out)
+    out
+}
+
+/// The completion (`filled`) with the guide's shading and colour: below
+/// the guide's own detail (a Gaussian of `sigma` pixels, the size of one of
+/// its pixels; below about 0.75 px, a crop under ~384 px, the guide is at
+/// full resolution and the hole takes it as it is) the hole takes the guide's values, above it the
+/// completion's texture. Where the photo around a large hole has no patch
+/// of the shade the guide asks for (a shadow inside a bowl), the completion
+/// copies the nearest ones (the dark wall behind it) in blocks; that
+/// difference is a few codes in the fill's dim base image but plain after
+/// the develop settings lift it.
+fn keep_guide_shading(
+    mut filled: RgbaImage,
+    guided: &RgbaImage,
+    hole_mask: &image::GrayImage,
+    sigma: f32,
+) -> RgbaImage {
+    let Ok((min_x, max_x, min_y, max_y)) = calculate_mask_bounds(hole_mask) else {
+        return filled;
+    };
+    let (w, h) = hole_mask.dimensions();
+    let reach = (3.0 * sigma).ceil() as usize;
+    let x0 = min_x.saturating_sub(reach);
+    let y0 = min_y.saturating_sub(reach);
+    let x1 = (max_x + reach + 1).min(w as usize);
+    let y1 = (max_y + reach + 1).min(h as usize);
+    let (cw, ch) = (x1 - x0, y1 - y0);
+    // Planes of the hole's weight and of its weighted difference
+    // guide − completion (only hole pixels count, so the photo around it
+    // does not pull the shading).
+    let mut planes = vec![vec![0.0f32; cw * ch]; 4];
+    for y in 0..ch {
+        for x in 0..cw {
+            let (px, py) = ((x0 + x) as u32, (y0 + y) as u32);
+            if hole_mask.get_pixel(px, py)[0] == 0 {
+                continue;
+            }
+            let (g, f) = (guided.get_pixel(px, py).0, filled.get_pixel(px, py).0);
+            let i = y * cw + x;
+            planes[3][i] = 1.0;
+            for c in 0..3 {
+                planes[c][i] = g[c] as f32 - f[c] as f32;
+            }
+        }
+    }
+    {
+        use rayon::prelude::*;
+        planes
+            .par_iter_mut()
+            .for_each(|plane| blur_plane(plane, cw, ch, sigma));
+    }
+    for y in 0..ch {
+        for x in 0..cw {
+            let (px, py) = ((x0 + x) as u32, (y0 + y) as u32);
+            let i = y * cw + x;
+            if hole_mask.get_pixel(px, py)[0] == 0 || planes[3][i] <= 1e-6 {
+                continue;
+            }
+            let p = filled.get_pixel_mut(px, py);
+            for c in 0..3 {
+                let v = p[c] as f32 + planes[c][i] / planes[3][i];
+                p[c] = v.round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    filled
+}
+
+/// Blurs a `w` × `h` plane by about a Gaussian of `sigma` pixels: three
+/// box passes along rows, then along columns (zero outside).
+fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
+    // The box radius whose three passes have the Gaussian's variance.
+    let r = (((12.0 * sigma * sigma / 3.0 + 1.0).sqrt() - 1.0) / 2.0).round() as usize;
+    if r == 0 {
+        return;
+    }
+    let mut line = Vec::new();
+    for _ in 0..3 {
+        for row in plane.chunks_mut(w) {
+            box_line(row, r, &mut line);
+        }
+        // Columns: running sums over rows, all columns at once.
+        let mut sums = vec![0.0f32; w];
+        let mut out = vec![0.0f32; w * h];
+        for y in 0..h + r {
+            if y < h {
+                for (s, v) in sums.iter_mut().zip(&plane[y * w..(y + 1) * w]) {
+                    *s += v;
+                }
+            }
+            if y > 2 * r {
+                let gone = y - 2 * r - 1;
+                for (s, v) in sums.iter_mut().zip(&plane[gone * w..(gone + 1) * w]) {
+                    *s -= v;
+                }
+            }
+            if y >= r {
+                let at = y - r;
+                for (o, s) in out[at * w..(at + 1) * w].iter_mut().zip(&sums) {
+                    *o = s / (2 * r + 1) as f32;
+                }
+            }
+        }
+        plane.copy_from_slice(&out);
+    }
+}
+
+/// One box pass of radius `r` along `row` (zero outside); `line` is scratch.
+fn box_line(row: &mut [f32], r: usize, line: &mut Vec<f32>) {
+    line.clear();
+    line.extend_from_slice(row);
+    let n = row.len();
+    let mut sum: f32 = line[..r.min(n)].iter().sum();
+    for x in 0..n {
+        if x + r < n {
+            sum += line[x + r];
+        }
+        if x > r {
+            sum -= line[x - r - 1];
+        }
+        row[x] = sum / (2 * r + 1) as f32;
+    }
 }
 
 /// The completion's settings for Remove, chosen on the object-removal set
@@ -236,12 +442,165 @@ fn removal_fill_params(hole_pixels: usize) -> rawtonic_engine::patch_fill::Patch
     }
 }
 
+/// Remove's fill of a large hole: Moebius's fill guides the completion
+/// instead of MI-GAN's (`moebius`). Downloads the model on first use.
+/// `Ok(None)` when Moebius is not available (no download possible, Core ML
+/// failed, no GPU provider on Windows and Linux, a failed run) or the hole
+/// does not fit its square crop: MI-GAN fills then. Emits
+/// `ai-fill-progress` ({taskId, done, total} network runs).
+async fn fill_large_hole(
+    app_handle: &tauri::AppHandle,
+    state: &tauri::State<'_, AppState>,
+    source: &DynamicImage,
+    mask: &image::GrayImage,
+    bounds: (usize, usize, usize, usize),
+    task_id: Option<&str>,
+    token: Option<std::sync::Arc<crate::app_state::AiTaskToken>>,
+) -> Result<Option<RgbaImage>, String> {
+    use tauri::Emitter;
+
+    let (x0, x1, y0, y1) = bounds;
+    if MOEBIUS_TOO_SLOW.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(None);
+    }
+    // A hole longer than the photo's shorter side does not fit the
+    // network's square: MI-GAN, without downloading or loading Moebius.
+    let (w, h) = source.dimensions();
+    if crate::moebius::crop_square((x0 as u32, y0 as u32, x1 as u32, y1 as u32), w, h).is_none() {
+        log::info!("AI fill: the hole does not fit Moebius's square crop; MI-GAN guides the fill");
+        return Ok(None);
+    }
+    let start = std::time::Instant::now();
+    // The first use downloads the model: Cancel stops waiting for it.
+    let loading = ai_processing::get_or_init_moebius(app_handle, &state.ai_state);
+    let loaded = match &token {
+        Some(token) => tokio::select! {
+            loaded = loading => loaded,
+            _ = token.wait_for_cancel() => return Err("Task cancelled".to_string()),
+        },
+        None => loading.await,
+    };
+    // MI-GAN fills when Moebius cannot: the user is told why the fill is
+    // weaker (`ai-fill-notice`: the download failed, or the model did not
+    // run).
+    let notice = |reason: &str| {
+        // "unavailable" does not change within a session (no GPU provider,
+        // Core ML fails): said once, not on every large removal.
+        if reason == "unavailable"
+            && MOEBIUS_UNAVAILABLE_SAID.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            return;
+        }
+        let _ = app_handle.emit(
+            "ai-fill-notice",
+            serde_json::json!({ "taskId": task_id, "reason": reason }),
+        );
+    };
+    let model = match loaded {
+        Ok(model) => model,
+        Err(e) => {
+            log::warn!("AI fill: Moebius unavailable ({e:#}); MI-GAN guides the fill");
+            let offline = e.downcast_ref::<ai_processing::DownloadFailed>().is_some();
+            notice(if offline { "download" } else { "unavailable" });
+            return Ok(None);
+        }
+    };
+    let load_ms = start.elapsed().as_millis();
+    if token.as_ref().is_some_and(|t| t.is_cancelled()) {
+        return Err("Task cancelled".to_string());
+    }
+    let hole_mask = binary_hole(mask);
+    let rgb = source.to_rgb8();
+    let app = app_handle.clone();
+    let task = task_id.map(str::to_string);
+    let cancel = token.clone();
+    let (guided, per_run) = tokio::task::spawn_blocking(move || {
+        let (alone, started) = {
+            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
+            fills.0 += 1;
+            fills.1 += 1;
+            (fills.0 == 1, fills.1)
+        };
+        let mut finished = Vec::new();
+        let mut progress = |done: usize, total: usize| {
+            if done > 0 {
+                finished.push(std::time::Instant::now());
+            }
+            let _ = app.emit(
+                "ai-fill-progress",
+                serde_json::json!({ "taskId": task, "done": done, "total": total }),
+            );
+        };
+        let cancelled = || cancel.as_ref().is_some_and(|t| t.is_cancelled());
+        let guided = crate::moebius::guide(
+            &*model,
+            &rgb,
+            &hole_mask,
+            (x0 as u32, y0 as u32, x1 as u32, y1 as u32),
+            &mut progress,
+            &cancelled,
+        )
+        .map(|guided| guided.map(|g| (g, hole_mask)));
+        let alone = {
+            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
+            fills.0 -= 1;
+            // Another fill started meanwhile: this one may have waited for it.
+            alone && fills.1 == started
+        };
+        (guided, seconds_per_run(&finished).filter(|_| alone))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    // A GPU too slow for Moebius: this removal finishes, later ones use
+    // MI-GAN for the rest of the session, and the user is told once.
+    if let Some(per_run) = per_run
+        && per_run > MOEBIUS_MAX_SECONDS_PER_RUN
+        && !MOEBIUS_TOO_SLOW.swap(true, std::sync::atomic::Ordering::Relaxed)
+    {
+        log::warn!(
+            "AI fill: Moebius took {per_run:.2} s per network run (limit {MOEBIUS_MAX_SECONDS_PER_RUN} s); MI-GAN guides large holes for the rest of the session"
+        );
+        let _ = app_handle.emit(
+            "ai-fill-notice",
+            serde_json::json!({ "taskId": task_id, "reason": "tooSlow" }),
+        );
+    }
+    let guide_ms = start.elapsed().as_millis() - load_ms;
+    let (guided, hole_mask) = match guided {
+        Ok(Some(done)) => done,
+        Ok(None) if token.as_ref().is_some_and(|t| t.is_cancelled()) => {
+            return Err("Task cancelled".to_string());
+        }
+        Ok(None) => {
+            log::info!(
+                "AI fill: the hole does not fit Moebius's square crop; MI-GAN guides the fill"
+            );
+            return Ok(None);
+        }
+        Err(e) => {
+            log::warn!("AI fill: Moebius failed ({e}); MI-GAN guides the fill");
+            notice("unavailable");
+            return Ok(None);
+        }
+    };
+    // The guide's own detail is a pixel of its 512 px square.
+    let side = crate::moebius::crop_square((x0 as u32, y0 as u32, x1 as u32, y1 as u32), w, h)
+        .map_or(1.0, |(_, _, side)| {
+            side as f32 / crate::moebius::SIZE as f32
+        });
+    let filled = complete_with_guide(source, &hole_mask, guided.clone());
+    let filled = keep_guide_shading(filled, &guided, &hole_mask, side);
+    log::info!(
+        "AI fill: Moebius guide: load {load_ms} ms, network {guide_ms} ms, completion {} ms",
+        start.elapsed().as_millis() - load_ms - guide_ms
+    );
+    Ok(Some(filled))
+}
+
 #[tauri::command]
 pub async fn invoke_generative_replace_with_mask_def(
-    path: String,
     patch_definition: AiPatchDefinition,
     current_adjustments: Value,
-    use_fast_inpaint: bool,
     task_id: Option<String>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -255,7 +614,6 @@ pub async fn invoke_generative_replace_with_mask_def(
         return Err("Task cancelled".to_string());
     }
 
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     // MI-GAN follows the masking models' lifecycle (ai_lifecycle).
     crate::ai_lifecycle::LIFECYCLE.touch();
     let _running = crate::ai_lifecycle::LIFECYCLE.run();
@@ -321,7 +679,25 @@ pub async fn invoke_generative_replace_with_mask_def(
     }
 
     let fill_start = std::time::Instant::now();
-    let patch_rgba = if use_fast_inpaint {
+    let large_fill =
+        if hole_thickness(&mask_bitmap, (min_x, max_x, min_y, max_y)) >= LARGE_HOLE_THICKNESS {
+            fill_large_hole(
+                &app_handle,
+                &state,
+                &source_image,
+                &mask_bitmap,
+                (min_x, max_x, min_y, max_y),
+                task_id.as_deref(),
+                _guard.as_ref().map(|g| g.token.clone()),
+            )
+            .await?
+        } else {
+            None
+        };
+    use rawtonic_metadata::provenance::fill_model;
+    let (patch_rgba, model) = if let Some(filled) = large_fill {
+        (filled, fill_model::MOEBIUS)
+    } else {
         let inpaint_model = ai_processing::get_or_init_inpaint_model(
             &app_handle,
             &state.ai_state,
@@ -334,49 +710,9 @@ pub async fn invoke_generative_replace_with_mask_def(
             return Err("Task cancelled".to_string());
         }
 
-        fill_removal(&source_image, &mask_bitmap, &inpaint_model).map_err(|e| e.to_string())?
-    } else if settings.ai_provider.as_deref() == Some("ai-connector")
-        && let Some(address) = settings.ai_connector_address
-    {
-        let base_url = format!("http://{}", address);
-
-        let mut rgba_mask = RgbaImage::new(img_w, img_h);
-        for (src_val, dst_chunk) in mask_bitmap.as_raw().iter().zip(rgba_mask.chunks_mut(4)) {
-            let intensity = *src_val;
-            dst_chunk[0] = intensity;
-            dst_chunk[1] = intensity;
-            dst_chunk[2] = intensity;
-            dst_chunk[3] = 255;
-        }
-        let mask_image_dynamic = DynamicImage::ImageRgba8(rgba_mask);
-
-        let (real_path_buf, _) = crate::file_management::parse_virtual_path(&path);
-        let real_path_str = real_path_buf.to_string_lossy().to_string();
-
-        let inpaint_fut = ai_connector::process_inpainting(
-            &base_url,
-            &real_path_str,
-            &source_image,
-            &mask_image_dynamic,
-            patch_definition.prompt,
-            None,
-        );
-
-        if let Some(token) = cancel_flag.as_ref() {
-            tokio::select! {
-                res = inpaint_fut => res.map_err(|e| e.to_string())?,
-                _ = token.wait_for_cancel() => {
-                    return Err("Task cancelled".to_string());
-                }
-            }
-        } else {
-            inpaint_fut.await.map_err(|e| e.to_string())?
-        }
-    } else {
-        return Err(
-            "No generative backend configured or connection invalid. Please check your AI settings."
-                .to_string(),
-        );
+        let filled =
+            fill_removal(&source_image, &mask_bitmap, &inpaint_model).map_err(|e| e.to_string())?;
+        (filled, fill_model::MI_GAN)
     };
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
@@ -434,6 +770,7 @@ pub async fn invoke_generative_replace_with_mask_def(
         is_raw,
         95,
         true,
+        Some(model),
     );
     log::info!(
         "AI fill ({}): {img_w}x{img_h}, area {crop_w}x{crop_h}: source {source_ms} ms, mask {mask_ms} ms, fill {fill_ms} ms, total {} ms",
@@ -557,6 +894,337 @@ mod removal_timing {
             );
         }
         crate::register_exit_handler();
+    }
+
+    /// Remove's fill on RAW photos as the app runs it (sRGB-encoded decode):
+    /// `RAWTONIC_REMOVAL_RAW_CASES` lists `raw;mask;x;y;out` lines (the grey
+    /// mask PNG of a patch at `x`, `y`, e.g. a recipe's `patchData.mask`)
+    /// and writes `out`-source/guide/fill PNGs of the patch's area; a
+    /// `raw;out.png` line writes the photo as the fill sees it (input for
+    /// `scripts/models/eval_inpaint.py`).
+    #[test]
+    #[ignore]
+    fn write_removal_fill_on_raws() {
+        let (Some(model), Some(cases)) = (
+            std::env::var_os("RAWTONIC_INPAINT_MODEL"),
+            std::env::var_os("RAWTONIC_REMOVAL_RAW_CASES"),
+        ) else {
+            return;
+        };
+        let session = rawtonic_onnx::Model::load(
+            std::path::Path::new(&model),
+            rawtonic_onnx::ModelKind::Inpaint,
+        )
+        .unwrap();
+        // Never over an existing file (the outputs sit beside QA copies).
+        let save = |img: image::DynamicImage, path: String| {
+            let mut png = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            rawtonic_export::output::write_new_output(&path, png)
+                .unwrap_or_else(|e| panic!("{path}: {e}"));
+        };
+        for line in std::fs::read_to_string(cases).unwrap().lines() {
+            let f: Vec<&str> = line.split(';').collect();
+            if f.len() != 2 && f.len() != 5 {
+                continue;
+            }
+            let bytes = std::fs::read(f[0]).unwrap();
+            let base = crate::image_loader::load_base_image_from_bytes(
+                &bytes,
+                f[0],
+                false,
+                &Default::default(),
+                None,
+            )
+            .unwrap();
+            let photo = super::apply_linear_to_srgb(base);
+            if f.len() == 2 {
+                save(
+                    image::DynamicImage::ImageRgb8(photo.to_rgb8()),
+                    f[1].to_string(),
+                );
+                continue;
+            }
+            let patch = image::open(f[1]).unwrap().to_luma8();
+            let (px, py): (u32, u32) = (f[2].parse().unwrap(), f[3].parse().unwrap());
+            let mut mask = image::GrayImage::new(photo.width(), photo.height());
+            image::imageops::replace(&mut mask, &patch, px as i64, py as i64);
+            let guide = crate::ai_processing::run_inpainting(&photo, &mask, &session).unwrap();
+            let started = std::time::Instant::now();
+            let fill = super::fill_removal(&photo, &mask, &session).unwrap();
+            let (w, h) = patch.dimensions();
+            let crop =
+                |img: &image::RgbaImage| image::imageops::crop_imm(img, px, py, w, h).to_image();
+            let source = crop(&photo.to_rgba8());
+            for (name, img) in [
+                ("source", source),
+                ("guide", crop(&guide)),
+                ("fill", crop(&fill)),
+            ] {
+                save(
+                    image::DynamicImage::ImageRgba8(img),
+                    format!("{}-{name}.png", f[4]),
+                );
+            }
+            println!("{line}: {} ms", started.elapsed().as_millis());
+        }
+        crate::register_exit_handler();
+    }
+
+    /// Remove's large-hole fill as the app runs it (`fill_large_hole`
+    /// without the app): Moebius from the pack's files in
+    /// `RAWTONIC_MOEBIUS_MODELS`, on `RAWTONIC_MOEBIUS_CASES` lines
+    /// `photo;mask;out` (8-bit sRGB photo, a mask of its size). Writes
+    /// `out`-guide.png (the network's square) and `out`-fill.png (the crop
+    /// `eval_inpaint.py` scores, 1.5 × the hole around it), never over a
+    /// file; prints the hole's thickness, the times and the process's
+    /// memory (current / peak: the physical footprint as Activity Monitor
+    /// shows it on macOS, the resident set elsewhere). Windows and Linux
+    /// also need ONNX Runtime in `ORT_DYLIB_PATH` with a GPU plugin beside
+    /// it.
+    #[test]
+    #[ignore]
+    fn moebius_fill_times() {
+        let (Some(models), Some(cases)) = (
+            std::env::var_os("RAWTONIC_MOEBIUS_MODELS"),
+            std::env::var_os("RAWTONIC_MOEBIUS_CASES"),
+        ) else {
+            return;
+        };
+        let models = std::path::Path::new(&models);
+        #[cfg(target_os = "macos")]
+        let footprint = || {
+            // SAFETY: plain data the kernel fills for this process.
+            let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+            unsafe {
+                libc::proc_pid_rusage(
+                    std::process::id() as libc::c_int,
+                    libc::RUSAGE_INFO_V4,
+                    (&mut info as *mut libc::rusage_info_v4).cast(),
+                )
+            };
+            format!(
+                "{:.2} / {:.2} GB",
+                info.ri_phys_footprint as f64 / 1e9,
+                info.ri_lifetime_max_phys_footprint as f64 / 1e9
+            )
+        };
+        #[cfg(not(target_os = "macos"))]
+        let footprint = || {
+            let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+            let kb = |key: &str| {
+                status
+                    .lines()
+                    .find_map(|l| l.strip_prefix(key))
+                    .and_then(|v| v.split_whitespace().next()?.parse::<f64>().ok())
+                    .map_or("?".to_string(), |v| format!("{:.2}", v * 1024.0 / 1e9))
+            };
+            format!("{} / {} GB", kb("VmRSS:"), kb("VmHWM:"))
+        };
+        // The packages put together from the pack's flat files, as the app does.
+        #[cfg(target_os = "macos")]
+        let dir = {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::copy(
+                models.join(crate::moebius::EMBEDDINGS_FILE.0),
+                dir.path().join(crate::moebius::EMBEDDINGS_FILE.0),
+            )
+            .unwrap();
+            for (package, files) in &crate::moebius::coreml::PACKAGES {
+                for (file, inner, _) in files {
+                    let to = dir.path().join(package).join(inner);
+                    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+                    std::fs::hard_link(models.join(file), &to).unwrap();
+                }
+            }
+            dir
+        };
+        println!("before load: footprint {}", footprint());
+        let started = std::time::Instant::now();
+        #[cfg(target_os = "macos")]
+        let model = crate::moebius::coreml::Moebius::load(dir.path()).unwrap();
+        #[cfg(not(target_os = "macos"))]
+        let model =
+            crate::moebius::onnx::Moebius::load(models, &crate::moebius::onnx::gpu_providers())
+                .unwrap();
+        #[cfg(not(target_os = "macos"))]
+        println!("on {}", model.provider());
+        println!(
+            "load (compile): {} ms, footprint {}",
+            started.elapsed().as_millis(),
+            footprint()
+        );
+        let save = |img: image::DynamicImage, path: String| {
+            let mut png = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            rawtonic_export::output::write_new_output(&path, png)
+                .unwrap_or_else(|e| panic!("{path}: {e}"));
+        };
+        for line in std::fs::read_to_string(cases).unwrap().lines() {
+            let f: Vec<&str> = line.split(';').collect();
+            if f.len() != 3 {
+                continue;
+            }
+            let photo = image::open(f[0]).unwrap();
+            let mask = image::open(f[1]).unwrap().to_luma8();
+            let started = std::time::Instant::now();
+            let (min_x, max_x, min_y, max_y) = super::calculate_mask_bounds(&mask).unwrap();
+            let thickness = super::hole_thickness(&mask, (min_x, max_x, min_y, max_y));
+            let hole_mask = super::binary_hole(&mask);
+            let rgb = photo.to_rgb8();
+            let measured = started.elapsed();
+            let mut finished = Vec::new();
+            let guided = crate::moebius::guide(
+                &model,
+                &rgb,
+                &hole_mask,
+                (min_x as u32, min_y as u32, max_x as u32, max_y as u32),
+                &mut |done, _| {
+                    if done > 0 {
+                        finished.push(std::time::Instant::now());
+                    }
+                },
+                &|| false,
+            )
+            .unwrap();
+            let Some(guided) = guided else {
+                println!("{}: the hole does not fit the square", f[2]);
+                continue;
+            };
+            let guide_done = started.elapsed();
+            let (_, _, side) = crate::moebius::crop_square(
+                (min_x as u32, min_y as u32, max_x as u32, max_y as u32),
+                photo.width(),
+                photo.height(),
+            )
+            .unwrap();
+            let fill = super::complete_with_guide(&photo, &hole_mask, guided.clone());
+            let fill = super::keep_guide_shading(
+                fill,
+                &guided,
+                &hole_mask,
+                side as f32 / crate::moebius::SIZE as f32,
+            );
+            let total = started.elapsed();
+            let (w, h) = mask.dimensions();
+            let side = crate::moebius::crop_square(
+                (min_x as u32, min_y as u32, max_x as u32, max_y as u32),
+                w,
+                h,
+            )
+            .unwrap();
+            let square =
+                image::imageops::crop_imm(&guided, side.0, side.1, side.2, side.2).to_image();
+            save(
+                image::DynamicImage::ImageRgba8(square),
+                format!("{}-guide.png", f[2]),
+            );
+            let (mw, mh) = (max_x - min_x + 1, max_y - min_y + 1);
+            let (px, py) = (128.max(mw * 3 / 2), 128.max(mh * 3 / 2));
+            let (x0, y0) = (min_x.saturating_sub(px), min_y.saturating_sub(py));
+            let (x1, y1) = (
+                (max_x + px + 1).min(w as usize),
+                (max_y + py + 1).min(h as usize),
+            );
+            let crop = image::imageops::crop_imm(
+                &fill,
+                x0 as u32,
+                y0 as u32,
+                (x1 - x0) as u32,
+                (y1 - y0) as u32,
+            );
+            save(
+                image::DynamicImage::ImageRgba8(crop.to_image()),
+                format!("{}-fill.png", f[2]),
+            );
+            println!(
+                "{}: {w}x{h}, hole {mw}x{mh}, thickness {thickness:.0} px: mask {} ms, Moebius {} ms ({} runs; to the first run's end {} ms, then {:.0} ms per run), completion {} ms, total {} ms; footprint {}",
+                f[2],
+                measured.as_millis(),
+                (guide_done - measured).as_millis(),
+                finished.len(),
+                (finished[0] - started - measured).as_millis(),
+                super::seconds_per_run(&finished).unwrap_or(0.0) * 1000.0,
+                (total - guide_done).as_millis(),
+                total.as_millis(),
+                footprint()
+            );
+        }
+    }
+
+    /// A completion that copied a darker block into a smooth guide takes
+    /// the guide's shade back but keeps its own fine texture; nothing
+    /// outside the hole changes.
+    #[test]
+    fn keeps_the_guides_shading_and_the_completions_texture() {
+        let (w, h) = (200u32, 160u32);
+        let hole = image::GrayImage::from_fn(w, h, |x, y| {
+            image::Luma([if (40..160).contains(&x) && (30..130).contains(&y) {
+                255
+            } else {
+                0
+            }])
+        });
+        let guide = image::RgbaImage::from_pixel(w, h, image::Rgba([60, 80, 50, 255]));
+        // Grain ±4 everywhere; a block 20 codes darker in the hole.
+        let grain = |x: u32, y: u32| if (x + y).is_multiple_of(2) { 4i32 } else { -4 };
+        let filled = image::RgbaImage::from_fn(w, h, |x, y| {
+            let dark = if (60..110).contains(&x) && (50..100).contains(&y) {
+                20
+            } else {
+                0
+            };
+            let v = |c: i32| (c - dark + grain(x, y)) as u8;
+            image::Rgba([v(60), v(80), v(50), 255])
+        });
+        let out = super::keep_guide_shading(filled.clone(), &guide, &hole, 4.0);
+        // The block's centre is back at the guide's shade, grain kept.
+        let p = out.get_pixel(85, 75).0;
+        assert!((p[1] as i32 - 80 - grain(85, 75)).abs() <= 2, "{p:?}");
+        let q = out.get_pixel(86, 75).0;
+        assert!(
+            (p[1] as i32 - q[1] as i32).abs() >= 6,
+            "grain kept: {p:?} {q:?}"
+        );
+        for (x, y) in [(5, 5), (199, 159), (39, 80)] {
+            assert_eq!(out.get_pixel(x, y), filled.get_pixel(x, y));
+        }
+    }
+
+    #[test]
+    fn seconds_per_run_leaves_out_the_first_run() {
+        let start = std::time::Instant::now();
+        let at = |ms: u64| start + std::time::Duration::from_millis(ms);
+        assert_eq!(super::seconds_per_run(&[]), None);
+        assert_eq!(super::seconds_per_run(&[at(900)]), None);
+        // The first run ends at 0.9 s (encoder, compilation); then 0.4 s each.
+        let per_run = super::seconds_per_run(&[at(900), at(1300), at(1700), at(2100)]).unwrap();
+        assert!((per_run - 0.4).abs() < 1e-9, "{per_run}");
+    }
+
+    #[test]
+    fn hole_thickness_is_the_widest_disc_inside() {
+        // A disc of radius 150 and a 4000 px long, 20 px wide line.
+        let mut mask = image::GrayImage::new(5000, 1000);
+        for y in 0..1000u32 {
+            for x in 0..5000u32 {
+                let (dx, dy) = (x as f32 - 400.0, y as f32 - 400.0);
+                if dx * dx + dy * dy <= 150.0 * 150.0
+                    || ((900..4900).contains(&x) && (800..820).contains(&y))
+                {
+                    mask.put_pixel(x, y, image::Luma([255]));
+                }
+            }
+        }
+        let bounds = super::calculate_mask_bounds(&mask).unwrap();
+        // The grid is 5 px coarse here (4650 px across in at most 1024 cells).
+        let t = super::hole_thickness(&mask, bounds);
+        assert!((t - 300.0).abs() <= 12.0, "{t}");
+        let line = image::imageops::crop_imm(&mask, 600, 0, 4400, 1000).to_image();
+        let t = super::hole_thickness(&line, super::calculate_mask_bounds(&line).unwrap());
+        assert!((t - 20.0).abs() <= 10.0, "{t}");
     }
 
     /// Fill edges on an uncropped panorama DNG (`RAWTONIC_FILL_PANO`; its
@@ -755,7 +1423,7 @@ pub(crate) fn fill_edge_patches(
             }])
         });
         let data = encode_patch_result(
-            &color, &area_mask, x0 as u32, y0 as u32, bw as u32, bh as u32, true, 95, true,
+            &color, &area_mask, x0 as u32, y0 as u32, bw as u32, bh as u32, true, 95, true, None,
         )
         .map_err(anyhow::Error::msg)?;
         patches.push(serde_json::json!({

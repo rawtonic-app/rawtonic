@@ -76,7 +76,7 @@ beforeEach(() => {
     osPlatform: "macos",
   });
   useUIStore.setState({ activeView: "editor", isFullScreen: false });
-  useMultiViewStore.setState({ enabled: true, editAll: false, unavailable: false, active: false });
+  useMultiViewStore.setState({ enabled: true, libraryEnabled: false, editAll: false, unavailable: false, active: false });
   useLibraryStore.setState({ imageRatings: {}, imageFlags: {} });
   useSessionBar.setState({ mark: null });
   open("/s/b.CR3", ["/s/b.CR3", "/s/a.CR3", "/s/c.CR3"]);
@@ -91,6 +91,29 @@ const cells = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>(".studio-mv-cell")].map((el) => el.dataset.path ?? "more");
 
 describe("multi view", () => {
+  it("keeps an ordinary Library loupe single even when Develop survey is remembered", () => {
+    useUIStore.setState({ activeView: "library", libraryLoupe: true });
+    const { container } = stage();
+    expect(cells(container)).toHaveLength(0);
+    expect(useMultiViewStore.getState().active).toBe(false);
+  });
+
+  it("shows the selected photographs in the Library loupe", () => {
+    useMultiViewStore.setState({ libraryEnabled: true });
+    useUIStore.setState({ activeView: "library", libraryLoupe: true });
+    const { container } = stage();
+    expect(cells(container)).toHaveLength(3);
+    expect(useMultiViewStore.getState().active).toBe(true);
+  });
+
+  it("turns off batch editing when entering a Library survey", () => {
+    stage();
+    act(() => useMultiViewStore.setState({ editAll: true, libraryEnabled: true }));
+    act(() => useUIStore.setState({ activeView: "library", libraryLoupe: true }));
+    expect(useMultiViewStore.getState().active).toBe(true);
+    expect(useMultiViewStore.getState().editAll).toBe(false);
+  });
+
   it("shows the primary alone in the full screen (F) and comes back when it ends", () => {
     const { container } = stage();
     expect(cells(container)).toHaveLength(3);

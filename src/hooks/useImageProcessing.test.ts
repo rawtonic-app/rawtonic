@@ -72,7 +72,8 @@ beforeEach(() => {
     originalSize: { width: 4000, height: 3000 },
     interactivePatch: null,
     patchesSentToBackend: new Set(),
-    clippingWarnings: false,
+    clipHighlights: false,
+    clipShadows: false,
     softProof: false,
     softProofSpace: "srgb",
     softProofWarning: false,
@@ -90,17 +91,24 @@ it("rerenders browser previews when clipping and soft proof change without savin
   mount();
   await finish(); // Browser response, not WGPU_RENDER.
   const recipe = useEditorStore.getState().adjustments;
-  act(() => useEditorStore.setState({ clippingWarnings: true }));
+  act(() => useEditorStore.setState({ clipHighlights: true, clipShadows: true }));
   expect(calls()).toHaveLength(2);
-  expect(calls()[1][1]).toMatchObject({ jsAdjustments: { showClipping: true }, isInteractive: false });
+  expect(calls()[1][1]).toMatchObject({ jsAdjustments: { showClipping: 1 }, isInteractive: false });
+  await finish();
+  // Each warning alone has its own value.
+  act(() => useEditorStore.setState({ clipHighlights: true, clipShadows: false }));
+  expect(calls()[2][1]).toMatchObject({ jsAdjustments: { showClipping: 0x40000001 } });
+  await finish();
+  act(() => useEditorStore.setState({ clipHighlights: false, clipShadows: true }));
+  expect(calls()[3][1]).toMatchObject({ jsAdjustments: { showClipping: 0x40000002 } });
   await finish();
   act(() => useEditorStore.setState({ softProof: true, softProofSpace: "adobeRgb", softProofWarning: true }));
-  expect(calls()).toHaveLength(3);
-  expect(calls()[2][1]).toMatchObject({ jsAdjustments: { softProof: "adobeRgb", softProofWarning: true } });
+  expect(calls()).toHaveLength(5);
+  expect(calls()[4][1]).toMatchObject({ jsAdjustments: { softProof: "adobeRgb", softProofWarning: true } });
   await finish();
-  act(() => useEditorStore.setState({ softProof: false, clippingWarnings: false, colorRangeShow: "red" }));
-  expect(calls()).toHaveLength(4);
-  expect(calls()[3][1]).toMatchObject({ jsAdjustments: { showClipping: false, colorRangeShow: "red" } });
+  act(() => useEditorStore.setState({ softProof: false, clipHighlights: false, clipShadows: false, colorRangeShow: "red" }));
+  expect(calls()).toHaveLength(6);
+  expect(calls()[5][1]).toMatchObject({ jsAdjustments: { showClipping: 0, colorRangeShow: "red" } });
   expect(useEditorStore.getState().adjustments).toBe(recipe);
   expect(debouncedSave).not.toHaveBeenCalled();
 });
@@ -298,7 +306,8 @@ it("asks for the split view's before after finished native frames, one request a
   useEditorStore.setState({
     splitView: true,
     hasRenderedFirstFrame: true,
-    clippingWarnings: true,
+    clipHighlights: true,
+    clipShadows: true,
     adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 2, rotation: 3 },
   });
   useUIStore.setState({ activePanel: Panel.Adjustments });
@@ -310,7 +319,7 @@ it("asks for the split view's before after finished native frames, one request a
   expect(befores()[0][1]).toMatchObject({
     path: "/first.dng",
     targetResolution: 1920,
-    jsAdjustments: { exposure: INITIAL_ADJUSTMENTS.exposure, rotation: 3, showClipping: true },
+    jsAdjustments: { exposure: INITIAL_ADJUSTMENTS.exposure, rotation: 3, showClipping: 1 },
   });
 
   // A frame finished while the before renders: one more request, afterwards.
@@ -334,7 +343,7 @@ it("asks for the split view's before after finished native frames, one request a
   );
   await act(async () => complete.shift()!(nativeFrame()));
   expect(befores()).toHaveLength(2);
-  useEditorStore.setState({ clippingWarnings: false, hasRenderedFirstFrame: false });
+  useEditorStore.setState({ clipHighlights: false, clipShadows: false, hasRenderedFirstFrame: false });
 });
 
 it("renders the split view's before again when a view state changes on live frames", async () => {
@@ -347,9 +356,9 @@ it("renders the split view's before again when a view state changes on live fram
   await act(async () => complete.shift()!(nativeFrame()));
   expect(befores()).toHaveLength(1);
   await act(async () => (complete.shift() as unknown as (value: boolean) => void)(true));
-  act(() => useEditorStore.setState({ clippingWarnings: true }));
+  act(() => useEditorStore.setState({ clipShadows: true }));
   expect(befores()).toHaveLength(2);
-  expect(befores()[1][1]).toMatchObject({ jsAdjustments: { showClipping: true } });
+  expect(befores()[1][1]).toMatchObject({ jsAdjustments: { showClipping: 0x40000002 } });
   await act(async () => (complete.pop() as unknown as (value: boolean) => void)(true));
   act(() => useEditorStore.setState({ softProof: true, softProofSpace: "adobeRgb" }));
   expect(befores()).toHaveLength(3);
@@ -388,16 +397,14 @@ describe("AI Denoise busy note", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it("sends the AI bitmaps again once the source is developed again", async () => {
+  it("keeps the AI bitmaps sent once the source is developed again", async () => {
     const before = new Set(["subject"]);
     useEditorStore.setState({ patchesSentToBackend: before });
     const request = startDenoise();
     await act(async () => request.resolve(50));
-    // The native side cleared its patch cache; requests still under way
-    // acknowledge into the old set.
-    const now = useEditorStore.getState().patchesSentToBackend;
-    expect(now).not.toBe(before);
-    expect(now.has("subject")).toBe(false);
+    // The native side's patch cache belongs to the photograph, not its decode.
+    expect(useEditorStore.getState().patchesSentToBackend).toBe(before);
+    expect(before.has("subject")).toBe(true);
   });
 
   it("stays while a newer request runs", async () => {
@@ -469,5 +476,44 @@ describe("detail on zoom outside Develop", () => {
   it("asks for no detail while the Library shows its grid", async () => {
     useUIStore.setState({ activeView: "library", libraryLoupe: false, isFullScreen: false });
     expect(await zoomIn()).toBe(1);
+  });
+});
+
+describe("grain at the viewer's size", () => {
+  const target = (index: number) =>
+    (calls()[index][1] as { targetResolution: number }).targetResolution;
+
+  it("renders a smaller frame again when the view zooms back out", async () => {
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 50 },
+      displaySize: { width: 1000, height: 750 },
+    });
+    mount();
+    await finish();
+    act(() => useEditorStore.setState({ displaySize: { width: 3000, height: 2250 } }));
+    act(() => vi.advanceTimersByTime(60));
+    await finish();
+    act(() => useEditorStore.setState({ displaySize: { width: 1000, height: 750 } }));
+    act(() => vi.advanceTimersByTime(60));
+    // One rendered pixel per screen pixel (jsdom: 1 device px per CSS px).
+    expect(calls().map((_, i) => target(i))).toEqual([1000, 3000, 1000]);
+  });
+
+  it("keeps a larger frame without grain", async () => {
+    useEditorStore.setState({ displaySize: { width: 3000, height: 2250 } });
+    mount();
+    await finish();
+    act(() => useEditorStore.setState({ displaySize: { width: 1000, height: 750 } }));
+    act(() => vi.advanceTimersByTime(60));
+    expect(calls()).toHaveLength(1);
+  });
+
+  it("sizes a hovered grain preset's frame as the applied preset's", async () => {
+    useEditorStore.setState({
+      displaySize: { width: 1000, height: 750 },
+      previewOverride: { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 50 },
+    });
+    mount();
+    expect(target(0)).toBe(1000);
   });
 });

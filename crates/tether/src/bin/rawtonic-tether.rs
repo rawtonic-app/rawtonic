@@ -6,13 +6,33 @@
 //!   rawtonic-tether list              the cameras on USB
 //!   rawtonic-tether version           libgphoto2's version and how many
 //!                                     camera models its drivers know
+//!   rawtonic-tether queue [--port P] [--mock]
+//!       the photos in the camera's USB transfer queue (name, folder, size),
+//!       read only: nothing is downloaded, freed or set. One JSON report.
 //!   rawtonic-tether probe --out DIR [--port P] [--shots N] [--interval-ms MS]
 //!                         [--body-seconds S] [--live-view-frames N] [--mock]
+//!                         [--experimental]
 //!       what a body does, through the same helper process the app uses:
 //!       settings, app shots with their timings, shots fired on the body,
 //!       autofocus, live view. One JSON report on stdout; downloads go to DIR.
+//!       --experimental opens a camera on a path no body was tested on yet
+//!       (Canon EOS; Save to on the card, nothing freed).
+//!   rawtonic-tether liveview --out DIR [--port P] [--seconds S] [--shots N] [--mock]
+//!                            [--experimental]
+//!       live view the way a session uses it, phase by phase: before any
+//!       shot, through N shots fired while it runs, and started again after
+//!       them — frame rate, gaps, why it stopped. One JSON report on stdout.
+//!
+//! RAWTONIC_TETHER_TRACE=FILE writes a trace for a session with a body:
+//! every line of the helper's log and every libgphoto2 debug line (each PTP
+//! request with its parameters, failed responses with their codes; no data
+//! dumps), unthrottled, on the helper's clock. Never over an existing file:
+//! a second helper writes FILE.2, and so on. It holds the camera's serial
+//! number and file names: keep it on the machine. RAWTONIC_TETHER_LV_EXPERIMENT
+//! names live-view experiments (`rawtonic_tether::experiment`).
 use rawtonic_tether::camera::Driver;
 use rawtonic_tether::client::{Client, Incoming};
+use rawtonic_tether::experiment::LiveViewExperiment;
 use rawtonic_tether::mock::{MockDriver, MockSpec};
 use rawtonic_tether::protocol::{Event, Reply, Request};
 use rawtonic_tether::server::Server;
@@ -36,6 +56,8 @@ struct StderrLog {
     /// Each libgphoto2 message: when it was last written, and how often it
     /// came since.
     library: std::sync::Mutex<std::collections::HashMap<String, (Instant, u64)>>,
+    /// `RAWTONIC_TETHER_TRACE`: every line, unthrottled, down to debug.
+    trace: Option<std::sync::Mutex<std::io::LineWriter<std::fs::File>>>,
 }
 
 /// How often one libgphoto2 message is written at most.
@@ -44,10 +66,25 @@ const LIBRARY_MESSAGE_EVERY: Duration = Duration::from_secs(60);
 impl log::Log for StderrLog {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
         metadata.level() <= self.level
+            || (self.trace.is_some() && metadata.level() <= log::Level::Debug)
     }
 
     fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
+        if let Some(trace) = &self.trace
+            && record.level() <= log::Level::Debug
+        {
+            use std::io::Write as _;
+            let mut trace = trace.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = writeln!(
+                trace,
+                "+{:.1}ms {} {} {}",
+                self.started.elapsed().as_secs_f64() * 1000.0,
+                record.level(),
+                record.target(),
+                record.args()
+            );
+        }
+        if record.level() <= self.level {
             // Never a panic when the app's end of the pipe is gone (eprintln!
             // would panic): the helper must still be able to end itself.
             use std::io::Write as _;
@@ -93,7 +130,41 @@ impl log::Log for StderrLog {
     fn flush(&self) {}
 }
 
-fn driver(mock: bool) -> Result<Box<dyn Driver>, String> {
+/// Opens the trace file `RAWTONIC_TETHER_TRACE` names (or FILE.2, FILE.3, …
+/// when it exists); `None` without the variable or when no new file could be
+/// made (said on stderr).
+fn open_trace() -> Option<std::fs::File> {
+    let path = PathBuf::from(std::env::var_os("RAWTONIC_TETHER_TRACE")?);
+    for n in 1..100 {
+        let candidate = if n == 1 {
+            path.clone()
+        } else {
+            let mut name = path.clone().into_os_string();
+            name.push(format!(".{n}"));
+            PathBuf::from(name)
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => return Some(file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                use std::io::Write as _;
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "rawtonic-tether: no trace ({}): {e}",
+                    candidate.display()
+                );
+                return None;
+            }
+        }
+    }
+    None
+}
+
+fn driver(mock: bool, experiment: LiveViewExperiment) -> Result<Box<dyn Driver>, String> {
     if mock {
         let spec = match std::env::var("RAWTONIC_TETHER_MOCK") {
             Ok(text) => serde_json::from_str(&text).map_err(|e| format!("mock script: {e}"))?,
@@ -104,11 +175,14 @@ fn driver(mock: bool) -> Result<Box<dyn Driver>, String> {
     #[cfg(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux")))]
     {
         rawtonic_tether::gphoto::GphotoDriver::new()
-            .map(|d| Box::new(d) as Box<dyn Driver>)
+            .map(|d| Box::new(d.with_live_view_experiment(experiment)) as Box<dyn Driver>)
             .map_err(|e| e.to_string())
     }
     #[cfg(not(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux"))))]
-    Ok(Box::new(NoCameras))
+    {
+        let _ = experiment;
+        Ok(Box::new(NoCameras))
+    }
 }
 
 /// A helper built without camera support (feature `gphoto2`): it answers,
@@ -155,6 +229,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
     // RAWTONIC_TETHER_LOG=debug also logs libgphoto2's own messages (what a
     // body answers, step by step) — for diagnosing a camera.
     let debug = std::env::var("RAWTONIC_TETHER_LOG").is_ok_and(|v| v == "debug");
@@ -163,23 +238,35 @@ fn main() {
     } else {
         log::Level::Info
     };
+    // The probes start a helper of their own, which writes the trace.
+    let trace = if matches!(args.first().map(String::as_str), Some("probe" | "liveview")) {
+        None
+    } else {
+        open_trace()
+    };
+    let traced = trace.is_some();
     let logger: &'static StderrLog = Box::leak(Box::new(StderrLog {
         level,
         started: Instant::now(),
         last: Default::default(),
         library: Default::default(),
+        trace: trace.map(|file| std::sync::Mutex::new(std::io::LineWriter::new(file))),
     }));
-    let _ = log::set_logger(logger).map(|()| log::set_max_level(level.to_level_filter()));
+    let max = if traced {
+        log::Level::Debug.max(level)
+    } else {
+        level
+    };
+    let _ = log::set_logger(logger).map(|()| log::set_max_level(max.to_level_filter()));
     #[cfg(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux")))]
     // libgphoto2's errors always (a camera that did not answer, an object
-    // not found); everything with RAWTONIC_TETHER_LOG=debug.
-    let _gphoto_log = gphoto2::log_bridge::forward_to_log(if debug {
+    // not found); everything with RAWTONIC_TETHER_LOG=debug or a trace.
+    let _gphoto_log = gphoto2::log_bridge::forward_to_log(if debug || traced {
         gphoto2::log_bridge::LogLevel::Debug
     } else {
         gphoto2::log_bridge::LogLevel::Error
     })
     .ok();
-    let args: Vec<String> = std::env::args().skip(1).collect();
     // macOS: libgphoto2 reaches cameras through ImageCaptureCore (the `icc`
     // port driver), which answers on the main thread's event loop. The work
     // runs on its own thread; the main thread only runs that loop.
@@ -265,39 +352,19 @@ fn end_with_the_app(grace: Duration) {
 fn run(args: &[String]) -> i32 {
     let mock = args.iter().any(|a| a == "--mock");
     let result = match args.first().map(String::as_str) {
-        Some("list") => driver(mock).and_then(|mut d| {
+        Some("list") => driver(mock, LiveViewExperiment::default()).and_then(|mut d| {
             let cameras = d.list().map_err(|e| e.to_string())?;
             println!("{}", serde_json::to_string_pretty(&cameras).unwrap());
             Ok(())
         }),
         Some("probe") => probe(args, mock),
+        Some("liveview") => live_view_sequence(args, mock),
         Some("version") => version(),
-        _ => driver(mock).and_then(|d| {
-            #[cfg(unix)]
-            end_with_the_app(
-                std::env::var("RAWTONIC_TETHER_PARENT_GRACE_MS")
-                    .ok()
-                    .and_then(|ms| ms.parse().ok())
-                    .map(Duration::from_millis)
-                    .unwrap_or(PARENT_GRACE),
-            );
-            // Tests shorten how long a shot may take.
-            let timeout = std::env::var("RAWTONIC_TETHER_SHOT_TIMEOUT_MS")
-                .ok()
-                .and_then(|ms| ms.parse().ok())
-                .map(Duration::from_millis)
-                .unwrap_or(rawtonic_tether::server::SHOT_TIMEOUT);
-            let one_at_a_time = std::env::var("RAWTONIC_TETHER_ONE_AT_A_TIME_MS")
-                .ok()
-                .and_then(|ms| ms.parse().ok())
-                .map(Duration::from_millis)
-                .unwrap_or(rawtonic_tether::server::ONE_AT_A_TIME_WAIT);
-            Server::new(d, std::io::stdout().lock())
-                .with_shot_timeout(timeout)
-                .with_one_at_a_time_wait(one_at_a_time)
-                .run(std::io::stdin())
-                .map_err(|e| e.to_string())
-        }),
+        Some("queue") => queue(args, mock),
+        _ => {
+            let experiment = LiveViewExperiment::from_env();
+            serve(mock, experiment)
+        }
     };
     match result {
         Ok(()) => 0,
@@ -307,6 +374,69 @@ fn run(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// Serves the app's requests (the helper's normal work).
+fn serve(mock: bool, experiment: LiveViewExperiment) -> Result<(), String> {
+    driver(mock, experiment.clone()).and_then(|d| {
+        #[cfg(unix)]
+        end_with_the_app(
+            std::env::var("RAWTONIC_TETHER_PARENT_GRACE_MS")
+                .ok()
+                .and_then(|ms| ms.parse().ok())
+                .map(Duration::from_millis)
+                .unwrap_or(PARENT_GRACE),
+        );
+        // Tests shorten how long a shot may take.
+        let timeout = std::env::var("RAWTONIC_TETHER_SHOT_TIMEOUT_MS")
+            .ok()
+            .and_then(|ms| ms.parse().ok())
+            .map(Duration::from_millis)
+            .unwrap_or(rawtonic_tether::server::SHOT_TIMEOUT);
+        let one_at_a_time = std::env::var("RAWTONIC_TETHER_ONE_AT_A_TIME_MS")
+            .ok()
+            .and_then(|ms| ms.parse().ok())
+            .map(Duration::from_millis)
+            .unwrap_or(rawtonic_tether::server::ONE_AT_A_TIME_WAIT);
+        Server::new(d, std::io::stdout().lock())
+            .with_live_view_experiment(experiment)
+            .with_shot_timeout(timeout)
+            .with_one_at_a_time_wait(one_at_a_time)
+            .run(std::io::stdin())
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// `queue`: lists the camera's transfer queue without touching it.
+fn queue(args: &[String], mock: bool) -> Result<(), String> {
+    let mut driver = driver(mock, LiveViewExperiment::default())?;
+    let mut camera = driver
+        .open(arg(args, "--port").as_deref())
+        .map_err(|e| e.to_string())?;
+    let status = camera.status();
+    let queued = camera.queued().map_err(|e| e.to_string())?;
+    let bytes: u64 = queued.iter().filter_map(|(_, size)| *size).sum();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "model": status.model,
+            "serial": status.serial,
+            "firmware": status.firmware,
+            "transferQueue": status.transfer_queue,
+            "count": queued.len(),
+            "bytes": bytes,
+            "files": queued
+                .iter()
+                .map(|(file, size)| json!({
+                    "folder": file.folder,
+                    "name": file.name,
+                    "size": size,
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .unwrap()
+    );
+    Ok(())
 }
 
 fn version() -> Result<(), String> {
@@ -394,6 +524,7 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
             port: arg(args, "--port"),
             staging: out.clone(),
             serial: None,
+            experimental: args.iter().any(|a| a == "--experimental"),
         },
         long,
     );
@@ -494,15 +625,23 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
         let mut sizes = Vec::new();
         let mut first = None;
         let mut first_frame = None;
+        let mut stopped = None;
         let deadline = Instant::now() + Duration::from_secs(20);
         while got < frames && Instant::now() < deadline {
-            if let Ok((at, Incoming::LiveView(jpeg))) = rx.recv_timeout(Duration::from_secs(2)) {
-                first.get_or_insert(at);
-                got += 1;
-                sizes.push(jpeg.len());
-                if got == 1 {
-                    first_frame = Some(save_new(&out.join("liveview-first.jpg"), &jpeg));
+            match rx.recv_timeout(Duration::from_secs(2)) {
+                Ok((at, Incoming::LiveView(jpeg))) => {
+                    first.get_or_insert(at);
+                    got += 1;
+                    sizes.push(jpeg.len());
+                    if got == 1 {
+                        first_frame = Some(save_new(&out.join("liveview-first.jpg"), &jpeg));
+                    }
                 }
+                Ok((_, Incoming::Event(Event::LiveViewStopped { error }))) => {
+                    stopped = Some(serde_json::to_value(&error).unwrap());
+                    break;
+                }
+                _ => {}
             }
         }
         let off = client.request(Request::LiveView { on: false }, long);
@@ -522,9 +661,279 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
             "firstFrameMs": first.map(|f| ms(f.duration_since(t))),
             "fps": fps,
             "medianBytes": median_bytes,
+            "stopped": stopped,
         });
     }
     let _ = client.request(Request::Disconnect, long);
+    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    Ok(())
+}
+
+/// One phase of `liveview`: the frames that came, why live view stopped,
+/// the shot fired in it.
+#[derive(Default)]
+struct Phase {
+    frames: Vec<Instant>,
+    sizes: Vec<usize>,
+    stopped: Vec<Value>,
+    /// The request number of the shot fired in this phase.
+    request: Option<u64>,
+    /// When the shot was asked for, when the helper answered (it had fired:
+    /// a frame that comes after the answer was taken after the shot).
+    fire: Option<(Instant, Instant, Value)>,
+    restart: Option<Value>,
+    first_frame_file: Option<String>,
+}
+
+impl Phase {
+    fn report(&self, name: &str, started: Instant) -> Value {
+        let mut gaps: Vec<f64> = self
+            .frames
+            .windows(2)
+            .map(|w| ms(w[1].duration_since(w[0])))
+            .collect();
+        gaps.sort_by(f64::total_cmp);
+        let at = |q: f64| gaps.get(((gaps.len() as f64 - 1.0) * q).round() as usize);
+        let fps = match (self.frames.first(), self.frames.last()) {
+            (Some(first), Some(last)) if self.frames.len() > 1 => {
+                (self.frames.len() - 1) as f64 / last.duration_since(*first).as_secs_f64()
+            }
+            _ => 0.0,
+        };
+        let fired = self.fire.as_ref().map(|(_, replied, _)| *replied);
+        let mut sizes = self.sizes.clone();
+        sizes.sort();
+        let median_bytes = sizes.get(sizes.len() / 2).copied();
+        json!({
+            "phase": name,
+            "frames": self.frames.len(),
+            "fps": (fps * 10.0).round() / 10.0,
+            "firstFrameMs": self.frames.first().map(|f| ms(f.duration_since(started))),
+            "medianGapMs": at(0.5),
+            "p95GapMs": at(0.95),
+            "maxGapMs": gaps.last(),
+            "medianBytes": median_bytes,
+            "fire": self.fire.as_ref().map(|(_, _, fire)| fire.clone()),
+            "framesAfterShot": fired.map(|f| self.frames.iter().filter(|t| **t > f).count()),
+            "firstFrameAfterShotMs": fired
+                .and_then(|f| self.frames.iter().find(|t| **t > f).map(|t| ms(t.duration_since(f)))),
+            "request": self.request,
+            "stopped": self.stopped,
+            "turnedOnAgain": self.restart,
+            "firstFrameFile": self.first_frame_file,
+        })
+    }
+}
+
+/// A photo of the `liveview` sequence, with the shot it answers (by its
+/// request number) and when it came. When the helper could not tell which
+/// exposure a file belongs to (a reused name: `Captured::ambiguous`), the
+/// shot is a guess: `certain` is false and no time after the shot is given.
+fn photo(
+    photos: &mut Vec<Value>,
+    fired: &std::collections::HashMap<u64, (String, Instant)>,
+    captured: &rawtonic_tether::protocol::Captured,
+    at: Instant,
+    arrived_in: &str,
+) {
+    let shot = captured.request.and_then(|r| fired.get(&r));
+    let certain = captured.ambiguous.is_empty();
+    photos.push(json!({
+        "file": captured.camera_name,
+        "request": captured.request,
+        "exposure": captured.exposure,
+        "ambiguous": captured.ambiguous,
+        "certain": certain,
+        "shot": shot.map(|(phase, _)| phase),
+        "msAfterFire": shot.filter(|_| certain).map(|(_, t)| ms(at.duration_since(*t))),
+        "arrivedIn": arrived_in,
+    }));
+}
+
+/// `liveview`: live view the way a session uses it. Phase "before shots";
+/// then one phase per shot, fired a quarter into the phase while live view
+/// runs (when live view stops, it is turned on again once, a second later,
+/// as a user would); then "started again" (off, then on). Photos are
+/// downloaded into DIR like the probe's, never deleted on the camera.
+fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
+    let out = PathBuf::from(arg(args, "--out").ok_or("liveview needs --out DIR")?);
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let out = out.canonicalize().map_err(|e| e.to_string())?;
+    let span = Duration::from_secs_f64(
+        arg(args, "--seconds")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(8.0),
+    );
+    let shots: u32 = arg(args, "--shots")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
+    let (tx, rx) = mpsc::channel::<(Instant, Incoming)>();
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let helper_args: Vec<OsString> = if mock { vec!["--mock".into()] } else { vec![] };
+    let (client, library) = Client::spawn(&exe, &helper_args, &[], move |incoming| {
+        let _ = tx.send((Instant::now(), incoming));
+    })
+    .map_err(|e| e.to_string())?;
+    let long = Duration::from_secs(30);
+    let mut report = json!({
+        "library": library,
+        "experiment": std::env::var(rawtonic_tether::experiment::ENV).ok(),
+    });
+    let connected = client.request(
+        Request::Connect {
+            port: arg(args, "--port"),
+            staging: out.clone(),
+            serial: None,
+            experimental: args.iter().any(|a| a == "--experimental"),
+        },
+        long,
+    );
+    match connected {
+        Ok(Reply::Connected { status }) if status.can_preview => {
+            report["model"] = json!(status.model);
+            report["firmware"] = json!(status.firmware);
+        }
+        other => {
+            report["connect"] = json!(format!("{other:?}"));
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            return Err("no camera with live view connected".into());
+        }
+    }
+    let mut phases = Vec::new();
+    // Each shot's request number → its phase and when it was asked for:
+    // a photo belongs to the shot it answers, whenever it comes.
+    let mut fired: std::collections::HashMap<u64, (String, Instant)> = Default::default();
+    let mut photos = Vec::new();
+    let count = shots + 2;
+    for n in 0..count {
+        let name = match n {
+            0 => "before shots".to_string(),
+            n if n == count - 1 => "started again".to_string(),
+            n => format!("shot {n}"),
+        };
+        let mut phase = Phase::default();
+        if n == count - 1 {
+            let off = client.request(Request::LiveView { on: false }, long);
+            phase
+                .stopped
+                .push(json!({ "turnedOff": format!("{off:?}") }));
+            let pause = Instant::now() + Duration::from_secs(1);
+            while let Ok((at, incoming)) =
+                rx.recv_timeout(pause.saturating_duration_since(Instant::now()))
+            {
+                if let Incoming::Event(Event::Captured { captured }) = incoming {
+                    photo(&mut photos, &fired, &captured, at, "between phases");
+                }
+            }
+        }
+        let started = Instant::now();
+        let on = client.request(Request::LiveView { on: true }, long);
+        if on.is_err() {
+            phase.stopped.push(json!({ "turnOn": format!("{on:?}") }));
+        }
+        let fire_at = (n > 0 && n < count - 1).then(|| started + span / 4);
+        let mut stopped_at = None;
+        let end = started + span;
+        while Instant::now() < end {
+            if let Some(at) = fire_at
+                && phase.fire.is_none()
+                && Instant::now() >= at
+            {
+                let t = Instant::now();
+                let r = client.request(Request::Capture, long);
+                if let Ok(Reply::Fired { request }) = &r {
+                    phase.request = Some(*request);
+                    fired.insert(*request, (name.clone(), t));
+                }
+                phase.fire = Some((
+                    t,
+                    Instant::now(),
+                    json!({ "ms": ms(t.elapsed()), "result": format!("{r:?}") }),
+                ));
+            }
+            if let Some(at) = stopped_at
+                && phase.restart.is_none()
+                && at + Duration::from_secs(1) <= Instant::now()
+            {
+                let r = client.request(Request::LiveView { on: true }, long);
+                phase.restart = Some(json!({
+                    "msAfterStop": ms(Instant::now().duration_since(at)),
+                    "result": format!("{r:?}"),
+                }));
+            }
+            let next = fire_at
+                .filter(|_| phase.fire.is_none())
+                .into_iter()
+                .chain(
+                    stopped_at
+                        .filter(|_| phase.restart.is_none())
+                        .map(|at| at + Duration::from_secs(1)),
+                )
+                .chain([end])
+                .min()
+                .unwrap_or(end);
+            let wait = next
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(100));
+            match rx.recv_timeout(wait) {
+                Ok((at, Incoming::LiveView(jpeg))) => {
+                    if phase.frames.is_empty() {
+                        phase.first_frame_file =
+                            Some(save_new(&out.join(format!("liveview-{n}.jpg")), &jpeg));
+                    }
+                    phase.frames.push(at);
+                    phase.sizes.push(jpeg.len());
+                }
+                Ok((at, Incoming::Event(Event::LiveViewStopped { error }))) => {
+                    stopped_at.get_or_insert(at);
+                    phase.stopped.push(json!({
+                        "msSincePhase": ms(at.duration_since(started)),
+                        "error": serde_json::to_value(&error).unwrap(),
+                    }));
+                }
+                Ok((at, Incoming::Event(Event::Captured { captured }))) => {
+                    photo(&mut photos, &fired, &captured, at, &name);
+                }
+                Ok((_, Incoming::Event(e))) => {
+                    phase.stopped.push(json!({ "event": format!("{e:?}") }))
+                }
+                Ok((_, Incoming::Exited(log))) => {
+                    phase.stopped.push(json!({ "helperExited": log }));
+                    break;
+                }
+                Err(_) => {}
+            }
+        }
+        phases.push(phase.report(&name, started));
+    }
+    let _ = client.request(Request::LiveView { on: false }, long);
+    // Photos still on their way: waited for until every shot has one (up
+    // to 10 s), then 2 s more for their companions (the JPEG of a
+    // RAW+JPEG); never dropped.
+    let late = Instant::now() + Duration::from_secs(10);
+    let mut companions = None;
+    loop {
+        let answered = |photos: &[Value]| {
+            fired
+                .keys()
+                .all(|r| photos.iter().any(|p| p["request"].as_u64() == Some(*r)))
+        };
+        if companions.is_none() && answered(&photos) {
+            companions = Some(Instant::now() + Duration::from_secs(2));
+        }
+        let until = companions.unwrap_or(late).min(late);
+        if Instant::now() >= until {
+            break;
+        }
+        if let Ok((at, Incoming::Event(Event::Captured { captured }))) =
+            rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+        {
+            photo(&mut photos, &fired, &captured, at, "after the phases");
+        }
+    }
+    let _ = client.request(Request::Disconnect, long);
+    report["phases"] = json!(phases);
+    report["photos"] = json!(photos);
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
     Ok(())
 }

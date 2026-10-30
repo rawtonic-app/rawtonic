@@ -210,7 +210,8 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     destinationType:
       draft.where === 'output' ? 'sessionOutput' : draft.where === 'original' ? 'originalFolder' : 'customFolder',
     lastExportPath: draft.where === 'choose' ? (draft.folder ?? base?.lastExportPath) : base?.lastExportPath,
-    subfolder: draft.subfolder,
+    // Saved as used: a name of spaces only is no subfolder.
+    subfolder: subfolderName(draft.subfolder),
     preserveFolders: draft.preserveFolders,
     preserveTimestamps: draft.preserveTimestamps,
     exportMasks: draft.exportMasks,
@@ -393,6 +394,10 @@ function watermarkSettings(draft: RecipeDraft): ExportSettings['watermark'] {
 export function exportSettingsFromPreset(preset: ExportPreset): { settings: ExportSettings; outputFormat: string } {
   return exportSettingsFromDraft(draftFromPreset(preset));
 }
+
+/** The subfolder name as it is shown and used: a name of spaces only is no
+ * subfolder, never a trailing slash after the destination. */
+export const subfolderName = (subfolder: string | undefined) => (subfolder ?? '').trim();
 
 /** Why a subfolder name cannot be used, or null. */
 export function subfolderProblem(subfolder: string): "outside" | "fullPath" | null {

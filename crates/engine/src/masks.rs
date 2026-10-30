@@ -200,37 +200,10 @@ pub struct AiDepthMaskParameters {
     pub warp: Option<serde_json::Value>,
 }
 
-/// Mask component types the AI detects on each photograph: Subject, Sky,
-/// depth range and People (detected again when the photograph is opened) and
-/// an Object selection (pointed at again by the user). Pasted or synced onto
-/// another photograph they never keep the source's bitmap.
-pub const DETECTED_TYPES: [&str; 5] = [
-    "ai-subject",
-    "ai-foreground",
-    "ai-sky",
-    "ai-depth",
-    "ai-people",
-];
-
-/// The parameter that marks a component pasted or synced from another
-/// photograph whose detection has not run on this one yet.
-pub const DETECT_PENDING: &str = "detectPending";
-
-/// Whether a component's parameters carry a bitmap.
-fn has_bitmap(parameters: &Value) -> bool {
-    ["maskDataBase64", "mask_data_base64"]
-        .iter()
-        .any(|key| parameters.get(key).is_some_and(|v| !v.is_null()))
-}
-
-/// Whether a component's parameters leave nothing to detect: a People
-/// selection without parts (renders nothing on any photograph).
-fn nothing_to_detect(parameters: &Value) -> bool {
-    parameters
-        .get("parts")
-        .and_then(Value::as_array)
-        .is_some_and(Vec::is_empty)
-}
+pub use rawtonic_metadata::provenance::{
+    DETECT_PENDING, DETECTED_TYPES, PendingDetection, has_bitmap, nothing_to_detect,
+    pending_detections,
+};
 
 /// How many layers of `masks` the renderer applies (shown, with a
 /// component: `MaskDefinition::produces_bitmap`); it applies at most
@@ -248,54 +221,6 @@ pub fn rendered_layers(masks: &Value) -> usize {
                     .is_some_and(|subs| !subs.is_empty())
         })
         .count()
-}
-
-/// A component of a shown layer waiting for its AI detection on this
-/// photograph (`DETECT_PENDING` without a bitmap, something to detect): its
-/// layer's name and its type. Rendered without it, the layer would apply its adjustments to the
-/// wrong part of the photograph, or nowhere.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingDetection {
-    pub layer: String,
-    pub kind: String,
-}
-
-/// The components of shown layers waiting for their AI detection.
-pub fn pending_detections(adjustments: &Value) -> Vec<PendingDetection> {
-    let shown = |value: &Value| value.get("visible").and_then(Value::as_bool) != Some(false);
-    let text = |value: &Value, key: &str| {
-        value
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
-    adjustments
-        .get("masks")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|layer| shown(layer))
-        .flat_map(|layer| {
-            layer
-                .get("subMasks")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|sub| {
-                    shown(sub)
-                        && sub.get("parameters").is_some_and(|p| {
-                            p.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true)
-                                && !has_bitmap(p)
-                                && !nothing_to_detect(p)
-                        })
-                })
-                .map(move |sub| PendingDetection {
-                    layer: text(layer, "name"),
-                    kind: text(sub, "type"),
-                })
-        })
-        .collect()
 }
 
 /// What to do about `pending` (`pending_detections`), naming each layer.

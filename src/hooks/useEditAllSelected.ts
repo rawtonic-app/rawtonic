@@ -1,15 +1,18 @@
-import { useEffect, useRef } from 'react';
+import { createElement, useEffect, useRef } from 'react';
+import i18n from 'i18next';
+import { toast } from 'react-toastify';
 import debounce from 'lodash.debounce';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useEditorActions } from './useEditorActions';
+import { onRecipeWritten, registerRecipeFlush, useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
+import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/quit';
 import {
   sameAdjustmentValue,
   withClarityVersion,
@@ -40,6 +43,145 @@ export function livePatch(changes: Partial<Adjustments>): Partial<Adjustments> |
 let liveOwner = 0;
 let liveRuns = 0;
 
+type ApplyToOthers = ReturnType<typeof useEditorActions>['applyAdjustmentsToPaths'];
+
+/** Writes not settled yet, of every run. */
+const writing = new Set<Promise<unknown>>();
+/** Runs' gathered edits, written at once by a recipe flush. */
+const gathered = new Set<() => void>();
+
+interface FailedWrite {
+  from: string;
+  /** Per photograph not saved: the settings still not written to it. */
+  unsaved: Map<string, Partial<Adjustments>>;
+  apply: ApplyToOthers;
+}
+/**
+ * Edit-all writes that failed, of every run (also one switched off since).
+ * Never sent again by themselves: they are shown with the photographs not
+ * saved and Try again (`noticeFailed`), and those photographs count as not
+ * saved (an export stops, a library switch or quit asks) until the user
+ * tries again (the notice, or Retry when switching library), newer saved
+ * writes supersede their settings, or a library switch discards them.
+ */
+const failedWrites = new Map<number, FailedWrite>();
+let failures = 0;
+const noticeId = (id: number) => `edit-all-not-saved-${id}`;
+
+/** The photographs whose edit-all write failed and was not tried again. */
+export function editAllNotSaved(): string[] {
+  return [...new Set([...failedWrites.values()].flatMap((failed) => [...failed.unsaved.keys()]))];
+}
+
+function forget(id: number) {
+  failedWrites.delete(id);
+  toast.dismiss(noticeId(id));
+}
+
+/** Sends a failed write again, to the photographs not saved, with the
+ * settings each still lacks. */
+function tryAgain(id: number) {
+  const failed = failedWrites.get(id);
+  if (!failed) return [];
+  forget(id);
+  // Photographs still lacking the same settings go in one write.
+  const groups = new Map<string, { changes: Partial<Adjustments>; paths: string[] }>();
+  for (const [path, changes] of failed.unsaved) {
+    const key = JSON.stringify(changes);
+    groups.set(key, { changes, paths: [...(groups.get(key)?.paths ?? []), path] });
+  }
+  return [...groups.values()].map(({ changes, paths }) => writeToOthers(failed.apply, changes, paths, failed.from));
+}
+
+/** Tries every failed write again; resolves once they settled. */
+export async function tryEditAllAgain(): Promise<void> {
+  await Promise.all([...failedWrites.keys()].flatMap(tryAgain));
+}
+
+/** Shows that `failed` could not be saved, with Try again: the same
+ * settings again, to the photographs not saved only. */
+function noticeFailed(id: number, failed: FailedWrite) {
+  const names = [...failed.unsaved.keys()].map((path) => path.split(/[\\/]/).pop() ?? path);
+  const listed = names.slice(0, 5).join(', ') + (names.length > 5 ? ` (+${names.length - 5})` : '');
+  const content = ({ closeToast }: { closeToast: () => void }) =>
+    createElement(
+      'div',
+      { className: 'space-y-2' },
+      createElement('p', null, i18n.t('studio.multiView.editAllNotSaved', { names: listed })),
+      createElement(
+        'button',
+        {
+          type: 'button',
+          className: 'underline',
+          onClick: () => {
+            closeToast();
+            tryAgain(id);
+          },
+        },
+        i18n.t('studio.multiView.editAllTryAgain'),
+      ),
+    );
+  toast.error(content, { toastId: noticeId(id), autoClose: false, closeOnClick: false });
+}
+
+/** A processing version (`sharpenVersion`, …): it says how the settings
+ * written with it render, so it stays with those still to be written. */
+const isVersionKey = (key: string) => key.endsWith('Version');
+
+/** Settings written since (a later edit-all write, a paste, the photo's own
+ * edit saved) supersede a failed write's for that photograph: Try again
+ * never writes older values over them. The processing versions stay while
+ * a setting they belong with is still to be written. */
+onRecipeWritten((path, keys) => {
+  for (const [id, failed] of failedWrites) {
+    const changes = failed.unsaved.get(path);
+    if (!changes) continue;
+    const rest = keys
+      ? Object.fromEntries(Object.entries(changes).filter(([key]) => isVersionKey(key) || !keys.includes(key)))
+      : {};
+    if (Object.keys(rest).some((key) => !isVersionKey(key))) failed.unsaved.set(path, rest);
+    else failed.unsaved.delete(path);
+    if (failed.unsaved.size === 0) forget(id);
+    else noticeFailed(id, failed);
+  }
+});
+
+/** Writes `changes` from `from` to `others`; what fails is shown and kept
+ * as not saved (`failedWrites`). */
+function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, others: string[], from: string) {
+  const done = apply(changes, others, { openingNow: true, pasteFrom: from, replaceLayers: true, quiet: true, undoStep: false });
+  if (!done) return null;
+  const settled = done.then((notWritten) => {
+    const paths = others.filter((path) => notWritten.includes(path));
+    if (paths.length === 0) return;
+    const id = ++failures;
+    const failed = { from, unsaved: new Map(paths.map((path) => [path, changes])), apply };
+    failedWrites.set(id, failed);
+    noticeFailed(id, failed);
+  });
+  writing.add(settled);
+  void settled.then(() => writing.delete(settled));
+  return done;
+}
+
+// Exporting, quitting or switching library (`flushRecipeSaves`): what the
+// runs gathered is written now, into the library it was made in, and every
+// write in flight is waited for. The photographs whose write failed are
+// named as not saved (an export stops; a switch asks Retry, Discard or
+// Cancel, utils/quit.ts); they are sent again only by Try again.
+registerRecipeFlush(async () => {
+  gathered.forEach((write) => write());
+  while (writing.size > 0) await Promise.all(writing);
+  return editAllNotSaved();
+});
+// Retry when switching library is the user's: they are sent again.
+registerRetryAfterAsking(tryEditAllAgain);
+// Past a switch's barrier they were saved or discarded.
+registerLibrarySwitchReset(() => {
+  [...failedWrites.keys()].forEach(forget);
+  return () => {};
+});
+
 /**
  * "Edit all selected" in the multi view (Capture One's Edit All Selected
  * Variants, Lightroom's Auto Sync): while `enabled`, each edit of the open
@@ -66,6 +208,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     let inflight: Partial<Adjustments> = {};
     let writes = 0;
     let lastWrite: Promise<unknown> | null = null;
+    // A library switch is past its barrier: edits made now belong to the
+    // library being left and are not written into the next one.
+    let switching = false;
     let source: { path: string; adjustments: Adjustments; width?: number; height?: number } | null = null;
     // Live: while the primary is edited the other cells follow, developed
     // natively between the primary's frames (multi_view.rs live_step).
@@ -100,6 +245,12 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       else liveTimer = setTimeout(sendLiveNow, wait);
     };
     const flush = debounce(() => {
+      if (switching) {
+        console.warn('Dropped Edit all selected changes made while the library was switched.');
+        pending = {};
+        targets = new Set();
+        return;
+      }
       const changes = pending;
       const from = source;
       const others = [...targets].filter((path) => path !== from?.path);
@@ -112,31 +263,41 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       if (changes.masks) {
         changes.masks = frameDrawnMasks(changes.masks, from.adjustments, from.width, from.height);
       }
-      const write = ++writes;
+      const thisWrite = ++writes;
       // Written at the switch to another primary (see below): that one may
       // be one of the others, still opening.
       // The others get the primary's layers, with their AI detections made
       // on each of them (never the primary's bitmaps).
-      const done = applyRef.current(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, {
-        openingNow: true,
-        pasteFrom: from.path,
-        replaceLayers: true,
-      });
+      const done = writeToOthers(applyRef.current, withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, from.path);
       if (!done) {
         // Nothing was written: the cells show their recipes again.
-        if (write === writes) inflight = shownBefore;
+        if (thisWrite === writes) inflight = shownBefore;
         sendLive();
         return;
       }
       lastWrite = done;
       void done.then(() => {
         // Written: the others show it from their recipes now.
-        if (write === writes) inflight = {};
+        if (thisWrite === writes) inflight = {};
         useMultiViewStore.getState().recipesSaved();
         sendLive();
       });
     }, EDIT_ALL_SETTLE_MS);
+    const writeGathered = () => flush.flush();
+    gathered.add(writeGathered);
+    // Past the barrier: written or discarded; nothing gathered from now
+    // until the switch ends is written into the next library.
+    const unregisterReset = registerLibrarySwitchReset(() => {
+      switching = true;
+      flush.cancel();
+      pending = {};
+      targets = new Set();
+      return () => {
+        switching = false;
+      };
+    });
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
+      if (switching) return;
       // Another primary: what the last one gathered is written now, before
       // the new one's loader reads its recipe (it may be one of the others).
       if (state.selectedImage?.path !== previous.selectedImage?.path) flush.flush();
@@ -176,6 +337,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,
+            undoStep: false,
           });
         }
       }
@@ -195,8 +357,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     return () => {
       unsubscribe();
       // Switching it off keeps what was already done (for the photographs
-      // selected when it was done).
+      // selected when it was done; what fails is kept for the next flush).
       flush.flush();
+      gathered.delete(writeGathered);
+      unregisterReset();
       if (liveTimer !== null) clearTimeout(liveTimer);
       // The live patch goes once the last write is in (else the cells would
       // show the old recipes for a moment), unless a newer run took over.

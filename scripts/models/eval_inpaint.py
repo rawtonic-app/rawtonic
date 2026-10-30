@@ -25,11 +25,20 @@ in percent of the photo; PHOTOS/<photo>.png are 8- or 16-bit sRGB renders.
 - fill: runs the methods on the real cases (OUT/real/<method>/<id>.png)
   and on the synthetic holes (OUT/synthfill/<method>/<id>.png), crops only.
   Methods:
-    migan      the app before (run_inpainting: crop 1.5 x the hole around
+    migan      MI-GAN alone (run_inpainting's crop 1.5 x the hole around
                it, the authors' MI-GAN pipeline, blended by the mask)
     patch      patch_fill without a guide on the same crop
     hybrid     patch_fill guided by the MI-GAN fill
-    hybrid:K=V,... the same with patch_fill parameters
+    mhybrid    patch_fill guided by Moebius's fill, as Remove does for large
+               holes (src-tauri/src/moebius.rs `guide`; MOEBIUS: the output
+               folder of convert_moebius_coreml.py, its Core ML programs with
+               coremltools or its ONNX models, see moebius_networks)
+    moebius    Moebius's fill alone (same crop, blended by the mask)
+    hybrid:K=V,... the same with patch_fill parameters; harness options:
+               ctx=F widens the pipeline's own crop to F x the hole (the
+               app uses 2.5), share=S to the hole's longer side / S where
+               that is more than the pipeline's max(512, side + 256),
+               pad, th, tile, grain
 - score: LPIPS (AlexNet), PSNR and mean Lab difference in the hole of the
   synthetic cases against the photo, and the hole's detail (high-pass
   energy) against the photo's, per method; time per fill.
@@ -161,12 +170,35 @@ def session(path):
     return _sessions[path]
 
 
-def migan_raw(img, hole):
-    """The MI-GAN pipeline's output on a crop (uint8 RGB), hole = bool."""
+def migan_raw(img, hole, ctx=0.0, share=0.0):
+    """The MI-GAN pipeline's output on a crop (uint8 RGB), hole = bool.
+    The pipeline crops tightly around the hole by itself; with `ctx` its
+    crop is widened to `ctx` x the hole by four 2 x 2 px marks at that
+    box's corners (filled by the model, then put back)."""
     s = session(os.environ["MIGAN"])
     x = img.transpose(2, 0, 1)[None].copy()
-    m = np.where(hole, 0, 255).astype(np.uint8)[None, None]
+    hole_in = hole.copy()
+    if share > 0:
+        # The pipeline's crop is a square of max(512, L + 256) around the
+        # hole (L its longer side); marks widen it to L / share when that is
+        # more: a box of L / share - 256 on the longer side.
+        ys, xs = np.nonzero(hole)
+        side = max(xs.max() - xs.min() + 1, ys.max() - ys.min() + 1)
+        if side / share > max(512, side + 256):
+            ctx = (side / share - 256) / side
+    if ctx > 0:
+        h, w = hole.shape
+        ys, xs = np.nonzero(hole)
+        cx, cy = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2
+        hw, hh = (xs.max() - xs.min() + 1) * ctx / 2, (ys.max() - ys.min() + 1) * ctx / 2
+        bx0, bx1 = int(max(0, cx - hw)), int(min(w - 2, cx + hw))
+        by0, by1 = int(max(0, cy - hh)), int(min(h - 2, cy + hh))
+        for bx, by in ((bx0, by0), (bx1, by0), (bx0, by1), (bx1, by1)):
+            hole_in[by:by + 2, bx:bx + 2] = True
+    m = np.where(hole_in, 0, 255).astype(np.uint8)[None, None]
     out = s.run(None, {"image": x, "mask": m})[0][0].transpose(1, 2, 0)
+    if ctx > 0 or share > 0:
+        out = np.where(hole[..., None], out, img)
     return out
 
 
@@ -305,13 +337,86 @@ def patch_raw(img, hole, guide, params, tmp):
     return cv2.cvtColor(cv2.imread(str(tmp / "out.png")), cv2.COLOR_BGR2RGB)
 
 
+_moebius = None
+
+
+def moebius_networks():
+    """The networks of convert_moebius_coreml.py (folder MOEBIUS): the Core ML
+    programs on the GPU, or where they are absent the ONNX models (--onnx) on
+    ONNX Runtime, on WebGPU when MOEBIUS_WEBGPU names its plugin library."""
+    global _moebius
+    if _moebius is None:
+        folder = Path(os.environ["MOEBIUS"])
+        emb = np.fromfile(folder / "moebius_embeddings.bin", "<f4").reshape(2, 10, 3072)
+        if (folder / "moebius_unet.mlpackage").exists():
+            import coremltools as ct
+
+            load = lambda name: ct.models.MLModel(  # noqa: E731
+                str(folder / f"{name}.mlpackage"), compute_units=ct.ComputeUnit.CPU_AND_GPU)
+            unet, enc, dec = load("moebius_unet"), load("sdxl_vae_encoder"), load("sdxl_vae_decoder")
+            _moebius = (
+                lambda x, t: unet.predict({"latent_in": x, "t": t, "embeddings": emb})["noise"],
+                lambda images: enc.predict({"image": images})["latent"],
+                lambda z: dec.predict({"latent": z})["image"],
+            )
+        else:
+            import onnxruntime as ort
+            from convert_moebius_coreml import ONNX_FILES
+
+            options = ort.SessionOptions()
+            providers = ["CPUExecutionProvider"]
+            if os.environ.get("MOEBIUS_WEBGPU"):
+                ort.register_execution_provider_library("WebGpuExecutionProvider", os.environ["MOEBIUS_WEBGPU"])
+                options.add_provider_for_devices(
+                    [d for d in ort.get_ep_devices() if d.ep_name == "WebGpuExecutionProvider"], {})
+                providers = None
+            load = lambda name: ort.InferenceSession(  # noqa: E731
+                str(folder / ONNX_FILES[name]), sess_options=options, providers=providers)
+            unet, enc, dec = load("moebius_unet"), load("sdxl_vae_encoder"), load("sdxl_vae_decoder")
+            _moebius = (
+                lambda x, t: unet.run(None, {"latent_in": x, "t": t, "embeddings": emb})[0],
+                lambda images: enc.run(None, {"image": images})[0],
+                lambda z: dec.run(None, {"latent": z})[0],
+            )
+    return _moebius
+
+
+def moebius_guide(photo, hole):
+    """Remove's Moebius fill as the app makes it (src-tauri/src/moebius.rs
+    `guide`): a square of 2.5 x the hole's longer side (at least 256 px, at
+    most the photo's shorter side) around it, area-scaled to 512 px with
+    every pixel the hole touches in the network's hole, filled, scaled back
+    (bicubic). Returns (x0, y0, side, fill) or None when the hole does not
+    fit such a square."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from convert_moebius_coreml import moebius_pipeline
+
+    h, w = hole.shape
+    ys, xs = np.nonzero(hole)
+    hw, hh = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+    side = min(max(int(np.float32(max(hw, hh)) * np.float32(2.5) + np.float32(0.5)), 256), w, h)
+    if hw > side or hh > side:
+        return None
+    place = lambda lo, hi, size: min(max((lo + hi + 1) // 2 - side // 2, 0), size - side)  # noqa: E731
+    x0, y0 = place(xs.min(), xs.max(), w), place(ys.min(), ys.max(), h)
+    img = photo[y0:y0 + side, x0:x0 + side].astype(np.float32) / 255.0
+    m = hole[y0:y0 + side, x0:x0 + side].astype(np.float32)
+    if side != 512:
+        img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA)
+        m = cv2.resize(m, (512, 512), interpolation=cv2.INTER_AREA)
+    out = moebius_pipeline(img, m > 0, *moebius_networks())
+    if side != 512:
+        out = cv2.resize(out, (side, side), interpolation=cv2.INTER_CUBIC)
+    return x0, y0, side, out
+
+
 def run_method(method, photo, mask, tmp):
     """Fills `photo` where `mask` > 0 like the app; returns (crop box, filled crop, seconds)."""
     h, w = mask.shape
     name, _, opts = method.partition(":")
     params = [kv for kv in opts.split(",") if kv]
     # Options of the harness itself (the rest go to patch_fill).
-    keys = ("pad", "th", "size", "tile", "grain")
+    keys = ("pad", "th", "size", "tile", "grain", "ctx", "share")
     own = {k: float(v) for k, v in (kv.split("=") for kv in params if kv.split("=")[0] in keys)}
     params = [kv for kv in params if kv.split("=")[0] not in keys]
     if name == "gen":
@@ -330,13 +435,22 @@ def run_method(method, photo, mask, tmp):
     t = time.perf_counter()
     if name == "migan":
         tile = int(own.get("tile", 0))
-        filled = migan_tiled(img, hole, tile) if tile else migan_raw(img, hole)
+        filled = migan_tiled(img, hole, tile) if tile else migan_raw(img, hole, own.get("ctx", 0), own.get("share", 0))
     elif name == "hifill":
         filled = hifill_raw(img, hole)
     elif name == "patch":
         filled = patch_raw(img, hole, None, params, tmp)
     elif name == "hybrid":
-        filled = patch_raw(img, hole, migan_raw(img, hole), params, tmp)
+        filled = patch_raw(img, hole, migan_raw(img, hole, own.get("ctx", 0), own.get("share", 0)), params, tmp)
+    elif name in ("mhybrid", "moebius"):
+        found = moebius_guide(photo, mask > own.get("th", 0))
+        if found is None:
+            raise SystemExit(f"{method}: the hole does not fit Moebius's square")
+        mx, my, side, fill = found
+        guide = photo.copy()
+        guide[my:my + side, mx:mx + side] = fill
+        guide = np.where(hole[..., None], guide[y0:y1, x0:x1], img)
+        filled = guide if name == "moebius" else patch_raw(img, hole, guide, params, tmp)
     else:
         raise SystemExit(f"unknown method {method}")
     if own.get("grain"):

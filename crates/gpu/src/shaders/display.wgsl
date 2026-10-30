@@ -105,14 +105,34 @@ fn crop_edit_uv(screen: vec2<f32>) -> vec2<f32> {
 }
 
 // The unedited render; it fills its texture, so uv maps onto it directly.
-fn sample_before(uv: vec2<f32>) -> vec4<f32> {
+fn sample_before(uv: vec2<f32>, screen: vec2<f32>) -> vec4<f32> {
     let size = vec2<f32>(textureDimensions(before_tex));
     var before_uv = clamp(uv, vec2<f32>(0.5) / size, vec2<f32>(1.0) - vec2<f32>(0.5) / size);
+    if (transform.pixelated <= 0.5 && shown_at_own_size(size)) {
+        before_uv = clamp(own_size_texel(screen) / size, vec2<f32>(0.5) / size, vec2<f32>(1.0) - vec2<f32>(0.5) / size);
+    }
     if (transform.pixelated > 0.5) {
         before_uv = (floor(clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) * size) + vec2<f32>(0.5)) / size;
         before_uv = min(before_uv, vec2<f32>(1.0) - vec2<f32>(0.5) / size);
     }
     return textureSampleLevel(before_tex, samp, before_uv, 0.0);
+}
+
+// A frame of `size` texels fills the image's rect at one texel per device
+// pixel (within a pixel), unrotated and not crop-edited.
+fn shown_at_own_size(size: vec2<f32>) -> bool {
+    return all(abs(transform.rect.zw - size) < vec2<f32>(1.0))
+        && transform.box_rect.z <= 0.0
+        && transform.rotation == 0.0;
+}
+
+// The texel under device pixel `screen` of a frame shown at its own size:
+// whole texels, as an export at this size has them. Bilinear reads at a
+// placement between device pixels (a fit view starting at x = 105.1)
+// blended each pixel with its neighbour, 0.9 of film grain's strength and
+// fine detail.
+fn own_size_texel(screen: vec2<f32>) -> vec2<f32> {
+    return floor(screen - round(transform.rect.xy)) + vec2<f32>(0.5);
 }
 
 @fragment
@@ -126,7 +146,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     let split_axis = select(in.screen.x, in.screen.y, transform.split.z > 0.5);
     if (transform.split.x > 0.5 && split_axis < transform.split.y) {
-        return sample_before(uv);
+        return sample_before(uv, in.screen);
     }
 
     let adjusted_uv = uv * (transform.image_size / transform.texture_size);
@@ -141,6 +161,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         let clamped_nearest = clamp(nearest_uv, min_uv, max_uv);
         return with_overlay(textureSample(tex, samp, clamped_nearest), uv);
+    } else if (shown_at_own_size(transform.image_size)) {
+        let clamped_uv = clamp(own_size_texel(in.screen) / transform.texture_size, min_uv, max_uv);
+        return with_overlay(textureSample(tex, samp, clamped_uv), uv);
     } else {
         let clamped_uv = clamp(adjusted_uv, min_uv, max_uv);
         return with_overlay(textureSample(tex, samp, clamped_uv), uv);

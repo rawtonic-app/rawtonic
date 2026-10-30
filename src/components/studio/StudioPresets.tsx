@@ -13,7 +13,8 @@ import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from "../../utils/builtinPresets";
-import { withPresetClarityVersion } from "../../utils/adjustments";
+import { initialAdjustmentsFor, normalizeLoadedAdjustments, withPresetClarityVersion } from "../../utils/adjustments";
+import { appliedStyleOf, revertStyle, withStyleAmount } from "../../utils/appliedStyle";
 import { presetPreview, presetValues, toolPresetToSave } from "./toolPresets";
 import { noteTool } from "../contribute/usageStats";
 
@@ -49,6 +50,10 @@ export function groupPresets(
   }
   return root.length ? [{ folder: null, presets: root }, ...folders] : folders;
 }
+
+/** Styles replace one another and a click on the applied one removes it;
+ * presets of one tool's settings add to the photo's settings. */
+const isStyle = (preset: Preset) => preset.presetType !== "tool";
 
 /** The photographs a click applies to: the selection (Capture One), else the open photo. */
 function applyTargets() {
@@ -178,16 +183,21 @@ export default function StudioPresets() {
     hoverTimer.current = window.setTimeout(() => {
       const { selectedImage: image, adjustments: current, setEditor } = useEditorStore.getState();
       if (!image?.isReady) return;
+      // A style shows in place of the applied one; the applied one as it is.
+      const applied = appliedStyleOf(current);
+      if (isStyle(preset) && applied?.id === preset.id) return endPreview();
+      const reverted = isStyle(preset) ? revertStyle(current) : null;
+      const base = reverted?.removed ? normalizeLoadedAdjustments(reverted.recipe, Boolean(image.isRaw)) : reverted?.recipe;
       // No preview for a preset that needs the RAW developed again.
-      const previewed = presetPreview(current, preset.adjustments, Boolean(image.isRaw));
+      const previewed = presetPreview(current, preset.adjustments, Boolean(image.isRaw), base && { base, style: true });
       if (!previewed) return endPreview();
       previewing.current = true;
       setEditor({ previewOverride: previewed });
     }, 120);
   };
   useEffect(() => endPreview, []);
-  // Lightroom's Amount: the last preset applied to the open photo, with the
-  // settings it had before, so that its strength can still be changed.
+  // Lightroom's Amount of a tool preset just applied to the open photo, with
+  // the settings it had before (a style's is in the photo's recipe).
   const [amount, setAmount] = useState<{ path: string; preset: Preset; base: Record<string, unknown>; value: number } | null>(
     null,
   );
@@ -197,7 +207,8 @@ export default function StudioPresets() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Preset | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [applied, setApplied] = useState<string | null>(null);
+  // The open photo's last applied style (`appliedStyle` in its recipe).
+  const appliedStyle = useEditorStore((s) => appliedStyleOf(s.adjustments));
   // Rawtonic's own presets, unless hidden in Preferences.
   const showBuiltins = useSettingsStore((s) => s.appSettings?.showBuiltinPresets !== false);
   const builtins = useBuiltinPresets((s) => s.presets);
@@ -219,6 +230,11 @@ export default function StudioPresets() {
   const folders = groups.flatMap((group) => (group.folder && !group.folder.builtin ? [group.folder] : []));
   const count = presets.reduce((n, item) => n + (item.preset ? 1 : item.folder?.children.length ?? 0), 0);
   const ready = Boolean(selectedImage?.isReady);
+  const stylePreset = useMemo(() => {
+    if (!appliedStyle) return null;
+    const own = presets.flatMap((item) => (item.preset ? [item.preset] : item.folder?.children ?? []));
+    return [...own, ...builtins].find((preset) => preset.id === appliedStyle.id) ?? null;
+  }, [appliedStyle, presets, builtins]);
   // Controls keep their look while the next photograph loads.
   const panelsReady = useEditorStore(panelsShowReady);
 
@@ -227,14 +243,40 @@ export default function StudioPresets() {
     const targets = applyTargets();
     if (!targets.length || !ready) return;
     const open = selectedImage?.path;
+    const values = withPresetClarityVersion(structuredClone(preset.adjustments));
+    if (isStyle(preset)) {
+      // The open photo decides, as its list shows: the applied style comes
+      // off every photo it is the last applied style of; another style
+      // replaces each photo's own last one.
+      setAmount(null);
+      const remove = appliedStyleOf(currentAdjustments())?.id === preset.id;
+      applyAdjustmentsToPaths(remove ? {} : values, targets, { style: { id: preset.id, remove } });
+      if (!remove) noteTool("presets");
+      return;
+    }
     setAmount(
       targets.length === 1 && targets[0] === open && open
         ? { path: open, preset, base: structuredClone(currentAdjustments()) as unknown as Record<string, unknown>, value: 100 }
         : null,
     );
-    applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments)), targets);
+    applyAdjustmentsToPaths(values, targets);
     noteTool("presets");
-    setApplied(preset.id);
+  };
+  // A style's Amount (in its record): each of its settings still the
+  // style's blended from the photo without it; settings the user changed
+  // since stay the user's.
+  const changeStyleAmount = (value: number) => {
+    const current = currentAdjustments();
+    const style = appliedStyleOf(current);
+    if (!style || !stylePreset || stylePreset.id !== style.id) return;
+    const values = presetValues(stylePreset.adjustments);
+    // Blended from the editor's values where the photo had none before.
+    const { recipe: without, removed } = revertStyle(current);
+    const base = removed ? normalizeLoadedAdjustments(without, Boolean(selectedImage?.isRaw)) : without;
+    // A slider inside a group the photo has only partly (an HSL colour, a
+    // grading range) blends from its default.
+    const defaults = initialAdjustmentsFor(Boolean(selectedImage?.isRaw));
+    setAdjustments(() => withStyleAmount(current, base, values, value, defaults));
   };
   const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
@@ -532,13 +574,27 @@ export default function StudioPresets() {
           onKeyDown={(e) => e.stopPropagation()}
         />
       )}
-      {!isLoading && count === 0 && !creating && (
-        <p className="studio-help">{t("studio.presets.empty")}</p>
-      )}
-      {selectionSize > 1 && count > 0 && (
+      {selectionSize > 1 && count + (showBuiltins ? builtinStyles : 0) > 0 && (
         <p className="studio-metadata-note">
           {t("studio.presets.appliesToSelection", { count: selectionSize })}
         </p>
+      )}
+      {!(amount && amount.path === selectedImage?.path) && appliedStyle && stylePreset && (
+        <label className="studio-preset-amount">
+          <span>{presetName(t, stylePreset)}</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            aria-label={t("studio.presets.amount")}
+            value={appliedStyle.amount}
+            disabled={!panelsReady}
+            onChange={(e) => changeStyleAmount(Number(e.target.value))}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+          <output>{appliedStyle.amount}%</output>
+        </label>
       )}
       {amount && amount.path === selectedImage?.path && (
         <label className="studio-preset-amount">
@@ -557,6 +613,11 @@ export default function StudioPresets() {
         </label>
       )}
       <div className="studio-presets" role="list">
+        {!isLoading && count === 0 && !creating && !query.trim() && (
+          <div role="listitem">
+            <p className="studio-help">{t("studio.presets.empty")}</p>
+          </div>
+        )}
         {groups.map((group) => {
           const key = group.folder?.id ?? "";
           const open = !group.folder || query.trim() !== "" || !collapsed.has(key);
@@ -614,14 +675,17 @@ export default function StudioPresets() {
                   ) : (
                     <button
                       key={preset.id}
-                      className={`studio-preset ${group.folder ? "is-nested" : ""} ${applied === preset.id ? "is-applied" : ""}`}
+                      className={`studio-preset ${group.folder ? "is-nested" : ""} ${isStyle(preset) && appliedStyle?.id === preset.id ? "is-applied" : ""}`}
                       disabled={!panelsReady}
+                      aria-pressed={isStyle(preset) ? appliedStyle?.id === preset.id : undefined}
                       title={
-                        preset.builtin
-                          ? t("studio.presets.appliesBuiltin")
-                          : preset.presetType === "tool"
-                            ? t("studio.presets.appliesSaved")
-                            : t("studio.presets.appliesAll")
+                        isStyle(preset) && appliedStyle?.id === preset.id
+                          ? t("studio.presets.appliedStyle")
+                          : preset.builtin
+                            ? t("studio.presets.appliesBuiltin")
+                            : preset.presetType === "tool"
+                              ? t("studio.presets.appliesSaved")
+                              : t("studio.presets.appliesAll")
                       }
                       onClick={() => apply(preset)}
                       onContextMenu={(e) => menu(e, preset)}

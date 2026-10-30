@@ -348,4 +348,10 @@ describe("AI preset previews", () => {
     const masks = [{ subMasks: [{ type: "ai-sky", parameters: { maskDataBase64: "data:source" } }] }] as never;
     expect(presetPreview(INITIAL_ADJUSTMENTS, { masks }, true)).toBeNull();
   });
+
+  it("previews a style's groups joined to the photo's own, as applying it does", () => {
+    const base = { ...INITIAL_ADJUSTMENTS, hsl: { ...INITIAL_ADJUSTMENTS.hsl, blues: { hue: 22, saturation: 0, luminance: 0 } } };
+    const previewed = presetPreview(base, { hsl: { reds: { hue: 5 } } } as never, true, { base, style: true });
+    expect(previewed?.hsl).toMatchObject({ reds: { hue: 5 }, blues: { hue: 22 } });
+  });
 });

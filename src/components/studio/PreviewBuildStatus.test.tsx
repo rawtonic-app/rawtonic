@@ -51,9 +51,10 @@ it('shows progress with a Stop while previews are built, then nothing when all w
   expect(screen.queryByRole('status')).toBeNull();
 });
 
-it('reports what could not be built, with the reasons on hover', async () => {
+it('keeps failure details available until dismissed', async () => {
   render(<PreviewBuildStatus />);
   await act(async () => {});
+  vi.useFakeTimers();
   await act(async () =>
     emit(progress({
       done: 4, total: 4, failedCount: 1,
@@ -62,7 +63,11 @@ it('reports what could not be built, with the reasons on hover', async () => {
   );
   const status = screen.getByRole('status');
   expect(status.textContent).toContain('previews.status.notBuilt 1');
-  expect(status.getAttribute('title')).toBe('A.RAF: The RAW file is missing (offline)');
+  expect(screen.getByText('A.RAF: The RAW file is missing (offline)')).toBeTruthy();
+  expect(status.querySelector('details')).toBeTruthy();
+  act(() => vi.advanceTimersByTime(13000));
+  expect(screen.getByRole('status')).toBeTruthy();
+  vi.useRealTimers();
   fireEvent.click(screen.getByLabelText('previews.status.dismiss'));
   expect(screen.queryByRole('status')).toBeNull();
 });

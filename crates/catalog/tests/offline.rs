@@ -282,6 +282,7 @@ fn an_older_database_is_migrated_with_its_photographs() {
     let conn = rusqlite::Connection::open(&db).unwrap();
     // Back to schema 2 (no volume columns, no import batches).
     conn.execute_batch(concat!(
+        include_str!("undo_0017.sql"),
         include_str!("undo_0016.sql"),
         include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
@@ -510,7 +511,11 @@ fn schemas_15_and_9_migrate_in_both_library_modes_without_losing_memberships() {
                 "catalog.sqlite"
             });
             let conn = rusqlite::Connection::open(&db).unwrap();
-            conn.execute_batch(include_str!("undo_0016.sql")).unwrap();
+            conn.execute_batch(concat!(
+                include_str!("undo_0017.sql"),
+                include_str!("undo_0016.sql")
+            ))
+            .unwrap();
             if version == 9 {
                 conn.execute_batch(concat!(
                     include_str!("undo_0015.sql"),

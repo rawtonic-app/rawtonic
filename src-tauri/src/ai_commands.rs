@@ -1276,7 +1276,7 @@ pub async fn generate_relight_depth(
             &source,
             is_raw,
             &adjustments,
-        );
+        )?;
         let (displayed, _) = rawtonic_engine::adjustment_utils::apply_spatial_transformations(
             warped.as_ref(),
             &adjustments,

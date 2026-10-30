@@ -3,7 +3,17 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 
-export interface UpdateInfo { version: string; releaseUrl: string; appImage: boolean }
+export interface UpdateInfo {
+  version: string;
+  releaseUrl: string;
+  appImage: boolean;
+  /** The installer for this computer; null when the release has none (the release page is offered). */
+  downloadUrl: string | null;
+  assetName: string | null;
+  assetSize: number | null;
+  /** The release notes (Markdown) from the same response. */
+  notes: string;
+}
 interface UpdateState {
   update: UpdateInfo | null;
   checking: boolean;

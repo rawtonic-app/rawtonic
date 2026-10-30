@@ -381,6 +381,19 @@ export interface RetouchFace {
   thumbnail?: string;
 }
 
+/** A stroke of the face retouch's protection brush: the area it covers
+ * keeps its pixels from before the retouch (mask-frame pixels, full
+ * resolution, in the geometry of the faces). */
+export interface FaceProtectStroke {
+  /** The brush centre's path; one point is a dab. */
+  points: { x: number; y: number }[];
+  radius: number;
+  /** Soft edge, 0–100 % of the radius. */
+  feather: number;
+  /** Takes protection away. */
+  erase?: boolean;
+}
+
 export interface FaceRetouch {
   settings: FaceRetouchSettings;
   faces: RetouchFace[];
@@ -389,6 +402,8 @@ export interface FaceRetouch {
   /** The same for the panel: the transform adjustments it analysed with. */
   geometry: string;
   enabled?: boolean;
+  /** The protection brush's strokes, in the order painted (for every face). */
+  protect?: FaceProtectStroke[];
 }
 
 /** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */
@@ -403,9 +418,16 @@ export const NEW_GRAIN_STRUCTURE: GrainStructure = 'clumped';
 export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): GrainStructure =>
   adjustments.grainStructure ?? ((adjustments.grainAmount ?? 0) > 0 ? 'even' : NEW_GRAIN_STRUCTURE);
 
-/** The grain new edits get (`image_processing::GRAIN_VERSION`): 2 is the
- * portable grain, the same on every GPU; 1 (missing key) the earlier one. */
-export const GRAIN_VERSION = 2;
+/** The grain new edits get (`image_processing::GRAIN_VERSION`): 3 is film
+ * grain (grains per dye layer in the negative's density, printed; Colour
+ * instead of a structure), 2 the portable grain, the same on every GPU; 1
+ * (missing key) the earlier one. */
+export const GRAIN_VERSION = 3;
+
+/** Film grain (version 3) has no structures; its Colour sets how independent
+ * the dye layers are. */
+export const isFilmGrain = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.grainVersion ?? ((adjustments.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION)) >= 3;
 
 /** Writes Even into grain that has none (recipes and presets from before the
  * structure choice), so it keeps rendering Even when copied, pasted, saved as
@@ -700,7 +722,10 @@ export interface Adjustments {
   sharpenMasking: number;
   /** Capture One's Sharpness Falloff (0–100): more sharpening towards the corners. */
   sharpnessFalloff?: number;
-  showClipping: boolean;
+  /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
+   * renderer's clipping warnings, `showClippingValue`
+   * (utils/clippingWarnings). */
+  showClipping: boolean | number;
   structure: number;
   temperature: number;
   tint: number;
@@ -757,6 +782,9 @@ export interface Adjustments {
   grainStructure?: GrainStructure;
   /** The grain a recipe renders (`GRAIN_VERSION`); missing = 1. */
   grainVersion?: number;
+  /** Film grain's colour (grain version 3): 0 one neutral layer like
+   * black-and-white film, 100 independent dye layers; missing = 0. */
+  grainColor?: number;
   relightLights?: RelightLight[];
   relightDepth?: RelightDepth;
   relightDepthAmount?: number;
@@ -778,6 +806,9 @@ export interface AiPatchData {
   width: number;
   height: number;
   isSrgbEncoded: boolean;
+  /** The model that guided the fill (`provenance::fill_model`); missing on
+   * fills made before it was recorded. */
+  model?: 'moebius' | 'mi-gan' | 'external';
 }
 
 /** One spot of the spot removal tool, in mask coordinates (the photo after
@@ -1260,6 +1291,13 @@ const deepCloneCurves = (curves: Partial<Curves> | undefined): Curves => ({
   ...(curves?.version !== undefined ? { version: curves.version } : {}),
 });
 
+/** A style's settings with its curves as loading fills them in (every
+ * channel; the version as it is), so that the record of an applied style
+ * still matches the curves after the photo is opened again. */
+export function withLoadedCurves<T extends { curves?: Partial<Curves> }>(values: T): T {
+  return values.curves ? { ...values, curves: deepCloneCurves(values.curves) } : values;
+}
+
 const deepCloneParametric = (pCurve: Partial<ParametricCurve> | undefined): ParametricCurve => ({
   luma: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.luma || {}) },
   red: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.red || {}) },
@@ -1313,7 +1351,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 6;
+export const RENDER_VERSION = 7;
 
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs
@@ -1577,7 +1615,7 @@ export const withPresetClarityVersion = <T extends Partial<Adjustments>>(preset:
   withClarityVersion(preset, preset);
 
 /** Keys whose values render the pattern of the recipe's grain version. */
-const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure'] as const;
+const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
 
 /** As `withSharpenVersion` for the grain: wherever grain values are copied
  * (paste, tool copy, Edit all selected, presets) its version goes along
@@ -1593,11 +1631,21 @@ export const withGrainVersion = <T extends Partial<Adjustments>>(
   if (Object.prototype.hasOwnProperty.call(picked, 'grainVersion') && picked.grainVersion == null) {
     return { ...picked, grainVersion: 1 };
   }
-  if (!GRAIN_KEYS.some((key) => picked[key] !== undefined) || picked.grainVersion != null) {
-    return picked;
+  let versioned: T & Pick<Partial<Adjustments>, 'grainVersion'> = picked;
+  if (GRAIN_KEYS.some((key) => Object.prototype.hasOwnProperty.call(picked, key)) && picked.grainVersion == null) {
+    const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
+    versioned = { ...picked, grainVersion: version };
   }
-  const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
-  return { ...picked, grainVersion: version };
+  // Film grain's Colour picked while it is still the missing default (0)
+  // would vanish in JSON, and the copy would keep the destination's Colour.
+  if (
+    Object.prototype.hasOwnProperty.call(picked, 'grainColor') &&
+    picked.grainColor == null &&
+    (versioned.grainVersion ?? 0) >= 3
+  ) {
+    versioned = { ...versioned, grainColor: 0 };
+  }
+  return versioned;
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
@@ -1887,6 +1935,8 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
 
 export interface AdjustmentGroup {
   label: string;
+  /** Override the category in the Copy/Sync picker when the panel groups these controls elsewhere. */
+  clipboardSection?: string;
   keys: string[];
 }
 
@@ -1918,7 +1968,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
       label: 'modals.copyPaste.groups.whiteBalance',
       keys: [ColorAdjustment.Temperature, ColorAdjustment.Tint, 'whiteBalance', 'wbTemperature', 'wbTint'],
     },
-    { label: 'modals.copyPaste.groups.presence', keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance] },
+    { label: 'modals.copyPaste.groups.presence', clipboardSection: 'basic', keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance] },
     {
       label: 'modals.copyPaste.groups.hueShift',
       keys: [ColorAdjustment.Hue],
@@ -1931,6 +1981,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
   details: [
     {
       label: 'modals.copyPaste.groups.clarityDehaze',
+      clipboardSection: 'basic',
       keys: [
         DetailsAdjustment.Clarity,
         DetailsAdjustment.Structure,
@@ -1968,7 +2019,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     },
     {
       label: 'modals.copyPaste.groups.grain',
-      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainVersion'],
+      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainColor', 'grainVersion'],
     },
     {
       label: 'modals.copyPaste.groups.chromaticAberration',
@@ -2070,8 +2121,11 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
 
 /** Adjustments that belong to one photograph or to the view and are never
  * copied: retouching, the depth-based lens blur, derived lens data, the
- * render pipeline version, tool visibility and the clipping display. Every other key must be copyable. */
+ * render pipeline version, tool visibility, the clipping display and the
+ * style last applied (with this photograph's settings before it,
+ * src/utils/appliedStyle.ts). Every other key must be copyable. */
 export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
+  'appliedStyle',
   'relightDepth',
   'aiPatches',
   'spots',
@@ -2156,6 +2210,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     Effect.GrainRoughness,
     Effect.GrainSize,
     'grainStructure',
+    'grainColor',
     Effect.LutIntensity,
     Effect.LutName,
     Effect.LutPath,

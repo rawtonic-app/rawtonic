@@ -58,7 +58,8 @@ fn color_noise(c: &mut Criterion, id: &str, photo: &Rgb32FImage, version: u64) {
 }
 
 /// The edge-fringe pass (`fringeVersion` 2, 3 and 4, full resolution) and the
-/// automatic lateral CA estimate (version 2, as without lens CA data).
+/// automatic lateral CA estimate (version 2, as without lens CA data, and
+/// version 3 against lens CA data).
 fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
     let image = DynamicImage::ImageRgb32F(photo.clone());
     let mut group = c.benchmark_group("lens");
@@ -85,6 +86,15 @@ fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
     group.bench_function(BenchmarkId::new("lateral_ca_estimate_v2", id), |b| {
         b.iter(|| lateral_ca::estimate_v2(black_box(photo)))
     });
+    // Version 3 against the lens data's own lateral CA (every never-edited
+    // RAW with camera CA data or a profile's TCA).
+    let own = lateral_ca::CaModel {
+        red: (4e-4, 0.0),
+        blue: (-3e-4, 0.0),
+    };
+    group.bench_function(BenchmarkId::new("lateral_ca_estimate_v3_versus", id), |b| {
+        b.iter(|| lateral_ca::estimate_versus(black_box(photo), own))
+    });
     // The full-resolution lens warp with a lens profile's distortion,
     // vignetting and lateral CA (every never-edited RAW with lens data).
     let params = GeometryParams {
@@ -99,7 +109,7 @@ fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
         ..GeometryParams::default()
     };
     group.bench_function(BenchmarkId::new("warp_lens_ca", id), |b| {
-        b.iter(|| warp_image_geometry(black_box(&image), params.clone()))
+        b.iter(|| warp_image_geometry(black_box(&image), params.clone()).unwrap())
     });
     group.finish();
 }

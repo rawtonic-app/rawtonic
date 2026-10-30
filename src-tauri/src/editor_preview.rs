@@ -265,12 +265,14 @@ fn lateral_ca_is_shared(
 /// Retouching (patches, spots) and lens blur are applied at this resolution:
 /// recipes with them reach this only for an offline photograph's Standard
 /// preview (online they use the full decode).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn reduced_preview_base(
     source: &DynamicImage,
     source_scale: f32,
     full_width: u32,
     full_height: u32,
     adjustments: &serde_json::Value,
+    is_raw: bool,
     preview_dim: u32,
     scale: f32,
 ) -> Result<preview_cache::PreviewBase, String> {
@@ -279,6 +281,7 @@ pub(crate) fn reduced_preview_base(
         source_scale,
         (full_width, full_height),
         adjustments,
+        is_raw,
         preview_dim,
         scale,
         false,
@@ -288,12 +291,14 @@ pub(crate) fn reduced_preview_base(
 /// `reduced_preview_base` of a reduced `source` that stands in only until
 /// the photograph at full resolution is in (`build_reduced_preview_base`
 /// with `interim`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn interim_preview_base(
     source: &DynamicImage,
     source_scale: f32,
     full_width: u32,
     full_height: u32,
     adjustments: &serde_json::Value,
+    is_raw: bool,
     preview_dim: u32,
     scale: f32,
 ) -> Result<preview_cache::PreviewBase, String> {
@@ -302,6 +307,7 @@ pub(crate) fn interim_preview_base(
         source_scale,
         (full_width, full_height),
         adjustments,
+        is_raw,
         preview_dim,
         scale,
         true,
@@ -311,11 +317,13 @@ pub(crate) fn interim_preview_base(
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
+#[allow(clippy::too_many_arguments)]
 fn build_reduced_preview_base(
     source: &DynamicImage,
     source_scale: f32,
     (full_width, full_height): (u32, u32),
     adjustments: &serde_json::Value,
+    is_raw: bool,
     preview_dim: u32,
     scale: f32,
     interim: bool,
@@ -355,9 +363,9 @@ fn build_reduced_preview_base(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
         if interim {
-            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled)
+            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled, is_raw)?
         } else {
-            apply_geometry_warp(retouched, &scaled)
+            apply_geometry_warp(retouched, &scaled, is_raw)?
         }
     };
     let warped = {
@@ -404,6 +412,7 @@ pub(crate) fn generate_shared_transformed_preview(
             full_width,
             full_height,
             adjustments,
+            loaded_image.is_raw,
             preview_dim,
             scale,
         );
@@ -568,7 +577,7 @@ pub(crate) fn compute_patched_and_warped(
         Cow::Borrowed(loaded_image.image.as_ref())
     };
 
-    let warped = apply_geometry_warp(patched_image, adjustments);
+    let warped = apply_geometry_warp(patched_image, adjustments, loaded_image.is_raw)?;
     let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0)?;
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
 
@@ -601,12 +610,15 @@ pub(crate) fn cancel_thumbnail_generation(
     Ok(())
 }
 
+/// The warped image masks are computed on (`prepare_shared_warped_mask_image`),
+/// cached for the editor photo. Fails only where the warp runs on the GPU
+/// and the GPU fails.
 pub fn get_cached_full_warped_image(
     state: &AppState,
     source: &Arc<DynamicImage>,
     is_raw: bool,
     js_adjustments: &serde_json::Value,
-) -> Arc<DynamicImage> {
+) -> Result<Arc<DynamicImage>, String> {
     full_warped_image(state, source, is_raw, js_adjustments, false)
         .expect("only a prewarm skips the build")
 }
@@ -625,7 +637,7 @@ pub async fn cached_full_warped_image(
         get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments)
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 /// `get_cached_full_warped_image`; a `prewarm` builds nothing for a photo that
@@ -636,7 +648,7 @@ fn full_warped_image(
     is_raw: bool,
     js_adjustments: &serde_json::Value,
     prewarm: bool,
-) -> Option<Arc<DynamicImage>> {
+) -> Option<Result<Arc<DynamicImage>, String>> {
     let geo_hash = calculate_geometry_hash(js_adjustments);
     // Whether `source` is the editor photo, and its cached warp if so.
     let lookup = || {
@@ -661,7 +673,8 @@ fn full_warped_image(
             true,
             cache
                 .as_ref()
-                .and_then(|cache| cache.get(source, is_raw, geo_hash)),
+                .and_then(|cache| cache.get(source, is_raw, geo_hash))
+                .map(Ok),
         )
     };
     let key = (Arc::as_ptr(source) as usize, is_raw, geo_hash);
@@ -670,7 +683,7 @@ fn full_warped_image(
             source,
             is_raw,
             js_adjustments,
-        );
+        )?;
 
         let original = state
             .original_image
@@ -690,7 +703,7 @@ fn full_warped_image(
                 .as_ref()
                 .and_then(|cache| cache.get(source, is_raw, geo_hash))
             {
-                return image;
+                return Ok(image);
             }
             // A build for an older geometry that ends last keeps its result
             // to itself instead of replacing the newer one.
@@ -703,7 +716,7 @@ fn full_warped_image(
                 ));
             }
         }
-        warped
+        Ok(warped)
     })
 }
 
@@ -1093,6 +1106,7 @@ fn preview_base(
             source_scale,
             full_dims,
             base_adjustments,
+            loaded_image.is_raw,
             build_dim,
             scale,
             interim,
@@ -1134,80 +1148,194 @@ pub async fn sample_curve_input(
     app_handle: tauri::AppHandle,
 ) -> Result<Option<Vec<[f64; 3]>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let context = get_or_init_gpu_context(&state, &app_handle)?;
-        let mut recipe = rawtonic_engine::point_curve::curve_input_probe(&adjustments);
-        hydrate_adjustments(&state, &mut recipe);
-        let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
-        if loaded_image.path != path {
-            return Ok(None);
-        }
-        let transform_hash = calculate_transform_hash(&recipe);
-        let Some((base, scale, unscaled_crop_offset)) = state
-            .cached_preview
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .filter(|c| c.source.ptr_eq(&Arc::downgrade(&loaded_image.image)))
-            .filter(|c| c.transform_hash == transform_hash)
-            .map(|c| (Arc::clone(&c.image), c.scale, c.unscaled_crop_offset))
-        else {
-            return Ok(None);
-        };
-        let (width, height) = base.dimensions();
-        let Some(roi) =
-            gpu_processing::preview_sample_roi(width, height, normalized_x, normalized_y)
-        else {
-            return Ok(None);
-        };
-        // The layers' masks as the preview frame draws them.
-        let mask_definitions = mask_definitions_from_json(&recipe);
-        let mask_bitmaps = preview_mask_bitmaps(
-            &state,
-            &recipe,
-            &mask_definitions,
-            (&loaded_image, source_scale, full_dims),
-            (width, height),
-            scale,
-            unscaled_crop_offset,
-        )?;
-        let tm_override = resolve_tonemapper_override_from_handle(&app_handle, loaded_image.is_raw);
-        let mut probe = get_all_adjustments_with_masks(
-            &recipe,
-            loaded_image.is_raw,
-            tm_override,
-            &mask_definitions,
-        );
-        crate::baseline_exposure::apply_base_look(
-            &mut probe.global,
-            &loaded_image.path,
-            loaded_image.measures.as_ref(),
-        );
-        probe.global.detail_scale = scale;
-        let space = rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto;
-        probe.global.output_space[0] = space.shader_code();
-        probe.global.output_matrix =
-            image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
-        let lut = recipe["lutPath"]
-            .as_str()
-            .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
-        let image = gpu_processing::process_and_get_dynamic_image_with_preview_shader(
-            &context,
-            &state,
-            &base,
-            transform_hash,
-            RenderRequest {
-                adjustments: probe,
-                mask_bitmaps: &mask_bitmaps,
-                lut,
-                roi: Some(roi),
-            },
+        let recipe = rawtonic_engine::point_curve::curve_input_probe(&adjustments);
+        let image = render_probe(
+            &app_handle,
+            &path,
+            recipe,
+            ProbeArea::Point(normalized_x, normalized_y),
+            ProbeOutput::Space(rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto),
             "sample_curve_input",
         )?;
-        Ok(Some(prophoto_pixels(image.to_rgba8().as_raw())))
+        Ok(image.map(|image| prophoto_pixels(image.to_rgba8().as_raw())))
     })
     .await
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
+}
+
+/// Levels' histogram (Capture One shows the tool's input): counts per 8-bit
+/// display level of red, green and blue (every second pixel, as the main
+/// histogram samples; the panel smooths them as the main one) of the shown
+/// preview base rendered up to Levels (the curves' probe,
+/// `point_curve::curve_input_probe`, without the levels, stopped where
+/// Levels act: `LEVELS_INPUT_PROBE`), the display values Levels receive. `adjustments` is the
+/// recipe (without view states); its levels do not matter, so the frontend
+/// asks again only when another adjustment changes. None while no preview
+/// base of the recipe's geometry is cached.
+#[tauri::command]
+pub async fn levels_input_histogram(
+    path: String,
+    adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<[Vec<u32>; 3]>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("levels_input_histogram");
+        let Some(image) = render_probe(
+            &app_handle,
+            &path,
+            levels_input_probe(&adjustments),
+            ProbeArea::Whole,
+            ProbeOutput::LevelsInput,
+            "levels_input_histogram",
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(level_counts(&image)))
+    })
+    .await
+    .map_err(|error| format!("Levels histogram task failed: {error}"))?
+}
+
+/// The recipe Levels' input renders from: the curves' probe (curves,
+/// region curve, display LUT, grain and view states left out) without the
+/// levels.
+fn levels_input_probe(adjustments: &serde_json::Value) -> serde_json::Value {
+    let mut recipe = rawtonic_engine::point_curve::curve_input_probe(adjustments);
+    if let Some(recipe) = recipe.as_object_mut() {
+        recipe.remove("levels");
+    }
+    recipe
+}
+
+/// Per-channel counts of 8-bit levels, every second pixel (as
+/// `calculate_histogram_from_image` samples).
+fn level_counts(image: &image::DynamicImage) -> [Vec<u32>; 3] {
+    let mut counts = [vec![0u32; 256], vec![0u32; 256], vec![0u32; 256]];
+    for pixel in image
+        .to_rgba8()
+        .as_raw()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .step_by(2)
+    {
+        for (c, count) in counts.iter_mut().enumerate() {
+            count[usize::from(pixel[c])] += 1;
+        }
+    }
+    counts
+}
+
+/// What a probe render covers: the pixels around a point of the shown
+/// preview (`preview_sample_roi`) or the whole preview base.
+enum ProbeArea {
+    Point(f64, f64),
+    Whole,
+}
+
+/// What a probe render stores: the finished colour in an output space, or
+/// Levels' input (sRGB display values clipped to the cube, before any
+/// output mapping: `LEVELS_INPUT_PROBE`).
+enum ProbeOutput {
+    Space(rawtonic_engine::output_color_space::OutputColorSpace),
+    LevelsInput,
+}
+
+/// Renders `recipe` (a probe of the current recipe, without view states)
+/// from the cached preview base the shown frame was built from, with the
+/// layers' masks as the preview draws them, as `output` says. None when `path` is
+/// not the loaded photo or no preview base of the recipe's geometry is
+/// cached.
+fn render_probe(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    mut recipe: serde_json::Value,
+    area: ProbeArea,
+    output: ProbeOutput,
+    caller_id: &str,
+) -> Result<Option<image::DynamicImage>, String> {
+    let state = app_handle.state::<AppState>();
+    let context = get_or_init_gpu_context(&state, app_handle)?;
+    hydrate_adjustments(&state, &mut recipe);
+    let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
+    if loaded_image.path != path {
+        return Ok(None);
+    }
+    let transform_hash = calculate_transform_hash(&recipe);
+    let Some((base, scale, unscaled_crop_offset)) = state
+        .cached_preview
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|c| c.source.ptr_eq(&Arc::downgrade(&loaded_image.image)))
+        .filter(|c| c.transform_hash == transform_hash)
+        .map(|c| (Arc::clone(&c.image), c.scale, c.unscaled_crop_offset))
+    else {
+        return Ok(None);
+    };
+    let (width, height) = base.dimensions();
+    let roi = match area {
+        ProbeArea::Point(x, y) => {
+            let Some(roi) = gpu_processing::preview_sample_roi(width, height, x, y) else {
+                return Ok(None);
+            };
+            Some(roi)
+        }
+        ProbeArea::Whole => None,
+    };
+    // The layers' masks as the preview frame draws them.
+    let mask_definitions = mask_definitions_from_json(&recipe);
+    let mask_bitmaps = preview_mask_bitmaps(
+        &state,
+        &recipe,
+        &mask_definitions,
+        (&loaded_image, source_scale, full_dims),
+        (width, height),
+        scale,
+        unscaled_crop_offset,
+    )?;
+    let tm_override = resolve_tonemapper_override_from_handle(app_handle, loaded_image.is_raw);
+    let mut probe = get_all_adjustments_with_masks(
+        &recipe,
+        loaded_image.is_raw,
+        tm_override,
+        &mask_definitions,
+    );
+    crate::baseline_exposure::apply_base_look(
+        &mut probe.global,
+        &loaded_image.path,
+        loaded_image.measures.as_ref(),
+    );
+    probe.global.detail_scale = scale;
+    match output {
+        ProbeOutput::Space(space) => {
+            probe.global.output_space[0] = space.shader_code();
+            probe.global.output_matrix =
+                image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        }
+        ProbeOutput::LevelsInput => {
+            probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
+        }
+    }
+    let lut = recipe["lutPath"]
+        .as_str()
+        .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+    gpu_processing::process_and_get_dynamic_image_with_preview_shader(
+        &context,
+        &state,
+        &base,
+        transform_hash,
+        RenderRequest {
+            adjustments: probe,
+            mask_bitmaps: &mask_bitmaps,
+            lut,
+            roi,
+        },
+        caller_id,
+    )
+    .map(Some)
 }
 
 /// The bitmaps of `masks` (`recipe`'s) on a preview base of `size` at
@@ -1775,7 +1903,8 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("analytics_compute");
-        let histogram_data = image_processing::calculate_histogram_from_image(&job.image).ok();
+        let histogram_data =
+            image_processing::calculate_histogram_from_image(&job.image, job.clipped).ok();
         let waveform_data = if job.compute_waveform {
             image_processing::calculate_waveform_from_image(
                 &job.image,
@@ -2022,10 +2151,7 @@ pub(crate) async fn activate_photo(
         );
         return Ok(Activation::None);
     }
-    *state
-        .current_source
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    crate::image_loader::open_source(&state, &path);
     release_still_for(&state, &path);
     let remembered = state
         .proxy_memory
@@ -2732,12 +2858,12 @@ pub(crate) async fn generate_uncropped_preview(
             1.0
         };
 
-        let params = crate::image_processing::get_geometry_params_from_json(&adjustments_clone);
+        let params = crate::image_processing::geometry_params_for(&adjustments_clone, is_raw);
         let mut adjusted_params = params;
         adjusted_params.lens_vignette_amount *= if is_raw { 0.4 } else { 0.8 };
 
         let warped_image = rawtonic_engine::edge_fringe::apply_for_recipe(
-            Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)),
+            Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)?),
             &adjustments_clone,
             scale_for_gpu,
         )?
@@ -2900,7 +3026,7 @@ pub(crate) async fn generate_preview_for_path(
                 .map_err(|e| e.to_string())?;
 
         let (transformed_image, unscaled_crop_offset) =
-            apply_all_transformations(base_image, &js_adjustments)?;
+            apply_all_transformations(base_image, &js_adjustments, is_raw)?;
         let (img_w, img_h) = transformed_image.dimensions();
         let mask_definitions: Vec<MaskDefinition> = js_adjustments
             .get("masks")
@@ -3165,7 +3291,7 @@ mod preview_memory_tests {
         adjustments: &serde_json::Value,
         preview_dim: u32,
     ) -> preview_cache::PreviewBase {
-        let warped = apply_geometry_warp(source, adjustments);
+        let warped = apply_geometry_warp(source, adjustments, true).unwrap();
         let warped =
             rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0).unwrap();
         let (transformed, offset) =
@@ -3196,7 +3322,7 @@ mod preview_memory_tests {
             {"x": 1500.0, "y": 1000.0, "radius": 40.0, "sourceX": 1200.0, "sourceY": 1000.0}
         ]});
         for (adjustments, dot) in [(serde_json::json!({}), true), (healed, false)] {
-            let base = reduced_preview_base(&proxy, 0.2, 3000, 2000, &adjustments, 640, 0.2)
+            let base = reduced_preview_base(&proxy, 0.2, 3000, 2000, &adjustments, true, 640, 0.2)
                 .unwrap()
                 .image
                 .to_rgb32f();
@@ -3229,7 +3355,8 @@ mod preview_memory_tests {
         for adjustments in [serde_json::json!({}), lens, cropped] {
             let scale = reduced_preview_scale(3000, 2000, &adjustments, 640).expect("reduced");
             let reduced =
-                reduced_preview_base(&source, 1.0, 3000, 2000, &adjustments, 640, scale).unwrap();
+                reduced_preview_base(&source, 1.0, 3000, 2000, &adjustments, true, 640, scale)
+                    .unwrap();
             let full = full_resolution_preview(&source, &adjustments, 640);
             // Sizes may differ by a rounding pixel (resampled twice).
             let (rw, rh) = reduced.image.dimensions();
@@ -3304,7 +3431,8 @@ mod preview_memory_tests {
                     .unwrap();
             let retouch = start.elapsed();
             let start = std::time::Instant::now();
-            let _ = reduced_preview_base(&source, 1.0, w, h, &adjustments, dim, scale).unwrap();
+            let _ =
+                reduced_preview_base(&source, 1.0, w, h, &adjustments, true, dim, scale).unwrap();
             let whole = start.elapsed();
             println!(
                 "round {round}: preview {}×{}: downscale {:.0} ms, face retouch {:.0} ms, whole reduced base {:.0} ms",
@@ -3362,6 +3490,7 @@ mod preview_memory_tests {
             400,
             90,
             &serde_json::json!({}),
+            true,
             dim,
             reduced,
         )
@@ -3475,10 +3604,19 @@ mod lateral_ca_sharing_tests {
         let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
         let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});
         let base = |recipe: &serde_json::Value, interim: bool| {
-            build_reduced_preview_base(&draft, scale, (3000, 2000), recipe, 1400, scale, interim)
-                .unwrap()
-                .image
-                .to_rgb32f()
+            build_reduced_preview_base(
+                &draft,
+                scale,
+                (3000, 2000),
+                recipe,
+                true,
+                1400,
+                scale,
+                interim,
+            )
+            .unwrap()
+            .image
+            .to_rgb32f()
         };
         // Without the whole decode's estimate the draft warps as with an
         // estimate that found nothing (here: no correction) ...
@@ -3810,6 +3948,47 @@ mod still_tests {
         assert_eq!(
             display.lock().unwrap().as_ref().unwrap().frame.as_deref(),
             Some("C")
+        );
+    }
+}
+
+#[cfg(test)]
+mod levels_input_tests {
+    use super::{level_counts, levels_input_probe};
+    use serde_json::json;
+
+    #[test]
+    fn the_probe_leaves_out_levels_and_what_follows_them() {
+        let recipe = json!({
+            "exposure": 0.5,
+            "levels": {"rgb": {"inBlack": 40}},
+            "curves": {"luma": [{"x": 0, "y": 20}, {"x": 255, "y": 255}]},
+            "regionCurve": {"highlights": 30},
+            "grainAmount": 20,
+            "lutPath": "/look.cube",
+        });
+        let probe = levels_input_probe(&recipe);
+        assert_eq!(probe, json!({"exposure": 0.5}));
+    }
+
+    #[test]
+    fn counts_every_second_pixel_per_channel() {
+        let mut image = image::RgbaImage::new(4, 1);
+        for (x, value) in [10u8, 20, 30, 40].into_iter().enumerate() {
+            image.put_pixel(x as u32, 0, image::Rgba([value, 255 - value, 7, 255]));
+        }
+        let counts = level_counts(&image::DynamicImage::ImageRgba8(image));
+        assert_eq!(counts[0][10], 1);
+        assert_eq!(counts[0][30], 1);
+        assert_eq!(counts[0][20], 0);
+        assert_eq!(counts[1][245], 1);
+        assert_eq!(counts[2][7], 2);
+        assert_eq!(
+            counts
+                .iter()
+                .map(|c| c.iter().sum::<u32>())
+                .collect::<Vec<_>>(),
+            [2, 2, 2]
         );
     }
 }

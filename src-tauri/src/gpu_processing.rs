@@ -213,6 +213,54 @@ pub fn get_or_init_gpu_context(
     Ok(new_context)
 }
 
+/// The window's newest size in device pixels (width << 32 | height), for a
+/// resize that waits for the display.
+static WINDOW_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Fits the window surface to a window now `width` × `height` device pixels.
+/// While a frame or placement holds the display, the resize waits for it on
+/// a worker (the main thread must not block) and then takes the newest size:
+/// the window's last resize event — the end of a zoom animation — is never
+/// dropped, which left the photograph on a surface of an earlier size.
+pub fn resize_display(context: GpuContext, width: u32, height: u32) {
+    use std::sync::atomic::Ordering;
+    WINDOW_SIZE.store(
+        (u64::from(width) << 32) | u64::from(height),
+        Ordering::SeqCst,
+    );
+    let apply = |display: &mut Option<WgpuDisplay>, context: &GpuContext| {
+        let size = WINDOW_SIZE.load(Ordering::SeqCst);
+        let (width, height) = ((size >> 32) as u32, size as u32);
+        if let Some(display) = display.as_mut()
+            && (display.config.width, display.config.height) != (width.max(1), height.max(1))
+        {
+            display.resize(&context.device, &context.queue, width, height);
+        }
+    };
+    let busy = match context.display.try_lock() {
+        Ok(mut display) => {
+            apply(&mut display, &context);
+            false
+        }
+        Err(std::sync::TryLockError::Poisoned(e)) => {
+            apply(&mut e.into_inner(), &context);
+            false
+        }
+        Err(std::sync::TryLockError::WouldBlock) => true,
+    };
+    if busy {
+        #[cfg(feature = "performance-profiling")]
+        log::info!(
+            "[PERF] {}",
+            serde_json::json!({ "stage": "display_resize_deferred", "size": [width, height] })
+        );
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+            apply(&mut display, &context);
+        });
+    }
+}
+
 /// Builds the processing pipelines ahead of the first render (shader
 /// compilation: seconds on a cold driver cache), so an export overlaps it
 /// with decoding. A processor that already exists

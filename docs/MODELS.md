@@ -51,6 +51,9 @@ weights tensor by tensor.
 | `skyseg-u2net.onnx` | Sky mask (inherited) | Byte-identical to `JianyuanWang/skyseg` (a re-upload tagged MIT); originally from xiongzhu666's Sky-Segmentation repo (MIT code). The author states the model was trained on ADE20K plus private company data; the README does not license the ONNX file. | Unclear | Replaced 2026-10-09 |
 | `nind_denoise_utnet_684.onnx` | AI Denoise (inherited tool) | NIND UtNet (Brummer, trougnouf/nind-denoise, GPL-3.0 code); the weights carry no license statement. | Unclear | Removed 2026-10-08: Rawtonic's NR measures better; the Denoise tool keeps BM3D and Apple RAW |
 | `migan_pipeline_v2.onnx` | Object removal | MI-GAN 512 Places2 (Picsart AI Research), the ONNX pipeline its first author published (`andraniksargsyan/migan`, revision 406830d; linked from the official repository), unchanged. | MIT (weights, `LICENSE-WEIGHTS`) | In the pack since 2026-10-09 |
+| `moebius_unet_fp16_coreml_*` (Core ML package), `moebius_embeddings.bin` | Remove, holes thicker than 205 px (macOS) | Moebius `ft_places2` (Kangsheng Duan, Ziyang Xu et al., Huazhong University of Science and Technology and vivo AI Lab; checkpoint of huggingface.co/hustvl/Moebius at revision cd01f47, SHA-256 6525afb8…; network code github.com/hustvl/Moebius at b88d462) converted by `scripts/models/convert_moebius_coreml.py` (ML program, fp16, macOS 13; reproducible: same SHA-256 in two conversions). Its 20 learned conditioning embeddings are the file beside it, an input of the program (see "Moebius on Core ML" under Object removal). | Apache-2.0 (repository LICENSE and README: "Both the code and the pretrained model weights … Apache License 2.0 … Commercial use of the weights and the images produced with them is permitted"; the Hugging Face card's front matter says MIT; both permissive, shipped under Apache-2.0) | In the pack since 2026-10-27 |
+| `sdxl_vae_encoder_fp16_coreml_*`, `sdxl_vae_decoder_fp16_coreml_*` (Core ML packages) | Moebius's image encoder and decoder | SDXL-VAE-FP16-Fix (huggingface.co/madebyollin/sdxl-vae-fp16-fix, revision 207b116, `diffusion_pytorch_model.safetensors` SHA-256 1b909373…), the SDXL VAE (Stability AI, `stabilityai/sdxl-vae`, card `license: mit`) fine-tuned to run in fp16; the Moebius authors ship its fp16 cast as PixelHacker's VAE (all 248 tensors equal). Converted by `convert_moebius_coreml.py` (fp16, macOS 13). Not the SD 1.x VAE (CreativeML OpenRAIL-M): scaling factor 0.13025 checked. | MIT (model cards) | In the pack since 2026-10-27 |
+| `moebius_unet_fp16w.onnx`, `sdxl_vae_encoder_fp16w.onnx`, `sdxl_vae_decoder_fp16w.onnx` | Remove, holes thicker than 205 px (Windows and Linux, on a GPU provider) | The same Moebius checkpoint and SDXL VAE fp16-fix as the Core ML rows, exported by `convert_moebius_coreml.py --onnx --no-coreml` (opset 17; weights stored as fp16 and cast to fp32 in the graph, so the networks compute in fp32; tensors beyond fp16's range stay fp32; reproducible: same SHA-256 in two exports). Share `moebius_embeddings.bin` with the Core ML programs. | Apache-2.0 (Moebius), MIT (VAE), as above | In the pack since 2026-10-27 (`pack-2026-10-27b`) |
 | `face_detection_yunet_2023mar.onnx` | People masks (faces) | YuNet 2023mar (Wu, Peng and Yu), OpenCV Zoo `models/face_detection_yunet` at commit f12e127 (Git LFS object), unchanged; `LICENSE` in that folder: MIT, © 2020 Shiqi Yu. Trained on WIDER FACE (residual risk under Training data). | MIT | In the pack since 2026-10-09 |
 | `face_mesh_v2.onnx` | People masks (eyes, brows, lips, teeth) | MediaPipe Face Mesh V2 (Google), the `face_landmarks_detector.tflite` of `face_landmarker.task` (float16, version 1, storage.googleapis.com/mediapipe-models), converted by `scripts/models/export_faces.py` (tf2onnx, checked against the TFLite interpreter, reproducible: same SHA-256 in two exports). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
 | `selfie_multiclass_256.onnx` | People masks (hair, face and body skin, clothes, accessories) | MediaPipe multiclass selfie segmentation (Google; `selfie_multiclass_256x256.tflite`, float32, version 1), converted by `scripts/models/export_faces.py` (as above). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
@@ -533,6 +536,15 @@ segmentation models with the largest training sets, concretely:
   (MIT, Apache-2.0) are the rights holders'; WIDER FACE is a residual risk of
   the kind above.
 
+- **Moebius** (2026-10-27). As its papers state: the teacher it was
+  distilled from (PixelHacker) was trained on 14 M image-mask pairs from
+  COCONut-Large, Objects365 V2, Google Landmarks V2 and "a natural scene
+  dataset (7.49 M images) that we curated and collected" (not named), masks
+  labelled automatically with SAM and AlphaCLIP; the distillation data are
+  not named; the `ft_places2` checkpoint is fine-tuned on Places2 (1.8 M,
+  the set MI-GAN was trained on). The unnamed self-collected set is the
+  residual risk here; the weights' license is the authors' (Apache-2.0).
+
 ## People masks: faces, landmarks and parts
 
 Lightroom's People mask selects parts of everyone or of one person: entire
@@ -790,7 +802,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-10-18` of
+The pack is the release `pack-2026-10-27b` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -807,7 +819,12 @@ A new pack is a new release (new tag): build it with
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-10-18` is `pack-2026-10-08` plus
+files older builds load. `pack-2026-10-27b` is `pack-2026-10-27` plus
+Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux
+(built that way). `pack-2026-10-27` is `pack-2026-10-18` plus
+Moebius and the SDXL VAE fp16-fix as Core ML programs and the Moebius
+embeddings file (built that way, with their license texts as assets too).
+`pack-2026-10-18` is `pack-2026-10-08` plus
 the mixed package (built that way; `nlmf_mixed640_macos13_coreml_*` added
 to it the same day); `pack-2026-10-08` stays
 unchanged for the builds that point to it. Before that, new models went
@@ -1064,6 +1081,230 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   than 256 of a level's pixels); the table above ran without that budget.
   Lightroom's times were taken while the machine was out of memory from
   other work and are an upper bound.
+  **Context for MI-GAN (2026-10-27).** QA found a conspicuous yellow-orange
+  blot where Remove took a potato out of a fruit bowl (45 MP CR3). Cause:
+  the authors' pipeline crops tightly around the hole before scaling to
+  its 512 px input, so the 1.5 × crop the app passes never reached the
+  model; a hole the size of a fist filled most of its view and MI-GAN
+  painted an object (lemon colours) that the guided completion then
+  rebuilt from the lemon's own pixels. The app now widens the pipeline's
+  crop with four 2 × 2 px marks at the corners of a box 2.5 × the hole
+  (`run_inpainting`); only the real hole is used. Set: 17 objects in 13
+  RAW photos (fruit, toys, a white car, ships, lighthouses, a windmill,
+  cats, bread, a globe, a flower pot; Detect objects masks as above, the
+  photos sRGB-encoded as Remove sees them), harness `eval_inpaint.py`
+  with `ctx=`:
+
+  | Remove's fill | LPIPS ↓ | PSNR ↑ | ΔE ↓ | Detail | Time |
+  |---|---|---|---|---|---|
+  | before (pipeline's own crop) | 0.0748 | 19.09 | 13.22 | 0.59 | 1.32 s |
+  | context 2 × the hole | 0.0717 | 19.84 | 11.79 | 0.52 | 1.49 s |
+  | **context 2.5 × (now)** | **0.0708** | 19.97 | 11.63 | 0.49 | 1.55 s |
+  | context 3 × | 0.0730 | 20.07 | 11.48 | 0.49 | 1.59 s |
+
+  Side by side on the real objects: the potato blot, a red cylinder where
+  the lower potato was, a white blob where a loaf was and a brown object
+  left where a cat lay are gone; the car door and the tomato are cleaner;
+  2 × still left a smaller blot with the QA case's own mask, 3 × added
+  blots on a ferry and a car. The factor was chosen on that set, so it
+  was then frozen and checked on 10 held-out objects in 8 other RAWs
+  (bottle, rock, hut, window pane, toy, castle, trees, motorbike, top
+  case, figure):
+
+  | Held-out | LPIPS ↓ | PSNR ↑ | ΔE ↓ | Detail |
+  |---|---|---|---|---|
+  | before | 0.0714 | 17.78 | 14.33 | 0.62 |
+  | context 2.5 × | 0.0779 | 17.45 | 14.80 | 0.54 |
+  | hole ≤ half the view (below) | 0.0748 | 17.54 | 14.94 | 0.55 |
+
+  The synthetic holes (known content, placed where the photo has the
+  most edges) come out slightly worse with context: 6 of 10 held-out and
+  9 of 17 dev cases, the dev mean carried by four large wins. On the
+  real removals, which are what Remove is for, the held-out set agrees
+  with the dev set: an object invented in a window pane is gone, the hut
+  is a little better, a motorbike's top case leaves a larger dark blob,
+  the other seven are alike. Invented objects in real removals count
+  for more than reconstruction of synthetic holes, so the app takes
+  2.5 ×. One alternative from the pipeline's own rule, not fitted: its
+  crop is a square of max(512, L + 256) around the hole (L the longer
+  side), so holes up to 256 px take at most half of its view; keeping
+  that half for every hole (side max(512, L + 256, 2 L); small holes
+  unchanged) kept a smaller blot in the QA case and the objects in the
+  window pane and the car door, so it was not taken.
+
+  Still poor, with or without (model quality,
+  not the crop): a kitten in foliage, a globe in front of a toy, a red
+  pot on a table, a motorbike, a figure in front of a cap and a removed
+  lemon leave smeared fragments of what surrounds them. Detail is lower
+  because MI-GAN now sees the hole at a smaller scale; the completion
+  restores the photo's grain. The candidates for those cases are a
+  stronger model under the license rules (the generative fill above, or a
+  distilled diffusion inpainter with Apache-2.0 weights once each weight
+  file's license, ONNX/Core ML export, speed and memory are checked).
+  **Moebius for large holes (macOS 2026-10-27, Windows and Linux the same
+  day).** Moebius (hustvl,
+  0.23 B distilled latent-diffusion inpainter, `ft_places2`; licenses in
+  the inventory) now guides the completion instead of MI-GAN when the hole
+  is at least 512 / 2.5 ≈ 205 px thick (the diameter of the largest disc
+  inside it, `inpainting::LARGE_HOLE_THICKNESS`). The threshold is not
+  fitted: below it MI-GAN sees the hole at full resolution with 2.5 × its
+  size around it; above it the hole fills more than 40 % of its 512 px
+  view's side (where it painted objects back) or the view is scaled down.
+  The thickness, not the longer side: a thin line is filled from both
+  sides however long it is. All 27 objects of both sets are above it
+  (208-1805 px), so the sets test Moebius where it runs, not the threshold;
+  smaller holes fill as before. Pipeline (`src-tauri/src/moebius.rs`): a
+  square of 2.5 × the hole's longer side, area-scaled to 512 px with every
+  pixel the hole touches in the network's hole; the authors' DDIM sampler
+  at 10 steps from strength 0.99 (9 network runs), guidance 2.0, their noise
+  offset, VAE mean, a fixed seed; the fill scaled back (Catmull-Rom) and
+  completed at full resolution as before. Windows and Linux run the same
+  sampler on ONNX Runtime's GPU providers (below).
+
+  *Core ML.* The first conversion (embeddings baked in) filled holes with
+  white or grey blobs on the GPU in fp16 and fp32, while every submodule
+  converted on its own was exact. Cause, by cumulative prefixes of the
+  network on a real step's input: already after the first down block 26 %
+  error (fp32 GPU; CPU 1e-5), down to one cross-λ layer, 340 % error alone
+  when its encoder states are a constant, 2e-6 when they are an input; each
+  of its operations alone (batch norm on the folded constant, the gather of
+  the position table, the batched matmuls) is exact, so it is Core ML's GPU
+  on the folded combination. The 20 learned embeddings are therefore an
+  input of the program (`moebius_embeddings.bin` beside it): GPU fp32
+  matches PyTorch to 3e-6 per step, fp16 to 0.15-1.7 % (CPU fp16 0.8-12 %).
+  CPU and GPU and Neural Engine together (`ALL`) are still wrong (110 %),
+  the Neural Engine alone is right but 3 s per step: the app uses CPU and
+  GPU. Through the whole pipeline the Core ML fill differs from the same
+  pipeline in PyTorch fp32 by 0.6-1.3 codes on average in the hole (two
+  sample photos) and by 0.03-0.14 on average, p99 ≤ 2, max 4-37 codes over
+  the crops of 9 real dev objects. ONNX Runtime's Core ML provider was not
+  pursued (1257 of 1363 nodes in 31 partitions, 1.4 s per step).
+
+  *Quality* (the harness's `mhybrid` = the app's method; `moebius` = its
+  fill alone; the Rust guide equals the harness's to 0.3-1.3 codes on
+  average in the hole):
+
+  | Set | Method | LPIPS ↓ | PSNR ↑ | ΔE ↓ | Detail |
+  |---|---|---|---|---|---|
+  | dev (17) | MI-GAN guide (before) | 0.0708 | 19.97 | 11.63 | 0.49 |
+  | dev | **Moebius guide (now)** | **0.0699** | 21.28 | 9.89 | 0.46 |
+  | dev | Moebius alone | 0.0765 | 21.17 | 10.07 | 0.20 |
+  | held-out (10) | MI-GAN guide (before) | 0.0779 | 17.45 | 14.80 | 0.54 |
+  | held-out | **Moebius guide (now)** | **0.0745** | 18.59 | 13.48 | 0.44 |
+  | held-out | Moebius alone | 0.0814 | 18.59 | 13.38 | 0.19 |
+
+  Better on every metric of both sets except detail (slightly lower; the
+  completion restores grain). On the real objects the difference is
+  larger: the lemon's brown smear, the textured blob where the globe was,
+  the motorbike's and top case's fragments are gone. Still poor with both:
+  the red pot (Moebius paints a pink pot back: the selection leaves the
+  plant, which needs a pot), the figure in front of a cap (fragments of
+  its glasses stay) and the kitten in foliage (a faint bird-like shape
+  instead of the cat's ghost).
+
+  *Speed and memory* (Mac mini M4 Pro, ignored test `moebius_fill_times`:
+  the app's code on the 27 full-size photos, 18-45 MP): Moebius 2.51-2.81 s
+  per removal (median 2.54; the networks alone ≈ 2.5 s: VAE encoder 0.34,
+  9 UNet runs 1.8, decoder 0.36), completion 0.09-2.2 s, whole fill
+  2.7-4.8 s (median 3.6); with MI-GAN the harness's fills took a median of
+  1.6 s (dev) and 1.8 s (held-out), MI-GAN itself 0.2-0.9 s.
+  First load 2.2 s (compiling the programs; Metal builds its kernels on
+  the first run in an app). Peak physical footprint of the test process
+  7.1 GB on the 45 MP photos (photo copies and completion included). The
+  three programs are 620 MB, downloaded on the first large removal with
+  progress (on macOS one percent over all files) and Cancel in the overlay; if they
+  cannot be downloaded or do not run, MI-GAN fills and a notice says so
+  and why (`ai-fill-notice`).
+
+  *Colour drift and blocks (GUI check, 2026-10-27).* In the app the fruit
+  bowl's potato left a blocky dark-grey patch and a faint lighter ellipse.
+  The app's mask, crop, scale and colour space match the harness (the
+  mask is the harness's grown about 24 px more; both masks give the same
+  result through the app's code, ignored test `moebius_fill_times`), and
+  the harness's `mhybrid` through that same code shows both defects too:
+  they are the method's. Two causes, two changes:
+  1. The ellipse: the network's colours drift from the photo's (the VAE),
+     so its fill sits lighter in the hole. `moebius::guide` now measures
+     the drift on the known pixels of its 512 px square (photo − result),
+     spreads it into the hole by push-pull (bilinear pull) and takes it
+     out.
+  2. The blocks: the photo around the hole has no patch of the shadow
+     inside the bowl that the guide asks for, so the completion copies
+     the nearest ones, the dark wall behind it, in blocks. In the fill's
+     dim, sRGB-encoded base image that is 4-6 codes (grey ≈ 28, 29, 28
+     against the guide's dark green ≈ 30, 33, 22), invisible in the
+     harness's sheets but plain once the develop settings lift it; a
+     guide weight of 100 instead of 10 keeps it, another seed does not.
+     `keep_guide_shading` now takes the hole's shading and colour from
+     the guide below its own detail (a Gaussian of one guide pixel,
+     side / 512 photo pixels, three box passes) and the texture above it
+     from the completion.
+
+  Synthetic holes (same sets, the app's code end to end; before = main):
+
+  | Set | Fill | LPIPS ↓ | PSNR ↑ | ΔE ↓ |
+  |---|---|---|---|---|
+  | dev | before | 0.0705 | 21.31 | 9.85 |
+  | dev | drift only | 0.0693 | 21.33 | 9.77 |
+  | dev | **drift + shading (now)** | 0.0715 | 21.26 | 9.94 |
+  | held-out | before | 0.0746 | 18.62 | 13.44 |
+  | held-out | drift only | 0.0741 | 18.72 | 13.32 |
+  | held-out | **drift + shading (now)** | 0.0756 | 18.68 | 13.40 |
+
+  The drift correction is better on every metric; the shading costs about
+  0.002 LPIPS on known content (water and stone texture at the guide's
+  scale comes out a little smoother; worst a synthetic hole in a ship's
+  sea, +0.010). Only the shading at one guide pixel removes the blocks:
+  three guide pixels leave their outline, a correction only above a few
+  codes leaves them, colour at one and brightness at two to six guide
+  pixels scores the same as all at one. Real removals (27, lifted views
+  side by side): both fruit potatoes clean (the lower one had dark blocks
+  too; no block, no ellipse), the ferry a little worse (a faint coloured
+  band on the hill behind it), the other 24 alike; the kitten keeps its
+  whiskers (outside the selection, as before) and a faint ghost. The
+  scale was chosen looking at the fruit bowl, the sets only checked
+  afterwards. Side-by-side sheets and offline crops: maintainer's laptop,
+  `~/rawtonic-scratch/mf/` (`all*.jpg`, `real*.jpg`, `synth1.jpg`; private
+  photos), numbers in notes `parity-gaps/G33-retouch.md` (MF).
+
+  *Windows and Linux (ONNX, 2026-10-27; notes:
+  benchmark-results/moebius-onnx-2026-10-27).* The same three networks as
+  ONNX models (`moebius::onnx`, `convert_moebius_coreml.py --onnx`) on
+  `rawtonic_onnx`'s GPU providers: CUDA when its plugin and the user's CUDA
+  are installed, else WebGPU (Vulkan on Linux, Direct3D 12 on Windows),
+  each model accepted only after its output matched the CPU's on that
+  device (the usual check, once per device). Moebius runs only on a GPU: on
+  the CPU a removal takes about a minute, so without a usable GPU provider
+  (or with "Use the GPU for AI" off) nothing is downloaded and MI-GAN
+  fills; a failed GPU run also falls back to MI-GAN. Weights are stored as
+  fp16 and computed in fp32 (620 MB, as on macOS): fp16 compute on WebGPU
+  disagreed with the CPU (encoder latent off by up to 1.7), and one batch
+  norm variance (1.03e5) does not fit fp16 at all, so it stays fp32
+  (stored as fp16 it became infinite and the fills differed from
+  PyTorch's by 22 codes on average). The encoder's GPU check uses the
+  synthetic picture with ±2 levels of grain: on the flat picture alone
+  ONNX Runtime's CPU and PyTorch differ by 0.17 (range 5.5), with the grain
+  by 0.013, like the GPU.
+  Measured on the Linux PC (Ryzen 5 3600X, RTX 3080 10 GB, NVIDIA 615,
+  ONNX Runtime 1.30.0 with the WebGPU plugin 0.4.0):
+  - all nodes of the three networks run on WebGPU (a session with the
+    CPU fallback forbidden loads);
+  - against the same pipeline in PyTorch fp32 on all 27 objects of both
+    sets: 0.24 codes on average in the hole (dev; max 0.80, p99 ≤ 13) and
+    0.16 (held-out; max 0.26, p99 ≤ 2), 0.10-0.11 over the crop (Core ML
+    fp16: 0.03-0.14); fp32 weights on WebGPU 0.02;
+  - in the app's code (`moebius_fill_times`, 27 photos of 18-45 MP):
+    Moebius 4.4-9.5 s per removal (median 4.9; 0.40-0.45 s per UNet run
+    when the machine is quiet, the encoder and first run ≈ 1 s), completion
+    0.15-3.6 s, whole fill median 6.6 s; the first load 24 s once per
+    device (the GPU check runs each network on the CPU), then about 2 s;
+  - GPU memory 5.6 GB while the three networks are loaded; peak resident
+    memory of the test process 7.4 GB (45 MP photos and copies included).
+  Not measured: CUDA (the PC has no CUDA 13 and cuDNN 9), Windows, AMD and
+  Intel GPUs. A removal that measured more than 1.5 s per network run
+  (`inpainting::MOEBIUS_MAX_SECONDS_PER_RUN`, about three times the 5 s
+  budget; integrated GPUs may be that slow) finishes, and later large holes
+  use MI-GAN for the rest of the session with a notice.
 - **Sky.** UperNet + ConvNeXt-T against the inherited sky model on 34 RAW
   samples (22 with sky): solid masks on overcast and cloud-textured skies
   where the old one had holes, a missed sky found (bare trees in snow), no

@@ -107,7 +107,7 @@ it("lists why each photo of a failed export did not export", async () => {
   });
   const items = within(failures).getAllByRole("listitem");
   expect(items.map((item) => item.textContent)).toEqual([
-    "big.RAFThe image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
+    "big.RAFThe photo (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
     "b.RAFDecoder said no",
   ]);
   const i18n = (await import("i18next")).default;
@@ -174,6 +174,46 @@ it("exports a session into its Output folder without asking, like Capture One", 
   expect(save).not.toHaveBeenCalled();
 });
 
+it("asks for the export folder when it is chosen, not again on Export", async () => {
+  const { open, save } = await import("@tauri-apps/plugin-dialog");
+  vi.mocked(open).mockClear();
+  vi.mocked(save).mockClear();
+  render(<StudioExport />);
+  // Without a session the form starts on "Choose a folder…": its button asks now.
+  fireEvent.click(screen.getByRole("button", { name: "Choose a folder…" }));
+  await vi.waitFor(() =>
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true })),
+  );
+  await vi.waitFor(() =>
+    expect(screen.getByRole("option", { name: "out" })).toBeTruthy(),
+  );
+  vi.mocked(open).mockClear();
+  fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
+  await vi.waitFor(() =>
+    expect(exported()).toContainEqual(
+      expect.objectContaining({ outputFolderOrFile: "/out", isExplicitFilePath: false }),
+    ),
+  );
+  expect(open).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
+
+it("keeps the destination when the folder dialog is cancelled", async () => {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  vi.mocked(open).mockResolvedValueOnce(null);
+  render(<StudioExport />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
+    target: { value: "original" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
+    target: { value: "choose" },
+  });
+  await vi.waitFor(() => expect(open).toHaveBeenCalled());
+  expect(
+    (screen.getByRole("combobox", { name: "Export destination" }) as HTMLSelectElement).value,
+  ).toBe("original");
+});
+
 it("sends the open photograph's recipe only once it is that photograph's", async () => {
   // Switching from a to b: b is not ready yet and the store still holds a's adjustments.
   const previous = useEditorStore.getState();
@@ -224,6 +264,53 @@ it("stays open when no destination was chosen", async () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(onStarted).not.toHaveBeenCalled();
     expect(exported()).toHaveLength(0);
+  } finally {
+    vi.mocked(open).mockImplementation(() => Promise.resolve("/out"));
+  }
+});
+
+it("cancels the whole export when the first ticked recipe's folder is cancelled", async () => {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  vi.mocked(open).mockImplementation(() => Promise.resolve(null));
+  try {
+    const handleSettingsChange = vi.fn(async () => {});
+    const recipe = (id: string, name: string) =>
+      presetFromDraft(
+        { ...DEFAULT_RECIPE_DRAFT, where: "choose", folder: undefined },
+        id,
+        name,
+      );
+    useSettingsStore.setState({
+      appSettings: {
+        exportPresets: [recipe("web", "Web"), recipe("print", "Print")],
+      } as unknown as AppSettings,
+      handleSettingsChange,
+    });
+    const onStarted = vi.fn();
+    render(<StudioExport onStarted={onStarted} />);
+    const submit = document.querySelector(
+      ".studio-export-submit",
+    ) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Export with Print" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Export with 2 recipes" }),
+    );
+    await vi.waitFor(() => expect(open).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(submit.disabled).toBe(false),
+    );
+    // The whole export stopped: nothing queued, the second folder never
+    // asked for, no error, and the dialog did not close as a started export does.
+    expect(exported()).toHaveLength(0);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(useProcessStore.getState().exportState).toMatchObject({
+      status: Status.Idle,
+      errorMessage: "",
+    });
+    expect(onStarted).not.toHaveBeenCalled();
+    // The cancelled recipe's folder is not remembered as chosen.
+    expect(handleSettingsChange).not.toHaveBeenCalled();
   } finally {
     vi.mocked(open).mockImplementation(() => Promise.resolve("/out"));
   }
@@ -301,6 +388,8 @@ it("exports once per ticked recipe, each with its own settings and place", async
     vi.mocked(invoke).mock.calls.filter((c) => c[0] === "export_images_batch"),
   ).toHaveLength(1);
   const calls = exported();
+  expect(calls[0].displayLabel).toContain("Web · JPG · Long edge 2048 px · /job/Output");
+  expect(calls[1].displayLabel).toContain("Print · TIFF · Full resolution · /print");
   expect(calls[0]).toMatchObject({
     outputFolderOrFile: "/job/Output",
     outputFormat: "jpg",
@@ -401,6 +490,26 @@ it("does not capitalise or correct a typed subfolder name", () => {
   expect(subfolder.getAttribute("spellcheck")).toBe("false");
 });
 
+it("shows a subfolder name of spaces only as no subfolder, without a slash", () => {
+  render(<StudioExport />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
+    target: { value: "original" },
+  });
+  const plan = () =>
+    document.querySelector(".studio-export-plan li span")?.textContent ?? "";
+  const before = plan();
+  expect(before).not.toContain(" / ");
+  fireEvent.change(screen.getByLabelText("Subfolder"), {
+    target: { value: "   " },
+  });
+  expect(plan()).toBe(before);
+  expect(plan()).not.toContain(" / ");
+  fireEvent.change(screen.getByLabelText("Subfolder"), {
+    target: { value: " Web " },
+  });
+  expect(plan()).toContain("Next to the originals / Web");
+});
+
 /** Sets every export setting the inherited panel had through the Studio form. */
 async function fillEverything() {
   const { open } = await import("@tauri-apps/plugin-dialog");
@@ -431,11 +540,11 @@ async function fillEverything() {
   change("Border measured on", "eachEdge");
   change("Left and right (%)", "3");
   change("Top and bottom (%)", "1.5");
-  change("Border colour", "#000000");
+  change("Border color", "#000000");
   tick("Pad to an aspect ratio");
   change("Ratio width", "4");
   change("Ratio height", "5");
-  change("Canvas colour", "#eeeeee");
+  change("Canvas color", "#eeeeee");
   tick("Also export each mask");
 }
 
@@ -774,7 +883,7 @@ it("makes a text watermark in an installed font", async () => {
 it("exports into a wide colour space in every image format", async () => {
   useLibraryStore.setState({ sessionDirectory: "/job" });
   render(<StudioExport />);
-  const space = screen.getByLabelText("Colour space") as HTMLSelectElement;
+  const space = screen.getByLabelText("Color space") as HTMLSelectElement;
   expect(space.value).toBe("srgb");
   fireEvent.change(space, { target: { value: "proPhoto" } });
   expect(screen.getByText(/ProPhoto RGB needs 16-bit TIFF/)).toBeTruthy();

@@ -2,6 +2,8 @@
 
 Rawtonic additions: Copyright 2026 Rawtonic contributors, AGPL-3.0-or-later.
 
+`vendor/libsqlite3-sys` contains libsqlite3-sys 0.38.2 (Copyright the rusqlite developers, MIT) and its public-domain SQLite 3.53.2 amalgamation. Original notices are preserved. Rawtonic's Windows shared-handle WAL locking correction is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory.
+
 ## RapidRAW
 The initial `src/`, `src-tauri/`, `public/`, `data/` and frontend tooling derive from [CyberTimon/RapidRAW](https://github.com/CyberTimon/RapidRAW), snapshot a82251f699333daf3648292c756485272be86187, Copyright Timon Käch and contributors. Engine modules moved out of `src-tauri/` into `crates/` (ADR 0009, e.g. `crates/rawdecode`) keep that origin and license. Distributed under its preserved GNU AGPL v3 license (`licenses/RapidRAW-AGPL-3.0.txt`). Rawtonic is an independent derivative, not an official RapidRAW release. Existing third-party notices and data licenses remain applicable. No claim is made that upstream owners endorse Rawtonic.
 
@@ -42,6 +44,8 @@ Tethered shooting talks to cameras through [libgphoto2](https://github.com/gphot
 
 **Camera calibration values.** Per-camera colour matrices (`crates/rawdecode/src/camera_matrices.rs`), baseline exposures (`camera_exposure.rs`) and white-balance references (`unit_calibration_table.rs`) are numerical facts read from DNG files written by Adobe DNG Converter for sample RAW files, the same source dcraw, LibRaw and rawler use, and from Rawtonic's own measurements. The CHDK raw geometry and colour matrices of the Canon PowerShot SX710 HS, SX20 IS and IXUS 160 (`third_party/rawler/data/cameras/canon/`) are numerical facts from LibRaw's tables (`src/metadata/identify.cpp`, `src/tables/colordata.cpp`, LibRaw LLC, LGPL 2.1 / CDDL 1.0); the PowerShot Pro70's mosaic, levels and matrices from Adobe DNG Converter 18.7's DNG of a raw.pixls.us sample. The cameras' own lens correction data are read from each RAW file itself; the layout of Panasonic's lateral CA data (RW2 tag 0x011b, undocumented) was worked out from Rawtonic's own measurements of lateral CA on raw.pixls.us sample files, whose tag values (one GX80 frame) also serve as a test case. Rawtonic claims no copyright in these values. Tone and colour behaviour compared with other editors was measured by observing their output on test files; no code, profiles or look files of those editors are included.
 
+**Film grain presets.** The settings of the built-in grain presets (`src-tauri/resources/presets/builtin.json`) are Rawtonic's own: Amount, Size, Roughness and Colour of Rawtonic's film grain fitted to Rawtonic's own measurements (grain strength, spectrum, channel correlation) of film grain scans that Wikimedia Commons user Wiley.andrew.r published under CC0 1.0 (uniformly exposed 35 mm negatives scanned at 4000 dpi: https://commons.wikimedia.org/wiki/File:Tri-x_400_grain1NoProfile.png, File:Tri-x_400_grain2NoProfile.png, File:Tmax100_GrainNoProfile.png, File:KodakUltramax400GrainScan01.tif, File:KodakUltramax400GrainScan02.tif, File:KodakEktar100GrainScan01.tif and File:KodakEktar100GrainScan02.tif). The scans are measurement sources only; they are not part of the source or the app, and the presets carry descriptive names.
+
 **MediaPipe face topology.** `crates/engine/src/relight_face_topology.rs` contains triangle indices from Google's [canonical face mesh](https://raw.githubusercontent.com/google-ai-edge/mediapipe/a908d668c730da128dfa8d9f6bd25d519d006692/mediapipe/modules/face_geometry/data/canonical_face_model.obj), Copyright 2020 The MediaPipe Authors, Apache-2.0 (`licenses/spdx/Apache-2.0.txt`, included in `THIRD_PARTY_LICENSES.txt`). Indices are converted to zero-based Rust arrays; canonical positions are retained only in `relight_face_fixture.rs` for tests, and textures are not included. Runtime Relight uses locally inferred face geometry.
 
 **Depth Anything 3 export.** `scripts/models/relight_da3_dynamic.patch` adapts ByteDance Seed's Depth Anything 3 source at `3d835ec1a5802d64a8b8b15f817a1ab54809bfe4` for dynamic ONNX export. Copyright (c) 2025 ByteDance Ltd. and/or its affiliates, and Meta Platforms, Inc. and affiliates (the inherited DINOv2 backbone), Apache-2.0; upstream copyright notices remain in the patched source. The DA3 Base weights are explicitly Apache-2.0 in the rights holder's `depth-anything/DA3-BASE` model card. See `docs/MODELS.md` and `licenses/models/Depth-Anything-3-Apache-2.0.txt`. No weights are included in this repository.
@@ -49,6 +53,8 @@ Tethered shooting talks to cameras through [libgphoto2](https://github.com/gphot
 **DAViD.** The Relight people-normal model is Microsoft's `normal-model-vitb16_384.onnx` from DAViD (Data-efficient and Accurate Vision models from synthetic Data, ICCV 2025, github.com/microsoft/DAViD), hosted unchanged in the model pack. Copyright (c) Microsoft Corporation, MIT ("DAViD models and runtime code are licensed under the MIT License"); it was trained on Microsoft's synthetic SynthHuman data (CDLA-2.0). `src-tauri/src/ai_processing/relight.rs` prepares its input as DAViD's runtime does (own code). See `docs/MODELS.md` and `licenses/models/DAViD-MIT.txt`. No weights are included in this repository.
 
 **MatchFilter Core ML conversion.** `scripts/models/convert_nlmf_coreml.py` builds AI Denoise version 2's Core ML program from the authors' Nonlocal MatchFilter checkpoint (Marco Sánchez Beeckman and Antoni Buades, github.com/MIA-UIB/nonlocal-matchfilter, MIT). At conversion time it downloads the pure-PyTorch network and static packed sampler that RapidRAW vendors (github.com/sheldonxxxx/RapidRAW `denoise/rapidraw_denoise/` at commit 2375e17c6077e2a6bb3352f913f0d6dc894e222f: the authors' network under MIT with their notice, the sampler under GNU AGPL v3); neither is included in this repository or the app. See `docs/MODELS.md` and `licenses/models/nonlocal-matchfilter-MIT.txt`.
+
+**Moebius Core ML and ONNX conversion.** `scripts/models/convert_moebius_coreml.py` builds Remove's large-hole model (Core ML programs for macOS, ONNX models for Windows and Linux) from Moebius (Kangsheng Duan, Ziyang Xu et al., Huazhong University of Science and Technology and vivo AI Lab, github.com/hustvl/Moebius; checkpoint `ft_places2` of huggingface.co/hustvl/Moebius at revision cd01f47fb648219d3fa605806c5ce00b713faa5e) and the SDXL VAE in its fp16-fix form (huggingface.co/madebyollin/sdxl-vae-fp16-fix at 207b116dae70ace3637169f1ddd2434b91b3a8cd, from Stability AI's SDXL VAE). At conversion time it downloads the authors' `model_lib` network code at commit b88d462bacb9af6e7128a3b4cc4a07418bedfd61 (Copyright 2024 Moebius Authors, Apache-2.0; their README: "Both the code and the pretrained model weights of Moebius are released under the Apache License 2.0 … Commercial use of the weights and the images produced with them is permitted"; the Hugging Face model card says MIT); neither code nor weights are included in this repository or the app. See `docs/MODELS.md`, `licenses/models/Moebius-Apache-2.0.txt` and `licenses/models/sdxl-vae-fp16-fix-MIT.txt`.
 
 **AI models** are not part of the source or the app; they download on first use from Rawtonic's model pack, each under its own license (MIT or Apache-2.0). Origins, hashes and licenses: `docs/MODELS.md`, license texts in `licenses/models/`.
 
@@ -430,7 +436,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | libm | 0.2.16 | MIT |
 | libmimalloc-sys | 0.1.49 | MIT |
 | libredox | 0.1.20 | MIT |
-| libsqlite3-sys | 0.38.2 | MIT |
+| libsqlite3-sys | 0.38.2 | AGPL-3.0-or-later AND MIT |
 | libwebp-sys | 0.9.6 | MIT |
 | linear-srgb | 0.6.12 | MIT OR Apache-2.0 |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
@@ -454,7 +460,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | memoffset | 0.9.1 | MIT |
 | mimalloc | 0.1.52 | MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
-| mime_guess | 2.0.5 | MIT |
 | minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | mio | 1.2.2 | MIT |
@@ -597,7 +602,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | raw-window-metal | 1.1.0 | MIT OR Apache-2.0 |
 | rawler | 0.7.1 | LGPL-2.1 |
 | rawpointer | 0.2.1 | MIT/Apache-2.0 |
-| rawtonic-app | 0.1.0-alpha.7 | AGPL-3.0-or-later |
+| rawtonic-app | 0.1.0-alpha.9.1 | AGPL-3.0-or-later |
 | rawtonic-catalog | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-cli | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-denoise | 0.1.0 | AGPL-3.0-or-later |
@@ -789,7 +794,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | typenum | 1.20.1 | MIT OR Apache-2.0 |
 | uds_windows | 1.2.1 | MIT |
 | unarray | 0.1.4 | MIT OR Apache-2.0 |
-| unicase | 2.9.0 | MIT OR Apache-2.0 |
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-normalization-alignments | 0.1.12 | MIT/Apache-2.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |

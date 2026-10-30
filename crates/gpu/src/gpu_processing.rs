@@ -9,7 +9,7 @@ use std::num::NonZero;
 
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
-use crate::image_processing::{AllAdjustments, MAX_MASKS, Point};
+use crate::image_processing::{AllAdjustments, ClippedSides, MAX_MASKS, Point};
 use crate::lut::Lut;
 use crate::mask_generation::MaskBitmap;
 use rawtonic_engine::color_noise::{self, ChromaPyramid};
@@ -1718,6 +1718,8 @@ pub struct AnalyticsJob {
     pub image: Arc<DynamicImage>,
     pub compute_waveform: bool,
     pub active_waveform_channel: Option<String>,
+    /// The clipping sides the render found (`analytics_output`).
+    pub clipped: ClippedSides,
 }
 
 pub struct AnalyticsConfig {
@@ -3198,6 +3200,16 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
     }
 }
 
+/// The film grain tile's data. The first film grain render builds it while
+/// holding the processor, and Rayon workers may be waiting for that
+/// processor (thumbnail regeneration): `grain_tile` runs serially on the
+/// calling thread (~0.1 s, once per process), so it neither waits for a pool
+/// nor, called from a worker, steals a queued render that needs the
+/// processor.
+fn film_grain_tile_data() -> Vec<u32> {
+    rawtonic_engine::film_grain::grain_tile()
+}
+
 /// Creates the Rgba16Float input texture of `image` band by band.
 ///
 /// Uploading in one call needs a full f16 copy and an equally large staging
@@ -3466,6 +3478,10 @@ struct DisplayTargets {
     width: u32,
     height: u32,
     working_texture: wgpu::Texture,
+    /// The frame's `analytics_output` (shader.wgsl), which the histogram
+    /// reads; kept beside the working texture, as partial frames re-render
+    /// only some pixels of both.
+    analytics_texture: wgpu::Texture,
     output_texture: wgpu::Texture,
     output_texture_view: wgpu::TextureView,
 }
@@ -3608,10 +3624,19 @@ pub struct GpuProcessor {
     dummy_lut_sampler: wgpu::Sampler,
     /// The shaper stage's buffer for LUTs without one (no curve).
     no_lut_shaper: wgpu::Buffer,
+    /// Film grain's tile (`grainVersion` 3, rawtonic_engine::film_grain),
+    /// made the first time a recipe needs it; `no_film_grain` stands in.
+    film_grain_tile: std::sync::OnceLock<wgpu::Buffer>,
+    no_film_grain: wgpu::Buffer,
     ping_pong_view: wgpu::TextureView,
 
     pub tile_output_texture: wgpu::Texture,
     pub tile_output_texture_view: wgpu::TextureView,
+    /// `analytics_output` of a tile (shader.wgsl), made for the first render
+    /// with analytics; `no_analytics_output` (8-bit, high precision) stands
+    /// in for the others.
+    tile_analytics: std::sync::OnceLock<(wgpu::Texture, wgpu::TextureView)>,
+    no_analytics_output: [wgpu::TextureView; 2],
     // Full-image presentation targets are unnecessary for CPU readback jobs.
     // Keep only the current display size instead of the largest image/export.
     display_targets: Mutex<Option<Arc<DisplayTargets>>>,
@@ -3727,13 +3752,41 @@ fn complete_analytics_readback(device: &wgpu::Device, job: AnalyticsReadbackJob)
     };
     drop(mapped);
     job.buffer.unmap();
-    if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(job.width, job.height, pixels) {
-        job.analytics.sender.send(AnalyticsJob {
-            path: job.analytics.path,
+    send_analytics(job.analytics, job.width, job.height, pixels);
+}
+
+/// Sends the analytics of `pixels`, a render's `analytics_output`: the
+/// image without the clipping warnings or the colour range view, and in alpha
+/// the clipping sides of each pixel (1 shadows, 2 highlights).
+fn send_analytics(analytics: AnalyticsConfig, width: u32, height: u32, pixels: Vec<u8>) {
+    let clipped = clipped_sides(&pixels);
+    if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
+        analytics.sender.send(AnalyticsJob {
+            path: analytics.path,
             image: Arc::new(DynamicImage::ImageRgba8(image)),
-            compute_waveform: job.analytics.compute_waveform,
-            active_waveform_channel: job.analytics.active_waveform_channel,
+            compute_waveform: analytics.compute_waveform,
+            active_waveform_channel: analytics.active_waveform_channel,
+            clipped,
         });
+    }
+}
+
+/// The clipping sides marked in the alpha of `analytics_output` pixels: every
+/// pixel, not only the ones the histogram samples.
+fn clipped_sides(rgba: &[u8]) -> ClippedSides {
+    let marks = rgba
+        .par_chunks(4 * 65_536)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .skip(3)
+                .step_by(4)
+                .fold(0u8, |marks, &a| marks | a)
+        })
+        .reduce(|| 0, |a, b| a | b);
+    ClippedSides {
+        shadows: marks & 1 != 0,
+        highlights: marks & 2 != 0,
     }
 }
 
@@ -4837,6 +4890,9 @@ fn lut_shaper_data(shaper: Option<&crate::lut::Shaper>) -> Vec<[f32; 4]> {
     data
 }
 
+/// shader.wgsl `analytics_output`.
+const ANALYTICS_OUTPUT_BINDING: u32 = 28;
+
 fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
@@ -5431,10 +5487,29 @@ impl GpuProcessor {
 
         bind_group_layout_entries.push(storage_entry(24, true));
         bind_group_layout_entries.push(storage_entry(26, true));
+        bind_group_layout_entries.push(storage_entry(27, true));
 
+        // `main` alone writes `analytics_output` (the detail pass does not).
+        let with_analytics_output = |entries: &[wgpu::BindGroupLayoutEntry], format| {
+            let mut entries = entries.to_vec();
+            entries.push(wgpu::BindGroupLayoutEntry {
+                binding: ANALYTICS_OUTPUT_BINDING,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            });
+            entries
+        };
         let main_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Main BGL"),
-            entries: &bind_group_layout_entries,
+            entries: &with_analytics_output(
+                &bind_group_layout_entries,
+                wgpu::TextureFormat::Rgba8Unorm,
+            ),
         });
         let encode_bgl = encode_bind_group_layout(device, &bind_group_layout_entries);
         // The detail pass writes the cache that the main pass reads.
@@ -5502,10 +5577,15 @@ impl GpuProcessor {
             format: wgpu::TextureFormat::Rgba32Float,
             view_dimension: wgpu::TextureViewDimension::D2,
         };
+        // The high-precision shader declares every 8-bit storage texture as
+        // Rgba32Float (`high_precision_shader_source`).
         let high_precision_bgl =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("High Precision Main BGL"),
-                entries: &bind_group_layout_entries,
+                entries: &with_analytics_output(
+                    &bind_group_layout_entries,
+                    wgpu::TextureFormat::Rgba32Float,
+                ),
             });
         let high_precision_encode_bgl =
             encode_bind_group_layout(device, &bind_group_layout_entries);
@@ -5596,6 +5676,22 @@ impl GpuProcessor {
         };
         let dummy_blur_texture = device.create_texture(&dummy_texture_desc);
         let dummy_blur_view = dummy_blur_texture.create_view(&Default::default());
+        // `analytics_output` of renders without analytics: 1 x 1, which `main`
+        // leaves alone (8-bit and high-precision layouts).
+        let no_analytics_output = [
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureFormat::Rgba32Float,
+        ]
+        .map(|format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("No analytics output"),
+                    format,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING,
+                    ..dummy_texture_desc
+                })
+                .create_view(&Default::default())
+        });
 
         // No masks: bind a zero-initialized 1×1 array instead of allocating and
         // uploading two full-size empty layers for every slider frame.
@@ -5623,6 +5719,12 @@ impl GpuProcessor {
         let no_lut_shaper = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT shaper (none)"),
             contents: bytemuck::cast_slice(&lut_shaper_data(None)),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+
+        let no_film_grain = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Film grain tile (none)"),
+            contents: bytemuck::cast_slice(&[0u32; 4]),
             usage: wgpu::BufferUsages::STORAGE,
         });
 
@@ -5766,9 +5868,13 @@ impl GpuProcessor {
             dummy_lut_view,
             dummy_lut_sampler,
             no_lut_shaper,
+            film_grain_tile: std::sync::OnceLock::new(),
+            no_film_grain,
             ping_pong_view,
             tile_output_texture,
             tile_output_texture_view,
+            tile_analytics: std::sync::OnceLock::new(),
+            no_analytics_output,
             display_targets: Mutex::new(None),
             analytics_readback: std::sync::OnceLock::new(),
             display_frame: Mutex::new(None),
@@ -6414,6 +6520,10 @@ impl GpuProcessor {
             view_formats: &[],
         };
         let working_texture = device.create_texture(&descriptor);
+        let analytics_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Current display analytics"),
+            ..descriptor
+        });
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Current display output"),
             ..descriptor
@@ -6423,6 +6533,7 @@ impl GpuProcessor {
             width,
             height,
             working_texture,
+            analytics_texture,
             output_texture,
             output_texture_view,
         });
@@ -6430,6 +6541,17 @@ impl GpuProcessor {
         // presentation completes; the processor itself drops its old pair here.
         *cached = Some(Arc::clone(&targets));
         targets
+    }
+
+    #[cfg(test)]
+    fn test_analytics_texture(&self) -> wgpu::Texture {
+        self.display_targets
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .analytics_texture
+            .clone()
     }
 
     #[cfg(test)]
@@ -6496,6 +6618,28 @@ impl GpuProcessor {
             4,
         )?;
         Ok(mean_rgb8(&pixels).map(|rgb| display_to_srgb(self.context.display_space, rgb)))
+    }
+
+    /// The tile `main` writes its `analytics_output` to, as large as the
+    /// 8-bit output tile.
+    fn tile_analytics(&self) -> &(wgpu::Texture, wgpu::TextureView) {
+        self.tile_analytics.get_or_init(|| {
+            let texture = self
+                .context
+                .device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Tile Analytics Texture"),
+                    size: self.tile_output_texture.size(),
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                });
+            let view = texture.create_view(&Default::default());
+            (texture, view)
+        })
     }
 
     fn high_precision_tile(&self) -> &HighPrecisionTile {
@@ -7170,6 +7314,7 @@ impl GpuProcessor {
             flare_samples,
             uploaded_masks,
             &[],
+            false,
         )?;
         Ok((pixels.remove(0), out_width, out_height, x, y))
     }
@@ -7177,7 +7322,9 @@ impl GpuProcessor {
     /// [`Self::run_in_window`], or with `outputs` an export render that runs
     /// the main pass once (`DEFER_OUTPUT`) and encodes it for each output
     /// (`encode_deferred`); then `output_precision` and the request's output
-    /// space are not used. One rendering per output, in order.
+    /// space are not used. One rendering per output, in order, then with
+    /// `readback_analytics` (an 8-bit CPU readback) its `analytics_output`.
+    /// Display frames always write theirs to the display targets.
     #[allow(clippy::too_many_arguments)]
     fn render_window(
         &self,
@@ -7193,6 +7340,7 @@ impl GpuProcessor {
         flare_samples: Option<&wgpu::TextureView>,
         uploaded_masks: Option<&UploadedMasks>,
         outputs: &[RenderOutput],
+        readback_analytics: bool,
     ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
         let mut request = request;
         if chroma.is_none() {
@@ -7287,6 +7435,13 @@ impl GpuProcessor {
         let high_precision_tile = (!deferred
             && output_precision == RenderOutputPrecision::SixteenBit)
             .then(|| self.high_precision_tile());
+        let high_precision_layout = deferred || high_precision_tile.is_some();
+        if readback_analytics && (output_to_display || high_precision_layout) {
+            return Err("Analytics read back only 8-bit CPU renders.".to_string());
+        }
+        // Display frames keep their analytics image with the working texture.
+        let analytics_tile =
+            (output_to_display || readback_analytics).then(|| self.tile_analytics());
         let (
             mut output_pipeline,
             output_bgl,
@@ -7512,6 +7667,19 @@ impl GpuProcessor {
                 })
             });
         let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
+        let film_grain = if request.adjustments.uniforms.global.grain_version >= 3
+            && request.adjustments.uniforms.global.grain_amount > 0.0
+        {
+            self.film_grain_tile.get_or_init(|| {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Film grain tile"),
+                    contents: bytemuck::cast_slice(&film_grain_tile_data()),
+                    usage: wgpu::BufferUsages::STORAGE,
+                })
+            })
+        } else {
+            &self.no_film_grain
+        };
 
         let adjustments = request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
@@ -7752,6 +7920,15 @@ impl GpuProcessor {
                 encode: None,
             }]
         };
+        if readback_analytics && let Some((texture, _)) = analytics_tile {
+            targets.push(TileTarget {
+                texture,
+                bytes_per_pixel: 4,
+                pixels: pixels_of(RenderOutputPrecision::EightBit),
+                pending: None,
+                encode: None,
+            });
+        }
 
         let start_tile_x = bounds.x / TILE_SIZE;
         let start_tile_y = bounds.y / TILE_SIZE;
@@ -8188,6 +8365,10 @@ impl GpuProcessor {
                     binding: 26,
                     resource: lut_shaper.as_entire_binding(),
                 });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 27,
+                    resource: film_grain.as_entire_binding(),
+                });
                 let crop_x_start = x_start - input_x_start;
                 let crop_y_start = y_start - input_y_start;
 
@@ -8237,6 +8418,13 @@ impl GpuProcessor {
                     resource: wgpu::BindingResource::TextureView(
                         detail_view.as_ref().unwrap_or(&self.dummy_blur_view),
                     ),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: ANALYTICS_OUTPUT_BINDING,
+                    resource: wgpu::BindingResource::TextureView(match analytics_tile {
+                        Some((_, view)) => view,
+                        None => &self.no_analytics_output[usize::from(high_precision_layout)],
+                    }),
                 });
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Tile Bind Group"),
@@ -8309,35 +8497,41 @@ impl GpuProcessor {
                         1,
                     );
                 }
-                if output_to_display {
+                if let Some(targets) = &display_targets {
+                    let tile_analytics = &analytics_tile.expect("display frames write analytics").0;
                     for retained in &retained_regions {
-                        main_encoder.copy_texture_to_texture(
-                            wgpu::TexelCopyTextureInfo {
-                                texture: &self.tile_output_texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d {
-                                    x: retained.x - input_x_start,
-                                    y: retained.y - input_y_start,
-                                    z: 0,
+                        for (from, to) in [
+                            (&self.tile_output_texture, &targets.working_texture),
+                            (tile_analytics, &targets.analytics_texture),
+                        ] {
+                            main_encoder.copy_texture_to_texture(
+                                wgpu::TexelCopyTextureInfo {
+                                    texture: from,
+                                    mip_level: 0,
+                                    origin: wgpu::Origin3d {
+                                        x: retained.x - input_x_start,
+                                        y: retained.y - input_y_start,
+                                        z: 0,
+                                    },
+                                    aspect: wgpu::TextureAspect::All,
                                 },
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            wgpu::TexelCopyTextureInfo {
-                                texture: &display_targets.as_ref().unwrap().working_texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d {
-                                    x: retained.x,
-                                    y: retained.y,
-                                    z: 0,
+                                wgpu::TexelCopyTextureInfo {
+                                    texture: to,
+                                    mip_level: 0,
+                                    origin: wgpu::Origin3d {
+                                        x: retained.x,
+                                        y: retained.y,
+                                        z: 0,
+                                    },
+                                    aspect: wgpu::TextureAspect::All,
                                 },
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            wgpu::Extent3d {
-                                width: retained.width,
-                                height: retained.height,
-                                depth_or_array_layers: 1,
-                            },
-                        );
+                                wgpu::Extent3d {
+                                    width: retained.width,
+                                    height: retained.height,
+                                    depth_or_array_layers: 1,
+                                },
+                            );
+                        }
                     }
                 }
                 queue.submit(Some(main_encoder.finish()));
@@ -8581,6 +8775,79 @@ pub fn upload_fringed_render_source(
         )
         .map(|()| texture)
     })??;
+    let texture_view = texture.create_view(&Default::default());
+    Ok(Some(UploadedImage(
+        Box::new(GpuImageCache {
+            texture,
+            texture_view,
+            width,
+            height,
+            transform_hash,
+            chroma: None,
+            chroma_gpu: None,
+            chroma_levels: None,
+            spare: None,
+        }),
+        None,
+    )))
+}
+
+/// [`upload_fringed_render_source`] of `source` before its warp, where the
+/// recipe's warp runs on the GPU (`renderVersion` 7,
+/// `warp_gpu::warp_into_buffer`): the edge-fringe pass reads its bands from
+/// the warped frame there, so the photo goes up once as decoded and the
+/// warped frame is neither read back nor uploaded again. The texels equal
+/// those of [`upload_fringed_render_source`] of the same warp read back
+/// (`apply_warp`). `None` where any of it does not run on the GPU. `is_raw`
+/// as `apply_warp`.
+pub fn upload_warped_render_source(
+    context: &GpuContext,
+    source: &DynamicImage,
+    adjustments: &serde_json::Value,
+    is_raw: bool,
+    window: [u32; 4],
+    transform_hash: u64,
+    color_noise: Option<(bool, color_noise::Tuning)>,
+) -> Result<Option<UploadedImage>, String> {
+    let [_, _, width, height] = window;
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim
+        || height > max_dim
+        || color_noise.is_some_and(|(_, tuning)| !tuning.gpu_pyramid)
+        || !rawtonic_engine::edge_fringe::runs_into_texture(source, adjustments)
+    {
+        return Ok(None);
+    }
+    #[cfg(feature = "performance-profiling")]
+    let warp_stage = crate::performance::PerformanceStage::new("transform_warp_gpu");
+    let warped = rawtonic_engine::warp_gpu::warp_into_buffer(
+        &context.device,
+        &context.queue,
+        source,
+        adjustments,
+        is_raw,
+    )?;
+    #[cfg(feature = "performance-profiling")]
+    drop(warp_stage);
+    let Some(warped) = warped else {
+        return Ok(None);
+    };
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("transform_fringe");
+    let texture = gpu_scoped(&context.device, || {
+        let texture = input_texture(&context.device, width, height);
+        rawtonic_engine::edge_fringe::apply_for_recipe_into_texture_from_buffer(
+            &context.device,
+            &context.queue,
+            &warped,
+            source.dimensions(),
+            adjustments,
+            window,
+            &texture,
+        )
+        .map(|()| texture)
+    })??;
+    drop(warped);
     let texture_view = texture.create_view(&Default::default());
     Ok(Some(UploadedImage(
         Box::new(GpuImageCache {
@@ -9203,6 +9470,7 @@ fn render_outputs(
         None,
         kept.masks.as_deref(),
         outputs,
+        false,
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(run_stage);
@@ -9432,7 +9700,11 @@ fn render_dynamic_image(
 
     #[cfg(feature = "performance-profiling")]
     let run_stage = crate::performance::PerformanceStage::new("gpu_run");
-    let (processed_pixels, out_w, out_h, out_x, out_y) = processor.run_in_window(
+    // A CPU readback's analytics read its own `analytics_output`.
+    let readback_analytics = analytics_config.is_some()
+        && !output_to_display
+        && output_precision == RenderOutputPrecision::EightBit;
+    let (mut rendered, out_w, out_h, out_x, out_y) = processor.render_window(
         &cache.texture_view,
         cache.width,
         cache.height,
@@ -9449,7 +9721,11 @@ fn render_dynamic_image(
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
         None,
         uploaded_masks,
+        &[],
+        readback_analytics,
     )?;
+    let analytics_pixels = readback_analytics.then(|| rendered.pop()).flatten();
+    let processed_pixels = rendered.remove(0);
     #[cfg(feature = "performance-profiling")]
     drop(run_stage);
 
@@ -9476,7 +9752,7 @@ fn render_dynamic_image(
 
         final_encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &display_targets.as_ref().unwrap().working_texture,
+                texture: &display_targets.as_ref().unwrap().analytics_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
                     x: out_x,
@@ -9553,16 +9829,8 @@ fn render_dynamic_image(
                 padded_bytes_per_row: async_padded_bpr,
                 analytics,
             });
-        } else if let RenderedPixels::U8(pixels) = &processed_pixels {
-            if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(out_w, out_h, pixels.clone())
-            {
-                analytics.sender.send(AnalyticsJob {
-                    path: analytics.path,
-                    image: Arc::new(DynamicImage::ImageRgba8(image)),
-                    compute_waveform: analytics.compute_waveform,
-                    active_waveform_channel: analytics.active_waveform_channel,
-                });
-            }
+        } else if let Some(RenderedPixels::U8(pixels)) = analytics_pixels {
+            send_analytics(analytics, out_w, out_h, pixels);
         } else {
             log::warn!("Skipping analytics for a high-precision CPU readback");
         }
@@ -9808,6 +10076,42 @@ mod display_geometry_tests {
         assert_eq!(
             fit_placement([10.0, 20.0, 400.0, 200.0], 300.0, 300.0),
             [110.0, 20.0, 200.0, 200.0]
+        );
+    }
+}
+
+#[cfg(test)]
+mod film_grain_tile_pool_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+
+    #[test]
+    fn the_film_grain_tile_builds_while_the_global_pool_waits_for_the_processor() {
+        // Every global pool worker waits for a lock the caller holds, as
+        // thumbnail regeneration waits for the processor during the first
+        // film grain render.
+        let processor = Arc::new(Mutex::new(()));
+        let held = processor.lock().unwrap();
+        let waiting = Arc::new(AtomicUsize::new(0));
+        let workers = rayon::current_num_threads();
+        for _ in 0..workers {
+            let (processor, waiting) = (processor.clone(), waiting.clone());
+            rayon::spawn(move || {
+                waiting.fetch_add(1, Ordering::SeqCst);
+                drop(processor.lock().unwrap());
+            });
+        }
+        while waiting.load(Ordering::SeqCst) < workers {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let (done, built) = mpsc::channel();
+        std::thread::spawn(move || done.send(super::film_grain_tile_data().len()).unwrap());
+        let len = built.recv_timeout(Duration::from_secs(300));
+        drop(held);
+        assert!(
+            len.is_ok_and(|len| len > 0),
+            "the tile waited for the global pool"
         );
     }
 }

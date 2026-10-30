@@ -55,7 +55,16 @@ pub(crate) fn read(file: &File) -> io::Result<Vec<Attribute>> {
 
 /// The kept attributes of the file or folder at `path`.
 pub(crate) fn read_path(path: &Path) -> io::Result<Vec<Attribute>> {
-    read(&File::open(path)?)
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // CreateFileW requires FILE_FLAG_BACKUP_SEMANTICS to open a directory.
+        // Keep ordinary access checks: a failed open must still refuse a move.
+        options.custom_flags(0x0200_0000);
+    }
+    read(&options.open(path)?)
 }
 
 /// Gives the open file (or folder) `file` the `attributes`.

@@ -137,6 +137,7 @@ fn version_one_databases_are_migrated_once_and_newer_ones_refused() {
     // volume columns of schema 3, no import batches of schema 4).
     let db = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0017.sql"),
         include_str!("undo_0016.sql"),
         include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),

@@ -139,6 +139,7 @@
       "flag_unflag": "Senza contrassegno",
       "import_photos": "Importa foto…",
       "keyboard_shortcuts": "Abbreviazioni da tastiera",
+      "match_light": "Uniforma luce…",
       "move_to_selects": "Sposta in Selezionate",
       "new_session": "Nuovo progetto o catalogo…",
       "open_session": "Apri progetto o catalogo…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sincronizza impostazioni",
       "tether_capture": "Scatta (fotocamera collegata)",
       "toggle_all_panels": "Tutti i pannelli e le barre",
+      "toggle_auto_advance": "Avanzamento automatico",
       "toggle_bottom_panel": "Pellicola",
       "toggle_clipping": "Avvisi di clipping",
       "toggle_export": "Esporta…",
@@ -221,7 +223,10 @@
     "empty": "Nessun comando corrispondente. Prova un’altra ricerca.",
     "keys": "↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
     "recent": "Prima i comandi recenti · ↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
-    "search": "Cerca comandi…"
+    "search": "Cerca comandi…",
+    "selectAtMostPhotos": "Seleziona al massimo {{max}} fotografie",
+    "selectFourPhotos": "Seleziona almeno quattro fotografie",
+    "selectTwoPhotos": "Seleziona almeno due fotografie"
   },
   "contextMenus": {
     "album": {
@@ -321,6 +326,9 @@
       "exportImage_one": "Esporta Immagine",
       "exportImage_many": "Esporta {{count}} Immagini",
       "exportImage_other": "Esporta {{count}} Immagini",
+      "matchLight_one": "Uniforma luce…",
+      "matchLight_many": "Uniforma luce…",
+      "matchLight_other": "Uniforma luce…",
       "noAlbums": "Nessun Album Disponibile",
       "pasteAdjustments_one": "Incolla Regolazioni",
       "pasteAdjustments_many": "Incolla Regolazioni su {{count}} Immagini",
@@ -863,16 +871,36 @@
       "zoomInTooltip": "Ingrandisci",
       "zoomOutTooltip": "Riduci"
     },
+    "quit": {
+      "quitAnyway": "Esci comunque",
+      "unsavedMessage": "Impossibile salvare queste modifiche: {{changes}}. Uscendo ora andranno perse; annulla per mantenere Rawtonic aperto e riprovare.",
+      "unsavedTitle": "Modifiche non salvate"
+    },
     "renameFile": {
+      "blocked": "Non si può rinominare nulla finché ogni problema qui sopra non è risolto.",
       "cancel": "Annulla",
+      "checking": "Verifica dei nomi…",
       "fileNamingTemplate": "Modello Nomenclatura File",
+      "more": "Altre foto non elencate: {{hidden}}",
       "newName": "Nuovo Nome",
+      "noteXmpStays": "{{xmp}} resta con {{owner}}, che non viene rinominato.",
+      "noteXmpWithRaw": "{{xmp}} viene rinominato con questo RAW; {{others}} mantiene il suo nome senza di esso.",
+      "nothingChanges": "Nessun nome cambia.",
+      "preview": "Anteprima",
+      "previewFailed": "L’anteprima non è riuscita: {{error}}",
+      "problemInvalidName": "«{{name}}» non è un nome di file valido.",
+      "problemNotFound": "Il file non c’è più.",
+      "problemOccupied": "{{name}} esiste già.",
+      "problemSameTarget": "Un altro file di questa rinomina si chiamerebbe anch’esso {{name}}.",
       "save": "Salva",
+      "summary": "Foto rinominate: {{photos}} · file in totale: {{files}}",
       "titleMultiple": "Rinomina {{count}} Immagini",
       "titleMultiple_one": "Rinomina {{count}} Immagine",
       "titleMultiple_many": "Rinomina {{count}} Immagini",
       "titleMultiple_other": "Rinomina {{count}} Immagini",
-      "titleSingle": "Rinomina Immagine"
+      "titleSingle": "Rinomina Immagine",
+      "unchanged": "mantiene il suo nome",
+      "withFiles": "Rinominati anche: {{files}}"
     },
     "renameFolder": {
       "cancel": "Annulla",
@@ -962,6 +990,13 @@
       "year": "Anno",
       "yearShort": "Anno · 2 cifre"
     }
+  },
+  "notifications": {
+    "close": "Chiudi notifica",
+    "quitCancelled": "Rawtonic è rimasto aperto perché il salvataggio non è terminato. Le modifiche in sospeso vengono ancora salvate.",
+    "quitSaving": "Salvataggio delle modifiche prima di uscire da Rawtonic…",
+    "quitSavingPhotos": "Salvataggio delle modifiche prima di uscire da Rawtonic… ({{done}}/{{total}})",
+    "region": "Notifiche"
   },
   "offline": {
     "badge": "Offline",
@@ -1087,13 +1122,7 @@
       "picked_other": "{{count}} scelte",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} collegata",
-      "tetherTitle": "Scatto collegato: le foto di una fotocamera via USB arrivano direttamente in questa libreria",
-      "xmpPending_one": "{{count}} XMP in sospeso",
-      "xmpPending_many": "{{count}} XMP in sospeso",
-      "xmpPending_other": "{{count}} XMP in sospeso",
-      "xmpPendingAction_one": "{{count}} foto richiede la sincronizzazione XMP – fai clic per verificare",
-      "xmpPendingAction_many": "{{count}} foto richiedono la sincronizzazione XMP – fai clic per verificare",
-      "xmpPendingAction_other": "{{count}} foto richiedono la sincronizzazione XMP – fai clic per verificare"
+      "tetherTitle": "Scatto collegato: le foto di una fotocamera via USB arrivano direttamente in questa libreria"
     },
     "create": {
       "catalog": "Catalogo",
@@ -1109,7 +1138,7 @@
       "location": "Posizione",
       "modeLabel": "Organizzazione",
       "name": "Nome del progetto",
-      "namePlaceholder": "2026-10-01_Cliente_Lavoro",
+      "namePlaceholder": "{{date}}_Cliente_Lavoro",
       "namePreview": "Il tuo incarico",
       "originalsUntouched": "Le foto originali restano intatte.",
       "session": "Progetto",
@@ -1282,6 +1311,7 @@
       "failed": "Impossibile aprire l’ultima libreria: {{error}}",
       "opening": "Apertura di {{name}} ({{directory}})… Se macOS chiede l’accesso a questo volume, consentilo."
     },
+    "switching": "Apertura della libreria…",
     "sync": {
       "applied": "Spostate {{moved}} · Aggiunte {{added}} · Rimosse {{removed}}",
       "apply": "Applica ({{n}})",
@@ -1339,6 +1369,13 @@
     "tether": {
       "battery": "Batteria {{level}}",
       "camera": "Fotocamera",
+      "canon": {
+        "badge": "Sperimentale",
+        "connectedNote": "Sperimentale: se una foto non compare qui, non è persa — è sulla scheda di memoria. Lascia la scheda nella fotocamera. Rawtonic ti avvisa quando una foto scattata da Rawtonic non arriva — a meno che nel frattempo arrivi una foto scattata sulla fotocamera che ne prende il posto. Dopo una sessione, confronta la scheda con la libreria.",
+        "notReceived": "La foto {{n}} non è arrivata. Se la fotocamera l’ha scattata, è sulla scheda di memoria.",
+        "openPreferences": "Apri le preferenze di Tethering",
+        "optInNeeded": "Le fotocamere Canon non sono ancora state provate con Rawtonic. Per provare la tua e aiutare a testarla, attiva «Sperimentale: fotocamere Canon» in Preferenze > Tethering."
+      },
       "capture": "Scatta",
       "captureFailed": "Scatto non riuscito: {{error}}",
       "captureTitle": "Scatta con la fotocamera (⌘K / Ctrl+K)",
@@ -1355,6 +1392,7 @@
       "lastIn": "{{file}} è nella libreria",
       "lastTiming": "{{file}} nella libreria {{ms}} ms dopo lo scatto",
       "level": {
+        "experimental": "Sperimentale — cerchiamo tester. Non ancora provato con Rawtonic: una foto potrebbe non comparire qui e allora è solo sulla scheda di memoria.",
         "notSupported": "Questa fotocamera non è ancora supportata.",
         "reported": "Funziona secondo gli utenti di questo modello di fotocamera.",
         "tested": "Testato con questo modello di fotocamera su {{systems}} ({{date}}).",
@@ -1372,6 +1410,14 @@
         "bursting": "{{shots}} scatti di fila…",
         "button": "Test della fotocamera…",
         "buttonTitle": "Testa questa fotocamera passo dopo passo e crea un rapporto anonimo",
+        "canonGuide": {
+          "card": "Tieni una scheda di memoria nella fotocamera per tutto il test.",
+          "missing": "Se una foto non compare, è utile saperlo anche questo: è ancora sulla scheda di memoria e il test la conta.",
+          "send": "Alla fine fai clic su «{{button}}». Vedi esattamente cosa viene inviato — niente foto, nomi di file o numero di serie — e nulla lascia il tuo computer prima che tu confermi.",
+          "sendNote": "Questo risultato proviene dal supporto sperimentale per Canon. Grazie per il test — ogni risultato aiuta, anche uno in cui sono mancate delle foto.",
+          "steps": "Segui i passaggi qui sotto uno alla volta: fai clic su Esegui e fai ciò che chiede il passaggio. Se la tua fotocamera non riesce a eseguire un passaggio, fai clic su Salta.",
+          "title": "Come testare la tua fotocamera Canon"
+        },
         "close": "Chiudi il test della fotocamera",
         "how": {
           "autofocus": "Mette a fuoco una volta. Saltalo con un obiettivo manuale o in MF.",
@@ -1498,6 +1544,13 @@
       "verifyProgress_many": "Verifica · {{count}} file controllati",
       "verifyProgress_other": "Verifica · {{count}} file controllati"
     },
+    "unsaved": {
+      "cancel": "Annulla",
+      "discard": "Scarta modifiche non salvate",
+      "message": "Queste modifiche non sono state salvate: {{files}}. Aprendo ora un’altra libreria andranno perse. Riprova per salvarle prima, scartale o annulla per restare in questa libreria.",
+      "retry": "Riprova",
+      "title": "Modifiche non salvate"
+    },
     "welcome": {
       "body": "Crea un progetto portatile per il tuo prossimo servizio. Tieni insieme scatti, modifiche e consegne, dal primo fotogramma alla selezione finale.",
       "create": "Crea un progetto",
@@ -1512,49 +1565,89 @@
       "toolsSide": "Dove preferisci gli strumenti di Sviluppo?"
     },
     "xmp": {
-      "conflictHeading_one": "{{count}} conflitto",
-      "conflictHeading_many": "{{count}} conflitti",
-      "conflictHeading_other": "{{count}} conflitti",
-      "conflictHint": "Il file XMP è stato modificato fuori da Rawtonic dall'ultima sincronizzazione. Scegli quali metadati tenere.",
-      "editNotAdopted": "La sua modifica salvata non è ancora nella libreria: modifica prima questa foto in Sviluppo, poi risolvi.",
-      "inSync": "Tutti i file XMP sono sincronizzati.",
-      "keepLibrary": "Tieni libreria",
-      "keepLibraryAll": "Tieni libreria per tutte",
-      "keepLibraryFor": "Tieni libreria per {{name}}",
-      "keepLibraryTitle": "Scrivi i metadati della libreria nel file XMP",
-      "leftOut_one": "{{count}} foto esclusa da Usa XMP: modificala prima in Sviluppo.",
-      "leftOut_many": "{{count}} foto escluse da Usa XMP: modificale prima in Sviluppo.",
-      "leftOut_other": "{{count}} foto escluse da Usa XMP: modificale prima in Sviluppo.",
-      "loading": "Verifica dei file XMP…",
-      "more_one": "e {{count}} altra",
-      "more_many": "e altre {{count}}",
-      "more_other": "e altre {{count}}",
-      "offline": "Offline",
-      "offlineNote_one": "{{count}} foto è offline: il suo XMP viene scritto quando il file o il disco tornano disponibili.",
-      "offlineNote_many": "{{count}} foto sono offline: il loro XMP viene scritto quando il file o il disco tornano disponibili.",
-      "offlineNote_other": "{{count}} foto sono offline: il loro XMP viene scritto quando il file o il disco tornano disponibili.",
-      "originalsUntouched": "Vengono scritti solo file XMP; le foto restano intatte.",
-      "pendingHeading_one": "{{count}} in sospeso",
-      "pendingHeading_many": "{{count}} in sospeso",
-      "pendingHeading_other": "{{count}} in sospeso",
-      "pendingHint": "La libreria è più recente: il file XMP non è ancora scritto (foto offline, file di sola lettura o scrittura non riuscita).",
-      "prefsOff": "La sincronizzazione XMP è disattivata nelle Preferenze. L'impostazione riguarda le cartelle aperte senza libreria; le foto di questa libreria mantengono aggiornati i propri file XMP.",
-      "result": "Fatto: {{done}} · offline: {{offline}} · conflitti: {{conflicts}} · non riusciti: {{failed}}",
-      "subtitle": "Valutazioni, etichette, parole chiave e metadati IPTC accanto a ogni foto per altre applicazioni.",
-      "syncNow": "Sincronizza ora",
-      "title": "File sidecar XMP",
-      "undo_one": "Annulla Usa XMP",
-      "undo_many": "Annulla Usa XMP ({{count}})",
-      "undo_other": "Annulla Usa XMP ({{count}})",
-      "useXmp": "Usa XMP",
-      "useXmpAll": "Usa XMP per tutte",
-      "useXmpFor": "Usa XMP per {{name}}",
-      "useXmpTitle": "Leggi valutazione, etichetta, parole chiave e metadati IPTC del file XMP nella libreria (annullabile)",
-      "view": "XMP da verificare"
+      "buttonTitle": "Alcuni file XMP non sono allineati con la libreria. Fai clic per i dettagli e per riscriverli.",
+      "count_one": "{{count}} XMP non aggiornato",
+      "count_many": "{{count}} XMP non aggiornati",
+      "count_other": "{{count}} XMP non aggiornati",
+      "explain": "Le tue modifiche, valutazioni e parole chiave sono al sicuro nella libreria. Gli altri programmi che leggono i file XMP non vedono ancora queste modifiche. Le foto stesse non vengono mai modificate.",
+      "heading_one": "Il file XMP di {{count}} foto non è aggiornato",
+      "heading_many": "I file XMP di {{count}} foto non sono aggiornati",
+      "heading_other": "I file XMP di {{count}} foto non sono aggiornati",
+      "reason": {
+        "changedElsewhere_one": "{{count}} file XMP è stato modificato da un altro programma. Rawtonic non lo sovrascrive; la libreria conserva la tua versione.",
+        "changedElsewhere_many": "{{count}} file XMP sono stati modificati da un altro programma. Rawtonic non li sovrascrive; la libreria conserva la tua versione.",
+        "changedElsewhere_other": "{{count}} file XMP sono stati modificati da un altro programma. Rawtonic non li sovrascrive; la libreria conserva la tua versione.",
+        "failed_one": "Impossibile scrivere {{count}} file XMP: {{error}}",
+        "failed_many": "Impossibile scrivere {{count}} file XMP: {{error}}",
+        "failed_other": "Impossibile scrivere {{count}} file XMP: {{error}}",
+        "offline_one": "{{count}} foto è offline. Il suo file XMP verrà aggiornato quando l’unità sarà di nuovo collegata.",
+        "offline_many": "{{count}} foto sono offline. I loro file XMP verranno aggiornati quando l’unità sarà di nuovo collegata.",
+        "offline_other": "{{count}} foto sono offline. I loro file XMP verranno aggiornati quando l’unità sarà di nuovo collegata.",
+        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP."
+      },
+      "retry": "Riprova",
+      "retryFailed": "Impossibile scrivere i file XMP: {{error}}",
+      "show": "Mostra foto",
+      "title": "File XMP non aggiornati",
+      "view": "XMP non aggiornati",
+      "writing": "Scrittura…",
+      "written_one": "File XMP aggiornato per {{count}} foto",
+      "written_many": "File XMP aggiornati per {{count}} foto",
+      "written_other": "File XMP aggiornati per {{count}} foto"
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Database della libreria, con una correzione Rawtonic del blocco WAL su Windows.",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "Informazioni",
       "general": "Generale",
       "processing": "Elaborazione",
       "shortcuts": "Controlli"
@@ -1630,7 +1723,7 @@
     },
     "general": {
       "autoAdvance": "Avanzamento automatico",
-      "autoAdvanceDesc": "In Sviluppo, un tasto di valutazione, scelta, scarto o rimozione del contrassegno passa alla foto successiva: la selezione richiede un tasto per foto.",
+      "autoAdvanceDesc": "Dopo una valutazione o un contrassegno, passa alla foto successiva da quella visualizzata o da una singola selezione nella griglia. Attiva con Bloc Maiusc o dal menu Foto.",
       "builtinPresets": "Preset inclusi",
       "builtinPresetsDesc": "Mostra gli stili e i preset di Rawtonic in Stili e preset e nei menu dei preset degli strumenti.",
       "createXmp": "Crea File XMP Mancanti",
@@ -1646,7 +1739,7 @@
       "nativeTitlebar": "Barra del Titolo Nativa",
       "nativeTitlebarDesc": "Usa la barra del titolo della finestra predefinita del tuo sistema invece di quella personalizzata di Rawtonic.",
       "proofMargin": "Margine di prova",
-      "proofMarginDesc": "Margine intorno alla foto adattata quando il margine di prova è attivo (X), come quota del lato più corto del visore.",
+      "proofMarginDesc": "Margine intorno alla foto adattata quando il margine di prova è attivo (Alt+X), come quota del lato più corto del visore.",
       "showBuiltinPresets": "Mostra preset inclusi",
       "title": "Impostazioni Generali",
       "uiScale": "Dimensione dell'interfaccia",
@@ -1899,18 +1992,48 @@
       "shortcutsDesc": "Una lista di tag che appariranno come scorciatoie nel menu contestuale del tagging.",
       "title": "Tagging"
     },
+    "tethering": {
+      "camerasLink": "Quali fotocamere funzionano e come segnalare la tua",
+      "canon": "Sperimentale: fotocamere Canon (aiuta a testare)",
+      "canonDesc": "Permette a Rawtonic di collegare una fotocamera Canon via USB, così puoi provarla e inviare un breve risultato del test.",
+      "canonSwitch": "Collega fotocamere Canon",
+      "howToTest": "Per aiutare: collega la fotocamera nel pannello Tethering, fai clic su Test della fotocamera… e segui i passaggi. Alla fine vedi esattamente cosa verrebbe inviato prima che qualcosa lasci il tuo computer.",
+      "title": "Tethering",
+      "warningCard": "Una foto che scatti potrebbe non comparire in Rawtonic. Allora è solo sulla scheda di memoria della fotocamera, quindi tieni sempre una scheda nella fotocamera.",
+      "warningNothingDeleted": "Rawtonic non elimina mai nulla sulla fotocamera o sulla scheda.",
+      "warningUntested": "Non ancora testato: finora nessuna fotocamera Canon è stata provata con Rawtonic."
+    },
     "title": "Impostazioni",
     "tooltips": {
       "goHome": "Torna alla Home page"
     }
   },
   "spotRemoval": {
+    "cancel": "Annulla",
+    "deleteSelected": "Elimina selezione",
+    "deleteSelectedHint": "Canc o Backspace. Sulla foto, Alt-clic ne elimina una; Alt-trascina elimina tutte quelle raggiunte dal riquadro.",
     "detectObjects": "Rileva oggetti",
     "detectObjectsBoxHint": "Trascina un rettangolo attorno a un oggetto o fai clic su di esso per rimuoverlo.",
     "detectObjectsHint": "Dipingi sopra un oggetto o fai clic su di esso per rimuoverlo.",
     "detectObjectsRefineHint": "Maiusc aggiunge alla rimozione selezionata, Alt (⌥) sottrae.",
+    "downloadingModel": "Download del modello per rimuovere oggetti… {{percent}} %",
+    "fallbackDownload": "Impossibile scaricare il modello di rimozione oggetti (offline?), quindi il modello più piccolo (MI-GAN) ha riempito quest’area. Annulla e rimuovi di nuovo quando sei online per un riempimento migliore.",
+    "fallbackUnavailable": "Impossibile eseguire il modello di rimozione oggetti, quindi il modello più piccolo (MI-GAN) ha riempito quest’area.",
     "feather": "Sfumatura",
     "featherAria": "Sfumatura della macchia",
+    "filling": "Rimozione… passo {{done}} di {{total}}",
+    "largeHoleTooSlow": "Questa GPU è troppo lenta per rimuovere aree grandi; Rimuovi usa il metodo rapido per il resto della sessione.",
+    "list": {
+      "aria": "Macchie e rimozioni",
+      "count": "Correzioni ({{number}})",
+      "delete": "Elimina {{name}}",
+      "deleteAll": "Elimina tutte",
+      "hideAll": "Nascondi tutte",
+      "item": "{{kind}} {{number}}",
+      "select": "Seleziona {{name}}",
+      "showAll": "Mostra tutte",
+      "toggle": "Mostra {{name}}"
+    },
     "mode": "Modalità macchie",
     "modes": {
       "clone": "Clona",
@@ -1943,6 +2066,7 @@
     },
     "sensitivity": "Sensibilità",
     "sensitivityAria": "Sensibilità della visualizzazione macchie",
+    "showRemovals": "Mostra rimozioni",
     "size": "Dimensione",
     "sizeAria": "Dimensione della macchia",
     "visualize": "Visualizza macchie"
@@ -2114,6 +2238,7 @@
       },
       "grading": {
         "hueAria": "Tonalità ({{range}})",
+        "link": "Collega le ruote tonali",
         "luminanceArcTitle": "Luminanza ({{range}}) {{value}} · trascina o frecce · Maiusc fine · doppio clic ripristina",
         "luminanceAria": "Luminanza ({{range}})",
         "ranges": "Gamme",
@@ -2262,9 +2387,11 @@
         "channel": "Canale della curva",
         "input": "Input",
         "maxPoints": "Massimo {{max}} punti per canale. Sposta o rimuovi un punto per rifinire la curva.",
-        "output": "Output"
+        "output": "Output",
+        "point": "Punto {{index}}, ingresso {{input}}, uscita {{output}}. Le frecce spostano; A aggiunge un punto; Canc lo elimina."
       },
       "effects": {
+        "grainColor": "Colore della grana",
         "grainStructure": "Struttura della grana",
         "grainStructures": {
           "clumped": "Aggregata",
@@ -2315,6 +2442,7 @@
         "opened": "Immagine aperta",
         "other": "Regolazione",
         "redEyes": "Occhi rossi",
+        "remove": "Rimuovi",
         "spots": "Rimozione macchie",
         "title": "Cronologia"
       },
@@ -2406,6 +2534,7 @@
           "red": "Rosso",
           "white": "Bianco"
         },
+        "currentMode": "Visualizzazione maschera: {{mode}}",
         "custom": "Colore maschera personalizzato",
         "display": "Visualizzazione maschera",
         "modes": {
@@ -2660,11 +2789,14 @@
           "minutes": "circa {{minutes}} min rimanenti",
           "seconds": "circa {{seconds}} s rimanenti"
         },
+        "exportedTo": "Esportato in:",
         "failed": "{{failed}} di {{total}} non riuscite",
         "failures": "Foto non esportate",
+        "fullResolution": "Risoluzione completa",
         "held": "La coda è in attesa: le esportazioni in attesa partiranno quando avvii la coda.",
         "holdQueue": "Ferma la coda",
         "interrupted": "Interrotta ({{done}} di {{total}} esportate)",
+        "originalFolder": "Cartella originale",
         "pause": "Pausa",
         "paused": "In pausa ({{done}} di {{total}} esportate)",
         "pausing": "In pausa dopo le foto in corso…",
@@ -2757,7 +2889,8 @@
         "queuedMany_one": "{{count}} esportazione aggiunta alla coda.",
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",
-        "queuedOne": "Aggiunto alla coda di esportazione."
+        "queuedOne": "Aggiunto alla coda di esportazione.",
+        "unsavedEdits": "Non è stato possibile salvare le modifiche di {{names}}, quindi non è stato esportato nulla. Esporta di nuovo quando sono salvate."
       },
       "watermark": {
         "add": "Aggiungi filigrana",
@@ -2823,6 +2956,21 @@
       "includeNeck": "Includi il collo",
       "modelsMissing": "Il ritocco del viso richiede i suoi modelli del viso. Vengono scaricati una sola volta dal pacchetto di modelli di Rawtonic su GitHub e funzionano su questo computer.",
       "noFaces": "Nessun volto trovato in questa foto.",
+      "protect": {
+        "brush": "Pennello di protezione",
+        "clear": "Rimuovi protezione",
+        "feather": "Sfumatura",
+        "featherAria": "Sfumatura del pennello di protezione",
+        "hint": "Dipingi su lentiggini, nei e segni di bellezza che il ritocco deve lasciare come sono. Tieni premuto Alt (Opzione) per cancellare; [ e ] cambiano la dimensione.",
+        "modes": {
+          "erase": "Cancella",
+          "off": "Disattivato",
+          "paint": "Proteggi"
+        },
+        "show": "Mostra aree protette",
+        "size": "Dimensione",
+        "sizeAria": "Dimensione del pennello di protezione"
+      },
       "showBlemishes": "Mostra imperfezioni (fai clic su una per mantenerla o correggerla)",
       "sliders": {
         "blemishes": "Imperfezioni",
@@ -2837,16 +2985,21 @@
     },
     "histogram": {
       "aria": "Istogramma dell'immagine",
-      "clipping": "Clipping",
-      "clippingTitle": "Avvisi di clipping: luci tagliate in rosso, ombre tagliate in blu ({{shortcut}})",
+      "clippingAria": "Avvisi di clipping",
       "gamut": "Avviso gamut",
       "gamutTitle": "Avviso gamut: colori fuori dallo spazio colore di prova in rosso",
       "graphAria": "Distribuzione della luminanza RGB della foto selezionata",
       "graphEmpty": "Istogramma disponibile dopo l'apertura di una foto",
+      "highlightClipping": "Avviso alte luci",
+      "highlightClippingLit": "Avviso alte luci, bruciate",
+      "highlightClippingTitle": "Avviso alte luci (alte luci bruciate; {{shortcut}} attiva entrambi)",
       "proof": "Prova",
       "proofSpace": "Spazio colore di prova",
       "proofTitle": "Prova a schermo: mostra la foto come apparirà un'esportazione nello spazio colore scelto ({{shortcut}})",
       "selectPhoto": "Seleziona una foto",
+      "shadowClipping": "Avviso ombre",
+      "shadowClippingLit": "Avviso ombre, chiuse",
+      "shadowClippingTitle": "Avviso ombre (ombre chiuse; {{shortcut}} attiva entrambi)",
       "title": "Istogramma"
     },
     "layers": {
@@ -3155,12 +3308,25 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "Riduzione rumore IA",
+          "aiMask": "Selezioni IA",
+          "fillExternal": "Riempimento: servizio esterno",
+          "fillMiGan": "Rimozione: MI-GAN",
+          "fillMoebius": "Rimozione: Moebius",
+          "fillUnrecorded": "Rimozione: modello non registrato",
+          "generated": "Aree generate",
+          "missingFill": "Riempimento senza i suoi pixel",
+          "olderDenoise": "Versione precedente della riduzione rumore IA",
+          "pendingDetection": "Selezione IA non ancora rilevata"
+        },
         "all_one": "Tutti ({{count}} valore)",
         "all_many": "Tutti ({{count}} valori)",
         "all_other": "Tutti ({{count}} valori)",
         "apertureValue": "f/{{value}}",
         "button": "Metadati",
         "fields": {
+          "ai": "Modifiche IA",
           "aperture": "Diaframma",
           "camera": "Fotocamera",
           "captureDate": "Data di scatto",
@@ -3168,7 +3334,8 @@
           "focalLength": "Lunghezza focale",
           "iso": "ISO",
           "keyword": "Parola chiave",
-          "lens": "Obiettivo"
+          "lens": "Obiettivo",
+          "sourceType": "Origine digitale"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3184,6 +3351,7 @@
         "isoValue": "ISO {{value}}",
         "label": "Filtro metadati",
         "none": {
+          "ai": "Nessuna modifica IA",
           "aperture": "Diaframma sconosciuto",
           "camera": "Fotocamera sconosciuta",
           "captureDate": "Nessuna data",
@@ -3191,11 +3359,30 @@
           "focalLength": "Lunghezza focale sconosciuta",
           "iso": "ISO sconosciuto",
           "keyword": "Nessuna parola chiave",
-          "lens": "Obiettivo sconosciuto"
+          "lens": "Obiettivo sconosciuto",
+          "sourceType": "Non indicata"
         },
         "rangeHint": "Clic sceglie un valore, Maiusc-clic sceglie ogni valore dall'ultimo cliccato",
         "showMonths": "Mostra i mesi del {{year}}",
-        "toggle": "Mostra o nascondi gli elenchi dei metadati (data di scatto, fotocamera, obiettivo, parola chiave, tipo di file, ISO, lunghezza focale, diaframma)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "Migliorato da un algoritmo",
+          "algorithmicMedia": "Creato da un algoritmo",
+          "compositeCapture": "Composito di scatti",
+          "compositeSynthetic": "Composito di elementi sintetici",
+          "compositeWithTrainedAlgorithmicMedia": "Composito con parti generate dall’IA",
+          "computationalCapture": "Acquisizione computazionale",
+          "dataDrivenMedia": "Media basati sui dati",
+          "digitalArt": "Arte digitale",
+          "digitalCapture": "Acquisizione digitale",
+          "humanEdits": "Modificato da una persona",
+          "negativeFilm": "Negativo pellicola",
+          "positiveFilm": "Positivo pellicola",
+          "print": "Stampa",
+          "screenCapture": "Schermata",
+          "trainedAlgorithmicMedia": "Generato dall’IA",
+          "virtualRecording": "Registrazione virtuale"
+        },
+        "toggle": "Mostra o nascondi gli elenchi dei metadati (data di scatto, fotocamera, obiettivo, parola chiave, tipo di file, ISO, lunghezza focale, diaframma, modifiche IA, origine digitale)"
       },
       "navigator": {
         "empty": "Seleziona una foto",
@@ -3243,6 +3430,7 @@
         "editTitle": "Modifica album smart",
         "fieldLabel": "Campo",
         "fields": {
+          "ai": "Modifica IA",
           "album": "Album",
           "aperture": "Diaframma (numero f)",
           "camera": "Fotocamera",
@@ -3263,6 +3451,7 @@
           "offline": "Foto mancante",
           "previousImport": "Nell’importazione precedente",
           "rating": "Valutazione",
+          "sourceType": "Origine digitale (nel file)",
           "text": "Qualsiasi testo ricercabile"
         },
         "folderPlaceholder": "Percorso della cartella",
@@ -3577,7 +3766,9 @@
     "multiView": {
       "controls": "Contrassegna, valuta o rimuovi {{name}}",
       "editAll": "Modifica tutte le selezionate",
+      "editAllNotSaved": "«Modifica tutte le selezionate» non ha potuto salvare queste foto: {{names}}. Mantengono le impostazioni precedenti finché non riprovi.",
       "editAllTitle": "Modifica tutte le selezionate: le modifiche alla foto principale vanno anche a ogni altra foto mostrata (cornici arancioni)",
+      "editAllTryAgain": "Riprova",
       "makePrimary": "Modifica {{name}} (rendila la foto principale)",
       "more_one": "e {{n}} altra",
       "more_many": "e altre {{n}}",
@@ -3625,6 +3816,7 @@
     },
     "presets": {
       "amount": "Quantità del predefinito",
+      "appliedStyle": "Stile applicato: fai clic per rimuoverlo",
       "appliesAll": "Applica tutte le impostazioni con cui è stato salvato",
       "appliesBuiltin": "Preset di Rawtonic: applica le impostazioni che contiene",
       "appliesSaved": "Applica le impostazioni con cui è stato salvato",
@@ -3653,11 +3845,10 @@
         "grading-warm-shadows-cool-highlights": "Ombre calde, luci fredde",
         "grading-warm-tone": "Tono caldo",
         "grading-warm-up": "Più caldo",
-        "grain-coarse": "Grosso",
-        "grain-fine": "Fine",
-        "grain-heavy": "Forte",
-        "grain-medium": "Medio",
-        "grain-speckled": "Puntinato",
+        "grain-bw-100": "B/N 100 fine",
+        "grain-bw-400": "B/N 400 classico",
+        "grain-colour-100": "Negativo colore 100 discreto",
+        "grain-colour-400": "Negativo colore 400",
         "muted-colour": "Colori smorzati",
         "noise-light": "Leggera",
         "noise-medium": "Media",
@@ -3681,7 +3872,7 @@
       "deleteFolderWithPresets_many": "Eliminare “{{name}}” e i suoi {{count}} predefiniti?",
       "deleteFolderWithPresets_other": "Eliminare “{{name}}” e i suoi {{count}} predefiniti?",
       "deletePreset": "Elimina predefinito",
-      "empty": "Ancora nessun predefinito. Regola una foto e premi + per salvarne le impostazioni.",
+      "empty": "Non hai ancora stili personali. Regola una foto e premi + per salvarne le impostazioni.",
       "exportTitle": "Esporta {{name}}",
       "fileType": "Predefinito Rawtonic",
       "find": "Cerca predefiniti",
@@ -3836,7 +4027,59 @@
       "x": "Posizione X",
       "y": "Posizione Y"
     },
+    "seriesMatch": {
+      "after": "Uniformata",
+      "analysing": "Analisi {{done}} di {{total}}…",
+      "applied_one": "Luce uniformata su {{count}} foto",
+      "applied_many": "Luce uniformata su {{count}} foto",
+      "applied_other": "Luce uniformata su {{count}} foto",
+      "apply_one": "Applica a {{count}} foto",
+      "apply_many": "Applica a {{count}} foto",
+      "apply_other": "Applica a {{count}} foto",
+      "applyTo": "Applica a {{name}}",
+      "before": "Ora",
+      "cancel": "Annulla",
+      "change": "Modifica",
+      "confidence": "Affidabilità",
+      "downloadFaces": "Scarica i modelli dei volti",
+      "exposure": "Esposizione",
+      "exposureChange": "Esposizione {{value}} EV",
+      "faces": "Usa i volti (toni della pelle)",
+      "facesTitle": "I volti vengono rilevati su questo computer; la loro pelle ancora esposizione e bilanciamento del bianco.",
+      "facesUsed": "(volti)",
+      "failed": "Uniformazione della luce non riuscita: {{error}}",
+      "intro": "Normalizza esposizione e bilanciamento del bianco di ogni foto rispetto alle foto di riferimento (★), ancorandosi ai toni della pelle dove si vedono volti, così da poter poi sincronizzare un unico look su tutta la serie. Bracketing, silhouette e luci di scena colorate restano invariati.",
+      "isReference": "Riferimento",
+      "note": "Nota",
+      "notSaved": "Alcune foto non sono state salvate: {{error}}",
+      "reasons": {
+        "alreadyMatches": "Già uniforme",
+        "anchorsDisagree": "Volti e scena non concordano – controllare",
+        "bracket": "Bracketing di esposizione – invariata",
+        "cameraCompensation": "Compensazione dell'esposizione impostata in fotocamera – controllare",
+        "colouredLight": "Luce colorata – bilanciamento del bianco invariato",
+        "largeChange": "Grande variazione dell'esposizione – controllare",
+        "littleInCommon": "Poco in comune con il riferimento – controllare",
+        "noReference": "Nessun riferimento",
+        "noWhiteBalance": "Nessun bilanciamento del bianco per questo file",
+        "silhouette": "Silhouette – resta scura",
+        "unreadable": "Impossibile leggere"
+      },
+      "reference": "Rif.",
+      "referenceTitle": "Usa come riferimento",
+      "results": "Risultati",
+      "summary": "{{match}} da uniformare · {{review}} da controllare · {{keep}} invariate · {{seconds}} s",
+      "thenSync": "Poi sincronizza il look del riferimento con Sincronizza impostazioni, senza Esposizione e Bilanciamento del bianco.",
+      "title_one": "Uniforma la luce di {{count}} foto",
+      "title_many": "Uniforma la luce di {{count}} foto",
+      "title_other": "Uniforma la luce di {{count}} foto",
+      "whiteBalance": "Bilanciamento del bianco",
+      "whiteBalanceChange": "{{from}} K → {{to}} K, tinta {{tint}}",
+      "whiteBalanceTo": "Bilanciamento del bianco {{to}} K"
+    },
     "spot": {
+      "done": "Termina rimozione macchie",
+      "start": "Avvia rimozione macchie",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {
@@ -3853,14 +4096,20 @@
         "auto": "Auto",
         "autoAria": "Livelli automatici",
         "autoTitle": "Imposta i punti del nero e del bianco dall'istogramma",
-        "black": "Nero",
         "channelAria": "Canale dei livelli",
-        "highlight": "Luci",
+        "fieldAria": "Valore {{name}}",
+        "histogramAria": "Istogramma dei livelli",
+        "inBlack": "Nero in ingresso",
+        "inWhite": "Bianco in ingresso",
         "midtone": "Mezzitoni",
+        "outBlack": "Nero in uscita",
         "output": "Uscita",
-        "shadow": "Ombre",
-        "title": "Livelli",
-        "white": "Bianco"
+        "outWhite": "Bianco in uscita",
+        "pickBlack": "Contagocce del punto nero",
+        "pickBlackTitle": "Fai clic sulla foto dove deve essere nera",
+        "pickWhite": "Contagocce del punto bianco",
+        "pickWhiteTitle": "Fai clic sulla foto dove deve essere bianca",
+        "title": "Livelli"
       },
       "regionCurve": {
         "aria": {
@@ -4212,17 +4461,25 @@
     }
   },
   "undoHistory": {
+    "apply": "Applica impostazioni",
     "color": "Imposta etichetta colore",
     "edit": "Modifica",
     "file": "Modifica file",
     "flag": "Imposta contrassegno",
+    "lensCorrection": "Correzione obiettivo",
+    "matchLight": "Uniforma luce",
     "move": "Sposta",
     "notice": "{{action}}: {{name}}",
     "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
+    "paste": "Incolla impostazioni",
     "rating": "Imposta valutazione",
+    "recipesNotAll": "Non è stato possibile scrivere tutte le foto",
     "redoAction": "Ripeti: {{action}}",
     "rename": "Rinomina",
+    "reset": "Ripristina",
     "skipFailed": "Salta elementi non riusciti",
+    "style": "Applica stile",
+    "sync": "Sincronizza impostazioni",
     "trash": "Sposta nel cestino",
     "undoAction": "Annulla: {{action}}"
   },
@@ -4231,12 +4488,22 @@
     "available": "Rawtonic {{version}} è disponibile",
     "checking": "Controllo…",
     "checkNow": "Controlla ora",
+    "close": "Chiudi",
+    "dontShowAgain": "Non mostrare dopo gli aggiornamenti",
     "download": "Scarica",
     "failed": "Impossibile verificare gli aggiornamenti. Riprova più tardi.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Cerca aggiornamenti",
+    "noFile": "Questa versione non ha un download per questo computer; la pagina della versione elenca tutti i file.",
+    "noNotes": "Nessuna nota di versione. La pagina della versione potrebbe dire di più.",
+    "notesTitle": "Novità di Rawtonic {{version}}",
     "notNow": "Non ora",
     "noUpdate": "Nessuna versione più recente trovata.",
     "prereleases": "Includi versioni preliminari",
     "privacy": "Contatta GitHub una volta al giorno. Invia il tuo indirizzo IP e la versione dell’app; nessuna foto o identificativo.",
-    "startup": "Cerca aggiornamenti all’avvio"
+    "releasePage": "Pagina della versione",
+    "showWhatsNew": "Mostra le novità dopo un aggiornamento",
+    "startup": "Cerca aggiornamenti all’avvio",
+    "whatsNew": "Novità"
   }
 }

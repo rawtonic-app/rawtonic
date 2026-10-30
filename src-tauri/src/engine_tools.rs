@@ -214,7 +214,7 @@ fn write_upright_recipes() {
             let (_, sw, sh) = analysis_image(&image, 1400);
             let small = crate::image_processing::thumbnail(&image, sw as u32, sh as u32);
             analysis_image(
-                &crate::image_processing::apply_geometry_warp(&small, &lens),
+                &crate::image_processing::apply_geometry_warp(&small, &lens, true).unwrap(),
                 1400,
             )
         } else {

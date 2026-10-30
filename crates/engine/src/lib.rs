@@ -4,6 +4,7 @@
 //! Derived from RapidRAW (commit a82251f, AGPL-3.0); no Tauri dependencies.
 
 pub mod adjustment_utils;
+pub mod applied_style;
 pub mod auto_adjust;
 pub mod auto_straighten;
 pub mod avif;
@@ -18,6 +19,7 @@ pub mod edge_fringe;
 pub mod embedded_lens;
 pub mod face_retouch;
 pub mod file_io;
+pub mod film_grain;
 pub mod formats;
 pub mod guided_perspective;
 pub mod icc_profile;
@@ -43,10 +45,12 @@ pub mod proxy_codec;
 pub mod red_eye;
 pub mod region_curve;
 pub mod relight;
+pub mod series_match;
 pub mod session_layout;
 pub mod source_facts;
 pub mod spot_removal;
 pub mod upright;
+pub mod warp_gpu;
 pub mod white_balance_estimate;
 
 use rawtonic_rawdecode::{

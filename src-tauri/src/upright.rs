@@ -51,10 +51,11 @@ fn upright_guides(
     {
         let (_, sw, sh) = analysis_image(image, 1400);
         let small = crate::image_processing::thumbnail(image, sw as u32, sh as u32);
-        analysis_image(
-            &crate::image_processing::apply_geometry_warp(&small, &lens_only),
-            1400,
-        )
+        // The lines do not move with the shading's encoding (`is_raw`).
+        let corrected = crate::image_processing::apply_geometry_warp(&small, &lens_only, true)
+            .inspect_err(|e| log::warn!("Upright: {e}"))
+            .ok()?;
+        analysis_image(&corrected, 1400)
     } else {
         analysis_image(image, 1400)
     };

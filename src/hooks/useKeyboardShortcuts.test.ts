@@ -1,3 +1,5 @@
+import "../i18n";
+import { toast } from "react-toastify";
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
@@ -13,7 +15,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 
 const props = {
@@ -26,13 +28,14 @@ const props = {
   handlePasteFiles: vi.fn(),
   handleZoomChange: vi.fn(),
 };
-const press = (code: string, key = code) =>
+const press = (code: string, key = code, init: KeyboardEventInit = {}) =>
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
       code,
       key,
       bubbles: true,
       cancelable: true,
+      ...init,
     }),
   );
 
@@ -63,6 +66,16 @@ it("keeps the session in view when Escape is pressed in the Library", () => {
 
 it("goes back to the Library on Escape in Develop", () => {
   useUIStore.setState({ activeView: "editor" });
+  press("Escape");
+  expect(props.handleBackToLibrary).toHaveBeenCalledOnce();
+});
+
+it("ends the spot tool on Escape in Develop before going back to the Library", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ isSpotToolActive: true, activeSpotId: null });
+  press("Escape");
+  expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+  expect(props.handleBackToLibrary).not.toHaveBeenCalled();
   press("Escape");
   expect(props.handleBackToLibrary).toHaveBeenCalledOnce();
 });
@@ -332,8 +345,10 @@ describe("M after a layer's first adjustment (Lightroom's automatic overlay)", (
     expect(display()).toBeUndefined();
     press("KeyM", "m");
     expect(display()).toBe("never");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: Never", expect.objectContaining({ autoClose: 1800 }));
     press("KeyM", "m");
     expect(display()).toBe("always");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: Always", expect.any(Object));
     expect(useEditorStore.getState().maskOverlayAuto).toBe("pinned");
   });
 
@@ -353,6 +368,21 @@ describe("M after a layer's first adjustment (Lightroom's automatic overlay)", (
     expect(useEditorStore.getState()).toMatchObject({ showMaskWithSelectTool: true, maskOverlayAuto: "pinned" });
     press("KeyM", "m");
     expect(useEditorStore.getState().showMaskWithSelectTool).toBe(false);
+  });
+
+  it("announces grayscale and the restored drawing mode with Option+M", () => {
+    useSettingsStore.setState((s) => ({
+      appSettings: { ...s.appSettings!, maskDisplay: "drawing" },
+    }));
+    const toggle = () => window.dispatchEvent(new KeyboardEvent("keydown", {
+      code: "KeyM", key: "µ", altKey: true, bubbles: true, cancelable: true,
+    }));
+    toggle();
+    expect(display()).toBe("grayscale");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: Grayscale", expect.any(Object));
+    toggle();
+    expect(display()).toBe("drawing");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: While drawing", expect.any(Object));
   });
 
   it("ends the luma range eyedropper with Escape", () => {
@@ -456,13 +486,46 @@ describe("panel keys (Lightroom's Tab, Shift+Tab, F6–F8)", () => {
   });
 });
 
-it("toggles the proof margin with X in Develop and saves it", () => {
+it("toggles the proof margin with Alt+X in Develop and saves it", () => {
   useUIStore.setState({ activeView: "editor" });
   useEditorStore.setState({ selectedImage: { path: "/a.dng" } as never });
-  press("KeyX", "x");
+  press("KeyX", "x", { altKey: true });
   expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(true);
-  press("KeyX", "x");
+  press("KeyX", "x", { altKey: true });
   expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(false);
+});
+
+it("follows both Caps Lock transitions on macOS", () => {
+  const transition = (type: "keydown" | "keyup", locked: boolean) => {
+    const event = new KeyboardEvent(type, { code: "CapsLock", key: "CapsLock", bubbles: true, cancelable: true });
+    Object.defineProperty(event, "getModifierState", { value: (key: string) => key === "CapsLock" && locked });
+    window.dispatchEvent(event);
+  };
+  transition("keydown", true);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(true);
+  transition("keyup", false);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
+});
+
+it("respects a disabled Caps Lock binding and text fields on macOS", () => {
+  useSettingsStore.setState({ appSettings: { keybinds: { toggle_auto_advance: [] }, autoAdvance: false } as unknown as AppSettings });
+  const event = new KeyboardEvent("keydown", { code: "CapsLock", bubbles: true });
+  Object.defineProperty(event, "getModifierState", { value: () => true });
+  window.dispatchEvent(event);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
+  useSettingsStore.setState({ appSettings: { keybinds: {}, autoAdvance: false } as unknown as AppSettings });
+  document.body.innerHTML = '<input />';
+  document.querySelector("input")!.focus();
+  window.dispatchEvent(event);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
+});
+
+it("toggles auto-advance on Caps Lock keydown outside macOS", () => {
+  useSettingsStore.setState({ osPlatform: "linux" });
+  press("CapsLock");
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(true);
+  press("CapsLock");
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
 });
 
 describe("Before/After keys", () => {
@@ -686,14 +749,34 @@ describe("auto-advance after a rating", () => {
     expect(props.handleImageSelect).not.toHaveBeenCalled();
   });
 
-  it("steps after a flag key's request too, but not in the Library", async () => {
+  it("steps after a flag key request and a single Library selection", async () => {
     const { requestAutoAdvance } = await import("../utils/photoStepping");
     open("/s/b.NEF", true);
     requestAutoAdvance("/s/b.NEF");
     expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/c.NEF", true);
     vi.clearAllMocks();
     useUIStore.setState({ activeView: "library" });
+    useLibraryStore.setState({ libraryActivePath: "/s/b.NEF" });
     requestAutoAdvance("/s/b.NEF");
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/c.NEF", false);
+  });
+
+  it("rates the selected grid photo and advances to the next one", () => {
+    open("/s/a.NEF", true);
+    useUIStore.setState({ activeView: "library" });
+    useLibraryStore.setState({ libraryActivePath: "/s/a.NEF", multiSelectedPaths: ["/s/a.NEF"] });
+    press("Digit3", "3");
+    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(3);
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(["/s/b.NEF"]);
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/b.NEF", false);
+  });
+
+  it("does not discard a multiple selection when auto-advance is on", async () => {
+    const { requestAutoAdvance } = await import("../utils/photoStepping");
+    open("/s/a.NEF", true);
+    useUIStore.setState({ activeView: "library" });
+    useLibraryStore.setState({ libraryActivePath: "/s/a.NEF", multiSelectedPaths: ["/s/a.NEF", "/s/b.NEF"] });
+    requestAutoAdvance("/s/a.NEF");
     expect(props.handleImageSelect).not.toHaveBeenCalled();
   });
 
@@ -729,5 +812,36 @@ describe("auto-advance after a rating", () => {
     expect(props.handleImageSelect).not.toHaveBeenCalled();
     expect(useLibraryStore.getState().imageRatings).toMatchObject({ "/s/a.NEF": 4 });
     expect(useLibraryStore.getState().imageRatings["/s/b.NEF"]).toBeUndefined();
+  });
+});
+
+describe("J switches the clipping warnings", () => {
+  const open = () => {
+    cleanup();
+    useUIStore.setState({ activeView: "editor" });
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true } as never,
+      clipHighlights: false,
+      clipShadows: false,
+    });
+    renderHook(() => useKeyboardShortcuts(props));
+  };
+
+  it("switches both on, and both off again", () => {
+    open();
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(true);
+    expect(useEditorStore.getState().clipShadows).toBe(true);
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(false);
+    expect(useEditorStore.getState().clipShadows).toBe(false);
+  });
+
+  it("switches both off after one side was chosen alone", () => {
+    open();
+    useEditorStore.setState({ clipShadows: true });
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(false);
+    expect(useEditorStore.getState().clipShadows).toBe(false);
   });
 });

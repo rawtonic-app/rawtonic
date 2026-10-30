@@ -95,6 +95,8 @@ it('applies a preset to the selection from the Library', async () => {
     expect(invoke).toHaveBeenCalledWith('apply_adjustments_to_paths', {
       paths: ['/s/Capture/DSCF0147.RAF'],
       adjustments: { saturation: -100 },
+      // A style replaces each photo's last applied one, as in the styles list.
+      style: { id: 'bw' },
     }),
   );
 });
@@ -115,9 +117,37 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   const before = useEditorStore.getState().adjustments;
   const history = useEditorStore.getState().history;
   finishAuto();
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw] }));
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw], batch: expect.stringMatching(/^batch-\d+$/) }));
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(invoke).not.toHaveBeenCalledWith('load_metadata', { path: raw });
   expect(useEditorStore.getState().adjustments).toBe(before);
   expect(useEditorStore.getState().history).toBe(history);
+});
+
+
+it('offers Match Light for the selection with the active photo as reference', async () => {
+  const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
+  const { useSeriesMatchDialog } = await import('../components/studio/SeriesMatchDialog');
+  renderHook(() => useAppContextMenus(props));
+  expect(appCommandEnabled('match_light')).toBe(false);
+  useLibraryStore.setState({ multiSelectedPaths: [raw, copy], libraryActivePath: copy });
+  expect(appCommandEnabled('match_light')).toBe(true);
+  expect(runAppCommand('match_light')).toBe(true);
+  expect(useSeriesMatchDialog.getState().request).toEqual({ paths: [raw, copy], references: [copy] });
+  useSeriesMatchDialog.getState().close();
+});
+
+it('offers selection-aware photo operations in the palette', async () => {
+  const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
+  const { paletteCommands } = await import('../utils/commandPalette');
+  renderHook(() => useAppContextMenus(props));
+  const commands = paletteCommands((key) => Array.isArray(key) ? key[0] : key);
+  const names = commands.map((command) => command.id);
+  expect(commands.find((command) => command.id === 'merge_hdr')?.disabledHint).toBe('commandPalette.selectTwoPhotos');
+  expect(commands.find((command) => command.id === 'merge_hdr_panorama')?.disabledHint).toBe('commandPalette.selectFourPhotos');
+  expect(names).toEqual(expect.arrayContaining(['auto_lens_correction', 'convert_negative', 'merge_panorama', 'merge_hdr', 'merge_hdr_panorama', 'merge_focus_stack']));
+  expect(appCommandEnabled('merge_hdr')).toBe(false);
+  useLibraryStore.setState({ multiSelectedPaths: [raw, copy] });
+  expect(runAppCommand('merge_hdr')).toBe(true);
+  expect(useUIStore.getState().mergeModalState).toMatchObject({ isOpen: true, kind: 'hdr', sourcePaths: [raw, copy] });
 });

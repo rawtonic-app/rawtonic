@@ -28,7 +28,7 @@ use tokio::sync::Mutex as TokioMutex;
 /// licenses (docs/MODELS.md, scripts/models/build_model_pack.py);
 /// `scripts/models/install_models.sh` installs them ahead with `gh`.
 const MODEL_PACK_URL: &str =
-    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-18";
+    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-27b";
 
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by
 // scripts/models/export_sam2.py: the photo stretched to 1024 x 1024 in,
@@ -297,6 +297,8 @@ pub struct AiState {
     pub sam_models: Option<Arc<SamModels>>,
     pub tag_models: Option<Arc<TagModels>>,
     pub inpaint_model: Option<Arc<rawtonic_onnx::Model>>,
+    /// Moebius, the guide of Remove's large holes (`moebius`).
+    pub moebius: Option<Arc<crate::moebius::Moebius>>,
     pub embeddings: Option<ImageEmbeddings>,
     pub depth_map: Option<CachedDepthMap>,
     pub subject_model: Option<Arc<SubjectModel>>,
@@ -358,7 +360,9 @@ fn edt_1d(f: &mut [f32], v: &mut [usize], z: &mut [f32], d: &mut [f32]) {
     f.copy_from_slice(&d[..n]);
 }
 
-fn edt_2d(grid: &[bool], width: usize, height: usize) -> Vec<f32> {
+/// Euclidean distance of every `true` cell of `grid` to the nearest `false`
+/// one (0 for `false` cells).
+pub(crate) fn edt_2d(grid: &[bool], width: usize, height: usize) -> Vec<f32> {
     let area = width * height;
     let mut f = vec![0.0; area];
     for i in 0..area {
@@ -610,22 +614,35 @@ fn model_url(source: &str) -> String {
     format!("{MODEL_PACK_URL}/{source}")
 }
 
-async fn fetch_model(source: &str) -> Result<Vec<u8>> {
+/// Downloads `source`, calling `progress(received, total)` as its bytes
+/// arrive (`total` 0 when the server does not say).
+async fn fetch_model(source: &str, progress: &mut (dyn FnMut(u64, u64) + Send)) -> Result<Vec<u8>> {
     let url = model_url(source);
-    let response = reqwest::get(&url).await?;
+    let mut response = reqwest::get(&url).await?;
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
             "Could not download {url} (HTTP {}). Check the internet connection and try again.",
             response.status()
         ));
     }
-    Ok(response.bytes().await?.to_vec())
+    let total = response.content_length().unwrap_or(0);
+    let mut bytes = Vec::with_capacity(total as usize);
+    while let Some(chunk) = response.chunk().await? {
+        bytes.extend_from_slice(&chunk);
+        progress(bytes.len() as u64, total);
+    }
+    Ok(bytes)
 }
 
 /// Replaces `dest` only with a download whose SHA-256 matches: a failed or
 /// corrupt download leaves the file that was there.
-async fn download_verified_model(source: &str, dest: &Path, expected_hash: &str) -> Result<()> {
-    let bytes = fetch_model(source).await?;
+async fn download_verified_model(
+    source: &str,
+    dest: &Path,
+    expected_hash: &str,
+    progress: &mut (dyn FnMut(u64, u64) + Send),
+) -> Result<()> {
+    let bytes = fetch_model(source, progress).await?;
     persist_verified_asset(dest, &bytes, expected_hash)
         .map_err(|e| anyhow::anyhow!("{}: {e}", model_url(source)))
 }
@@ -872,6 +889,50 @@ pub(crate) async fn download_verified(
     expected_hash: &str,
     model_name: &str,
 ) -> Result<()> {
+    download_verified_in(
+        app_handle,
+        models_dir,
+        file,
+        expected_hash,
+        model_name,
+        None,
+    )
+    .await
+}
+
+/// The bytes of a model of several pack files being downloaded: its
+/// progress events report all of them (`batchReceived` of `batchTotal`),
+/// so the percent runs once from 0 to 100 instead of once per file.
+#[derive(Default)]
+pub(crate) struct DownloadBatch {
+    pub done: u64,
+    pub total: u64,
+}
+
+/// A model file could not be downloaded or did not match its SHA-256
+/// (offline, server unreachable): the context of `download_verified`'s
+/// error, so a tool can say why it fell back to another model.
+/// Its text is the download's own error (URL, status, hint).
+#[derive(Debug)]
+pub struct DownloadFailed(pub String);
+
+impl std::fmt::Display for DownloadFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for DownloadFailed {}
+
+/// `download_verified`, counting the download into `batch`.
+pub(crate) async fn download_verified_in(
+    app_handle: &tauri::AppHandle,
+    models_dir: &Path,
+    file: &str,
+    expected_hash: &str,
+    model_name: &str,
+    batch: Option<&mut DownloadBatch>,
+) -> Result<()> {
     let dest_path = models_dir.join(file);
     let is_valid = verify_sha256(&dest_path, expected_hash)?;
 
@@ -880,9 +941,43 @@ pub(crate) async fn download_verified(
             println!("Model {} has incorrect hash. Re-downloading.", model_name);
         }
         let _ = app_handle.emit("ai-model-download-start", model_name);
-        let download_result = download_verified_model(file, &dest_path, expected_hash).await;
-        let _ = app_handle.emit("ai-model-download-finish", model_name);
-        download_result?;
+        // The finish event also when the download is dropped (a cancelled
+        // removal stops waiting for it).
+        struct Finish<'a>(&'a tauri::AppHandle, &'a str);
+        impl Drop for Finish<'_> {
+            fn drop(&mut self) {
+                let _ = self.0.emit("ai-model-download-finish", self.1);
+            }
+        }
+        let _finish = Finish(app_handle, model_name);
+        let (before, batch_total) = batch.as_ref().map_or((0, 0), |b| (b.done, b.total));
+        let mut fetched = 0;
+        // At most one event per percent (of the batch, when there is one).
+        let mut shown = u64::MAX;
+        let mut progress = |received: u64, total: u64| {
+            fetched = received;
+            let percent = if batch_total > 0 {
+                ((before + received) * 100).checked_div(batch_total)
+            } else {
+                (received * 100).checked_div(total)
+            }
+            .unwrap_or(0);
+            if percent != shown {
+                shown = percent;
+                let mut payload = serde_json::json!({ "model": model_name, "file": file, "received": received, "total": total });
+                if batch_total > 0 {
+                    payload["batchReceived"] = (before + received).into();
+                    payload["batchTotal"] = batch_total.into();
+                }
+                let _ = app_handle.emit("ai-model-download-progress", payload);
+            }
+        };
+        let download_result =
+            download_verified_model(file, &dest_path, expected_hash, &mut progress).await;
+        if let Some(batch) = batch {
+            batch.done += fetched;
+        }
+        download_result.map_err(|e| anyhow::Error::new(DownloadFailed(format!("{e:#}"))))?;
     }
     Ok(())
 }
@@ -1225,6 +1320,7 @@ pub(crate) async fn assemble_package(
     files: &[(&str, &str, &str)],
     download: bool,
     model_name: &str,
+    mut batch: Option<&mut DownloadBatch>,
 ) -> Result<bool> {
     for &(file, inner, sha) in files {
         let source = models_dir.join(file);
@@ -1232,7 +1328,15 @@ pub(crate) async fn assemble_package(
             if !download {
                 return Ok(false);
             }
-            download_verified(app_handle, models_dir, file, sha, model_name).await?;
+            download_verified_in(
+                app_handle,
+                models_dir,
+                file,
+                sha,
+                model_name,
+                batch.as_deref_mut(),
+            )
+            .await?;
         }
         // A new hard link changes the file's status-change time: keep the
         // check just made, or the next launch hashes it again.
@@ -1260,7 +1364,7 @@ async fn load_core_ml(
     let package = models_dir.join(package);
     let start = std::time::Instant::now();
     match assemble_package(
-        app_handle, models_dir, &package, files, download, model_name,
+        app_handle, models_dir, &package, files, download, model_name, None,
     )
     .await
     {
@@ -1624,6 +1728,43 @@ pub async fn get_or_init_inpaint_model(
     Ok(model)
 }
 
+/// Serialises loading Moebius, apart from `ai_init_lock`: its first use
+/// downloads about 620 MB, which must not hold up the masking models.
+static MOEBIUS_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
+
+/// Moebius (`moebius`), downloaded on first use.
+pub async fn get_or_init_moebius(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+) -> Result<Arc<crate::moebius::Moebius>> {
+    let loaded = || {
+        ai_state_mutex
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|state| state.moebius.clone())
+    };
+    if let Some(model) = loaded() {
+        return Ok(model);
+    }
+    let _guard = MOEBIUS_INIT_LOCK.lock().await;
+    if let Some(model) = loaded() {
+        return Ok(model);
+    }
+    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let models_dir = get_models_dir(app_handle)?;
+    let start = std::time::Instant::now();
+    let model = Arc::new(crate::moebius::load(app_handle, &models_dir).await?);
+    log::info!(
+        "AI fill: Moebius loaded in {} ms",
+        start.elapsed().as_millis()
+    );
+    keep_model(ai_state_mutex, generation, |ai| {
+        ai.moebius = Some(model.clone())
+    });
+    Ok(model)
+}
+
 /// Fills the masked area (mask > 0) of `image` with MI-GAN. Only a crop
 /// around the mask goes to the network; the mask's grey levels blend the
 /// result into the photo.
@@ -1684,6 +1825,34 @@ pub fn run_inpainting(
         } else {
             255
         };
+    }
+    // The pipeline crops tightly around its hole before scaling to 512 px,
+    // so a large hole filled nearly all of the model's view and came back
+    // as an invented object (a yellow blot where a potato in a fruit bowl
+    // was). Four 2 × 2 px marks at the corners of a box 2.5 × the hole's
+    // size widen that crop to it; the model fills them too, but only the
+    // real hole is taken from its result. Measured on 27 objects in 21 RAW
+    // photos, 10 of them held out (docs/MODELS.md, "Object removal").
+    const CONTEXT: f32 = 2.5;
+    if crop_w >= 2 && crop_h >= 2 {
+        let marks = |lo: u32, hi: u32, origin: u32, size: u32| {
+            let centre = (lo + hi - 2 * origin) as f32 / 2.0;
+            let half = (hi - lo + 1) as f32 * CONTEXT / 2.0;
+            let max = (size - 2) as f32;
+            [
+                (centre - half).clamp(0.0, max) as usize,
+                (centre + half).clamp(0.0, max) as usize,
+            ]
+        };
+        let mark_x = marks(min_x, max_x, x0, crop_w);
+        let mark_y = marks(min_y, max_y, y0, crop_h);
+        for &mx in &mark_x {
+            for &my in &mark_y {
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    msk_tensor[[0, 0, my + dy, mx + dx]] = 0;
+                }
+            }
+        }
     }
 
     let output = session.run(|session| {
@@ -3123,7 +3292,7 @@ pub fn run_depth_anything_model16(
 /// build), loaded once: an error starting with
 /// `rawtonic_onnx::RUNTIME_UNAVAILABLE` when it is missing or cannot be
 /// loaded (the frontend shows its own text for it), never `ort`'s panic.
-fn ensure_local_runtime() -> anyhow::Result<()> {
+pub(crate) fn ensure_local_runtime() -> anyhow::Result<()> {
     rawtonic_onnx::ensure_runtime().map_err(anyhow::Error::new)
 }
 

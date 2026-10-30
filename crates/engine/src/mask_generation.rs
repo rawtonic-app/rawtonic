@@ -774,13 +774,13 @@ fn prepare_warped_mask_image<'a>(
     source: &'a DynamicImage,
     is_raw: bool,
     adjustments: &Value,
-) -> Cow<'a, DynamicImage> {
+) -> Result<Cow<'a, DynamicImage>, String> {
     let image = if is_raw {
         Cow::Owned(crate::image_processing::cpu_default_raw_processed(source))
     } else {
         Cow::Borrowed(source)
     };
-    crate::image_processing::apply_geometry_warp(image, adjustments)
+    crate::image_processing::apply_geometry_warp(image, adjustments, is_raw)
 }
 
 pub fn prepare_parametric_mask_source(
@@ -791,7 +791,7 @@ pub fn prepare_parametric_mask_source(
 ) -> Result<ParametricMaskSource, String> {
     validate_source_scale(source_scale)?;
     ParametricMaskSource::new(
-        Arc::new(prepare_warped_mask_image(source, is_raw, adjustments).into_owned()),
+        Arc::new(prepare_warped_mask_image(source, is_raw, adjustments)?.into_owned()),
         (
             source.width() as f64 / source_scale as f64,
             source.height() as f64 / source_scale as f64,
@@ -800,15 +800,19 @@ pub fn prepare_parametric_mask_source(
     .map(|source| source.with_geometry(adjustments).with_raw_curve(is_raw))
 }
 
+/// The warped image masks are computed on (fails only where the warp runs
+/// on the GPU and the GPU fails).
 pub fn prepare_shared_warped_mask_image(
     source: &Arc<DynamicImage>,
     is_raw: bool,
     adjustments: &Value,
-) -> Arc<DynamicImage> {
-    match prepare_warped_mask_image(source, is_raw, adjustments) {
-        Cow::Borrowed(_) => Arc::clone(source),
-        Cow::Owned(image) => Arc::new(image),
-    }
+) -> Result<Arc<DynamicImage>, String> {
+    Ok(
+        match prepare_warped_mask_image(source, is_raw, adjustments)? {
+            Cow::Borrowed(_) => Arc::clone(source),
+            Cow::Owned(image) => Arc::new(image),
+        },
+    )
 }
 
 pub fn validate_source_scale(scale: f32) -> Result<(), String> {
@@ -6689,7 +6693,7 @@ mod mask_bitmap_cache_tests {
         let background = Arc::new(DynamicImage::new_rgb8(8, 6));
         let adjustments = json!({"transformDistortion": 10.0});
         let hash = crate::cache_utils::calculate_geometry_hash(&adjustments);
-        let warped = prepare_shared_warped_mask_image(&editor, false, &adjustments);
+        let warped = prepare_shared_warped_mask_image(&editor, false, &adjustments).unwrap();
         let cache = FullWarpedMaskCache::new(&editor, false, hash, Arc::clone(&warped));
         assert!(Arc::ptr_eq(
             &cache.get(&editor, false, hash).unwrap(),
@@ -6704,7 +6708,7 @@ mod mask_bitmap_cache_tests {
             &cache.get(&editor, false, hash).unwrap(),
             &warped
         ));
-        let identity = prepare_shared_warped_mask_image(&editor, false, &json!({}));
+        let identity = prepare_shared_warped_mask_image(&editor, false, &json!({})).unwrap();
         assert!(Arc::ptr_eq(&identity, &editor));
     }
 
@@ -6718,7 +6722,8 @@ mod mask_bitmap_cache_tests {
         let actual = prepare_parametric_mask_source(&image, true, 1.0, &adjustments).unwrap();
         let mut expected = image.clone();
         crate::image_processing::apply_cpu_default_raw_processing(&mut expected);
-        let expected = crate::image_processing::apply_geometry_warp(expected, &adjustments);
+        let expected =
+            crate::image_processing::apply_geometry_warp(expected, &adjustments, true).unwrap();
         assert_eq!(actual.image.as_bytes(), expected.as_bytes());
         assert_eq!(image.as_bytes(), before);
     }
@@ -8676,7 +8681,7 @@ mod geometry_follow_tests {
     /// The ramp's luma as the photo warped by `adjustments` shows it.
     fn warped_luma(sensor: &DynamicImage, adjustments: &Value) -> GrayImage {
         let params = warp_geometry(get_geometry_params_from_json(adjustments));
-        warp_image_geometry(sensor, params).into_luma8()
+        warp_image_geometry(sensor, params).unwrap().into_luma8()
     }
 
     #[test]

@@ -34,6 +34,7 @@ interface Props {
   className?: string;
   style?: CSSProperties;
   onChange(value: HueSatLum): void;
+  constrain?(value: HueSatLum): HueSatLum;
   onInteraction?(active: boolean): void;
 }
 
@@ -51,6 +52,7 @@ export default memo(function StudioColorWheel({
   className = "",
   style,
   onChange,
+  constrain,
   onInteraction,
 }: Props) {
   const { t } = useTranslation();
@@ -80,7 +82,8 @@ export default memo(function StudioColorWheel({
     frame.current = null;
     callback.current(pending.current);
   };
-  const update = (next: HueSatLum) => {
+  const update = (requested: HueSatLum) => {
+    const next = constrain?.(requested) ?? requested;
     pending.current = next;
     setLocal(next);
     if (frame.current === null) frame.current = requestAnimationFrame(flush);

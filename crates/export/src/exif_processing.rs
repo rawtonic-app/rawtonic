@@ -6,6 +6,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::formats::is_raw_file;
+use crate::output_color_space::OutputColorSpace;
 use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone, Utc};
 use exif::Exif;
 use little_exif::exif_tag::ExifTag;
@@ -1229,12 +1230,14 @@ fn stripped_export_metadata(
 /// cached EXIF map (the app's `.rrdata`/EXIF cache), `catalog` the session's
 /// metadata for the source. Stripped packets allow only creator, copyright,
 /// usage terms and creator contacts only when `keep_creator_contact` is true.
+/// `color_space` describes the output pixels and replaces source EXIF colour tags.
 /// `generated` marks a photo with areas made by a generative model in its
 /// XMP (IPTC Digital Source Type), also when other metadata is stripped.
 #[allow(clippy::too_many_arguments)]
 pub fn export_metadata_with(
     original_path_str: &str,
     output_format: &str,
+    color_space: OutputColorSpace,
     keep_metadata: bool,
     strip_gps: bool,
     keep_creator_contact: bool,
@@ -1584,7 +1587,30 @@ pub fn export_metadata_with(
 
     metadata.set_tag(ExifTag::Software(SOFTWARE.to_string()));
     metadata.set_tag(ExifTag::Orientation(vec![1u16]));
-    metadata.set_tag(ExifTag::ColorSpace(vec![1u16]));
+    metadata.set_tag(ExifTag::ColorSpace(vec![
+        if color_space == OutputColorSpace::Srgb {
+            1
+        } else {
+            0xffff
+        },
+    ]));
+    // A copied DCF index describes the source encoding, not the export.
+    // Only sRGB and Adobe RGB have a DCF interoperability designation.
+    if metadata
+        .get_ifds()
+        .iter()
+        .any(|ifd| ifd.get_ifd_type() == ExifTagGroup::INTEROP)
+    {
+        metadata.remove_tag(ExifTag::InteroperabilityIndex(String::new()));
+        let index = match color_space {
+            OutputColorSpace::Srgb => Some("R98"),
+            OutputColorSpace::AdobeRgb => Some("R03"),
+            OutputColorSpace::DisplayP3 | OutputColorSpace::ProPhoto => None,
+        };
+        if let Some(index) = index {
+            metadata.set_tag(ExifTag::InteroperabilityIndex(index.to_string()));
+        }
+    }
     if width > 0 && height > 0 {
         metadata.set_tag(ExifTag::ExifImageWidth(vec![width]));
         metadata.set_tag(ExifTag::ExifImageHeight(vec![height]));
@@ -1623,15 +1649,7 @@ pub fn embed_export_metadata(
             }
         }
         "png" => {
-            metadata
-                .exif
-                .write_to_vec(
-                    image_bytes,
-                    FileExtension::PNG {
-                        as_zTXt_chunk: true,
-                    },
-                )
-                .map_err(|e| e.to_string())?;
+            crate::xmp_embed::png_insert_exif(image_bytes, &tiff_exif()?)?;
             if let Some(xmp) = xmp {
                 crate::xmp_embed::png_insert_xmp(image_bytes, xmp)?;
             }
@@ -1869,6 +1887,7 @@ mod tests {
             let result = super::export_metadata_with(
                 source.to_str().unwrap(),
                 "jpeg",
+                rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
                 false,
                 false,
                 true,
@@ -1908,6 +1927,7 @@ mod tests {
         let result = super::export_metadata_with(
             source.to_str().unwrap(),
             "jpeg",
+            rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
             false,
             false,
             false,
@@ -1939,6 +1959,7 @@ mod tests {
         let metadata = super::export_metadata_with(
             "/nonexistent.jpg",
             "jpeg",
+            rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
             false,
             false,
             false,
@@ -1963,6 +1984,7 @@ mod tests {
             super::export_metadata_with(
                 "/nonexistent/photo.jpg",
                 "jpeg",
+                rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
                 keep,
                 false,
                 false,
@@ -1983,6 +2005,7 @@ mod tests {
         let plain = super::export_metadata_with(
             "/nonexistent/photo.jpg",
             "jpeg",
+            rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
             false,
             false,
             false,

@@ -5,6 +5,7 @@
 //! controls (e.g. a body listed without capture that captures). Nothing on the camera is changed except the
 //! settings the user sets; nothing on it is deleted.
 use crate::camera::{Camera, CameraEvent, CameraFile, Driver, Fired, SETTINGS, setting_aliases};
+use crate::experiment::LiveViewExperiment;
 use crate::protocol::{CameraInfo, CameraStatus, ErrorKind, Setting, TetherError};
 use gphoto2::error::ErrorKind as Gp;
 use gphoto2::widget::{WidgetType, WidgetValue};
@@ -94,10 +95,12 @@ fn has_transfer_queue(summary: &str) -> bool {
 }
 
 /// Whether libgphoto2 drives the camera on its Canon path (vendor extension
-/// 0xb). Not offered yet (user decision 2026-10-19): untested with a body,
-/// and libgphoto2's EOS trigger discards the events it collected (a report
-/// of a photo can be lost), its Save to shows a preference and it captures
-/// to the camera's memory when no card is in. notes: reference/tether.md
+/// 0xb). Experimental, only with the user's opt-in (user decision
+/// 2026-10-28; `CameraStatus::experimental`): untested with a body, and
+/// libgphoto2's EOS trigger discards the events it collected (a report of a
+/// photo can be lost), its Save to shows a preference and it captures to the
+/// camera's memory when no card is in — so a connection there needs Save to
+/// on the card and a card in, and frees nothing. notes: reference/tether.md
 fn on_canon_path(summary: &str) -> bool {
     summary.contains(": 0xb (")
 }
@@ -137,6 +140,7 @@ fn firmware_version(summary: &str) -> Option<String> {
 
 pub struct GphotoDriver {
     context: gphoto2::Context,
+    experiment: LiveViewExperiment,
 }
 
 impl GphotoDriver {
@@ -144,7 +148,16 @@ impl GphotoDriver {
         let mut context = gphoto2::Context::new().map_err(|e| error("libgphoto2", e))?;
         context.set_error_handler(|text| log::warn!("libgphoto2: {text}"));
         context.set_message_handler(|text| log::info!("libgphoto2: {text}"));
-        Ok(Self { context })
+        Ok(Self {
+            context,
+            experiment: LiveViewExperiment::default(),
+        })
+    }
+
+    /// Live-view experiments for a session with a body (`experiment`).
+    pub fn with_live_view_experiment(mut self, experiment: LiveViewExperiment) -> Self {
+        self.experiment = experiment;
+        self
     }
 }
 
@@ -218,14 +231,8 @@ impl Driver for GphotoDriver {
         let summary = camera
             .summary(&context)
             .map_err(|e| error("Reading the camera's description", e))?;
-        if on_canon_path(&summary) {
-            return Err(TetherError::new(
-                ErrorKind::Unsupported,
-                "Tethering Canon cameras is not supported yet: it has not been tested with a Canon \
-                 body. Use the hot folder with Canon's tethering app meanwhile.",
-            ));
-        }
-        let transfer_queue = has_transfer_queue(&summary);
+        let canon = on_canon_path(&summary);
+        let transfer_queue = !canon && has_transfer_queue(&summary);
         let serial = serial_number(&summary);
         let firmware = firmware_version(&summary);
         if transfer_queue {
@@ -241,11 +248,14 @@ impl Driver for GphotoDriver {
             transfer_queue,
             serial,
             firmware,
+            canon,
             one_at_a_time: on_sony_path(&summary),
             trigger: true,
             capture: true,
             preview: true,
             names: HashMap::new(),
+            experiment: self.experiment.clone(),
+            live_view_open: false,
         }))
     }
 }
@@ -264,10 +274,34 @@ pub struct GphotoCamera {
     transfer_queue: bool,
     serial: Option<String>,
     firmware: Option<String>,
+    /// On libgphoto2's Canon path (`on_canon_path`): experimental.
+    canon: bool,
     /// `Camera::one_shot_at_a_time` (`on_sony_path`).
     one_at_a_time: bool,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
+    experiment: LiveViewExperiment,
+    /// A live-view frame came since the connect or the last
+    /// `end_live_view` (libgphoto2 keeps the camera's live view open).
+    live_view_open: bool,
+}
+
+/// What libgphoto2 tells of a storage (its folder is "/store_<id in hex>").
+fn storage(info: &gphoto2::storage::StorageInfo) -> crate::camera::Storage {
+    use gphoto2::storage::StorageType;
+    crate::camera::Storage {
+        id: info
+            .base_dir
+            .as_deref()
+            .and_then(|dir| dir.strip_prefix("/store_"))
+            .and_then(|id| u32::from_str_radix(id, 16).ok()),
+        removable: info.storage_type.as_ref().and_then(|kind| match kind {
+            StorageType::RemovableRam | StorageType::RemovableRom => Some(true),
+            StorageType::FixedRam | StorageType::FixedRom => Some(false),
+            _ => None,
+        }),
+        capacity_kb: info.capacity_kb,
+    }
 }
 
 fn text(value: WidgetValue) -> Option<String> {
@@ -309,6 +343,63 @@ impl GphotoCamera {
                 log::warn!("priority mode not set to {computer}: {e}");
                 false
             }
+        }
+    }
+
+    /// `LiveViewExperiment::priority`: sets `prioritymode` to the
+    /// computer's choice without reading it first (libgphoto2 may answer
+    /// "USB" from its cache while the camera is back on "Camera").
+    fn force_priority(&self) {
+        let started = std::time::Instant::now();
+        let Some(widget) = self.widget("prioritymode") else {
+            return;
+        };
+        let Some(computer) = widget
+            .choices()
+            .ok()
+            .and_then(|choices| choices.into_iter().find(|c| c != "Camera"))
+        else {
+            return;
+        };
+        let set = widget.set_choice(&computer).and_then(|()| {
+            self.camera
+                .set_single_config(&self.context, "prioritymode", &widget)
+        });
+        match set {
+            Ok(()) => log::debug!(
+                "experiment priority: set to {computer} in {} ms",
+                started.elapsed().as_millis()
+            ),
+            Err(e) => log::warn!("experiment priority: not set to {computer}: {e}"),
+        }
+    }
+
+    /// `LiveViewExperiment::reopen`: ends the camera's live view
+    /// (libgphoto2's "movie" toggle off sends TerminateOpenCapture), so the
+    /// next frame opens it again.
+    /// Only on libgphoto2's Fujifilm tether path: on other vendors' paths
+    /// the widget of that name starts and stops movie recording.
+    fn end_live_view(&mut self) {
+        let started = std::time::Instant::now();
+        self.live_view_open = false;
+        if !self.transfer_queue {
+            log::warn!("experiment reopen: only on the Fujifilm tether path; not done");
+            return;
+        }
+        let Some(widget) = self.widget("movie") else {
+            log::warn!("experiment reopen: the camera has no open capture to end");
+            return;
+        };
+        let set = widget.set_toggle(false).and_then(|()| {
+            self.camera
+                .set_single_config(&self.context, "movie", &widget)
+        });
+        match set {
+            Ok(()) => log::info!(
+                "experiment reopen: live view ended before the shot in {} ms",
+                started.elapsed().as_millis()
+            ),
+            Err(e) => log::warn!("experiment reopen: live view not ended: {e}"),
         }
     }
 
@@ -354,6 +445,7 @@ impl Camera for GphotoCamera {
             transfer_queue: self.transfer_queue,
             serial: self.serial.clone(),
             firmware: self.firmware.clone(),
+            experimental: self.canon,
         }
     }
 
@@ -455,6 +547,9 @@ impl Camera for GphotoCamera {
     }
 
     fn fire(&mut self) -> Result<Fired, TetherError> {
+        if self.experiment.reopen && self.live_view_open {
+            self.end_live_view();
+        }
         if self.trigger {
             // libgphoto2's Fujifilm tether path hands priority back to the
             // body each time it reads the camera's events, and a body that
@@ -539,8 +634,14 @@ impl Camera for GphotoCamera {
     }
 
     fn preview(&mut self) -> Result<Vec<u8>, TetherError> {
+        if self.experiment.priority {
+            self.force_priority();
+        }
         let file = match self.camera.capture_preview(&self.context) {
-            Ok(file) => file,
+            Ok(file) => {
+                self.live_view_open = true;
+                file
+            }
             Err(e) if e.kind() == Gp::NotSupported => {
                 self.preview = false;
                 return Err(TetherError::new(
@@ -593,21 +694,98 @@ impl Camera for GphotoCamera {
             Err(e) if matches!(e.kind(), Gp::BadParameters | Gp::NotSupported) => None,
             Err(e) => return Err(session_error("Reading Save to", e)),
         };
-        Ok(crate::camera::memory_only(target.as_deref()))
+        if crate::camera::memory_only(target.as_deref()) {
+            return Ok(true);
+        }
+        // libgphoto2's Canon path shows Save to as set while the camera
+        // keeps photos in its memory without a card: there the card itself
+        // is looked for (`camera::card_in`). libgphoto2 lists only storage
+        // slots with a card in (an ID whose low 16 bits are 0 is an empty
+        // slot), plus Canon's virtual storage.
+        if self.canon {
+            // Where the camera really puts a capture: Save to may say the
+            // card while libgphoto2 kept the computer. Unknown is unsafe.
+            let destination = match self
+                .camera
+                .get_single_config(&self.context, crate::camera::CANON_DESTINATION)
+            {
+                Ok(widget) => widget.value().ok().and_then(text),
+                Err(e) if matches!(e.kind(), Gp::BadParameters | Gp::NotSupported) => None,
+                Err(e) => return Err(session_error("Reading the capture destination", e)),
+            };
+            if !crate::camera::canon_destination_keeps_card(destination.as_deref()) {
+                log::info!("capture destination {destination:?}: no card copy");
+                return Ok(true);
+            }
+            return match self.camera.storage_info(&self.context) {
+                Ok(storages) => {
+                    let storages: Vec<_> = storages.iter().map(storage).collect();
+                    let card = crate::camera::card_in(&storages);
+                    if !card {
+                        log::info!("no memory card found in {storages:?}");
+                    }
+                    Ok(!card)
+                }
+                // Cannot be told: kept as if no card were in.
+                Err(e) if matches!(e.kind(), Gp::NotSupported) => {
+                    log::warn!("the camera does not list its memory cards: {e}");
+                    Ok(true)
+                }
+                Err(e) => Err(session_error("Looking for the memory card", e)),
+            };
+        }
+        Ok(false)
     }
 
     fn one_shot_at_a_time(&self) -> bool {
         self.one_at_a_time
     }
 
+    fn experimental(&self) -> bool {
+        self.canon
+    }
+
     fn release(&mut self, file: &CameraFile) -> Result<bool, TetherError> {
-        if !self.transfer_queue {
+        // Never on the Canon path: there is no transfer queue, and a delete
+        // would reach the photo on the card.
+        if !self.transfer_queue || self.canon {
             return Ok(false);
         }
         self.camera
             .delete_file(&self.context, &file.folder, &file.name)
             .map(|()| true)
             .map_err(|e| session_error(&format!("Freeing {} on the camera", file.name), e))
+    }
+
+    /// libgphoto2's file list of the camera (PTP GetStorageIDs,
+    /// GetObjectHandles and GetObjectInfo: read only). Listing also puts the
+    /// objects into libgphoto2's object cache, so its Fujifilm event wait,
+    /// which reports every object handle it has not cached as a new photo,
+    /// does not report these again.
+    fn queued(&mut self) -> Result<Vec<(CameraFile, Option<u64>)>, TetherError> {
+        if !self.transfer_queue {
+            return Ok(Vec::new());
+        }
+        let files = self
+            .camera
+            .list_files_recursive(&self.context, "/")
+            .map_err(|e| session_error("Listing the camera's transfer queue", e))?;
+        let mut queued = Vec::with_capacity(files.len());
+        for path in files {
+            let size = self
+                .camera
+                .file_info(&self.context, &path.folder, &path.name)
+                .map_err(|e| session_error(&format!("Reading {} on the camera", path.name), e))?
+                .size;
+            queued.push((
+                CameraFile {
+                    folder: path.folder,
+                    name: path.name,
+                },
+                size,
+            ));
+        }
+        Ok(queued)
     }
 
     fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError> {

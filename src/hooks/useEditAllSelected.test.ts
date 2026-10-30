@@ -1,17 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, renderHook } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { toast } from 'react-toastify';
 import { invoke } from '@tauri-apps/api/core';
-import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, livePatch, useEditAllSelected } from './useEditAllSelected';
+import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, editAllNotSaved, livePatch, useEditAllSelected } from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
-import { waitForPendingMetadataSave } from './useEditorActions';
+import { flushRecipeSaves, waitForPendingMetadataSave } from './useEditorActions';
+import '../i18n';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes } from '../components/ui/AppProperties';
+import { switchLibraryAfterSaves, type UnsavedChoice } from '../utils/quit';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() } }));
+vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 
 const selection = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3'];
 const pasted = () =>
@@ -41,9 +46,14 @@ function edit(change: Partial<Adjustments>) {
   );
 }
 
+/** The batch write as the backend answers it (`RecipeBatch`). */
+const batchWritten = (command: string) =>
+  Promise.resolve(command === Invokes.ApplyAdjustmentsToPaths ? { changes: [] } : undefined);
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  vi.mocked(invoke).mockImplementation(batchWritten as never);
   useSettingsStore.setState({ osPlatform: 'macos' });
   useLibraryStore.setState({ multiSelectedPaths: selection });
   useEditorStore.setState({
@@ -255,8 +265,8 @@ describe('Edit all selected', () => {
       let written!: () => void;
       vi.mocked(invoke).mockImplementation((command) =>
         command === Invokes.ApplyAdjustmentsToPaths
-          ? new Promise<void>((resolve) => {
-              written = resolve;
+          ? new Promise((resolve) => {
+              written = () => resolve({ changes: [] });
             })
           : Promise.resolve(),
       );
@@ -271,7 +281,7 @@ describe('Edit all selected', () => {
       vi.useRealTimers();
       await act(async () => written());
       await vi.waitFor(() => expect(live().at(-1)).toEqual({ contrast: 8 }));
-      vi.mocked(invoke).mockImplementation(() => Promise.resolve());
+      vi.mocked(invoke).mockImplementation(batchWritten as never);
     });
 
     it('clears the live changes when it is switched off and they are written', async () => {
@@ -287,6 +297,214 @@ describe('Edit all selected', () => {
     it('never shows drawn masks live (they are framed per photograph)', () => {
       expect(livePatch({ masks: [] } as Partial<Adjustments>)).toBeNull();
       expect(livePatch({ masks: [], exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
+    });
+  });
+
+  describe('at a library switch', () => {
+    // The backend as the write command sees it: written into the library
+    // open now.
+    let active: string;
+    let written: Record<string, string[]>;
+    let failing: boolean;
+    let opened: () => void;
+    beforeEach(() => {
+      active = 'A';
+      written = { A: [], B: [] };
+      failing = false;
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === Invokes.ApplyAdjustmentsToPaths) {
+          if (failing) throw new Error('database is locked');
+          written[active].push(...(args as { paths: string[] }).paths);
+          // (`RecipeBatch`: the recipes it changed.)
+          return { changes: [] };
+        }
+        return undefined;
+      });
+    });
+    const openB = () =>
+      new Promise<string>((resolve) => {
+        opened = () => {
+          active = 'B';
+          resolve('B');
+        };
+      });
+
+    it('writes what was gathered into the library being left, and nothing made during the switch into the next', async () => {
+      renderHook(() => useEditAllSelected(true, selection));
+      edit({ exposure: 0.5 });
+      // Switched within the settle time: the edit is written into A first.
+      const switched = switchLibraryAfterSaves(openB, async () => 'cancel');
+      await act(async () => {
+        await vi.waitFor(() => expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']));
+      });
+      // An edit of the photograph still shown while B opens belongs to A.
+      edit({ exposure: 0.9 });
+      await act(async () => {
+        opened();
+        expect(await switched).toBe('B');
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      expect(written.B).toEqual([]);
+      expect(pasted()).toHaveLength(1);
+    });
+
+    /** The failure notice last shown, rendered (it carries Try again). */
+    const failureNotice = () => {
+      const content = vi.mocked(toast.error).mock.calls.at(-1)?.[0] as (props: { closeToast: () => void }) => ReactElement;
+      return render(content({ closeToast: () => {} }));
+    };
+    async function failedWrite() {
+      renderHook(() => useEditAllSelected(true, selection));
+      failing = true;
+      edit({ exposure: 0.5 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      failing = false;
+    }
+
+    it('is written before an export reads the recipes', async () => {
+      renderHook(() => useEditAllSelected(true, selection));
+      edit({ exposure: 0.5 });
+      // Exported within the settle time: written first.
+      await act(async () => {
+        expect(await flushRecipeSaves()).toEqual([]);
+      });
+      expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']);
+    });
+
+    it('shows a failed write with the photos not saved; Try again sends it to them once more', async () => {
+      await failedWrite();
+      expect(editAllNotSaved()).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      const notice = failureNotice();
+      expect(notice.container.textContent).toContain('a.CR3, c.CR3');
+      // An export is told, and nothing is sent again by itself.
+      let unsaved: string[] = [];
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      expect(pasted()).toHaveLength(1);
+      await act(async () => {
+        fireEvent.click(notice.getByRole('button', { name: 'Try again' }));
+      });
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual([]);
+      expect(editAllNotSaved()).toEqual([]);
+      expect(pasted().map(({ paths, adjustments }) => [paths, adjustments.exposure])).toEqual([
+        [['/s/a.CR3', '/s/c.CR3'], 0.5],
+        [['/s/a.CR3', '/s/c.CR3'], 0.5],
+      ]);
+      expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']);
+    });
+
+    it('stops counting a photo as not saved once a newer write of those settings is saved', async () => {
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ exposure: 0.5 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      failing = false;
+      rerender({ on: false });
+      rerender({ on: true });
+      edit({ exposure: 0.9 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      expect(editAllNotSaved()).toEqual([]);
+      expect(vi.mocked(toast.dismiss)).toHaveBeenCalled();
+    });
+
+    it('Try again leaves out the settings a newer save has written since', async () => {
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ exposure: 0.5, contrast: 20 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      const notice = failureNotice();
+      failing = false;
+      rerender({ on: false });
+      rerender({ on: true });
+      edit({ exposure: 0.9 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      // Contrast is still not saved.
+      expect(editAllNotSaved()).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      await act(async () => {
+        fireEvent.click(notice.getByRole('button', { name: 'Try again' }));
+      });
+      const last = pasted().at(-1)!;
+      expect(last.paths).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      expect(last.adjustments.contrast).toBe(20);
+      expect('exposure' in last.adjustments).toBe(false);
+      expect(editAllNotSaved()).toEqual([]);
+    });
+
+    it('Try again keeps the processing version the remaining settings were made with', async () => {
+      act(() =>
+        useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, sharpenVersion: 6 } as Adjustments })),
+      );
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ sharpness: 65 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      const notice = failureNotice();
+      failing = false;
+      rerender({ on: false });
+      rerender({ on: true });
+      // A sharpening setting saved since carries the version too.
+      edit({ sharpenRadius: 1.4 } as Partial<Adjustments>);
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      expect(pasted().at(-1)!.adjustments.sharpenVersion).toBe(6);
+      await act(async () => {
+        fireEvent.click(notice.getByRole('button', { name: 'Try again' }));
+      });
+      const retried = pasted().at(-1)!.adjustments;
+      expect(retried.sharpness).toBe(65);
+      expect(retried.sharpenVersion).toBe(6);
+      expect(editAllNotSaved()).toEqual([]);
+    });
+
+    it('Retry at a library switch sends a failed write again, into the library it was made in', async () => {
+      await failedWrite();
+      failing = true;
+      const ask = vi.fn(async (): Promise<UnsavedChoice> => {
+        failing = false;
+        return 'retry';
+      });
+      const switched = switchLibraryAfterSaves(openB, ask);
+      await act(async () => {
+        await vi.waitFor(() => expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']));
+        opened();
+        expect(await switched).toBe('B');
+      });
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(written.B).toEqual([]);
+      expect(editAllNotSaved()).toEqual([]);
+    });
+
+    it('warns at a library switch while a write failed; Discard leaves it unsent', async () => {
+      await failedWrite();
+      const ask = vi.fn(async (): Promise<UnsavedChoice> => 'discard');
+      const switched = switchLibraryAfterSaves(openB, ask);
+      await act(async () => {
+        await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+        opened();
+        expect(await switched).toBe('B');
+      });
+      expect(ask).toHaveBeenCalledWith(['Edits of a.CR3', 'Edits of c.CR3']);
+      expect(editAllNotSaved()).toEqual([]);
+      expect(written).toEqual({ A: [], B: [] });
+      expect(pasted()).toHaveLength(1);
     });
   });
 });

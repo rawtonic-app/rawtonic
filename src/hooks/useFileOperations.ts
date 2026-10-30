@@ -22,6 +22,7 @@ import {
   useCatalogUndoStore,
 } from "../utils/appUndo";
 import { isBelow } from '../utils/catalogFolders';
+import type { PlannedFile } from '../components/modals/RenameFileModal';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
 export interface FileOperationSummary {
@@ -124,7 +125,8 @@ async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
     // Below 1: a full bar would close the toast before the move is done.
     const progress = payload.total > 0 ? Math.min(payload.done / payload.total, 0.99) : 0;
     if (shown === null) {
-      shown = toast.info(render, { autoClose: false, closeButton: false, closeOnClick: false, progress });
+      // Notices hide countdown bars; this one shows how far the copy is.
+      shown = toast.info(render, { autoClose: false, closeButton: false, closeOnClick: false, hideProgressBar: false, progress });
     } else {
       toast.update(shown, { render, progress });
     }
@@ -884,7 +886,7 @@ export function useFileOperations(
   );
 
   const handleSaveRename = useCallback(
-    async (nameTemplate: string) => {
+    async (nameTemplate: string, expected: PlannedFile[]) => {
       const { renameTargetPaths, setUI } = useUIStore.getState();
 
       if (renameTargetPaths.length > 0 && nameTemplate) {
@@ -893,6 +895,7 @@ export function useFileOperations(
           const newPaths: Array<string> = await fileAction(
             () =>
               invoke<string[]>(Invokes.RenameFiles, {
+                expected,
                 nameTemplate,
                 paths: renameTargetPaths,
               }),
@@ -924,8 +927,10 @@ export function useFileOperations(
     [refreshImageList, followMoves],
   );
 
-  const handleRenameFiles = useCallback((paths: Array<string>) => {
-    if (paths && paths.length > 0) {
+  const handleRenameFiles = useCallback(async (paths: Array<string>) => {
+    // Saved first, so the preview already shows the edit sidecars the
+    // rename then takes along.
+    if (paths && paths.length > 0 && (await saveEditsFirst(paths))) {
       useUIStore.getState().setUI({ renameTargetPaths: paths, isRenameFileModalOpen: true });
     }
   }, []);

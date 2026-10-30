@@ -109,7 +109,7 @@ it('renaming the selected photo in the Library stays in the Library and keeps it
   useUIStore.setState({ activeView: 'library', renameTargetPaths: ['/job/Capture/A.RAF'] });
   useEditorStore.setState({ selectedImage: { path: '/job/Capture/A.RAF' } as never });
   useLibraryStore.setState({ libraryActivePath: '/job/Capture/A.RAF' });
-  await result.current.handleSaveRename('Grandpa');
+  await result.current.handleSaveRename('Grandpa', []);
   expect(handleImageSelect).toHaveBeenCalledWith('/job/Capture/Grandpa.RAF', false);
   expect(useUIStore.getState().activeView).toBe('library');
   expect(useLibraryStore.getState().libraryActivePath).toBe('/job/Capture/Grandpa.RAF');
@@ -130,7 +130,7 @@ it('a renamed pick stays picked, so the pick filter still finds it', async () =>
   useUIStore.setState({ activeView: 'library', renameTargetPaths: ['/job/Capture/chart0.png'] });
   useEditorStore.setState({ selectedImage: null });
   useLibraryStore.setState({ imageFlags: { '/job/Capture/chart0.png': 1 } });
-  await result.current.handleSaveRename('renamed');
+  await result.current.handleSaveRename('renamed', []);
   expect(flagsWhenListed).toEqual({ '/job/Capture/renamed.png': 1 });
   expect(useLibraryStore.getState().imageFlags).toEqual({ '/job/Capture/renamed.png': 1 });
 });

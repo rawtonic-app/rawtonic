@@ -133,7 +133,10 @@ pub fn hdr_panorama(
         let corrected = rawtonic_engine::image_processing::apply_geometry_warp(
             image::DynamicImage::ImageRgb32F(merged.image),
             &adjustments,
+            // A merge is linear light.
+            true,
         )
+        .map_err(|e| anyhow!(e))?
         .into_owned()
         .into_rgb32f();
         parked.push(park(

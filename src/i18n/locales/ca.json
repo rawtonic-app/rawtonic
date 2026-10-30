@@ -139,6 +139,7 @@
       "flag_unflag": "Sense marca",
       "import_photos": "Importa fotos…",
       "keyboard_shortcuts": "Dreceres de teclat",
+      "match_light": "Iguala la llum…",
       "move_to_selects": "Mou a Seleccionades",
       "new_session": "Projecte o catàleg nou…",
       "open_session": "Obre un projecte o catàleg…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sincronitza els ajustos",
       "tether_capture": "Dispara (càmera connectada)",
       "toggle_all_panels": "Tots els taulers i barres",
+      "toggle_auto_advance": "Avanç automàtic",
       "toggle_bottom_panel": "Tira de fotos",
       "toggle_clipping": "Avisos de retall",
       "toggle_export": "Exporta…",
@@ -221,7 +223,10 @@
     "empty": "Cap ordre coincident. Prova una altra cerca.",
     "keys": "↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "recent": "Ordres recents primer · ↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
-    "search": "Cerca ordres…"
+    "search": "Cerca ordres…",
+    "selectAtMostPhotos": "Selecciona com a màxim {{max}} fotografies",
+    "selectFourPhotos": "Selecciona almenys quatre fotografies",
+    "selectTwoPhotos": "Selecciona almenys dues fotografies"
   },
   "contextMenus": {
     "album": {
@@ -321,6 +326,9 @@
       "exportImage_one": "Exportar imatge",
       "exportImage_many": "Exportar {{count}} imatges",
       "exportImage_other": "Exportar {{count}} imatges",
+      "matchLight_one": "Iguala la llum…",
+      "matchLight_many": "Iguala la llum…",
+      "matchLight_other": "Iguala la llum…",
       "noAlbums": "Cap àlbum disponible",
       "pasteAdjustments_one": "Enganxar ajustaments",
       "pasteAdjustments_many": "Enganxar ajustaments a {{count}} imatges",
@@ -863,16 +871,36 @@
       "zoomInTooltip": "Apropar",
       "zoomOutTooltip": "Allunyar"
     },
+    "quit": {
+      "quitAnyway": "Surt igualment",
+      "unsavedMessage": "Aquests canvis no s’han pogut desar: {{changes}}. Si surts ara, els perdràs; cancel·la per mantenir el Rawtonic obert i torna-ho a provar.",
+      "unsavedTitle": "Canvis sense desar"
+    },
     "renameFile": {
+      "blocked": "No es pot canviar el nom de res fins que cada problema de dalt estigui resolt.",
       "cancel": "Cancel·lar",
+      "checking": "S’estan comprovant els noms…",
       "fileNamingTemplate": "Plantilla de nom de fitxer",
+      "more": "Més fotos no llistades: {{hidden}}",
       "newName": "Nou nom",
+      "noteXmpStays": "{{xmp}} es queda amb {{owner}}, que no es reanomena.",
+      "noteXmpWithRaw": "{{xmp}} es reanomena amb aquest RAW; {{others}} conserva el seu nom sense ell.",
+      "nothingChanges": "Cap nom no canvia.",
+      "preview": "Previsualització",
+      "previewFailed": "La previsualització ha fallat: {{error}}",
+      "problemInvalidName": "«{{name}}» no és un nom de fitxer vàlid.",
+      "problemNotFound": "El fitxer ja no hi és.",
+      "problemOccupied": "{{name}} ja existeix.",
+      "problemSameTarget": "Un altre fitxer d’aquest canvi de nom també es diria {{name}}.",
       "save": "Desar",
+      "summary": "Fotos reanomenades: {{photos}} · fitxers en total: {{files}}",
       "titleMultiple": "Reanomenar {{count}} imatges",
       "titleMultiple_one": "Reanomenar {{count}} imatge",
       "titleMultiple_many": "Reanomenar {{count}} imatges",
       "titleMultiple_other": "Reanomenar {{count}} imatges",
-      "titleSingle": "Reanomenar imatge"
+      "titleSingle": "Reanomenar imatge",
+      "unchanged": "conserva el seu nom",
+      "withFiles": "També es canvien de nom: {{files}}"
     },
     "renameFolder": {
       "cancel": "Cancel·lar",
@@ -962,6 +990,13 @@
       "year": "Any",
       "yearShort": "Any · 2 xifres"
     }
+  },
+  "notifications": {
+    "close": "Tanca la notificació",
+    "quitCancelled": "El Rawtonic ha romàs obert perquè el desat no ha acabat. Els canvis pendents encara s’estan desant.",
+    "quitSaving": "S’estan desant els canvis abans de sortir del Rawtonic…",
+    "quitSavingPhotos": "S’estan desant els canvis abans de sortir del Rawtonic… ({{done}}/{{total}})",
+    "region": "Notificacions"
   },
   "offline": {
     "badge": "Fora de línia",
@@ -1087,13 +1122,7 @@
       "picked_other": "{{count}} triades",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} connectada",
-      "tetherTitle": "Captura connectada: les fotos d’una càmera per USB arriben directament a aquesta biblioteca",
-      "xmpPending_one": "{{count}} XMP pendent",
-      "xmpPending_many": "{{count}} XMP pendents",
-      "xmpPending_other": "{{count}} XMP pendents",
-      "xmpPendingAction_one": "{{count}} foto necessita sincronitzar l’XMP – feu clic per revisar",
-      "xmpPendingAction_many": "{{count}} fotos necessiten sincronitzar l’XMP – feu clic per revisar",
-      "xmpPendingAction_other": "{{count}} fotos necessiten sincronitzar l’XMP – feu clic per revisar"
+      "tetherTitle": "Captura connectada: les fotos d’una càmera per USB arriben directament a aquesta biblioteca"
     },
     "create": {
       "catalog": "Catàleg",
@@ -1109,7 +1138,7 @@
       "location": "Ubicació",
       "modeLabel": "Organització",
       "name": "Nom del projecte",
-      "namePlaceholder": "2026-10-01_Client_Feina",
+      "namePlaceholder": "{{date}}_Client_Feina",
       "namePreview": "El teu encàrrec",
       "originalsUntouched": "Les fotos originals no es modifiquen.",
       "session": "Projecte",
@@ -1282,6 +1311,7 @@
       "failed": "No s’ha pogut obrir l’última biblioteca: {{error}}",
       "opening": "S’està obrint {{name}} ({{directory}})… Si el macOS demana accés a aquest volum, permet-lo."
     },
+    "switching": "S’està obrint la biblioteca…",
     "sync": {
       "applied": "Mogudes {{moved}} · Afegides {{added}} · Tretes {{removed}}",
       "apply": "Aplica ({{n}})",
@@ -1339,6 +1369,13 @@
     "tether": {
       "battery": "Bateria {{level}}",
       "camera": "Càmera",
+      "canon": {
+        "badge": "Experimental",
+        "connectedNote": "Experimental: si una foto no apareix aquí, no s’ha perdut: és a la targeta de memòria. Deixa la targeta a la càmera. Rawtonic t’avisa quan una foto disparada des de Rawtonic no arriba, tret que mentrestant arribi una foto feta a la càmera i n’ocupi el lloc. Després d’una sessió, compara la targeta amb la biblioteca.",
+        "notReceived": "No s’ha rebut la foto {{n}}. Si la càmera l’ha feta, és a la targeta de memòria.",
+        "openPreferences": "Obre les preferències de Tethering",
+        "optInNeeded": "Les càmeres Canon encara no s’han provat amb Rawtonic. Per provar la teva i ajudar a provar-la, activa «Experimental: càmeres Canon» a Preferències > Tethering."
+      },
       "capture": "Dispara",
       "captureFailed": "La captura ha fallat: {{error}}",
       "captureTitle": "Dispara la càmera (⌘K / Ctrl+K)",
@@ -1355,6 +1392,7 @@
       "lastIn": "{{file}} és a la biblioteca",
       "lastTiming": "{{file}} a la biblioteca {{ms}} ms després del tret",
       "level": {
+        "experimental": "Experimental — es busquen provadors. Encara no provat amb Rawtonic: pot ser que una foto no aparegui aquí i llavors només és a la targeta de memòria.",
         "notSupported": "Aquesta càmera encara no és compatible.",
         "reported": "Funciona segons els usuaris d'aquest model de càmera.",
         "tested": "Provat amb aquest model de càmera a {{systems}} ({{date}}).",
@@ -1372,6 +1410,14 @@
         "bursting": "{{shots}} trets seguits…",
         "button": "Prova de càmera…",
         "buttonTitle": "Prova aquesta càmera pas a pas i crea un informe anònim",
+        "canonGuide": {
+          "card": "Mantén una targeta de memòria a la càmera durant tota la prova.",
+          "missing": "Si una foto no apareix, també és útil saber-ho: continua a la targeta de memòria i la prova la compta.",
+          "send": "Al final, fes clic a «{{button}}». Veuràs exactament què s’envia —sense fotos, noms de fitxer ni número de sèrie— i res no surt del teu ordinador abans que ho confirmis.",
+          "sendNote": "Aquest resultat prové de la compatibilitat experimental amb Canon. Gràcies per provar: cada resultat ajuda, també un en què han faltat fotos.",
+          "steps": "Fes els passos de sota un per un: fes clic a Executa i fes el que demana el pas. Si la càmera no pot fer un pas, fes clic a Omet.",
+          "title": "Com provar la teva càmera Canon"
+        },
         "close": "Tanca la prova de càmera",
         "how": {
           "autofocus": "Enfoca una vegada. Omet-ho amb un objectiu manual o amb MF a la càmera.",
@@ -1498,6 +1544,13 @@
       "verifyProgress_many": "Verificant · {{count}} fitxers comprovats",
       "verifyProgress_other": "Verificant · {{count}} fitxers comprovats"
     },
+    "unsaved": {
+      "cancel": "Cancel·la",
+      "discard": "Descarta els canvis no desats",
+      "message": "No s’han pogut desar aquests canvis: {{files}}. Si ara obres una altra biblioteca, es perdran. Torna-ho a provar per desar-los primer, descarta’ls o cancel·la per quedar-te en aquesta biblioteca.",
+      "retry": "Torna-ho a provar",
+      "title": "Canvis no desats"
+    },
     "welcome": {
       "body": "Crea un projecte portàtil per a la teva propera sessió de fotos. Mantén juntes les preses, els ajustaments i els lliuraments, des de la primera imatge fins a la selecció final.",
       "create": "Crea un projecte",
@@ -1512,49 +1565,89 @@
       "toolsSide": "On vols les eines de Revelatge?"
     },
     "xmp": {
-      "conflictHeading_one": "{{count}} conflicte",
-      "conflictHeading_many": "{{count}} conflictes",
-      "conflictHeading_other": "{{count}} conflictes",
-      "conflictHint": "El fitxer XMP s’ha modificat fora de Rawtonic des de l’última sincronització. Trieu quines metadades voleu conservar.",
-      "editNotAdopted": "La seva edició desada encara no és a la biblioteca: editeu primer aquesta foto a Revelatge i després resoleu.",
-      "inSync": "Tots els fitxers XMP estan sincronitzats.",
-      "keepLibrary": "Conserva la biblioteca",
-      "keepLibraryAll": "Conserva la biblioteca per a totes",
-      "keepLibraryFor": "Conserva la biblioteca per a {{name}}",
-      "keepLibraryTitle": "Escriu les metadades de la biblioteca al fitxer XMP",
-      "leftOut_one": "{{count}} foto exclosa d’Usa l’XMP: editeu-la primer a Revelatge.",
-      "leftOut_many": "{{count}} fotos excloses d’Usa l’XMP: editeu-les primer a Revelatge.",
-      "leftOut_other": "{{count}} fotos excloses d’Usa l’XMP: editeu-les primer a Revelatge.",
-      "loading": "S’estan comprovant els fitxers XMP…",
-      "more_one": "i {{count}} més",
-      "more_many": "i {{count}} més",
-      "more_other": "i {{count}} més",
-      "offline": "Fora de línia",
-      "offlineNote_one": "{{count}} foto és fora de línia: el seu XMP s’escriu quan tornin el fitxer o el disc.",
-      "offlineNote_many": "{{count}} fotos són fora de línia: el seu XMP s’escriu quan tornin el fitxer o el disc.",
-      "offlineNote_other": "{{count}} fotos són fora de línia: el seu XMP s’escriu quan tornin el fitxer o el disc.",
-      "originalsUntouched": "Només s’escriuen fitxers XMP; les fotos no es modifiquen.",
-      "pendingHeading_one": "{{count}} pendent",
-      "pendingHeading_many": "{{count}} pendents",
-      "pendingHeading_other": "{{count}} pendents",
-      "pendingHint": "La biblioteca és més recent: el fitxer XMP encara no s’ha escrit (foto fora de línia, fitxer de només lectura o error d’escriptura).",
-      "prefsOff": "La sincronització XMP està desactivada a les Preferències. Aquest ajust s’aplica a carpetes obertes sense biblioteca; les fotos d’aquesta biblioteca mantenen els seus fitxers XMP al dia.",
-      "result": "Fet: {{done}} · fora de línia: {{offline}} · conflictes: {{conflicts}} · errors: {{failed}}",
-      "subtitle": "Valoracions, etiquetes, paraules clau i metadades IPTC al costat de cada foto per a altres aplicacions.",
-      "syncNow": "Sincronitza ara",
-      "title": "Fitxers sidecar XMP",
-      "undo_one": "Desfés Usa l’XMP",
-      "undo_many": "Desfés Usa l’XMP ({{count}})",
-      "undo_other": "Desfés Usa l’XMP ({{count}})",
-      "useXmp": "Usa l’XMP",
-      "useXmpAll": "Usa l’XMP per a totes",
-      "useXmpFor": "Usa l’XMP per a {{name}}",
-      "useXmpTitle": "Llegeix la valoració, l’etiqueta, les paraules clau i les metadades IPTC del fitxer XMP a la biblioteca (es pot desfer)",
-      "view": "XMP per revisar"
+      "buttonTitle": "Alguns fitxers XMP no estan al dia amb la biblioteca. Fes clic per veure'n els detalls i tornar-los a escriure.",
+      "count_one": "{{count}} XMP sense actualitzar",
+      "count_many": "{{count}} XMP sense actualitzar",
+      "count_other": "{{count}} XMP sense actualitzar",
+      "explain": "Els teus ajustos, valoracions i paraules clau estan segurs a la biblioteca. Altres programes que llegeixen fitxers XMP encara no veuen aquests canvis. Les fotos mateixes no es modifiquen mai.",
+      "heading_one": "El fitxer XMP de {{count}} foto no està al dia",
+      "heading_many": "Els fitxers XMP de {{count}} fotos no estan al dia",
+      "heading_other": "Els fitxers XMP de {{count}} fotos no estan al dia",
+      "reason": {
+        "changedElsewhere_one": "Un altre programa ha modificat {{count}} fitxer XMP. Rawtonic no el sobreescriu; la biblioteca conserva la teva versió.",
+        "changedElsewhere_many": "Un altre programa ha modificat {{count}} fitxers XMP. Rawtonic no els sobreescriu; la biblioteca conserva la teva versió.",
+        "changedElsewhere_other": "Un altre programa ha modificat {{count}} fitxers XMP. Rawtonic no els sobreescriu; la biblioteca conserva la teva versió.",
+        "failed_one": "No s'ha pogut escriure {{count}} fitxer XMP: {{error}}",
+        "failed_many": "No s'han pogut escriure {{count}} fitxers XMP: {{error}}",
+        "failed_other": "No s'han pogut escriure {{count}} fitxers XMP: {{error}}",
+        "offline_one": "{{count}} foto està fora de línia. El seu fitxer XMP s'actualitzarà quan tornis a connectar la unitat.",
+        "offline_many": "{{count}} fotos estan fora de línia. Els seus fitxers XMP s'actualitzaran quan tornis a connectar la unitat.",
+        "offline_other": "{{count}} fotos estan fora de línia. Els seus fitxers XMP s'actualitzaran quan tornis a connectar la unitat.",
+        "sharedName_one": "{{count}} foto té el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP."
+      },
+      "retry": "Torna-ho a provar",
+      "retryFailed": "No s'han pogut escriure els fitxers XMP: {{error}}",
+      "show": "Mostra les fotos",
+      "title": "Fitxers XMP no actualitzats",
+      "view": "XMP no actualitzat",
+      "writing": "S'està escrivint…",
+      "written_one": "Fitxer XMP actualitzat per a {{count}} foto",
+      "written_many": "Fitxers XMP actualitzats per a {{count}} fotos",
+      "written_other": "Fitxers XMP actualitzats per a {{count}} fotos"
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Base de dades de la biblioteca, amb una correcció de Rawtonic al bloqueig WAL de Windows.",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "Quant a",
       "general": "General",
       "processing": "Processament",
       "shortcuts": "Controls"
@@ -1630,7 +1723,7 @@
     },
     "general": {
       "autoAdvance": "Avanç automàtic",
-      "autoAdvanceDesc": "A Revelatge, una tecla de valoració, selecció, rebuig o treure la marca passa a la foto següent, i la tria demana una tecla per foto.",
+      "autoAdvanceDesc": "En valorar o marcar, avança des de la foto mostrada o una selecció individual de la graella. Activa-ho amb Bloq Maj o al menú Foto.",
       "builtinPresets": "Predefinits integrats",
       "builtinPresetsDesc": "Mostra els estils i predefinits propis de Rawtonic a Estils i predefinits i als menús de predefinits de les eines.",
       "createXmp": "Crear fitxers XMP que falten",
@@ -1646,7 +1739,7 @@
       "nativeTitlebar": "Barra de títol nativa",
       "nativeTitlebarDesc": "Utilitzar la barra de títol de la finestra predeterminada del sistema en lloc de la personalitzada de Rawtonic.",
       "proofMargin": "Marge de prova",
-      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (X), com a part del costat més curt del visor.",
+      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (Alt+X), com a part del costat més curt del visor.",
       "showBuiltinPresets": "Mostra els predefinits integrats",
       "title": "Configuració general",
       "uiScale": "Mida de la interfície",
@@ -1899,18 +1992,48 @@
       "shortcutsDesc": "Una llista d'etiquetes que apareixeran com a dreceres al menú contextual d'etiquetatge.",
       "title": "Etiquetatge"
     },
+    "tethering": {
+      "camerasLink": "Quines càmeres funcionen i com informar de la teva",
+      "canon": "Experimental: càmeres Canon (ajuda a provar)",
+      "canonDesc": "Permet que Rawtonic connecti una càmera Canon per USB, perquè la puguis provar i enviar un breu resultat de la prova.",
+      "canonSwitch": "Connecta càmeres Canon",
+      "howToTest": "Per ajudar: connecta la càmera al tauler Tethering, fes clic a Prova de càmera… i segueix els passos. Al final veus exactament què s’enviaria abans que res surti del teu ordinador.",
+      "title": "Tethering",
+      "warningCard": "Una foto que facis pot no aparèixer a Rawtonic. Llavors només és a la targeta de memòria de la càmera, així que mantén una targeta a la càmera tot el temps.",
+      "warningNothingDeleted": "Rawtonic mai no esborra res de la càmera ni de la targeta.",
+      "warningUntested": "Encara sense provar: fins ara no s’ha provat cap càmera Canon amb Rawtonic."
+    },
     "title": "Configuració",
     "tooltips": {
       "goHome": "Anar a l'inici"
     }
   },
   "spotRemoval": {
+    "cancel": "Cancel·la",
+    "deleteSelected": "Elimina la selecció",
+    "deleteSelectedHint": "Suprimeix o Retrocés. A la foto, Alt+clic n'elimina una; Alt+arrossegar elimina totes les que toca el requadre.",
     "detectObjects": "Detecta objectes",
     "detectObjectsBoxHint": "Arrossega un rectangle al voltant d'un objecte o fes-hi clic per eliminar-lo.",
     "detectObjectsHint": "Pinta per sobre d'un objecte o fes-hi clic per eliminar-lo.",
     "detectObjectsRefineHint": "Maj afegeix a l'eliminació seleccionada, Alt (⌥) en resta.",
+    "downloadingModel": "S'està baixant el model per eliminar objectes… {{percent}} %",
+    "fallbackDownload": "No s’ha pogut baixar el model d’eliminació d’objectes (sense connexió?), així que el model més petit (MI-GAN) ha omplert aquesta zona. Desfés i torna a eliminar quan tinguis connexió per a un millor farciment.",
+    "fallbackUnavailable": "No s’ha pogut executar el model d’eliminació d’objectes, així que el model més petit (MI-GAN) ha omplert aquesta zona.",
     "feather": "Difuminat",
     "featherAria": "Difuminat de la taca",
+    "filling": "S'està eliminant… pas {{done}} de {{total}}",
+    "largeHoleTooSlow": "Aquesta GPU és massa lenta per eliminar zones grans; Elimina fa servir el mètode ràpid la resta de la sessió.",
+    "list": {
+      "aria": "Taques i eliminacions",
+      "count": "Correccions ({{number}})",
+      "delete": "Elimina {{name}}",
+      "deleteAll": "Elimina-les totes",
+      "hideAll": "Amaga-les totes",
+      "item": "{{kind}} {{number}}",
+      "select": "Selecciona {{name}}",
+      "showAll": "Mostra-les totes",
+      "toggle": "Mostra {{name}}"
+    },
     "mode": "Mode de taques",
     "modes": {
       "clone": "Clona",
@@ -1943,6 +2066,7 @@
     },
     "sensitivity": "Sensibilitat",
     "sensitivityAria": "Sensibilitat de la visualització de taques",
+    "showRemovals": "Mostra les eliminacions",
     "size": "Mida",
     "sizeAria": "Mida de la taca",
     "visualize": "Visualitza les taques"
@@ -2114,6 +2238,7 @@
       },
       "grading": {
         "hueAria": "To ({{range}})",
+        "link": "Vincula les rodes tonals",
         "luminanceArcTitle": "Luminància ({{range}}) {{value}} · arrossega o fletxes · Maj: fi · doble clic restableix",
         "luminanceAria": "Luminància ({{range}})",
         "ranges": "Rangs",
@@ -2262,9 +2387,11 @@
         "channel": "Canal de la corba",
         "input": "Entrada",
         "maxPoints": "Màxim {{max}} punts per canal. Mou o treu un punt per afinar la corba.",
-        "output": "Sortida"
+        "output": "Sortida",
+        "point": "Punt {{index}}, entrada {{input}}, sortida {{output}}. Mou amb les fletxes; A afegeix un punt; Supr l’elimina."
       },
       "effects": {
+        "grainColor": "Color del gra",
         "grainStructure": "Estructura del gra",
         "grainStructures": {
           "clumped": "Agrupat",
@@ -2315,6 +2442,7 @@
         "opened": "Imatge oberta",
         "other": "Ajustament",
         "redEyes": "Ulls vermells",
+        "remove": "Elimina",
         "spots": "Eliminació de taques",
         "title": "Historial"
       },
@@ -2406,6 +2534,7 @@
           "red": "Vermell",
           "white": "Blanc"
         },
+        "currentMode": "Visualització de la màscara: {{mode}}",
         "custom": "Color de màscara personalitzat",
         "display": "Visualització de la màscara",
         "modes": {
@@ -2660,11 +2789,14 @@
           "minutes": "queden uns {{minutes}} min",
           "seconds": "queden uns {{seconds}} s"
         },
+        "exportedTo": "Exportat a:",
         "failed": "{{failed}} de {{total}} han fallat",
         "failures": "Fotos que no s'han exportat",
+        "fullResolution": "Resolució completa",
         "held": "La cua està aturada: les exportacions en espera començaran quan inicieu la cua.",
         "holdQueue": "Atura la cua",
         "interrupted": "Interrompuda ({{done}} de {{total}} exportades)",
+        "originalFolder": "Carpeta original",
         "pause": "Pausa",
         "paused": "En pausa ({{done}} de {{total}} exportades)",
         "pausing": "Es posarà en pausa després de les fotos en curs…",
@@ -2757,7 +2889,8 @@
         "queuedMany_one": "S'ha afegit {{count}} exportació a la cua.",
         "queuedMany_many": "S'han afegit {{count}} exportacions a la cua.",
         "queuedMany_other": "S'han afegit {{count}} exportacions a la cua.",
-        "queuedOne": "S'ha afegit a la cua d'exportació."
+        "queuedOne": "S'ha afegit a la cua d'exportació.",
+        "unsavedEdits": "No s'han pogut desar les edicions de {{names}}, així que no s'ha exportat res. Torneu a exportar quan estiguin desades."
       },
       "watermark": {
         "add": "Afegeix una marca d'aigua",
@@ -2823,6 +2956,21 @@
       "includeNeck": "Inclou el coll",
       "modelsMissing": "El retoc facial necessita els seus models de cara. Es baixen una sola vegada del paquet de models de Rawtonic a GitHub i s'executen en aquest ordinador.",
       "noFaces": "No s'ha trobat cap cara en aquesta foto.",
+      "protect": {
+        "brush": "Pinzell de protecció",
+        "clear": "Treu la protecció",
+        "feather": "Difuminat",
+        "featherAria": "Difuminat del pinzell de protecció",
+        "hint": "Pinta sobre pigues, lunars i marques de bellesa que el retoc ha de deixar com són. Mantén Alt (Opció) per esborrar; [ i ] canvien la mida.",
+        "modes": {
+          "erase": "Esborra",
+          "off": "Desactivat",
+          "paint": "Protegeix"
+        },
+        "show": "Mostra les zones protegides",
+        "size": "Mida",
+        "sizeAria": "Mida del pinzell de protecció"
+      },
       "showBlemishes": "Mostra les imperfeccions (fes clic en una per conservar-la o corregir-la)",
       "sliders": {
         "blemishes": "Imperfeccions",
@@ -2837,16 +2985,21 @@
     },
     "histogram": {
       "aria": "Histograma de la imatge",
-      "clipping": "Retall",
-      "clippingTitle": "Avisos de retall: llums retallades en vermell, ombres retallades en blau ({{shortcut}})",
+      "clippingAria": "Avisos de retallada",
       "gamut": "Avís de gamma",
       "gamutTitle": "Avís de gamma: colors fora de l'espai de color de la prova en vermell",
       "graphAria": "Distribució de luminància RGB de la foto seleccionada",
       "graphEmpty": "Histograma disponible després d'obrir una foto",
+      "highlightClipping": "Avís de llums",
+      "highlightClippingLit": "Avís de llums, retallades",
+      "highlightClippingTitle": "Avís de llums (llums altes retallades; {{shortcut}} activa tots dos)",
       "proof": "Prova",
       "proofSpace": "Espai de color de la prova",
       "proofTitle": "Prova en pantalla: mostra la foto com es veurà una exportació a l'espai de color triat ({{shortcut}})",
       "selectPhoto": "Selecciona una foto",
+      "shadowClipping": "Avís d'ombres",
+      "shadowClippingLit": "Avís d'ombres, retallades",
+      "shadowClippingTitle": "Avís d'ombres (ombres retallades; {{shortcut}} activa tots dos)",
       "title": "Histograma"
     },
     "layers": {
@@ -3155,12 +3308,25 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "Reducció de soroll amb IA",
+          "aiMask": "Seleccions amb IA",
+          "fillExternal": "Emplenament: servei extern",
+          "fillMiGan": "Eliminació: MI-GAN",
+          "fillMoebius": "Eliminació: Moebius",
+          "fillUnrecorded": "Eliminació: model no registrat",
+          "generated": "Àrees generades",
+          "missingFill": "Emplenament sense els seus píxels",
+          "olderDenoise": "Versió anterior de la reducció de soroll amb IA",
+          "pendingDetection": "Selecció amb IA encara no detectada"
+        },
         "all_one": "Tots ({{count}} valor)",
         "all_many": "Tots ({{count}} valors)",
         "all_other": "Tots ({{count}} valors)",
         "apertureValue": "f/{{value}}",
         "button": "Metadades",
         "fields": {
+          "ai": "Edicions amb IA",
           "aperture": "Obertura",
           "camera": "Càmera",
           "captureDate": "Data de captura",
@@ -3168,7 +3334,8 @@
           "focalLength": "Distància focal",
           "iso": "ISO",
           "keyword": "Paraula clau",
-          "lens": "Objectiu"
+          "lens": "Objectiu",
+          "sourceType": "Origen digital"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3184,6 +3351,7 @@
         "isoValue": "ISO {{value}}",
         "label": "Filtre de metadades",
         "none": {
+          "ai": "Sense edicions amb IA",
           "aperture": "Obertura desconeguda",
           "camera": "Càmera desconeguda",
           "captureDate": "Sense data",
@@ -3191,11 +3359,30 @@
           "focalLength": "Distància focal desconeguda",
           "iso": "ISO desconeguda",
           "keyword": "Sense paraula clau",
-          "lens": "Objectiu desconegut"
+          "lens": "Objectiu desconegut",
+          "sourceType": "No indicat"
         },
         "rangeHint": "Un clic tria un valor, Maj-clic tria tots els valors des de l'últim clicat",
         "showMonths": "Mostra els mesos de {{year}}",
-        "toggle": "Mostra o amaga les llistes de metadades (data de captura, càmera, objectiu, paraula clau, tipus de fitxer, ISO, distància focal, obertura)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "Millorat per un algorisme",
+          "algorithmicMedia": "Creat per un algorisme",
+          "compositeCapture": "Composició de captures",
+          "compositeSynthetic": "Composició d’elements sintètics",
+          "compositeWithTrainedAlgorithmicMedia": "Composició amb parts generades per IA",
+          "computationalCapture": "Captura computacional",
+          "dataDrivenMedia": "Mitjans basats en dades",
+          "digitalArt": "Art digital",
+          "digitalCapture": "Captura digital",
+          "humanEdits": "Editat per una persona",
+          "negativeFilm": "Negatiu de pel·lícula",
+          "positiveFilm": "Positiu de pel·lícula",
+          "print": "Còpia impresa",
+          "screenCapture": "Captura de pantalla",
+          "trainedAlgorithmicMedia": "Generat per IA",
+          "virtualRecording": "Enregistrament virtual"
+        },
+        "toggle": "Mostra o amaga les llistes de metadades (data de captura, càmera, objectiu, paraula clau, tipus de fitxer, ISO, distància focal, obertura, edicions amb IA, origen digital)"
       },
       "navigator": {
         "empty": "Selecciona una foto",
@@ -3243,6 +3430,7 @@
         "editTitle": "Edita l'àlbum intel·ligent",
         "fieldLabel": "Camp",
         "fields": {
+          "ai": "Edició amb IA",
           "album": "Àlbum",
           "aperture": "Obertura (nombre f)",
           "camera": "Càmera",
@@ -3263,6 +3451,7 @@
           "offline": "Foto que falta",
           "previousImport": "A la importació anterior",
           "rating": "Valoració",
+          "sourceType": "Origen digital (al fitxer)",
           "text": "Qualsevol text cercable"
         },
         "folderPlaceholder": "Camí de la carpeta",
@@ -3577,7 +3766,9 @@
     "multiView": {
       "controls": "Marca, valora o treu {{name}}",
       "editAll": "Edita totes les seleccionades",
+      "editAllNotSaved": "«Edita totes les seleccionades» no ha pogut desar aquestes fotos: {{names}}. Conserven la configuració anterior fins que ho tornis a provar.",
       "editAllTitle": "Edita totes les seleccionades: els canvis a la foto principal també van a cada altra foto mostrada (marcs taronja)",
+      "editAllTryAgain": "Torna-ho a provar",
       "makePrimary": "Edita {{name}} (fes-la la foto principal)",
       "more_one": "i {{n}} més",
       "more_many": "i {{n}} més",
@@ -3625,6 +3816,7 @@
     },
     "presets": {
       "amount": "Quantitat del preajust",
+      "appliedStyle": "Estil aplicat: feu clic per retirar-lo",
       "appliesAll": "Aplica tota la configuració amb què es va desar",
       "appliesBuiltin": "Predefinit propi de Rawtonic: aplica els ajustos que conté",
       "appliesSaved": "Aplica la configuració amb què es va desar",
@@ -3653,11 +3845,10 @@
         "grading-warm-shadows-cool-highlights": "Ombres càlides, llums fredes",
         "grading-warm-tone": "To càlid",
         "grading-warm-up": "Més càlid",
-        "grain-coarse": "Gruixut",
-        "grain-fine": "Fi",
-        "grain-heavy": "Intens",
-        "grain-medium": "Mitjà",
-        "grain-speckled": "Clapejat",
+        "grain-bw-100": "B/N 100 fi",
+        "grain-bw-400": "B/N 400 clàssic",
+        "grain-colour-100": "Negatiu color 100 subtil",
+        "grain-colour-400": "Negatiu color 400",
         "muted-colour": "Colors apagats",
         "noise-light": "Lleuger",
         "noise-medium": "Mitjà",
@@ -3681,7 +3872,7 @@
       "deleteFolderWithPresets_many": "Vols suprimir «{{name}}» i els seus {{count}} preajusts?",
       "deleteFolderWithPresets_other": "Vols suprimir «{{name}}» i els seus {{count}} preajusts?",
       "deletePreset": "Suprimeix el preajust",
-      "empty": "Encara no hi ha preajusts. Ajusta una foto i prem + per desar-ne la configuració.",
+      "empty": "Encara no tens estils propis. Ajusta una fotografia i prem + per desar-ne els ajustos.",
       "exportTitle": "Exporta {{name}}",
       "fileType": "Preajust de Rawtonic",
       "find": "Cerca preajusts",
@@ -3836,7 +4027,59 @@
       "x": "Posició X",
       "y": "Posició Y"
     },
+    "seriesMatch": {
+      "after": "Igualada",
+      "analysing": "Analitzant {{done}} de {{total}}…",
+      "applied_one": "Llum igualada en {{count}} foto",
+      "applied_many": "Llum igualada en {{count}} fotos",
+      "applied_other": "Llum igualada en {{count}} fotos",
+      "apply_one": "Aplica a {{count}} foto",
+      "apply_many": "Aplica a {{count}} fotos",
+      "apply_other": "Aplica a {{count}} fotos",
+      "applyTo": "Aplica a {{name}}",
+      "before": "Ara",
+      "cancel": "Cancel·la",
+      "change": "Canvi",
+      "confidence": "Confiança",
+      "downloadFaces": "Baixa els models de cares",
+      "exposure": "Exposició",
+      "exposureChange": "Exposició {{value}} EV",
+      "faces": "Fes servir les cares (tons de pell)",
+      "facesTitle": "Les cares es detecten en aquest ordinador; la pell ancora l'exposició i el balanç de blancs.",
+      "facesUsed": "(cares)",
+      "failed": "Error en igualar la llum: {{error}}",
+      "intro": "Normalitza l'exposició i el balanç de blancs de cada foto segons les fotos de referència (★), ancorat en els tons de pell quan es veuen cares, per poder sincronitzar després un mateix aspecte a tota la sèrie. Les forquilles, siluetes i la llum d'escenari de color es mantenen.",
+      "isReference": "Referència",
+      "note": "Nota",
+      "notSaved": "Algunes fotos no s'han desat: {{error}}",
+      "reasons": {
+        "alreadyMatches": "Ja coincideix",
+        "anchorsDisagree": "Cares i escena no coincideixen – revisa",
+        "bracket": "Forquilla d'exposició – sense canvis",
+        "cameraCompensation": "Compensació d'exposició ajustada a la càmera – revisa",
+        "colouredLight": "Llum de color – balanç de blancs sense canvis",
+        "largeChange": "Canvi d'exposició gran – revisa",
+        "littleInCommon": "Poc en comú amb la referència – revisa",
+        "noReference": "Sense referència",
+        "noWhiteBalance": "Sense balanç de blancs per a aquest fitxer",
+        "silhouette": "Silueta – es manté fosca",
+        "unreadable": "No s'ha pogut llegir"
+      },
+      "reference": "Ref.",
+      "referenceTitle": "Fes servir com a referència",
+      "results": "Resultats",
+      "summary": "{{match}} per igualar · {{review}} per revisar · {{keep}} sense canvis · {{seconds}} s",
+      "thenSync": "Després sincronitza l'aspecte de la referència amb Sincronitza els ajustos, sense Exposició ni Balanç de blancs.",
+      "title_one": "Igualar la llum de {{count}} foto",
+      "title_many": "Igualar la llum de {{count}} fotos",
+      "title_other": "Igualar la llum de {{count}} fotos",
+      "whiteBalance": "Balanç de blancs",
+      "whiteBalanceChange": "{{from}} K → {{to}} K, matís {{tint}}",
+      "whiteBalanceTo": "Balanç de blancs {{to}} K"
+    },
     "spot": {
+      "done": "Acaba l'eliminació de taques",
+      "start": "Inicia l'eliminació de taques",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {
@@ -3853,14 +4096,20 @@
         "auto": "Auto",
         "autoAria": "Nivells automàtics",
         "autoTitle": "Defineix els punts de negre i blanc a partir de l'histograma",
-        "black": "Negre",
         "channelAria": "Canal dels nivells",
-        "highlight": "Altes llums",
+        "fieldAria": "Valor de {{name}}",
+        "histogramAria": "Histograma dels nivells",
+        "inBlack": "Negre d'entrada",
+        "inWhite": "Blanc d'entrada",
         "midtone": "Tons mitjans",
+        "outBlack": "Negre de sortida",
         "output": "Sortida",
-        "shadow": "Ombres",
-        "title": "Nivells",
-        "white": "Blanc"
+        "outWhite": "Blanc de sortida",
+        "pickBlack": "Comptagotes del punt negre",
+        "pickBlackTitle": "Feu clic a la foto on hauria de ser negre",
+        "pickWhite": "Comptagotes del punt blanc",
+        "pickWhiteTitle": "Feu clic a la foto on hauria de ser blanc",
+        "title": "Nivells"
       },
       "regionCurve": {
         "aria": {
@@ -4212,17 +4461,25 @@
     }
   },
   "undoHistory": {
+    "apply": "Aplica els ajustos",
     "color": "Estableix l’etiqueta de color",
     "edit": "Edició",
     "file": "Canvi de fitxer",
     "flag": "Estableix la marca",
+    "lensCorrection": "Correcció de l'objectiu",
+    "matchLight": "Igualar la llum",
     "move": "Mou",
     "notice": "{{action}}: {{name}}",
     "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
+    "paste": "Enganxa els ajustos",
     "rating": "Estableix la puntuació",
+    "recipesNotAll": "No s'han pogut escriure totes les fotos",
     "redoAction": "Refés: {{action}}",
     "rename": "Canvia el nom",
+    "reset": "Restableix",
     "skipFailed": "Omet els elements fallits",
+    "style": "Aplica l'estil",
+    "sync": "Sincronitza els ajustos",
     "trash": "Mou a la paperera",
     "undoAction": "Desfés: {{action}}"
   },
@@ -4231,12 +4488,22 @@
     "available": "Rawtonic {{version}} està disponible",
     "checking": "S’està comprovant…",
     "checkNow": "Comprova ara",
+    "close": "Tanca",
+    "dontShowAgain": "No ho mostris després de les actualitzacions",
     "download": "Baixa",
     "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Cerca actualitzacions",
+    "noFile": "Aquesta versió no té descàrrega per a aquest ordinador; la pàgina de la versió llista tots els fitxers.",
+    "noNotes": "Sense notes de la versió. La pàgina de la versió en pot tenir més.",
+    "notesTitle": "Novetats del Rawtonic {{version}}",
     "notNow": "Ara no",
     "noUpdate": "No s’ha trobat cap versió més nova.",
     "prereleases": "Inclou versions preliminars",
     "privacy": "Consulta GitHub un cop al dia. Envia la teva adreça IP i la versió de l’aplicació; cap foto ni identificador.",
-    "startup": "Cerca actualitzacions en iniciar"
+    "releasePage": "Pàgina de la versió",
+    "showWhatsNew": "Mostra les novetats després d'una actualització",
+    "startup": "Cerca actualitzacions en iniciar",
+    "whatsNew": "Novetats"
   }
 }

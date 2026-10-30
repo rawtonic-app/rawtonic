@@ -31,6 +31,7 @@ import {
   printRadius,
   resizeRange,
   savedRecipes,
+  subfolderName,
   subfolderProblem,
   watermarkReady,
   type RecipeDraft,
@@ -115,7 +116,22 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     setDraft((current) => ({ ...current, ...patch }));
   const [choosing, setChoosing] = useState(false);
   const target = draft.where === "output" && !session ? "choose" : draft.where;
-  const form: RecipeDraft = { ...draft, where: target, folder: undefined };
+  // A folder chosen in the form is used for this export (and remembered by a
+  // recipe saved from it); "choose" without one still asks on Export.
+  const form: RecipeDraft = {
+    ...draft,
+    where: target,
+    folder: target === "choose" ? draft.folder : undefined,
+  };
+  const chooseFolder = async () => {
+    const chosen = await open({
+      title: t("studio.export.destination.choose"),
+      directory: true,
+      multiple: false,
+      defaultPath: draft.folder,
+    });
+    if (typeof chosen === "string") set({ where: "choose", folder: chosen });
+  };
   const busy =
     state.status === Status.Exporting || state.status === Status.Cancelling;
   const appSettings = useSettingsStore((s) => s.appSettings);
@@ -314,6 +330,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const describeJob = (job: RecipeDraft) => {
     const format = FORMATS.find((f) => f.extension === job.format);
     const unit = RESIZE_UNITS[job.resizeMode];
+    const subfolder = subfolderName(job.subfolder);
     const size =
       job.resizeMode === "dimensions"
         ? `${job.resizeValue}×${job.resizeValue2} ${unit}`
@@ -333,7 +350,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       job.resize
         ? `${t(`studio.export.sizing.modes.${job.resizeMode}`)} ${size}`
         : t("studio.export.plan.fullSize"),
-      job.subfolder.trim() ? `${where} / ${job.subfolder.trim()}` : where,
+      subfolder ? `${where} / ${subfolder}` : where,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -441,9 +458,12 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
           <select
             aria-label={t("studio.export.destination.aria")}
             value={target}
-            onChange={(e) =>
-              set({ where: e.target.value as RecipeDraft["where"] })
-            }
+            onChange={(e) => {
+              const where = e.target.value as RecipeDraft["where"];
+              // Choosing a folder asks for it now, not only on Export.
+              if (where === "choose") void chooseFolder();
+              else set({ where });
+            }}
           >
             {session && (
               <option value="output">
@@ -454,9 +474,23 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               {t("studio.export.destination.original")}
             </option>
             <option value="choose">
-              {t("studio.export.destination.choose")}
+              {target === "choose" && draft.folder
+                ? fileName(draft.folder)
+                : t("studio.export.destination.choose")}
             </option>
           </select>
+          {target === "choose" && (
+            // Also before a folder is set: the select already shows
+            // "Choose a folder…" then, so picking it again would not fire.
+            <button
+              type="button"
+              title={draft.folder ?? t("studio.export.destination.choose")}
+              aria-label={t("studio.export.destination.choose")}
+              onClick={() => void chooseFolder()}
+            >
+              {draft.folder ? "…" : t("studio.export.watermark.choose")}
+            </button>
+          )}
         </label>
         <label>
           {t("studio.export.destination.subfolder")}

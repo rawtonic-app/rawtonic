@@ -67,3 +67,8 @@ it("names an Auto Mask upgrade", () => {
   const other = { ...painted, subMasks: [{ ...brush, invert: true }] } as Adjustments["masks"][number];
   expect(step({ ...base, masks: [painted] }, { masks: [other] })).toBe("Mask · Sky");
 });
+
+it("names a removal Remove", () => {
+  const patch = { id: "p", name: "Remove", isLoading: false, invert: false, visible: true, prompt: "", patchData: null, subMasks: [] };
+  expect(step(base, { aiPatches: [patch] as Adjustments["aiPatches"] })).toBe("Remove");
+});

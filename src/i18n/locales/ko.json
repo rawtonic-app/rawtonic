@@ -139,6 +139,7 @@
       "flag_unflag": "플래그 해제",
       "import_photos": "사진 가져오기…",
       "keyboard_shortcuts": "키보드 단축키",
+      "match_light": "빛 맞추기…",
       "move_to_selects": "선택 항목으로 이동",
       "new_session": "새 프로젝트 또는 카탈로그…",
       "open_session": "프로젝트 또는 카탈로그 열기…",
@@ -161,6 +162,7 @@
       "sync_settings": "설정 동기화",
       "tether_capture": "촬영(테더링 카메라)",
       "toggle_all_panels": "모든 패널과 막대",
+      "toggle_auto_advance": "자동 넘기기",
       "toggle_bottom_panel": "필름 스트립",
       "toggle_clipping": "클리핑 경고",
       "toggle_export": "내보내기…",
@@ -221,7 +223,10 @@
     "empty": "일치하는 명령이 없습니다. 다른 검색어를 입력하세요.",
     "keys": "↑ ↓ 선택 · Enter 실행 · Esc 닫기",
     "recent": "최근 명령 우선 · ↑ ↓ 선택 · Enter 실행 · Esc 닫기",
-    "search": "명령 검색…"
+    "search": "명령 검색…",
+    "selectAtMostPhotos": "사진을 최대 {{max}}장 선택하세요",
+    "selectFourPhotos": "사진을 네 장 이상 선택하세요",
+    "selectTwoPhotos": "사진을 두 장 이상 선택하세요"
   },
   "contextMenus": {
     "album": {
@@ -312,6 +317,8 @@
       "duplicateImage": "이미지 복제",
       "exportImage_one": "이미지 내보내기",
       "exportImage_other": "이미지 {{count}}개 내보내기",
+      "matchLight_one": "빛 맞추기…",
+      "matchLight_other": "빛 맞추기…",
       "noAlbums": "사용 가능한 앨범 없음",
       "pasteAdjustments_one": "조정값 붙여넣기",
       "pasteAdjustments_other": "이미지 {{count}}개에 조정값 붙여넣기",
@@ -844,15 +851,35 @@
       "zoomInTooltip": "확대",
       "zoomOutTooltip": "축소"
     },
+    "quit": {
+      "quitAnyway": "그래도 종료",
+      "unsavedMessage": "다음 변경 사항을 저장하지 못했습니다: {{changes}}. 지금 종료하면 이 변경 사항이 손실됩니다. 취소하면 Rawtonic을 열어 둔 채로 다시 시도할 수 있습니다.",
+      "unsavedTitle": "저장되지 않은 변경 사항"
+    },
     "renameFile": {
+      "blocked": "위의 문제를 모두 해결하기 전에는 이름을 바꿀 수 없습니다.",
       "cancel": "취소",
+      "checking": "이름 확인 중…",
       "fileNamingTemplate": "파일 이름 템플릿",
+      "more": "목록에 없는 사진: {{hidden}}",
       "newName": "새 이름",
+      "noteXmpStays": "{{xmp}}은(는) 이름이 바뀌지 않는 {{owner}}에 남습니다.",
+      "noteXmpWithRaw": "{{xmp}}은(는) 이 RAW와 함께 이름이 바뀌며, {{others}}은(는) XMP 없이 이름을 유지합니다.",
+      "nothingChanges": "바뀌는 이름이 없습니다.",
+      "preview": "미리 보기",
+      "previewFailed": "미리 보기 실패: {{error}}",
+      "problemInvalidName": "\"{{name}}\"은(는) 올바른 파일 이름이 아닙니다.",
+      "problemNotFound": "파일이 더 이상 없습니다.",
+      "problemOccupied": "{{name}}이(가) 이미 있습니다.",
+      "problemSameTarget": "이 이름 변경의 다른 파일도 {{name}}이(가) 됩니다.",
       "save": "저장",
+      "summary": "이름이 바뀌는 사진: {{photos}} · 전체 파일: {{files}}",
       "titleMultiple": "이미지 {{count}}개 이름 변경",
       "titleMultiple_one": "이미지 {{count}}개 이름 변경",
       "titleMultiple_other": "이미지 {{count}}개 이름 변경",
-      "titleSingle": "이미지 이름 변경"
+      "titleSingle": "이미지 이름 변경",
+      "unchanged": "이름 유지",
+      "withFiles": "함께 이름이 바뀌는 파일: {{files}}"
     },
     "renameFolder": {
       "cancel": "취소",
@@ -940,6 +967,13 @@
       "year": "연도",
       "yearShort": "연도 · 2자리"
     }
+  },
+  "notifications": {
+    "close": "알림 닫기",
+    "quitCancelled": "저장이 완료되지 않아 Rawtonic이 종료되지 않았습니다. 보류 중인 변경 사항은 계속 저장되고 있습니다.",
+    "quitSaving": "Rawtonic을 종료하기 전에 변경 사항을 저장하는 중…",
+    "quitSavingPhotos": "Rawtonic을 종료하기 전에 변경 사항을 저장하는 중… ({{done}}/{{total}})",
+    "region": "알림"
   },
   "offline": {
     "badge": "오프라인",
@@ -1047,9 +1081,7 @@
       "picked_other": "선택 {{count}}",
       "tether": "테더",
       "tetherConnected": "{{camera}} 연결됨",
-      "tetherTitle": "테더 촬영: USB로 연결한 카메라의 사진이 이 라이브러리로 바로 들어옵니다",
-      "xmpPending_other": "XMP 대기 {{count}}",
-      "xmpPendingAction_other": "사진 {{count}}장의 XMP 동기화가 필요합니다 – 클릭하여 검토"
+      "tetherTitle": "테더 촬영: USB로 연결한 카메라의 사진이 이 라이브러리로 바로 들어옵니다"
     },
     "create": {
       "catalog": "카탈로그",
@@ -1065,7 +1097,7 @@
       "location": "위치",
       "modeLabel": "정리 방식",
       "name": "프로젝트 이름",
-      "namePlaceholder": "2026-10-01_고객_작업",
+      "namePlaceholder": "{{date}}_고객_작업",
       "namePreview": "내 작업",
       "originalsUntouched": "원본 사진은 변경되지 않습니다.",
       "session": "프로젝트",
@@ -1212,6 +1244,7 @@
       "failed": "마지막 라이브러리를 열 수 없습니다: {{error}}",
       "opening": "{{name}} 여는 중({{directory}})… macOS에서 이 볼륨에 대한 접근을 요청하면 허용하세요."
     },
+    "switching": "라이브러리를 여는 중…",
     "sync": {
       "applied": "이동 {{moved}} · 추가 {{added}} · 제거 {{removed}}",
       "apply": "적용 ({{n}})",
@@ -1269,6 +1302,13 @@
     "tether": {
       "battery": "배터리 {{level}}",
       "camera": "카메라",
+      "canon": {
+        "badge": "실험적",
+        "connectedNote": "실험적 기능: 사진이 여기에 나타나지 않아도 사라진 것이 아닙니다. 메모리 카드에 있습니다. 카드를 카메라에 그대로 두세요. Rawtonic에서 촬영한 사진이 도착하지 않으면 Rawtonic이 알려 드립니다. 다만 그사이 카메라에서 직접 찍은 사진이 도착해 그 자리를 대신하면 알려 드리지 못합니다. 세션이 끝나면 카드와 라이브러리를 비교해 보세요.",
+        "notReceived": "{{n}}번째 사진을 받지 못했습니다. 카메라가 찍었다면 메모리 카드에 있습니다.",
+        "openPreferences": "테더 환경설정 열기",
+        "optInNeeded": "Canon 카메라는 아직 Rawtonic에서 테스트되지 않았습니다. 내 카메라를 사용해 보고 테스트를 돕으려면 환경설정 > 테더에서 “실험적: Canon 카메라”를 켜세요."
+      },
       "capture": "촬영",
       "captureFailed": "촬영 실패: {{error}}",
       "captureTitle": "카메라 셔터 누르기(⌘K / Ctrl+K)",
@@ -1285,6 +1325,7 @@
       "lastIn": "{{file}}이(가) 라이브러리에 있습니다",
       "lastTiming": "{{file}}이(가) 촬영 {{ms}}ms 후 라이브러리에 추가됨",
       "level": {
+        "experimental": "실험적 — 테스터를 찾습니다. 아직 Rawtonic에서 테스트되지 않았습니다. 사진이 여기에 나타나지 않을 수 있으며, 그러면 메모리 카드에만 있습니다.",
         "notSupported": "이 카메라는 아직 지원되지 않습니다.",
         "reported": "이 카메라 모델 사용자들이 작동한다고 보고했습니다.",
         "tested": "이 카메라 모델로 {{systems}}에서 테스트됨({{date}}).",
@@ -1302,6 +1343,14 @@
         "bursting": "{{shots}}장 연속 촬영 중…",
         "button": "카메라 테스트…",
         "buttonTitle": "이 카메라를 단계별로 테스트하고 익명 보고서 만들기",
+        "canonGuide": {
+          "card": "테스트하는 동안 카메라에 메모리 카드를 계속 넣어 두세요.",
+          "missing": "사진이 나타나지 않는 것도 도움이 되는 정보입니다. 사진은 여전히 메모리 카드에 있고, 테스트는 이를 함께 집계합니다.",
+          "send": "마지막에 “{{button}}”을(를) 클릭하세요. 보내는 내용을 정확히 볼 수 있으며(사진, 파일 이름, 시리얼 번호는 포함되지 않습니다), 확인하기 전에는 아무것도 컴퓨터 밖으로 나가지 않습니다.",
+          "sendNote": "이 결과는 실험적인 Canon 지원에서 나온 것입니다. 테스트해 주셔서 감사합니다. 사진이 누락된 결과를 포함해 모든 결과가 도움이 됩니다.",
+          "steps": "아래 단계를 하나씩 따라가세요. 실행을 클릭하고 단계가 요구하는 대로 하세요. 카메라에서 할 수 없는 단계는 건너뛰기를 클릭하세요.",
+          "title": "Canon 카메라 테스트 방법"
+        },
         "close": "카메라 테스트 닫기",
         "how": {
           "autofocus": "한 번 초점을 맞춥니다. 수동 렌즈나 카메라의 MF에서는 건너뛰세요.",
@@ -1402,6 +1451,13 @@
       "unsaved": "변경 사항을 저장하지 못했습니다: {{files}}",
       "verifyProgress_other": "검증 중 · 파일 {{count}}개 확인됨"
     },
+    "unsaved": {
+      "cancel": "취소",
+      "discard": "저장되지 않은 편집 버리기",
+      "message": "다음 편집을 저장하지 못했습니다: {{files}}. 지금 다른 라이브러리를 열면 사라집니다. 먼저 저장하려면 다시 시도하고, 버리거나, 이 라이브러리에 머물려면 취소하세요.",
+      "retry": "다시 시도",
+      "title": "편집이 저장되지 않음"
+    },
     "welcome": {
       "body": "다음 촬영을 위한 휴대용 프로젝트를 만드세요. 촬영본, 조정, 납품물을 첫 컷부터 최종 셀렉트까지 한곳에 보관할 수 있습니다.",
       "create": "프로젝트 만들기",
@@ -1416,37 +1472,75 @@
       "toolsSide": "현상 도구를 어느 쪽에 배치할까요?"
     },
     "xmp": {
-      "conflictHeading_other": "충돌 {{count}}",
-      "conflictHint": "마지막 동기화 이후 XMP 사이드카가 Rawtonic 외부에서 변경되었습니다. 유지할 메타데이터를 선택하세요.",
-      "editNotAdopted": "저장된 보정이 아직 라이브러리에 없습니다. 먼저 현상에서 이 사진을 보정한 다음 해결하세요.",
-      "inSync": "모든 XMP 사이드카가 동기화되었습니다.",
-      "keepLibrary": "라이브러리 유지",
-      "keepLibraryAll": "모두 라이브러리 유지",
-      "keepLibraryFor": "{{name}}: 라이브러리 유지",
-      "keepLibraryTitle": "라이브러리의 메타데이터를 XMP 사이드카에 기록합니다",
-      "leftOut_other": "사진 {{count}}장을 XMP 사용에서 제외했습니다. 먼저 현상에서 보정하세요.",
-      "loading": "XMP 사이드카 확인 중…",
-      "more_other": "외 {{count}}개",
-      "offline": "오프라인",
-      "offlineNote_other": "사진 {{count}}장이 오프라인입니다. 파일이나 드라이브가 돌아오면 XMP가 기록됩니다.",
-      "originalsUntouched": "XMP 사이드카만 기록되며 사진은 변경되지 않습니다.",
-      "pendingHeading_other": "대기 {{count}}",
-      "pendingHint": "라이브러리가 더 최신이며 XMP 사이드카는 아직 기록되지 않았습니다(사진 오프라인, 읽기 전용 파일 또는 쓰기 실패).",
-      "prefsOff": "환경설정에서 XMP 동기화가 꺼져 있습니다. 이 설정은 라이브러리 없이 연 폴더에 적용되며, 이 라이브러리의 사진은 XMP 사이드카를 최신 상태로 유지합니다.",
-      "result": "완료: {{done}} · 오프라인: {{offline}} · 충돌: {{conflicts}} · 실패: {{failed}}",
-      "subtitle": "다른 애플리케이션을 위해 각 사진 옆에 보관되는 별점, 레이블, 키워드 및 IPTC 메타데이터.",
-      "syncNow": "지금 동기화",
-      "title": "XMP 사이드카",
-      "undo_other": "XMP 사용 실행 취소 ({{count}})",
-      "useXmp": "XMP 사용",
-      "useXmpAll": "모두 XMP 사용",
-      "useXmpFor": "{{name}}: XMP 사용",
-      "useXmpTitle": "사이드카의 별점, 레이블, 키워드 및 IPTC 메타데이터를 라이브러리로 읽어 옵니다(실행 취소 가능)",
-      "view": "검토할 XMP"
+      "buttonTitle": "일부 XMP 파일이 라이브러리보다 뒤처져 있습니다. 클릭하면 자세한 내용을 보고 다시 쓸 수 있습니다.",
+      "count_other": "XMP {{count}}개 업데이트 안 됨",
+      "explain": "편집, 별점, 키워드는 라이브러리에 안전하게 저장되어 있습니다. XMP 파일을 읽는 다른 프로그램에는 아직 이 변경 사항이 보이지 않습니다. 사진 자체는 절대 변경되지 않습니다.",
+      "heading_other": "사진 {{count}}장의 XMP 파일이 최신 상태가 아닙니다",
+      "reason": {
+        "changedElsewhere_other": "XMP 파일 {{count}}개가 다른 프로그램에서 변경되었습니다. Rawtonic은 덮어쓰지 않으며 라이브러리는 사용자의 버전을 유지합니다.",
+        "failed_other": "XMP 파일 {{count}}개를 쓸 수 없습니다: {{error}}",
+        "offline_other": "사진 {{count}}장이 오프라인입니다. 드라이브를 다시 연결하면 XMP 파일이 업데이트됩니다.",
+        "sharedName_other": "사진 {{count}}장이 다른 사진과 이름이 같아(RAW와 JPEG) 둘 다 같은 XMP 파일에 쓰게 됩니다."
+      },
+      "retry": "다시 시도",
+      "retryFailed": "XMP 파일을 쓸 수 없습니다: {{error}}",
+      "show": "사진 보기",
+      "title": "업데이트되지 않은 XMP 파일",
+      "view": "업데이트되지 않은 XMP",
+      "writing": "쓰는 중…",
+      "written_other": "사진 {{count}}장의 XMP 파일을 업데이트했습니다"
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "라이브러리 데이터베이스. Windows의 WAL 잠금 처리에 Rawtonic 수정 사항을 적용했습니다.",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "정보",
       "general": "일반",
       "processing": "처리",
       "shortcuts": "컨트롤"
@@ -1519,7 +1613,7 @@
     },
     "general": {
       "autoAdvance": "자동 넘기기",
-      "autoAdvanceDesc": "현상에서 별점, 선택, 거부, 플래그 해제 키를 누르면 다음 사진으로 넘어가므로 사진 한 장에 키 하나로 골라낼 수 있습니다.",
+      "autoAdvanceDesc": "평가하거나 플래그를 지정하면 표시된 사진 또는 격자에서 하나 선택한 사진 다음으로 이동합니다. Caps Lock 또는 사진 메뉴에서 전환합니다.",
       "builtinPresets": "기본 제공 프리셋",
       "builtinPresetsDesc": "스타일 및 프리셋과 도구의 프리셋 메뉴에 Rawtonic 자체 스타일과 프리셋을 표시합니다.",
       "createXmp": "누락된 XMP 파일 생성",
@@ -1535,7 +1629,7 @@
       "nativeTitlebar": "네이티브 제목 표시줄",
       "nativeTitlebarDesc": "Rawtonic의 사용자 지정 제목 표시줄 대신 시스템 기본 창 제목 표시줄을 사용합니다.",
       "proofMargin": "교정 여백",
-      "proofMarginDesc": "교정 여백이 켜져 있을 때(X) 맞춤 사진 주위의 여백으로, 뷰어 짧은 변에 대한 비율입니다.",
+      "proofMarginDesc": "교정 여백이 켜져 있을 때(Alt+X) 맞춤 사진 주위의 여백으로, 뷰어 짧은 변에 대한 비율입니다.",
       "showBuiltinPresets": "기본 제공 프리셋 표시",
       "title": "일반 설정",
       "uiScale": "인터페이스 크기",
@@ -1788,18 +1882,48 @@
       "shortcutsDesc": "태그 지정 컨텍스트 메뉴에 단축키로 표시될 태그 목록입니다.",
       "title": "태그 지정"
     },
+    "tethering": {
+      "camerasLink": "작동하는 카메라와 내 카메라를 보고하는 방법",
+      "canon": "실험적: Canon 카메라 (테스트 돕기)",
+      "canonDesc": "Rawtonic이 USB로 Canon 카메라에 연결하도록 합니다. 카메라를 사용해 보고 간단한 테스트 결과를 보낼 수 있습니다.",
+      "canonSwitch": "Canon 카메라 연결",
+      "howToTest": "도우려면 테더 패널에서 카메라를 연결하고 “카메라 테스트…”를 클릭한 다음 단계를 따르세요. 마지막에, 무언가가 컴퓨터 밖으로 나가기 전에 보낼 내용을 정확히 볼 수 있습니다.",
+      "title": "테더",
+      "warningCard": "찍은 사진이 Rawtonic에 나타나지 않을 수 있습니다. 그러면 카메라의 메모리 카드에만 있으므로, 카메라에 카드를 계속 넣어 두세요.",
+      "warningNothingDeleted": "Rawtonic은 카메라나 카드의 어떤 것도 삭제하지 않습니다.",
+      "warningUntested": "아직 테스트되지 않음: 지금까지 Canon 카메라를 Rawtonic으로 사용해 본 적이 없습니다."
+    },
     "title": "설정",
     "tooltips": {
       "goHome": "홈으로 이동"
     }
   },
   "spotRemoval": {
+    "cancel": "취소",
+    "deleteSelected": "선택 항목 삭제",
+    "deleteSelectedHint": "Delete 또는 Backspace. 사진에서 Alt-클릭하면 하나를, Alt-드래그하면 상자에 닿는 모든 항목을 삭제합니다.",
     "detectObjects": "개체 감지",
     "detectObjectsBoxHint": "개체 주위에 사각형을 그리거나 클릭하여 제거합니다.",
     "detectObjectsHint": "개체 위를 대략 브러시로 칠하거나 클릭하여 제거합니다.",
     "detectObjectsRefineHint": "Shift는 선택한 제거에 추가하고 Alt(⌥)는 제외합니다.",
+    "downloadingModel": "개체 제거 모델 다운로드 중… {{percent}} %",
+    "fallbackDownload": "개체 제거 모델을 다운로드할 수 없어(오프라인?) 더 작은 모델(MI-GAN)로 이 영역을 채웠습니다. 온라인일 때 실행 취소 후 다시 제거하면 더 잘 채워집니다.",
+    "fallbackUnavailable": "개체 제거 모델을 실행할 수 없어 더 작은 모델(MI-GAN)로 이 영역을 채웠습니다.",
     "feather": "페더",
     "featherAria": "스팟 페더",
+    "filling": "제거 중… {{total}}단계 중 {{done}}단계",
+    "largeHoleTooSlow": "이 GPU는 큰 영역을 제거하기에 너무 느립니다. 이 세션 동안 제거는 빠른 방법을 사용합니다.",
+    "list": {
+      "aria": "스팟 및 제거",
+      "count": "보정 ({{number}})",
+      "delete": "{{name}} 삭제",
+      "deleteAll": "모두 삭제",
+      "hideAll": "모두 숨기기",
+      "item": "{{kind}} {{number}}",
+      "select": "{{name}} 선택",
+      "showAll": "모두 표시",
+      "toggle": "{{name}} 표시"
+    },
     "mode": "스팟 모드",
     "modes": {
       "clone": "복제",
@@ -1832,6 +1956,7 @@
     },
     "sensitivity": "감도",
     "sensitivityAria": "스팟 시각화 감도",
+    "showRemovals": "제거 항목 표시",
     "size": "크기",
     "sizeAria": "스팟 크기",
     "visualize": "스팟 시각화"
@@ -2002,6 +2127,7 @@
       },
       "grading": {
         "hueAria": "{{range}} 색조",
+        "link": "색조 휠 연결",
         "luminanceArcTitle": "{{range}} 휘도 {{value}} · 드래그 또는 화살표 키 · Shift 미세 조정 · 두 번 클릭하여 재설정",
         "luminanceAria": "{{range}} 휘도",
         "ranges": "범위",
@@ -2150,9 +2276,11 @@
         "channel": "커브 채널",
         "input": "입력",
         "maxPoints": "채널당 최대 {{max}}개의 점을 사용할 수 있습니다. 점을 이동하거나 제거하여 커브를 다듬으세요.",
-        "output": "출력"
+        "output": "출력",
+        "point": "점 {{index}}, 입력 {{input}}, 출력 {{output}}. 화살표 키로 이동하고 A로 추가, Delete로 삭제합니다."
       },
       "effects": {
+        "grainColor": "그레인 색상",
         "grainStructure": "그레인 구조",
         "grainStructures": {
           "clumped": "뭉침",
@@ -2203,6 +2331,7 @@
         "opened": "이미지 열기",
         "other": "조정",
         "redEyes": "적목",
+        "remove": "제거",
         "spots": "잡티 제거",
         "title": "작업 내역"
       },
@@ -2294,6 +2423,7 @@
           "red": "빨강",
           "white": "흰색"
         },
+        "currentMode": "마스크 표시 방식: {{mode}}",
         "custom": "사용자 지정 마스크 색상",
         "display": "마스크 표시 방식",
         "modes": {
@@ -2542,11 +2672,14 @@
           "minutes": "약 {{minutes}}분 남음",
           "seconds": "약 {{seconds}}초 남음"
         },
+        "exportedTo": "내보낸 위치:",
         "failed": "{{total}}장 중 {{failed}}장 실패",
         "failures": "내보내지 못한 사진",
+        "fullResolution": "전체 해상도",
         "held": "대기열이 보류되었습니다. 대기열을 시작하면 대기 중인 내보내기가 시작됩니다.",
         "holdQueue": "대기열 보류",
         "interrupted": "중단됨 ({{total}}장 중 {{done}}장 내보냄)",
+        "originalFolder": "원본 폴더",
         "pause": "일시 정지",
         "paused": "일시 정지됨 ({{total}}장 중 {{done}}장 내보냄)",
         "pausing": "진행 중인 사진 후 일시 정지…",
@@ -2633,7 +2766,8 @@
       },
       "toasts": {
         "queuedMany_other": "내보내기 {{count}}건을 대기열에 추가했습니다.",
-        "queuedOne": "내보내기 대기열에 추가했습니다."
+        "queuedOne": "내보내기 대기열에 추가했습니다.",
+        "unsavedEdits": "{{names}}의 편집 내용을 저장하지 못해 아무것도 내보내지 않았습니다. 저장된 후 다시 내보내세요."
       },
       "watermark": {
         "add": "워터마크 추가",
@@ -2693,6 +2827,21 @@
       "includeNeck": "목 포함",
       "modelsMissing": "얼굴 리터치에는 얼굴 모델이 필요합니다. GitHub의 Rawtonic 모델 팩에서 한 번만 다운로드되며 이 컴퓨터에서 실행됩니다.",
       "noFaces": "이 사진에서 얼굴을 찾지 못했습니다.",
+      "protect": {
+        "brush": "보호 브러시",
+        "clear": "보호 지우기",
+        "feather": "페더",
+        "featherAria": "보호 브러시 페더",
+        "hint": "리터치가 그대로 두어야 할 주근깨, 점, 애교점 위를 칠하세요. Alt(Option)를 누르면 지우고, [ 와 ] 로 크기를 바꿉니다.",
+        "modes": {
+          "erase": "지우기",
+          "off": "끄기",
+          "paint": "보호"
+        },
+        "show": "보호 영역 표시",
+        "size": "크기",
+        "sizeAria": "보호 브러시 크기"
+      },
       "showBlemishes": "잡티 표시(클릭하여 유지하거나 보정)",
       "sliders": {
         "blemishes": "잡티",
@@ -2707,16 +2856,21 @@
     },
     "histogram": {
       "aria": "이미지 히스토그램",
-      "clipping": "클리핑",
-      "clippingTitle": "클리핑 경고: 잘린 하이라이트는 빨강, 잘린 섀도우는 파랑({{shortcut}})",
+      "clippingAria": "클리핑 경고",
       "gamut": "색 영역 경고",
       "gamutTitle": "색 영역 경고: 교정 색 공간 밖의 색상을 빨간색으로 표시",
       "graphAria": "선택한 사진의 RGB 휘도 분포",
       "graphEmpty": "사진을 열면 히스토그램을 사용할 수 있습니다",
+      "highlightClipping": "하이라이트 경고",
+      "highlightClippingLit": "하이라이트 경고, 날아감",
+      "highlightClippingTitle": "하이라이트 경고(날아간 하이라이트, {{shortcut}}로 둘 다 전환)",
       "proof": "교정",
       "proofSpace": "교정 색 공간",
       "proofTitle": "소프트 교정: 선택한 색 공간으로 내보냈을 때의 모습으로 사진 표시({{shortcut}})",
       "selectPhoto": "사진을 선택하세요",
+      "shadowClipping": "그림자 경고",
+      "shadowClippingLit": "그림자 경고, 뭉개짐",
+      "shadowClippingTitle": "그림자 경고(뭉개진 그림자, {{shortcut}}로 둘 다 전환)",
       "title": "히스토그램"
     },
     "layers": {
@@ -2989,10 +3143,23 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "AI 노이즈 제거",
+          "aiMask": "AI 선택 영역",
+          "fillExternal": "채우기: 외부 서비스",
+          "fillMiGan": "제거: MI-GAN",
+          "fillMoebius": "제거: Moebius",
+          "fillUnrecorded": "제거: 모델 기록 없음",
+          "generated": "생성된 영역",
+          "missingFill": "픽셀이 없는 채우기",
+          "olderDenoise": "이전 버전의 AI 노이즈 제거",
+          "pendingDetection": "아직 감지되지 않은 AI 선택 영역"
+        },
         "all_other": "전체 (값 {{count}}개)",
         "apertureValue": "f/{{value}}",
         "button": "메타데이터",
         "fields": {
+          "ai": "AI 편집",
           "aperture": "조리개",
           "camera": "카메라",
           "captureDate": "촬영 날짜",
@@ -3000,7 +3167,8 @@
           "focalLength": "초점 거리",
           "iso": "ISO",
           "keyword": "키워드",
-          "lens": "렌즈"
+          "lens": "렌즈",
+          "sourceType": "디지털 출처 유형"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3016,6 +3184,7 @@
         "isoValue": "ISO {{value}}",
         "label": "메타데이터 필터",
         "none": {
+          "ai": "AI 편집 없음",
           "aperture": "알 수 없는 조리개",
           "camera": "알 수 없는 카메라",
           "captureDate": "날짜 없음",
@@ -3023,11 +3192,30 @@
           "focalLength": "알 수 없는 초점 거리",
           "iso": "알 수 없는 ISO",
           "keyword": "키워드 없음",
-          "lens": "알 수 없는 렌즈"
+          "lens": "알 수 없는 렌즈",
+          "sourceType": "표시 없음"
         },
         "rangeHint": "클릭하면 값 하나, Shift-클릭하면 마지막으로 클릭한 값부터 모든 값을 선택",
         "showMonths": "{{year}}년의 월 보기",
-        "toggle": "메타데이터 목록 표시 또는 숨기기 (촬영 날짜, 카메라, 렌즈, 키워드, 파일 형식, ISO, 초점 거리, 조리개)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "알고리즘으로 향상",
+          "algorithmicMedia": "알고리즘으로 생성",
+          "compositeCapture": "촬영 이미지 합성",
+          "compositeSynthetic": "합성 요소의 합성",
+          "compositeWithTrainedAlgorithmicMedia": "AI 생성 부분이 포함된 합성",
+          "computationalCapture": "컴퓨테이셔널 촬영",
+          "dataDrivenMedia": "데이터 기반 미디어",
+          "digitalArt": "디지털 아트",
+          "digitalCapture": "디지털 촬영",
+          "humanEdits": "사람이 편집",
+          "negativeFilm": "필름 네거티브",
+          "positiveFilm": "필름 포지티브",
+          "print": "인화",
+          "screenCapture": "화면 캡처",
+          "trainedAlgorithmicMedia": "AI로 생성",
+          "virtualRecording": "가상 녹화"
+        },
+        "toggle": "메타데이터 목록 표시 또는 숨기기 (촬영 날짜, 카메라, 렌즈, 키워드, 파일 형식, ISO, 초점 거리, 조리개, AI 편집, 디지털 출처 유형)"
       },
       "navigator": {
         "empty": "사진을 선택하세요",
@@ -3075,6 +3263,7 @@
         "editTitle": "스마트 앨범 편집",
         "fieldLabel": "항목",
         "fields": {
+          "ai": "AI 편집",
           "album": "앨범",
           "aperture": "조리개 (F 값)",
           "camera": "카메라",
@@ -3095,6 +3284,7 @@
           "offline": "누락된 사진",
           "previousImport": "이전 가져오기에 포함",
           "rating": "별점",
+          "sourceType": "디지털 출처 유형(파일 내)",
           "text": "검색 가능한 모든 텍스트"
         },
         "folderPlaceholder": "폴더 경로",
@@ -3392,7 +3582,9 @@
     "multiView": {
       "controls": "{{name}} 표시, 등급 지정 또는 제거",
       "editAll": "선택한 사진 모두 편집",
+      "editAllNotSaved": "'선택한 사진 모두 편집'에서 이 사진을 저장하지 못했습니다: {{names}}. 다시 시도할 때까지 이전 설정이 유지됩니다.",
       "editAllTitle": "선택한 사진 모두 편집: 기본 사진의 변경 사항이 표시된 다른 모든 사진에도 적용됩니다(주황색 테두리)",
+      "editAllTryAgain": "다시 시도",
       "makePrimary": "{{name}} 편집(기본 사진으로 지정)",
       "more_other": "외 {{n}}장",
       "pick": "{{name}} 선택",
@@ -3434,6 +3626,7 @@
     },
     "presets": {
       "amount": "프리셋 강도",
+      "appliedStyle": "적용된 스타일: 클릭하면 되돌립니다",
       "appliesAll": "저장할 때의 모든 설정을 적용합니다",
       "appliesBuiltin": "Rawtonic 자체 프리셋: 포함된 설정을 적용합니다",
       "appliesSaved": "저장할 때 포함한 설정을 적용합니다",
@@ -3460,11 +3653,10 @@
         "grading-warm-shadows-cool-highlights": "따뜻한 그림자, 차가운 하이라이트",
         "grading-warm-tone": "따뜻한 톤",
         "grading-warm-up": "따뜻하게",
-        "grain-coarse": "거친",
-        "grain-fine": "고운",
-        "grain-heavy": "강한",
-        "grain-medium": "중간",
-        "grain-speckled": "반점",
+        "grain-bw-100": "흑백 100 미립자",
+        "grain-bw-400": "흑백 400 클래식",
+        "grain-colour-100": "컬러 네거티브 100 은은함",
+        "grain-colour-400": "컬러 네거티브 400",
         "muted-colour": "차분한 색상",
         "noise-light": "약하게",
         "noise-medium": "중간",
@@ -3486,7 +3678,7 @@
       "deleteFolder": "폴더 삭제",
       "deleteFolderWithPresets_other": "“{{name}}”과(와) 그 안의 프리셋 {{count}}개를 삭제할까요?",
       "deletePreset": "프리셋 삭제",
-      "empty": "아직 프리셋이 없습니다. 사진을 조정한 후 +를 눌러 설정을 저장하세요.",
+      "empty": "아직 직접 만든 스타일이 없습니다. 사진을 조정하고 +를 눌러 설정을 저장하세요.",
       "exportTitle": "{{name}} 내보내기",
       "fileType": "Rawtonic 프리셋",
       "find": "프리셋 찾기",
@@ -3639,7 +3831,56 @@
       "x": "X 위치",
       "y": "Y 위치"
     },
+    "seriesMatch": {
+      "after": "맞춘 후",
+      "analysing": "분석 중 {{done}} / {{total}}…",
+      "applied_one": "사진 {{count}}장의 빛을 맞췄습니다",
+      "applied_other": "사진 {{count}}장의 빛을 맞췄습니다",
+      "apply_one": "사진 {{count}}장에 적용",
+      "apply_other": "사진 {{count}}장에 적용",
+      "applyTo": "{{name}}에 적용",
+      "before": "현재",
+      "cancel": "취소",
+      "change": "변경",
+      "confidence": "신뢰도",
+      "downloadFaces": "얼굴 모델 다운로드",
+      "exposure": "노출",
+      "exposureChange": "노출 {{value}} EV",
+      "faces": "얼굴 사용(피부 톤)",
+      "facesTitle": "얼굴은 이 컴퓨터에서 감지되며, 피부가 노출과 화이트 밸런스의 기준이 됩니다.",
+      "facesUsed": "(얼굴)",
+      "failed": "빛 맞추기 실패: {{error}}",
+      "intro": "각 사진의 노출과 화이트 밸런스를 기준 사진(★)에 맞춥니다. 얼굴이 보이면 피부 톤을 기준으로 삼습니다. 그다음 하나의 룩을 시리즈 전체에 동기화할 수 있습니다. 브래킷, 실루엣, 컬러 무대 조명은 그대로 둡니다.",
+      "isReference": "기준",
+      "note": "메모",
+      "notSaved": "일부 사진이 저장되지 않았습니다: {{error}}",
+      "reasons": {
+        "alreadyMatches": "이미 맞음",
+        "anchorsDisagree": "얼굴과 장면이 다름 – 확인",
+        "bracket": "노출 브래킷 – 유지",
+        "cameraCompensation": "카메라에서 노출 보정 설정됨 – 확인",
+        "colouredLight": "컬러 조명 – 화이트 밸런스 유지",
+        "largeChange": "노출 변화가 큼 – 확인",
+        "littleInCommon": "기준과 공통점이 적음 – 확인",
+        "noReference": "기준 없음",
+        "noWhiteBalance": "이 파일에는 화이트 밸런스가 없습니다",
+        "silhouette": "실루엣 – 어둡게 유지",
+        "unreadable": "읽을 수 없음"
+      },
+      "reference": "기준",
+      "referenceTitle": "기준으로 사용",
+      "results": "결과",
+      "summary": "맞출 사진 {{match}} · 확인 {{review}} · 유지 {{keep}} · {{seconds}}초",
+      "thenSync": "그다음 설정 동기화로 기준 사진의 룩을 동기화하세요(노출과 화이트 밸런스는 해제).",
+      "title_one": "사진 {{count}}장의 빛 맞추기",
+      "title_other": "사진 {{count}}장의 빛 맞추기",
+      "whiteBalance": "화이트 밸런스",
+      "whiteBalanceChange": "{{from}} K → {{to}} K, 색조 {{tint}}",
+      "whiteBalanceTo": "화이트 밸런스 {{to}} K"
+    },
     "spot": {
+      "done": "스팟 제거 끝내기",
+      "start": "스팟 제거 시작",
       "withShortcut": "{{text}}({{key}})"
     },
     "tone": {
@@ -3656,14 +3897,20 @@
         "auto": "자동",
         "autoAria": "자동 레벨",
         "autoTitle": "히스토그램에서 검정점과 흰색점 설정",
-        "black": "검정",
         "channelAria": "레벨 채널",
-        "highlight": "하이라이트",
+        "fieldAria": "{{name}} 값",
+        "histogramAria": "레벨 히스토그램",
+        "inBlack": "입력 검정",
+        "inWhite": "입력 흰색",
         "midtone": "중간톤",
+        "outBlack": "출력 검정",
         "output": "출력",
-        "shadow": "섀도우",
-        "title": "레벨",
-        "white": "흰색"
+        "outWhite": "출력 흰색",
+        "pickBlack": "검정점 스포이트",
+        "pickBlackTitle": "검정이 되어야 할 곳을 사진에서 클릭",
+        "pickWhite": "흰색점 스포이트",
+        "pickWhiteTitle": "흰색이 되어야 할 곳을 사진에서 클릭",
+        "title": "레벨"
       },
       "regionCurve": {
         "aria": {
@@ -4003,17 +4250,25 @@
     }
   },
   "undoHistory": {
+    "apply": "설정 적용",
     "color": "색상 레이블 설정",
     "edit": "편집",
     "file": "파일 변경",
     "flag": "플래그 설정",
+    "lensCorrection": "렌즈 보정",
+    "matchLight": "빛 맞추기",
     "move": "이동",
     "notice": "{{action}}: {{name}}",
     "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
+    "paste": "설정 붙여넣기",
     "rating": "등급 설정",
+    "recipesNotAll": "일부 사진을 쓰지 못했습니다",
     "redoAction": "{{action}} 다시 실행",
     "rename": "이름 변경",
+    "reset": "재설정",
     "skipFailed": "실패한 항목 건너뛰기",
+    "style": "스타일 적용",
+    "sync": "설정 동기화",
     "trash": "휴지통으로 이동",
     "undoAction": "{{action}} 실행 취소"
   },
@@ -4022,12 +4277,22 @@
     "available": "Rawtonic {{version}} 업데이트가 있습니다",
     "checking": "확인 중…",
     "checkNow": "지금 확인",
+    "close": "닫기",
+    "dontShowAgain": "업데이트 후 표시하지 않기",
     "download": "다운로드",
     "failed": "업데이트를 확인할 수 없습니다. 나중에 다시 시도하세요.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "업데이트 확인",
+    "noFile": "이 릴리스에는 이 컴퓨터용 다운로드가 없습니다. 릴리스 페이지에 모든 파일이 있습니다.",
+    "noNotes": "릴리스 노트가 없습니다. 릴리스 페이지에 더 있을 수 있습니다.",
+    "notesTitle": "Rawtonic {{version}}의 새로운 기능",
     "notNow": "나중에",
     "noUpdate": "더 최신 릴리스를 찾지 못했습니다.",
     "prereleases": "사전 릴리스 포함",
     "privacy": "하루에 한 번 GitHub를 확인합니다. IP 주소와 앱 버전을 전송하며 사진이나 식별자는 전송하지 않습니다.",
-    "startup": "시작 시 업데이트 확인"
+    "releasePage": "릴리스 페이지",
+    "showWhatsNew": "업데이트 후 새로운 기능 표시",
+    "startup": "시작 시 업데이트 확인",
+    "whatsNew": "새로운 기능"
   }
 }

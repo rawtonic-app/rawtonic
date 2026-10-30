@@ -237,7 +237,7 @@ it("hides the pointer over the full screen after it rests, and shows it on a mov
 it("shows the photograph's facts and keywords read only over Develop's viewer", () => {
   useUIStore.setState({ activeView: "editor", infoOverlay: true });
   workspace();
-  const info = screen.getByRole("complementary", { name: "Photograph info" });
+  const info = screen.getByRole("complementary", { name: "Photo info" });
   expect(info.textContent).toContain("a.dng");
   expect(info.textContent).toContain("Maker M1 · 35mm");
   expect(info.textContent).toContain("Keywords: boat, harbour");
@@ -302,19 +302,19 @@ it("shows a virtual copy with its source's flag in the info overlay", () => {
     selectedImage: { ...s.selectedImage!, path: "/qa/a.dng?vc=copy1" },
   }));
   workspace();
-  const info = screen.getByRole("complementary", { name: "Photograph info" });
+  const info = screen.getByRole("complementary", { name: "Photo info" });
   expect(info.querySelector('[aria-label="Picked"]')).not.toBeNull();
 });
 
-it("puts the spot tool aside in the full screen and brings it back after it", () => {
+it("suspends spot and face overlays in full screen and restores them afterward", () => {
   useUIStore.setState({ activeView: "editor" });
-  useEditorStore.setState({ isSpotToolActive: true, showFaceBlemishes: true });
+  useEditorStore.setState({ isSpotToolActive: true, showFaceBlemishes: true, showFaceProtection: true });
   workspace();
   act(() => useUIStore.getState().toggleFullScreen());
-  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: false, showFaceBlemishes: false });
+  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: false, showFaceBlemishes: false, showFaceProtection: false });
   act(() => useUIStore.getState().toggleFullScreen());
-  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: true, showFaceBlemishes: true });
-  useEditorStore.setState({ isSpotToolActive: false, showFaceBlemishes: false });
+  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: true, showFaceBlemishes: true, showFaceProtection: true });
+  useEditorStore.setState({ isSpotToolActive: false, showFaceBlemishes: false, showFaceProtection: false });
 });
 
 it("keeps Shift-drag and Cmd/Ctrl clicks (straighten, crop reset) from the viewer while it only shows", () => {

@@ -23,6 +23,7 @@ import ImageCanvas, { type LiveMaskDefinition } from './editor/ImageCanvas';
 import { Mask, SubMask } from './right/Masks';
 import { Panel, TransformState, Invokes, canRenderSource } from '../ui/AppProperties';
 import { useEditorStore } from '../../store/useEditorStore';
+import { faceRetouchGeometry } from '../studio/StudioFaceRetouch';
 import { updateAdjustments } from '../../hooks/useEditorActions';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
@@ -35,6 +36,7 @@ import { applyLayerSolo } from '../../utils/layerSolo';
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
 import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
+import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay from './editor/SplitViewOverlay';
 import {
   MIN_VIEWER_ZOOM,
@@ -156,6 +158,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const tatTarget = useEditorStore((s) => s.tatTarget);
   // Spot removal places and drags spots with the primary button.
   const isSpotToolActive = useEditorStore((s) => s.isSpotToolActive);
+  const isFaceProtectPainting = useEditorStore((s) => s.faceProtect.painting);
   const liveRotation = useEditorStore((s) => s.liveRotation);
   const holdingNativeFrame = useEditorStore((s) => s.holdingNativeFrame);
   const brushSettings = useEditorStore((s) => s.brushSettings);
@@ -771,7 +774,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     // The luma range eyedropper takes clicks and (Shift+) drags as samples.
     (isMasking && lumaPickerLayer !== null && lumaPickerLayer === activeMaskContainerId) ||
     isWbPickerActive ||
-    isSpotToolActive;
+    isSpotToolActive ||
+    (isFaceProtectPainting && !isMasking && !showOriginal &&
+      adjustments.faceRetouch?.geometry === JSON.stringify(faceRetouchGeometry(adjustments)));
 
   useEffect(() => {
     const container = imageContainerRef.current;
@@ -2371,7 +2376,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   if (isPanningState && isMiddleMousePanning.current) {
     cursorStyle = 'grabbing';
   } else if (tatTarget !== null) {
-    cursorStyle = 'ns-resize';
+    cursorStyle = isLevelsPicker(tatTarget) ? 'crosshair' : 'ns-resize';
   } else if ((isShiftPressed && !isCropping) || straightenDragLine) {
     cursorStyle = 'crosshair';
   } else if (isCtrlPressed && !isBrushActive && !isCropping) {

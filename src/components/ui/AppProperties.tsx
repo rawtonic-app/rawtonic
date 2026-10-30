@@ -65,6 +65,8 @@ export enum Invokes {
   LibraryImportPreview = 'library_import_preview',
   LibraryImport = 'library_import',
   SessionSummary = 'session_summary',
+  SessionPendingXmp = 'session_pending_xmp',
+  SessionWritePendingXmp = 'session_write_pending_xmp',
   SessionSetFlag = 'session_set_flag',
   SessionOpen = 'session_open',
   SessionCreate = 'session_create',
@@ -90,6 +92,11 @@ export enum Invokes {
   ApplyAdjustments = 'apply_adjustments',
   ApplyAdjustmentsToPaths = 'apply_adjustments_to_paths',
   ApplyAutoAdjustmentsToPaths = 'apply_auto_adjustments_to_paths',
+  AnalyzeSeriesMatch = 'analyze_series_match',
+  CancelSeriesMatch = 'cancel_series_match',
+  ClearSeriesMatchCache = 'clear_series_match_cache',
+  SetRecipeValues = 'set_recipe_values',
+  ReplaceRecipes = 'replace_recipes',
   ApplyAiDenoise = 'apply_ai_denoise',
   ThirdPartyLicenses = 'third_party_licenses',
   CalculateAutoAdjustments = 'calculate_auto_adjustments',
@@ -209,6 +216,7 @@ export enum Invokes {
   PlanMoveFolder = 'plan_move_folder',
   ReadExifForPaths = 'read_exif_for_paths',
   RemoveTagForPaths = 'remove_tag_for_paths',
+  PreviewRename = 'preview_rename',
   RenameFiles = 'rename_files',
   RenameFolder = 'rename_folder',
   UndoFileOperation = 'undo_file_operation',
@@ -258,6 +266,7 @@ export enum Invokes {
   SampleLumaRange = 'sample_luma_range',
   SamplePreviewColor = 'sample_preview_color',
   SampleCurveInput = 'sample_curve_input',
+  LevelsInputHistogram = 'levels_input_histogram',
   SamplePreviewWhiteBalance = 'sample_preview_white_balance',
   SamplePreviewGreyWorld = 'sample_preview_grey_world',
   SetColorLabelForPaths = 'set_color_label_for_paths',
@@ -389,10 +398,15 @@ export interface AppSettings {
   crashReports?: boolean;
   /** Anonymous weekly usage statistics (ADR 0017); off unless true. */
   usageStats?: boolean;
+  /** Connect Canon cameras on the camera library's untested path to help
+   * test it (Preferences > Tethering); off unless true. */
+  tetherExperimentalCanon?: boolean;
   updatePrereleases?: boolean;
   dismissedUpdateVersion?: string;
-  aiConnectorAddress?: string;
-  aiProvider?: string;
+  /** The version that ran last; a newer one shows its CHANGELOG section once. */
+  lastRunVersion?: string;
+  /** Show "What's new" after an update (missing: yes). */
+  showWhatsNew?: boolean;
   decorations?: boolean;
   editorPreviewResolution?: number;
   smallThumbnailResolution?: number;
@@ -461,7 +475,7 @@ export interface AppSettings {
   editorNeutralGreyBg?: boolean;
   /** Develop viewer background around the photograph (utils/viewerDisplay). */
   viewerBackground?: string;
-  /** Develop viewer: fit leaves a proof margin around the photograph (X). */
+  /** Develop viewer: fit leaves a proof margin around the photograph (Alt+X). */
   viewerProofMargin?: boolean;
   /** Proof margin size in % of the viewer's shorter side. */
   viewerProofMarginPercent?: number;

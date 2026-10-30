@@ -139,6 +139,7 @@
       "flag_unflag": "取消旗標",
       "import_photos": "讀入照片…",
       "keyboard_shortcuts": "鍵盤快速鍵",
+      "match_light": "統一光線…",
       "move_to_selects": "移至精選",
       "new_session": "新增專案或目錄…",
       "open_session": "打開專案或目錄…",
@@ -161,6 +162,7 @@
       "sync_settings": "同步設定",
       "tether_capture": "拍攝（連線相機）",
       "toggle_all_panels": "所有面板與列",
+      "toggle_auto_advance": "自動前進",
       "toggle_bottom_panel": "底片顯示窗格",
       "toggle_clipping": "剪裁警告",
       "toggle_export": "輸出…",
@@ -221,7 +223,10 @@
     "empty": "沒有符合的命令。請嘗試其他搜尋詞。",
     "keys": "↑ ↓ 選取 · Enter 執行 · Esc 關閉",
     "recent": "最近使用的命令優先 · ↑ ↓ 選取 · Enter 執行 · Esc 關閉",
-    "search": "搜尋命令…"
+    "search": "搜尋命令…",
+    "selectAtMostPhotos": "最多選取 {{max}} 張相片",
+    "selectFourPhotos": "請至少選取四張照片",
+    "selectTwoPhotos": "請至少選取兩張照片"
   },
   "contextMenus": {
     "album": {
@@ -312,6 +317,8 @@
       "duplicateImage": "複製影像",
       "exportImage_one": "匯出影像",
       "exportImage_other": "匯出 {{count}} 張影像",
+      "matchLight_one": "統一光線…",
+      "matchLight_other": "統一光線…",
       "noAlbums": "無可用相簿",
       "pasteAdjustments_one": "貼上調整",
       "pasteAdjustments_other": "貼上調整到 {{count}} 張影像",
@@ -844,15 +851,35 @@
       "zoomInTooltip": "放大",
       "zoomOutTooltip": "縮小"
     },
+    "quit": {
+      "quitAnyway": "仍要結束",
+      "unsavedMessage": "下列變更無法儲存：{{changes}}。現在結束將遺失這些變更；取消可讓 Rawtonic 保持開啟並重試。",
+      "unsavedTitle": "變更未儲存"
+    },
     "renameFile": {
+      "blocked": "上方每個問題解決之前，無法重新命名任何檔案。",
       "cancel": "取消",
+      "checking": "正在檢查名稱…",
       "fileNamingTemplate": "檔案命名模板",
+      "more": "未列出的其他照片：{{hidden}}",
       "newName": "新名稱",
+      "noteXmpStays": "{{xmp}} 留在不重新命名的 {{owner}} 旁。",
+      "noteXmpWithRaw": "{{xmp}} 隨此 RAW 一起重新命名；{{others}} 保留原名，但不再有它。",
+      "nothingChanges": "沒有名稱變更。",
+      "preview": "預覽",
+      "previewFailed": "預覽失敗：{{error}}",
+      "problemInvalidName": "「{{name}}」不是有效的檔名。",
+      "problemNotFound": "檔案已不在。",
+      "problemOccupied": "{{name}} 已存在。",
+      "problemSameTarget": "此次重新命名中的另一個檔案也會被命名為 {{name}}。",
       "save": "儲存",
+      "summary": "重新命名的照片：{{photos}} · 檔案總數：{{files}}",
       "titleMultiple": "重新命名 {{count}} 張影像",
       "titleMultiple_one": "重新命名 {{count}} 張影像",
       "titleMultiple_other": "重新命名 {{count}} 張影像",
-      "titleSingle": "重新命名影像"
+      "titleSingle": "重新命名影像",
+      "unchanged": "保留原名",
+      "withFiles": "一併重新命名：{{files}}"
     },
     "renameFolder": {
       "cancel": "取消",
@@ -940,6 +967,13 @@
       "year": "年",
       "yearShort": "年 · 2 位"
     }
+  },
+  "notifications": {
+    "close": "關閉通知",
+    "quitCancelled": "儲存尚未完成，Rawtonic 保持開啟。待處理的變更仍在儲存中。",
+    "quitSaving": "正在儲存變更，隨後結束 Rawtonic…",
+    "quitSavingPhotos": "正在儲存變更，隨後結束 Rawtonic…（{{done}}/{{total}}）",
+    "region": "通知"
   },
   "offline": {
     "badge": "離線",
@@ -1047,9 +1081,7 @@
       "picked_other": "{{count}} 張留用",
       "tether": "連線拍攝",
       "tetherConnected": "{{camera}} 已連線",
-      "tetherTitle": "連線拍攝：USB 相機拍攝的照片直接進入此圖庫",
-      "xmpPending_other": "{{count}} 個 XMP 待處理",
-      "xmpPendingAction_other": "{{count}} 張照片需要同步 XMP – 按一下以檢視"
+      "tetherTitle": "連線拍攝：USB 相機拍攝的照片直接進入此圖庫"
     },
     "create": {
       "catalog": "目錄",
@@ -1065,7 +1097,7 @@
       "location": "位置",
       "modeLabel": "整理方式",
       "name": "專案名稱",
-      "namePlaceholder": "2026-10-01_客戶_案子",
+      "namePlaceholder": "{{date}}_客戶_案子",
       "namePreview": "你的案子",
       "originalsUntouched": "原始照片保持不變。",
       "session": "專案",
@@ -1212,6 +1244,7 @@
       "failed": "無法開啟上次的圖庫：{{error}}",
       "opening": "正在開啟 {{name}}（{{directory}}）… 如果 macOS 要求存取此卷宗，請允許。"
     },
+    "switching": "正在開啟資料庫…",
     "sync": {
       "applied": "已移動 {{moved}} · 已加入 {{added}} · 已移除 {{removed}}",
       "apply": "套用（{{n}}）",
@@ -1269,6 +1302,13 @@
     "tether": {
       "battery": "電池 {{level}}",
       "camera": "相機",
+      "canon": {
+        "badge": "實驗性",
+        "connectedNote": "實驗性：如果某張照片沒有出現在這裡，它並沒有遺失——它在記憶卡上。請讓記憶卡一直留在相機裡。從 Rawtonic 觸發的照片沒有傳到時，Rawtonic 會告訴你——除非期間有一張在相機上拍的照片傳了過來並佔了它的位置。拍攝結束後，請把記憶卡與圖庫對照一下。",
+        "notReceived": "沒有收到第 {{n}} 張照片。如果相機拍下了它，它就在記憶卡上。",
+        "openPreferences": "開啟連線拍攝偏好設定",
+        "optInNeeded": "Canon 相機還沒有在 Rawtonic 上測試過。要試用你的相機並協助測試，請在「偏好設定」>「連線拍攝」中開啟「實驗性：Canon 相機」。"
+      },
       "capture": "拍攝",
       "captureFailed": "拍攝失敗：{{error}}",
       "captureTitle": "觸發相機（⌘K / Ctrl+K）",
@@ -1285,6 +1325,7 @@
       "lastIn": "{{file}} 已在圖庫中",
       "lastTiming": "{{file}} 在拍攝後 {{ms}} 毫秒進入圖庫",
       "level": {
+        "experimental": "實驗性——徵求測試者。尚未在 Rawtonic 上測試：照片可能不會出現在這裡，那樣它就只在記憶卡上。",
         "notSupported": "尚不支援此相機。",
         "reported": "此相機型號的使用者回報可以使用。",
         "tested": "已在 {{systems}} 上以此相機型號測試（{{date}}）。",
@@ -1302,6 +1343,14 @@
         "bursting": "連續拍攝 {{shots}} 張…",
         "button": "相機測試…",
         "buttonTitle": "逐步測試此相機並產生匿名報告",
+        "canonGuide": {
+          "card": "整個測試期間，請讓相機裡一直插著記憶卡。",
+          "missing": "如果某張照片沒有出現，這同樣有用：它仍在記憶卡上，測試也會把它計入。",
+          "send": "最後點擊「{{button}}」。你會看到將要傳送的全部內容——沒有照片、檔案名稱或序號——在你確認之前，沒有任何內容會離開你的電腦。",
+          "sendNote": "此結果來自實驗性的 Canon 支援。感謝你的測試——每一個結果都有幫助，包括有照片遺失的結果。",
+          "steps": "請依序完成下面的步驟：點擊「執行」，然後照步驟的要求操作。如果你的相機無法完成某一步，請點擊「略過」。",
+          "title": "如何測試你的 Canon 相機"
+        },
         "close": "關閉相機測試",
         "how": {
           "autofocus": "對焦一次。使用手動鏡頭或相機設為 MF 時請略過。",
@@ -1402,6 +1451,13 @@
       "unsaved": "無法儲存變更：{{files}}",
       "verifyProgress_other": "正在驗證 · 已檢查 {{count}} 個檔案"
     },
+    "unsaved": {
+      "cancel": "取消",
+      "discard": "捨棄未儲存的編輯",
+      "message": "無法儲存以下編輯：{{files}}。現在開啟其他資料庫會遺失這些編輯。請重試以先儲存，或捨棄這些編輯，或取消以留在此資料庫。",
+      "retry": "重試",
+      "title": "編輯未儲存"
+    },
     "welcome": {
       "body": "為下一次拍攝建立一個可攜式專案。從第一張到最終精選，拍攝素材、調整與交付成果都放在一起。",
       "create": "建立專案",
@@ -1416,37 +1472,75 @@
       "toolsSide": "您希望將顯影工具放在哪一側？"
     },
     "xmp": {
-      "conflictHeading_other": "{{count}} 個衝突",
-      "conflictHint": "自上次同步以來,XMP 附屬檔案已在 Rawtonic 之外被修改。請選擇要保留哪一方的中繼資料。",
-      "editNotAdopted": "其已儲存的調整尚未進入圖庫:請先在「顯影」中編輯此照片,再行解決。",
-      "inSync": "所有 XMP 附屬檔案皆已同步。",
-      "keepLibrary": "保留圖庫",
-      "keepLibraryAll": "全部保留圖庫",
-      "keepLibraryFor": "為 {{name}} 保留圖庫",
-      "keepLibraryTitle": "將圖庫的中繼資料寫入 XMP 附屬檔案",
-      "leftOut_other": "有 {{count}} 張照片未參與「使用 XMP」:請先在「顯影」中編輯。",
-      "loading": "正在檢查 XMP 附屬檔案…",
-      "more_other": "另有 {{count}} 個",
-      "offline": "離線",
-      "offlineNote_other": "{{count}} 張照片離線:檔案或磁碟回來後會寫入其 XMP。",
-      "originalsUntouched": "只寫入 XMP 附屬檔案;照片保持不變。",
-      "pendingHeading_other": "{{count}} 個待處理",
-      "pendingHint": "圖庫較新:XMP 附屬檔案尚未寫入(照片離線、檔案唯讀或寫入失敗)。",
-      "prefsOff": "偏好設定中的 XMP 同步已關閉。此設定適用於不經圖庫開啟的資料夾;此圖庫中的照片會讓其 XMP 附屬檔案保持最新。",
-      "result": "完成:{{done}} · 離線:{{offline}} · 衝突:{{conflicts}} · 失敗:{{failed}}",
-      "subtitle": "存放在每張照片旁的評等、標籤、關鍵字與 IPTC 中繼資料,供其他應用程式使用。",
-      "syncNow": "立即同步",
-      "title": "XMP 附屬檔案",
-      "undo_other": "復原「使用 XMP」({{count}})",
-      "useXmp": "使用 XMP",
-      "useXmpAll": "全部使用 XMP",
-      "useXmpFor": "為 {{name}} 使用 XMP",
-      "useXmpTitle": "將附屬檔案中的評等、標籤、關鍵字與 IPTC 中繼資料讀入圖庫(可復原)",
-      "view": "待檢視的 XMP"
+      "buttonTitle": "部分 XMP 檔案未與圖庫同步。按一下以查看詳細資訊並重新寫入。",
+      "count_other": "{{count}} 個 XMP 未更新",
+      "explain": "你的編輯、評等和關鍵字已安全儲存在圖庫中。讀取 XMP 檔案的其他程式還看不到這些變更。照片本身永遠不會被修改。",
+      "heading_other": "{{count}} 張照片的 XMP 檔案不是最新的",
+      "reason": {
+        "changedElsewhere_other": "{{count}} 個 XMP 檔案已被其他程式修改。Rawtonic 不會覆寫它們，圖庫保留你的版本。",
+        "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
+        "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
+        "sharedName_other": "{{count}} 張照片與另一張同名（RAW 和 JPEG），兩者會寫入同一個 XMP 檔案。"
+      },
+      "retry": "重試",
+      "retryFailed": "無法寫入 XMP 檔案：{{error}}",
+      "show": "顯示照片",
+      "title": "XMP 檔案未更新",
+      "view": "XMP 未更新",
+      "writing": "正在寫入…",
+      "written_other": "已為 {{count}} 張照片更新 XMP 檔案"
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "圖庫資料庫，包含 Rawtonic 對 Windows WAL 鎖定的修正。",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "關於",
       "general": "通用",
       "processing": "處理",
       "shortcuts": "控制"
@@ -1519,7 +1613,7 @@
     },
     "general": {
       "autoAdvance": "自動前進",
-      "autoAdvanceDesc": "在沖印中，按評等、選取、排除或取消旗標鍵後會移到下一張照片，篩選時每張照片只需按一個鍵。",
+      "autoAdvanceDesc": "評分或標記後，從目前顯示的相片或格狀檢視中單獨選取的相片前進。使用 Caps Lock 或相片選單切換。",
       "builtinPresets": "內建預設",
       "builtinPresetsDesc": "在「樣式與預設」和工具的預設選單中顯示 Rawtonic 自有的樣式和預設。",
       "createXmp": "建立缺失的 XMP 檔案",
@@ -1535,7 +1629,7 @@
       "nativeTitlebar": "原生標題欄",
       "nativeTitlebarDesc": "使用系統預設的視窗標題欄，而非 Rawtonic 的自定義標題欄。",
       "proofMargin": "校樣邊距",
-      "proofMarginDesc": "開啟校樣邊距（X）時符合視窗的相片周圍的邊距，佔檢視器較短邊的比例。",
+      "proofMarginDesc": "開啟校樣邊距（Alt+X）時符合視窗的相片周圍的邊距，佔檢視器較短邊的比例。",
       "showBuiltinPresets": "顯示內建預設",
       "title": "通用設定",
       "uiScale": "介面大小",
@@ -1788,18 +1882,48 @@
       "shortcutsDesc": "將出現在標籤上下文選單中作為快捷方式的標籤列表。",
       "title": "標籤"
     },
+    "tethering": {
+      "camerasLink": "哪些相機可用，以及如何回報你的相機",
+      "canon": "實驗性：Canon 相機（協助測試）",
+      "canonDesc": "讓 Rawtonic 透過 USB 連接 Canon 相機，這樣你可以試用它並傳送一份簡短的測試結果。",
+      "canonSwitch": "連接 Canon 相機",
+      "howToTest": "協助的方法：在「連線拍攝」面板中連接相機，點擊「相機測試…」，然後依步驟操作。最後，在任何內容離開你的電腦之前，你會看到將要傳送的確切內容。",
+      "title": "連線拍攝",
+      "warningCard": "你拍的照片可能不會出現在 Rawtonic 中。那時它只在相機的記憶卡上，所以請一直讓相機裡插著記憶卡。",
+      "warningNothingDeleted": "Rawtonic 絕不會刪除相機或記憶卡上的任何內容。",
+      "warningUntested": "尚未測試：到目前為止，還沒有 Canon 相機在 Rawtonic 上試過。"
+    },
     "title": "設定",
     "tooltips": {
       "goHome": "返回首頁"
     }
   },
   "spotRemoval": {
+    "cancel": "取消",
+    "deleteSelected": "刪除所選",
+    "deleteSelectedHint": "Delete 或 Backspace。在照片上 Alt-按一下刪除一個；Alt-拖曳刪除框選到的全部。",
     "detectObjects": "偵測物件",
     "detectObjectsBoxHint": "圍繞物件拖出矩形或按一下物件即可移除。",
     "detectObjectsHint": "用筆刷大致塗抹物件或按一下物件即可移除。",
     "detectObjectsRefineHint": "Shift 加入所選移除，Alt (⌥) 從中減去。",
+    "downloadingModel": "正在下載物件移除模型… {{percent}} %",
+    "fallbackDownload": "無法下載物件移除模型（離線？），因此由較小的模型（MI-GAN）填補了此區域。連網後復原並重新移除可獲得更好的填補效果。",
+    "fallbackUnavailable": "無法執行物件移除模型，因此由較小的模型（MI-GAN）填補了此區域。",
     "feather": "羽化",
     "featherAria": "污點羽化",
+    "filling": "正在移除… 第 {{done}}/{{total}} 步",
+    "largeHoleTooSlow": "此 GPU 處理大面積移除太慢；本次工作階段中移除將使用快速方法。",
+    "list": {
+      "aria": "污點與移除",
+      "count": "修正 ({{number}})",
+      "delete": "刪除 {{name}}",
+      "deleteAll": "全部刪除",
+      "hideAll": "全部隱藏",
+      "item": "{{kind}} {{number}}",
+      "select": "選取 {{name}}",
+      "showAll": "全部顯示",
+      "toggle": "顯示 {{name}}"
+    },
     "mode": "污點模式",
     "modes": {
       "clone": "仿製",
@@ -1832,6 +1956,7 @@
     },
     "sensitivity": "靈敏度",
     "sensitivityAria": "顯示污點的靈敏度",
+    "showRemovals": "顯示移除",
     "size": "大小",
     "sizeAria": "污點大小",
     "visualize": "顯示污點"
@@ -2002,6 +2127,7 @@
       },
       "grading": {
         "hueAria": "{{range}}色相",
+        "link": "連動色調輪",
         "luminanceArcTitle": "{{range}}亮度 {{value}} · 拖曳或方向鍵 · Shift 微調 · 按兩下重設",
         "luminanceAria": "{{range}}亮度",
         "ranges": "範圍",
@@ -2150,9 +2276,11 @@
         "channel": "曲線色版",
         "input": "輸入",
         "maxPoints": "每個色版最多 {{max}} 個點。移動或移除點以微調曲線。",
-        "output": "輸出"
+        "output": "輸出",
+        "point": "點 {{index}}，輸入 {{input}}，輸出 {{output}}。方向鍵移動，A 新增點，Delete 刪除。"
       },
       "effects": {
+        "grainColor": "顆粒顏色",
         "grainStructure": "顆粒結構",
         "grainStructures": {
           "clumped": "團簇",
@@ -2203,6 +2331,7 @@
         "opened": "開啟影像",
         "other": "調整",
         "redEyes": "紅眼",
+        "remove": "移除",
         "spots": "污點移除",
         "title": "步驟記錄"
       },
@@ -2294,6 +2423,7 @@
           "red": "紅色",
           "white": "白色"
         },
+        "currentMode": "遮色片顯示: {{mode}}",
         "custom": "自訂遮色片顏色",
         "display": "遮色片顯示",
         "modes": {
@@ -2542,11 +2672,14 @@
           "minutes": "約剩 {{minutes}} 分鐘",
           "seconds": "約剩 {{seconds}} 秒"
         },
+        "exportedTo": "匯出至：",
         "failed": "{{failed}}/{{total}} 失敗",
         "failures": "未輸出的照片",
+        "fullResolution": "完整解析度",
         "held": "佇列已暫停：啟動佇列後，等待中的匯出才會開始。",
         "holdQueue": "暫停佇列",
         "interrupted": "已中斷（已匯出 {{done}}/{{total}}）",
+        "originalFolder": "原始資料夾",
         "pause": "暫停",
         "paused": "已暫停（已匯出 {{done}} / {{total}}）",
         "pausing": "將在目前照片完成後暫停…",
@@ -2633,7 +2766,8 @@
       },
       "toasts": {
         "queuedMany_other": "已將 {{count}} 個匯出加入佇列。",
-        "queuedOne": "已加入匯出佇列。"
+        "queuedOne": "已加入匯出佇列。",
+        "unsavedEdits": "無法儲存 {{names}} 的編輯，因此未匯出任何內容。儲存後請重新匯出。"
       },
       "watermark": {
         "add": "加入浮水印",
@@ -2693,6 +2827,21 @@
       "includeNeck": "包括頸部",
       "modelsMissing": "臉部修飾需要臉部模型。模型只會從 GitHub 上的 Rawtonic 模型包下載一次，並在這台電腦上執行。",
       "noFaces": "此照片中找不到臉孔。",
+      "protect": {
+        "brush": "保護筆刷",
+        "clear": "清除保護",
+        "feather": "羽化",
+        "featherAria": "保護筆刷羽化",
+        "hint": "塗抹修飾時應保持原樣的雀斑、痣和美人痣。按住 Alt（Option）擦除；[ 和 ] 調整大小。",
+        "modes": {
+          "erase": "擦除",
+          "off": "關閉",
+          "paint": "保護"
+        },
+        "show": "顯示受保護區域",
+        "size": "大小",
+        "sizeAria": "保護筆刷大小"
+      },
       "showBlemishes": "顯示瑕疵（按一下可保留或修復）",
       "sliders": {
         "blemishes": "瑕疵",
@@ -2707,16 +2856,21 @@
     },
     "histogram": {
       "aria": "影像色階分佈圖",
-      "clipping": "剪裁",
-      "clippingTitle": "剪裁警告：剪裁的亮部顯示為紅色，剪裁的陰影顯示為藍色（{{shortcut}}）",
+      "clippingAria": "溢色警告",
       "gamut": "色域警告",
       "gamutTitle": "色域警告：超出校樣色彩空間的顏色顯示為紅色",
       "graphAria": "所選照片的 RGB 亮度分佈",
       "graphEmpty": "開啟照片後可查看色階分佈圖",
+      "highlightClipping": "高光警告",
+      "highlightClippingLit": "高光警告，已溢出",
+      "highlightClippingTitle": "高光警告（溢出的高光，{{shortcut}} 同時切換兩側）",
       "proof": "校樣",
       "proofSpace": "校樣色彩空間",
       "proofTitle": "螢幕校樣：依所選色彩空間匯出後的效果顯示照片（{{shortcut}}）",
       "selectPhoto": "選擇一張照片",
+      "shadowClipping": "陰影警告",
+      "shadowClippingLit": "陰影警告，已壓暗",
+      "shadowClippingTitle": "陰影警告（壓暗的陰影，{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
     },
     "layers": {
@@ -2989,10 +3143,23 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "AI 降噪",
+          "aiMask": "AI 選取範圍",
+          "fillExternal": "填滿：外部服務",
+          "fillMiGan": "移除：MI-GAN",
+          "fillMoebius": "移除：Moebius",
+          "fillUnrecorded": "移除：未記錄模型",
+          "generated": "生成的區域",
+          "missingFill": "缺少像素的填滿",
+          "olderDenoise": "舊版 AI 降噪",
+          "pendingDetection": "尚未偵測的 AI 選取範圍"
+        },
         "all_other": "全部（{{count}} 個值）",
         "apertureValue": "f/{{value}}",
         "button": "後設資料",
         "fields": {
+          "ai": "AI 編輯",
           "aperture": "光圈",
           "camera": "相機",
           "captureDate": "拍攝日期",
@@ -3000,7 +3167,8 @@
           "focalLength": "焦距",
           "iso": "ISO",
           "keyword": "關鍵字",
-          "lens": "鏡頭"
+          "lens": "鏡頭",
+          "sourceType": "數位來源類型"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3016,6 +3184,7 @@
         "isoValue": "ISO {{value}}",
         "label": "後設資料篩選",
         "none": {
+          "ai": "無 AI 編輯",
           "aperture": "未知光圈",
           "camera": "未知相機",
           "captureDate": "無日期",
@@ -3023,11 +3192,30 @@
           "focalLength": "未知焦距",
           "iso": "未知 ISO",
           "keyword": "無關鍵字",
-          "lens": "未知鏡頭"
+          "lens": "未知鏡頭",
+          "sourceType": "未註明"
         },
         "rangeHint": "按一下選擇一個值，Shift 按一下選擇從上次按下的值起的所有值",
         "showMonths": "顯示 {{year}} 年的月份",
-        "toggle": "顯示或隱藏後設資料清單（拍攝日期、相機、鏡頭、關鍵字、檔案類型、ISO、焦距、光圈）"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "經演算法增強",
+          "algorithmicMedia": "由演算法建立",
+          "compositeCapture": "多張照片合成",
+          "compositeSynthetic": "合成元素的合成",
+          "compositeWithTrainedAlgorithmicMedia": "含 AI 生成部分的合成",
+          "computationalCapture": "運算攝影",
+          "dataDrivenMedia": "資料驅動媒體",
+          "digitalArt": "數位藝術",
+          "digitalCapture": "數位拍攝",
+          "humanEdits": "由人工編輯",
+          "negativeFilm": "底片負片",
+          "positiveFilm": "底片正片",
+          "print": "印刷品",
+          "screenCapture": "螢幕擷取",
+          "trainedAlgorithmicMedia": "AI 生成",
+          "virtualRecording": "虛擬錄製"
+        },
+        "toggle": "顯示或隱藏後設資料清單（拍攝日期、相機、鏡頭、關鍵字、檔案類型、ISO、焦距、光圈、AI 編輯、數位來源類型）"
       },
       "navigator": {
         "empty": "請選擇一張照片",
@@ -3075,6 +3263,7 @@
         "editTitle": "編輯智慧型相簿",
         "fieldLabel": "欄位",
         "fields": {
+          "ai": "AI 編輯",
           "album": "相簿",
           "aperture": "光圈（f 值）",
           "camera": "相機",
@@ -3095,6 +3284,7 @@
           "offline": "遺失的照片",
           "previousImport": "在上次匯入中",
           "rating": "星級",
+          "sourceType": "數位來源類型（檔案中）",
           "text": "任何可搜尋的文字"
         },
         "folderPlaceholder": "資料夾路徑",
@@ -3392,7 +3582,9 @@
     "multiView": {
       "controls": "標記、評等或移除 {{name}}",
       "editAll": "編輯所有選取的照片",
+      "editAllNotSaved": "「編輯所有選取的照片」無法儲存這些照片：{{names}}。在你重試之前，它們保留先前的設定。",
       "editAllTitle": "編輯所有選取的照片：對主照片的修改也會套用到顯示的每張其他照片（橘色邊框）",
+      "editAllTryAgain": "重試",
       "makePrimary": "編輯 {{name}}（設為主照片）",
       "more_other": "還有 {{n}} 張",
       "pick": "留用 {{name}}",
@@ -3434,6 +3626,7 @@
     },
     "presets": {
       "amount": "預設強度",
+      "appliedStyle": "已套用的樣式：按一下即可移除",
       "appliesAll": "套用儲存時的全部設定",
       "appliesBuiltin": "Rawtonic 自有預設：套用其包含的設定",
       "appliesSaved": "套用儲存時包含的設定",
@@ -3460,11 +3653,10 @@
         "grading-warm-shadows-cool-highlights": "暖陰影，冷亮部",
         "grading-warm-tone": "暖調",
         "grading-warm-up": "變暖",
-        "grain-coarse": "粗糙",
-        "grain-fine": "細緻",
-        "grain-heavy": "濃重",
-        "grain-medium": "中等",
-        "grain-speckled": "斑點",
+        "grain-bw-100": "黑白 100 細緻",
+        "grain-bw-400": "黑白 400 經典",
+        "grain-colour-100": "彩色負片 100 柔和",
+        "grain-colour-400": "彩色負片 400",
         "muted-colour": "柔和色彩",
         "noise-light": "輕度",
         "noise-medium": "中度",
@@ -3486,7 +3678,7 @@
       "deleteFolder": "刪除資料夾",
       "deleteFolderWithPresets_other": "刪除「{{name}}」及其中的 {{count}} 個預設？",
       "deletePreset": "刪除預設",
-      "empty": "尚無預設。調整照片後按 + 儲存其設定。",
+      "empty": "尚無自建樣式。調整照片後，按 + 儲存其設定。",
       "exportTitle": "匯出 {{name}}",
       "fileType": "Rawtonic 預設",
       "find": "尋找預設",
@@ -3639,7 +3831,56 @@
       "x": "X 位置",
       "y": "Y 位置"
     },
+    "seriesMatch": {
+      "after": "統一後",
+      "analysing": "正在分析 {{done}} / {{total}}…",
+      "applied_one": "已統一 {{count}} 張相片的光線",
+      "applied_other": "已統一 {{count}} 張相片的光線",
+      "apply_one": "套用到 {{count}} 張相片",
+      "apply_other": "套用到 {{count}} 張相片",
+      "applyTo": "套用到 {{name}}",
+      "before": "目前",
+      "cancel": "取消",
+      "change": "變化",
+      "confidence": "可信度",
+      "downloadFaces": "下載人臉模型",
+      "exposure": "曝光",
+      "exposureChange": "曝光 {{value}} EV",
+      "faces": "使用人臉（膚色）",
+      "facesTitle": "人臉在本機偵測；其膚色作為曝光和白平衡的依據。",
+      "facesUsed": "（人臉）",
+      "failed": "統一光線失敗：{{error}}",
+      "intro": "將每張相片的曝光和白平衡統一到參考相片（★），有人臉時以膚色為依據，之後即可把同一風格同步到整組相片。包圍曝光、剪影和彩色舞台光保持不變。",
+      "isReference": "參考",
+      "note": "說明",
+      "notSaved": "部分相片未儲存：{{error}}",
+      "reasons": {
+        "alreadyMatches": "已一致",
+        "anchorsDisagree": "人臉與場景不一致 – 請檢查",
+        "bracket": "包圍曝光 – 保持不變",
+        "cameraCompensation": "相機中設定了曝光補償 – 請檢查",
+        "colouredLight": "彩色光 – 白平衡保持不變",
+        "largeChange": "曝光變化較大 – 請檢查",
+        "littleInCommon": "與參考相片相似度低 – 請檢查",
+        "noReference": "沒有參考",
+        "noWhiteBalance": "此檔案沒有白平衡",
+        "silhouette": "剪影 – 保持暗部",
+        "unreadable": "無法讀取"
+      },
+      "reference": "參考",
+      "referenceTitle": "設為參考",
+      "results": "結果",
+      "summary": "待統一 {{match}} · 待檢查 {{review}} · 保持 {{keep}} · {{seconds}} 秒",
+      "thenSync": "然後用「同步設定」同步參考相片的風格，不勾選曝光和白平衡。",
+      "title_one": "統一 {{count}} 張相片的光線",
+      "title_other": "統一 {{count}} 張相片的光線",
+      "whiteBalance": "白平衡",
+      "whiteBalanceChange": "{{from}} K → {{to}} K，色調 {{tint}}",
+      "whiteBalanceTo": "白平衡 {{to}} K"
+    },
     "spot": {
+      "done": "結束污點移除",
+      "start": "開始污點移除",
       "withShortcut": "{{text}}（{{key}}）"
     },
     "tone": {
@@ -3656,14 +3897,20 @@
         "auto": "自動",
         "autoAria": "自動色階",
         "autoTitle": "依據色階分佈圖設定黑點和白點",
-        "black": "黑",
         "channelAria": "色階色版",
-        "highlight": "亮部",
+        "fieldAria": "{{name}}數值",
+        "histogramAria": "色階分佈圖",
+        "inBlack": "輸入黑點",
+        "inWhite": "輸入白點",
         "midtone": "中間調",
+        "outBlack": "輸出黑點",
         "output": "輸出",
-        "shadow": "陰影",
-        "title": "色階",
-        "white": "白"
+        "outWhite": "輸出白點",
+        "pickBlack": "黑點滴管",
+        "pickBlackTitle": "在相片中按一下應為黑色的位置",
+        "pickWhite": "白點滴管",
+        "pickWhiteTitle": "在相片中按一下應為白色的位置",
+        "title": "色階"
       },
       "regionCurve": {
         "aria": {
@@ -4003,17 +4250,25 @@
     }
   },
   "undoHistory": {
+    "apply": "套用設定",
     "color": "設定色彩標籤",
     "edit": "編輯",
     "file": "檔案變更",
     "flag": "設定旗標",
+    "lensCorrection": "鏡頭校正",
+    "matchLight": "統一光線",
     "move": "移動",
     "notice": "{{action}}: {{name}}",
     "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
+    "paste": "貼上設定",
     "rating": "設定評分",
+    "recipesNotAll": "未能寫入所有相片",
     "redoAction": "重做{{action}}",
     "rename": "重新命名",
+    "reset": "重設",
     "skipFailed": "略過失敗的項目",
+    "style": "套用樣式",
+    "sync": "同步設定",
     "trash": "移至垃圾桶",
     "undoAction": "復原{{action}}"
   },
@@ -4022,12 +4277,22 @@
     "available": "Rawtonic {{version}} 已可使用",
     "checking": "正在檢查…",
     "checkNow": "立即檢查",
+    "close": "關閉",
+    "dontShowAgain": "更新後不再顯示",
     "download": "下載",
     "failed": "無法檢查更新。請稍後再試。",
+    "fileWithSize": "{{file}}（{{size}} MB）",
+    "manual": "檢查更新",
+    "noFile": "此版本沒有適用於這台電腦的下載；發布頁面列出了所有檔案。",
+    "noNotes": "沒有發布說明。發布頁面可能有更多資訊。",
+    "notesTitle": "Rawtonic {{version}} 的新功能",
     "notNow": "暫時不要",
     "noUpdate": "未找到較新的版本。",
     "prereleases": "包含預先發行版本",
     "privacy": "每天向 GitHub 查詢一次。傳送 IP 位址和應用程式版本，不傳送照片或識別碼。",
-    "startup": "啟動時檢查更新"
+    "releasePage": "發布頁面",
+    "showWhatsNew": "更新後顯示新功能",
+    "startup": "啟動時檢查更新",
+    "whatsNew": "新功能"
   }
 }

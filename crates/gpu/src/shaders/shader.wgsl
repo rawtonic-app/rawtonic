@@ -249,6 +249,9 @@ struct GlobalAdjustments {
     image_key_median: f32,
     // 1: colours outside the output space keep their hue (restore_hue).
     gamut_mapping: u32,
+    // Film grain colour (`grainColor` / 100): 0 one neutral layer, 1
+    // independent dye layers (apply_film_grain).
+    grain_color: f32,
 }
 
 struct MaskAdjustments {
@@ -370,6 +373,14 @@ struct AllAdjustments {
 // size) one dispatch renders. Workgroups are numbered flat, row by row of a
 // RENDER_REGION_GROUPS_X-wide grid, and assigned to the regions in order.
 @group(0) @binding(16) var<storage, read> render_regions: array<vec4<u32>>;
+
+// Display frames: the histogram's image, addressed like output_texture. The
+// colour before the clipping warnings and the colour range view replaced it
+// (as output_texture would hold it without them), and in alpha the clipping
+// sides of the pixel (1 shadows, 2 highlights, as bytes; the warnings'
+// predicates, whether a warning is on or not). Other renders bind a 1 x 1
+// texture, which `main` leaves alone.
+@group(0) @binding(28) var analytics_output: texture_storage_2d<rgba8unorm, write>;
 
 // Display frames: the layers' slider sums per pixel (layer_sums.wgsl). Header:
 // vec4 0 holds the bit set of the sliders some layer sets (LAYER_SUM_PARAMS,
@@ -992,6 +1003,197 @@ fn apply_portable_grain(rgb: vec3<f32>, coord: vec2<u32>) -> vec3<f32> {
     }
     let noise = portable_grain_noise(structure, coord, portable_grain_cells_per_px(), adjustments.global.grain_roughness);
     return rgb + vec3<f32>(noise) * amount * luma_mask * tone;
+}
+
+// Film grain (`grainVersion` 3, notes: reference/grain.md "Film grain").
+// Grains are disks with random radii at random places in each dye layer of
+// a negative (a Boolean model, engine film_grain.rs): a layer of
+// normalised density u is covered where a developed grain lies, and the
+// pixel reads the covered share over its footprint (tile mips). The grain
+// changes the negative's density, and the print turns density into the
+// display value through a logistic print response, so the grain is
+// strongest in the midtones and fades towards black and white like a
+// print's. Colour film has three independent layers; Colour (recipe
+// `grainColor`) sets how independent they are (0: one neutral layer, like
+// black-and-white film).
+@group(0) @binding(27) var<storage, read> film_grain_tile: array<u32>;
+
+// Tile layout (film_grain.rs): TILE² texels per level at mip 0, LEVELS
+// levels as half floats, two per word.
+const FILM_TILE: u32 = 512u;
+const FILM_LEVELS: u32 = 12u;
+const FILM_WORDS: u32 = 6u;
+const FILM_U_MAX: f32 = 0.95;
+const FILM_MIPS: u32 = 10u;
+const FILM_MIP_BIAS: f32 = 0.5;
+// Tile texels per pixel = this (12-bit fixed point) times the portable
+// grain's lattice cells per pixel, so the grain keeps its size relative to
+// the image (Size).
+const FILM_TEXELS_PER_CELL: u32 = 38912u;
+// Randomly shifted copies of the tile are blended on a triangle grid of
+// this many texels (Heitz and Neyret, "High-Performance By-Example Noise
+// using a Histogram-Preserving Blending Operator", 2018), so the tile's
+// repeat does not show.
+const FILM_BLEND_CELL: f32 = 128.0;
+// Print response: display value = 1 / (1 + exp(-slope x)) of the negative's
+// density x above mid grey (slope 4 × gamma 1.6).
+const FILM_PRINT_SLOPE: f32 = 6.4;
+// The negative: fog plus mid grey's density (a third of the layer's
+// grains developed, as in a normally exposed negative), and the layer's
+// density at full coverage.
+const FILM_FOG_MID: f32 = 0.9;
+const FILM_DMAX: f32 = 2.4;
+// Amount (grain_amount = slider / 200) to the density scale of the grain.
+const FILM_GAIN: f32 = 0.26;
+
+// Words before mip `j` of the tile.
+fn film_mip_offset(j: u32) -> u32 {
+    var words = 0u;
+    var side = FILM_TILE;
+    for (var i = 0u; i < j; i++) {
+        words += side * side;
+        side = side >> 1u;
+    }
+    return words * FILM_WORDS;
+}
+
+// The level-interpolated fluctuation (level k0 to k0 + 1 by w; k0 = -1 is
+// the empty level) of texel (x, y), wrapping, of the mip at `base`.
+fn film_texel(base: u32, side: u32, x: u32, y: u32, k0: i32, w: f32) -> f32 {
+    let t = base + ((y & (side - 1u)) * side + (x & (side - 1u))) * FILM_WORDS;
+    var a = 0.0;
+    if (k0 >= 0) {
+        let k = u32(k0);
+        let pair = unpack2x16float(film_grain_tile[t + k / 2u]);
+        a = select(pair.x, pair.y, (k & 1u) == 1u);
+    }
+    let k1 = u32(k0 + 1);
+    let pair1 = unpack2x16float(film_grain_tile[t + k1 / 2u]);
+    return mix(a, select(pair1.x, pair1.y, (k1 & 1u) == 1u), w);
+}
+
+// Bilinear read of mip `j` at the mip-0 texel position `pi` + `pf` / 4096.
+fn film_sample_mip(pi: vec2<u32>, pf: vec2<u32>, j: u32, k0: i32, w: f32) -> f32 {
+    let side = FILM_TILE >> j;
+    var ii = pi >> vec2<u32>(j);
+    var ff = (((pi & vec2<u32>((1u << j) - 1u)) << vec2<u32>(12u)) | pf) >> vec2<u32>(j);
+    // Texel centres; the integer part wraps like the tile.
+    let below = ff < vec2<u32>(2048u);
+    ii = ii - select(vec2<u32>(0u), vec2<u32>(1u), below);
+    ff = select(ff - vec2<u32>(2048u), ff + vec2<u32>(2048u), below);
+    let f = vec2<f32>(ff) * (1.0 / 4096.0);
+    let base = film_mip_offset(j);
+    let a = film_texel(base, side, ii.x, ii.y, k0, w);
+    let b = film_texel(base, side, ii.x + 1u, ii.y, k0, w);
+    let c = film_texel(base, side, ii.x, ii.y + 1u, k0, w);
+    let d = film_texel(base, side, ii.x + 1u, ii.y + 1u, k0, w);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// The tile read over a pixel's footprint: `s_q` texels per pixel (12-bit
+// fixed point) picks the mips, trilinear between them.
+fn film_sample(pi: vec2<u32>, pf: vec2<u32>, s_q: u32, k0: i32, w: f32) -> f32 {
+    // Bilinear reads of a box-filtered mip blur about half a level more
+    // than the footprint: half a level finer matches a box over the pixel.
+    let m = max(log2(f32(s_q) * (1.0 / 4096.0)) - FILM_MIP_BIAS, 0.0);
+    let j = min(u32(floor(m)), FILM_MIPS - 1u);
+    let wm = select(m - floor(m), 0.0, j >= FILM_MIPS - 1u);
+    var v = film_sample_mip(pi, pf, j, k0, w);
+    if (wm > 0.0) {
+        v = mix(v, film_sample_mip(pi, pf, j + 1u, k0, w), wm);
+    }
+    return v;
+}
+
+// One grain field at pixel `coord`: the tile at `s_q` texels per pixel,
+// three randomly shifted copies blended on a triangle grid with their
+// variance kept (`seed` keeps the fields independent).
+fn film_field(coord: vec2<u32>, s_q: u32, seed: u32, k0: i32, w: f32) -> f32 {
+    // The pixel's centre, (coord + 0.5) × s, in 12-bit fixed point.
+    let low = coord * (s_q & 4095u) + vec2<u32>((s_q >> 1u) & 4095u);
+    let pi = coord * (s_q >> 12u) + vec2<u32>(s_q >> 13u) + (low >> vec2<u32>(12u));
+    let pf = low & vec2<u32>(4095u);
+    let q = (vec2<f32>(pi) + vec2<f32>(pf) * (1.0 / 4096.0)) / FILM_BLEND_CELL;
+    let sk = vec2<f32>(q.x - q.y * 0.57735027, q.y * 1.15470054);
+    let cell = floor(sk);
+    let f = sk - cell;
+    let base = vec2<i32>(cell);
+    var v1 = base;
+    var v2 = base + vec2<i32>(1, 0);
+    var v3 = base + vec2<i32>(0, 1);
+    var w3 = vec3<f32>(1.0 - f.x - f.y, f.x, f.y);
+    if (f.x + f.y >= 1.0) {
+        v1 = base + vec2<i32>(1, 1);
+        v2 = base + vec2<i32>(0, 1);
+        v3 = base + vec2<i32>(1, 0);
+        w3 = vec3<f32>(f.x + f.y - 1.0, 1.0 - f.x, 1.0 - f.y);
+    }
+    // Sharper transitions (weights cubed), then the blend's variance restored.
+    w3 = w3 * w3 * w3;
+    w3 = w3 / (w3.x + w3.y + w3.z);
+    let o1 = pcg3d(vec3<u32>(bitcast<vec2<u32>>(v1), seed)).xy & vec2<u32>(FILM_TILE - 1u);
+    let o2 = pcg3d(vec3<u32>(bitcast<vec2<u32>>(v2), seed)).xy & vec2<u32>(FILM_TILE - 1u);
+    let o3 = pcg3d(vec3<u32>(bitcast<vec2<u32>>(v3), seed)).xy & vec2<u32>(FILM_TILE - 1u);
+    let g = w3.x * film_sample(pi + o1, pf, s_q, k0, w)
+        + w3.y * film_sample(pi + o2, pf, s_q, k0, w)
+        + w3.z * film_sample(pi + o3, pf, s_q, k0, w);
+    return g / sqrt(dot(w3, w3));
+}
+
+// One dye layer at normalised density u: fine grains, and with Roughness a
+// share from a coarser population (2.5 × the radius, a faster emulsion).
+fn film_layer(coord: vec2<u32>, s_q: u32, u: f32, roughness: f32, layer: u32) -> f32 {
+    let level = u / FILM_U_MAX * f32(FILM_LEVELS) - 1.0;
+    var k0 = i32(floor(level));
+    var w = level - floor(level);
+    if (k0 >= i32(FILM_LEVELS) - 1) {
+        k0 = i32(FILM_LEVELS) - 2;
+        w = 1.0;
+    }
+    let coarse = 0.6 * roughness;
+    var g = (1.0 - coarse) * film_field(coord, s_q, 31u + 2u * layer, k0, w);
+    if (coarse > 0.0) {
+        g += coarse * film_field(coord, s_q * 2u / 5u, 32u + 2u * layer, k0, w);
+    }
+    return g;
+}
+
+fn film_density(v: f32) -> f32 {
+    return log(v / (1.0 - v)) / FILM_PRINT_SLOPE;
+}
+
+fn apply_film_grain(rgb: vec3<f32>, coord: vec2<u32>) -> vec3<f32> {
+    // Finer grain averages out over a pixel; Size keeps most of the strength
+    // so Amount stays the strength (Size 25 = grain_size 0.5 unchanged).
+    let size = clamp(adjustments.global.grain_size, 0.1, 4.0);
+    let amount = adjustments.global.grain_amount * FILM_GAIN * sqrt(0.5 / size);
+    let roughness = adjustments.global.grain_roughness;
+    let vc = clamp(rgb, vec3<f32>(0.002), vec3<f32>(0.998));
+    let x = log(vc / (1.0 - vc)) / FILM_PRINT_SLOPE;
+    let cells = portable_grain_cells_per_px();
+    let s_q = cells * (FILM_TEXELS_PER_CELL >> 12u) + ((cells * (FILM_TEXELS_PER_CELL & 4095u)) >> 12u);
+    let rho = 1.0 - clamp(adjustments.global.grain_color, 0.0, 1.0);
+    var grain: vec3<f32>;
+    if (rho >= 1.0) {
+        // One neutral layer at the luminance's density.
+        let l = clamp(get_luma(rgb), 0.002, 0.998);
+        let u = clamp((FILM_FOG_MID + film_density(l)) / FILM_DMAX, 0.0, FILM_U_MAX);
+        grain = vec3<f32>(film_layer(coord, s_q, u, roughness, 0u));
+    } else {
+        let u = clamp((vec3<f32>(FILM_FOG_MID) + x) / FILM_DMAX, vec3<f32>(0.0), vec3<f32>(FILM_U_MAX));
+        // The blue-sensitive layer has larger grains.
+        let layers = vec3<f32>(
+            film_layer(coord, s_q, u.r, roughness, 0u),
+            film_layer(coord, s_q, u.g, roughness, 1u),
+            film_layer(coord, s_q * 4u / 5u, u.b, roughness, 2u),
+        );
+        // Mixed to correlation rho between the layers, each keeping its variance.
+        let a = sqrt(1.0 - rho);
+        let c = (sqrt(1.0 + 2.0 * rho) - a) / 3.0;
+        grain = a * layers + vec3<f32>(c * (layers.r + layers.g + layers.b));
+    }
+    let printed = 1.0 / (1.0 + exp(-FILM_PRINT_SLOPE * (x + grain * (FILM_DMAX * amount))));
+    return rgb + (printed - vc);
 }
 
 fn dither(coords: vec2<u32>) -> f32 {
@@ -7441,8 +7643,13 @@ fn main(
         default_tonemapped = apply_base_curve(default_tonemapped, u32(adjustments.global.base_curve + 0.5));
     }
     var range_view = -1.0;
+    // `show_clipping`: 0 none, 0x40000001 highlights only, 0x40000002
+    // shadows only, 1 both (below); otherwise `2 + index` shows that colour
+    // range (crates/engine `color_range_view_index`, at most eight). The
+    // side flags stay above any index, so the bound keeps them out.
     if (adjustments.global.show_clipping >= 2u
-        && adjustments.global.show_clipping - 2u < adjustments.global.color_range_count.x) {
+        && adjustments.global.show_clipping - 2u < adjustments.global.color_range_count.x
+        && adjustments.global.show_clipping - 2u < 8u) {
         range_view = color_range_view_weight(default_tonemapped, adjustments.global.show_clipping - 2u);
     }
     if (adjustments.global.color_range_count.x > 0u) {
@@ -7486,6 +7693,13 @@ fn main(
     }
 
     base_srgb = apply_filmic_exposure(base_srgb, t_brightness);
+    // Levels' input probe (`output_space.w`, set only by the Levels
+    // histogram's render): the colour Levels receive, clipped to the sRGB
+    // cube, without anything after it (no output mapping, no dither).
+    if (adjustments.global.output_space.w != 0u) {
+        textureStore(output_texture, id.xy, vec4<f32>(clamp(base_srgb, vec3<f32>(0.0), vec3<f32>(1.0)), original_alpha));
+        return;
+    }
     // The per-channel tools below act on the colour clipped to the sRGB
     // cube and carry the rest (carry_beyond_srgb).
     if (adjustments.global.levels_active.x != 0u) {
@@ -7597,18 +7811,30 @@ fn main(
     if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure != GRAIN_EVEN) {
         final_rgb = apply_grain_structure(final_rgb, vec2<f32>(absolute_coord_i), scale);
     }
-    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version >= 2u) {
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version == 2u) {
         final_rgb = apply_portable_grain(final_rgb, absolute_coord);
     }
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version >= 3u) {
+        final_rgb = apply_film_grain(final_rgb, absolute_coord);
+    }
 
-    if (adjustments.global.show_clipping == 1u) {
+    // Clipping warnings, each side on its own (`show_clipping` as above):
+    // one side's flag, or 1 for both.
+    let warn_highlights = adjustments.global.show_clipping == 1u
+        || adjustments.global.show_clipping == 0x40000001u;
+    let warn_shadows = adjustments.global.show_clipping == 1u
+        || adjustments.global.show_clipping == 0x40000002u;
+    let HIGHLIGHT_CLIP_THRESHOLD = 0.998;
+    let SHADOW_CLIP_THRESHOLD = 0.002;
+    let clips_highlights = any(final_rgb > vec3<f32>(HIGHLIGHT_CLIP_THRESHOLD));
+    let clips_shadows = any(final_rgb < vec3<f32>(SHADOW_CLIP_THRESHOLD));
+    let unmarked_rgb = final_rgb;
+    if (warn_highlights || warn_shadows) {
         let HIGHLIGHT_WARNING_COLOR = vec3<f32>(1.0, 0.0, 0.0);
         let SHADOW_WARNING_COLOR = vec3<f32>(0.0, 0.0, 1.0);
-        let HIGHLIGHT_CLIP_THRESHOLD = 0.998;
-        let SHADOW_CLIP_THRESHOLD = 0.002;
-        if (any(final_rgb > vec3<f32>(HIGHLIGHT_CLIP_THRESHOLD))) {
+        if (warn_highlights && clips_highlights) {
             final_rgb = HIGHLIGHT_WARNING_COLOR;
-        } else if (any(final_rgb < vec3<f32>(SHADOW_CLIP_THRESHOLD))) {
+        } else if (warn_shadows && clips_shadows) {
             final_rgb = SHADOW_WARNING_COLOR;
         }
     }
@@ -7624,6 +7850,7 @@ fn main(
         return;
     }
 
+    let marked = any(final_rgb != unmarked_rgb);
     final_rgb = encode_output(final_rgb);
 
     if (HIGH_PRECISION_OUTPUT == 0u) {
@@ -7631,7 +7858,21 @@ fn main(
         final_rgb += dither(id.xy) * dither_amount;
     }
 
-    textureStore(output_texture, id.xy, vec4<f32>(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), original_alpha));
+    let output_rgb = clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    textureStore(output_texture, id.xy, vec4<f32>(output_rgb, original_alpha));
+
+    if (textureDimensions(analytics_output).x > 1u) {
+        var analytics_rgb = output_rgb;
+        if (marked) {
+            analytics_rgb = encode_output(unmarked_rgb);
+            if (HIGH_PRECISION_OUTPUT == 0u) {
+                analytics_rgb += dither(id.xy) * (1.0 / 255.0);
+            }
+            analytics_rgb = clamp(analytics_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        let sides = select(0.0, 1.0, clips_shadows) + select(0.0, 2.0, clips_highlights);
+        textureStore(analytics_output, id.xy, vec4<f32>(analytics_rgb, sides / 255.0));
+    }
 }
 
 // The colours `main` stored with DEFER_OUTPUT, addressed like output_texture.

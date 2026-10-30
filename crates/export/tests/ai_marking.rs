@@ -32,6 +32,7 @@ fn kept_metadata_of_a_missing_original_still_marks_generated_areas() {
     let metadata = export_metadata_with(
         "/nonexistent/photo.jpg",
         "jpeg",
+        rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
         true,
         false,
         false,

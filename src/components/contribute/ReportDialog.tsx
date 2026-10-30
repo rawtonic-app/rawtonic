@@ -162,7 +162,7 @@ export default function ReportDialog({
     <div
       aria-labelledby="report-dialog-title"
       aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center z-[9999] bg-black/30 backdrop-blur-xs"
+      className="studio-dialog-backdrop"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -173,88 +173,77 @@ export default function ReportDialog({
       role="dialog"
     >
       <div
-        className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col text-text-primary"
+        className="studio-dialog is-wide"
         ref={panel}
         tabIndex={-1}
       >
-        <Text variant={TextVariants.title} id="report-dialog-title" className="mb-3">
+        <h2 className="studio-dialog-title" id="report-dialog-title">
           {title}
-        </Text>
+        </h2>
         {github ? (
           <>
-            <Text color="secondary" className="mb-3">
+            <Text color="secondary">
               {t("contribute.report.githubReview")}
             </Text>
             <pre
               aria-label={t("contribute.report.githubText")}
-              className="min-h-0 flex-1 overflow-auto rounded bg-bg-primary p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
+              className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
               tabIndex={0}
             >
               {`${github.title}\n\n${github.body}`}
             </pre>
             {error && (
-              <Text color="error" className="mt-2" role="alert">
+              <Text color="error" role="alert">
                 {error}
               </Text>
             )}
-            <div className="flex justify-end gap-3 mt-4">
+            <div className="studio-dialog-footer">
               <Button variant="ghost" onClick={() => setGithub(null)}>
                 {t("contribute.review.change")}
               </Button>
-              <Button
-                className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
-                variant="ghost"
-                onClick={onClose}
-                data-autofocus
-              >
-                {t("contribute.review.cancel")}
-              </Button>
-              <Button onClick={() => void openGithub()}>{t("contribute.report.githubOpen")}</Button>
+              <div className="studio-dialog-footer-end">
+                <Button variant="ghost" onClick={onClose} data-autofocus>
+                  {t("contribute.review.cancel")}
+                </Button>
+                <Button onClick={() => void openGithub()}>{t("contribute.report.githubOpen")}</Button>
+              </div>
             </div>
           </>
         ) : (
           <>
             <div className="min-h-0 flex-1 overflow-auto flex flex-col gap-3 pr-1">{children}</div>
             {relay === false && (
-              <Text variant={TextVariants.small} color="secondary" className="mt-3">
+              <Text variant={TextVariants.small} color="secondary">
                 {t("contribute.report.noRelay")}
               </Text>
             )}
-            <Text variant={TextVariants.small} color="secondary" className="mt-2">
+            <Text variant={TextVariants.small} color="secondary">
               {t("contribute.report.githubPublic")}
             </Text>
             {error && (
-              <Text color="error" className="mt-2" role="alert">
+              <Text color="error" role="alert">
                 {error}
               </Text>
             )}
-            <div className="flex flex-wrap items-center justify-end gap-3 mt-4">
+            <div className="studio-dialog-footer">
               <Button variant="ghost" onClick={() => void copy()} disabled={!payload}>
-                <span className="flex items-center gap-2">
-                  {copied ? <Check size={16} /> : <ClipboardCopy size={16} />}
-                  {copied ? t("contribute.report.copied") : t("contribute.report.copy")}
-                </span>
+                {copied ? <Check size={14} /> : <ClipboardCopy size={14} />}
+                {copied ? t("contribute.report.copied") : t("contribute.report.copy")}
               </Button>
               <Button variant="ghost" onClick={() => void reviewGithub()} disabled={!payload}>
-                <span className="flex items-center gap-2">
-                  <ExternalLink size={16} />
-                  {t("contribute.report.github")}
-                </span>
+                <ExternalLink size={14} />
+                {t("contribute.report.github")}
               </Button>
-              <span className="flex-1" />
-              <Button
-                className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
-                variant="ghost"
-                onClick={onClose}
-                data-autofocus
-              >
-                {t("contribute.review.cancel")}
-              </Button>
-              {relay && (
-                <Button onClick={() => void review()} disabled={!payload}>
-                  {t("contribute.report.review")}
+              <div className="studio-dialog-footer-end">
+                <Button variant="ghost" onClick={onClose} data-autofocus>
+                  {t("contribute.review.cancel")}
                 </Button>
-              )}
+                {relay && (
+                  <Button onClick={() => void review()} disabled={!payload}>
+                    {t("contribute.report.review")}
+                  </Button>
+                )}
+              </div>
             </div>
           </>
         )}

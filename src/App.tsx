@@ -1,4 +1,6 @@
 import UpdateNotice from './components/UpdateNotice';
+import WhatsNewAfterUpdate from './components/WhatsNewAfterUpdate';
+import AppNotices from './components/ui/AppNotices';
 import ContributionHost from './components/contribute/ContributionHost';
 import StudioWorkspace from './components/studio/StudioWorkspace';
 import { FOLDER_SYNC_APPLIED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, type SyncApplied } from './utils/folderSync';
@@ -17,12 +19,13 @@ import { epochOf, PerfProfiler, reportForcedLayout, reportPerformance, usePerfor
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { refocusWebview } from './utils/photoFullScreen';
-import { ToastContainer, toast, Slide } from 'react-toastify';
+import { toast } from 'react-toastify';
 import clsx from 'clsx';
 
 import TitleBar from './window/TitleBar';
 import WindowControls from './window/WindowControls';
 import SessionWorkspace from './components/session/SessionWorkspace';
+import { openPendingXmpView, PENDING_XMP_VIEW_ID, SHOW_PENDING_XMP_EVENT } from './components/session/SessionXmpStatus';
 import type { FolderTree as FolderTreeNode } from './utils/folderTree';
 import SettingsPanel from './components/panel/SettingsPanel';
 import GlobalTooltip from './components/ui/GlobalTooltip';
@@ -33,7 +36,6 @@ import { useSettingsStore } from './store/useSettingsStore';
 import { useUIStore } from './store/useUIStore';
 import { moduleOf, readModuleLayout } from './utils/panelLayout';
 import { reloadSessionFlags } from './utils/pathKeyedState';
-import { XMP_VIEW_ID, openXmpView } from './utils/xmpReview';
 import { useLibraryStore } from './store/useLibraryStore';
 import { useEditorStore } from './store/useEditorStore';
 import { useProcessStore } from './store/useProcessStore';
@@ -249,8 +251,8 @@ function App() {
             handleSelectAlbum,
             true,
           ).catch((e) => toast.error(String(e)));
-        } else if (activeAlbumId === XMP_VIEW_ID && sessionDirectory) {
-          await openXmpView(
+        } else if (activeAlbumId === PENDING_XMP_VIEW_ID && sessionDirectory) {
+          await openPendingXmpView(
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,
@@ -294,6 +296,21 @@ function App() {
     window.addEventListener(DRIVES_CHANGED, changed);
     return () => window.removeEventListener(DRIVES_CHANGED, changed);
   }, []);
+
+  // The session bar's "Show photos" for XMP files that are not up to date.
+  useEffect(() => {
+    const show = (event: Event) => {
+      const { sessionDirectory } = useLibraryStore.getState();
+      if (!sessionDirectory) return;
+      // A refresh after Try again keeps an open photograph in Develop.
+      const refresh = Boolean((event as CustomEvent<{ refresh?: boolean } | null>).detail?.refresh);
+      void openPendingXmpView(sessionDirectory, i18n.t('session.xmp.view'), handleSelectAlbum, refresh).catch((e) =>
+        toast.error(String(e)),
+      );
+    };
+    window.addEventListener(SHOW_PENDING_XMP_EVENT, show);
+    return () => window.removeEventListener(SHOW_PENDING_XMP_EVENT, show);
+  }, [handleSelectAlbum]);
 
   /** After Locate Photo / Locate Folder: the folders show the new places, the
    * selection (and a photograph open in Develop) follows the relinked files,
@@ -451,10 +468,13 @@ function App() {
     let known: boolean | null = null;
     const checkFullscreen = async () => {
       const isWindowFullScreen = await appWindow.isFullscreen();
+      // Resizing sends many events (a zoom animation one per frame): only a
+      // change of full screen updates the store.
+      if (known === isWindowFullScreen) return;
       setUI({ isWindowFullScreen });
       // Entering or leaving full screen by any means (F, the green button,
       // ⌃⌘F) leaves the web view without keyboard focus on macOS.
-      if (known !== null && known !== isWindowFullScreen) void refocusWebview();
+      if (known !== null) void refocusWebview();
       known = isWindowFullScreen;
     };
     checkFullscreen();
@@ -482,7 +502,6 @@ function App() {
   return (
     <>
       <CommandPalette />
-      <UpdateNotice />
       <ContributionHost />
       <ImageProcessingManager
         transformWrapperRef={transformWrapperRef}
@@ -519,7 +538,6 @@ function App() {
         <PerfProfiler id="session">
           <SessionWorkspace
             onNavigate={handleSelectSubfolder}
-            onSelectView={(id, name, paths, preserveEditor) => void handleSelectAlbum(id, name, paths, preserveEditor)}
             nativeTitlebar={hasNativeMacTitlebar || showLinuxWindowControls}
             windowControls={showLinuxWindowControls ? <WindowControls /> : undefined}
           />
@@ -591,27 +609,10 @@ function App() {
           handleSaveCollage={handleSaveCollage}
         />
         </PerfProfiler>
-        <ToastContainer
-          position="bottom-right"
-          autoClose={5000}
-          hideProgressBar={false}
-          newestOnTop
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable={false}
-          pauseOnHover
-          theme="dark"
-          transition={Slide}
-          toastClassName={() =>
-            clsx(
-              'relative flex min-h-16 p-4 rounded-lg justify-between overflow-hidden cursor-pointer mb-4',
-              'bg-surface! text-text-primary! border! border-border-color! shadow-2xl! max-w-[420px]!',
-              // Long paths in a notice break instead of running off its edge.
-              'wrap-anywhere',
-            )
-          }
-        />
+        <AppNotices>
+          <UpdateNotice />
+        </AppNotices>
+        <WhatsNewAfterUpdate />
       </div>
     </>
   );

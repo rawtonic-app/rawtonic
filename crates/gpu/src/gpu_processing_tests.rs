@@ -2443,6 +2443,81 @@ fn luma_noise_version_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares no grain, portable grain and film grain"]
+fn grain_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks; the variants alternate within one process and Amount moves
+    // a little every frame.
+    let variants = [
+        ("none", json!({})),
+        (
+            "v2_clumped",
+            json!({"grainStructure": "clumped", "grainVersion": 2}),
+        ),
+        (
+            "v2_gritty",
+            json!({"grainStructure": "gritty", "grainVersion": 2, "grainSize": 60, "grainRoughness": 75}),
+        ),
+        ("v3_mono", json!({"grainVersion": 3})),
+        ("v3_colour", json!({"grainVersion": 3, "grainColor": 40})),
+        (
+            "v3_mono_r0",
+            json!({"grainVersion": 3, "grainRoughness": 0}),
+        ),
+    ];
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        let mut times = vec![Vec::new(); variants.len()];
+        for frame in 0..frames + 2 {
+            for (i, (name, extra)) in variants.iter().enumerate() {
+                let mut profile = extra.clone();
+                if *name != "none" {
+                    profile["grainAmount"] = json!(50.0 + 0.01 * frame as f64);
+                }
+                let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                let start = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: None,
+                        },
+                        display,
+                        if display {
+                            RenderOutputPrecision::EightBit
+                        } else {
+                            RenderOutputPrecision::SixteenBit
+                        },
+                    )
+                    .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                if frame >= 2 {
+                    times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        for (i, (name, _)) in variants.iter().enumerate() {
+            let t = &mut times[i];
+            t.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"min_ms":t[0],"frames":frames})
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
 fn sharpen_version_timing_probe() {
     let context = context();
@@ -7800,6 +7875,158 @@ fn gamut_mapping_keeps_the_hue_outside_the_output_space_and_every_pixel_inside_i
 }
 
 #[test]
+#[ignore = "requires a native GPU; the Levels histogram's probe against the output mapping"]
+fn levels_input_probe_stores_the_clipped_base_not_the_hue_restored_output() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let (width, height) = (64u32, 32u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Left half inside sRGB, right half colours only ProPhoto holds (as in
+    // the gamut mapping test above), where renderVersion 4 restores the hue.
+    let colour = |x: u32, y: u32| -> [f32; 3] {
+        let level = 0.04 + 0.3 * (y as f32 / height as f32);
+        let base = if x < width / 2 {
+            [
+                [0.8, 0.3, 0.02],
+                [0.02, 0.1, 0.9],
+                [0.4, 0.4, 0.4],
+                [0.05, 0.6, 0.1],
+            ][(x / 8) as usize]
+        } else {
+            [
+                [-0.12, -0.03, 1.3],
+                [1.35, 0.22, -0.09],
+                [-0.45, 1.2, -0.12],
+                [0.9, -0.08, 1.1],
+            ][((x - width / 2) / 8) as usize]
+        };
+        base.map(|v| v * level * 2.0)
+    };
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let [r, g, b] = colour(x, y);
+            [
+                f16::from_f32(r),
+                f16::from_f32(g),
+                f16::from_f32(b),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Wide-gamut input"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |recipe: serde_json::Value, space: OutputColorSpace, probe: bool| -> Vec<u16> {
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+        adjustments.global.output_space[0] = space.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        if probe {
+            adjustments.global.output_space[3] = crate::image_processing::LEVELS_INPUT_PROBE;
+        }
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        pixels
+    };
+    let recipe = json!({ "renderVersion": 4 });
+    // The base colour unclipped: the ProPhoto export holds all of them.
+    let unclipped = render(recipe.clone(), OutputColorSpace::ProPhoto, false);
+    let mapped = render(recipe.clone(), OutputColorSpace::Srgb, false);
+    let probe = render(recipe, OutputColorSpace::Srgb, true);
+    // Levels do not act on their own input.
+    let with_levels = render(
+        json!({ "renderVersion": 4, "levels": {"rgb": {"inBlack": 40, "outWhite": 200}} }),
+        OutputColorSpace::Srgb,
+        true,
+    );
+    assert_eq!(probe, with_levels);
+    let srgb = OutputColorSpace::Srgb;
+    let (mut checked, mut outside, mut restored) = (0, 0, 0);
+    for y in 0..height {
+        for x in 0..width {
+            let i = ((y * width + x) * 4) as usize;
+            let prophoto =
+                [unclipped[i], unclipped[i + 1], unclipped[i + 2]].map(|v| v as f64 / 65535.0);
+            if !prophoto.iter().all(|&v| (0.001..=0.999).contains(&v)) {
+                continue;
+            }
+            let linear_prophoto =
+                prophoto.map(|v| OutputColorSpace::ProPhoto.transfer().to_linear(v));
+            let linear = OutputColorSpace::ProPhoto.to_linear_srgb().map(|row| {
+                row[0] * linear_prophoto[0]
+                    + row[1] * linear_prophoto[1]
+                    + row[2] * linear_prophoto[2]
+            });
+            // What Levels receive: the display value clipped to the cube.
+            let wanted = linear.map(|v| srgb.transfer().from_linear(v.clamp(0.0, 1.0)));
+            let got: [f64; 3] = std::array::from_fn(|c| probe[i + c] as f64 / 65535.0);
+            for c in 0..3 {
+                assert!(
+                    (got[c] - wanted[c]).abs() < 2e-3,
+                    "{x},{y} channel {c}: probe {:.4} vs clipped base {:.4}",
+                    got[c],
+                    wanted[c]
+                );
+            }
+            checked += 1;
+            if linear.iter().any(|v| !(0.0..=1.0).contains(v)) {
+                outside += 1;
+            }
+            let output: [f64; 3] = std::array::from_fn(|c| mapped[i + c] as f64 / 65535.0);
+            if (0..3).any(|c| (output[c] - got[c]).abs() > 0.01) {
+                restored += 1;
+            }
+        }
+    }
+    // Colours outside sRGB were checked, and there the output mapping
+    // changes what the probe must not.
+    assert!(
+        checked > 500 && outside > 100,
+        "{checked} pixels checked, {outside} outside sRGB"
+    );
+    assert!(
+        restored > 100,
+        "{restored} pixels differ from the mapped output"
+    );
+}
+
+#[test]
 #[ignore = "requires a native GPU; gamut mapping of renderVersion 4 along smooth gradients"]
 fn gamut_mapping_keeps_smooth_gradients_smooth() {
     use rawtonic_engine::output_color_space::OutputColorSpace;
@@ -8803,6 +9030,180 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+#[ignore = "requires a native GPU; the display pipeline shows a frame at its own size"]
+fn display_at_own_size_shows_whole_texels_between_device_pixels() {
+    let context = context();
+    let device = &context.device;
+    let queue = &context.queue;
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let (pipeline, layout, split_layout) = display_pipeline(device, format).unwrap();
+    let (window_w, window_h) = (96u32, 48u32);
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Own size test target"),
+        size: wgpu::Extent3d {
+            width: window_w,
+            height: window_h,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&Default::default());
+    // A 64 × 32 frame of single-texel noise in an 80 × 40 display target.
+    let (tex_w, tex_h) = (80u32, 40u32);
+    let texel = |x: u32, y: u32| -> [u8; 4] {
+        let v = ((x * 73 + y * 151).wrapping_mul(2_654_435_761) >> 24) as u8;
+        [v, v.wrapping_mul(3), 255 - v, 255]
+    };
+    let noise_texture = |width: u32, height: u32| {
+        let data: Vec<u8> = (0..height)
+            .flat_map(|y| (0..width).flat_map(move |x| texel(x, y)))
+            .collect();
+        device
+            .create_texture_with_data(
+                queue,
+                &wgpu::TextureDescriptor {
+                    label: Some("Own size test frame"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+                TextureDataOrder::LayerMajor,
+                &data,
+            )
+            .create_view(&Default::default())
+    };
+    let frame = noise_texture(tex_w, tex_h);
+    // The split's before fills its own texture: the same 64 × 32 texels.
+    let before = noise_texture(64, 32);
+    let overlay = solid_display_texture(&context, 1, 1, [0, 0, 0, 0]);
+    // The display's own sampler: linear.
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    let split_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &split_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&before),
+        }],
+    });
+    // The webview's placement in device pixels: between pixels and a
+    // fraction of a pixel off the frame's size (a 1034.89 CSS px fit view).
+    let render = |split: [f32; 4]| -> Vec<u8> {
+        let transform = DisplayTransform {
+            rect: [16.4, 7.7, 63.8, 32.0],
+            clip: [0.0, 0.0, window_w as f32, window_h as f32],
+            window: [window_w as f32, window_h as f32],
+            image_size: [64.0, 32.0],
+            texture_size: [tex_w as f32, tex_h as f32],
+            pixelated: 0.0,
+            rotation: 0.0,
+            bg_primary: [0.0, 0.0, 0.0, 1.0],
+            bg_secondary: [0.0, 0.0, 0.0, 1.0],
+            overlay_color: [0.0; 4],
+            overlay_mode: [0.0; 4],
+            box_rect: [0.0; 4],
+            split,
+        };
+        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::bytes_of(&transform),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniforms.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&frame),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&overlay),
+                },
+            ],
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &frame_group, &[]);
+            pass.set_bind_group(1, &split_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        read_texture_data_roi(
+            device,
+            queue,
+            &target,
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width: window_w,
+                height: window_h,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    // Device pixel (16 + x, 8 + y) shows texel (x, y) itself, not a blend,
+    // on the edited frame alone and on both sides of a split at x = 48.
+    for split in [[0.0; 4], [1.0, 48.0, 0.0, 0.0]] {
+        let pixels = render(split);
+        for y in 1..31u32 {
+            for x in 1..62u32 {
+                let i = (((8 + y) * window_w + 16 + x) * 4) as usize;
+                assert_eq!(
+                    pixels[i..i + 4],
+                    texel(x, y),
+                    "texel {x}, {y}, split {split:?}"
+                );
+            }
+        }
+    }
 }
 
 /// A `width` × `height` texture of one opaque colour for the display pipeline.
@@ -10712,6 +11113,7 @@ fn one_render_for_several_outputs_matches_their_own_renders() {
                 None,
                 uploaded.as_ref(),
                 &render_outputs,
+                false,
             )
             .unwrap();
         for (index, (together, expected)) in together.iter().zip(&expected).enumerate() {
@@ -13676,6 +14078,88 @@ mod portable_grain_reference {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter"]
+fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
+    // A flat mid-grey at full and at half size: film grain (`grainVersion`
+    // 3) reads the tile over each pixel's footprint, so the half-size
+    // render's grain has the strength and the pattern of the full-size
+    // grain averaged over 2 × 2 pixels (what a preview shows of an export).
+    let render = |width: u32, height: u32, profile: serde_json::Value| {
+        let grey = f16::from_f32(0.18);
+        let data: Vec<f16> = (0..width * height)
+            .flat_map(|_| [grey, grey, grey, f16::ONE])
+            .collect();
+        let context = context();
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input_from(&context, width, height, &data);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let (width, height) = (1024u32, 768u32);
+    for (size, roughness, colour) in [(25.0, 50.0, 0.0), (60.0, 75.0, 40.0), (10.0, 0.0, 0.0)] {
+        let recipe = json!({"grainAmount": 50, "grainSize": size, "grainRoughness": roughness,
+            "grainColor": colour, "grainVersion": 3});
+        let grain = |w: u32, h: u32| -> Vec<f64> {
+            let flat = render(w, h, json!({}));
+            let pixels = render(w, h, recipe.clone());
+            (0..(w * h) as usize)
+                .map(|i| pixels[i * 4 + 1] as f64 - flat[i * 4 + 1] as f64)
+                .collect()
+        };
+        let full = grain(width, height);
+        let half = grain(width / 2, height / 2);
+        let (w2, h2) = ((width / 2) as usize, (height / 2) as usize);
+        let scaled: Vec<f64> = (0..w2 * h2)
+            .map(|i| {
+                let (x, y) = (i % w2 * 2, i / w2 * 2);
+                let at = |x: usize, y: usize| full[y * width as usize + x];
+                (at(x, y) + at(x + 1, y) + at(x, y + 1) + at(x + 1, y + 1)) / 4.0
+            })
+            .collect();
+        let sd = |v: &[f64]| {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+        };
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        let (a, b) = (sd(&scaled), sd(&half));
+        let (mean_scaled, mean_half) = (mean(&scaled), mean(&half));
+        let correlation = scaled
+            .iter()
+            .zip(&half)
+            .map(|(x, y)| (x - mean_scaled) * (y - mean_half))
+            .sum::<f64>()
+            / (a * b * half.len() as f64);
+        println!(
+            "size {size} roughness {roughness} colour {colour}: full {:.0}, full scaled down {a:.0}, half {b:.0}, correlation {correlation:.2}",
+            sd(&full)
+        );
+        assert!(sd(&full) > 500.0, "no grain");
+        assert!((b / a - 1.0).abs() < 0.15, "half {b:.0} vs scaled {a:.0}");
+        // The pattern too (Metal 2026-10-26: 0.81 / 0.93 / 0.51); grain far
+        // below a pixel (Size 10 here, ~70 texels per pixel) keeps less of
+        // its pattern across mips, its strength matches all the same.
+        assert!(correlation > 0.45, "correlation {correlation:.2}");
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; compares the portable grain with its CPU evaluation"]
 fn portable_grain_is_the_same_on_every_gpu() {
     // A flat mid-grey: the grain is the only change, with one strength
@@ -14153,6 +14637,409 @@ fn edge_fringe_into_the_input_texture_matches_uploading_its_result() {
     }
 }
 
+/// Recipes of the GPU warp (`renderVersion` 7) covering every lens model,
+/// lateral CA (constant and growing with the radius), vignetting, a
+/// perspective with manual distortion and rotation, and a crop, each with
+/// the edge-fringe pass that runs on the GPU.
+fn gpu_warp_recipes() -> Vec<serde_json::Value> {
+    let table: Vec<f64> = (0..9)
+        .map(|i| 1.0 - 0.004 * f64::from(i * i) / 64.0)
+        .collect();
+    let radii: Vec<f64> = (0..9).map(|i| (f64::from(i) / 8.0).sqrt()).collect();
+    let tca = json!({"tca_vr": 1.0012, "tca_vb": 0.9991, "tca_vr2": 0.0004, "tca_vb2": -0.0003,
+        "vig_k1": -0.4, "vig_k2": 0.1});
+    let with = |lens: serde_json::Value| {
+        let mut lens = lens;
+        for (k, v) in tca.as_object().unwrap() {
+            lens[k] = v.clone();
+        }
+        json!({"renderVersion": 7, "lensCorrectionMode": "camera", "lensDistortionParams": lens,
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5})
+    };
+    vec![
+        with(json!({"k1": -0.08, "k2": 0.02, "k3": -0.004, "model": 0})),
+        with(json!({"k1": 0.012, "k2": -0.03, "k3": 0.01, "model": 1})),
+        with(json!({"model": 2, "table": table, "table_end": 1.0})),
+        with(json!({"model": 3, "table": table, "table_radii": radii})),
+        json!({"renderVersion": 7, "transformDistortion": -40.0, "transformVertical": 20.0,
+            "transformRotate": 2.5, (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        json!({"renderVersion": 7, "lensDistortionParams": {"k1": -0.05, "model": 0,
+            "vig_k1": -0.3}, "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+    ]
+}
+
+/// The recipe at another render version.
+fn at_render_version(recipe: &serde_json::Value, version: u64) -> serde_json::Value {
+    let mut recipe = recipe.clone();
+    recipe["renderVersion"] = json!(version);
+    recipe
+}
+
+/// A scene of edges, noise and some negative channels (`keep_negative`).
+fn gpu_warp_scene(width: u32, height: u32) -> DynamicImage {
+    let mut scene = edge_fringe_scene(width, height, 0.01);
+    for (k, pixel) in scene.pixels_mut().enumerate().filter(|(k, _)| k % 101 == 0) {
+        pixel.0[k % 3] = -0.2;
+    }
+    DynamicImage::ImageRgb32F(scene)
+}
+
+/// The GPU warp's source positions (`renderVersion` 7) against the exact
+/// positions, on a 45 MP frame: within the f32 warp's gate (0.0024 px on
+/// 351 photos for `renderVersion` 6), for each recipe of
+/// [`gpu_warp_recipes`].
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_positions_stay_within_the_f32_gate() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (width, height) = (8256, 5504);
+    for recipe in gpu_warp_recipes() {
+        let params = rawtonic_engine::image_processing::get_geometry_params_from_json(&recipe);
+        let precision =
+            rawtonic_engine::image_processing::warp_gpu_displacement(&params, width, height, 37)
+                .expect("warps on the GPU");
+        eprintln!(
+            "{recipe}: cpu f32 max {:.5} mean {:.6}, gpu max {:.5} mean {:.6}, apart {:.5}, {} px",
+            precision.old.0,
+            precision.old.1,
+            precision.new.0,
+            precision.new.1,
+            precision.apart,
+            precision.pixels
+        );
+        assert!(precision.pixels > 10_000, "{recipe}");
+        assert!(precision.new.0 <= 0.0024, "{recipe}: {precision:?}");
+    }
+}
+
+/// The GPU warp (`renderVersion` 7) samples what the CPU's f32 warp
+/// (`renderVersion` 6) samples: Metal compiles with fast math, so the
+/// positions differ by float rounding (see
+/// [`gpu_warp_positions_stay_within_the_f32_gate`]) and the values by that
+/// distance times the scene's gradient, never more.
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let image = gpu_warp_scene(2600, 1800);
+    // A RAW's linear decode and a photograph's encoded values (vignetting
+    // on the decoded values).
+    for (recipe, is_raw) in gpu_warp_recipes()
+        .into_iter()
+        .flat_map(|recipe| [(recipe.clone(), true), (recipe, false)])
+    {
+        let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, is_raw)
+            .unwrap();
+        let cpu = rawtonic_engine::image_processing::apply_geometry_warp(
+            &image,
+            &at_render_version(&recipe, 6),
+            is_raw,
+        )
+        .unwrap();
+        let (gpu, cpu) = (
+            gpu.as_rgb32f().unwrap().as_raw(),
+            cpu.as_rgb32f().unwrap().as_raw(),
+        );
+        assert_eq!(gpu.len(), cpu.len());
+        let (mut max, mut sum) = (0.0f32, 0.0f64);
+        for (c, g) in cpu.iter().zip(gpu) {
+            let d = (c - g).abs();
+            max = max.max(d);
+            sum += f64::from(d);
+        }
+        let mean = sum / cpu.len() as f64;
+        let identical = cpu
+            .iter()
+            .zip(gpu)
+            .filter(|(c, g)| c.to_bits() == g.to_bits())
+            .count();
+        eprintln!(
+            "{recipe} (RAW {is_raw}): max {max:.2e} mean {mean:.2e} identical {:.2} %",
+            100.0 * identical as f64 / cpu.len() as f64
+        );
+        assert!(max < 2e-3, "{recipe}: largest difference {max:e}");
+        assert!(mean < 1e-5, "{recipe}: mean difference {mean:e}");
+    }
+    // Frames one pixel wide or high: lateral CA samples its channels at the
+    // edge, where such a frame has no neighbour (weight 0). The CPU's warp
+    // reads past such a frame there, so only the GPU's result is checked.
+    for (width, height) in [(1, 40), (40, 1), (1, 1), (2, 2)] {
+        let flat = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            width,
+            height,
+            image::Rgb([0.25, 0.5, 0.75]),
+        ));
+        for recipe in gpu_warp_recipes() {
+            let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&flat, &recipe, true)
+                .unwrap_or_else(|e| panic!("{width} x {height} {recipe}: {e}"));
+            assert!(
+                gpu.as_rgb32f()
+                    .unwrap()
+                    .as_raw()
+                    .iter()
+                    .all(|v| v.is_finite()),
+                "{width} x {height} {recipe}"
+            );
+        }
+    }
+    // Beyond one dispatch: a column taller than a dispatch's rows warps in
+    // more bands; a row wider than a dispatch warps on the CPU (for every
+    // use alike).
+    let max = context.limits.max_compute_workgroups_per_dimension * 16;
+    let tall = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+        1,
+        max + 100,
+        image::Rgb([0.25, 0.5, 0.75]),
+    ));
+    assert!(rawtonic_engine::warp_gpu::runs_for(1, max + 100));
+    rawtonic_engine::image_processing::apply_geometry_warp(&tall, &gpu_warp_recipes()[0], true)
+        .expect("warps in bands");
+    assert!(!rawtonic_engine::warp_gpu::runs_for(max + 100, 1));
+    assert!(rawtonic_engine::warp_gpu::runs_for(max, 1));
+}
+
+/// Columns `cols` of rows `rows` of an RGB frame `width` wide.
+fn crop_rows(raw: &[f32], width: u32, cols: (u32, u32), rows: (u32, u32)) -> Vec<f32> {
+    let stride = width as usize * 3;
+    (rows.0..rows.1)
+        .flat_map(|y| {
+            let start = y as usize * stride;
+            raw[start + cols.0 as usize * 3..start + cols.1 as usize * 3].to_vec()
+        })
+        .collect()
+}
+
+fn float_bits(image: &DynamicImage) -> Vec<u32> {
+    image
+        .as_rgb32f()
+        .expect("RGB floats")
+        .as_raw()
+        .iter()
+        .map(|v| v.to_bits())
+        .collect()
+}
+
+/// With the GPU warp, the display's 1:1 regions (`transformed_region` of
+/// the rows they read, as the multi view makes them) are the same pixels
+/// as the whole frame warped, edge-fringe corrected and cropped (from the
+/// planned rows or the whole decode), and the
+/// edge-fringe plan a region takes from every fourth row warped on the GPU
+/// (`RegionMeasures::of`) is the whole frame's: each output pixel of the
+/// warp depends on its frame position alone.
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_regions_are_the_whole_frames_pixels() {
+    use rawtonic_engine::image_processing::{
+        RegionMeasures, SourceRows, plan_transformed_region_with, transformed_region,
+    };
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (w, h) = (2600, 1800);
+    let image = gpu_warp_scene(w, h);
+    let rgb = image.as_rgb32f().unwrap();
+    let raw = rgb.as_raw();
+    for recipe in gpu_warp_recipes() {
+        let warped =
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap();
+        let on_cpu = rawtonic_engine::image_processing::apply_geometry_warp(
+            &image,
+            &at_render_version(&recipe, 6),
+            true,
+        )
+        .unwrap();
+        assert!(
+            float_bits(&warped) != float_bits(&on_cpu),
+            "warped on the GPU"
+        );
+        let plan_of_whole = rawtonic_engine::edge_fringe::full_resolution_plan(
+            &recipe,
+            w as usize,
+            h as usize,
+            |y| {
+                let row = w as usize * 3;
+                warped.as_rgb32f().unwrap().as_raw()[y * row..(y + 1) * row].to_vec()
+            },
+        );
+        let measures = RegionMeasures::of(rgb, &recipe, true).unwrap();
+        assert_eq!(measures.fringe, plan_of_whole, "{recipe}");
+        let fringed = rawtonic_engine::edge_fringe::apply_for_recipe(warped, &recipe, 1.0).unwrap();
+        let (whole, _) =
+            rawtonic_engine::adjustment_utils::apply_spatial_transformations(fringed, &recipe);
+        let (fw, fh) = whole.dimensions();
+        for rect in [
+            [0, 0, fw, fh],
+            [5, 7, 400, 300],
+            [fw / 3, fh / 2, 500, 410],
+            [fw - 20, fh - 9, 60, 60],
+            [fw / 2, 0, 1, 1],
+        ] {
+            let plan = plan_transformed_region_with(w, h, &recipe, rect, Some(measures))
+                .expect("plannable");
+            let [x, y, rw, rh] = plan.rect;
+            let expected = whole.crop_imm(x, y, rw, rh);
+            let ((c0, c1), (r0, r1)) = (plan.cols, plan.rows);
+            let part = crop_rows(raw, w, (c0, c1), (r0, r1));
+            let source = SourceRows {
+                pixels: &part,
+                width: w,
+                height: h,
+                row0: r0,
+                col0: c0,
+                cols: c1 - c0,
+            };
+            let region = transformed_region(&source, &recipe, &plan, true)
+                .unwrap_or_else(|| panic!("{recipe} {rect:?}"));
+            assert_eq!(region.dimensions(), expected.dimensions());
+            assert!(
+                float_bits(&region) == float_bits(&expected),
+                "{recipe} {rect:?}: the region differs"
+            );
+            // From the whole decode (the multi view's decoded rows) too.
+            let all = SourceRows::whole(raw, w, h);
+            let again = transformed_region(&all, &recipe, &plan, true).unwrap();
+            assert!(
+                float_bits(&again) == float_bits(&expected),
+                "{recipe} {rect:?}: the region from the whole frame differs"
+            );
+        }
+    }
+}
+
+/// With the GPU warp, the display and the export develop the same input:
+/// the display's full-resolution frame (`apply_all_transformations`: warp,
+/// edge-fringe pass, crop; as `editor_preview::compute_full_transformed_res`
+/// makes it and uploads it as f16) and the export's input texture
+/// (`prepare_export_render`: the warp left on the GPU and the edge-fringe
+/// pass reading its bands there, `upload_warped_render_source`; or the warp
+/// read back and the pass's tiles uploaded, `upload_fringed_render_source`)
+/// are bit-identical. Twice the same warp is too.
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_display_and_export_develop_the_same_input() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (width, height) = (2600, 1800);
+    let image = gpu_warp_scene(width, height);
+    for recipe in gpu_warp_recipes() {
+        let first =
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap();
+        let again =
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap();
+        assert!(float_bits(&first) == float_bits(&again), "{recipe}");
+        let (display, _) = rawtonic_engine::adjustment_utils::apply_all_transformations(
+            std::borrow::Cow::Borrowed(&image),
+            &recipe,
+            true,
+        )
+        .unwrap();
+        let expected = to_rgba_f16(&display);
+        let expected: &[u8] = bytemuck::cast_slice(&expected);
+        let (window, _) =
+            rawtonic_engine::adjustment_utils::crop_after_fringe(&recipe, width, height)
+                .expect("only a crop after the pass");
+        let [_, _, w, h] = window;
+        assert_eq!((w, h), display.dimensions());
+        let warped = rawtonic_engine::adjustment_utils::apply_warp(
+            std::borrow::Cow::Borrowed(&image),
+            &recipe,
+            true,
+        )
+        .unwrap();
+        let read_back = upload_fringed_render_source(&context, &warped, &recipe, window, 0, None)
+            .unwrap()
+            .expect("runs into the texture");
+        let on_gpu = upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
+            .unwrap()
+            .expect("warps on the GPU");
+        for (path, uploaded) in [("read back", read_back), ("on the GPU", on_gpu)] {
+            let texels = read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &uploaded.0.texture,
+                wgpu::Origin3d::ZERO,
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                8,
+            )
+            .unwrap();
+            let differing = texels.iter().zip(expected).filter(|(a, b)| a != b).count();
+            assert_eq!(differing, 0, "{recipe} {path}: {differing} bytes differ");
+            assert_eq!(texels.len(), expected.len());
+        }
+    }
+}
+
+/// A failing GPU warp (`renderVersion` 7) fails the render instead of
+/// warping on the CPU, whose pixels differ: the display's frame, preview
+/// base and mask sources, a region's measures and the export's input all
+/// report it, and a region the GPU cannot warp is left to the whole frame.
+/// Recipes that warp on the CPU (`renderVersion` 6) are not affected.
+#[test]
+#[ignore = "requires a native GPU"]
+fn a_failing_gpu_warp_fails_the_render() {
+    use rawtonic_engine::image_processing::{
+        RegionMeasures, SourceRows, plan_transformed_region_with, transformed_region,
+    };
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (w, h) = (900, 600);
+    let image = gpu_warp_scene(w, h);
+    let rgb = image.as_rgb32f().unwrap();
+    let recipe = gpu_warp_recipes().remove(0);
+    let measures = RegionMeasures::of(rgb, &recipe, true).unwrap();
+    let plan = plan_transformed_region_with(w, h, &recipe, [10, 10, 50, 40], Some(measures))
+        .expect("plannable");
+    rawtonic_engine::warp_gpu::fail_on_this_thread(true);
+    let failed = |e: String| assert!(e.contains("failed on the GPU"), "{e}");
+    failed(
+        rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap_err(),
+    );
+    failed(
+        rawtonic_engine::image_processing::apply_geometry_warp_interim(&image, &recipe, true)
+            .unwrap_err(),
+    );
+    failed(
+        rawtonic_engine::adjustment_utils::apply_all_transformations(&image, &recipe, true)
+            .map(|_| ())
+            .unwrap_err(),
+    );
+    failed(
+        rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
+            &Arc::new(image.clone()),
+            false,
+            &recipe,
+        )
+        .map(|_| ())
+        .unwrap_err(),
+    );
+    failed(
+        RegionMeasures::of(rgb, &recipe, true)
+            .map(|_| ())
+            .unwrap_err(),
+    );
+    assert!(
+        transformed_region(&SourceRows::whole(rgb.as_raw(), w, h), &recipe, &plan, true).is_none()
+    );
+    let window = [0, 0, w, h];
+    failed(
+        upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
+            .map(|_| ())
+            .unwrap_err(),
+    );
+    // Warped on the CPU: unaffected.
+    let saved = at_render_version(&recipe, 6);
+    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &saved, true).is_ok());
+    assert!(RegionMeasures::of(rgb, &saved, true).is_ok());
+    rawtonic_engine::warp_gpu::fail_on_this_thread(false);
+    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).is_ok());
+}
+
 /// Wide-gamut colours (negative channels) beside a two-colour edge: the
 /// colour-line stage fits and measures its line on the clamped values on
 /// both processors, so third-colour pixels on the edge keep the same share
@@ -14340,5 +15227,217 @@ fn edge_fringe_gpu_timing_probe() {
             "{}",
             json!({"probe": "edge_fringe", "version": version, "size": [6000, 4000], "ms": ms})
         );
+    }
+}
+
+/// The clipping warnings mark pixels on the display only: the histogram's
+/// image (`analytics_output`) is the frame without them, and its clipping
+/// marks are the warnings' own tests, the same whichever warnings are on.
+/// Pixels just inside and just outside both thresholds, and pixels that clip
+/// both sides, in display frames and CPU readbacks.
+#[test]
+#[ignore = "requires a native GPU; clipping warnings stay out of the histogram"]
+fn clipping_warnings_stay_out_of_the_analytics_image() {
+    use rawtonic_engine::image_processing::{SHOW_CLIPPING_HIGHLIGHTS, SHOW_CLIPPING_SHADOWS};
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    const WIDTH: u32 = 512;
+    const HEIGHT: u32 = 4;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), WIDTH, HEIGHT).unwrap();
+    // Fine ramps across the highlight threshold (row 0) and the shadow
+    // threshold (row 1); saturated colours with a channel beyond each end
+    // (rows 2 and 3), never exactly a warning colour.
+    let pixels: Vec<[f32; 3]> = (0..HEIGHT)
+        .flat_map(|y| {
+            (0..WIDTH).map(move |x| {
+                let t = x as f32 / (WIDTH - 1) as f32;
+                match y {
+                    0 => [0.98 + 0.03 * t; 3],
+                    1 => [0.004 * t; 3],
+                    2 => [2.0 * t, 0.0, 0.3],
+                    _ => [0.0, 0.5, 0.2 * t],
+                }
+            })
+        })
+        .collect();
+    let view = linear_texture(&context, &pixels, WIDTH, HEIGHT);
+    let extent = wgpu::Extent3d {
+        width: WIDTH,
+        height: HEIGHT,
+        depth_or_array_layers: 1,
+    };
+    let read = |texture: &wgpu::Texture| {
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            texture,
+            wgpu::Origin3d::ZERO,
+            extent,
+            4,
+        )
+        .unwrap()
+    };
+    for space in [OutputColorSpace::Srgb, OutputColorSpace::DisplayP3] {
+        let adjustments = |show_clipping| {
+            let mut adjustments = get_all_adjustments_from_json(&json!({}), false, None);
+            adjustments.global.show_clipping = show_clipping;
+            adjustments.global.output_space[0] = space.shader_code();
+            adjustments.global.output_matrix =
+                crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+            adjustments
+        };
+        let request = |show_clipping| RenderRequest {
+            adjustments: adjustments(show_clipping),
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        };
+        // (display, analytics) of a display frame.
+        let display_frame = |show_clipping| {
+            processor
+                .run(
+                    &view,
+                    WIDTH,
+                    HEIGHT,
+                    request(show_clipping),
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            (
+                read(&processor.test_working_texture()),
+                read(&processor.test_analytics_texture()),
+            )
+        };
+        // (display, analytics) of a CPU readback with analytics.
+        let readback = |show_clipping| {
+            let (mut rendered, ..) = processor
+                .render_window(
+                    &view,
+                    WIDTH,
+                    HEIGHT,
+                    Roi {
+                        x: 0,
+                        y: 0,
+                        width: WIDTH,
+                        height: HEIGHT,
+                    },
+                    request(show_clipping),
+                    false,
+                    RenderOutputPrecision::EightBit,
+                    ReadbackShader::Display,
+                    None,
+                    None,
+                    None,
+                    &[],
+                    true,
+                )
+                .unwrap();
+            let [RenderedPixels::U8(display), RenderedPixels::U8(analytics)] =
+                <[RenderedPixels; 2]>::try_from(rendered.split_off(0))
+                    .ok()
+                    .unwrap()
+            else {
+                unreachable!()
+            };
+            (display, analytics)
+        };
+        let (plain, analytics) = display_frame(0);
+        let rgb_of = |rgba: &[u8]| -> Vec<u8> {
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|p| [p[0], p[1], p[2]])
+                .collect()
+        };
+        // Without a warning the histogram's image is the display frame.
+        assert_eq!(rgb_of(&analytics), rgb_of(&plain));
+        let marks: Vec<u8> = analytics.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
+        let marked = |bit: u8| marks.iter().filter(|&&m| m & bit != 0).count();
+        let (shadows, highlights) = (marked(1), marked(2));
+        let both = marks.iter().filter(|&&m| m == 3).count();
+        assert!(
+            shadows > 0 && highlights > 0 && both > 0,
+            "{space:?}: {shadows} {highlights} {both}"
+        );
+        // Just inside the thresholds (0.998 and 0.002 are 254.5 and 0.5 codes,
+        // dithered by up to half a code): unmarked pixels in the end codes.
+        let pixel = |rgba: &[u8], i: usize| [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]];
+        let row = |y: u32| (y * WIDTH) as usize..((y + 1) * WIDTH) as usize;
+        assert!(
+            row(0).any(|i| marks[i] == 0 && pixel(&plain, i).iter().any(|&c| c >= 254)),
+            "{space:?}: no pixel just inside the highlight threshold"
+        );
+        assert!(
+            row(0).any(|i| marks[i] & 2 != 0),
+            "{space:?}: none just outside it"
+        );
+        assert!(
+            row(1).any(|i| marks[i] == 0 && pixel(&plain, i).iter().any(|&c| c <= 1)),
+            "{space:?}: no pixel just inside the shadow threshold"
+        );
+        assert!(
+            row(1).any(|i| marks[i] & 1 != 0),
+            "{space:?}: none just outside it"
+        );
+
+        // Warning colours are sRGB primaries, encoded for the selected output.
+        let warning_colour = |linear_srgb: [f64; 3]| {
+            space.from_linear_srgb().map(|row| {
+                let linear = row.iter().zip(linear_srgb).map(|(a, b)| a * b).sum();
+                (space.transfer().from_linear(linear) * 255.0).round() as u8
+            })
+        };
+        let red = warning_colour([1.0, 0.0, 0.0]);
+        let blue = warning_colour([0.0, 0.0, 1.0]);
+        for show_clipping in [1, SHOW_CLIPPING_HIGHLIGHTS, SHOW_CLIPPING_SHADOWS] {
+            let warn_highlights = show_clipping != SHOW_CLIPPING_SHADOWS;
+            let warn_shadows = show_clipping != SHOW_CLIPPING_HIGHLIGHTS;
+            let (display, warned_analytics) = display_frame(show_clipping);
+            // The histogram and its clipping marks do not change.
+            assert!(
+                warned_analytics == analytics,
+                "{space:?} {show_clipping:#x}: analytics changed"
+            );
+            // The display marks exactly the clipped pixels of the warnings on,
+            // highlights first, and leaves every other pixel as it was.
+            for (i, &mark) in marks.iter().enumerate() {
+                let expected = if warn_highlights && mark & 2 != 0 {
+                    red
+                } else if warn_shadows && mark & 1 != 0 {
+                    blue
+                } else {
+                    pixel(&plain, i)
+                };
+                let shown = pixel(&display, i);
+                let off = shown
+                    .iter()
+                    .zip(expected)
+                    .map(|(a, b)| a.abs_diff(b))
+                    .max()
+                    .unwrap();
+                // The warning colours carry the dither (one code).
+                assert!(
+                    off <= 1,
+                    "{space:?} {show_clipping:#x} pixel {i}: {shown:?} for {expected:?}"
+                );
+                if expected == pixel(&plain, i) {
+                    assert_eq!(shown, expected, "{space:?} {show_clipping:#x} pixel {i}");
+                }
+            }
+            // A CPU readback (Linux's browser preview) shows the same frame and
+            // reads the same analytics.
+            let (readback_display, readback_analytics) = readback(show_clipping);
+            assert!(
+                readback_display == display,
+                "{space:?} {show_clipping:#x}: readback frame"
+            );
+            assert!(
+                readback_analytics == analytics,
+                "{space:?} {show_clipping:#x}: readback analytics"
+            );
+        }
+        let sides = clipped_sides(&analytics);
+        assert!(sides.shadows && sides.highlights);
     }
 }

@@ -139,6 +139,7 @@
       "flag_unflag": "Снять флажок",
       "import_photos": "Импортировать фото…",
       "keyboard_shortcuts": "Сочетания клавиш",
+      "match_light": "Выровнять свет…",
       "move_to_selects": "Переместить в «Отобранные»",
       "new_session": "Новый проект или каталог…",
       "open_session": "Открыть проект или каталог…",
@@ -161,6 +162,7 @@
       "sync_settings": "Синхронизировать настройки",
       "tether_capture": "Спуск (подключённая камера)",
       "toggle_all_panels": "Все панели и полосы",
+      "toggle_auto_advance": "Автопереход",
       "toggle_bottom_panel": "Лента кадров",
       "toggle_clipping": "Предупреждения об отсечении",
       "toggle_export": "Экспортировать…",
@@ -221,7 +223,10 @@
     "empty": "Подходящих команд нет. Попробуйте другой запрос.",
     "keys": "↑ ↓ Выбрать · Enter Выполнить · Esc Закрыть",
     "recent": "Сначала недавние команды · ↑ ↓ Выбрать · Enter Выполнить · Esc Закрыть",
-    "search": "Поиск команд…"
+    "search": "Поиск команд…",
+    "selectAtMostPhotos": "Выберите не более {{max}} фотографий",
+    "selectFourPhotos": "Выберите не менее четырёх фотографий",
+    "selectTwoPhotos": "Выберите не менее двух фотографий"
   },
   "contextMenus": {
     "album": {
@@ -330,6 +335,10 @@
       "exportImage_few": "Экспортировать {{count}} изображений",
       "exportImage_many": "Экспортировать {{count}} изображений",
       "exportImage_other": "Экспортировать {{count}} изображений",
+      "matchLight_one": "Выровнять свет…",
+      "matchLight_few": "Выровнять свет…",
+      "matchLight_many": "Выровнять свет…",
+      "matchLight_other": "Выровнять свет…",
       "noAlbums": "Нет доступных альбомов",
       "pasteAdjustments_one": "Вставить настройки",
       "pasteAdjustments_few": "Вставить настройки для {{count}} изображений",
@@ -881,17 +890,37 @@
       "zoomInTooltip": "Увеличить",
       "zoomOutTooltip": "Уменьшить"
     },
+    "quit": {
+      "quitAnyway": "Всё равно выйти",
+      "unsavedMessage": "Не удалось сохранить эти изменения: {{changes}}. При выходе они будут потеряны; выберите «Отмена», чтобы оставить Rawtonic открытым и повторить попытку.",
+      "unsavedTitle": "Изменения не сохранены"
+    },
     "renameFile": {
+      "blocked": "Ничего нельзя переименовать, пока не решена каждая проблема выше.",
       "cancel": "Отмена",
+      "checking": "Проверка имён…",
       "fileNamingTemplate": "Шаблон именования файлов",
+      "more": "Ещё фото, не показанных в списке: {{hidden}}",
       "newName": "Новое имя",
+      "noteXmpStays": "{{xmp}} остаётся с {{owner}}, который не переименовывается.",
+      "noteXmpWithRaw": "{{xmp}} переименовывается вместе с этим RAW; {{others}} сохраняет имя без него.",
+      "nothingChanges": "Ни одно имя не меняется.",
+      "preview": "Предпросмотр",
+      "previewFailed": "Не удалось построить предпросмотр: {{error}}",
+      "problemInvalidName": "«{{name}}» — недопустимое имя файла.",
+      "problemNotFound": "Файла больше нет.",
+      "problemOccupied": "{{name}} уже существует.",
+      "problemSameTarget": "Другой файл этого переименования тоже получил бы имя {{name}}.",
       "save": "Сохранить",
+      "summary": "Переименовано фото: {{photos}} · файлов всего: {{files}}",
       "titleMultiple": "Переименовать {{count}} изобр.",
       "titleMultiple_one": "Переименовать {{count}} изображение",
       "titleMultiple_few": "Переименовать {{count}} изобр.",
       "titleMultiple_many": "Переименовать {{count}} изобр.",
       "titleMultiple_other": "Переименовать {{count}} изображений",
-      "titleSingle": "Переименовать изображение"
+      "titleSingle": "Переименовать изображение",
+      "unchanged": "сохраняет имя",
+      "withFiles": "Также переименовываются: {{files}}"
     },
     "renameFolder": {
       "cancel": "Отмена",
@@ -982,6 +1011,13 @@
       "year": "Год",
       "yearShort": "Год · 2 цифры"
     }
+  },
+  "notifications": {
+    "close": "Закрыть уведомление",
+    "quitCancelled": "Rawtonic остался открытым, поскольку сохранение не завершено. Отложенные изменения всё ещё сохраняются.",
+    "quitSaving": "Сохранение изменений перед выходом из Rawtonic…",
+    "quitSavingPhotos": "Сохранение изменений перед выходом из Rawtonic… ({{done}}/{{total}})",
+    "region": "Уведомления"
   },
   "offline": {
     "badge": "Офлайн",
@@ -1116,15 +1152,7 @@
       "picked_other": "отобрано: {{count}}",
       "tether": "Тетеринг",
       "tetherConnected": "{{camera}} подключена",
-      "tetherTitle": "Съёмка с подключением: фото с камеры по USB сразу попадают в эту библиотеку",
-      "xmpPending_one": "XMP в ожидании: {{count}}",
-      "xmpPending_few": "XMP в ожидании: {{count}}",
-      "xmpPending_many": "XMP в ожидании: {{count}}",
-      "xmpPending_other": "XMP в ожидании: {{count}}",
-      "xmpPendingAction_one": "{{count}} фото требует синхронизации XMP – нажмите, чтобы проверить",
-      "xmpPendingAction_few": "{{count}} фото требуют синхронизации XMP – нажмите, чтобы проверить",
-      "xmpPendingAction_many": "{{count}} фото требуют синхронизации XMP – нажмите, чтобы проверить",
-      "xmpPendingAction_other": "{{count}} фото требуют синхронизации XMP – нажмите, чтобы проверить"
+      "tetherTitle": "Съёмка с подключением: фото с камеры по USB сразу попадают в эту библиотеку"
     },
     "create": {
       "catalog": "Каталог",
@@ -1140,7 +1168,7 @@
       "location": "Расположение",
       "modeLabel": "Организация",
       "name": "Название проекта",
-      "namePlaceholder": "2026-10-01_Клиент_Заказ",
+      "namePlaceholder": "{{date}}_Клиент_Заказ",
       "namePreview": "Ваш заказ",
       "originalsUntouched": "Исходные фотографии остаются нетронутыми.",
       "session": "Проект",
@@ -1326,6 +1354,7 @@
       "failed": "Не удалось открыть последнюю библиотеку: {{error}}",
       "opening": "Открывается {{name}} ({{directory}})… Если macOS запросит доступ к этому тому, разрешите его."
     },
+    "switching": "Открытие библиотеки…",
     "sync": {
       "applied": "Перемещено: {{moved}} · Добавлено: {{added}} · Удалено: {{removed}}",
       "apply": "Применить ({{n}})",
@@ -1383,6 +1412,13 @@
     "tether": {
       "battery": "Батарея {{level}}",
       "camera": "Камера",
+      "canon": {
+        "badge": "Экспериментально",
+        "connectedNote": "Экспериментально: если снимок не появился здесь, он не потерян — он на карте памяти. Оставьте карту в камере. Rawtonic сообщит вам, если снимок, сделанный из Rawtonic, не дошёл — если только за это время не придёт снимок, сделанный на самой камере, и не займёт его место. После сессии сравните карту с библиотекой.",
+        "notReceived": "Снимок {{n}} не получен. Если камера его сделала, он на карте памяти.",
+        "openPreferences": "Открыть настройки тетеринга",
+        "optInNeeded": "Камеры Canon пока не проверялись с Rawtonic. Чтобы попробовать свою и помочь с тестированием, включите «Экспериментально: камеры Canon» в Настройки > Тетеринг."
+      },
       "capture": "Снять",
       "captureFailed": "Снимок не удался: {{error}}",
       "captureTitle": "Спустить затвор (⌘K / Ctrl+K)",
@@ -1399,6 +1435,7 @@
       "lastIn": "{{file}} в библиотеке",
       "lastTiming": "{{file}} в библиотеке через {{ms}} мс после снимка",
       "level": {
+        "experimental": "Экспериментально — нужны тестеры. С Rawtonic ещё не проверялось: снимок может не появиться здесь, и тогда он есть только на карте памяти.",
         "notSupported": "Эта камера пока не поддерживается.",
         "reported": "По сообщениям пользователей этой модели камеры, работает.",
         "tested": "Проверено с этой моделью камеры в {{systems}} ({{date}}).",
@@ -1416,6 +1453,14 @@
         "bursting": "{{shots}} снимков подряд…",
         "button": "Тест камеры…",
         "buttonTitle": "Проверить эту камеру шаг за шагом и создать анонимный отчёт",
+        "canonGuide": {
+          "card": "Держите карту памяти в камере на протяжении всего теста.",
+          "missing": "Если снимок не появился, это тоже полезно знать: он по-прежнему на карте памяти, и тест его учитывает.",
+          "send": "В конце нажмите «{{button}}». Вы увидите, что именно отправляется — без фото, имён файлов и серийного номера, — и ничто не покинет ваш компьютер, пока вы не подтвердите.",
+          "sendNote": "Этот результат получен от экспериментальной поддержки Canon. Спасибо за тестирование — полезен каждый результат, в том числе тот, где снимки пропали.",
+          "steps": "Пройдите шаги ниже по очереди: нажмите «Запустить» и сделайте то, что просит шаг. Если камера не может выполнить шаг, нажмите «Пропустить».",
+          "title": "Как проверить вашу камеру Canon"
+        },
         "close": "Закрыть тест камеры",
         "how": {
           "autofocus": "Фокусируется один раз. Пропустите с мануальным объективом или режимом MF.",
@@ -1555,6 +1600,13 @@
       "verifyProgress_many": "Проверка · проверено {{count}} файлов",
       "verifyProgress_other": "Проверка · проверено {{count}} файла"
     },
+    "unsaved": {
+      "cancel": "Отмена",
+      "discard": "Отбросить несохранённые изменения",
+      "message": "Не удалось сохранить эти изменения: {{files}}. Если открыть другую библиотеку сейчас, они будут потеряны. Повторите, чтобы сначала сохранить их, отбросьте их или отмените, чтобы остаться в этой библиотеке.",
+      "retry": "Повторить",
+      "title": "Изменения не сохранены"
+    },
     "welcome": {
       "body": "Создайте переносимый проект для следующей съёмки. Храните кадры, правки и готовые материалы вместе — от первого кадра до финального отбора.",
       "create": "Создать проект",
@@ -1569,55 +1621,96 @@
       "toolsSide": "Где разместить инструменты проявки?"
     },
     "xmp": {
-      "conflictHeading_one": "{{count}} конфликт",
-      "conflictHeading_few": "{{count}} конфликта",
-      "conflictHeading_many": "{{count}} конфликтов",
-      "conflictHeading_other": "{{count}} конфликта",
-      "conflictHint": "Файл XMP был изменён вне Rawtonic после последней синхронизации. Выберите, какие метаданные сохранить.",
-      "editNotAdopted": "Сохранённая обработка ещё не в библиотеке: сначала измените это фото в «Проявке», затем разрешите конфликт.",
-      "inSync": "Все файлы XMP синхронизированы.",
-      "keepLibrary": "Оставить библиотеку",
-      "keepLibraryAll": "Оставить библиотеку для всех",
-      "keepLibraryFor": "Оставить библиотеку для {{name}}",
-      "keepLibraryTitle": "Записать метаданные библиотеки в файл XMP",
-      "leftOut_one": "Пропущено в «Взять XMP»: {{count}} фото. Сначала измените его в «Проявке».",
-      "leftOut_few": "Пропущено в «Взять XMP»: {{count}} фото. Сначала измените их в «Проявке».",
-      "leftOut_many": "Пропущено в «Взять XMP»: {{count}} фото. Сначала измените их в «Проявке».",
-      "leftOut_other": "Пропущено в «Взять XMP»: {{count}} фото. Сначала измените их в «Проявке».",
-      "loading": "Проверка файлов XMP…",
-      "more_one": "и ещё {{count}}",
-      "more_few": "и ещё {{count}}",
-      "more_many": "и ещё {{count}}",
-      "more_other": "и ещё {{count}}",
-      "offline": "Недоступно",
-      "offlineNote_one": "Недоступно: {{count}} фото. XMP будет записан, когда файл или диск снова появятся.",
-      "offlineNote_few": "Недоступно: {{count}} фото. XMP будет записан, когда файлы или диск снова появятся.",
-      "offlineNote_many": "Недоступно: {{count}} фото. XMP будет записан, когда файлы или диск снова появятся.",
-      "offlineNote_other": "Недоступно: {{count}} фото. XMP будет записан, когда файлы или диск снова появятся.",
-      "originalsUntouched": "Записываются только файлы XMP; фотографии не изменяются.",
-      "pendingHeading_one": "В ожидании: {{count}}",
-      "pendingHeading_few": "В ожидании: {{count}}",
-      "pendingHeading_many": "В ожидании: {{count}}",
-      "pendingHeading_other": "В ожидании: {{count}}",
-      "pendingHint": "Библиотека новее: файл XMP ещё не записан (фото недоступно, файл только для чтения или запись не удалась).",
-      "prefsOff": "Синхронизация XMP выключена в настройках. Этот параметр относится к папкам, открытым без библиотеки; фото этой библиотеки поддерживают свои файлы XMP в актуальном состоянии.",
-      "result": "Готово: {{done}} · недоступно: {{offline}} · конфликты: {{conflicts}} · ошибки: {{failed}}",
-      "subtitle": "Рейтинги, метки, ключевые слова и метаданные IPTC рядом с каждым фото для других программ.",
-      "syncNow": "Синхронизировать",
-      "title": "Файлы XMP",
-      "undo_one": "Отменить «Взять XMP»",
-      "undo_few": "Отменить «Взять XMP» ({{count}})",
-      "undo_many": "Отменить «Взять XMP» ({{count}})",
-      "undo_other": "Отменить «Взять XMP» ({{count}})",
-      "useXmp": "Взять XMP",
-      "useXmpAll": "Взять XMP для всех",
-      "useXmpFor": "Взять XMP для {{name}}",
-      "useXmpTitle": "Прочитать рейтинг, метку, ключевые слова и метаданные IPTC из файла XMP в библиотеку (можно отменить)",
-      "view": "XMP для проверки"
+      "buttonTitle": "Некоторые файлы XMP отстают от библиотеки. Нажмите, чтобы увидеть подробности и записать их снова.",
+      "count_one": "{{count}} XMP не обновлён",
+      "count_few": "{{count}} XMP не обновлены",
+      "count_many": "{{count}} XMP не обновлены",
+      "count_other": "{{count}} XMP не обновлены",
+      "explain": "Ваши правки, оценки и ключевые слова надёжно сохранены в библиотеке. Другие программы, читающие файлы XMP, пока не видят этих изменений. Сами фотографии никогда не изменяются.",
+      "heading_one": "Файл XMP {{count}} фото не актуален",
+      "heading_few": "Файлы XMP {{count}} фото не актуальны",
+      "heading_many": "Файлы XMP {{count}} фото не актуальны",
+      "heading_other": "Файлы XMP {{count}} фото не актуальны",
+      "reason": {
+        "changedElsewhere_one": "{{count}} файл XMP изменён другой программой. Rawtonic не перезаписывает его; библиотека сохраняет вашу версию.",
+        "changedElsewhere_few": "{{count}} файла XMP изменены другой программой. Rawtonic не перезаписывает их; библиотека сохраняет вашу версию.",
+        "changedElsewhere_many": "{{count}} файлов XMP изменены другой программой. Rawtonic не перезаписывает их; библиотека сохраняет вашу версию.",
+        "changedElsewhere_other": "{{count}} файла XMP изменены другой программой. Rawtonic не перезаписывает их; библиотека сохраняет вашу версию.",
+        "failed_one": "Не удалось записать {{count}} файл XMP: {{error}}",
+        "failed_few": "Не удалось записать {{count}} файла XMP: {{error}}",
+        "failed_many": "Не удалось записать {{count}} файлов XMP: {{error}}",
+        "failed_other": "Не удалось записать {{count}} файла XMP: {{error}}",
+        "offline_one": "{{count}} фото недоступно. Его файл XMP обновится, когда диск снова будет подключён.",
+        "offline_few": "{{count}} фото недоступны. Их файлы XMP обновятся, когда диск снова будет подключён.",
+        "offline_many": "{{count}} фото недоступны. Их файлы XMP обновятся, когда диск снова будет подключён.",
+        "offline_other": "{{count}} фото недоступны. Их файлы XMP обновятся, когда диск снова будет подключён.",
+        "sharedName_one": "{{count}} фото называется так же, как другое (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP.",
+        "sharedName_few": "{{count}} фото называются так же, как другие (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP.",
+        "sharedName_many": "{{count}} фото называются так же, как другие (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP.",
+        "sharedName_other": "{{count}} фото называются так же, как другие (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP."
+      },
+      "retry": "Повторить",
+      "retryFailed": "Не удалось записать файлы XMP: {{error}}",
+      "show": "Показать фото",
+      "title": "Файлы XMP не обновлены",
+      "view": "XMP не обновлены",
+      "writing": "Запись…",
+      "written_one": "Файл XMP обновлён для {{count}} фото",
+      "written_few": "Файлы XMP обновлены для {{count}} фото",
+      "written_many": "Файлы XMP обновлены для {{count}} фото",
+      "written_other": "Файлы XMP обновлены для {{count}} фото"
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "База данных библиотеки с исправлением Rawtonic для блокировок WAL в Windows.",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "О программе",
       "general": "Общие",
       "processing": "Обработка",
       "shortcuts": "Управление"
@@ -1696,7 +1789,7 @@
     },
     "general": {
       "autoAdvance": "Автопереход",
-      "autoAdvanceDesc": "В модуле «Проявка» клавиша оценки, отбора, отклонения или снятия флага переходит к следующему снимку, так что отбор требует одной клавиши на снимок.",
+      "autoAdvanceDesc": "После оценки или флага переходить от показанного снимка или одного выбранного снимка в сетке к следующему. Переключайте клавишей Caps Lock или в меню «Фото».",
       "builtinPresets": "Встроенные пресеты",
       "builtinPresetsDesc": "Показывать собственные стили и пресеты Rawtonic в панели «Стили и пресеты» и в меню пресетов инструментов.",
       "createXmp": "Создавать недостающие файлы XMP",
@@ -1712,7 +1805,7 @@
       "nativeTitlebar": "Системный заголовок окна",
       "nativeTitlebarDesc": "Использовать стандартный заголовок окна вашей операционной системы вместо кастомного заголовка Rawtonic.",
       "proofMargin": "Поля для оценки",
-      "proofMarginDesc": "Поля вокруг вписанной фотографии, когда они включены (X), в доле от короткой стороны области просмотра.",
+      "proofMarginDesc": "Поля вокруг вписанной фотографии, когда они включены (Alt+X), в доле от короткой стороны области просмотра.",
       "showBuiltinPresets": "Показывать встроенные пресеты",
       "title": "Общие настройки",
       "uiScale": "Размер интерфейса",
@@ -1965,18 +2058,48 @@
       "shortcutsDesc": "Список тегов, которые будут отображаться в качестве кнопок быстрого клика в меню тегирования.",
       "title": "Тегирование"
     },
+    "tethering": {
+      "camerasLink": "Какие камеры работают и как сообщить о своей",
+      "canon": "Экспериментально: камеры Canon (помочь с тестами)",
+      "canonDesc": "Позволяет Rawtonic подключать камеру Canon по USB, чтобы вы могли её попробовать и отправить краткий результат теста.",
+      "canonSwitch": "Подключать камеры Canon",
+      "howToTest": "Чтобы помочь: подключите камеру на панели «Тетеринг», нажмите «Тест камеры…» и выполняйте шаги. В конце вы увидите, что именно было бы отправлено, прежде чем что-либо покинет ваш компьютер.",
+      "title": "Тетеринг",
+      "warningCard": "Снимок, который вы сделаете, может не появиться в Rawtonic. Тогда он только на карте памяти камеры, поэтому всё время держите карту в камере.",
+      "warningNothingDeleted": "Rawtonic никогда ничего не удаляет на камере или карте.",
+      "warningUntested": "Пока не проверено: ни одна камера Canon ещё не пробовалась с Rawtonic."
+    },
     "title": "Настройки",
     "tooltips": {
       "goHome": "На главную"
     }
   },
   "spotRemoval": {
+    "cancel": "Отмена",
+    "deleteSelected": "Удалить выбранное",
+    "deleteSelectedHint": "Delete или Backspace. На фото Alt-щелчок удаляет одну, Alt-перетаскивание — все, которых касается рамка.",
     "detectObjects": "Распознавать объекты",
     "detectObjectsBoxHint": "Обведите объект рамкой или щёлкните по нему, чтобы удалить.",
     "detectObjectsHint": "Грубо закрасьте объект кистью или щёлкните по нему, чтобы удалить.",
     "detectObjectsRefineHint": "Shift добавляет к выбранному удалению, Alt (⌥) вычитает.",
+    "downloadingModel": "Загрузка модели удаления объектов… {{percent}} %",
+    "fallbackDownload": "Не удалось загрузить модель удаления объектов (нет сети?), поэтому эту область заполнила меньшая модель (MI-GAN). Отмените и удалите снова, когда будете в сети, для лучшего заполнения.",
+    "fallbackUnavailable": "Не удалось запустить модель удаления объектов, поэтому эту область заполнила меньшая модель (MI-GAN).",
     "feather": "Растушевка",
     "featherAria": "Растушевка пятна",
+    "filling": "Удаление… шаг {{done}} из {{total}}",
+    "largeHoleTooSlow": "Этот GPU слишком медленный для удаления больших областей; до конца сеанса «Удалить» использует быстрый метод.",
+    "list": {
+      "aria": "Точки и удаления",
+      "count": "Коррекции ({{number}})",
+      "delete": "Удалить {{name}}",
+      "deleteAll": "Удалить все",
+      "hideAll": "Скрыть все",
+      "item": "{{kind}} {{number}}",
+      "select": "Выбрать {{name}}",
+      "showAll": "Показать все",
+      "toggle": "Показать {{name}}"
+    },
     "mode": "Режим удаления пятен",
     "modes": {
       "clone": "Клонировать",
@@ -2009,6 +2132,7 @@
     },
     "sensitivity": "Чувствительность",
     "sensitivityAria": "Чувствительность показа пятен",
+    "showRemovals": "Показать удаления",
     "size": "Размер",
     "sizeAria": "Размер пятна",
     "visualize": "Показать пятна"
@@ -2181,6 +2305,7 @@
       },
       "grading": {
         "hueAria": "Цветовой тон ({{range}})",
+        "link": "Связать тональные круги",
         "luminanceArcTitle": "Светимость ({{range}}) {{value}} · перетащите или стрелки · Shift — точно · двойной щелчок — сброс",
         "luminanceAria": "Светимость ({{range}})",
         "ranges": "Диапазоны",
@@ -2329,9 +2454,11 @@
         "channel": "Канал кривой",
         "input": "Вход",
         "maxPoints": "Не более {{max}} точек на канал. Переместите или удалите точку, чтобы уточнить кривую.",
-        "output": "Выход"
+        "output": "Выход",
+        "point": "Точка {{index}}, вход {{input}}, выход {{output}}. Стрелки перемещают; A добавляет точку; Delete удаляет."
       },
       "effects": {
+        "grainColor": "Цвет зерна",
         "grainStructure": "Структура зерна",
         "grainStructures": {
           "clumped": "Комковатая",
@@ -2382,6 +2509,7 @@
         "opened": "Изображение открыто",
         "other": "Настройка",
         "redEyes": "Красные глаза",
+        "remove": "Удалить",
         "spots": "Удаление пятен",
         "title": "История"
       },
@@ -2473,6 +2601,7 @@
           "red": "Красный",
           "white": "Белый"
         },
+        "currentMode": "Отображение маски: {{mode}}",
         "custom": "Свой цвет маски",
         "display": "Отображение маски",
         "modes": {
@@ -2730,11 +2859,14 @@
           "minutes": "осталось около {{minutes}} мин",
           "seconds": "осталось около {{seconds}} с"
         },
+        "exportedTo": "Экспортировано в:",
         "failed": "Ошибка: {{failed}} из {{total}}",
         "failures": "Неэкспортированные фотографии",
+        "fullResolution": "Полное разрешение",
         "held": "Очередь приостановлена: ожидающие экспорты начнутся, когда вы запустите очередь.",
         "holdQueue": "Приостановить очередь",
         "interrupted": "Прервано (экспортировано {{done}} из {{total}})",
+        "originalFolder": "Исходная папка",
         "pause": "Пауза",
         "paused": "На паузе (экспортировано {{done}} из {{total}})",
         "pausing": "Пауза после текущих фотографий…",
@@ -2830,7 +2962,8 @@
         "queuedMany_few": "В очередь добавлено {{count}} экспорта.",
         "queuedMany_many": "В очередь добавлено {{count}} экспортов.",
         "queuedMany_other": "В очередь добавлено {{count}} экспорта.",
-        "queuedOne": "Добавлено в очередь экспорта."
+        "queuedOne": "Добавлено в очередь экспорта.",
+        "unsavedEdits": "Не удалось сохранить правки {{names}}, поэтому ничего не экспортировано. Повторите экспорт, когда они будут сохранены."
       },
       "watermark": {
         "add": "Добавить водяной знак",
@@ -2899,6 +3032,21 @@
       "includeNeck": "Включить шею",
       "modelsMissing": "Для ретуши лица нужны модели лиц. Они один раз загружаются из пакета моделей Rawtonic на GitHub и работают на этом компьютере.",
       "noFaces": "На этой фотографии лица не найдены.",
+      "protect": {
+        "brush": "Защитная кисть",
+        "clear": "Убрать защиту",
+        "feather": "Растушёвка",
+        "featherAria": "Растушёвка защитной кисти",
+        "hint": "Закрасьте веснушки, родинки и мушки, которые ретушь должна оставить как есть. Удерживайте Alt (Option) для стирания; [ и ] меняют размер.",
+        "modes": {
+          "erase": "Стереть",
+          "off": "Выкл.",
+          "paint": "Защитить"
+        },
+        "show": "Показать защищённые области",
+        "size": "Размер",
+        "sizeAria": "Размер защитной кисти"
+      },
       "showBlemishes": "Показать дефекты (щелкните по дефекту, чтобы оставить или убрать его)",
       "sliders": {
         "blemishes": "Дефекты кожи",
@@ -2913,16 +3061,21 @@
     },
     "histogram": {
       "aria": "Гистограмма изображения",
-      "clipping": "Клиппинг",
-      "clippingTitle": "Предупреждения о клиппинге: пересвеченные света красным, провалы в тенях синим ({{shortcut}})",
+      "clippingAria": "Предупреждения о пересветах и провалах",
       "gamut": "Предупреждение об охвате",
       "gamutTitle": "Предупреждение об охвате: цвета вне пространства пробы — красным",
       "graphAria": "Распределение яркости RGB выбранного фото",
       "graphEmpty": "Гистограмма доступна после открытия фото",
+      "highlightClipping": "Предупреждение о светах",
+      "highlightClippingLit": "Предупреждение о светах, пересвечены",
+      "highlightClippingTitle": "Предупреждение о светах (пересвеченные света; {{shortcut}} включает оба)",
       "proof": "Цветопроба",
       "proofSpace": "Цветовое пространство пробы",
       "proofTitle": "Экранная цветопроба: показать фото так, как будет выглядеть экспорт в выбранном цветовом пространстве ({{shortcut}})",
       "selectPhoto": "Выберите фото",
+      "shadowClipping": "Предупреждение о тенях",
+      "shadowClippingLit": "Предупреждение о тенях, провалены",
+      "shadowClippingTitle": "Предупреждение о тенях (провалённые тени; {{shortcut}} включает оба)",
       "title": "Гистограмма"
     },
     "layers": {
@@ -3249,6 +3402,18 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "Шумоподавление ИИ",
+          "aiMask": "Выделения ИИ",
+          "fillExternal": "Заливка: внешний сервис",
+          "fillMiGan": "Удаление: MI-GAN",
+          "fillMoebius": "Удаление: Moebius",
+          "fillUnrecorded": "Удаление: модель не записана",
+          "generated": "Сгенерированные области",
+          "missingFill": "Заливка без пикселей",
+          "olderDenoise": "Старая версия шумоподавления ИИ",
+          "pendingDetection": "Выделение ИИ ещё не найдено"
+        },
         "all_one": "Все ({{count}} значение)",
         "all_few": "Все ({{count}} значения)",
         "all_many": "Все ({{count}} значений)",
@@ -3256,6 +3421,7 @@
         "apertureValue": "f/{{value}}",
         "button": "Метаданные",
         "fields": {
+          "ai": "Правки ИИ",
           "aperture": "Диафрагма",
           "camera": "Камера",
           "captureDate": "Дата съёмки",
@@ -3263,7 +3429,8 @@
           "focalLength": "Фокусное расстояние",
           "iso": "ISO",
           "keyword": "Ключевое слово",
-          "lens": "Объектив"
+          "lens": "Объектив",
+          "sourceType": "Цифровой источник"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3279,6 +3446,7 @@
         "isoValue": "ISO {{value}}",
         "label": "Фильтр метаданных",
         "none": {
+          "ai": "Без правок ИИ",
           "aperture": "Неизвестная диафрагма",
           "camera": "Неизвестная камера",
           "captureDate": "Без даты",
@@ -3286,11 +3454,30 @@
           "focalLength": "Неизвестное фокусное расстояние",
           "iso": "Неизвестное ISO",
           "keyword": "Без ключевого слова",
-          "lens": "Неизвестный объектив"
+          "lens": "Неизвестный объектив",
+          "sourceType": "Не указан"
         },
         "rangeHint": "Щелчок выбирает значение, Shift-щелчок — все значения от последнего выбранного",
         "showMonths": "Показать месяцы {{year}} года",
-        "toggle": "Показать или скрыть списки метаданных (дата съёмки, камера, объектив, ключевое слово, тип файла, ISO, фокусное расстояние, диафрагма)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "Улучшено алгоритмом",
+          "algorithmicMedia": "Создано алгоритмом",
+          "compositeCapture": "Композит снимков",
+          "compositeSynthetic": "Композит синтетических элементов",
+          "compositeWithTrainedAlgorithmicMedia": "Композит с частями, созданными ИИ",
+          "computationalCapture": "Вычислительная съёмка",
+          "dataDrivenMedia": "Медиа на основе данных",
+          "digitalArt": "Цифровое искусство",
+          "digitalCapture": "Цифровая съёмка",
+          "humanEdits": "Отредактировано человеком",
+          "negativeFilm": "Негатив",
+          "positiveFilm": "Позитив",
+          "print": "Отпечаток",
+          "screenCapture": "Снимок экрана",
+          "trainedAlgorithmicMedia": "Создано ИИ",
+          "virtualRecording": "Виртуальная запись"
+        },
+        "toggle": "Показать или скрыть списки метаданных (дата съёмки, камера, объектив, ключевое слово, тип файла, ISO, фокусное расстояние, диафрагма, правки ИИ, цифровой источник)"
       },
       "navigator": {
         "empty": "Выберите фотографию",
@@ -3338,6 +3525,7 @@
         "editTitle": "Изменить смарт-альбом",
         "fieldLabel": "Поле",
         "fields": {
+          "ai": "Правка ИИ",
           "album": "Альбом",
           "aperture": "Диафрагма (f-число)",
           "camera": "Камера",
@@ -3358,6 +3546,7 @@
           "offline": "Отсутствующая фотография",
           "previousImport": "В предыдущем импорте",
           "rating": "Рейтинг",
+          "sourceType": "Цифровой источник (в файле)",
           "text": "Любой текст для поиска"
         },
         "folderPlaceholder": "Путь к папке",
@@ -3681,7 +3870,9 @@
     "multiView": {
       "controls": "Отметить, оценить или убрать {{name}}",
       "editAll": "Править все выбранные",
+      "editAllNotSaved": "«Править все выбранные» не удалось сохранить эти фото: {{names}}. У них остаются прежние настройки, пока вы не повторите попытку.",
       "editAllTitle": "Править все выбранные: изменения основной фотографии применяются и к каждой другой показанной фотографии (оранжевые рамки)",
+      "editAllTryAgain": "Повторить",
       "makePrimary": "Править {{name}} (сделать основной фотографией)",
       "more_one": "и ещё {{n}}",
       "more_few": "и ещё {{n}}",
@@ -3732,6 +3923,7 @@
     },
     "presets": {
       "amount": "Сила пресета",
+      "appliedStyle": "Применённый стиль: нажмите, чтобы отменить его",
       "appliesAll": "Применяет все настройки, с которыми он был сохранён",
       "appliesBuiltin": "Собственный пресет Rawtonic: применяет содержащиеся в нём настройки",
       "appliesSaved": "Применяет настройки, с которыми он был сохранён",
@@ -3761,11 +3953,10 @@
         "grading-warm-shadows-cool-highlights": "Тёплые тени, холодные света",
         "grading-warm-tone": "Тёплый тон",
         "grading-warm-up": "Теплее",
-        "grain-coarse": "Крупное",
-        "grain-fine": "Мелкое",
-        "grain-heavy": "Сильное",
-        "grain-medium": "Среднее",
-        "grain-speckled": "Крапчатое",
+        "grain-bw-100": "Ч/б 100 мелкое",
+        "grain-bw-400": "Ч/б 400 классика",
+        "grain-colour-100": "Цветной негатив 100 мягкое",
+        "grain-colour-400": "Цветной негатив 400",
         "muted-colour": "Приглушённые цвета",
         "noise-light": "Лёгкое",
         "noise-medium": "Среднее",
@@ -3790,7 +3981,7 @@
       "deleteFolderWithPresets_many": "Удалить «{{name}}» и {{count}} пресетов в ней?",
       "deleteFolderWithPresets_other": "Удалить «{{name}}» и {{count}} пресета в ней?",
       "deletePreset": "Удалить пресет",
-      "empty": "Пресетов пока нет. Настройте фото и нажмите +, чтобы сохранить его настройки.",
+      "empty": "У вас пока нет собственных стилей. Обработайте фотографию и нажмите +, чтобы сохранить её настройки.",
       "exportTitle": "Экспорт: {{name}}",
       "fileType": "Пресет Rawtonic",
       "find": "Поиск пресетов",
@@ -3946,7 +4137,62 @@
       "x": "Позиция X",
       "y": "Позиция Y"
     },
+    "seriesMatch": {
+      "after": "Выровнено",
+      "analysing": "Анализ {{done}} из {{total}}…",
+      "applied_one": "Свет выровнен на {{count}} фото",
+      "applied_few": "Свет выровнен на {{count}} фото",
+      "applied_many": "Свет выровнен на {{count}} фото",
+      "applied_other": "Свет выровнен на {{count}} фото",
+      "apply_one": "Применить к {{count}} фото",
+      "apply_few": "Применить к {{count}} фото",
+      "apply_many": "Применить к {{count}} фото",
+      "apply_other": "Применить к {{count}} фото",
+      "applyTo": "Применить к {{name}}",
+      "before": "Сейчас",
+      "cancel": "Отмена",
+      "change": "Изменение",
+      "confidence": "Уверенность",
+      "downloadFaces": "Загрузить модели лиц",
+      "exposure": "Экспозиция",
+      "exposureChange": "Экспозиция {{value}} EV",
+      "faces": "Учитывать лица (тон кожи)",
+      "facesTitle": "Лица находятся на этом компьютере; кожа служит опорой для экспозиции и баланса белого.",
+      "facesUsed": "(лица)",
+      "failed": "Не удалось выровнять свет: {{error}}",
+      "intro": "Приводит экспозицию и баланс белого каждого фото к эталонным фото (★), опираясь на тон кожи, где видны лица, чтобы затем синхронизировать единый образ на всю серию. Брекетинг, силуэты и цветной сценический свет остаются без изменений.",
+      "isReference": "Эталон",
+      "note": "Примечание",
+      "notSaved": "Некоторые фото не сохранены: {{error}}",
+      "reasons": {
+        "alreadyMatches": "Уже совпадает",
+        "anchorsDisagree": "Лица и сцена расходятся – проверьте",
+        "bracket": "Брекетинг экспозиции – без изменений",
+        "cameraCompensation": "Экспокоррекция задана в камере – проверьте",
+        "colouredLight": "Цветной свет – баланс белого без изменений",
+        "largeChange": "Большое изменение экспозиции – проверьте",
+        "littleInCommon": "Мало общего с эталоном – проверьте",
+        "noReference": "Нет эталона",
+        "noWhiteBalance": "Нет баланса белого для этого файла",
+        "silhouette": "Силуэт – остаётся тёмным",
+        "unreadable": "Не удалось прочитать"
+      },
+      "reference": "Эт.",
+      "referenceTitle": "Сделать эталоном",
+      "results": "Результаты",
+      "summary": "{{match}} выровнять · {{review}} проверить · {{keep}} без изменений · {{seconds}} с",
+      "thenSync": "Затем синхронизируйте образ эталона через «Синхронизировать настройки», сняв Экспозицию и Баланс белого.",
+      "title_one": "Выровнять свет на {{count}} фото",
+      "title_few": "Выровнять свет на {{count}} фото",
+      "title_many": "Выровнять свет на {{count}} фото",
+      "title_other": "Выровнять свет на {{count}} фото",
+      "whiteBalance": "Баланс белого",
+      "whiteBalanceChange": "{{from}} K → {{to}} K, оттенок {{tint}}",
+      "whiteBalanceTo": "Баланс белого {{to}} K"
+    },
     "spot": {
+      "done": "Завершить удаление пятен",
+      "start": "Начать удаление пятен",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {
@@ -3963,14 +4209,20 @@
         "auto": "Авто",
         "autoAria": "Автоуровни",
         "autoTitle": "Задать точки черного и белого по гистограмме",
-        "black": "Черный",
         "channelAria": "Канал уровней",
-        "highlight": "Света",
+        "fieldAria": "Значение: {{name}}",
+        "histogramAria": "Гистограмма уровней",
+        "inBlack": "Черный на входе",
+        "inWhite": "Белый на входе",
         "midtone": "Средние тона",
+        "outBlack": "Черный на выходе",
         "output": "Выход",
-        "shadow": "Тени",
-        "title": "Уровни",
-        "white": "Белый"
+        "outWhite": "Белый на выходе",
+        "pickBlack": "Пипетка точки черного",
+        "pickBlackTitle": "Щелкните по фото там, где должно быть черное",
+        "pickWhite": "Пипетка точки белого",
+        "pickWhiteTitle": "Щелкните по фото там, где должно быть белое",
+        "title": "Уровни"
       },
       "regionCurve": {
         "aria": {
@@ -4328,17 +4580,25 @@
     }
   },
   "undoHistory": {
+    "apply": "Применить настройки",
     "color": "Установить цветовую метку",
     "edit": "Редактирование",
     "file": "Изменение файла",
     "flag": "Установить флажок",
+    "lensCorrection": "Коррекция объектива",
+    "matchLight": "Выровнять свет",
     "move": "Переместить",
     "notice": "{{action}}: {{name}}",
     "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
+    "paste": "Вставить настройки",
     "rating": "Установить оценку",
+    "recipesNotAll": "Не все фото удалось записать",
     "redoAction": "Повторить: {{action}}",
     "rename": "Переименовать",
+    "reset": "Сбросить",
     "skipFailed": "Пропустить неудавшиеся элементы",
+    "style": "Применить стиль",
+    "sync": "Синхронизировать настройки",
     "trash": "Переместить в корзину",
     "undoAction": "Отменить: {{action}}"
   },
@@ -4347,12 +4607,22 @@
     "available": "Доступен Rawtonic {{version}}",
     "checking": "Проверка…",
     "checkNow": "Проверить сейчас",
+    "close": "Закрыть",
+    "dontShowAgain": "Не показывать после обновлений",
     "download": "Скачать",
     "failed": "Не удалось проверить обновления. Повторите попытку позже.",
+    "fileWithSize": "{{file}} ({{size}} МБ)",
+    "manual": "Проверить обновления",
+    "noFile": "В этом выпуске нет загрузки для этого компьютера; на странице выпуска есть все файлы.",
+    "noNotes": "Нет примечаний к выпуску. На странице выпуска может быть больше.",
+    "notesTitle": "Что нового в Rawtonic {{version}}",
     "notNow": "Не сейчас",
     "noUpdate": "Более новая версия не найдена.",
     "prereleases": "Включать предварительные версии",
     "privacy": "Обращается к GitHub раз в день. Передаёт IP-адрес и версию приложения; без фотографий и идентификаторов.",
-    "startup": "Проверять обновления при запуске"
+    "releasePage": "Страница выпуска",
+    "showWhatsNew": "Показывать новое после обновления",
+    "startup": "Проверять обновления при запуске",
+    "whatsNew": "Что нового"
   }
 }

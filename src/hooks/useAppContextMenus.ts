@@ -41,6 +41,7 @@ import {
   Album as AlbumIcon,
   PencilSparkles,
   Ruler,
+  SunMedium,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
@@ -48,7 +49,7 @@ import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { canUndo, canRedo, getUndoLabel,
   getRedoLabel, undo, redo } from '../utils/appUndo';
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
@@ -74,14 +75,18 @@ import {
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
+import { isCurrentEditorImage, recipeWrite, useEditorActions } from './useEditorActions';
+import { useSeriesMatchDialog } from '../components/studio/SeriesMatchDialog';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { previewsMenu } from '../utils/previews';
 import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
+import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
+
+const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
 
 type TaggingSubMenuProps = Omit<ComponentProps<typeof TaggingSubMenu>, 'hideContextMenu'>;
 
@@ -119,12 +124,54 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   } = useEditorActions();
   const { handleRate, handleSetColorLabel, handleTagsChanged } = useLibraryActions();
 
+  useEffect(() => registerAppCommands({
+    auto_lens_correction: {
+      paletteLabel: t('contextMenus.thumbnail.autoLensCorrection', { count: 2 }),
+      enabled: () => useLibraryStore.getState().multiSelectedPaths.length > 0,
+      run: () => handleAutoLensCorrection(useLibraryStore.getState().multiSelectedPaths),
+    },
+    convert_negative: {
+      paletteLabel: t('contextMenus.thumbnail.convertNegative', { count: 2 }),
+      enabled: () => useLibraryStore.getState().multiSelectedPaths.length > 0,
+      run: () => useUIStore.getState().setUI({ negativeModalState: { isOpen: true, targetPaths: [...useLibraryStore.getState().multiSelectedPaths] } }),
+    },
+    ...Object.fromEntries(([
+      ['merge_panorama', 'panorama', t('contextMenus.editor.stitchPanorama'), ...MERGE_LIMITS.panorama],
+      ['merge_hdr', 'hdr', t('contextMenus.editor.mergeHdr'), ...MERGE_LIMITS.hdr],
+      ['merge_hdr_panorama', 'hdrPanorama', t('contextMenus.merge.hdrPanorama'), ...MERGE_LIMITS.hdrPanorama],
+      ['merge_focus_stack', 'focusStack', t('contextMenus.merge.focusStack'), ...MERGE_LIMITS.focusStack],
+    ] as const).map(([id, kind, paletteLabel, min, max]) => [id, {
+      paletteLabel,
+      disabledHint: () => {
+        const count = useLibraryStore.getState().multiSelectedPaths.length;
+        if (count < min) return t(min === 4 ? 'commandPalette.selectFourPhotos' : 'commandPalette.selectTwoPhotos');
+        if (count > max) return t('commandPalette.selectAtMostPhotos', { max });
+      },
+      enabled: () => { const count = useLibraryStore.getState().multiSelectedPaths.length; return count >= min && count <= max; },
+      run: () => useUIStore.getState().setUI({ mergeModalState: { ...CLOSED_MERGE_MODAL, isOpen: true, kind, sourcePaths: [...useLibraryStore.getState().multiSelectedPaths] } }),
+    }])),
+    match_light: {
+      disabledHint: () => t('commandPalette.selectTwoPhotos'),
+      enabled: () => useLibraryStore.getState().multiSelectedPaths.length >= 2,
+      run: () => {
+        const { multiSelectedPaths: paths, libraryActivePath } = useLibraryStore.getState();
+        const selected = useEditorStore.getState().selectedImage?.path;
+        const candidates = useUIStore.getState().activeView === 'editor'
+          ? [selected, libraryActivePath] : [libraryActivePath];
+        const reference = candidates.find((path) => path && paths.includes(path)) ?? paths[0];
+        useSeriesMatchDialog.getState().open({ paths: [...paths], references: [reference] });
+      },
+    },
+  }), [handleAutoLensCorrection, t]);
+
   /** Capture One's Styles / Lightroom's Saved Preset for the selection, in the Library. */
   const presetMenu = (items: UserPreset[], paths: string[]): Option => {
-    const entry = (preset: { id: string; name: string; adjustments: unknown }): Option => ({
+    const entry = (preset: { id: string; name: string; adjustments: unknown; presetType?: string }): Option => ({
       label: preset.name,
       onClick: () => {
-        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths);
+        // A style replaces each photo's last applied one, as in the styles list.
+        const style = preset.presetType !== 'tool' ? { style: { id: preset.id } } : undefined;
+        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths, style);
         noteTool('presets');
       },
     });
@@ -227,7 +274,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       event.preventDefault();
       event.stopPropagation();
 
-      const { selectedImage, resetHistory, copiedAdjustments, setEditor } =
+      const { selectedImage, copiedAdjustments, setEditor } =
         useEditorStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { setPanel, setUI } = useUIStore.getState();
@@ -365,7 +412,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                   aspectRatio: originalAspectRatio,
                   aiPatches: [],
                 };
-                resetHistory(resetData);
+                // One undoable step; the History before it stays.
+                debouncedSetHistory.flush();
+                useEditorStore.getState().pushHistory(resetData);
                 setEditor({ adjustments: resetData });
               },
             },
@@ -527,17 +576,23 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (selectedImage && !selectedImage.isReady && finalSelection.includes(selectedImage.path)) return;
         finalSelection.forEach((p) => globalImageCache.delete(p));
 
-        invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
-          .then(
-            () => [] as string[],
-            (err) => {
-              // The photos that were saved still update below.
-              console.error('Failed to apply auto adjustments to paths:', err);
-              const { message, failed } = saveFailure(err, finalSelection);
-              toast.error(t('contextMenus.toasts.failedApplyAuto', { err: message }));
-              return failed;
-            },
-          )
+        // A long command (a decode per photo): it reports each photo's write,
+        // which quitting counts, instead of one answer at the end.
+        recipeWrite(
+          finalSelection,
+          (batch) =>
+            invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection, ...(batch ? { batch } : {}) }).then(
+              () => [] as string[],
+              (err) => {
+                // The photos that were saved still update below.
+                console.error('Failed to apply auto adjustments to paths:', err);
+                const { message, failed } = saveFailure(err, finalSelection);
+                toast.error(t('contextMenus.toasts.failedApplyAuto', { err: message }));
+                return failed;
+              },
+            ),
+          { kind: 'auto', failedOf: (failed) => failed, batch: true },
+        )
           .then(async (failed) => {
             const applied = finalSelection.filter((p) => !failed.includes(p));
             // The open photograph may have changed meanwhile: its editor
@@ -665,6 +720,19 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         },
         presetMenu(usePresetStore.getState().presets, finalSelection),
         {
+          // The open (Develop) or active (Library) photograph is the
+          // reference, else the right-clicked one; more can be chosen there.
+          disabled: selectionCount < 2,
+          icon: SunMedium,
+          label: t('contextMenus.thumbnail.matchLight', { count: selectionCount }),
+          onClick: () => {
+            const candidates =
+              activeView === 'editor' ? [selectedImage?.path, libraryActivePath, path] : [libraryActivePath, path];
+            const reference = candidates.find((p) => p && finalSelection.includes(p)) ?? finalSelection[0];
+            useSeriesMatchDialog.getState().open({ paths: finalSelection, references: [reference] });
+          },
+        },
+        {
           label: t('contextMenus.editor.productivity'),
           icon: Gauge,
           submenu: [
@@ -713,7 +781,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           icon: LayersArrowDown,
           submenu: [
             {
-              disabled: selectionCount < 2 || selectionCount > 30,
+              disabled: selectionCount < MERGE_LIMITS.panorama[0] || selectionCount > MERGE_LIMITS.panorama[1],
               icon: SquaresUnite,
               label: stitchLabel,
               onClick: () => {
@@ -721,7 +789,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               },
             },
             {
-              disabled: selectionCount < 2 || selectionCount > 9,
+              disabled: selectionCount < MERGE_LIMITS.hdr[0] || selectionCount > MERGE_LIMITS.hdr[1],
               icon: Images,
               label: mergeLabel,
               onClick: () => {
@@ -729,7 +797,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               },
             },
             {
-              disabled: selectionCount < 4,
+              disabled: selectionCount < MERGE_LIMITS.hdrPanorama[0],
               icon: SquaresUnite,
               label: t('contextMenus.merge.hdrPanorama'),
               onClick: () => {
@@ -737,7 +805,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               },
             },
             {
-              disabled: selectionCount < 2,
+              disabled: selectionCount < MERGE_LIMITS.focusStack[0],
               icon: Layers,
               label: t('contextMenus.merge.focusStack'),
               onClick: () => {
