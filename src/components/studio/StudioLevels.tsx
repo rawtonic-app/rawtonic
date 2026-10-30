@@ -174,6 +174,7 @@ function useLevelsInputCounts(open: boolean): number[][] | null {
       answered = false;
       const id = ++request;
       const asked = source;
+      const askedKey = key;
       Promise.resolve()
         .then(() =>
           invoke<number[][] | null>(Invokes.LevelsInputHistogram, {
@@ -183,6 +184,11 @@ function useLevelsInputCounts(open: boolean): number[][] | null {
         )
         .then((result) => {
           if (gone || id !== request || asked !== source || !result) return;
+          // The recipe or photo changed since the ask (the next ask waits
+          // out its rest): the counts are for the previous one.
+          const now = useEditorStore.getState();
+          const current = `${source}:${levelsInputKey(now.selectedImage?.path ?? "", now.adjustments)}`;
+          if (askedKey !== key || current !== key) return;
           answered = true;
           setCounts(result);
         })
