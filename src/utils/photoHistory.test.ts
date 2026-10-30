@@ -81,3 +81,14 @@ it('a batch still writing when its photograph was left becomes its entry once wr
   const steps = recipeStepsSince('/a.nef', keptSince('/a.nef'));
   expect(steps.map((step) => step.after)).toEqual([recipe(2)]);
 });
+
+it('the lens stamp its save added is not a change of its own (C02)', () => {
+  open('/a.nef');
+  useEditorStore.getState().pushHistory(recipe(0.3));
+  open('/b.nef');
+  const saved = { ...recipe(0.3), lensProfileFor: '["camera",1,{}]' };
+  const { history, historyIndex } = historyFor('/a.nef', saved);
+  expect(history.map((step) => step.exposure)).toEqual([0, 0.3]);
+  expect(historyIndex).toBe(1);
+  expect(history[1]).toBe(saved);
+});

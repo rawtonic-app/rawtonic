@@ -14,6 +14,10 @@ interface Kept {
    * a step still writing then is not among them. */
   written: ReadonlySet<number>;
 }
+/** A recipe without the lens stamp its save adds (`lensProfileFor`,
+ * `lens_recipe::lens_profile_stamp`): the same edit before and after saving. */
+const withoutLensStamp = (recipe: Adjustments) => ({ ...recipe, lensProfileFor: undefined });
+
 /** Photographs whose History is kept (least recently left dropped first). */
 const KEPT_PHOTOS = 100;
 const HISTORY_LIMIT = 50;
@@ -43,7 +47,7 @@ export function historyFor(
   const entry = kept.get(path);
   if (!entry) return { history: [shown], historyIndex: 0 };
   kept.delete(path);
-  if (sameAdjustmentValue(entry.history[entry.index], shown)) {
+  if (sameAdjustmentValue(withoutLensStamp(entry.history[entry.index]), withoutLensStamp(shown))) {
     const history = [...entry.history];
     history[entry.index] = shown;
     setHistoryOrders(history, entry.orders);
