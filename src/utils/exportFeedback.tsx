@@ -3,7 +3,7 @@ import i18n from 'i18next';
 import { toast } from 'react-toastify';
 import { Invokes } from '../components/ui/AppProperties';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { exportSettingsFromDraft, type RecipeDraft } from './exportRecipes';
+import { exportSettingsFromDraft, subfolderName, type RecipeDraft } from './exportRecipes';
 
 /** A durable description of the settings chosen when the job was queued. */
 export function exportJobLabel(name: string, draft: RecipeDraft, format: string, destination: string, paths: string[] = []): string {
@@ -14,7 +14,8 @@ export function exportJobLabel(name: string, draft: RecipeDraft, format: string,
   const folder = draft.where === 'original' ? i18n.t('studio.export.queue.originalFolder') : destination;
   const sourcePath = paths[0]?.split('?vc=')[0];
   const source = paths.length === 1 ? sourcePath?.split(/[\\/]/).pop() : paths.length ? i18n.t('studio.export.queue.photos', { count: paths.length }) : null;
-  return [source, name, format.toUpperCase(), size, draft.subfolder ? `${folder} / ${draft.subfolder.trim()}` : folder].filter(Boolean).join(' · ');
+  const subfolder = subfolderName(draft.subfolder);
+  return [source, name, format.toUpperCase(), size, subfolder ? `${folder} / ${subfolder}` : folder].filter(Boolean).join(' · ');
 }
 
 /** The containing folder, accepting both native path separators. */
