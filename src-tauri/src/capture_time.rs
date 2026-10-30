@@ -676,11 +676,13 @@ mod tests {
         assert_eq!(shown["DateTimeOriginal"], "2026-10-30 23:45:00");
         assert_eq!(shown["SubSecTimeOriginal"], "05");
 
-        assert_eq!(
-            crate::session_bridge::with_capture_override(&b, decoded.clone()),
-            decoded,
-            "after undo the file's EXIF is shown as it is"
-        );
+        // A decode cached while it was corrected shows the camera's time again.
+        let mut cached = decoded.clone();
+        cached.insert("DateTimeOriginal".into(), "2026-10-31 00:45:00".into());
+        let shown = crate::session_bridge::with_capture_override(&b, cached);
+        assert_eq!(shown["DateTimeOriginal"], "2026-10-30 23:45:00");
+        assert_eq!(shown["SubSecTimeOriginal"], "05");
+        assert_eq!(shown["OffsetTimeOriginal"], "+02:00");
 
         // The camera files were never written.
         assert_eq!([sha256(&a), sha256(&b)], hashes);

@@ -1197,7 +1197,11 @@ fn photo_metadata(
 fn corrected_capture(
     source: &std::path::Path,
 ) -> Option<rawtonic_export::exif_processing::CaptureFields> {
-    let lib = Library::open(&rawtonic_catalog::session_for(source)?).ok()?;
+    let Some(session) = rawtonic_catalog::session_for(source) else {
+        // A catalog's photograph anywhere: its `.rrdata` carries the correction.
+        return rawtonic_export::file_export::sidecar_capture(source);
+    };
+    let lib = Library::open(&session).ok()?;
     let asset = lib.asset_at(source).ok()??;
     Some(lib.capture_override(&asset.id).ok()??.exif_fields())
 }

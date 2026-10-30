@@ -60,7 +60,9 @@ function captureSortKey(exif: Record<string, string> | null | undefined): string
   const local = exif?.DateTimeOriginal;
   if (!local) return '';
   const fraction = (exif.SubSecTimeOriginal ?? '').trim();
-  return `${local}.${/^\d{1,9}$/.test(fraction) ? fraction.padEnd(9, '0') : '000000000'}`;
+  // Cameras write 2026:10:30, the library 2026-10-30: one form to compare.
+  const date = local.slice(0, 10).replaceAll(':', '-') + local.slice(10);
+  return `${date}.${/^\d{1,9}$/.test(fraction) ? fraction.padEnd(9, '0') : '000000000'}`;
 }
 
 export interface GroupedLibrary {

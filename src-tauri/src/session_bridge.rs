@@ -133,12 +133,26 @@ pub(crate) fn capture_override(
     lib.capture_override(&asset.id).ok()?
 }
 
-/// `exif` (a map read from the file or kept with its decode) with the
-/// source's corrected capture time, if it has one: what the app shows.
+/// `exif` (a map read from the file or kept with its decode, which may be
+/// older than the latest correction, reset or undo) with the capture time
+/// as it is now: the photograph's EXIF map (which every correction
+/// rewrites), then its correction, if it has one. What the app shows.
 pub(crate) fn with_capture_override(
     source: &Path,
     mut exif: HashMap<String, String>,
 ) -> HashMap<String, String> {
+    if let Some(current) = crate::exif_processing::read_rrexif_sidecar(source) {
+        for key in [
+            "DateTimeOriginal",
+            "SubSecTimeOriginal",
+            "OffsetTimeOriginal",
+        ] {
+            match current.get(key) {
+                Some(value) => exif.insert(key.into(), value.clone()),
+                None => exif.remove(key),
+            };
+        }
+    }
     if let Some(time) = capture_override(source) {
         for (key, value) in time.exif_fields() {
             match value {

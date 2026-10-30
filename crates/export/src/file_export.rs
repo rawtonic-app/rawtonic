@@ -45,6 +45,41 @@ pub struct FileExport<'a> {
     pub capture: Option<crate::exif_processing::CaptureFields>,
 }
 
+/// The capture time an app correction left in the source's `.rrdata` EXIF
+/// map when it differs from the file's own: what an export of a photograph
+/// outside any session folder carries (a catalog keeps its photographs
+/// anywhere, so the CLI cannot find the catalog from the photograph).
+pub fn sidecar_capture(source: &Path) -> Option<crate::exif_processing::CaptureFields> {
+    use crate::exif_processing::parse_creation_datetime;
+    let sidecar = crate::exif_processing::get_primary_sidecar_path(source);
+    let shown = crate::sidecars::read_sidecar_file(&sidecar).0.exif?;
+    let bytes = fs::read(source).ok()?;
+    let own = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
+    let field = |map: &crate::export_processing::ExifMap, key: &str| {
+        map.get(key)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let date = |map: &crate::export_processing::ExifMap| {
+        field(map, "DateTimeOriginal").and_then(|v| parse_creation_datetime(&v))
+    };
+    let corrected = date(&shown)?;
+    let same = date(&own) == Some(corrected)
+        && ["SubSecTimeOriginal", "OffsetTimeOriginal"]
+            .iter()
+            .all(|key| field(&shown, key) == field(&own, key));
+    (!same).then(|| {
+        [
+            (
+                "DateTimeOriginal",
+                Some(corrected.format("%Y-%m-%d %H:%M:%S").to_string()),
+            ),
+            ("SubSecTimeOriginal", field(&shown, "SubSecTimeOriginal")),
+            ("OffsetTimeOriginal", field(&shown, "OffsetTimeOriginal")),
+        ]
+    })
+}
+
 /// The source's EXIF map as the app's export reads it: extracted from the
 /// file, with a corrected capture time marked on it. `None` without EXIF.
 fn source_exif(
@@ -215,6 +250,21 @@ mod tests {
         assert_eq!(corrected["Make"], "Maker");
         assert!(corrected.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
         assert!(!corrected.contains_key("OffsetTimeOriginal"));
+        // Outside a session: the correction the app left beside the photo.
+        assert_eq!(sidecar_capture(&source), None, "no sidecar");
+        let sidecar = crate::exif_processing::get_primary_sidecar_path(&source);
+        let state = |date: &str| {
+            serde_json::json!({"version": 1, "rating": 0, "adjustments": null,
+                "exif": {"Make": "Maker", "DateTimeOriginal": date, "SubSecTimeOriginal": "05"}})
+            .to_string()
+        };
+        fs::write(&sidecar, state("2026-10-30 23:30:00")).unwrap();
+        assert_eq!(sidecar_capture(&source), None, "the file's own time");
+        fs::write(&sidecar, state("2026-10-31 00:30:00")).unwrap();
+        assert_eq!(
+            sidecar_capture(&source).unwrap()[0].1.as_deref(),
+            Some("2026-10-31 00:30:00")
+        );
         // Its file times follow the corrected date.
         let date = crate::exif_processing::capture_date_with(&source, &|| Some(corrected.clone()));
         use chrono::{Datelike, Timelike};
