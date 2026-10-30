@@ -45,7 +45,7 @@ Rawtonic is a one-person project that I work on in my spare time. Some weeks a l
 
 Get the latest build from the [**Releases**](https://github.com/rawtonic-app/rawtonic/releases) page.
 
-Rawtonic runs on **macOS** (Apple Silicon; Intel experimental) and **Linux** (x86-64).
+Rawtonic runs on **macOS** (Apple Silicon; Intel experimental), **Linux** (x86-64) and, experimentally, **Windows** (x64).
 
 ### macOS
 
@@ -66,9 +66,15 @@ It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and o
 
 To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) or [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever): the AppImage names its GitHub releases as its update source, and they download only the changed parts. Rawtonic checks for new releases at startup at most once per day; you can turn this off in Preferences. It never downloads or installs updates itself.
 
+### Windows (experimental)
+
+Download `Rawtonic_<version>_x64-setup.exe` and `SHA256SUMS-windows.txt` for Windows 10 or 11 (x64; so far tested on Windows 11). The installer is **not signed** yet, so check it before you run it: in PowerShell, `Get-FileHash .\Rawtonic_*_x64-setup.exe` must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). When you start it, Windows SmartScreen shows "Windows protected your PC": click **More info**, then **Run anyway**. It installs for your user only, without administrator rights; uninstall it in Settings → Apps.
+
+Installing takes about a minute: at the end the installer prepares Rawtonic's GPU shaders, so the first photo appears sooner on the first start. Rawtonic needs a graphics card or integrated GPU with a current driver that supports Vulkan or DirectX 12 (it uses Vulkan or DirectX 12, whichever starts, and tries the other if one fails). Windows support is new and has so far been tested with one NVIDIA graphics card, so please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
+
 ### Other systems
 
-Windows builds are not available yet; you can [build from source](docs/DEVELOPMENT.md) there.
+Other systems are not supported yet; you can try to [build from source](docs/DEVELOPMENT.md).
 
 ## From card to client
 
@@ -188,7 +194,7 @@ On Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …). The key
 
 Rawtonic's goal is simple to state and hard to reach: every tool should be at least as good as the better of the leading professional editors, measured on real photographs. Some tools are there, others are not yet. In this alpha:
 
-- **macOS on Apple Silicon and Linux (x86-64 AppImage).** The Intel Mac build is experimental (not yet run on Intel hardware); Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
+- **macOS on Apple Silicon and Linux (x86-64 AppImage); Windows experimental.** The Intel Mac build is experimental (not yet run on Intel hardware), and so is the unsigned Windows installer (so far tested with one NVIDIA graphics card). On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
 - **Batch export is still slower than Lightroom and Capture One.** A set of 20 Nikon Z RAWs (38 web JPEG and 16-bit print TIFF outputs; one unsupported RAW) took about 14 s in a headless Rawtonic run on a Mac mini M4 Pro, versus Lightroom’s 8 s and Capture One’s 9 s on an M5 Pro laptop. These were not measured on the same machine; the [alpha.4 same-machine comparison](CHANGELOG.md#010-alpha4--2026-10-24) was about 17 s versus 8/9 s, and has not been repeated. Across successive A/B measurements since alpha.4, app export time on a separate 27-RAW batch on the Mac mini fell by about 40 % (about 41 s to 25 s).[^batch-export]
