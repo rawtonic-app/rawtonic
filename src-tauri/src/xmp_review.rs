@@ -198,8 +198,8 @@ static SEEN: LazyLock<Mutex<HashMap<PathBuf, SidecarStamps>>> = LazyLock::new(De
 #[tauri::command]
 pub async fn session_xmp_check(directory: String, folder: Option<String>) -> Result<usize, String> {
     let found = with_library(directory.clone(), false, move |lib| {
-        let started = std::time::Instant::now();
         let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        let started = std::time::Instant::now();
         let stamps = seen.entry(lib.directory.clone()).or_default();
         let check = lib
             .check_xmp_sidecars(folder.as_deref().map(Path::new), stamps)
