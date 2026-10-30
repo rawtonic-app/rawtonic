@@ -305,6 +305,48 @@ describe("Levels input histogram", () => {
     }
   });
 
+  it("drops an answer for a recipe that changed before the next ask", async () => {
+    vi.useFakeTimers();
+    try {
+      const peak = (at: number) =>
+        [0, 1, 2].map(() => {
+          const c = new Array(256).fill(0);
+          c[at] = 50;
+          return c;
+        });
+      const answers: ((counts: number[][]) => void)[] = [];
+      invoke.mockImplementation(
+        () => new Promise<number[][]>((resolve) => answers.push(resolve)),
+      );
+      const asked = () =>
+        invoke.mock.calls.filter(([name]) => name === "levels_input_histogram").length;
+      const red = () => document.querySelector(".histogram-red")?.getAttribute("d") ?? "";
+      renderLevels();
+      toggleGroup();
+      await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
+      expect(asked()).toBe(1);
+      // A is in flight (peak at 64); the exposure changes, so the key does,
+      // before the rests out and B is asked.
+      await act(async () => {
+        useEditorStore.setState((s) => ({
+          adjustments: { ...s.adjustments, exposure: 1 },
+        }));
+      });
+      await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS / 2));
+      expect(asked()).toBe(1);
+      // A answers in that window: it describes the recipe before the change.
+      await act(async () => answers[0](peak(64)));
+      expect(red()).not.toContain("L64.25098039215686 2 ");
+      // Then the next ask runs and B answers.
+      await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
+      expect(asked()).toBe(2);
+      await act(async () => answers[1](peak(128)));
+      expect(red()).toContain("L128.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("asks nothing while folded and once on reopening when the key changed", async () => {
     vi.useFakeTimers();
     try {
