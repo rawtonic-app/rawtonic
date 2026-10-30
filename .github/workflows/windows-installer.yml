@@ -132,8 +132,13 @@ jobs:
           Get-Content $log.FullName
           "INSTALL_DIR=$dir" >> $env:GITHUB_ENV
       # A synthetic gradient, no photograph: the installed app decodes,
-      # develops on the GPU (WARP) and encodes it without a window.
-      - name: Headless export
+      # develops on the GPU and encodes it without a window. Informational
+      # only: the runner's only adapter is WARP, Windows' software DX12, which
+      # Rawtonic does not support (first run 2026-10-30: 116 s shader compile,
+      # then heap corruption 0xC0000374; the private VM saw WARP crash too).
+      # Exports are qualified on real GPUs (G57), not here.
+      - name: Headless export (software GPU, informational)
+        continue-on-error: true
         run: |
           Add-Type -AssemblyName System.Drawing
           $work = Join-Path $env:RUNNER_TEMP 'export'
@@ -164,6 +169,7 @@ jobs:
           if ((Get-FileHash $png).Hash -ne $before) { Write-Error 'the input changed'; exit 1 }
           "ok gradient.png -> $($bytes.Length) bytes"
       - name: Uninstall silently
+        if: ${{ !cancelled() && env.INSTALL_DIR != '' }}
         run: |
           $p = Start-Process "$env:INSTALL_DIR\uninstall.exe" -ArgumentList '/S' -PassThru -Wait
           "uninstaller exit $($p.ExitCode)"
