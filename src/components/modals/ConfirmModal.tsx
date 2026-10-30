@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Button from '../ui/Button';
+import { overlayHost } from '../../utils/topLayer';
 
 interface ConfirmModalProps {
   cancelText?: string;
@@ -150,5 +151,6 @@ export default function ConfirmModal({
     </div>
   );
 
-  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
+  // Above a modal dialog it was asked from (Create library), not under it.
+  return typeof document !== 'undefined' ? createPortal(modalContent, overlayHost()) : modalContent;
 }

@@ -9,6 +9,7 @@ import { ExportSettings, Status } from '../components/ui/ExportImportProperties'
 import { debouncedSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { submittedFrom } from '../utils/runExportJobs';
+import { metadataWritesSettled } from '../utils/catalogWrites';
 
 /**
  * Handles files handed to the app from outside (OS "open with" and the
@@ -65,6 +66,10 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
     if (!session || !selectedImage) return;
 
     debouncedSave.flush();
+    // Taken now: the edit and library at the click, the metadata once the
+    // writes given before it (a rating set just before) are in.
+    const edit = currentEditForExport(useEditorStore.getState());
+    const library = submittedFrom(useLibraryStore.getState().sessionDirectory);
 
     const exportSettings: ExportSettings = {
       filenameTemplate: null,
@@ -93,6 +98,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
     });
 
     try {
+      await metadataWritesSettled();
       const job = await invoke<string>(Invokes.ExportImages, {
         paths: [session.source],
         outputFolderOrFile: session.output,
@@ -100,8 +106,8 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
         baseOriginFolders: [],
         exportSettings,
         outputFormat: session.format,
-        ...currentEditForExport(useEditorStore.getState()),
-        library: submittedFrom(useLibraryStore.getState().sessionDirectory),
+        ...edit,
+        library,
       });
       setFinishJob(job);
     } catch (error) {

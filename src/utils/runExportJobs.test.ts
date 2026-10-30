@@ -2,6 +2,7 @@ import '../i18n';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { runExportJobs } from './runExportJobs';
+import { invokeInOrder } from './catalogWrites';
 import { DEFAULT_RECIPE_DRAFT, exportSettingsFromDraft } from './exportRecipes';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -66,4 +67,23 @@ it('exports nothing while a selected photograph\'s edits could not be saved', as
   expect(status).toBe(Status.Error);
   expect(errorMessage).toContain('b.NEF');
   expect(errorMessage).not.toContain('c.NEF');
+});
+
+it('queues an export once a rating set just before Export is written', async () => {
+  let rated: (value?: unknown) => void = () => {};
+  vi.mocked(invoke).mockImplementation((command: string) =>
+    command === 'set_rating_for_paths' ? new Promise((resolve) => (rated = resolve)) : Promise.resolve(undefined),
+  );
+  void invokeInOrder('set_rating_for_paths', { paths: ['/p/a.NEF'], rating: 5 });
+  const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'original' as const };
+  const { settings, outputFormat } = exportSettingsFromDraft(draft);
+  const run = runExportJobs([{ recipe: null, draft, settings, outputFormat }], ['/p/a.NEF']);
+  await vi.waitFor(() => expect(saves.flush).toHaveBeenCalled());
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  // The rating is still being written: the export (which reads it when
+  // queued) waits.
+  expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['set_rating_for_paths']);
+  rated([]);
+  expect(await run).toBe(1);
+  expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['set_rating_for_paths', 'export_images_batch']);
 });

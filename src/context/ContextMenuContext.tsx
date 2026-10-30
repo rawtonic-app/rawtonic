@@ -15,12 +15,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronRight } from 'lucide-react';
 import { Option, OPTION_HEADER, OPTION_SEPARATOR } from '../components/ui/AppProperties';
 import clsx from 'clsx';
+import { overlayHost } from '../utils/topLayer';
 
-// A modal <dialog> sits in the top layer and makes the rest of the document
-// inert, so a menu opened from inside it must render inside it as well.
-function menuHost(): HTMLElement {
-  return Array.from(document.querySelectorAll<HTMLElement>('dialog[open]')).at(-1) ?? document.body;
-}
 
 interface ContextMenuProviderProps {
   children: ReactNode;
@@ -191,7 +187,7 @@ function SubMenu({ cancelCloseSubmenu, closeSubmenu, hideContextMenu, options, p
     </>
   );
 
-  return createPortal(menuMarkup, menuHost());
+  return createPortal(menuMarkup, overlayHost());
 }
 
 function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
@@ -364,7 +360,7 @@ function ContextMenu() {
         </motion.div>
       )}
     </AnimatePresence>,
-    menuHost(),
+    overlayHost(),
   );
 }
 

@@ -10,6 +10,7 @@ import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
+import { registerLibrarySwitchReset, registerQuitFlush } from '../utils/quit';
 import {
   sameAdjustmentValue,
   withClarityVersion,
@@ -66,6 +67,13 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     let inflight: Partial<Adjustments> = {};
     let writes = 0;
     let lastWrite: Promise<unknown> | null = null;
+    // Writes not settled yet, and what failed for which photograph (with
+    // the photograph it came from), tried again by `drain`.
+    const writing = new Set<Promise<unknown>>();
+    const unwritten = new Map<string, { changes: Partial<Adjustments>; from: string }>();
+    // A library switch is past its barrier: edits made now belong to the
+    // library being left and are not written into the next one.
+    let switching = false;
     let source: { path: string; adjustments: Adjustments; width?: number; height?: number } | null = null;
     // Live: while the primary is edited the other cells follow, developed
     // natively between the primary's frames (multi_view.rs live_step).
@@ -99,7 +107,38 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       if (wait <= 0) sendLiveNow();
       else liveTimer = setTimeout(sendLiveNow, wait);
     };
+    /** Writes `changes` from `from` to `others`; keeps what failed for a
+     * retry and forgets what a later write superseded. */
+    const write = (changes: Partial<Adjustments>, others: string[], from: string) => {
+      const done = applyRef.current(changes, others, {
+        openingNow: true,
+        pasteFrom: from,
+        replaceLayers: true,
+      });
+      if (!done) return null;
+      const settled = done.then((failed) => {
+        for (const path of others) {
+          const left = unwritten.get(path);
+          if (failed.includes(path)) {
+            unwritten.set(path, { changes: { ...left?.changes, ...changes }, from });
+          } else if (left) {
+            const rest = Object.fromEntries(Object.entries(left.changes).filter(([key]) => !(key in changes)));
+            if (Object.keys(rest).length > 0) unwritten.set(path, { ...left, changes: rest });
+            else unwritten.delete(path);
+          }
+        }
+      });
+      writing.add(settled);
+      void settled.then(() => writing.delete(settled));
+      return done;
+    };
     const flush = debounce(() => {
+      if (switching) {
+        console.warn('Dropped Edit all selected changes made while the library was switched.');
+        pending = {};
+        targets = new Set();
+        return;
+      }
       const changes = pending;
       const from = source;
       const others = [...targets].filter((path) => path !== from?.path);
@@ -112,31 +151,54 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       if (changes.masks) {
         changes.masks = frameDrawnMasks(changes.masks, from.adjustments, from.width, from.height);
       }
-      const write = ++writes;
+      const thisWrite = ++writes;
       // Written at the switch to another primary (see below): that one may
       // be one of the others, still opening.
       // The others get the primary's layers, with their AI detections made
       // on each of them (never the primary's bitmaps).
-      const done = applyRef.current(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, {
-        openingNow: true,
-        pasteFrom: from.path,
-        replaceLayers: true,
-      });
+      const done = write(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, from.path);
       if (!done) {
         // Nothing was written: the cells show their recipes again.
-        if (write === writes) inflight = shownBefore;
+        if (thisWrite === writes) inflight = shownBefore;
         sendLive();
         return;
       }
       lastWrite = done;
       void done.then(() => {
         // Written: the others show it from their recipes now.
-        if (write === writes) inflight = {};
+        if (thisWrite === writes) inflight = {};
         useMultiViewStore.getState().recipesSaved();
         sendLive();
       });
     }, EDIT_ALL_SETTLE_MS);
+    // Quitting or switching library: what was gathered is written now, into
+    // the library it was made in; what failed is tried again (a failure
+    // holds the switch: Retry, Discard or Cancel, utils/quit.ts).
+    const drain = async (): Promise<string[]> => {
+      flush.flush();
+      while (writing.size > 0) await Promise.all(writing);
+      for (const [path, { changes, from }] of [...unwritten]) {
+        const done = write(changes, [path], from);
+        if (done) await done;
+      }
+      while (writing.size > 0) await Promise.all(writing);
+      return [...unwritten.keys()].map((path) => `Edits of ${path.split(/[\\/]/).pop() ?? path}`);
+    };
+    const unregisterFlush = registerQuitFlush(drain);
+    // Past the barrier: written or discarded; nothing gathered from now
+    // until the switch ends is written into the next library.
+    const unregisterReset = registerLibrarySwitchReset(() => {
+      switching = true;
+      flush.cancel();
+      pending = {};
+      targets = new Set();
+      unwritten.clear();
+      return () => {
+        switching = false;
+      };
+    });
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
+      if (switching) return;
       // Another primary: what the last one gathered is written now, before
       // the new one's loader reads its recipe (it may be one of the others).
       if (state.selectedImage?.path !== previous.selectedImage?.path) flush.flush();
@@ -194,6 +256,8 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     });
     return () => {
       unsubscribe();
+      unregisterFlush();
+      unregisterReset();
       // Switching it off keeps what was already done (for the photographs
       // selected when it was done).
       flush.flush();

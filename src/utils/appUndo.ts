@@ -7,7 +7,7 @@ import { debouncedSetHistory, useEditorStore } from "../store/useEditorStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
 import { movedPath, type PathMove } from "./pathKeyedState";
-import { invokeInOrder } from "./catalogWrites";
+import { invokeInOrder, trackMetadataWrite } from "./catalogWrites";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
 
 export type CullingValue =
@@ -169,6 +169,9 @@ function enqueue<T>(
   const job: PendingWork = { lane, paths, done: run.catch(() => undefined) };
   pendingWork.add(job);
   void job.done.then(() => pendingWork.delete(job));
+  // A catalog step waits for earlier work before it writes: an export
+  // waits for it too.
+  if (lane === "catalog") trackMetadataWrite(run);
   return run;
 }
 

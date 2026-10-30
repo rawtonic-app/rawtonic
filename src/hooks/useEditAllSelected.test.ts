@@ -8,10 +8,12 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes } from '../components/ui/AppProperties';
+import { switchLibraryAfterSaves, type UnsavedChoice } from '../utils/quit';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 
 const selection = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3'];
 const pasted = () =>
@@ -287,6 +289,74 @@ describe('Edit all selected', () => {
     it('never shows drawn masks live (they are framed per photograph)', () => {
       expect(livePatch({ masks: [] } as Partial<Adjustments>)).toBeNull();
       expect(livePatch({ masks: [], exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
+    });
+  });
+
+  describe('at a library switch', () => {
+    // The backend as the write command sees it: written into the library
+    // open now.
+    let active: string;
+    let written: Record<string, string[]>;
+    let failing: boolean;
+    let opened: () => void;
+    beforeEach(() => {
+      active = 'A';
+      written = { A: [], B: [] };
+      failing = false;
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === Invokes.ApplyAdjustmentsToPaths) {
+          if (failing) throw new Error('database is locked');
+          written[active].push(...(args as { paths: string[] }).paths);
+        }
+        return undefined;
+      });
+    });
+    const openB = () =>
+      new Promise<string>((resolve) => {
+        opened = () => {
+          active = 'B';
+          resolve('B');
+        };
+      });
+
+    it('writes what was gathered into the library being left, and nothing made during the switch into the next', async () => {
+      renderHook(() => useEditAllSelected(true, selection));
+      edit({ exposure: 0.5 });
+      // Switched within the settle time: the edit is written into A first.
+      const switched = switchLibraryAfterSaves(openB, async () => 'cancel');
+      await act(async () => {
+        await vi.waitFor(() => expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']));
+      });
+      // An edit of the photograph still shown while B opens belongs to A.
+      edit({ exposure: 0.9 });
+      await act(async () => {
+        opened();
+        expect(await switched).toBe('B');
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      expect(written.B).toEqual([]);
+      expect(pasted()).toHaveLength(1);
+    });
+
+    it('holds the switch while the write failed: Retry writes it into the library it was made in', async () => {
+      renderHook(() => useEditAllSelected(true, selection));
+      edit({ exposure: 0.5 });
+      failing = true;
+      const ask = vi.fn(async (): Promise<UnsavedChoice> => {
+        failing = false;
+        return 'retry';
+      });
+      const switched = switchLibraryAfterSaves(openB, ask);
+      await act(async () => {
+        await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+      });
+      expect(ask).toHaveBeenCalledWith(['Edits of a.CR3', 'Edits of c.CR3']);
+      await act(async () => {
+        await vi.waitFor(() => expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']));
+        opened();
+        expect(await switched).toBe('B');
+      });
+      expect(written.B).toEqual([]);
     });
   });
 });

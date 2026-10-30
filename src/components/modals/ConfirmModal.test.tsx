@@ -87,4 +87,19 @@ describe('ConfirmModal', () => {
     expect(choice.onCancel).toHaveBeenCalledTimes(1);
     expect(choice.onClose).toHaveBeenCalledTimes(3);
   });
+
+  it('opens above a modal dialog it was asked from, not under it', () => {
+    // The Create library dialog is a modal <dialog> (top layer): a
+    // confirmation outside it would be drawn under it and inert.
+    const create = document.createElement('dialog');
+    create.setAttribute('open', '');
+    document.body.appendChild(create);
+    try {
+      open();
+      expect(create.contains(screen.getByRole('heading', { name: 'Empty the Session Trash?' }))).toBe(true);
+    } finally {
+      cleanup();
+      create.remove();
+    }
+  });
 });

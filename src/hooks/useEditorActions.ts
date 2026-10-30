@@ -883,7 +883,8 @@ export function useEditorActions() {
    * reads its recipe after this write. `pasteFrom`: copied or synced from
    * that photograph, so the layers join each photograph's own and their AI
    * detections wait for each photograph (`masks::paste_layers`);
-   * `replaceLayers`: they replace them (Edit all selected). */
+   * `replaceLayers`: they replace them (Edit all selected). Resolves with
+   * the photographs not written. */
   const applyAdjustmentsToPaths = useCallback(
     (
       partial: Partial<Adjustments>,
@@ -965,7 +966,7 @@ export function useEditorActions() {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
       const others = pastedOntoOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
-      if (others.length === 0) return Promise.resolve();
+      if (others.length === 0) return Promise.resolve([] as string[]);
       const written = afterRecipeSaves(others, () =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, {
@@ -1003,8 +1004,12 @@ export function useEditorActions() {
               }
             });
           }
+          return failed;
         })
-        .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
+        .catch((err) => {
+          toast.error(`Failed to paste adjustments: ${err}`);
+          return others;
+        });
     },
     [setAdjustments],
   );
