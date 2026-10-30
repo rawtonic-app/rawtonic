@@ -1,0 +1,205 @@
+# The experimental, unsigned Windows x64 installer (NSIS), built as the
+# private Windows build does it (`tauri build --bundles nsis`, ONNX Runtime
+# bundled, no DXC, static VC runtime with dynamic UCRT), then installed
+# silently on a fresh runner, tried in a headless export and uninstalled. Runs on
+# demand and for version tags; the installer and SHA256SUMS-windows.txt are
+# kept as a workflow artifact and attached to a release by hand
+# (packaging/README.md).
+name: Windows installer
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  # No release with an open advisory, unmaintained crates included (ADR 0005).
+  advisories:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny check advisories
+  build:
+    needs: advisories
+    runs-on: windows-2025
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      CI: "true"
+      # Pinned ONNX Runtime and its WebGPU plugin, SHA-256-checked by build.rs.
+      RAWTONIC_BUNDLE_ONNX: "1"
+      # A release build never carries the QA bridge's frontend.
+      VITE_RAWTONIC_QA: "0"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # The workspace pins 1.98.1, src-tauri (where tauri runs cargo) 1.98.
+      - name: Rust toolchains
+        run: |
+          rustup toolchain install 1.98.1 1.98 --profile minimal --no-self-update
+          rustc --version
+          Push-Location src-tauri; rustc --version; Pop-Location
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-installer
+      - run: npm ci
+      - name: Build the NSIS installer
+        run: |
+          npm run tauri -- build --bundles nsis --ci -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Static VC runtime: no VCRUNTIME/MSVCP imports, so no VC++
+      # redistributable is needed; the UCRT is part of Windows 10/11.
+      - name: Check the executable's imports and the bundled files
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          $imports = & $dumpbin /nologo /dependents target\release\rawtonic-app.exe
+          $imports
+          if ($imports -match '(?i)vcruntime|msvcp') { Write-Error 'The app imports the VC runtime dynamically'; exit 1 }
+          foreach ($dll in 'onnxruntime.dll', 'onnxruntime_providers_webgpu.dll') {
+            if (-not (Test-Path "src-tauri\resources\$dll")) { Write-Error "$dll not bundled"; exit 1 }
+          }
+      - name: Collect the installer
+        run: |
+          New-Item -ItemType Directory installer-out | Out-Null
+          Copy-Item target\release\bundle\nsis\*-setup.exe installer-out\
+          Set-Location installer-out
+          $files = Get-ChildItem *-setup.exe
+          if ($files.Count -ne 1) { Write-Error "expected one installer, found $($files.Count)"; exit 1 }
+          # sha256sum format (lower-case hash, two spaces, name), LF endings.
+          $line = "{0}  {1}`n" -f (Get-FileHash $files[0] -Algorithm SHA256).Hash.ToLower(), $files[0].Name
+          [IO.File]::WriteAllText("$PWD\SHA256SUMS-windows.txt", $line)
+          Get-Content SHA256SUMS-windows.txt
+          "{0} bytes" -f $files[0].Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer-out/
+          retention-days: 14
+  smoke:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer-out
+      - name: Verify the checksum
+        run: |
+          Set-Location installer-out
+          foreach ($line in Get-Content SHA256SUMS-windows.txt) {
+            $sum, $name = $line -split '  ', 2
+            if ((Get-FileHash $name -Algorithm SHA256).Hash -ne $sum) { Write-Error "${name}: checksum mismatch"; exit 1 }
+            "ok $name"
+          }
+      # Silent per-user install into a scratch folder. The installer's
+      # post-install hook runs `rawtonic-app --warm-gpu-cache`; the runner has
+      # no GPU, only Windows' software DX12 adapter (WARP).
+      - name: Install silently
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'Rawtonic install'
+          $setup = (Get-ChildItem installer-out\*-setup.exe)[0].FullName
+          $watch = [Diagnostics.Stopwatch]::StartNew()
+          # NSIS wants /D last and unquoted, spaces included.
+          $p = Start-Process $setup -ArgumentList '/S', "/D=$dir" -PassThru -Wait
+          "installer exit $($p.ExitCode) after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          if (-not (Test-Path "$dir\rawtonic-app.exe")) { Write-Error 'rawtonic-app.exe not installed'; exit 1 }
+          foreach ($dll in 'onnxruntime.dll', 'onnxruntime_providers_webgpu.dll') {
+            if (-not (Test-Path "$dir\resources\$dll")) { Write-Error "$dll not installed"; exit 1 }
+          }
+          $dxc = Get-ChildItem $dir -Recurse -Include dxcompiler.dll, dxil.dll
+          if ($dxc) { Write-Error "DXC must not be bundled: $dxc"; exit 1 }
+          $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $log) { Write-Error 'the GPU warm-up left no log: the hook did not run'; exit 1 }
+          Get-Content $log.FullName
+          "INSTALL_DIR=$dir" >> $env:GITHUB_ENV
+      # A synthetic gradient, no photograph: the installed app decodes,
+      # develops on the GPU and encodes it without a window. Informational
+      # only: the runner's only adapter is WARP, Windows' software DX12, which
+      # Rawtonic does not support (first run 2026-10-30: 116 s shader compile,
+      # then heap corruption 0xC0000374; the private VM saw WARP crash too).
+      # Exports are qualified on real GPUs (G57), not here.
+      - name: Headless export (software GPU, informational)
+        continue-on-error: true
+        run: |
+          $logs = Join-Path $env:RUNNER_TEMP 'windows-export-logs'
+          New-Item -ItemType Directory -Force $logs | Out-Null
+          Start-Transcript -Path "$logs\export.log"
+          Add-Type -AssemblyName System.Drawing
+          $work = Join-Path $env:RUNNER_TEMP 'export'
+          New-Item -ItemType Directory $work | Out-Null
+          $png = "$work\gradient.png"
+          $bmp = New-Object Drawing.Bitmap 1200, 800
+          $g = [Drawing.Graphics]::FromImage($bmp)
+          $rect = New-Object Drawing.Rectangle 0, 0, 1200, 800
+          $brush = New-Object Drawing.Drawing2D.LinearGradientBrush $rect, ([Drawing.Color]::FromArgb(20, 40, 90)), ([Drawing.Color]::FromArgb(250, 200, 120)), 30.0
+          $g.FillRectangle($brush, $rect)
+          $g.FillEllipse([Drawing.Brushes]::ForestGreen, 400, 250, 400, 300)
+          $g.Dispose()
+          $bmp.Save($png, [Drawing.Imaging.ImageFormat]::Png)
+          $bmp.Dispose()
+          $before = (Get-FileHash $png).Hash
+          $out = "$work\gradient.jpg"
+          $watch = [Diagnostics.Stopwatch]::StartNew()
+          $p = Start-Process "$env:INSTALL_DIR\rawtonic-app.exe" -ArgumentList 'export', "`"$png`"", '--output', "`"$out`"", '--format', 'jpeg' -RedirectStandardOutput "$logs\stdout.log" -RedirectStandardError "$logs\stderr.log" -PassThru
+          if (-not $p.WaitForExit(900000)) { $p.Kill(); Write-Error 'export hung (15 min)'; exit 1 }
+          "export exit $($p.ExitCode) after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
+          $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter app.log -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($log) { Get-Content $log.FullName -Tail 40 }
+          if ($p.ExitCode -ne 0) {
+            Write-Host 'WARP export crashed — known gap G57'
+            Write-Error "export failed (exit $($p.ExitCode)); see windows-export-logs artifact"
+            exit 1
+          }
+          if (-not (Test-Path $out)) { Write-Error 'export produced no file'; exit 1 }
+          $bytes = [IO.File]::ReadAllBytes($out)
+          # A JPEG starts with FF D8.
+          if ($bytes.Length -lt 10000 -or $bytes[0] -ne 0xFF -or $bytes[1] -ne 0xD8) { Write-Error "not a JPEG ($($bytes.Length) bytes)"; exit 1 }
+          if ((Get-FileHash $png).Hash -ne $before) { Write-Error 'the input changed'; exit 1 }
+          "ok gradient.png -> $($bytes.Length) bytes"
+      - name: Collect the export diagnostics
+        if: ${{ always() }}
+        run: |
+          $logs = Join-Path $env:RUNNER_TEMP 'windows-export-logs'
+          New-Item -ItemType Directory -Force $logs | Out-Null
+          $appLogs = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter app.log -ErrorAction SilentlyContinue
+          $i = 0
+          foreach ($log in $appLogs) {
+            Copy-Item $log.FullName "$logs\app-$i.log"
+            $i++
+          }
+      - name: Upload the export diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-export-logs
+          path: ${{ runner.temp }}/windows-export-logs/
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Uninstall silently
+        if: ${{ !cancelled() && env.INSTALL_DIR != '' }}
+        run: |
+          $p = Start-Process "$env:INSTALL_DIR\uninstall.exe" -ArgumentList '/S' -PassThru -Wait
+          "uninstaller exit $($p.ExitCode)"
+          # The NSIS uninstaller copies itself to %TEMP% and returns at once.
+          for ($i = 0; $i -lt 60 -and (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe"); $i++) { Start-Sleep 1 }
+          if (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe") { Write-Error 'rawtonic-app.exe still installed'; exit 1 }
+          "uninstalled"
