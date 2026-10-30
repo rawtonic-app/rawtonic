@@ -241,7 +241,9 @@ fn make_folder(
     recorded: Option<u32>,
     posix_source: bool,
 ) -> Result<Vec<Attribute>> {
-    let mut builder = fs::DirBuilder::new();
+    let builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    let mut builder = builder;
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};

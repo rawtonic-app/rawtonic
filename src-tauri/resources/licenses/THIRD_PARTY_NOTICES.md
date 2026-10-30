@@ -2,6 +2,8 @@
 
 Rawtonic additions: Copyright 2026 Rawtonic contributors, AGPL-3.0-or-later.
 
+`vendor/libsqlite3-sys` contains libsqlite3-sys 0.38.2 (Copyright the rusqlite developers, MIT) and its public-domain SQLite 3.53.2 amalgamation. Original notices are preserved. Rawtonic's Windows shared-handle WAL locking correction is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory.
+
 ## RapidRAW
 The initial `src/`, `src-tauri/`, `public/`, `data/` and frontend tooling derive from [CyberTimon/RapidRAW](https://github.com/CyberTimon/RapidRAW), snapshot a82251f699333daf3648292c756485272be86187, Copyright Timon Käch and contributors. Engine modules moved out of `src-tauri/` into `crates/` (ADR 0009, e.g. `crates/rawdecode`) keep that origin and license. Distributed under its preserved GNU AGPL v3 license (`licenses/RapidRAW-AGPL-3.0.txt`). Rawtonic is an independent derivative, not an official RapidRAW release. Existing third-party notices and data licenses remain applicable. No claim is made that upstream owners endorse Rawtonic.
 
@@ -434,7 +436,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | libm | 0.2.16 | MIT |
 | libmimalloc-sys | 0.1.49 | MIT |
 | libredox | 0.1.20 | MIT |
-| libsqlite3-sys | 0.38.2 | MIT |
+| libsqlite3-sys | 0.38.2 | AGPL-3.0-or-later AND MIT |
 | libwebp-sys | 0.9.6 | MIT |
 | linear-srgb | 0.6.12 | MIT OR Apache-2.0 |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
@@ -458,7 +460,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | memoffset | 0.9.1 | MIT |
 | mimalloc | 0.1.52 | MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
-| mime_guess | 2.0.5 | MIT |
 | minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | mio | 1.2.2 | MIT |
@@ -601,7 +602,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | raw-window-metal | 1.1.0 | MIT OR Apache-2.0 |
 | rawler | 0.7.1 | LGPL-2.1 |
 | rawpointer | 0.2.1 | MIT/Apache-2.0 |
-| rawtonic-app | 0.1.0-alpha.8 | AGPL-3.0-or-later |
+| rawtonic-app | 0.1.0-alpha.9.1 | AGPL-3.0-or-later |
 | rawtonic-catalog | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-cli | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-denoise | 0.1.0 | AGPL-3.0-or-later |
@@ -793,7 +794,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | typenum | 1.20.1 | MIT OR Apache-2.0 |
 | uds_windows | 1.2.1 | MIT |
 | unarray | 0.1.4 | MIT OR Apache-2.0 |
-| unicase | 2.9.0 | MIT OR Apache-2.0 |
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-normalization-alignments | 0.1.12 | MIT/Apache-2.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |

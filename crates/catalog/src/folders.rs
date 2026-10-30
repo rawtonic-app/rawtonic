@@ -663,7 +663,10 @@ mod tests {
         let roots = [PathBuf::from("/Volumes/Share/Jobs")];
         let groups = by_volume(&records, &roots, &probe);
         assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].key, "path:/Volumes/Share");
+        assert_eq!(
+            groups[0].key,
+            format!("path:{}", Path::new("/Volumes").join("Share").display())
+        );
         assert_eq!(groups[0].name, "Share");
         assert!(!groups[0].online);
         assert_eq!(groups[0].roots.len(), 1);
@@ -884,7 +887,10 @@ mod tests {
         lib.folder_groups(std::slice::from_ref(&root), &online)
             .unwrap();
         let replaced = Fake {
-            mounted: vec![volume("SYS", "Startup", "/")],
+            mounted: vec![Volume {
+                mount_point: tmp.path().ancestors().last().unwrap().to_path_buf(),
+                ..volume("SYS", "Startup", "/")
+            }],
             dirs: HashSet::from([root.clone()]),
         };
         let groups = lib

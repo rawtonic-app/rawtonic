@@ -4,9 +4,7 @@ use base64::{Engine as _, engine::general_purpose};
 use image::{DynamicImage, GenericImageView, Rgb, RgbImage, RgbaImage};
 use serde_json::Value;
 
-use crate::ai_connector;
 use crate::ai_processing;
-use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::image_loader::composite_patches_on_image;
 use crate::image_processing::apply_linear_to_srgb;
@@ -601,10 +599,8 @@ async fn fill_large_hole(
 
 #[tauri::command]
 pub async fn invoke_generative_replace_with_mask_def(
-    path: String,
     patch_definition: AiPatchDefinition,
     current_adjustments: Value,
-    use_fast_inpaint: bool,
     task_id: Option<String>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -618,7 +614,6 @@ pub async fn invoke_generative_replace_with_mask_def(
         return Err("Task cancelled".to_string());
     }
 
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     // MI-GAN follows the masking models' lifecycle (ai_lifecycle).
     crate::ai_lifecycle::LIFECYCLE.touch();
     let _running = crate::ai_lifecycle::LIFECYCLE.run();
@@ -684,26 +679,25 @@ pub async fn invoke_generative_replace_with_mask_def(
     }
 
     let fill_start = std::time::Instant::now();
-    let large_fill = if use_fast_inpaint
-        && hole_thickness(&mask_bitmap, (min_x, max_x, min_y, max_y)) >= LARGE_HOLE_THICKNESS
-    {
-        fill_large_hole(
-            &app_handle,
-            &state,
-            &source_image,
-            &mask_bitmap,
-            (min_x, max_x, min_y, max_y),
-            task_id.as_deref(),
-            _guard.as_ref().map(|g| g.token.clone()),
-        )
-        .await?
-    } else {
-        None
-    };
+    let large_fill =
+        if hole_thickness(&mask_bitmap, (min_x, max_x, min_y, max_y)) >= LARGE_HOLE_THICKNESS {
+            fill_large_hole(
+                &app_handle,
+                &state,
+                &source_image,
+                &mask_bitmap,
+                (min_x, max_x, min_y, max_y),
+                task_id.as_deref(),
+                _guard.as_ref().map(|g| g.token.clone()),
+            )
+            .await?
+        } else {
+            None
+        };
     use rawtonic_metadata::provenance::fill_model;
     let (patch_rgba, model) = if let Some(filled) = large_fill {
         (filled, fill_model::MOEBIUS)
-    } else if use_fast_inpaint {
+    } else {
         let inpaint_model = ai_processing::get_or_init_inpaint_model(
             &app_handle,
             &state.ai_state,
@@ -719,49 +713,6 @@ pub async fn invoke_generative_replace_with_mask_def(
         let filled =
             fill_removal(&source_image, &mask_bitmap, &inpaint_model).map_err(|e| e.to_string())?;
         (filled, fill_model::MI_GAN)
-    } else if settings.ai_provider.as_deref() == Some("ai-connector")
-        && let Some(address) = settings.ai_connector_address
-    {
-        let base_url = format!("http://{}", address);
-
-        let mut rgba_mask = RgbaImage::new(img_w, img_h);
-        for (src_val, dst_chunk) in mask_bitmap.as_raw().iter().zip(rgba_mask.chunks_mut(4)) {
-            let intensity = *src_val;
-            dst_chunk[0] = intensity;
-            dst_chunk[1] = intensity;
-            dst_chunk[2] = intensity;
-            dst_chunk[3] = 255;
-        }
-        let mask_image_dynamic = DynamicImage::ImageRgba8(rgba_mask);
-
-        let (real_path_buf, _) = crate::file_management::parse_virtual_path(&path);
-        let real_path_str = real_path_buf.to_string_lossy().to_string();
-
-        let inpaint_fut = ai_connector::process_inpainting(
-            &base_url,
-            &real_path_str,
-            &source_image,
-            &mask_image_dynamic,
-            patch_definition.prompt,
-            None,
-        );
-
-        let filled = if let Some(token) = cancel_flag.as_ref() {
-            tokio::select! {
-                res = inpaint_fut => res.map_err(|e| e.to_string())?,
-                _ = token.wait_for_cancel() => {
-                    return Err("Task cancelled".to_string());
-                }
-            }
-        } else {
-            inpaint_fut.await.map_err(|e| e.to_string())?
-        };
-        (filled, fill_model::EXTERNAL)
-    } else {
-        return Err(
-            "No generative backend configured or connection invalid. Please check your AI settings."
-                .to_string(),
-        );
     };
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {

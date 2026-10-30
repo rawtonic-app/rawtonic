@@ -2,7 +2,7 @@ import type { Adjustments } from './adjustments';
 import { sameAdjustmentValue } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { currentUndoOrder, historyOrders, nextUndoOrder, setHistoryOrders } from './undoOrder';
+import { historyOrders, nextUndoOrder, setHistoryOrders } from './undoOrder';
 
 // Each photograph keeps its History while another one is open, as
 // Lightroom's per-photo Develop history (ui-review-2026-10-28 C02).
@@ -10,17 +10,24 @@ interface Kept {
   history: Adjustments[];
   index: number;
   orders: number[];
-  /** The newest undo order when it was left. */
-  since: number;
+  /** The batch steps (by undo order) that had written it when it was left;
+   * a step still writing then is not among them. */
+  written: ReadonlySet<number>;
 }
 /** Photographs whose History is kept (least recently left dropped first). */
 const KEPT_PHOTOS = 100;
 const HISTORY_LIMIT = 50;
 const kept = new Map<string, Kept>();
 
-/** The newest undo order when `path` was left, if its History is kept
- * (`recipeStepsSince` gives the batch steps that wrote it since). */
-export const keptSince = (path: string) => kept.get(path)?.since;
+/** The batch steps that had written `path` when it was left, if its History
+ * is kept (`recipeStepsSince` gives those that wrote it since). */
+export const keptSince = (path: string) => kept.get(path)?.written;
+
+/** The undo orders of the batch steps that wrote `path` (appUndo.ts). */
+let writtenSteps: (path: string) => number[] = () => [];
+export function registerWrittenSteps(steps: (path: string) => number[]) {
+  writtenSteps = steps;
+}
 
 /** The History `path` opens with: the one it had when it was left, with
  * `shown` (its recipe as loaded now) as its current entry. When its recipe
@@ -67,7 +74,7 @@ export function travelKeptHistory(path: string, order: number, direction: 'undo'
 
 function keep(path: string, history: Adjustments[], index: number) {
   kept.delete(path);
-  kept.set(path, { history, index, orders: historyOrders(history), since: currentUndoOrder() });
+  kept.set(path, { history, index, orders: historyOrders(history), written: new Set(writtenSteps(path)) });
   while (kept.size > KEPT_PHOTOS) kept.delete(kept.keys().next().value!);
 }
 

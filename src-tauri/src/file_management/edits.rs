@@ -24,6 +24,7 @@ use std::fs;
 use std::path::Path;
 use std::thread;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 
 pub use rawtonic_engine::lens_recipe::{
@@ -32,9 +33,9 @@ pub use rawtonic_engine::lens_recipe::{
 
 /// Off the main thread: it opens the session catalog, reads settings and
 /// writes sidecars, and a busy database must not stall the interface. The
-/// webview chains saves per photograph and reads a recipe only after its
-/// pending save finished (`debouncedSave`, `afterRecipeSaves`), so no order
-/// is lost by leaving the main thread.
+/// webview submits every write of a photograph to its one write queue and
+/// reads a recipe only after the writes before (`src/utils/photoWrites.ts`),
+/// so no order is lost by leaving the main thread.
 #[tauri::command]
 pub async fn save_metadata_and_update_thumbnail(
     path: String,
@@ -808,12 +809,64 @@ fn set_values(
     Ok(old)
 }
 
+/// One photograph of a batch command whose write of its recipe, sidecar or
+/// XMP is finished (`batch_writes`). The webview answers the quit request
+/// (`quit_saving`) for each, so quitting waits for a long batch photo by
+/// photo instead of dropping it after the save timeout, and takes a failed
+/// one into the unsaved-changes prompt.
+pub const BATCH_WRITE_SETTLED: &str = "batch-write-settled";
+
+/// A photograph of a batch command that finished: whether its write
+/// succeeded, and why it did not.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BatchWriteSettled {
+    /// The command's `batch` tag (the webview's write queue entry).
+    pub batch: String,
+    pub path: String,
+    pub ok: Option<String>,
+    /// Photos this command writes besides `path` (a failed one may not know
+    /// which), which also count as settled.
+    pub also: Vec<String>,
+}
+
+/// Tells the webview that the photograph `path` of batch command `batch` is
+/// written (`ok` false: it is not, the user hears it when quitting).
+pub(crate) fn emit_batch_write_settled(
+    app_handle: &AppHandle,
+    batch: &str,
+    path: &str,
+    ok: Option<&str>,
+    also: &[String],
+) {
+    let _ = app_handle.emit(
+        BATCH_WRITE_SETTLED,
+        BatchWriteSettled {
+            batch: batch.to_string(),
+            path: path.to_string(),
+            ok: ok.map(str::to_string),
+            also: also.to_vec(),
+        },
+    );
+}
+
+/// The `SaveFailure` of a face retouch that did not write `path`
+/// (`ai_faces::apply_face_retouch_to_paths` reports each photo with it).
+pub(crate) fn face_retouch_failure(path: &str, reason: &str) -> SaveFailure {
+    SaveFailure {
+        message: format!("Face retouch of {path} failed: {reason}"),
+        failed: vec![path.to_string()],
+        culling: Vec::new(),
+    }
+}
+
 /// Decodes each photo for its auto adjustments, so it waits until every
 /// recipe is written (or failed) and makes the thumbnails from the decoded
-/// photos meanwhile.
+/// photos meanwhile. Each photo's finished write is announced
+/// (`BATCH_WRITE_SETTLED`, tagged `batch`).
 #[tauri::command]
 pub async fn apply_auto_adjustments_to_paths(
     paths: Vec<String>,
+    batch: Option<String>,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
     let state = app_handle.state::<AppState>();
@@ -821,6 +874,11 @@ pub async fn apply_auto_adjustments_to_paths(
     let total = paths.len();
     let all = paths.clone();
     let failures = tauri::async_runtime::spawn_blocking(move || {
+        let settle = |path: &str, why: Option<&str>| {
+            if let Some(batch) = batch.as_deref() {
+                emit_batch_write_settled(&app_handle, batch, path, why, &[]);
+            }
+        };
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
         let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -928,6 +986,8 @@ pub async fn apply_auto_adjustments_to_paths(
                     Err(e) => emit_thumbnail_cache_setup_error(&app_handle, path, e),
                 }
                 increment_thumbnail_progress(&state, &app_handle);
+                // Its recipe is on disk, or failed: after the thumbnail.
+                settle(path, applied.as_ref().err().map(String::as_str));
 
                 applied.err().map(|e| (path.clone(), e))
             })

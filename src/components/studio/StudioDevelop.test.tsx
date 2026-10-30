@@ -267,7 +267,7 @@ describe("Develop tool contracts", () => {
     // A new edit's grain is film grain: Colour instead of a structure.
     expect(useEditorStore.getState().adjustments.grainVersion).toBe(GRAIN_VERSION);
     expect(screen.queryByRole("combobox", { name: "Grain structure" })).toBeNull();
-    edit("Grain colour", 30);
+    edit("Grain color", 30);
     expect(useEditorStore.getState().adjustments.grainColor).toBe(30);
     fireEvent.click(screen.getByRole("button", { name: "Reset Grain" }));
     const a = useEditorStore.getState().adjustments;
@@ -288,7 +288,7 @@ describe("Develop tool contracts", () => {
     mount();
     fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
     openGroups();
-    expect(screen.queryByRole("slider", { name: "Grain colour" })).toBeNull();
+    expect(screen.queryByRole("slider", { name: "Grain color" })).toBeNull();
     const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
     expect(structure.value).toBe("clumped");
     fireEvent.change(structure, { target: { value: "gritty" } });
@@ -947,7 +947,7 @@ describe("selections, ranges and components (Lightroom's mask menu)", () => {
     }
     expect(last().subMasks[0].parameters).toMatchObject({ minDepth: 30, maxDepth: 80 });
     newLayer("New color range layer", "Color range");
-    edit("Colour range refine", 45);
+    edit("Color range refine", 45);
     expect(last().subMasks[0].parameters).toMatchObject({ refine: 45 });
     expect(last().subMasks[0].parameters.tolerance).toBeUndefined();
   });
@@ -1477,18 +1477,46 @@ describe("spot removal in the Retouch tab (Lightroom's Remove panel)", () => {
       .getAllByRole("button")
       .find((b) => b.getAttribute("aria-pressed") === "true")?.textContent;
 
-  it("shows the spot settings in the tab and starts the tool from there", () => {
+  it("shows the spot settings in the tab; a mode or the button starts the tool, opening the panel passively", () => {
     mount();
     tab("Retouch");
     const group = document.querySelector<HTMLElement>('[data-tool-title="Spot removal"]')!;
     expect(within(group).getByRole("radiogroup", { name: "Spot mode" })).toBeTruthy();
+    // Showing the settings does not start the tool.
+    expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+    // The button names the tool's key.
+    const start = within(group).getByRole("button", { name: /^Start spot removal/ });
+    expect(start.textContent).toMatch(/\(Q\)$/);
+    fireEvent.click(start);
+    expect(useEditorStore.getState().isSpotToolActive).toBe(true);
+    fireEvent.click(within(group).getByRole("button", { name: /^End spot removal/ }));
+    expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+    // Choosing a mode chooses the tool (Lightroom); choosing again keeps it on.
     fireEvent.click(within(group).getByRole("radio", { name: "Clone" }));
     expect(useEditorStore.getState().spotSettings.mode).toBe("clone");
-    fireEvent.click(within(group).getByRole("button", { name: "Start spot removal" }));
     expect(useEditorStore.getState().isSpotToolActive).toBe(true);
-    expect(within(group).queryByRole("button", { name: "Start spot removal" })).toBeNull();
+    fireEvent.click(within(group).getByRole("radio", { name: "Heal" }));
+    expect(useEditorStore.getState().isSpotToolActive).toBe(true);
+    // The size only sets what the tool does.
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    tab("Retouch");
+    fireEvent.change(within(group).getByLabelText("Spot size"), { target: { value: "80" } });
+    expect(useEditorStore.getState().isSpotToolActive).toBe(false);
     fireEvent.click(within(group).getByRole("button", { name: "Reset Spot removal" }));
     expect(useEditorStore.getState().spotSettings.mode).toBe("heal");
+  });
+
+  it("opens a closed spot removal group when the tool starts", () => {
+    mount();
+    tab("Retouch");
+    const group = document.querySelector<HTMLDetailsElement>('[data-tool-title="Spot removal"]')!;
+    act(() => {
+      group.open = false;
+      group.dispatchEvent(new Event("toggle"));
+    });
+    expect(group.open).toBe(false);
+    act(() => useEditorStore.setState({ isSpotToolActive: true }));
+    expect(document.querySelector<HTMLDetailsElement>('[data-tool-title="Spot removal"]')!.open).toBe(true);
   });
 
   it("opens the Retouch tab with the tool and returns to the tab it came from", () => {

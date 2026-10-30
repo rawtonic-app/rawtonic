@@ -64,12 +64,16 @@ it("copies exactly the chosen tools and layers and remembers the choice", async 
   const { result } = renderHook(useEditorActions);
   await act(() => result.current.handleCopyAdjustments());
   expect(screen.getByRole("dialog", { name: "Copy settings" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Light effects" })).toBeTruthy();
+  const clarity = screen.getByRole("checkbox", { name: "Presence: clarity, structure & dehaze" });
+  expect(clarity.closest("fieldset")?.querySelector("legend")?.textContent).toContain("Light");
+  expect(screen.getByText(/copy this photo.s processing versions/i)).toBeTruthy();
   // Remembered: the group holding exposure; layers were not chosen.
-  expect((screen.getByRole("checkbox", { name: /Exposure & Tone Mapper/ }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: /Exposure & base characteristics/ }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }) as HTMLInputElement).checked).toBe(false);
   // Capture One's "adjusted tools": those this photo changed, all layers.
   fireEvent.click(screen.getByRole("button", { name: "Changed" }));
-  expect((screen.getByRole("checkbox", { name: /^Tone/ }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: /^Tone(?:•)?$/ }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: /^Grain/ }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "Dodge" }));
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
@@ -190,14 +194,14 @@ it("remembers the layers chosen on a photograph and None clears the versions too
   const { result } = renderHook(useEditorActions);
   await act(() => result.current.handleCopyAdjustments());
   fireEvent.click(screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "This photo's processing versions" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }));
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
   // Again on the same photo: Sky only, not Dodge.
   await act(() => result.current.handleCopyAdjustments());
   expect((screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "Dodge" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "None" }));
-  expect((screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   // Option-copy honours the same layers.
   await act(() => result.current.handleCopyAdjustments(undefined, { quick: true }));
@@ -209,14 +213,14 @@ it("takes the processing versions only when they are chosen", async () => {
   const { result } = renderHook(useEditorActions);
   useEditorStore.setState({ adjustments: { ...structuredClone(source), toneVersion: 2 } as Adjustments });
   await act(() => result.current.handleCopyAdjustments());
-  const versions = screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement;
+  const versions = screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }) as HTMLInputElement;
   expect(versions.checked).toBe(false);
   fireEvent.click(versions);
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
   expect(useEditorStore.getState().copiedAdjustments).toMatchObject({ toneVersion: 2, exposure: 1 });
   // Remembered: on next time.
   await act(() => result.current.handleCopyAdjustments());
-  expect((screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "Also copy this photo's processing versions" }) as HTMLInputElement).checked).toBe(true);
 });
 
 it("leaves the processing versions out of quick copies when preferences list them without the choice", async () => {

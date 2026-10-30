@@ -73,6 +73,15 @@ export const CHOICES: Partial<Record<Field, string[]>> = {
   sourceType: [...SOURCE_TYPES, "none"],
 };
 
+/** Choices that stand for "no value" (`empty`): "No AI edits" is the Library's
+ * choice where the catalog counts absent AI facts. */
+export const NONE_CHOICES: Partial<Record<Field, string>> = { ai: "none", sourceType: "none" };
+
+const isNoneChoice = (field: Field, op: Op, value: unknown): boolean =>
+  NONE_CHOICES[field] !== undefined &&
+  ((op === "empty" && (value === undefined || value === NONE_CHOICES[field])) ||
+    (op === "is" && value === NONE_CHOICES[field]));
+
 /** A choice as the editor names it (AI edits and source types as the
  * Library's lists name them). */
 function choiceLabel(field: Field, choice: string, t: TFunction): string {
@@ -169,6 +178,16 @@ export const useSmartAlbumEditor = create<EditorState>((set) => ({
 /** A group as the editor edits it: a rule given alone becomes "all of it". */
 export const asGroup = (rule: Rule): Group => (isGroup(rule) ? rule : { combine: "all", rules: [rule] });
 
+/** A stored rule as the editor shows it: an AI or source-type rule kept in the
+ * old `empty` form ("no AI edits", "not stated") is the choice the Library
+ * shows for it, so reopening a smart album saved from the filter shows the
+ * filter again. The catalog finds the same photographs for both forms. */
+export function shown(rule: Rule): Rule {
+  if (isGroup(rule)) return { ...rule, rules: rule.rules.map(shown) };
+  if (!isNoneChoice(rule.field, rule.op, rule.value)) return rule;
+  return { ...rule, op: "is", value: [NONE_CHOICES[rule.field] as string] };
+}
+
 interface RuleProps {
   rule: Rule;
   albums: SessionAlbum[];
@@ -252,8 +271,15 @@ function ConditionEditor({ rule, albums, folder, onChange, onRemove }: RuleProps
   const setField = (field: Field) => {
     const nextKind = kindOf(field);
     const op = OPS[nextKind].includes(rule.op) ? rule.op : OPS[nextKind][0];
-    const keep = nextKind === kind && field !== "rating" && rule.field !== "rating" ? rule.value : undefined;
-    onChange({ field, op, value: valueFor(field, op, nextKind === "choice" ? undefined : keep, albums, folder) });
+    // Another field's choice is not this field's value, but "none" is
+    // every choice field's own (no AI edits, not stated).
+    const keep =
+      field === rule.field
+        ? rule.value
+        : nextKind === "choice" && isNoneChoice(field, op, rule.value)
+          ? NONE_CHOICES[field]
+          : undefined;
+    onChange({ field, op, value: valueFor(field, op, keep, albums, folder) });
   };
   const setOp = (op: Op) => onChange({ ...rule, op, value: valueFor(rule.field, op, rule.value, albums, folder) });
   const setValue = (value: unknown) => onChange({ ...rule, value });
@@ -311,6 +337,23 @@ function NumberInput({ field, value, onChange, label }: { field: Field; value: u
       }}
     />
   );
+}
+
+function FolderValue({ value, label, onChange }: { value: string; label: string; onChange: (value: string) => void }) {
+  const { t } = useTranslation();
+  const root = useLibraryStore((s) => s.sessionDirectory);
+  const [focused, setFocused] = useState(false);
+  const normalized = value.replace(/\\/g, "/");
+  const prefix = root?.replace(/\\/g, "/").replace(/\/+$/, "") + "/";
+  const parts = normalized.split("/").filter(Boolean);
+  const display = root && normalized.startsWith(prefix)
+    ? normalized.slice(prefix.length)
+    : (/^(?:\/|[A-Za-z]:\/)/.test(normalized) && parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : value);
+  return <input className="studio-metadata-input studio-rule-text" aria-label={label}
+    title={value} value={focused ? value : display}
+    placeholder={t("studio.library.smartAlbums.folderPlaceholder")}
+    onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+    onChange={(e) => onChange(e.target.value)} />;
 }
 
 function ValueEditor({
@@ -373,15 +416,15 @@ function ValueEditor({
     );
   }
   switch (kind) {
+    case "folder":
+      return <FolderValue value={String(value ?? "")} label={label} onChange={onChange} />;
     case "search":
     case "text":
-    case "folder":
       return (
         <input
           className="studio-metadata-input studio-rule-text"
           aria-label={label}
           value={String(value ?? "")}
-          placeholder={kind === "folder" ? t("studio.library.smartAlbums.folderPlaceholder") : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -475,7 +518,7 @@ function SmartAlbumEditor({ draft, albums: given }: { draft: SmartAlbumDraft; al
   const directory = useLibraryStore((s) => s.sessionDirectory);
   const folder = useLibraryStore((s) => s.currentFolderPath);
   const [name, setName] = useState(draft.name);
-  const [rules, setRules] = useState<Group>(draft.rules);
+  const [rules, setRules] = useState<Group>(() => asGroup(shown(draft.rules)));
   const [albums, setAlbums] = useState<SessionAlbum[]>(given ?? []);
   const [matches, setMatches] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);

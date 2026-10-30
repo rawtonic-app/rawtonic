@@ -545,6 +545,50 @@ fn a_folder_moves_to_another_drive_on_its_own() {
     assert!(exists(&world.source.join("A.xmp")));
 }
 
+/// Copy requirements count file bytes on the actual target volume, including
+/// a destination directory that does not exist yet. Free space may change
+/// between queries; only stable volume properties are compared.
+#[test]
+fn a_folder_move_needs_its_bytes_on_the_target_volume() {
+    let world = World::new();
+    let (from, to) = world.folder();
+    let bytes: u64 = TREE.iter().map(|(_, len)| *len as u64).sum();
+    let needs = copy_needs(&[(from.clone(), to.clone())]).unwrap();
+    assert_eq!(needs.len(), 1, "{needs:?}");
+    let need = &needs[0];
+    assert_eq!((need.bytes, need.files), (bytes, TREE.len()));
+    let target = volume_info(&world.target).unwrap();
+    assert!(
+        volume::same_mount(&need.volume.mount_point, &target.mount_point),
+        "{:?} and {target:?} are the volume of {to:?}",
+        need.volume
+    );
+    assert_eq!(
+        (&need.volume.file_system, need.volume.network),
+        (&target.file_system, target.network),
+        "{need:?}"
+    );
+    assert!(need.volume.mount_point.is_absolute(), "{need:?}");
+    assert!(
+        need.volume.free_bytes >= bytes + SPACE_RESERVE,
+        "the figure is the system's, so the move fits: {:?}",
+        need.volume
+    );
+    if !world.publishes_in_place() {
+        let op = world
+            .journal()
+            .execute(
+                "move",
+                "Move folder",
+                vec![Step::other_volume(&from, &to)],
+                &world.trash,
+            )
+            .unwrap();
+        assert_eq!(op.state, State::Done);
+        assert!(!exists(&from));
+    }
+}
+
 /// Permission bits travel with the folder and back (owner access kept),
 /// on volumes that keep them.
 #[cfg(unix)]

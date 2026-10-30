@@ -70,6 +70,16 @@ it("goes back to the Library on Escape in Develop", () => {
   expect(props.handleBackToLibrary).toHaveBeenCalledOnce();
 });
 
+it("ends the spot tool on Escape in Develop before going back to the Library", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ isSpotToolActive: true, activeSpotId: null });
+  press("Escape");
+  expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+  expect(props.handleBackToLibrary).not.toHaveBeenCalled();
+  press("Escape");
+  expect(props.handleBackToLibrary).toHaveBeenCalledOnce();
+});
+
 it("closes Preferences on Escape without leaving Develop", () => {
   useUIStore.setState({ activeView: "editor", isSettingsOpen: true });
   // The Preferences overlay, as StudioWorkspace renders it.
@@ -802,5 +812,36 @@ describe("auto-advance after a rating", () => {
     expect(props.handleImageSelect).not.toHaveBeenCalled();
     expect(useLibraryStore.getState().imageRatings).toMatchObject({ "/s/a.NEF": 4 });
     expect(useLibraryStore.getState().imageRatings["/s/b.NEF"]).toBeUndefined();
+  });
+});
+
+describe("J switches the clipping warnings", () => {
+  const open = () => {
+    cleanup();
+    useUIStore.setState({ activeView: "editor" });
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true } as never,
+      clipHighlights: false,
+      clipShadows: false,
+    });
+    renderHook(() => useKeyboardShortcuts(props));
+  };
+
+  it("switches both on, and both off again", () => {
+    open();
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(true);
+    expect(useEditorStore.getState().clipShadows).toBe(true);
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(false);
+    expect(useEditorStore.getState().clipShadows).toBe(false);
+  });
+
+  it("switches both off after one side was chosen alone", () => {
+    open();
+    useEditorStore.setState({ clipShadows: true });
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(false);
+    expect(useEditorStore.getState().clipShadows).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import AdjustmentControl from "./AdjustmentControl";
 import { useEditorStore } from "../../store/useEditorStore";
 import { updateAdjustments } from "../../hooks/useEditorActions";
 import type { RedEye } from "../../utils/adjustments";
+import { useStudioTools } from "./useStudioTools";
 
 type Settings = ReturnType<typeof useEditorStore.getState>["redEyeSettings"];
 
@@ -13,6 +14,7 @@ type Settings = ReturnType<typeof useEditorStore.getState>["redEyeSettings"];
 export default function StudioRedEyeControls() {
   const { t } = useTranslation();
   const settings = useEditorStore((s) => s.redEyeSettings);
+  const { startSpotTool } = useStudioTools();
   const active = useEditorStore((s) =>
     s.adjustments.redEyes?.find((eye) => eye.id === s.activeSpotId),
   );
@@ -27,6 +29,8 @@ export default function StudioRedEyeControls() {
     : settings;
 
   const set = (patch: Partial<Settings>) => {
+    // Choosing red or pet eye is choosing the tool (as the spot modes).
+    if (patch.kind) startSpotTool();
     const { setEditor, redEyeSettings } = useEditorStore.getState();
     setEditor({ redEyeSettings: { ...redEyeSettings, ...patch } });
     if (!active) return;

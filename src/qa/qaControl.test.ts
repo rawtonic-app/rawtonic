@@ -84,6 +84,17 @@ describe("QA control bridge", () => {
     ).rejects.toThrow(/no element/);
   });
 
+  it("opens a context menu with the secondary button", async () => {
+    const menu = vi.fn();
+    const clicked = vi.fn();
+    const icon = document.getElementById("icon")!;
+    icon.addEventListener("contextmenu", (e) => menu((e as MouseEvent).button));
+    icon.addEventListener("click", clicked);
+    await handleQaRequest("ui.click", { name: "show mask", button: "right" });
+    expect(menu).toHaveBeenCalledWith(2);
+    expect(clicked).not.toHaveBeenCalled();
+  });
+
   it('runs a timed range sequence and restores the value before releasing', async () => {
     const field = document.getElementById('search') as HTMLInputElement;
     field.type = 'range'; field.min = '-5'; field.max = '5'; field.step = '.1'; field.value = '.5';

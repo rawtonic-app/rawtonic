@@ -134,7 +134,7 @@
       "copy_adjustments": "Einstellungen kopieren",
       "copy_image_path": "Pfad kopieren",
       "delete_selected": "In den Papierkorb legen",
-      "flag_pick": "Auswählen",
+      "flag_pick": "Markieren",
       "flag_reject": "Ablehnen",
       "flag_unflag": "Markierung aufheben",
       "import_photos": "Fotos importieren …",
@@ -522,7 +522,7 @@
         "intensity": "Intensität",
         "pressure": "Druck"
       },
-      "runtimeUnavailable": "Die KI-Laufzeitumgebung konnte nicht geladen werden, daher sind die KI-Werkzeuge nicht verfügbar. Alles andere funktioniert wie gewohnt."
+      "runtimeUnavailable": "Die KI-Laufzeitumgebung konnte nicht geladen werden. Werkzeuge, die sie benötigen, sind nicht verfügbar; andere können weiterhin funktionieren. Installiere Rawtonic neu und wähle „Problem melden“ im Hilfe- oder …-Menü, falls es bestehen bleibt."
     },
     "externalEdit": {
       "done": "Fertig",
@@ -532,7 +532,7 @@
     "guided": {
       "cancel": "Abbrechen",
       "drawingActive": "Zeichnen aktiv",
-      "hint": "Zeichnen Sie entlang der Kanten in Ihrem Foto, die vertikal oder horizontal sein sollten.",
+      "hint": "Zeichne entlang der Kanten in deinem Foto, die vertikal oder horizontal sein sollten.",
       "linesStatus": "Aktive Hilfslinien",
       "toast": {
         "angleRejected": "Linienwinkel ist zu weit von horizontal oder vertikal entfernt",
@@ -725,22 +725,22 @@
       "groups": {
         "blackAndWhite": "Schwarzweiß",
         "chromaticAberration": "Chromatische Aberration",
-        "clarityDehaze": "Klarheit & Dunst entfernen",
+        "clarityDehaze": "Präsenz: Klarheit, Struktur & Dunst entfernen",
         "colorCalibration": "Farbkalibrierung",
         "colorGrading": "Color Grading",
         "colorMixer": "Farbmischer",
         "cropAspectRatio": "Zuschnitt & Seitenverhältnis",
         "curves": "Kurven",
-        "exposureToneMapper": "Belichtung & Tonemapper",
+        "exposureToneMapper": "Belichtung & Grundeigenschaften",
         "grain": "Körnung",
         "guidedPerspective": "Geführte Perspektive",
-        "halationGlow": "Lichthof & Glühen",
-        "hueShift": "Globaler Farbton-Shift",
+        "halationGlow": "Lichteffekte",
+        "hueShift": "Farbton",
         "lensCorrection": "Objektivkorrektur",
         "lut": "LUT",
         "masks": "Masken",
         "noiseReduction": "Rauschreduzierung",
-        "presence": "Präsenz",
+        "presence": "Präsenz: Sättigung & Dynamik",
         "sharpness": "Schärfe",
         "tone": "Tonwerte",
         "transformRotation": "Transformieren & Drehen",
@@ -852,15 +852,35 @@
       "zoomInTooltip": "Vergrößern",
       "zoomOutTooltip": "Verkleinern"
     },
+    "quit": {
+      "quitAnyway": "Trotzdem beenden",
+      "unsavedMessage": "Diese Änderungen konnten nicht gespeichert werden: {{changes}}. Beim Beenden gehen sie verloren. Abbrechen hält Rawtonic offen, damit du es erneut versuchen kannst.",
+      "unsavedTitle": "Änderungen nicht gespeichert"
+    },
     "renameFile": {
+      "blocked": "Nichts kann umbenannt werden, bis jedes Problem oben gelöst ist.",
       "cancel": "Abbrechen",
+      "checking": "Namen werden geprüft…",
       "fileNamingTemplate": "Dateibenennungsvorlage",
+      "more": "Weitere Fotos, nicht aufgeführt: {{hidden}}",
       "newName": "Neuer Name",
+      "noteXmpStays": "{{xmp}} bleibt bei {{owner}}, das nicht umbenannt wird.",
+      "noteXmpWithRaw": "{{xmp}} wird mit diesem RAW umbenannt; {{others}} behält seinen Namen ohne sie.",
+      "nothingChanges": "Kein Name ändert sich.",
+      "preview": "Vorschau",
+      "previewFailed": "Die Vorschau ist fehlgeschlagen: {{error}}",
+      "problemInvalidName": "„{{name}}“ ist kein gültiger Dateiname.",
+      "problemNotFound": "Die Datei ist nicht mehr da.",
+      "problemOccupied": "{{name}} gibt es schon.",
+      "problemSameTarget": "Eine andere Datei dieser Umbenennung hieße ebenfalls {{name}}.",
       "save": "Speichern",
+      "summary": "Umbenannte Fotos: {{photos}} · Dateien insgesamt: {{files}}",
       "titleMultiple": "{{count}} Bilder umbenennen",
       "titleMultiple_one": "{{count}} Bild umbenennen",
       "titleMultiple_other": "{{count}} Bilder umbenennen",
-      "titleSingle": "Bild umbenennen"
+      "titleSingle": "Bild umbenennen",
+      "unchanged": "behält seinen Namen",
+      "withFiles": "Ebenfalls umbenannt: {{files}}"
     },
     "renameFolder": {
       "cancel": "Abbrechen",
@@ -926,7 +946,7 @@
       "folder": "Kartenordner",
       "hour": "Stunde",
       "iso": "ISO",
-      "job": "Sitzungsname",
+      "job": "Projektname",
       "lens": "Objektiv",
       "make": "Kamerahersteller",
       "minute": "Minute",
@@ -952,6 +972,9 @@
   },
   "notifications": {
     "close": "Mitteilung schließen",
+    "quitCancelled": "Rawtonic bleibt offen, weil das Speichern noch nicht abgeschlossen ist. Ausstehende Änderungen werden weiter gespeichert.",
+    "quitSaving": "Änderungen werden vor dem Beenden von Rawtonic gespeichert…",
+    "quitSavingPhotos": "Änderungen werden vor dem Beenden von Rawtonic gespeichert… ({{done}}/{{total}})",
     "region": "Mitteilungen"
   },
   "offline": {
@@ -970,7 +993,7 @@
       "onVolume": "{{path}} liegt auf „{{volume}}“, das nicht verbunden ist.",
       "title": "Fehlend",
       "volumeOffline": "Offline",
-      "volumeOfflineTitle": "„{{name}}“ ist nicht verbunden. Die Ordner bleiben aufgeführt und ihre Fotos behalten ihre Bearbeitungen; verbinden Sie das Laufwerk, um mit den Originalen zu arbeiten.",
+      "volumeOfflineTitle": "„{{name}}“ ist nicht verbunden. Die Ordner bleiben aufgeführt und ihre Fotos behalten ihre Bearbeitungen; verbinde das Laufwerk, um mit den Originalen zu arbeiten.",
       "volumeSpaceTitle": "{{name}} unter {{mount}} · frei / gesamt: {{space}}",
       "volumeTitle": "{{name}} unter {{mount}}"
     },
@@ -981,7 +1004,7 @@
     },
     "missingView": "Fehlende Fotos",
     "missingViewNoDrop": "„Fehlende Fotos“ zeigt Fotos, deren Datei fehlt; dort lassen sich keine Fotos hinzufügen.",
-    "missingViewTitle": "Fotos, deren Datei fehlt oder auf einem nicht verbundenen Laufwerk liegt. Ihre Bearbeitungen bleiben; suchen Sie sie, um sie neu zu verknüpfen.",
+    "missingViewTitle": "Fotos, deren Datei fehlt oder auf einem nicht verbundenen Laufwerk liegt. Ihre Bearbeitungen bleiben; suche sie, um sie neu zu verknüpfen.",
     "sessionCount_one": "{{count}} offline",
     "sessionCount_other": "{{count}} offline",
     "sessionCountTitle": "Fotos, deren Datei fehlt oder auf einem nicht verbundenen Laufwerk liegt: Bibliothek › Alben › Fehlende Fotos",
@@ -1008,9 +1031,9 @@
     },
     "offline": {
       "full": "Offline · 1:1-Vorschau",
-      "fullTitle": "Die RAW-Datei kann nicht gelesen werden. Sie sehen und bearbeiten ihre 1:1-Vorschau in voller Auflösung; der Export braucht die RAW-Datei.",
+      "fullTitle": "Die RAW-Datei kann nicht gelesen werden. Du siehst und bearbeitest ihre 1:1-Vorschau in voller Auflösung; der Export braucht die RAW-Datei.",
       "standard": "Offline · Standardvorschau",
-      "standardTitle": "Die RAW-Datei kann nicht gelesen werden. Sie sehen und bearbeiten ihre Standardvorschau; Hineinzoomen vergrößert sie, und der Export braucht die RAW-Datei. Erstellen Sie 1:1-Vorschauen, um Offline-Fotos auf 100 % zu zoomen. Retusche und Objektivunschärfe werden in ihrer Größe gezeigt; KI-Masken, Entfernen und Perspektivkorrektur brauchen die RAW-Datei oder eine 1:1-Vorschau."
+      "standardTitle": "Die RAW-Datei kann nicht gelesen werden. Du siehst und bearbeitest ihre Standardvorschau; Hineinzoomen vergrößert sie, und der Export braucht die RAW-Datei. Erstelle 1:1-Vorschauen, um Offline-Fotos auf 100 % zu zoomen. Retusche und Objektivunschärfe werden in ihrer Größe gezeigt; KI-Masken, Entfernen und Perspektivkorrektur brauchen die RAW-Datei oder eine 1:1-Vorschau."
     },
     "settings": {
       "after30Days": "Nach 30 Tagen",
@@ -1042,7 +1065,7 @@
     },
     "still": {
       "label": "Vorschau",
-      "title": "Ihr Miniaturbild, gezeigt, während das Foto entwickelt wird; das entwickelte Bild ersetzt es gleich."
+      "title": "Sein Miniaturbild, gezeigt, während das Foto entwickelt wird; das entwickelte Bild ersetzt es gleich."
     },
     "toasts": {
       "discarded": "Vorschaudateien verworfen: {{files}}",
@@ -1069,10 +1092,7 @@
       "picked_other": "{{count}} markiert",
       "tether": "Tether",
       "tetherConnected": "{{camera}} verbunden",
-      "tetherTitle": "Tethered fotografieren: Fotos einer Kamera am USB kommen direkt in diese Bibliothek",
-      "xmpPending_one": "{{count}} XMP ausstehend",
-      "xmpPending_other": "{{count}} XMP ausstehend",
-      "xmpPendingTitle": "Bearbeitungen sind in der Bibliothek gespeichert. Einige XMP-Filialdateien müssen synchronisiert oder Konflikte darin gelöst werden."
+      "tetherTitle": "Tethered fotografieren: Fotos einer Kamera am USB kommen direkt in diese Bibliothek"
     },
     "create": {
       "catalog": "Katalog",
@@ -1088,7 +1108,7 @@
       "location": "Speicherort",
       "modeLabel": "Organisation",
       "name": "Projektname",
-      "namePlaceholder": "2026-10-01_Kunde_Auftrag",
+      "namePlaceholder": "{{date}}_Kunde_Auftrag",
       "namePreview": "Dein Auftrag",
       "originalsUntouched": "Originalfotos bleiben unverändert.",
       "session": "Projekt",
@@ -1177,7 +1197,7 @@
       "include": "Importieren",
       "inLibrary": "In Bibliothek",
       "inLibraryTitle": "Schon in dieser Bibliothek (gleiche Größe und gleicher Inhalt). Nicht ausgewählt; beim Import wird ein geprüftes Duplikat übersprungen.",
-      "keepEditing": "Sie können während des Imports weiterarbeiten.",
+      "keepEditing": "Du kannst während des Imports weiterarbeiten.",
       "largeView": "Große Ansicht",
       "metadata": {
         "addNote": "Beim Hinzufügen werden nur Metadaten im Katalog gespeichert. Neben den Originalen wird beim Import nichts geschrieben.",
@@ -1225,7 +1245,7 @@
       "submitAdd_other": "{{count}} Fotos hinzufügen",
       "submitNone": "Fotos kopieren",
       "subtitle": "Jede Kopie wird per SHA-256 mit ihrer Quelle verglichen.",
-      "templateHint": "Mit {{orig}} bleiben die Originalnamen erhalten, oder verwenden Sie {{pattern}}.",
+      "templateHint": "Mit {{orig}} bleiben die Originalnamen erhalten, oder verwende {{pattern}}.",
       "thumbnailSize": "Miniaturgröße",
       "title": "Fotos importieren",
       "truncated": "Nur die ersten {{n}} Fotos sind aufgelistet; importiere den Rest in einem weiteren Durchgang.",
@@ -1246,8 +1266,9 @@
     },
     "restore": {
       "failed": "Die letzte Bibliothek konnte nicht geöffnet werden: {{error}}",
-      "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlauben Sie ihn."
+      "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlaube ihn."
     },
+    "switching": "Bibliothek wird geöffnet …",
     "sync": {
       "applied": "Verschoben {{moved}} · Hinzugefügt {{added}} · Entfernt {{removed}}",
       "apply": "Übernehmen ({{n}})",
@@ -1268,7 +1289,7 @@
       "filesUnchanged": "Dateien auf der Festplatte bleiben unverändert.",
       "found": "{{n}} Fotodateien geprüft. Nur die angehakten Änderungen werden übernommen.",
       "groups": {
-        "contested": "Ihre Wahl nötig",
+        "contested": "Deine Wahl nötig",
         "copies": "Kopien von Fotos der Bibliothek",
         "errors": "Nicht lesbar",
         "newFiles": "Neue Fotos",
@@ -1278,12 +1299,12 @@
         "verifiedMoves": "Verschoben oder umbenannt (geprüft)"
       },
       "hints": {
-        "contested": "Diese Datei könnte eines von mehreren Fotos oder eine Kopie sein. Wählen Sie, was sie ist.",
+        "contested": "Diese Datei könnte eines von mehreren Fotos oder eine Kopie sein. Wähle, was sie ist.",
         "copies": "Dieselben Bytes wie ein Foto, das noch da ist. Nur angehakt als eigene Fotos hinzugefügt.",
         "errors": "Übersprungen.",
         "newFiles": "Werden mit dem Inhalt ihrer XMP- oder Editor-Begleitdateien hinzugefügt.",
-        "probableMoves": "Größe und Stichproben des Inhalts stimmen, aber keine vollständige Prüfsumme belegt es. Haken Sie die an, die Sie erkennen.",
-        "removed": "Ihre Dateien fehlen und es wurde nichts für sie gefunden. Angehakte werden mit Bearbeitungen, Bewertungen und Albumzugehörigkeit aus der Bibliothek entfernt. Dateien werden nie gelöscht.",
+        "probableMoves": "Größe und Stichproben des Inhalts stimmen, aber keine vollständige Prüfsumme belegt es. Hake die an, die du erkennst.",
+        "removed": "Die Dateien dieser Fotos fehlen und es wurde nichts für sie gefunden. Angehakte werden mit Bearbeitungen, Bewertungen und Albumzugehörigkeit aus der Bibliothek entfernt. Dateien werden nie gelöscht.",
         "unavailable": "Auf einem nicht verbundenen Laufwerk oder in einem nicht lesbaren Ordner. Sie bleiben, wie sie sind.",
         "verifiedMoves": "Byte für Byte die Datei des Fotos: Es behält Bearbeitungen, Bewertungen, Stichwörter und Alben am neuen Ort."
       },
@@ -1305,6 +1326,13 @@
     "tether": {
       "battery": "Akku {{level}}",
       "camera": "Kamera",
+      "canon": {
+        "badge": "Experimentell",
+        "connectedNote": "Experimentell: Wenn ein Foto hier nicht erscheint, ist es nicht verloren – es ist auf der Speicherkarte. Lass die Karte in der Kamera. Rawtonic sagt dir Bescheid, wenn ein aus Rawtonic ausgelöstes Foto nicht ankommt – außer es kommt in der Zwischenzeit ein an der Kamera aufgenommenes Foto an und nimmt seinen Platz ein. Vergleiche nach einer Session die Karte mit der Bibliothek.",
+        "notReceived": "Foto {{n}} ist nicht angekommen. Wenn die Kamera es aufgenommen hat, ist es auf der Speicherkarte.",
+        "openPreferences": "Tethering-Einstellungen öffnen",
+        "optInNeeded": "Canon-Kameras wurden noch nicht mit Rawtonic getestet. Um deine auszuprobieren und beim Testen zu helfen, schalte „Experimentell: Canon-Kameras“ unter Einstellungen > Tethering ein."
+      },
       "capture": "Aufnehmen",
       "captureFailed": "Aufnahme fehlgeschlagen: {{error}}",
       "captureTitle": "Kamera auslösen (⌘K / Strg+K)",
@@ -1321,6 +1349,7 @@
       "lastIn": "{{file}} ist in der Bibliothek",
       "lastTiming": "{{file}} {{ms}} ms nach der Aufnahme in der Bibliothek",
       "level": {
+        "experimental": "Experimentell – Tester gesucht. Noch nicht mit Rawtonic getestet: Ein Foto erscheint hier vielleicht nicht und ist dann nur auf der Speicherkarte.",
         "notSupported": "Diese Kamera wird noch nicht unterstützt.",
         "reported": "Laut Berichten von Nutzern dieses Kameramodells funktioniert es.",
         "tested": "Mit diesem Kameramodell getestet unter {{systems}} ({{date}}).",
@@ -1338,6 +1367,14 @@
         "bursting": "{{shots}} Aufnahmen direkt hintereinander…",
         "button": "Kameratest…",
         "buttonTitle": "Diese Kamera Schritt für Schritt testen und einen anonymen Bericht erstellen",
+        "canonGuide": {
+          "card": "Lass während des ganzen Tests eine Speicherkarte in der Kamera.",
+          "missing": "Wenn ein Foto nicht erscheint, ist auch das hilfreich: Es ist weiter auf der Speicherkarte, und der Test zählt es mit.",
+          "send": "Klicke am Ende auf „{{button}}“. Du siehst genau, was gesendet wird – keine Fotos, Dateinamen oder Seriennummer –, und nichts verlässt deinen Computer, bevor du es bestätigst.",
+          "sendNote": "Dieses Ergebnis stammt aus der experimentellen Canon-Unterstützung. Danke fürs Testen – jedes Ergebnis hilft, auch eins mit fehlenden Fotos.",
+          "steps": "Geh die Schritte unten nacheinander durch: Klicke auf „Ausführen“ und mach, was der Schritt verlangt. Kann deine Kamera einen Schritt nicht, klicke auf „Überspringen“.",
+          "title": "So testest du deine Canon-Kamera"
+        },
         "close": "Kameratest schließen",
         "how": {
           "autofocus": "Fokussiert einmal. Überspringe es mit einem manuellen Objektiv oder MF an der Kamera.",
@@ -1451,6 +1488,13 @@
       "verifyProgress_one": "Prüfen · {{count}} Datei geprüft",
       "verifyProgress_other": "Prüfen · {{count}} Dateien geprüft"
     },
+    "unsaved": {
+      "cancel": "Abbrechen",
+      "discard": "Ungespeicherte Änderungen verwerfen",
+      "message": "Diese Änderungen konnten nicht gespeichert werden: {{files}}. Wenn jetzt eine andere Bibliothek geöffnet wird, gehen sie verloren. Erneut versuchen, um sie zuerst zu speichern, verwerfen oder abbrechen, um in dieser Bibliothek zu bleiben.",
+      "retry": "Erneut versuchen",
+      "title": "Änderungen nicht gespeichert"
+    },
     "welcome": {
       "body": "Ein Shooting oder deine ganze Sammlung? Wähle die passende Organisation — die Bearbeitungswerkzeuge sind dieselben.",
       "create": "Projekt erstellen",
@@ -1463,10 +1507,84 @@
       "toolsLeft": "Werkzeuge links",
       "toolsRight": "Werkzeuge rechts",
       "toolsSide": "Wo möchtest du die Entwickeln-Werkzeuge?"
+    },
+    "xmp": {
+      "buttonTitle": "Einige XMP-Dateien sind nicht auf dem Stand der Bibliothek. Klicke für Details und um sie erneut zu schreiben.",
+      "count_one": "{{count}} XMP nicht aktuell",
+      "count_other": "{{count}} XMP nicht aktuell",
+      "explain": "Deine Bearbeitungen, Bewertungen und Stichwörter sind in der Bibliothek sicher. Andere Programme, die XMP-Dateien lesen, sehen diese Änderungen noch nicht. Die Fotos selbst werden nie verändert.",
+      "heading_one": "Die XMP-Datei von {{count}} Foto ist nicht aktuell",
+      "heading_other": "Die XMP-Dateien von {{count}} Fotos sind nicht aktuell",
+      "reason": {
+        "changedElsewhere_one": "{{count}} XMP-Datei wurde von einem anderen Programm geändert. Rawtonic überschreibt sie nicht; die Bibliothek behält deine Fassung.",
+        "changedElsewhere_other": "{{count}} XMP-Dateien wurden von einem anderen Programm geändert. Rawtonic überschreibt sie nicht; die Bibliothek behält deine Fassung.",
+        "failed_one": "{{count}} XMP-Datei konnte nicht geschrieben werden: {{error}}",
+        "failed_other": "{{count}} XMP-Dateien konnten nicht geschrieben werden: {{error}}",
+        "offline_one": "{{count}} Foto ist offline. Seine XMP-Datei wird aktualisiert, sobald das Laufwerk wieder verbunden ist.",
+        "offline_other": "{{count}} Fotos sind offline. Ihre XMP-Dateien werden aktualisiert, sobald das Laufwerk wieder verbunden ist.",
+        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben.",
+        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben."
+      },
+      "retry": "Erneut versuchen",
+      "retryFailed": "Die XMP-Dateien konnten nicht geschrieben werden: {{error}}",
+      "show": "Fotos zeigen",
+      "title": "XMP-Dateien nicht aktuell",
+      "view": "XMP nicht aktuell",
+      "writing": "Wird geschrieben …",
+      "written_one": "XMP-Datei für {{count}} Foto aktualisiert",
+      "written_other": "XMP-Dateien für {{count}} Fotos aktualisiert"
     }
   },
   "settings": {
+    "about": {
+      "build": "dieser Build",
+      "copyright": "Copyright © 2026 Rawtonic-Mitwirkende. Teile Copyright Timon Käch und die RapidRAW-Mitwirkenden.",
+      "creditDescriptions": {
+        "avif-parse": "Liest den AVIF-Container.",
+        "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
+        "ConvNeXt UperNet": "Himmelsmasken (Meta, ADE20K).",
+        "darktable": "Referenzimplementierungen für Teile des übernommenen Editors.",
+        "DAViD": "Oberflächennormalen von Personen für Relight (Microsoft).",
+        "Dawn": "WebGPU für KI-Modelle unter Windows und Linux im WebGPU-Plugin von ONNX Runtime (Google).",
+        "Depth Anything 3 Base": "Relative Szenengeometrie und Kameraschätzung für Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Tiefenmasken.",
+        "Lensfun database": "Objektivprofile für die automatische Objektivkorrektur (nur Daten, kein Lensfun-Code).",
+        "libgphoto2": "Tether-Aufnahmen: kommuniziert in einem separaten Hilfsprozess per USB mit der Kamera (mit libltdl und unter Linux libusb; dynamisch gelinkt). Unter macOS über ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "Anbindung des Tether-Hilfsprozesses an libgphoto2 (RapidRAWs Fork von vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG-Export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Gesichtspunkte, Relight-Netztopologie sowie Haut, Haare und Kleidung für Personenmasken (Google).",
+        "MI-GAN": "Objektentfernung (Picsart AI Research).",
+        "Moebius": "Entfernung großer Objekte (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Liest ICC-Profile in JPEG-, PNG-, TIFF-, WebP- und AVIF-Dateien.",
+        "NegPy": "Inspiration für die Negativkonvertierung.",
+        "Nonlocal MatchFilter": "KI-Entrauschen auf dem RAW-Mosaik.",
+        "ONNX Runtime": "Führt KI-Modelle aus, unter Windows und Linux über das WebGPU-Plugin auch auf der GPU (Microsoft).",
+        "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f).",
+        "rav1d": "Dekodiert AVIF-Dateien (die Rust-Portierung von dav1d).",
+        "rawler": "RAW-Dekodierung (dnglab über RapidRAW-DngLab), mit Rawtonic-Patches; Sony ARW 6 aus LibRaw portiert.",
+        "SAM 2": "Klick- und Rahmenmasken (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Bildkodierer und -dekodierer von Moebius (madebyollin, aus Stability AIs SDXL VAE).",
+        "SigLIP 2": "Automatische Stichwörter (Google).",
+        "spektrafilm": "LUTs zur Filmemulation von Andrea Volpato (umbenannt, Inhalt unverändert).",
+        "SQLite / rusqlite": "Bibliotheksdatenbank mit einer Rawtonic-Korrektur für WAL-Sperren unter Windows.",
+        "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere)."
+      },
+      "credits": "Mitwirkende und Quellen",
+      "creditsIntro": "Rawtonic baut auf diesen Projekten, Daten und Modellen auf. Unten findest du die Lizenztexte aller enthaltenen Pakete und der heruntergeladenen KI-Modelle.",
+      "jpeg": "Diese Software beruht zum Teil auf der Arbeit der Independent JPEG Group.",
+      "licenseAfter": "; auch ohne stillschweigende Gewährleistung der Marktgängigkeit oder Eignung für einen bestimmten Zweck. Siehe die",
+      "licenseEnd": "für Einzelheiten; eine Kopie liegt der App bei.",
+      "licenseIntro": "Dieses Programm ist freie Software: Du darfst es unter den Bedingungen der GNU Affero General Public License, veröffentlicht von der Free Software Foundation, Version 3 oder einer späteren Version deiner Wahl, weitergeben und ändern. Es wird in der Hoffnung bereitgestellt, dass es nützlich ist, aber",
+      "licenses": "Lizenzen Dritter",
+      "licenseTexts": "Lizenztexte Dritter",
+      "noWarranty": "ohne jede Gewährleistung",
+      "privacy": "Fotos, Kataloge, Projekte und Bearbeitungen bleiben auf deinem Computer und in den von dir gewählten Ordnern. Die optionale Updateprüfung beim Start kontaktiert GitHub höchstens einmal alle 24 Stunden. KI-Modelle werden bei Bedarf von GitHub heruntergeladen und lokal ausgeführt; die Kartenansicht kontaktiert OpenStreetMap mit der Position und deiner IP-Adresse. Problem-, Absturz- und Kameratestberichte werden erst nach deiner Prüfung des genauen Inhalts und deinem Klick auf Senden übermittelt. „Bericht kopieren“ sendet nichts; „Auf GitHub öffnen“ zeigt erst den Titel und Text und übermittelt sie beim Laden der Seite an GitHub. Anonyme Nutzungsstatistiken sind standardmäßig aus; wenn du sie einschaltest, werden wöchentliche Zähler an Rawtonics Relay gesendet. Rawtonic hat keine Konten oder weitere Telemetrie. Einzelheiten stehen in PRIVACY.md.",
+      "showLicenses": "Lizenztexte anzeigen",
+      "source": "Quellcode:",
+      "trademarks": "Rawtonic ist ein unabhängiges Projekt und steht nicht in Verbindung mit Adobe, Capture One, Fujifilm oder einem Kamera- oder Softwarehersteller; es wird von diesen weder unterstützt noch gesponsert. Produktnamen sind Marken ihrer Eigentümer und dienen nur zur Bezeichnung ihrer Produkte, etwa der Kataloge und Vorgaben, die Rawtonic importieren kann."
+    },
     "categories": {
+      "about": "Über",
       "general": "Allgemein",
       "processing": "Verarbeitung",
       "shortcuts": "Steuerung"
@@ -1479,7 +1597,7 @@
       },
       "notAssigned": "Nicht zugewiesen",
       "optimization": "Eingabegeräte-Optimierung",
-      "optimizationDesc": "Wählen Sie das primäre Eingabegerät zum Schwenken und Zoomen.",
+      "optimizationDesc": "Wähle das primäre Eingabegerät zum Schwenken und Zoomen.",
       "pressKey": "Taste drücken... (Esc zum Löschen)",
       "resetDefaults": "Alles auf Standard zurücksetzen",
       "speed": "Geschwindigkeit",
@@ -1487,20 +1605,20 @@
       "zoom": "Zoom-Geschwindigkeitsfaktor",
       "zoomClick": "Foto auf 100% zoomen",
       "zoomClickDesc": "Foto im Editor bei Mausklick auf 100% zoomen",
-      "zoomClickInfo": "Klicken Sie auf das Foto, um sofort auf 100% (1:1 Pixel) zu zoomen, um Schärfe und Rauschen zu beurteilen. Wenn deaktiviert, wird beim Klicken stufenweise herangezoomt.",
-      "zoomDesc": "Passen Sie an, wie schnell das Bild beim Scrollen oder Kneifen zoomt."
+      "zoomClickInfo": "Klicke auf das Foto, um sofort auf 100 % (1:1 Pixel) zu zoomen und Schärfe und Rauschen zu beurteilen. Wenn ausgeschaltet, zoomt jeder Klick eine Stufe näher heran.",
+      "zoomDesc": "Passe an, wie schnell das Foto beim Scrollen oder Zusammenziehen zoomt."
     },
     "data": {
       "clearSidecars": "Alle Filialdateien löschen",
       "clearSidecarsButton": "Löschen",
-      "clearSidecarsDesc": "Legt die .rrdata-Dateien (Bearbeitungen) und .rrexif-Dateien (EXIF-Cache) in Ihren Stammordnern in den Papierkorb. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert. Stammordner:",
+      "clearSidecarsDesc": "Legt die .rrdata-Dateien (Bearbeitungen) und .rrexif-Dateien (EXIF-Cache) in deinen Stammordnern in den Papierkorb. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert. Stammordner:",
       "loading": "Wird geladen...",
       "logs": "Anwendungsprotokolle anzeigen",
       "logsButton": "Öffnen",
-      "logsDesc": "Zeigen Sie die Protokolldatei der Anwendung zur Fehlerbehebung an. Das Protokoll befindet sich unter:",
+      "logsDesc": "Zeige die Protokolldatei zur Fehlerbehebung an. Du findest sie unter:",
       "modals": {
-        "aiMessage": "Sind Sie sicher, dass Sie alle KI-generierten Tags von allen Bildern in allen aktiven Stammordnern entfernen möchten?\n\nBenutzerdefinierte Tags sind nicht betroffen. Diese Aktion kann nicht rückgängig gemacht werden.",
-        "allMessage": "Sind Sie sicher, dass Sie alle KI-generierten und benutzerdefinierten Tags von allen Bildern in allen aktiven Stammordnern entfernen möchten?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
+        "aiMessage": "Bist du sicher, dass du alle KI-generierten Tags von allen Bildern in allen aktiven Stammordnern entfernen möchtest?\n\nBenutzerdefinierte Tags sind nicht betroffen. Diese Aktion kann nicht rückgängig gemacht werden.",
+        "allMessage": "Bist du sicher, dass du alle KI-generierten und benutzerdefinierten Tags von allen Bildern in allen aktiven Stammordnern entfernen möchtest?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
         "confirmAiTitle": "KI-Tags löschen bestätigen",
         "confirmAllTitle": "Alle Tags löschen bestätigen",
         "confirmClear": "Löschen",
@@ -1510,7 +1628,7 @@
         "confirmResetLayout": "Layout zurücksetzen",
         "confirmResetLayoutTitle": "Arbeitsbereich-Layout zurücksetzen",
         "confirmTitle": "Löschen bestätigen",
-        "resetLayoutMessage": "Möchten Sie das Layout des Arbeitsbereichs wirklich zurücksetzen? Alle angedockten Panels, Breiten und Umschalter-Positionen werden auf ihre Standardwerte zurückgesetzt.",
+        "resetLayoutMessage": "Möchtest du das Layout des Arbeitsbereichs wirklich zurücksetzen? Alle angedockten Panels, Breiten und Umschalter-Positionen werden auf ihre Standardwerte zurückgesetzt.",
         "sidecarMessage": "Alle Sidecar-Dateien in den Papierkorb legen?\n\nDies entfernt die in .rrdata-Dateien gespeicherten Bearbeitungen aller Bilder in allen aktiven Stammordnern und ihren Unterordnern; aus dem Papierkorb lassen sie sich zurücklegen. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert."
       },
       "noFolders": "Keine Ordner ausgewählt",
@@ -1553,7 +1671,7 @@
       "enableOsTitlebar": "OS-Titelleiste aktivieren",
       "enableXmpSync": "XMP-Sync aktivieren",
       "nativeTitlebar": "Native Titelleiste",
-      "nativeTitlebarDesc": "Verwenden Sie die Standard-Fenstertitelleiste Ihres Systems anstelle der eigenen der App.",
+      "nativeTitlebarDesc": "Verwende die Standard-Fenstertitelleiste deines Systems anstelle der eigenen der App.",
       "proofMargin": "Prüfrand",
       "proofMarginDesc": "Rand um das eingepasste Foto bei eingeschaltetem Prüfrand (Alt+X), als Anteil der kürzeren Seite des Betrachters.",
       "showBuiltinPresets": "Mitgelieferte Vorgaben zeigen",
@@ -1563,7 +1681,7 @@
       "viewerBackground": "Hintergrund des Betrachters",
       "viewerBackgroundDesc": "Farbe um das Foto in Entwickeln. Auch per Rechtsklick neben das Foto. Mittel ist ein neutrales Mittelgrau zum Beurteilen der Tonwerte.",
       "xmpSync": "XMP-Metadaten-Sync",
-      "xmpSyncDesc": "Synchronisieren Sie Bewertungen, Farbmarkierungen und Tags in Standard-XMP-Filialdateien für Kompatibilität mit anderen Foto-Editoren."
+      "xmpSyncDesc": "Synchronisiere Bewertungen, Farbmarkierungen und Stichwörter in Standard-XMP-Begleitdateien für andere Foto-Editoren."
     },
     "keybinds": {
       "actions": {
@@ -1668,11 +1786,11 @@
       }
     },
     "language": "Sprache",
-    "languageDesc": "Ändern Sie die Sprache der Anwendung.",
+    "languageDesc": "Ändere die Sprache der Anwendung.",
     "lenses": {
       "addButton": "Zu meinen Objektiven hinzufügen",
       "addNew": "Neues Objektiv hinzufügen",
-      "description": "Erstellen Sie eine Liste Ihrer häufig verwendeten Objektive, um im Objektivkorrektur-Panel schnell darauf zuzugreifen.",
+      "description": "Erstelle eine Liste deiner häufig verwendeten Objektive, um im Objektivkorrektur-Panel schnell darauf zuzugreifen.",
       "manufacturerPlaceholder": "Hersteller auswählen",
       "modelPlaceholder": "Objektivmodell auswählen",
       "noLenses": "Noch keine Objektive hinzugefügt.",
@@ -1688,7 +1806,7 @@
       "alwaysDecodeRawDesc": "Erzwingt die vollständige RAW-Decodierung für Vorschaubilder, anstatt eingebettete JPEG-Vorschauen zu verwenden. Aktiviere diese Option, wenn sich die Vorschaubilder farblich oder im Kontrast vom geöffneten Bild unterscheiden.",
       "alwaysDecodeRawLabel": "RAW für Vorschaubilder immer decodieren",
       "backend": "Verarbeitungs-Backend",
-      "backendDesc": "Wählen Sie die Grafik-API. 'Auto' wird empfohlen. Kann Abstürze auf einigen Systemen beheben.",
+      "backendDesc": "Wähle die Grafik-API. „Auto“ wird empfohlen. Die Einstellung kann Abstürze auf manchen Systemen beheben.",
       "backends": {
         "auto": "Auto",
         "dx12": "DirectX 12",
@@ -1696,11 +1814,11 @@
         "metal": "Metal",
         "vulkan": "Vulkan"
       },
-      "dynamicDesc": "Der Editor rendert die Vorschau passend zur tatsächlichen Pixeldichte Ihres Displays. Dies sorgt für 1:1 Pixelgenauigkeit und maximale Klarheit beim Zoomen.",
+      "dynamicDesc": "Der Editor rendert die Vorschau passend zur tatsächlichen Pixeldichte deines Bildschirms. Dies sorgt für 1:1 Pixelgenauigkeit und maximale Klarheit beim Zoomen.",
       "enableLivePreviews": "Live-Vorschauen aktivieren",
       "highDpi": "High-DPI Rendering",
-      "highDpiDesc": "Rendern Sie Vorschauen in der nativen {{dpr}}x Auflösung Ihres Bildschirms. Erzeugt die schärfste Vorschau, verbraucht aber mehr Speicher.",
-      "highDpiDescStandard": "Diese Einstellung betrifft nur High-DPI-Displays. Ihr aktuelles Display hat Standardauflösung.",
+      "highDpiDesc": "Rendere Vorschauen in der nativen {{dpr}}x-Auflösung deines Bildschirms. Das erzeugt die schärfste Vorschau, verbraucht aber mehr Speicher.",
+      "highDpiDescStandard": "Diese Einstellung betrifft nur hochauflösende Bildschirme. Dein Bildschirm hat Standardauflösung.",
       "imageCache": "Dekodierter Bild-Cache",
       "images": "Bilder",
       "linuxCompat": "Linux Kompatibilitätsmodus",
@@ -1761,7 +1879,7 @@
         "performance": "Leistung"
       },
       "renderScale": "Render-Auflösungsskalierung",
-      "renderScaleDesc": "Skaliert die Renderauflösung relativ zu Ihrem Display. Niedrigere Werte verbessern die Leistung auf hochauflösenden Bildschirmen.",
+      "renderScaleDesc": "Skaliert die Renderauflösung relativ zu deinem Bildschirm. Niedrigere Werte verbessern die Leistung auf hochauflösenden Bildschirmen.",
       "restartRequired": "Änderungen an der Verarbeitungs-Engine erfordern einen Neustart der Anwendung.",
       "saveRelaunch": "Speichern & Neu starten",
       "smallThumbnailRes": "Raster-Miniaturbild-Auflösung",
@@ -1790,9 +1908,9 @@
       "amount": "Betrag",
       "automaticAiTagging": "Automatisches KI-Tagging",
       "clearAiTagsButton": "Löschen",
-      "clearAiTagsDesc": "Dies entfernt alle KI-generierten Tags aus Ihren .rrdata-Dateien. Benutzerdefinierte Tags bleiben erhalten.",
+      "clearAiTagsDesc": "Dies entfernt alle KI-generierten Stichwörter aus deinen .rrdata-Dateien. Eigene Stichwörter bleiben erhalten.",
       "clearAiTagsTitle": "KI-Tags löschen",
-      "clearAllTagsDesc": "Dies entfernt alle KI-generierten und benutzerdefinierten Tags aus Ihren .rrdata-Dateien. Farbmarkierungen bleiben erhalten.",
+      "clearAllTagsDesc": "Dies entfernt alle KI-generierten und eigenen Stichwörter aus deinen .rrdata-Dateien. Farbmarkierungen bleiben erhalten.",
       "clearAllTagsTitle": "Alle Tags löschen",
       "clearCustomTooltip": "KI-Tag-Liste löschen",
       "clearShortcutsTooltip": "Shortcut-Tag-Liste löschen",
@@ -1808,6 +1926,17 @@
       "shortcutsDesc": "Eine Liste von Tags, die als Shortcuts im Kontextmenü erscheinen.",
       "title": "Tagging"
     },
+    "tethering": {
+      "camerasLink": "Welche Kameras funktionieren und wie du deine meldest",
+      "canon": "Experimentell: Canon-Kameras (beim Testen helfen)",
+      "canonDesc": "Rawtonic verbindet dann auch Canon-Kameras per USB, damit du deine ausprobieren und ein kurzes Testergebnis schicken kannst.",
+      "canonSwitch": "Canon-Kameras verbinden",
+      "howToTest": "So hilfst du: Verbinde die Kamera im Tether-Fenster, klicke auf „Kameratest…“ und folge den Schritten. Am Ende siehst du genau, was gesendet würde, bevor etwas deinen Computer verlässt.",
+      "title": "Tethering",
+      "warningCard": "Ein Foto, das du aufnimmst, erscheint vielleicht nicht in Rawtonic. Es ist dann nur auf der Speicherkarte der Kamera – lass deshalb die ganze Zeit eine Karte in der Kamera.",
+      "warningNothingDeleted": "Rawtonic löscht nie etwas auf der Kamera oder der Karte.",
+      "warningUntested": "Noch nicht getestet: Bisher wurde noch keine Canon-Kamera mit Rawtonic ausprobiert."
+    },
     "title": "Einstellungen",
     "tooltips": {
       "goHome": "Zur Startseite"
@@ -1815,6 +1944,8 @@
   },
   "spotRemoval": {
     "cancel": "Abbrechen",
+    "deleteSelected": "Auswahl löschen",
+    "deleteSelectedHint": "Entf oder Rückschritt. Auf dem Foto löscht Alt-Klick eine Korrektur, Alt-Ziehen alle, die der Rahmen erfasst.",
     "detectObjects": "Objekte erkennen",
     "detectObjectsBoxHint": "Einen Rahmen um ein Objekt ziehen oder es anklicken, um es zu entfernen.",
     "detectObjectsHint": "Grob über ein Objekt malen oder es anklicken, um es zu entfernen.",
@@ -1826,6 +1957,17 @@
     "featherAria": "Weiche Kante des Bereichs",
     "filling": "Wird entfernt… Schritt {{done}} von {{total}}",
     "largeHoleTooSlow": "Diese GPU ist für das Entfernen großer Bereiche zu langsam; Entfernen nutzt bis zum Neustart die schnelle Methode.",
+    "list": {
+      "aria": "Reparaturen und Entfernungen",
+      "count": "Korrekturen ({{number}})",
+      "delete": "{{name}} löschen",
+      "deleteAll": "Alle löschen",
+      "hideAll": "Alle ausblenden",
+      "item": "{{kind}} {{number}}",
+      "select": "{{name}} auswählen",
+      "showAll": "Alle einblenden",
+      "toggle": "{{name}} anzeigen"
+    },
     "mode": "Reparaturmodus",
     "modes": {
       "clone": "Kopieren",
@@ -1987,8 +2129,8 @@
           "saturationUniformity": "Farbbereich Sättigungs-Gleichmäßigkeit",
           "smoothness": "Farbbereich Glättung"
         },
-        "hintEmpty": "Nehmen Sie eine Farbe im Foto auf, um diesen Farbbereich anzupassen.",
-        "hintPicking": "Klicken Sie auf eine Farbe im Foto.",
+        "hintEmpty": "Nimm eine Farbe im Foto auf, um diesen Farbbereich anzupassen.",
+        "hintPicking": "Klicke auf eine Farbe im Foto.",
         "lightness": "Helligkeit",
         "mode": {
           "ranges": "Bereiche",
@@ -2008,8 +2150,8 @@
         "showTitle": "Ausgewählten Bereich zeigen (alles andere grau)",
         "skin": {
           "amount": "Stärke",
-          "hintEmpty": "Nehmen Sie Haut im Foto auf (oder ihre Farbe im Farbrad) und gleichen Sie sie mit Gleichmäßigkeit an.",
-          "hintPicking": "Klicken Sie auf Haut im Foto.",
+          "hintEmpty": "Nimm Haut im Foto auf (oder ihre Farbe im Farbrad) und gleiche sie mit Gleichmäßigkeit an.",
+          "hintPicking": "Klicke auf Haut im Foto.",
           "pickAria": "Hautton aufnehmen",
           "pickTitle": "Haut im Foto aufnehmen"
         },
@@ -2073,8 +2215,8 @@
       "sync": "Synchronisieren ({{n}})",
       "syncTitle": "Einstellungen mit den anderen ausgewählten Fotos synchronisieren ({{n}})",
       "versions": "Verarbeitungsversionen",
-      "versionsChoice": "Die Verarbeitungsversionen dieses Fotos",
-      "versionsNote": "Aus: Jedes Foto behält seine eigenen, eingefügte Werte werden damit berechnet. Ein: Die dieses Fotos werden übernommen, das kann das Aussehen der übrigen Einstellungen jener Fotos ändern."
+      "versionsChoice": "Auch die Verarbeitungsversionen dieses Fotos kopieren",
+      "versionsNote": "Aus: Jedes Foto behält seine eigenen Verarbeitungsversionen. Ein: Die Versionen des Ausgangsfotos werden kopiert und können das Aussehen der übrigen Einstellungen ändern."
     },
     "crop": {
       "add": "Hinzufügen",
@@ -2129,7 +2271,7 @@
       "rotateRight": "Rechts drehen",
       "size": "Größe",
       "straighten": "Ausrichten",
-      "straightenToolTitle": "Ziehen Sie eine Linie entlang einer Kante, die waagerecht oder senkrecht sein soll",
+      "straightenToolTitle": "Ziehe eine Linie entlang einer Kante, die waagerecht oder senkrecht sein soll",
       "swapOrientation": "Hoch- und Querformat tauschen",
       "turnOverlay": "Überlagerung drehen"
     },
@@ -2177,7 +2319,7 @@
         },
         "channel": "Kurvenkanal",
         "input": "Eingabe",
-        "maxPoints": "Höchstens {{max}} Punkte pro Kanal. Verschieben oder entfernen Sie einen Punkt, um die Kurve zu verfeinern.",
+        "maxPoints": "Höchstens {{max}} Punkte pro Kanal. Verschiebe oder entferne einen Punkt, um die Kurve zu verfeinern.",
         "output": "Ausgabe",
         "point": "Punkt {{index}}, Eingabe {{input}}, Ausgabe {{output}}. Pfeiltasten verschieben; A fügt einen Punkt hinzu; Entf entfernt ihn."
       },
@@ -2346,7 +2488,7 @@
         "lumaContrastAria": "Kontrast Luminanzrauschen",
         "lumaDetailAria": "Details Luminanzrauschen"
       },
-      "noPhoto": "Öffnen Sie ein Foto in „Entwickeln“, um es anzupassen.",
+      "noPhoto": "Öffne ein Foto in „Entwickeln“, um es anzupassen.",
       "params": {
         "blackAndWhite": "Schwarzweiß",
         "bwMix": "S/W-Mischung",
@@ -2492,7 +2634,7 @@
         "aria": "Exportziel",
         "choose": "Ordner auswählen…",
         "errors": {
-          "fullPath": "Verwenden Sie einen Ordnernamen, kein Laufwerk und keinen vollständigen Pfad.",
+          "fullPath": "Verwende einen Ordnernamen, kein Laufwerk und keinen vollständigen Pfad.",
           "outside": "Der Unterordner muss innerhalb des Zielordners liegen."
         },
         "exportTo": "Exportieren nach",
@@ -2533,9 +2675,9 @@
         "quality": "Qualität",
         "qualityAria": "{{format}}-Qualität",
         "template": "Dateinamenvorlage",
-        "templateHelp": "Verwenden Sie {{original}}, {{sequence}} und das Aufnahmedatum {{date}}."
+        "templateHelp": "Verwende {{original}}, {{sequence}} und das Aufnahmedatum {{date}}."
       },
-      "help": "Vorhandene Dateien werden nie überschrieben. Ihre Originalfotos bleiben unverändert.",
+      "help": "Vorhandene Dateien werden nie überschrieben. Deine Originalfotos bleiben unverändert.",
       "masks": {
         "exportEach": "Jede Maske zusätzlich exportieren",
         "hint": "Jede Maske als Bild und als Alpha-PNG neben dem Foto.",
@@ -2570,7 +2712,7 @@
         "clearFinished": "Fertige entfernen",
         "close": "Exportwarteschlange schließen",
         "done": "Fertig",
-        "empty": "Noch keine Exporte. Exporte warten hier, laufen im Hintergrund weiter, während Sie arbeiten, und bleiben nach einem Neustart erhalten.",
+        "empty": "Noch keine Exporte. Exporte warten hier, laufen im Hintergrund weiter, während du arbeitest, und bleiben nach einem Neustart erhalten.",
         "eta": {
           "estimating": "Restzeit wird geschätzt…",
           "hours": "noch etwa {{hours}} h {{minutes}} min",
@@ -2581,7 +2723,7 @@
         "failed": "{{failed}} von {{total}} fehlgeschlagen",
         "failures": "Nicht exportierte Fotos",
         "fullResolution": "Volle Auflösung",
-        "held": "Die Warteschlange ist angehalten: wartende Exporte beginnen, wenn Sie die Warteschlange starten.",
+        "held": "Die Warteschlange ist angehalten: wartende Exporte beginnen, wenn du die Warteschlange startest.",
         "holdQueue": "Warteschlange anhalten",
         "interrupted": "Unterbrochen ({{done}} von {{total}} exportiert)",
         "originalFolder": "Originalordner",
@@ -2619,7 +2761,7 @@
         "edit": "Rezept anzeigen und bearbeiten",
         "editingCurrent": "Aktuelle Einstellungen, nicht als Rezept gespeichert.",
         "editingRecipe": "Rezept {{name}} wird bearbeitet. Änderungen werden darin gespeichert.",
-        "empty": "Speichern Sie diese Einstellungen als Rezept, um sie wiederzuverwenden.",
+        "empty": "Speichere diese Einstellungen als Rezept, um sie wiederzuverwenden.",
         "exportWith": "Mit {{name}} exportieren",
         "legend": "Rezepte",
         "newName": "Rezeptname",
@@ -2674,7 +2816,8 @@
       "toasts": {
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
-        "queuedOne": "Zur Exportwarteschlange hinzugefügt."
+        "queuedOne": "Zur Exportwarteschlange hinzugefügt.",
+        "unsavedEdits": "Die Bearbeitungen von {{names}} konnten nicht gespeichert werden, daher wurde nichts exportiert. Exportiere erneut, sobald sie gespeichert sind."
       },
       "watermark": {
         "add": "Wasserzeichen hinzufügen",
@@ -2700,8 +2843,8 @@
         "kind": "Art",
         "kindAria": "Art des Wasserzeichens",
         "legend": "Wasserzeichen",
-        "missingImage": "Wählen Sie ein Wasserzeichenbild aus oder schalten Sie das Wasserzeichen aus.",
-        "missingText": "Geben Sie den Wasserzeichentext ein oder schalten Sie das Wasserzeichen aus.",
+        "missingImage": "Wähle ein Wasserzeichenbild aus oder schalte das Wasserzeichen aus.",
+        "missingText": "Gib den Wasserzeichentext ein oder schalte das Wasserzeichen aus.",
         "opacity": "Deckkraft (%)",
         "positionAria": "Position des Wasserzeichens",
         "shadow": "Schatten",
@@ -2766,16 +2909,21 @@
     },
     "histogram": {
       "aria": "Bildhistogramm",
-      "clipping": "Clipping",
-      "clippingTitle": "Clipping-Warnung: abgeschnittene Lichter rot, abgeschnittene Tiefen blau ({{shortcut}})",
+      "clippingAria": "Warnungen für überstrahlte Lichter und abgesoffene Schatten",
       "gamut": "Farbumfang-Warnung",
       "gamutTitle": "Farbumfang-Warnung: Farben außerhalb des Proof-Farbraums in Rot",
       "graphAria": "RGB-Helligkeitsverteilung des ausgewählten Fotos",
       "graphEmpty": "Histogramm nach dem Öffnen eines Fotos verfügbar",
+      "highlightClipping": "Lichterwarnung",
+      "highlightClippingLit": "Lichterwarnung, ausgefressen",
+      "highlightClippingTitle": "Lichterwarnung (ausgefressene Lichter; {{shortcut}} schaltet beide)",
       "proof": "Proof",
       "proofSpace": "Proof-Farbraum",
       "proofTitle": "Softproof: das Foto so zeigen, wie ein Export im gewählten Farbraum aussieht ({{shortcut}})",
-      "selectPhoto": "Wählen Sie ein Foto",
+      "selectPhoto": "Wähle ein Foto",
+      "shadowClipping": "Schattenwarnung",
+      "shadowClippingLit": "Schattenwarnung, abgesoffen",
+      "shadowClippingTitle": "Schattenwarnung (abgesoffene Schatten; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
     },
     "layers": {
@@ -2806,7 +2954,7 @@
         "removeAria": "Luminanzbereich entfernen",
         "removeTitle": "Luminanzbereich entfernen",
         "sample": "Töne im Foto aufnehmen",
-        "sampleHint": "Klicken Sie auf einen Ton im Foto oder ziehen Sie über einen Bereich. Mit Umschalt wird der Bereich erweitert.",
+        "sampleHint": "Klicke auf einen Ton im Foto oder ziehe über einen Bereich. Mit Umschalt wird der Bereich erweitert.",
         "shadows": "Tiefen",
         "title": "Luminanzbereich"
       },
@@ -2837,8 +2985,8 @@
       "model": "Modell",
       "noFocalData": "Das Profil hat keine Daten für diese Brennweite.",
       "none": "Keiner",
-      "notFound": "Kein Profil für {{lens}} gefunden; wählen Sie das Objektiv unten aus.",
-      "notFoundPhoto": "Kein Profil für dieses Foto gefunden; wählen Sie das Objektiv unten aus.",
+      "notFound": "Kein Profil für {{lens}} gefunden; wähle das Objektiv unten aus.",
+      "notFoundPhoto": "Kein Profil für dieses Foto gefunden; wähle das Objektiv unten aus.",
       "profile": "Profil",
       "removeCa": "Chromatische Aberration entfernen",
       "removeCaTitle": "Misst die roten und blauen Farbsäume an den Kanten dieses Fotos und richtet die Farben aneinander aus. Die Korrektur der chromatischen Aberration aus Objektivdaten bleibt, wenn die Messung nicht deutlich weniger Säume lässt; aus behält die Korrektur der Objektivdaten",
@@ -2853,7 +3001,7 @@
         "added_one": "Foto zu {{album}} hinzugefügt",
         "added_other": "{{n}} Fotos zu {{album}} hinzugefügt",
         "addFailed": "Hinzufügen zu {{album}} fehlgeschlagen: {{error}}",
-        "empty": "Noch keine Alben. Erstellen Sie eines im Werkzeug „Alben“ der Bibliothek.",
+        "empty": "Noch keine Alben. Erstelle eines im Werkzeug „Alben“ der Bibliothek.",
         "label": "Zum Album hinzufügen",
         "reading": "Alben werden gelesen…"
       },
@@ -2867,7 +3015,7 @@
           "deleteSmartAlbum": "Das Smart-Album „{{name}}“ löschen? Die Fotos bleiben erhalten.",
           "label": "Album löschen"
         },
-        "empty": "Wählen Sie Fotos aus und drücken Sie +, um sie in einem Album zusammenzufassen.",
+        "empty": "Wähle Fotos aus und drücke +, um sie in einem Album zusammenzufassen.",
         "groupHint": "Alben in diese Gruppe ziehen",
         "menu": {
           "addSelected": "Ausgewählte Fotos hinzufügen",
@@ -2892,11 +3040,11 @@
         "newGroupName": "Name der neuen Gruppe",
         "newTitle": "Neues Album oder neue Gruppe",
         "previousImport": "Letzter Import",
-        "previousImportNoDrop": "„Letzter Import“ zeigt den letzten Import; dort lassen sich keine Fotos hinzufügen. Legen Sie sie auf einem Album ab.",
+        "previousImportNoDrop": "„Letzter Import“ zeigt den letzten Import; dort lassen sich keine Fotos hinzufügen. Lege sie auf einem Album ab.",
         "previousImportTitle": "Die Fotos, die der letzte Import, „Hinzufügen“, „Ordner synchronisieren“ oder der überwachte Ordner aufgenommen hat",
         "renameLabel": "{{name}} umbenennen",
         "smartHint": "Zeigt die Fotos, auf die seine Regeln zutreffen – immer aktuell",
-        "smartNoDrop": "Ein Smart-Album zeigt die Fotos, auf die seine Regeln zutreffen; Fotos lassen sich nicht hinzufügen. Ändern Sie seine Regeln oder legen Sie die Fotos auf einem Album ab.",
+        "smartNoDrop": "Ein Smart-Album zeigt die Fotos, auf die seine Regeln zutreffen; Fotos lassen sich nicht hinzufügen. Ändere seine Regeln oder lege die Fotos auf einem Album ab.",
         "title": "Alben",
         "toasts": {
           "addFailed": "Fotos konnten nicht hinzugefügt werden: {{error}}",
@@ -2911,7 +3059,7 @@
         }
       },
       "browser": {
-        "emptyHint": "Wählen Sie einen Ordner, importieren Sie Fotos oder entfernen Sie den Filter.",
+        "emptyHint": "Wähle einen Ordner, importiere Fotos oder entferne den Filter.",
         "emptyTitle": "Keine Fotos anzuzeigen",
         "filmstrip": "Filmstreifen",
         "photographs": "Fotos",
@@ -2973,25 +3121,25 @@
         "renamed": "Umbenannt. {{hint}}",
         "renameFilesFailed": "Dateien konnten nicht umbenannt werden: {{error}}",
         "renameFolderFailed": "Ordner konnte nicht umbenannt werden: {{error}}",
-        "selectForSelects": "Wählen Sie Fotos aus, die nach Selects sollen.",
-        "selectsNeedSession": "„In Auswahl verschieben“ gibt es nur in Sessions.",
+        "selectForSelects": "Wähle Fotos aus, die nach Selects sollen.",
+        "selectsNeedSession": "„In Auswahl verschieben“ gibt es nur in Projekten.",
         "stopCopying": "Stopp",
         "trashConfirm": "In den Papierkorb",
         "trashCopiesConfirm": "Alle verschieben",
-        "trashCopiesMessage": "Dieses Foto und alle seine virtuellen Kopien in den Papierkorb legen? In einer Session kommen sie in ihren Papierkorb-Ordner. {{hint}}",
+        "trashCopiesMessage": "Dieses Foto und alle seine virtuellen Kopien in den Papierkorb legen? In einem Projekt kommen sie in dessen Papierkorb-Ordner. {{hint}}",
         "trashCopiesTitle": "Foto und alle virtuellen Kopien in den Papierkorb?",
-        "trashedBoth_one": "{{count}} Objekt in den Papierkorb-Ordner der Session und den Papierkorb verschoben.",
-        "trashedBoth_other": "{{count}} Objekte in den Papierkorb-Ordner der Session und den Papierkorb verschoben.",
-        "trashedSession_one": "{{count}} Objekt in den Papierkorb-Ordner der Session verschoben.",
-        "trashedSession_other": "{{count}} Objekte in den Papierkorb-Ordner der Session verschoben.",
+        "trashedBoth_one": "{{count}} Objekt in den Papierkorb-Ordner des Projekts und den Papierkorb verschoben.",
+        "trashedBoth_other": "{{count}} Objekte in den Papierkorb-Ordner des Projekts und den Papierkorb verschoben.",
+        "trashedSession_one": "{{count}} Objekt in den Papierkorb-Ordner des Projekts verschoben.",
+        "trashedSession_other": "{{count}} Objekte in den Papierkorb-Ordner des Projekts verschoben.",
         "trashedSystem_one": "{{count}} Objekt in den Papierkorb gelegt.",
         "trashedSystem_other": "{{count}} Objekte in den Papierkorb gelegt.",
         "trashFolderFailed": "Ordner konnte nicht in den Papierkorb: {{error}}",
-        "trashFolderMessage": "Den Ordner „{{name}}“ mit allem darin in den Papierkorb legen? In einer Session kommt er in ihren Papierkorb-Ordner. {{hint}}",
+        "trashFolderMessage": "Den Ordner „{{name}}“ mit allem darin in den Papierkorb legen? In einem Projekt kommt er in dessen Papierkorb-Ordner. {{hint}}",
         "trashFolderTitle": "Ordner in den Papierkorb",
-        "trashManyMessage_one": "{{count}} Foto in den Papierkorb legen? In einer Session kommt es in ihren Papierkorb-Ordner. {{hint}} Rechtsklick für weitere Optionen (z. B. zugehörige Dateien löschen).",
-        "trashManyMessage_other": "Diese {{count}} Fotos in den Papierkorb legen? In einer Session kommen sie in ihren Papierkorb-Ordner. {{hint}} Rechtsklick für weitere Optionen (z. B. zugehörige Dateien löschen).",
-        "trashOneMessage": "Dieses Foto in den Papierkorb legen? In einer Session kommt es in ihren Papierkorb-Ordner. {{hint}} Rechtsklick für weitere Optionen (z. B. zugehörige Dateien löschen).",
+        "trashManyMessage_one": "{{count}} Foto in den Papierkorb legen? In einem Projekt kommt es in dessen Papierkorb-Ordner. {{hint}} Rechtsklick für weitere Optionen (z. B. zugehörige Dateien löschen).",
+        "trashManyMessage_other": "Diese {{count}} Fotos in den Papierkorb legen? In einem Projekt kommen sie in dessen Papierkorb-Ordner. {{hint}} Rechtsklick für weitere Optionen (z. B. zugehörige Dateien löschen).",
+        "trashOneMessage": "Dieses Foto in den Papierkorb legen? In einem Projekt kommt es in dessen Papierkorb-Ordner. {{hint}} Rechtsklick für weitere Optionen (z. B. zugehörige Dateien löschen).",
         "trashSelectedOnly": "Nur Auswahl verschieben",
         "trashTitle": "In den Papierkorb",
         "undoFailed": "Rückgängig machen fehlgeschlagen: {{error}}",
@@ -3023,7 +3171,7 @@
         "addFolderButton": "Ordner hinzufügen…",
         "addFolderTitle": "Ordner zur Bibliothek hinzufügen",
         "collapse": "{{name}} zuklappen",
-        "empty": "Fügen Sie einen Ordner hinzu, um seine Fotos zu sehen.",
+        "empty": "Füge einen Ordner hinzu, um seine Fotos zu sehen.",
         "expand": "{{name}} aufklappen",
         "favorites": "Favoriten",
         "find": "Ordner suchen",
@@ -3214,8 +3362,8 @@
         "folderPlaceholder": "Ordnerpfad",
         "fromFilter": "Als Smart-Album speichern…",
         "fromFilterTitle": "Ein Smart-Album mit dem, wonach die Bibliothek gerade filtert (angezeigter Ordner oder angezeigtes Album, Suche, Metadaten, Bewertung, Farbmarkierung, Markierung)",
-        "fromFilterUnsupported": "Ein Smart-Album kann den Filter „bearbeitet/unbearbeitet“ und Such-Tags nicht übernehmen; heben Sie sie auf, um den Rest zu speichern",
-        "incomplete": "Vervollständigen Sie die Regeln, um zu sehen, welche Fotos sie erfassen",
+        "fromFilterUnsupported": "Ein Smart-Album kann den Filter „bearbeitet/unbearbeitet“ und Such-Tags nicht übernehmen; hebe sie auf, um den Rest zu speichern",
+        "incomplete": "Vervollständige die Regeln, um zu sehen, welche Fotos sie erfassen",
         "match": "Entspricht",
         "matches_one": "Erfasst derzeit {{n}} Foto",
         "matches_other": "Erfasst derzeit {{n}} Fotos",
@@ -3296,24 +3444,24 @@
         "yes": "ja"
       },
       "trash": {
-        "alreadyEmpty": "Der Papierkorb-Ordner der Session ist leer.",
+        "alreadyEmpty": "Der Papierkorb-Ordner des Projekts ist leer.",
         "cannotUndo": "Das lässt sich nicht widerrufen, und Dateiänderungen davor lassen sich danach ebenfalls nicht mehr widerrufen.",
         "confirm": "Endgültig löschen",
-        "countFailed": "Papierkorb-Ordner der Session nicht lesbar: {{error}}",
+        "countFailed": "Papierkorb-Ordner des Projekts nicht lesbar: {{error}}",
         "emptied_one": "{{count}} Foto endgültig gelöscht.",
         "emptied_other": "{{count}} Fotos endgültig gelöscht.",
-        "emptiedNow": "Der Papierkorb-Ordner der Session ist jetzt leer.",
+        "emptiedNow": "Der Papierkorb-Ordner des Projekts ist jetzt leer.",
         "failed": "Papierkorb konnte nicht geleert werden: {{error}}",
         "incomplete": "Der Papierkorb wurde geleert, einige Dateien ließen sich aber noch nicht löschen; Rawtonic versucht es beim nächsten Start erneut. {{note}}",
         "menu": "Papierkorb leeren…",
-        "messageEmptyFolders": "Die leeren Ordner im Papierkorb-Ordner dieser Session entfernen?",
+        "messageEmptyFolders": "Die leeren Ordner im Papierkorb-Ordner dieses Projekts entfernen?",
         "messageFiles_one": "{{count}} Datei wird vom Datenträger entfernt, Begleitdateien und XMP eingeschlossen.",
         "messageFiles_other": "{{count}} Dateien werden vom Datenträger entfernt, Begleitdateien und XMP eingeschlossen.",
-        "messageOnlyFiles_one": "{{count}} Datei im Papierkorb-Ordner dieser Session endgültig löschen?",
-        "messageOnlyFiles_other": "{{count}} Dateien im Papierkorb-Ordner dieser Session endgültig löschen?",
-        "messagePhotos_one": "{{count}} Foto im Papierkorb-Ordner dieser Session endgültig löschen?",
-        "messagePhotos_other": "{{count}} Fotos im Papierkorb-Ordner dieser Session endgültig löschen?",
-        "title": "Papierkorb der Session leeren?"
+        "messageOnlyFiles_one": "{{count}} Datei im Papierkorb-Ordner dieses Projekts endgültig löschen?",
+        "messageOnlyFiles_other": "{{count}} Dateien im Papierkorb-Ordner dieses Projekts endgültig löschen?",
+        "messagePhotos_one": "{{count}} Foto im Papierkorb-Ordner dieses Projekts endgültig löschen?",
+        "messagePhotos_other": "{{count}} Fotos im Papierkorb-Ordner dieses Projekts endgültig löschen?",
+        "title": "Papierkorb des Projekts leeren?"
       }
     },
     "loadError": {
@@ -3386,8 +3534,8 @@
       "erase": "Radieren",
       "eyeTitle": "Ein- oder ausblenden; {{alt}}-Klick zeigt nur diese Maske",
       "hints": {
-        "color": "Klicken Sie auf die Farbe, die ausgewählt werden soll.",
-        "object": "Klicken Sie auf das Objekt oder ziehen Sie einen Rahmen darum.",
+        "color": "Klicke auf die Farbe, die ausgewählt werden soll.",
+        "object": "Klicke auf das Objekt oder ziehe einen Rahmen darum.",
         "objectMore": "{{shift}}-Klick oder -Rahmen fügt ein weiteres Objekt hinzu, {{alt}}-Klick oder -Rahmen schließt einen Teil aus, {{undo}} nimmt den letzten zurück."
       },
       "intersectTitle": "Nur behalten, wo sich diese Komponente und die Maske überschneiden",
@@ -3412,7 +3560,7 @@
         "subtractive": "Abziehen"
       },
       "modeTitle": "Modus: {{mode}} · zum Ändern klicken",
-      "objectFrameChanged": "Das Foto wurde gedreht oder seine Objektiv- bzw. Transformkorrektur geändert, seit diese Auswahl entstand. Klicken Sie ohne Umschalt oder Alt, um neu auszuwählen.",
+      "objectFrameChanged": "Das Foto wurde gedreht oder seine Objektiv- bzw. Transformkorrektur geändert, seit diese Auswahl entstand. Klicke ohne Umschalt oder Alt, um neu auszuwählen.",
       "refine": "Verfeinern",
       "refineAria": "Farbbereich verfeinern",
       "subtractTitle": "Von der Maske dieser Ebene abziehen"
@@ -3446,7 +3594,7 @@
         "mapHint": "Lädt eine Karte von openstreetmap.org",
         "noData": "Für dieses Foto sind keine EXIF-Daten geladen.",
         "openInBrowser": "Im Browser öffnen",
-        "selectPhoto": "Wählen Sie ein Foto aus.",
+        "selectPhoto": "Wähle ein Foto aus.",
         "showOnMap": "Auf Karte zeigen"
       },
       "fields": {
@@ -3496,13 +3644,13 @@
         "partial_other": "Auf {{on}} von {{count}} Fotos",
         "removeAria": "Stichwort {{keyword}} entfernen",
         "removeTitle": "{{keyword}} entfernen",
-        "selectToAdd": "Wählen Sie Fotos aus, um Stichwörter hinzuzufügen.",
+        "selectToAdd": "Wähle Fotos aus, um Stichwörter hinzuzufügen.",
         "title": "Stichwörter"
       },
       "mixed": "Gemischt",
       "notInSession": "Einige ausgewählte Fotos gehören nicht zu diesem Projekt.",
       "outsideSessions": "Außerhalb von Projekten werden Beschreibung, Urheber, Copyright und Kommentar mit den Bearbeitungen jedes Fotos gespeichert; Titel und IPTC-Felder werden in Projekten gespeichert.",
-      "selectToSee": "Wählen Sie Fotos aus, um ihre Metadaten zu sehen.",
+      "selectToSee": "Wähle Fotos aus, um ihre Metadaten zu sehen.",
       "title": "Metadaten",
       "toasts": {
         "keywordsRemoveFailed": "Stichwörter konnten nicht entfernt werden: {{error}}",
@@ -3514,11 +3662,13 @@
     "multiView": {
       "controls": "{{name}} markieren, bewerten oder entfernen",
       "editAll": "Alle ausgewählten bearbeiten",
+      "editAllNotSaved": "„Alle ausgewählten bearbeiten“ konnte diese Fotos nicht speichern: {{names}}. Sie behalten ihre früheren Einstellungen, bis du es erneut versuchst.",
       "editAllTitle": "Alle ausgewählten bearbeiten: Änderungen am Hauptfoto gehen auch an jedes andere gezeigte Foto (orange Rahmen)",
+      "editAllTryAgain": "Erneut versuchen",
       "makePrimary": "{{name}} bearbeiten (zum Hauptfoto machen)",
       "more_one": "und {{n}} weiteres",
       "more_other": "und {{n}} weitere",
-      "pick": "{{name}} auswählen",
+      "pick": "{{name}} markieren",
       "rate_one": "{{name}} mit {{count}} Stern bewerten",
       "rate_other": "{{name}} mit {{count}} Sternen bewerten",
       "rating_one": "{{count}} Stern",
@@ -3613,7 +3763,7 @@
       "deleteFolderWithPresets_one": "„{{name}}“ und seine {{count}} Vorgabe löschen?",
       "deleteFolderWithPresets_other": "„{{name}}“ und seine {{count}} Vorgaben löschen?",
       "deletePreset": "Vorgabe löschen",
-      "empty": "Noch keine eigenen Stile. Passen Sie ein Foto an und drücken Sie +, um seine Einstellungen zu speichern.",
+      "empty": "Noch keine eigenen Stile. Passe ein Foto an und drücke +, um seine Einstellungen zu speichern.",
       "exportTitle": "{{name}} exportieren",
       "fileType": "Rawtonic-Vorgabe",
       "find": "Vorgaben suchen",
@@ -3815,6 +3965,7 @@
       "whiteBalanceTo": "Weißabgleich {{to}} K"
     },
     "spot": {
+      "done": "Bereichsreparatur beenden",
       "start": "Bereichsreparatur starten",
       "withShortcut": "{{text}} ({{key}})"
     },
@@ -3832,14 +3983,20 @@
         "auto": "Auto",
         "autoAria": "Automatische Tonwerte",
         "autoTitle": "Schwarz- und Weißpunkt aus dem Histogramm setzen",
-        "black": "Schwarz",
         "channelAria": "Tonwertkanal",
-        "highlight": "Lichter",
+        "fieldAria": "Wert {{name}}",
+        "histogramAria": "Tonwert-Histogramm",
+        "inBlack": "Eingabe Schwarz",
+        "inWhite": "Eingabe Weiß",
         "midtone": "Mitteltöne",
+        "outBlack": "Ausgabe Schwarz",
         "output": "Ausgabe",
-        "shadow": "Tiefen",
-        "title": "Tonwerte",
-        "white": "Weiß"
+        "outWhite": "Ausgabe Weiß",
+        "pickBlack": "Schwarzpunkt-Pipette",
+        "pickBlackTitle": "Ins Foto klicken, wo es schwarz sein soll",
+        "pickWhite": "Weißpunkt-Pipette",
+        "pickWhiteTitle": "Ins Foto klicken, wo es weiß sein soll",
+        "title": "Tonwerte"
       },
       "regionCurve": {
         "aria": {
@@ -3894,11 +4051,11 @@
         },
         "spot": {
           "label": "Bereichsreparatur",
-          "title": "Entfernen, reparieren oder klonen: Klicken Sie auf eine Stelle oder ziehen Sie daran entlang; Entfernen füllt sie mit dem lokalen KI-Modell, und mit „Objekte erkennen“ wählt ein Klick oder Rahmen ein zu entfernendes Objekt"
+          "title": "Entfernen, reparieren oder klonen: Klicke auf eine Stelle oder ziehe daran entlang; Entfernen füllt sie mit dem lokalen KI-Modell, und mit „Objekte erkennen“ wählt ein Klick oder Rahmen ein zu entfernendes Objekt"
         },
         "straighten": {
           "label": "Ausrichten",
-          "title": "Ziehen Sie eine Linie entlang einer Kante, die waagerecht oder senkrecht sein soll"
+          "title": "Ziehe eine Linie entlang einer Kante, die waagerecht oder senkrecht sein soll"
         },
         "wb": {
           "label": "Weißabgleich-Pipette",
@@ -3917,7 +4074,7 @@
         "copiedFrom": "Kopiert aus {{source}}",
         "copy": "Kopieren",
         "from": "Aus {{source}}",
-        "noOthers": "Wählen Sie weitere Fotos im Filmstreifen aus, um darauf anzuwenden"
+        "noOthers": "Wähle weitere Fotos im Filmstreifen aus, um darauf anzuwenden"
       },
       "popover": {
         "resetBrush": "Pinsel zurücksetzen",
@@ -3955,7 +4112,7 @@
       "clear": "Löschen",
       "constrainCrop": "Zuschnitt beschränken",
       "constrainTitle": "Einzoomen, damit keine leeren Ecken bleiben",
-      "corrected": "An Ihren Hilfslinien korrigiert.",
+      "corrected": "An deinen Hilfslinien korrigiert.",
       "done": {
         "full": "Vertikale und horizontale Perspektive korrigiert.",
         "level": "An den geraden Linien des Fotos ausgerichtet.",
@@ -3963,8 +4120,8 @@
       },
       "doneButton": "Fertig",
       "doneTitle": "Fertig (Esc)",
-      "drawHelp": "Zeichnen Sie entlang von Kanten, die <v>vertikal</v> oder <h>horizontal</h> sein sollen; die Korrektur beginnt mit der zweiten Hilfslinie. Ziehen Sie an einem Ende, um sie anzupassen; klicken Sie auf eine Hilfslinie und drücken Sie Entf, um sie zu entfernen.",
-      "drawTwo": "Zeichnen Sie mindestens zwei Hilfslinien, um die Perspektive zu korrigieren.",
+      "drawHelp": "Zeichne entlang von Kanten, die <v>vertikal</v> oder <h>horizontal</h> sein sollen; die Korrektur beginnt mit der zweiten Hilfslinie. Ziehe an einem Ende, um sie anzupassen; klicke auf eine Hilfslinie und drücke Entf, um sie zu entfernen.",
+      "drawTwo": "Zeichne mindestens zwei Hilfslinien, um die Perspektive zu korrigieren.",
       "editGuides": "Hilfslinien bearbeiten",
       "failed": "Perspektivkorrektur fehlgeschlagen: {{error}}",
       "finding": "Gerade Linien im Foto werden gesucht…",
@@ -3980,7 +4137,7 @@
         },
         "guided": {
           "label": "Geführt",
-          "title": "Zeichnen Sie bis zu zwei vertikale und zwei horizontale Hilfslinien auf das Foto"
+          "title": "Zeichne bis zu zwei vertikale und zwei horizontale Hilfslinien auf das Foto"
         },
         "level": {
           "label": "Ebene",
@@ -3996,7 +4153,7 @@
         }
       },
       "noLines": "Keine geraden Linien zum Ausrichten gefunden.",
-      "notEnoughLines": "Nicht genug stürzende Linien gefunden; versuchen Sie „Ebene“ oder „Geführt“.",
+      "notEnoughLines": "Nicht genug stürzende Linien gefunden; versuche „Ebene“ oder „Geführt“.",
       "title": "Perspektivkorrektur"
     },
     "whiteBalance": {
@@ -4046,8 +4203,8 @@
       "flags": {
         "clearSelected": "Markierung der ausgewählten Fotos entfernen",
         "group": "Markierung",
-        "pickSelected": "Ausgewählte Fotos als markiert festlegen",
-        "pickThis": "Dieses Foto auswählen",
+        "pickSelected": "Ausgewählte Fotos markieren",
+        "pickThis": "Dieses Foto markieren",
         "rejectSelected": "Ausgewählte Fotos ablehnen",
         "rejectThis": "Dieses Foto ablehnen"
       },
@@ -4136,7 +4293,7 @@
           "top-bottom": "Oben/unten teilen"
         },
         "compareModes": "Vergleichsansicht",
-        "empty": "Wählen Sie ein Foto in der Übersicht.",
+        "empty": "Wähle ein Foto in der Übersicht.",
         "fit": "Einpassen",
         "fitTitle": "In Fenster einpassen",
         "hidePanels": "Bedienfelder ausblenden",
@@ -4217,6 +4374,7 @@
     "download": "Herunterladen",
     "failed": "Updates konnten nicht geprüft werden. Versuche es später erneut.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Nach Updates suchen",
     "noFile": "Für diesen Computer gibt es in dieser Version keinen Download; die Release-Seite listet alle Dateien.",
     "noNotes": "Keine Versionshinweise. Die Release-Seite hat vielleicht mehr.",
     "notesTitle": "Neu in Rawtonic {{version}}",

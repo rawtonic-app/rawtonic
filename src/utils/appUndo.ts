@@ -8,8 +8,9 @@ import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
 import { movedPath, type PathMove } from "./pathKeyedState";
 import { invokeInOrder } from "./catalogWrites";
+import { photoWorkPending } from "./photoWrites";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
-import { travelKeptHistory } from "./photoHistory";
+import { registerWrittenSteps, travelKeptHistory } from "./photoHistory";
 
 export type CullingValue =
   | { kind: "rating" | "flag"; value: number }
@@ -130,6 +131,9 @@ interface PendingWork {
   lane: "catalog" | "file";
   paths?: readonly string[];
   done: Promise<unknown>;
+  /** A batch recipe write whose writes joined the photos' write queues
+   * (utils/photoWrites), which order a later one behind them. */
+  submitted?: boolean;
 }
 const pendingWork = new Set<PendingWork>();
 function overlaps(left?: readonly string[], right?: readonly string[]) {
@@ -179,9 +183,12 @@ function pruneMoves() {
 }
 
 function enqueue<T>(
-  work: () => Promise<T>,
+  work: (job: PendingWork) => Promise<T>,
   lane: "catalog" | "file" = "file",
   paths?: readonly string[],
+  /** Not waiting for a batch recipe write already submitted: the photos'
+   * write queues order this one's writes behind it. */
+  passSubmitted = false,
 ): Promise<T> {
   // Writes to the same paths stay in input order. Independent metadata can
   // pass a long move; file commands remain serialized with prior work.
@@ -195,6 +202,7 @@ function enqueue<T>(
     for (const job of pendingWork) {
       if (
         dependencies.has(job) ||
+        (passSubmitted && job.submitted) ||
         (lane !== "file" && !overlaps(affected, job.paths))
       )
         continue;
@@ -205,10 +213,19 @@ function enqueue<T>(
       added = true;
     }
   } while (added);
-  const run = Promise.all([...dependencies].map((job) => job.done)).then(work);
-  const job: PendingWork = { lane, paths, done: run.catch(() => undefined) };
+  const job: PendingWork = { lane, paths, done: Promise.resolve() };
+  // Nothing to wait for: it starts at once, so its writes join the photos'
+  // write queues before anything given after it (utils/photoWrites).
+  const run =
+    dependencies.size > 0
+      ? Promise.all([...dependencies].map((job) => job.done)).then(() => work(job))
+      : new Promise<T>((resolve) => resolve(work(job)));
+  job.done = run.catch(() => undefined);
   pendingWork.add(job);
   void job.done.then(() => pendingWork.delete(job));
+  // A catalog step waits for earlier work before it writes: an export,
+  // quit or library switch waits for it too.
+  if (lane === "catalog") photoWorkPending(run);
   return run;
 }
 
@@ -332,10 +349,12 @@ export function recipeAction(values: RecipeValues[]): Promise<string[]> {
 /** Runs a batch recipe edit of `paths` (paste, sync, reset, …) as one
  * undoable step for every photo it wrote, as Lightroom's Undo of a Sync.
  * `order`: the open photograph's own editor entry for the same edit (both
- * travel together). Resolves with the photos not written. */
+ * travel together). `work` submits its writes to the photographs' write
+ * queues (tagged with the step's order) once earlier steps for them are done.
+ * Resolves with the photos not written. */
 export function recipeBatchAction(
   label: BatchLabel,
-  work: () => Promise<{ failed: string[]; changes: RecipeSnapshot[] }>,
+  work: (order: number) => Promise<{ failed: string[]; changes: RecipeSnapshot[] }>,
   paths: readonly string[],
   order?: number,
 ): Promise<string[]> {
@@ -362,9 +381,11 @@ export function recipeBatchAction(
     filesFuture: [],
     fileRedoBlocked: true,
   }));
-  return enqueue(async () => {
+  return enqueue(async (job) => {
     try {
-      const { failed, changes } = await work();
+      const written = work(step.order);
+      job.submitted = true;
+      const { failed, changes } = await written;
       step.snapshots = changes;
       return failed;
     } finally {
@@ -376,23 +397,30 @@ export function recipeBatchAction(
           past: s.past.filter((item) => item !== step),
         }));
     }
-  }, "catalog", paths);
+  }, "catalog", paths, true);
 }
 
-/** The batch steps (still to undo) that wrote `path` after the undo order
- * `since`, oldest first, with the recipe each wrote there. */
+/** The batch steps (still to undo) that wrote `path`, oldest first, with
+ * the recipe each wrote there; `written`: leaving out those (that had
+ * written it when its History was kept), undefined: none. */
 export function recipeStepsSince(
   path: string,
-  since: number | undefined,
+  written: ReadonlySet<number> | undefined,
 ): { order: number; after: unknown }[] {
-  if (since === undefined) return [];
+  if (written === undefined) return [];
   return useCatalogUndoStore.getState().past.flatMap((step) => {
     const change = step.snapshots?.find((item) => item.path === path);
-    return step.order > since && change
+    return !written.has(step.order) && change
       ? [{ order: step.order, after: change.after }]
       : [];
   });
 }
+registerWrittenSteps((path) =>
+  useCatalogUndoStore
+    .getState()
+    .past.filter((step) => step.snapshots?.some((item) => item.path === path))
+    .map((step) => step.order),
+);
 
 /** The file journal stays native; these small markers order its successful
  * commands with metadata in this window. Native history predating the window

@@ -4,13 +4,14 @@ import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-li
 import { toast } from "react-toastify";
 import { invoke } from "@tauri-apps/api/core";
 import StudioNavigation from "./StudioNavigation";
+import { useEditorStore } from "../../store/useEditorStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useProcessStore } from "../../store/useProcessStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useLibraryActions } from "../../hooks/useLibraryActions";
-import { SortDirection, type AppSettings } from "../ui/AppProperties";
+import { SortDirection, type AppSettings, type SelectedImage } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -328,7 +329,7 @@ describe("offline photographs in the Folders tool", () => {
     const missing = screen.getByText("Day 2").closest("button")!;
     expect(missing.textContent).toContain("?2");
     expect(missing.getAttribute("title")).toBe(
-      "/job/Day 2 is missing (renamed, moved or deleted). Its photographs keep their edits; right-click one › Locate Folder…",
+      "/job/Day 2 is missing (renamed, moved or deleted). Its photos keep their edits; right-click one › Locate Folder…",
     );
     expect(missing.closest(".studio-folder")!.className).toContain("is-offline");
     fireEvent.click(missing);
@@ -536,4 +537,38 @@ it("marks only the session Trash folder with a trash icon, selected or closed", 
   act(() => useLibraryStore.setState({ currentFolderPath: "/job/Trash" }));
   rerender(<ContextMenuProvider><StudioNavigation onNavigate={vi.fn()} folderActions={actions} /></ContextMenuProvider>);
   expect(row("/job/Trash").querySelector(".lucide-trash-2")).toBeTruthy();
+});
+
+describe("the navigator's photograph", () => {
+  const navigatorName = (path: string) => {
+    act(() => useProcessStore.setState({ thumbnails: { ...useProcessStore.getState().thumbnails, [path]: "asset://thumb.jpg" } }));
+    useEditorStore.setState({
+      selectedImage: {
+        path,
+        width: 6000,
+        height: 4000,
+        isRaw: true,
+        isReady: true,
+        exif: null,
+      } as unknown as SelectedImage,
+    });
+    const view = renderNavigation();
+    const caption = view.container.querySelector(".studio-nav-caption")!.textContent;
+    const alt = view.container.querySelector(".studio-navigator img")?.getAttribute("alt");
+    view.unmount();
+    return { caption, alt };
+  };
+
+  it("names the file of a Unix or Windows path, mixed separators too, without the copy suffix", () => {
+    expect(navigatorName("/job/Capture/A.RAF")).toEqual({ caption: "A.RAF", alt: "A.RAF" });
+    expect(navigatorName("C:\\Photos\\Capture\\A.CR2")).toEqual({
+      caption: "A.CR2",
+      alt: "A.CR2",
+    });
+    expect(navigatorName("C:/Photos/Capture\\A.CR2")).toEqual({ caption: "A.CR2", alt: "A.CR2" });
+  });
+
+  it("shows the physical file of a virtual copy, not its ?vc= suffix", () => {
+    expect(navigatorName("/job/Capture/A.RAF?vc=abc123")).toEqual({ caption: "A.RAF", alt: "A.RAF" });
+  });
 });

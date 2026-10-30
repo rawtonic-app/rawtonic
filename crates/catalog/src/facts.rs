@@ -122,8 +122,18 @@ pub(crate) fn write_facts(
             rating,
             ..Default::default()
         };
+        // The rating is the file's own: the XMP has nothing to catch up
+        // on, so its state stays as it was.
+        let status: String = conn.query_row(
+            "SELECT xmp_status FROM metadata WHERE asset_id=?",
+            [id],
+            |r| r.get(0),
+        )?;
         crate::write_metadata(conn, id, &metadata)?;
-        conn.execute("UPDATE metadata SET from_camera=1 WHERE asset_id=?", [id])?;
+        conn.execute(
+            "UPDATE metadata SET from_camera=1,xmp_status=? WHERE asset_id=?",
+            params![status, id],
+        )?;
         return Ok((true, Some(rating)));
     }
     Ok((written, None))

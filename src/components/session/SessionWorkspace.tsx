@@ -4,6 +4,7 @@ import { validNamingTemplate, validSequenceStart, type NamePreview } from "../..
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
+import SessionXmpStatus from "./SessionXmpStatus";
 import {
   useCallback,
   useEffect,
@@ -25,8 +26,6 @@ import {
   ChevronDown,
   Database,
   FolderOpen,
-  FileWarning,
-  RefreshCw,
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
@@ -75,6 +74,7 @@ import {
   type OpenIngestDetail,
 } from "./fileDrop";
 import { throttleAsync } from "../../utils/throttle";
+import { onPhotoWritesSettled } from "../../utils/photoWrites";
 import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
@@ -84,6 +84,7 @@ import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
 import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
+import { switchLibraryAfterSaves } from "../../utils/quit";
 
 export interface SessionSummary {
   directory: string;
@@ -297,10 +298,16 @@ export function restoreLastSession(
     window.clearTimeout(slow);
     toast.dismiss(notice);
   };
-  return invoke<SessionSummary | null>(Invokes.SessionLast)
-    .then((last) => {
-      done();
-      if (last) void navigate(last).catch((e) => setError(String(e)));
+  // Edits made in a folder while the library is still restoring are
+  // saved there first, as before any library switch.
+  return switchLibraryAfterSaves(async () => {
+    const last = await invoke<SessionSummary | null>(Invokes.SessionLast);
+    done();
+    if (last) await navigate(last).catch((e) => setError(String(e)));
+    return true;
+  })
+    .then((restored) => {
+      if (!restored) done();
     })
     .catch((e) => {
       done();
@@ -314,6 +321,11 @@ export function restoreLastSession(
 export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: string | null) {
   if (!tetheredFor || !openLibrary) return false;
   return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
+}
+
+function localDateStamp(): string {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
 }
 
 export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
@@ -819,6 +831,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => useCatalogUndoStore.subscribe((state, previous) => {
     if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
   }), []);
+  // Each settled photo write (editor save, batch paste/preset/reset, rating,
+  // label…; written or not) can change how many XMP files are behind.
+  useEffect(() => {
+    const recount = throttleAsync(() => refreshRef.current().catch(() => {}), 1000);
+    const stop = onPhotoWritesSettled(() => void recount());
+    return () => {
+      stop();
+      recount.cancel();
+    };
+  }, []);
   // The folder list's "Synchronize Folder…".
   useEffect(() => {
     const open = (e: Event) => setSyncing({ folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder });
@@ -884,10 +906,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const { showContextMenu } = useContextMenu();
   const setCenterSlot = useCallback(
     (center: HTMLDivElement | null) => useSessionBar.getState().set({ center }),
-    [],
-  );
-  const setLibrarySlot = useCallback(
-    (library: HTMLDivElement | null) => useSessionBar.getState().set({ library }),
     [],
   );
   const setEndSlot = useCallback(
@@ -1037,8 +1055,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setBusy(true);
     setError("");
     try {
-      await navigate(
-        await invoke<SessionSummary>(Invokes.SessionOpen, { directory }),
+      await switchLibraryAfterSaves(async () =>
+        navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })),
       );
     } catch (e) {
       setError(String(e));
@@ -1068,12 +1086,15 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         parent,
         name.trim() + (asCatalog ? ".catalog" : ""),
       );
-      const summary = await invoke<SessionSummary>(Invokes.SessionCreate, {
-        directory,
-        name: name.trim(),
-        catalog: asCatalog,
+      const created = await switchLibraryAfterSaves(async () => {
+        await navigate(await invoke<SessionSummary>(Invokes.SessionCreate, {
+          directory,
+          name: name.trim(),
+          catalog: asCatalog,
+        }));
+        return true;
       });
-      await navigate(summary);
+      if (!created) return;
       if (importAfterCreate) {
         setImportAfterCreate(false);
         openImport();
@@ -1384,18 +1405,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <span className="session-count-offline" role="img"
                   aria-label={t("offline.sessionCount", { count: session.missing })}
                   title={t("offline.sessionCountTitle")}>
-                  <FileWarning className="session-count-status-icon" size={13} aria-hidden />
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
-              {session.xmp_pending > 0 && (
-                <span className="session-count-pending" role="img"
-                  aria-label={t("session.bar.xmpPending", { count: session.xmp_pending })}
-                  title={t("session.bar.xmpPendingTitle")}>
-                  <RefreshCw className="session-count-status-icon" size={13} aria-hidden />
-                  <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
-                </span>
-              )}
+              <SessionXmpStatus key={session.directory} directory={session.directory} count={session.xmp_pending}
+                onChanged={() => refresh().catch(() => {})} />
             </span>
           )}
         </div>
@@ -1403,7 +1417,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           className="session-bar-center"
           ref={setCenterSlot}
         />
-        <div className="session-library-slot" ref={setLibrarySlot} />
         <div className="session-bar-end" data-tauri-drag-region={nativeTitlebar || undefined}>
           <button
             className="session-action"
@@ -1573,7 +1586,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       )}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {
-          await navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }));
+          await switchLibraryAfterSaves(async () =>
+            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
         }} />}
       <dialog
         ref={dialog}
@@ -1844,7 +1858,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 placeholder={
                   catalog || importAfterCreate
                     ? t("session.create.catalogPlaceholder")
-                    : t("session.create.namePlaceholder")
+                    : t("session.create.namePlaceholder", { date: localDateStamp() })
                 }
               />
             </label>

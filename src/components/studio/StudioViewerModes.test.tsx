@@ -237,7 +237,7 @@ it("hides the pointer over the full screen after it rests, and shows it on a mov
 it("shows the photograph's facts and keywords read only over Develop's viewer", () => {
   useUIStore.setState({ activeView: "editor", infoOverlay: true });
   workspace();
-  const info = screen.getByRole("complementary", { name: "Photograph info" });
+  const info = screen.getByRole("complementary", { name: "Photo info" });
   expect(info.textContent).toContain("a.dng");
   expect(info.textContent).toContain("Maker M1 · 35mm");
   expect(info.textContent).toContain("Keywords: boat, harbour");
@@ -302,7 +302,7 @@ it("shows a virtual copy with its source's flag in the info overlay", () => {
     selectedImage: { ...s.selectedImage!, path: "/qa/a.dng?vc=copy1" },
   }));
   workspace();
-  const info = screen.getByRole("complementary", { name: "Photograph info" });
+  const info = screen.getByRole("complementary", { name: "Photo info" });
   expect(info.querySelector('[aria-label="Picked"]')).not.toBeNull();
 });
 

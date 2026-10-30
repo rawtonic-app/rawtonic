@@ -168,15 +168,6 @@ impl ExportSettings {
     }
 }
 
-#[derive(Clone)]
-pub enum ExportAdjustmentsMode {
-    UseSidecars {
-        active_path: Option<String>,
-        active_adjustments: Option<Value>,
-    },
-    GlobalOverride(Value),
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum WatermarkAnchor {

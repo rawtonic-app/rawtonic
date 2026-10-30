@@ -117,7 +117,7 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   const before = useEditorStore.getState().adjustments;
   const history = useEditorStore.getState().history;
   finishAuto();
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw] }));
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw], batch: expect.stringMatching(/^batch-\d+$/) }));
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(invoke).not.toHaveBeenCalledWith('load_metadata', { path: raw });
   expect(useEditorStore.getState().adjustments).toBe(before);

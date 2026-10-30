@@ -57,7 +57,10 @@ import {
 import AdjustmentControl from "./AdjustmentControl";
 import StudioCameraProfile from "./StudioCameraProfile";
 import StudioWhiteBalance from "./StudioWhiteBalance";
-import type { TatTarget } from "../../utils/targetedAdjustment";
+import type {
+  CurveChannel,
+  TatTarget,
+} from "../../utils/targetedAdjustment";
 import {
   pointCurveValue,
   renderedLuminancePoints,
@@ -86,11 +89,8 @@ import {
   StudioCalibration,
   StudioColorGrading,
 } from "./StudioColorTools";
-import {
-  RegionCurveControls,
-  StudioDefringe,
-  StudioLevels,
-} from "./StudioToneTools";
+import { RegionCurveControls, StudioDefringe } from "./StudioToneTools";
+import { StudioLevels } from "./StudioLevels";
 import StudioColorEditor from "./StudioColorEditor";
 import {
   isNeutralRegionCurve,
@@ -109,6 +109,7 @@ export function ToolGroup({
   toggle,
   actions,
   onOpenChange,
+  expand,
 }: {
   /** Stable id of the tool (remembered open state and order, copy/apply,
    * `data-tool-title`); never translated. */
@@ -126,10 +127,18 @@ export function ToolGroup({
   copy?: ToolParams;
   /** Lightroom's eye: the tool's effect on or off without losing values. */
   toggle?: { enabled: boolean; onToggle(): void };
+  /** Opens the group (remembered) when it turns true: its cursor tool was
+   * chosen from the keyboard or the tool bar. */
+  expand?: boolean;
 }) {
   const { t } = useTranslation();
   const name = label ?? title;
   const [isOpen, setOpen] = useToolOpen(title, open);
+  useEffect(() => {
+    if (expand && !isOpen) setOpen(true);
+    // Only the change of `expand` opens it: the user may close it again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expand]);
   useEffect(() => {
     onOpenChange?.(isOpen);
     return () => onOpenChange?.(false);
@@ -225,6 +234,7 @@ export function PointCurve({
   disabled,
   onInteraction,
   wholeCurves = false,
+  targeted = false,
 }: {
   curves: Curves;
   /** Lightroom's region curve, drawn under the luma curve when set. */
@@ -234,11 +244,21 @@ export function PointCurve({
   onInteraction(active: boolean): void;
   /** Curves beyond 16 points render whole (the photo's curves at version 2). */
   wholeCurves?: boolean;
+  /** The targeted curve acts on these curves: its input level under the
+   * pointer is marked. */
+  targeted?: boolean;
 }) {
   const { t } = useTranslation();
-  const [channel, setChannel] = useState<
-    "luma" | "luminance" | "red" | "green" | "blue"
-  >("luma");
+  // The channel is the store's: the targeted curve moves the one shown.
+  const channel = useEditorStore((s) => s.curveChannel);
+  // The marked input was the previous channel's: the next hover marks anew.
+  const setChannel = (curveChannel: CurveChannel) =>
+    useEditorStore
+      .getState()
+      .setEditor({ curveChannel, tatCurveMarker: null });
+  const marker = useEditorStore((s) =>
+    targeted && s.tatTarget === "curve" ? s.tatCurveMarker : null,
+  );
   const [selected, setSelected] = useState<number | null>(null);
   // A drag draws its points as they move, like a slider its knob; the
   // store gets them at the slider cadence and commits every
@@ -272,16 +292,21 @@ export function PointCurve({
     dragging.current = false;
     setDragged(null);
   };
-  const drawn = useMemo(() => {
-    const curve =
+  const rendered = useMemo(
+    () =>
       channel === "luminance"
         ? renderedLuminancePoints(points)
-        : renderedPoints(points, wholeCurves);
-    return Array.from({ length: 129 }, (_, i) => {
-      const x = i * (255 / 128);
-      return `${x},${255 - pointCurveValue(curve, x)}`;
-    }).join(" ");
-  }, [channel, points, wholeCurves]);
+        : renderedPoints(points, wholeCurves),
+    [channel, points, wholeCurves],
+  );
+  const drawn = useMemo(
+    () =>
+      Array.from({ length: 129 }, (_, i) => {
+        const x = i * (255 / 128);
+        return `${x},${255 - pointCurveValue(rendered, x)}`;
+      }).join(" "),
+    [rendered],
+  );
   const position = (event: React.PointerEvent<SVGSVGElement>) => {
     const matrix = event.currentTarget.getScreenCTM();
     return matrix
@@ -398,6 +423,16 @@ export function PointCurve({
           fill="none"
           className={`curve-line curve-${channel}`}
         />
+        {marker !== null && (
+          <g className="curve-target" data-testid="curve-target-marker">
+            <line x1={marker} x2={marker} y1="0" y2="255" />
+            <circle
+              cx={marker}
+              cy={255 - pointCurveValue(rendered, marker)}
+              r={3.5}
+            />
+          </g>
+        )}
         {points.map((p, i) => (
           <circle
             key={i}
@@ -1348,6 +1383,7 @@ export default function StudioDevelop() {
                   !layer &&
                   (values.curves.version ?? 1) >= LONG_CURVE_VERSION
                 }
+                targeted={!layer}
                 region={
                   layer
                     ? undefined
@@ -1532,6 +1568,7 @@ export default function StudioDevelop() {
               title="Spot removal"
               label={t("studio.tools.bar.spot.label")}
               open
+              expand={isSpotToolActive}
               onReset={resetSpotSettings}
             >
               <StudioSpotPanel />

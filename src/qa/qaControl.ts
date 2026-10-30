@@ -209,10 +209,27 @@ function firePointer(
   target.dispatchEvent(new MouseEvent(mouse, init));
 }
 
-/** Synthetic (untrusted) DOM click; native input.click is closer to real input. */
+/** Synthetic (untrusted) DOM click; native input.click is closer to real input.
+ * `button: "right"` presses the secondary button and opens a context menu. */
 function domClick(params: Params) {
   const { x, y, target } = point(params);
   const extra = modifiers(params);
+  if (params.button === "right") {
+    const right = { ...extra, button: 2 };
+    firePointer(target, "down", x, y, 2, right);
+    firePointer(target, "up", x, y, 0, right);
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+        button: 2,
+        ...extra,
+      }),
+    );
+    return { x, y, target: describe(target, 0) };
+  }
   const count = typeof params.count === "number" ? params.count : 1;
   for (let detail = 1; detail <= count; detail += 1) {
     firePointer(target, "down", x, y, 1, { ...extra, detail });

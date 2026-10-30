@@ -851,15 +851,35 @@
       "zoomInTooltip": "放大",
       "zoomOutTooltip": "缩小"
     },
+    "quit": {
+      "quitAnyway": "仍要退出",
+      "unsavedMessage": "以下更改无法保存：{{changes}}。现在退出将丢失这些更改；取消可让 Rawtonic 保持打开并重试。",
+      "unsavedTitle": "更改未保存"
+    },
     "renameFile": {
+      "blocked": "上面的每个问题解决之前，无法重命名任何文件。",
       "cancel": "取消",
+      "checking": "正在检查名称…",
       "fileNamingTemplate": "文件命名模板",
+      "more": "未列出的其他照片：{{hidden}}",
       "newName": "新名称",
+      "noteXmpStays": "{{xmp}} 留在不重命名的 {{owner}} 旁。",
+      "noteXmpWithRaw": "{{xmp}} 随此 RAW 一起重命名；{{others}} 保留原名，但不再有它。",
+      "nothingChanges": "没有名称变化。",
+      "preview": "预览",
+      "previewFailed": "预览失败：{{error}}",
+      "problemInvalidName": "“{{name}}”不是有效的文件名。",
+      "problemNotFound": "文件已不在。",
+      "problemOccupied": "{{name}} 已存在。",
+      "problemSameTarget": "此次重命名中的另一个文件也会被命名为 {{name}}。",
       "save": "保存",
+      "summary": "重命名的照片：{{photos}} · 文件总数：{{files}}",
       "titleMultiple": "重命名 {{count}} 张图像",
       "titleMultiple_one": "重命名 {{count}} 张图像",
       "titleMultiple_other": "重命名 {{count}} 张图像",
-      "titleSingle": "重命名图像"
+      "titleSingle": "重命名图像",
+      "unchanged": "保留原名",
+      "withFiles": "一并重命名：{{files}}"
     },
     "renameFolder": {
       "cancel": "取消",
@@ -950,6 +970,9 @@
   },
   "notifications": {
     "close": "关闭通知",
+    "quitCancelled": "保存尚未完成，Rawtonic 保持打开。待处理的更改仍在保存中。",
+    "quitSaving": "正在保存更改，随后退出 Rawtonic…",
+    "quitSavingPhotos": "正在保存更改，随后退出 Rawtonic…（{{done}}/{{total}}）",
     "region": "通知"
   },
   "offline": {
@@ -1058,9 +1081,7 @@
       "picked_other": "{{count}} 张留用",
       "tether": "联机拍摄",
       "tetherConnected": "{{camera}} 已连接",
-      "tetherTitle": "联机拍摄：USB 相机拍摄的照片直接进入此图库",
-      "xmpPending_other": "{{count}} 个 XMP 待处理",
-      "xmpPendingTitle": "调整已保存在图库中。部分 XMP 附属文件需要同步或解决冲突。"
+      "tetherTitle": "联机拍摄：USB 相机拍摄的照片直接进入此图库"
     },
     "create": {
       "catalog": "目录",
@@ -1076,7 +1097,7 @@
       "location": "位置",
       "modeLabel": "整理方式",
       "name": "项目名称",
-      "namePlaceholder": "2026-10-01_客户_项目",
+      "namePlaceholder": "{{date}}_客户_项目",
       "namePreview": "你的项目",
       "originalsUntouched": "原始照片保持不变。",
       "session": "项目",
@@ -1223,6 +1244,7 @@
       "failed": "无法打开上次的图库：{{error}}",
       "opening": "正在打开 {{name}}（{{directory}}）… 如果 macOS 请求访问此宗卷，请允许。"
     },
+    "switching": "正在打开资料库…",
     "sync": {
       "applied": "已移动 {{moved}} · 已添加 {{added}} · 已移除 {{removed}}",
       "apply": "应用（{{n}}）",
@@ -1280,6 +1302,13 @@
     "tether": {
       "battery": "电池 {{level}}",
       "camera": "相机",
+      "canon": {
+        "badge": "实验性",
+        "connectedNote": "实验性：如果某张照片没有出现在这里，它并没有丢失——它在存储卡上。请让存储卡一直留在相机里。从 Rawtonic 触发的照片没有传到时，Rawtonic 会告诉你——除非期间有一张在相机上拍的照片传了过来并占了它的位置。拍摄结束后，请把存储卡与图库对照一下。",
+        "notReceived": "没有收到第 {{n}} 张照片。如果相机拍下了它，它就在存储卡上。",
+        "openPreferences": "打开联机拍摄偏好设置",
+        "optInNeeded": "Canon 相机还没有在 Rawtonic 上测试过。要试用你的相机并帮助测试，请在“偏好设置”>“联机拍摄”中打开“实验性：Canon 相机”。"
+      },
       "capture": "拍摄",
       "captureFailed": "拍摄失败：{{error}}",
       "captureTitle": "触发相机（⌘K / Ctrl+K）",
@@ -1296,6 +1325,7 @@
       "lastIn": "{{file}} 已在图库中",
       "lastTiming": "{{file}} 在拍摄后 {{ms}} 毫秒进入图库",
       "level": {
+        "experimental": "实验性——征集测试者。尚未在 Rawtonic 上测试：照片可能不会出现在这里，那样它就只在存储卡上。",
         "notSupported": "尚不支持此相机。",
         "reported": "此相机型号的用户报告可以使用。",
         "tested": "已在 {{systems}} 上用此相机型号测试（{{date}}）。",
@@ -1313,6 +1343,14 @@
         "bursting": "连续拍摄 {{shots}} 张…",
         "button": "相机测试…",
         "buttonTitle": "逐步测试此相机并生成匿名报告",
+        "canonGuide": {
+          "card": "整个测试期间，请让相机里一直插着存储卡。",
+          "missing": "如果某张照片没有出现，这同样有用：它仍在存储卡上，测试也会把它计入。",
+          "send": "最后点击“{{button}}”。你会看到将要发送的全部内容——没有照片、文件名或序列号——在你确认之前，没有任何内容会离开你的电脑。",
+          "sendNote": "此结果来自实验性的 Canon 支持。感谢你的测试——每一个结果都有帮助，包括有照片丢失的结果。",
+          "steps": "请按顺序完成下面的步骤：点击“运行”，然后按步骤的要求操作。如果你的相机无法完成某一步，请点击“跳过”。",
+          "title": "如何测试你的 Canon 相机"
+        },
         "close": "关闭相机测试",
         "how": {
           "autofocus": "对焦一次。使用手动镜头或相机设为 MF 时请跳过。",
@@ -1413,6 +1451,13 @@
       "unsaved": "无法保存更改：{{files}}",
       "verifyProgress_other": "正在验证 · 已检查 {{count}} 个文件"
     },
+    "unsaved": {
+      "cancel": "取消",
+      "discard": "放弃未保存的编辑",
+      "message": "无法保存以下编辑：{{files}}。现在打开其他资料库会丢失这些编辑。请重试以先保存，或放弃这些编辑，或取消以留在此资料库。",
+      "retry": "重试",
+      "title": "编辑未保存"
+    },
     "welcome": {
       "body": "为下一次拍摄创建一个可携带的项目。从第一张到最终精选，拍摄素材、调整和交付成果都放在一起。",
       "create": "创建项目",
@@ -1425,10 +1470,77 @@
       "toolsLeft": "工具在左侧",
       "toolsRight": "工具在右侧",
       "toolsSide": "您希望将显影工具放在哪一侧？"
+    },
+    "xmp": {
+      "buttonTitle": "部分 XMP 文件未与图库同步。点击查看详情并重新写入。",
+      "count_other": "{{count}} 个 XMP 未更新",
+      "explain": "你的编辑、评级和关键字已安全保存在图库中。读取 XMP 文件的其他程序还看不到这些更改。照片本身永远不会被修改。",
+      "heading_other": "{{count}} 张照片的 XMP 文件不是最新的",
+      "reason": {
+        "changedElsewhere_other": "{{count}} 个 XMP 文件已被其他程序修改。Rawtonic 不会覆盖它们，图库保留你的版本。",
+        "failed_other": "无法写入 {{count}} 个 XMP 文件：{{error}}",
+        "offline_other": "{{count}} 张照片处于离线状态。重新连接驱动器后会更新其 XMP 文件。",
+        "sharedName_other": "{{count}} 张照片与另一张同名（RAW 和 JPEG），两者会写入同一个 XMP 文件。"
+      },
+      "retry": "重试",
+      "retryFailed": "无法写入 XMP 文件：{{error}}",
+      "show": "显示照片",
+      "title": "XMP 文件未更新",
+      "view": "XMP 未更新",
+      "writing": "正在写入…",
+      "written_other": "已为 {{count}} 张照片更新 XMP 文件"
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "图库数据库，包含 Rawtonic 对 Windows WAL 锁定的修复。",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "关于",
       "general": "通用",
       "processing": "处理",
       "shortcuts": "控制"
@@ -1770,6 +1882,17 @@
       "shortcutsDesc": "将出现在标签上下文菜单中作为快捷方式的标签列表。",
       "title": "标签"
     },
+    "tethering": {
+      "camerasLink": "哪些相机可用，以及如何报告你的相机",
+      "canon": "实验性：Canon 相机（帮助测试）",
+      "canonDesc": "让 Rawtonic 通过 USB 连接 Canon 相机，这样你可以试用它并发送一份简短的测试结果。",
+      "canonSwitch": "连接 Canon 相机",
+      "howToTest": "帮忙的方法：在“联机拍摄”面板中连接相机，点击“相机测试…”，然后按步骤操作。最后，在任何内容离开你的电脑之前，你会看到将要发送的确切内容。",
+      "title": "联机拍摄",
+      "warningCard": "你拍的照片可能不会出现在 Rawtonic 中。那时它只在相机的存储卡上，所以请一直让相机里插着存储卡。",
+      "warningNothingDeleted": "Rawtonic 绝不会删除相机或存储卡上的任何内容。",
+      "warningUntested": "尚未测试：到目前为止，还没有 Canon 相机在 Rawtonic 上试过。"
+    },
     "title": "设置",
     "tooltips": {
       "goHome": "返回首页"
@@ -1777,6 +1900,8 @@
   },
   "spotRemoval": {
     "cancel": "取消",
+    "deleteSelected": "删除所选",
+    "deleteSelectedHint": "Delete 或 Backspace。在照片上 Alt-单击删除一个；Alt-拖动删除框选到的全部。",
     "detectObjects": "检测对象",
     "detectObjectsBoxHint": "围绕对象拖出矩形或单击对象即可移除。",
     "detectObjectsHint": "用画笔大致涂抹对象或单击对象即可移除。",
@@ -1788,6 +1913,17 @@
     "featherAria": "污点羽化",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
     "largeHoleTooSlow": "此 GPU 处理大面积移除太慢；本次会话中移除将使用快速方法。",
+    "list": {
+      "aria": "污点与移除",
+      "count": "修正 ({{number}})",
+      "delete": "删除 {{name}}",
+      "deleteAll": "全部删除",
+      "hideAll": "全部隐藏",
+      "item": "{{kind}} {{number}}",
+      "select": "选择 {{name}}",
+      "showAll": "全部显示",
+      "toggle": "显示 {{name}}"
+    },
     "mode": "污点模式",
     "modes": {
       "clone": "仿制",
@@ -2630,7 +2766,8 @@
       },
       "toasts": {
         "queuedMany_other": "已将 {{count}} 个导出加入队列。",
-        "queuedOne": "已加入导出队列。"
+        "queuedOne": "已加入导出队列。",
+        "unsavedEdits": "无法保存 {{names}} 的编辑，因此未导出任何内容。保存后请重新导出。"
       },
       "watermark": {
         "add": "添加水印",
@@ -2719,16 +2856,21 @@
     },
     "histogram": {
       "aria": "图像直方图",
-      "clipping": "剪切",
-      "clippingTitle": "剪切警告：剪切的高光显示为红色，剪切的阴影显示为蓝色（{{shortcut}}）",
+      "clippingAria": "溢色警告",
       "gamut": "色域警告",
       "gamutTitle": "色域警告：超出校样色彩空间的颜色显示为红色",
       "graphAria": "所选照片的 RGB 亮度分布",
       "graphEmpty": "打开照片后可查看直方图",
+      "highlightClipping": "高光警告",
+      "highlightClippingLit": "高光警告，已溢出",
+      "highlightClippingTitle": "高光警告（溢出的高光，{{shortcut}} 同时切换两侧）",
       "proof": "校样",
       "proofSpace": "校样色彩空间",
       "proofTitle": "软校样：按所选色彩空间导出后的效果显示照片（{{shortcut}}）",
       "selectPhoto": "选择一张照片",
+      "shadowClipping": "阴影警告",
+      "shadowClippingLit": "阴影警告，已压暗",
+      "shadowClippingTitle": "阴影警告（压暗的阴影，{{shortcut}} 同时切换两侧）",
       "title": "直方图"
     },
     "layers": {
@@ -3440,7 +3582,9 @@
     "multiView": {
       "controls": "标记、评级或移除 {{name}}",
       "editAll": "编辑所有选中照片",
+      "editAllNotSaved": "“编辑所有选中照片”无法保存这些照片：{{names}}。在你重试之前，它们保留之前的设置。",
       "editAllTitle": "编辑所有选中照片：对主照片的修改也会应用到显示的每张其他照片（橙色边框）",
+      "editAllTryAgain": "重试",
       "makePrimary": "编辑 {{name}}（设为主照片）",
       "more_other": "还有 {{n}} 张",
       "pick": "留用 {{name}}",
@@ -3735,6 +3879,7 @@
       "whiteBalanceTo": "白平衡 {{to}} K"
     },
     "spot": {
+      "done": "结束污点去除",
       "start": "开始污点去除",
       "withShortcut": "{{text}}（{{key}}）"
     },
@@ -3752,14 +3897,20 @@
         "auto": "自动",
         "autoAria": "自动色阶",
         "autoTitle": "根据直方图设置黑场和白场",
-        "black": "黑",
         "channelAria": "色阶通道",
-        "highlight": "高光",
+        "fieldAria": "{{name}}数值",
+        "histogramAria": "色阶直方图",
+        "inBlack": "输入黑场",
+        "inWhite": "输入白场",
         "midtone": "中间调",
+        "outBlack": "输出黑场",
         "output": "输出",
-        "shadow": "阴影",
-        "title": "色阶",
-        "white": "白"
+        "outWhite": "输出白场",
+        "pickBlack": "黑场吸管",
+        "pickBlackTitle": "在照片中单击应为黑色的位置",
+        "pickWhite": "白场吸管",
+        "pickWhiteTitle": "在照片中单击应为白色的位置",
+        "title": "色阶"
       },
       "regionCurve": {
         "aria": {
@@ -4131,6 +4282,7 @@
     "download": "下载",
     "failed": "无法检查更新。请稍后重试。",
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "manual": "检查更新",
     "noFile": "此版本没有适用于这台电脑的下载；发布页面列出了所有文件。",
     "noNotes": "没有发布说明。发布页面可能有更多信息。",
     "notesTitle": "Rawtonic {{version}} 的新功能",

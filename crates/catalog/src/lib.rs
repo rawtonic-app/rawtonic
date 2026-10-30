@@ -1,6 +1,6 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
 pub mod portable;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use rawtonic_metadata::{Metadata, atomic_write};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -25,12 +25,14 @@ pub mod ingest_jobs;
 pub mod query;
 pub mod snapshots;
 pub mod volume;
+pub mod xmp_state;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
 pub use facts::{CaptureFacts, Rated};
 pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
 pub use volume::Volume;
+pub use xmp_state::{UnsavedXmp, XmpProblem, XmpRetry};
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
@@ -39,7 +41,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 17;
+pub const DB_SCHEMA_VERSION: u32 = 18;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -186,6 +188,40 @@ pub fn validate_relative(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The stored form of the relative path `path` of a file in its root
+/// (`assets.rel_path`): its names joined with `/`, validated. Callers pass
+/// a native path (`strip_prefix` of a canonical path, `Path::join`), whose
+/// separators are then the platform's; stored paths always use `/`, so a
+/// library made on Windows can be reopened on Unix and back. The separator
+/// comes from the path's components, never from replacing characters in
+/// the result: on Unix a backslash is an ordinary character of a file
+/// name and stays one (or is refused, see below).
+///
+/// Absolute paths, drive and UNC prefixes and `..` are refused, as is an
+/// empty path and a Unix name containing a backslash, which would read as
+/// two folders on Windows. `Path::components` normalises interior `.` and
+/// repeated separators in these native paths. A remaining `CurDir`
+/// component is refused; dot-prefixed file names are allowed.
+pub fn portable_relative(path: &Path) -> Result<String> {
+    let mut names = Vec::new();
+    for component in path.components() {
+        let Component::Normal(name) = component else {
+            bail!("Path must be relative and cannot traverse parents");
+        };
+        let name = name.to_str().context("Paths must be valid UTF-8")?;
+        ensure!(
+            !name.contains('\\'),
+            "Backslashes are not portable path separators"
+        );
+        names.push(name);
+    }
+    ensure!(
+        !names.is_empty(),
+        "Path must be relative and cannot traverse parents"
+    );
+    Ok(names.join("/"))
+}
+
 pub fn fingerprint(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let meta = file.metadata()?;
@@ -292,6 +328,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0015.sql"))?;
         conn.execute_batch(include_str!("../migrations/0016.sql"))?;
         conn.execute_batch(include_str!("../migrations/0017.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0018.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -422,15 +459,32 @@ impl Library {
         if version < 17 {
             tx.execute_batch(include_str!("../migrations/0017.sql"))?;
         }
+        if version < 18 {
+            tx.execute_batch(include_str!("../migrations/0018.sql"))?;
+        }
         tx.commit()?;
         Ok(())
     }
 
     fn configure(conn: &Connection) -> Result<()> {
         conn.busy_timeout(Duration::from_secs(5))?;
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
-        )?;
+        // WAL is persistent. Reopening a library should read its mode rather
+        // than request a journal-mode change on every thumbnail connection.
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .context("Read the library database journal mode")?;
+        let mode = if mode.eq_ignore_ascii_case("wal") {
+            mode
+        } else {
+            conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get::<_, String>(0))
+                .context("Set the library database journal mode")?
+        };
+        ensure!(
+            mode.eq_ignore_ascii_case("wal"),
+            "The library database volume does not support WAL journal mode"
+        );
+        conn.execute_batch("PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;")
+            .context("Configure library database durability and constraints")?;
         // The search's case folding (`query`, `fold`): the text index holds
         // folded text (its triggers call it), and every search that scans
         // rows folds with it too, so both find the same.
@@ -555,13 +609,18 @@ impl Library {
     pub fn asset_at(&self, path: &Path) -> Result<Option<Asset>> {
         let path = resolve_moved(path);
         let id = if let Ok(relative) = path.strip_prefix(&self.directory) {
-            self.conn
-                .query_row(
-                    "SELECT id FROM assets WHERE root_id='session' AND rel_path=?",
-                    [relative.to_string_lossy().as_ref()],
-                    |r| r.get::<_, String>(0),
-                )
-                .optional()?
+            match portable_relative(relative) {
+                Ok(stored) => self
+                    .conn
+                    .query_row(
+                        "SELECT id FROM assets WHERE root_id='session' AND rel_path=?",
+                        [stored.as_str()],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?,
+                // Not a path a library can store: no photograph is there.
+                Err(_) => None,
+            }
         } else {
             self.conn.query_row("SELECT a.id FROM assets a JOIN roots r ON a.root_id=r.id WHERE r.external=1 AND r.path=? AND a.rel_path=?", params![path.parent().context("No parent")?.to_string_lossy().as_ref(),path.file_name().context("No filename")?.to_string_lossy().as_ref()], |r| r.get::<_, String>(0)).optional()?
         };
@@ -761,7 +820,7 @@ impl Library {
         rules: &Rule,
     ) -> Result<Collection> {
         let name = Self::collection_name(name)?;
-        let rules = &rules.relative_to(&self.directory);
+        let rules = &rules.relative_to(&self.directory)?;
         rules.validate()?;
         self.ensure_group(parent)?;
         let id = Uuid::new_v4().to_string();
@@ -795,7 +854,7 @@ impl Library {
     /// Replaces a smart album's rules (folders inside the library kept
     /// relative to it, as `create_smart_collection` does).
     pub fn set_collection_rules(&self, id: &str, rules: &Rule) -> Result<()> {
-        let rules = &rules.relative_to(&self.directory);
+        let rules = &rules.relative_to(&self.directory)?;
         rules.validate()?;
         ensure!(
             self.conn.execute(
@@ -1065,6 +1124,12 @@ impl Library {
             "UPDATE versions SET head=? WHERE id=?",
             params![id, version],
         )?;
+        // The primary recipe goes into the XMP sidecar, which now lacks it.
+        tx.execute(
+            "UPDATE metadata SET xmp_status='pending'
+             WHERE asset_id=(SELECT asset_id FROM versions WHERE id=? AND is_primary=1)",
+            [version],
+        )?;
         tx.commit()?;
         Ok(id)
     }
@@ -1121,29 +1186,13 @@ impl Library {
             meta.rating = rating as u8;
         }
         if let Some(tags) = legacy.get("tags") {
-            meta.keywords.clear();
-            meta.label.clear();
-            for tag in tags
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-            {
-                if let Some(color) = tag.strip_prefix("color:") {
-                    let mut chars = color.chars();
-                    meta.label = chars
-                        .next()
-                        .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
-                        .unwrap_or_default();
-                } else {
-                    // The editor marks keywords the user typed with `user:`;
-                    // the catalog and XMP store the keyword itself.
-                    let keyword = tag.strip_prefix(USER_TAG_PREFIX).unwrap_or(tag);
-                    if !meta.keywords.iter().any(|k| k == keyword) {
-                        meta.keywords.push(keyword.to_string());
-                    }
-                }
-            }
+            set_editor_tags(
+                &mut meta,
+                tags.as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str),
+            );
         }
         // The editor changes labels through tags. A loaded state can still carry
         // the previous adapter-only colorLabel value; it must not undo that edit.
@@ -1270,8 +1319,8 @@ impl Library {
             let Ok(relative) = photo.strip_prefix(base) else {
                 continue;
             };
-            let stem = relative.with_extension("");
-            let stem = stem.to_str().context("Paths must be valid UTF-8")?;
+            let stem = portable_relative(&relative.with_extension(""))?;
+            let stem = stem.as_str();
             // '.' followed by any extension lies before '/' in SQLite's
             // binary collation. Also include an extensionless sibling.
             let lower = format!("{stem}.");
@@ -1546,8 +1595,10 @@ impl Library {
                 tx.execute("UPDATE assets SET missing=1 WHERE id=?", [id])?;
                 continue;
             };
-            validate_relative(&relative)?;
-            let rel = relative.to_str().context("Paths must be valid UTF-8")?;
+            // A place the library cannot store fails the whole move, and the
+            // transaction rolls back: the records stay where they were.
+            let rel = portable_relative(&relative)?;
+            let rel = rel.as_str();
             insert_root(tx, &root, &root_path)?;
             // A stale row for a file that is gone may hold the new place. It
             // keeps its edits under a name no file can have.
@@ -1598,6 +1649,9 @@ impl Library {
             })
             .collect();
         drop(query);
+        if moved.is_empty() && self.rename_companion(&from, &to)? {
+            return Ok(0);
+        }
         if moved.is_empty() {
             // Files coming back to where a missing asset was registered (a
             // move out of the session undone) are found again.
@@ -1611,6 +1665,33 @@ impl Library {
         self.apply_places(&tx, &moved)?;
         tx.commit()?;
         Ok(moved.len())
+    }
+
+    /// A recorded companion renamed beside its photograph (`from` → `to`
+    /// in one folder, either way of an undo) keeps being its companion
+    /// under the new name: the file there must be the recorded one (size
+    /// and SHA-256), so a JPEG that became a photograph of its own, or
+    /// another file, never takes the record.
+    fn rename_companion(&self, from: &Path, to: &Path) -> Result<bool> {
+        let (Some(name), true) = (
+            to.file_name().and_then(|n| n.to_str()),
+            from.parent() == to.parent(),
+        ) else {
+            return Ok(false);
+        };
+        let Some(record) = self
+            .companion_records()?
+            .into_iter()
+            .find(|record| record.path == from && record.matches(to))
+        else {
+            return Ok(false);
+        };
+        companion::validate_name(name)?;
+        self.conn.execute(
+            "UPDATE assets SET raw_jpeg_pair=? WHERE id=?",
+            params![name, record.owner],
+        )?;
+        Ok(true)
     }
 
     /// Every registered photograph whose file is missing (as of the last
@@ -1730,11 +1811,10 @@ impl Library {
             )
         };
         let candidates = if let Ok(relative) = folder.strip_prefix(&self.directory) {
-            let rel = relative.to_string_lossy();
-            let prefix = if rel.is_empty() {
+            let prefix = if relative.as_os_str().is_empty() {
                 String::new()
             } else {
-                format!("{rel}/")
+                format!("{}/", portable_relative(relative)?)
             };
             self.offline_rows(
                 "r.external=0 AND a.rel_path LIKE ? ESCAPE '\\'",
@@ -1742,9 +1822,12 @@ impl Library {
             )?
         } else {
             let path = folder.to_string_lossy().into_owned();
+            // External roots store native absolute paths, unlike portable
+            // session-relative paths. Use their native descendant separator.
+            let descendants = folder.join("").to_string_lossy().into_owned();
             self.offline_rows(
                 "r.external=1 AND (r.path=? OR r.path LIKE ? ESCAPE '\\')",
-                &[&path, &like(&format!("{path}/"))],
+                &[&path, &like(&descendants)],
             )?
         };
         Ok(candidates
@@ -1907,7 +1990,11 @@ impl Library {
             )
         };
         let changed = if let Ok(relative) = path.strip_prefix(&self.directory) {
-            let rel = relative.to_string_lossy().replace('\\', "/");
+            // Not a place a library can store (a name with a backslash on
+            // Unix): no stored photograph is there.
+            let Ok(rel) = portable_relative(relative) else {
+                return Ok(0);
+            };
             self.conn.execute(
                 &format!(
                     "UPDATE assets SET {status} WHERE root_id='session'
@@ -1961,8 +2048,8 @@ impl Library {
             !relative.as_os_str().is_empty(),
             "The library folder itself cannot be forgotten"
         );
-        validate_relative(relative)?;
-        let rel = relative.to_str().context("Paths must be valid UTF-8")?;
+        let rel = portable_relative(relative)?;
+        let rel = rel.as_str();
         let like = format!(
             "{}/%",
             rel.replace('\\', "\\\\")
@@ -2307,6 +2394,41 @@ fn search_text(metadata: &Metadata) -> String {
 /// The editor's prefix for keywords the user typed (other tags come from
 /// automatic tagging).
 const USER_TAG_PREFIX: &str = "user:";
+
+/// Sets the colour label and keywords from an editor state's tags.
+fn set_editor_tags<'a>(meta: &mut Metadata, tags: impl IntoIterator<Item = &'a str>) {
+    meta.keywords.clear();
+    meta.label.clear();
+    for tag in tags {
+        if let Some(color) = tag.strip_prefix("color:") {
+            let mut chars = color.chars();
+            meta.label = chars
+                .next()
+                .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default();
+        } else {
+            // The editor marks keywords the user typed with `user:`;
+            // the catalog and XMP store the keyword itself.
+            let keyword = tag.strip_prefix(USER_TAG_PREFIX).unwrap_or(tag);
+            if !meta.keywords.iter().any(|k| k == keyword) {
+                meta.keywords.push(keyword.to_string());
+            }
+        }
+    }
+}
+
+/// The metadata of a virtual copy: its photograph's `metadata` with the
+/// rating, colour label and keywords the copy's own editor state holds
+/// (the copy has none of them when it has no tags), as the library shows
+/// the copy.
+pub fn copy_metadata(mut metadata: Metadata, rating: u8, tags: Option<&[String]>) -> Metadata {
+    metadata.rating = rating.min(5);
+    set_editor_tags(
+        &mut metadata,
+        tags.into_iter().flatten().map(String::as_str),
+    );
+    metadata
+}
 
 /// A photograph's editor state with the library's rating, keywords and
 /// label. A photograph never edited has no state of its own; when the library

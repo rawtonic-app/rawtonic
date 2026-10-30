@@ -22,6 +22,8 @@ vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }
 vi.mock("../../hooks/useEditorActions", () => ({
   debouncedSave: { flush: vi.fn() },
   debouncedSetHistory: { cancel: vi.fn(), flush: vi.fn() },
+  onRecipeWritten: vi.fn(),
+  registerRecipeFlush: vi.fn(),
   useEditorActions: () => ({ applyAdjustmentsToPaths: vi.fn() }),
 }));
 

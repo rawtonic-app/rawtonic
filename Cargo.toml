@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["src-tauri", "crates/*", "third_party/rawler"]
-exclude = ["vendor/little_exif", "vendor/paste", "vendor/glib-macros", "vendor/gtk3-macros"]
+exclude = ["vendor/libsqlite3-sys", "vendor/little_exif", "vendor/paste", "vendor/glib-macros", "vendor/gtk3-macros"]
 default-members = [
     "crates/catalog",
     "crates/naming",
@@ -50,6 +50,8 @@ lto = "thin"
 strip = true
 
 [patch.crates-io]
+# Serialize the shared-handle Windows WAL lock transition (see patch note).
+libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
 little_exif = { path = "vendor/little_exif" }
 # No unmaintained macro crates (ADR 0005): `paste` (used by pulp, via
 # image -> exr) is served by its maintained successor pastey; glib-macros and

@@ -11,6 +11,13 @@ import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
 import { exportSettingsFromDraft, savedRecipes, type RecipeDraft } from './exportRecipes';
 import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
+import { flushRecipeSaves } from '../hooks/useEditorActions';
+import { photoWritesAndStepsSettled } from './photoWrites';
+
+/** The library an export is submitted from, as `export_images` takes it:
+ * always stated, so an export from no library never takes one opened later. */
+export const submittedFrom = (library: string | null) =>
+  library ? { library } : 'noLibrary';
 
 export interface PlannedExport {
   recipe: ExportPreset | null;
@@ -23,7 +30,15 @@ export interface PlannedExport {
 export async function runExportJobs(planned: PlannedExport[], paths: string[]): Promise<number> {
   if (!paths.length) return 0;
   const t = i18n.t.bind(i18n);
+  // Each photograph's recipe and metadata are read once, when the export is
+  // queued, from the library it is queued from: that library, the editor's
+  // recipe and the folders are taken together, now (a slider draft first
+  // commits), and the edits and metadata (rating, label, keywords, EXIF)
+  // being saved are written before it is queued.
+  const flushing = Promise.all([flushRecipeSaves(), photoWritesAndStepsSettled()]).then(([unsaved]) => unsaved);
   const session = useLibraryStore.getState().sessionDirectory;
+  const openEdit = currentEditForExport(useEditorStore.getState());
+  const originFolders = useLibraryStore.getState().rootPaths;
   const status = useProcessStore.getState().exportState.status;
   const queued = status === Status.Exporting || status === Status.Cancelling;
   const changeRecipes = (change: (current: ExportPreset[]) => ExportPreset[]) => {
@@ -77,6 +92,15 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
   };
 
   try {
+    // A photograph whose edits could not be saved would export its older
+    // recipe: the export stops and says which.
+    const unsaved = (await flushing).filter((path) => paths.includes(path));
+    if (unsaved.length)
+      throw new Error(
+        t("studio.export.toasts.unsavedEdits", {
+          names: unsaved.map((path) => path.split(/[\\/]/).pop()).join(", "),
+        }),
+      );
     // Queued together, the recipes run as one export: each photograph is
     // developed once for all of them.
     const requests: Record<string, unknown>[] = [];
@@ -102,10 +126,11 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         displayLabel: exportJobLabel(job.recipe?.name ?? t("studio.export.dialogs.customName"), job.draft, job.outputFormat, destination.path, paths),
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
-        baseOriginFolders: useLibraryStore.getState().rootPaths,
+        baseOriginFolders: originFolders,
         exportSettings: job.settings,
         outputFormat: job.outputFormat,
-        ...currentEditForExport(useEditorStore.getState()),
+        ...openEdit,
+        library: submittedFrom(session),
       });
     }
     const started = requests.length;

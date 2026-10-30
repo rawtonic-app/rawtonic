@@ -84,6 +84,18 @@ interface EditorState {
   tatTarget: import('../utils/targetedAdjustment').TatTarget | null;
   /** The colour mixer channel the last targeted drag acted on most. */
   tatFocus: string | null;
+  /** The Levels channel shown (its pickers set that channel's points). */
+  levelsChannel: import('../utils/levels').LevelChannel;
+  /** The latest Levels picker press (each press takes the next value;
+   * turning a picker off or on voids the presses before it). A picker's
+   * sample applies only while its press still holds this value. */
+  levelsPickerPress: number;
+  /** The point curve channel the curve panel shows (and the targeted
+   * curve moves). */
+  curveChannel: import('../utils/targetedAdjustment').CurveChannel;
+  /** The curve input level (0–255) under the targeted curve's pointer,
+   * marked on the curve; null when the pointer is off the photo. */
+  tatCurveMarker: number | null;
   /** Spot removal tool: on/off, the selected spot and the settings new
    * spots get (and the selected one shows). */
   isSpotToolActive: boolean;
@@ -129,9 +141,11 @@ interface EditorState {
   /** The colour editor range shown in the tool. */
   activeColorRangeId: string | null;
   /** View only, never in the recipe: the colour range whose selection is
-   * shown, and clipping warnings (Lightroom's J). */
+   * shown, and the clipping warnings (red for clipped highlights, blue for
+   * clipped shadows; J switches both, utils/clippingWarnings). */
   colorRangeShow: string | null;
-  clippingWarnings: boolean;
+  clipHighlights: boolean;
+  clipShadows: boolean;
   /** View only: one layer or component shown alone (utils/layerSolo). */
   layerSolo: LayerSolo | null;
   /** View only: soft proofing (Lightroom's Soft Proofing) shows the photo as
@@ -207,6 +221,10 @@ interface EditorState {
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
+
+  /** Arms or turns off a Levels picker (a new `target` in `tatTarget`) and
+   * voids every sample of an earlier press: only the latest one applies. */
+  setTatTarget: (target: EditorState['tatTarget']) => void;
   /** `order`: the undo order of a batch step this entry is the open
    * photograph's part of (appUndo.ts; default: a new edit's). */
   pushHistory: (newAdjustments: Adjustments, order?: number) => void;
@@ -273,6 +291,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isWbPickerActive: false,
   tatTarget: null,
   tatFocus: null,
+  levelsChannel: 'rgb',
+  levelsPickerPress: 0,
+  curveChannel: 'luma',
+  tatCurveMarker: null,
   isSpotToolActive: false,
   activeSpotId: null,
   spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 },
@@ -286,7 +308,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeColorRangeId: null,
   colorRangeShow: null,
   layerSolo: null,
-  clippingWarnings: false,
+  clipHighlights: false,
+  clipShadows: false,
   softProof: false,
   softProofSpace: 'srgb',
   softProofWarning: false,
@@ -318,6 +341,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   patchesSentToBackend: new Set<string>(),
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
+
+  setTatTarget: (target) =>
+    set((state) =>
+      state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 },
+    ),
 
   pushHistory: (newAdj, batchOrder) => {
     scheduledHistory.cancel();

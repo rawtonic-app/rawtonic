@@ -8,8 +8,9 @@ import MergeModal from './MergeModal';
 import NegativeConversionModal from './NegativeConversionModal';
 import CreateFolderModal from './CreateFolderModal';
 import RenameFolderModal from './RenameFolderModal';
-import RenameFileModal from './RenameFileModal';
+import RenameFileModal, { type PlannedFile } from './RenameFileModal';
 import ConfirmModal from './ConfirmModal';
+import LibrarySwitchShield from './LibrarySwitchShield';
 import CullingModal from './CullingModal';
 import CollageModal, { type CollageSpec } from './CollageModal';
 
@@ -21,7 +22,7 @@ export interface AppModalsProps {
   refreshImageList: () => Promise<void>;
   handleCreateFolder: (folderName: string) => Promise<void>;
   handleRenameFolder: (newName: string) => Promise<void>;
-  handleSaveRename: (nameTemplate: string) => Promise<void>;
+  handleSaveRename: (nameTemplate: string, expected: PlannedFile[]) => Promise<void>;
   handleSetColorLabel: (color: string | null, paths?: string[]) => Promise<void>;
   handleRate: (rating: number, paths?: string[]) => void;
   executeDelete: (paths: string[], options: { includeAssociated: boolean }) => Promise<void>;
@@ -118,6 +119,7 @@ export default function AppModals(props: AppModalsProps) {
         onSave={props.handleSaveRename}
       />
       <ConfirmModal {...confirmModalState} onClose={closeConfirmModal} />
+      <LibrarySwitchShield />
       <CullingModal
         isOpen={cullingModalState.isOpen}
         onClose={() =>

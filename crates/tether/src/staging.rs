@@ -261,6 +261,28 @@ pub fn finish(root: &Path, path: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
+    /// `link` as a symbolic link to the folder `original`, as an attacker (or
+    /// a user's own folder link) could leave it: a symlink on Unix, a
+    /// directory symlink on Windows (which needs the privilege to create
+    /// symbolic links; the same kind of link `symlink_metadata` reports).
+    fn link_dir(original: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(original, link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(original, link).unwrap();
+    }
+
+    /// Removes a link made by `link_dir`, leaving its target alone. Windows
+    /// refuses `remove_file` on a directory symlink (PermissionDenied, error
+    /// 5) and wants `remove_dir`; on Unix `remove_dir` rejects a symlink,
+    /// so `remove_file` unlinks it instead.
+    fn unlink_dir(link: &Path) {
+        #[cfg(unix)]
+        fs::remove_file(link).unwrap();
+        #[cfg(windows)]
+        fs::remove_dir(link).unwrap();
+    }
+
     #[test]
     fn a_download_appears_only_complete_and_keeps_its_name() {
         let dir = tempfile::tempdir().unwrap();
@@ -294,7 +316,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn recovery_and_clean_up_never_go_through_a_symbolic_link() {
         let dir = tempfile::tempdir().unwrap();
@@ -308,7 +329,7 @@ mod tests {
         let session = dir.path().join("session");
         fs::create_dir(&session).unwrap();
         // The whole transfer folder is a link.
-        std::os::unix::fs::symlink(&elsewhere, root(&session)).unwrap();
+        link_dir(&elsewhere, &root(&session));
         assert!(recover(&root(&session)).is_err());
         let through = root(&session)
             .join(INCOMING)
@@ -316,10 +337,9 @@ mod tests {
             .join("ORIGINAL.ARW");
         assert!(finish(&root(&session), &through).is_err());
         // Only its incoming folder is a link.
-        fs::remove_file(root(&session)).unwrap();
+        unlink_dir(&root(&session));
         fs::create_dir(root(&session)).unwrap();
-        std::os::unix::fs::symlink(elsewhere.join(INCOMING), root(&session).join(INCOMING))
-            .unwrap();
+        link_dir(&elsewhere.join(INCOMING), &root(&session).join(INCOMING));
         assert!(recover(&root(&session)).is_err());
         assert!(finish(&root(&session), &through).is_err());
         assert_eq!(fs::read(&photo).unwrap(), b"someone's original");
@@ -332,11 +352,11 @@ mod tests {
         fs::create_dir(&elsewhere).unwrap();
         let session = dir.path().join("session");
         fs::create_dir(&session).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, root(&session)).unwrap();
+        link_dir(&elsewhere, &root(&session));
         assert!(Partial::create(&root(&session), 1, "A.ARW").is_err());
-        fs::remove_file(root(&session)).unwrap();
+        unlink_dir(&root(&session));
         fs::create_dir(root(&session)).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, root(&session).join(INCOMING)).unwrap();
+        link_dir(&elsewhere, &root(&session).join(INCOMING));
         assert!(Partial::create(&root(&session), 1, "A.ARW").is_err());
         assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
     }

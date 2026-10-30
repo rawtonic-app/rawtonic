@@ -2,8 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Button from '../ui/Button';
-import Text from '../ui/Text';
-import { TextVariants } from '../../types/typography';
+import { overlayHost } from '../../utils/topLayer';
 
 interface ConfirmModalProps {
   cancelText?: string;
@@ -12,7 +11,13 @@ interface ConfirmModalProps {
   isOpen: boolean;
   message?: string;
   onClose(): void;
+  /** Closed without a choice: Cancel, Escape or a click beside it. */
+  onCancel?(): void;
   onConfirm?(): void;
+  /** A third choice, between Cancel and the confirmation. */
+  onSecondary?(): void;
+  secondaryText?: string;
+  secondaryVariant?: string;
   title?: string;
 }
 
@@ -23,13 +28,18 @@ export default function ConfirmModal({
   isOpen,
   message,
   onClose,
+  onCancel,
   onConfirm,
+  onSecondary,
+  secondaryText,
+  secondaryVariant = 'secondary',
   title,
 }: ConfirmModalProps) {
   const { t } = useTranslation();
   const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const secondaryRef = useRef<HTMLButtonElement>(null);
   // A destructive confirmation (Delete Permanently, …) is never the default: Cancel
   // has the focus and Enter only confirms when the confirm button itself is focused,
   // as macOS alerts do for destructive actions.
@@ -61,25 +71,37 @@ export default function ConfirmModal({
     onClose();
   }, [onConfirm, onClose]);
 
+  const handleCancel = useCallback(() => {
+    onCancel?.();
+    onClose();
+  }, [onCancel, onClose]);
+
+  const handleSecondary = useCallback(() => {
+    onSecondary?.();
+    onClose();
+  }, [onSecondary, onClose]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation();
-        if (!destructive || e.target === confirmRef.current) {
+        if (secondaryRef.current && e.target === secondaryRef.current) {
+          handleSecondary();
+        } else if (!destructive || e.target === confirmRef.current) {
           handleConfirm();
         } else {
-          onClose();
+          handleCancel();
         }
       } else if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation();
-        onClose();
+        handleCancel();
       }
     },
-    [destructive, handleConfirm, onClose],
+    [destructive, handleConfirm, handleCancel, handleSecondary],
   );
 
   if (!isMounted) {
@@ -90,48 +112,38 @@ export default function ConfirmModal({
     <div
       aria-labelledby="confirm-modal-title"
       aria-modal="true"
-      className={`
-        fixed inset-0 flex items-center justify-center z-[9999]
-        bg-black/30 backdrop-blur-xs
-        transition-opacity duration-300 ease-in-out
-        ${show ? 'opacity-100' : 'opacity-0'}
-      `}
-      onClick={onClose}
+      className={`studio-dialog-backdrop transition-opacity duration-300 ease-in-out ${show ? 'opacity-100' : 'opacity-0'}`}
+      onClick={handleCancel}
       role="dialog"
     >
       <div
-        className={`
-          bg-surface rounded-lg shadow-xl p-6 w-full max-w-md text-text-primary
-          transform transition-all duration-300 ease-out
-          ${show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'}
-        `}
+        className={`studio-dialog transform transition-all duration-300 ease-out ${
+          show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'
+        }`}
         onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <Text variant={TextVariants.title} id="confirm-modal-title" className="mb-4">
+        <h2 className="studio-dialog-title" id="confirm-modal-title">
           {title}
-        </Text>
-        <Text className="mb-6 whitespace-pre-wrap wrap-anywhere">{message}</Text>
-        <div className="flex justify-end gap-3 mt-5">
+        </h2>
+        <p className="m-0 whitespace-pre-wrap wrap-anywhere">{message}</p>
+        <div className="studio-dialog-footer">
           <Button
-            className={`bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none focus:outline-hidden ${
-              // The default button shows that it is: Enter cancels.
-              destructive ? 'focus:ring-1 focus:ring-text-secondary' : 'focus:ring-0'
-            }`}
-            onClick={onClose}
+            // The default button shows that it is: Enter cancels.
+            className={destructive ? 'is-default' : undefined}
+            onClick={handleCancel}
             variant="ghost"
             tabIndex={0}
             autoFocus={destructive}
           >
             {resolvedCancelText}
           </Button>
-          <Button
-            onClick={handleConfirm}
-            variant={confirmVariant}
-            autoFocus={!destructive}
-            ref={confirmRef}
-            className="focus:outline-hidden focus:ring-0 focus:ring-offset-0"
-          >
+          {secondaryText && (
+            <Button onClick={handleSecondary} variant={secondaryVariant} ref={secondaryRef}>
+              {secondaryText}
+            </Button>
+          )}
+          <Button onClick={handleConfirm} variant={confirmVariant} autoFocus={!destructive} ref={confirmRef}>
             {resolvedConfirmText}
           </Button>
         </div>
@@ -139,5 +151,6 @@ export default function ConfirmModal({
     </div>
   );
 
-  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
+  // Above a modal dialog it was asked from (Create library), not under it.
+  return typeof document !== 'undefined' ? createPortal(modalContent, overlayHost()) : modalContent;
 }

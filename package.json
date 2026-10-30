@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "licenses": "python3 scripts/third_party_licenses.py",
+    "licenses": "node scripts/licenses.cjs",
     "tauri": "tauri",
     "start": "tauri dev",
     "typecheck": "tsc --noEmit",
@@ -75,6 +75,6 @@
     "@swc/core@1.16.1": true,
     "esbuild@0.28.2": true
   },
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0-alpha.9.1",
   "license": "AGPL-3.0-or-later"
 }

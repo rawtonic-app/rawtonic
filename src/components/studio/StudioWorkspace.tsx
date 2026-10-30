@@ -9,8 +9,6 @@ import {
   type ReactNode,
   type MouseEvent,
 } from "react";
-import LibraryToolbarPlacement from "./LibraryToolbarPlacement";
-import { useLibraryHeaderFits } from "./libraryHeaderLayout";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
@@ -203,7 +201,7 @@ export default function StudioWorkspace(props: Props) {
     requestThumbnails,
     transformWrapperRef,
   } = props;
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   // Labels and routing read both histories; subscribe so they update on either change.
   useCatalogUndoStore();
   const { selectedImage, previousPhoto } = useEditorStore(
@@ -315,7 +313,6 @@ export default function StudioWorkspace(props: Props) {
     t("studio.workspace.withShortcut", { label, shortcut: shortcut ?? t("studio.workspace.noKey") });
   const {
     currentFolderPath,
-    sessionDirectory,
     activeAlbumId,
     multiSelectedPaths,
     searchCriteria,
@@ -803,13 +800,7 @@ export default function StudioWorkspace(props: Props) {
     />
   );
   const sessionBar = useSessionBar(
-    useShallow((s) => ({ center: s.center, end: s.end, library: s.library, mark: s.mark })),
-  );
-  const libraryToolbarRef = useRef<HTMLDivElement>(null);
-  const compactLibraryHeader = useLibraryHeaderFits(
-    uiScale, libraryToolbarRef,
-    JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, sessionDirectory, metadataOpen, !!searchCriteria.text.trim(), searchCriteria.tags, props.flagCounts]),
-    !develop && panels.bars && !!sessionBar.library,
+    useShallow((s) => ({ center: s.center, end: s.end, mark: s.mark })),
   );
   const imageFlags = useLibraryStore((s) => s.imageFlags);
   const flag = selectedImage ? (imageFlags[selectedImage.path] ?? 0) : 0;
@@ -962,10 +953,7 @@ export default function StudioWorkspace(props: Props) {
     );
   };
   const libraryToolbar = (
-    <div
-      ref={libraryToolbarRef}
-      className={`studio-library-toolbar studio-controls${compactLibraryHeader ? " is-in-header" : ""}`}
-    >
+    <div className="studio-library-toolbar studio-controls">
       <button
         aria-label={t("studio.workspace.viewer.togglePanels")}
         title={withShortcut(
@@ -1100,7 +1088,7 @@ export default function StudioWorkspace(props: Props) {
         <>
           <MultiViewStage
             files={files}
-            onOpen={onOpen}
+            onOpen={libraryViewer ? (props.onShow ?? onOpen) : onOpen}
             onRate={onRate}
             transformWrapperRef={transformWrapperRef}
           >
@@ -1385,7 +1373,7 @@ export default function StudioWorkspace(props: Props) {
                     className="studio-viewer-filename"
                     title={selectedImage?.path}
                   >
-                    {selectedImage?.path.split("/").pop() || t("studio.workspace.footer.noPhotograph")}
+                    {selectedImage?.path.split("?vc=")[0].split(/[\\/]/).pop() || t("studio.workspace.footer.noPhotograph")}
                     {selectedImage?.width ? (
                       <span className="studio-muted">
                         {` · ${selectedImage.width} × ${selectedImage.height}`}
@@ -1553,7 +1541,7 @@ export default function StudioWorkspace(props: Props) {
                     <ArrowRight size={14} />
                   </button>
                   <span className="studio-viewer-filename" title={selectedImage?.path}>
-                    {selectedImage?.path.split("/").pop()}
+                    {selectedImage?.path.split("?vc=")[0].split(/[\\/]/).pop()}
                     {selectedImage?.width ? (
                       <span className="studio-muted">{` · ${selectedImage.width} × ${selectedImage.height}`}</span>
                     ) : null}
@@ -1610,9 +1598,7 @@ export default function StudioWorkspace(props: Props) {
             </>
           ) : (
             <>
-              <LibraryToolbarPlacement header={sessionBar.library} compact={compactLibraryHeader}>
-                {libraryToolbar}
-              </LibraryToolbarPlacement>
+              {libraryToolbar}
               {metadataOpen && <StudioMetadataFilter />}
               <StudioBrowser
                 {...browserProps}
@@ -1621,6 +1607,7 @@ export default function StudioWorkspace(props: Props) {
                 onOpen={onOpen}
                 size={size}
                 onClearSelection={clearLibrarySelection}
+                onImport={() => runAppCommand("import_photos")}
                 listing={JSON.stringify([currentFolderPath, activeAlbumId, searchCriteria, filterCriteria, sortCriteria])}
               />
               {panels.bars && (

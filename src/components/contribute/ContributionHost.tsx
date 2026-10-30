@@ -16,7 +16,6 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { useUIStore } from "../../store/useUIStore";
 import Button from "../ui/Button";
 import Text from "../ui/Text";
-import { TextVariants } from "../../types/typography";
 import CameraHelpDialog from "./CameraHelpDialog";
 import CrashReportDialog from "./CrashReportDialog";
 import ProblemReportDialog from "./ProblemReportDialog";
@@ -60,7 +59,7 @@ function CrashQuestion({
     <div
       aria-labelledby="crash-question-title"
       aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center z-[9999] bg-black/30 backdrop-blur-xs"
+      className="studio-dialog-backdrop"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -71,22 +70,24 @@ function CrashQuestion({
       role="dialog"
     >
       <div
-        className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md flex flex-col gap-3 text-text-primary"
+        className="studio-dialog"
         ref={panel}
         tabIndex={-1}
       >
-        <Text variant={TextVariants.title} id="crash-question-title">
+        <h2 className="studio-dialog-title" id="crash-question-title">
           {t("contribute.crash.question")}
-        </Text>
+        </h2>
         <Text color="secondary">{t("contribute.crash.questionDetail", { date: record.crashedOn })}</Text>
-        <div className="flex flex-wrap justify-end gap-3 mt-2">
+        <div className="studio-dialog-footer">
           <Button variant="ghost" onClick={onNever}>
             {t("contribute.crash.never")}
           </Button>
-          <Button variant="ghost" onClick={onNotNow} data-autofocus>
-            {t("contribute.crash.notNow")}
-          </Button>
-          <Button onClick={onReview}>{t("contribute.crash.review")}</Button>
+          <div className="studio-dialog-footer-end">
+            <Button variant="ghost" onClick={onNotNow} data-autofocus>
+              {t("contribute.crash.notNow")}
+            </Button>
+            <Button onClick={onReview}>{t("contribute.crash.review")}</Button>
+          </div>
         </div>
       </div>
     </div>

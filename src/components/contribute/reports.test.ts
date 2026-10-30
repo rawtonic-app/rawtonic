@@ -3,6 +3,7 @@ import {
   MAX_URL,
   crashPayload,
   githubIssue,
+  makerAndName,
   photoInfo,
   plainName,
   reportMarkdown,
@@ -184,5 +185,16 @@ describe('the camera test result', () => {
     expect(issue.body.startsWith('### Rawtonic camera test')).toBe(true);
     expect(issue.body).toContain('Shortened to fit a link');
     expect(reportMarkdown(body(report))).toBe(report);
+  });
+});
+
+describe('makerAndName', () => {
+  it('names the maker once', () => {
+    expect(makerAndName('Canon', 'Canon EOS 7D')).toBe('Canon EOS 7D');
+    expect(makerAndName('apple', 'Apple M5 Pro')).toBe('Apple M5 Pro');
+    expect(makerAndName('NIKON CORPORATION', 'NIKON Z 6')).toBe('NIKON Z 6');
+    expect(makerAndName('NIKON', 'Z 6')).toBe('NIKON Z 6');
+    expect(makerAndName('Leica', 'Leicaflex')).toBe('Leica Leicaflex');
+    expect(makerAndName('nvidia', undefined)).toBe('nvidia');
   });
 });

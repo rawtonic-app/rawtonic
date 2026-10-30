@@ -6,8 +6,6 @@ let order = 0;
 const histories = new WeakMap<Adjustments[], number[]>();
 const listeners = new Set<() => void>();
 export const nextUndoOrder = () => ++order;
-/** The newest undo order given out (taking none). */
-export const currentUndoOrder = () => order;
 export const historyOrders = (history: Adjustments[]) =>
   histories.get(history) ?? history.map(() => 0);
 export const editUndoOrder = (history: Adjustments[], index: number) =>

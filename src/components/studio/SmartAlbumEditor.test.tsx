@@ -9,7 +9,9 @@ import {
   parseExposure,
   useSmartAlbumEditor,
 } from "./SmartAlbumEditor";
+import { RawStatus } from "../ui/AppProperties";
 import { useLibraryStore } from "../../store/useLibraryStore";
+import { filterAsRule } from "../../utils/librarySearch";
 import { SESSION_ALBUMS_CHANGED } from "./StudioAlbums";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -38,6 +40,21 @@ const settle = () =>
   });
 
 describe("smart album editor", () => {
+  it("shows a project-relative folder while retaining its full path for editing and saving", async () => {
+    render(<SmartAlbumEditorHost />);
+    act(() => useSmartAlbumEditor.getState().open({ name: "Folder", parent: null, rules: { combine: "all", rules: [{ field: "folder", op: "is", value: "/job/Capture/Portraits" }] } }));
+    await settle();
+    const input = within(screen.getByRole("group", { name: "Folder" })).getByLabelText("Value") as HTMLInputElement;
+    expect(input.value).toBe("Capture/Portraits");
+    expect(input.title).toBe("/job/Capture/Portraits");
+    fireEvent.focus(input);
+    expect(input.value).toBe("/job/Capture/Portraits");
+    fireEvent.blur(input);
+    expect(input.value).toBe("Capture/Portraits");
+    await act(async () => fireEvent.click(screen.getByText("Create")));
+    expect(mockInvoke).toHaveBeenCalledWith("session_create_smart_album", expect.objectContaining({ rules: { combine: "all", rules: [{ field: "folder", op: "is", value: "/job/Capture/Portraits" }] } }));
+  });
+
   it("builds nested rules, shows what they match and creates the album", async () => {
     render(<SmartAlbumEditorHost />);
     act(() =>
@@ -49,7 +66,7 @@ describe("smart album editor", () => {
     );
     await settle();
     const dialog = screen.getByRole("dialog", { name: "New smart album" });
-    expect(within(dialog).getByRole("status").textContent).toBe("Matches 2 photographs now");
+    expect(within(dialog).getByRole("status").textContent).toBe("Matches 2 photos now");
 
     // The first rule becomes "Camera contains …"; a group of any two rules follows.
     const rule = within(dialog).getByRole("group", { name: "Rating" });
@@ -273,6 +290,53 @@ it("saves localized AI and provenance choices using catalog codes", async () => 
       { field: "sourceType", op: "is", value: ["trainedAlgorithmicMedia", "none"] },
     ] },
   });
+});
+
+it("reopens \"No AI edits\" saved from the Library as the chosen none filter", async () => {
+  // What the Library saves: choosing "No AI edits" is the catalog's `empty`.
+  const saved = filterAsRule(null, "", { ai: [""] }, { colors: [], rating: 0, rawStatus: RawStatus.All });
+  expect(saved?.rules).toEqual([{ field: "ai", op: "empty" }]);
+  render(<SmartAlbumEditorHost />);
+  act(() => useSmartAlbumEditor.getState().open({ id: "s", name: "No AI edits", parent: null, rules: saved! }));
+  await settle();
+  const ai = within(screen.getByRole("group", { name: "AI edit" }));
+  // The rule shows the filter the Library shows, not an operator its list lacks.
+  expect((ai.getByLabelText("Comparison") as HTMLSelectElement).value).toBe("is");
+  const none = ai.getByLabelText("No AI edits") as HTMLInputElement;
+  expect(none.type).toBe("checkbox");
+  expect(none.checked).toBe(true);
+  await settle();
+  // Saving an untouched album keeps the stored rule's meaning.
+  await act(async () => { fireEvent.click(screen.getByText("Save")); });
+  expect(mockInvoke).toHaveBeenCalledWith("session_set_smart_album_rules", {
+    directory: "/job", id: "s",
+    // The choice, in the form the editor saves choices (the catalog finds the same).
+    rules: { combine: "all", rules: [{ field: "ai", op: "is", value: ["none"] }] },
+  });
+  // The rule the Library saved and the one the editor now shows are the same
+  // filter (the search the editor runs counts the shown rule's photographs).
+  expect(saved?.rules).toEqual([{ field: "ai", op: "empty" }]);
+  const searches = mockInvoke.mock.calls.filter(([command]) => command === "session_search");
+  expect(searches.map(([, args]) => (args as { rule: unknown }).rule)).toEqual([
+    { combine: "all", rules: [{ field: "ai", op: "is", value: ["none"] }] },
+  ]);
+});
+
+it("keeps other old AI rules as stored, with the choice operators to choose", async () => {
+  render(<SmartAlbumEditorHost />);
+  act(() => useSmartAlbumEditor.getState().open({
+    name: "AI work", parent: null,
+    rules: { combine: "all", rules: [{ field: "ai", op: "is", value: "generated" }] },
+  }));
+  await settle();
+  const ai = within(screen.getByRole("group", { name: "AI edit" }));
+  const comparison = ai.getByLabelText("Comparison") as HTMLSelectElement;
+  const ops = Array.from(comparison.options).map((o) => o.value);
+  expect(ops).toEqual(["is", "isNot"]);
+  await act(async () => { fireEvent.click(screen.getByText("Create")); });
+  expect(mockInvoke).toHaveBeenCalledWith("session_create_smart_album", expect.objectContaining({
+    rules: { combine: "all", rules: [{ field: "ai", op: "is", value: "generated" }] },
+  }));
 });
 
 it("shows an unfamiliar source type selected from the Library so it can be removed", async () => {
