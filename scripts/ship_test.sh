@@ -254,6 +254,15 @@ grep -qx "Read,Grep,Glob" "$T/claude-args" || fail "claude reviewer not limited 
 grep -qx -- "--strict-mcp-config" "$T/claude-args" || fail "claude reviewer may load MCP servers"
 grep -qx -- "--setting-sources" "$T/claude-args" || fail "claude reviewer loads user/project settings"
 grep -q "unreviewed-real" "$T/claude-prompt" || fail "diff missing from the claude prompt"
+previous=$(git -C "$T/wt-unreviewed-real" rev-parse HEAD)
+grep -q '"branch": "unreviewed-real"' "$(git -C "$T/wt-unreviewed-real" rev-parse --git-dir)/rawtonic-review/$previous.json" || fail "branch not stored"
+echo 'later-round sentinel' >"$T/wt-unreviewed-real/later.txt"
+git -C "$T/wt-unreviewed-real" add later.txt
+git -C "$T/wt-unreviewed-real" commit -q -m "fix: later round"
+(cd "$T/wt-unreviewed-real" && env -u RAWTONIC_REVIEWER -u CLAUDECODE CODEX_THREAD_ID=t sh scripts/review.sh) >"$T/out" 2>&1 || fail "later claude review exited $?"
+sed -n '/## Incremental diff since earlier review/,$p' "$T/claude-prompt" >"$T/incremental"
+grep -q '+later-round sentinel' "$T/incremental" || fail "incremental diff missing from Claude prompt"
+grep -q 'diff --git a/unreviewed-real.txt' "$T/incremental" && fail "incremental diff includes unchanged branch work"
 rm "$T/bin/claude"
 
 if [ "$FAILS" != 0 ]; then

@@ -22,9 +22,10 @@ class EarlierRoundTest(unittest.TestCase):
         self.git("commit", "-q", "-m", name)
         return self.git("rev-parse", "HEAD")
 
-    def verdict(self, sha, mtime, findings):
+    def verdict(self, sha, mtime, findings, branch=None):
         path = self.store / f"{sha}.json"
-        path.write_text(json.dumps({"verdict": "changes_requested", "findings": findings}))
+        path.write_text(json.dumps({"verdict": "changes_requested", "findings": findings,
+                                    **({"branch": branch} if branch is not None else {})}))
         os.utime(path, (mtime, mtime))
 
     def run_helper(self, head):
@@ -69,6 +70,43 @@ class EarlierRoundTest(unittest.TestCase):
         self.assertEqual(self.run_helper(head), "")
         self.verdict(base, 500, [])
         self.assertIn("review round 2", self.run_helper(head))
+
+    def test_rebase_keeps_branch_rounds_and_uses_endpoint_diff(self):
+        base = self.commit("base")
+        self.git("checkout", "-q", "-b", "topic")
+        first = self.commit("a")
+        self.verdict(first, 1000, [], branch="topic")
+        second = self.commit("b")
+        self.verdict(second, 2000, [
+            {"severity": "blocking", "file": "b", "line": 1, "issue": "fix me"}
+        ], branch="topic")
+        self.git("checkout", "-q", "-b", "upstream", base)
+        self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "upstream")
+        head = self.commit("fix")
+        out = self.run_helper(head)
+        self.assertIn("review round 3", out)
+        self.assertIn("fix me", out)
+        self.assertIn(f"git diff {second} HEAD", out)
+        previous = subprocess.check_output(
+            [sys.executable, str(HELPER), str(self.store), head, "--previous"],
+            cwd=self.root, text=True,
+        ).strip()
+        self.assertEqual(previous, second)
+
+    def test_amend_keeps_round_but_other_branch_metadata_is_ignored(self):
+        self.commit("base")
+        self.git("checkout", "-q", "-b", "topic")
+        previous = self.commit("a")
+        self.verdict(previous, 1000, [], branch="topic")
+        (self.root / "a").write_text("fixed")
+        self.git("add", "a")
+        self.git("commit", "--amend", "-q", "--no-edit")
+        head = self.git("rev-parse", "HEAD")
+        self.assertIn("review round 2", self.run_helper(head))
+        self.verdict(previous, 2000, [], branch="different")
+        self.assertEqual(self.run_helper(head), "")
 
 
 if __name__ == "__main__":
