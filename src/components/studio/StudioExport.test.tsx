@@ -28,8 +28,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(() => Promise.resolve("/out")),
   save: vi.fn(() => Promise.resolve("/out/a.jpg")),
 }));
-vi.mock("../../activity/notify", () => ({
-  notify: { error: vi.fn(), success: vi.fn() },
+vi.mock("react-toastify", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
 }));
 
 /** The exports the form queued: one request per recipe, queued together. */
@@ -965,4 +965,19 @@ it("discloses copyright retention and offers opt-in contact retention when strip
   expect(include.checked).toBe(false);
   fireEvent.click(include);
   expect(include.checked).toBe(true);
+});
+
+it("keeps a visible edge on its footer buttons in Windows contrast themes", () => {
+  useProcessStore.setState({
+    exportState: { status: Status.Exporting, errorMessage: "", progress: { current: 1, total: 2 } },
+  });
+  render(<StudioExport />);
+  const footer = document.querySelector(".studio-export-form footer");
+  expect(footer).toBeTruthy();
+  // Cancel and Export are plain buttons; the forced-colours rule of
+  // studio.css (checked by forcedColors.test.ts) gives them their edge.
+  const buttons = [...footer!.querySelectorAll("button")];
+  expect(buttons.length).toBeGreaterThan(1);
+  expect(buttons.every((button) => !button.classList.contains("studio-button"))).toBe(true);
+  expect(buttons.map((button) => button.textContent)).toEqual(["Cancel export", "Add to queue"]);
 });

@@ -5831,6 +5831,10 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   .studio-dialog {
     border-color: CanvasText;
   }
+  /* The Export dialog's footer buttons are plain buttons, which the studio's
+     button reset gives no border: a contrast theme drew them without an edge
+     (WQ4 of the Windows qualification). */
+  .studio-export-form footer button,
   button.studio-button,
   .studio-dialog textarea,
   .studio-dialog input:not([type="checkbox"], [type="radio"]) {
@@ -5856,6 +5860,7 @@ button.studio-button.is-destructive:hover:not(:disabled) {
     .studio-dialog :focus-visible,
     button.studio-button:focus-visible,
     button.studio-button.is-default:focus,
+    .studio-export-form footer button:focus-visible,
     input[type='checkbox']:focus-visible,
     input[type='radio']:focus-visible {
       outline: 2px solid Highlight !important;
