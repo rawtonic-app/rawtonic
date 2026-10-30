@@ -1789,7 +1789,8 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("analytics_compute");
-        let histogram_data = image_processing::calculate_histogram_from_image(&job.image).ok();
+        let histogram_data =
+            image_processing::calculate_histogram_from_image(&job.image, job.clipped).ok();
         let waveform_data = if job.compute_waveform {
             image_processing::calculate_waveform_from_image(
                 &job.image,

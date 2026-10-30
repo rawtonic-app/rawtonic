@@ -2807,16 +2807,21 @@
     },
     "histogram": {
       "aria": "影像色階分佈圖",
-      "clipping": "剪裁",
-      "clippingTitle": "剪裁警告：剪裁的亮部顯示為紅色，剪裁的陰影顯示為藍色（{{shortcut}}）",
+      "clippingAria": "溢色警告",
       "gamut": "色域警告",
       "gamutTitle": "色域警告：超出校樣色彩空間的顏色顯示為紅色",
       "graphAria": "所選照片的 RGB 亮度分佈",
       "graphEmpty": "開啟照片後可查看色階分佈圖",
+      "highlightClipping": "高光警告",
+      "highlightClippingLit": "高光警告，已溢出",
+      "highlightClippingTitle": "高光警告（溢出的高光，{{shortcut}} 同時切換兩側）",
       "proof": "校樣",
       "proofSpace": "校樣色彩空間",
       "proofTitle": "螢幕校樣：依所選色彩空間匯出後的效果顯示照片（{{shortcut}}）",
       "selectPhoto": "選擇一張照片",
+      "shadowClipping": "陰影警告",
+      "shadowClippingLit": "陰影警告，已壓暗",
+      "shadowClippingTitle": "陰影警告（壓暗的陰影，{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
     },
     "layers": {

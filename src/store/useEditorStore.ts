@@ -135,9 +135,11 @@ interface EditorState {
   /** The colour editor range shown in the tool. */
   activeColorRangeId: string | null;
   /** View only, never in the recipe: the colour range whose selection is
-   * shown, and clipping warnings (Lightroom's J). */
+   * shown, and the clipping warnings (red for clipped highlights, blue for
+   * clipped shadows; J switches both, utils/clippingWarnings). */
   colorRangeShow: string | null;
-  clippingWarnings: boolean;
+  clipHighlights: boolean;
+  clipShadows: boolean;
   /** View only: one layer or component shown alone (utils/layerSolo). */
   layerSolo: LayerSolo | null;
   /** View only: soft proofing (Lightroom's Soft Proofing) shows the photo as
@@ -292,7 +294,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeColorRangeId: null,
   colorRangeShow: null,
   layerSolo: null,
-  clippingWarnings: false,
+  clipHighlights: false,
+  clipShadows: false,
   softProof: false,
   softProofSpace: 'srgb',
   softProofWarning: false,

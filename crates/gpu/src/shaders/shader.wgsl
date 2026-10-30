@@ -374,6 +374,14 @@ struct AllAdjustments {
 // RENDER_REGION_GROUPS_X-wide grid, and assigned to the regions in order.
 @group(0) @binding(16) var<storage, read> render_regions: array<vec4<u32>>;
 
+// Display frames: the histogram's image, addressed like output_texture. The
+// colour before the clipping warnings and the colour range view replaced it
+// (as output_texture would hold it without them), and in alpha the clipping
+// sides of the pixel (1 shadows, 2 highlights, as bytes; the warnings'
+// predicates, whether a warning is on or not). Other renders bind a 1 x 1
+// texture, which `main` leaves alone.
+@group(0) @binding(28) var analytics_output: texture_storage_2d<rgba8unorm, write>;
+
 // Display frames: the layers' slider sums per pixel (layer_sums.wgsl). Header:
 // vec4 0 holds the bit set of the sliders some layer sets (LAYER_SUM_PARAMS,
 // two words), unused, and the pixel count; vec4 1 the width, the mask index
@@ -7635,8 +7643,13 @@ fn main(
         default_tonemapped = apply_base_curve(default_tonemapped, u32(adjustments.global.base_curve + 0.5));
     }
     var range_view = -1.0;
+    // `show_clipping`: 0 none, 0x40000001 highlights only, 0x40000002
+    // shadows only, 1 both (below); otherwise `2 + index` shows that colour
+    // range (crates/engine `color_range_view_index`, at most eight). The
+    // side flags stay above any index, so the bound keeps them out.
     if (adjustments.global.show_clipping >= 2u
-        && adjustments.global.show_clipping - 2u < adjustments.global.color_range_count.x) {
+        && adjustments.global.show_clipping - 2u < adjustments.global.color_range_count.x
+        && adjustments.global.show_clipping - 2u < 8u) {
         range_view = color_range_view_weight(default_tonemapped, adjustments.global.show_clipping - 2u);
     }
     if (adjustments.global.color_range_count.x > 0u) {
@@ -7798,14 +7811,23 @@ fn main(
         final_rgb = apply_film_grain(final_rgb, absolute_coord);
     }
 
-    if (adjustments.global.show_clipping == 1u) {
+    // Clipping warnings, each side on its own (`show_clipping` as above):
+    // one side's flag, or 1 for both.
+    let warn_highlights = adjustments.global.show_clipping == 1u
+        || adjustments.global.show_clipping == 0x40000001u;
+    let warn_shadows = adjustments.global.show_clipping == 1u
+        || adjustments.global.show_clipping == 0x40000002u;
+    let HIGHLIGHT_CLIP_THRESHOLD = 0.998;
+    let SHADOW_CLIP_THRESHOLD = 0.002;
+    let clips_highlights = any(final_rgb > vec3<f32>(HIGHLIGHT_CLIP_THRESHOLD));
+    let clips_shadows = any(final_rgb < vec3<f32>(SHADOW_CLIP_THRESHOLD));
+    let unmarked_rgb = final_rgb;
+    if (warn_highlights || warn_shadows) {
         let HIGHLIGHT_WARNING_COLOR = vec3<f32>(1.0, 0.0, 0.0);
         let SHADOW_WARNING_COLOR = vec3<f32>(0.0, 0.0, 1.0);
-        let HIGHLIGHT_CLIP_THRESHOLD = 0.998;
-        let SHADOW_CLIP_THRESHOLD = 0.002;
-        if (any(final_rgb > vec3<f32>(HIGHLIGHT_CLIP_THRESHOLD))) {
+        if (warn_highlights && clips_highlights) {
             final_rgb = HIGHLIGHT_WARNING_COLOR;
-        } else if (any(final_rgb < vec3<f32>(SHADOW_CLIP_THRESHOLD))) {
+        } else if (warn_shadows && clips_shadows) {
             final_rgb = SHADOW_WARNING_COLOR;
         }
     }
@@ -7821,6 +7843,7 @@ fn main(
         return;
     }
 
+    let marked = any(final_rgb != unmarked_rgb);
     final_rgb = encode_output(final_rgb);
 
     if (HIGH_PRECISION_OUTPUT == 0u) {
@@ -7828,7 +7851,21 @@ fn main(
         final_rgb += dither(id.xy) * dither_amount;
     }
 
-    textureStore(output_texture, id.xy, vec4<f32>(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), original_alpha));
+    let output_rgb = clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    textureStore(output_texture, id.xy, vec4<f32>(output_rgb, original_alpha));
+
+    if (textureDimensions(analytics_output).x > 1u) {
+        var analytics_rgb = output_rgb;
+        if (marked) {
+            analytics_rgb = encode_output(unmarked_rgb);
+            if (HIGH_PRECISION_OUTPUT == 0u) {
+                analytics_rgb += dither(id.xy) * (1.0 / 255.0);
+            }
+            analytics_rgb = clamp(analytics_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        let sides = select(0.0, 1.0, clips_shadows) + select(0.0, 2.0, clips_highlights);
+        textureStore(analytics_output, id.xy, vec4<f32>(analytics_rgb, sides / 255.0));
+    }
 }
 
 // The colours `main` stored with DEFER_OUTPUT, addressed like output_texture.

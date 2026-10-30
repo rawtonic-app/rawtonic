@@ -355,11 +355,64 @@
 .studio-section-caption span:last-child {
   color: #8e9296;
 }
+.studio-histogram-plot {
+  position: relative;
+}
 .studio-histogram svg {
   width: 100%;
   height: 82px;
   background: #202123;
   display: block;
+}
+/* Clipping corners over the plot (StudioHistogram): a triangle per side,
+   switched on by a click, lit when that side of the histogram clips. */
+.studio-histogram .studio-clip-corners {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+}
+/* The corner layers lie over the plot: transparent, not the plot's own
+   `.studio-histogram svg` background, or they would hide the histogram. */
+.studio-histogram .studio-clip-corners > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  background: transparent;
+}
+.studio-histogram .studio-clip-corners g {
+  pointer-events: auto;
+  cursor: pointer;
+  outline: none;
+}
+.studio-histogram .studio-clip-corners g:focus-visible .studio-clip-corner-hit {
+  stroke: #eef0f3;
+  stroke-width: 1;
+}
+.studio-clip-corner-hit {
+  fill: transparent;
+}
+.studio-clip-corner-mark {
+  fill: #6f747a;
+  stroke: #202123;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+/* Switched on even though nothing clips: dimmed in that side's colour. */
+.studio-clip-shadows.is-on .studio-clip-corner-mark {
+  fill: #4d74a8;
+}
+.studio-clip-highlights.is-on .studio-clip-corner-mark {
+  fill: #b35454;
+}
+/* This side clips: full colour, switched on or not. */
+.studio-clip-shadows.is-lit .studio-clip-corner-mark {
+  fill: #3f7fe0;
+}
+.studio-clip-highlights.is-lit .studio-clip-corner-mark {
+  fill: #e04848;
 }
 .histogram-red {
   fill: #c9676780;

@@ -2924,16 +2924,21 @@
     },
     "histogram": {
       "aria": "Istogramma dell'immagine",
-      "clipping": "Clipping",
-      "clippingTitle": "Avvisi di clipping: luci tagliate in rosso, ombre tagliate in blu ({{shortcut}})",
+      "clippingAria": "Avvisi di clipping",
       "gamut": "Avviso gamut",
       "gamutTitle": "Avviso gamut: colori fuori dallo spazio colore di prova in rosso",
       "graphAria": "Distribuzione della luminanza RGB della foto selezionata",
       "graphEmpty": "Istogramma disponibile dopo l'apertura di una foto",
+      "highlightClipping": "Avviso alte luci",
+      "highlightClippingLit": "Avviso alte luci, bruciate",
+      "highlightClippingTitle": "Avviso alte luci (alte luci bruciate; {{shortcut}} attiva entrambi)",
       "proof": "Prova",
       "proofSpace": "Spazio colore di prova",
       "proofTitle": "Prova a schermo: mostra la foto come apparirà un'esportazione nello spazio colore scelto ({{shortcut}})",
       "selectPhoto": "Seleziona una foto",
+      "shadowClipping": "Avviso ombre",
+      "shadowClippingLit": "Avviso ombre, chiuse",
+      "shadowClippingTitle": "Avviso ombre (ombre chiuse; {{shortcut}} attiva entrambi)",
       "title": "Istogramma"
     },
     "layers": {

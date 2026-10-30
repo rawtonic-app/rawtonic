@@ -2924,16 +2924,21 @@
     },
     "histogram": {
       "aria": "Histograma da imagem",
-      "clipping": "Corte",
-      "clippingTitle": "Avisos de corte: realces cortados em vermelho, sombras cortadas em azul ({{shortcut}})",
+      "clippingAria": "Avisos de corte",
       "gamut": "Aviso de gama",
       "gamutTitle": "Aviso de gama: cores fora do espaço de cor da prova em vermelho",
       "graphAria": "Distribuição de luminância RGB da foto selecionada",
       "graphEmpty": "Histograma disponível após abrir uma foto",
+      "highlightClipping": "Aviso de altas-luzes",
+      "highlightClippingLit": "Aviso de altas-luzes, estouradas",
+      "highlightClippingTitle": "Aviso de altas-luzes (altas-luzes estouradas; {{shortcut}} alterna ambos)",
       "proof": "Prova",
       "proofSpace": "Espaço de cor da prova",
       "proofTitle": "Prova suave: mostra a foto como uma exportação no espaço de cor escolhido aparecerá ({{shortcut}})",
       "selectPhoto": "Selecione uma foto",
+      "shadowClipping": "Aviso de sombras",
+      "shadowClippingLit": "Aviso de sombras, esmagadas",
+      "shadowClippingTitle": "Aviso de sombras (sombras esmagadas; {{shortcut}} alterna ambos)",
       "title": "Histograma"
     },
     "layers": {
