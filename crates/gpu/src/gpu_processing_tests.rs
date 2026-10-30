@@ -15187,13 +15187,15 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
     };
     let (plain, analytics) = display_frame(0);
     let rgb_of = |rgba: &[u8]| -> Vec<u8> {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect()
     };
     // Without a warning the histogram's image is the display frame.
     assert_eq!(rgb_of(&analytics), rgb_of(&plain));
-    let marks: Vec<u8> = analytics.chunks_exact(4).map(|p| p[3]).collect();
+    let marks: Vec<u8> = analytics.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
     let marked = |bit: u8| marks.iter().filter(|&&m| m & bit != 0).count();
     let (shadows, highlights) = (marked(1), marked(2));
     let both = marks.iter().filter(|&&m| m == 3).count();
@@ -15229,10 +15231,10 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
         );
         // The display marks exactly the clipped pixels of the warnings on,
         // highlights first, and leaves every other pixel as it was.
-        for i in 0..(WIDTH * HEIGHT) as usize {
-            let expected = if warn_highlights && marks[i] & 2 != 0 {
+        for (i, &mark) in marks.iter().enumerate() {
+            let expected = if warn_highlights && mark & 2 != 0 {
                 red
-            } else if warn_shadows && marks[i] & 1 != 0 {
+            } else if warn_shadows && mark & 1 != 0 {
                 blue
             } else {
                 pixel(&plain, i)
