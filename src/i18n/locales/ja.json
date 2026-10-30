@@ -1221,6 +1221,7 @@
       "failed": "前回のライブラリを開けませんでした: {{error}}",
       "opening": "{{name}} を開いています（{{directory}}）… macOS がこのボリュームへのアクセスを求めた場合は許可してください。"
     },
+    "switching": "ライブラリを開いています…",
     "sync": {
       "applied": "移動 {{moved}} · 追加 {{added}} · 削除 {{removed}}",
       "apply": "適用（{{n}}）",

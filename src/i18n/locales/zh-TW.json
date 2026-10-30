@@ -1221,6 +1221,7 @@
       "failed": "無法開啟上次的圖庫：{{error}}",
       "opening": "正在開啟 {{name}}（{{directory}}）… 如果 macOS 要求存取此卷宗，請允許。"
     },
+    "switching": "正在開啟資料庫…",
     "sync": {
       "applied": "已移動 {{moved}} · 已加入 {{added}} · 已移除 {{removed}}",
       "apply": "套用（{{n}}）",

@@ -271,6 +271,9 @@ export interface UIState {
   folderActionTarget: string | null;
 
   confirmModalState: ConfirmModalState;
+  /** A library switch is past its save barrier and the next library is
+   * opening: nothing can be edited (`LibrarySwitchShield`). */
+  switchingLibrary: boolean;
   mergeModalState: MergeModalState;
   negativeModalState: NegativeConversionModalState;
   cullingModalState: CullingModalState;
@@ -378,6 +381,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   folderActionTarget: null,
 
   confirmModalState: { isOpen: false },
+  switchingLibrary: false,
   mergeModalState: CLOSED_MERGE_MODAL,
   negativeModalState: { isOpen: false, targetPaths: [] },
   cullingModalState: { isOpen: false, suggestions: null, progress: null, error: null, pathsToCull: [] },

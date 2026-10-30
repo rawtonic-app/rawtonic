@@ -1288,6 +1288,7 @@
       "failed": "No s’ha pogut obrir l’última biblioteca: {{error}}",
       "opening": "S’està obrint {{name}} ({{directory}})… Si el macOS demana accés a aquest volum, permet-lo."
     },
+    "switching": "S’està obrint la biblioteca…",
     "sync": {
       "applied": "Mogudes {{moved}} · Afegides {{added}} · Tretes {{removed}}",
       "apply": "Aplica ({{n}})",

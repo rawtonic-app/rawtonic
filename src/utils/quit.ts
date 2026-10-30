@@ -86,10 +86,14 @@ export async function switchLibraryAfterSaves<T>(
     if (choice === 'discard') break;
   }
   const ends = [...resets].map((reset) => reset());
+  // Until the next library is open the photo shown is still the old one's:
+  // an edit made now could be saved in neither, so none can be made.
+  useUIStore.getState().setUI({ switchingLibrary: true });
   try {
     return await open();
   } finally {
     ends.forEach((end) => end());
+    useUIStore.getState().setUI({ switchingLibrary: false });
   }
 }
 

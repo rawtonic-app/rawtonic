@@ -4,6 +4,7 @@ import { debouncedSave, flushRecipeSaves } from '../hooks/useEditorActions';
 import { switchLibraryAfterSaves, type UnsavedChoice } from './quit';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 import { Invokes } from '../components/ui/AppProperties';
+import { useUIStore } from '../store/useUIStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
@@ -100,4 +101,20 @@ it('drops a debounced save made during the switch instead of writing it to the n
   } finally {
     warn.mockRestore();
   }
+});
+
+it('makes the app inert while the next library opens, and only then', async () => {
+  const during: boolean[] = [];
+  const opened = await switchLibraryAfterSaves(async () => {
+    during.push(useUIStore.getState().switchingLibrary);
+    return open('B')();
+  });
+  expect(opened).toBe('B');
+  expect(during).toEqual([true]);
+  expect(useUIStore.getState().switchingLibrary).toBe(false);
+  // Also when opening fails.
+  await expect(switchLibraryAfterSaves(async () => {
+    throw new Error('gone');
+  })).rejects.toThrow('gone');
+  expect(useUIStore.getState().switchingLibrary).toBe(false);
 });

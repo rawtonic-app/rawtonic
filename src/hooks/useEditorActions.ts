@@ -81,7 +81,8 @@ let switchingLibrary = false;
 const writeRecipe = debounce((path: string, adjustmentsToSave: Adjustments, epoch: number) => {
   if (epoch !== libraryEpoch || switchingLibrary) {
     // Made before or during a library switch: written now it would go to
-    // the library opened since.
+    // the library opened since. (The app is inert during a switch,
+    // LibrarySwitchShield, so no edit of the user's should get here.)
     console.warn(`Dropped a save of ${path} made before the library was switched.`);
     return Promise.resolve(undefined);
   }
@@ -141,21 +142,38 @@ function scheduleUnsavedEditorRecipe() {
   if (scheduled.adjustments !== adjustments) debouncedSave(selectedImage.path, adjustments);
 }
 
+/** Another writer of recipes with edits of its own still gathering or
+ * failed (Edit all selected): writes them now; resolves with the
+ * photographs still not saved. */
+export type RecipeFlush = () => Promise<string[]>;
+const recipeFlushes = new Set<RecipeFlush>();
+
+/** Has `flushRecipeSaves` write `flush`'s edits too; returns its
+ * unregistration. */
+export function registerRecipeFlush(flush: RecipeFlush): () => void {
+  recipeFlushes.add(flush);
+  return () => {
+    recipeFlushes.delete(flush);
+  };
+}
+
 /**
  * Writes the debounced recipe save now (with the open photograph's edit in
- * progress) and waits for every save in flight; recipes whose save failed
- * earlier are tried once more. Resolves with the photographs whose recipe
- * is still not saved (quitting, utils/quit.ts).
+ * progress) and the edits other writers gather (`registerRecipeFlush`), and
+ * waits for every save in flight; recipes whose save failed earlier are
+ * tried once more. Resolves with the photographs whose recipe is still not
+ * saved (exporting, file operations, quitting and switching library).
  */
 export async function flushRecipeSaves(): Promise<string[]> {
   // A drag's moves since the last store commit are only a draft.
   flushSliderDraft();
   scheduleUnsavedEditorRecipe();
   debouncedSave.flush();
+  const others = Promise.all([...recipeFlushes].map((flush) => flush()));
   while (pendingMetadataSaves.size > 0) {
     await Promise.all(pendingMetadataSaves.values());
   }
-  const failed: string[] = [];
+  const failed: string[] = (await others).flat();
   for (const [path, adjustments] of [...unsavedRecipes]) {
     // Gone meanwhile: saved, superseded or left with a switched library.
     if (unsavedRecipes.get(path) !== adjustments) continue;
@@ -167,7 +185,7 @@ export async function flushRecipeSaves(): Promise<string[]> {
       failed.push(path);
     }
   }
-  return failed;
+  return [...new Set(failed)];
 }
 
 registerQuitFlush(async () =>

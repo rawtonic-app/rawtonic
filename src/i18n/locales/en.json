@@ -1245,6 +1245,7 @@
       "failed": "Last library could not open: {{error}}",
       "opening": "Opening {{name}} ({{directory}})… If macOS asks for access to this volume, allow it."
     },
+    "switching": "Opening library…",
     "sync": {
       "applied": "Moved {{moved}} · Added {{added}} · Removed {{removed}}",
       "apply": "Apply ({{n}})",

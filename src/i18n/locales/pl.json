@@ -1331,6 +1331,7 @@
       "failed": "Nie udało się otworzyć ostatniej biblioteki: {{error}}",
       "opening": "Otwieranie {{name}} ({{directory}})… Jeśli macOS poprosi o dostęp do tego woluminu, zezwól na niego."
     },
+    "switching": "Otwieranie biblioteki…",
     "sync": {
       "applied": "Przeniesione: {{moved}} · Dodane: {{added}} · Usunięte: {{removed}}",
       "apply": "Zastosuj ({{n}})",

@@ -1221,6 +1221,7 @@
       "failed": "无法打开上次的图库：{{error}}",
       "opening": "正在打开 {{name}}（{{directory}}）… 如果 macOS 请求访问此宗卷，请允许。"
     },
+    "switching": "正在打开资料库…",
     "sync": {
       "applied": "已移动 {{moved}} · 已添加 {{added}} · 已移除 {{removed}}",
       "apply": "应用（{{n}}）",

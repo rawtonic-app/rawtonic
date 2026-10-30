@@ -1288,6 +1288,7 @@
       "failed": "No se pudo abrir la última biblioteca: {{error}}",
       "opening": "Abriendo {{name}} ({{directory}})… Si macOS pide acceso a este volumen, permítelo."
     },
+    "switching": "Abriendo la biblioteca…",
     "sync": {
       "applied": "Movidas {{moved}} · Añadidas {{added}} · Quitadas {{removed}}",
       "apply": "Aplicar ({{n}})",

@@ -5,12 +5,12 @@ import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useEditorActions } from './useEditorActions';
+import { registerRecipeFlush, useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { registerLibrarySwitchReset, registerQuitFlush } from '../utils/quit';
+import { registerLibrarySwitchReset } from '../utils/quit';
 import {
   sameAdjustmentValue,
   withClarityVersion,
@@ -171,9 +171,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         sendLive();
       });
     }, EDIT_ALL_SETTLE_MS);
-    // Quitting or switching library: what was gathered is written now, into
-    // the library it was made in; what failed is tried again (a failure
-    // holds the switch: Retry, Discard or Cancel, utils/quit.ts).
+    // Exporting, quitting or switching library (`flushRecipeSaves`): what
+    // was gathered is written now, into the library it was made in; what
+    // failed is tried again, and what still fails is named (an export
+    // stops; a switch asks Retry, Discard or Cancel, utils/quit.ts).
     const drain = async (): Promise<string[]> => {
       flush.flush();
       while (writing.size > 0) await Promise.all(writing);
@@ -182,9 +183,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         if (done) await done;
       }
       while (writing.size > 0) await Promise.all(writing);
-      return [...unwritten.keys()].map((path) => `Edits of ${path.split(/[\\/]/).pop() ?? path}`);
+      return [...unwritten.keys()];
     };
-    const unregisterFlush = registerQuitFlush(drain);
+    const unregisterFlush = registerRecipeFlush(drain);
     // Past the barrier: written or discarded; nothing gathered from now
     // until the switch ends is written into the next library.
     const unregisterReset = registerLibrarySwitchReset(() => {

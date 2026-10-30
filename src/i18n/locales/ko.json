@@ -1221,6 +1221,7 @@
       "failed": "마지막 라이브러리를 열 수 없습니다: {{error}}",
       "opening": "{{name}} 여는 중({{directory}})… macOS에서 이 볼륨에 대한 접근을 요청하면 허용하세요."
     },
+    "switching": "라이브러리를 여는 중…",
     "sync": {
       "applied": "이동 {{moved}} · 추가 {{added}} · 제거 {{removed}}",
       "apply": "적용 ({{n}})",

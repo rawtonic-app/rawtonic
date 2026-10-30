@@ -3,7 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, livePatch, useEditAllSelected } from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
-import { waitForPendingMetadataSave } from './useEditorActions';
+import { flushRecipeSaves, waitForPendingMetadataSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -336,6 +336,30 @@ describe('Edit all selected', () => {
       });
       expect(written.B).toEqual([]);
       expect(pasted()).toHaveLength(1);
+    });
+
+    it('is written before an export reads the recipes, and an export is told what failed', async () => {
+      renderHook(() => useEditAllSelected(true, selection));
+      edit({ exposure: 0.5 });
+      // Exported within the settle time: written first.
+      await act(async () => {
+        expect(await flushRecipeSaves()).toEqual([]);
+      });
+      expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      failing = true;
+      edit({ exposure: 0.7 });
+      let unsaved: string[] = [];
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      // Tried again by the next flush.
+      failing = false;
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual([]);
+      expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3', '/s/a.CR3', '/s/c.CR3']);
     });
 
     it('holds the switch while the write failed: Retry writes it into the library it was made in', async () => {

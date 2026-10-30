@@ -1245,6 +1245,7 @@
       "failed": "Die letzte Bibliothek konnte nicht geöffnet werden: {{error}}",
       "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlaube ihn."
     },
+    "switching": "Bibliothek wird geöffnet …",
     "sync": {
       "applied": "Verschoben {{moved}} · Hinzugefügt {{added}} · Entfernt {{removed}}",
       "apply": "Übernehmen ({{n}})",
