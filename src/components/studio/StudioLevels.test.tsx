@@ -18,6 +18,7 @@ import {
   type Adjustments,
 } from "../../utils/adjustments";
 import { debouncedSetHistory, useEditorStore } from "../../store/useEditorStore";
+import { flushSliderDraft, registerSliderDraftRenderer, renderDraft } from "../../utils/sliderDraft";
 import { linearFromSrgb } from "../../utils/targetedAdjustment";
 import TargetedAdjustmentOverlay from "../panel/editor/TargetedAdjustmentOverlay";
 import { LEVELS_HISTOGRAM_DELAY_MS, StudioLevels } from "./StudioLevels";
@@ -539,6 +540,47 @@ describe("Levels picker on the photo", () => {
     const levels = useEditorStore.getState().adjustments.levels!;
     for (const c of ["red", "green", "blue"] as const)
       expect(levels[c]).toMatchObject({ inBlack: 90 });
+  });
+
+  it("checks a reply against a slider drag that is not committed yet", async () => {
+    const answers: ((pixels: unknown) => void)[] = [];
+    invoke.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const unregister = registerSliderDraftRenderer(() => true);
+    const commits: Adjustments[] = [];
+    const commit = (_: string, a: Adjustments) => commits.push(a);
+    try {
+      const el = overlay();
+      const press = async () => {
+        fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+        await act(async () => {});
+      };
+      // A Levels output drag pending: the pick keeps it and still applies.
+      const arm = pickerBar();
+      await press();
+      const base = useEditorStore.getState().adjustments;
+      const dragged = structuredClone(base);
+      dragged.levels!.rgb.outWhite = 200;
+      renderDraft("/s/a.NEF", dragged, commit);
+      await act(async () => answers[0]([linearFromSrgb([30, 30, 30])]));
+      flushSliderDraft();
+      const levels = useEditorStore.getState().adjustments.levels!;
+      expect(levels.rgb.outWhite).toBe(200);
+      // The channels receive the composite's output: 30 through outWhite 200.
+      for (const c of ["red", "green", "blue"] as const)
+        expect(levels[c].inBlack).toBe(Math.round((30 * 200) / 255));
+      // An exposure drag pending: Levels' input changed, the reply is void.
+      arm();
+      await press();
+      const before = useEditorStore.getState().adjustments;
+      const exposed = structuredClone(before);
+      exposed.exposure = before.exposure + 1;
+      renderDraft("/s/a.NEF", exposed, commit);
+      await act(async () => answers[1]([linearFromSrgb([60, 60, 60])]));
+      expect(useEditorStore.getState().adjustments.levels).toEqual(before.levels);
+      flushSliderDraft();
+    } finally {
+      unregister();
+    }
   });
 
   it("leaves the levels alone without a sample", async () => {

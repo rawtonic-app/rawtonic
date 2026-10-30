@@ -15,6 +15,7 @@ import {
   type TatStart,
 } from "../../../utils/targetedAdjustment";
 import { Invokes } from "../../ui/AppProperties";
+import { draftFor } from "../../../utils/sliderDraft";
 
 /** Pointer travel (px) a press may move and still be a click. */
 const CLICK_SLOP = 2;
@@ -162,16 +163,20 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
         { ...point, adjustments: { ...adjustments, levels: INITIAL_LEVELS } },
       ).catch(() => null);
       const now = useEditorStore.getState();
+      // A slider drag's newest values may not be committed yet (sliderDraft):
+      // check and compute against them, so a pending drag is neither undone
+      // nor answered with a sample of the values before it.
+      const current = draftFor(path) ?? now.adjustments;
       if (
         now.selectedImage !== selectedImage ||
         now.tatTarget !== tatTarget ||
         now.levelsPickerPress !== press ||
         now.levelsChannel !== channel ||
-        levelsInputKey(path, now.adjustments) !== input
+        levelsInputKey(path, current) !== input
       )
         return;
       const levels = pickedLevels(
-        now.adjustments.levels,
+        current.levels,
         channel,
         tatTarget === "levelsBlack" ? "black" : "white",
         pixels,
