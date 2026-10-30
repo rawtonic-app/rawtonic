@@ -15,7 +15,9 @@ import {
   formatBytes,
 } from "./StudioMetadata";
 import { useLibraryStore } from "../../store/useLibraryStore";
+import { toast } from "react-toastify";
 import { useEditorStore } from "../../store/useEditorStore";
+import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
 import type { ImageFile } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -406,5 +408,54 @@ describe("instant details", () => {
     expect(screen.getByText("M-a.arw")).toBeTruthy();
     // The neighbours are ready for the next photo.
     expect(useLibraryStore.getState().imageList[1].exif).toEqual({ Model: "M-b.arw" });
+  });
+});
+
+describe("Keywords tool and the XMP count", () => {
+  // The session bar recounts its pending XMP on every settled photo write
+  // (PHOTO_WRITES_SETTLED): a keyword batch must announce itself through the
+  // photograph's write queue, also when it failed, or the bar never counts
+  // the sidecars after it.
+  const announced: string[] = [];
+  const settled = (event: Event) =>
+    announced.push((event as CustomEvent<{ kind: string }>).detail.kind);
+  beforeEach(() => {
+    announced.length = 0;
+    window.addEventListener(PHOTO_WRITES_SETTLED, settled);
+  });
+  afterEach(() => window.removeEventListener(PHOTO_WRITES_SETTLED, settled));
+
+  it("announces a keyword batch that failed once it settled, so the bar counts again", async () => {
+    mockInvoke.mockRejectedValue({ message: "Could not save 1 of 2 photos", failed: ["/job/Capture/b.arw"] });
+    render(<StudioKeywords />);
+    const input = screen.getByLabelText("Add keywords");
+    fireEvent.change(input, { target: { value: "harbour" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", {
+      paths: ["/job/Capture/a.arw", "/job/Capture/b.arw"],
+      tag: "user:harbour",
+    });
+    expect(toast.error).toHaveBeenCalled();
+    await vi.waitFor(() => expect(announced).toEqual(["keyword"]));
+  });
+
+  it("announces a successful keyword batch, and one waiting photograph is written in order", async () => {
+    let write: (value?: unknown) => void = () => {};
+    mockInvoke.mockImplementation(() => new Promise((resolve) => (write = resolve)));
+    render(<StudioKeywords />);
+    const input = screen.getByLabelText("Add keywords");
+    fireEvent.change(input, { target: { value: "pier, harbour" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    // The second keyword waits for the first: one queue, not two paths.
+    await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(1));
+    await act(async () => write(undefined));
+    await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(2));
+    await act(async () => write(undefined));
+    await vi.waitFor(() => expect(announced).toEqual(["keyword", "keyword"]));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });
