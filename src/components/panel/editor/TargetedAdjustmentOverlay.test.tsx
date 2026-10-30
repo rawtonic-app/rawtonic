@@ -19,7 +19,10 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import TargetedAdjustmentOverlay from "./TargetedAdjustmentOverlay";
-import { useEditorStore } from "../../../store/useEditorStore";
+import {
+  debouncedSetHistory,
+  useEditorStore,
+} from "../../../store/useEditorStore";
 import { INITIAL_ADJUSTMENTS } from "../../../utils/adjustments";
 import { linearFromSrgb } from "../../../utils/targetedAdjustment";
 
@@ -41,6 +44,8 @@ beforeEach(() => {
     adjustments: structuredClone(INITIAL_ADJUSTMENTS),
     tatTarget: "saturation",
     tatFocus: null,
+    curveChannel: "luma",
+    tatCurveMarker: null,
     isSliderDragging: false,
   });
   invoke.mockReset();
@@ -166,5 +171,116 @@ describe("targeted adjustment surface", () => {
     expect(invoke.mock.calls[0][1].adjustments.showClipping).not.toBe(true);
     expect(useEditorStore.getState().adjustments.regionCurve!.darks).toBe(5);
     useEditorStore.setState({ clippingWarnings: false });
+  });
+
+  const press = async (el: HTMLElement, y = 100) => {
+    await act(async () => {
+      fireEvent.pointerDown(el, {
+        button: 0,
+        clientX: 10,
+        clientY: y,
+        pointerId: 1,
+      });
+    });
+  };
+
+  it("moves the point curve of the channel the curve panel shows", async () => {
+    useEditorStore.setState({ tatTarget: "curve", curveChannel: "green" });
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
+    const el = surface();
+    await press(el);
+    // The press marks its input level on the curve.
+    expect(useEditorStore.getState().tatCurveMarker).toBe(100);
+    fireEvent.pointerMove(el, { clientX: 10, clientY: 80, pointerId: 1 });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    const { curves } = useEditorStore.getState().adjustments;
+    expect(curves.green).toContainEqual({ x: 100, y: 110 });
+    expect(curves.luma).toEqual(INITIAL_ADJUSTMENTS.curves.luma);
+  });
+
+  it("sets an anchor point on a click, also one that shakes a pixel", async () => {
+    useEditorStore.setState({ tatTarget: "curve" });
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
+    const el = surface();
+    await press(el);
+    fireEvent.pointerMove(el, { clientX: 10, clientY: 99, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 11, clientY: 102, pointerId: 1 });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.curves.luma).toEqual([
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 255, y: 255 },
+    ]);
+  });
+
+  it("makes one undo step of a whole drag", async () => {
+    useEditorStore.setState({ tatTarget: "curve" });
+    const before = useEditorStore.getState().adjustments;
+    useEditorStore.getState().resetHistory(before);
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
+    const el = surface();
+    await press(el, 200);
+    for (const y of [190, 170, 150, 160, 140])
+      fireEvent.pointerMove(el, { clientX: 10, clientY: y, pointerId: 1 });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    debouncedSetHistory.flush();
+    const { history, historyIndex, adjustments } = useEditorStore.getState();
+    expect(adjustments.curves.luma).toContainEqual({ x: 100, y: 130 });
+    expect(history).toHaveLength(2);
+    expect(historyIndex).toBe(1);
+    expect(history[0]).toEqual(before);
+    expect(history[1].curves.luma).toContainEqual({ x: 100, y: 130 });
+  });
+
+  it("marks the input level under the hovering pointer", async () => {
+    useEditorStore.setState({ tatTarget: "curve", curveChannel: "red" });
+    const lifted = structuredClone(INITIAL_ADJUSTMENTS);
+    lifted.curves.luma = [
+      { x: 0, y: 0 },
+      { x: 100, y: 120 },
+      { x: 255, y: 255 },
+    ];
+    useEditorStore.setState({ adjustments: lifted });
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
+    const el = surface();
+    await act(async () => {
+      fireEvent.pointerMove(el, { clientX: 200, clientY: 150, pointerId: 1 });
+    });
+    expect(invoke).toHaveBeenCalledWith("sample_curve_input", {
+      path: "/s/a.NEF",
+      normalizedX: 0.5,
+      normalizedY: 0.5,
+      adjustments: lifted,
+    });
+    // The red curve's input: the RGB curve's output.
+    expect(useEditorStore.getState().tatCurveMarker).toBe(120);
+    expect(useEditorStore.getState().adjustments).toBe(lifted);
+    fireEvent.pointerLeave(el);
+    expect(useEditorStore.getState().tatCurveMarker).toBeNull();
+    // A sample still on its way when the pointer leaves sets no marker.
+    let resolve!: (value: unknown) => void;
+    invoke.mockImplementation(() => new Promise((r) => (resolve = r)));
+    fireEvent.pointerMove(el, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerLeave(el);
+    await act(async () => resolve([linearFromSrgb([100, 100, 100])]));
+    expect(useEditorStore.getState().tatCurveMarker).toBeNull();
+    // Nor does a press sampled after a quick release and leave (the flick
+    // still applies).
+    fireEvent.pointerDown(el, {
+      button: 0,
+      clientX: 10,
+      clientY: 100,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    fireEvent.pointerLeave(el);
+    await act(async () => resolve([linearFromSrgb([100, 100, 100])]));
+    expect(useEditorStore.getState().tatCurveMarker).toBeNull();
+    expect(useEditorStore.getState().adjustments.curves.red).toHaveLength(3);
+    // Other targets do not sample on hover.
+    invoke.mockClear();
+    useEditorStore.setState({ tatTarget: "regionCurve" });
+    fireEvent.pointerMove(el, { clientX: 20, clientY: 20, pointerId: 1 });
+    expect(invoke).not.toHaveBeenCalled();
   });
 });
