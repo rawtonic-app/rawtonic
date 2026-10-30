@@ -144,13 +144,18 @@ export const LEVELS_HISTOGRAM_DELAY_MS = 150;
  * or the native source is replaced (the full decode after the preview
  * proxy, an AI Denoise source: a new `selectedImage` with the same path
  * and recipe) and the recipe has rested, never during a drag, and again
- * when a new preview frame arrives after the preview base was missing. An
- * answer for an earlier source or recipe is dropped. Reads the store
- * outside renders, so the tool does not re-render with every edit.
+ * when a new preview frame arrives after the preview base was missing.
+ * Nothing is asked while the tool is folded (its children stay mounted):
+ * the work scheduled then is dropped, and a reopened tool asks once if the
+ * key changed meanwhile. An answer for an earlier source or recipe is
+ * dropped. Reads the store outside renders, so the tool does not
+ * re-render with every edit.
  */
-function useLevelsInputCounts(): number[][] | null {
+function useLevelsInputCounts(open: boolean): number[][] | null {
   const [counts, setCounts] = useState<number[][] | null>(null);
   useEffect(() => {
+    // The tool folded (or left the panel): its work stops.
+    let gone = false;
     let key = "";
     let answered = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -160,6 +165,7 @@ function useLevelsInputCounts(): number[][] | null {
     let source = 0;
     const ask = () => {
       timer = null;
+      if (gone) return;
       const { selectedImage, adjustments, isSliderDragging } = useEditorStore.getState();
       if (!selectedImage?.isReady || isSliderDragging) return;
       const next = `${source}:${levelsInputKey(selectedImage.path, adjustments)}`;
@@ -176,7 +182,7 @@ function useLevelsInputCounts(): number[][] | null {
           }),
         )
         .then((result) => {
-          if (id !== request || asked !== source || !result) return;
+          if (gone || id !== request || asked !== source || !result) return;
           answered = true;
           setCounts(result);
         })
@@ -184,9 +190,11 @@ function useLevelsInputCounts(): number[][] | null {
     };
     const schedule = () => {
       if (timer !== null) clearTimeout(timer);
+      if (gone || !open) return;
       timer = setTimeout(ask, LEVELS_HISTOGRAM_DELAY_MS);
     };
-    schedule();
+    // Folded: nothing scheduled.
+    if (open) schedule();
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
       if (state.selectedImage?.path !== previous.selectedImage?.path) setCounts(null);
       if (state.selectedImage !== previous.selectedImage) source++;
@@ -199,11 +207,12 @@ function useLevelsInputCounts(): number[][] | null {
         schedule();
     });
     return () => {
+      gone = true;
       unsubscribe();
       if (timer !== null) clearTimeout(timer);
       request++;
     };
-  }, []);
+  }, [open]);
   return counts;
 }
 
@@ -228,7 +237,8 @@ export function StudioLevels({
   const tatTarget = useEditorStore((s) => s.tatTarget);
   const setEditor = useEditorStore((s) => s.setEditor);
   const histogram = useEditorStore((s) => s.histogram);
-  const inputCounts = useLevelsInputCounts();
+  const [open, setOpen] = useState(false);
+  const inputCounts = useLevelsInputCounts(open);
   const levels: Levels = { ...INITIAL_LEVELS, ...values.levels };
   const committed: Level = levelOf(levels, channel);
   // The level being edited shows at once: a drag's moves reach the recipe
@@ -353,11 +363,9 @@ export function StudioLevels({
       disabled={disabled}
       onClick={(e) => {
         e.preventDefault();
-        setEditor({
-          tatTarget: tatTarget === target ? null : target,
-          isWbPickerActive: false,
-          colorPickerTarget: null,
-        });
+        setEditor({ isWbPickerActive: false, colorPickerTarget: null });
+        // A new picker press voids the sample of any picker before it.
+        useEditorStore.getState().setTatTarget(tatTarget === target ? null : target);
       }}
     >
       <Pipette size={12} />
@@ -370,6 +378,7 @@ export function StudioLevels({
       toggle={toggle}
       copy={copy}
       open={false}
+      onOpenChange={setOpen}
       actions={
         <button
           type="button"

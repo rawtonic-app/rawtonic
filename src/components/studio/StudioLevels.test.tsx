@@ -202,6 +202,15 @@ describe("Levels panel", () => {
 });
 
 describe("Levels input histogram", () => {
+  /** The group starts folded (ToolGroup keeps its children mounted):
+   * clicking its header opens it. */
+  const toggleGroup = () =>
+    act(() => {
+      fireEvent.click(screen.getByText("Levels"));
+      // jsdom leaves a controlled <details> as its `open` prop set it.
+      fireEvent(screen.getByText("Levels").closest("details")!, new Event("toggle"));
+    });
+
   it("asks once the recipe rests, never for Levels' own edits or during drags", async () => {
     vi.useFakeTimers();
     try {
@@ -214,7 +223,9 @@ describe("Levels input histogram", () => {
       const asked = () =>
         invoke.mock.calls.filter(([name]) => name === "levels_input_histogram").length;
       renderLevels();
+      await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
       expect(asked()).toBe(0);
+      toggleGroup();
       await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
       expect(asked()).toBe(1);
       expect(invoke).toHaveBeenCalledWith("levels_input_histogram", {
@@ -269,6 +280,7 @@ describe("Levels input histogram", () => {
         });
       const rest = () => act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
       renderLevels();
+      toggleGroup();
       await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
       expect(asked()).toBe(1);
       // An answered proxy: the full decode (same path and recipe) asks again.
@@ -287,6 +299,70 @@ describe("Levels input histogram", () => {
       await act(async () => answers[2](peak(128)));
       expect(red()).not.toContain("L64.25098039215686 2 ");
       expect(red()).toContain("L128.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks nothing while folded and once on reopening when the key changed", async () => {
+    vi.useFakeTimers();
+    try {
+      const peak = (at: number) =>
+        [0, 1, 2].map(() => {
+          const c = new Array(256).fill(0);
+          c[at] = 50;
+          return c;
+        });
+      const answers: ((counts: number[][]) => void)[] = [];
+      invoke.mockImplementation(
+        () => new Promise<number[][]>((resolve) => answers.push(resolve)),
+      );
+      const asked = () =>
+        invoke.mock.calls.filter(([name]) => name === "levels_input_histogram").length;
+      const rest = () => act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
+      const set = (patch: Partial<Adjustments>) =>
+        act(async () => {
+          useEditorStore.setState((s) => ({
+            adjustments: { ...s.adjustments, ...patch },
+          }));
+        });
+      const levelsEdit = (inBlack: number) =>
+        set({ levels: { ...INITIAL_LEVELS, rgb: { ...INITIAL_LEVELS.rgb, inBlack } } });
+      const red = () => document.querySelector(".histogram-red")?.getAttribute("d") ?? "";
+      renderLevels();
+      // Folded: an edit holds no whole-preview render back, however long
+      // its rest.
+      await levelsEdit(10);
+      await set({ exposure: 1 });
+      await rest();
+      expect(asked()).toBe(0);
+      // Opened: one request, answered.
+      toggleGroup();
+      await rest();
+      expect(asked()).toBe(1);
+      await act(async () => answers[0](peak(64)));
+      expect(red()).toContain("L64.25098039215686 2 ");
+      // Folded again: an edit and its rest ask nothing while folded.
+      toggleGroup();
+      expect(document.querySelector("details")?.open).toBe(false);
+      await levelsEdit(20);
+      await set({ exposure: 2 });
+      await rest();
+      expect(asked()).toBe(1);
+      // A Levels edit does not change what Levels receive: reopened, the
+      // counts ask again (the key changed before) but stay shown meanwhile.
+      toggleGroup();
+      await rest();
+      expect(asked()).toBe(2);
+      const shown = red();
+      toggleGroup();
+      await levelsEdit(30);
+      toggleGroup();
+      await rest();
+      // Levels edits alone: the counts shown are for the current key.
+      await set({ exposure: 2 });
+      await rest();
+      expect(red()).toBe(shown);
     } finally {
       vi.useRealTimers();
     }
@@ -397,6 +473,51 @@ describe("Levels picker on the photo", () => {
     useEditorStore.setState({ levelsChannel: "green" });
     await act(async () => answer([linearFromSrgb([200, 200, 200])]));
     expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
+  });
+
+  /** The picker buttons turn a press on and off through the store, as the
+   * panel does; the overlay follows `tatTarget`. */
+  const pickerBar = () => {
+    renderLevels();
+    const black = screen.getByRole("button", { name: "Black point picker" });
+    fireEvent.click(black);
+    return () => fireEvent.click(black);
+  };
+
+  it("applies only the latest press: A, off, on, B; A then B arriving late", async () => {
+    const answers: ((pixels: unknown) => void)[] = [];
+    invoke.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const el = overlay();
+    const press = async (x: number) => {
+      fireEvent.pointerDown(el, { button: 0, clientX: x, clientY: 10, pointerId: 1 });
+      await act(async () => {});
+    };
+    const clickBlack = pickerBar();
+    await press(10);
+    // Off and on again: a new press on the same picker.
+    clickBlack();
+    clickBlack();
+    await press(200);
+    expect(answers).toHaveLength(2);
+    // A answers first (black 30), then B (black 90): only B applies.
+    await act(async () => answers[0]([linearFromSrgb([30, 30, 30])]));
+    expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
+    expect(useEditorStore.getState().tatTarget).toBe("levelsBlack");
+    await act(async () => answers[1]([linearFromSrgb([90, 90, 90])]));
+    const levels = useEditorStore.getState().adjustments.levels!;
+    expect(levels.rgb).toEqual(INITIAL_LEVELS.rgb);
+    for (const c of ["red", "green", "blue"] as const)
+      expect(levels[c]).toMatchObject({ inBlack: 90, inWhite: 255 });
+    // The applied press turned the picker off.
+    expect(useEditorStore.getState().tatTarget).toBeNull();
+    // A then off, no new press: A's answer changes nothing.
+    const before = useEditorStore.getState().adjustments;
+    clickBlack();
+    await press(10);
+    clickBlack();
+    expect(useEditorStore.getState().tatTarget).toBeNull();
+    await act(async () => answers[2]([linearFromSrgb([30, 30, 30])]));
+    expect(useEditorStore.getState().adjustments).toBe(before);
   });
 
   it("leaves the levels alone without a sample", async () => {

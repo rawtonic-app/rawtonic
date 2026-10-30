@@ -113,8 +113,14 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const onPointerDown = async (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const view = useEditorStore.getState();
-    const { selectedImage, adjustments, tatTarget, curveChannel, setEditor } =
-      view;
+    const {
+      selectedImage,
+      adjustments,
+      tatTarget,
+      curveChannel,
+      setEditor,
+      levelsPickerPress,
+    } = view;
     if (!selectedImage?.isReady || !tatTarget) return;
     hover.current.inside = true;
     try {
@@ -142,8 +148,11 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       drag.current = null;
       // The channel, recipe and native source clicked for: a tab switch, a
       // recipe edit (but to the levels) or a replaced source (the full
-      // decode after the proxy) while sampling drops the sample.
+      // decode after the proxy) while sampling drops the sample — and so
+      // does a later press or a picker turned off and on again (only the
+      // latest press applies).
       const channel = view.levelsChannel;
+      const press = levelsPickerPress;
       const input = levelsInputKey(path, adjustments);
       const pixels = await invoke<[number, number, number][] | null>(
         Invokes.SampleCurveInput,
@@ -153,6 +162,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       if (
         now.selectedImage !== selectedImage ||
         now.tatTarget !== tatTarget ||
+        now.levelsPickerPress !== press ||
         now.levelsChannel !== channel ||
         levelsInputKey(path, now.adjustments) !== input
       )
