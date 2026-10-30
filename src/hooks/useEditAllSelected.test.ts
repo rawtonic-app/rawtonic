@@ -417,6 +417,36 @@ describe('Edit all selected', () => {
       expect(exposures()).toEqual([0.5, 0.9]);
     });
 
+    it('gives a failed write to the editor when its photo opens; a flush never changes the editor', async () => {
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ exposure: 0.5 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      rerender({ on: false });
+      // c.CR3 opens: it shows the edit that failed to be written, as an
+      // edit of it the editor saves.
+      act(() =>
+        useEditorStore.setState({
+          selectedImage: { path: '/s/c.CR3', isReady: true, width: 6000, height: 4000 } as never,
+          adjustments: { ...INITIAL_ADJUSTMENTS } as Adjustments,
+        }),
+      );
+      expect(useEditorStore.getState().adjustments.exposure).toBe(0.5);
+      failing = false;
+      const shown = useEditorStore.getState().adjustments;
+      let unsaved: string[] = [];
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual([]);
+      // a.CR3 is written to its file; the open c.CR3 is left to the editor,
+      // which the flush did not change.
+      expect(written.A).toEqual(['/s/a.CR3']);
+      expect(useEditorStore.getState().adjustments).toBe(shown);
+    });
+
     it('holds the switch while the write failed: Retry writes it into the library it was made in', async () => {
       renderHook(() => useEditAllSelected(true, selection));
       edit({ exposure: 0.5 });

@@ -63,6 +63,28 @@ onRecipeWritten((path, keys) => {
   else unwritten.delete(path);
 });
 
+/** The photograph open in the editor, once loaded. */
+const openInEditor = () => {
+  const image = useEditorStore.getState().selectedImage;
+  return image?.isReady ? image.path : null;
+};
+
+/** A photograph whose write failed is given it in the editor once it is
+ * open there: as an edit of it, shown and saved (or reported unsaved) as
+ * every edit is. Written to its file instead, the editor would show and
+ * save (and an export take) its recipe without it. */
+function takeIntoEditor() {
+  const path = openInEditor();
+  const left = path ? unwritten.get(path) : undefined;
+  if (!path || !left) return;
+  unwritten.delete(path);
+  void left.apply(left.changes, [path], { openingNow: true, pasteFrom: left.from, replaceLayers: true });
+}
+useEditorStore.subscribe((state, previous) => {
+  const image = state.selectedImage;
+  if (image?.isReady && (image.path !== previous.selectedImage?.path || !previous.selectedImage?.isReady)) takeIntoEditor();
+});
+
 /** Writes `changes` from `from` to `others`; keeps what failed for a retry
  * (what succeeded supersedes older failures, `onRecipeWritten`). */
 function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, others: string[], from: string) {
@@ -74,6 +96,7 @@ function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, othe
       const left = unwritten.get(path);
       unwritten.set(path, { changes: { ...left?.changes, ...changes }, from, apply });
     }
+    takeIntoEditor();
   });
   writing.add(settled);
   void settled.then(() => writing.delete(settled));
@@ -88,8 +111,9 @@ registerRecipeFlush(async () => {
   gathered.forEach((write) => write());
   while (writing.size > 0) await Promise.all(writing);
   for (const [path, { changes, from, apply }] of [...unwritten]) {
-    // Superseded meanwhile.
-    if (unwritten.get(path)?.changes !== changes) continue;
+    // Superseded meanwhile, or the editor's (never changed by a flush: an
+    // export has taken the editor's recipe already).
+    if (unwritten.get(path)?.changes !== changes || path === openInEditor()) continue;
     unwritten.delete(path);
     const done = writeToOthers(apply, changes, [path], from);
     if (done) await done;
