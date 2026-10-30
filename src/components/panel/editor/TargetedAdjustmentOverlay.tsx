@@ -55,7 +55,11 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
      * dropped). */
     inside: boolean;
     gone: boolean;
-  }>({ busy: false, next: null, inside: false, gone: false });
+    /** Taken by every hover sample and every press: a reply applies only
+     * while it is still the latest, so a sample issued before a press cannot
+     * mark over the press's finished marker. */
+    generation: number;
+  }>({ busy: false, next: null, inside: false, gone: false, generation: 0 });
   useEffect(() => {
     const h = hover.current;
     h.gone = false;
@@ -74,6 +78,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const { selectedImage, adjustments, tatTarget } = view;
     if (!selectedImage?.isReady || tatTarget !== "curve") return;
     h.busy = true;
+    const issued = ++h.generation;
     const path = selectedImage.path;
     const pixels = await invoke<[number, number, number][] | null>(
       Invokes.SampleCurveInput,
@@ -81,8 +86,10 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     ).catch(() => null);
     h.busy = false;
     const now = useEditorStore.getState();
-    // A press since, or the tool or photo changed: the press marks it.
+    // A press or a newer sample since, or the tool or photo changed: the
+    // press marks it.
     if (
+      h.generation === issued &&
       !h.gone &&
       h.inside &&
       !drag.current &&
@@ -123,6 +130,10 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       levelsPickerPress,
     } = view;
     if (!selectedImage?.isReady || !tatTarget) return;
+    // Each press takes the next value: a hover sample still on its way
+    // no longer applies, the press marks its own input level.
+    hover.current.generation += 1;
+    hover.current.next = null;
     hover.current.inside = true;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
