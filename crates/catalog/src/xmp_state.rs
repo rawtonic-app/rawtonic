@@ -4,6 +4,7 @@
 
 use crate::Library;
 use anyhow::Result;
+use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -223,23 +224,58 @@ impl Library {
         Ok(check)
     }
 
+    /// Runs inside `mark_changed_elsewhere`'s transaction right after a
+    /// mark, before the next photograph is looked at: nothing to fail in the
+    /// app, nothing unless a test armed a step (`Library::fail_when_marking`).
+    #[cfg(any(test, feature = "test-support"))]
+    fn step_marked(&self) -> Result<()> {
+        let step = self.markings.lock().unwrap_or_else(|e| e.into_inner());
+        match *step {
+            None => Ok(()),
+            Some(ref step) => step(),
+        }
+    }
+
     /// Marks the photographs `check_xmp_sidecars` found as changed elsewhere,
     /// so the session bar counts them and its panel offers Keep library and
     /// Use XMP. Each is looked at again first (`xmp_problem`, as the panel
     /// lists it): one whose sidecar is back as the library left it, that went
     /// offline, or that an edit made pending meanwhile is left as it is.
-    /// Writes only the catalog; returns how many were marked.
+    /// Writes only the catalog, in one transaction: a failure part-way keeps
+    /// none of the marks, so the session bar never shows half of what one
+    /// check found. Returns how many were marked.
     pub fn mark_changed_elsewhere(&self, ids: &[String]) -> Result<usize> {
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let mut marked = 0;
         for id in ids {
-            let path = self.asset(id)?.path;
+            // The photograph as the transaction sees it: the check's reads
+            // are not in it, and one edited by a concurrent write lands as a
+            // whole row (or not at all), one removed meanwhile is left out.
+            let Some(path): Option<PathBuf> = tx
+                .query_row(
+                    "SELECT r.path,r.external,a.rel_path FROM assets a JOIN roots r ON r.id=a.root_id WHERE a.id=?",
+                    [id],
+                    |r| Ok(self.join_root(r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?
+            else {
+                continue;
+            };
             if self.xmp_problem(id, &path)? == Some(XmpProblem::ChangedElsewhere) {
-                marked += self.conn.execute(
+                let updated = tx.execute(
                     "UPDATE metadata SET xmp_status='conflict' WHERE asset_id=? AND xmp_status='synced'",
                     [id],
                 )?;
+                marked += updated;
+                // Only a photograph still in sync is marked: a test's step
+                // lands after a real mark, not after a skipped one.
+                #[cfg(any(test, feature = "test-support"))]
+                if updated > 0 {
+                    self.step_marked()?;
+                }
             }
         }
+        tx.commit()?;
         Ok(marked)
     }
 }

@@ -176,7 +176,16 @@ pub struct Library {
     /// The import batch new assets join (`Library::import_batch`): its kind
     /// and, once its first asset is in, its id.
     import: std::cell::Cell<Option<(ImportKind, Option<i64>)>>,
+    /// A test's step inside `mark_changed_elsewhere`'s transaction
+    /// (`Library::fail_when_marking`): nothing, unless a test armed one.
+    #[cfg(any(test, feature = "test-support"))]
+    markings: std::sync::Mutex<Option<MarkStep>>,
 }
+
+/// A test's step inside `mark_changed_elsewhere`'s transaction, after a mark
+/// (`Library::fail_when_marking`): `Err` fails the mark as a write would.
+#[cfg(any(test, feature = "test-support"))]
+pub type MarkStep = Box<dyn Fn() -> Result<()> + Send>;
 
 pub fn validate_relative(path: &Path) -> Result<()> {
     ensure!(
@@ -361,6 +370,8 @@ impl Library {
             manifest,
             conn,
             import: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            markings: Default::default(),
         })
     }
 
@@ -398,6 +409,8 @@ impl Library {
             manifest,
             conn,
             import: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            markings: Default::default(),
         })
     }
 
@@ -2548,6 +2561,14 @@ impl Library {
             folder.display()
         );
         record_volume(&self.conn, &external_root_key(&folder), volume)
+    }
+
+    /// Runs `step` inside `mark_changed_elsewhere`'s transaction after each
+    /// photograph it marks, so a test can fail that mark as a full disk
+    /// would.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn fail_when_marking(&self, step: MarkStep) {
+        *self.markings.lock().unwrap_or_else(|e| e.into_inner()) = Some(step);
     }
 }
 

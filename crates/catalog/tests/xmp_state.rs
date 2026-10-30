@@ -1,3 +1,5 @@
+#![cfg(feature = "test-support")] // Library::fail_when_marking
+
 //! Which photographs count as "XMP not saved" in the session bar, and
 //! writing them again (O-03/C17 of the 2026-10-28 UI review).
 
@@ -322,6 +324,55 @@ fn a_folder_check_looks_only_at_that_folder() {
     let mut seen = SidecarStamps::default();
     let check = lib.check_xmp_sidecars(Some(&selects), &mut seen).unwrap();
     assert_eq!((check.checked, check.changed), (1, vec![ids[1].clone()]));
+}
+
+/// G60 (Codex on #451): the photographs one check found are marked in one
+/// transaction: either every one of them is marked or none is, so the
+/// session bar never shows half of what one check found.
+#[test]
+fn one_check_marks_its_photographs_in_one_transaction() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "D.ARW"]);
+    rated_and_written(&lib, &ids);
+    for path in &paths {
+        fs::write(path.with_extension("xmp"), "another program").unwrap();
+    }
+    let mut seen = SidecarStamps::default();
+    let check = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert_eq!(check.changed, ids);
+    let conflicting = |lib: &Library| {
+        lib.xmp_unsynced()
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.problem == Some(XmpProblem::ChangedElsewhere))
+            .count()
+    };
+    assert_eq!(conflicting(&lib), 0, "in sync until marked");
+
+    // The second of four marks fails, as a full disk would fail it: the
+    // first is made, the three after it are never reached. With a commit per
+    // photograph the first would be marked.
+    let marks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = marks.clone();
+    lib.fail_when_marking(Box::new(move || {
+        if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+            anyhow::bail!("injected write failure")
+        }
+        Ok(())
+    }));
+    assert!(lib.mark_changed_elsewhere(&check.changed).is_err());
+    assert_eq!(conflicting(&lib), 0, "none marked: the check rolled back");
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+
+    // Without the failure the same check marks all four.
+    let lib = Library::open(&lib.directory).unwrap();
+    assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 4);
+    assert_eq!(conflicting(&lib), 4);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 4);
+    // The photographs themselves are never written.
+    for (path, name) in paths.iter().zip(["A.ARW", "B.ARW", "C.ARW", "D.ARW"]) {
+        assert_eq!(fs::read(path).unwrap(), format!("raw {name}").into_bytes());
+    }
 }
 
 #[test]
