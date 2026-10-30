@@ -3259,8 +3259,10 @@
             "is": "为"
           },
           "choice": {
+            "empty": "无值",
             "is": "为",
-            "isNot": "不为"
+            "isNot": "不为",
+            "notEmpty": "有值"
           },
           "date": {
             "between": "介于",

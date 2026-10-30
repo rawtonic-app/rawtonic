@@ -3259,8 +3259,10 @@
             "is": "為"
           },
           "choice": {
+            "empty": "無值",
             "is": "為",
-            "isNot": "不為"
+            "isNot": "不為",
+            "notEmpty": "有值"
           },
           "date": {
             "between": "介於",

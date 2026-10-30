@@ -3326,8 +3326,10 @@
             "is": "is"
           },
           "choice": {
+            "empty": "has no value",
             "is": "is",
-            "isNot": "is not"
+            "isNot": "is not",
+            "notEmpty": "has a value"
           },
           "date": {
             "between": "is between",
