@@ -43,9 +43,6 @@ Rawtonic otherwise goes online only when you ask it to:
 - **Map.** In the Library's EXIF tool, "Show on map" loads a map of the photo's
   GPS position from openstreetmap.org, which then learns that position and
   your IP address. Nothing is loaded until you click.
-- **Generative AI server.** If you set up a generative AI server yourself
-  (ComfyUI, in Preferences), Rawtonic sends the photo and mask you edit to
-  that address. You control that server.
 - **Links** in the app open in your browser.
 
 Tethered shooting talks to the camera over its USB cable only; Rawtonic's

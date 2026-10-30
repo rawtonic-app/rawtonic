@@ -125,6 +125,7 @@ pub fn run_job(
     cancel: &AtomicBool,
     mut on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
+    let _sidecars = crate::capture::SidecarScope::new();
     let job = library.ingest_job(id)?;
     let options: JobOptions = serde_json::from_value(job.options.clone())?;
     let folder = options
@@ -645,6 +646,24 @@ mod tests {
         let sources = card(d.path());
         let card_dir = d.path().join("card");
         let away = d.path().join("away");
+        let move_card = |from: &Path, to: &Path| {
+            #[cfg(windows)]
+            {
+                // Windows refuses to rename an ancestor of an open file,
+                // even with delete sharing. The read-ahead intentionally
+                // retains those handles (ADR 0019). Move the synthetic leaf
+                // entries instead: every source path disappears at the same
+                // callback, while the reader keeps its normal open handles.
+                for source in &sources {
+                    let relative = source.strip_prefix(&card_dir).unwrap();
+                    let destination = to.join(relative);
+                    fs::create_dir_all(destination.parent().unwrap()).unwrap();
+                    fs::rename(from.join(relative), destination).unwrap();
+                }
+            }
+            #[cfg(not(windows))]
+            fs::rename(from, to).unwrap();
+        };
         let mut taken = false;
         let results = import_batch(
             &lib,
@@ -653,7 +672,7 @@ mod tests {
             &AtomicBool::new(false),
             |done| {
                 if done.index == 1 && !taken {
-                    fs::rename(&card_dir, &away).unwrap();
+                    move_card(&card_dir, &away);
                     taken = true;
                 }
             },
@@ -666,7 +685,7 @@ mod tests {
         let jobs = lib.unfinished_ingest_jobs().unwrap();
         assert_eq!(jobs[0].state, JobState::Interrupted);
         assert_eq!(JobSummary::of(&jobs[0]).available, 0);
-        fs::rename(&away, &card_dir).unwrap();
+        move_card(&away, &card_dir);
         assert_eq!(JobSummary::of(&jobs[0]).available, 3);
         run_job(&lib, &jobs[0].id, &AtomicBool::new(false), |_| {}).unwrap();
         assert_eq!(lib.summary().unwrap().assets, 4);

@@ -164,6 +164,8 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const stageRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
   const develop = useUIStore((s) => s.activeView === "editor");
+  const libraryLoupe = useUIStore((s) => s.activeView === "library" && s.libraryLoupe);
+  const viewer = develop || libraryLoupe;
   // The photograph alone (F) shows the primary only; the multi view comes
   // back when it ends.
   const fullScreen = useUIStore((s) => s.isFullScreen);
@@ -172,9 +174,10 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const { imageRatings, imageFlags } = useLibraryStore(
     useShallow((s) => ({ imageRatings: s.imageRatings, imageFlags: s.imageFlags })),
   );
-  const { enabled, editAll, unavailable, reference, setActive, setUnavailable } = useMultiViewStore(
+  const { enabled, libraryEnabled, editAll, unavailable, reference, setActive, setUnavailable } = useMultiViewStore(
     useShallow((s) => ({
       enabled: s.enabled,
+      libraryEnabled: s.libraryEnabled,
       editAll: s.editAll,
       unavailable: s.unavailable,
       reference: s.reference,
@@ -200,16 +203,21 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const count = selection.filter((path) => path !== pinned).length + (pinned ? 1 : 0);
   const aspect = useLayoutAspect([pinned ?? "", ...selection].join("\n"), primary);
   const active =
-    develop &&
+    viewer &&
     !fullScreen &&
-    enabled &&
+    (develop ? enabled : libraryEnabled) &&
     (osPlatform === "linux" || (useWgpu && !unavailable)) &&
     primary !== null &&
     count > 1 &&
     selection.includes(primary);
   useEffect(() => setActive(active), [active, setActive]);
-  // Leaving Develop unmounts the stage: the multi view ends as when it is left.
-  useEffect(() => () => setActive(false), [setActive]);
+  // A Library survey is for culling; a Develop batch-edit switch must not
+  // carry across when the stage stays mounted between modules.
+  useEffect(() => {
+    if (!develop) useMultiViewStore.getState().setEditAll(false);
+  }, [develop]);
+  // Leaving the viewer unmounts the stage and ends its temporary Library survey.
+  useEffect(() => () => { setActive(false); useMultiViewStore.getState().setLibraryEnabled(false); }, [setActive]);
   // The before/after split is single-view only: the multi view coming on
   // (N, or a second photograph selected) turns it off.
   useEffect(() => {
@@ -217,10 +225,10 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   }, [active]);
   // Edit all selected leaves the reference as it is (it is not selected).
   const editable = useMemo(() => selection.filter((path) => path !== pinned), [selection, pinned]);
-  useEditAllSelected(active && editAll, editable);
+  useEditAllSelected(active && editAll && develop, editable);
 
   const { shown, more } = useMemo(() => cellsFor(selection, primary, pinned), [selection, primary, pinned]);
-  // The proof margin (X) goes around the whole grid, not around each cell.
+  // The proof margin (Alt+X) goes around the whole grid, not around each cell.
   const { proofMarginOn, proofMarginPercent } = useSettingsStore(
     useShallow((s) => ({
       proofMarginOn: s.appSettings?.viewerProofMargin ?? false,

@@ -139,6 +139,7 @@
       "flag_unflag": "Usuń flagę",
       "import_photos": "Importuj zdjęcia…",
       "keyboard_shortcuts": "Skróty klawiszowe",
+      "match_light": "Wyrównaj światło…",
       "move_to_selects": "Przenieś do Wybranych",
       "new_session": "Nowy projekt lub katalog…",
       "open_session": "Otwórz projekt lub katalog…",
@@ -161,6 +162,7 @@
       "sync_settings": "Synchronizuj ustawienia",
       "tether_capture": "Wyzwól (aparat podłączony)",
       "toggle_all_panels": "Wszystkie panele i paski",
+      "toggle_auto_advance": "Automatyczne przejście",
       "toggle_bottom_panel": "Pasek zdjęć",
       "toggle_clipping": "Ostrzeżenia o przycięciu",
       "toggle_export": "Eksportuj…",
@@ -221,7 +223,10 @@
     "empty": "Brak pasujących poleceń. Spróbuj innego wyszukiwania.",
     "keys": "↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
     "recent": "Ostatnie polecenia najpierw · ↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
-    "search": "Szukaj poleceń…"
+    "search": "Szukaj poleceń…",
+    "selectAtMostPhotos": "Wybierz najwyżej {{max}} zdjęć",
+    "selectFourPhotos": "Wybierz co najmniej cztery zdjęcia",
+    "selectTwoPhotos": "Wybierz co najmniej dwa zdjęcia"
   },
   "contextMenus": {
     "album": {
@@ -1140,7 +1145,7 @@
       "location": "Lokalizacja",
       "modeLabel": "Organizacja",
       "name": "Nazwa projektu",
-      "namePlaceholder": "2026-10-01_Klient_Zlecenie",
+      "namePlaceholder": "{{date}}_Klient_Zlecenie",
       "namePreview": "Twoje zlecenie",
       "originalsUntouched": "Oryginalne zdjęcia pozostają nietknięte.",
       "session": "Projekt",
@@ -1383,6 +1388,13 @@
     "tether": {
       "battery": "Bateria {{level}}",
       "camera": "Aparat",
+      "canon": {
+        "badge": "Eksperymentalne",
+        "connectedNote": "Eksperymentalne: jeśli zdjęcie się tu nie pojawi, nie przepadło — jest na karcie pamięci. Zostaw kartę w aparacie. Rawtonic da ci znać, gdy zdjęcie wyzwolone z Rawtonic nie dotrze — chyba że w międzyczasie dotrze zdjęcie zrobione na aparacie i zajmie jego miejsce. Po sesji porównaj kartę z biblioteką.",
+        "notReceived": "Zdjęcie {{n}} nie dotarło. Jeśli aparat je zrobił, jest na karcie pamięci.",
+        "openPreferences": "Otwórz preferencje Tethering",
+        "optInNeeded": "Aparaty Canon nie były jeszcze testowane z Rawtonic. Aby wypróbować swój i pomóc w testach, włącz „Eksperymentalne: aparaty Canon” w Preferencje > Tethering."
+      },
       "capture": "Zrób zdjęcie",
       "captureFailed": "Zdjęcie nie powiodło się: {{error}}",
       "captureTitle": "Wyzwól aparat (⌘K / Ctrl+K)",
@@ -1399,6 +1411,7 @@
       "lastIn": "{{file}} jest w bibliotece",
       "lastTiming": "{{file}} w bibliotece {{ms}} ms po zdjęciu",
       "level": {
+        "experimental": "Eksperymentalne — szukamy testerów. Jeszcze nie testowane z Rawtonic: zdjęcie może się tu nie pojawić i wtedy jest tylko na karcie pamięci.",
         "notSupported": "Ten aparat nie jest jeszcze obsługiwany.",
         "reported": "Według użytkowników tego modelu aparatu działa.",
         "tested": "Przetestowano z tym modelem aparatu w {{systems}} ({{date}}).",
@@ -1416,6 +1429,14 @@
         "bursting": "{{shots}} zdjęć jedno po drugim…",
         "button": "Test aparatu…",
         "buttonTitle": "Przetestuj ten aparat krok po kroku i utwórz anonimowy raport",
+        "canonGuide": {
+          "card": "Przez cały test trzymaj kartę pamięci w aparacie.",
+          "missing": "Jeśli zdjęcie się nie pojawi, to też jest przydatna informacja: nadal jest na karcie pamięci, a test je liczy.",
+          "send": "Na koniec kliknij „{{button}}”. Zobaczysz dokładnie, co zostanie wysłane — bez zdjęć, nazw plików i numeru seryjnego — a nic nie opuści twojego komputera, dopóki tego nie potwierdzisz.",
+          "sendNote": "Ten wynik pochodzi z eksperymentalnej obsługi Canon. Dziękujemy za testowanie — każdy wynik pomaga, także taki, w którym zabrakło zdjęć.",
+          "steps": "Przejdź kolejno przez poniższe kroki: kliknij Uruchom i zrób to, o co prosi krok. Jeśli aparat nie potrafi wykonać kroku, kliknij Pomiń.",
+          "title": "Jak przetestować aparat Canon"
+        },
         "close": "Zamknij test aparatu",
         "how": {
           "autofocus": "Ustawia ostrość raz. Pomiń przy obiektywie manualnym lub MF w aparacie.",
@@ -1610,7 +1631,55 @@
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Baza danych biblioteki z poprawką Rawtonic dotyczącą blokowania WAL w systemie Windows.",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "Informacje",
       "general": "Ogólne",
       "processing": "Przetwarzanie",
       "shortcuts": "Sterowanie"
@@ -1689,7 +1758,7 @@
     },
     "general": {
       "autoAdvance": "Automatyczne przejście",
-      "autoAdvanceDesc": "W module Wywoływanie klawisz oceny, wyboru, odrzucenia lub usunięcia flagi przechodzi do następnego zdjęcia, więc selekcja wymaga jednego klawisza na zdjęcie.",
+      "autoAdvanceDesc": "Po ocenie lub oznaczeniu przechodzi do następnego zdjęcia od wyświetlanego albo pojedynczo wybranego w siatce. Przełącz klawiszem Caps Lock lub w menu Zdjęcie.",
       "builtinPresets": "Wbudowane ustawienia",
       "builtinPresetsDesc": "Pokazuj własne style i ustawienia Rawtonic w panelu Style i ustawienia oraz w menu ustawień narzędzi.",
       "createXmp": "Twórz brakujące pliki XMP",
@@ -1705,7 +1774,7 @@
       "nativeTitlebar": "Natywny pasek tytułu",
       "nativeTitlebarDesc": "Użyj domyślnego paska tytułu okna twojego systemu zamiast niestandardowego w Rawtonic.",
       "proofMargin": "Margines podglądu",
-      "proofMarginDesc": "Margines wokół dopasowanego zdjęcia, gdy margines podglądu jest włączony (X), jako część krótszego boku podglądu.",
+      "proofMarginDesc": "Margines wokół dopasowanego zdjęcia, gdy margines podglądu jest włączony (Alt+X), jako część krótszego boku podglądu.",
       "showBuiltinPresets": "Pokazuj wbudowane ustawienia",
       "title": "Ustawienia ogólne",
       "uiScale": "Rozmiar interfejsu",
@@ -1958,6 +2027,17 @@
       "shortcutsDesc": "Lista tagów, które będą widoczne jako szybkie skróty w menu kontekstowym tagowania.",
       "title": "Tagowanie"
     },
+    "tethering": {
+      "camerasLink": "Które aparaty działają i jak zgłosić swój",
+      "canon": "Eksperymentalne: aparaty Canon (pomóż w testach)",
+      "canonDesc": "Pozwala Rawtonic połączyć się z aparatem Canon przez USB, żeby można było go wypróbować i wysłać krótki wynik testu.",
+      "canonSwitch": "Łącz aparaty Canon",
+      "howToTest": "Aby pomóc: połącz aparat w panelu Tethering, kliknij Test aparatu… i wykonuj kolejne kroki. Na końcu zobaczysz dokładnie, co zostałoby wysłane, zanim cokolwiek opuści twój komputer.",
+      "title": "Tethering",
+      "warningCard": "Zdjęcie, które zrobisz, może nie pojawić się w Rawtonic. Jest wtedy tylko na karcie pamięci aparatu, więc przez cały czas trzymaj kartę w aparacie.",
+      "warningNothingDeleted": "Rawtonic nigdy niczego nie usuwa z aparatu ani z karty.",
+      "warningUntested": "Jeszcze nie testowane: do tej pory żaden aparat Canon nie został wypróbowany z Rawtonic."
+    },
     "title": "Ustawienia",
     "tooltips": {
       "goHome": "Przejdź do strony głównej"
@@ -1965,6 +2045,8 @@
   },
   "spotRemoval": {
     "cancel": "Anuluj",
+    "deleteSelected": "Usuń zaznaczone",
+    "deleteSelectedHint": "Delete lub Backspace. Na zdjęciu Alt-kliknięcie usuwa jedną; Alt-przeciągnięcie usuwa wszystkie, których dosięga ramka.",
     "detectObjects": "Wykrywaj obiekty",
     "detectObjectsBoxHint": "Przeciągnij prostokąt wokół obiektu lub kliknij go, aby go usunąć.",
     "detectObjectsHint": "Zamaluj z grubsza obiekt lub kliknij go, aby go usunąć.",
@@ -1976,6 +2058,17 @@
     "featherAria": "Wtapianie plamy",
     "filling": "Usuwanie… krok {{done}} z {{total}}",
     "largeHoleTooSlow": "Ten procesor graficzny jest zbyt wolny do usuwania dużych obszarów; Usuń używa szybkiej metody do końca sesji.",
+    "list": {
+      "aria": "Plamki i usunięcia",
+      "count": "Korekty ({{number}})",
+      "delete": "Usuń {{name}}",
+      "deleteAll": "Usuń wszystkie",
+      "hideAll": "Ukryj wszystkie",
+      "item": "{{kind}} {{number}}",
+      "select": "Zaznacz {{name}}",
+      "showAll": "Pokaż wszystkie",
+      "toggle": "Pokaż {{name}}"
+    },
     "mode": "Tryb usuwania plam",
     "modes": {
       "clone": "Klonuj",
@@ -2330,7 +2423,8 @@
         "channel": "Kanał krzywej",
         "input": "Wejście",
         "maxPoints": "Maksymalnie {{max}} punktów na kanał. Przesuń lub usuń punkt, aby dopracować krzywą.",
-        "output": "Wyjście"
+        "output": "Wyjście",
+        "point": "Punkt {{index}}, wejście {{input}}, wyjście {{output}}. Strzałki przesuwają; A dodaje punkt; Delete usuwa."
       },
       "effects": {
         "grainColor": "Kolor ziarna",
@@ -2734,11 +2828,14 @@
           "minutes": "zostało około {{minutes}} min",
           "seconds": "zostało około {{seconds}} s"
         },
+        "exportedTo": "Wyeksportowano do:",
         "failed": "Niepowodzenie: {{failed}} z {{total}}",
         "failures": "Zdjęcia, których nie wyeksportowano",
+        "fullResolution": "Pełna rozdzielczość",
         "held": "Kolejka jest wstrzymana: oczekujące eksporty ruszą po uruchomieniu kolejki.",
         "holdQueue": "Wstrzymaj kolejkę",
         "interrupted": "Przerwano (wyeksportowano {{done}} z {{total}})",
+        "originalFolder": "Folder oryginału",
         "pause": "Wstrzymaj",
         "paused": "Wstrzymano ({{done}} z {{total}} wyeksportowano)",
         "pausing": "Wstrzymanie po bieżących zdjęciach…",
@@ -2932,16 +3029,21 @@
     },
     "histogram": {
       "aria": "Histogram obrazu",
-      "clipping": "Przycięcie",
-      "clippingTitle": "Ostrzeżenia o przycięciu: przycięte światła na czerwono, przycięte cienie na niebiesko ({{shortcut}})",
+      "clippingAria": "Ostrzeżenia o prześwietleniach i zadartych cieniach",
       "gamut": "Ostrzeżenie o gamucie",
       "gamutTitle": "Ostrzeżenie o gamucie: kolory spoza przestrzeni próby na czerwono",
       "graphAria": "Rozkład luminancji RGB zaznaczonego zdjęcia",
       "graphEmpty": "Histogram dostępny po otwarciu zdjęcia",
+      "highlightClipping": "Ostrzeżenie o światłach",
+      "highlightClippingLit": "Ostrzeżenie o światłach, prześwietlone",
+      "highlightClippingTitle": "Ostrzeżenie o światłach (prześwietlone światła; {{shortcut}} przełącza oba)",
       "proof": "Próba",
       "proofSpace": "Przestrzeń kolorów próby",
       "proofTitle": "Próba ekranowa: pokazuje zdjęcie tak, jak będzie wyglądał eksport w wybranej przestrzeni kolorów ({{shortcut}})",
       "selectPhoto": "Wybierz zdjęcie",
+      "shadowClipping": "Ostrzeżenie o cieniach",
+      "shadowClippingLit": "Ostrzeżenie o cieniach, zadarte",
+      "shadowClippingTitle": "Ostrzeżenie o cieniach (zadarte cienie; {{shortcut}} przełącza oba)",
       "title": "Histogram"
     },
     "layers": {
@@ -4055,6 +4157,8 @@
       "whiteBalanceTo": "Balans bieli {{to}} K"
     },
     "spot": {
+      "done": "Zakończ usuwanie plamek",
+      "start": "Uruchom usuwanie plamek",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {
@@ -4071,14 +4175,20 @@
         "auto": "Auto",
         "autoAria": "Automatyczne poziomy",
         "autoTitle": "Ustaw punkty czerni i bieli na podstawie histogramu",
-        "black": "Czerń",
         "channelAria": "Kanał poziomów",
-        "highlight": "Światła",
+        "fieldAria": "Wartość: {{name}}",
+        "histogramAria": "Histogram poziomów",
+        "inBlack": "Czerń wejściowa",
+        "inWhite": "Biel wejściowa",
         "midtone": "Półtony",
+        "outBlack": "Czerń wyjściowa",
         "output": "Wyjście",
-        "shadow": "Cienie",
-        "title": "Poziomy",
-        "white": "Biel"
+        "outWhite": "Biel wyjściowa",
+        "pickBlack": "Pipeta punktu czerni",
+        "pickBlackTitle": "Kliknij w zdjęciu miejsce, które ma być czarne",
+        "pickWhite": "Pipeta punktu bieli",
+        "pickWhiteTitle": "Kliknij w zdjęciu miejsce, które ma być białe",
+        "title": "Poziomy"
       },
       "regionCurve": {
         "aria": {
@@ -4462,6 +4572,7 @@
     "download": "Pobierz",
     "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Sprawdź aktualizacje",
     "noFile": "To wydanie nie ma pliku do pobrania dla tego komputera; strona wydania zawiera wszystkie pliki.",
     "noNotes": "Brak informacji o wydaniu. Strona wydania może zawierać więcej.",
     "notesTitle": "Co nowego w Rawtonic {{version}}",

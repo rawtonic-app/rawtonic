@@ -20,7 +20,7 @@ import Button from "../ui/Button";
 import Text from "../ui/Text";
 import { TextVariants } from "../../types/typography";
 import { isUnreadableError } from "../../utils/loadError";
-import { filePhoto, photoInfo, type PhotoInfo } from "./reports";
+import { filePhoto, makerAndName, photoInfo, type PhotoInfo } from "./reports";
 
 /** raw.pixls.us: its start page holds the upload form, `#repo` the list of
  * cameras and modes with samples. There is no machine-readable listing, so
@@ -124,7 +124,7 @@ export default function CameraHelpDialog({
     <div
       aria-labelledby="camera-help-title"
       aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center z-[9999] bg-black/30 backdrop-blur-xs"
+      className="studio-dialog-backdrop"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -135,13 +135,13 @@ export default function CameraHelpDialog({
       role="dialog"
     >
       <div
-        className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col text-text-primary"
+        className="studio-dialog is-wide"
         ref={panel}
         tabIndex={-1}
       >
-        <Text variant={TextVariants.title} id="camera-help-title" className="mb-3">
+        <h2 className="studio-dialog-title" id="camera-help-title">
           {t("contribute.cameraHelp.title")}
-        </Text>
+        </h2>
         <div className="min-h-0 flex-1 overflow-auto flex flex-col gap-3 pr-1">
           <Text>
             {request.reason === "preview"
@@ -150,7 +150,7 @@ export default function CameraHelpDialog({
           </Text>
           {photo && (
             <Text color="secondary">
-              {t("contribute.cameraHelp.camera", { camera: `${photo.make} ${photo.model}`, type: photo.fileType })}
+              {t("contribute.cameraHelp.camera", { camera: makerAndName(photo.make, photo.model), type: photo.fileType })}
             </Text>
           )}
           <Text>{t("contribute.cameraHelp.why")}</Text>
@@ -168,7 +168,7 @@ export default function CameraHelpDialog({
           <Text variant={TextVariants.small} color="secondary">
             {t("contribute.cameraHelp.nothingSent")}
           </Text>
-          <div className="rounded bg-bg-primary p-3 text-sm flex flex-col gap-2 items-start">
+          <div className="rounded border border-[#3c3f43] p-3 text-sm flex flex-col gap-2 items-start">
             <span>{t("contribute.cameraHelp.reportInstead")}</span>
             <Button variant="ghost" onClick={() => onReport(photo ?? filePhoto(request.path))}>
               {t("contribute.cameraHelp.report")}
@@ -180,20 +180,13 @@ export default function CameraHelpDialog({
             </Text>
           )}
         </div>
-        <div className="flex justify-end gap-3 mt-4">
-          <Button
-            className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
-            variant="ghost"
-            onClick={onClose}
-            data-autofocus
-          >
+        <div className="studio-dialog-footer">
+          <Button variant="ghost" onClick={onClose} data-autofocus>
             {t("contribute.review.close")}
           </Button>
           <Button onClick={() => void visit(RAW_PIXLS_URL)}>
-            <span className="flex items-center gap-2">
-              <ExternalLink size={16} />
-              {t("contribute.cameraHelp.openUpload")}
-            </span>
+            <ExternalLink size={14} />
+            {t("contribute.cameraHelp.openUpload")}
           </Button>
         </div>
       </div>

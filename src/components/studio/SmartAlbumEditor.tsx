@@ -313,6 +313,23 @@ function NumberInput({ field, value, onChange, label }: { field: Field; value: u
   );
 }
 
+function FolderValue({ value, label, onChange }: { value: string; label: string; onChange: (value: string) => void }) {
+  const { t } = useTranslation();
+  const root = useLibraryStore((s) => s.sessionDirectory);
+  const [focused, setFocused] = useState(false);
+  const normalized = value.replace(/\\/g, "/");
+  const prefix = root?.replace(/\\/g, "/").replace(/\/+$/, "") + "/";
+  const parts = normalized.split("/").filter(Boolean);
+  const display = root && normalized.startsWith(prefix)
+    ? normalized.slice(prefix.length)
+    : (/^(?:\/|[A-Za-z]:\/)/.test(normalized) && parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : value);
+  return <input className="studio-metadata-input studio-rule-text" aria-label={label}
+    title={value} value={focused ? value : display}
+    placeholder={t("studio.library.smartAlbums.folderPlaceholder")}
+    onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+    onChange={(e) => onChange(e.target.value)} />;
+}
+
 function ValueEditor({
   rule,
   kind,
@@ -373,15 +390,15 @@ function ValueEditor({
     );
   }
   switch (kind) {
+    case "folder":
+      return <FolderValue value={String(value ?? "")} label={label} onChange={onChange} />;
     case "search":
     case "text":
-    case "folder":
       return (
         <input
           className="studio-metadata-input studio-rule-text"
           aria-label={label}
           value={String(value ?? "")}
-          placeholder={kind === "folder" ? t("studio.library.smartAlbums.folderPlaceholder") : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       );

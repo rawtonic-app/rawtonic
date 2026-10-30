@@ -6,6 +6,7 @@ import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUt
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
+import { nextClipSides } from '../utils/clippingWarnings';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -100,8 +101,9 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_metadata: (s) => s.ui.infoOverlay && (s.ui.activeView === 'editor' || s.ui.isFullScreen),
   toggle_split_view: (s) => !!s.editor.splitView,
   toggle_multi_view: () => useMultiViewStore.getState().active,
-  toggle_clipping: (s) => !!s.editor.clippingWarnings,
+  toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
+  toggle_auto_advance: (s) => !!s.settings.appSettings?.autoAdvance,
   toggle_proof_margin: (s) => !!s.settings.appSettings?.viewerProofMargin,
 };
 
@@ -228,8 +230,8 @@ export const useKeyboardShortcuts = ({
   }, [sortedImageList]);
 
   // Auto-advance (Preferences, off by default; Lightroom's Auto Advance): a
-  // rating or flag key on the photograph shown (Develop's single view, the
-  // Library's loupe, the full screen) steps to the next one, one key per
+  // rating or flag key on the photograph shown or a single grid selection
+  // steps to the next one, one key per
   // photograph while culling. The rating or flag is bound to the rated
   // photograph before the step; Undo keeps its meaning (Develop: the open
   // photograph's edits).
@@ -249,17 +251,23 @@ export const useKeyboardShortcuts = ({
       const rated = (event as CustomEvent<string>).detail;
       if (useSettingsStore.getState().appSettings?.autoAdvance !== true) return;
       const ui = useUIStore.getState();
-      if (!viewerShown(ui) || (ui.activeView === 'editor' && useMultiViewStore.getState().active)) return;
+      if (useMultiViewStore.getState().active) return;
+      const grid = ui.activeView === 'library' && !viewerShown(ui);
+      const library = useLibraryStore.getState();
+      if (grid && (library.multiSelectedPaths.length !== 1 || library.multiSelectedPaths[0] !== rated)) return;
       const next = autoAdvanceTarget(
         sortedListRef.current.map((image) => image.path),
-        useEditorStore.getState().selectedImage?.path ?? null,
+        grid ? library.libraryActivePath : useEditorStore.getState().selectedImage?.path ?? null,
         rated,
       );
-      if (next) showInViewer(next);
+      if (next && grid) {
+        library.setLibrary({ libraryActivePath: next, multiSelectedPaths: [next], selectionAnchorPath: next });
+        handleImageSelect(next, false);
+      } else if (next) showInViewer(next);
     };
     window.addEventListener(AUTO_ADVANCE_EVENT, advance);
     return () => window.removeEventListener(AUTO_ADVANCE_EVENT, advance);
-  }, [showInViewer]);
+  }, [showInViewer, handleImageSelect]);
 
   const handleCopyImagePaths = useCallback(async (paths: Array<string>) => {
     const physicalPaths = [...new Set(paths.map((path) => path.split('?vc=')[0]))];
@@ -302,14 +310,14 @@ export const useKeyboardShortcuts = ({
     // Multi view: the arrows step the primary through the selection (wrapping)
     // instead of through the folder, and rating keys rate the primary only.
     const multiViewActive = (s: ShortcutState) =>
-      s.ui.activeView === 'editor' && !!s.editor.selectedImage && useMultiViewStore.getState().active;
+      viewerShown(s.ui) && !!s.editor.selectedImage && useMultiViewStore.getState().active;
     const stepMultiView = (s: ShortcutState, step: number) => {
       const selection = orderedSelection(
         sortedListRef.current.map((image) => image.path),
         s.library.multiSelectedPaths,
       );
       const next = stepPrimary(selection, s.editor.selectedImage?.path ?? null, step);
-      if (next && next !== s.editor.selectedImage?.path) handleImageSelect(next, true);
+      if (next && next !== s.editor.selectedImage?.path) handleImageSelect(next, s.ui.activeView === 'editor');
     };
     // The Library's loupe and full screen step through the grid's order, the
     // photograph becoming the Library's selection as a click on it would.
@@ -330,7 +338,7 @@ export const useKeyboardShortcuts = ({
       shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
     const rateAndAdvance = (rating: number, s: ShortcutState) => {
       handleRate(rating, ratedPaths(s));
-      if (viewerShown(s.ui)) requestAutoAdvance(s.editor.selectedImage?.path);
+      requestAutoAdvance(viewerShown(s.ui) ? s.editor.selectedImage?.path : s.library.libraryActivePath ?? undefined);
     };
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
@@ -432,12 +440,12 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
-          if (libraryViewer(s.ui)) {
-            stepLibraryViewer(s, -1);
-            return;
-          }
           if (multiViewActive(s)) {
             stepMultiView(s, -1);
+            return;
+          }
+          if (libraryViewer(s.ui)) {
+            stepLibraryViewer(s, -1);
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
@@ -450,12 +458,12 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
-          if (libraryViewer(s.ui)) {
-            stepLibraryViewer(s, 1);
-            return;
-          }
           if (multiViewActive(s)) {
             stepMultiView(s, 1);
+            return;
+          }
+          if (libraryViewer(s.ui)) {
+            stepLibraryViewer(s, 1);
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
@@ -535,13 +543,20 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_multi_view: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        shouldFire: (s) => (s.ui.activeView === 'editor' && !!s.editor.selectedImage) ||
+          (s.ui.activeView === 'library' && !!s.library.libraryActivePath && s.library.multiSelectedPaths.length > 1),
         execute: (e, s) => {
           e.preventDefault();
           const { osPlatform, appSettings } = s.settings;
           const multi = useMultiViewStore.getState();
           if (osPlatform !== 'linux' && (appSettings?.useWgpuRenderer === false || multi.unavailable)) return;
-          multi.toggle();
+          if (s.ui.activeView === 'library' && !s.ui.libraryLoupe) {
+            const path = s.library.libraryActivePath!;
+            if (s.editor.selectedImage?.path !== path) handleImageSelect(path, false);
+            s.ui.setUI({ libraryLoupe: true });
+            multi.setLibraryEnabled(true);
+          } else if (s.ui.activeView === 'library') multi.setLibraryEnabled(!multi.libraryEnabled);
+          else multi.toggle();
         },
       },
       pin_reference: {
@@ -685,7 +700,18 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
-          s.editor.setEditor({ clippingWarnings: !s.editor.clippingWarnings });
+          // Both on unless one is on already: then both off.
+          const { highlights, shadows } = nextClipSides({ highlights: s.editor.clipHighlights, shadows: s.editor.clipShadows });
+          s.editor.setEditor({ clipHighlights: highlights, clipShadows: shadows });
+        },
+      },
+      toggle_auto_advance: {
+        shouldFire: (s) => !!s.settings.appSettings,
+        execute: (e, s) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          const appSettings = s.settings.appSettings!;
+          void s.settings.handleSettingsChange({ ...appSettings, autoAdvance: !appSettings.autoAdvance });
         },
       },
       toggle_proof_margin: {
@@ -1037,6 +1063,8 @@ export const useKeyboardShortcuts = ({
           else if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
           else if (s.editor.colorPickerTarget !== null) s.editor.setEditor({ colorPickerTarget: null });
           else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false });
+          // The spot tool's overlay deselects first; then Escape ends the tool.
+          else if (s.editor.isSpotToolActive) s.editor.setEditor({ isSpotToolActive: false, activeSpotId: null });
           else if (s.editor.lumaPickerLayer) s.editor.setEditor({ lumaPickerLayer: null });
           else if (s.editor.tatTarget) s.editor.setEditor({ tatTarget: null });
           else if (s.editor.activeMaskId) s.editor.setEditor({ activeMaskId: null });
@@ -1166,6 +1194,25 @@ export const useKeyboardShortcuts = ({
     }
     const unregisterCommands = registerAppCommands(menuCommands);
 
+    // On macOS WebKit may report Caps Lock locking as keydown and unlocking
+    // as keyup. Follow the lock state on both transitions, not the event count.
+    const syncMacCapsLock = (event: KeyboardEvent, state: ShortcutState) => {
+      if (state.settings.osPlatform !== 'macos' || event.code !== 'CapsLock' || event.repeat ||
+          event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !state.settings.appSettings ||
+          !(buildComboMap(state.settings.appSettings.keybinds).get('CapsLock') ?? []).includes('toggle_auto_advance')) return false;
+      event.preventDefault();
+      const appSettings = state.settings.appSettings;
+      const autoAdvance = event.getModifierState('CapsLock');
+      if (appSettings.autoAdvance !== autoAdvance) void state.settings.handleSettingsChange({ ...appSettings, autoAdvance });
+      return true;
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const state = getStoreState();
+      if (event.defaultPrevented || state.ui.isSettingsOpen || shortcutsHeld(state) || fieldOwnsKey(document.activeElement, event.code)) return;
+      syncMacCapsLock(event, state);
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const state = getStoreState();
@@ -1188,6 +1235,8 @@ export const useKeyboardShortcuts = ({
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
+
+      if (!rangeOwnsKey && syncMacCapsLock(event, state)) return;
 
       for (const builtin of builtinShortcuts) {
         if (!rangeOwnsKey && builtin.match(event, state)) {
@@ -1219,8 +1268,10 @@ export const useKeyboardShortcuts = ({
     };
 
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       unregisterCommands();
     };
   }, [

@@ -212,3 +212,35 @@
   overflow-wrap: anywhere;
   opacity: 0.8;
 }
+/* A camera on an experimental driver path (Canon EOS, the user's opt-in):
+   said beside its name and above the controls, never only in a toast. */
+.tether-badge {
+  margin-right: auto;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: #5a46144d;
+  color: #f0d28c;
+  font-size: 10px;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tether-experimental {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: #5a46144d;
+  color: #f0d28c;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.tether-experimental .session-action {
+  align-self: flex-start;
+}
+.tether-test-guide {
+  margin: 0;
+  padding-left: 16px;
+  list-style: decimal;
+}

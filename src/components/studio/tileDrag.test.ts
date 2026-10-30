@@ -39,7 +39,7 @@ it("drops the selection on an album and swallows the click that ends the drag", 
   tile.addEventListener("click", clicked);
   press("/a.arw");
   document.dispatchEvent(pointer("pointermove", 60, 10));
-  expect(document.querySelector(".studio-drag-ghost span")?.textContent).toBe("2 photographs");
+  expect(document.querySelector(".studio-drag-ghost span")?.textContent).toBe("2 photos");
   expect(tile.classList.contains("is-drag-source")).toBe(true);
   document.dispatchEvent(pointer("pointermove", 150, 10));
   expect(album.classList.contains("is-drop-target")).toBe(true);

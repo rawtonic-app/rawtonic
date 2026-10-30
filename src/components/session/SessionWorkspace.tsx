@@ -26,7 +26,6 @@ import {
   ChevronDown,
   Database,
   FolderOpen,
-  FileWarning,
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
@@ -315,6 +314,11 @@ export function restoreLastSession(
 export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: string | null) {
   if (!tetheredFor || !openLibrary) return false;
   return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
+}
+
+function localDateStamp(): string {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
 }
 
 export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
@@ -902,10 +906,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     (center: HTMLDivElement | null) => useSessionBar.getState().set({ center }),
     [],
   );
-  const setLibrarySlot = useCallback(
-    (library: HTMLDivElement | null) => useSessionBar.getState().set({ library }),
-    [],
-  );
   const setEndSlot = useCallback(
     (end: HTMLDivElement | null) => useSessionBar.getState().set({ end }),
     [],
@@ -916,7 +916,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   }, [mark, session]);
 
   // The File and Photo menus' commands (useAppMenu) run what the identity
-  // menu, the Import button and P/U/⇧X run; the latest closures, by ref.
+  // menu, the Import button and P/U/X run; the latest closures, by ref.
   const menuCommands = useRef({
     flag: (_flag: number) => {},
     newSession: () => {},
@@ -930,7 +930,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   menuCommands.current = {
     flag: (flag: number) => {
       void mark(flag);
-      if (viewerShown(useUIStore.getState())) requestAutoAdvance(useEditorStore.getState().selectedImage?.path);
+      const ui = useUIStore.getState();
+      requestAutoAdvance(viewerShown(ui) ? useEditorStore.getState().selectedImage?.path : useLibraryStore.getState().libraryActivePath ?? undefined);
     },
     newSession: () => {
       setImportAfterCreate(false);
@@ -1399,7 +1400,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <span className="session-count-offline" role="img"
                   aria-label={t("offline.sessionCount", { count: session.missing })}
                   title={t("offline.sessionCountTitle")}>
-                  <FileWarning className="session-count-status-icon" size={13} aria-hidden />
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
@@ -1412,7 +1412,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           className="session-bar-center"
           ref={setCenterSlot}
         />
-        <div className="session-library-slot" ref={setLibrarySlot} />
         <div className="session-bar-end" data-tauri-drag-region={nativeTitlebar || undefined}>
           <button
             className="session-action"
@@ -1853,7 +1852,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 placeholder={
                   catalog || importAfterCreate
                     ? t("session.create.catalogPlaceholder")
-                    : t("session.create.namePlaceholder")
+                    : t("session.create.namePlaceholder", { date: localDateStamp() })
                 }
               />
             </label>

@@ -4,7 +4,11 @@ For the photography workflow and feature overview, start with the [README](../RE
 
 ## Run the desktop app
 
-Prerequisites: Node.js 24+, Rust 1.98.1 (`rustup` honors `rust-toolchain.toml`), and the native Tauri SDK. macOS needs Xcode command-line tools and CMake (libjpeg-turbo is built from source; `brew install cmake`, optionally `nasm`). On Ubuntu 24.04:
+Prerequisites: Node.js 24+, Rust 1.98.1 (`rustup` honors `rust-toolchain.toml`), Python 3 for license generation, and the native Tauri SDK. macOS needs Xcode command-line tools and CMake (libjpeg-turbo is built from source; `brew install cmake`, optionally `nasm`).
+
+Windows source builds need the MSVC Rust toolchain, Visual Studio 2022 Build Tools with the C++ desktop workload and Windows SDK, CMake, and WebView2. Make Python 3 available through `py -3` or `python`; `npm run licenses` finds it without relying on the Microsoft Store's `python3` alias. The directory-symlink tests require Windows Developer Mode or an elevated test shell; the app itself does not require elevation.
+
+On Ubuntu 24.04:
 
 ```sh
 sudo apt-get install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev librsvg2-dev patchelf libxdo-dev cmake nasm

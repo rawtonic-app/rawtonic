@@ -9,6 +9,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
 import { exportSettingsFromDraft, savedRecipes, type RecipeDraft } from './exportRecipes';
+import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
 
 export interface PlannedExport {
@@ -98,6 +99,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
       }
       requests.push({
         paths,
+        displayLabel: exportJobLabel(job.recipe?.name ?? t("studio.export.dialogs.customName"), job.draft, job.outputFormat, destination.path, paths),
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
         baseOriginFolders: useLibraryStore.getState().rootPaths,

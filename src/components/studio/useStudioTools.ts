@@ -333,6 +333,12 @@ export function useStudioTools() {
     }
   };
 
+  /** Turns the spot tool on, as Lightroom's Remove panel does when a mode is
+   * chosen; unlike `selectTool("spot")` it never turns the tool off. */
+  const startSpotTool = () => {
+    if (!isSpotToolActive) selectTool("spot");
+  };
+
   const setBrushSize = (size: number) =>
     setEditor({
       brushSettings: brushSettings
@@ -353,6 +359,7 @@ export function useStudioTools() {
     paintOnLayer,
     toggleInvert,
     selectTool,
+    startSpotTool,
     setBrushSize,
   };
 }

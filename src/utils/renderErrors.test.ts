@@ -14,7 +14,7 @@ beforeEach(() => {
 
 describe('render errors', () => {
   it('translates the texture limit error', () => {
-    expect(renderErrorMessage(textureLimit)).toBe(textureLimit);
+    expect(renderErrorMessage(textureLimit)).toBe('The photo (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).');
     void i18n.changeLanguage('de');
     expect(renderErrorMessage(textureLimit)).toBe(
       'Das Bild (40000 × 9000 px) ist größer, als diese Grafikkarte rendern kann (16384 px pro Seite).',

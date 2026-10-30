@@ -67,7 +67,7 @@ describe("Albums tool", () => {
   it("makes an album from the selection", async () => {
     await renderTool();
     fireEvent.click(screen.getByLabelText("New album"));
-    fireEvent.click(await screen.findByText("New album from 1 selected photograph"));
+    fireEvent.click(await screen.findByText("New album from 1 selected photo"));
     const input = screen.getByLabelText("New album name");
     fireEvent.change(input, { target: { value: "Web" } });
     await act(async () => {
@@ -88,7 +88,7 @@ describe("Albums tool", () => {
     const select = await renderTool();
     fireEvent.contextMenu(screen.getByText("Picks"));
     await act(async () => {
-      fireEvent.click(await screen.findByText("Add 1 selected photograph"));
+      fireEvent.click(await screen.findByText("Add 1 selected photo"));
     });
     expect(mockInvoke).toHaveBeenCalledWith("session_album_add", {
       directory: "/job",
@@ -102,7 +102,7 @@ describe("Albums tool", () => {
     await renderTool();
     fireEvent.contextMenu(screen.getByText("Picks"));
     fireEvent.click(await screen.findByText("Delete album…"));
-    expect(screen.getByRole("alertdialog").textContent).toContain("Its photographs stay");
+    expect(screen.getByRole("alertdialog").textContent).toContain("Its photos stay");
     await act(async () => {
       fireEvent.click(screen.getByText("Delete"));
     });
@@ -112,10 +112,10 @@ describe("Albums tool", () => {
 
 });
 
-describe("Missing Photographs", () => {
+describe("Missing Photos", () => {
   it("is listed only while photographs are offline and opens them in the grid", async () => {
     await renderTool();
-    expect(screen.queryByText("Missing Photographs")).toBeNull();
+    expect(screen.queryByText("Missing Photos")).toBeNull();
     cleanup();
 
     const offline = [
@@ -127,15 +127,15 @@ describe("Missing Photographs", () => {
       command === "session_offline" ? offline : base(command, args),
     );
     const select = await renderTool();
-    const row = screen.getByText("Missing Photographs").closest("button")!;
+    const row = screen.getByText("Missing Photos").closest("button")!;
     expect(row.textContent).toContain("2");
-    expect(row.getAttribute("title")).toBe("Photographs whose file is missing or on a disconnected drive. They keep their edits; locate them to relink.");
+    expect(row.getAttribute("title")).toBe("Photos whose file is missing or on a disconnected drive. They keep their edits; locate them to relink.");
     await act(async () => {
       fireEvent.click(row);
     });
     expect(select).toHaveBeenCalledWith(
       "session-missing",
-      "Missing Photographs",
+      "Missing Photos",
       ["/Volumes/Card/A.NEF", "/job/Capture/b.arw"],
       false,
     );
@@ -145,7 +145,7 @@ describe("Missing Photographs", () => {
     await act(async () => {
       window.dispatchEvent(new Event("rawtonic:offline-changed"));
     });
-    expect(screen.getByText("Missing Photographs").closest("button")!.textContent).toContain("1");
+    expect(screen.getByText("Missing Photos").closest("button")!.textContent).toContain("1");
   });
 });
 
@@ -269,7 +269,7 @@ describe("app-wide albums outside sessions", () => {
   it("makes an album from the selection and keeps every other album as it was", async () => {
     await renderTool();
     fireEvent.click(screen.getByLabelText("New album"));
-    fireEvent.click(await screen.findByText("New album from 1 selected photograph"));
+    fireEvent.click(await screen.findByText("New album from 1 selected photo"));
     const input = screen.getByLabelText("New album name");
     fireEvent.change(input, { target: { value: "Web" } });
     await act(async () => {
@@ -296,7 +296,7 @@ describe("app-wide albums outside sessions", () => {
     stored = [...stored, { type: "album", id: "c", name: "Prints", images: [] }];
     fireEvent.contextMenu(screen.getByText("Family"));
     await act(async () => {
-      fireEvent.click(await screen.findByText("Add 1 selected photograph"));
+      fireEvent.click(await screen.findByText("Add 1 selected photo"));
     });
     const [tree] = saved();
     expect(tree.map((item) => item.name)).toEqual(["Travel", "Family", "Prints"]);
@@ -311,7 +311,7 @@ describe("app-wide albums outside sessions", () => {
     });
     fireEvent.contextMenu(screen.getByText("Family"));
     await act(async () => {
-      fireEvent.click(await screen.findByText("Add 1 selected photograph"));
+      fireEvent.click(await screen.findByText("Add 1 selected photo"));
     });
     expect(saved()).toEqual([]);
   });
@@ -321,7 +321,7 @@ describe("app-wide albums outside sessions", () => {
     const select = await renderTool();
     fireEvent.contextMenu(screen.getByText("Lisbon"));
     await act(async () => {
-      fireEvent.click(await screen.findByText("Remove selected photographs"));
+      fireEvent.click(await screen.findByText("Remove selected photos"));
     });
     expect(stored[0]).toMatchObject({ children: [{ id: "a", images: ["/p/1.arw"] }] });
     expect(select).toHaveBeenCalledWith("a", "Lisbon", ["/p/1.arw"], true);
@@ -339,7 +339,7 @@ describe("app-wide albums outside sessions", () => {
     expect(stored[1]).toEqual({ type: "album", id: "b", name: "Kids", images: ["/p/3.arw"] });
     fireEvent.contextMenu(screen.getByText("Travel"));
     fireEvent.click(await screen.findByText("Delete group…"));
-    expect(screen.getByRole("alertdialog").textContent).toContain("Their photographs stay");
+    expect(screen.getByRole("alertdialog").textContent).toContain("Their photos stay");
     await act(async () => {
       fireEvent.click(screen.getByText("Delete"));
     });
@@ -391,7 +391,7 @@ describe("switching sessions", () => {
     await act(async () => late.forEach((answer) => answer()));
     expect(screen.queryByText("Old album")).toBeNull();
     expect(screen.queryByText("Previous Import")).toBeNull();
-    expect(screen.queryByText("Missing Photographs")).toBeNull();
+    expect(screen.queryByText("Missing Photos")).toBeNull();
     expect(screen.getByText("Picks")).toBeTruthy();
   });
 });
@@ -417,7 +417,7 @@ describe("Smart albums in the Albums tool", () => {
     });
     expect(select).toHaveBeenCalledWith("session-album:s", "Five stars", expect.any(Array), false);
     fireEvent.contextMenu(row);
-    expect(screen.queryByText("Add selected photographs")).toBeNull();
+    expect(screen.queryByText("Add selected photos")).toBeNull();
     fireEvent.click(await screen.findByText("Edit smart album…"));
     expect(useSmartAlbumEditor.getState().draft).toEqual({
       id: "s",
@@ -504,7 +504,7 @@ describe("Smart albums in the Albums tool", () => {
     await renderTool();
     fireEvent.contextMenu(screen.getByText("Picks"));
     await act(async () => {
-      fireEvent.click(await screen.findByText("Add 1 selected photograph"));
+      fireEvent.click(await screen.findByText("Add 1 selected photo"));
     });
     expect(changed).toHaveBeenCalled();
     window.removeEventListener(CATALOG_CHANGED, changed);
@@ -558,7 +558,7 @@ describe("Smart albums in the Albums tool", () => {
 describe("Built-in album query errors", () => {
   it.each([
     ["Previous Import", "session_previous_import", { batch: { id: 3, kind: "sync", created_at: "", count: 1 }, paths: ["/job/a.arw"] }],
-    ["Missing Photographs", "session_offline", [{ path: "/job/a.arw", volume: null, mtime: 1 }]],
+    ["Missing Photos", "session_offline", [{ path: "/job/a.arw", volume: null, mtime: 1 }]],
   ])("shows translated context for a failed %s query", async (label, command, result) => {
     const base = mockInvoke.getMockImplementation()!;
     let fail = false;

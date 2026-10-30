@@ -13,13 +13,20 @@ export default function CrashReportSettings({ appSettings, onSettingsChange }: {
 }) {
   const { t } = useTranslation();
   return (
-    <Switch
-      checked={appSettings.crashReports ?? true}
-      label={t('contribute.crash.setting')}
-      onChange={(checked) => {
-        void onSettingsChange({ ...appSettings, crashReports: checked });
-        void setCrashReportsEnabled(checked).catch(console.error);
-      }}
-    />
+    <div className="pref-row">
+      <div className="pref-text">
+        <div className="pref-label">{t('contribute.crash.setting')}</div>
+      </div>
+      <div className="pref-control">
+        <Switch
+          checked={appSettings.crashReports ?? true}
+          label={t('contribute.crash.setting')}
+          onChange={(checked) => {
+            void onSettingsChange({ ...appSettings, crashReports: checked });
+            void setCrashReportsEnabled(checked).catch(console.error);
+          }}
+        />
+      </div>
+    </div>
   );
 }

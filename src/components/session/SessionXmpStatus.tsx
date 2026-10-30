@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import { AlertCircle } from "lucide-react";
 import { toast } from "react-toastify";
 import { Invokes } from "../ui/AppProperties";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -161,7 +160,6 @@ export default function SessionXmpStatus({
           setOpen((was) => !was);
         }}
       >
-        <AlertCircle className="session-count-status-icon" size={13} aria-hidden />
         <span className="session-count-status-text" aria-hidden>{` · ${label}`}</span>
       </button>
       {open &&

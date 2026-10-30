@@ -355,11 +355,64 @@
 .studio-section-caption span:last-child {
   color: #8e9296;
 }
+.studio-histogram-plot {
+  position: relative;
+}
 .studio-histogram svg {
   width: 100%;
   height: 82px;
   background: #202123;
   display: block;
+}
+/* Clipping corners over the plot (StudioHistogram): a triangle per side,
+   switched on by a click, lit when that side of the histogram clips. */
+.studio-histogram .studio-clip-corners {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+}
+/* The corner layers lie over the plot: transparent, not the plot's own
+   `.studio-histogram svg` background, or they would hide the histogram. */
+.studio-histogram .studio-clip-corners > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  background: transparent;
+}
+.studio-histogram .studio-clip-corners g {
+  pointer-events: auto;
+  cursor: pointer;
+  outline: none;
+}
+.studio-histogram .studio-clip-corners g:focus-visible .studio-clip-corner-hit {
+  stroke: #eef0f3;
+  stroke-width: 1;
+}
+.studio-clip-corner-hit {
+  fill: transparent;
+}
+.studio-clip-corner-mark {
+  fill: #6f747a;
+  stroke: #202123;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+/* Switched on even though nothing clips: dimmed in that side's colour. */
+.studio-clip-shadows.is-on .studio-clip-corner-mark {
+  fill: #4d74a8;
+}
+.studio-clip-highlights.is-on .studio-clip-corner-mark {
+  fill: #b35454;
+}
+/* This side clips: full colour, switched on or not. */
+.studio-clip-shadows.is-lit .studio-clip-corner-mark {
+  fill: #3f7fe0;
+}
+.studio-clip-highlights.is-lit .studio-clip-corner-mark {
+  fill: #e04848;
 }
 .histogram-red {
   fill: #c9676780;
@@ -467,7 +520,7 @@
    of the column, scrolling inside beyond that. */
 .studio-develop-dock {
   flex: 0 1 auto;
-  max-height: 40%;
+  max-height: 30%;
   overflow-y: auto;
   border-top: 1px solid var(--studio-line);
 }
@@ -758,6 +811,132 @@
 .studio-segments button:last-child {
   border: 0;
 }
+/* Levels: histogram with input handles, output ramp with its handles. */
+.studio-levels-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.studio-levels-top .studio-segments {
+  flex: 1;
+  margin: 0;
+}
+.studio-levels-picker {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid #515359;
+  border-radius: 3px;
+  color: #b7bcc2;
+}
+.studio-tool-group .studio-levels-picker.is-levelsBlack {
+  background: #0d0d0e;
+  color: #c9ccd0;
+}
+.studio-tool-group .studio-levels-picker.is-levelsWhite {
+  background: #e6e7e9;
+  color: #2a2b2e;
+}
+.studio-tool-group .studio-levels-picker[aria-pressed="true"] {
+  border-color: #829daf;
+  box-shadow: 0 0 0 1px #829daf;
+}
+.studio-levels.is-disabled {
+  opacity: 0.55;
+}
+.studio-levels-histogram {
+  display: block;
+  width: 100%;
+  height: 64px;
+  background: #202123;
+}
+.studio-levels-guide {
+  stroke: #d8dadd;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.35;
+}
+.studio-levels-guide.is-midtone {
+  stroke-dasharray: 2 2;
+}
+.studio-levels-strip {
+  position: relative;
+  height: 12px;
+}
+.studio-levels-handle {
+  position: absolute;
+  top: 0;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: #8a8d92;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.studio-levels-handle.is-inBlack,
+.studio-levels-handle.is-outBlack {
+  background: #0d0d0e;
+  box-shadow: inset 0 0 0 1px #9ca0a5;
+}
+.studio-levels-handle.is-inWhite,
+.studio-levels-handle.is-outWhite {
+  background: #f1f2f3;
+}
+.studio-levels-handle:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 2px #7aa7d6) drop-shadow(0 0 1px #7aa7d6);
+}
+.studio-levels.is-disabled .studio-levels-handle {
+  cursor: default;
+}
+.studio-levels-fields {
+  display: flex;
+  justify-content: space-between;
+  margin: 1px 0 2px;
+}
+.studio-levels-fields input.studio-levels-field {
+  width: 42px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #e1e3e5;
+  text-align: center;
+}
+.studio-levels-fields input.studio-levels-field:first-child {
+  text-align: left;
+}
+.studio-levels-fields input.studio-levels-field:last-child {
+  text-align: right;
+}
+.studio-levels-fields input.studio-levels-field:hover {
+  border-color: #55575b;
+}
+.studio-levels-fields input.studio-levels-field:focus {
+  border-color: #829daf;
+  background: #1b1c1e;
+}
+.studio-levels-ramp {
+  height: 8px;
+  margin: 2px 0 1px;
+  border-radius: 1px;
+  background: linear-gradient(to right, #000, #fff);
+}
+.studio-levels-ramp.is-red {
+  background: linear-gradient(to right, #000, #e24a4a);
+}
+.studio-levels-ramp.is-green {
+  background: linear-gradient(to right, #000, #4fc45a);
+}
+.studio-levels-ramp.is-blue {
+  background: linear-gradient(to right, #000, #4a7fe2);
+}
 .studio-curve svg {
   display: block;
   width: 100%;
@@ -792,6 +971,19 @@
 }
 .curve-blue {
   stroke: #87a9d0;
+}
+/* The targeted curve's input level under the pointer. */
+.curve-target {
+  pointer-events: none;
+  stroke: #e8c46a;
+}
+.curve-target line {
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+}
+.curve-target circle {
+  fill: none;
+  stroke-width: 1.4;
 }
 .curve-point {
   fill: #d9e2e9;
@@ -1456,6 +1648,23 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.studio-preview-failures { position: relative; }
+.studio-preview-failures summary { cursor: pointer; }
+.studio-preview-failures ul {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: 100%;
+  width: max-content;
+  max-width: min(480px, 80vw);
+  max-height: 40vh;
+  overflow: auto;
+  white-space: normal;
+  padding: 12px 12px 12px 28px;
+  background: var(--studio-panel, #252525);
+  color: var(--studio-text);
+  box-shadow: 0 4px 12px #0008;
+}
 .studio-preview-build progress {
   width: 72px;
   height: 4px;
@@ -1514,7 +1723,7 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-@container viewer-footer (max-width: 860px) {
+@container viewer-footer (max-width: 1100px) {
   .studio-capture-info {
     display: none;
   }
@@ -1668,11 +1877,14 @@
   opacity: 0.45;
 }
 .studio-photo-color {
-  width: 8px;
-  height: 8px;
+  min-height: 16px;
+  padding: 1px 4px;
   margin-left: auto;
-  border-radius: 1px;
+  border-radius: 2px;
   flex-shrink: 0;
+  color: #161616;
+  font-size: 10px;
+  line-height: 14px;
 }
 .studio-photo-color.is-red { background: #f08080; }
 .studio-photo-color.is-yellow { background: #e6c76c; }
@@ -1743,6 +1955,15 @@
   text-align: center;
   padding: 24px;
 }
+.studio-workspace button.studio-empty-action {
+  padding: 7px 12px;
+  border: 1px solid var(--studio-line);
+  border-radius: 4px;
+  color: var(--studio-text);
+  background: #373a3d;
+  cursor: pointer;
+}
+.studio-workspace button.studio-empty-action:hover { background: #484c50; }
 .studio-empty strong {
   font-weight: 500;
   color: #d0d3d7;
@@ -2056,8 +2277,16 @@
 }
 .studio-snapshot-text {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
   min-width: 0;
   font-size: 11px;
+}
+/* Renaming: the field takes the row's room, never more, so Update and Delete
+   stay inside the panel. */
+.studio-snapshot-text input {
+  width: 100%;
+  min-width: 0;
 }
 .studio-snapshot-name {
   overflow: hidden;
@@ -2533,7 +2762,7 @@
   min-height: 34px;
   font-size: 11px;
 }
-.studio-export-form input:not([type="checkbox"]) {
+.studio-export-form input:not([type="checkbox"], [type="radio"]) {
   border: 1px solid #555a61;
   background: #202123;
   border-radius: 3px;
@@ -2583,7 +2812,6 @@
   margin: 6px 0 4px;
 }
 .studio-export-anchor input {
-  accent-color: #adc6db;
   margin: 0;
 }
 .studio-export-more summary {
@@ -3822,6 +4050,23 @@ body.is-dragging.is-drop-refused * {
   color: #eef0f3;
 }
 
+/* What the spot tool made: a count with eye and bin for all, then the rows
+   (the layer list's look). */
+.studio-spot-list {
+  margin-top: 8px;
+}
+.studio-spot-list-header {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 3px 0 7px;
+  font-size: 10px;
+  color: #8e9298;
+}
+.studio-spot-list-header > span {
+  flex: 1;
+}
+
 /* Refinements under an amount (Lightroom's noise Detail, Contrast,
    Smoothness): indented, smaller labels. */
 .studio-subcontrols {
@@ -4478,6 +4723,7 @@ body.is-dragging.is-drop-refused * {
 }
 .pref-control .pref-segments button {
   padding: 3px 14px;
+  white-space: nowrap;
   min-height: 26px;
 }
 .pref-segments button[aria-checked="true"] {
@@ -4774,6 +5020,143 @@ img.relight-pattern-preview { object-fit: cover; }
   opacity: 0.5;
 }
 
+/* Dialogs and buttons shared with the inherited views (confirmations, Report
+   a problem, Preferences): the studio's panel, type scale and buttons.
+   `button.` outranks the workspace's own button reset. */
+.studio-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #10111488;
+}
+.studio-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 440px;
+  max-height: min(680px, 100%);
+  padding: 16px;
+  background: #292a2c;
+  border: 1px solid #45484c;
+  border-radius: 6px;
+  box-shadow: 0 18px 80px #0008;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--studio-text, #e0e1e3);
+}
+.studio-dialog.is-wide {
+  max-width: 620px;
+}
+.studio-dialog:focus {
+  outline: none;
+}
+.studio-dialog-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f0f1f2;
+}
+.studio-dialog :is(.text-base, .text-sm, .text-md, .text-lg, .text-xl) {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+.studio-dialog .text-xs {
+  font-size: 11px !important;
+}
+.studio-dialog .text-text-secondary {
+  color: #9a9ea4;
+}
+.studio-dialog textarea,
+.studio-dialog input:not([type="checkbox"], [type="radio"]) {
+  border: 1px solid #45484c;
+  border-radius: 3px;
+  background: #1f2022;
+  color: var(--studio-text, #e0e1e3);
+}
+/* The global `*:focus { outline: none }` hides the native ring. */
+.studio-dialog textarea:focus-visible,
+.studio-dialog input:not([type="checkbox"], [type="radio"]):focus-visible {
+  border-color: #b4c8d3;
+  box-shadow: 0 0 0 1px #b4c8d3;
+}
+.studio-dialog pre {
+  border: 1px solid #3c3f43;
+  border-radius: 3px;
+  background: #1f2022;
+}
+.studio-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+/* Secondary actions (Copy report, Open on GitHub) at the left; Cancel and the
+   default action stay together at the right at every width. */
+.studio-dialog-footer-end {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+button.studio-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 12px;
+  border: 1px solid #55585d;
+  border-radius: 3px;
+  background: #ffffff08;
+  color: #e6e7e9;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+button.studio-button:hover:not(:disabled) {
+  background: #ffffff14;
+}
+button.studio-button:focus-visible,
+button.studio-button.is-default:focus {
+  box-shadow: 0 0 0 2px #292a2c, 0 0 0 3px #b4c8d3;
+}
+button.studio-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.studio-button.is-primary {
+  border-color: transparent;
+  background: #a9bdcc;
+  color: #18232a;
+}
+button.studio-button.is-primary:hover:not(:disabled) {
+  background: #bfd0dc;
+}
+button.studio-button.is-destructive {
+  border-color: transparent;
+  background: #8a3b3b;
+  color: #fff;
+}
+button.studio-button.is-destructive:hover:not(:disabled) {
+  background: #9c4545;
+}
+/* Preferences has no default action: its buttons are plain push buttons. */
+.pref-content button.studio-button.is-primary {
+  border-color: #55585d;
+  background: #ffffff08;
+  color: #e6e7e9;
+}
+.pref-content button.studio-button.is-primary:hover:not(:disabled) {
+  background: #ffffff14;
+}
+
 /* Copy and Sync settings: groups by section and the layers, in columns. */
 .studio-copy-settings {
   display: flex;
@@ -4800,6 +5183,11 @@ img.relight-pattern-preview { object-fit: cover; }
 .studio-copy-settings-quick {
   display: flex;
   gap: 6px;
+}
+.studio-copy-settings-quick button.studio-button {
+  min-height: 22px;
+  padding: 2px 10px;
+  font-size: 11px;
 }
 .studio-copy-settings-groups {
   display: grid;
@@ -4837,6 +5225,16 @@ img.relight-pattern-preview { object-fit: cover; }
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.studio-copy-settings footer .is-primary {
+  background: #46607a;
+  border: 1px solid #56728e;
+  color: #fff;
+  border-radius: 3px;
+  padding: 4px 12px;
+}
+.studio-copy-settings footer .is-primary:disabled {
+  opacity: 0.5;
 }
 /* Match light: options, progress and the result list with real previews. */
 .studio-series-match {
@@ -4975,77 +5373,10 @@ img.relight-pattern-preview { object-fit: cover; }
   font-size: 10px;
 }
 
-/* At wide Library widths the filters join the session chrome. The workspace
-   decides using logical width, including the user's interface scale. */
-.session-library-slot:empty {
-  display: none;
-}
-.studio-app .session-bar:has(.is-in-header) {
-  gap: 8px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-bar-start {
-  flex: 0 1 120px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-bar-end {
-  flex: 0 0 auto;
-  gap: 5px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-count-total,
-.studio-app .session-bar:has(.is-in-header) .session-count-status-text,
-.studio-app .session-bar:has(.is-in-header) .session-mark,
-.studio-app .session-bar:has(.is-in-header) .session-action > span {
-  display: none;
-}
-.studio-app .session-bar:has(.is-in-header) .session-action {
-  padding: 6px;
-}
-.session-library-slot {
-  flex: 1;
-  min-width: 0;
-}
 .studio-controls {
   font-size: 12px;
   line-height: 1.4;
   color: var(--studio-text);
-}
-.studio-library-toolbar.is-in-header {
-  flex-direction: row;
-  flex-wrap: nowrap;
-  min-height: 0;
-  height: 34px;
-  gap: 5px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  overflow: visible;
-}
-.is-in-header .studio-library-filters {
-  order: 0;
-  flex-wrap: nowrap;
-  gap: 5px;
-}
-.is-in-header .studio-search {
-  flex: 1 1 110px;
-}
-.is-in-header .studio-library-filters select {
-  flex: 0 1 auto;
-  max-width: 85px;
-}
-.is-in-header .studio-filter select {
-  max-width: 85px;
-}
-.is-in-header .studio-flag-label,
-.is-in-header .studio-metadata-toggle > span:not(.studio-filter-count),
-.is-in-header .studio-clear-filters > span {
-  display: none;
-}
-.is-in-header .studio-flag-filters button,
-.is-in-header .studio-clear-filters,
-.is-in-header .studio-metadata-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 5px;
 }
 /* The fallback row can be narrower than the window because of the sidebar. */
 @container library-toolbar (max-width: 1100px) {
@@ -5077,29 +5408,10 @@ img.relight-pattern-preview { object-fit: cover; }
   font-size: 9px;
 }
 
-.session-count-status-icon {
-  display: none;
-}
-.studio-app .session-bar:has(.is-in-header) .session-count {
-  display: flex;
-  flex: none;
-  overflow: visible;
-  gap: 6px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-count-status-icon {
-  display: inline-block;
-  color: #e5bc72;
-}
 @container library-toolbar (max-width: 770px) {
   .studio-library-filters {
     flex-wrap: wrap;
   }
-}
-.studio-app .session-bar:has(.is-in-header) .session-bar-start:has(.session-count-status-icon) {
-  flex-basis: 160px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-identity {
-  flex-shrink: 1;
 }
 
 /* Notices: toasts and the update notice share one look and one bottom-right
@@ -5406,4 +5718,13 @@ img.relight-pattern-preview { object-fit: cover; }
 .app-notices .Toastify__progress-bar--bg {
   background: #ffffff14;
   opacity: 1;
+}
+.curve-point:focus-visible {
+  outline: none;
+  stroke: #fff;
+  stroke-width: 3;
+}
+/* A checkbox beside a label that may wrap lines up with its first line. */
+.studio-dialog label.items-start > input:first-child {
+  margin-top: 2px;
 }

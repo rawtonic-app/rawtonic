@@ -30,6 +30,16 @@ Verification stays as strict as before, but is done once per source:
   only reads; a file read ahead keeps the handle and the metadata of that
   read, so a change before its copy fails the same checks.
 
+Sidecar filenames are indexed within one import job or catalog-add batch,
+then discarded. A standalone lookup and the next import enumerate afresh.
+The index is a bounded snapshot of names, not cached XMP contents: selected
+sidecars are still read and verified for each copy. Directory modification
+time cannot invalidate a persistent index reliably (NTFS can retain the same
+timestamp across new entries; FAT has coarse timestamps). A new action must
+therefore observe newly arrived sidecars without a timeout or a sleep, while
+one batch retains the benefit of reusing its folder listings. Nested imports
+use their own snapshot and restore the enclosing one, including on failure.
+
 Durability: before, every file and folder was flushed to permanent storage
 (`F_FULLFSYNC`) as it was written. Now files and folders are synced to the
 drive as they are written (`fsync`), and the drive cache of each volume

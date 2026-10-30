@@ -55,7 +55,8 @@ done
 PROMPT=$(mktemp "${TMPDIR:-/tmp}/rawtonic-review.XXXXXX")
 OUT=$(mktemp "${TMPDIR:-/tmp}/rawtonic-verdict.XXXXXX")
 LOG=$(mktemp "${TMPDIR:-/tmp}/rawtonic-review-log.XXXXXX")
-trap 'rm -f "$PROMPT" "$OUT" "$LOG"' EXIT
+DIFF=$(mktemp "${TMPDIR:-/tmp}/rawtonic-review-diff.XXXXXX")
+trap 'rm -f "$PROMPT" "$OUT" "$LOG" "$DIFF"' EXIT
 
 DEFAULT=$(cat "$SWITCH" 2>/dev/null || echo codex)
 if [ -n "$PLAN" ]; then
@@ -96,6 +97,8 @@ else
     git log --format='- %s' "$BASE"..HEAD
     printf '\n'
     git diff --stat "$BASE"...HEAD
+    # A later round checks the earlier findings and the commits since then.
+    [ "$FULL" != 1 ] || python3 "$DIR/earlier_round.py" "$(git rev-parse --git-dir)/rawtonic-review" "$HEAD_SHA"
   } >"$PROMPT"
 fi
 
@@ -115,7 +118,10 @@ elif [ "$REVIEWER" = claude ]; then
   # `git diff --output` writes), no MCP servers, no user/project settings and
   # their permission allowances; the commits and the diff go into the prompt.
   if [ -z "$PLAN" ]; then
-    { printf '\n## Commits\n\n'; git log "$BASE"..HEAD; printf '\n## Diff\n\n'; git diff "$BASE"...HEAD; } >>"$PROMPT"
+    python3 "$DIR/verified_diff.py" --base "$BASE" --head "$HEAD_SHA" >"$DIFF" || {
+      echo "review: input verification failed; no review was requested" >&2; exit 3;
+    }
+    { printf '\n## Commits\n\n'; git log "$BASE"..HEAD; printf '\n## Diff\n\n'; cat "$DIFF"; } >>"$PROMPT"
   fi
   claude -p --model "$MODEL" --tools Read,Grep,Glob --setting-sources '' --strict-mcp-config \
     --permission-mode dontAsk --output-format json --json-schema "$(cat "$DIR/verdict.schema.json")" \

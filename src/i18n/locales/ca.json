@@ -139,6 +139,7 @@
       "flag_unflag": "Sense marca",
       "import_photos": "Importa fotos…",
       "keyboard_shortcuts": "Dreceres de teclat",
+      "match_light": "Iguala la llum…",
       "move_to_selects": "Mou a Seleccionades",
       "new_session": "Projecte o catàleg nou…",
       "open_session": "Obre un projecte o catàleg…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sincronitza els ajustos",
       "tether_capture": "Dispara (càmera connectada)",
       "toggle_all_panels": "Tots els taulers i barres",
+      "toggle_auto_advance": "Avanç automàtic",
       "toggle_bottom_panel": "Tira de fotos",
       "toggle_clipping": "Avisos de retall",
       "toggle_export": "Exporta…",
@@ -221,7 +223,10 @@
     "empty": "Cap ordre coincident. Prova una altra cerca.",
     "keys": "↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "recent": "Ordres recents primer · ↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
-    "search": "Cerca ordres…"
+    "search": "Cerca ordres…",
+    "selectAtMostPhotos": "Selecciona com a màxim {{max}} fotografies",
+    "selectFourPhotos": "Selecciona almenys quatre fotografies",
+    "selectTwoPhotos": "Selecciona almenys dues fotografies"
   },
   "contextMenus": {
     "album": {
@@ -1110,7 +1115,7 @@
       "location": "Ubicació",
       "modeLabel": "Organització",
       "name": "Nom del projecte",
-      "namePlaceholder": "2026-10-01_Client_Feina",
+      "namePlaceholder": "{{date}}_Client_Feina",
       "namePreview": "El teu encàrrec",
       "originalsUntouched": "Les fotos originals no es modifiquen.",
       "session": "Projecte",
@@ -1340,6 +1345,13 @@
     "tether": {
       "battery": "Bateria {{level}}",
       "camera": "Càmera",
+      "canon": {
+        "badge": "Experimental",
+        "connectedNote": "Experimental: si una foto no apareix aquí, no s’ha perdut: és a la targeta de memòria. Deixa la targeta a la càmera. Rawtonic t’avisa quan una foto disparada des de Rawtonic no arriba, tret que mentrestant arribi una foto feta a la càmera i n’ocupi el lloc. Després d’una sessió, compara la targeta amb la biblioteca.",
+        "notReceived": "No s’ha rebut la foto {{n}}. Si la càmera l’ha feta, és a la targeta de memòria.",
+        "openPreferences": "Obre les preferències de Tethering",
+        "optInNeeded": "Les càmeres Canon encara no s’han provat amb Rawtonic. Per provar la teva i ajudar a provar-la, activa «Experimental: càmeres Canon» a Preferències > Tethering."
+      },
       "capture": "Dispara",
       "captureFailed": "La captura ha fallat: {{error}}",
       "captureTitle": "Dispara la càmera (⌘K / Ctrl+K)",
@@ -1356,6 +1368,7 @@
       "lastIn": "{{file}} és a la biblioteca",
       "lastTiming": "{{file}} a la biblioteca {{ms}} ms després del tret",
       "level": {
+        "experimental": "Experimental — es busquen provadors. Encara no provat amb Rawtonic: pot ser que una foto no aparegui aquí i llavors només és a la targeta de memòria.",
         "notSupported": "Aquesta càmera encara no és compatible.",
         "reported": "Funciona segons els usuaris d'aquest model de càmera.",
         "tested": "Provat amb aquest model de càmera a {{systems}} ({{date}}).",
@@ -1373,6 +1386,14 @@
         "bursting": "{{shots}} trets seguits…",
         "button": "Prova de càmera…",
         "buttonTitle": "Prova aquesta càmera pas a pas i crea un informe anònim",
+        "canonGuide": {
+          "card": "Mantén una targeta de memòria a la càmera durant tota la prova.",
+          "missing": "Si una foto no apareix, també és útil saber-ho: continua a la targeta de memòria i la prova la compta.",
+          "send": "Al final, fes clic a «{{button}}». Veuràs exactament què s’envia —sense fotos, noms de fitxer ni número de sèrie— i res no surt del teu ordinador abans que ho confirmis.",
+          "sendNote": "Aquest resultat prové de la compatibilitat experimental amb Canon. Gràcies per provar: cada resultat ajuda, també un en què han faltat fotos.",
+          "steps": "Fes els passos de sota un per un: fes clic a Executa i fes el que demana el pas. Si la càmera no pot fer un pas, fes clic a Omet.",
+          "title": "Com provar la teva càmera Canon"
+        },
         "close": "Tanca la prova de càmera",
         "how": {
           "autofocus": "Enfoca una vegada. Omet-ho amb un objectiu manual o amb MF a la càmera.",
@@ -1547,7 +1568,55 @@
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Base de dades de la biblioteca, amb una correcció de Rawtonic al bloqueig WAL de Windows.",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "Quant a",
       "general": "General",
       "processing": "Processament",
       "shortcuts": "Controls"
@@ -1623,7 +1692,7 @@
     },
     "general": {
       "autoAdvance": "Avanç automàtic",
-      "autoAdvanceDesc": "A Revelatge, una tecla de valoració, selecció, rebuig o treure la marca passa a la foto següent, i la tria demana una tecla per foto.",
+      "autoAdvanceDesc": "En valorar o marcar, avança des de la foto mostrada o una selecció individual de la graella. Activa-ho amb Bloq Maj o al menú Foto.",
       "builtinPresets": "Predefinits integrats",
       "builtinPresetsDesc": "Mostra els estils i predefinits propis de Rawtonic a Estils i predefinits i als menús de predefinits de les eines.",
       "createXmp": "Crear fitxers XMP que falten",
@@ -1639,7 +1708,7 @@
       "nativeTitlebar": "Barra de títol nativa",
       "nativeTitlebarDesc": "Utilitzar la barra de títol de la finestra predeterminada del sistema en lloc de la personalitzada de Rawtonic.",
       "proofMargin": "Marge de prova",
-      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (X), com a part del costat més curt del visor.",
+      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (Alt+X), com a part del costat més curt del visor.",
       "showBuiltinPresets": "Mostra els predefinits integrats",
       "title": "Configuració general",
       "uiScale": "Mida de la interfície",
@@ -1892,6 +1961,17 @@
       "shortcutsDesc": "Una llista d'etiquetes que apareixeran com a dreceres al menú contextual d'etiquetatge.",
       "title": "Etiquetatge"
     },
+    "tethering": {
+      "camerasLink": "Quines càmeres funcionen i com informar de la teva",
+      "canon": "Experimental: càmeres Canon (ajuda a provar)",
+      "canonDesc": "Permet que Rawtonic connecti una càmera Canon per USB, perquè la puguis provar i enviar un breu resultat de la prova.",
+      "canonSwitch": "Connecta càmeres Canon",
+      "howToTest": "Per ajudar: connecta la càmera al tauler Tethering, fes clic a Prova de càmera… i segueix els passos. Al final veus exactament què s’enviaria abans que res surti del teu ordinador.",
+      "title": "Tethering",
+      "warningCard": "Una foto que facis pot no aparèixer a Rawtonic. Llavors només és a la targeta de memòria de la càmera, així que mantén una targeta a la càmera tot el temps.",
+      "warningNothingDeleted": "Rawtonic mai no esborra res de la càmera ni de la targeta.",
+      "warningUntested": "Encara sense provar: fins ara no s’ha provat cap càmera Canon amb Rawtonic."
+    },
     "title": "Configuració",
     "tooltips": {
       "goHome": "Anar a l'inici"
@@ -1899,6 +1979,8 @@
   },
   "spotRemoval": {
     "cancel": "Cancel·la",
+    "deleteSelected": "Elimina la selecció",
+    "deleteSelectedHint": "Suprimeix o Retrocés. A la foto, Alt+clic n'elimina una; Alt+arrossegar elimina totes les que toca el requadre.",
     "detectObjects": "Detecta objectes",
     "detectObjectsBoxHint": "Arrossega un rectangle al voltant d'un objecte o fes-hi clic per eliminar-lo.",
     "detectObjectsHint": "Pinta per sobre d'un objecte o fes-hi clic per eliminar-lo.",
@@ -1910,6 +1992,17 @@
     "featherAria": "Difuminat de la taca",
     "filling": "S'està eliminant… pas {{done}} de {{total}}",
     "largeHoleTooSlow": "Aquesta GPU és massa lenta per eliminar zones grans; Elimina fa servir el mètode ràpid la resta de la sessió.",
+    "list": {
+      "aria": "Taques i eliminacions",
+      "count": "Correccions ({{number}})",
+      "delete": "Elimina {{name}}",
+      "deleteAll": "Elimina-les totes",
+      "hideAll": "Amaga-les totes",
+      "item": "{{kind}} {{number}}",
+      "select": "Selecciona {{name}}",
+      "showAll": "Mostra-les totes",
+      "toggle": "Mostra {{name}}"
+    },
     "mode": "Mode de taques",
     "modes": {
       "clone": "Clona",
@@ -2263,7 +2356,8 @@
         "channel": "Canal de la corba",
         "input": "Entrada",
         "maxPoints": "Màxim {{max}} punts per canal. Mou o treu un punt per afinar la corba.",
-        "output": "Sortida"
+        "output": "Sortida",
+        "point": "Punt {{index}}, entrada {{input}}, sortida {{output}}. Mou amb les fletxes; A afegeix un punt; Supr l’elimina."
       },
       "effects": {
         "grainColor": "Color del gra",
@@ -2664,11 +2758,14 @@
           "minutes": "queden uns {{minutes}} min",
           "seconds": "queden uns {{seconds}} s"
         },
+        "exportedTo": "Exportat a:",
         "failed": "{{failed}} de {{total}} han fallat",
         "failures": "Fotos que no s'han exportat",
+        "fullResolution": "Resolució completa",
         "held": "La cua està aturada: les exportacions en espera començaran quan inicieu la cua.",
         "holdQueue": "Atura la cua",
         "interrupted": "Interrompuda ({{done}} de {{total}} exportades)",
+        "originalFolder": "Carpeta original",
         "pause": "Pausa",
         "paused": "En pausa ({{done}} de {{total}} exportades)",
         "pausing": "Es posarà en pausa després de les fotos en curs…",
@@ -2856,16 +2953,21 @@
     },
     "histogram": {
       "aria": "Histograma de la imatge",
-      "clipping": "Retall",
-      "clippingTitle": "Avisos de retall: llums retallades en vermell, ombres retallades en blau ({{shortcut}})",
+      "clippingAria": "Avisos de retallada",
       "gamut": "Avís de gamma",
       "gamutTitle": "Avís de gamma: colors fora de l'espai de color de la prova en vermell",
       "graphAria": "Distribució de luminància RGB de la foto seleccionada",
       "graphEmpty": "Histograma disponible després d'obrir una foto",
+      "highlightClipping": "Avís de llums",
+      "highlightClippingLit": "Avís de llums, retallades",
+      "highlightClippingTitle": "Avís de llums (llums altes retallades; {{shortcut}} activa tots dos)",
       "proof": "Prova",
       "proofSpace": "Espai de color de la prova",
       "proofTitle": "Prova en pantalla: mostra la foto com es veurà una exportació a l'espai de color triat ({{shortcut}})",
       "selectPhoto": "Selecciona una foto",
+      "shadowClipping": "Avís d'ombres",
+      "shadowClippingLit": "Avís d'ombres, retallades",
+      "shadowClippingTitle": "Avís d'ombres (ombres retallades; {{shortcut}} activa tots dos)",
       "title": "Histograma"
     },
     "layers": {
@@ -3942,6 +4044,8 @@
       "whiteBalanceTo": "Balanç de blancs {{to}} K"
     },
     "spot": {
+      "done": "Acaba l'eliminació de taques",
+      "start": "Inicia l'eliminació de taques",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {
@@ -3958,14 +4062,20 @@
         "auto": "Auto",
         "autoAria": "Nivells automàtics",
         "autoTitle": "Defineix els punts de negre i blanc a partir de l'histograma",
-        "black": "Negre",
         "channelAria": "Canal dels nivells",
-        "highlight": "Altes llums",
+        "fieldAria": "Valor de {{name}}",
+        "histogramAria": "Histograma dels nivells",
+        "inBlack": "Negre d'entrada",
+        "inWhite": "Blanc d'entrada",
         "midtone": "Tons mitjans",
+        "outBlack": "Negre de sortida",
         "output": "Sortida",
-        "shadow": "Ombres",
-        "title": "Nivells",
-        "white": "Blanc"
+        "outWhite": "Blanc de sortida",
+        "pickBlack": "Comptagotes del punt negre",
+        "pickBlackTitle": "Feu clic a la foto on hauria de ser negre",
+        "pickWhite": "Comptagotes del punt blanc",
+        "pickWhiteTitle": "Feu clic a la foto on hauria de ser blanc",
+        "title": "Nivells"
       },
       "regionCurve": {
         "aria": {
@@ -4343,6 +4453,7 @@
     "download": "Baixa",
     "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Cerca actualitzacions",
     "noFile": "Aquesta versió no té descàrrega per a aquest ordinador; la pàgina de la versió llista tots els fitxers.",
     "noNotes": "Sense notes de la versió. La pàgina de la versió en pot tenir més.",
     "notesTitle": "Novetats del Rawtonic {{version}}",

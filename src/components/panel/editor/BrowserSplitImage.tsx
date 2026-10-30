@@ -5,6 +5,7 @@ import { useEditorStore } from "../../../store/useEditorStore";
 import { useSettingsStore } from "../../../store/useSettingsStore";
 import { useSnapshotStore } from "../../../store/useSnapshotStore";
 import { beforeAdjustments } from "../../../utils/beforeSnapshot";
+import { showClippingValue } from "../../../utils/clippingWarnings";
 import { useBrowserViewPreview } from "../../../hooks/useBrowserViewPreview";
 import { browserSplitWidth } from "../../../utils/beforeAfter";
 import type { RenderSize } from "../../../hooks/useImageRenderSize";
@@ -33,7 +34,7 @@ export default function BrowserSplitImage({
   const position = useEditorStore((s) => s.splitPosition);
   const view = useEditorStore(
     useShallow((s) => ({
-      showClipping: s.clippingWarnings,
+      showClipping: showClippingValue(s.clipHighlights, s.clipShadows),
       softProof: s.softProof ? s.softProofSpace : null,
       softProofWarning: s.softProof && s.softProofWarning,
       colorRangeShow: s.colorRangeShow,

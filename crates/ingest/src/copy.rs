@@ -87,7 +87,7 @@ impl Barrier {
         Ok(())
     }
 
-    #[cfg(not(target_vendor = "apple"))]
+    #[cfg(all(unix, not(target_vendor = "apple")))]
     fn note(&mut self, _folder: &Path) -> std::io::Result<()> {
         Ok(())
     }

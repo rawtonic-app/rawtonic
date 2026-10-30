@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -54,6 +55,10 @@ PREFERENCE = [
     "Unlicense", "CC0-1.0", "BSL-1.0", "Unicode-3.0", "MPL-2.0",
     "LGPL-2.1", "LGPL-3.0", "AGPL-3.0",
 ]
+# JSON from Cargo, npm and manifests is UTF-8 (the JSON standard). Without it,
+# Python decodes with the locale's encoding — cp1252 on Windows, where Cargo's
+# metadata fails on the first byte cp1252 has no mapping for (0x81 etc.).
+UTF8 = {"encoding": "utf-8", "errors": "strict"}
 LICENSE_FILE = re.compile(r"^(licen[cs]e|copying|notice|copyright|unlicense)", re.I)
 RULE = "=" * 78
 
@@ -100,7 +105,7 @@ def rust_packages() -> list[dict]:
     metadata = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--format-version", "1", "--locked",
          # The helper ships with libgphoto2's bindings.
-         "--features", "rawtonic-tether/gphoto2"], cwd=REPO, text=True))
+         "--features", "rawtonic-tether/gphoto2"], cwd=REPO, text=True, **UTF8))
     packages = {p["id"]: p for p in metadata["packages"]}
     nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
     roots = [i for i in metadata["workspace_members"]
@@ -131,9 +136,19 @@ def rust_packages() -> list[dict]:
     return out
 
 
+def npm_executable() -> str:
+    """npm as the system runs it: `npm.cmd` on Windows, where the bare name
+    is not an executable and starting it without a shell fails (WinError 2)."""
+    for name in ("npm.cmd", "npm") if os.name == "nt" else ("npm",):
+        path = shutil.which(name)
+        if path:
+            return path
+    sys.exit("npm was not found on PATH (run `npm ci` first)")
+
+
 def npm_packages() -> list[dict]:
-    listing = subprocess.run(["npm", "ls", "--omit=dev", "--all", "--parseable"],
-                             cwd=REPO, text=True, capture_output=True)
+    listing = subprocess.run([npm_executable(), "ls", "--omit=dev", "--all", "--parseable"],
+                             cwd=REPO, text=True, capture_output=True, **UTF8)
     # A missing or incomplete node_modules makes npm ls exit non-zero with a
     # partial (or empty) listing, which would read as "every package covered".
     if listing.returncode != 0:
@@ -141,7 +156,7 @@ def npm_packages() -> list[dict]:
     out, seen = [], set()
     for line in listing.stdout.splitlines()[1:]:
         root = Path(line)
-        manifest = json.loads((root / "package.json").read_text())
+        manifest = json.loads((root / "package.json").read_text(encoding="utf-8"))
         key = (manifest["name"], manifest["version"])
         if key in seen:
             continue
@@ -175,7 +190,7 @@ def main() -> None:
     args = parser.parse_args()
 
     packages = sorted(rust_packages() + npm_packages(), key=lambda p: (p["kind"], p["name"].lower(), p["version"]))
-    version = json.loads((REPO / "package.json").read_text())["version"]
+    version = json.loads((REPO / "package.json").read_text(encoding="utf-8"))["version"]
     sections, problems, appendix = [], [], set()
     first_seen: dict[str, str] = {}
     for package in packages:
@@ -186,7 +201,7 @@ def main() -> None:
         files = license_files(package["root"], package["license_file"])
         if files:
             for path in files:
-                text = path.read_text(errors="replace").strip()
+                text = path.read_text(encoding="utf-8", errors="replace").strip()
                 digest = hashlib.sha256(text.encode()).hexdigest()
                 lines += ["-" * 78, path.relative_to(package["root"]).as_posix()]
                 if digest in first_seen:
@@ -218,7 +233,7 @@ def main() -> None:
         return
     models = [RULE, "AI models (downloaded from Rawtonic's model pack on first use; sources in docs/MODELS.md)"]
     for path in model_texts:
-        text = path.read_text(errors="replace").strip()
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
         digest = hashlib.sha256(text.encode()).hexdigest()
         models += ["-" * 78, path.name]
         if digest in first_seen:
@@ -235,10 +250,10 @@ def main() -> None:
               f"{len(packages)} packages.")
     body = [header] + sections + ["\n".join(models), RULE, "Appendix: standard license texts"]
     for identifier in sorted(appendix):
-        body += [RULE, identifier, "", standard_text(identifier).read_text().strip()]
+        body += [RULE, identifier, "", standard_text(identifier).read_text(encoding="utf-8").strip()]
     args.out.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.out.with_suffix(".tmp")
-    temporary.write_text("\n\n".join(body) + "\n")
+    temporary.write_text("\n\n".join(body) + "\n", encoding="utf-8")
     os.replace(temporary, args.out)
     print(f"{args.out.relative_to(REPO) if args.out.is_relative_to(REPO) else args.out}: "
           f"{len(packages)} packages, {args.out.stat().st_size // 1024} KiB")

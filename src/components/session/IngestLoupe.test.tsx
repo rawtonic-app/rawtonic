@@ -54,6 +54,14 @@ function Harness({
 const shownName = () => document.querySelector(".session-ingest-loupe-title strong")?.textContent;
 const loupe = () => screen.queryByRole("region", { name: "Large view" });
 
+it("fits columns inside the padded preview scroller", () => {
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(352);
+  try {
+    render(<Harness list={files(8)} />);
+    expect((document.querySelector(".session-ingest-tiles") as HTMLElement).style.gridTemplateColumns).toBe("repeat(2, 112px)");
+  } finally { width.mockRestore(); }
+});
+
 describe("Import dialog large view", () => {
   it("opens on double-click and on Enter, shows the large preview and capture info, and closes back to the grid", async () => {
     const user = userEvent.setup();
@@ -83,7 +91,7 @@ describe("Import dialog large view", () => {
     expect(loupe()).toBeNull();
   });
 
-  it("steps through the photographs with the arrow keys, stopping at the ends", async () => {
+  it("steps through the photos with the arrow keys, stopping at the ends", async () => {
     const user = userEvent.setup();
     render(<Harness list={files(3)} />);
     await user.dblClick(screen.getByRole("checkbox", { name: "DSC00001.ARW" }));
@@ -97,14 +105,14 @@ describe("Import dialog large view", () => {
     expect(shownName()).toBe("DSC00000.ARW");
     await user.keyboard("{End}");
     expect(shownName()).toBe("DSC00002.ARW");
-    await user.click(screen.getByRole("button", { name: "Previous photograph" }));
+    await user.click(screen.getByRole("button", { name: "Previous photo" }));
     expect(shownName()).toBe("DSC00001.ARW");
-    // Back in the grid the photograph last shown has the focus.
+    // Back in the grid the photo last shown has the focus.
     await user.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("DSC00001.ARW"));
   });
 
-  it("moves the focus through the grid with the arrow keys and opens the focused photograph with Enter", async () => {
+  it("moves the focus through the grid with the arrow keys and opens the focused photo with Enter", async () => {
     const user = userEvent.setup();
     render(<Harness list={files(8)} />);
     screen.getByRole("checkbox", { name: "DSC00000.ARW" }).focus();
@@ -138,7 +146,7 @@ describe("Import dialog large view", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("toggles the shown photograph's import checkbox", async () => {
+  it("toggles the shown photo's import checkbox", async () => {
     const user = userEvent.setup();
     render(<Harness list={files(3)} />);
     await user.dblClick(screen.getByRole("checkbox", { name: "DSC00001.ARW" }));
@@ -146,7 +154,7 @@ describe("Import dialog large view", () => {
     expect(check.getAttribute("aria-checked")).toBe("true");
     await user.click(check);
     expect(check.getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByRole("status").textContent).toContain("2 of 3 photographs selected");
+    expect(screen.getByRole("status").textContent).toContain("2 of 3 photos selected");
     await user.keyboard("{ArrowRight}");
     expect(screen.getByRole("checkbox", { name: "Import" }).getAttribute("aria-checked")).toBe("true");
     await user.keyboard("{Escape}");
@@ -170,7 +178,7 @@ describe("Import dialog large view", () => {
   it("switches the thumbnail size and keeps it", async () => {
     render(<Harness list={files(2)} />);
     const slider = screen.getByRole("slider", { name: "Thumbnail size" });
-    const grid = () => screen.getByRole("group", { name: "Photographs to import" });
+    const grid = () => screen.getByRole("group", { name: "Photos to import" });
     expect(grid().style.getPropertyValue("--ingest-tile")).toBe("112px");
     fireEvent.change(slider, { target: { value: "2" } });
     expect(grid().style.getPropertyValue("--ingest-tile")).toBe("168px");
@@ -181,7 +189,7 @@ describe("Import dialog large view", () => {
 });
 
 describe("large preview cache", () => {
-  it("loads the shown photograph first, keeps its neighbours, drops what is no longer wanted and discards late arrivals", async () => {
+  it("loads the shown photo first, keeps its neighbours, drops what is no longer wanted and discards late arrivals", async () => {
     const pending = new Map<string, () => void>();
     const load = vi.fn(
       (path: string) =>

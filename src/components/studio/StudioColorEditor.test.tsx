@@ -208,7 +208,7 @@ describe("range wheel <-> sliders", () => {
     // colour; SVG paints later elements on top, so the edges come last.
     render(<Harness initial={[newColorRange(264, 0.313, 0.45)]} />);
     openTool();
-    const colour = screen.getByRole("slider", { name: "Range colour" });
+    const colour = screen.getByRole("slider", { name: "Range color" });
     for (const name of [
       "Range outer saturation edge",
       "Range inner saturation edge",
@@ -329,7 +329,7 @@ describe("range wheel <-> sliders", () => {
     });
     fireEvent.keyDown(edge, { key: "ArrowUp", shiftKey: true });
     expect(lastRanges()[0].chromaRange).toBe(60);
-    const colour = screen.getByRole("slider", { name: "Range colour" });
+    const colour = screen.getByRole("slider", { name: "Range color" });
     fireEvent.keyDown(colour, { key: "ArrowLeft" });
     expect(lastRanges()[0].hue).toBe(49);
   });
@@ -352,7 +352,7 @@ describe("range wheel <-> sliders", () => {
     render(<Harness initial={[skinish()]} />);
     openTool();
     fireEvent.click(
-      screen.getByRole("button", { name: "Pick the range colour again" }),
+      screen.getByRole("button", { name: "Pick the range color again" }),
     );
     const svg = wheelSvg();
     fireEvent.pointerDown(svg, { button: 0, ...at(120, 0.1) });
@@ -371,7 +371,7 @@ describe("range wheel <-> sliders", () => {
     render(<Harness initial={full} />);
     openTool();
     fireEvent.click(
-      screen.getByRole("button", { name: "Pick the range colour again" }),
+      screen.getByRole("button", { name: "Pick the range color again" }),
     );
     const group = screen.getByRole("group", { name: "Color range wheel" });
     expect(group.className).not.toContain("is-disabled");
@@ -384,7 +384,7 @@ describe("range wheel <-> sliders", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: "Pick a colour range",
+          name: "Pick a color range",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -394,7 +394,7 @@ describe("range wheel <-> sliders", () => {
     render(<Harness initial={[skinish()]} />);
     openTool();
     fireEvent.click(
-      screen.getByRole("button", { name: "Pick a colour range" }),
+      screen.getByRole("button", { name: "Pick a color range" }),
     );
     expect(useEditorStore.getState().colorPickerTarget).toBe("new");
     const svg = wheelSvg();
@@ -416,7 +416,7 @@ describe("skin tone mode", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Skin tone" }));
     expect(screen.getByText(/Pick skin in the photo/)).toBeTruthy();
     // No skin range yet: the wheel shows none and a press picks skin.
-    expect(screen.queryByRole("slider", { name: "Range colour" })).toBeNull();
+    expect(screen.queryByRole("slider", { name: "Range color" })).toBeNull();
     const svg = wheelSvg();
     act(() => {
       fireEvent.pointerDown(svg, { button: 0, ...at(55, 0.07) });
@@ -456,7 +456,7 @@ describe("skin tone mode", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Skin tone" }));
     expect(useEditorStore.getState().activeColorRangeId).toBe(skin.id);
     fireEvent.click(
-      screen.getByRole("button", { name: "Pick the range colour again" }),
+      screen.getByRole("button", { name: "Pick the range color again" }),
     );
     expect(useEditorStore.getState().colorPickerTarget).toBe(skin.id);
     fireEvent.click(screen.getByRole("tab", { name: "Ranges" }));

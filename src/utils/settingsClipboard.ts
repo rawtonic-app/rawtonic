@@ -57,7 +57,11 @@ export const RESPONSES_CHOSEN = 'processingVersions';
 export const SETTINGS_GROUPS: SettingsGroup[] = Object.entries(ADJUSTMENT_GROUPS)
   .filter(([section]) => section !== 'masks')
   .flatMap(([section, groups]) =>
-    groups.map((group) => ({ section, label: group.label, keys: group.keys.filter((key) => !RESPONSE_KEYS.includes(key)) })),
+    groups.map((group) => ({
+      section: group.clipboardSection ?? section,
+      label: group.label,
+      keys: group.keys.filter((key) => !RESPONSE_KEYS.includes(key)),
+    })),
   )
   .filter((group) => group.keys.length > 0);
 
