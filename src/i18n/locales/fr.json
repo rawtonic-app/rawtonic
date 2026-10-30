@@ -30,7 +30,7 @@
     "dismiss": "Masquer : {{title}}",
     "dismissShort": "Masquer",
     "download": {
-      "model": "Téléchargement du modèle IA {{name}}"
+      "model": "Téléchargement : {{name}}"
     },
     "empty": {
       "attention": "Rien ne requiert votre attention.",

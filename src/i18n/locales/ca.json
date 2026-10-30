@@ -30,7 +30,7 @@
     "dismiss": "Descarta: {{title}}",
     "dismissShort": "Descarta",
     "download": {
-      "model": "S’està baixant el model d’IA {{name}}"
+      "model": "S’està baixant {{name}}"
     },
     "empty": {
       "attention": "Res no requereix la teva atenció.",

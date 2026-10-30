@@ -27,7 +27,7 @@
     "dismiss": "Ausblenden: {{title}}",
     "dismissShort": "Ausblenden",
     "download": {
-      "model": "KI-Modell {{name}} wird geladen"
+      "model": "{{name}} wird geladen"
     },
     "empty": {
       "attention": "Nichts braucht deine Aufmerksamkeit.",

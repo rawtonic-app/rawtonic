@@ -33,7 +33,7 @@
     "dismiss": "Скрыть: {{title}}",
     "dismissShort": "Скрыть",
     "download": {
-      "model": "Загрузка ИИ-модели {{name}}"
+      "model": "Загрузка: {{name}}"
     },
     "empty": {
       "attention": "Ничто не требует внимания.",

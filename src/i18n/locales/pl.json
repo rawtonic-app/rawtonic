@@ -33,7 +33,7 @@
     "dismiss": "Odrzuć: {{title}}",
     "dismissShort": "Odrzuć",
     "download": {
-      "model": "Pobieranie modelu AI {{name}}"
+      "model": "Pobieranie: {{name}}"
     },
     "empty": {
       "attention": "Nic nie wymaga uwagi.",

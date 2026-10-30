@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { notify } from '../activity/notify';
+import { noteWriteError } from '../activity/bridges';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
@@ -122,7 +123,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         });
         return { imageRatings: ratings };
       });
-      notify.error(`Failed to apply rating: ${message}`);
+      noteWriteError(`Failed to apply rating: ${message}`, failed);
     });
   }, []);
 
@@ -172,7 +173,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       // The photos that were saved show their new label.
       const { message, failed } = saveFailure(err, pathsWritten);
       applyLabel(pathsWritten.filter((p) => !failed.includes(p)));
-      notify.error(`Failed to set color label: ${message}`);
+      noteWriteError(`Failed to set color label: ${message}`, failed);
     }
   }, []);
 

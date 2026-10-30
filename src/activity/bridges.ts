@@ -70,7 +70,7 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         id,
         source: 'export',
         title: i18n.t('activity.export.failed', { count: job.failed, label: job.label }),
-        detail: failures.slice(0, 5).map((failure) => `${fileName(failure.path)}: ${failure.error}`).join('\n') || undefined,
+        detail: failures.slice(0, 3).map((failure) => `${fileName(failure.path)}: ${failure.error}`).join('\n') || undefined,
         paths: failures.map((failure) => failure.path),
         actions: [{ label: i18n.t('activity.tryAgain'), settles: true, run: () => act(Invokes.ExportQueueResume, { job: job.id }) }],
       });
@@ -114,8 +114,21 @@ const unsavedWrites = new Map<string, string>();
 let lastWriteError: string | null = null;
 const WRITES_ID = 'write:not-saved';
 
-/** The reason the next failed write gives (the command's own message). */
-export function noteWriteError(message: string) {
+/** The reason a failed write gives (the command's own message): for the
+ * next failed write, or, with `paths` the write queue already reported, for
+ * those photographs at once (a caller that learns why only after the queue
+ * settled), so one failure is one entry. */
+export function noteWriteError(message: string, paths?: string[]) {
+  if (paths?.length && paths.every((path) => unsavedWrites.has(path))) {
+    for (const path of paths) unsavedWrites.set(path, message);
+    showUnsavedWrites(true);
+    return;
+  }
+  if (paths?.length) {
+    // Not a write of the queue: its own entry, so it is never lost.
+    useActivityStore.getState().report('failure', { source: 'write', title: message, paths });
+    return;
+  }
   lastWriteError = message;
 }
 
@@ -128,14 +141,19 @@ export function syncPhotoWrite(paths: string[], failed: string[]) {
   const reason = lastWriteError;
   lastWriteError = null;
   for (const path of failed) unsavedWrites.set(path, reason ?? unsavedWrites.get(path) ?? '');
+  showUnsavedWrites(failed.length > 0);
+}
+
+/** The one entry of the photographs not saved (`fresh`: a new failure,
+ * shown again after a dismissal). */
+function showUnsavedWrites(fresh: boolean) {
   const activity = useActivityStore.getState();
   const shown = activity.entries.find((entry) => entry.id === WRITES_ID);
   if (!unsavedWrites.size) {
     if (shown) activity.resolve(WRITES_ID);
     return;
   }
-  // Dismissed: shown again only for a new failure.
-  if (!shown && !failed.length) return;
+  if (!shown && !fresh) return;
   const unsaved = [...unsavedWrites.keys()];
   const reasons = [...new Set([...unsavedWrites.values()].filter(Boolean))];
   activity.report('failure', {

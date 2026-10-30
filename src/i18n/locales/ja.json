@@ -24,7 +24,7 @@
     "dismiss": "閉じる: {{title}}",
     "dismissShort": "閉じる",
     "download": {
-      "model": "AI モデル {{name}} をダウンロード中"
+      "model": "ダウンロード中: {{name}}"
     },
     "empty": {
       "attention": "対応が必要な項目はありません。",

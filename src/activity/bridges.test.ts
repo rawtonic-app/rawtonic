@@ -2,7 +2,7 @@ import { act } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { resetActivityBridges, startActivityBridges } from './bridges';
+import { noteWriteError, resetActivityBridges, startActivityBridges } from './bridges';
 import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
@@ -93,6 +93,18 @@ it('reports a photo write that failed until the photograph is written after all'
   expect(entry('write:not-saved')).toBeUndefined();
 });
 
+it('gives the write failure the reason a caller learns after the queue settled, as one entry', async () => {
+  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], { kind: 'rating', failedOf: (failed) => failed });
+  await act(async () => {});
+  noteWriteError('Failed to apply rating: Permission denied', ['/a.dng']);
+  const failures = useActivityStore.getState().entries.filter((e) => e.status === 'failure');
+  expect(failures).toHaveLength(1);
+  expect(failures[0].detail).toContain('Failed to apply rating: Permission denied');
+  // A reason for photographs the queue did not report is its own entry.
+  noteWriteError('Failed to set color label: disk full', ['/z.dng']);
+  expect(useActivityStore.getState().entries.filter((e) => e.status === 'failure')).toHaveLength(2);
+});
+
 it('shows AI tasks while they run, with Generative fill progress', async () => {
   await act(async () => {});
   useProcessStore.getState().registerAiTask('mask-1', 'sky');
@@ -115,7 +127,7 @@ it('shows a model download with its progress', async () => {
   handlers.get('ai-model-download-progress')!({ payload: { model: 'sky-v2', received: 50, total: 200 } });
   expect(entry('download:ai-model')).toMatchObject({
     source: 'download',
-    title: 'Downloading AI model sky-v2',
+    title: 'Downloading sky-v2',
     progress: { done: 50, total: 200 },
   });
   handlers.get('ai-model-download-finish')!({ payload: 'sky-v2' });

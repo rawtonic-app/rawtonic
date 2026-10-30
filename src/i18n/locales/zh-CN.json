@@ -24,7 +24,7 @@
     "dismiss": "关闭：{{title}}",
     "dismissShort": "关闭",
     "download": {
-      "model": "正在下载 AI 模型 {{name}}"
+      "model": "正在下载 {{name}}"
     },
     "empty": {
       "attention": "没有需要处理的项目。",

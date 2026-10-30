@@ -30,7 +30,7 @@
     "dismiss": "Ignora: {{title}}",
     "dismissShort": "Ignora",
     "download": {
-      "model": "Download del modello IA {{name}}"
+      "model": "Download: {{name}}"
     },
     "empty": {
       "attention": "Niente richiede la tua attenzione.",

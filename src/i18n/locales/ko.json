@@ -24,7 +24,7 @@
     "dismiss": "닫기: {{title}}",
     "dismissShort": "닫기",
     "download": {
-      "model": "AI 모델 {{name}} 다운로드 중"
+      "model": "다운로드 중: {{name}}"
     },
     "empty": {
       "attention": "확인이 필요한 항목이 없습니다.",

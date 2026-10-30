@@ -30,7 +30,7 @@
     "dismiss": "Dispensar: {{title}}",
     "dismissShort": "Dispensar",
     "download": {
-      "model": "A transferir o modelo de IA {{name}}"
+      "model": "A transferir {{name}}"
     },
     "empty": {
       "attention": "Nada requer a sua atenção.",

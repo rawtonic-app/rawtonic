@@ -27,7 +27,7 @@
     "dismiss": "Dismiss: {{title}}",
     "dismissShort": "Dismiss",
     "download": {
-      "model": "Downloading AI model {{name}}"
+      "model": "Downloading {{name}}"
     },
     "empty": {
       "attention": "Nothing needs your attention.",
