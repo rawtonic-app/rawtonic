@@ -86,6 +86,12 @@ interface EditorState {
   tatFocus: string | null;
   /** The Levels channel shown (its pickers set that channel's points). */
   levelsChannel: import('../utils/levels').LevelChannel;
+  /** The point curve channel the curve panel shows (and the targeted
+   * curve moves). */
+  curveChannel: import('../utils/targetedAdjustment').CurveChannel;
+  /** The curve input level (0–255) under the targeted curve's pointer,
+   * marked on the curve; null when the pointer is off the photo. */
+  tatCurveMarker: number | null;
   /** Spot removal tool: on/off, the selected spot and the settings new
    * spots get (and the selected one shows). */
   isSpotToolActive: boolean;
@@ -274,6 +280,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   tatTarget: null,
   tatFocus: null,
   levelsChannel: 'rgb',
+  curveChannel: 'luma',
+  tatCurveMarker: null,
   isSpotToolActive: false,
   activeSpotId: null,
   spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 },
