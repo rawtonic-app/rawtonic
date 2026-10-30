@@ -2,29 +2,17 @@ import { CATALOG_CHANGED, FILE_OPERATIONS_CHANGED, catalogChanged } from './cata
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 import { IMPORTS_CHANGED } from './folderSync';
 import { OFFLINE_CHANGED } from './offline';
+import { submitPhotoWrite } from './photoWrites';
+
+/** The photographs a catalog write is for: `paths`, or the `path` of each
+ * of its `values` (restoring culling). */
+function writtenPaths(args: InvokeArgs): string[] {
+  const { paths, values } = args as { paths?: unknown; values?: unknown };
+  const listed = Array.isArray(paths) ? paths : Array.isArray(values) ? values.map((value) => (value as { path?: unknown })?.path) : [];
+  return listed.filter((path): path is string => typeof path === 'string');
+}
 
 let last: Promise<unknown> = Promise.resolve();
-/** Metadata writes not settled yet (`trackMetadataWrite`). */
-const unsettled = new Set<Promise<unknown>>();
-
-/** Counts `write` (a rating, label, keyword or EXIF write, or a step that
- * makes one) among those `metadataWritesSettled` waits for; returns it. */
-export function trackMetadataWrite<T>(write: Promise<T>): Promise<T> {
-  const settled = write.then(
-    () => undefined,
-    () => undefined,
-  );
-  unsettled.add(settled);
-  void settled.then(() => unsettled.delete(settled));
-  return write;
-}
-
-/** Resolves once every metadata write given so far has settled (also those
- * they start meanwhile): an export takes each photo's metadata after this,
- * so a rating set just before Export is in it. */
-export async function metadataWritesSettled(): Promise<void> {
-  while (unsettled.size > 0) await Promise.all(unsettled);
-}
 /** Photographs this window rated, with how many of those writes did not
  * fail (yet). Labels and keywords keep the stored rating; a failed write
  * changed nothing. */
@@ -51,7 +39,9 @@ export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> 
       ? paths.filter((path): path is string => typeof path === 'string')
       : [];
   for (const path of ratedPaths) rated.set(path, (rated.get(path) ?? 0) + 1);
-  const run = last.then(() => invoke<T>(command, args));
+  // Also after the photographs' recipe writes given before (their XMP
+  // carries rating, label and keywords too).
+  const run = submitPhotoWrite(writtenPaths(args), () => invoke<T>(command, args), { kind: command, after: last });
   run.catch((error: unknown) => {
     // A save that failed for some photographs names them; the others were
     // rated.
@@ -63,7 +53,6 @@ export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> 
       else rated.delete(path);
     }
   });
-  trackMetadataWrite(run);
   last = run.catch(() => undefined);
   void run.finally(catalogChanged).catch(() => undefined);
   return run;

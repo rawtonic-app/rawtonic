@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import type { Adjustments } from '../utils/adjustments';
 import { noteTool } from '../components/contribute/usageStats';
+import { submitPhotoWrite } from '../utils/photoWrites';
 
 /** A named snapshot of a photograph's development (`rawtonic_catalog::Snapshot`). */
 export interface Snapshot {
@@ -81,10 +82,12 @@ async function developThumbnails() {
 }
 
 /** Snapshot requests, one after another: each answers with the whole list,
- * so an answer arriving after a later request's would show an older list. */
+ * so an answer arriving after a later request's would show an older list.
+ * They are kept in the photograph's write queue (snapshots are in its
+ * sidecar); a list (`write` false) only reads after the writes before it. */
 let requests: Promise<unknown> = Promise.resolve();
-function inTurn<T>(request: () => Promise<T>): Promise<T> {
-  const next = requests.then(request, request);
+function inTurn<T>(path: string, request: () => Promise<T>, write = true): Promise<T> {
+  const next = submitPhotoWrite([path], request, { kind: 'snapshot', after: requests, announce: write });
   requests = next.catch(() => undefined);
   return next;
 }
@@ -117,11 +120,11 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
       set({ path, snapshots: [], thumbnails: {} });
     }
     if (!path) return;
-    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotsList, { path })));
+    show(path, await inTurn(path, () => invoke<unknown>(Invokes.SnapshotsList, { path }), false));
   },
 
   create: async (path, name, adjustments) => {
-    const answer = await inTurn(() => invoke<unknown>(Invokes.SnapshotCreate, { path, name, adjustments }));
+    const answer = await inTurn(path, () => invoke<unknown>(Invokes.SnapshotCreate, { path, name, adjustments }));
     noteTool('snapshots');
     show(path, answer);
     // A new snapshot is listed last (the order they were taken).
@@ -129,11 +132,11 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
   },
 
   rename: async (path, id, name) => {
-    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotRename, { path, id, name })));
+    show(path, await inTurn(path, () => invoke<unknown>(Invokes.SnapshotRename, { path, id, name })));
   },
 
   update: async (path, id, adjustments) => {
-    const answer = await inTurn(() => invoke<unknown>(Invokes.SnapshotUpdate, { path, id, adjustments }));
+    const answer = await inTurn(path, () => invoke<unknown>(Invokes.SnapshotUpdate, { path, id, adjustments }));
     // Its thumbnail is developed again (one in progress is dropped).
     revisions.set(id, (revisions.get(id) ?? 0) + 1);
     const url = get().thumbnails[id];
@@ -146,6 +149,6 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
   },
 
   remove: async (path, id) => {
-    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotDelete, { path, id })));
+    show(path, await inTurn(path, () => invoke<unknown>(Invokes.SnapshotDelete, { path, id })));
   },
 }));

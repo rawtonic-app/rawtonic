@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import { recipeSaveSettled, useEditorActions } from "../../hooks/useEditorActions";
+import { recipeWrite, useEditorActions } from "../../hooks/useEditorActions";
 import { Invokes } from "../ui/AppProperties";
 import type {
   Adjustments,
@@ -215,16 +215,24 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       .map((f) => ({ center: [(f.box[0] + f.box[2] / 2) / w, (f.box[1] + f.box[3] / 2) / h], settings: f.settings }));
     setApplying(t("studio.faceRetouch.applying", { count: others.length }));
     try {
-      const done = await invoke<number>(Invokes.ApplyFaceRetouchToPaths, {
-        paths: others,
-        settings: current.settings,
-        faceSettings,
-      });
+      // A long command (faces found in each photo): it reports each photo's
+      // write, which quitting counts.
+      const done = await recipeWrite(
+        others,
+        (batch) =>
+          invoke<number>(Invokes.ApplyFaceRetouchToPaths, {
+            paths: others,
+            settings: current.settings,
+            faceSettings,
+            ...(batch ? { batch } : {}),
+          }),
+        /** It answers how many it wrote; short of all it failed with the
+         * photos not written (a single one: any may have failed). */
+        { kind: "faceRetouch", failedOf: (written) => (written < others.length ? others : []), batch: true },
+      );
       setApplying(t("studio.faceRetouch.applied", { done, total: others.length }));
     } catch (e) {
       setApplying(aiErrorMessage(e));
-    } finally {
-      recipeSaveSettled();
     }
   };
   const setEditor = useEditorStore((s) => s.setEditor);

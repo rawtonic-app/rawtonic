@@ -9,7 +9,7 @@ import { ExportSettings, Status } from '../components/ui/ExportImportProperties'
 import { debouncedSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { submittedFrom } from '../utils/runExportJobs';
-import { metadataWritesSettled } from '../utils/catalogWrites';
+import { photoWritesAndStepsSettled } from '../utils/photoWrites';
 
 /**
  * Handles files handed to the app from outside (OS "open with" and the
@@ -98,7 +98,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
     });
 
     try {
-      await metadataWritesSettled();
+      await photoWritesAndStepsSettled();
       const job = await invoke<string>(Invokes.ExportImages, {
         paths: [session.source],
         outputFolderOrFile: session.output,

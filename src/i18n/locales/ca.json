@@ -871,6 +871,11 @@
       "zoomInTooltip": "Apropar",
       "zoomOutTooltip": "Allunyar"
     },
+    "quit": {
+      "quitAnyway": "Surt igualment",
+      "unsavedMessage": "Aquests canvis no s’han pogut desar: {{changes}}. Si surts ara, els perdràs; cancel·la per mantenir el Rawtonic obert i torna-ho a provar.",
+      "unsavedTitle": "Canvis sense desar"
+    },
     "renameFile": {
       "cancel": "Cancel·lar",
       "fileNamingTemplate": "Plantilla de nom de fitxer",
@@ -973,6 +978,9 @@
   },
   "notifications": {
     "close": "Tanca la notificació",
+    "quitCancelled": "El Rawtonic ha romàs obert perquè el desat no ha acabat. Els canvis pendents encara s’estan desant.",
+    "quitSaving": "S’estan desant els canvis abans de sortir del Rawtonic…",
+    "quitSavingPhotos": "S’estan desant els canvis abans de sortir del Rawtonic… ({{done}}/{{total}})",
     "region": "Notificacions"
   },
   "offline": {

@@ -274,6 +274,9 @@ export interface UIState {
   /** A library switch is past its save barrier and the next library is
    * opening: nothing can be edited (`LibrarySwitchShield`). */
   switchingLibrary: boolean;
+  /** A quit is saving: nothing can be edited, and the shield says how far
+   * it got (`LibrarySwitchShield`); null when no quit holds the app. */
+  quitSaving: string | null;
   mergeModalState: MergeModalState;
   negativeModalState: NegativeConversionModalState;
   cullingModalState: CullingModalState;
@@ -382,6 +385,7 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   confirmModalState: { isOpen: false },
   switchingLibrary: false,
+  quitSaving: null,
   mergeModalState: CLOSED_MERGE_MODAL,
   negativeModalState: { isOpen: false, targetPaths: [] },
   cullingModalState: { isOpen: false, suggestions: null, progress: null, error: null, pathsToCull: [] },

@@ -12,7 +12,7 @@ import { exportSettingsFromDraft, savedRecipes, type RecipeDraft } from './expor
 import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
 import { flushRecipeSaves } from '../hooks/useEditorActions';
-import { metadataWritesSettled } from './catalogWrites';
+import { photoWritesAndStepsSettled } from './photoWrites';
 
 /** The library an export is submitted from, as `export_images` takes it:
  * always stated, so an export from no library never takes one opened later. */
@@ -35,7 +35,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
   // recipe and the folders are taken together, now (a slider draft first
   // commits), and the edits and metadata (rating, label, keywords, EXIF)
   // being saved are written before it is queued.
-  const flushing = Promise.all([flushRecipeSaves(), metadataWritesSettled()]).then(([unsaved]) => unsaved);
+  const flushing = Promise.all([flushRecipeSaves(), photoWritesAndStepsSettled()]).then(([unsaved]) => unsaved);
   const session = useLibraryStore.getState().sessionDirectory;
   const openEdit = currentEditForExport(useEditorStore.getState());
   const originFolders = useLibraryStore.getState().rootPaths;

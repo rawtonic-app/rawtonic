@@ -852,6 +852,11 @@
       "zoomInTooltip": "Vergrößern",
       "zoomOutTooltip": "Verkleinern"
     },
+    "quit": {
+      "quitAnyway": "Trotzdem beenden",
+      "unsavedMessage": "Diese Änderungen konnten nicht gespeichert werden: {{changes}}. Beim Beenden gehen sie verloren. Abbrechen hält Rawtonic offen, damit du es erneut versuchen kannst.",
+      "unsavedTitle": "Änderungen nicht gespeichert"
+    },
     "renameFile": {
       "cancel": "Abbrechen",
       "fileNamingTemplate": "Dateibenennungsvorlage",
@@ -952,6 +957,9 @@
   },
   "notifications": {
     "close": "Mitteilung schließen",
+    "quitCancelled": "Rawtonic bleibt offen, weil das Speichern noch nicht abgeschlossen ist. Ausstehende Änderungen werden weiter gespeichert.",
+    "quitSaving": "Änderungen werden vor dem Beenden von Rawtonic gespeichert…",
+    "quitSavingPhotos": "Änderungen werden vor dem Beenden von Rawtonic gespeichert… ({{done}}/{{total}})",
     "region": "Mitteilungen"
   },
   "offline": {

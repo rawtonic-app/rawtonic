@@ -12,7 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
-import { useCatalogUndoStore } from "../../utils/appUndo";
+import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
 import { debouncedSave } from "../../hooks/useEditorActions";
 import type { Adjustments } from "../../utils/adjustments";
 
@@ -165,9 +165,13 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Create project" }));
     await screen.findByText("Acme");
     expect(screen.queryByRole("button", { name: /XMP not updated/ })).toBeNull();
-    // A rating's XMP could not be written: its catalog step settles.
+    // A rating's XMP could not be written: its write settles.
     pending = 1;
-    act(() => useCatalogUndoStore.setState((s) => ({ past: [...s.past] })));
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, {
+        detail: { id: 1, kind: "set_rating_for_paths", paths: ["/a"], failed: [] },
+      }));
+    });
     expect(await screen.findByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
     // Opening an album leaves Develop first and flushes its save after.
     act(() => useUIStore.setState({ activeView: "editor" }));
@@ -179,6 +183,30 @@ describe("Session workspace keyboard flows", () => {
     expect(screen.getByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
     act(() => finishSave());
     expect(await screen.findByRole("button", { name: "2 XMP not updated" }, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it("counts pending XMP files again when a batch write settles, also one that failed", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let pendingXmp = 0;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary"
+        ? { ...summary, xmp_pending: pendingXmp } : base(command, args));
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await screen.findByText("Acme");
+    expect(screen.queryByRole("button", { name: /XMP not updated/ })).toBeNull();
+    // A paste onto closed photographs whose XMP could not be written.
+    pendingXmp = 2;
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, {
+        detail: { id: 1, kind: "paste", paths: ["/a", "/b"], failed: ["/a", "/b"] },
+      }));
+    });
+    expect(await screen.findByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {

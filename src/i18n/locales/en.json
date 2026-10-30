@@ -852,6 +852,11 @@
       "zoomInTooltip": "Zoom In",
       "zoomOutTooltip": "Zoom Out"
     },
+    "quit": {
+      "quitAnyway": "Quit Anyway",
+      "unsavedMessage": "These changes could not be saved: {{changes}}. Quitting now loses them; cancel to keep Rawtonic open and try again.",
+      "unsavedTitle": "Changes Not Saved"
+    },
     "renameFile": {
       "cancel": "Cancel",
       "fileNamingTemplate": "File Naming Template",
@@ -952,6 +957,9 @@
   },
   "notifications": {
     "close": "Close notification",
+    "quitCancelled": "Rawtonic stayed open because saving did not finish. Pending changes are still being saved.",
+    "quitSaving": "Saving changes before Rawtonic quits…",
+    "quitSavingPhotos": "Saving changes before Rawtonic quits… ({{done}}/{{total}})",
     "region": "Notifications"
   },
   "offline": {

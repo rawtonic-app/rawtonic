@@ -871,6 +871,11 @@
       "zoomInTooltip": "Zoom avant",
       "zoomOutTooltip": "Zoom arrière"
     },
+    "quit": {
+      "quitAnyway": "Quitter quand même",
+      "unsavedMessage": "Ces modifications n’ont pas pu être enregistrées : {{changes}}. En quittant maintenant, vous les perdrez ; annulez pour garder Rawtonic ouvert et réessayer.",
+      "unsavedTitle": "Modifications non enregistrées"
+    },
     "renameFile": {
       "cancel": "Annuler",
       "fileNamingTemplate": "Modèle de nommage de fichier",
@@ -973,6 +978,9 @@
   },
   "notifications": {
     "close": "Fermer la notification",
+    "quitCancelled": "Rawtonic est resté ouvert car l’enregistrement n’est pas terminé. Les modifications en attente sont toujours en cours d’enregistrement.",
+    "quitSaving": "Enregistrement des modifications avant de quitter Rawtonic…",
+    "quitSavingPhotos": "Enregistrement des modifications avant de quitter Rawtonic… ({{done}}/{{total}})",
     "region": "Notifications"
   },
   "offline": {

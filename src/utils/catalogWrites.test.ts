@@ -17,8 +17,9 @@ it('writes ratings in the order they were given, also after a failure', async ()
   const first = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 1 });
   const second = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 2 });
   const third = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 3 });
-  await Promise.resolve();
   // Only the first is asked for until it has answered.
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(invoke).toHaveBeenCalledTimes(1);
   fails[0]('database is locked');
   await expect(first).rejects.toBe('database is locked');
@@ -64,21 +65,21 @@ it('remembers the photographs this window rated, not failed ratings nor labels',
 });
 
 it('waits for every metadata write given before, and those they start meanwhile', async () => {
-  const { metadataWritesSettled, trackMetadataWrite } = await import('./catalogWrites');
+  const { photoWritesAndStepsSettled, photoWorkPending, submitPhotoWrite } = await import('./photoWrites');
   let rated: (value?: unknown) => void = () => {};
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementationOnce(() => new Promise((resolve) => (rated = resolve)));
   const rating = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 5 });
   let exifWritten: () => void = () => {};
   // An EXIF write that fails still settles.
-  const exif = trackMetadataWrite(new Promise<void>((_, reject) => (exifWritten = () => reject('locked'))));
+  const exif = submitPhotoWrite(['/b'], () => new Promise<void>((_, reject) => (exifWritten = () => reject('locked'))), { kind: 'exif' });
   exif.catch(() => {});
   let settled = false;
-  const waiting = metadataWritesSettled().then(() => (settled = true));
+  const waiting = photoWritesAndStepsSettled().then(() => (settled = true));
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
   // A step queued behind the rating starts its write once that is in.
   let labelled: () => void = () => {};
-  const label = trackMetadataWrite(rating.then(() => new Promise<void>((resolve) => (labelled = resolve))));
+  const label = photoWorkPending(rating.then(() => new Promise<void>((resolve) => (labelled = resolve))));
   rated();
   exifWritten();
   await rating;

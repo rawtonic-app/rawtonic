@@ -871,6 +871,11 @@
       "zoomInTooltip": "Acercar",
       "zoomOutTooltip": "Alejar"
     },
+    "quit": {
+      "quitAnyway": "Salir de todos modos",
+      "unsavedMessage": "Estos cambios no se han podido guardar: {{changes}}. Si sales ahora, se perderán; cancela para mantener Rawtonic abierto y volver a intentarlo.",
+      "unsavedTitle": "Cambios sin guardar"
+    },
     "renameFile": {
       "cancel": "Cancelar",
       "fileNamingTemplate": "Plantilla de nombre de archivo",
@@ -973,6 +978,9 @@
   },
   "notifications": {
     "close": "Cerrar notificación",
+    "quitCancelled": "Rawtonic ha permanecido abierto porque el guardado no ha terminado. Los cambios pendientes se siguen guardando.",
+    "quitSaving": "Guardando los cambios antes de salir de Rawtonic…",
+    "quitSavingPhotos": "Guardando los cambios antes de salir de Rawtonic… ({{done}}/{{total}})",
     "region": "Notificaciones"
   },
   "offline": {

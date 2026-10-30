@@ -58,7 +58,6 @@ import {
 } from "./nextCapture";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
-import { RECIPE_SAVE_SETTLED } from "../../hooks/useEditorActions";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
 import { requestAutoAdvance } from "../../utils/photoStepping";
@@ -75,6 +74,7 @@ import {
   type OpenIngestDetail,
 } from "./fileDrop";
 import { throttleAsync } from "../../utils/throttle";
+import { onPhotoWritesSettled } from "../../utils/photoWrites";
 import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
@@ -831,18 +831,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => useCatalogUndoStore.subscribe((state, previous) => {
     if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
   }), []);
-  // A rating, label or Develop edit whose XMP could not be written shows in
-  // the bar once its catalog step settles or its recipe save is written, not
-  // only after the next flag.
+  // Each settled photo write (editor save, batch paste/preset/reset, rating,
+  // label…; written or not) can change how many XMP files are behind.
   useEffect(() => {
     const recount = throttleAsync(() => refreshRef.current().catch(() => {}), 1000);
-    const stopSteps = useCatalogUndoStore.subscribe((state, previous) => {
-      if (state.past !== previous.past) recount();
-    });
-    window.addEventListener(RECIPE_SAVE_SETTLED, recount);
+    const stop = onPhotoWritesSettled(() => void recount());
     return () => {
-      stopSteps();
-      window.removeEventListener(RECIPE_SAVE_SETTLED, recount);
+      stop();
       recount.cancel();
     };
   }, []);
