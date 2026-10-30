@@ -979,6 +979,8 @@
   "notifications": {
     "close": "Chiudi notifica",
     "quitCancelled": "Rawtonic è rimasto aperto perché il salvataggio non è terminato. Le modifiche in sospeso vengono ancora salvate.",
+    "quitSaving": "Salvataggio delle modifiche prima di uscire da Rawtonic…",
+    "quitSavingPhotos": "Salvataggio delle modifiche prima di uscire da Rawtonic… ({{done}}/{{total}})",
     "region": "Notifiche"
   },
   "offline": {

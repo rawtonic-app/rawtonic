@@ -979,6 +979,8 @@
   "notifications": {
     "close": "Tanca la notificació",
     "quitCancelled": "El Rawtonic ha romàs obert perquè el desat no ha acabat. Els canvis pendents encara s’estan desant.",
+    "quitSaving": "S’estan desant els canvis abans de sortir del Rawtonic…",
+    "quitSavingPhotos": "S’estan desant els canvis abans de sortir del Rawtonic… ({{done}}/{{total}})",
     "region": "Notificacions"
   },
   "offline": {

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import i18n from 'i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { toast } from 'react-toastify';
 import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
 import {
@@ -129,10 +130,45 @@ class QuitDrain {
   }
 }
 
+/** How long a quit saves before it says so (a quick one shows nothing). */
+export const QUIT_NOTICE_MS = 500;
+export const QUIT_NOTICE_ID = 'quit-saving';
+
+/** The notice that the app saves before it quits: shown once saving takes
+ * longer than `QUIT_NOTICE_MS`, with how far the running batches got. */
+function savingNotice(): { update(): void; stop(): void } {
+  let shown = false;
+  const text = () => {
+    let done = 0;
+    let total = 0;
+    for (const batch of photoBatches().values()) {
+      const count = batchPhotoCount(batch);
+      if (count.done >= count.total) continue;
+      done += count.done;
+      total += count.total;
+    }
+    return total > 0 ? i18n.t('notifications.quitSavingPhotos', { done, total }) : i18n.t('notifications.quitSaving');
+  };
+  const timer = setTimeout(() => {
+    shown = true;
+    toast.info(text(), { toastId: QUIT_NOTICE_ID, autoClose: false, closeOnClick: false });
+  }, QUIT_NOTICE_MS);
+  return {
+    update: () => {
+      if (shown) toast.update(QUIT_NOTICE_ID, { render: text() });
+    },
+    stop: () => {
+      clearTimeout(timer);
+      if (shown) toast.dismiss(QUIT_NOTICE_ID);
+    },
+  };
+}
+
 /** Records settled queue writes and the real bridge's per-photo events.
  * Every progress command belongs only to this quit request. */
-function hearWrites(kept: QuitDrain, requestId: number): () => void {
+function hearWrites(kept: QuitDrain, requestId: number, update: () => void): () => void {
   const progress = () => {
+    update();
     if (handlingQuit === requestId) void invoke(Invokes.QuitSaving, { requestId }).catch(() => undefined);
   };
   const stopWrites = onPhotoWritesSettled((settled) => {
@@ -163,7 +199,8 @@ function hearWrites(kept: QuitDrain, requestId: number): () => void {
 async function drainBeforeQuit(requestId: number): Promise<string[] | null> {
   const kept = new QuitDrain();
   kept.recordRunningBatches();
-  const stopHearing = hearWrites(kept, requestId);
+  const notice = savingNotice();
+  const stopHearing = hearWrites(kept, requestId, notice.update);
   try {
     if (await invoke<boolean>(Invokes.QuitSaving, { requestId }) !== true) {
       cancelQuitRequest(requestId);
@@ -174,6 +211,7 @@ async function drainBeforeQuit(requestId: number): Promise<string[] | null> {
     return items.length > 0 ? items : null;
   } finally {
     stopHearing();
+    notice.stop();
   }
 }
 

@@ -958,6 +958,8 @@
   "notifications": {
     "close": "Close notification",
     "quitCancelled": "Rawtonic stayed open because saving did not finish. Pending changes are still being saved.",
+    "quitSaving": "Saving changes before Rawtonic quits…",
+    "quitSavingPhotos": "Saving changes before Rawtonic quits… ({{done}}/{{total}})",
     "region": "Notifications"
   },
   "offline": {

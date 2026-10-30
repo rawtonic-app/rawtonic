@@ -979,6 +979,8 @@
   "notifications": {
     "close": "Fermer la notification",
     "quitCancelled": "Rawtonic est resté ouvert car l’enregistrement n’est pas terminé. Les modifications en attente sont toujours en cours d’enregistrement.",
+    "quitSaving": "Enregistrement des modifications avant de quitter Rawtonic…",
+    "quitSavingPhotos": "Enregistrement des modifications avant de quitter Rawtonic… ({{done}}/{{total}})",
     "region": "Notifications"
   },
   "offline": {

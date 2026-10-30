@@ -1000,6 +1000,8 @@
   "notifications": {
     "close": "Zamknij powiadomienie",
     "quitCancelled": "Rawtonic pozostał otwarty, ponieważ zapisywanie nie zostało ukończone. Oczekujące zmiany są nadal zapisywane.",
+    "quitSaving": "Zapisywanie zmian przed zamknięciem Rawtonic…",
+    "quitSavingPhotos": "Zapisywanie zmian przed zamknięciem Rawtonic… ({{done}}/{{total}})",
     "region": "Powiadomienia"
   },
   "offline": {

@@ -956,6 +956,8 @@
   "notifications": {
     "close": "通知を閉じる",
     "quitCancelled": "保存が完了しなかったため、Rawtonic は終了しませんでした。保留中の変更は引き続き保存されています。",
+    "quitSaving": "Rawtonic を終了する前に変更を保存しています…",
+    "quitSavingPhotos": "Rawtonic を終了する前に変更を保存しています…（{{done}}/{{total}}）",
     "region": "通知"
   },
   "offline": {

@@ -1,15 +1,18 @@
 // Real per-photo bridge events must keep an active quit alive, retain failures,
 // and never let it finish while the actual command is still pending.
+import '../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { BatchCommand, COMMANDS, mountAppListeners } from './quit.test.support';
-import { handleQuitRequest, registerQuitFlush } from './quit';
+import { QUIT_NOTICE_ID, QUIT_NOTICE_MS, handleQuitRequest, registerQuitFlush } from './quit';
+import { toast } from 'react-toastify';
 import { allPhotoWritesSettled, photoBatches } from './photoWrites';
 import { flushRecipeSaves } from '../hooks/useEditorActions';
 import { Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn((name) => Promise.resolve(['quit_saving', 'cancel_quit', 'finish_quit'].includes(String(name)) ? true : [])) }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
+vi.mock('react-toastify', () => ({ toast: Object.assign(vi.fn(), { info: vi.fn(), update: vi.fn(), dismiss: vi.fn(), error: vi.fn() }) }));
 const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn((name, callback) => {
   callbacks.set(name, callback);
@@ -129,5 +132,24 @@ it('waits for an already-running batch and does not fail its previously saved ph
   command.finish();
   await done;
   expect(ask).not.toHaveBeenCalled();
+  expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
+});
+
+it('says it is saving once a quit waits, with how far the batch got, and clears that when done', async () => {
+  const command = await batch(['/1.dng', '/2.dng']);
+  vi.useFakeTimers();
+  const done = quit();
+  await vi.advanceTimersByTimeAsync(QUIT_NOTICE_MS - 1);
+  expect(toast.info).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(toast.info).toHaveBeenCalledWith('Saving changes before Rawtonic quits… (0/2)', expect.objectContaining({ toastId: QUIT_NOTICE_ID }));
+  vi.useRealTimers();
+  command.photo('/1.dng');
+  expect(toast.update).toHaveBeenLastCalledWith(QUIT_NOTICE_ID, { render: 'Saving changes before Rawtonic quits… (1/2)' });
+  expect(toast.dismiss).not.toHaveBeenCalled();
+  command.photo('/2.dng');
+  command.finish();
+  await done;
+  expect(toast.dismiss).toHaveBeenCalledWith(QUIT_NOTICE_ID);
   expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
 });

@@ -956,6 +956,8 @@
   "notifications": {
     "close": "关闭通知",
     "quitCancelled": "保存尚未完成，Rawtonic 保持打开。待处理的更改仍在保存中。",
+    "quitSaving": "正在保存更改，随后退出 Rawtonic…",
+    "quitSavingPhotos": "正在保存更改，随后退出 Rawtonic…（{{done}}/{{total}}）",
     "region": "通知"
   },
   "offline": {

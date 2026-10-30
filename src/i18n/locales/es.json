@@ -979,6 +979,8 @@
   "notifications": {
     "close": "Cerrar notificación",
     "quitCancelled": "Rawtonic ha permanecido abierto porque el guardado no ha terminado. Los cambios pendientes se siguen guardando.",
+    "quitSaving": "Guardando los cambios antes de salir de Rawtonic…",
+    "quitSavingPhotos": "Guardando los cambios antes de salir de Rawtonic… ({{done}}/{{total}})",
     "region": "Notificaciones"
   },
   "offline": {
