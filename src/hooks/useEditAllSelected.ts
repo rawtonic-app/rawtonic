@@ -12,7 +12,7 @@ import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { registerLibrarySwitchReset } from '../utils/quit';
+import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/quit';
 import {
   sameAdjustmentValue,
   withClarityVersion,
@@ -51,10 +51,9 @@ const writing = new Set<Promise<unknown>>();
 const gathered = new Set<() => void>();
 
 interface FailedWrite {
-  changes: Partial<Adjustments>;
   from: string;
-  /** The photographs it was not written to (still not saved). */
-  paths: string[];
+  /** Per photograph not saved: the settings still not written to it. */
+  unsaved: Map<string, Partial<Adjustments>>;
   apply: ApplyToOthers;
 }
 /**
@@ -62,8 +61,8 @@ interface FailedWrite {
  * Never sent again by themselves: they are shown with the photographs not
  * saved and Try again (`noticeFailed`), and those photographs count as not
  * saved (an export stops, a library switch or quit asks) until the user
- * tries again, a newer write of those settings supersedes them, or a
- * library switch discards them.
+ * tries again (the notice, or Retry when switching library), newer saved
+ * writes supersede their settings, or a library switch discards them.
  */
 const failedWrites = new Map<number, FailedWrite>();
 let failures = 0;
@@ -71,7 +70,7 @@ const noticeId = (id: number) => `edit-all-not-saved-${id}`;
 
 /** The photographs whose edit-all write failed and was not tried again. */
 export function editAllNotSaved(): string[] {
-  return [...new Set([...failedWrites.values()].flatMap((failed) => failed.paths))];
+  return [...new Set([...failedWrites.values()].flatMap((failed) => [...failed.unsaved.keys()]))];
 }
 
 function forget(id: number) {
@@ -79,10 +78,30 @@ function forget(id: number) {
   toast.dismiss(noticeId(id));
 }
 
+/** Sends a failed write again, to the photographs not saved, with the
+ * settings each still lacks. */
+function tryAgain(id: number) {
+  const failed = failedWrites.get(id);
+  if (!failed) return [];
+  forget(id);
+  // Photographs still lacking the same settings go in one write.
+  const groups = new Map<string, { changes: Partial<Adjustments>; paths: string[] }>();
+  for (const [path, changes] of failed.unsaved) {
+    const key = JSON.stringify(changes);
+    groups.set(key, { changes, paths: [...(groups.get(key)?.paths ?? []), path] });
+  }
+  return [...groups.values()].map(({ changes, paths }) => writeToOthers(failed.apply, changes, paths, failed.from));
+}
+
+/** Tries every failed write again; resolves once they settled. */
+export async function tryEditAllAgain(): Promise<void> {
+  await Promise.all([...failedWrites.keys()].flatMap(tryAgain));
+}
+
 /** Shows that `failed` could not be saved, with Try again: the same
  * settings again, to the photographs not saved only. */
 function noticeFailed(id: number, failed: FailedWrite) {
-  const names = failed.paths.map((path) => path.split(/[\\/]/).pop() ?? path);
+  const names = [...failed.unsaved.keys()].map((path) => path.split(/[\\/]/).pop() ?? path);
   const listed = names.slice(0, 5).join(', ') + (names.length > 5 ? ` (+${names.length - 5})` : '');
   const content = ({ closeToast }: { closeToast: () => void }) =>
     createElement(
@@ -96,10 +115,7 @@ function noticeFailed(id: number, failed: FailedWrite) {
           className: 'underline',
           onClick: () => {
             closeToast();
-            const current = failedWrites.get(id);
-            if (!current) return;
-            forget(id);
-            writeToOthers(current.apply, current.changes, current.paths, current.from);
+            tryAgain(id);
           },
         },
         i18n.t('studio.multiView.editAllTryAgain'),
@@ -108,15 +124,17 @@ function noticeFailed(id: number, failed: FailedWrite) {
   toast.error(content, { toastId: noticeId(id), autoClose: false, closeOnClick: false });
 }
 
-/** A write that succeeded supersedes a failed one of the same settings (a
- * later edit-all write, a paste, the photo's own edit saved): Try again
- * would write older values over it. */
+/** Settings written since (a later edit-all write, a paste, the photo's own
+ * edit saved) supersede a failed write's for that photograph: Try again
+ * never writes older values over them. */
 onRecipeWritten((path, keys) => {
   for (const [id, failed] of failedWrites) {
-    if (!failed.paths.includes(path)) continue;
-    if (keys && !Object.keys(failed.changes).every((key) => keys.includes(key))) continue;
-    failed.paths = failed.paths.filter((other) => other !== path);
-    if (failed.paths.length === 0) forget(id);
+    const changes = failed.unsaved.get(path);
+    if (!changes) continue;
+    const rest = keys ? Object.fromEntries(Object.entries(changes).filter(([key]) => !keys.includes(key))) : {};
+    if (Object.keys(rest).length > 0) failed.unsaved.set(path, rest);
+    else failed.unsaved.delete(path);
+    if (failed.unsaved.size === 0) forget(id);
     else noticeFailed(id, failed);
   }
 });
@@ -130,7 +148,7 @@ function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, othe
     const paths = others.filter((path) => notWritten.includes(path));
     if (paths.length === 0) return;
     const id = ++failures;
-    const failed = { changes, from, paths, apply };
+    const failed = { from, unsaved: new Map(paths.map((path) => [path, changes])), apply };
     failedWrites.set(id, failed);
     noticeFailed(id, failed);
   });
@@ -149,6 +167,8 @@ registerRecipeFlush(async () => {
   while (writing.size > 0) await Promise.all(writing);
   return editAllNotSaved();
 });
+// Retry when switching library is the user's: they are sent again.
+registerRetryAfterAsking(tryEditAllAgain);
 // Past a switch's barrier they were saved or discarded.
 registerLibrarySwitchReset(() => {
   [...failedWrites.keys()].forEach(forget);

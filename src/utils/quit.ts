@@ -42,6 +42,18 @@ export function registerLibrarySwitchReset(reset: LibrarySwitchReset): () => voi
   };
 }
 
+/** Saves that failed and are sent again only when the user asks: Retry
+ * in the library switch's question. */
+const retries = new Set<() => Promise<void>>();
+
+/** Registers what Retry sends again; returns its unregistration. */
+export function registerRetryAfterAsking(retry: () => Promise<void>): () => void {
+  retries.add(retry);
+  return () => {
+    retries.delete(retry);
+  };
+}
+
 /** What the user chose when saves failed before a library switch. */
 export type UnsavedChoice = 'retry' | 'discard' | 'cancel';
 export type AskBeforeSwitch = (failures: string[]) => Promise<UnsavedChoice>;
@@ -94,6 +106,7 @@ export async function switchLibraryAfterSaves<T>(
       if (choice === 'cancel') return null;
       hold(true);
       if (choice === 'discard') break;
+      await Promise.all([...retries].map((retry) => retry()));
     }
     ends = [...resets].map((reset) => reset());
     return await open();

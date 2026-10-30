@@ -411,6 +411,51 @@ describe('Edit all selected', () => {
       expect(vi.mocked(toast.dismiss)).toHaveBeenCalled();
     });
 
+    it('Try again leaves out the settings a newer save has written since', async () => {
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ exposure: 0.5, contrast: 20 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      const notice = failureNotice();
+      failing = false;
+      rerender({ on: false });
+      rerender({ on: true });
+      edit({ exposure: 0.9 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      // Contrast is still not saved.
+      expect(editAllNotSaved()).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      await act(async () => {
+        fireEvent.click(notice.getByRole('button', { name: 'Try again' }));
+      });
+      const last = pasted().at(-1)!;
+      expect(last.paths).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      expect(last.adjustments.contrast).toBe(20);
+      expect('exposure' in last.adjustments).toBe(false);
+      expect(editAllNotSaved()).toEqual([]);
+    });
+
+    it('Retry at a library switch sends a failed write again, into the library it was made in', async () => {
+      await failedWrite();
+      failing = true;
+      const ask = vi.fn(async (): Promise<UnsavedChoice> => {
+        failing = false;
+        return 'retry';
+      });
+      const switched = switchLibraryAfterSaves(openB, ask);
+      await act(async () => {
+        await vi.waitFor(() => expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']));
+        opened();
+        expect(await switched).toBe('B');
+      });
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(written.B).toEqual([]);
+      expect(editAllNotSaved()).toEqual([]);
+    });
+
     it('warns at a library switch while a write failed; Discard leaves it unsent', async () => {
       await failedWrite();
       const ask = vi.fn(async (): Promise<UnsavedChoice> => 'discard');
