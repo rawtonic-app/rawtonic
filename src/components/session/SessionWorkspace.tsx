@@ -60,6 +60,7 @@ import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import { watchXmpSidecars } from "../../utils/xmpCheck";
 import { requestAutoAdvance } from "../../utils/photoStepping";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
@@ -875,6 +876,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       window.removeEventListener(OFFLINE_COUNTED, changed);
     };
   }, []);
+  // XMP sidecars another program changed: found on open, when the app is
+  // back in front and when a folder is shown, then counted on the bar.
+  useEffect(
+    () =>
+      sessionDirectory ? watchXmpSidecars(sessionDirectory, () => void refreshRef.current().catch(() => {})) : undefined,
+    [sessionDirectory],
+  );
   // A drive connected, ejected or mounted elsewhere while a library is open.
   const libraryOpen = Boolean(session?.directory);
   useEffect(() => (libraryOpen ? watchVolumes() : undefined), [libraryOpen]);

@@ -5,7 +5,10 @@
 use crate::Library;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// Why a photograph's XMP sidecar was not written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,5 +118,128 @@ impl Library {
             // Unreadable: writing it is tried and fails with why.
             Err(_) => Ok(false),
         }
+    }
+}
+
+/// How each photograph's sidecar looked when `Library::check_xmp_sidecars`
+/// last found it holding what the library wrote or read (size, modification
+/// time and that digest), by asset id: a sidecar that still looks so is not
+/// read again. Kept by the caller between checks; empty, every sidecar is
+/// read once.
+#[derive(Debug, Default)]
+pub struct SidecarStamps(HashMap<String, Stamp>);
+
+#[derive(Debug, PartialEq, Eq)]
+struct Stamp {
+    len: u64,
+    modified: Option<SystemTime>,
+    digest: String,
+}
+
+/// What `Library::check_xmp_sidecars` found.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct XmpCheck {
+    /// Photographs in sync whose sidecar was looked at.
+    pub checked: usize,
+    /// Of those, the sidecars read (new or changed since the last check).
+    pub read: usize,
+    /// In sync until now, but their sidecar was changed, deleted or written
+    /// by another program (`XmpProblem::ChangedElsewhere`), by asset id.
+    pub changed: Vec<String>,
+}
+
+impl Library {
+    /// Looks for sidecars another program changed since the library wrote
+    /// or read them, among the photographs whose XMP is in sync (the others
+    /// are listed already), in `folder` and below or everywhere. Reads only:
+    /// what it finds is marked by `mark_changed_elsewhere`, so the check can
+    /// run without holding up the library's writes. A sidecar is read only
+    /// when it is new or its size or modification time changed (`seen`).
+    pub fn check_xmp_sidecars(
+        &self,
+        folder: Option<&Path>,
+        seen: &mut SidecarStamps,
+    ) -> Result<XmpCheck> {
+        let folder = folder.map(|f| f.canonicalize().unwrap_or_else(|_| f.to_path_buf()));
+        let mut query = self.conn.prepare(&format!(
+            "SELECT a.id,r.path,r.external,a.rel_path,m.xmp_hash
+             FROM assets a JOIN roots r ON r.id=a.root_id JOIN metadata m ON m.asset_id=a.id
+             WHERE m.xmp_status='synced' AND {} ORDER BY a.rel_path",
+            self.visible_assets()
+        ))?;
+        let rows = query
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    self.join_root(row.get(1)?, row.get(2)?, row.get(3)?),
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut check = XmpCheck::default();
+        for (id, path, hash) in rows {
+            if folder.as_ref().is_some_and(|f| !path.starts_with(f)) {
+                continue;
+            }
+            check.checked += 1;
+            let sidecar = path.with_extension("xmp");
+            let changed = match fs::metadata(&sidecar) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => hash.is_some(),
+                // Unreadable (permissions, a drive going away): not a change.
+                Err(_) => false,
+                Ok(meta) if !meta.is_file() => true,
+                Ok(meta) => {
+                    let stamp = |digest: String| Stamp {
+                        len: meta.len(),
+                        modified: meta.modified().ok(),
+                        digest,
+                    };
+                    let known = hash.clone().map(stamp);
+                    if known.is_some() && seen.0.get(&id) == known.as_ref() {
+                        false
+                    } else {
+                        check.read += 1;
+                        match fs::read(&sidecar) {
+                            Ok(bytes) => {
+                                let digest = rawtonic_metadata::digest(&bytes);
+                                if hash.as_deref() == Some(digest.as_str()) {
+                                    seen.0.insert(id.clone(), stamp(digest));
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                            Err(_) => false,
+                        }
+                    }
+                }
+            };
+            // A RAW and its JPEG share a sidecar the library never writes.
+            if changed && self.xmp_owners(&path)? <= 1 {
+                seen.0.remove(&id);
+                check.changed.push(id);
+            }
+        }
+        Ok(check)
+    }
+
+    /// Marks the photographs `check_xmp_sidecars` found as changed elsewhere,
+    /// so the session bar counts them and its panel offers Keep library and
+    /// Use XMP. Each is looked at again first (`xmp_problem`, as the panel
+    /// lists it): one whose sidecar is back as the library left it, that went
+    /// offline, or that an edit made pending meanwhile is left as it is.
+    /// Writes only the catalog; returns how many were marked.
+    pub fn mark_changed_elsewhere(&self, ids: &[String]) -> Result<usize> {
+        let mut marked = 0;
+        for id in ids {
+            let path = self.asset(id)?.path;
+            if self.xmp_problem(id, &path)? == Some(XmpProblem::ChangedElsewhere) {
+                marked += self.conn.execute(
+                    "UPDATE metadata SET xmp_status='conflict' WHERE asset_id=? AND xmp_status='synced'",
+                    [id],
+                )?;
+            }
+        }
+        Ok(marked)
     }
 }

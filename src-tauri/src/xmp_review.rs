@@ -7,13 +7,17 @@
 //! (`rawtonic_catalog::xmp_review`) in a blocking worker under the library's
 //! write lock; an edit only in a photograph's editor sidecar is adopted
 //! before any of it (`Library::adopt_editor_sidecar`), and originals are
-//! never touched.
+//! never touched. Sidecars another program changes while they are in sync
+//! are found without waiting for a write (`session_xmp_check`, when a library
+//! opens, the app is back in front or a folder is shown).
 
 use crate::session_bridge::with_library;
-use rawtonic_catalog::{Library, XmpOffline, XmpProblem, XmpUndo};
+use rawtonic_catalog::{Library, SidecarStamps, XmpOffline, XmpProblem, XmpUndo};
 use rawtonic_metadata::XmpConflict;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 /// A photograph of the status panel's list.
 #[derive(Debug, Clone, Serialize)]
@@ -178,6 +182,49 @@ pub async fn session_xmp_undo(directory: String, steps: Vec<XmpUndo>) -> Result<
     with_library(directory, true, move |lib| Ok(undo(lib, &steps)))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// How each library's sidecars looked at its last check, so the next one
+/// reads only those changed since (`SidecarStamps`); held while a check runs,
+/// so checks never overlap.
+static SEEN: LazyLock<Mutex<HashMap<PathBuf, SidecarStamps>>> = LazyLock::new(Default::default);
+
+/// Looks for sidecars of in-sync photographs that another program changed,
+/// deleted or wrote (in `folder` and below, or the whole library) and marks
+/// them changed elsewhere for the session bar's XMP status. The look runs
+/// beside the library's writes and reads only new or changed sidecars; only
+/// marking takes the write lock. Never writes a sidecar or a photograph.
+/// Returns how many photographs were marked.
+#[tauri::command]
+pub async fn session_xmp_check(directory: String, folder: Option<String>) -> Result<usize, String> {
+    let found = with_library(directory.clone(), false, move |lib| {
+        let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        let started = std::time::Instant::now();
+        let stamps = seen.entry(lib.directory.clone()).or_default();
+        let check = lib
+            .check_xmp_sidecars(folder.as_deref().map(Path::new), stamps)
+            .map_err(|e| e.to_string())?;
+        log::info!(
+            "XMP check{}: {} in sync, {} read, {} changed elsewhere in {:.1} ms",
+            if folder.is_some() { " (folder)" } else { "" },
+            check.checked,
+            check.read,
+            check.changed.len(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        Ok(check.changed)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if found.is_empty() {
+        return Ok(0);
+    }
+    with_library(directory, true, move |lib| {
+        lib.mark_changed_elsewhere(&found)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

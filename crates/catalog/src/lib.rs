@@ -35,7 +35,7 @@ pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
 pub use volume::Volume;
 pub use xmp_review::{XmpEntry, XmpOffline, XmpUndo};
-pub use xmp_state::{UnsavedXmp, XmpProblem, XmpRetry};
+pub use xmp_state::{SidecarStamps, UnsavedXmp, XmpCheck, XmpProblem, XmpRetry};
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
