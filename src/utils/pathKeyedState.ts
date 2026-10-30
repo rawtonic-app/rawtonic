@@ -1,5 +1,6 @@
 import { Invokes } from '../components/ui/AppProperties';
 import { followActivityPhotoMoves } from '../activity/showPhotos';
+import { followWriteFailureMoves } from '../activity/bridges';
 import { useActivityStore } from '../store/useActivityStore';
 import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../store/useEditorStore';
@@ -112,6 +113,7 @@ export function followPathMoves(pathMoves: PathMove[]): { openPhoto: string | nu
   }
   // The activity centre's photographs (Show photos, and its view) follow too.
   followActivityPhotoMoves((paths) => remapPaths(paths, moves));
+  followWriteFailureMoves((path) => movedPath(path, moves));
   useActivityStore.setState((state) => {
     let changed = false;
     const entries = state.entries.map((entry) => {

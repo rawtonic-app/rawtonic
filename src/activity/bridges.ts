@@ -135,14 +135,24 @@ export function noteWriteError(message: string, paths?: string[]) {
   lastWriteError = message;
 }
 
-/** A failed write stays under Needs attention until a later write of the
- * same kind saves that photograph (it writes the same values or newer ones;
- * a rating saved later says nothing about an edit not saved) or the user
- * dismisses it. */
+/** Writes that set the whole of what they write (the editor's whole
+ * recipe, a rating, a label, a flag): a later one of the same kind saved
+ * for a photograph supersedes one that failed. Other writes (a paste, a
+ * preset, Auto…) carry only some values, so one saved later says nothing
+ * about another's: their failures stay until dismissed. */
+const SUPERSEDING_WRITES = new Set<string>([
+  'recipe',
+  Invokes.SetRatingForPaths,
+  Invokes.SetColorLabelForPaths,
+  Invokes.SessionSetFlag,
+]);
+
+/** A failed write stays under Needs attention until a later write
+ * supersedes it (`SUPERSEDING_WRITES`) or the user dismisses it. */
 export function syncPhotoWrite(paths: string[], failed: string[], kind: string) {
   const failedSet = new Set(failed);
   for (const path of paths) {
-    if (failedSet.has(path)) continue;
+    if (failedSet.has(path) || !SUPERSEDING_WRITES.has(kind)) continue;
     const kinds = unsavedWrites.get(path);
     kinds?.delete(kind);
     if (kinds && !kinds.size) {
@@ -159,6 +169,23 @@ export function syncPhotoWrite(paths: string[], failed: string[], kind: string) 
     lastFailedKind.set(path, kind);
   }
   showUnsavedWrites(failed.length > 0);
+}
+
+/** After a rename or move: the photographs not saved at their new places
+ * (`move`: a path's new place, the same path when it did not move). */
+export function followWriteFailureMoves(move: (path: string) => string) {
+  let moved = false;
+  for (const [path, kinds] of [...unsavedWrites]) {
+    const to = move(path);
+    if (to === path) continue;
+    moved = true;
+    unsavedWrites.delete(path);
+    unsavedWrites.set(to, kinds);
+    const kind = lastFailedKind.get(path);
+    lastFailedKind.delete(path);
+    if (kind) lastFailedKind.set(to, kind);
+  }
+  if (moved) showUnsavedWrites(false);
 }
 
 /** The one entry of the photographs not saved (`fresh`: a new failure,

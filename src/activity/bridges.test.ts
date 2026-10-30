@@ -8,6 +8,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { submitPhotoWrite } from '../utils/photoWrites';
+import { followRenamedPaths } from '../utils/pathKeyedState';
 import '../i18n';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => undefined) }));
@@ -79,7 +80,7 @@ it('ends the task of an export that finished well (its files are reported once w
   expect(entry('export:j1')).toBeUndefined();
 });
 
-it('reports a photo write that failed until a write of the same kind saves the photograph', async () => {
+it('keeps a failed paste until dismissed: a later paste of other values says nothing about it', async () => {
   await submitPhotoWrite(['/a.dng', '/b.dng'], async () => ['/b.dng'], { kind: 'paste', failedOf: (failed) => failed });
   await act(async () => {});
   expect(entry('write:not-saved')).toMatchObject({
@@ -88,17 +89,33 @@ it('reports a photo write that failed until a write of the same kind saves the p
     title: 'Changes to 1 photo were not saved',
     paths: ['/b.dng'],
   });
-  // A rating saved later says nothing about the paste not saved.
-  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'rating', failedOf: (failed: string[]) => failed });
+  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'paste', failedOf: (failed: string[]) => failed });
+  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'recipe', failedOf: (failed: string[]) => failed });
   await act(async () => {});
   expect(entry('write:not-saved')).toMatchObject({ paths: ['/b.dng'] });
-  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'paste', failedOf: (failed: string[]) => failed });
+  useActivityStore.getState().dismiss('write:not-saved');
+  expect(entry('write:not-saved')).toBeUndefined();
+});
+
+it('resolves a failed rating or edit once a later one of the same kind is saved, also after a rename', async () => {
+  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], { kind: Invokes.SetRatingForPaths, failedOf: (failed) => failed });
+  await submitPhotoWrite(['/c.dng'], async () => ['/c.dng'], { kind: 'recipe', failedOf: (failed) => failed });
+  await act(async () => {});
+  expect(entry('write:not-saved')?.paths).toEqual(['/a.dng', '/c.dng']);
+  // A rating saved later says nothing about the edit not saved.
+  await submitPhotoWrite(['/c.dng'], async () => [], { kind: Invokes.SetRatingForPaths, failedOf: (failed: string[]) => failed });
+  await act(async () => {});
+  expect(entry('write:not-saved')?.paths).toEqual(['/a.dng', '/c.dng']);
+  followRenamedPaths(['/a.dng'], ['/Wedding-001.dng']);
+  expect(entry('write:not-saved')?.paths?.slice().sort()).toEqual(['/Wedding-001.dng', '/c.dng']);
+  await submitPhotoWrite(['/Wedding-001.dng'], async () => [], { kind: Invokes.SetRatingForPaths, failedOf: (failed: string[]) => failed });
+  await submitPhotoWrite(['/c.dng'], async () => [], { kind: 'recipe', failedOf: (failed: string[]) => failed });
   await act(async () => {});
   expect(entry('write:not-saved')).toBeUndefined();
 });
 
 it('gives the write failure the reason a caller learns after the queue settled, as one entry', async () => {
-  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], { kind: 'rating', failedOf: (failed) => failed });
+  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], { kind: Invokes.SetRatingForPaths, failedOf: (failed) => failed });
   await act(async () => {});
   noteWriteError('Failed to apply rating: Permission denied', ['/a.dng']);
   const failures = useActivityStore.getState().entries.filter((e) => e.status === 'failure');
