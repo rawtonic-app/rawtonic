@@ -41,6 +41,7 @@
       "starting": "가져오기 시작 중…"
     },
     "indexing": "라이브러리 색인 중",
+    "notice": "확인이 필요한 항목이 있습니다",
     "progress": "{{percent}} % 완료",
     "resume": "재개",
     "sections": {

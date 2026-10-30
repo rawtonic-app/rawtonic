@@ -109,8 +109,11 @@ export function syncAiTasks(tasks: Record<string, { type: string }>) {
   }
 }
 
-/** The photographs a write could not save, and its last reason. */
-const unsavedWrites = new Map<string, string>();
+/** What each photograph could not save: per kind of write (`recipe`,
+ * `paste`, `rating`, …), its reason. */
+const unsavedWrites = new Map<string, Map<string, string>>();
+/** The kind each photograph last failed with (a late reason belongs to it). */
+const lastFailedKind = new Map<string, string>();
 let lastWriteError: string | null = null;
 const WRITES_ID = 'write:not-saved';
 
@@ -120,7 +123,7 @@ const WRITES_ID = 'write:not-saved';
  * settled), so one failure is one entry. */
 export function noteWriteError(message: string, paths?: string[]) {
   if (paths?.length && paths.every((path) => unsavedWrites.has(path))) {
-    for (const path of paths) unsavedWrites.set(path, message);
+    for (const path of paths) unsavedWrites.get(path)!.set(lastFailedKind.get(path)!, message);
     showUnsavedWrites(true);
     return;
   }
@@ -132,15 +135,29 @@ export function noteWriteError(message: string, paths?: string[]) {
   lastWriteError = message;
 }
 
-/** A failed write stays under Needs attention until each of its
- * photographs is written after all (a later write of the same values or
- * newer ones) or the user dismisses it. */
-export function syncPhotoWrite(paths: string[], failed: string[]) {
+/** A failed write stays under Needs attention until a later write of the
+ * same kind saves that photograph (it writes the same values or newer ones;
+ * a rating saved later says nothing about an edit not saved) or the user
+ * dismisses it. */
+export function syncPhotoWrite(paths: string[], failed: string[], kind: string) {
   const failedSet = new Set(failed);
-  for (const path of paths) if (!failedSet.has(path)) unsavedWrites.delete(path);
+  for (const path of paths) {
+    if (failedSet.has(path)) continue;
+    const kinds = unsavedWrites.get(path);
+    kinds?.delete(kind);
+    if (kinds && !kinds.size) {
+      unsavedWrites.delete(path);
+      lastFailedKind.delete(path);
+    }
+  }
   const reason = lastWriteError;
   lastWriteError = null;
-  for (const path of failed) unsavedWrites.set(path, reason ?? unsavedWrites.get(path) ?? '');
+  for (const path of failed) {
+    const kinds = unsavedWrites.get(path) ?? new Map<string, string>();
+    kinds.set(kind, reason ?? kinds.get(kind) ?? '');
+    unsavedWrites.set(path, kinds);
+    lastFailedKind.set(path, kind);
+  }
   showUnsavedWrites(failed.length > 0);
 }
 
@@ -155,7 +172,7 @@ function showUnsavedWrites(fresh: boolean) {
   }
   if (!shown && !fresh) return;
   const unsaved = [...unsavedWrites.keys()];
-  const reasons = [...new Set([...unsavedWrites.values()].filter(Boolean))];
+  const reasons = [...new Set([...unsavedWrites.values()].flatMap((kinds) => [...kinds.values()]).filter(Boolean))];
   activity.report('failure', {
     id: WRITES_ID,
     source: 'write',
@@ -169,6 +186,7 @@ function showUnsavedWrites(fresh: boolean) {
 export function resetActivityBridges() {
   exportReported.clear();
   unsavedWrites.clear();
+  lastFailedKind.clear();
   lastWriteError = null;
 }
 
@@ -229,7 +247,7 @@ export function startActivityBridges(): () => void {
       else activity.finish('ai:denoise');
     }),
     onPhotoBatchChanged(syncBatch),
-    onPhotoWritesSettled(({ paths, failed }) => syncPhotoWrite(paths, failed)),
+    onPhotoWritesSettled(({ paths, failed, kind }) => syncPhotoWrite(paths, failed, kind)),
   );
   const listeners = [
     listenSafely<string>('ai-model-download-start', (model) => {

@@ -13,6 +13,7 @@
  * earlier one and `dismiss` settles it.
  */
 import { isValidElement, type ReactNode } from 'react';
+import i18n from 'i18next';
 import { toast, type Id, type ToastOptions } from 'react-toastify';
 import {
   useActivityStore,
@@ -26,6 +27,8 @@ export const CONFIRMATION_MS = 3000;
 
 export interface NotifyOptions extends Pick<ToastOptions, 'toastId' | 'autoClose' | 'closeOnClick'> {
   source?: ActivitySource;
+  /** The plain text of rich content (else read from its elements). */
+  title?: string;
   detail?: string;
   actions?: ActivityAction[];
   paths?: string[];
@@ -57,9 +60,17 @@ function textOf(content: ActivityBody): string {
   return plainText(content).replace(/\n+/g, ' ').trim();
 }
 
+/** The entry's one line: the caller's, the content's words, else a
+ * generic one (never "[object Object]"). */
+function titleOf(content: ActivityBody, options?: NotifyOptions): string {
+  if (options?.title) return options.title;
+  if (typeof content === 'string' || typeof content === 'number') return String(content);
+  return textOf(content) || i18n.t('activity.notice');
+}
+
 function attention(status: 'failure' | 'warning', content: ActivityBody, options?: NotifyOptions): Id {
   const plain = typeof content === 'string' || typeof content === 'number';
-  const title = textOf(content) || String(content ?? '');
+  const title = titleOf(content, options);
   const source = options?.source ?? 'app';
   // The same failure again (an autosave retried) is one entry, renewed.
   const same = useActivityStore
@@ -81,7 +92,7 @@ function confirmation(kind: 'success' | 'info', content: ActivityBody, options?:
   const id = useActivityStore.getState().report('done', {
     id: options?.toastId != null ? String(options.toastId) : undefined,
     source: options?.source ?? 'app',
-    title: textOf(content) || String(content ?? ''),
+    title: titleOf(content, options),
     detail: options?.detail,
     body: plain ? undefined : content,
     actions: options?.actions,
@@ -108,6 +119,6 @@ export const notify = {
   /** Changes a notice's content in place. */
   update(id: Id, { render }: { render: ActivityBody }) {
     const plain = typeof render === 'string' || typeof render === 'number';
-    useActivityStore.getState().update(String(id), { title: textOf(render), body: plain ? undefined : render });
+    useActivityStore.getState().update(String(id), { title: titleOf(render), body: plain ? undefined : render });
   },
 };

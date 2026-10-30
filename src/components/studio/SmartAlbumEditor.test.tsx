@@ -40,6 +40,20 @@ const settle = () =>
   });
 
 describe("smart album editor", () => {
+  it("says a failed save in the dialog, which the activity centre behind it cannot", async () => {
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) => {
+      if (command === "session_create_smart_album") throw new Error("disk full");
+      return base(command, args);
+    });
+    render(<SmartAlbumEditorHost />);
+    act(() => useSmartAlbumEditor.getState().open({ name: "Folder", parent: null, rules: { combine: "all", rules: [{ field: "folder", op: "is", value: "/job/Capture/Portraits" }] } }));
+    await settle();
+    await act(async () => fireEvent.click(screen.getByText("Create")));
+    expect(screen.getByRole("alert").textContent).toContain("disk full");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("shows a project-relative folder while retaining its full path for editing and saving", async () => {
     render(<SmartAlbumEditorHost />);
     act(() => useSmartAlbumEditor.getState().open({ name: "Folder", parent: null, rules: { combine: "all", rules: [{ field: "folder", op: "is", value: "/job/Capture/Portraits" }] } }));

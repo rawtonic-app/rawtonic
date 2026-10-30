@@ -5414,6 +5414,12 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-capture-time-error {
   color: #e8a08f;
 }
+/* A failure of a modal dialog's own action, said in the dialog. */
+.studio-dialog-failure {
+  margin: 6px 0;
+  color: #e8a08f;
+  overflow-wrap: anywhere;
+}
 .studio-capture-time-preview {
   display: flex;
   flex-direction: column;

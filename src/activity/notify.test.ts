@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { toast } from 'react-toastify';
 import { CONFIRMATION_MS, notify, plainText } from './notify';
 import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
+import '../i18n';
 
 vi.mock('react-toastify', () => ({ toast: { success: vi.fn(), info: vi.fn(), error: vi.fn(), warn: vi.fn(), dismiss: vi.fn() } }));
 
@@ -56,4 +57,12 @@ it('reads a rich notice’s words without its buttons', () => {
   expect(plainText(content).trim()).toBe('Copies kept on Backup');
   notify.warn(content);
   expect(entries()[0]).toMatchObject({ title: 'Copies kept on Backup', body: content });
+});
+
+it('never titles a notice "[object Object]": a component without words gets a generic line', () => {
+  const Custom = () => null;
+  notify.error(createElement(Custom));
+  expect(entries()[0].title).toBe('Something needs your attention');
+  notify.error(createElement(Custom), { title: 'Export failed', toastId: 'x' });
+  expect(entries().find((e) => e.id === 'x')?.title).toBe('Export failed');
 });

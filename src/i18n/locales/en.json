@@ -45,6 +45,7 @@
       "starting": "Starting import…"
     },
     "indexing": "Indexing the library",
+    "notice": "Something needs your attention",
     "progress": "{{percent}} % done",
     "resume": "Resume",
     "sections": {

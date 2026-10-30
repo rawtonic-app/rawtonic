@@ -41,6 +41,7 @@
       "starting": "正在开始导入…"
     },
     "indexing": "正在为图库建立索引",
+    "notice": "有项目需要处理",
     "progress": "已完成 {{percent}} %",
     "resume": "继续",
     "sections": {

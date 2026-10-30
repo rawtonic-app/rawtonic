@@ -571,11 +571,8 @@ describe("Built-in album query errors", () => {
     fail = true;
     vi.mocked(toast.error).mockClear();
     await act(async () => { fireEvent.click(screen.getByText(label as string)); });
-    const content = vi.mocked(toast.error).mock.calls[0][0];
-    expect(typeof content).toBe("object");
-    render(<>{content as import("react").ReactNode}</>);
-    expect(screen.getByText("The operation could not be completed.")).toBeTruthy();
-    expect(screen.getByText("Error: EIO: catalog").tagName).toBe("SMALL");
+    // The translated message, with the backend's words as its detail.
+    expect(toast.error).toHaveBeenCalledWith("The operation could not be completed.", { detail: "Error: EIO: catalog" });
   });
 });
 

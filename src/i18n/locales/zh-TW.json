@@ -41,6 +41,7 @@
       "starting": "正在開始匯入…"
     },
     "indexing": "正在為圖庫建立索引",
+    "notice": "有項目需要處理",
     "progress": "已完成 {{percent}} %",
     "resume": "繼續",
     "sections": {

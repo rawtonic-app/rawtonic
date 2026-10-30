@@ -45,6 +45,7 @@
       "starting": "Import startet …"
     },
     "indexing": "Bibliothek wird indiziert",
+    "notice": "Etwas braucht deine Aufmerksamkeit",
     "progress": "{{percent}} % erledigt",
     "resume": "Fortsetzen",
     "sections": {

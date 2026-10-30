@@ -41,6 +41,7 @@
       "starting": "読み込みを開始しています…"
     },
     "indexing": "ライブラリをインデックス中",
+    "notice": "対応が必要な項目があります",
     "progress": "{{percent}} % 完了",
     "resume": "再開",
     "sections": {

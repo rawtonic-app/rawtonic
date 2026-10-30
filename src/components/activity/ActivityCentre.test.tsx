@@ -49,12 +49,13 @@ it('keeps a dot for a failure until it is dismissed, red before amber', () => {
 });
 
 it('announces failures assertively and new tasks politely', () => {
-  const { container } = render(<ActivityCentre />);
+  render(<ActivityCentre />);
   act(() => void store().start({ id: 'a', source: 'import', title: 'Copying 2 of 10' }));
   act(() => store().update('a', { title: 'Copying 3 of 10' }));
   act(() => void store().report('failure', { id: 'f', source: 'write', title: 'Changes to 1 photo were not saved' }));
-  const polite = container.querySelector('[aria-live="polite"]')!;
-  const assertive = container.querySelector('[aria-live="assertive"]')!;
+  // In the page's body, so they also speak while the top bar is hidden.
+  const polite = document.body.querySelector('[aria-live="polite"]')!;
+  const assertive = document.body.querySelector('[aria-live="assertive"]')!;
   // Progress does not repeat itself; the task's start is said once.
   expect(polite.textContent).toBe('Copying 2 of 10');
   expect(assertive.textContent).toBe('Changes to 1 photo were not saved');

@@ -36,26 +36,13 @@ export const RAW_PIXLS_LIST_URL = "https://raw.pixls.us/#repo";
 export const isDecoderError = (error: unknown) =>
   isUnreadableError(error) && !/no open decoder/i.test(String(error));
 
-function CameraHelpNotice({ text, request }: { text: string; request: CameraHelpRequest }) {
-  const { t } = useTranslation();
-  return (
-    <>
-      <span className="block">{text}</span>
-      <button
-        type="button"
-        className="mt-1 underline text-sm"
-        onClick={() => useUIStore.getState().setCameraHelp(request)}
-      >
-        {t("contribute.cameraHelp.offer")}
-      </button>
-    </>
-  );
-}
-
-/** A toast that says `text` and offers camera help for the file. */
+/** Says `text` under Needs attention, with camera help for the file. */
 export const offerCameraHelp = (text: string, request: CameraHelpRequest) => {
   const show = request.reason === "preview" ? notify.warn : notify.error;
-  show(<CameraHelpNotice text={text} request={request} />, { toastId: `camera-help:${request.path}` });
+  show(text, {
+    toastId: `camera-help:${request.path}`,
+    actions: [{ label: i18next.t("contribute.cameraHelp.offer"), run: () => useUIStore.getState().setCameraHelp(request) }],
+  });
 };
 
 /** The warning for a RAW shown through its embedded camera preview (it is

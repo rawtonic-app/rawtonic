@@ -49,6 +49,7 @@
       "starting": "Iniciando la importación…"
     },
     "indexing": "Indexando la biblioteca",
+    "notice": "Algo requiere tu atención",
     "progress": "{{percent}} % hecho",
     "resume": "Reanudar",
     "sections": {

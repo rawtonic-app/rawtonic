@@ -53,6 +53,7 @@
       "starting": "Rozpoczynanie importu…"
     },
     "indexing": "Indeksowanie biblioteki",
+    "notice": "Coś wymaga uwagi",
     "progress": "Gotowe w {{percent}} %",
     "resume": "Wznów",
     "sections": {

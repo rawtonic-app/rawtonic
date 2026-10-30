@@ -49,6 +49,7 @@
       "starting": "S’està iniciant la importació…"
     },
     "indexing": "S’està indexant la biblioteca",
+    "notice": "Alguna cosa requereix la teva atenció",
     "progress": "{{percent}} % fet",
     "resume": "Reprèn",
     "sections": {

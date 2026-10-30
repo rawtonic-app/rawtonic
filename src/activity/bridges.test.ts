@@ -79,7 +79,7 @@ it('ends the task of an export that finished well (its files are reported once w
   expect(entry('export:j1')).toBeUndefined();
 });
 
-it('reports a photo write that failed until the photograph is written after all', async () => {
+it('reports a photo write that failed until a write of the same kind saves the photograph', async () => {
   await submitPhotoWrite(['/a.dng', '/b.dng'], async () => ['/b.dng'], { kind: 'paste', failedOf: (failed) => failed });
   await act(async () => {});
   expect(entry('write:not-saved')).toMatchObject({
@@ -88,7 +88,11 @@ it('reports a photo write that failed until the photograph is written after all'
     title: 'Changes to 1 photo were not saved',
     paths: ['/b.dng'],
   });
-  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'recipe', failedOf: (failed: string[]) => failed });
+  // A rating saved later says nothing about the paste not saved.
+  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'rating', failedOf: (failed: string[]) => failed });
+  await act(async () => {});
+  expect(entry('write:not-saved')).toMatchObject({ paths: ['/b.dng'] });
+  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'paste', failedOf: (failed: string[]) => failed });
   await act(async () => {});
   expect(entry('write:not-saved')).toBeUndefined();
 });

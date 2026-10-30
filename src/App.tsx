@@ -21,7 +21,12 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { refocusWebview } from './utils/photoFullScreen';
 import { notify } from './activity/notify';
 import { startActivityBridges } from './activity/bridges';
-import { ACTIVITY_PHOTOS_VIEW_ID, SHOW_ACTIVITY_PHOTOS_EVENT, type ShowActivityPhotos } from './activity/showPhotos';
+import {
+  ACTIVITY_PHOTOS_VIEW_ID,
+  SHOW_ACTIVITY_PHOTOS_EVENT,
+  shownActivityPhotos,
+  type ShowActivityPhotos,
+} from './activity/showPhotos';
 import clsx from 'clsx';
 
 import TitleBar from './window/TitleBar';
@@ -262,6 +267,10 @@ function App() {
             handleSelectAlbum,
             true,
           ).catch((e) => notify.error(String(e)));
+        } else if (activeAlbumId === ACTIVITY_PHOTOS_VIEW_ID) {
+          // An activity entry's photographs, at their current places.
+          const shown = shownActivityPhotos();
+          if (shown) await handleSelectAlbum(ACTIVITY_PHOTOS_VIEW_ID, shown.name, shown.paths, true);
         } else if (activeAlbumId?.startsWith(SESSION_ALBUM_PREFIX) && sessionDirectory) {
           await openSessionAlbum(
             sessionDirectory,

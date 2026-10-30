@@ -16,7 +16,6 @@ import { useTranslation } from "react-i18next";
 import { notify } from "../../activity/notify";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useContextMenu } from "../../context/ContextMenuContext";
-import OperationError from "../ui/OperationError";
 import { Invokes } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
@@ -379,7 +378,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       return paths.length;
     } catch (error) {
       if (current()) {
-        if (importedOpenRequested.current) notify.error(<OperationError detail={String(error)} />);
+        if (importedOpenRequested.current) notify.error(t("errors.operationFailed"), { detail: String(error) });
         setImported(0);
         importedOpenRequested.current = false;
       }
@@ -725,7 +724,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             style={{ paddingLeft: 22 }}
             title={t("studio.library.albums.previousImportTitle")}
             data-drop-refused={t("studio.library.albums.previousImportNoDrop")}
-            onClick={() => void showImported().catch((e) => notify.error(<OperationError detail={String(e)} />))}
+            onClick={() => void showImported().catch((e) => notify.error(t("errors.operationFailed"), { detail: String(e) }))}
           >
             <History size={12} />
             <span>{t("studio.library.albums.previousImport")}</span>
@@ -741,7 +740,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             style={{ paddingLeft: 22 }}
             title={t("offline.missingViewTitle")}
             data-drop-refused={t("offline.missingViewNoDrop")}
-            onClick={() => void showMissing().catch((e) => notify.error(<OperationError detail={String(e)} />))}
+            onClick={() => void showMissing().catch((e) => notify.error(t("errors.operationFailed"), { detail: String(e) }))}
           >
             <Unlink size={12} />
             <span>{t("offline.missingView")}</span>

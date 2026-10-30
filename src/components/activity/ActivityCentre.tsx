@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -204,7 +205,10 @@ export default function ActivityCentre() {
     if (!open) return;
     const box = anchor.current?.getBoundingClientRect();
     const width = panel.current?.getBoundingClientRect().width ?? 360;
-    if (box) setPosition({ left: Math.max(8, Math.min(box.left, window.innerWidth - width - 8)), top: box.bottom + 6 });
+    // The top bar hidden (full screen, bars off): the popover opens at the
+    // window's top right, where the shortcut finds it.
+    if (!box || !box.width) setPosition({ left: Math.max(8, window.innerWidth - width - 8), top: 8 });
+    else setPosition({ left: Math.max(8, Math.min(box.left, window.innerWidth - width - 8)), top: box.bottom + 6 });
   }, [open]);
 
   useEffect(() => {
@@ -218,7 +222,9 @@ export default function ActivityCentre() {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
-        (button.current ?? returnFocus.current)?.focus({ preventScroll: true });
+        (button.current && (button.current.checkVisibility?.() ?? true) ? button.current : returnFocus.current)?.focus({
+          preventScroll: true,
+        });
         return;
       }
       if (panel.current?.contains(event.target as Node) || anchor.current?.contains(event.target as Node)) return;
@@ -260,11 +266,17 @@ export default function ActivityCentre() {
           {attention.length > 0 && <span className={`activity-dot is-${failure ? 'failure' : 'warning'}`} />}
         </button>
       )}
-      {/* Live regions without a role: the page's own status and alert
-          elements stay the only ones of their role. */}
-      <span className="sr-only" aria-live="polite" aria-atomic="true">{polite}</span>
-      <span className="sr-only" aria-live="assertive" aria-atomic="true">{assertive}</span>
-      {open && (
+      {/* In the page's body, not in the top bar, so that they work while the
+          bar is hidden (full screen). Live regions without a role: the
+          page's own status and alert elements stay the only ones. */}
+      {createPortal(
+        <>
+          <span className="sr-only" aria-live="polite" aria-atomic="true">{polite}</span>
+          <span className="sr-only" aria-live="assertive" aria-atomic="true">{assertive}</span>
+        </>,
+        document.body,
+      )}
+      {open && createPortal(
         <div
           ref={panel}
           className="activity-panel"
@@ -281,7 +293,9 @@ export default function ActivityCentre() {
               aria-label={t('activity.close')}
               onClick={() => {
                 setOpen(false);
-                (button.current ?? returnFocus.current)?.focus({ preventScroll: true });
+                (button.current && (button.current.checkVisibility?.() ?? true) ? button.current : returnFocus.current)?.focus({
+          preventScroll: true,
+        });
               }}
             >
               <X size={13} aria-hidden />
@@ -298,7 +312,8 @@ export default function ActivityCentre() {
               <button type="button" className="activity-clear" onClick={clearDone}>{t('activity.clearDone')}</button>
             )}
           />
-        </div>
+        </div>,
+        document.body,
       )}
     </span>
   );
