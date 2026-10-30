@@ -134,7 +134,11 @@ impl Networks for Moebius {
 /// Downloads what is missing of `FILES` and the embeddings into
 /// `models_dir` (each checked by its SHA-256) and loads Moebius on a GPU.
 /// An error, before any download, when no GPU provider is usable.
-pub async fn load(app_handle: &tauri::AppHandle, models_dir: &Path) -> Result<Moebius> {
+pub async fn load(
+    app_handle: &tauri::AppHandle,
+    models_dir: &Path,
+    preparing: &(dyn Fn() + Send + Sync),
+) -> Result<Moebius> {
     crate::ai_processing::ensure_local_runtime()?;
     let providers = tokio::task::spawn_blocking(gpu_providers)
         .await
@@ -162,6 +166,7 @@ pub async fn load(app_handle: &tauri::AppHandle, models_dir: &Path) -> Result<Mo
         )
         .await?;
     }
+    preparing();
     let dir = models_dir.to_path_buf();
     let model = tokio::task::spawn_blocking(move || Moebius::load(&dir, &providers))
         .await

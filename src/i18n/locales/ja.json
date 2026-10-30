@@ -2088,6 +2088,7 @@
     },
     "opacity": "不透明度",
     "opacityAria": "スポットの不透明度",
+    "preparingGpu": "このGPUで広範囲を除去する準備中（初回のみ）…",
     "redEye": {
       "catchlight": "キャッチライトを追加",
       "darken": "暗く",

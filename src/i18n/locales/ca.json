@@ -2228,6 +2228,7 @@
     },
     "opacity": "Opacitat",
     "opacityAria": "Opacitat de la taca",
+    "preparingGpu": "S’està preparant l’eliminació d’àrees grans per a aquesta GPU (un sol cop)…",
     "redEye": {
       "catchlight": "Afegeix un reflex",
       "darken": "Enfosquir",

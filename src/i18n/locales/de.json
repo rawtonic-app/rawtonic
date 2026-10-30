@@ -2143,6 +2143,7 @@
     },
     "opacity": "Deckkraft",
     "opacityAria": "Deckkraft des Bereichs",
+    "preparingGpu": "Entfernen großer Bereiche für diese GPU vorbereiten (einmalig)…",
     "redEye": {
       "catchlight": "Lichtreflex hinzufügen",
       "darken": "Abdunkeln",

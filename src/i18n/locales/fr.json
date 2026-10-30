@@ -2228,6 +2228,7 @@
     },
     "opacity": "Opacité",
     "opacityAria": "Opacité de la zone",
+    "preparingGpu": "Préparation de la suppression de grandes zones pour ce GPU (une seule fois)…",
     "redEye": {
       "catchlight": "Ajouter un reflet",
       "darken": "Assombrir",

@@ -180,7 +180,7 @@ function distanceToSpot(x: number, y: number, spot: Spot, dx = 0, dy = 0) {
  * the first time): the overlay shows its progress with Cancel (or Escape).
  */
 /** A running removal's progress: its model's download, then the network's runs. */
-type FillProgress = { taskId: string; download?: number; done?: number; total?: number };
+type FillProgress = { taskId: string; download?: number; phase?: 'preparing'; done?: number; total?: number };
 
 export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) {
   const { t } = useTranslation();
@@ -712,9 +712,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // while the removal waits) and the network's runs.
   useEffect(() => {
     const unlisten = [
-      listen<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ payload }) => {
+      listen<{ taskId: string | null; done: number; total: number; phase?: 'preparing' }>('ai-fill-progress', ({ payload }) => {
         if (payload.taskId && filling.current.includes(payload.taskId))
-          report({ taskId: payload.taskId, done: payload.done, total: payload.total });
+          report({ taskId: payload.taskId, done: payload.done, total: payload.total, phase: payload.phase });
       }),
       listen<{ received: number; total: number; batchReceived?: number; batchTotal?: number }>(
         'ai-model-download-progress',
@@ -724,7 +724,16 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           const id = filling.current.at(-1);
           const received = payload.batchReceived ?? payload.received;
           const total = payload.batchTotal ?? payload.total;
-          if (id && total > 0) report({ taskId: id, download: Math.min(100, Math.floor((received / total) * 100)) });
+          if (id && total > 0) {
+            const percent = Math.min(100, Math.floor((received / total) * 100));
+            setReports((all) => {
+              const previous = all.find((r) => r.taskId === id);
+              // A second removal may be waiting for the same initialization.
+              // Keep its preparation phase through downloads too.
+              const download = percent >= 100 && previous?.phase === 'preparing' ? undefined : percent;
+              return [...all.filter((r) => r.taskId !== id), { ...previous, taskId: id, download }];
+            });
+          }
         },
       ),
       // Moebius could not be used for a large hole: MI-GAN filled it, and
@@ -1007,18 +1016,22 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
             color: '#eee',
             fontSize: 12,
             cursor: 'default',
-            whiteSpace: 'nowrap',
+            maxWidth: 'calc(100% - 32px)',
+            whiteSpace: 'normal',
           }}
         >
           <span>
             {progress.download !== undefined
               ? t('spotRemoval.downloadingModel', { percent: progress.download })
-              : t('spotRemoval.filling', { done: progress.done ?? 0, total: progress.total ?? 0 })}
+              : progress.phase === 'preparing'
+                ? t('spotRemoval.preparingGpu')
+                : t('spotRemoval.filling', { done: progress.done ?? 0, total: progress.total ?? 0 })}
           </span>
           <button
             type="button"
             onClick={() => cancelFill(progress.taskId)}
             style={{
+              flexShrink: 0,
               padding: '2px 8px',
               borderRadius: 4,
               border: '1px solid rgba(255,255,255,0.3)',
