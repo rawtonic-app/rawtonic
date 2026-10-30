@@ -179,10 +179,13 @@ it("keeps the corner buttons off the plot's own image role", () => {
 });
 
 it("draws the corner layers transparent over the plot (studio.css applied)", async () => {
+  // Vitest hands CSS imports (also `?raw`) over empty, so read the file: the
+  // tests run on Node from the repository root, but the frontend tsconfig has
+  // no Node types.
+  // @ts-expect-error node:fs is untyped in the frontend tsconfig
   const { readFileSync } = await import("node:fs");
-  const { resolve } = await import("node:path");
   const style = document.createElement("style");
-  style.textContent = readFileSync(resolve(__dirname, "studio.css"), "utf8");
+  style.textContent = readFileSync("src/components/studio/studio.css", "utf8") as string;
   document.head.appendChild(style);
   try {
     const { container } = render(<StudioHistogram />);
