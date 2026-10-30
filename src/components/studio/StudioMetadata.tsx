@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorStore } from "../../store/useEditorStore";
 import { Invokes } from "../ui/AppProperties";
-import { useLibraryActions } from "../../hooks/useLibraryActions";
+import { saveFailure, useLibraryActions } from "../../hooks/useLibraryActions";
 import { COLOR_LABELS } from "../../utils/adjustments";
 import { ToolGroup } from "./StudioDevelop";
 import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
@@ -268,20 +268,38 @@ export function StudioKeywords() {
         const missing = paths.filter((path) => !has(path));
         if (!missing.length) continue;
         const tag = `${USER_TAG_PREFIX}${keyword}`;
-        await invokeInOrder(Invokes.AddTagForPaths, { paths: missing, tag }, 'keyword');
-        updateTags(missing, (tags) => [...tags, tag]);
+        // The library saved it for all but the photographs it names
+        // (`SaveFailure.failed`): only those keep their old keywords.
+        try {
+          await invokeInOrder(Invokes.AddTagForPaths, { paths: missing, tag }, "keyword");
+          updateTags(missing, (tags) => [...tags, tag]);
+        } catch (e) {
+          const { failed } = saveFailure(e, missing);
+          updateTags(missing.filter((path) => !failed.includes(path)), (tags) => [...tags, tag]);
+          throw e;
+        }
       }
       setDraft("");
     } catch (e) {
-      toast.error(t("studio.metadata.toasts.keywordsSaveFailed", { error: String(e) }));
+      toast.error(t("studio.metadata.toasts.keywordsSaveFailed", { error: saveFailure(e, paths).message }));
     }
   };
   const remove = async (entry: (typeof keywords)[number]) => {
     try {
-      for (const tag of entry.tags) await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, 'keyword');
-      updateTags(paths, (tags) => tags.filter((tag) => !entry.tags.has(tag)));
+      for (const tag of entry.tags) {
+        // As for adding: the photographs the library names did not save keep
+        // the keyword.
+        try {
+          await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, "keyword");
+          updateTags(paths, (tags) => tags.filter((t) => t !== tag));
+        } catch (e) {
+          const { failed } = saveFailure(e, paths);
+          updateTags(paths.filter((path) => !failed.includes(path)), (tags) => tags.filter((t) => t !== tag));
+          throw e;
+        }
+      }
     } catch (e) {
-      toast.error(t("studio.metadata.toasts.keywordsRemoveFailed", { error: String(e) }));
+      toast.error(t("studio.metadata.toasts.keywordsRemoveFailed", { error: saveFailure(e, paths).message }));
     }
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

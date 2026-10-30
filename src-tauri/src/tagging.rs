@@ -13,7 +13,7 @@ use tokio::task::JoinHandle;
 use walkdir::WalkDir;
 
 use crate::app_state::AppState;
-use crate::file_management::{self, parse_virtual_path};
+use crate::file_management::{self, SaveFailure, parse_virtual_path};
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
 use crate::tagging_utils::candidates::TAG_CANDIDATES;
@@ -443,23 +443,12 @@ fn modify_tags_for_path(
 ) -> Result<(), String> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
 
-    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-
-    let mut tags = metadata.tags.unwrap_or_default();
-    modify_fn(&mut tags);
-
-    tags.sort_unstable();
-    tags.dedup();
-
-    if tags.is_empty() {
-        metadata.tags = None;
-    } else {
-        metadata.tags = Some(tags);
-    }
-
-    let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
-    crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
-        .map_err(|e| e.to_string())?;
+    let metadata = change_tags(&sidecar_path, modify_fn)?;
+    crate::session_bridge::write_editor_sidecar(
+        &sidecar_path,
+        serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
 
     if let Ok(settings) = crate::app_settings::load_settings(app_handle.clone())
         && settings.enable_xmp_sync.unwrap_or(false)
@@ -471,64 +460,114 @@ fn modify_tags_for_path(
     Ok(())
 }
 
+/// The metadata of `sidecar_path` with `modify_fn` applied to its tags (sorted
+/// and without doubles; empty tags are none), as a keyword write saves it.
+fn change_tags(
+    sidecar_path: &Path,
+    modify_fn: impl Fn(&mut Vec<String>),
+) -> Result<ImageMetadata, String> {
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    let mut tags = metadata.tags.take().unwrap_or_default();
+    modify_fn(&mut tags);
+    tags.sort_unstable();
+    tags.dedup();
+    metadata.tags = (!tags.is_empty()).then_some(tags);
+    Ok(metadata)
+}
+
+/// Adds `tag` to each of `paths`. A batch save that failed for some
+/// photographs rejects with a `SaveFailure` naming them (the others have the
+/// tag), as every other batch write does; see `add_tag_for_paths_blocking`.
 #[tauri::command]
 pub async fn add_tag_for_paths(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), SaveFailure> {
+    let unsaved = paths.clone();
     crate::file_management::blocking(move || add_tag_for_paths_blocking(paths, tag, app_handle))
-        .await?
+        .await
+        .unwrap_or_else(|error| tag_failures_unsaved(&unsaved, &error))
 }
 
+/// Adds `tag` to each of `paths`; `Err` names the photographs whose sidecar
+/// (or XMP) could not be written.
 fn add_tag_for_paths_blocking(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), String> {
-    let failures: Vec<(String, String)> = paths
-        .par_iter()
-        .filter_map(|path| {
-            let _turn = file_management::sidecar_field_edit();
-            modify_tags_for_path(path, &app_handle, |tags| {
-                if !tags.contains(&tag) {
-                    tags.push(tag.clone());
-                }
-            })
-            .err()
-            .map(|e| (path.clone(), e))
-        })
-        .collect();
-    file_management::SaveFailure::check(paths.len(), failures).map_err(|f| f.message)
+) -> Result<(), SaveFailure> {
+    tag_paths(&paths, &app_handle, |tags| {
+        if !tags.contains(&tag) {
+            tags.push(tag.clone());
+        }
+    })
 }
 
+/// Removes `tag` from each of `paths`. A batch save that failed for some
+/// photographs rejects with a `SaveFailure` naming them (the tag is gone from
+/// the others), as every other batch write does.
 #[tauri::command]
 pub async fn remove_tag_for_paths(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), SaveFailure> {
+    let unsaved = paths.clone();
     crate::file_management::blocking(move || remove_tag_for_paths_blocking(paths, tag, app_handle))
-        .await?
+        .await
+        .unwrap_or_else(|error| tag_failures_unsaved(&unsaved, &error))
 }
 
+/// Removes `tag` from each of `paths`; `Err` names the photographs whose
+/// sidecar (or XMP) could not be written.
 fn remove_tag_for_paths_blocking(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), SaveFailure> {
+    tag_paths(&paths, &app_handle, |tags| {
+        tags.retain(|t| t != &tag);
+    })
+}
+
+/// Changes the tags of each of `paths` with `modify_fn` and saves them. The
+/// photographs that saved are not named: only those not saved are (`Err`),
+/// so the frontend marks only those failed and the others as written.
+fn tag_paths(
+    paths: &[String],
+    app_handle: &AppHandle,
+    modify_fn: impl Fn(&mut Vec<String>) + Sync,
+) -> Result<(), SaveFailure> {
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
             let _turn = file_management::sidecar_field_edit();
-            modify_tags_for_path(path, &app_handle, |tags| {
-                tags.retain(|t| t != &tag);
-            })
-            .err()
-            .map(|e| (path.clone(), e))
+            modify_tags_for_path(path, app_handle, &modify_fn)
+                .err()
+                .map(|e| (path.clone(), e))
         })
         .collect();
-    file_management::SaveFailure::check(paths.len(), failures).map_err(|f| f.message)
+    tag_failures(paths.len(), failures)
+}
+
+/// A keyword batch's report: `Ok` when every photograph saved, else the
+/// photographs not saved (`SaveFailure.failed`, as given). The same shape the
+/// other batch writes (`set_rating_for_paths`, `apply_adjustments_to_paths`)
+/// report, which the frontend reads to mark only those failed.
+fn tag_failures(total: usize, failures: Vec<(String, String)>) -> Result<(), SaveFailure> {
+    SaveFailure::check(total, failures)
+}
+
+/// The keyword worker saving `paths` stopped (`error`): none of them saved.
+fn tag_failures_unsaved(paths: &[String], error: &str) -> Result<(), SaveFailure> {
+    tag_failures(
+        paths.len(),
+        paths
+            .iter()
+            .map(|path| (path.clone(), format!("Saving failed: {error}")))
+            .collect(),
+    )
 }
 
 fn rrdata_source_path(rrdata: &Path) -> Option<PathBuf> {
@@ -645,6 +684,74 @@ fn clear_tags_under(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A keyword batch whose save failed for some photographs reports exactly
+    /// those paths (`SaveFailure.failed`), as the other batch writes do, so
+    /// only they are marked failed; the others have the keyword.
+    #[test]
+    fn a_keyword_batch_reports_exactly_the_photos_not_saved() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Keywords", Mode::Session).unwrap();
+        let sidecar_of = |name: &str| lib.directory.join("Capture").join(format!("{name}.rrdata"));
+        let save = |name: &str| {
+            crate::session_bridge::write_editor_sidecar(
+                sidecar_of(name),
+                r#"{"version":1,"rating":3,"tags":["dog"],"adjustments":{}}"#,
+            )
+            .unwrap()
+        };
+        save("A.ARW");
+        save("B.ARW");
+        let a = lib.directory.join("Capture/A.ARW");
+        let b = lib.directory.join("Capture/B.ARW");
+        // B's sidecar cannot be replaced: a folder sits where the write goes.
+        let blocked = sidecar_of("B.ARW");
+        let kept = temp.path().join("kept.rrdata");
+        fs::rename(&blocked, &kept).unwrap();
+        fs::create_dir(&blocked).unwrap();
+
+        // Each photograph's write as `modify_tags_for_path` does it (the XMP
+        // sync after it needs an `AppHandle`; it is not part of this result).
+        let add = |path: &str| {
+            let (_, sidecar) = parse_virtual_path(path);
+            change_tags(&sidecar, |tags| tags.push("user:beach".into())).and_then(|changed| {
+                crate::session_bridge::write_editor_sidecar(
+                    &sidecar,
+                    serde_json::to_string_pretty(&changed).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())
+            })
+        };
+        let paths: Vec<String> = [&a, &b]
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        let failures = |paths: &[String]| -> Vec<(String, String)> {
+            paths
+                .iter()
+                .filter_map(|path| add(path).err().map(|e| (path.clone(), e)))
+                .collect()
+        };
+
+        let failure = tag_failures(paths.len(), failures(&paths)).unwrap_err();
+        assert_eq!(failure.failed, [paths[1].clone()]);
+        assert!(failure.message.contains("Could not save 1 of 2 photos"));
+        // The photograph that saved has the keyword and keeps its own.
+        let saved = crate::exif_processing::load_sidecar(&sidecar_of("A.ARW"));
+        assert_eq!(saved.tags.unwrap(), ["dog", "user:beach"]);
+        assert_eq!(saved.rating, 3);
+        fs::remove_dir(&blocked).unwrap();
+        fs::rename(&kept, &blocked).unwrap();
+        let untouched = crate::exif_processing::load_sidecar(&sidecar_of("B.ARW"));
+        assert_eq!(untouched.tags.unwrap(), ["dog"]);
+
+        // Every photograph saved: no failure to report.
+        save("B.ARW");
+        assert!(tag_failures(paths.len(), failures(&paths)).is_ok());
+        let both = crate::exif_processing::load_sidecar(&sidecar_of("B.ARW"));
+        assert_eq!(both.tags.unwrap(), ["dog", "user:beach"]);
+    }
 
     /// Background tagging must never lose an edit saved while its model ran:
     /// it re-reads the sidecar when it stores the tags, and waits while an

@@ -9,6 +9,7 @@ import { TextVariants } from '../types/typography';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { expandGroupedPaths } from '../utils/imageGrouping';
 import { invokeInOrder } from '../utils/catalogWrites';
+import { saveFailure } from '../hooks/useLibraryActions';
 
 interface TaggingSubMenuProps {
   paths: string[];
@@ -51,30 +52,49 @@ export default function TaggingSubMenu({
   const handleAddTag = async (tagToAdd: string) => {
     const newTagValue = tagToAdd.trim().toLowerCase();
     if (newTagValue && !tags.some((t) => t.tag === newTagValue)) {
+      const prefixedTag = `${USER_TAG_PREFIX}${newTagValue}`;
+      const pathsToUpdate = getPathsToUpdate();
       try {
-        const prefixedTag = `${USER_TAG_PREFIX}${newTagValue}`;
-        const pathsToUpdate = getPathsToUpdate();
         await invokeInOrder(Invokes.AddTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
         const newTags = [...tags, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag));
         setTags(newTags);
         onTagsChanged(paths, newTags);
         setInputValue('');
       } catch (err) {
-        toast.error(`Failed to add tag: ${err}`);
+        // Saved for the photographs the library does not name
+        // (`SaveFailure.failed`): they get the tag, the named ones do not.
+        const { message, failed } = saveFailure(err, pathsToUpdate);
+        const saved = paths.filter((path) => !failed.includes(path));
+        if (saved.length) {
+          const newTags = [...tags, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag));
+          setTags(newTags);
+          onTagsChanged(saved, newTags);
+          setInputValue('');
+        }
+        toast.error(`Failed to add tag: ${message}`);
       }
     }
   };
 
   const handleRemoveTag = async (tagToRemove: { tag: string; isUser: boolean }) => {
+    const prefixedTag = tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag;
+    const pathsToUpdate = getPathsToUpdate();
     try {
-      const prefixedTag = tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag;
-      const pathsToUpdate = getPathsToUpdate();
       await invokeInOrder(Invokes.RemoveTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
       const newTags = tags.filter((t) => t.tag !== tagToRemove.tag);
       setTags(newTags);
       onTagsChanged(paths, newTags);
     } catch (err) {
-      toast.error(`Failed to remove tag: ${err}`);
+      // Removed from the photographs the library does not name; the named
+      // ones keep the tag.
+      const { message, failed } = saveFailure(err, pathsToUpdate);
+      const saved = paths.filter((path) => !failed.includes(path));
+      if (saved.length) {
+        const newTags = tags.filter((t) => t.tag !== tagToRemove.tag);
+        setTags(newTags);
+        onTagsChanged(saved, newTags);
+      }
+      toast.error(`Failed to remove tag: ${message}`);
     }
   };
 
