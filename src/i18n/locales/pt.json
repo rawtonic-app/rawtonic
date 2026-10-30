@@ -3765,7 +3765,9 @@
       "unsupported": "A vista múltipla precisa da exibição nativa de fotos, que não está disponível neste sistema",
       "zoomBadge": "Zoom a {{percent}}",
       "zoomLock": "Bloquear zoom",
-      "zoomLockTitle": "Bloquear zoom: aplicar zoom à foto principal amplia e desloca todas as fotos para o mesmo ponto. Desativado, cada foto faz zoom sozinha (roda, pinça, duplo clique ou Espaço sobre ela)"
+      "zoomLockTitle": "Bloquear zoom: aplicar zoom à foto principal amplia e desloca todas as fotos para o mesmo ponto. Desativado, cada foto faz zoom sozinha (roda, pinça, duplo clique ou Espaço sobre ela)",
+      "editAllNotSaved": "“Editar todas as selecionadas” não conseguiu salvar estas fotos: {{names}}. Elas mantêm os ajustes anteriores até você tentar de novo.",
+      "editAllTryAgain": "Tentar de novo"
     },
     "people": {
       "aria": "Máscara de pessoas",

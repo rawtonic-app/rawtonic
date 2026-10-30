@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { createElement, useEffect, useRef } from 'react';
+import i18n from 'i18next';
+import { toast } from 'react-toastify';
 import debounce from 'lodash.debounce';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { debouncedSave, onRecipeWritten, registerRecipeFlush, useEditorActions } from './useEditorActions';
+import { onRecipeWritten, registerRecipeFlush, useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
@@ -45,62 +47,92 @@ type ApplyToOthers = ReturnType<typeof useEditorActions>['applyAdjustmentsToPath
 
 /** Writes not settled yet, of every run. */
 const writing = new Set<Promise<unknown>>();
-/** What failed to be written to which photograph, of every run (also one
- * switched off since), with the photograph it came from: tried again by
- * every recipe flush until written, superseded or discarded. */
-const unwritten = new Map<string, { changes: Partial<Adjustments>; from: string; apply: ApplyToOthers }>();
 /** Runs' gathered edits, written at once by a recipe flush. */
 const gathered = new Set<() => void>();
 
-/** Settings written since a failure supersede it. */
-onRecipeWritten((path, keys) => {
-  const left = unwritten.get(path);
-  if (!left) return;
-  const rest = keys
-    ? Object.fromEntries(Object.entries(left.changes).filter(([key]) => !keys.includes(key)))
-    : {};
-  if (Object.keys(rest).length > 0) unwritten.set(path, { ...left, changes: rest });
-  else unwritten.delete(path);
-});
-
-/** The photograph open in the editor, once loaded. */
-const openInEditor = () => {
-  const image = useEditorStore.getState().selectedImage;
-  return image?.isReady ? image.path : null;
-};
-
-/** A photograph whose write failed is given it in the editor once it is
- * open there: as an edit of it, shown and saved (or reported unsaved) as
- * every edit is. Written to its file instead, the editor would show and
- * save (and an export take) its recipe without it. */
-function takeIntoEditor() {
-  const path = openInEditor();
-  const left = path ? unwritten.get(path) : undefined;
-  if (!path || !left) return;
-  unwritten.delete(path);
-  void left.apply(left.changes, [path], { openingNow: true, pasteFrom: left.from, replaceLayers: true });
-  // Saved now, explicitly: the editor may take this recipe as the one it
-  // opened with (its autosave saves only what changes after that). A
-  // failure keeps it unsaved, reported by the next recipe flush.
-  if (useEditorStore.getState().selectedImage?.path === path) debouncedSave(path, useEditorStore.getState().adjustments);
+interface FailedWrite {
+  changes: Partial<Adjustments>;
+  from: string;
+  /** The photographs it was not written to (still not saved). */
+  paths: string[];
+  apply: ApplyToOthers;
 }
-useEditorStore.subscribe((state, previous) => {
-  const image = state.selectedImage;
-  if (image?.isReady && (image.path !== previous.selectedImage?.path || !previous.selectedImage?.isReady)) takeIntoEditor();
+/**
+ * Edit-all writes that failed, of every run (also one switched off since).
+ * Never sent again by themselves: they are shown with the photographs not
+ * saved and Try again (`noticeFailed`), and those photographs count as not
+ * saved (an export stops, a library switch or quit asks) until the user
+ * tries again, a newer write of those settings supersedes them, or a
+ * library switch discards them.
+ */
+const failedWrites = new Map<number, FailedWrite>();
+let failures = 0;
+const noticeId = (id: number) => `edit-all-not-saved-${id}`;
+
+/** The photographs whose edit-all write failed and was not tried again. */
+export function editAllNotSaved(): string[] {
+  return [...new Set([...failedWrites.values()].flatMap((failed) => failed.paths))];
+}
+
+function forget(id: number) {
+  failedWrites.delete(id);
+  toast.dismiss(noticeId(id));
+}
+
+/** Shows that `failed` could not be saved, with Try again: the same
+ * settings again, to the photographs not saved only. */
+function noticeFailed(id: number, failed: FailedWrite) {
+  const names = failed.paths.map((path) => path.split(/[\\/]/).pop() ?? path);
+  const listed = names.slice(0, 5).join(', ') + (names.length > 5 ? ` (+${names.length - 5})` : '');
+  const content = ({ closeToast }: { closeToast: () => void }) =>
+    createElement(
+      'div',
+      { className: 'space-y-2' },
+      createElement('p', null, i18n.t('studio.multiView.editAllNotSaved', { names: listed })),
+      createElement(
+        'button',
+        {
+          type: 'button',
+          className: 'underline',
+          onClick: () => {
+            closeToast();
+            const current = failedWrites.get(id);
+            if (!current) return;
+            forget(id);
+            writeToOthers(current.apply, current.changes, current.paths, current.from);
+          },
+        },
+        i18n.t('studio.multiView.editAllTryAgain'),
+      ),
+    );
+  toast.error(content, { toastId: noticeId(id), autoClose: false, closeOnClick: false });
+}
+
+/** A write that succeeded supersedes a failed one of the same settings (a
+ * later edit-all write, a paste, the photo's own edit saved): Try again
+ * would write older values over it. */
+onRecipeWritten((path, keys) => {
+  for (const [id, failed] of failedWrites) {
+    if (!failed.paths.includes(path)) continue;
+    if (keys && !Object.keys(failed.changes).every((key) => keys.includes(key))) continue;
+    failed.paths = failed.paths.filter((other) => other !== path);
+    if (failed.paths.length === 0) forget(id);
+    else noticeFailed(id, failed);
+  }
 });
 
-/** Writes `changes` from `from` to `others`; keeps what failed for a retry
- * (what succeeded supersedes older failures, `onRecipeWritten`). */
+/** Writes `changes` from `from` to `others`; what fails is shown and kept
+ * as not saved (`failedWrites`). */
 function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, others: string[], from: string) {
-  const done = apply(changes, others, { openingNow: true, pasteFrom: from, replaceLayers: true });
+  const done = apply(changes, others, { openingNow: true, pasteFrom: from, replaceLayers: true, quiet: true });
   if (!done) return null;
-  const settled = done.then((failed) => {
-    for (const path of others) {
-      if (!failed.includes(path)) continue;
-      const left = unwritten.get(path);
-      unwritten.set(path, { changes: { ...left?.changes, ...changes }, from, apply });
-    }
-    takeIntoEditor();
+  const settled = done.then((notWritten) => {
+    const paths = others.filter((path) => notWritten.includes(path));
+    if (paths.length === 0) return;
+    const id = ++failures;
+    const failed = { changes, from, paths, apply };
+    failedWrites.set(id, failed);
+    noticeFailed(id, failed);
   });
   writing.add(settled);
   void settled.then(() => writing.delete(settled));
@@ -108,26 +140,18 @@ function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, othe
 }
 
 // Exporting, quitting or switching library (`flushRecipeSaves`): what the
-// runs gathered is written now, into the library it was made in; what
-// failed is tried again, and what still fails is named (an export stops; a
-// switch asks Retry, Discard or Cancel, utils/quit.ts).
+// runs gathered is written now, into the library it was made in, and every
+// write in flight is waited for. The photographs whose write failed are
+// named as not saved (an export stops; a switch asks Retry, Discard or
+// Cancel, utils/quit.ts); they are sent again only by Try again.
 registerRecipeFlush(async () => {
   gathered.forEach((write) => write());
   while (writing.size > 0) await Promise.all(writing);
-  for (const [path, { changes, from, apply }] of [...unwritten]) {
-    // Superseded meanwhile, or the editor's (never changed by a flush: an
-    // export has taken the editor's recipe already).
-    if (unwritten.get(path)?.changes !== changes || path === openInEditor()) continue;
-    unwritten.delete(path);
-    const done = writeToOthers(apply, changes, [path], from);
-    if (done) await done;
-  }
-  while (writing.size > 0) await Promise.all(writing);
-  return [...unwritten.keys()];
+  return editAllNotSaved();
 });
-// Past a switch's barrier they were written or discarded.
+// Past a switch's barrier they were saved or discarded.
 registerLibrarySwitchReset(() => {
-  unwritten.clear();
+  [...failedWrites.keys()].forEach(forget);
   return () => {};
 });
 

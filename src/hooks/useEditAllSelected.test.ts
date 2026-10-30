@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, renderHook } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { toast } from 'react-toastify';
 import { invoke } from '@tauri-apps/api/core';
-import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, livePatch, useEditAllSelected } from './useEditAllSelected';
+import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, editAllNotSaved, livePatch, useEditAllSelected } from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
 import { flushRecipeSaves, waitForPendingMetadataSave } from './useEditorActions';
+import '../i18n';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -12,7 +15,7 @@ import { switchLibraryAfterSaves, type UnsavedChoice } from '../utils/quit';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() } }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 
 const selection = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3'];
@@ -338,7 +341,22 @@ describe('Edit all selected', () => {
       expect(pasted()).toHaveLength(1);
     });
 
-    it('is written before an export reads the recipes, and an export is told what failed', async () => {
+    /** The failure notice last shown, rendered (it carries Try again). */
+    const failureNotice = () => {
+      const content = vi.mocked(toast.error).mock.calls.at(-1)?.[0] as (props: { closeToast: () => void }) => ReactElement;
+      return render(content({ closeToast: () => {} }));
+    };
+    async function failedWrite() {
+      renderHook(() => useEditAllSelected(true, selection));
+      failing = true;
+      edit({ exposure: 0.5 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      failing = false;
+    }
+
+    it('is written before an export reads the recipes', async () => {
       renderHook(() => useEditAllSelected(true, selection));
       edit({ exposure: 0.5 });
       // Exported within the settle time: written first.
@@ -346,132 +364,66 @@ describe('Edit all selected', () => {
         expect(await flushRecipeSaves()).toEqual([]);
       });
       expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']);
-      failing = true;
-      edit({ exposure: 0.7 });
-      let unsaved: string[] = [];
-      await act(async () => {
-        unsaved = await flushRecipeSaves();
-      });
-      expect(unsaved).toEqual(['/s/a.CR3', '/s/c.CR3']);
-      // Tried again by the next flush.
-      failing = false;
-      await act(async () => {
-        unsaved = await flushRecipeSaves();
-      });
-      expect(unsaved).toEqual([]);
-      expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3', '/s/a.CR3', '/s/c.CR3']);
     });
 
-    it('keeps a failed write after it is switched off, until it is saved', async () => {
-      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
-      failing = true;
-      edit({ exposure: 0.5 });
-      await act(async () => {
-        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
-      });
-      rerender({ on: false });
-      // Back in the Library, the selection is exported: the export is told.
+    it('shows a failed write with the photos not saved; Try again sends it to them once more', async () => {
+      await failedWrite();
+      expect(editAllNotSaved()).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      const notice = failureNotice();
+      expect(notice.container.textContent).toContain('a.CR3, c.CR3');
+      // An export is told, and nothing is sent again by itself.
       let unsaved: string[] = [];
       await act(async () => {
         unsaved = await flushRecipeSaves();
       });
       expect(unsaved).toEqual(['/s/a.CR3', '/s/c.CR3']);
-      failing = false;
+      expect(pasted()).toHaveLength(1);
+      await act(async () => {
+        fireEvent.click(notice.getByRole('button', { name: 'Try again' }));
+      });
       await act(async () => {
         unsaved = await flushRecipeSaves();
       });
       expect(unsaved).toEqual([]);
+      expect(editAllNotSaved()).toEqual([]);
+      expect(pasted().map(({ paths, adjustments }) => [paths, adjustments.exposure])).toEqual([
+        [['/s/a.CR3', '/s/c.CR3'], 0.5],
+        [['/s/a.CR3', '/s/c.CR3'], 0.5],
+      ]);
       expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']);
-      // Saved: nothing is written again.
-      await act(async () => {
-        await flushRecipeSaves();
-      });
-      expect(pasted()).toHaveLength(5);
     });
 
-    it('never writes a failed edit over a newer one saved since, also from a later run', async () => {
-      const exposures = () =>
-        pasted()
-          .filter(({ paths }) => paths.includes('/s/c.CR3'))
-          .map(({ adjustments }) => adjustments.exposure);
+    it('stops counting a photo as not saved once a newer write of those settings is saved', async () => {
       const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
       failing = true;
       edit({ exposure: 0.5 });
       await act(async () => {
         vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
       });
-      rerender({ on: false });
       failing = false;
-      // Switched on again, a newer Exposure is saved to the others.
+      rerender({ on: false });
       rerender({ on: true });
       edit({ exposure: 0.9 });
       await act(async () => {
         vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
       });
-      let unsaved: string[] = [];
-      await act(async () => {
-        unsaved = await flushRecipeSaves();
-      });
-      expect(unsaved).toEqual([]);
-      // The failed 0.5 is not written again over the saved 0.9.
-      expect(exposures()).toEqual([0.5, 0.9]);
+      expect(editAllNotSaved()).toEqual([]);
+      expect(vi.mocked(toast.dismiss)).toHaveBeenCalled();
     });
 
-    it('gives a failed write to the editor when its photo opens; a flush never changes the editor', async () => {
-      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
-      failing = true;
-      edit({ exposure: 0.5 });
-      await act(async () => {
-        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
-      });
-      rerender({ on: false });
-      // c.CR3 opens: it shows the edit that failed to be written, as an
-      // edit of it the editor saves.
-      act(() =>
-        useEditorStore.setState({
-          selectedImage: { path: '/s/c.CR3', isReady: true, width: 6000, height: 4000 } as never,
-          adjustments: { ...INITIAL_ADJUSTMENTS } as Adjustments,
-        }),
-      );
-      expect(useEditorStore.getState().adjustments.exposure).toBe(0.5);
-      failing = false;
-      const shown = useEditorStore.getState().adjustments;
-      let unsaved: string[] = [];
-      await act(async () => {
-        unsaved = await flushRecipeSaves();
-      });
-      expect(unsaved).toEqual([]);
-      // a.CR3 is written to its file; the open c.CR3 is saved as the editor
-      // shows it (also without an edit after opening), and the flush did not
-      // change the editor.
-      expect(written.A).toEqual(['/s/a.CR3']);
-      const saves = vi
-        .mocked(invoke)
-        .mock.calls.filter(([command]) => command === Invokes.SaveMetadataAndUpdateThumbnail)
-        .map(([, args]) => args as { path: string; adjustments: Adjustments });
-      expect(saves.map(({ path, adjustments }) => [path, adjustments.exposure])).toEqual([['/s/c.CR3', 0.5]]);
-      expect(useEditorStore.getState().adjustments).toBe(shown);
-    });
-
-    it('holds the switch while the write failed: Retry writes it into the library it was made in', async () => {
-      renderHook(() => useEditAllSelected(true, selection));
-      edit({ exposure: 0.5 });
-      failing = true;
-      const ask = vi.fn(async (): Promise<UnsavedChoice> => {
-        failing = false;
-        return 'retry';
-      });
+    it('warns at a library switch while a write failed; Discard leaves it unsent', async () => {
+      await failedWrite();
+      const ask = vi.fn(async (): Promise<UnsavedChoice> => 'discard');
       const switched = switchLibraryAfterSaves(openB, ask);
       await act(async () => {
         await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
-      });
-      expect(ask).toHaveBeenCalledWith(['Edits of a.CR3', 'Edits of c.CR3']);
-      await act(async () => {
-        await vi.waitFor(() => expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']));
         opened();
         expect(await switched).toBe('B');
       });
-      expect(written.B).toEqual([]);
+      expect(ask).toHaveBeenCalledWith(['Edits of a.CR3', 'Edits of c.CR3']);
+      expect(editAllNotSaved()).toEqual([]);
+      expect(written).toEqual({ A: [], B: [] });
+      expect(pasted()).toHaveLength(1);
     });
   });
 });

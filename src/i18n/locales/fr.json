@@ -3765,7 +3765,9 @@
       "unsupported": "La vue multiple nécessite l'affichage natif des photos, indisponible sur ce système",
       "zoomBadge": "Zoom à {{percent}}",
       "zoomLock": "Verrouiller le zoom",
-      "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit. Désactivé, chaque photo zoome seule (molette, pincement, double-clic ou Espace au-dessus)"
+      "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit. Désactivé, chaque photo zoome seule (molette, pincement, double-clic ou Espace au-dessus)",
+      "editAllNotSaved": "« Modifier toutes les sélectionnées » n’a pas pu enregistrer ces photos : {{names}}. Elles gardent leurs réglages précédents jusqu’à ce que vous réessayiez.",
+      "editAllTryAgain": "Réessayer"
     },
     "people": {
       "aria": "Masque de personnes",

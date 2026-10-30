@@ -3559,7 +3559,9 @@
     "multiView": {
       "controls": "{{name}} の採用・評価・除外",
       "editAll": "選択した写真をすべて編集",
+      "editAllNotSaved": "「選択した写真をすべて編集」でこれらの写真を保存できませんでした: {{names}}。再試行するまで以前の設定のままです。",
       "editAllTitle": "選択した写真をすべて編集：メイン写真への変更を、表示中の他のすべての写真にも適用します（オレンジの枠）",
+      "editAllTryAgain": "再試行",
       "makePrimary": "{{name}} を編集（メイン写真にする）",
       "more_other": "ほか {{n}} 枚",
       "pick": "{{name}} を採用",

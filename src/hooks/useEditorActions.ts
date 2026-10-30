@@ -229,14 +229,14 @@ registerLibrarySwitchReset(() => {
 /** A batch recipe command (a `SaveFailure` on error): tells the user what
  * was not saved and resolves with those paths, so the saved ones still
  * update. */
-function savedBatch(command: Promise<unknown>, paths: string[], what: string): Promise<string[]> {
+function savedBatch(command: Promise<unknown>, paths: string[], what: string, quiet = false): Promise<string[]> {
   return command
     .then(
       () => [],
       (err) => {
         console.error(`Failed to ${what}:`, err);
         const { message, failed } = saveFailure(err, paths);
-        toast.error(`Failed to ${what}: ${message}`);
+        if (!quiet) toast.error(`Failed to ${what}: ${message}`);
         return failed;
       },
     )
@@ -925,7 +925,7 @@ export function useEditorActions() {
    * that photograph, so the layers join each photograph's own and their AI
    * detections wait for each photograph (`masks::paste_layers`);
    * `replaceLayers`: they replace them (Edit all selected). Resolves with
-   * the photographs not written. */
+   * the photographs not written; `quiet`: the caller tells the user. */
   const applyAdjustmentsToPaths = useCallback(
     (
       partial: Partial<Adjustments>,
@@ -936,7 +936,9 @@ export function useEditorActions() {
         replaceLayers = false,
         asChosen = false,
         style = null,
+        quiet = false,
       }: {
+        quiet?: boolean;
         openingNow?: boolean;
         pasteFrom?: string | null;
         replaceLayers?: boolean;
@@ -1018,6 +1020,7 @@ export function useEditorActions() {
           }),
           others,
           'paste adjustments',
+          quiet,
         ),
       );
       // A photograph opened meanwhile reads its recipe after this write.
@@ -1049,7 +1052,7 @@ export function useEditorActions() {
           return failed;
         })
         .catch((err) => {
-          toast.error(`Failed to paste adjustments: ${err}`);
+          if (!quiet) toast.error(`Failed to paste adjustments: ${err}`);
           return others;
         });
     },

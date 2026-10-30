@@ -3559,7 +3559,9 @@
     "multiView": {
       "controls": "标记、评级或移除 {{name}}",
       "editAll": "编辑所有选中照片",
+      "editAllNotSaved": "“编辑所有选中照片”无法保存这些照片：{{names}}。在你重试之前，它们保留之前的设置。",
       "editAllTitle": "编辑所有选中照片：对主照片的修改也会应用到显示的每张其他照片（橙色边框）",
+      "editAllTryAgain": "重试",
       "makePrimary": "编辑 {{name}}（设为主照片）",
       "more_other": "还有 {{n}} 张",
       "pick": "留用 {{name}}",

@@ -3639,7 +3639,9 @@
     "multiView": {
       "controls": "Flag, rate or remove {{name}}",
       "editAll": "Edit all selected",
+      "editAllNotSaved": "Edit all selected could not save these photos: {{names}}. They keep their earlier settings until you try again.",
       "editAllTitle": "Edit all selected: changes to the primary photo also go to every other photo shown (orange frames)",
+      "editAllTryAgain": "Try again",
       "makePrimary": "Edit {{name}} (make it the primary photo)",
       "more_one": "and {{n}} more",
       "more_other": "and {{n}} more",

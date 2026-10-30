@@ -3765,7 +3765,9 @@
       "unsupported": "La vista múltiple necessita la visualització nativa de fotos, que no està disponible en aquest sistema",
       "zoomBadge": "Zoom al {{percent}}",
       "zoomLock": "Bloqueja el zoom",
-      "zoomLockTitle": "Bloca el zoom: fer zoom a la foto principal amplia i desplaça totes les fotos al mateix punt. Desactivat, cada foto fa zoom per separat (roda, pessic, doble clic o Espai a sobre)"
+      "zoomLockTitle": "Bloca el zoom: fer zoom a la foto principal amplia i desplaça totes les fotos al mateix punt. Desactivat, cada foto fa zoom per separat (roda, pessic, doble clic o Espai a sobre)",
+      "editAllNotSaved": "«Edita totes les seleccionades» no ha pogut desar aquestes fotos: {{names}}. Conserven la configuració anterior fins que ho tornis a provar.",
+      "editAllTryAgain": "Torna-ho a provar"
     },
     "people": {
       "aria": "Màscara de persones",

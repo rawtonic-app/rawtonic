@@ -3639,7 +3639,9 @@
     "multiView": {
       "controls": "{{name}} markieren, bewerten oder entfernen",
       "editAll": "Alle ausgewählten bearbeiten",
+      "editAllNotSaved": "„Alle ausgewählten bearbeiten“ konnte diese Fotos nicht speichern: {{names}}. Sie behalten ihre früheren Einstellungen, bis du es erneut versuchst.",
       "editAllTitle": "Alle ausgewählten bearbeiten: Änderungen am Hauptfoto gehen auch an jedes andere gezeigte Foto (orange Rahmen)",
+      "editAllTryAgain": "Erneut versuchen",
       "makePrimary": "{{name}} bearbeiten (zum Hauptfoto machen)",
       "more_one": "und {{n}} weiteres",
       "more_other": "und {{n}} weitere",

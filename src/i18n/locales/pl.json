@@ -3872,7 +3872,9 @@
       "unsupported": "Widok wielu zdjęć wymaga natywnego wyświetlania zdjęć, niedostępnego w tym systemie",
       "zoomBadge": "Powiększenie {{percent}}",
       "zoomLock": "Zablokuj powiększenie",
-      "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa wszystkie zdjęcia do tego samego miejsca. Wyłączone, każde zdjęcie powiększa się osobno (kółko, gest szczypania, dwuklik lub Spacja nad nim)"
+      "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa wszystkie zdjęcia do tego samego miejsca. Wyłączone, każde zdjęcie powiększa się osobno (kółko, gest szczypania, dwuklik lub Spacja nad nim)",
+      "editAllNotSaved": "„Edytuj wszystkie zaznaczone” nie mogło zapisać tych zdjęć: {{names}}. Zachowują wcześniejsze ustawienia, dopóki nie spróbujesz ponownie.",
+      "editAllTryAgain": "Spróbuj ponownie"
     },
     "people": {
       "aria": "Maska osób",
