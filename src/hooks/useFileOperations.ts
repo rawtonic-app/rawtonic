@@ -2,7 +2,8 @@ import { createElement, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { toast, type Id } from 'react-toastify';
+import { notify } from '../activity/notify';
+import { useActivityStore } from '../store/useActivityStore';
 import i18next from 'i18next';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -102,40 +103,36 @@ interface CopyProgress {
   total: number;
 }
 
-/** Runs a file operation; while it copies files to another drive a toast
- * shows how far it is, with Stop (what was copied is removed, nothing moves). */
+/** Runs a file operation; while it copies files to another drive the
+ * activity centre shows how far it is, with Cancel (what was copied is
+ * removed, nothing moves). */
 async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
-  let shown: Id | null = null;
+  const activity = useActivityStore.getState();
+  let shown: string | null = null;
   const unlisten = await listen<CopyProgress>('file-operation-progress', ({ payload }) => {
-    const stop = createElement(
-      'button',
-      { className: 'ml-3 underline', onClick: () => void invoke(Invokes.StopFileOperation, { run: payload.run }) },
-      i18next.t('studio.library.fileOperations.stopCopying'),
-    );
-    const render = createElement(
-      'span',
-      null,
-      i18next.t('studio.library.fileOperations.copying', {
-        label: payload.label,
-        done: formatBytes(payload.done),
-        total: formatBytes(payload.total),
-      }),
-      stop,
-    );
-    // Below 1: a full bar would close the toast before the move is done.
-    const progress = payload.total > 0 ? Math.min(payload.done / payload.total, 0.99) : 0;
+    const title = i18next.t('studio.library.fileOperations.copying', {
+      label: payload.label,
+      done: formatBytes(payload.done),
+      total: formatBytes(payload.total),
+    });
+    // Below the total: a full bar would read as done before the move is.
+    const progress = { done: Math.min(payload.done, payload.total * 0.99), total: Math.max(payload.total, 1) };
     if (shown === null) {
-      // Notices hide countdown bars; this one shows how far the copy is.
-      shown = toast.info(render, { autoClose: false, closeButton: false, closeOnClick: false, hideProgressBar: false, progress });
+      shown = activity.start({
+        source: 'files',
+        title,
+        progress,
+        cancel: () => void invoke(Invokes.StopFileOperation, { run: payload.run }),
+      });
     } else {
-      toast.update(shown, { render, progress });
+      activity.update(shown, { title, progress });
     }
   });
   try {
     return await run();
   } finally {
     unlisten();
-    if (shown !== null) toast.dismiss(shown);
+    if (shown !== null) activity.finish(shown);
   }
 }
 
@@ -159,15 +156,15 @@ export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
     createElement('button', { className: 'ml-3 underline', onClick }, label);
   const show = (path: string) =>
     void invoke(Invokes.ShowInFinder, { path }).catch((err) =>
-      toast.error(t('contextMenus.toasts.couldNotShowExplorer', { err })),
+      notify.error(t('contextMenus.toasts.couldNotShowExplorer', { err })),
     );
   const trash = async (path: string) => {
     try {
       await invoke(Invokes.TrashKeptCopy, { operationId: kept.operationId, path });
-      toast.success(ops('keptCopyTrashed', { name: fileName(path) }));
+      notify.success(ops('keptCopyTrashed', { name: fileName(path) }));
       onTrashed();
     } catch (err) {
-      toast.error(ops('keptCopyTrashFailed', { name: fileName(path), error: String(err) }));
+      notify.error(ops('keptCopyTrashFailed', { name: fileName(path), error: String(err) }));
     }
   };
   const showLabel =
@@ -183,7 +180,7 @@ export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
       button(ops('trashConfirm'), () => void trash(copy.path)),
     ),
   );
-  toast.warn(
+  notify.warn(
     createElement(
       'div',
       null,
@@ -196,7 +193,7 @@ export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
 
 /** Tells what a finished operation left for the user to know (originals kept). */
 function warnAboutNote(summary: FileOperationSummary | null | undefined) {
-  if (summary?.note) toast.warn(summary.note, { autoClose: false });
+  if (summary?.note) notify.warn(summary.note, { autoClose: false });
 }
 
 /** Before files change place: the open photograph's recipe is written to
@@ -224,7 +221,7 @@ async function saveEditsFirst(moving: string[] = [], sameName = false): Promise<
     ),
   );
   if (!kept.length) return true;
-  toast.error(
+  notify.error(
     i18next.t('studio.library.fileOperations.unsavedEdits', {
       files: kept.map((path) => path.split(/[\\/]/).pop()).join(', '),
     }),
@@ -334,7 +331,7 @@ async function askBeforeOtherDrive(
   try {
     plan = await invoke<MovePlan>(Invokes.PlanMoveFiles, { sourcePaths: paths, destinationFolder: destination });
   } catch (err) {
-    toast.error(ops(failed, { error: String(err) }));
+    notify.error(ops(failed, { error: String(err) }));
     return;
   }
   if (!plan?.crossVolume) {
@@ -342,7 +339,7 @@ async function askBeforeOtherDrive(
     return;
   }
   if (plan.refusal) {
-    toast.error(ops(failed, { error: plan.refusal }));
+    notify.error(ops(failed, { error: plan.refusal }));
     return;
   }
   useUIStore.getState().setUI({
@@ -452,7 +449,7 @@ export function useFileOperations(
           invoke<FileOperationSummary>(command, { paths: pathsToDelete }),
           "trash", undefined, undefined, withSourceParents(pathsToDelete),
         );
-        if (summary) toast.success(describeFileOperation(summary));
+        if (summary) notify.success(describeFileOperation(summary));
         await refreshImageList();
         await refreshAllFolderTrees();
         void recountAfterFileOperation();
@@ -484,7 +481,7 @@ export function useFileOperations(
         }
       } catch (err) {
         console.error('Failed to delete files:', err);
-        toast.error(ops('deleteFailed', { error: String(err) }));
+        notify.error(ops('deleteFailed', { error: String(err) }));
       }
     },
     [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, sortedImageList, handleImageSelect],
@@ -497,7 +494,7 @@ export function useFileOperations(
       const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.UndoFileOperation));
       fileOperationTravel("undo", summary, startedOnBranch);
       if (!summary) {
-        toast.info(ops('nothingToUndo'));
+        notify.info(ops('nothingToUndo'));
         return;
       }
       warnAboutNote(summary);
@@ -505,13 +502,13 @@ export function useFileOperations(
       // places: the selection, the open photograph, picks and thumbnails
       // go with them, as after a rename.
       const reopen = followMoves(summary.moves ?? []);
-      toast.success(i18next.t('studio.library.fileOperations.undone', { label: summary.label, key: redoKey() }));
+      notify.success(i18next.t('studio.library.fileOperations.undone', { label: summary.label, key: redoKey() }));
       await refreshImageList();
       await refreshAllFolderTrees();
       reopen();
       void recountAfterFileOperation();
     } catch (err) {
-      toast.error(ops('undoFailed', { error: String(err) }));
+      notify.error(ops('undoFailed', { error: String(err) }));
     }
   }, [refreshImageList, refreshAllFolderTrees, followMoves]);
 
@@ -522,7 +519,7 @@ export function useFileOperations(
       useCatalogUndoStore.getState().fileRedoBlocked &&
       useCatalogUndoStore.getState().filesFuture.length === 0
     ) {
-      toast.info(i18next.t("studio.library.fileOperations.nothingToRedo"));
+      notify.info(i18next.t("studio.library.fileOperations.nothingToRedo"));
       return;
     }
     const startedOnBranch = undoBranchId();
@@ -531,19 +528,19 @@ export function useFileOperations(
       const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.RedoFileOperation));
       fileOperationTravel("redo", summary, startedOnBranch);
       if (!summary) {
-        toast.info(i18next.t('studio.library.fileOperations.nothingToRedo'));
+        notify.info(i18next.t('studio.library.fileOperations.nothingToRedo'));
         return;
       }
       warnAboutNote(summary);
       // As after the operation itself: path-keyed state follows the moves.
       const reopen = followMoves(summary.moves ?? []);
-      toast.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
+      notify.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
       await refreshImageList();
       await refreshAllFolderTrees();
       reopen();
       void recountAfterFileOperation();
     } catch (err) {
-      toast.error(i18next.t('studio.library.fileOperations.redoFailed', { error: String(err) }));
+      notify.error(i18next.t('studio.library.fileOperations.redoFailed', { error: String(err) }));
     }
   }, [refreshImageList, refreshAllFolderTrees, followMoves]);
 
@@ -557,11 +554,11 @@ export function useFileOperations(
     try {
       contents = await invoke<TrashContents>(Invokes.SessionTrashContents, { session: sessionDirectory });
     } catch (err) {
-      toast.error(t('studio.library.trash.countFailed', { error: String(err) }));
+      notify.error(t('studio.library.trash.countFailed', { error: String(err) }));
       return;
     }
     if (!contents || contents.entries === 0) {
-      toast.info(t('studio.library.trash.alreadyEmpty'));
+      notify.info(t('studio.library.trash.alreadyEmpty'));
       return;
     }
     const separator = sessionDirectory.includes('\\') && !sessionDirectory.includes('/') ? '\\' : '/';
@@ -585,11 +582,11 @@ export function useFileOperations(
             });
             clearFileUndoHistory();
             if (result?.note) {
-              toast.warn(t('studio.library.trash.incomplete', { note: result.note }), { autoClose: false });
+              notify.warn(t('studio.library.trash.incomplete', { note: result.note }), { autoClose: false });
             } else if (contents.photos > 0) {
-              toast.success(t('studio.library.trash.emptied', { count: contents.photos }));
+              notify.success(t('studio.library.trash.emptied', { count: contents.photos }));
             } else {
-              toast.success(t('studio.library.trash.emptiedNow'));
+              notify.success(t('studio.library.trash.emptiedNow'));
             }
             // Nothing from the Trash stays selected or open.
             const { selectedImage, setEditor } = useEditorStore.getState();
@@ -611,7 +608,7 @@ export function useFileOperations(
             await refreshImageList();
             void recountAfterFileOperation();
           } catch (err) {
-            toast.error(t('studio.library.trash.failed', { error: String(err) }));
+            notify.error(t('studio.library.trash.failed', { error: String(err) }));
           }
         },
       },
@@ -635,7 +632,7 @@ export function useFileOperations(
             ),
             "move", undefined, undefined, [...withSourceParents(paths), destination],
           );
-          if (summary) toast.success(describeFileOperation(summary));
+          if (summary) notify.success(describeFileOperation(summary));
           warnAboutNote(summary);
           const { selectedImage } = useEditorStore.getState();
           if (selectedImage && paths.some((p) => p.split('?vc=')[0] === selectedImage.path.split('?vc=')[0])) {
@@ -650,7 +647,7 @@ export function useFileOperations(
           await refreshAllFolderTrees();
           void recountAfterFileOperation();
         } catch (err) {
-          toast.error(ops('moveFailed', { error: String(err) }));
+          notify.error(ops('moveFailed', { error: String(err) }));
         }
       };
       await askBeforeOtherDrive(paths, destination, move, 'moveFailed');
@@ -678,7 +675,7 @@ export function useFileOperations(
             ),
             "move", undefined, undefined, [path, picked],
           );
-          if (summary) toast.success(describeFileOperation(summary));
+          if (summary) notify.success(describeFileOperation(summary));
           warnAboutNote(summary);
           const separator = picked.includes('/') ? '/' : '\\';
           const reopen = followMoves(
@@ -689,14 +686,14 @@ export function useFileOperations(
           reopen();
           void recountAfterFileOperation();
         } catch (err) {
-          toast.error(ops('moveFolderFailed', { error: String(err) }));
+          notify.error(ops('moveFolderFailed', { error: String(err) }));
         }
       };
       let plan: MovePlan;
       try {
         plan = await invoke<MovePlan>(Invokes.PlanMoveFolder, { path, destinationFolder: picked });
       } catch (err) {
-        toast.error(ops('moveFolderFailed', { error: String(err) }));
+        notify.error(ops('moveFolderFailed', { error: String(err) }));
         return;
       }
       if (!plan?.crossVolume) {
@@ -704,7 +701,7 @@ export function useFileOperations(
         return;
       }
       if (plan.refusal) {
-        toast.error(ops('moveFolderFailed', { error: plan.refusal }));
+        notify.error(ops('moveFolderFailed', { error: plan.refusal }));
         return;
       }
       useUIStore.getState().setUI({
@@ -726,7 +723,7 @@ export function useFileOperations(
     const { selectedImage } = useEditorStore.getState();
     const { activeView } = useUIStore.getState();
     if (!sessionDirectory) {
-      toast.info(ops('selectsNeedSession'));
+      notify.info(ops('selectsNeedSession'));
       return;
     }
     const paths =
@@ -741,7 +738,7 @@ export function useFileOperations(
     const selects = `${sessionDirectory}${separator}Selects`;
     const outside = paths.filter((p) => getParentDir(p.split('?vc=')[0]) !== selects);
     if (outside.length === 0) {
-      toast.info(ops(paths.length ? 'alreadyInSelects' : 'selectForSelects'));
+      notify.info(ops(paths.length ? 'alreadyInSelects' : 'selectForSelects'));
       return;
     }
     await handleMoveToFolder(outside, selects);
@@ -765,7 +762,7 @@ export function useFileOperations(
                 invoke<FileOperationSummary>(Invokes.DeleteFolder, { path }),
                 "trash", undefined, undefined, [path],
               );
-              if (summary) toast.success(describeFileOperation(summary));
+              if (summary) notify.success(describeFileOperation(summary));
               const { currentFolderPath, setLibrary } = useLibraryStore.getState();
               if (currentFolderPath && (currentFolderPath === path || isBelow(currentFolderPath, path))) {
                 setLibrary({ currentFolderPath: null, imageList: [], multiSelectedPaths: [], libraryActivePath: null });
@@ -774,7 +771,7 @@ export function useFileOperations(
               await refreshImageList();
               void recountAfterFileOperation();
             } catch (err) {
-              toast.error(ops('trashFolderFailed', { error: String(err) }));
+              notify.error(ops('trashFolderFailed', { error: String(err) }));
             }
           },
           title: ops('trashFolderTitle'),
@@ -839,7 +836,7 @@ export function useFileOperations(
           await invoke(Invokes.CreateFolder, { path: `${folderActionTarget}/${folderName.trim()}` });
           await refreshAllFolderTrees();
         } catch (err) {
-          toast.error(ops('createFolderFailed', { error: String(err) }));
+          notify.error(ops('createFolderFailed', { error: String(err) }));
         }
       }
     },
@@ -863,7 +860,7 @@ export function useFileOperations(
             }),
             "rename", undefined, undefined, [oldPath, getParentDir(oldPath)],
           );
-          if (summary) toast.success(describeFileOperation(summary));
+          if (summary) notify.success(describeFileOperation(summary));
 
           const parentDir = getParentDir(oldPath);
           const separator = oldPath.includes('/') ? '/' : '\\';
@@ -878,7 +875,7 @@ export function useFileOperations(
           reopen();
           void recountAfterFileOperation();
         } catch (err) {
-          toast.error(ops('renameFolderFailed', { error: String(err) }));
+          notify.error(ops('renameFolderFailed', { error: String(err) }));
         }
       }
     },
@@ -912,14 +909,14 @@ export function useFileOperations(
           // thumbnails stay with the renamed photos (as on undo).
           const moves = renameTargetPaths.flatMap((from, i) => (newPaths[i] ? [{ from, to: newPaths[i] }] : []));
           const reopen = followMoves(moves);
-          toast.success(ops('renamed', { hint: undoHint() }));
+          notify.success(ops('renamed', { hint: undoHint() }));
           useLibraryStore.getState().setLibrary({ multiSelectedPaths: newPaths });
 
           await refreshImageList();
           reopen();
           void recountAfterFileOperation();
         } catch (err) {
-          toast.error(ops('renameFilesFailed', { error: String(err) }));
+          notify.error(ops('renameFilesFailed', { error: String(err) }));
         }
       }
       setUI({ renameTargetPaths: [] });
@@ -961,7 +958,7 @@ export function useFileOperations(
                 ),
                 "move", undefined, undefined, [...withSourceParents(copiedFilePaths), target],
               );
-              if (summary) toast.success(describeFileOperation(summary));
+              if (summary) notify.success(describeFileOperation(summary));
               warnAboutNote(summary);
               setProcess({ copiedFilePaths: [] });
               setLibrary({ multiSelectedPaths: [] });
@@ -971,7 +968,7 @@ export function useFileOperations(
               reopen();
               void recountAfterFileOperation();
             } catch (err) {
-              toast.error(ops('moveFilesFailed', { error: String(err) }));
+              notify.error(ops('moveFilesFailed', { error: String(err) }));
             }
           };
           await askBeforeOtherDrive(copiedFilePaths, target, move, 'moveFilesFailed');
@@ -979,7 +976,7 @@ export function useFileOperations(
         }
         await refreshImageList();
       } catch (err) {
-        toast.error(ops(mode === 'copy' ? 'copyFilesFailed' : 'moveFilesFailed', { error: String(err) }));
+        notify.error(ops(mode === 'copy' ? 'copyFilesFailed' : 'moveFilesFailed', { error: String(err) }));
       }
     },
     [refreshImageList, refreshAllFolderTrees, followMoves],

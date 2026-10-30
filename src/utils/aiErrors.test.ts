@@ -3,7 +3,7 @@ import i18n from 'i18next';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn() } }));
-vi.mock('react-toastify', () => ({ toast }));
+vi.mock('../activity/notify', () => ({ notify: toast }));
 
 import {
   aiErrorMessage,
@@ -45,10 +45,10 @@ describe('AI errors', () => {
     for (const [text, options] of toast.error.mock.calls) {
       expect(text).toMatch(/^The AI runtime could not be loaded/);
       // The same id: react-toastify keeps a single toast.
-      expect(options).toEqual({ toastId: 'ai-runtime-unavailable' });
+      expect(options).toEqual({ toastId: 'ai-runtime-unavailable', source: 'ai' });
     }
     toastAiError('out of memory', 'AI Sky Mask Failed: out of memory');
-    expect(toast.error).toHaveBeenLastCalledWith('AI Sky Mask Failed: out of memory');
+    expect(toast.error).toHaveBeenLastCalledWith('AI Sky Mask Failed: out of memory', { source: 'ai' });
   });
 
   it('reports a missing runtime for background work once per session, and nothing else', () => {

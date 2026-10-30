@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
+import { useActivityStore } from "../../store/useActivityStore";
 import { Invokes } from "../ui/AppProperties";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { xmpReadAction, type XmpReport } from "../../utils/appUndo";
@@ -31,6 +32,8 @@ export interface XmpRetry {
 /** Asks the app to show these photographs in the grid (App.tsx). */
 export const SHOW_PENDING_XMP_EVENT = "rawtonic:show-pending-xmp";
 export const PENDING_XMP_VIEW_ID = "rawtonic:pending-xmp";
+/** The activity centre's entry for XMP files not up to date. */
+const XMP_ACTIVITY = "xmp:pending";
 
 /** Shows the photographs whose XMP is not up to date in the grid, as a view
  * like Missing Photographs (listed again when the library refreshes). */
@@ -173,6 +176,30 @@ export default function SessionXmpStatus({
     };
   }, [open]);
 
+  // Not up to date is also under the activity centre's Needs attention
+  // (this chip stays its own view), until written or resolved.
+  useEffect(() => {
+    if (count <= 0) return;
+    useActivityStore.getState().report("warning", {
+      id: XMP_ACTIVITY,
+      source: "xmp",
+      title: t("session.xmp.count", { count }),
+      detail: t("session.xmp.explain"),
+      actions: [
+        { label: t("session.xmp.show"), run: () => window.dispatchEvent(new Event(SHOW_PENDING_XMP_EVENT)) },
+        {
+          label: t("activity.xmp.review"),
+          run: () => {
+            useActivityStore.getState().setOpen(false);
+            setOpen(true);
+            button.current?.focus({ preventScroll: true });
+          },
+        },
+      ],
+    });
+    return () => useActivityStore.getState().resolve(XMP_ACTIVITY);
+  }, [count, t]);
+
   const current = useCallback(() => useLibraryStore.getState().sessionDirectory === directory, [directory]);
   const load = useCallback(async () => {
     const listed = await invoke<XmpReviewEntry[]>(Invokes.SessionXmpReview, { directory });
@@ -182,7 +209,7 @@ export default function SessionXmpStatus({
   // (a write elsewhere, a resolution).
   useEffect(() => {
     if (!open) return;
-    load().catch((e) => current() && toast.error(t("session.xmp.retryFailed", { error: String(e) })));
+    load().catch((e) => current() && notify.error(t("session.xmp.retryFailed", { error: String(e) })));
   }, [open, count, load, current, t]);
 
   if (count <= 0 && !open) return null;
@@ -202,10 +229,10 @@ export default function SessionXmpStatus({
       await load();
       if (useLibraryStore.getState().activeAlbumId === PENDING_XMP_VIEW_ID)
         window.dispatchEvent(new CustomEvent(SHOW_PENDING_XMP_EVENT, { detail: { refresh: true } }));
-      if (report.done.length) toast.success(t("session.xmp.resolved", { count: report.done.length }));
+      if (report.done.length) notify.success(t("session.xmp.resolved", { count: report.done.length }));
       setResolved(report.failed.length || report.conflicts.length || report.offline.length ? report : null);
     } catch (e) {
-      if (current()) toast.error(t("session.xmp.retryFailed", { error: String(e) }));
+      if (current()) notify.error(t("session.xmp.retryFailed", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -226,12 +253,12 @@ export default function SessionXmpStatus({
       if (done.unsaved.length === 0) {
         setOpen(false);
         setResult(null);
-        toast.success(t("session.xmp.written", { count: done.written }));
+        notify.success(t("session.xmp.written", { count: done.written }));
       } else {
         setResult(done);
       }
     } catch (e) {
-      if (current()) toast.error(t("session.xmp.retryFailed", { error: String(e) }));
+      if (current()) notify.error(t("session.xmp.retryFailed", { error: String(e) }));
     } finally {
       setBusy(false);
     }

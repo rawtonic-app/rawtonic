@@ -1,5 +1,5 @@
 import "../../i18n";
-import { toast } from "react-toastify";
+import { notify as toast } from "../../activity/notify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,7 +13,7 @@ import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
 import { CATALOG_CHANGED, catalogChanged } from "../../utils/catalogWrites";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn() } }));
 const mockInvoke = vi.mocked(invoke);
 let albums: SessionAlbum[] = [{ id: "p", name: "Picks", parent: null, count: 2 }];
 
@@ -571,11 +571,8 @@ describe("Built-in album query errors", () => {
     fail = true;
     vi.mocked(toast.error).mockClear();
     await act(async () => { fireEvent.click(screen.getByText(label as string)); });
-    const content = vi.mocked(toast.error).mock.calls[0][0];
-    expect(typeof content).toBe("object");
-    render(<>{content as import("react").ReactNode}</>);
-    expect(screen.getByText("The operation could not be completed.")).toBeTruthy();
-    expect(screen.getByText("Error: EIO: catalog").tagName).toBe("SMALL");
+    // The translated message, with the backend's words as its detail.
+    expect(toast.error).toHaveBeenCalledWith("The operation could not be completed.", { detail: "Error: EIO: catalog" });
   });
 });
 

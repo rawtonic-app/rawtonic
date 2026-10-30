@@ -9,7 +9,7 @@ let items: ExportItem[] = [];
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((command: string) => Promise.resolve(command === "export_queue_items" ? items : undefined)),
 }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn() } }));
 
 const job = (part: Partial<ExportJob>): ExportJob => ({
   id: "j1",

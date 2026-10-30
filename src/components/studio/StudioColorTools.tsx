@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { useEditorStore } from "../../store/useEditorStore";
 import { Invokes } from "../ui/AppProperties";
 import {
@@ -451,7 +451,7 @@ export function StudioBlackAndWhite({
         ) as unknown as GrayMixer,
       });
     } catch (error) {
-      toast.error(t("studio.color.bw.autoFailed", { error: String(error) }));
+      notify.error(t("studio.color.bw.autoFailed", { error: String(error) }));
     } finally {
       setBusy(false);
     }

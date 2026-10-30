@@ -2,7 +2,7 @@ import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "react-toastify";
+import { notify as toast } from "../../activity/notify";
 import StudioPresets, { groupPresets } from "./StudioPresets";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";

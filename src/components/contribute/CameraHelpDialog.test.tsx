@@ -1,7 +1,7 @@
 import '../../i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { toast } from 'react-toastify';
+import { notify as toast, type NotifyOptions } from '../../activity/notify';
 import CameraHelpDialog, {
   RAW_PIXLS_LIST_URL,
   RAW_PIXLS_URL,
@@ -11,7 +11,7 @@ import CameraHelpDialog, {
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.reject(new Error('no IPC in tests'))) }));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock('../../activity/notify', () => ({ notify: { warn: vi.fn(), error: vi.fn() } }));
 
 afterEach(cleanup);
 
@@ -90,10 +90,9 @@ describe('camera help', () => {
     );
     vi.mocked(toast.warn).mockClear();
     warnPreviewFallback('/x/DSC01234.ARW', true);
-    const [content] = vi.mocked(toast.warn).mock.calls[0];
-    expect(typeof content).not.toBe('string');
-    render(<>{content as React.ReactNode}</>);
-    expect(screen.getByRole('button', { name: 'Help support this camera…' })).toBeTruthy();
-    expect(screen.getByText(/“DSC01234.ARW”/)).toBeTruthy();
+    // Plain words, with camera help as the entry's action.
+    const [content, options] = vi.mocked(toast.warn).mock.calls[0] as [string, NotifyOptions];
+    expect(content).toContain('“DSC01234.ARW”');
+    expect(options.actions?.map((action) => action.label)).toEqual(['Help support this camera…']);
   });
 });

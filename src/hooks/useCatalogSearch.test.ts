@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { useCatalogSearch, SEARCH_DELAY_MS } from './useCatalogSearch';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged } from '../utils/catalogWrites';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
@@ -11,7 +11,7 @@ import { OFFLINE_CHANGED } from '../utils/offline';
 import { RawStatus } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 const listeners = new Map<string, () => void>();
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async (name: string, handler: () => void) => {

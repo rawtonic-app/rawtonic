@@ -23,7 +23,7 @@ import {
   StarOff,
   Trash2,
 } from "lucide-react";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import {
   OFFLINE_CHANGED,
   OFFLINE_COUNTED,
@@ -308,7 +308,7 @@ function FolderRow({
         icon: FolderSearch,
         onClick: () =>
           void invoke(Invokes.ShowInFinder, { path }).catch((err) =>
-            toast.error(t("studio.library.folders.toasts.showFailed", { error: String(err) })),
+            notify.error(t("studio.library.folders.toasts.showFailed", { error: String(err) })),
           ),
       },
       {
@@ -465,7 +465,7 @@ export function StudioFolders({
           if (live) setLibrary({ catalogFolders: view ?? null });
         })
         .catch((error) => {
-          if (live) toast.error(t("studio.library.folders.toasts.loadFailed", { error: String(error) }));
+          if (live) notify.error(t("studio.library.folders.toasts.loadFailed", { error: String(error) }));
         });
     // The folders after the check: it updates which photographs are missing.
     const load = () =>

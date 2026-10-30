@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { ArrowDownAZ, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles } from "lucide-react";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -298,9 +298,9 @@ export default function StudioPresets() {
     if (typeof path !== "string") return;
     try {
       await exportPresetsToFile([{ preset }], path);
-      toast.success(t("studio.presets.toasts.exported", { name: preset.name }));
+      notify.success(t("studio.presets.toasts.exported", { name: preset.name }));
     } catch (error) {
-      toast.error(t("studio.presets.toasts.exportFailed", { error: String(error) }));
+      notify.error(t("studio.presets.toasts.exportFailed", { error: String(error) }));
     }
   };
   const menu = (e: MouseEvent, preset: Preset) => {
@@ -352,9 +352,9 @@ export default function StudioPresets() {
           if (typeof path !== "string" || !item) return;
           try {
             await exportPresetsToFile([item], path);
-            toast.success(t("studio.presets.toasts.exported", { name: folder.name }));
+            notify.success(t("studio.presets.toasts.exported", { name: folder.name }));
           } catch (error) {
-            toast.error(t("studio.presets.toasts.exportFailed", { error: String(error) }));
+            notify.error(t("studio.presets.toasts.exportFailed", { error: String(error) }));
           }
         },
       },
@@ -380,18 +380,18 @@ export default function StudioPresets() {
       const { failures, untranslated = [] } = await importPresetsFromFiles(paths);
       const imported = paths.length - failures.length;
       if (failures.length)
-        toast.warn(
+        notify.warn(
           t("studio.presets.toasts.importedWithFailures", {
             imported,
             failed: failures.length,
             files: failures.map((f) => f.fileName).join(", "),
           }),
         );
-      else toast.success(t("studio.presets.toasts.imported", { count: imported }));
+      else notify.success(t("studio.presets.toasts.imported", { count: imported }));
       // What the translation left out, per file, so a look that comes over
       // only partly is not mistaken for a faithful one.
       if (untranslated.length)
-        toast.info(
+        notify.info(
           t("studio.presets.toasts.untranslated", {
             files: untranslated
               .map(
@@ -409,7 +409,7 @@ export default function StudioPresets() {
           { autoClose: 12000 },
         );
     } catch (error) {
-      toast.error(t("studio.presets.toasts.importFailed", { error: String(error) }));
+      notify.error(t("studio.presets.toasts.importFailed", { error: String(error) }));
     }
   };
   const renameKeys = (e: KeyboardEvent<HTMLInputElement>, preset: Preset) => {

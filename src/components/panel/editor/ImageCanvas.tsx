@@ -38,7 +38,7 @@ import FaceRetouchOverlay from './FaceRetouchOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
 import { clearDraftPatch, registerDraftPatchHost } from '../../../utils/browserDraftPatch';
 import { useDecodedPreview } from '../../../hooks/useDecodedPreview';
-import { toast } from 'react-toastify';
+import { notify } from '../../../activity/notify';
 import {
   notePointerSessionStroke,
   reportImagePlaceholderLoad,
@@ -2050,7 +2050,7 @@ const ImageCanvas = memo(
             .then((picked) => {
               if (picked && requestId === whiteBalanceRequestRef.current) onWbPicked();
             })
-            .catch((error) => toast.error(`Could not sample the colour: ${error}`));
+            .catch((error) => notify.error(`Could not sample the colour: ${error}`));
           return;
         }
         void whiteBalanceForCurrentPreview({
@@ -2066,7 +2066,7 @@ const ImageCanvas = memo(
           onWbPicked();
         }).catch((error) => {
           if (useEditorStore.getState().selectedImage === selectedImage && requestId === whiteBalanceRequestRef.current) {
-            toast.error(`Could not sample white balance: ${error}`);
+            notify.error(`Could not sample white balance: ${error}`);
           }
         });
       },
@@ -2609,7 +2609,7 @@ const ImageCanvas = memo(
               ? { x: Math.min(x0, x1), y: Math.min(y0, y1), width: Math.abs(x1 - x0), height: Math.abs(y1 - y0) }
               : { x: x0, y: y0 },
             add,
-          ).catch((error) => toast.error(`Could not sample the tones: ${error}`));
+          ).catch((error) => notify.error(`Could not sample the tones: ${error}`));
         }
         return;
       }
@@ -2665,8 +2665,8 @@ const ImageCanvas = memo(
 
         const orientation = guideOrientation(dx, dy);
         const rejection = guideRejection(adjustments.guidedPerspective?.lines || [], orientation, Math.hypot(dx, dy));
-        if (rejection === 'angle') toast.error(t('editor.guided.toast.angleRejected'));
-        else if (rejection === 'full') toast.error(t('editor.guided.toast.maxLines'));
+        if (rejection === 'angle') notify.error(t('editor.guided.toast.angleRejected'));
+        else if (rejection === 'full') notify.error(t('editor.guided.toast.maxLines'));
         if (!rejection && orientation) {
           const type: GuideOrientation = orientation;
 
@@ -2749,7 +2749,7 @@ const ImageCanvas = memo(
         // Adding to or taking out of a selection made in another frame would
         // drop it silently: say so, and leave it as it is.
         if (objectGestureRef.current !== 'replace' && promptsFrameChanged(activeSubMask.parameters, shown)) {
-          toast.info(t('studio.masks.objectFrameChanged'));
+          notify.info(t('studio.masks.objectFrameChanged'));
           return;
         }
         const base = storedPrompts(activeSubMask.parameters, shown);

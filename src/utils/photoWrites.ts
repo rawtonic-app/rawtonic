@@ -85,6 +85,27 @@ const BATCHES_KEPT = 64;
  * count does not name it. */
 const NOT_WRITTEN = 'not written';
 
+/** Told when a batch starts, when one of its photographs settles and when
+ * it finished (`finished`): the activity centre's progress. */
+type BatchListener = (batch: PhotoBatch, finished: boolean) => void;
+const batchListeners = new Set<BatchListener>();
+
+/** Calls `listener` as batches start, progress and finish; returns the unsubscribe. */
+export function onPhotoBatchChanged(listener: BatchListener): () => void {
+  batchListeners.add(listener);
+  return () => batchListeners.delete(listener);
+}
+
+function batchChanged(batch: PhotoBatch, finished = false) {
+  for (const listener of batchListeners) {
+    try {
+      listener(batch, finished);
+    } catch (error) {
+      console.error('A batch listener failed:', error);
+    }
+  }
+}
+
 /** The write queue entries a batch command runs in, and their batches. */
 export function photoBatches(): Map<number, PhotoBatch> {
   return batches;
@@ -130,6 +151,7 @@ export function batchPhotoSettled(entry: number, path: string, failure?: string)
   const left = unsettled.get(batch);
   if (!left?.delete(path)) return;
   if (failure !== undefined) (batch.photoFailures ??= new Map()).set(path, failure);
+  if (running.has(entry)) batchChanged(batch);
 }
 
 /** Reports the unreported photographs of the batch of `entry` (`failure`:
@@ -193,6 +215,7 @@ export function submitPhotoWrite<T>(paths: string[], run: (id: number) => Promis
       batches.delete(kept);
     }
   }
+  if (batch) batchChanged(batch);
   const keys = [...new Set(paths.map(photoWriteKey))];
   const before = keys.map((key) => tails.get(key)).filter((tail): tail is Promise<void> => !!tail);
   if (write.after) before.push(write.after.then(() => undefined, () => undefined));
@@ -211,6 +234,7 @@ export function submitPhotoWrite<T>(paths: string[], run: (id: number) => Promis
     if (batch) {
       batchPhotosReported(id, NOT_WRITTEN);
       running.delete(id);
+      batchChanged(batch, true);
     }
     const detail: PhotoWritesSettled = { id, kind: write.kind, paths, failed, ...(write.step !== undefined ? { step: write.step } : {}) };
     // (A listener that throws is reported by the browser; it stops nothing here.)

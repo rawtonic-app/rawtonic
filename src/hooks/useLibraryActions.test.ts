@@ -1,14 +1,14 @@
 import { renderHook, waitFor } from '@testing-library/react';
+import { useActivityStore } from '../store/useActivityStore';
 import { expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 
 it('reads which photos a batch save missed', () => {
   expect(saveFailure({ message: 'Could not save 1 of 2 photos', failed: ['/a.jpg'] }, ['/a.jpg', '/b.jpg'])).toEqual({
@@ -36,9 +36,12 @@ it('a rating that was not saved shows the previous one again', async () => {
   result.current.handleRate(3);
   // Shown at once, before the save returns.
   expect(useLibraryStore.getState().imageRatings).toEqual({ '/a.jpg': 3, '/b.jpg': 3 });
-  await waitFor(() => expect(toast.error).toHaveBeenCalled());
+  // Said under the activity centre's Needs attention, with the photograph.
+  const failure = () => useActivityStore.getState().entries.find((entry) => entry.status === 'failure');
+  await waitFor(() => expect(failure()).toBeTruthy());
   expect(useLibraryStore.getState().imageRatings).toEqual({ '/a.jpg': 3, '/b.jpg': 4 });
-  expect(vi.mocked(toast.error).mock.calls[0][0]).toContain('/b.jpg: database is locked');
+  expect(`${failure()!.title}\n${failure()!.detail ?? ''}`).toContain('/b.jpg: database is locked');
+  expect(failure()!.paths).toEqual(['/b.jpg']);
 });
 
 it('rates nothing in the Library once the selection was emptied, the open photograph in Develop', () => {

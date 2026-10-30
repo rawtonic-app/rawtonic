@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
@@ -29,9 +29,9 @@ import { pointerHeld } from '../utils/heldPointer';
 import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
 
 function showMaskDisplayNotice(mode: ReturnType<typeof maskDisplayOf>): void {
-  toast.info(i18n.t('studio.develop.maskOverlay.currentMode', {
+  notify.info(i18n.t('studio.develop.maskOverlay.currentMode', {
     mode: i18n.t(`studio.develop.maskOverlay.modes.${mode}`),
-  }), { autoClose: 1800, hideProgressBar: true });
+  }), { autoClose: 1800 });
 }
 
 /** The photograph an arrow key moves to in the Library, from `index` of
@@ -278,7 +278,7 @@ export const useKeyboardShortcuts = ({
       await navigator.clipboard.writeText(physicalPaths.join('\n'));
     } catch (err) {
       console.error('Failed to copy image path to clipboard', err);
-      toast.error(`Failed to copy path: ${err}`);
+      notify.error(`Failed to copy path: ${err}`);
     }
   }, []);
 

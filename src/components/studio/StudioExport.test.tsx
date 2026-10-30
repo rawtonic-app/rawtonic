@@ -28,8 +28,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(() => Promise.resolve("/out")),
   save: vi.fn(() => Promise.resolve("/out/a.jpg")),
 }));
-vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+vi.mock("../../activity/notify", () => ({
+  notify: { error: vi.fn(), success: vi.fn() },
 }));
 
 /** The exports the form queued: one request per recipe, queued together. */

@@ -1,12 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import type { TFunction } from 'i18next';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
 import { formatBytes, previewTargetResolution, previewsMenu, viewerDimHint } from './previews';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), info: vi.fn() } }));
 
 /** Returns the key and its options, so the test sees what was asked for. */
 const t = ((key: string, options?: Record<string, unknown>) =>

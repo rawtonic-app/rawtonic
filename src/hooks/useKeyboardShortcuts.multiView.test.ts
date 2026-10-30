@@ -10,7 +10,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { Invokes, type AppSettings, type ImageFile } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 
 const list = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3', '/s/d.CR3', '/s/e.CR3'].map(
   (path) => ({ path }) as ImageFile,

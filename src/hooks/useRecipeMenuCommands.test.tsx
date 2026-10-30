@@ -15,7 +15,7 @@ import { appCommand, appCommandEnabled, runAppCommand } from '../utils/appComman
 import { DEFAULT_RECIPE_DRAFT, presetFromDraft } from '../utils/exportRecipes';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => {}) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(async () => '/output'), save: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { success: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { success: vi.fn() } }));
 beforeEach(() => {
   vi.clearAllMocks();
   useSettingsStore.setState({ appSettings: { exportPresets: [presetFromDraft(DEFAULT_RECIPE_DRAFT, 'jpg', 'Web')] } as AppSettings });

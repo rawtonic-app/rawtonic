@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { ParseKeys, TFunction } from "i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { Plus, X } from "lucide-react";
 import { create } from "zustand";
 import { useModalFocus } from "../../hooks/useModalFocus";
@@ -522,6 +522,8 @@ function SmartAlbumEditor({ draft, albums: given }: { draft: SmartAlbumDraft; al
   const [albums, setAlbums] = useState<SessionAlbum[]>(given ?? []);
   const [matches, setMatches] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed Save is said here: the activity centre is behind this modal.
+  const [saveFailure, setSaveFailure] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useModalFocus(ref, true);
 
@@ -557,6 +559,7 @@ function SmartAlbumEditor({ draft, albums: given }: { draft: SmartAlbumDraft; al
 
   const save = async () => {
     if (!directory || !name.trim()) return;
+    setSaveFailure(null);
     try {
       if (draft.id) {
         await invoke(Invokes.SessionSetSmartAlbumRules, { directory, id: draft.id, rules });
@@ -568,7 +571,9 @@ function SmartAlbumEditor({ draft, albums: given }: { draft: SmartAlbumDraft; al
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
       close();
     } catch (e) {
-      toast.error(t("studio.library.smartAlbums.saveFailed", { error: String(e) }));
+      const failure = t("studio.library.smartAlbums.saveFailed", { error: String(e) });
+      setSaveFailure(failure);
+      notify.error(failure);
     }
   };
   const keys = (e: KeyboardEvent) => {
@@ -587,6 +592,11 @@ function SmartAlbumEditor({ draft, albums: given }: { draft: SmartAlbumDraft; al
         <div className="studio-smart-album-rules">
           <GroupEditor rule={rules} albums={albums} folder={folder} depth={0} onChange={(next) => setRules(asGroup(next))} />
         </div>
+        {saveFailure && (
+          <p className="studio-dialog-failure" role="alert">
+            {saveFailure}
+          </p>
+        )}
         <footer>
           <span className="studio-smart-album-count" role="status">
             {error

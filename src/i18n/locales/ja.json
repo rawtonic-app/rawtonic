@@ -1,4 +1,72 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "AI ノイズ除去",
+      "depth": "AI マスク: 深度",
+      "foreground": "AI マスク: 前景",
+      "inpaint": "生成塗りつぶし",
+      "object": "AI マスク: オブジェクト",
+      "other": "AI タスク",
+      "people": "AI マスク: 人物",
+      "sky": "AI マスク: 空",
+      "subject": "AI マスク: 被写体"
+    },
+    "batch": {
+      "auto_other": "自動補正: {{count}} 枚",
+      "faceRetouch_other": "顔のレタッチ: {{count}} 枚",
+      "other_other": "{{count}} 枚に適用中"
+    },
+    "cancel": "キャンセル",
+    "clearDone": "消去",
+    "close": "アクティビティを閉じる",
+    "copied": "コピーしました",
+    "copyDetails": "詳細をコピー",
+    "dismiss": "閉じる: {{title}}",
+    "dismissShort": "閉じる",
+    "download": {
+      "model": "ダウンロード中: {{name}}"
+    },
+    "empty": {
+      "attention": "対応が必要な項目はありません。",
+      "done": "最近の結果はありません。",
+      "running": "実行中の処理はありません。"
+    },
+    "export": {
+      "failed_other": "{{count}} 枚の写真を書き出せませんでした: {{label}}",
+      "interrupted": "書き出しが中断されました: {{label}}",
+      "running": "書き出し中: {{label}}",
+      "waiting": "書き出し待ち: {{label}}"
+    },
+    "import": {
+      "starting": "読み込みを開始しています…"
+    },
+    "indexing": "ライブラリをインデックス中",
+    "notice": "対応が必要な項目があります",
+    "progress": "{{percent}} % 完了",
+    "resume": "再開",
+    "sections": {
+      "attention": "要対応",
+      "done": "完了",
+      "running": "実行中"
+    },
+    "showPhotos": "写真を表示",
+    "slot": {
+      "attention_other": "要対応 {{count}} 件",
+      "running_other": "実行中のタスク {{count}} 件"
+    },
+    "status": {
+      "failure": "失敗",
+      "warning": "警告"
+    },
+    "title": "アクティビティ",
+    "tryAgain": "再試行",
+    "writes": {
+      "failed_other": "{{count}} 枚の写真の変更を保存できませんでした"
+    },
+    "xmp": {
+      "review": "確認"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "{{name}}色を選択",
@@ -159,6 +227,7 @@
       "select_all": "すべてを選択",
       "select_none": "選択を解除",
       "shift_capture_time": "撮影日時をずらす…",
+      "show_activity": "アクティビティ…",
       "show_in_finder": "Finderに表示",
       "sync_settings": "設定を同期",
       "tether_capture": "撮影（テザーカメラ）",

@@ -44,7 +44,7 @@ import {
   SunMedium,
   Clock,
 } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
@@ -267,7 +267,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                     useLibraryStore.getState().setLibrary({ albumTree: res }),
                   );
                 })
-                .catch((err) => toast.error(t('contextMenus.toasts.failedAddToAlbum', { err })));
+                .catch((err) => notify.error(t('contextMenus.toasts.failedAddToAlbum', { err })));
             },
           };
         }
@@ -574,7 +574,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           }
           await props.refreshImageList();
         } catch (err) {
-          toast.error(t('contextMenus.toasts.failedCreateVirtualCopy', { err }));
+          notify.error(t('contextMenus.toasts.failedCreateVirtualCopy', { err }));
         }
       };
 
@@ -594,7 +594,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 // The photos that were saved still update below.
                 console.error('Failed to apply auto adjustments to paths:', err);
                 const { message, failed } = saveFailure(err, finalSelection);
-                toast.error(t('contextMenus.toasts.failedApplyAuto', { err: message }));
+                notify.error(t('contextMenus.toasts.failedApplyAuto', { err: message }));
                 return failed;
               },
             ),
@@ -624,7 +624,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           })
           .catch((err) => {
             console.error('Failed to apply auto adjustments to paths:', err);
-            toast.error(t('contextMenus.toasts.failedApplyAuto', { err }));
+            notify.error(t('contextMenus.toasts.failedApplyAuto', { err }));
           });
       };
 
@@ -647,7 +647,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             });
             window.dispatchEvent(new CustomEvent(SESSION_ALBUMS_CHANGED));
           } catch (err) {
-            toast.error(t('contextMenus.toasts.failedAddToAlbum', { err }));
+            notify.error(t('contextMenus.toasts.failedAddToAlbum', { err }));
           }
           return;
         }
@@ -685,7 +685,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               setLibrary({ imageList: imageList.filter((i) => albumObj.images.includes(i.path)) });
             }
           } catch (e) {
-            toast.error(t('contextMenus.toasts.failedRemoveImages', { err: e }));
+            notify.error(t('contextMenus.toasts.failedRemoveImages', { err: e }));
           }
         }
       };
@@ -857,7 +857,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                   await props.refreshImageList();
                 } catch (err) {
                   console.error('Failed to duplicate file:', err);
-                  toast.error(t('contextMenus.toasts.failedDuplicate', { err }));
+                  notify.error(t('contextMenus.toasts.failedDuplicate', { err }));
                 }
               },
             },
@@ -952,7 +952,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           label: useSettingsStore.getState().osPlatform === 'macos' ? t('contextMenus.thumbnail.showFinder') : t('contextMenus.thumbnail.showExplorer'),
           onClick: () => {
             invoke(Invokes.ShowInFinder, { path: finalSelection[0] }).catch((err) =>
-              toast.error(t('contextMenus.toasts.couldNotShowExplorer', { err })),
+              notify.error(t('contextMenus.toasts.couldNotShowExplorer', { err })),
             );
           },
         },

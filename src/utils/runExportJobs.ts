@@ -1,7 +1,7 @@
 import i18n from 'i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
 import { Status, type ExportPreset } from '../components/ui/ExportImportProperties';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -152,7 +152,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
     }
 
     if (started && (queued || started > 1))
-      toast.success(
+      notify.success(
         started > 1
           ? t("studio.export.toasts.queuedMany", { count: started })
           : t("studio.export.toasts.queuedOne"),

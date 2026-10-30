@@ -15,14 +15,14 @@ import {
   formatBytes,
 } from "./StudioMetadata";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import { toast } from "react-toastify";
+import { notify as toast } from "../../activity/notify";
 import { useEditorStore } from "../../store/useEditorStore";
 import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import type { AppSettings, ImageFile } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn() } }));
 vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
 

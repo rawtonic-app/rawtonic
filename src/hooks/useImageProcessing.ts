@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import throttle from 'lodash.throttle';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
@@ -372,7 +372,7 @@ export function useImageProcessing(
         // The native worker could not render at all (e.g. an invalid GPU shader).
         // Say so instead of leaving a stale or black frame; one toast at a time.
         if (typeof err === 'string' && err.startsWith(PREVIEW_RENDER_FAILED)) {
-          toast.error(err, { toastId: PREVIEW_RENDER_FAILED });
+          notify.error(err, { toastId: PREVIEW_RENDER_FAILED });
         }
         if (!dragging) {
           setEditor((state) => {
@@ -924,7 +924,7 @@ export function requestSplitBefore(targetRes: number) {
     })
     .catch((err) => {
       if (typeof err === 'string' && err.startsWith(PREVIEW_RENDER_FAILED)) {
-        toast.error(err, { toastId: PREVIEW_RENDER_FAILED });
+        notify.error(err, { toastId: PREVIEW_RENDER_FAILED });
       } else {
         console.warn('Split view before failed:', err);
       }

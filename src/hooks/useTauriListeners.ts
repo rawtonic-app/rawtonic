@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { UnlistenFn, listen } from '@tauri-apps/api/event';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import i18n from 'i18next';
 import { CullingSuggestions, ImageFile, Invokes, Progress } from '../components/ui/AppProperties';
 import { Status } from '../components/ui/ExportImportProperties';
@@ -273,14 +273,9 @@ export function useTauriListeners({
     invoke<ExportQueueSnapshot>(Invokes.ExportQueueJobs)
       .then((snapshot) => {
         if (!Array.isArray(snapshot?.jobs)) return;
+        // An interrupted one waits under Needs attention with Resume
+        // (activity/bridges.ts).
         useProcessStore.getState().setExportQueue(snapshot);
-        const interrupted = snapshot.jobs.filter((job) => job.state === 'interrupted');
-        if (interrupted.length)
-          toast.info(
-            interrupted.length === 1
-              ? `An export was interrupted (${interrupted[0].done} of ${interrupted[0].total} done). Resume it in the export queue.`
-              : `${interrupted.length} exports were interrupted. Resume them in the export queue.`,
-          );
       })
       .catch(() => {});
   }, []);
@@ -581,25 +576,25 @@ export function useTauriListeners({
           const { error, cameraName } = event.payload;
           // Said here, not in the tether panel: also with no panel shown
           // (fullscreen).
-          if (error) toast.error(i18n.t('session.tether.importFailed', { file: cameraName, error }));
+          if (error) notify.error(i18n.t('session.tether.importFailed', { file: cameraName, error }), { source: 'tether' });
           showCapture(event.payload, true);
         },
       ),
       listen<{ kind?: string; message: string; request?: number | null; exposure?: number | null }>('tether-capture-failed', (event) => {
         if (!isEffectActive) return;
         const { text, sticky } = notDeliveredToast(event.payload);
-        if (sticky) toast.warning(text, { autoClose: false });
-        else toast.error(text);
+        if (sticky) notify.warning(text, { source: 'tether' });
+        else notify.error(text, { source: 'tether' });
       }),
       listen<string>('tether-incomplete', (event) => {
         if (isEffectActive)
-          toast.warning(i18n.t('session.tether.incomplete', { path: event.payload }), { autoClose: false });
+          notify.warning(i18n.t('session.tether.incomplete', { path: event.payload }), { source: 'tether' });
       }),
       // The files moved but the session/catalog database could not follow
       // (e.g. locked); it is retried with the next file operation or start.
       listen<{ label: string; error: string }>('file-operation-sync-failed', (event) => {
         if (isEffectActive)
-          toast.warning(
+          notify.warning(
             `${event.payload.label}: the files were changed, but the catalog could not be updated ` +
               `(${event.payload.error}). Rawtonic will retry with the next file operation or start.`,
             { autoClose: false },
@@ -645,7 +640,7 @@ export function useTauriListeners({
       }),
       listen<{ requestId: number; reason: string }>('app-quit-cancelled', (event) => {
         if (isEffectActive && cancelQuitRequest(event.payload?.requestId)) {
-          toast.error(i18n.t('notifications.quitCancelled'));
+          notify.error(i18n.t('notifications.quitCancelled'));
         }
       }),
       // Merge events of a run the dialog no longer waits for are ignored.

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Aperture, Camera, ClipboardCheck, Focus, LoaderCircle, RefreshCcw, Unplug, Video, X } from "lucide-react";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
 import { Invokes } from "../ui/AppProperties";
@@ -370,7 +370,7 @@ export default function TetherPanel({
       setCapturing((n) => Math.max(0, n - 1));
       setError(String(e));
       // The panel may be closed (it still handles the shortcut).
-      if (hiddenRef.current) toast.error(i18n.t("session.tether.captureFailed", { error: String(e) }));
+      if (hiddenRef.current) notify.error(i18n.t("session.tether.captureFailed", { error: String(e) }), { source: "tether" });
     }
   }, []);
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, renderHook } from '@testing-library/react';
-import type { ReactElement } from 'react';
-import { toast } from 'react-toastify';
+import { createElement } from 'react';
+import { notify as toast, type NotifyOptions } from '../activity/notify';
 import { invoke } from '@tauri-apps/api/core';
 import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, editAllNotSaved, livePatch, useEditAllSelected } from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
@@ -15,7 +15,7 @@ import { switchLibraryAfterSaves, type UnsavedChoice } from '../utils/quit';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() } }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 
 const selection = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3'];
@@ -350,8 +350,17 @@ describe('Edit all selected', () => {
 
     /** The failure notice last shown, rendered (it carries Try again). */
     const failureNotice = () => {
-      const content = vi.mocked(toast.error).mock.calls.at(-1)?.[0] as (props: { closeToast: () => void }) => ReactElement;
-      return render(content({ closeToast: () => {} }));
+      const [text, options] = vi.mocked(toast.error).mock.calls.at(-1)! as [string, NotifyOptions];
+      return render(
+        createElement(
+          'div',
+          null,
+          createElement('p', null, text),
+          ...(options.actions ?? []).map((action) =>
+            createElement('button', { key: action.label, type: 'button', onClick: () => action.run() }, action.label),
+          ),
+        ),
+      );
     };
     async function failedWrite() {
       renderHook(() => useEditAllSelected(true, selection));

@@ -17,7 +17,7 @@ import {
 
 const { invoke, info } = vi.hoisted(() => ({ invoke: vi.fn(), info: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
-vi.mock("react-toastify", () => ({ toast: { info } }));
+vi.mock("../../../activity/notify", () => ({ notify: { info } }));
 
 import RedEyeOverlay from "./RedEyeOverlay";
 import { useEditorStore } from "../../../store/useEditorStore";

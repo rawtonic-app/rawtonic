@@ -1,4 +1,72 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "AI 노이즈 제거",
+      "depth": "AI 마스크: 깊이",
+      "foreground": "AI 마스크: 전경",
+      "inpaint": "생성형 채우기",
+      "object": "AI 마스크: 개체",
+      "other": "AI 작업",
+      "people": "AI 마스크: 인물",
+      "sky": "AI 마스크: 하늘",
+      "subject": "AI 마스크: 피사체"
+    },
+    "batch": {
+      "auto_other": "자동 보정: 사진 {{count}}장",
+      "faceRetouch_other": "얼굴 보정: 사진 {{count}}장",
+      "other_other": "사진 {{count}}장에 적용 중"
+    },
+    "cancel": "취소",
+    "clearDone": "지우기",
+    "close": "활동 닫기",
+    "copied": "복사됨",
+    "copyDetails": "세부 정보 복사",
+    "dismiss": "닫기: {{title}}",
+    "dismissShort": "닫기",
+    "download": {
+      "model": "다운로드 중: {{name}}"
+    },
+    "empty": {
+      "attention": "확인이 필요한 항목이 없습니다.",
+      "done": "최근 결과가 없습니다.",
+      "running": "실행 중인 작업이 없습니다."
+    },
+    "export": {
+      "failed_other": "사진 {{count}}장을 내보내지 못했습니다: {{label}}",
+      "interrupted": "내보내기 중단됨: {{label}}",
+      "running": "내보내는 중: {{label}}",
+      "waiting": "내보내기 대기 중: {{label}}"
+    },
+    "import": {
+      "starting": "가져오기 시작 중…"
+    },
+    "indexing": "라이브러리 색인 중",
+    "notice": "확인이 필요한 항목이 있습니다",
+    "progress": "{{percent}} % 완료",
+    "resume": "재개",
+    "sections": {
+      "attention": "확인 필요",
+      "done": "완료",
+      "running": "실행 중"
+    },
+    "showPhotos": "사진 보기",
+    "slot": {
+      "attention_other": "확인 필요 {{count}}개",
+      "running_other": "실행 중인 작업 {{count}}개"
+    },
+    "status": {
+      "failure": "실패",
+      "warning": "경고"
+    },
+    "title": "활동",
+    "tryAgain": "다시 시도",
+    "writes": {
+      "failed_other": "사진 {{count}}장의 변경 사항을 저장하지 못했습니다"
+    },
+    "xmp": {
+      "review": "검토"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "{{name}} 색상 선택",
@@ -159,6 +227,7 @@
       "select_all": "전체 선택",
       "select_none": "선택 해제",
       "shift_capture_time": "촬영 시간 이동…",
+      "show_activity": "활동…",
       "show_in_finder": "Finder에서 보기",
       "sync_settings": "설정 동기화",
       "tether_capture": "촬영(테더링 카메라)",

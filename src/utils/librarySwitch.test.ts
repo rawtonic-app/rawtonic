@@ -8,7 +8,7 @@ import { useUIStore } from '../store/useUIStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 
 // The backend as the save command sees it: recipes per library, written
 // into the library open now.

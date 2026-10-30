@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { TFunction } from 'i18next';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 import { Invokes, type ImageFile, type RelinkReport } from '../components/ui/AppProperties';
 import {
   folderOf,
@@ -28,7 +28,7 @@ import {
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 
 /** Returns the key and its options, so the test sees what was asked for. */
 const t = ((key: string, options?: Record<string, unknown>) =>

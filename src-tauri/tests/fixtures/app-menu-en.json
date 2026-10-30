@@ -439,6 +439,13 @@
           "accelerator": "CmdOrCtrl+Shift+KeyP"
         },
         {
+          "kind": "item",
+          "id": "cmd:show_activity",
+          "label": "Activity…",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Alt+KeyA"
+        },
+        {
           "kind": "separator"
         },
         {

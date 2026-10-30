@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import i18n from "i18next";
 import { Invokes } from "../ui/AppProperties";
 
@@ -69,7 +69,7 @@ const install = () => {
   window.addEventListener(TETHER_CAPTURE_EVENT, () => {
     if (panels > 0 || !connected) return;
     invoke(Invokes.TetherCapture).catch((e) =>
-      toast.error(i18n.t("session.tether.captureFailed", { error: String(e) })),
+      notify.error(i18n.t("session.tether.captureFailed", { error: String(e) }), { source: "tether" }),
     );
   });
 };

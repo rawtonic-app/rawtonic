@@ -5,6 +5,8 @@ import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
 import SessionXmpStatus from "./SessionXmpStatus";
+import ActivityCentre from "../activity/ActivityCentre";
+import { useActivityStore } from "../../store/useActivityStore";
 import {
   useCallback,
   useEffect,
@@ -35,7 +37,7 @@ import {
   LoaderCircle,
   X,
 } from "lucide-react";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorStore } from "../../store/useEditorStore";
@@ -145,7 +147,7 @@ function reportIngest(
   const sidecars = results.filter((r) => r.sidecar && !r.error).length;
   const warnings = results.filter((r) => r.warning);
   if (failures.length)
-    toast.error(
+    notify.error(
       i18n.t("session.toasts.ingestFailed", {
         copied,
         count: failures.length,
@@ -154,7 +156,7 @@ function reportIngest(
       { autoClose: false },
     );
   else if (results.length || !resumed)
-    toast.success(
+    notify.success(
       [
         resumed
           ? i18n.t("session.toasts.ingestResumed", { n: copied })
@@ -171,12 +173,12 @@ function reportIngest(
         .join(" · "),
     );
   if (warnings.length)
-    toast.warning(
+    notify.warning(
       i18n.t("session.toasts.sidecarWarnings", { count: warnings.length, error: warnings[0].warning }),
       { autoClose: false },
     );
   if (albumError)
-    toast.error(i18n.t("session.toasts.albumAddFailed", { name: album, error: albumError }), {
+    notify.error(i18n.t("session.toasts.albumAddFailed", { name: album, error: albumError }), {
       autoClose: false,
     });
 }
@@ -276,6 +278,9 @@ interface Props {
 /** How long a session may take to open before the app says what it waits for. */
 export const SLOW_RESTORE_MS = 3000;
 
+/** The activity centre's entry of a running import. */
+const INGEST_ACTIVITY = "import:ingest";
+
 /** Reopens the last session. Opening a session on another volume can wait on
  * macOS's permission dialog for that volume; after a few seconds the app says
  * which session it is opening instead of showing nothing. */
@@ -288,16 +293,17 @@ export function restoreLastSession(
     void invoke<string | null>(Invokes.SessionLastDirectory)
       .then((directory) => {
         if (!directory) return;
-        toast.info(
-          i18n.t("session.restore.opening", { name: directory.split(/[\\/]/).pop(), directory }),
-          { toastId: notice, autoClose: false },
-        );
+        useActivityStore.getState().start({
+          id: notice,
+          source: "app",
+          title: i18n.t("session.restore.opening", { name: directory.split(/[\\/]/).pop(), directory }),
+        });
       })
       .catch(() => {});
   }, SLOW_RESTORE_MS);
   const done = () => {
     window.clearTimeout(slow);
-    toast.dismiss(notice);
+    useActivityStore.getState().finish(notice);
   };
   // Edits made in a folder while the library is still restoring are
   // saved there first, as before any library switch.
@@ -312,7 +318,7 @@ export function restoreLastSession(
     })
     .catch((e) => {
       done();
-      toast.error(i18n.t("session.restore.failed", { error: String(e) }), { autoClose: false });
+      notify.error(i18n.t("session.restore.failed", { error: String(e) }), { autoClose: false });
     });
 }
 
@@ -547,7 +553,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         const { error, skipped, source } = event.payload;
         setHotFolder((current) => countHotFolderCapture(current, event.payload));
         if (error)
-          toast.error(i18n.t("session.toasts.hotFolderFailed", { file: source.split(/[\\/]/).pop(), error }));
+          notify.error(i18n.t("session.toasts.hotFolderFailed", { file: source.split(/[\\/]/).pop(), error }));
         else if (!skipped) void refreshRef.current();
       },
     ).then((fn) => {
@@ -643,11 +649,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         }
         setHotFolder(status);
         const folder = status.folder.split(/[\\/]/).pop();
-        if (status.missing) toast.info(i18n.t("session.toasts.watchingMissing", { folder }));
-        else toast.info(i18n.t("session.toasts.watchingResumed", { folder }));
+        if (status.missing) notify.info(i18n.t("session.toasts.watchingMissing", { folder }));
+        else notify.info(i18n.t("session.toasts.watchingResumed", { folder }));
       })
       .catch((e) => {
-        if (current()) toast.error(i18n.t("session.toasts.hotFolderResumeFailed", { error: String(e) }));
+        if (current()) notify.error(i18n.t("session.toasts.hotFolderResumeFailed", { error: String(e) }));
       });
   }, [sessionDirectory]);
 
@@ -679,31 +685,50 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       );
       for (const job of waiting) {
         const toastId = `ingest-waiting-${job.id}`;
-        const retry = () => {
-          toast.dismiss(toastId);
-          void resumeIngests.current(directory);
-        };
-        const forget = () => {
-          toast.dismiss(toastId);
-          void invoke(Invokes.SessionIngestForget, { directory, id: job.id }).catch((e) => toast.error(String(e)));
-        };
-        toast.info(
-          <span>
-            {i18n.t("session.toasts.ingestWaiting", { n: job.open })}{" "}
-            <button type="button" className="session-link-button" onClick={retry}>
-              {i18n.t("session.toasts.ingestRetry")}
-            </button>{" "}
-            <button type="button" className="session-link-button" onClick={forget}>
-              {i18n.t("session.toasts.ingestForget")}
-            </button>
-          </span>,
-          { autoClose: false, toastId },
-        );
+        // Waits for its card or drive: under Needs attention until imported
+        // or forgotten.
+        notify.warn(i18n.t("session.toasts.ingestWaiting", { n: job.open }), {
+          toastId,
+          source: "import",
+          actions: [
+            { label: i18n.t("session.toasts.ingestRetry"), settles: true, run: () => resumeIngests.current(directory) },
+            {
+              label: i18n.t("session.toasts.ingestForget"),
+              settles: true,
+              run: () =>
+                invoke(Invokes.SessionIngestForget, { directory, id: job.id }).catch((e) => notify.error(String(e))),
+            },
+          ],
+        });
       }
     } catch (e) {
-      if (current()) toast.error(i18n.t("session.toasts.ingestResumeFailed", { error: String(e) }));
+      if (current()) notify.error(i18n.t("session.toasts.ingestResumeFailed", { error: String(e) }));
     }
   };
+  // A running import is one task of the activity centre, with Cancel.
+  useEffect(() => {
+    const activity = useActivityStore.getState();
+    if (!importing) {
+      activity.finish(INGEST_ACTIVITY);
+      return;
+    }
+    activity.start({
+      id: INGEST_ACTIVITY,
+      source: "import",
+      title: progress
+        ? i18n.t(importMode === "add" ? "session.progress.adding" : "session.progress.verifying", {
+            current: progress.current,
+            count: progress.total,
+          })
+        : i18n.t("activity.import.starting"),
+      detail: progress ? `${progress.mbps.toFixed(1)} MB/s` : undefined,
+      progress: progress ? { done: progress.current, total: progress.total } : undefined,
+      cancel: () => {
+        cancelRequested.current = true;
+        void invoke(Invokes.SessionCancelIngest);
+      },
+    });
+  }, [importing, progress, importMode]);
   const ingestResumedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!sessionDirectory || !isTauri() || ingestResumedFor.current === sessionDirectory) return;
@@ -726,7 +751,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       });
       setHotFolder(status);
       setForm(null);
-      toast.success(t("session.toasts.watching", { folder: hotPath.split(/[\\/]/).pop() }));
+      notify.success(t("session.toasts.watching", { folder: hotPath.split(/[\\/]/).pop() }));
     } catch (e) {
       setError(String(e));
     }
@@ -786,7 +811,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         directory: session.directory,
         relinks: relinkList(),
       });
-      toast.success(
+      notify.success(
         [
           t("session.toasts.imported", {
             count: report.imported,
@@ -805,7 +830,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           .join(" · "),
         { autoClose: 8000 },
       );
-      if (report.errors.length) toast.error(report.errors[0], { autoClose: false });
+      if (report.errors.length) notify.error(report.errors[0], { autoClose: false });
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
       setForm(null);
       await refresh();
@@ -862,7 +887,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       });
       if (typeof picked === "string") setSyncing({ folder: picked });
     } catch (e) {
-      toast.error(String(e));
+      notify.error(String(e));
     }
   };
   // A relink, or a check that found photographs gone or back, changes how
@@ -904,10 +929,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         });
         if (useLibraryStore.getState().sessionDirectory === session.directory) {
           showCullingChanges(changed);
-          void refresh().catch((e) => toast.error(t("session.toasts.flagsSavedRefreshFailed", { error: String(e) })));
+          void refresh().catch((e) => notify.error(t("session.toasts.flagsSavedRefreshFailed", { error: String(e) })));
         }
         return changed;
-      }, paths).catch((e) => { toast.error(t("session.toasts.flagsFailed", { error: String(e) })); });
+      }, paths).catch((e) => { notify.error(t("session.toasts.flagsFailed", { error: String(e) })); });
     },
     [session, refresh, t],
   );
@@ -1068,7 +1093,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       );
     } catch (e) {
       setError(String(e));
-      toast.error(String(e));
+      notify.error(String(e));
     } finally {
       setBusy(false);
     }
@@ -1187,11 +1212,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
    * silent copy), onto an album or folder with that as the target. */
   const onFileDrop = ({ paths, target: onto }: FileDrop) => {
     if (!session) {
-      toast.info(t("session.drop.noLibrary"));
+      notify.info(t("session.drop.noLibrary"));
       return;
     }
     if (importing) {
-      toast.info(t("session.drop.importing"));
+      notify.info(t("session.drop.importing"));
       return;
     }
     // Synchronize Folder and the library copy are dialogs of their own.
@@ -1307,7 +1332,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       });
       await refresh();
     } catch (e) {
-      toast.error(String(e), { autoClose: false });
+      notify.error(String(e), { autoClose: false });
     } finally {
       setImporting(false);
       window.dispatchEvent(new Event(IMPORTS_CHANGED));
@@ -1420,6 +1445,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 onChanged={() => refresh().catch(() => {})} />
             </span>
           )}
+          <ActivityCentre />
         </div>
         <div
           className="session-bar-center"
@@ -1546,27 +1572,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             </button>
           </div>
           <span>{t("session.welcome.tagline")}</span>
-        </div>
-      )}
-      {importing && progress && (
-        <div className="session-progress" role="status">
-          <LoaderCircle size={15} className="animate-spin" />
-          <span>
-            {t(importMode === "add" ? "session.progress.adding" : "session.progress.verifying", {
-              current: progress.current,
-              count: progress.total,
-            })}
-          </span>
-          <progress value={progress.current} max={progress.total} />
-          <span>{progress.mbps.toFixed(1)} MB/s</span>
-          <button
-            onClick={() => {
-              cancelRequested.current = true;
-              void invoke(Invokes.SessionCancelIngest);
-            }}
-          >
-            {t("session.progress.cancel")}
-          </button>
         </div>
       )}
       {fileDrag && session && !importing && !syncing && !transfer && (!form || form === "ingest") && (

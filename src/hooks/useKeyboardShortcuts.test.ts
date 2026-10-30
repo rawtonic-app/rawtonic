@@ -1,5 +1,5 @@
 import "../i18n";
-import { toast } from "react-toastify";
+import { notify as toast } from "../activity/notify";
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
@@ -14,8 +14,8 @@ import { cropGestures } from "../utils/cropGesture";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
 }));
-vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
+vi.mock("../activity/notify", () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 
 const props = {

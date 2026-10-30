@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 
 import TaggingSubMenu from './TaggingSubMenu';
 import { useLibraryActions, withTagDelta } from '../hooks/useLibraryActions';

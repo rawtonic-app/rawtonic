@@ -12,7 +12,7 @@ import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { invokeInOrder } from '../utils/catalogWrites';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 
 const SETTLED = 'rawtonic:photo-writes-settled';
 type Pending = { command: string; args: unknown; resolve(value?: unknown): void; reject(error: unknown): void; settled?: boolean };

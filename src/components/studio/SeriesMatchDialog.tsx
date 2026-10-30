@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { create } from "zustand";
 import { Star } from "lucide-react";
 import { ImageMetadata, Invokes } from "../ui/AppProperties";
@@ -155,6 +155,16 @@ function SeriesMatchDialog({ request }: { request: MatchRequest }) {
   const [result, setResult] = useState<MatchResult | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
+  // Said in the dialog too: the activity centre is behind this modal.
+  const [failure, setFailure] = useState<string | null>(null);
+  const fail = useCallback(
+    (error: unknown) => {
+      const text = t("studio.seriesMatch.failed", { error: String(error) });
+      setFailure(text);
+      notify.error(text);
+    },
+    [t],
+  );
 
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
@@ -206,12 +216,12 @@ function SeriesMatchDialog({ request }: { request: MatchRequest }) {
       .catch((error) => {
         if (!current) return;
         setProgress(null);
-        toast.error(t("studio.seriesMatch.failed", { error: String(error) }));
+        fail(error);
       });
     return () => {
       current = false;
     };
-  }, [request.paths, references, exposure, whiteBalance, faces, download, t]);
+  }, [request.paths, references, exposure, whiteBalance, faces, download, fail]);
 
   const proposals = useMemo(() => result?.proposals ?? [], [result]);
   const byPath = useMemo(() => new Map(proposals.map((p) => [p.path, p])), [proposals]);
@@ -246,10 +256,10 @@ function SeriesMatchDialog({ request }: { request: MatchRequest }) {
         setApplying(false);
         return;
       }
-      toast.success(t("studio.seriesMatch.applied", { count: written.length }));
+      notify.success(t("studio.seriesMatch.applied", { count: written.length }));
       close();
     } catch (error) {
-      toast.error(t("studio.seriesMatch.failed", { error: String(error) }));
+      fail(error);
       setApplying(false);
     }
   };
@@ -293,6 +303,11 @@ function SeriesMatchDialog({ request }: { request: MatchRequest }) {
             </button>
           )}
         </div>
+        {failure && (
+          <p className="studio-dialog-failure" role="alert">
+            {failure}
+          </p>
+        )}
         {busy && (
           <div className="studio-series-match-progress" role="status">
             {t("studio.seriesMatch.analysing", { done: progress.done, total: progress.total })}

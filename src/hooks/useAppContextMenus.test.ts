@@ -11,7 +11,7 @@ type Option = { label?: string; submenu?: Option[]; onClick?(): void };
 const showContextMenu = vi.fn<(x: number, y: number, options: Option[]) => void>();
 vi.mock('../context/ContextMenuContext', () => ({ useContextMenu: () => ({ showContextMenu }) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 
 const props = {
   handleImageSelect: vi.fn(),

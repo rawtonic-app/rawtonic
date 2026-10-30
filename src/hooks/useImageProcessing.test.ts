@@ -10,12 +10,12 @@ import { useMultiViewStore } from "../store/useMultiViewStore";
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from "../utils/adjustments";
 import { Invokes, Panel } from "../components/ui/AppProperties";
 import { debouncedSave } from "./useEditorActions";
-import { toast } from "react-toastify";
+import { notify as toast } from "../activity/notify";
 import { flushSliderDraft, renderDraft } from "../utils/sliderDraft";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("./useEditorActions", () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../activity/notify", () => ({ notify: { error: vi.fn() } }));
 
 const photo = (path: string, isReady = true) => ({
   path,

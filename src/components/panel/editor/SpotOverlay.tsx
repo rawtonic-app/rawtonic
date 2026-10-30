@@ -9,7 +9,7 @@ import { Invokes } from '../../ui/AppProperties';
 import { Mask, SubMaskMode, ToolType } from '../right/Masks';
 import { useProcessStore } from '../../../store/useProcessStore';
 import { isAiTaskCancelled, toastAiError } from '../../../utils/aiErrors';
-import { toast } from 'react-toastify';
+import { notify } from '../../../activity/notify';
 import { getTransformAdjustments } from '../../../hooks/useAiMasking';
 import { createSubMask } from '../../../utils/maskUtils';
 import { shapeAsShown, shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
@@ -733,11 +733,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       // method for the rest of the session (inpainting::MOEBIUS_TOO_SLOW).
       listen<{ taskId: string | null; reason: 'download' | 'unavailable' | 'tooSlow' }>('ai-fill-notice', ({ payload }) => {
         if (payload.reason === 'tooSlow') {
-          toast.info(t('spotRemoval.largeHoleTooSlow'));
+          notify.info(t('spotRemoval.largeHoleTooSlow'));
           return;
         }
         if (!payload.taskId || !filling.current.includes(payload.taskId)) return;
-        toast.warn(
+        notify.warn(
           t(payload.reason === 'download' ? 'spotRemoval.fallbackDownload' : 'spotRemoval.fallbackUnavailable'),
           { toastId: `ai-fill-notice-${payload.reason}` },
         );

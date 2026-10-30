@@ -15,7 +15,7 @@ const { invoke, listen, listeners } = vi.hoisted(() => {
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn() } }));
-vi.mock("react-toastify", () => ({ toast }));
+vi.mock("../activity/notify", () => ({ notify: toast }));
 
 import "../i18n";
 import {
@@ -593,7 +593,7 @@ describe("automatic AI masks from imported presets", () => {
         "The AI runtime could not be loaded. Tools that use it are unavailable; other tools may still work. Reinstall Rawtonic and, if the problem remains, choose Report a problem in Help or the … menu.",
       );
       // One toast on screen for both.
-      expect(options).toEqual({ toastId: "ai-runtime-unavailable" });
+      expect(options).toEqual({ toastId: "ai-runtime-unavailable", source: "ai" });
     }
   });
 

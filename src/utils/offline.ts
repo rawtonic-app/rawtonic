@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { TFunction } from 'i18next';
 import { FileSearch, FolderSearch, Unlink } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import {
   Invokes,
   type ImageFile,
@@ -162,8 +162,8 @@ export function relinkSummary(t: TFunction, report: RelinkReport): string {
 
 function announce(t: TFunction, report: RelinkReport) {
   const text = relinkSummary(t, report);
-  if (report.relinked.length) toast.success(text, { autoClose: 6000 });
-  else toast.warning(text, { autoClose: 8000 });
+  if (report.relinked.length) notify.success(text, { autoClose: 6000 });
+  else notify.warning(text, { autoClose: 8000 });
   window.dispatchEvent(new Event(OFFLINE_CHANGED));
 }
 
@@ -232,7 +232,7 @@ export function offlineMenu(
       .then((report) => {
         if (report) onRelinked(report);
       })
-      .catch((err) => toast.error(t('offline.toasts.failed', { err: String(err) }), { autoClose: false }));
+      .catch((err) => notify.error(t('offline.toasts.failed', { err: String(err) }), { autoClose: false }));
   };
   return [
     {

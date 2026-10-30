@@ -10,9 +10,9 @@ import type { AppSettings } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { Status } from '../components/ui/ExportImportProperties';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 
-vi.mock('react-toastify', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
 const saves = vi.hoisted(() => ({ flush: vi.fn(async (): Promise<string[]> => []) }));

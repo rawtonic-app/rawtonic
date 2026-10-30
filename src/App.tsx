@@ -19,7 +19,14 @@ import { epochOf, PerfProfiler, reportForcedLayout, reportPerformance, usePerfor
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { refocusWebview } from './utils/photoFullScreen';
-import { toast } from 'react-toastify';
+import { notify } from './activity/notify';
+import { startActivityBridges } from './activity/bridges';
+import {
+  ACTIVITY_PHOTOS_VIEW_ID,
+  SHOW_ACTIVITY_PHOTOS_EVENT,
+  shownActivityPhotos,
+  type ShowActivityPhotos,
+} from './activity/showPhotos';
 import clsx from 'clsx';
 
 import TitleBar from './window/TitleBar';
@@ -245,28 +252,32 @@ function App() {
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,
             true,
-          ).catch((e) => toast.error(String(e)));
+          ).catch((e) => notify.error(String(e)));
         } else if (activeAlbumId === MISSING_VIEW_ID && sessionDirectory) {
           await openMissingView(
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,
             true,
-          ).catch((e) => toast.error(String(e)));
+          ).catch((e) => notify.error(String(e)));
         } else if (activeAlbumId === PENDING_XMP_VIEW_ID && sessionDirectory) {
           await openPendingXmpView(
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,
             true,
-          ).catch((e) => toast.error(String(e)));
+          ).catch((e) => notify.error(String(e)));
+        } else if (activeAlbumId === ACTIVITY_PHOTOS_VIEW_ID) {
+          // An activity entry's photographs, at their current places.
+          const shown = shownActivityPhotos();
+          if (shown) await handleSelectAlbum(ACTIVITY_PHOTOS_VIEW_ID, shown.name, shown.paths, true);
         } else if (activeAlbumId?.startsWith(SESSION_ALBUM_PREFIX) && sessionDirectory) {
           await openSessionAlbum(
             sessionDirectory,
             { id: activeAlbumId.slice(SESSION_ALBUM_PREFIX.length), name: currentFolderPath.slice('Album: '.length) },
             handleSelectAlbum,
             true,
-          ).catch((e) => toast.error(`The album could not be refreshed: ${e}`));
+          ).catch((e) => notify.error(`The album could not be refreshed: ${e}`));
         } else if (activeAlbumId) {
           const findObj = (nodes: AlbumItem[]): Album | null => {
             for (const n of nodes) {
@@ -321,11 +332,25 @@ function App() {
       // A refresh after Try again keeps an open photograph in Develop.
       const refresh = Boolean((event as CustomEvent<{ refresh?: boolean } | null>).detail?.refresh);
       void openPendingXmpView(sessionDirectory, i18n.t('session.xmp.view'), handleSelectAlbum, refresh).catch((e) =>
-        toast.error(String(e)),
+        notify.error(String(e)),
       );
     };
     window.addEventListener(SHOW_PENDING_XMP_EVENT, show);
     return () => window.removeEventListener(SHOW_PENDING_XMP_EVENT, show);
+  }, [handleSelectAlbum]);
+
+  // The activity centre follows the export queue, AI tasks, downloads and
+  // the photo write queue.
+  useEffect(() => startActivityBridges(), []);
+
+  // An activity entry's "Show photos": the photographs it is about.
+  useEffect(() => {
+    const show = (event: Event) => {
+      const { name, paths } = (event as CustomEvent<ShowActivityPhotos>).detail;
+      void handleSelectAlbum(ACTIVITY_PHOTOS_VIEW_ID, name, paths).catch((e) => notify.error(String(e)));
+    };
+    window.addEventListener(SHOW_ACTIVITY_PHOTOS_EVENT, show);
+    return () => window.removeEventListener(SHOW_ACTIVITY_PHOTOS_EVENT, show);
   }, [handleSelectAlbum]);
 
   /** After Locate Photo / Locate Folder: the folders show the new places, the
@@ -421,7 +446,7 @@ function App() {
       const { sessionDirectory } = useLibraryStore.getState();
       if (!sessionDirectory) return;
       void openMissingView(sessionDirectory, i18n.t('offline.missingView'), handleSelectAlbum).catch((e) =>
-        toast.error(String(e)),
+        notify.error(String(e)),
       );
     },
     handleRelinked,
@@ -593,7 +618,7 @@ function App() {
               if (!sessionDirectory) return;
               locateFolderOf(i18n.t, sessionDirectory, folder)
                 .then((report) => (report ? handleRelinked(report) : undefined))
-                .catch((err) => toast.error(i18n.t('offline.toasts.failed', { err: String(err) }), { autoClose: false }));
+                .catch((err) => notify.error(i18n.t('offline.toasts.failed', { err: String(err) }), { autoClose: false }));
             },
           }}
           settings={

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "react-toastify";
+import { notify as toast } from "../../activity/notify";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
 import { redo, undo, useCatalogUndoStore } from "../../utils/appUndo";
@@ -16,7 +16,7 @@ import SessionXmpStatus, {
 } from "./SessionXmpStatus";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 
 afterEach(() => cleanup());
 

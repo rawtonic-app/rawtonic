@@ -1,19 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { LoaderCircle, Square, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 import { Invokes, type PreviewBuildProgress } from "../ui/AppProperties";
+import { useActivityStore } from "../../store/useActivityStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 
 export const PREVIEW_BUILD_EVENT = "preview-build-progress";
 
-/** The top bar's report of a preview build: progress and Stop while it
- * runs, then what could not be built until dismissed. */
+const PREVIEW_ACTIVITY = "previews:build";
+
+/** Reports a preview build to the activity centre: progress and Cancel
+ * (Stop) while it runs, then what could not be built under Needs attention
+ * until dismissed. Renders nothing itself. */
+export function reportPreviewBuild(progress: PreviewBuildProgress) {
+  const activity = useActivityStore.getState();
+  if (progress.running) {
+    activity.start({
+      id: PREVIEW_ACTIVITY,
+      source: "app",
+      title: i18n.t("previews.status.building", { done: progress.done, total: progress.total }),
+      progress: { done: progress.done, total: Math.max(progress.total, 1) },
+      cancel: () => invoke(Invokes.StopPreviewBuild).catch(() => {}),
+    });
+  } else if (progress.failedCount > 0) {
+    activity.report("warning", {
+      id: PREVIEW_ACTIVITY,
+      source: "app",
+      title: i18n.t("previews.status.notBuilt", { failed: progress.failedCount }),
+      detail: progress.failed.map((failure) => `${failure.path.split(/[\\/]/).pop()}: ${failure.reason}`).join("\n"),
+      paths: progress.failed.map((failure) => failure.path),
+    });
+  } else if (progress.stopped) {
+    activity.finish(PREVIEW_ACTIVITY, { title: i18n.t("previews.status.stopped", { done: progress.done }) });
+  } else {
+    activity.finish(PREVIEW_ACTIVITY);
+  }
+}
+
+/** Applies the preview limits when a library opens and follows preview
+ * builds into the activity centre. */
 export default function PreviewBuildStatus() {
-  const { t } = useTranslation();
-  const [progress, setProgress] = useState<PreviewBuildProgress | null>(null);
-  const [dismissed, setDismissed] = useState(false);
   const folder = useLibraryStore((s) => s.sessionDirectory ?? s.currentFolderPath);
 
   // The preferences' limits for previews apply when a library opens
@@ -27,19 +54,22 @@ export default function PreviewBuildStatus() {
 
   useEffect(() => {
     let active = true;
+    let heard = false;
     // Promise.resolve().then: without the native side (tests) listen and
     // invoke throw at once.
     const unlisten = Promise.resolve()
       .then(() =>
         listen<PreviewBuildProgress>(PREVIEW_BUILD_EVENT, (event) => {
-          setProgress(event.payload);
-          setDismissed(false);
+          heard = true;
+          reportPreviewBuild(event.payload);
         }),
       )
       .catch(() => () => {});
     void Promise.resolve()
       .then(() => invoke<PreviewBuildProgress>(Invokes.PreviewBuildProgress))
-      .then((current) => active && setProgress((shown) => shown ?? current))
+      .then((current) => {
+        if (active && !heard && current?.running) reportPreviewBuild(current);
+      })
       .catch(() => {});
     return () => {
       active = false;
@@ -47,48 +77,5 @@ export default function PreviewBuildStatus() {
     };
   }, []);
 
-  const finishedWithReport =
-    progress && !progress.running && (progress.failedCount > 0 || progress.stopped);
-
-
-  if (!progress || dismissed || (!progress.running && !finishedWithReport)) return null;
-
-  if (progress.running) {
-    // Compact: the top bar is shared with the session's and the workspace's
-    // controls.
-    return (
-      <div
-        className="studio-preview-build"
-        role="status"
-        title={t("previews.status.building", { done: progress.done, total: progress.total })}
-      >
-        <LoaderCircle size={13} className="animate-spin" />
-        <span>{t("previews.status.short", { done: progress.done, total: progress.total })}</span>
-        <progress value={progress.done} max={Math.max(progress.total, 1)} />
-        <button
-          aria-label={t("previews.status.stop")}
-          title={t("previews.status.stop")}
-          onClick={() => void invoke(Invokes.StopPreviewBuild).catch(() => {})}
-        >
-          <Square size={11} fill="currentColor" />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="studio-preview-build" role="status">
-      {progress.failedCount > 0 ? (
-        <details className="studio-preview-failures">
-          <summary>{t("previews.status.notBuilt", { failed: progress.failedCount })}</summary>
-          <ul>{progress.failed.map((failure, index) => (
-            <li key={index}>{failure.path.split("/").pop()}: {failure.reason}</li>
-          ))}</ul>
-        </details>
-      ) : <span>{t("previews.status.stopped", { done: progress.done })}</span>}
-      <button aria-label={t("previews.status.dismiss")} onClick={() => setDismissed(true)}>
-        <X size={12} />
-      </button>
-    </div>
-  );
+  return null;
 }

@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { loadErrorText } from '../utils/loadError';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { useEditorStore } from '../store/useEditorStore';
 import { isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
 import { isDecoderError, offerCameraHelp, warnPreviewFallback } from '../components/contribute/CameraHelpDialog';
@@ -308,7 +308,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             metadata: storedMetadata,
           };
           if (loadImageResult.ai_denoise_error) {
-            toast.error(`AI Denoise is not available: ${loadImageResult.ai_denoise_error}`);
+            notify.error(`AI Denoise is not available: ${loadImageResult.ai_denoise_error}`);
           }
           if (loadImageResult.developed_from_preview) {
             warnPreviewFallback(selectedImage.path, loadImageResult.camera_help ?? false);
@@ -348,7 +348,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               if (isRawPhoto(selectedImage.path) && isDecoderError(err)) {
                 offerCameraHelp(loadErrorText(err, selectedImage.path), { path: selectedImage.path, reason: 'unreadable' });
               } else {
-                toast.error(loadErrorText(err, selectedImage.path));
+                notify.error(loadErrorText(err, selectedImage.path));
               }
             }
             setEditor({ selectedImage: null, panelsHeld: false });

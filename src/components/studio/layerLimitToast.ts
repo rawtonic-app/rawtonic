@@ -1,5 +1,5 @@
 import i18n from "i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { useEditorStore } from "../../store/useEditorStore";
 import { draftFor } from "../../utils/sliderDraft";
 import { MAX_RENDERED_LAYERS, canRenderAnotherLayer, isRenderedLayer } from "../../utils/layerLimit";
@@ -16,7 +16,7 @@ const currentMasks = () => {
  * (the engine would keep it but ignore it); true when refused. */
 export function warnIfLayerLimit(): boolean {
   if (canRenderAnotherLayer(currentMasks())) return false;
-  toast.error(i18n.t("studio.develop.layers.limitReached", { limit: MAX_RENDERED_LAYERS }));
+  notify.error(i18n.t("studio.develop.layers.limitReached", { limit: MAX_RENDERED_LAYERS }));
   return true;
 }
 

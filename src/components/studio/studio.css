@@ -1664,55 +1664,6 @@
   background: color-mix(in srgb, var(--studio-muted) 22%, transparent);
   color: var(--studio-text);
 }
-/* A preview build in the top bar: progress and Stop, then its report. */
-.studio-preview-build {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: 6px;
-  color: #b6b9be;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.studio-preview-failures { position: relative; }
-.studio-preview-failures summary { cursor: pointer; }
-.studio-preview-failures ul {
-  position: absolute;
-  z-index: 20;
-  right: 0;
-  top: 100%;
-  width: max-content;
-  max-width: min(480px, 80vw);
-  max-height: 40vh;
-  overflow: auto;
-  white-space: normal;
-  padding: 12px 12px 12px 28px;
-  background: var(--studio-panel, #252525);
-  color: var(--studio-text);
-  box-shadow: 0 4px 12px #0008;
-}
-.studio-preview-build progress {
-  width: 72px;
-  height: 4px;
-  accent-color: #a9bdcc;
-}
-.studio-preview-build button {
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  color: #d5d8dc;
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-@media (prefers-reduced-motion: reduce) {
-  .studio-preview-build .animate-spin {
-    animation: none;
-  }
-}
 .studio-viewer-tools {
   display: flex;
   align-items: center;
@@ -2680,14 +2631,12 @@
 }
 /* Down to the smallest window (780 px, tauri.conf.json) the top bar keeps
    the modules readable: Ingest and Hot folder become icons (their names stay
-   for assistive technology and in the tooltips) and a preview build shows
-   its bar, with the count in its tooltip and status text. */
+   for assistive technology and in the tooltips). */
 @media (max-width: 900px) {
   .studio-app .session-bar-end > .session-action {
     padding: 5px 8px;
   }
-  .studio-app .session-bar-end > .session-action > span,
-  .studio-app .session-bar .studio-preview-build > span {
+  .studio-app .session-bar-end > .session-action > span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -5464,6 +5413,12 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 }
 .studio-capture-time-error {
   color: #e8a08f;
+}
+/* A failure of a modal dialog's own action, said in the dialog. */
+.studio-dialog-failure {
+  margin: 6px 0;
+  color: #e8a08f;
+  overflow-wrap: anywhere;
 }
 .studio-capture-time-preview {
   display: flex;

@@ -1,4 +1,93 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "ИИ-шумоподавление",
+      "depth": "ИИ-маска: глубина",
+      "foreground": "ИИ-маска: передний план",
+      "inpaint": "Генеративная заливка",
+      "object": "ИИ-маска: объект",
+      "other": "Задача ИИ",
+      "people": "ИИ-маска: люди",
+      "sky": "ИИ-маска: небо",
+      "subject": "ИИ-маска: объект съёмки"
+    },
+    "batch": {
+      "auto_one": "Автокоррекция: {{count}} фото",
+      "auto_few": "Автокоррекция: {{count}} фото",
+      "auto_many": "Автокоррекция: {{count}} фото",
+      "auto_other": "Автокоррекция: {{count}} фото",
+      "faceRetouch_one": "Ретушь лица: {{count}} фото",
+      "faceRetouch_few": "Ретушь лица: {{count}} фото",
+      "faceRetouch_many": "Ретушь лица: {{count}} фото",
+      "faceRetouch_other": "Ретушь лица: {{count}} фото",
+      "other_one": "Применение к {{count}} фото",
+      "other_few": "Применение к {{count}} фото",
+      "other_many": "Применение к {{count}} фото",
+      "other_other": "Применение к {{count}} фото"
+    },
+    "cancel": "Отмена",
+    "clearDone": "Очистить",
+    "close": "Закрыть активность",
+    "copied": "Скопировано",
+    "copyDetails": "Копировать подробности",
+    "dismiss": "Скрыть: {{title}}",
+    "dismissShort": "Скрыть",
+    "download": {
+      "model": "Загрузка: {{name}}"
+    },
+    "empty": {
+      "attention": "Ничто не требует внимания.",
+      "done": "Нет недавних результатов.",
+      "running": "Ничего не выполняется."
+    },
+    "export": {
+      "failed_one": "{{count}} фото не экспортировано: {{label}}",
+      "failed_few": "{{count}} фото не экспортированы: {{label}}",
+      "failed_many": "{{count}} фото не экспортировано: {{label}}",
+      "failed_other": "{{count}} фото не экспортировано: {{label}}",
+      "interrupted": "Экспорт прерван: {{label}}",
+      "running": "Экспорт: {{label}}",
+      "waiting": "Ожидает экспорта: {{label}}"
+    },
+    "import": {
+      "starting": "Начало импорта…"
+    },
+    "indexing": "Индексация библиотеки",
+    "notice": "Что-то требует внимания",
+    "progress": "Готово на {{percent}} %",
+    "resume": "Продолжить",
+    "sections": {
+      "attention": "Требует внимания",
+      "done": "Готово",
+      "running": "Выполняется"
+    },
+    "showPhotos": "Показать фото",
+    "slot": {
+      "attention_one": "{{count}} элемент требует внимания",
+      "attention_few": "{{count}} элемента требуют внимания",
+      "attention_many": "{{count}} элементов требуют внимания",
+      "attention_other": "{{count}} элементов требуют внимания",
+      "running_one": "{{count}} задача выполняется",
+      "running_few": "{{count}} задачи выполняются",
+      "running_many": "{{count}} задач выполняется",
+      "running_other": "{{count}} задач выполняется"
+    },
+    "status": {
+      "failure": "Ошибка",
+      "warning": "Предупреждение"
+    },
+    "title": "Активность",
+    "tryAgain": "Повторить",
+    "writes": {
+      "failed_one": "Изменения {{count}} фото не сохранены",
+      "failed_few": "Изменения {{count}} фото не сохранены",
+      "failed_many": "Изменения {{count}} фото не сохранены",
+      "failed_other": "Изменения {{count}} фото не сохранены"
+    },
+    "xmp": {
+      "review": "Просмотреть"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "Выбрать цвет: {{name}}",
@@ -159,6 +248,7 @@
       "select_all": "Выбрать все",
       "select_none": "Снять выделение",
       "shift_capture_time": "Сдвиг времени съёмки…",
+      "show_activity": "Активность…",
       "show_in_finder": "Показать в Finder",
       "sync_settings": "Синхронизировать настройки",
       "tether_capture": "Спуск (подключённая камера)",

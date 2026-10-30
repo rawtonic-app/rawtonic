@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { create } from "zustand";
 import { captureTimeAction } from "../../utils/appUndo";
 import {
@@ -55,6 +55,16 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
   // A plan with the request it answers: Apply waits for the current one.
   const [planned, setPlanned] = useState<{ key: string; plan: Plan } | null>(null);
   const [applying, setApplying] = useState(false);
+  // Said in the dialog too: the activity centre is behind this modal.
+  const [failure, setFailure] = useState<string | null>(null);
+  const fail = useCallback(
+    (error: unknown) => {
+      const text = t("captureTime.failed", { error: String(error) });
+      setFailure(text);
+      notify.error(text);
+    },
+    [t],
+  );
   const [conflict, setConflict] = useState(false);
 
   useEffect(() => {
@@ -69,8 +79,8 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
         setPreview(next);
         setReference((current) => current || next.items[0]?.assetId || "");
       })
-      .catch((error) => toast.error(t("captureTime.failed", { error: String(error) })));
-  }, [paths, t]);
+      .catch(fail);
+  }, [paths, fail]);
   useEffect(() => load(), [load]);
 
   const items = useMemo(() => preview?.items ?? [], [preview]);
@@ -101,14 +111,14 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
       .catch((error) => {
         if (!current) return;
         setPlanned(null);
-        toast.error(t("captureTime.failed", { error: String(error) }));
+        fail(error);
       });
     return () => {
       current = false;
     };
     // The request is compared by value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestKey, items, t]);
+  }, [requestKey, items, fail]);
 
   const cameras = useMemo(() => {
     const counts = new Map<string, number>();
@@ -140,11 +150,11 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
         load();
         return;
       }
-      toast.success(t("captureTime.applied", { count: changes.length }));
-      if (applied.failed.length) toast.warning(t("captureTime.sidecarsFailed", { count: applied.failed.length }));
+      notify.success(t("captureTime.applied", { count: changes.length }));
+      if (applied.failed.length) notify.warning(t("captureTime.sidecarsFailed", { count: applied.failed.length }));
       close();
     } catch (error) {
-      toast.error(t("captureTime.failed", { error: String(error) }));
+      fail(error);
       setApplying(false);
     }
   };
@@ -217,6 +227,11 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
                   ))}
                 </ul>
               </details>
+            )}
+            {failure && (
+              <p className="studio-dialog-failure" role="alert">
+                {failure}
+              </p>
             )}
             {conflict && (
               <p className="studio-capture-time-error" role="alert">

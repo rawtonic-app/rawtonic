@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BookImage, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { Invokes } from "../ui/AppProperties";
 import { childrenOf, SESSION_ALBUMS_CHANGED, type SessionAlbum } from "./StudioAlbums";
 
@@ -25,7 +25,7 @@ export default function SessionAlbumSubMenu({
       .then((list) => current && setAlbums(list ?? []))
       .catch((e) => {
         if (current) setAlbums([]);
-        toast.error(t("studio.library.albums.toasts.readFailed", { error: String(e) }));
+        notify.error(t("studio.library.albums.toasts.readFailed", { error: String(e) }));
       });
     return () => {
       current = false;
@@ -36,7 +36,7 @@ export default function SessionAlbumSubMenu({
     try {
       await invoke(Invokes.SessionAlbumAdd, { directory, id: album.id, paths });
       window.dispatchEvent(new CustomEvent(SESSION_ALBUMS_CHANGED));
-      toast.success(
+      notify.success(
         t("studio.library.albumMenu.added", {
           count: paths.length,
           n: paths.length.toLocaleString(),
@@ -44,7 +44,7 @@ export default function SessionAlbumSubMenu({
         }),
       );
     } catch (e) {
-      toast.error(t("studio.library.albumMenu.addFailed", { album: album.name, error: String(e) }));
+      notify.error(t("studio.library.albumMenu.addFailed", { album: album.name, error: String(e) }));
     }
   };
   const rows = (parent: string | null, depth: number): React.ReactNode[] =>
