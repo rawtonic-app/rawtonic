@@ -627,9 +627,6 @@ async function countedForQuit<T>(entry: number, command: Promise<T>): Promise<T>
   }
 }
 
-/** A `savedBatch` result: the photographs not saved. */
-const failedPaths = (failed: string[]) => failed;
-
 /** Shows the recipes `written` on the open photograph (unless `shown`
  * says its editor travelled them itself; a changed one becomes an entry of
  * its History with the step's undo order) and on the Library's active one. */
