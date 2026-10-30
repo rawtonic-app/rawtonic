@@ -1819,8 +1819,11 @@ fn sharpen_version_6_reaches_further_on_non_raw_photos() {
     }
 }
 
+/// The default adapter of the backends `WGPU_BACKEND` names (all when unset),
+/// so a run can test DX12 where Vulkan is the default.
 fn context() -> GpuContext {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();

@@ -31,8 +31,7 @@ pub fn get_or_init_gpu_context(
     if let Some(context) = &*context_lock {
         return Ok(context.clone());
     }
-    let instance = new_instance();
-    let (context, adapter) = create_context(state, app_handle, &instance, None)?;
+    let (context, instance, adapter) = create_context(state, app_handle, None)?;
     *state.gpu_adapter.lock().unwrap_or_else(|e| e.into_inner()) = Some((instance, adapter));
     *context_lock = Some(context.clone());
     Ok(context)
@@ -57,10 +56,11 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
                     is_current(&state, &context)
                 }),
                 Err(error) => {
-                    log::warn!(
+                    log::error!(
                         "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
                         error
                     );
+                    record_start_error(&app_handle, error);
                     // Nothing to wait for.
                     first_display_variant_settled();
                 }
@@ -69,6 +69,26 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
     if let Err(error) = spawned {
         log::warn!("GPU start thread unavailable: {error}");
     }
+}
+
+/// Why the GPU did not start, for the window (`gpu_start_error`): without it
+/// no photo can be developed.
+static START_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn record_start_error(app_handle: &tauri::AppHandle, error: String) {
+    use tauri::Emitter;
+    let _ = app_handle.emit("gpu-start-failed", &error);
+    *START_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
+}
+
+/// The reason the GPU did not start, if it did not: the window shows it
+/// (it may load after the `gpu-start-failed` event).
+#[tauri::command]
+pub fn gpu_start_error() -> Option<String> {
+    START_ERROR
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// Holds optional start-up work (background library passes, model
@@ -132,8 +152,9 @@ pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHan
         .unwrap_or_else(|e| e.into_inner());
     let mut context_lock = state.gpu_context.lock().unwrap_or_else(|e| e.into_inner());
     *processor = None;
-    match create_context(state, app_handle, &instance, Some((surface, &window))) {
-        Ok((context, adapter)) => {
+    drop(surface);
+    match create_context(state, app_handle, Some(&window)) {
+        Ok((context, instance, adapter)) => {
             *state.gpu_adapter.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some((instance, adapter));
             *context_lock = Some(context.clone());
@@ -163,25 +184,14 @@ fn is_current(state: &AppState, context: &GpuContext) -> bool {
         .is_some_and(|current| Arc::ptr_eq(&current.device, &context.device))
 }
 
-fn new_instance() -> wgpu::Instance {
-    #[allow(unused_mut)]
-    let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
-
-    #[cfg(target_os = "windows")]
-    if std::env::var("WGPU_BACKEND").is_err() {
-        instance_desc.backends = wgpu::Backends::PRIMARY;
-    }
-    wgpu::Instance::new(instance_desc)
-}
-
 /// A device on the high-performance adapter (one that can present to
-/// `window`'s surface when given), with that window's display.
+/// `window` when given), with that window's display. The backend falls back
+/// when the device cannot be created (`rawtonic_gpu::device_start`).
 fn create_context(
     state: &AppState,
     app_handle: &tauri::AppHandle,
-    instance: &wgpu::Instance,
-    #[allow(unused_variables)] window: Option<(wgpu::Surface<'static>, &tauri::WebviewWindow)>,
-) -> Result<(GpuContext, wgpu::Adapter), String> {
+    #[allow(unused_variables)] window: Option<&tauri::WebviewWindow>,
+) -> Result<(GpuContext, wgpu::Instance, wgpu::Adapter), String> {
     let flag_path = state.gpu_crash_flag_path.lock().unwrap().clone();
     if let Some(p) = &flag_path {
         if let Some(parent) = p.parent() {
@@ -197,27 +207,28 @@ fn create_context(
         }
     };
 
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: window.as_ref().map(|(surface, _)| surface),
-        ..Default::default()
-    }))
-    .map_err(|e| {
-        remove_flag();
-        format!("Failed to find a wgpu adapter: {}", e)
-    })?;
+    let started = rawtonic_gpu::device_start::start_device(|instance| {
+        #[cfg(not(target_os = "linux"))]
+        if let Some(window) = window {
+            return instance.create_surface(window.clone()).ok();
+        }
+        #[cfg(target_os = "linux")]
+        let _ = instance;
+        None
+    })
+    .inspect_err(|_| remove_flag())?;
+    let rawtonic_gpu::device_start::StartedDevice {
+        instance,
+        adapter,
+        surface,
+        device,
+        queue,
+    } = started;
 
     let info = adapter.get_info();
     log_adapter(&info);
     crate::contribute::note_gpu(&info);
     let limits = adapter.limits();
-
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&processing_device_descriptor(&adapter)))
-            .map_err(|e| {
-                remove_flag();
-                e.to_string()
-            })?;
 
     device.on_uncaptured_error(Arc::new(|err: wgpu::Error| {
         log::error!("[wgpu-error] {}", err);
@@ -226,17 +237,31 @@ fn create_context(
     remove_flag();
 
     if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
-        rawtonic_gpu::pipeline_cache::open(&device, &info, &cache_dir.join("gpu-pipelines"));
+        rawtonic_gpu::pipeline_cache::open(
+            &device,
+            &info,
+            &cache_dir.join("gpu-pipelines"),
+            env!("CARGO_PKG_VERSION"),
+        );
     }
 
     #[cfg(not(target_os = "linux"))]
-    let display_opt = match window {
-        Some((surface, window)) => Some(configure_display(&device, &adapter, surface, window)?),
-        None => None,
+    let display_opt = match (surface, window) {
+        (Some(surface), Some(window)) => {
+            Some(configure_display(&device, &adapter, surface, window)?)
+        }
+        (None, Some(_)) => {
+            log::warn!("Failed to create surface, falling back to compute-only");
+            None
+        }
+        _ => None,
     };
 
     #[cfg(target_os = "linux")]
-    let display_opt = None;
+    let display_opt = {
+        drop(surface);
+        None
+    };
 
     // Display frames are encoded in the space the window layer is tagged with.
     let display_space = if cfg!(target_os = "macos") {
@@ -256,7 +281,7 @@ fn create_context(
         new_context.device.clone(),
         new_context.queue.clone(),
     );
-    Ok((new_context, adapter))
+    Ok((new_context, instance, adapter))
 }
 
 #[cfg(not(target_os = "linux"))]

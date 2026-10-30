@@ -86,31 +86,22 @@ impl GpuContext {
 
     /// [`Self::headless`] with the pipeline cache file kept in `cache_dir`
     /// (as the app keeps it, [`crate::pipeline_cache`]), where the backend
-    /// has one.
+    /// has one. The device starts with the backend fallback of
+    /// [`crate::device_start`].
     pub fn headless_with_pipeline_cache(
         cache_dir: Option<&std::path::Path>,
     ) -> Result<Self, String> {
-        #[allow(unused_mut)]
-        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
-        #[cfg(target_os = "windows")]
-        if std::env::var("WGPU_BACKEND").is_err() {
-            instance_desc.backends = wgpu::Backends::PRIMARY;
-        }
-        let instance = wgpu::Instance::new(instance_desc);
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            ..Default::default()
-        }))
-        .map_err(|e| format!("Failed to find a wgpu adapter: {}", e))?;
+        let crate::device_start::StartedDevice {
+            adapter,
+            device,
+            queue,
+            ..
+        } = crate::device_start::start_device(|_| None)?;
         let info = adapter.get_info();
         log_adapter(&info);
         let limits = adapter.limits();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&processing_device_descriptor(&adapter)))
-                .map_err(|e| e.to_string())?;
         if let Some(dir) = cache_dir {
-            crate::pipeline_cache::open(&device, &info, dir);
+            crate::pipeline_cache::open(&device, &info, dir, env!("CARGO_PKG_VERSION"));
         }
         device.on_uncaptured_error(Arc::new(|err: wgpu::Error| {
             log::error!("[wgpu-error] {}", err);
@@ -3426,6 +3417,15 @@ const REFINED_NR_PREVIEW_FEATURE: usize = 128;
 /// A RAW with the default detail settings (Sharpening 40, Color 25).
 const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16;
 
+/// The display variants compiled after the RAW default one at start: edited
+/// RAWs, other photos often without any detail feature, and the all-enabled
+/// variant that renders any recipe until its own variant is ready.
+const START_PREVIEW_FEATURES: [usize; 3] = [
+    RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
+    0,
+    ALL_PREVIEW_FEATURES,
+];
+
 #[derive(Clone)]
 pub struct DisplayFrameIdentity {
     pub path: String,
@@ -6059,22 +6059,40 @@ impl GpuProcessor {
             layer_sum_frames: Default::default(),
         };
         // RAWs open with the default detail settings: that variant compiles
-        // first (above). Then edited RAWs, other photos often without any detail
-        // feature, and the all-enabled variant that renders any recipe until
-        // its own variant is ready.
+        // first (above), then `START_PREVIEW_FEATURES`.
         // Without them nothing holds the general pipelines back.
         if !display_variants {
             processor.start_gate.open();
             return Ok(processor);
         }
-        for features in [
-            RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
-            0,
-            ALL_PREVIEW_FEATURES,
-        ] {
+        for features in START_PREVIEW_FEATURES {
             processor.compile_preview_variant_after_start(features);
         }
         Ok(processor)
+    }
+
+    /// For a warm-up run (`rawtonic-app --warm-gpu-cache`): whether every
+    /// pipeline a start compiles ahead has settled (compiled or failed) —
+    /// the RAW default display variant, the variants after it, the general
+    /// pipelines and the detail-cache pass, which the first frame starts
+    /// (started here once the RAW default variant is done, as that frame
+    /// would). Never blocks.
+    pub fn start_pipelines_settled(&self) -> bool {
+        let settled = |features: usize| {
+            self.preview_pipelines[features].get().is_some()
+                || self.preview_failed[features].load(std::sync::atomic::Ordering::Acquire)
+        };
+        if !settled(RAW_DEFAULT_PREVIEW_FEATURES) {
+            return false;
+        }
+        let detail = self.detail_pipeline.get().is_some();
+        if !detail {
+            self.detail_pipeline();
+        }
+        detail
+            && START_PREVIEW_FEATURES.into_iter().all(settled)
+            && self.main_pipeline.get().is_some()
+            && self.deferred_pipeline.get().is_some()
     }
 
     fn relight_depth_view(

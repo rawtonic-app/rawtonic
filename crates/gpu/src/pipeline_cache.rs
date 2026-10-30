@@ -5,8 +5,15 @@
 //! this file does not (NVIDIA evicting entries, its cache turned off). Notes:
 //! benchmark-results/windows-gpu-vfio-2026-10-30/COLD-START-OPTIONS.md (A).
 //!
-//! One file per adapter, driver and build (`file_name`); files of other
-//! drivers or builds in the folder are removed when a cache opens. A file
+//! A warm-up run (`rawtonic-app --warm-gpu-cache`, run by the Windows
+//! installer) fills the file before the first launch: the app reads it as
+//! its own, so that launch does not wait for the compiles (notes:
+//! COLD-START-OPTIONS.md, B1; W4 in RESULTS-2.md: variant 17 0.09 s instead
+//! of 10–13 s cold on NVIDIA/Windows).
+//!
+//! One file per adapter, driver and build (`file_name`; the build is the
+//! app's version, so an update starts a new file); files of other drivers or
+//! builds in the folder are removed when a cache opens. A file
 //! carries its length and checksum: a torn or foreign file is ignored, and
 //! wgpu checks its own header (backend, adapter, driver cache UUID) before
 //! the driver sees the data.
@@ -39,13 +46,16 @@ pub fn device_features(adapter: &wgpu::Adapter) -> wgpu::Features {
 }
 
 /// Opens (or starts) the cache file for `device` in `dir` and registers it,
-/// so every pipeline of this crate created on `device` uses it. Does nothing
-/// where the backend has no pipeline cache (Metal, DX12, GL).
-pub fn open(device: &wgpu::Device, info: &wgpu::AdapterInfo, dir: &Path) {
+/// so every pipeline of this crate created on `device` uses it. `build`
+/// names the program's version (part of the file name). Does nothing where
+/// the backend has no pipeline cache (Metal, DX12, GL).
+pub fn open(device: &wgpu::Device, info: &wgpu::AdapterInfo, dir: &Path, build: &str) {
     if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
         return;
     }
-    let Some(name) = file_name(info) else { return };
+    let Some(name) = file_name(info, build) else {
+        return;
+    };
     if let Err(error) = std::fs::create_dir_all(dir) {
         log::warn!("Pipeline cache folder unavailable: {error}");
         return;
@@ -79,6 +89,15 @@ pub fn open(device: &wgpu::Device, info: &wgpu::AdapterInfo, dir: &Path) {
     let mut caches = CACHES.lock().unwrap_or_else(|e| e.into_inner());
     caches.retain(|(registered, _)| registered != device);
     caches.push((device.clone(), store));
+}
+
+/// Writes the cache of `device` now (a warm-up run before it exits) and
+/// returns its file and length, or `None` without a cache or data.
+pub fn save_now(device: &wgpu::Device) -> Option<(PathBuf, usize)> {
+    let cache = for_device(device)?;
+    cache.save();
+    let length = cache.state.lock().unwrap_or_else(|e| e.into_inner()).1;
+    (length > 0).then(|| (cache.path.clone(), length))
 }
 
 /// The cache registered for `device`, if any.
@@ -121,16 +140,22 @@ impl PipelineCache {
         if data.len() == state.1 {
             return;
         }
-        match rawtonic_metadata::atomic_write(&self.path, encode(&data)) {
+        match write(&self.path, &data) {
             Ok(()) => state.1 = data.len(),
             Err(error) => log::warn!("Pipeline cache not written: {error}"),
         }
     }
 }
 
+/// Replaces the file atomically: a reader sees the old file or the new one,
+/// never a torn one.
+fn write(path: &Path, data: &[u8]) -> Result<(), String> {
+    rawtonic_metadata::atomic_write(path, encode(data)).map_err(|e| format!("{e:#}"))
+}
+
 /// `wgpu-pipelines-<backend/vendor/device>-<driver and build hash>.bin`, or
 /// `None` where wgpu keeps no cache data for the adapter.
-fn file_name(info: &wgpu::AdapterInfo) -> Option<String> {
+fn file_name(info: &wgpu::AdapterInfo, build: &str) -> Option<String> {
     let adapter = wgpu::util::pipeline_cache_key(info)?;
     let adapter = adapter.trim_start_matches("wgpu_pipeline_cache_");
     let mut hash = Fnv::default();
@@ -139,6 +164,7 @@ fn file_name(info: &wgpu::AdapterInfo) -> Option<String> {
         info.driver.as_str(),
         info.driver_info.as_str(),
         env!("CARGO_PKG_VERSION"),
+        build,
         include_str!("shaders/shader.wgsl"),
     ] {
         hash.write(part.as_bytes());
@@ -259,15 +285,38 @@ mod tests {
             subgroup_max_size: 32,
             transient_saves_memory: false,
         };
-        let first = file_name(&info("617.42")).unwrap();
+        let first = file_name(&info("617.42"), "0.1.0").unwrap();
         assert!(first.starts_with("wgpu-pipelines-vulkan_"), "{first}");
-        assert_ne!(first, file_name(&info("617.57")).unwrap());
+        assert_ne!(first, file_name(&info("617.57"), "0.1.0").unwrap());
+        // An app update starts a new file.
+        assert_ne!(first, file_name(&info("617.42"), "0.1.1").unwrap());
+        assert_eq!(first, file_name(&info("617.42"), "0.1.0").unwrap());
         // No cache data on Metal.
         let metal = wgpu::AdapterInfo {
             backend: wgpu::Backend::Metal,
             ..info("x")
         };
-        assert_eq!(file_name(&metal), None);
+        assert_eq!(file_name(&metal, "0.1.0"), None);
+    }
+
+    #[test]
+    fn a_written_file_reads_back_and_a_damaged_one_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wgpu-pipelines-a.bin");
+        // A damaged file (torn by a crash, or foreign) is not used...
+        std::fs::write(&path, b"RTPLC001 torn").unwrap();
+        assert_eq!(read(&path), None);
+        // ...and the next write replaces it whole, leaving no temporary file.
+        write(&path, b"pipelines").unwrap();
+        assert_eq!(read(&path), Some(b"pipelines".to_vec()));
+        write(&path, b"more pipelines").unwrap();
+        assert_eq!(read(&path), Some(b"more pipelines".to_vec()));
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["wgpu-pipelines-a.bin"]);
+        assert_eq!(read(&dir.path().join("missing.bin")), None);
     }
 
     #[test]

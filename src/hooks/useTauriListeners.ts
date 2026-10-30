@@ -28,6 +28,12 @@ import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '..
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
+// No graphics backend could start the GPU (src-tauri gpu_processing.rs
+// `gpu_start_error`): no photo can be developed or exported, so it stays
+// until dismissed and names what failed.
+const showGpuStartError = (details: string) =>
+  toast.error(i18n.t('errors.gpuStartFailed', { details }), { autoClose: false, toastId: 'gpu-start-failed' });
+
 // Event payloads, as emitted by the backend in src-tauri/src.
 interface AnalyticsUpdatePayload {
   path: string;
@@ -710,7 +716,16 @@ export function useTauriListeners({
           }));
         }
       }),
+      listen<string>('gpu-start-failed', (event) => {
+        if (isEffectActive) showGpuStartError(event.payload);
+      }),
     ];
+    // The GPU may have failed before this window listened.
+    invoke<string | null>(Invokes.GetGpuStartError)
+      .then((error) => {
+        if (isEffectActive && typeof error === 'string' && error) showGpuStartError(error);
+      })
+      .catch(() => {});
 
     return () => {
       isEffectActive = false;

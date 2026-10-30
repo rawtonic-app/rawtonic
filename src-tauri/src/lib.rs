@@ -46,6 +46,7 @@ mod file_management;
 mod file_operations;
 mod folder_sync;
 mod gpu_processing;
+mod gpu_warmup;
 mod guided_perspective;
 mod hot_folder;
 mod identity_migration;
@@ -148,7 +149,7 @@ pub fn run() {
         eprintln!("Headless export failed: {}", error);
         std::process::exit(2);
     }
-    let is_headless = matches!(launch_req, LaunchRequest::HeadlessExport(_));
+    let is_headless = launch_req.is_headless();
 
     let mut builder = tauri::Builder::default();
 
@@ -229,6 +230,10 @@ pub fn run() {
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).
             let carried_over = identity_migration::carry_over(app.handle());
+            if matches!(launch_req, LaunchRequest::WarmGpuCache) {
+                gpu_warmup::start(app.handle());
+                return Ok(());
+            }
             let state = app.state::<AppState>();
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -333,11 +338,8 @@ pub fn run() {
 
             #[cfg(target_os = "linux")]
             let mut webkit_dmabuf_forced = false;
+            startup::apply_processing_backend(settings.processing_backend.as_deref());
             unsafe {
-                if let Some(backend) = &settings.processing_backend
-                    && backend != "auto" {
-                        std::env::set_var("WGPU_BACKEND", backend);
-                    }
 
                 #[cfg(target_os = "linux")]
                 {
@@ -392,7 +394,7 @@ pub fn run() {
             } else {
                 contribute::start_crash_records(&app_handle, settings.crash_reports.unwrap_or(true))
             };
-            startup::setup_logging(&app_handle);
+            startup::setup_logging(&app_handle, "app.log");
             if !is_headless {
                 // Before the window and its webview: a cold start's first
                 // Develop frame waits for the display variant this compiles.
@@ -467,6 +469,7 @@ pub fn run() {
                     return Ok(());
                 }
                 LaunchRequest::InvalidHeadless(_) => unreachable!("invalid headless arguments exit before app setup"),
+                LaunchRequest::WarmGpuCache => unreachable!("the GPU warm-up returns before"),
                 _ => {}
             }
 
@@ -702,6 +705,7 @@ pub fn run() {
             multi_view::render_browser_view,
             editor_preview::generate_uncropped_preview,
             startup::get_log_file_path,
+            gpu_processing::gpu_start_error,
             startup::frontend_log,
             collage::save_collage,
             merges::merge_photos,

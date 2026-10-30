@@ -697,6 +697,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic 無法啟動圖形處理器，因此無法沖洗或匯出照片。請更新顯示卡驅動程式並重新啟動 Rawtonic。詳細資訊：{{details}}",
     "operationFailed": "無法完成操作。"
   },
   "library": {
