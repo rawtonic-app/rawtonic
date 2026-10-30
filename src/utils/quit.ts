@@ -72,12 +72,16 @@ class QuitDrain {
   private readonly unidentified: string[] = [];
   /** A batch heard short of all its photographs written yet (`why`). */
   private readonly batches = new Map<number, string[]>();
+  /** Batches done before the quit started: their failures were told then,
+   * and staying open would save nothing of theirs. */
+  private readonly before = new Set<number>();
 
   /** The batches running when the quit starts: their failures are this
    * quit's business too (a batch that settled before is not). */
   recordRunningBatches(): void {
     for (const batch of photoBatches().values()) {
       if (batchPhotoCount(batch).done < batch.total) this.batches.set(batch.id, []);
+      else this.before.add(batch.id);
     }
   }
 
@@ -113,6 +117,7 @@ class QuitDrain {
       items: failed.map((path) => describe(kind, path)),
     }));
     for (const batch of photoBatches().values()) {
+      if (this.before.has(batch.id)) continue;
       const { done, total } = batchPhotoCount(batch);
       if (done < total) {
         identified.push({

@@ -93,6 +93,20 @@ it('does not count photos saved before this quit as failures or new progress', a
   expect(COMMANDS()).toEqual([Invokes.QuitSaving, Invokes.FinishQuit]);
 });
 
+it('does not ask again about a batch that failed and settled before this quit', async () => {
+  // Its failure was told when it happened; quitting would lose nothing
+  // that staying open could still save.
+  const command = await batch(['/old.dng', '/ok.dng']);
+  command.photo('/old.dng', 'disk full');
+  command.photo('/ok.dng');
+  command.finish();
+  await allPhotoWritesSettled();
+  const ask = vi.fn();
+  await quit(ask);
+  expect(ask).not.toHaveBeenCalled();
+  expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
+});
+
 it('retains a failed photo even when its batch command resolves successfully', async () => {
   const command = await batch(['/x.dng', '/y.dng']);
   const ask = vi.fn();
