@@ -129,6 +129,15 @@ describe('two-sided bands', () => {
     }
     expect(dragLinearLine(band, 'featherEnd', { x: 80, y: 110 }).band).toEqual({ width: 40, feather: 0 });
   });
+  it('covers the whole dragged span when a band is drawn', () => {
+    const from = { x: 300, y: 100 };
+    const to = { x: 300, y: 1100 };
+    const drawn = linearFromDrag(band, from, to, 40);
+    expect(drawn.band).toEqual({ width: 1000, feather: 10 });
+    // Press and release lie on the band's fully covered edges.
+    expect(signedDistance(drawn, from)).toBeCloseTo(linearLineOffsets(drawn).start);
+    expect(signedDistance(drawn, to)).toBeCloseTo(linearLineOffsets(drawn).end);
+  });
   it('keeps band dimensions when moved or rotated', () => {
     const rotated = rotateLinear(band, { x: 100, y: 100 }, { x: 200, y: 100 }, { x: 100, y: 200 });
     expect(rotated.band).toEqual(band.band);

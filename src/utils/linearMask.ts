@@ -158,5 +158,7 @@ export function linearFromDrag(params: LinearParams, from: Point, to: Point, han
     range: length / 2,
   };
   delete next.rangeEnd;
+  // A band covers the dragged span fully; its outward feather stays as set.
+  if (params.band) next.band = { ...params.band, width: length };
   return next;
 }
