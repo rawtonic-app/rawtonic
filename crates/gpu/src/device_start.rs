@@ -16,8 +16,12 @@ use crate::gpu_processing::processing_device_descriptor;
 
 /// The backend sets tried in order, each as one wgpu pick: the preferred set
 /// first (`preferred` from `WGPU_BACKEND`, else the platform's), then the
-/// platform's sets not covered yet.
-pub fn backend_tiers(preferred: Option<wgpu::Backends>) -> Vec<wgpu::Backends> {
+/// platform's sets not covered yet; only backends in `available` (those
+/// compiled into this build), so a failure names no backend that cannot exist.
+pub fn backend_tiers(
+    preferred: Option<wgpu::Backends>,
+    available: wgpu::Backends,
+) -> Vec<wgpu::Backends> {
     // Windows: Vulkan or DX12 (wgpu's order, power preference across both),
     // OpenGL only when neither starts. Elsewhere wgpu's default set.
     let platform: &[wgpu::Backends] = if cfg!(target_os = "windows") {
@@ -28,7 +32,7 @@ pub fn backend_tiers(preferred: Option<wgpu::Backends>) -> Vec<wgpu::Backends> {
     let mut tiers = Vec::with_capacity(platform.len() + 1);
     let mut covered = wgpu::Backends::empty();
     for tier in preferred.into_iter().chain(platform.iter().copied()) {
-        let tier = tier - covered;
+        let tier = (tier & available) - covered;
         if !tier.is_empty() {
             tiers.push(tier);
             covered |= tier;
@@ -123,7 +127,9 @@ pub fn start_device(
     let failing = std::env::var("RAWTONIC_GPU_FAIL_BACKENDS")
         .map(|list| wgpu::Backends::from_comma_list(&list))
         .unwrap_or(wgpu::Backends::empty());
-    let tiers = backend_tiers(wgpu::Backends::from_env());
+    // wgpu's no-op backend never yields an adapter unless asked for.
+    let available = wgpu::Instance::enabled_backend_features() - wgpu::Backends::NOOP;
+    let tiers = backend_tiers(wgpu::Backends::from_env(), available);
     let ((instance, adapter, surface), (device, queue)) = start_with_fallback(
         &tiers,
         |backends| {
@@ -249,9 +255,17 @@ mod tests {
     }
 
     #[test]
+    fn backends_missing_from_the_build_are_not_tried() {
+        let available = Backends::VULKAN | Backends::DX12 | Backends::GL;
+        let tiers = backend_tiers(Some(Backends::METAL), available);
+        assert!(tiers.iter().all(|tier| available.contains(*tier)));
+        assert!(!tiers.is_empty());
+    }
+
+    #[test]
     fn the_preferred_set_comes_first_and_is_not_tried_twice() {
-        let platform_last = backend_tiers(None);
-        let tiers = backend_tiers(Some(Backends::DX12));
+        let platform_last = backend_tiers(None, Backends::all());
+        let tiers = backend_tiers(Some(Backends::DX12), Backends::all());
         assert_eq!(tiers[0], Backends::DX12);
         assert!(tiers[1..].iter().all(|tier| !tier.contains(Backends::DX12)));
         assert_eq!(
