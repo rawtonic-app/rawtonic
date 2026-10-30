@@ -249,7 +249,10 @@ fn a_sidecar_changed_elsewhere_is_found_without_any_write() {
 
     let mut seen = SidecarStamps::default();
     let check = lib.check_xmp_sidecars(None, &mut seen).unwrap();
-    assert_eq!(check.changed, [ids[0].clone(), ids[1].clone(), ids[3].clone()]);
+    assert_eq!(
+        check.changed,
+        [ids[0].clone(), ids[1].clone(), ids[3].clone()]
+    );
     assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 3);
 
     assert_eq!(lib.summary().unwrap().xmp_pending, 3);
@@ -262,7 +265,10 @@ fn a_sidecar_changed_elsewhere_is_found_without_any_write() {
         ]
     );
     // Found, not written: the sidecars are as the other program left them.
-    assert_eq!(fs::read_to_string(paths[0].with_extension("xmp")).unwrap(), other);
+    assert_eq!(
+        fs::read_to_string(paths[0].with_extension("xmp")).unwrap(),
+        other
+    );
     assert!(!paths[1].with_extension("xmp").exists());
     assert_eq!(fs::read(paths[2].with_extension("xmp")).unwrap(), kept_c);
     for (path, bytes) in paths.iter().zip(&originals) {
@@ -283,7 +289,10 @@ fn an_unchanged_sidecar_is_read_once_and_then_only_looked_at() {
     let first = lib.check_xmp_sidecars(None, &mut seen).unwrap();
     assert_eq!((first.checked, first.read, first.changed.len()), (2, 2, 0));
     let second = lib.check_xmp_sidecars(None, &mut seen).unwrap();
-    assert_eq!((second.checked, second.read, second.changed.len()), (2, 0, 0));
+    assert_eq!(
+        (second.checked, second.read, second.changed.len()),
+        (2, 0, 0)
+    );
     // Rewritten by another program: read again and found.
     let sidecar = paths[1].with_extension("xmp");
     let mut text = fs::read_to_string(&sidecar).unwrap();

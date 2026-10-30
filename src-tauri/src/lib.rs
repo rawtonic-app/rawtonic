@@ -680,6 +680,7 @@ pub fn run() {
             library_search::session_create_smart_album,
             library_search::session_set_smart_album_rules,
             session_bridge::session_offline,
+            xmp_review::session_xmp_check,
             xmp_review::session_xmp_review,
             xmp_review::session_xmp_resolve,
             xmp_review::session_xmp_undo,
