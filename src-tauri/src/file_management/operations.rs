@@ -1202,7 +1202,10 @@ mod tests {
             drive.to_string_lossy().into_owned(),
         ))
         .unwrap();
-        assert_eq!(plan.session_move.expect("offered").session, job.to_string_lossy());
+        assert_eq!(
+            plan.session_move.expect("offered").session,
+            job.to_string_lossy()
+        );
         // Within the session nothing is offered.
         fs::create_dir_all(job.join("Selects")).unwrap();
         let plan =
@@ -1212,7 +1215,10 @@ mod tests {
         fs::create_dir_all(drive.join("Job")).unwrap();
         let plan = plan_move_files_blocking(&source, &drive.to_string_lossy()).unwrap();
         let refusal = plan.session_move.unwrap().refusal.expect("refused");
-        assert!(refusal.contains("already holds something named Job"), "{refusal}");
+        assert!(
+            refusal.contains("already holds something named Job"),
+            "{refusal}"
+        );
         assert_eq!(read(&photo), "a");
     }
 

@@ -97,7 +97,9 @@ fn busy() -> Option<&'static str> {
     } else if crate::camera_tethering::tether_status().is_some() {
         Some("Disconnect the tethered camera before moving the session; nothing was moved.")
     } else if crate::export_queue::is_running() {
-        Some("Wait for the exports to finish (or pause them) before moving the session; nothing was moved.")
+        Some(
+            "Wait for the exports to finish (or pause them) before moving the session; nothing was moved.",
+        )
     } else {
         None
     }
@@ -149,8 +151,7 @@ pub async fn move_session(
             let destination = Path::new(&destination);
             // Refusals other than "in use" come at once, without waiting.
             check_session_move(session, destination).map_err(|e| format!("{e:#}"))?;
-            let planned =
-                wait_until_free(session, || plan_session_move(session, destination))?;
+            let planned = wait_until_free(session, || plan_session_move(session, destination))?;
             let step = Step::moving(&planned.from, &planned.to).map_err(|e| format!("{e:#}"))?;
             let label = format!(
                 "Move session {} to {}",
@@ -219,7 +220,10 @@ pub(crate) fn followed(app: &AppHandle, op: &Operation) {
         return;
     };
     if let Err(e) = crate::session_bridge::session_moved(app, &from, &to) {
-        log::warn!("The moved session could not be remembered at {}: {e}", to.display());
+        log::warn!(
+            "The moved session could not be remembered at {}: {e}",
+            to.display()
+        );
     }
     let _ = app.emit(
         SESSION_MOVED,

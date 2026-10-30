@@ -546,7 +546,11 @@ pub(crate) fn holding_import_gate<T>(
 /// redone). When it is the open library it is remembered at its new place
 /// (the next start opens it there) and its background passes run there;
 /// returns whether it was.
-pub(crate) fn session_moved(app: &tauri::AppHandle, from: &Path, to: &Path) -> Result<bool, String> {
+pub(crate) fn session_moved(
+    app: &tauri::AppHandle,
+    from: &Path,
+    to: &Path,
+) -> Result<bool, String> {
     if active_library_directory().as_deref() != Some(from) {
         return Ok(false);
     }

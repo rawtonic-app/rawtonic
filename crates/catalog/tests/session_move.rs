@@ -22,7 +22,11 @@ struct FolderTrash {
 impl SystemTrash for FolderTrash {
     fn trash(&self, path: &Path) -> anyhow::Result<String> {
         let parent = self.other.parent().unwrap();
-        let dir = if path.starts_with(parent) { &self.other } else { &self.dir };
+        let dir = if path.starts_with(parent) {
+            &self.other
+        } else {
+            &self.dir
+        };
         let item = dir.join(self.next.get().to_string());
         self.next.set(self.next.get() + 1);
         rename_no_clobber(path, &item)?;
@@ -251,7 +255,10 @@ fn refused_session_moves_leave_the_session_where_and_as_it_was() {
     let catalog = world.jobs.join("Main.catalog");
     Library::create(&catalog, "Main", Mode::Catalog).unwrap();
     let error = plan_session_move(&catalog, &world.archive).unwrap_err();
-    assert!(format!("{error:#}").contains("holds no Rawtonic session"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("holds no Rawtonic session"),
+        "{error:#}"
+    );
 
     // Once nothing holds it, the same move is planned.
     assert!(plan_session_move(&session, &world.archive).is_ok());
