@@ -70,7 +70,7 @@ To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpd
 
 Download `Rawtonic_<version>_x64-setup.exe` and `SHA256SUMS-windows.txt` for Windows 10 or 11 (x64; so far tested on Windows 11). The installer is **not signed** yet, so check it before you run it: in PowerShell, `Get-FileHash .\Rawtonic_*_x64-setup.exe` must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). When you start it, Windows SmartScreen shows "Windows protected your PC": click **More info**, then **Run anyway**. It installs for your user only, without administrator rights; uninstall it in Settings → Apps.
 
-Installing takes about a minute: at the end the installer prepares Rawtonic's GPU shaders, so the first photo appears sooner on the first start. Rawtonic needs a graphics card or integrated GPU with a current driver that supports Vulkan or DirectX 12 (it uses Vulkan or DirectX 12, whichever starts, and tries the other if one fails). Windows support is new and has so far been tested with one NVIDIA graphics card, so please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
+Installing takes about a minute: at the end the installer prepares Rawtonic's GPU shaders, so the first photo appears sooner on the first start. Rawtonic needs a GPU with a Vulkan or DirectX 12 driver; PCs with only Microsoft's software renderer are not supported yet. Windows support is new and has so far been tested with one NVIDIA graphics card, so please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
 
 ### Other systems
 
