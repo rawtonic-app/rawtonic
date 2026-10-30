@@ -518,11 +518,10 @@ pub fn run() {
             }
 
             {
-                let app_state = app.state::<AppState>();
                 // The device and processor were started before the window
                 // (`start_early`); presenting needs the window.
                 #[cfg(not(target_os = "linux"))]
-                gpu_processing::attach_display(&app_state, app.handle());
+                gpu_processing::attach_display(&app.state::<AppState>(), app.handle());
 
                 if let Ok(config_dir) = app.path().app_config_dir() {
                     let path = config_dir.join("window_state.json");

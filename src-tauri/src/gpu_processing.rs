@@ -50,7 +50,12 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
         .spawn(move || {
             let state = app_handle.state::<AppState>();
             match get_or_init_gpu_context(&state, &app_handle) {
-                Ok(context) => prewarm_gpu_processor(&state.gpu_processor, &context),
+                // A window whose adapter cannot present replaces the context
+                // while it holds the processor slot (`attach_display`): no
+                // processor for the replaced device.
+                Ok(context) => prewarm_gpu_processor_if(&state.gpu_processor, &context, || {
+                    is_current(&state, &context)
+                }),
                 Err(error) => {
                     log::warn!(
                         "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
@@ -131,13 +136,31 @@ pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHan
         Ok((context, adapter)) => {
             *state.gpu_adapter.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some((instance, adapter));
-            *context_lock = Some(context);
+            *context_lock = Some(context.clone());
+            let app_handle = app_handle.clone();
+            std::thread::spawn(move || {
+                let state = app_handle.state::<AppState>();
+                prewarm_gpu_processor_if(&state.gpu_processor, &context, || {
+                    is_current(&state, &context)
+                });
+            });
         }
         Err(error) => {
             *context_lock = None;
             log::warn!("GPU initialization with the window failed: {error}");
         }
     }
+}
+
+/// Whether `context` is the app's processing context (not one replaced by
+/// `attach_display`).
+fn is_current(state: &AppState, context: &GpuContext) -> bool {
+    state
+        .gpu_context
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(&current.device, &context.device))
 }
 
 fn new_instance() -> wgpu::Instance {
@@ -361,11 +384,21 @@ pub fn resize_display(context: GpuContext, width: u32, height: u32) {
 /// with decoding. A processor that already exists
 /// is kept; the render path creates one itself if this has not finished.
 pub fn prewarm_gpu_processor(slot: &GpuProcessorSlot, context: &GpuContext) {
+    prewarm_gpu_processor_if(slot, context, || true);
+}
+
+/// [`prewarm_gpu_processor`] when `current` still holds once the slot is
+/// taken.
+fn prewarm_gpu_processor_if(
+    slot: &GpuProcessorSlot,
+    context: &GpuContext,
+    current: impl FnOnce() -> bool,
+) {
     let mut processor_lock = match slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    if processor_lock.is_some() {
+    if processor_lock.is_some() || !current() {
         return;
     }
     let max_dim = context.limits.max_texture_dimension_2d;
