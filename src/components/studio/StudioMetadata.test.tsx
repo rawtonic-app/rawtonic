@@ -18,7 +18,8 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import { toast } from "react-toastify";
 import { useEditorStore } from "../../store/useEditorStore";
 import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
-import type { ImageFile } from "../ui/AppProperties";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import type { AppSettings, ImageFile } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
@@ -89,15 +90,46 @@ describe("Keywords tool", () => {
     });
     const paths = ["/job/Capture/a.arw", "/job/Capture/b.arw"];
     expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", { paths, tag: "user:harbour" });
-    expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", {
-      paths: ["/job/Capture/b.arw"],
-      tag: "user:Dog",
-    });
+    // Sent again for the whole selection: a photograph of a group may have
+    // saved without its variant, so the library names the failed ones among
+    // all of it (adding is idempotent).
+    expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", { paths, tag: "user:Dog" });
     const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
     // Each photograph keeps its own keywords; an existing keyword is not doubled.
     expect(tags["/job/Capture/a.arw"]).toEqual(["color:red", "dog", "user:beach", "user:harbour"]);
     expect(tags["/job/Capture/b.arw"]).toEqual(["user:Dog", "user:beach", "user:harbour"]);
     expect(tags["/job/Capture/c.arw"]).toBeNull();
+  });
+
+  it("shows a keyword on the photographs that were saved when the batch partly failed, also in a group", async () => {
+    // RAW+JPEG grouped as one tile (RAW preferred, as the library shows them):
+    // selecting it acts on both, and only the RAW fails.
+    useLibraryStore.setState({
+      imageList: [
+        { ...file("/job/Capture/a.arw", ["dog"]), group_id: "g1" },
+        { ...file("/job/Capture/a.jpg", ["dog"]), group_id: "g1", is_raw: false },
+        file("/job/Capture/c.arw", null),
+      ],
+      multiSelectedPaths: ["/job/Capture/a.arw"],
+    });
+    useSettingsStore.setState({ appSettings: { grouping: "raw" } as unknown as AppSettings });
+    mockInvoke.mockRejectedValue({ message: "1 of 2 photos not saved", failed: ["/job/Capture/a.arw"] });
+    render(<StudioKeywords />);
+    const input = screen.getByLabelText("Add keywords");
+    fireEvent.change(input, { target: { value: "harbour" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", {
+      paths: ["/job/Capture/a.arw", "/job/Capture/a.jpg"],
+      tag: "user:harbour",
+    });
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    // The saved JPEG has it, the failed RAW keeps its own keywords (read at
+    // once: unmounting puts back what the file header says of the group).
+    const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
+    expect(tags["/job/Capture/a.arw"]).toEqual(["dog"]);
+    expect(tags["/job/Capture/a.jpg"]).toEqual(["dog", "user:harbour"]);
   });
 
   it("removes every stored form of a keyword", async () => {

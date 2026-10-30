@@ -139,21 +139,45 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     }
   }, []);
 
+  /** The tags `newTags` make for photos that had `tags`: the colour label
+   * (a culling tag, not a keyword) is kept, the keywords are replaced. */
+  const tagsWith = (tags: string[] | null | undefined, newTags: { tag: string; isUser: boolean }[]) => {
+    const colorTags = (tags || []).filter((t) => t.startsWith('color:'));
+    const prefixedNewTags = newTags.map((t) => (t.isUser ? `user:${t.tag}` : t.tag));
+    // The prefixed keywords sort as they are stored: typed ones ("user:")
+    // before a stored tag that is not typed.
+    const finalTags = [...colorTags, ...prefixedNewTags].sort((a, b) =>
+      a.startsWith('user:') !== b.startsWith('user:') ? (a.startsWith('user:') ? -1 : 1) : a < b ? -1 : a > b ? 1 : 0,
+    );
+    return finalTags.length > 0 ? finalTags : null;
+  };
+
+  /** `newTags` for `paths` and their grouped variants (ratings and labels
+   * spread over a group). A batch that failed for some of them has no such
+   * state: `exact` is set only for the photos that saved (`handleTagsSaved`). */
   const handleTagsChanged = useCallback((changedPaths: string[], newTags: { tag: string; isUser: boolean }[]) => {
     const { imageList } = useLibraryStore.getState();
     const groupingMode = useSettingsStore.getState().appSettings?.grouping ?? 'off';
     const pathsToUpdate = expandGroupedPaths(imageList, changedPaths, groupingMode);
 
     useLibraryStore.getState().setLibrary((state) => ({
-      imageList: state.imageList.map((image) => {
-        if (pathsToUpdate.includes(image.path)) {
-          const colorTags = (image.tags || []).filter((t) => t.startsWith('color:'));
-          const prefixedNewTags = newTags.map((t) => (t.isUser ? `user:${t.tag}` : t.tag));
-          const finalTags = [...colorTags, ...prefixedNewTags].sort();
-          return { ...image, tags: finalTags.length > 0 ? finalTags : null };
-        }
-        return image;
-      }),
+      imageList: state.imageList.map((image) =>
+        pathsToUpdate.includes(image.path) ? { ...image, tags: tagsWith(image.tags, newTags) } : image,
+      ),
+    }));
+    // (The menu's own promise, not the store's state, decides which photos
+    // this is; see `TaggingSubMenu`.)
+  }, []);
+
+  /** `newTags` for exactly `paths`, no group expansion: the photos whose
+   * keyword write saved, after a batch that failed for the others (which
+   * keep their tags until a retry). */
+  const handleTagsSaved = useCallback((savedPaths: string[], newTags: { tag: string; isUser: boolean }[]) => {
+    const saved = new Set(savedPaths);
+    useLibraryStore.getState().setLibrary((state) => ({
+      imageList: state.imageList.map((image) =>
+        saved.has(image.path) ? { ...image, tags: tagsWith(image.tags, newTags) } : image,
+      ),
     }));
   }, []);
 
@@ -454,6 +478,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     handleRate,
     handleSetColorLabel,
     handleTagsChanged,
+    handleTagsSaved,
     handleUpdateExif,
     handleClearSelection,
     handleLibraryImageSingleClick,

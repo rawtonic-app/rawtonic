@@ -124,7 +124,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
     handlePasteAdjustments,
     applyAdjustmentsToPaths,
   } = useEditorActions();
-  const { handleRate, handleSetColorLabel, handleTagsChanged } = useLibraryActions();
+  const { handleRate, handleSetColorLabel, handleTagsChanged, handleTagsSaved } = useLibraryActions();
 
   useEffect(() => registerAppCommands({
     auto_lens_correction: {
@@ -396,6 +396,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 paths: [selectedImage.path],
                 initialTags: commonTags,
                 onTagsChanged: handleTagsChanged,
+                onTagsSaved: handleTagsSaved,
                 appSettings,
               } satisfies TaggingSubMenuProps,
             },
@@ -440,6 +441,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handleRate,
       handleSetColorLabel,
       handleTagsChanged,
+      handleTagsSaved,
       showContextMenu,
       t,
     ],
@@ -914,6 +916,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 paths: finalSelection,
                 initialTags: commonTags,
                 onTagsChanged: handleTagsChanged,
+                onTagsSaved: handleTagsSaved,
                 appSettings,
               } satisfies TaggingSubMenuProps,
             },
@@ -987,6 +990,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handleRate,
       handleSetColorLabel,
       handleTagsChanged,
+      handleTagsSaved,
       handleResetAdjustments,
       showContextMenu,
       props,

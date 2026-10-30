@@ -10,6 +10,8 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorStore } from "../../store/useEditorStore";
 import { Invokes } from "../ui/AppProperties";
 import { saveFailure, useLibraryActions } from "../../hooks/useLibraryActions";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import { expandGroupedPaths } from "../../utils/imageGrouping";
 import { COLOR_LABELS } from "../../utils/adjustments";
 import { ToolGroup } from "./StudioDevelop";
 import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
@@ -226,6 +228,7 @@ export function parseKeywords(text: string) {
   return keywords;
 }
 
+/** Shows `change` on exactly `paths` (the photos a keyword write saved). */
 function updateTags(paths: string[], change: (tags: string[]) => string[]) {
   const targets = new Set(paths);
   useLibraryStore.getState().setLibrary((state) => ({
@@ -241,8 +244,13 @@ function updateTags(paths: string[], change: (tags: string[]) => string[]) {
  * selection, partial ones marked, typed keywords added to every photograph. */
 export function StudioKeywords() {
   const { t } = useTranslation();
-  const paths = useMetadataTargets();
   const imageList = useLibraryStore((s) => s.imageList);
+  // The photographs to keyword: the selection and, with grouping on, each
+  // chosen photograph's variants too (as the tagging menu writes to a group,
+  // and ratings and labels spread over one).
+  const selected = useMetadataTargets();
+  const grouping = useSettingsStore((s) => s.appSettings?.grouping ?? "off");
+  const paths = useMemo(() => expandGroupedPaths(imageList, selected, grouping), [imageList, selected, grouping]);
   const [draft, setDraft] = useState("");
   const tagsByPath = useMemo(() => {
     const byPath = new Map(imageList.map((image) => [image.path, image.tags]));
@@ -270,14 +278,17 @@ export function StudioKeywords() {
         const missing = paths.filter((path) => !has(path));
         if (!missing.length) continue;
         const tag = `${USER_TAG_PREFIX}${keyword}`;
-        // The library saved it for all but the photographs it names
-        // (`SaveFailure.failed`): only those keep their old keywords.
+        // The whole selection is written (adding is idempotent), so a group's
+        // variant that has the keyword already is named too. The library
+        // saved it for all but the photographs it names (`SaveFailure.failed`):
+        // only those keep their old keywords.
         try {
-          await invokeInOrder(Invokes.AddTagForPaths, { paths: missing, tag }, "keyword");
+          await invokeInOrder(Invokes.AddTagForPaths, { paths, tag }, "keyword");
           updateTags(missing, (tags) => [...tags, tag]);
         } catch (e) {
-          const { failed } = saveFailure(e, missing);
-          updateTags(missing.filter((path) => !failed.includes(path)), (tags) => [...tags, tag]);
+          const { failed } = saveFailure(e, paths);
+          const written = paths.filter((path) => !failed.includes(path));
+          updateTags(written, (tags) => (tags.includes(tag) ? tags : [...tags, tag]));
           throw e;
         }
       }
@@ -296,7 +307,8 @@ export function StudioKeywords() {
           updateTags(paths, (tags) => tags.filter((t) => t !== tag));
         } catch (e) {
           const { failed } = saveFailure(e, paths);
-          updateTags(paths.filter((path) => !failed.includes(path)), (tags) => tags.filter((t) => t !== tag));
+          const written = paths.filter((path) => !failed.includes(path));
+          updateTags(written, (tags) => tags.filter((t) => t !== tag));
           throw e;
         }
       }
