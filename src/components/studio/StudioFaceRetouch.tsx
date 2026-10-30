@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
+import { recipeSaveSettled, useEditorActions } from "../../hooks/useEditorActions";
 import { Invokes } from "../ui/AppProperties";
 import type {
   Adjustments,
@@ -223,6 +223,8 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       setApplying(t("studio.faceRetouch.applied", { done, total: others.length }));
     } catch (e) {
       setApplying(aiErrorMessage(e));
+    } finally {
+      recipeSaveSettled();
     }
   };
   const setEditor = useEditorStore((s) => s.setEditor);

@@ -4,6 +4,7 @@ import { validNamingTemplate, validSequenceStart, type NamePreview } from "../..
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
+import SessionXmpStatus from "./SessionXmpStatus";
 import {
   useCallback,
   useEffect,
@@ -57,6 +58,7 @@ import {
 } from "./nextCapture";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
+import { RECIPE_SAVE_SETTLED } from "../../hooks/useEditorActions";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
 import { requestAutoAdvance } from "../../utils/photoStepping";
@@ -822,6 +824,21 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => useCatalogUndoStore.subscribe((state, previous) => {
     if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
   }), []);
+  // A rating, label or Develop edit whose XMP could not be written shows in
+  // the bar once its catalog step settles or its recipe save is written, not
+  // only after the next flag.
+  useEffect(() => {
+    const recount = throttleAsync(() => refreshRef.current().catch(() => {}), 1000);
+    const stopSteps = useCatalogUndoStore.subscribe((state, previous) => {
+      if (state.past !== previous.past) recount();
+    });
+    window.addEventListener(RECIPE_SAVE_SETTLED, recount);
+    return () => {
+      stopSteps();
+      window.removeEventListener(RECIPE_SAVE_SETTLED, recount);
+      recount.cancel();
+    };
+  }, []);
   // The folder list's "Synchronize Folder…".
   useEffect(() => {
     const open = (e: Event) => setSyncing({ folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder });
@@ -1386,13 +1403,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
-              {session.xmp_pending > 0 && (
-                <span className="session-count-pending" role="img"
-                  aria-label={t("session.bar.xmpPending", { count: session.xmp_pending })}
-                  title={t("session.bar.xmpPendingTitle")}>
-                  <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
-                </span>
-              )}
+              <SessionXmpStatus key={session.directory} directory={session.directory} count={session.xmp_pending}
+                onChanged={() => refresh().catch(() => {})} />
             </span>
           )}
         </div>

@@ -1069,10 +1069,7 @@
       "picked_other": "{{count}} markiert",
       "tether": "Tether",
       "tetherConnected": "{{camera}} verbunden",
-      "tetherTitle": "Tethered fotografieren: Fotos einer Kamera am USB kommen direkt in diese Bibliothek",
-      "xmpPending_one": "{{count}} XMP ausstehend",
-      "xmpPending_other": "{{count}} XMP ausstehend",
-      "xmpPendingTitle": "Bearbeitungen sind in der Bibliothek gespeichert. Einige XMP-Filialdateien müssen synchronisiert oder Konflikte darin gelöst werden."
+      "tetherTitle": "Tethered fotografieren: Fotos einer Kamera am USB kommen direkt in diese Bibliothek"
     },
     "create": {
       "catalog": "Katalog",
@@ -1479,6 +1476,32 @@
       "toolsLeft": "Werkzeuge links",
       "toolsRight": "Werkzeuge rechts",
       "toolsSide": "Wo möchtest du die Entwickeln-Werkzeuge?"
+    },
+    "xmp": {
+      "buttonTitle": "Einige XMP-Dateien sind nicht auf dem Stand der Bibliothek. Klicke für Details und um sie erneut zu schreiben.",
+      "count_one": "{{count}} XMP nicht aktuell",
+      "count_other": "{{count}} XMP nicht aktuell",
+      "explain": "Deine Bearbeitungen, Bewertungen und Stichwörter sind in der Bibliothek sicher. Andere Programme, die XMP-Dateien lesen, sehen diese Änderungen noch nicht. Die Fotos selbst werden nie verändert.",
+      "heading_one": "Die XMP-Datei von {{count}} Foto ist nicht aktuell",
+      "heading_other": "Die XMP-Dateien von {{count}} Fotos sind nicht aktuell",
+      "reason": {
+        "changedElsewhere_one": "{{count}} XMP-Datei wurde von einem anderen Programm geändert. Rawtonic überschreibt sie nicht; die Bibliothek behält deine Fassung.",
+        "changedElsewhere_other": "{{count}} XMP-Dateien wurden von einem anderen Programm geändert. Rawtonic überschreibt sie nicht; die Bibliothek behält deine Fassung.",
+        "failed_one": "{{count}} XMP-Datei konnte nicht geschrieben werden: {{error}}",
+        "failed_other": "{{count}} XMP-Dateien konnten nicht geschrieben werden: {{error}}",
+        "offline_one": "{{count}} Foto ist offline. Seine XMP-Datei wird aktualisiert, sobald das Laufwerk wieder verbunden ist.",
+        "offline_other": "{{count}} Fotos sind offline. Ihre XMP-Dateien werden aktualisiert, sobald das Laufwerk wieder verbunden ist.",
+        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben.",
+        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben."
+      },
+      "retry": "Erneut versuchen",
+      "retryFailed": "Die XMP-Dateien konnten nicht geschrieben werden: {{error}}",
+      "show": "Fotos zeigen",
+      "title": "XMP-Dateien nicht aktuell",
+      "view": "XMP nicht aktuell",
+      "writing": "Wird geschrieben …",
+      "written_one": "XMP-Datei für {{count}} Foto aktualisiert",
+      "written_other": "XMP-Dateien für {{count}} Fotos aktualisiert"
     }
   },
   "settings": {

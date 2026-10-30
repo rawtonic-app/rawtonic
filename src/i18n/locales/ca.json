@@ -1099,11 +1099,7 @@
       "picked_other": "{{count}} triades",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} connectada",
-      "tetherTitle": "Captura connectada: les fotos d’una càmera per USB arriben directament a aquesta biblioteca",
-      "xmpPending_one": "{{count}} XMP pendent",
-      "xmpPending_many": "{{count}} XMP pendents",
-      "xmpPending_other": "{{count}} XMP pendents",
-      "xmpPendingTitle": "Els ajustaments es desen a la biblioteca. Alguns fitxers sidecar XMP s’han de sincronitzar o tenen conflictes per resoldre."
+      "tetherTitle": "Captura connectada: les fotos d’una càmera per USB arriben directament a aquesta biblioteca"
     },
     "create": {
       "catalog": "Catàleg",
@@ -1536,6 +1532,39 @@
       "toolsLeft": "Eines a l’esquerra",
       "toolsRight": "Eines a la dreta",
       "toolsSide": "On vols les eines de Revelatge?"
+    },
+    "xmp": {
+      "buttonTitle": "Alguns fitxers XMP no estan al dia amb la biblioteca. Fes clic per veure'n els detalls i tornar-los a escriure.",
+      "count_one": "{{count}} XMP sense actualitzar",
+      "count_many": "{{count}} XMP sense actualitzar",
+      "count_other": "{{count}} XMP sense actualitzar",
+      "explain": "Els teus ajustos, valoracions i paraules clau estan segurs a la biblioteca. Altres programes que llegeixen fitxers XMP encara no veuen aquests canvis. Les fotos mateixes no es modifiquen mai.",
+      "heading_one": "El fitxer XMP de {{count}} foto no està al dia",
+      "heading_many": "Els fitxers XMP de {{count}} fotos no estan al dia",
+      "heading_other": "Els fitxers XMP de {{count}} fotos no estan al dia",
+      "reason": {
+        "changedElsewhere_one": "Un altre programa ha modificat {{count}} fitxer XMP. Rawtonic no el sobreescriu; la biblioteca conserva la teva versió.",
+        "changedElsewhere_many": "Un altre programa ha modificat {{count}} fitxers XMP. Rawtonic no els sobreescriu; la biblioteca conserva la teva versió.",
+        "changedElsewhere_other": "Un altre programa ha modificat {{count}} fitxers XMP. Rawtonic no els sobreescriu; la biblioteca conserva la teva versió.",
+        "failed_one": "No s'ha pogut escriure {{count}} fitxer XMP: {{error}}",
+        "failed_many": "No s'han pogut escriure {{count}} fitxers XMP: {{error}}",
+        "failed_other": "No s'han pogut escriure {{count}} fitxers XMP: {{error}}",
+        "offline_one": "{{count}} foto està fora de línia. El seu fitxer XMP s'actualitzarà quan tornis a connectar la unitat.",
+        "offline_many": "{{count}} fotos estan fora de línia. Els seus fitxers XMP s'actualitzaran quan tornis a connectar la unitat.",
+        "offline_other": "{{count}} fotos estan fora de línia. Els seus fitxers XMP s'actualitzaran quan tornis a connectar la unitat.",
+        "sharedName_one": "{{count}} foto té el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP."
+      },
+      "retry": "Torna-ho a provar",
+      "retryFailed": "No s'han pogut escriure els fitxers XMP: {{error}}",
+      "show": "Mostra les fotos",
+      "title": "Fitxers XMP no actualitzats",
+      "view": "XMP no actualitzat",
+      "writing": "S'està escrivint…",
+      "written_one": "Fitxer XMP actualitzat per a {{count}} foto",
+      "written_many": "Fitxers XMP actualitzats per a {{count}} fotos",
+      "written_other": "Fitxers XMP actualitzats per a {{count}} fotos"
     }
   },
   "settings": {

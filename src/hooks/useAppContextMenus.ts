@@ -75,7 +75,7 @@ import {
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
+import { isCurrentEditorImage, recipeSaveSettled, useEditorActions } from './useEditorActions';
 import { useSeriesMatchDialog } from '../components/studio/SeriesMatchDialog';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -585,6 +585,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               return failed;
             },
           )
+          .finally(recipeSaveSettled)
           .then(async (failed) => {
             const applied = finalSelection.filter((p) => !failed.includes(p));
             // The open photograph may have changed meanwhile: its editor

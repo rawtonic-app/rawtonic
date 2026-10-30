@@ -74,6 +74,56 @@
   /* Gives way before the session's name does (longer in translations). */
   flex: 0 1000 auto;
 }
+/* "N XMP not updated": a status that opens what to do about it. */
+.session-count-pending {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: #e5bc72;
+  cursor: pointer;
+}
+.session-count-pending:hover .session-count-status-text,
+.session-count-pending[aria-expanded="true"] .session-count-status-text {
+  text-decoration: underline;
+}
+.session-xmp-panel {
+  position: fixed;
+  z-index: 60;
+  width: 320px;
+  padding: 10px 12px 12px;
+  background: #292a2c;
+  border: 1px solid #45474b;
+  border-radius: 4px;
+  box-shadow: 0 10px 36px #0009;
+  color: #c9cbce;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.session-xmp-panel:focus {
+  outline: none;
+}
+.session-xmp-panel p {
+  margin: 0 0 8px;
+}
+.session-xmp-panel .session-xmp-title {
+  color: #e0e1e3;
+  font-weight: 600;
+}
+.session-xmp-reasons {
+  margin: 0 0 8px;
+  padding-left: 16px;
+  list-style: disc;
+  color: #e5bc72;
+}
+.session-xmp-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.session-xmp-actions .session-action {
+  padding: 5px 10px;
+}
 .session-action {
   display: inline-flex;
   gap: 7px;

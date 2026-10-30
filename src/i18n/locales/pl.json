@@ -1129,12 +1129,7 @@
       "picked_other": "wybrane: {{count}}",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} podłączony",
-      "tetherTitle": "Fotografowanie z podłączonym aparatem: zdjęcia z aparatu przez USB trafiają prosto do tej biblioteki",
-      "xmpPending_one": "XMP oczekujące: {{count}}",
-      "xmpPending_few": "XMP oczekujące: {{count}}",
-      "xmpPending_many": "XMP oczekujące: {{count}}",
-      "xmpPending_other": "XMP oczekujące: {{count}}",
-      "xmpPendingTitle": "Edycje są zapisane w bibliotece. Niektóre pliki XMP wymagają synchronizacji lub rozwiązania konfliktów."
+      "tetherTitle": "Fotografowanie z podłączonym aparatem: zdjęcia z aparatu przez USB trafiają prosto do tej biblioteki"
     },
     "create": {
       "catalog": "Katalog",
@@ -1593,6 +1588,46 @@
       "toolsLeft": "Narzędzia po lewej",
       "toolsRight": "Narzędzia po prawej",
       "toolsSide": "Gdzie umieścić narzędzia wywoływania?"
+    },
+    "xmp": {
+      "buttonTitle": "Niektóre pliki XMP nie są zgodne z biblioteką. Kliknij, aby zobaczyć szczegóły i zapisać je ponownie.",
+      "count_one": "{{count}} XMP nieaktualny",
+      "count_few": "{{count}} XMP nieaktualne",
+      "count_many": "{{count}} XMP nieaktualnych",
+      "count_other": "{{count}} XMP nieaktualnych",
+      "explain": "Twoje edycje, oceny i słowa kluczowe są bezpieczne w bibliotece. Inne programy czytające pliki XMP nie widzą jeszcze tych zmian. Same zdjęcia nigdy nie są zmieniane.",
+      "heading_one": "Plik XMP {{count}} zdjęcia jest nieaktualny",
+      "heading_few": "Pliki XMP {{count}} zdjęć są nieaktualne",
+      "heading_many": "Pliki XMP {{count}} zdjęć są nieaktualne",
+      "heading_other": "Pliki XMP {{count}} zdjęć są nieaktualne",
+      "reason": {
+        "changedElsewhere_one": "{{count}} plik XMP został zmieniony przez inny program. Rawtonic go nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "changedElsewhere_few": "{{count}} pliki XMP zostały zmienione przez inny program. Rawtonic ich nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "changedElsewhere_many": "{{count}} plików XMP zostało zmienionych przez inny program. Rawtonic ich nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "changedElsewhere_other": "{{count}} plików XMP zostało zmienionych przez inny program. Rawtonic ich nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "failed_one": "Nie udało się zapisać {{count}} pliku XMP: {{error}}",
+        "failed_few": "Nie udało się zapisać {{count}} plików XMP: {{error}}",
+        "failed_many": "Nie udało się zapisać {{count}} plików XMP: {{error}}",
+        "failed_other": "Nie udało się zapisać {{count}} plików XMP: {{error}}",
+        "offline_one": "{{count}} zdjęcie jest offline. Jego plik XMP zostanie zaktualizowany po ponownym podłączeniu dysku.",
+        "offline_few": "{{count}} zdjęcia są offline. Ich pliki XMP zostaną zaktualizowane po ponownym podłączeniu dysku.",
+        "offline_many": "{{count}} zdjęć jest offline. Ich pliki XMP zostaną zaktualizowane po ponownym podłączeniu dysku.",
+        "offline_other": "{{count}} zdjęć jest offline. Ich pliki XMP zostaną zaktualizowane po ponownym podłączeniu dysku.",
+        "sharedName_one": "{{count}} zdjęcie ma tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP.",
+        "sharedName_few": "{{count}} zdjęcia mają tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP.",
+        "sharedName_many": "{{count}} zdjęć ma tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP.",
+        "sharedName_other": "{{count}} zdjęć ma tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP."
+      },
+      "retry": "Spróbuj ponownie",
+      "retryFailed": "Nie udało się zapisać plików XMP: {{error}}",
+      "show": "Pokaż zdjęcia",
+      "title": "Pliki XMP nieaktualne",
+      "view": "XMP nieaktualne",
+      "writing": "Zapisywanie…",
+      "written_one": "Zaktualizowano plik XMP {{count}} zdjęcia",
+      "written_few": "Zaktualizowano pliki XMP {{count}} zdjęć",
+      "written_many": "Zaktualizowano pliki XMP {{count}} zdjęć",
+      "written_other": "Zaktualizowano pliki XMP {{count}} zdjęć"
     }
   },
   "settings": {

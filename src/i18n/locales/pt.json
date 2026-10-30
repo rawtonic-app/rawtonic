@@ -1099,11 +1099,7 @@
       "picked_other": "{{count}} escolhidas",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} ligada",
-      "tetherTitle": "Captura conectada: as fotos de uma câmara por USB chegam diretamente a esta biblioteca",
-      "xmpPending_one": "{{count}} XMP pendente",
-      "xmpPending_many": "{{count}} XMP pendentes",
-      "xmpPending_other": "{{count}} XMP pendentes",
-      "xmpPendingTitle": "Os ajustes estão salvos na biblioteca. Alguns arquivos sidecar XMP precisam ser sincronizados ou ter conflitos resolvidos."
+      "tetherTitle": "Captura conectada: as fotos de uma câmara por USB chegam diretamente a esta biblioteca"
     },
     "create": {
       "catalog": "Catálogo",
@@ -1536,6 +1532,39 @@
       "toolsLeft": "Ferramentas à esquerda",
       "toolsRight": "Ferramentas à direita",
       "toolsSide": "Onde prefere as ferramentas de Revelação?"
+    },
+    "xmp": {
+      "buttonTitle": "Alguns arquivos XMP não estão em dia com a biblioteca. Clique para ver os detalhes e gravá-los novamente.",
+      "count_one": "{{count}} XMP não atualizado",
+      "count_many": "{{count}} XMP não atualizados",
+      "count_other": "{{count}} XMP não atualizados",
+      "explain": "Suas edições, classificações e palavras-chave estão seguras na biblioteca. Outros programas que leem arquivos XMP ainda não veem essas alterações. As fotos em si nunca são alteradas.",
+      "heading_one": "O arquivo XMP de {{count}} foto não está atualizado",
+      "heading_many": "Os arquivos XMP de {{count}} fotos não estão atualizados",
+      "heading_other": "Os arquivos XMP de {{count}} fotos não estão atualizados",
+      "reason": {
+        "changedElsewhere_one": "{{count}} arquivo XMP foi alterado por outro programa. O Rawtonic não o substitui; a biblioteca mantém a sua versão.",
+        "changedElsewhere_many": "{{count}} arquivos XMP foram alterados por outro programa. O Rawtonic não os substitui; a biblioteca mantém a sua versão.",
+        "changedElsewhere_other": "{{count}} arquivos XMP foram alterados por outro programa. O Rawtonic não os substitui; a biblioteca mantém a sua versão.",
+        "failed_one": "Não foi possível gravar {{count}} arquivo XMP: {{error}}",
+        "failed_many": "Não foi possível gravar {{count}} arquivos XMP: {{error}}",
+        "failed_other": "Não foi possível gravar {{count}} arquivos XMP: {{error}}",
+        "offline_one": "{{count}} foto está offline. O arquivo XMP dela será atualizado quando a unidade for reconectada.",
+        "offline_many": "{{count}} fotos estão offline. Os arquivos XMP delas serão atualizados quando a unidade for reconectada.",
+        "offline_other": "{{count}} fotos estão offline. Os arquivos XMP delas serão atualizados quando a unidade for reconectada.",
+        "sharedName_one": "{{count}} foto tem o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
+        "sharedName_many": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
+        "sharedName_other": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP."
+      },
+      "retry": "Tentar novamente",
+      "retryFailed": "Não foi possível gravar os arquivos XMP: {{error}}",
+      "show": "Mostrar fotos",
+      "title": "Arquivos XMP não atualizados",
+      "view": "XMP não atualizado",
+      "writing": "Gravando…",
+      "written_one": "Arquivo XMP atualizado para {{count}} foto",
+      "written_many": "Arquivos XMP atualizados para {{count}} fotos",
+      "written_other": "Arquivos XMP atualizados para {{count}} fotos"
     }
   },
   "settings": {

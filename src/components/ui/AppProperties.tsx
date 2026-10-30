@@ -65,6 +65,8 @@ export enum Invokes {
   LibraryImportPreview = 'library_import_preview',
   LibraryImport = 'library_import',
   SessionSummary = 'session_summary',
+  SessionPendingXmp = 'session_pending_xmp',
+  SessionWritePendingXmp = 'session_write_pending_xmp',
   SessionSetFlag = 'session_set_flag',
   SessionOpen = 'session_open',
   SessionCreate = 'session_create',
