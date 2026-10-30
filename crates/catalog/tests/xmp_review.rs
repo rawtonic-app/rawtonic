@@ -392,12 +392,17 @@ fn every_metadata_write_adopts_an_edit_only_beside_the_photo_first() {
     assert_eq!(exposure(&title), Some(1.25));
     assert_eq!(title.lib.metadata(&title.id).unwrap().title, "Harbour");
 
-    // An editor sidecar that cannot be read refuses the write: nothing
-    // changes rather than losing the edit's look.
+    // An editor sidecar the editor cannot read shows no edit: there is no
+    // look to keep, so the write goes on and the file is left as it is.
     let broken = unadopted_edit(&external_packet(5));
-    fs::write(broken.photo.with_file_name("e.arw.rrdata"), b"{not json").unwrap();
-    assert!(broken.lib.use_xmp(&broken.id).is_err());
-    assert_eq!(broken.lib.metadata(&broken.id).unwrap().rating, 0);
-    assert_eq!(fs::read_to_string(&broken.xmp).unwrap(), external_packet(5));
+    let rrdata = broken.photo.with_file_name("e.arw.rrdata");
+    fs::write(&rrdata, b"{not json").unwrap();
+    broken
+        .lib
+        .set_flags(std::slice::from_ref(&broken.id), 1)
+        .unwrap();
+    assert_eq!(broken.lib.metadata(&broken.id).unwrap().flag, 1);
+    assert_eq!(exposure(&broken), None);
+    assert_eq!(fs::read(&rrdata).unwrap(), b"{not json");
     assert_eq!(fs::read(&broken.photo).unwrap(), b"synthetic original");
 }

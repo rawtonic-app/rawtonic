@@ -566,8 +566,8 @@ impl Library {
     /// again would bring back the sidecar's own rating). Its rating, label
     /// and keywords come too unless the library shows its own (as
     /// `with_library_metadata` does); an XMP conflict stays one. An editor
-    /// sidecar that cannot be read refuses the write. Returns whether an
-    /// edit was adopted.
+    /// sidecar that cannot be read is left as it is (the app shows no edit
+    /// from it). Returns whether an edit was adopted.
     pub fn adopt_editor_sidecar(&self, id: &str) -> Result<bool> {
         if has_editor_state(&self.conn, id)? {
             return Ok(false);
@@ -578,14 +578,15 @@ impl Library {
         if !sidecar.is_file() {
             return Ok(false);
         }
-        let bytes =
-            fs::read(&sidecar).with_context(|| format!("Cannot read {}", sidecar.display()))?;
-        let state: Value = serde_json::from_slice(&bytes).with_context(|| {
-            format!(
-                "{} is not a valid editor sidecar; nothing was changed so its edit is kept",
-                sidecar.display()
-            )
-        })?;
+        // One the editor cannot read shows no edit either (it opens with
+        // defaults): there is no look to keep, and the write goes on.
+        let Some(state) = fs::read(&sidecar)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .filter(Value::is_object)
+        else {
+            return Ok(false);
+        };
         let version = self.primary_version(id)?;
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         // Edited meanwhile (another connection): that edit is the library's.
