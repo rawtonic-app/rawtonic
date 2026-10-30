@@ -891,16 +891,31 @@
       "zoomOutTooltip": "Уменьшить"
     },
     "renameFile": {
+      "blocked": "Ничего нельзя переименовать, пока не решена каждая проблема выше.",
       "cancel": "Отмена",
+      "checking": "Проверка имён…",
       "fileNamingTemplate": "Шаблон именования файлов",
+      "more": "Ещё фото, не показанных в списке: {{hidden}}",
       "newName": "Новое имя",
+      "noteXmpStays": "{{xmp}} остаётся с {{owner}}, который не переименовывается.",
+      "noteXmpWithRaw": "{{xmp}} переименовывается вместе с этим RAW; {{others}} сохраняет имя без него.",
+      "nothingChanges": "Ни одно имя не меняется.",
+      "preview": "Предпросмотр",
+      "previewFailed": "Не удалось построить предпросмотр: {{error}}",
+      "problemInvalidName": "«{{name}}» — недопустимое имя файла.",
+      "problemNotFound": "Файла больше нет.",
+      "problemOccupied": "{{name}} уже существует.",
+      "problemSameTarget": "Другой файл этого переименования тоже получил бы имя {{name}}.",
       "save": "Сохранить",
+      "summary": "Переименовано фото: {{photos}} · файлов всего: {{files}}",
       "titleMultiple": "Переименовать {{count}} изобр.",
       "titleMultiple_one": "Переименовать {{count}} изображение",
       "titleMultiple_few": "Переименовать {{count}} изобр.",
       "titleMultiple_many": "Переименовать {{count}} изобр.",
       "titleMultiple_other": "Переименовать {{count}} изображений",
-      "titleSingle": "Переименовать изображение"
+      "titleSingle": "Переименовать изображение",
+      "unchanged": "сохраняет имя",
+      "withFiles": "Также переименовываются: {{files}}"
     },
     "renameFolder": {
       "cancel": "Отмена",

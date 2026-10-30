@@ -22,6 +22,7 @@ import {
   useCatalogUndoStore,
 } from "../utils/appUndo";
 import { isBelow } from '../utils/catalogFolders';
+import type { PlannedFile } from '../components/modals/RenameFileModal';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
 export interface FileOperationSummary {
@@ -885,7 +886,7 @@ export function useFileOperations(
   );
 
   const handleSaveRename = useCallback(
-    async (nameTemplate: string) => {
+    async (nameTemplate: string, expected: PlannedFile[]) => {
       const { renameTargetPaths, setUI } = useUIStore.getState();
 
       if (renameTargetPaths.length > 0 && nameTemplate) {
@@ -894,6 +895,7 @@ export function useFileOperations(
           const newPaths: Array<string> = await fileAction(
             () =>
               invoke<string[]>(Invokes.RenameFiles, {
+                expected,
                 nameTemplate,
                 paths: renameTargetPaths,
               }),
@@ -925,8 +927,10 @@ export function useFileOperations(
     [refreshImageList, followMoves],
   );
 
-  const handleRenameFiles = useCallback((paths: Array<string>) => {
-    if (paths && paths.length > 0) {
+  const handleRenameFiles = useCallback(async (paths: Array<string>) => {
+    // Saved first, so the preview already shows the edit sidecars the
+    // rename then takes along.
+    if (paths && paths.length > 0 && (await saveEditsFirst(paths))) {
       useUIStore.getState().setUI({ renameTargetPaths: paths, isRenameFileModalOpen: true });
     }
   }, []);

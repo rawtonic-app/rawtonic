@@ -891,16 +891,31 @@
       "zoomOutTooltip": "Oddal"
     },
     "renameFile": {
+      "blocked": "Nie można zmienić żadnej nazwy, dopóki każdy problem powyżej nie zostanie rozwiązany.",
       "cancel": "Anuluj",
+      "checking": "Sprawdzanie nazw…",
       "fileNamingTemplate": "Szablon nazywania plików",
+      "more": "Pozostałe zdjęcia, niewymienione: {{hidden}}",
       "newName": "Nowa nazwa",
+      "noteXmpStays": "{{xmp}} zostaje przy {{owner}}, którego nazwa się nie zmienia.",
+      "noteXmpWithRaw": "{{xmp}} zmienia nazwę razem z tym plikiem RAW; {{others}} zachowuje nazwę bez niego.",
+      "nothingChanges": "Żadna nazwa się nie zmienia.",
+      "preview": "Podgląd",
+      "previewFailed": "Podgląd się nie powiódł: {{error}}",
+      "problemInvalidName": "„{{name}}” nie jest prawidłową nazwą pliku.",
+      "problemNotFound": "Pliku już nie ma.",
+      "problemOccupied": "{{name}} już istnieje.",
+      "problemSameTarget": "Inny plik tej zmiany nazwy również nazywałby się {{name}}.",
       "save": "Zapisz",
+      "summary": "Zdjęcia ze zmienioną nazwą: {{photos}} · plików łącznie: {{files}}",
       "titleMultiple": "Zmień nazwę {{count}} obrazów",
       "titleMultiple_one": "Zmień nazwę {{count}} obrazu",
       "titleMultiple_few": "Zmień nazwy {{count}} obrazów",
       "titleMultiple_many": "Zmień nazwy {{count}} obrazów",
       "titleMultiple_other": "Zmień nazwę {{count}} obrazów",
-      "titleSingle": "Zmień nazwę obrazu"
+      "titleSingle": "Zmień nazwę obrazu",
+      "unchanged": "zachowuje nazwę",
+      "withFiles": "Zmieniane również: {{files}}"
     },
     "renameFolder": {
       "cancel": "Anuluj",

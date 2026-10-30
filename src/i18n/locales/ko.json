@@ -852,14 +852,29 @@
       "zoomOutTooltip": "축소"
     },
     "renameFile": {
+      "blocked": "위의 문제를 모두 해결하기 전에는 이름을 바꿀 수 없습니다.",
       "cancel": "취소",
+      "checking": "이름 확인 중…",
       "fileNamingTemplate": "파일 이름 템플릿",
+      "more": "목록에 없는 사진: {{hidden}}",
       "newName": "새 이름",
+      "noteXmpStays": "{{xmp}}은(는) 이름이 바뀌지 않는 {{owner}}에 남습니다.",
+      "noteXmpWithRaw": "{{xmp}}은(는) 이 RAW와 함께 이름이 바뀌며, {{others}}은(는) XMP 없이 이름을 유지합니다.",
+      "nothingChanges": "바뀌는 이름이 없습니다.",
+      "preview": "미리 보기",
+      "previewFailed": "미리 보기 실패: {{error}}",
+      "problemInvalidName": "\"{{name}}\"은(는) 올바른 파일 이름이 아닙니다.",
+      "problemNotFound": "파일이 더 이상 없습니다.",
+      "problemOccupied": "{{name}}이(가) 이미 있습니다.",
+      "problemSameTarget": "이 이름 변경의 다른 파일도 {{name}}이(가) 됩니다.",
       "save": "저장",
+      "summary": "이름이 바뀌는 사진: {{photos}} · 전체 파일: {{files}}",
       "titleMultiple": "이미지 {{count}}개 이름 변경",
       "titleMultiple_one": "이미지 {{count}}개 이름 변경",
       "titleMultiple_other": "이미지 {{count}}개 이름 변경",
-      "titleSingle": "이미지 이름 변경"
+      "titleSingle": "이미지 이름 변경",
+      "unchanged": "이름 유지",
+      "withFiles": "함께 이름이 바뀌는 파일: {{files}}"
     },
     "renameFolder": {
       "cancel": "취소",

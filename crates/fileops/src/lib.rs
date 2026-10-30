@@ -2608,8 +2608,10 @@ fn reapply_after_undo_if_reversed(step: &Step, trash: &dyn SystemTrash) -> Resul
     }
 }
 
+/// Whether `a` and `b` are one file (a case-only rename on a
+/// case-insensitive volume), as the journal's no-clobber checks see it.
 #[cfg(unix)]
-fn same_file(a: &Path, b: &Path) -> bool {
+pub fn same_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
         (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
@@ -2618,7 +2620,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn same_file(a: &Path, b: &Path) -> bool {
+pub fn same_file(a: &Path, b: &Path) -> bool {
     // Case-only renames on case-insensitive volumes.
     a.parent() == b.parent()
         && a.file_name().map(|n| n.to_string_lossy().to_lowercase())

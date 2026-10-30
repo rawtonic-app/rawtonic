@@ -872,15 +872,30 @@
       "zoomOutTooltip": "Menos Zoom"
     },
     "renameFile": {
+      "blocked": "Nada pode ser renomeado até cada problema acima estar resolvido.",
       "cancel": "Cancelar",
+      "checking": "A verificar os nomes…",
       "fileNamingTemplate": "Modelo de Nomeação de Arquivo",
+      "more": "Mais fotos não listadas: {{hidden}}",
       "newName": "Novo Nome",
+      "noteXmpStays": "{{xmp}} fica com {{owner}}, que não é renomeado.",
+      "noteXmpWithRaw": "{{xmp}} é renomeado com este RAW; {{others}} mantém o nome sem ele.",
+      "nothingChanges": "Nenhum nome muda.",
+      "preview": "Pré-visualização",
+      "previewFailed": "A pré-visualização falhou: {{error}}",
+      "problemInvalidName": "«{{name}}» não é um nome de ficheiro válido.",
+      "problemNotFound": "O ficheiro já não está lá.",
+      "problemOccupied": "{{name}} já existe.",
+      "problemSameTarget": "Outro ficheiro desta renomeação também se chamaria {{name}}.",
       "save": "Salvar",
+      "summary": "Fotos renomeadas: {{photos}} · ficheiros no total: {{files}}",
       "titleMultiple": "Renomear {{count}} Imagens",
       "titleMultiple_one": "Renomear {{count}} Imagem",
       "titleMultiple_many": "Renomear {{count}} Imagens",
       "titleMultiple_other": "Renomear {{count}} Imagens",
-      "titleSingle": "Renomear Imagem"
+      "titleSingle": "Renomear Imagem",
+      "unchanged": "mantém o nome",
+      "withFiles": "Também renomeados: {{files}}"
     },
     "renameFolder": {
       "cancel": "Cancelar",

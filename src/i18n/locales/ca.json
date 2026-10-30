@@ -872,15 +872,30 @@
       "zoomOutTooltip": "Allunyar"
     },
     "renameFile": {
+      "blocked": "No es pot canviar el nom de res fins que cada problema de dalt estigui resolt.",
       "cancel": "Cancel·lar",
+      "checking": "S’estan comprovant els noms…",
       "fileNamingTemplate": "Plantilla de nom de fitxer",
+      "more": "Més fotos no llistades: {{hidden}}",
       "newName": "Nou nom",
+      "noteXmpStays": "{{xmp}} es queda amb {{owner}}, que no es reanomena.",
+      "noteXmpWithRaw": "{{xmp}} es reanomena amb aquest RAW; {{others}} conserva el seu nom sense ell.",
+      "nothingChanges": "Cap nom no canvia.",
+      "preview": "Previsualització",
+      "previewFailed": "La previsualització ha fallat: {{error}}",
+      "problemInvalidName": "«{{name}}» no és un nom de fitxer vàlid.",
+      "problemNotFound": "El fitxer ja no hi és.",
+      "problemOccupied": "{{name}} ja existeix.",
+      "problemSameTarget": "Un altre fitxer d’aquest canvi de nom també es diria {{name}}.",
       "save": "Desar",
+      "summary": "Fotos reanomenades: {{photos}} · fitxers en total: {{files}}",
       "titleMultiple": "Reanomenar {{count}} imatges",
       "titleMultiple_one": "Reanomenar {{count}} imatge",
       "titleMultiple_many": "Reanomenar {{count}} imatges",
       "titleMultiple_other": "Reanomenar {{count}} imatges",
-      "titleSingle": "Reanomenar imatge"
+      "titleSingle": "Reanomenar imatge",
+      "unchanged": "conserva el seu nom",
+      "withFiles": "També es canvien de nom: {{files}}"
     },
     "renameFolder": {
       "cancel": "Cancel·lar",

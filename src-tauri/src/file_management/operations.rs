@@ -1,9 +1,7 @@
 //! File operations: folders, copy, move, rename, delete, import, duplicates and virtual copies.
 //! Part of `file_management`, split by concern (ADR 0009).
 use super::add_to_album;
-use super::generate_filename_from_template;
 use super::parse_virtual_path;
-use crate::exif_processing;
 use crate::image_processing::ImageMetadata;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -234,23 +232,19 @@ pub(crate) fn find_all_associated_files(source_image_path: &Path) -> Result<Vec<
         .ok_or("Could not get source filename")?
         .to_string_lossy();
 
-    let primary_sidecar_name = format!("{}.rrdata", source_filename);
-    let virtual_copy_prefix = format!("{}.", source_filename);
-
     if let Ok(entries) = fs::read_dir(parent_dir) {
         for entry in entries.filter_map(Result::ok) {
             let entry_path = entry.path();
             if !entry_path.is_file() {
                 continue;
             }
-
-            let entry_os_filename = entry.file_name();
-            let entry_filename = entry_os_filename.to_string_lossy();
-
-            if entry_filename == primary_sidecar_name
-                || (entry_filename.starts_with(&virtual_copy_prefix)
-                    && entry_filename.ends_with(".rrdata"))
-            {
+            // Its editor sidecar and virtual copies, never another photo's
+            // (a derivative `A.NEF.jpg`'s own `A.NEF.jpg.rrdata`).
+            let role = super::rename_plan::own_file_role(
+                &source_filename,
+                &entry.file_name().to_string_lossy(),
+            );
+            if role.is_some_and(|r| r != super::rename_plan::FileRole::ExifCache) {
                 associated_files.push(entry_path);
             }
         }
@@ -831,110 +825,89 @@ fn delete_files_with_associated_blocking(
     Ok((&op).into())
 }
 
+/// The rename dialog's preview: what `rename_files` with this template
+/// would do, nothing changed. The photos' facts are kept for the next
+/// template while the dialog renames the same photos; `refresh` (a dialog
+/// opening) reads them again.
+#[tauri::command]
+pub async fn preview_rename(
+    paths: Vec<String>,
+    name_template: String,
+    refresh: bool,
+) -> Result<super::rename_plan::RenamePlan, String> {
+    static KEPT: std::sync::Mutex<Option<(Vec<String>, super::rename_plan::PhotoFacts)>> =
+        std::sync::Mutex::new(None);
+    crate::file_management::blocking(move || {
+        let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+        if refresh || kept.as_ref().is_none_or(|(p, _)| *p != paths) {
+            *kept = Some((paths.clone(), Default::default()));
+        }
+        let (_, facts) = kept.as_mut().expect("just set");
+        super::rename_plan::plan_rename_with(&paths, &name_template, facts)
+    })
+    .await
+}
+
+/// Renames `paths` after `name_template` as previewed: `expected` is the
+/// previewed plan's files; if the files changed since, nothing is renamed.
 #[tauri::command]
 pub async fn rename_files(
     paths: Vec<String>,
     name_template: String,
+    expected: Vec<super::rename_plan::PlannedFile>,
     app_handle: AppHandle,
 ) -> Result<Vec<String>, String> {
     crate::file_management::blocking(move || {
-        rename_files_blocking(paths, name_template, app_handle)
+        let steps = checked_rename_steps(&paths, &name_template, &expected)?;
+        let Some((plan, steps, label)) = steps else {
+            return Ok(paths);
+        };
+        crate::file_operations::run(&app_handle, "rename", &label, steps)?;
+        Ok(paths.iter().map(|p| plan.renamed(p)).collect())
     })
     .await?
 }
 
-fn rename_files_blocking(
-    paths: Vec<String>,
-    name_template: String,
-    app_handle: AppHandle,
-) -> Result<Vec<String>, String> {
-    if paths.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
-    for (i, path_str) in paths.iter().enumerate() {
-        let (original_path, _) = parse_virtual_path(path_str);
-        if !original_path.exists() {
-            return Err(format!("File not found: {}", path_str));
-        }
-        if renames.iter().any(|(old, _)| old == &original_path) {
-            continue;
-        }
-        let parent = original_path
-            .parent()
-            .ok_or("Could not get parent directory")?;
-        let extension = original_path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
-        let file_date = exif_processing::get_creation_date_from_path(&original_path);
-        let new_stem = generate_filename_from_template(
-            &name_template,
-            &original_path,
-            i + 1,
-            paths.len(),
-            &file_date,
+/// The plan for renaming `paths` after `template`, its journal steps and
+/// label, if it is the one previewed (`expected`) and nothing stops it;
+/// `None` when no name changes.
+pub(crate) fn checked_rename_steps(
+    paths: &[String],
+    template: &str,
+    expected: &[super::rename_plan::PlannedFile],
+) -> Result<
+    Option<(
+        super::rename_plan::RenamePlan,
+        Vec<rawtonic_fileops::Step>,
+        String,
+    )>,
+    String,
+> {
+    let plan = super::rename_plan::plan_rename(paths, template);
+    let files = plan.files();
+    if files != expected {
+        return Err(
+            "The files changed since the preview; nothing was renamed. Open Rename again to see the new names."
+                .to_string(),
         );
-        if new_stem.is_empty() || new_stem.contains(['/', '\\']) {
-            return Err(format!("\"{new_stem}\" is not a valid file name."));
-        }
-        let new_path = parent.join(format!("{}.{}", new_stem, extension));
-        if new_path != original_path {
-            renames.push((original_path, new_path));
-        }
     }
-    if renames.is_empty() {
-        return Ok(paths);
+    if plan.blocked() {
+        return Err("The rename cannot be done as planned; nothing was renamed.".to_string());
     }
-    let images: Vec<PathBuf> = renames.iter().map(|(old, _)| old.clone()).collect();
-    let files = crate::file_operations::associated_files(&images)?;
-    let mut steps = Vec::new();
-    for (old, new) in &renames {
-        let old_name = old
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
-        let new_name = new
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
-        for file in &files {
-            let name = file.file_name().unwrap_or_default().to_string_lossy();
-            let target = if file == old {
-                new.clone()
-            } else if file.parent() == old.parent()
-                && let Some(rest) = name.strip_prefix(&format!("{old_name}."))
-            {
-                // Editor sidecars, virtual copies and the EXIF cache.
-                new.with_file_name(format!("{new_name}.{rest}"))
-            } else if file == &old.with_extension("xmp") {
-                new.with_extension("xmp")
-            } else {
-                continue;
-            };
-            steps.push(rawtonic_fileops::Step::rename(file, target));
-        }
+    if files.is_empty() {
+        return Ok(None);
     }
-    let label = if renames.len() == 1 {
+    let renamed = plan.photos.iter().filter(|p| !p.files.is_empty()).count();
+    let label = if renamed == 1 {
         "Rename 1 photo".to_string()
     } else {
-        format!("Rename {} photos", renames.len())
+        format!("Rename {renamed} photos")
     };
-    crate::file_operations::run(&app_handle, "rename", &label, steps)?;
-    let renamed: HashMap<&PathBuf, &PathBuf> = renames.iter().map(|(a, b)| (a, b)).collect();
-    Ok(paths
+    let steps = files
         .iter()
-        .map(|p| {
-            let (image, _) = parse_virtual_path(p);
-            match (renamed.get(&image), p.rsplit_once("?vc=")) {
-                (Some(new), Some((_, id))) => format!("{}?vc={id}", new.to_string_lossy()),
-                (Some(new), None) => new.to_string_lossy().into_owned(),
-                (None, _) => p.clone(),
-            }
-        })
-        .collect())
+        .map(|f| rawtonic_fileops::Step::rename(&f.from, &f.to))
+        .collect();
+    Ok(Some((plan, steps, label)))
 }
 
 #[tauri::command]

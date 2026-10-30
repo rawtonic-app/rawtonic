@@ -852,14 +852,29 @@
       "zoomOutTooltip": "缩小"
     },
     "renameFile": {
+      "blocked": "上面的每个问题解决之前，无法重命名任何文件。",
       "cancel": "取消",
+      "checking": "正在检查名称…",
       "fileNamingTemplate": "文件命名模板",
+      "more": "未列出的其他照片：{{hidden}}",
       "newName": "新名称",
+      "noteXmpStays": "{{xmp}} 留在不重命名的 {{owner}} 旁。",
+      "noteXmpWithRaw": "{{xmp}} 随此 RAW 一起重命名；{{others}} 保留原名，但不再有它。",
+      "nothingChanges": "没有名称变化。",
+      "preview": "预览",
+      "previewFailed": "预览失败：{{error}}",
+      "problemInvalidName": "“{{name}}”不是有效的文件名。",
+      "problemNotFound": "文件已不在。",
+      "problemOccupied": "{{name}} 已存在。",
+      "problemSameTarget": "此次重命名中的另一个文件也会被命名为 {{name}}。",
       "save": "保存",
+      "summary": "重命名的照片：{{photos}} · 文件总数：{{files}}",
       "titleMultiple": "重命名 {{count}} 张图像",
       "titleMultiple_one": "重命名 {{count}} 张图像",
       "titleMultiple_other": "重命名 {{count}} 张图像",
-      "titleSingle": "重命名图像"
+      "titleSingle": "重命名图像",
+      "unchanged": "保留原名",
+      "withFiles": "一并重命名：{{files}}"
     },
     "renameFolder": {
       "cancel": "取消",

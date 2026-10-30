@@ -852,14 +852,29 @@
       "zoomOutTooltip": "縮小"
     },
     "renameFile": {
+      "blocked": "上方每個問題解決之前，無法重新命名任何檔案。",
       "cancel": "取消",
+      "checking": "正在檢查名稱…",
       "fileNamingTemplate": "檔案命名模板",
+      "more": "未列出的其他照片：{{hidden}}",
       "newName": "新名稱",
+      "noteXmpStays": "{{xmp}} 留在不重新命名的 {{owner}} 旁。",
+      "noteXmpWithRaw": "{{xmp}} 隨此 RAW 一起重新命名；{{others}} 保留原名，但不再有它。",
+      "nothingChanges": "沒有名稱變更。",
+      "preview": "預覽",
+      "previewFailed": "預覽失敗：{{error}}",
+      "problemInvalidName": "「{{name}}」不是有效的檔名。",
+      "problemNotFound": "檔案已不在。",
+      "problemOccupied": "{{name}} 已存在。",
+      "problemSameTarget": "此次重新命名中的另一個檔案也會被命名為 {{name}}。",
       "save": "儲存",
+      "summary": "重新命名的照片：{{photos}} · 檔案總數：{{files}}",
       "titleMultiple": "重新命名 {{count}} 張影像",
       "titleMultiple_one": "重新命名 {{count}} 張影像",
       "titleMultiple_other": "重新命名 {{count}} 張影像",
-      "titleSingle": "重新命名影像"
+      "titleSingle": "重新命名影像",
+      "unchanged": "保留原名",
+      "withFiles": "一併重新命名：{{files}}"
     },
     "renameFolder": {
       "cancel": "取消",
