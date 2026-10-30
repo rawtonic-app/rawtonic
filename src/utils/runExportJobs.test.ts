@@ -6,17 +6,27 @@ import { invokeInOrder } from './catalogWrites';
 import { DEFAULT_RECIPE_DRAFT, draftFromPreset, exportSettingsFromDraft, presetFromDraft } from './exportRecipes';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import type { AppSettings } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { Status } from '../components/ui/ExportImportProperties';
+import { toast } from 'react-toastify';
 
+vi.mock('react-toastify', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
 const saves = vi.hoisted(() => ({ flush: vi.fn(async (): Promise<string[]> => []) }));
 vi.mock('../hooks/useEditorActions', () => ({ flushRecipeSaves: saves.flush }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.mocked(invoke).mockReset();
+  // Fresh pickers and toasts per test: a leftover answer would stand in for a
+  // picker this test never meant to answer.
+  const { open, save } = await import('@tauri-apps/plugin-dialog');
+  vi.mocked(open).mockReset();
+  vi.mocked(save).mockReset();
+  vi.mocked(toast.success).mockReset();
+  vi.mocked(toast.error).mockReset();
   // Recipes' folders are remembered through the settings, never a real file here.
   useSettingsStore.setState({ appSettings: null, handleSettingsChange: (async () => {}) as never });
   useLibraryStore.setState({ sessionDirectory: '/Shoots/A', rootPaths: ['/Shoots/A'] });
@@ -97,6 +107,37 @@ it('cancels the whole export when a recipe\'s folder picker is cancelled', async
   expect(useProcessStore.getState().exportState).toMatchObject({ status: Status.Idle, errorMessage: '' });
   // The cancelled recipe's folder is not remembered as chosen.
   expect(handleSettingsChange).not.toHaveBeenCalled();
+});
+
+it('exports nothing when a later recipe\'s folder picker is cancelled', async () => {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  // The first recipe's folder is chosen, the second one's is cancelled: the
+  // requests are only sent once every picker answered, so none is sent.
+  vi.mocked(open).mockResolvedValueOnce('/out/web').mockResolvedValueOnce(null);
+  const handleSettingsChange = vi.fn(async (_settings: AppSettings) => {});
+  const recipe = (id: string, name: string) =>
+    presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, where: 'choose', folder: undefined }, id, name);
+  useSettingsStore.setState({
+    appSettings: { exportPresets: [recipe('web', 'Web'), recipe('print', 'Print')] } as never,
+    handleSettingsChange,
+  });
+  const planned = ['web', 'print'].map((id) => {
+    const preset = recipe(id, id);
+    const draft = draftFromPreset(preset);
+    return { recipe: preset, draft, ...exportSettingsFromDraft(draft) };
+  });
+  useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: '', progress: { current: 0, total: 0 } } });
+  expect(await runExportJobs(planned, ['/p/a.NEF'])).toBe(0);
+  // Neither recipe is exported, although the first one's folder was chosen.
+  expect(vi.mocked(invoke)).not.toHaveBeenCalled();
+  expect(vi.mocked(open)).toHaveBeenCalledTimes(2);
+  // No toast, no error: cancelling is not a failure.
+  expect(toast.success).not.toHaveBeenCalled();
+  expect(toast.error).not.toHaveBeenCalled();
+  expect(useProcessStore.getState().exportState).toMatchObject({ status: Status.Idle, errorMessage: '' });
+  // The first recipe's chosen folder may be remembered, the cancelled one's not.
+  for (const [changed] of handleSettingsChange.mock.calls)
+    expect(changed.exportPresets?.filter((p) => p.lastExportPath)).toMatchObject([{ lastExportPath: '/out/web' }]);
 });
 
 it('queues an export once a rating set just before Export is written', async () => {  let rated: (value?: unknown) => void = () => {};
