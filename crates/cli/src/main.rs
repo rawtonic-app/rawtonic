@@ -1225,13 +1225,27 @@ fn unresolved_resource(recipe: &serde_json::Value, source: &std::path::Path) -> 
 /// them.
 static ONNX_RUNTIME_USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Stack of the thread that runs the command. The export render keeps
+/// several large frames on the stack at once (well over 1 MiB in release
+/// builds), more than Windows gives the main thread (1 MiB); this is the
+/// main-thread default of Linux and macOS and the app's worker stack.
+const COMMAND_STACK_SIZE: usize = 8 * 1024 * 1024;
+
 fn main() {
-    let code = match run() {
-        Ok(()) => 0,
-        Err(e) => {
+    let result = std::thread::Builder::new()
+        .name("rawtonic-command".into())
+        .stack_size(COMMAND_STACK_SIZE)
+        .spawn(run)
+        .expect("start the command thread")
+        .join();
+    let code = match result {
+        Ok(Ok(())) => 0,
+        Ok(Err(e)) => {
             eprintln!("Rawtonic: {e:#}");
             1
         }
+        // The panic message has already been printed by the panic hook.
+        Err(_) => 101,
     };
     // Linux GPU driver exit handlers can also race background resources.
     // Command-owned state has already been dropped when run() returns.
