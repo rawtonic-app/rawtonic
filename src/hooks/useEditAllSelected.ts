@@ -5,7 +5,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { onRecipeWritten, registerRecipeFlush, useEditorActions } from './useEditorActions';
+import { debouncedSave, onRecipeWritten, registerRecipeFlush, useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
@@ -79,6 +79,10 @@ function takeIntoEditor() {
   if (!path || !left) return;
   unwritten.delete(path);
   void left.apply(left.changes, [path], { openingNow: true, pasteFrom: left.from, replaceLayers: true });
+  // Saved now, explicitly: the editor may take this recipe as the one it
+  // opened with (its autosave saves only what changes after that). A
+  // failure keeps it unsaved, reported by the next recipe flush.
+  if (useEditorStore.getState().selectedImage?.path === path) debouncedSave(path, useEditorStore.getState().adjustments);
 }
 useEditorStore.subscribe((state, previous) => {
   const image = state.selectedImage;

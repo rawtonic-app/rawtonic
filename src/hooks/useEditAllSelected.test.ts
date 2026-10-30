@@ -441,9 +441,15 @@ describe('Edit all selected', () => {
         unsaved = await flushRecipeSaves();
       });
       expect(unsaved).toEqual([]);
-      // a.CR3 is written to its file; the open c.CR3 is left to the editor,
-      // which the flush did not change.
+      // a.CR3 is written to its file; the open c.CR3 is saved as the editor
+      // shows it (also without an edit after opening), and the flush did not
+      // change the editor.
       expect(written.A).toEqual(['/s/a.CR3']);
+      const saves = vi
+        .mocked(invoke)
+        .mock.calls.filter(([command]) => command === Invokes.SaveMetadataAndUpdateThumbnail)
+        .map(([, args]) => args as { path: string; adjustments: Adjustments });
+      expect(saves.map(({ path, adjustments }) => [path, adjustments.exposure])).toEqual([['/s/c.CR3', 0.5]]);
       expect(useEditorStore.getState().adjustments).toBe(shown);
     });
 
