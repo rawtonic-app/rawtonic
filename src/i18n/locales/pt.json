@@ -1105,11 +1105,7 @@
       "picked_other": "{{count}} escolhidas",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} ligada",
-      "tetherTitle": "Captura conectada: as fotos de uma câmara por USB chegam diretamente a esta biblioteca",
-      "xmpPending_one": "{{count}} XMP pendente",
-      "xmpPending_many": "{{count}} XMP pendentes",
-      "xmpPending_other": "{{count}} XMP pendentes",
-      "xmpPendingTitle": "Os ajustes estão salvos na biblioteca. Alguns arquivos sidecar XMP precisam ser sincronizados ou ter conflitos resolvidos."
+      "tetherTitle": "Captura conectada: as fotos de uma câmara por USB chegam diretamente a esta biblioteca"
     },
     "create": {
       "catalog": "Catálogo",
@@ -1298,6 +1294,7 @@
       "failed": "Não foi possível abrir a última biblioteca: {{error}}",
       "opening": "Abrindo {{name}} ({{directory}})… Se o macOS pedir acesso a este volume, permita."
     },
+    "switching": "Abrindo a biblioteca…",
     "sync": {
       "applied": "Movidas {{moved}} · Adicionadas {{added}} · Removidas {{removed}}",
       "apply": "Aplicar ({{n}})",
@@ -1530,6 +1527,13 @@
       "verifyProgress_many": "Verificando · {{count}} arquivos conferidos",
       "verifyProgress_other": "Verificando · {{count}} arquivos conferidos"
     },
+    "unsaved": {
+      "cancel": "Cancelar",
+      "discard": "Descartar alterações não guardadas",
+      "message": "Não foi possível guardar estas alterações: {{files}}. Abrir outra biblioteca agora perde-as. Tente novamente para as guardar primeiro, descarte-as ou cancele para ficar nesta biblioteca.",
+      "retry": "Tentar novamente",
+      "title": "Alterações não guardadas"
+    },
     "welcome": {
       "body": "Crie um projeto portátil para o seu próximo ensaio. Mantenha capturas, ajustes e entregas juntos, do primeiro quadro à seleção final.",
       "create": "Criar um projeto",
@@ -1542,6 +1546,39 @@
       "toolsLeft": "Ferramentas à esquerda",
       "toolsRight": "Ferramentas à direita",
       "toolsSide": "Onde prefere as ferramentas de Revelação?"
+    },
+    "xmp": {
+      "buttonTitle": "Alguns arquivos XMP não estão em dia com a biblioteca. Clique para ver os detalhes e gravá-los novamente.",
+      "count_one": "{{count}} XMP não atualizado",
+      "count_many": "{{count}} XMP não atualizados",
+      "count_other": "{{count}} XMP não atualizados",
+      "explain": "Suas edições, classificações e palavras-chave estão seguras na biblioteca. Outros programas que leem arquivos XMP ainda não veem essas alterações. As fotos em si nunca são alteradas.",
+      "heading_one": "O arquivo XMP de {{count}} foto não está atualizado",
+      "heading_many": "Os arquivos XMP de {{count}} fotos não estão atualizados",
+      "heading_other": "Os arquivos XMP de {{count}} fotos não estão atualizados",
+      "reason": {
+        "changedElsewhere_one": "{{count}} arquivo XMP foi alterado por outro programa. O Rawtonic não o substitui; a biblioteca mantém a sua versão.",
+        "changedElsewhere_many": "{{count}} arquivos XMP foram alterados por outro programa. O Rawtonic não os substitui; a biblioteca mantém a sua versão.",
+        "changedElsewhere_other": "{{count}} arquivos XMP foram alterados por outro programa. O Rawtonic não os substitui; a biblioteca mantém a sua versão.",
+        "failed_one": "Não foi possível gravar {{count}} arquivo XMP: {{error}}",
+        "failed_many": "Não foi possível gravar {{count}} arquivos XMP: {{error}}",
+        "failed_other": "Não foi possível gravar {{count}} arquivos XMP: {{error}}",
+        "offline_one": "{{count}} foto está offline. O arquivo XMP dela será atualizado quando a unidade for reconectada.",
+        "offline_many": "{{count}} fotos estão offline. Os arquivos XMP delas serão atualizados quando a unidade for reconectada.",
+        "offline_other": "{{count}} fotos estão offline. Os arquivos XMP delas serão atualizados quando a unidade for reconectada.",
+        "sharedName_one": "{{count}} foto tem o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
+        "sharedName_many": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
+        "sharedName_other": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP."
+      },
+      "retry": "Tentar novamente",
+      "retryFailed": "Não foi possível gravar os arquivos XMP: {{error}}",
+      "show": "Mostrar fotos",
+      "title": "Arquivos XMP não atualizados",
+      "view": "XMP não atualizado",
+      "writing": "Gravando…",
+      "written_one": "Arquivo XMP atualizado para {{count}} foto",
+      "written_many": "Arquivos XMP atualizados para {{count}} fotos",
+      "written_other": "Arquivos XMP atualizados para {{count}} fotos"
     }
   },
   "settings": {
@@ -1575,6 +1612,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Base de dados da biblioteca, com uma correção Rawtonic do bloqueio WAL no Windows.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
       },
       "credits": "Credits",
@@ -2834,7 +2872,8 @@
         "queuedMany_one": "{{count}} exportação adicionada à fila.",
         "queuedMany_many": "{{count}} exportações adicionadas à fila.",
         "queuedMany_other": "{{count}} exportações adicionadas à fila.",
-        "queuedOne": "Adicionado à fila de exportação."
+        "queuedOne": "Adicionado à fila de exportação.",
+        "unsavedEdits": "Não foi possível guardar as edições de {{names}}, por isso nada foi exportado. Exporte novamente quando estiverem guardadas."
       },
       "watermark": {
         "add": "Adicionar marca d'água",
@@ -2929,16 +2968,21 @@
     },
     "histogram": {
       "aria": "Histograma da imagem",
-      "clipping": "Corte",
-      "clippingTitle": "Avisos de corte: realces cortados em vermelho, sombras cortadas em azul ({{shortcut}})",
+      "clippingAria": "Avisos de corte",
       "gamut": "Aviso de gama",
       "gamutTitle": "Aviso de gama: cores fora do espaço de cor da prova em vermelho",
       "graphAria": "Distribuição de luminância RGB da foto selecionada",
       "graphEmpty": "Histograma disponível após abrir uma foto",
+      "highlightClipping": "Aviso de altas-luzes",
+      "highlightClippingLit": "Aviso de altas-luzes, estouradas",
+      "highlightClippingTitle": "Aviso de altas-luzes (altas-luzes estouradas; {{shortcut}} alterna ambos)",
       "proof": "Prova",
       "proofSpace": "Espaço de cor da prova",
       "proofTitle": "Prova suave: mostra a foto como uma exportação no espaço de cor escolhido aparecerá ({{shortcut}})",
       "selectPhoto": "Selecione uma foto",
+      "shadowClipping": "Aviso de sombras",
+      "shadowClippingLit": "Aviso de sombras, esmagadas",
+      "shadowClippingTitle": "Aviso de sombras (sombras esmagadas; {{shortcut}} alterna ambos)",
       "title": "Histograma"
     },
     "layers": {
@@ -3705,7 +3749,9 @@
     "multiView": {
       "controls": "Marcar, classificar ou remover {{name}}",
       "editAll": "Editar todas as selecionadas",
+      "editAllNotSaved": "“Editar todas as selecionadas” não conseguiu salvar estas fotos: {{names}}. Elas mantêm os ajustes anteriores até você tentar de novo.",
       "editAllTitle": "Editar todas as selecionadas: as alterações na foto principal também vão para cada outra foto mostrada (molduras laranja)",
+      "editAllTryAgain": "Tentar de novo",
       "makePrimary": "Editar {{name}} (torná-la a foto principal)",
       "more_one": "e mais {{n}}",
       "more_many": "e mais {{n}}",
@@ -4033,14 +4079,20 @@
         "auto": "Auto",
         "autoAria": "Níveis automáticos",
         "autoTitle": "Definir os pontos de preto e branco pelo histograma",
-        "black": "Preto",
         "channelAria": "Canal dos níveis",
-        "highlight": "Realces",
+        "fieldAria": "Valor de {{name}}",
+        "histogramAria": "Histograma dos níveis",
+        "inBlack": "Preto de entrada",
+        "inWhite": "Branco de entrada",
         "midtone": "Tons médios",
+        "outBlack": "Preto de saída",
         "output": "Saída",
-        "shadow": "Sombras",
-        "title": "Níveis",
-        "white": "Branco"
+        "outWhite": "Branco de saída",
+        "pickBlack": "Conta-gotas do ponto preto",
+        "pickBlackTitle": "Clique na foto onde deve ficar preto",
+        "pickWhite": "Conta-gotas do ponto branco",
+        "pickWhiteTitle": "Clique na foto onde deve ficar branco",
+        "title": "Níveis"
       },
       "regionCurve": {
         "aria": {

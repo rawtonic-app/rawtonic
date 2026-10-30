@@ -13,6 +13,8 @@ import { toast } from "react-toastify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
+import { debouncedSave } from "../../hooks/useEditorActions";
+import type { Adjustments } from "../../utils/adjustments";
 
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
@@ -140,7 +142,47 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Location" }));
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("img", { name: "3 offline" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "2 XMP pending" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
+  });
+
+  it("re-reads the XMP count after a rating settles and after a Develop save is written", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let pending = 0;
+    let finishSave: () => void = () => {};
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_create" || command === "session_summary") return { ...summary, xmp_pending: pending };
+      // Develop's last save is still being written when the view changes;
+      // its XMP fails.
+      if (command === "save_metadata_and_update_thumbnail")
+        return new Promise<void>((resolve) => { finishSave = () => { pending = 2; resolve(); }; });
+      return base(command, args);
+    });
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await screen.findByText("Acme");
+    expect(screen.queryByRole("button", { name: /XMP not updated/ })).toBeNull();
+    // A rating's XMP could not be written: its write settles.
+    pending = 1;
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, {
+        detail: { id: 1, kind: "set_rating_for_paths", paths: ["/a"], failed: [] },
+      }));
+    });
+    expect(await screen.findByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
+    // Opening an album leaves Develop first and flushes its save after.
+    act(() => useUIStore.setState({ activeView: "editor" }));
+    debouncedSave("/jobs/Acme/Capture/a.ARW", {} as Adjustments);
+    act(() => useUIStore.setState({ activeView: "library" }));
+    debouncedSave.flush();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Not counted before the save is written.
+    expect(screen.getByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
+    act(() => finishSave());
+    expect(await screen.findByRole("button", { name: "2 XMP not updated" }, { timeout: 3000 })).toBeTruthy();
   });
 
   it("counts pending XMP files again when a batch write settles, also one that failed", async () => {
@@ -156,7 +198,7 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Location" }));
     await user.click(screen.getByRole("button", { name: "Create project" }));
     await screen.findByText("Acme");
-    expect(screen.queryByRole("img", { name: /XMP pending/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /XMP not updated/ })).toBeNull();
     // A paste onto closed photographs whose XMP could not be written.
     pendingXmp = 2;
     act(() => {
@@ -164,7 +206,7 @@ describe("Session workspace keyboard flows", () => {
         detail: { id: 1, kind: "paste", paths: ["/a", "/b"], failed: ["/a", "/b"] },
       }));
     });
-    expect(await screen.findByRole("img", { name: "2 XMP pending" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {

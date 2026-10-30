@@ -63,3 +63,30 @@ it('remembers the photographs this window rated, not failed ratings nor labels',
   await vi.waitFor(() => expect(metadataWritten('/y')).toBe(false));
   expect(metadataWritten('/x')).toBe(true);
 });
+
+it('waits for every metadata write given before, and those they start meanwhile', async () => {
+  const { allPhotoWritesSettled, photoWorkPending, submitPhotoWrite } = await import('./photoWrites');
+  let rated: (value?: unknown) => void = () => {};
+  vi.mocked(invoke).mockReset();
+  vi.mocked(invoke).mockImplementationOnce(() => new Promise((resolve) => (rated = resolve)));
+  const rating = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 5 });
+  let exifWritten: () => void = () => {};
+  // An EXIF write that fails still settles.
+  const exif = submitPhotoWrite(['/b'], () => new Promise<void>((_, reject) => (exifWritten = () => reject('locked'))), { kind: 'exif' });
+  exif.catch(() => {});
+  let settled = false;
+  const waiting = allPhotoWritesSettled().then(() => (settled = true));
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+  // A step queued behind the rating starts its write once that is in.
+  let labelled: () => void = () => {};
+  const label = photoWorkPending(rating.then(() => new Promise<void>((resolve) => (labelled = resolve))));
+  rated();
+  exifWritten();
+  await rating;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(settled).toBe(false);
+  labelled();
+  await label;
+  await waiting;
+  expect(settled).toBe(true);
+});

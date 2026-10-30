@@ -30,6 +30,9 @@ pub enum JobState {
     Interrupted,
     /// Held by the user: the queue passes it by; resuming keeps its place.
     Paused,
+    /// Being queued (`stage_all`): its photos' snapshots are still written.
+    /// Neither listed nor run until `commit_staged`; a restart drops it.
+    Pinning,
 }
 
 /// How a run of a job ended.
@@ -53,6 +56,7 @@ impl JobState {
             JobState::Cancelled => "cancelled",
             JobState::Interrupted => "interrupted",
             JobState::Paused => "paused",
+            JobState::Pinning => "pinning",
         }
     }
     fn parse(text: &str) -> Result<Self> {
@@ -64,6 +68,7 @@ impl JobState {
             "cancelled" => JobState::Cancelled,
             "interrupted" => JobState::Interrupted,
             "paused" => JobState::Paused,
+            "pinning" => JobState::Pinning,
             other => anyhow::bail!("Unknown export job state {other}"),
         })
     }
@@ -138,7 +143,7 @@ pub struct Job {
     pub failures: Vec<Failure>,
 }
 
-const QUEUE_VERSION: u32 = 2;
+const QUEUE_VERSION: u32 = 3;
 
 pub struct ExportQueue {
     conn: Connection,
@@ -178,6 +183,7 @@ impl ExportQueue {
                attempts INTEGER NOT NULL DEFAULT 0,
                started_ms INTEGER,
                finished_ms INTEGER,
+               snapshot TEXT,
                PRIMARY KEY(job_id, idx));",
         )?;
         if version < 2 {
@@ -195,6 +201,20 @@ impl ExportQueue {
                 )?;
             }
             tx.execute_batch("PRAGMA user_version=2;")?;
+            tx.commit()?;
+        }
+        if version < 3 {
+            // Versions 1 and 2 kept no snapshot of a photo's inputs.
+            let tx = conn.unchecked_transaction()?;
+            let has_snapshot: bool = tx.query_row(
+                "SELECT count(*) FROM pragma_table_info('items') WHERE name='snapshot'",
+                [],
+                |r| r.get(0),
+            )?;
+            if !has_snapshot {
+                tx.execute_batch("ALTER TABLE items ADD COLUMN snapshot TEXT;")?;
+            }
+            tx.execute_batch("PRAGMA user_version=3;")?;
             tx.commit()?;
         }
         Ok(Self { conn })
@@ -219,20 +239,123 @@ impl ExportQueue {
         let tx = self.conn.unchecked_transaction()?;
         let mut ids = Vec::with_capacity(jobs.len());
         for (label, request, paths) in jobs {
-            ensure!(!paths.is_empty(), "Nothing to export");
-            let id = uuid::Uuid::new_v4().to_string();
-            tx.execute(
-                "INSERT INTO jobs(id,label,state,request) VALUES(?,?,'queued',?)",
-                params![id, label, serde_json::to_string(request)?],
-            )?;
-            let mut insert = tx.prepare("INSERT INTO items(job_id,idx,path) VALUES(?,?,?)")?;
-            for (index, path) in paths.iter().enumerate() {
-                insert.execute(params![id, index as i64, path])?;
-            }
-            ids.push(id);
+            ids.push(Self::insert_job(
+                &tx,
+                label,
+                request,
+                paths,
+                JobState::Queued,
+            )?);
         }
         tx.commit()?;
         Ok(ids)
+    }
+
+    fn insert_job(
+        tx: &rusqlite::Transaction,
+        label: &str,
+        request: &serde_json::Value,
+        paths: &[String],
+        state: JobState,
+    ) -> Result<String> {
+        ensure!(!paths.is_empty(), "Nothing to export");
+        let id = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO jobs(id,label,state,request) VALUES(?,?,?,?)",
+            params![id, label, state.as_str(), serde_json::to_string(request)?],
+        )?;
+        let mut insert = tx.prepare("INSERT INTO items(job_id,idx,path) VALUES(?,?,?)")?;
+        for (index, path) in paths.iter().enumerate() {
+            insert.execute(params![id, index as i64, path])?;
+        }
+        Ok(id)
+    }
+
+    /// Starts queueing `jobs` (label, paths) whose photos' snapshots are
+    /// written next (`stage_snapshots`), a few at a time; they are neither
+    /// listed nor run until `commit_staged` queues them all at once (or
+    /// `discard_staged` drops them).
+    pub fn stage_all(&self, jobs: &[(&str, &[String])]) -> Result<Vec<String>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut ids = Vec::with_capacity(jobs.len());
+        for (label, paths) in jobs {
+            ids.push(Self::insert_job(
+                &tx,
+                label,
+                &serde_json::Value::Null,
+                paths,
+                JobState::Pinning,
+            )?);
+        }
+        tx.commit()?;
+        Ok(ids)
+    }
+
+    /// Keeps `snapshots` with photos `first..` of `job`, each until it is
+    /// exported (`item_snapshot`).
+    pub fn stage_snapshots(&self, job: &str, first: usize, snapshots: &[String]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut update =
+                tx.prepare_cached("UPDATE items SET snapshot=? WHERE job_id=? AND idx=?")?;
+            for (offset, snapshot) in snapshots.iter().enumerate() {
+                let changed = update.execute(params![snapshot, job, (first + offset) as i64])?;
+                ensure!(
+                    changed == 1,
+                    "No photo {} in export job {job}",
+                    first + offset
+                );
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Queues the staged `jobs` (id, request) together, once every photo
+    /// has its snapshot: all of them or, on an error, none.
+    pub fn commit_staged(&self, jobs: &[(&str, &serde_json::Value)]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for (id, request) in jobs {
+            let missing: i64 = tx.query_row(
+                "SELECT count(*) FROM items WHERE job_id=? AND snapshot IS NULL",
+                [id],
+                |r| r.get(0),
+            )?;
+            ensure!(
+                missing == 0,
+                "{missing} photos of export {id} have no snapshot"
+            );
+            let changed = tx.execute(
+                "UPDATE jobs SET request=?, state='queued' WHERE id=? AND state='pinning'",
+                params![serde_json::to_string(request)?, id],
+            )?;
+            ensure!(changed == 1, "Export {id} is not being queued");
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Drops staged jobs that will not be queued.
+    pub fn discard_staged(&self, ids: &[String]) -> Result<()> {
+        for id in ids {
+            self.conn
+                .execute("DELETE FROM jobs WHERE id=? AND state='pinning'", [id])?;
+        }
+        Ok(())
+    }
+
+    /// The snapshot a photo was queued with (`stage_snapshots`); None once
+    /// it is exported (it never renders again) or when none was kept.
+    pub fn item_snapshot(&self, job: &str, index: usize) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT snapshot FROM items WHERE job_id=? AND idx=?",
+                params![job, index as i64],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten())
     }
 
     /// The oldest queued job, marked running.
@@ -293,7 +416,8 @@ impl ExportQueue {
 
     pub fn item_done(&self, job: &str, index: usize) -> Result<()> {
         self.conn.execute(
-            "UPDATE items SET state=?, error=NULL, finished_ms=? WHERE job_id=? AND idx=?",
+            "UPDATE items SET state=?, error=NULL, finished_ms=?, snapshot=NULL
+             WHERE job_id=? AND idx=?",
             params![ItemState::Done.as_str(), now_ms(), job, index as i64],
         )?;
         Ok(())
@@ -341,6 +465,9 @@ impl ExportQueue {
     /// After a restart: running jobs become interrupted; photos whose
     /// planned output exists are finished. Returns the interrupted jobs.
     pub fn recover(&self) -> Result<Vec<Job>> {
+        // Jobs a quit or crash cut short while they were being queued.
+        self.conn
+            .execute("DELETE FROM jobs WHERE state='pinning'", [])?;
         let ids: Vec<String> =
             self.ids("SELECT id FROM jobs WHERE state='running' ORDER BY seq")?;
         for id in &ids {
@@ -447,7 +574,7 @@ impl ExportQueue {
 
     /// Jobs in queue order, oldest first.
     pub fn jobs(&self) -> Result<Vec<Job>> {
-        let ids = self.ids("SELECT id FROM jobs ORDER BY seq")?;
+        let ids = self.ids("SELECT id FROM jobs WHERE state!='pinning' ORDER BY seq")?;
         ids.iter().map(|id| self.job(id)).collect()
     }
 
@@ -847,6 +974,81 @@ mod tests {
     }
 
     #[test]
+    fn each_photo_keeps_its_snapshot_until_it_is_exported() {
+        let (_dir, q) = queue();
+        let photos = paths(2);
+        let snapshots = ["{\"exposure\":1}".to_string(), "{\"exposure\":2}".into()];
+        let job = q.stage_all(&[("Web", &photos)]).unwrap().remove(0);
+        q.stage_snapshots(&job, 0, &snapshots[..1]).unwrap();
+        assert!(
+            q.commit_staged(&[(&job, &json!({"format": "jpg"}))])
+                .is_err(),
+            "every photo needs its snapshot"
+        );
+        assert!(
+            q.stage_snapshots(&job, 2, &snapshots[..1]).is_err(),
+            "no photo 2"
+        );
+        q.stage_snapshots(&job, 1, &snapshots[1..]).unwrap();
+        q.commit_staged(&[(&job, &json!({"format": "jpg"}))])
+            .unwrap();
+        assert_eq!(q.job(&job).unwrap().request["format"], "jpg");
+        assert_eq!(
+            q.item_snapshot(&job, 1).unwrap(),
+            Some(snapshots[1].clone())
+        );
+        q.item_failed(&job, 1, "offline").unwrap();
+        q.item_done(&job, 0).unwrap();
+        assert_eq!(q.item_snapshot(&job, 0).unwrap(), None, "exported: dropped");
+        // A failed photo is retried with what it was queued with.
+        q.finish(&job, RunEnd::Completed).unwrap();
+        assert_eq!(q.retry(&job).unwrap(), 1);
+        assert_eq!(
+            q.item_snapshot(&job, 1).unwrap(),
+            Some(snapshots[1].clone())
+        );
+        assert!(
+            !serde_json::to_string(&q.items(&job).unwrap())
+                .unwrap()
+                .contains("exposure"),
+            "not sent to the interface"
+        );
+    }
+
+    #[test]
+    fn jobs_being_queued_are_neither_listed_nor_run_and_go_with_a_restart() {
+        let (dir, q) = queue();
+        let photos = paths(1);
+        let ids = q
+            .stage_all(&[("Web", &photos), ("Print", &photos)])
+            .unwrap();
+        for id in &ids {
+            q.stage_snapshots(id, 0, &["{}".to_string()]).unwrap();
+        }
+        assert!(q.jobs().unwrap().is_empty());
+        assert!(q.start_next().unwrap().is_none());
+        // All of them are queued at once, or none.
+        assert!(
+            q.commit_staged(&[(&ids[0], &json!({})), ("missing", &json!({}))])
+                .is_err()
+        );
+        assert!(q.jobs().unwrap().is_empty(), "none of them");
+        let discarded = q.stage_all(&[("Gone", &photos)]).unwrap();
+        q.discard_staged(&discarded).unwrap();
+        assert!(q.job(&discarded[0]).is_err());
+        q.commit_staged(&[(&ids[0], &json!({})), (&ids[1], &json!({}))])
+            .unwrap();
+        assert_eq!(q.jobs().unwrap().len(), 2);
+        // Cut short by a quit while being queued: dropped at the start.
+        let cut = q.stage_all(&[("Cut", &photos)]).unwrap().remove(0);
+        drop(q);
+        let q = ExportQueue::open(&dir.path().join("export-queue.sqlite")).unwrap();
+        q.recover().unwrap();
+        assert!(q.job(&cut).is_err());
+        assert_eq!(q.jobs().unwrap().len(), 2);
+    }
+
+    #[test]
     fn a_version_1_queue_is_upgraded_in_place() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("export-queue.sqlite");
@@ -869,6 +1071,7 @@ mod tests {
         }
         let q = ExportQueue::open(&path).unwrap();
         let item = &q.items("j").unwrap()[0];
+        assert_eq!(q.item_snapshot("j", 0).unwrap(), None, "queued without one");
         assert_eq!(item.error.as_deref(), Some("decode failed"));
         assert_eq!((item.started_ms, item.finished_ms), (None, None));
         assert_eq!(q.retry("j").unwrap(), 1);

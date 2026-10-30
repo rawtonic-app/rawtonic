@@ -333,6 +333,7 @@ pub fn add_batch_with_metadata(
     if let Some(metadata) = metadata {
         metadata.validate()?;
     }
+    let _sidecars = crate::capture::SidecarScope::new();
     anyhow::ensure!(
         library.manifest.mode == rawtonic_catalog::Mode::Catalog,
         "A session keeps its photographs inside it: copy them into the session"

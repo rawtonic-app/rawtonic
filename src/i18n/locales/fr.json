@@ -1105,11 +1105,7 @@
       "picked_other": "{{count}} retenues",
       "tether": "Connexion",
       "tetherConnected": "{{camera}} connecté",
-      "tetherTitle": "Prise de vue connectée : les photos d’un appareil en USB arrivent directement dans cette bibliothèque",
-      "xmpPending_one": "{{count}} XMP en attente",
-      "xmpPending_many": "{{count}} XMP en attente",
-      "xmpPending_other": "{{count}} XMP en attente",
-      "xmpPendingTitle": "Les retouches sont enregistrées dans la bibliothèque. Certains fichiers annexes XMP doivent être synchronisés ou leurs conflits résolus."
+      "tetherTitle": "Prise de vue connectée : les photos d’un appareil en USB arrivent directement dans cette bibliothèque"
     },
     "create": {
       "catalog": "Catalogue",
@@ -1298,6 +1294,7 @@
       "failed": "Impossible d’ouvrir la dernière bibliothèque : {{error}}",
       "opening": "Ouverture de {{name}} ({{directory}})… Si macOS demande l’accès à ce volume, autorisez-le."
     },
+    "switching": "Ouverture de la bibliothèque…",
     "sync": {
       "applied": "Déplacées {{moved}} · Ajoutées {{added}} · Retirées {{removed}}",
       "apply": "Appliquer ({{n}})",
@@ -1530,6 +1527,13 @@
       "verifyProgress_many": "Vérification · {{count}} fichiers vérifiés",
       "verifyProgress_other": "Vérification · {{count}} fichiers vérifiés"
     },
+    "unsaved": {
+      "cancel": "Annuler",
+      "discard": "Abandonner les modifications",
+      "message": "Ces modifications n’ont pas pu être enregistrées : {{files}}. Ouvrir une autre bibliothèque maintenant les perd. Réessayez pour les enregistrer d’abord, abandonnez-les ou annulez pour rester dans cette bibliothèque.",
+      "retry": "Réessayer",
+      "title": "Modifications non enregistrées"
+    },
     "welcome": {
       "body": "Créez un projet portable pour votre prochaine prise de vue. Gardez ensemble prises de vue, retouches et livrables, de la première image à la sélection finale.",
       "create": "Créer un projet",
@@ -1542,6 +1546,39 @@
       "toolsLeft": "Outils à gauche",
       "toolsRight": "Outils à droite",
       "toolsSide": "Où souhaitez-vous les outils de développement ?"
+    },
+    "xmp": {
+      "buttonTitle": "Certains fichiers XMP ne sont pas à jour par rapport à la bibliothèque. Cliquez pour les détails et pour les réécrire.",
+      "count_one": "{{count}} XMP non mis à jour",
+      "count_many": "{{count}} XMP non mis à jour",
+      "count_other": "{{count}} XMP non mis à jour",
+      "explain": "Vos retouches, notes et mots-clés sont en sécurité dans la bibliothèque. Les autres programmes qui lisent les fichiers XMP ne voient pas encore ces modifications. Les photos elles-mêmes ne sont jamais modifiées.",
+      "heading_one": "Le fichier XMP de {{count}} photo n’est pas à jour",
+      "heading_many": "Les fichiers XMP de {{count}} photos ne sont pas à jour",
+      "heading_other": "Les fichiers XMP de {{count}} photos ne sont pas à jour",
+      "reason": {
+        "changedElsewhere_one": "{{count}} fichier XMP a été modifié par un autre programme. Rawtonic ne l’écrase pas ; la bibliothèque garde votre version.",
+        "changedElsewhere_many": "{{count}} fichiers XMP ont été modifiés par un autre programme. Rawtonic ne les écrase pas ; la bibliothèque garde votre version.",
+        "changedElsewhere_other": "{{count}} fichiers XMP ont été modifiés par un autre programme. Rawtonic ne les écrase pas ; la bibliothèque garde votre version.",
+        "failed_one": "{{count}} fichier XMP n’a pas pu être écrit : {{error}}",
+        "failed_many": "{{count}} fichiers XMP n’ont pas pu être écrits : {{error}}",
+        "failed_other": "{{count}} fichiers XMP n’ont pas pu être écrits : {{error}}",
+        "offline_one": "{{count}} photo est hors ligne. Son fichier XMP sera mis à jour quand le disque sera reconnecté.",
+        "offline_many": "{{count}} photos sont hors ligne. Leurs fichiers XMP seront mis à jour quand le disque sera reconnecté.",
+        "offline_other": "{{count}} photos sont hors ligne. Leurs fichiers XMP seront mis à jour quand le disque sera reconnecté.",
+        "sharedName_one": "{{count}} photo porte le même nom qu’une autre (RAW et JPEG) : les deux écriraient le même fichier XMP.",
+        "sharedName_many": "{{count}} photos portent le même nom qu’une autre (RAW et JPEG) : les deux écriraient le même fichier XMP.",
+        "sharedName_other": "{{count}} photos portent le même nom qu’une autre (RAW et JPEG) : les deux écriraient le même fichier XMP."
+      },
+      "retry": "Réessayer",
+      "retryFailed": "Les fichiers XMP n’ont pas pu être écrits : {{error}}",
+      "show": "Afficher les photos",
+      "title": "Fichiers XMP non mis à jour",
+      "view": "XMP non mis à jour",
+      "writing": "Écriture…",
+      "written_one": "Fichier XMP mis à jour pour {{count}} photo",
+      "written_many": "Fichiers XMP mis à jour pour {{count}} photos",
+      "written_other": "Fichiers XMP mis à jour pour {{count}} photos"
     }
   },
   "settings": {
@@ -1575,6 +1612,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Base de données de la photothèque, avec un correctif Rawtonic du verrouillage WAL sous Windows.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
       },
       "credits": "Credits",
@@ -2834,7 +2872,8 @@
         "queuedMany_one": "{{count}} exportation ajoutée à la file.",
         "queuedMany_many": "{{count}} exportations ajoutées à la file.",
         "queuedMany_other": "{{count}} exportations ajoutées à la file.",
-        "queuedOne": "Ajouté à la file d'exportation."
+        "queuedOne": "Ajouté à la file d'exportation.",
+        "unsavedEdits": "Les modifications de {{names}} n'ont pas pu être enregistrées : rien n'a été exporté. Exportez à nouveau une fois qu'elles sont enregistrées."
       },
       "watermark": {
         "add": "Ajouter un filigrane",
@@ -2929,16 +2968,21 @@
     },
     "histogram": {
       "aria": "Histogramme de l'image",
-      "clipping": "Écrêtage",
-      "clippingTitle": "Avertissements d'écrêtage : hautes lumières écrêtées en rouge, ombres écrêtées en bleu ({{shortcut}})",
+      "clippingAria": "Alertes d'écrêtage",
       "gamut": "Alerte de gamme",
       "gamutTitle": "Alerte de gamme : couleurs hors de l'espace colorimétrique de l'épreuve en rouge",
       "graphAria": "Répartition RVB de la luminance de la photo sélectionnée",
       "graphEmpty": "Histogramme disponible après l'ouverture d'une photo",
+      "highlightClipping": "Alerte hautes lumières",
+      "highlightClippingLit": "Alerte hautes lumières, écrêtées",
+      "highlightClippingTitle": "Alerte hautes lumières (hautes lumières écrêtées ; {{shortcut}} bascule les deux)",
       "proof": "Épreuve",
       "proofSpace": "Espace colorimétrique de l'épreuve",
       "proofTitle": "Épreuvage écran : afficher la photo telle qu'un export dans l'espace colorimétrique choisi ({{shortcut}})",
       "selectPhoto": "Sélectionnez une photo",
+      "shadowClipping": "Alerte ombres",
+      "shadowClippingLit": "Alerte ombres, écrêtées",
+      "shadowClippingTitle": "Alerte ombres (ombres écrêtées ; {{shortcut}} bascule les deux)",
       "title": "Histogramme"
     },
     "layers": {
@@ -3705,7 +3749,9 @@
     "multiView": {
       "controls": "Marquer, noter ou retirer {{name}}",
       "editAll": "Modifier toutes les sélectionnées",
+      "editAllNotSaved": "« Modifier toutes les sélectionnées » n’a pas pu enregistrer ces photos : {{names}}. Elles gardent leurs réglages précédents jusqu’à ce que vous réessayiez.",
       "editAllTitle": "Modifier toutes les sélectionnées : les réglages de la photo principale s’appliquent aussi à chaque autre photo affichée (cadres orange)",
+      "editAllTryAgain": "Réessayer",
       "makePrimary": "Modifier {{name}} (en faire la photo principale)",
       "more_one": "et {{n}} autre",
       "more_many": "et {{n}} autres",
@@ -4033,14 +4079,20 @@
         "auto": "Auto",
         "autoAria": "Niveaux automatiques",
         "autoTitle": "Définir les points noir et blanc d'après l'histogramme",
-        "black": "Noir",
         "channelAria": "Couche des niveaux",
-        "highlight": "Hautes lumières",
+        "fieldAria": "Valeur {{name}}",
+        "histogramAria": "Histogramme des niveaux",
+        "inBlack": "Noir d'entrée",
+        "inWhite": "Blanc d'entrée",
         "midtone": "Tons moyens",
+        "outBlack": "Noir de sortie",
         "output": "Sortie",
-        "shadow": "Ombres",
-        "title": "Niveaux",
-        "white": "Blanc"
+        "outWhite": "Blanc de sortie",
+        "pickBlack": "Pipette du point noir",
+        "pickBlackTitle": "Cliquez dans la photo là où elle doit être noire",
+        "pickWhite": "Pipette du point blanc",
+        "pickWhiteTitle": "Cliquez dans la photo là où elle doit être blanche",
+        "title": "Niveaux"
       },
       "regionCurve": {
         "aria": {

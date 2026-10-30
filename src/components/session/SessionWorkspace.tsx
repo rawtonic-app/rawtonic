@@ -4,6 +4,7 @@ import { validNamingTemplate, validSequenceStart, type NamePreview } from "../..
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
+import SessionXmpStatus from "./SessionXmpStatus";
 import {
   useCallback,
   useEffect,
@@ -83,6 +84,7 @@ import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
 import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
+import { switchLibraryAfterSaves } from "../../utils/quit";
 
 export interface SessionSummary {
   directory: string;
@@ -296,10 +298,16 @@ export function restoreLastSession(
     window.clearTimeout(slow);
     toast.dismiss(notice);
   };
-  return invoke<SessionSummary | null>(Invokes.SessionLast)
-    .then((last) => {
-      done();
-      if (last) void navigate(last).catch((e) => setError(String(e)));
+  // Edits made in a folder while the library is still restoring are
+  // saved there first, as before any library switch.
+  return switchLibraryAfterSaves(async () => {
+    const last = await invoke<SessionSummary | null>(Invokes.SessionLast);
+    done();
+    if (last) await navigate(last).catch((e) => setError(String(e)));
+    return true;
+  })
+    .then((restored) => {
+      if (!restored) done();
     })
     .catch((e) => {
       done();
@@ -1047,8 +1055,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setBusy(true);
     setError("");
     try {
-      await navigate(
-        await invoke<SessionSummary>(Invokes.SessionOpen, { directory }),
+      await switchLibraryAfterSaves(async () =>
+        navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })),
       );
     } catch (e) {
       setError(String(e));
@@ -1078,12 +1086,15 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         parent,
         name.trim() + (asCatalog ? ".catalog" : ""),
       );
-      const summary = await invoke<SessionSummary>(Invokes.SessionCreate, {
-        directory,
-        name: name.trim(),
-        catalog: asCatalog,
+      const created = await switchLibraryAfterSaves(async () => {
+        await navigate(await invoke<SessionSummary>(Invokes.SessionCreate, {
+          directory,
+          name: name.trim(),
+          catalog: asCatalog,
+        }));
+        return true;
       });
-      await navigate(summary);
+      if (!created) return;
       if (importAfterCreate) {
         setImportAfterCreate(false);
         openImport();
@@ -1397,13 +1408,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
-              {session.xmp_pending > 0 && (
-                <span className="session-count-pending" role="img"
-                  aria-label={t("session.bar.xmpPending", { count: session.xmp_pending })}
-                  title={t("session.bar.xmpPendingTitle")}>
-                  <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
-                </span>
-              )}
+              <SessionXmpStatus key={session.directory} directory={session.directory} count={session.xmp_pending}
+                onChanged={() => refresh().catch(() => {})} />
             </span>
           )}
         </div>
@@ -1580,7 +1586,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       )}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {
-          await navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }));
+          await switchLibraryAfterSaves(async () =>
+            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
         }} />}
       <dialog
         ref={dialog}

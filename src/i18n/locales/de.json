@@ -1075,10 +1075,7 @@
       "picked_other": "{{count}} markiert",
       "tether": "Tether",
       "tetherConnected": "{{camera}} verbunden",
-      "tetherTitle": "Tethered fotografieren: Fotos einer Kamera am USB kommen direkt in diese Bibliothek",
-      "xmpPending_one": "{{count}} XMP ausstehend",
-      "xmpPending_other": "{{count}} XMP ausstehend",
-      "xmpPendingTitle": "Bearbeitungen sind in der Bibliothek gespeichert. Einige XMP-Filialdateien müssen synchronisiert oder Konflikte darin gelöst werden."
+      "tetherTitle": "Tethered fotografieren: Fotos einer Kamera am USB kommen direkt in diese Bibliothek"
     },
     "create": {
       "catalog": "Katalog",
@@ -1254,6 +1251,7 @@
       "failed": "Die letzte Bibliothek konnte nicht geöffnet werden: {{error}}",
       "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlaube ihn."
     },
+    "switching": "Bibliothek wird geöffnet …",
     "sync": {
       "applied": "Verschoben {{moved}} · Hinzugefügt {{added}} · Entfernt {{removed}}",
       "apply": "Übernehmen ({{n}})",
@@ -1473,6 +1471,13 @@
       "verifyProgress_one": "Prüfen · {{count}} Datei geprüft",
       "verifyProgress_other": "Prüfen · {{count}} Dateien geprüft"
     },
+    "unsaved": {
+      "cancel": "Abbrechen",
+      "discard": "Ungespeicherte Änderungen verwerfen",
+      "message": "Diese Änderungen konnten nicht gespeichert werden: {{files}}. Wenn jetzt eine andere Bibliothek geöffnet wird, gehen sie verloren. Erneut versuchen, um sie zuerst zu speichern, verwerfen oder abbrechen, um in dieser Bibliothek zu bleiben.",
+      "retry": "Erneut versuchen",
+      "title": "Änderungen nicht gespeichert"
+    },
     "welcome": {
       "body": "Ein Shooting oder deine ganze Sammlung? Wähle die passende Organisation — die Bearbeitungswerkzeuge sind dieselben.",
       "create": "Projekt erstellen",
@@ -1485,6 +1490,32 @@
       "toolsLeft": "Werkzeuge links",
       "toolsRight": "Werkzeuge rechts",
       "toolsSide": "Wo möchtest du die Entwickeln-Werkzeuge?"
+    },
+    "xmp": {
+      "buttonTitle": "Einige XMP-Dateien sind nicht auf dem Stand der Bibliothek. Klicke für Details und um sie erneut zu schreiben.",
+      "count_one": "{{count}} XMP nicht aktuell",
+      "count_other": "{{count}} XMP nicht aktuell",
+      "explain": "Deine Bearbeitungen, Bewertungen und Stichwörter sind in der Bibliothek sicher. Andere Programme, die XMP-Dateien lesen, sehen diese Änderungen noch nicht. Die Fotos selbst werden nie verändert.",
+      "heading_one": "Die XMP-Datei von {{count}} Foto ist nicht aktuell",
+      "heading_other": "Die XMP-Dateien von {{count}} Fotos sind nicht aktuell",
+      "reason": {
+        "changedElsewhere_one": "{{count}} XMP-Datei wurde von einem anderen Programm geändert. Rawtonic überschreibt sie nicht; die Bibliothek behält deine Fassung.",
+        "changedElsewhere_other": "{{count}} XMP-Dateien wurden von einem anderen Programm geändert. Rawtonic überschreibt sie nicht; die Bibliothek behält deine Fassung.",
+        "failed_one": "{{count}} XMP-Datei konnte nicht geschrieben werden: {{error}}",
+        "failed_other": "{{count}} XMP-Dateien konnten nicht geschrieben werden: {{error}}",
+        "offline_one": "{{count}} Foto ist offline. Seine XMP-Datei wird aktualisiert, sobald das Laufwerk wieder verbunden ist.",
+        "offline_other": "{{count}} Fotos sind offline. Ihre XMP-Dateien werden aktualisiert, sobald das Laufwerk wieder verbunden ist.",
+        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben.",
+        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben."
+      },
+      "retry": "Erneut versuchen",
+      "retryFailed": "Die XMP-Dateien konnten nicht geschrieben werden: {{error}}",
+      "show": "Fotos zeigen",
+      "title": "XMP-Dateien nicht aktuell",
+      "view": "XMP nicht aktuell",
+      "writing": "Wird geschrieben …",
+      "written_one": "XMP-Datei für {{count}} Foto aktualisiert",
+      "written_other": "XMP-Dateien für {{count}} Fotos aktualisiert"
     }
   },
   "settings": {
@@ -1518,6 +1549,7 @@
         "SDXL-VAE-FP16-Fix": "Bildkodierer und -dekodierer von Moebius (madebyollin, aus Stability AIs SDXL VAE).",
         "SigLIP 2": "Automatische Stichwörter (Google).",
         "spektrafilm": "LUTs zur Filmemulation von Andrea Volpato (umbenannt, Inhalt unverändert).",
+        "SQLite / rusqlite": "Bibliotheksdatenbank mit einer Rawtonic-Korrektur für WAL-Sperren unter Windows.",
         "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere)."
       },
       "credits": "Mitwirkende und Quellen",
@@ -2767,7 +2799,8 @@
       "toasts": {
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
-        "queuedOne": "Zur Exportwarteschlange hinzugefügt."
+        "queuedOne": "Zur Exportwarteschlange hinzugefügt.",
+        "unsavedEdits": "Die Bearbeitungen von {{names}} konnten nicht gespeichert werden, daher wurde nichts exportiert. Exportiere erneut, sobald sie gespeichert sind."
       },
       "watermark": {
         "add": "Wasserzeichen hinzufügen",
@@ -2859,16 +2892,21 @@
     },
     "histogram": {
       "aria": "Bildhistogramm",
-      "clipping": "Clipping",
-      "clippingTitle": "Clipping-Warnung: abgeschnittene Lichter rot, abgeschnittene Tiefen blau ({{shortcut}})",
+      "clippingAria": "Warnungen für überstrahlte Lichter und abgesoffene Schatten",
       "gamut": "Farbumfang-Warnung",
       "gamutTitle": "Farbumfang-Warnung: Farben außerhalb des Proof-Farbraums in Rot",
       "graphAria": "RGB-Helligkeitsverteilung des ausgewählten Fotos",
       "graphEmpty": "Histogramm nach dem Öffnen eines Fotos verfügbar",
+      "highlightClipping": "Lichterwarnung",
+      "highlightClippingLit": "Lichterwarnung, ausgefressen",
+      "highlightClippingTitle": "Lichterwarnung (ausgefressene Lichter; {{shortcut}} schaltet beide)",
       "proof": "Proof",
       "proofSpace": "Proof-Farbraum",
       "proofTitle": "Softproof: das Foto so zeigen, wie ein Export im gewählten Farbraum aussieht ({{shortcut}})",
       "selectPhoto": "Wähle ein Foto",
+      "shadowClipping": "Schattenwarnung",
+      "shadowClippingLit": "Schattenwarnung, abgesoffen",
+      "shadowClippingTitle": "Schattenwarnung (abgesoffene Schatten; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
     },
     "layers": {
@@ -3607,7 +3645,9 @@
     "multiView": {
       "controls": "{{name}} markieren, bewerten oder entfernen",
       "editAll": "Alle ausgewählten bearbeiten",
+      "editAllNotSaved": "„Alle ausgewählten bearbeiten“ konnte diese Fotos nicht speichern: {{names}}. Sie behalten ihre früheren Einstellungen, bis du es erneut versuchst.",
       "editAllTitle": "Alle ausgewählten bearbeiten: Änderungen am Hauptfoto gehen auch an jedes andere gezeigte Foto (orange Rahmen)",
+      "editAllTryAgain": "Erneut versuchen",
       "makePrimary": "{{name}} bearbeiten (zum Hauptfoto machen)",
       "more_one": "und {{n}} weiteres",
       "more_other": "und {{n}} weitere",
@@ -3926,14 +3966,20 @@
         "auto": "Auto",
         "autoAria": "Automatische Tonwerte",
         "autoTitle": "Schwarz- und Weißpunkt aus dem Histogramm setzen",
-        "black": "Schwarz",
         "channelAria": "Tonwertkanal",
-        "highlight": "Lichter",
+        "fieldAria": "Wert {{name}}",
+        "histogramAria": "Tonwert-Histogramm",
+        "inBlack": "Eingabe Schwarz",
+        "inWhite": "Eingabe Weiß",
         "midtone": "Mitteltöne",
+        "outBlack": "Ausgabe Schwarz",
         "output": "Ausgabe",
-        "shadow": "Tiefen",
-        "title": "Tonwerte",
-        "white": "Weiß"
+        "outWhite": "Ausgabe Weiß",
+        "pickBlack": "Schwarzpunkt-Pipette",
+        "pickBlackTitle": "Ins Foto klicken, wo es schwarz sein soll",
+        "pickWhite": "Weißpunkt-Pipette",
+        "pickWhiteTitle": "Ins Foto klicken, wo es weiß sein soll",
+        "title": "Tonwerte"
       },
       "regionCurve": {
         "aria": {

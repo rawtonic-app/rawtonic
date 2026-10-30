@@ -1105,11 +1105,7 @@
       "picked_other": "{{count}} triades",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} connectada",
-      "tetherTitle": "Captura connectada: les fotos d’una càmera per USB arriben directament a aquesta biblioteca",
-      "xmpPending_one": "{{count}} XMP pendent",
-      "xmpPending_many": "{{count}} XMP pendents",
-      "xmpPending_other": "{{count}} XMP pendents",
-      "xmpPendingTitle": "Els ajustaments es desen a la biblioteca. Alguns fitxers sidecar XMP s’han de sincronitzar o tenen conflictes per resoldre."
+      "tetherTitle": "Captura connectada: les fotos d’una càmera per USB arriben directament a aquesta biblioteca"
     },
     "create": {
       "catalog": "Catàleg",
@@ -1298,6 +1294,7 @@
       "failed": "No s’ha pogut obrir l’última biblioteca: {{error}}",
       "opening": "S’està obrint {{name}} ({{directory}})… Si el macOS demana accés a aquest volum, permet-lo."
     },
+    "switching": "S’està obrint la biblioteca…",
     "sync": {
       "applied": "Mogudes {{moved}} · Afegides {{added}} · Tretes {{removed}}",
       "apply": "Aplica ({{n}})",
@@ -1530,6 +1527,13 @@
       "verifyProgress_many": "Verificant · {{count}} fitxers comprovats",
       "verifyProgress_other": "Verificant · {{count}} fitxers comprovats"
     },
+    "unsaved": {
+      "cancel": "Cancel·la",
+      "discard": "Descarta els canvis no desats",
+      "message": "No s’han pogut desar aquests canvis: {{files}}. Si ara obres una altra biblioteca, es perdran. Torna-ho a provar per desar-los primer, descarta’ls o cancel·la per quedar-te en aquesta biblioteca.",
+      "retry": "Torna-ho a provar",
+      "title": "Canvis no desats"
+    },
     "welcome": {
       "body": "Crea un projecte portàtil per a la teva propera sessió de fotos. Mantén juntes les preses, els ajustaments i els lliuraments, des de la primera imatge fins a la selecció final.",
       "create": "Crea un projecte",
@@ -1542,6 +1546,39 @@
       "toolsLeft": "Eines a l’esquerra",
       "toolsRight": "Eines a la dreta",
       "toolsSide": "On vols les eines de Revelatge?"
+    },
+    "xmp": {
+      "buttonTitle": "Alguns fitxers XMP no estan al dia amb la biblioteca. Fes clic per veure'n els detalls i tornar-los a escriure.",
+      "count_one": "{{count}} XMP sense actualitzar",
+      "count_many": "{{count}} XMP sense actualitzar",
+      "count_other": "{{count}} XMP sense actualitzar",
+      "explain": "Els teus ajustos, valoracions i paraules clau estan segurs a la biblioteca. Altres programes que llegeixen fitxers XMP encara no veuen aquests canvis. Les fotos mateixes no es modifiquen mai.",
+      "heading_one": "El fitxer XMP de {{count}} foto no està al dia",
+      "heading_many": "Els fitxers XMP de {{count}} fotos no estan al dia",
+      "heading_other": "Els fitxers XMP de {{count}} fotos no estan al dia",
+      "reason": {
+        "changedElsewhere_one": "Un altre programa ha modificat {{count}} fitxer XMP. Rawtonic no el sobreescriu; la biblioteca conserva la teva versió.",
+        "changedElsewhere_many": "Un altre programa ha modificat {{count}} fitxers XMP. Rawtonic no els sobreescriu; la biblioteca conserva la teva versió.",
+        "changedElsewhere_other": "Un altre programa ha modificat {{count}} fitxers XMP. Rawtonic no els sobreescriu; la biblioteca conserva la teva versió.",
+        "failed_one": "No s'ha pogut escriure {{count}} fitxer XMP: {{error}}",
+        "failed_many": "No s'han pogut escriure {{count}} fitxers XMP: {{error}}",
+        "failed_other": "No s'han pogut escriure {{count}} fitxers XMP: {{error}}",
+        "offline_one": "{{count}} foto està fora de línia. El seu fitxer XMP s'actualitzarà quan tornis a connectar la unitat.",
+        "offline_many": "{{count}} fotos estan fora de línia. Els seus fitxers XMP s'actualitzaran quan tornis a connectar la unitat.",
+        "offline_other": "{{count}} fotos estan fora de línia. Els seus fitxers XMP s'actualitzaran quan tornis a connectar la unitat.",
+        "sharedName_one": "{{count}} foto té el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP."
+      },
+      "retry": "Torna-ho a provar",
+      "retryFailed": "No s'han pogut escriure els fitxers XMP: {{error}}",
+      "show": "Mostra les fotos",
+      "title": "Fitxers XMP no actualitzats",
+      "view": "XMP no actualitzat",
+      "writing": "S'està escrivint…",
+      "written_one": "Fitxer XMP actualitzat per a {{count}} foto",
+      "written_many": "Fitxers XMP actualitzats per a {{count}} fotos",
+      "written_other": "Fitxers XMP actualitzats per a {{count}} fotos"
     }
   },
   "settings": {
@@ -1575,6 +1612,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Base de dades de la biblioteca, amb una correcció de Rawtonic al bloqueig WAL de Windows.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
       },
       "credits": "Credits",
@@ -2834,7 +2872,8 @@
         "queuedMany_one": "S'ha afegit {{count}} exportació a la cua.",
         "queuedMany_many": "S'han afegit {{count}} exportacions a la cua.",
         "queuedMany_other": "S'han afegit {{count}} exportacions a la cua.",
-        "queuedOne": "S'ha afegit a la cua d'exportació."
+        "queuedOne": "S'ha afegit a la cua d'exportació.",
+        "unsavedEdits": "No s'han pogut desar les edicions de {{names}}, així que no s'ha exportat res. Torneu a exportar quan estiguin desades."
       },
       "watermark": {
         "add": "Afegeix una marca d'aigua",
@@ -2929,16 +2968,21 @@
     },
     "histogram": {
       "aria": "Histograma de la imatge",
-      "clipping": "Retall",
-      "clippingTitle": "Avisos de retall: llums retallades en vermell, ombres retallades en blau ({{shortcut}})",
+      "clippingAria": "Avisos de retallada",
       "gamut": "Avís de gamma",
       "gamutTitle": "Avís de gamma: colors fora de l'espai de color de la prova en vermell",
       "graphAria": "Distribució de luminància RGB de la foto seleccionada",
       "graphEmpty": "Histograma disponible després d'obrir una foto",
+      "highlightClipping": "Avís de llums",
+      "highlightClippingLit": "Avís de llums, retallades",
+      "highlightClippingTitle": "Avís de llums (llums altes retallades; {{shortcut}} activa tots dos)",
       "proof": "Prova",
       "proofSpace": "Espai de color de la prova",
       "proofTitle": "Prova en pantalla: mostra la foto com es veurà una exportació a l'espai de color triat ({{shortcut}})",
       "selectPhoto": "Selecciona una foto",
+      "shadowClipping": "Avís d'ombres",
+      "shadowClippingLit": "Avís d'ombres, retallades",
+      "shadowClippingTitle": "Avís d'ombres (ombres retallades; {{shortcut}} activa tots dos)",
       "title": "Histograma"
     },
     "layers": {
@@ -3705,7 +3749,9 @@
     "multiView": {
       "controls": "Marca, valora o treu {{name}}",
       "editAll": "Edita totes les seleccionades",
+      "editAllNotSaved": "«Edita totes les seleccionades» no ha pogut desar aquestes fotos: {{names}}. Conserven la configuració anterior fins que ho tornis a provar.",
       "editAllTitle": "Edita totes les seleccionades: els canvis a la foto principal també van a cada altra foto mostrada (marcs taronja)",
+      "editAllTryAgain": "Torna-ho a provar",
       "makePrimary": "Edita {{name}} (fes-la la foto principal)",
       "more_one": "i {{n}} més",
       "more_many": "i {{n}} més",
@@ -4033,14 +4079,20 @@
         "auto": "Auto",
         "autoAria": "Nivells automàtics",
         "autoTitle": "Defineix els punts de negre i blanc a partir de l'histograma",
-        "black": "Negre",
         "channelAria": "Canal dels nivells",
-        "highlight": "Altes llums",
+        "fieldAria": "Valor de {{name}}",
+        "histogramAria": "Histograma dels nivells",
+        "inBlack": "Negre d'entrada",
+        "inWhite": "Blanc d'entrada",
         "midtone": "Tons mitjans",
+        "outBlack": "Negre de sortida",
         "output": "Sortida",
-        "shadow": "Ombres",
-        "title": "Nivells",
-        "white": "Blanc"
+        "outWhite": "Blanc de sortida",
+        "pickBlack": "Comptagotes del punt negre",
+        "pickBlackTitle": "Feu clic a la foto on hauria de ser negre",
+        "pickWhite": "Comptagotes del punt blanc",
+        "pickWhiteTitle": "Feu clic a la foto on hauria de ser blanc",
+        "title": "Nivells"
       },
       "regionCurve": {
         "aria": {

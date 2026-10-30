@@ -382,11 +382,51 @@ fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
     let first = born(&xmp);
     fs::remove_file(&xmp).unwrap();
     fs::write(&xmp, b"someone else's").unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::{fs::MetadataExt, io::AsRawHandle};
+        #[repr(C)]
+        struct FileTime {
+            low: u32,
+            high: u32,
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn SetFileTime(
+                file: *mut std::ffi::c_void,
+                created: *const FileTime,
+                accessed: *const FileTime,
+                modified: *const FileTime,
+            ) -> i32;
+        }
+        // NTFS tunneling restores a deleted name's creation time whenever
+        // it is recreated, so repeatedly recreating it may never advance
+        // that clock. Give this synthetic replacement a distinct creation
+        // time explicitly (also beyond FAT's two-second resolution).
+        let file = fs::OpenOptions::new().write(true).open(&xmp).unwrap();
+        let ticks = file.metadata().unwrap().creation_time() + 60 * 10_000_000;
+        let created = FileTime {
+            low: ticks as u32,
+            high: (ticks >> 32) as u32,
+        };
+        // SAFETY: valid writable handle and FILETIME; null leaves other times.
+        let result = unsafe {
+            SetFileTime(
+                file.as_raw_handle(),
+                &created,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        assert_ne!(result, 0, "{}", std::io::Error::last_os_error());
+    }
+    #[cfg(not(windows))]
     while born(&xmp) == first {
         std::thread::sleep(std::time::Duration::from_millis(10));
         fs::remove_file(&xmp).unwrap();
         fs::write(&xmp, b"someone else's").unwrap();
     }
+    assert_ne!(born(&xmp), first);
     refused(&xmp);
     // Written into by someone else, the same file (and so its creation
     // time) or one made within the same step of the volume's clock: what

@@ -1075,10 +1075,7 @@
       "picked_other": "{{count}} picked",
       "tether": "Tether",
       "tetherConnected": "{{camera}} connected",
-      "tetherTitle": "Shoot tethered: photos from a camera on USB come straight into this library",
-      "xmpPending_one": "{{count}} XMP pending",
-      "xmpPending_other": "{{count}} XMP pending",
-      "xmpPendingTitle": "Edits are saved in the library. Some XMP sidecars need synchronization or conflict resolution."
+      "tetherTitle": "Shoot tethered: photos from a camera on USB come straight into this library"
     },
     "create": {
       "catalog": "Catalog",
@@ -1254,6 +1251,7 @@
       "failed": "Last library could not open: {{error}}",
       "opening": "Opening {{name}} ({{directory}})… If macOS asks for access to this volume, allow it."
     },
+    "switching": "Opening library…",
     "sync": {
       "applied": "Moved {{moved}} · Added {{added}} · Removed {{removed}}",
       "apply": "Apply ({{n}})",
@@ -1473,6 +1471,13 @@
       "verifyProgress_one": "Verifying · {{count}} file checked",
       "verifyProgress_other": "Verifying · {{count}} files checked"
     },
+    "unsaved": {
+      "cancel": "Cancel",
+      "discard": "Discard Unsaved Edits",
+      "message": "These edits could not be saved: {{files}}. Opening another library now loses them. Retry to save them first, discard them, or cancel to stay in this library.",
+      "retry": "Retry",
+      "title": "Edits Not Saved"
+    },
     "welcome": {
       "body": "One shoot or your whole collection? Choose how to organize your photos — the editing tools are the same.",
       "create": "Create a project",
@@ -1485,6 +1490,32 @@
       "toolsLeft": "Tools on the left",
       "toolsRight": "Tools on the right",
       "toolsSide": "Where would you like the Develop tools?"
+    },
+    "xmp": {
+      "buttonTitle": "Some XMP files are behind the library. Click for details and to write them again.",
+      "count_one": "{{count}} XMP not updated",
+      "count_other": "{{count}} XMP not updated",
+      "explain": "Your edits, ratings and keywords are safe in the library. Other programs that read XMP files don't see these changes yet. The photos themselves are never changed.",
+      "heading_one": "The XMP file of {{count}} photo is not up to date",
+      "heading_other": "The XMP files of {{count}} photos are not up to date",
+      "reason": {
+        "changedElsewhere_one": "{{count}} XMP file was changed by another program. Rawtonic doesn't overwrite it; the library keeps your version.",
+        "changedElsewhere_other": "{{count}} XMP files were changed by another program. Rawtonic doesn't overwrite them; the library keeps your version.",
+        "failed_one": "{{count}} XMP file could not be written: {{error}}",
+        "failed_other": "{{count}} XMP files could not be written: {{error}}",
+        "offline_one": "{{count}} photo is offline. Its XMP file is updated when the drive is connected again.",
+        "offline_other": "{{count}} photos are offline. Their XMP files are updated when the drive is connected again.",
+        "sharedName_one": "{{count}} photo has the same name as another one (RAW and JPEG), so both would write the same XMP file.",
+        "sharedName_other": "{{count}} photos have the same name as another one (RAW and JPEG), so both would write the same XMP file."
+      },
+      "retry": "Try again",
+      "retryFailed": "The XMP files could not be written: {{error}}",
+      "show": "Show photos",
+      "title": "XMP files not updated",
+      "view": "XMP not updated",
+      "writing": "Writing…",
+      "written_one": "XMP file updated for {{count}} photo",
+      "written_other": "XMP files updated for {{count}} photos"
     }
   },
   "settings": {
@@ -1518,6 +1549,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Library database, with a Rawtonic Windows WAL locking correction.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
       },
       "credits": "Credits",
@@ -2767,7 +2799,8 @@
       "toasts": {
         "queuedMany_one": "{{count}} export added to the queue.",
         "queuedMany_other": "{{count}} exports added to the queue.",
-        "queuedOne": "Added to the export queue."
+        "queuedOne": "Added to the export queue.",
+        "unsavedEdits": "The edits of {{names}} could not be saved, so nothing was exported. Export again once they are saved."
       },
       "watermark": {
         "add": "Add a watermark",
@@ -2859,16 +2892,21 @@
     },
     "histogram": {
       "aria": "Photo histogram",
-      "clipping": "Clipping",
-      "clippingTitle": "Clipping warnings: clipped highlights red, clipped shadows blue ({{shortcut}})",
+      "clippingAria": "Clipping warnings",
       "gamut": "Gamut warning",
       "gamutTitle": "Gamut warning: colors outside the proofed color space in red",
       "graphAria": "RGB luminance distribution of the selected photo",
       "graphEmpty": "Histogram available after opening a photo",
+      "highlightClipping": "Highlight clipping",
+      "highlightClippingLit": "Highlight clipping, clipped",
+      "highlightClippingTitle": "Highlight clipping (clipped highlights; {{shortcut}} switches both)",
       "proof": "Proof",
       "proofSpace": "Proof color space",
       "proofTitle": "Soft proofing: show the photo as an export in the chosen color space looks ({{shortcut}})",
       "selectPhoto": "Select a photo",
+      "shadowClipping": "Shadow clipping",
+      "shadowClippingLit": "Shadow clipping, clipped",
+      "shadowClippingTitle": "Shadow clipping (clipped shadows; {{shortcut}} switches both)",
       "title": "Histogram"
     },
     "layers": {
@@ -3607,7 +3645,9 @@
     "multiView": {
       "controls": "Flag, rate or remove {{name}}",
       "editAll": "Edit all selected",
+      "editAllNotSaved": "Edit all selected could not save these photos: {{names}}. They keep their earlier settings until you try again.",
       "editAllTitle": "Edit all selected: changes to the primary photo also go to every other photo shown (orange frames)",
+      "editAllTryAgain": "Try again",
       "makePrimary": "Edit {{name}} (make it the primary photo)",
       "more_one": "and {{n}} more",
       "more_other": "and {{n}} more",
@@ -3926,14 +3966,20 @@
         "auto": "Auto",
         "autoAria": "Auto levels",
         "autoTitle": "Set black and white points from the histogram",
-        "black": "Black",
         "channelAria": "Levels channel",
-        "highlight": "Highlight",
+        "fieldAria": "{{name}} value",
+        "histogramAria": "Levels histogram",
+        "inBlack": "Input black",
+        "inWhite": "Input white",
         "midtone": "Midtone",
+        "outBlack": "Output black",
         "output": "Output",
-        "shadow": "Shadow",
-        "title": "Levels",
-        "white": "White"
+        "outWhite": "Output white",
+        "pickBlack": "Black point picker",
+        "pickBlackTitle": "Click the photo where it should be black",
+        "pickWhite": "White point picker",
+        "pickWhiteTitle": "Click the photo where it should be white",
+        "title": "Levels"
       },
       "regionCurve": {
         "aria": {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_ADJUSTMENTS } from "./adjustments";
 import {
+  curveInputMean,
   curveValue,
   dominantChannel,
   linearFromSrgb,
@@ -261,5 +262,127 @@ describe("targeted adjustment", () => {
       ),
     ).toBeCloseTo(84.02, 2);
     expect(oklch([1, 1, 1]).chroma).toBeLessThan(1e-3);
+  });
+
+  it("sets or moves a point on the selected channel's curve at its own input", () => {
+    const lifted = base();
+    // The RGB curve lifts 100 to 120: the colour curves receive 120.
+    lifted.curves = {
+      ...lifted.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 100, y: 120 },
+        { x: 255, y: 255 },
+      ],
+    };
+    const grey = [linearFromSrgb([100, 100, 100])];
+    expect(curveInputMean("curve", lifted, grey, "luma")).toBe(100);
+    for (const channel of ["red", "green", "blue"] as const) {
+      const start = startTargetedAdjustment("curve", lifted, null, grey, channel)!;
+      expect(start.curveX).toBe(120);
+      const patch = targetedPatch(start, 10);
+      expect(patch.curves![channel]).toEqual([
+        { x: 0, y: 0 },
+        { x: 120, y: 130 },
+        { x: 255, y: 255 },
+      ]);
+      // The other curves stay; the panel's point curves follow.
+      expect(patch.curves!.luma).toEqual(lifted.curves.luma);
+      expect(patch.pointCurves![channel]).toEqual(patch.curves![channel]);
+      expect(patch.curveMode).toBe("point");
+    }
+    // A colour channel reads its own level of a coloured pixel.
+    const orange = [linearFromSrgb([200, 80, 40])];
+    const wide = wideCurveLevels(orange[0]);
+    expect(curveInputMean("curve", base(), orange, "red")).toBe(Math.round(wide[0]));
+    expect(curveInputMean("curve", base(), orange, "blue")).toBe(Math.round(wide[2]));
+  });
+
+  it("reads the Luminance curve's input after the other curves", () => {
+    const grey = [linearFromSrgb([100, 100, 100])];
+    expect(curveInputMean("curve", base(), grey, "luminance")).toBe(100);
+    const lifted = base();
+    lifted.curves = {
+      ...lifted.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 100, y: 120 },
+        { x: 255, y: 255 },
+      ],
+    };
+    // Grey stays grey through the curves: its luminance is the lifted level.
+    expect(curveInputMean("curve", lifted, grey, "luminance")).toBe(120);
+    const start = startTargetedAdjustment("curve", lifted, null, grey, "luminance")!;
+    expect(targetedPatch(start, -20).curves!.luminance).toEqual([
+      { x: 0, y: 0 },
+      { x: 120, y: 100 },
+      { x: 255, y: 255 },
+    ]);
+    // Older display-value curves carry the same tone.
+    const old = base();
+    old.curves = { ...lifted.curves, version: 2 };
+    expect(curveInputMean("curve", old, grey, "luminance")).toBe(120);
+    // A saturated colour beyond sRGB: the carried result is clipped to the
+    // gamut before the Luminance curve, as the shader's display_unit does.
+    old.curves = {
+      ...old.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 128, y: 200 },
+        { x: 255, y: 255 },
+      ],
+    };
+    const prophoto = [1, 0.3, 0.1];
+    const toSrgb = [
+      [2.0340763, -0.7273343, -0.3067417],
+      [-0.2288135, 1.2317302, -0.0029169],
+      [-0.0085698, -0.1532866, 1.1618565],
+    ];
+    const matrixOf = (m: number[][], v: number[]) =>
+      m.map((row) => row.reduce((sum, k, c) => sum + k * v[c], 0)) as [
+        number,
+        number,
+        number,
+      ];
+    const saturated = matrixOf(toSrgb, prophoto);
+    expect(curveInputMean("curve", old, [saturated], "luminance")).toBe(217);
+    // With a region curve the carried colour is clipped to the gamut before
+    // the display-value curves, which moves even channels inside sRGB.
+    old.regionCurve = { ...old.regionCurve!, darks: 100, lights: 100 };
+    const blue = matrixOf(toSrgb, [0.3, 0.3, 1]);
+    expect(curveInputMean("curve", old, [blue], "red")).toBe(229);
+  });
+
+  it("sets an anchor on a click and moves a nearby point instead of adding one", () => {
+    const curved = base();
+    curved.curves = {
+      ...curved.curves,
+      green: [
+        { x: 0, y: 0 },
+        { x: 64, y: 90 },
+        { x: 255, y: 255 },
+      ],
+    };
+    const at = (level: number) =>
+      startTargetedAdjustment(
+        "curve",
+        curved,
+        null,
+        [linearFromSrgb([level, level, level])],
+        "green",
+      )!;
+    // A click (no travel): a point on the curve as it is, nothing moves.
+    const anchor = targetedPatch(at(180), 0).curves!.green;
+    expect(anchor).toHaveLength(4);
+    expect(anchor[2].x).toBe(180);
+    expect(anchor[2].y).toBe(Math.round(curveValue(curved.curves.green, 180)));
+    // Within reach of the point at 64: that point moves, none is added.
+    const moved = targetedPatch(at(68), 12).curves!.green;
+    expect(moved).toEqual([
+      { x: 0, y: 0 },
+      { x: 64, y: 102 },
+      { x: 255, y: 255 },
+    ]);
+    expect(targetedPatch(at(68), 0).curves!.green).toEqual(curved.curves.green);
   });
 });

@@ -1105,11 +1105,7 @@
       "picked_other": "{{count}} scelte",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} collegata",
-      "tetherTitle": "Scatto collegato: le foto di una fotocamera via USB arrivano direttamente in questa libreria",
-      "xmpPending_one": "{{count}} XMP in sospeso",
-      "xmpPending_many": "{{count}} XMP in sospeso",
-      "xmpPending_other": "{{count}} XMP in sospeso",
-      "xmpPendingTitle": "Le modifiche sono salvate nella libreria. Alcuni file sidecar XMP devono essere sincronizzati o hanno conflitti da risolvere."
+      "tetherTitle": "Scatto collegato: le foto di una fotocamera via USB arrivano direttamente in questa libreria"
     },
     "create": {
       "catalog": "Catalogo",
@@ -1298,6 +1294,7 @@
       "failed": "Impossibile aprire l’ultima libreria: {{error}}",
       "opening": "Apertura di {{name}} ({{directory}})… Se macOS chiede l’accesso a questo volume, consentilo."
     },
+    "switching": "Apertura della libreria…",
     "sync": {
       "applied": "Spostate {{moved}} · Aggiunte {{added}} · Rimosse {{removed}}",
       "apply": "Applica ({{n}})",
@@ -1530,6 +1527,13 @@
       "verifyProgress_many": "Verifica · {{count}} file controllati",
       "verifyProgress_other": "Verifica · {{count}} file controllati"
     },
+    "unsaved": {
+      "cancel": "Annulla",
+      "discard": "Scarta modifiche non salvate",
+      "message": "Queste modifiche non sono state salvate: {{files}}. Aprendo ora un’altra libreria andranno perse. Riprova per salvarle prima, scartale o annulla per restare in questa libreria.",
+      "retry": "Riprova",
+      "title": "Modifiche non salvate"
+    },
     "welcome": {
       "body": "Crea un progetto portatile per il tuo prossimo servizio. Tieni insieme scatti, modifiche e consegne, dal primo fotogramma alla selezione finale.",
       "create": "Crea un progetto",
@@ -1542,6 +1546,39 @@
       "toolsLeft": "Strumenti a sinistra",
       "toolsRight": "Strumenti a destra",
       "toolsSide": "Dove preferisci gli strumenti di Sviluppo?"
+    },
+    "xmp": {
+      "buttonTitle": "Alcuni file XMP non sono allineati con la libreria. Fai clic per i dettagli e per riscriverli.",
+      "count_one": "{{count}} XMP non aggiornato",
+      "count_many": "{{count}} XMP non aggiornati",
+      "count_other": "{{count}} XMP non aggiornati",
+      "explain": "Le tue modifiche, valutazioni e parole chiave sono al sicuro nella libreria. Gli altri programmi che leggono i file XMP non vedono ancora queste modifiche. Le foto stesse non vengono mai modificate.",
+      "heading_one": "Il file XMP di {{count}} foto non è aggiornato",
+      "heading_many": "I file XMP di {{count}} foto non sono aggiornati",
+      "heading_other": "I file XMP di {{count}} foto non sono aggiornati",
+      "reason": {
+        "changedElsewhere_one": "{{count}} file XMP è stato modificato da un altro programma. Rawtonic non lo sovrascrive; la libreria conserva la tua versione.",
+        "changedElsewhere_many": "{{count}} file XMP sono stati modificati da un altro programma. Rawtonic non li sovrascrive; la libreria conserva la tua versione.",
+        "changedElsewhere_other": "{{count}} file XMP sono stati modificati da un altro programma. Rawtonic non li sovrascrive; la libreria conserva la tua versione.",
+        "failed_one": "Impossibile scrivere {{count}} file XMP: {{error}}",
+        "failed_many": "Impossibile scrivere {{count}} file XMP: {{error}}",
+        "failed_other": "Impossibile scrivere {{count}} file XMP: {{error}}",
+        "offline_one": "{{count}} foto è offline. Il suo file XMP verrà aggiornato quando l’unità sarà di nuovo collegata.",
+        "offline_many": "{{count}} foto sono offline. I loro file XMP verranno aggiornati quando l’unità sarà di nuovo collegata.",
+        "offline_other": "{{count}} foto sono offline. I loro file XMP verranno aggiornati quando l’unità sarà di nuovo collegata.",
+        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP."
+      },
+      "retry": "Riprova",
+      "retryFailed": "Impossibile scrivere i file XMP: {{error}}",
+      "show": "Mostra foto",
+      "title": "File XMP non aggiornati",
+      "view": "XMP non aggiornati",
+      "writing": "Scrittura…",
+      "written_one": "File XMP aggiornato per {{count}} foto",
+      "written_many": "File XMP aggiornati per {{count}} foto",
+      "written_other": "File XMP aggiornati per {{count}} foto"
     }
   },
   "settings": {
@@ -1575,6 +1612,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Database della libreria, con una correzione Rawtonic del blocco WAL su Windows.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
       },
       "credits": "Credits",
@@ -2834,7 +2872,8 @@
         "queuedMany_one": "{{count}} esportazione aggiunta alla coda.",
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",
-        "queuedOne": "Aggiunto alla coda di esportazione."
+        "queuedOne": "Aggiunto alla coda di esportazione.",
+        "unsavedEdits": "Non è stato possibile salvare le modifiche di {{names}}, quindi non è stato esportato nulla. Esporta di nuovo quando sono salvate."
       },
       "watermark": {
         "add": "Aggiungi filigrana",
@@ -2929,16 +2968,21 @@
     },
     "histogram": {
       "aria": "Istogramma dell'immagine",
-      "clipping": "Clipping",
-      "clippingTitle": "Avvisi di clipping: luci tagliate in rosso, ombre tagliate in blu ({{shortcut}})",
+      "clippingAria": "Avvisi di clipping",
       "gamut": "Avviso gamut",
       "gamutTitle": "Avviso gamut: colori fuori dallo spazio colore di prova in rosso",
       "graphAria": "Distribuzione della luminanza RGB della foto selezionata",
       "graphEmpty": "Istogramma disponibile dopo l'apertura di una foto",
+      "highlightClipping": "Avviso alte luci",
+      "highlightClippingLit": "Avviso alte luci, bruciate",
+      "highlightClippingTitle": "Avviso alte luci (alte luci bruciate; {{shortcut}} attiva entrambi)",
       "proof": "Prova",
       "proofSpace": "Spazio colore di prova",
       "proofTitle": "Prova a schermo: mostra la foto come apparirà un'esportazione nello spazio colore scelto ({{shortcut}})",
       "selectPhoto": "Seleziona una foto",
+      "shadowClipping": "Avviso ombre",
+      "shadowClippingLit": "Avviso ombre, chiuse",
+      "shadowClippingTitle": "Avviso ombre (ombre chiuse; {{shortcut}} attiva entrambi)",
       "title": "Istogramma"
     },
     "layers": {
@@ -3705,7 +3749,9 @@
     "multiView": {
       "controls": "Contrassegna, valuta o rimuovi {{name}}",
       "editAll": "Modifica tutte le selezionate",
+      "editAllNotSaved": "«Modifica tutte le selezionate» non ha potuto salvare queste foto: {{names}}. Mantengono le impostazioni precedenti finché non riprovi.",
       "editAllTitle": "Modifica tutte le selezionate: le modifiche alla foto principale vanno anche a ogni altra foto mostrata (cornici arancioni)",
+      "editAllTryAgain": "Riprova",
       "makePrimary": "Modifica {{name}} (rendila la foto principale)",
       "more_one": "e {{n}} altra",
       "more_many": "e altre {{n}}",
@@ -4033,14 +4079,20 @@
         "auto": "Auto",
         "autoAria": "Livelli automatici",
         "autoTitle": "Imposta i punti del nero e del bianco dall'istogramma",
-        "black": "Nero",
         "channelAria": "Canale dei livelli",
-        "highlight": "Luci",
+        "fieldAria": "Valore {{name}}",
+        "histogramAria": "Istogramma dei livelli",
+        "inBlack": "Nero in ingresso",
+        "inWhite": "Bianco in ingresso",
         "midtone": "Mezzitoni",
+        "outBlack": "Nero in uscita",
         "output": "Uscita",
-        "shadow": "Ombre",
-        "title": "Livelli",
-        "white": "Bianco"
+        "outWhite": "Bianco in uscita",
+        "pickBlack": "Contagocce del punto nero",
+        "pickBlackTitle": "Fai clic sulla foto dove deve essere nera",
+        "pickWhite": "Contagocce del punto bianco",
+        "pickWhiteTitle": "Fai clic sulla foto dove deve essere bianca",
+        "title": "Livelli"
       },
       "regionCurve": {
         "aria": {

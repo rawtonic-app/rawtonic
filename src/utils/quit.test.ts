@@ -178,14 +178,14 @@ it('cancels a dismissed confirmation, but closing after confirmation does not ca
   const cancel = vi.fn();
   confirmQuitWithUnsaved(['unsaved'], quit, cancel);
   const first = useUIStore.getState().confirmModalState;
-  first.onDismiss?.();
+  first.onCancel?.();
   first.onConfirm?.();
   expect(cancel).toHaveBeenCalledOnce();
   expect(quit).not.toHaveBeenCalled();
   confirmQuitWithUnsaved(['unsaved'], quit, cancel);
   const next = useUIStore.getState().confirmModalState;
   next.onConfirm?.();
-  next.onDismiss?.();
+  next.onCancel?.();
   expect(quit).toHaveBeenCalledOnce();
   expect(cancel).toHaveBeenCalledOnce();
 });

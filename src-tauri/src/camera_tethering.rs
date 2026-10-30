@@ -1345,6 +1345,16 @@ mod tests {
     use std::collections::HashSet;
     use std::fs;
 
+    /// `link` as a symbolic link to the folder `original`: a symlink on Unix,
+    /// a directory symlink on Windows (which needs the privilege to create
+    /// symbolic links; the same kind of link `symlink_metadata` reports).
+    fn link_dir(original: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(original, link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(original, link).unwrap();
+    }
+
     #[test]
     fn photos_are_freed_on_the_camera_after_their_commit_unless_turned_off() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2204,7 +2214,7 @@ mod tests {
         let session = session(tmp.path());
         let elsewhere = tmp.path().join("elsewhere");
         fs::create_dir(&elsewhere).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, staging::root(&session)).unwrap();
+        link_dir(&elsewhere, &staging::root(&session));
         let (state, client) = mock_helper(&MockSpec::default());
         let config = Arc::new(Mutex::new(CaptureConfig {
             template: "{orig}".into(),

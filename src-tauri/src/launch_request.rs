@@ -262,6 +262,7 @@ pub fn emit_launch_request(app_handle: &tauri::AppHandle, request: LaunchRequest
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::ffi::OsString;
 
     #[test]
@@ -308,6 +309,10 @@ mod tests {
         args.iter().map(|s| s.to_string()).collect()
     }
 
+    /// `invocation_dir` reads the environment of an AppImage launcher
+    /// (OWD, PWD), which exists on Linux: on Windows those names are not
+    /// written and a `C:\u\photos` literal would not be absolute anyway.
+    #[cfg(unix)]
     #[test]
     fn an_appimage_resolves_against_the_folder_it_was_run_in() {
         let env = |vars: &'static [(&'static str, &'static str)]| {
@@ -340,6 +345,9 @@ mod tests {
         assert_eq!(invocation_dir(env(&[]), None), None);
     }
 
+    /// A second AppImage launch hands the primary the shell's folder
+    /// (Linux's launcher); the relative arguments are then joined to it.
+    #[cfg(unix)]
     #[test]
     fn a_second_appimage_forwards_the_launching_shell_directory() {
         for (owd, pwd, expected) in [
@@ -377,9 +385,16 @@ mod tests {
         }
     }
 
+    /// Relative arguments use the platform's native Path::join semantics.
     #[test]
     fn relative_path_arguments_join_the_invocation_folder() {
-        let base = Path::new("/home/u/photos");
+        let folder = tempfile::tempdir().unwrap();
+        let base = std::path::absolute(folder.path()).unwrap();
+        let LaunchRequest::OpenFile(path) = parse_launch_args(&strings(&["a.jpg"]), Some(&base))
+        else {
+            panic!("open file");
+        };
+        assert_eq!(path, joined(&base, "a.jpg"));
         let args = strings(&[
             "export",
             "a.ARW",
@@ -390,51 +405,62 @@ mod tests {
             "--recipes",
             "recipes.json",
         ]);
-        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(base)) else {
+        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(&base)) else {
             panic!("headless export");
         };
-        assert_eq!(session.source, "/home/u/photos/a.ARW");
-        assert_eq!(session.output, "/home/u/photos/out/a.jpg");
+        assert_eq!(session.source, joined(&base, "a.ARW"));
+        assert_eq!(session.output, joined(&base, "out/a.jpg"));
         assert_eq!(
             session.adjustments_override.as_deref(),
-            Some("/home/u/photos/../look.json")
+            Some(joined(&base, "../look.json").as_str())
         );
         assert_eq!(
             session.recipes.as_deref(),
-            Some("/home/u/photos/recipes.json")
+            Some(joined(&base, "recipes.json").as_str())
         );
 
-        let args = strings(&["export", "/abs/a.ARW", "--output", "/abs/out"]);
-        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(base)) else {
+        // An absolute argument (the folder's own path, joined) is kept
+        // as given, not joined a second time.
+        let absolute = |name: &str| -> String { joined(&base, name) };
+        let (abs_source, abs_output) = (absolute("abs.ARW"), absolute("abs-out"));
+        let args = strings(&["export", &abs_source, "--output", &abs_output]);
+        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(&base)) else {
             panic!("headless export");
         };
         assert_eq!(
             (session.source.as_str(), session.output.as_str()),
-            ("/abs/a.ARW", "/abs/out")
+            (abs_source.as_str(), abs_output.as_str())
         );
 
         // A missing --output stays empty, not the folder itself.
         let LaunchRequest::HeadlessExport(session) =
-            parse_launch_args(&strings(&["export", "a.ARW"]), Some(base))
+            parse_launch_args(&strings(&["export", "a.ARW"]), Some(&base))
         else {
             panic!("headless export");
         };
         assert_eq!(session.output, "");
 
+        // Without a base (a plain start, no launcher folder) relative
+        // arguments are passed on as given.
+        let LaunchRequest::OpenFile(path) = parse_launch_args(&strings(&["a.jpg"]), None) else {
+            panic!("open file");
+        };
+        assert_eq!(path, "a.jpg");
+
         let args = strings(&["--edit", "a.tif", "--output", "b.tif"]);
-        let LaunchRequest::EditSession(edit) = parse_launch_args(&args, Some(base)) else {
+        let LaunchRequest::EditSession(edit) = parse_launch_args(&args, Some(&base)) else {
             panic!("edit session");
         };
         assert_eq!(
-            (edit.source.as_str(), edit.output.as_str()),
-            ("/home/u/photos/a.tif", "/home/u/photos/b.tif")
+            (edit.source, edit.output),
+            (joined(&base, "a.tif"), joined(&base, "b.tif"))
         );
         assert_eq!(edit.format, "tiff");
+    }
 
-        let LaunchRequest::OpenFile(path) = parse_launch_args(&strings(&["a.jpg"]), Some(base))
-        else {
-            panic!("open file");
-        };
-        assert_eq!(path, "/home/u/photos/a.jpg");
+    /// What a relative argument becomes: the folder joined with it by
+    /// `Path`, which is what the parser does.
+    fn joined(base: &Path, argument: &str) -> String {
+        base.join(argument).to_string_lossy().into_owned()
     }
 }

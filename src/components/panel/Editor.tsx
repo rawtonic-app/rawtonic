@@ -36,6 +36,7 @@ import { applyLayerSolo } from '../../utils/layerSolo';
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
 import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
+import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay from './editor/SplitViewOverlay';
 import {
   MIN_VIEWER_ZOOM,
@@ -2375,7 +2376,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   if (isPanningState && isMiddleMousePanning.current) {
     cursorStyle = 'grabbing';
   } else if (tatTarget !== null) {
-    cursorStyle = 'ns-resize';
+    cursorStyle = isLevelsPicker(tatTarget) ? 'crosshair' : 'ns-resize';
   } else if ((isShiftPressed && !isCropping) || straightenDragLine) {
     cursorStyle = 'crosshair';
   } else if (isCtrlPressed && !isBrushActive && !isCropping) {

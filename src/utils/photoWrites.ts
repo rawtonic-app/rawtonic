@@ -233,10 +233,23 @@ export function photoWritePending(path: string): boolean {
   return tails.has(photoWriteKey(path));
 }
 
+/** Steps that submit their writes later (`photoWorkPending`). */
+const steps = new Set<Promise<void>>();
+
+/** Counts `work`, a step that submits its writes once earlier work is done
+ * (a catalog undo step), among what `allPhotoWritesSettled` waits for from
+ * now on; returns it. Its writes still join the queue themselves. */
+export function photoWorkPending<T>(work: Promise<T>): Promise<T> {
+  const settled = work.then(() => undefined, () => undefined);
+  steps.add(settled);
+  void settled.then(() => steps.delete(settled));
+  return work;
+}
+
 /** Settles once no write is pending for any photograph, also those
- * submitted while waiting (quitting, closing a library). */
+ * submitted while waiting (quitting, switching library, exporting). */
 export async function allPhotoWritesSettled(): Promise<void> {
-  while (tails.size > 0) await Promise.all(tails.values());
+  while (tails.size > 0 || steps.size > 0) await Promise.all([...tails.values(), ...steps]);
 }
 
 /** Calls `handler` with each settled write; returns the unsubscribe. */

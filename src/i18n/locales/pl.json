@@ -1135,12 +1135,7 @@
       "picked_other": "wybrane: {{count}}",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} podłączony",
-      "tetherTitle": "Fotografowanie z podłączonym aparatem: zdjęcia z aparatu przez USB trafiają prosto do tej biblioteki",
-      "xmpPending_one": "XMP oczekujące: {{count}}",
-      "xmpPending_few": "XMP oczekujące: {{count}}",
-      "xmpPending_many": "XMP oczekujące: {{count}}",
-      "xmpPending_other": "XMP oczekujące: {{count}}",
-      "xmpPendingTitle": "Edycje są zapisane w bibliotece. Niektóre pliki XMP wymagają synchronizacji lub rozwiązania konfliktów."
+      "tetherTitle": "Fotografowanie z podłączonym aparatem: zdjęcia z aparatu przez USB trafiają prosto do tej biblioteki"
     },
     "create": {
       "catalog": "Katalog",
@@ -1342,6 +1337,7 @@
       "failed": "Nie udało się otworzyć ostatniej biblioteki: {{error}}",
       "opening": "Otwieranie {{name}} ({{directory}})… Jeśli macOS poprosi o dostęp do tego woluminu, zezwól na niego."
     },
+    "switching": "Otwieranie biblioteki…",
     "sync": {
       "applied": "Przeniesione: {{moved}} · Dodane: {{added}} · Usunięte: {{removed}}",
       "apply": "Zastosuj ({{n}})",
@@ -1587,6 +1583,13 @@
       "verifyProgress_many": "Weryfikacja · sprawdzono {{count}} plików",
       "verifyProgress_other": "Weryfikacja · sprawdzono {{count}} pliku"
     },
+    "unsaved": {
+      "cancel": "Anuluj",
+      "discard": "Odrzuć niezapisane zmiany",
+      "message": "Nie udało się zapisać tych zmian: {{files}}. Otwarcie teraz innej biblioteki spowoduje ich utratę. Spróbuj ponownie, aby najpierw je zapisać, odrzuć je lub anuluj, aby pozostać w tej bibliotece.",
+      "retry": "Spróbuj ponownie",
+      "title": "Zmiany niezapisane"
+    },
     "welcome": {
       "body": "Utwórz przenośny projekt na następną sesję zdjęciową. Trzymaj ujęcia, edycje i materiały do oddania razem, od pierwszej klatki po ostateczny wybór.",
       "create": "Utwórz projekt",
@@ -1599,6 +1602,46 @@
       "toolsLeft": "Narzędzia po lewej",
       "toolsRight": "Narzędzia po prawej",
       "toolsSide": "Gdzie umieścić narzędzia wywoływania?"
+    },
+    "xmp": {
+      "buttonTitle": "Niektóre pliki XMP nie są zgodne z biblioteką. Kliknij, aby zobaczyć szczegóły i zapisać je ponownie.",
+      "count_one": "{{count}} XMP nieaktualny",
+      "count_few": "{{count}} XMP nieaktualne",
+      "count_many": "{{count}} XMP nieaktualnych",
+      "count_other": "{{count}} XMP nieaktualnych",
+      "explain": "Twoje edycje, oceny i słowa kluczowe są bezpieczne w bibliotece. Inne programy czytające pliki XMP nie widzą jeszcze tych zmian. Same zdjęcia nigdy nie są zmieniane.",
+      "heading_one": "Plik XMP {{count}} zdjęcia jest nieaktualny",
+      "heading_few": "Pliki XMP {{count}} zdjęć są nieaktualne",
+      "heading_many": "Pliki XMP {{count}} zdjęć są nieaktualne",
+      "heading_other": "Pliki XMP {{count}} zdjęć są nieaktualne",
+      "reason": {
+        "changedElsewhere_one": "{{count}} plik XMP został zmieniony przez inny program. Rawtonic go nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "changedElsewhere_few": "{{count}} pliki XMP zostały zmienione przez inny program. Rawtonic ich nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "changedElsewhere_many": "{{count}} plików XMP zostało zmienionych przez inny program. Rawtonic ich nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "changedElsewhere_other": "{{count}} plików XMP zostało zmienionych przez inny program. Rawtonic ich nie nadpisuje; biblioteka zachowuje Twoją wersję.",
+        "failed_one": "Nie udało się zapisać {{count}} pliku XMP: {{error}}",
+        "failed_few": "Nie udało się zapisać {{count}} plików XMP: {{error}}",
+        "failed_many": "Nie udało się zapisać {{count}} plików XMP: {{error}}",
+        "failed_other": "Nie udało się zapisać {{count}} plików XMP: {{error}}",
+        "offline_one": "{{count}} zdjęcie jest offline. Jego plik XMP zostanie zaktualizowany po ponownym podłączeniu dysku.",
+        "offline_few": "{{count}} zdjęcia są offline. Ich pliki XMP zostaną zaktualizowane po ponownym podłączeniu dysku.",
+        "offline_many": "{{count}} zdjęć jest offline. Ich pliki XMP zostaną zaktualizowane po ponownym podłączeniu dysku.",
+        "offline_other": "{{count}} zdjęć jest offline. Ich pliki XMP zostaną zaktualizowane po ponownym podłączeniu dysku.",
+        "sharedName_one": "{{count}} zdjęcie ma tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP.",
+        "sharedName_few": "{{count}} zdjęcia mają tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP.",
+        "sharedName_many": "{{count}} zdjęć ma tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP.",
+        "sharedName_other": "{{count}} zdjęć ma tę samą nazwę co inne (RAW i JPEG), więc oba zapisałyby ten sam plik XMP."
+      },
+      "retry": "Spróbuj ponownie",
+      "retryFailed": "Nie udało się zapisać plików XMP: {{error}}",
+      "show": "Pokaż zdjęcia",
+      "title": "Pliki XMP nieaktualne",
+      "view": "XMP nieaktualne",
+      "writing": "Zapisywanie…",
+      "written_one": "Zaktualizowano plik XMP {{count}} zdjęcia",
+      "written_few": "Zaktualizowano pliki XMP {{count}} zdjęć",
+      "written_many": "Zaktualizowano pliki XMP {{count}} zdjęć",
+      "written_other": "Zaktualizowano pliki XMP {{count}} zdjęć"
     }
   },
   "settings": {
@@ -1632,6 +1675,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "Baza danych biblioteki z poprawką Rawtonic dotyczącą blokowania WAL w systemie Windows.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
       },
       "credits": "Credits",
@@ -2901,7 +2945,8 @@
         "queuedMany_few": "Dodano {{count}} eksporty do kolejki.",
         "queuedMany_many": "Dodano {{count}} eksportów do kolejki.",
         "queuedMany_other": "Dodano {{count}} eksportu do kolejki.",
-        "queuedOne": "Dodano do kolejki eksportu."
+        "queuedOne": "Dodano do kolejki eksportu.",
+        "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu."
       },
       "watermark": {
         "add": "Dodaj znak wodny",
@@ -2999,16 +3044,21 @@
     },
     "histogram": {
       "aria": "Histogram obrazu",
-      "clipping": "Przycięcie",
-      "clippingTitle": "Ostrzeżenia o przycięciu: przycięte światła na czerwono, przycięte cienie na niebiesko ({{shortcut}})",
+      "clippingAria": "Ostrzeżenia o prześwietleniach i zadartych cieniach",
       "gamut": "Ostrzeżenie o gamucie",
       "gamutTitle": "Ostrzeżenie o gamucie: kolory spoza przestrzeni próby na czerwono",
       "graphAria": "Rozkład luminancji RGB zaznaczonego zdjęcia",
       "graphEmpty": "Histogram dostępny po otwarciu zdjęcia",
+      "highlightClipping": "Ostrzeżenie o światłach",
+      "highlightClippingLit": "Ostrzeżenie o światłach, prześwietlone",
+      "highlightClippingTitle": "Ostrzeżenie o światłach (prześwietlone światła; {{shortcut}} przełącza oba)",
       "proof": "Próba",
       "proofSpace": "Przestrzeń kolorów próby",
       "proofTitle": "Próba ekranowa: pokazuje zdjęcie tak, jak będzie wyglądał eksport w wybranej przestrzeni kolorów ({{shortcut}})",
       "selectPhoto": "Wybierz zdjęcie",
+      "shadowClipping": "Ostrzeżenie o cieniach",
+      "shadowClippingLit": "Ostrzeżenie o cieniach, zadarte",
+      "shadowClippingTitle": "Ostrzeżenie o cieniach (zadarte cienie; {{shortcut}} przełącza oba)",
       "title": "Histogram"
     },
     "layers": {
@@ -3803,7 +3853,9 @@
     "multiView": {
       "controls": "Oznacz, oceń lub usuń {{name}}",
       "editAll": "Edytuj wszystkie zaznaczone",
+      "editAllNotSaved": "„Edytuj wszystkie zaznaczone” nie mogło zapisać tych zdjęć: {{names}}. Zachowują wcześniejsze ustawienia, dopóki nie spróbujesz ponownie.",
       "editAllTitle": "Edytuj wszystkie zaznaczone: zmiany zdjęcia głównego trafiają też do każdego innego pokazanego zdjęcia (pomarańczowe ramki)",
+      "editAllTryAgain": "Spróbuj ponownie",
       "makePrimary": "Edytuj {{name}} (ustaw jako zdjęcie główne)",
       "more_one": "i {{n}} więcej",
       "more_few": "i {{n}} więcej",
@@ -4140,14 +4192,20 @@
         "auto": "Auto",
         "autoAria": "Automatyczne poziomy",
         "autoTitle": "Ustaw punkty czerni i bieli na podstawie histogramu",
-        "black": "Czerń",
         "channelAria": "Kanał poziomów",
-        "highlight": "Światła",
+        "fieldAria": "Wartość: {{name}}",
+        "histogramAria": "Histogram poziomów",
+        "inBlack": "Czerń wejściowa",
+        "inWhite": "Biel wejściowa",
         "midtone": "Półtony",
+        "outBlack": "Czerń wyjściowa",
         "output": "Wyjście",
-        "shadow": "Cienie",
-        "title": "Poziomy",
-        "white": "Biel"
+        "outWhite": "Biel wyjściowa",
+        "pickBlack": "Pipeta punktu czerni",
+        "pickBlackTitle": "Kliknij w zdjęciu miejsce, które ma być czarne",
+        "pickWhite": "Pipeta punktu bieli",
+        "pickWhiteTitle": "Kliknij w zdjęciu miejsce, które ma być białe",
+        "title": "Poziomy"
       },
       "regionCurve": {
         "aria": {

@@ -14,4 +14,10 @@ Judge the change against these points, most important first:
 8. Legal and privacy: no third-party profiles, LUTs, presets, curves or model weights without an allowed licence; no third-party product names for our features; new dependencies have notices; no network access the user did not ask for.
 9. Code fit: matches the surrounding code's style, naming and comment density; comments explain why, not what.
 
-Use severity `blocking` for anything that must be fixed before merging (points 1, 2, 3, 6 and 8 usually), `should_fix` for real problems that can follow in a later change, `nit` for small style points. Verdict `approve` only when there is no blocking finding. Be concrete: file, line, what is wrong and why. Do not invent problems; if the change is good, say so briefly.
+Severity follows what a professional photographer can meet in normal work (user rule 2026-10-30):
+
+- `blocking`: data loss, altered or deleted originals, wrong or changed exports, crashes, broken saved edits; a security, licence or privacy problem; an unsupported claim (point 6); or a defect a user meets with ordinary use at normal speed (clicks, drags, keys, switching photos or tools). Name the user steps that trigger it and say whether they happen in everyday work.
+- `should_fix`: real problems outside that: races that need a sub-second timing window or a sequence only a test script produces, extreme values without practical use, performance follow-ups, missing coverage of a variant. They go to the gap file and do not hold the merge.
+- `nit`: small style points.
+
+A finding without user steps that trigger it is `should_fix`, unless it is about data, originals, exports, security, licence or privacy. Verdict `approve` only when there is no blocking finding. Be concrete: file, line, what is wrong and why. Do not invent problems; if the change is good, say so briefly.

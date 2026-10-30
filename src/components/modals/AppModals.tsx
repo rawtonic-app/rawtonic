@@ -10,6 +10,7 @@ import CreateFolderModal from './CreateFolderModal';
 import RenameFolderModal from './RenameFolderModal';
 import RenameFileModal from './RenameFileModal';
 import ConfirmModal from './ConfirmModal';
+import LibrarySwitchShield from './LibrarySwitchShield';
 import CullingModal from './CullingModal';
 import CollageModal, { type CollageSpec } from './CollageModal';
 
@@ -70,7 +71,6 @@ export default function AppModals(props: AppModalsProps) {
   );
 
   const closeConfirmModal = () => {
-    confirmModalState.onDismiss?.();
     setUI((state) => ({ confirmModalState: { ...state.confirmModalState, isOpen: false } }));
   };
 
@@ -119,6 +119,7 @@ export default function AppModals(props: AppModalsProps) {
         onSave={props.handleSaveRename}
       />
       <ConfirmModal {...confirmModalState} onClose={closeConfirmModal} />
+      <LibrarySwitchShield />
       <CullingModal
         isOpen={cullingModalState.isOpen}
         onClose={() =>

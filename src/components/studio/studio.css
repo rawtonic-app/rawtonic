@@ -355,11 +355,64 @@
 .studio-section-caption span:last-child {
   color: #8e9296;
 }
+.studio-histogram-plot {
+  position: relative;
+}
 .studio-histogram svg {
   width: 100%;
   height: 82px;
   background: #202123;
   display: block;
+}
+/* Clipping corners over the plot (StudioHistogram): a triangle per side,
+   switched on by a click, lit when that side of the histogram clips. */
+.studio-histogram .studio-clip-corners {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+}
+/* The corner layers lie over the plot: transparent, not the plot's own
+   `.studio-histogram svg` background, or they would hide the histogram. */
+.studio-histogram .studio-clip-corners > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  background: transparent;
+}
+.studio-histogram .studio-clip-corners g {
+  pointer-events: auto;
+  cursor: pointer;
+  outline: none;
+}
+.studio-histogram .studio-clip-corners g:focus-visible .studio-clip-corner-hit {
+  stroke: #eef0f3;
+  stroke-width: 1;
+}
+.studio-clip-corner-hit {
+  fill: transparent;
+}
+.studio-clip-corner-mark {
+  fill: #6f747a;
+  stroke: #202123;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+/* Switched on even though nothing clips: dimmed in that side's colour. */
+.studio-clip-shadows.is-on .studio-clip-corner-mark {
+  fill: #4d74a8;
+}
+.studio-clip-highlights.is-on .studio-clip-corner-mark {
+  fill: #b35454;
+}
+/* This side clips: full colour, switched on or not. */
+.studio-clip-shadows.is-lit .studio-clip-corner-mark {
+  fill: #3f7fe0;
+}
+.studio-clip-highlights.is-lit .studio-clip-corner-mark {
+  fill: #e04848;
 }
 .histogram-red {
   fill: #c9676780;
@@ -758,6 +811,132 @@
 .studio-segments button:last-child {
   border: 0;
 }
+/* Levels: histogram with input handles, output ramp with its handles. */
+.studio-levels-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.studio-levels-top .studio-segments {
+  flex: 1;
+  margin: 0;
+}
+.studio-levels-picker {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid #515359;
+  border-radius: 3px;
+  color: #b7bcc2;
+}
+.studio-tool-group .studio-levels-picker.is-levelsBlack {
+  background: #0d0d0e;
+  color: #c9ccd0;
+}
+.studio-tool-group .studio-levels-picker.is-levelsWhite {
+  background: #e6e7e9;
+  color: #2a2b2e;
+}
+.studio-tool-group .studio-levels-picker[aria-pressed="true"] {
+  border-color: #829daf;
+  box-shadow: 0 0 0 1px #829daf;
+}
+.studio-levels.is-disabled {
+  opacity: 0.55;
+}
+.studio-levels-histogram {
+  display: block;
+  width: 100%;
+  height: 64px;
+  background: #202123;
+}
+.studio-levels-guide {
+  stroke: #d8dadd;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.35;
+}
+.studio-levels-guide.is-midtone {
+  stroke-dasharray: 2 2;
+}
+.studio-levels-strip {
+  position: relative;
+  height: 12px;
+}
+.studio-levels-handle {
+  position: absolute;
+  top: 0;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: #8a8d92;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.studio-levels-handle.is-inBlack,
+.studio-levels-handle.is-outBlack {
+  background: #0d0d0e;
+  box-shadow: inset 0 0 0 1px #9ca0a5;
+}
+.studio-levels-handle.is-inWhite,
+.studio-levels-handle.is-outWhite {
+  background: #f1f2f3;
+}
+.studio-levels-handle:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 2px #7aa7d6) drop-shadow(0 0 1px #7aa7d6);
+}
+.studio-levels.is-disabled .studio-levels-handle {
+  cursor: default;
+}
+.studio-levels-fields {
+  display: flex;
+  justify-content: space-between;
+  margin: 1px 0 2px;
+}
+.studio-levels-fields input.studio-levels-field {
+  width: 42px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #e1e3e5;
+  text-align: center;
+}
+.studio-levels-fields input.studio-levels-field:first-child {
+  text-align: left;
+}
+.studio-levels-fields input.studio-levels-field:last-child {
+  text-align: right;
+}
+.studio-levels-fields input.studio-levels-field:hover {
+  border-color: #55575b;
+}
+.studio-levels-fields input.studio-levels-field:focus {
+  border-color: #829daf;
+  background: #1b1c1e;
+}
+.studio-levels-ramp {
+  height: 8px;
+  margin: 2px 0 1px;
+  border-radius: 1px;
+  background: linear-gradient(to right, #000, #fff);
+}
+.studio-levels-ramp.is-red {
+  background: linear-gradient(to right, #000, #e24a4a);
+}
+.studio-levels-ramp.is-green {
+  background: linear-gradient(to right, #000, #4fc45a);
+}
+.studio-levels-ramp.is-blue {
+  background: linear-gradient(to right, #000, #4a7fe2);
+}
 .studio-curve svg {
   display: block;
   width: 100%;
@@ -792,6 +971,19 @@
 }
 .curve-blue {
   stroke: #87a9d0;
+}
+/* The targeted curve's input level under the pointer. */
+.curve-target {
+  pointer-events: none;
+  stroke: #e8c46a;
+}
+.curve-target line {
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+}
+.curve-target circle {
+  fill: none;
+  stroke-width: 1.4;
 }
 .curve-point {
   fill: #d9e2e9;
@@ -5535,4 +5727,68 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 /* A checkbox beside a label that may wrap lines up with its first line. */
 .studio-dialog label.items-start > input:first-child {
   margin-top: 2px;
+}
+
+/* System colours and native indicators survive Windows High Contrast, where
+   box shadows and the custom radio gradient are suppressed. */
+@media (forced-colors: active) {
+  .studio-dialog {
+    border-color: CanvasText;
+  }
+  button.studio-button,
+  .studio-dialog textarea,
+  .studio-dialog input:not([type="checkbox"], [type="radio"]) {
+    border: 1px solid ButtonText;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    appearance: auto;
+    -webkit-appearance: auto;
+    background-image: none;
+    border-color: ButtonText;
+    accent-color: Highlight;
+  }
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate,
+  input[type='radio']:checked {
+    background-image: none;
+    border-color: Highlight;
+  }
+  /* Important declarations must share the reset's layer to override it. */
+  @layer base {
+    .studio-dialog:focus-visible,
+    .studio-dialog :focus-visible,
+    button.studio-button:focus-visible,
+    button.studio-button.is-default:focus,
+    input[type='checkbox']:focus-visible,
+    input[type='radio']:focus-visible {
+      outline: 2px solid Highlight !important;
+      outline-offset: 2px;
+    }
+  }
+}
+
+/* A library switch opening the next library (LibrarySwitchShield): the app
+   is inert; the note shows only if opening takes a while. */
+.library-switch-shield {
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 10px 16px;
+  border: 1px solid #46484c;
+  border-radius: 6px;
+  background: #242628;
+  color: #e6e7e9;
+  font-size: 12px;
+  opacity: 0;
+  animation: library-switch-shield-in 150ms ease-out 400ms forwards;
+}
+.library-switch-shield::backdrop {
+  background: transparent;
+}
+.library-switch-shield p {
+  margin: 0;
+}
+@keyframes library-switch-shield-in {
+  to { opacity: 1; }
 }

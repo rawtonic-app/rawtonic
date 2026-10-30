@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+# Unchanged public SQLite C identifiers in the pinned crates.io amalgamations.
+# Match the exact identifier AND source paths, never an entire vendor directory.
+[[allowlists]]
+description = "SQLite API dispatch members and FTS5 row-id constant"
+condition = "AND"
+paths = ['''^vendor/libsqlite3-sys/(sqlite3|sqlcipher)/sqlite3(ext\.h|\.c)$''']
+regexTarget = "secret"
+regexes = ['''^(column_bytes16|soft_heap_limit64|hard_heap_limit64|FTS5_AVERAGES_ROWID)$''']

@@ -1,4 +1,5 @@
 //! Writing export files: never over an existing file.
+#[cfg(any(unix, test))]
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -21,7 +22,9 @@ pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::
     use std::io::Write;
     let path = path.as_ref();
     let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
-    let mut builder = tempfile::Builder::new();
+    let builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    let mut builder = builder;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

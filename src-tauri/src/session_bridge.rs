@@ -594,6 +594,28 @@ pub async fn session_summary(directory: String) -> Result<Summary, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+/// The photographs whose XMP sidecar lags behind the library (the session
+/// bar's count), for showing them in the grid.
+#[tauri::command]
+pub async fn session_pending_xmp(directory: String) -> Result<Vec<PathBuf>, String> {
+    with_library(directory, false, |lib| {
+        lib.pending_xmp_paths().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// Writes those sidecars again (the session bar's "Try again"); only XMP
+/// sidecars are written, a sidecar changed elsewhere is never replaced.
+#[tauri::command]
+pub async fn session_write_pending_xmp(
+    directory: String,
+) -> Result<rawtonic_catalog::XmpRetry, String> {
+    with_library(directory, true, |lib| {
+        lib.write_pending_xmp().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 /// One photograph found for the import dialog (`session_ingest_scan`).
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

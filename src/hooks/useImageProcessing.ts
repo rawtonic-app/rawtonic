@@ -10,6 +10,7 @@ import { useRelightStore } from '../store/useRelightStore';
 import { useSnapshotStore } from '../store/useSnapshotStore';
 import { stripSentRelightData } from '../utils/relight';
 import { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
+import { showClippingValue } from '../utils/clippingWarnings';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import { referToSentMaskBitmaps } from '../utils/bitmapIds';
@@ -457,7 +458,8 @@ export function useImageProcessing(
     () =>
       useEditorStore.subscribe((state, previous) => {
         const viewChanged =
-          state.clippingWarnings !== previous.clippingWarnings ||
+          state.clipHighlights !== previous.clipHighlights ||
+          state.clipShadows !== previous.clipShadows ||
           state.softProof !== previous.softProof ||
           state.softProofSpace !== previous.softProofSpace ||
           state.softProofWarning !== previous.softProofWarning ||
@@ -825,7 +827,8 @@ export function useImageProcessing(
 export function withViewStates(adjustments: Adjustments): Adjustments {
   const payload = structuredClone(adjustments);
   const view = useEditorStore.getState();
-  if (view.clippingWarnings) payload.showClipping = true;
+  // Which clipping warnings the renderer marks (0 = none).
+  payload.showClipping = showClippingValue(view.clipHighlights, view.clipShadows);
   if (view.softProof) {
     payload.softProof = view.softProofSpace;
     payload.softProofWarning = view.softProofWarning;
