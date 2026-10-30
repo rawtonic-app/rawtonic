@@ -136,6 +136,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('rotate_right'),
       'separator',
       c('match_light'),
+      c('shift_capture_time'),
       c('auto_adjust'),
       c('auto_white_balance'),
       'separator',

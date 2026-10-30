@@ -158,6 +158,7 @@
       "rotate_right": "右に回転",
       "select_all": "すべてを選択",
       "select_none": "選択を解除",
+      "shift_capture_time": "撮影日時をずらす…",
       "show_in_finder": "Finderに表示",
       "sync_settings": "設定を同期",
       "tether_capture": "撮影（テザーカメラ）",
@@ -218,6 +219,67 @@
       "recipes": "レシピで書き出し"
     }
   },
+  "captureTime": {
+    "applied_one": "{{count}} 枚の撮影日時を補正しました",
+    "applied_other": "{{count}} 枚の撮影日時を補正しました",
+    "apply_one": "{{count}} 枚に適用",
+    "apply_other": "{{count}} 枚に適用",
+    "cameraCount": "{{name}}（{{n}}）",
+    "cancel": "キャンセル",
+    "conflict_one": "このプレビューの後に {{count}} 枚の写真が変更されました。何も書き込んでいません。新しいプレビューを確認してもう一度適用してください。",
+    "conflict_other": "このプレビューの後に {{count}} 枚の写真が変更されました。何も書き込んでいません。新しいプレビューを確認してもう一度適用してください。",
+    "correctedHelp": "YYYY-MM-DD HH:MM:SS（小数部 .250 は任意）。省略すると写真の秒以下はそのままです。",
+    "correctedTime": "正しい時刻",
+    "direction": "方向",
+    "earlier": "前へ",
+    "errors": {
+      "field": "整数を入力してください（秒は小数点以下 9 桁まで）。",
+      "fraction": "秒の小数部は 9 桁までです。",
+      "invalid": "有効な日時ではありません（YYYY-MM-DD HH:MM:SS）。",
+      "outOfRange": "時刻は 0001 年から 9999 年の範囲にしてください。"
+    },
+    "excluded": {
+      "noCaptureTime": "ファイルに撮影日時がありません",
+      "notInLibrary": "このプロジェクトまたはカタログにありません",
+      "offline": "オフライン：撮影日時を読み取れません",
+      "otherLibrary": "別のプロジェクトまたはカタログにあります"
+    },
+    "excludedCount_one": "{{count}} 枚を対象外にしました",
+    "excludedCount_other": "{{count}} 枚を対象外にしました",
+    "failed": "撮影日時を変更できませんでした：{{error}}",
+    "filesUnchanged": "写真ファイルとそのファイル日時は変更されません。並べ替え、検索、名前、書き出しには補正した時刻が使われます。",
+    "how": "補正方法",
+    "intro": "ずれていたカメラの時計を補正します。すべての写真を同じだけずらすので、複数のカメラの写真が撮影順に並びます。",
+    "later": "後へ",
+    "modes": {
+      "reference": "1 枚の写真の時刻を指定",
+      "reset_one": "ファイルの時刻に戻す（補正済み {{count}} 枚）",
+      "reset_other": "ファイルの時刻に戻す（補正済み {{count}} 枚）",
+      "shift": "ずらす量"
+    },
+    "nothingToChange": "変更はありません。",
+    "notInLibrary": "撮影日時をずらす機能は、プロジェクトまたはカタログ内の写真に使えます。先にこれらの写真を追加してください。",
+    "outOfRange_one": "{{name}} が 0001～9999 年の範囲外になります。適用できません。",
+    "outOfRange_other": "{{name}} など {{count}} 枚が 0001～9999 年の範囲外になります。適用できません。",
+    "parts": {
+      "days": "日",
+      "hours": "時間",
+      "minutes": "分",
+      "seconds": "秒"
+    },
+    "rangeChange": "{{from}} – {{to}} から {{newFrom}} – {{newTo}} へ",
+    "reading": "撮影日時を読み込み中…",
+    "referenceChange": "{{name}}：{{before}} → {{after}}",
+    "referencePhoto": "基準の写真",
+    "shiftEarlier": "ずらす量：{{days}} 日 {{hours}} 時間 {{minutes}} 分 {{seconds}} 秒 前へ",
+    "shiftLater": "ずらす量：{{days}} 日 {{hours}} 時間 {{minutes}} 分 {{seconds}} 秒 後へ",
+    "sidecarsFailed_one": "補正はライブラリに保存されました。{{count}} 枚の設定ファイルはまだ書き込めておらず、次の変更時に書き込まれます。",
+    "sidecarsFailed_other": "補正はライブラリに保存されました。{{count}} 枚の設定ファイルはまだ書き込めておらず、次の変更時に書き込まれます。",
+    "summary_one": "{{count}} 枚の写真",
+    "summary_other": "{{count}} 枚の写真",
+    "title": "撮影日時をずらす",
+    "unknownCamera": "不明なカメラ"
+  },
   "commandPalette": {
     "close": "コマンドパレットを閉じる",
     "empty": "一致するコマンドがありません。別の語句で検索してください。",
@@ -226,6 +288,7 @@
     "search": "コマンドを検索…",
     "selectAtMostPhotos": "写真は最大{{max}}枚まで選択してください",
     "selectFourPhotos": "写真を4枚以上選択してください",
+    "selectPhotos": "写真を 1 枚以上選択してください",
     "selectTwoPhotos": "写真を2枚以上選択してください"
   },
   "contextMenus": {
@@ -329,6 +392,7 @@
       "renameImage_other": "{{count}} 枚の画像名を変更",
       "resetAdjustments_one": "補正設定をリセット",
       "resetAdjustments_other": "{{count}} 枚の画像の補正設定をリセット",
+      "shiftCaptureTime": "撮影日時をずらす…",
       "showExplorer": "エクスプローラーで表示",
       "showFinder": "Finder で表示",
       "virtualCopy": "仮想コピー"
@@ -2870,21 +2934,20 @@
     },
     "histogram": {
       "aria": "画像のヒストグラム",
-      "clippingAria": "クリッピングの警告",
       "gamut": "色域外警告",
       "gamutTitle": "色域外警告: 校正カラースペース外の色を赤で表示",
       "graphAria": "選択した写真の RGB 輝度分布",
       "graphEmpty": "写真を開くとヒストグラムを表示できます",
       "highlightClipping": "ハイライトの警告",
       "highlightClippingLit": "ハイライトの警告、白飛び",
-      "highlightClippingTitle": "ハイライトの警告（白飛びしたハイライト。{{shortcut}} で両方を切り替え）",
+      "highlightClippingTitle": "ハイライトのクリッピング警告（写真では赤。{{shortcut}} で両方を切り替え）",
       "proof": "校正",
       "proofSpace": "校正のカラースペース",
       "proofTitle": "ソフト校正: 選択したカラースペースで書き出したときの見え方で写真を表示（{{shortcut}}）",
       "selectPhoto": "写真を選択してください",
       "shadowClipping": "シャドウの警告",
       "shadowClippingLit": "シャドウの警告、黒つぶれ",
-      "shadowClippingTitle": "シャドウの警告（黒つぶれしたシャドウ。{{shortcut}} で両方を切り替え）",
+      "shadowClippingTitle": "シャドウのクリッピング警告（写真では青。{{shortcut}} で両方を切り替え）",
       "title": "ヒストグラム"
     },
     "layers": {
@@ -3585,6 +3648,7 @@
       "notInSession": "選択した写真の一部はこのプロジェクトに含まれていません。",
       "outsideSessions": "プロジェクト外では、説明・作成者・著作権・コメントは各写真の編集内容と一緒に保存されます。タイトルと IPTC フィールドはプロジェクトに保存されます。",
       "selectToSee": "写真を選択するとメタデータが表示されます。",
+      "shiftCaptureTime": "撮影日時をずらす…",
       "title": "メタデータ",
       "toasts": {
         "keywordsRemoveFailed": "キーワードを削除できませんでした: {{error}}",
@@ -4163,6 +4227,7 @@
         "searchLabel": "写真を検索",
         "sort": "写真を並べ替え",
         "sortBy": {
+          "captured": "撮影日時",
           "date": "変更日",
           "name": "ファイル名",
           "rating": "レーティング"
@@ -4265,6 +4330,7 @@
   },
   "undoHistory": {
     "apply": "設定を適用",
+    "captureTime": "撮影日時をずらす",
     "color": "カラーラベルの設定",
     "edit": "編集",
     "file": "ファイルの変更",

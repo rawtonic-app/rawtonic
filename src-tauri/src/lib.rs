@@ -28,6 +28,7 @@ mod bw_auto;
 mod cache_utils;
 mod camera_profile;
 mod camera_tethering;
+mod capture_time;
 mod collage;
 mod contribute;
 mod costyle;
@@ -105,7 +106,6 @@ use tauri::Manager;
 
 use crate::app_settings::{AppSettings, load_settings};
 use crate::app_state::{AppState, WindowState};
-use crate::image_processing::get_or_init_gpu_context;
 use crate::launch_request::{LaunchRequest, emit_launch_request, parse_launch_args};
 use crate::window_customizer::PinchZoomDisablePlugin;
 
@@ -133,6 +133,7 @@ pub fn register_exit_handler() {}
 pub fn run() {
     #[cfg(feature = "performance-profiling")]
     performance::mark_application_start();
+    gpu_processing::mark_process_start();
     let _ = rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
         .build_global();
@@ -393,6 +394,11 @@ pub fn run() {
             };
             startup::setup_logging(&app_handle);
             if !is_headless {
+                // Before the window and its webview: a cold start's first
+                // Develop frame waits for the display variant this compiles.
+                gpu_processing::start_early(&app_handle);
+            }
+            if !is_headless {
                 contribute::start_usage_stats(&app_handle, settings.usage_stats.unwrap_or(false));
             }
             if let Some(record) = &crash_record {
@@ -513,25 +519,10 @@ pub fn run() {
             }
 
             {
-                let app_state = app.state::<AppState>();
-                match get_or_init_gpu_context(&app_state, app.handle()) {
-                    // The display variants compile while the library shows:
-                    // without a driver shader cache (first start, driver or
-                    // app update) they take seconds on NVIDIA/Linux.
-                    Ok(context) => {
-                        let app_handle = app.handle().clone();
-                        std::thread::spawn(move || {
-                            gpu_processing::prewarm_gpu_processor(
-                                &app_handle.state::<AppState>().gpu_processor,
-                                &context,
-                            );
-                        });
-                    }
-                    Err(error) => log::warn!(
-                        "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
-                        error
-                    ),
-                }
+                // The device and processor were started before the window
+                // (`start_early`); presenting needs the window.
+                #[cfg(not(target_os = "linux"))]
+                gpu_processing::attach_display(&app.state::<AppState>(), app.handle());
 
                 if let Ok(config_dir) = app.path().app_config_dir() {
                     let path = config_dir.join("window_state.json");
@@ -803,6 +794,9 @@ pub fn run() {
             mask_generation::sample_luma_range,
             mask_generation::generate_mask_thumbnails,
             file_management::update_exif_fields,
+            capture_time::capture_time_preview,
+            capture_time::capture_time_plan,
+            capture_time::capture_time_apply,
             file_management::file_size,
             file_management::get_supported_file_types,
             file_management::read_exif_for_paths,

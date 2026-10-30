@@ -117,3 +117,31 @@ it('announces a keyword batch that settled, also one that failed, so the XMP cou
     window.removeEventListener(PHOTO_WRITES_SETTLED, settled);
   }
 });
+
+it('announces only the photographs a keyword batch could not save, the others as written', async () => {
+  const announced: Array<{ kind: string; paths: string[]; failed: string[] }> = [];
+  const settled = (event: Event) =>
+    announced.push((event as CustomEvent<{ kind: string; paths: string[]; failed: string[] }>).detail);
+  window.addEventListener(PHOTO_WRITES_SETTLED, settled);
+  try {
+    // add_tag_for_paths/remove_tag_for_paths report the photographs they
+    // could not save (`SaveFailure.failed`); the rest have the keyword.
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockRejectedValueOnce({ message: 'Could not save 1 of 3 photos', failed: ['/b'] });
+    await expect(
+      invokeInOrder('add_tag_for_paths', { paths: ['/a', '/b', '/c'], tag: 'user:beach' }, 'keyword'),
+    ).rejects.toMatchObject({ failed: ['/b'] });
+    await vi.waitFor(() => expect(announced).toHaveLength(1));
+    expect(announced[0]).toMatchObject({ kind: 'keyword', paths: ['/a', '/b', '/c'], failed: ['/b'] });
+    // Only the photographs the command names failed; the others settle as
+    // written, so the XMP status does not announce them as failed.
+    vi.mocked(invoke).mockRejectedValueOnce({ message: 'Could not save 1 of 2 photos', failed: ['/y'] });
+    await expect(
+      invokeInOrder('remove_tag_for_paths', { paths: ['/x', '/y'], tag: 'user:beach' }, 'keyword'),
+    ).rejects.toMatchObject({ failed: ['/y'] });
+    await vi.waitFor(() => expect(announced).toHaveLength(2));
+    expect(announced[1]).toMatchObject({ kind: 'keyword', paths: ['/x', '/y'], failed: ['/y'] });
+  } finally {
+    window.removeEventListener(PHOTO_WRITES_SETTLED, settled);
+  }
+});

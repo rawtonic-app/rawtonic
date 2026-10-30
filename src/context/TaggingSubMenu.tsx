@@ -9,6 +9,7 @@ import { TextVariants } from '../types/typography';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { expandGroupedPaths } from '../utils/imageGrouping';
 import { invokeInOrder } from '../utils/catalogWrites';
+import { saveFailure } from '../hooks/useLibraryActions';
 
 interface TaggingSubMenuProps {
   paths: string[];
@@ -51,30 +52,35 @@ export default function TaggingSubMenu({
   const handleAddTag = async (tagToAdd: string) => {
     const newTagValue = tagToAdd.trim().toLowerCase();
     if (newTagValue && !tags.some((t) => t.tag === newTagValue)) {
+      const prefixedTag = `${USER_TAG_PREFIX}${newTagValue}`;
+      const pathsToUpdate = getPathsToUpdate();
       try {
-        const prefixedTag = `${USER_TAG_PREFIX}${newTagValue}`;
-        const pathsToUpdate = getPathsToUpdate();
         await invokeInOrder(Invokes.AddTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
         const newTags = [...tags, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag));
         setTags(newTags);
         onTagsChanged(paths, newTags);
         setInputValue('');
       } catch (err) {
-        toast.error(`Failed to add tag: ${err}`);
+        // Not saved everywhere: the menu stays as it was, so adding the tag
+        // again retries it for every photo (adding is idempotent). The XMP
+        // status follows the photos that failed (photoWrites).
+        toast.error(`Failed to add tag: ${saveFailure(err, pathsToUpdate).message}`);
       }
     }
   };
 
   const handleRemoveTag = async (tagToRemove: { tag: string; isUser: boolean }) => {
+    const prefixedTag = tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag;
+    const pathsToUpdate = getPathsToUpdate();
     try {
-      const prefixedTag = tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag;
-      const pathsToUpdate = getPathsToUpdate();
       await invokeInOrder(Invokes.RemoveTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
       const newTags = tags.filter((t) => t.tag !== tagToRemove.tag);
       setTags(newTags);
       onTagsChanged(paths, newTags);
     } catch (err) {
-      toast.error(`Failed to remove tag: ${err}`);
+      // Not removed everywhere: the tag stays in the menu so removing it
+      // again retries it for every photo.
+      toast.error(`Failed to remove tag: ${saveFailure(err, pathsToUpdate).message}`);
     }
   };
 

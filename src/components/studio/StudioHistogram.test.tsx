@@ -23,6 +23,13 @@ it("soft-proofs in a chosen colour space with an optional gamut warning", () => 
   expect(useEditorStore.getState().softProof).toBe(true);
   const space = screen.getByLabelText("Proof color space") as HTMLSelectElement;
   expect(space.value).toBe("srgb");
+  // Enabling Proof inserts its controls below the caption, so its toggle
+  // stays under the pointer for the next click. The header names no control,
+  // so it is found by its class.
+  const header = document.querySelector<HTMLElement>(".studio-clip-corners");
+  expect(header).not.toBeNull();
+  expect(header!.nextElementSibling).toBe(space.parentElement);
+  expect(space.parentElement?.nextElementSibling?.className).toBe("studio-histogram-plot");
   fireEvent.change(space, { target: { value: "adobeRgb" } });
   expect(useEditorStore.getState().softProofSpace).toBe("adobeRgb");
   fireEvent.click(screen.getByRole("button", { name: "Gamut warning" }));
@@ -59,8 +66,10 @@ it("switches each clipping warning on its own with the histogram corners", () =>
   const highlights = screen.getByRole("button", { name: "Highlight clipping" });
   expect(shadows.getAttribute("aria-pressed")).toBe("false");
   expect(highlights.getAttribute("aria-pressed")).toBe("false");
-  expect(shadows.querySelector("title")?.textContent).toContain("J");
-  expect(highlights.querySelector("title")?.textContent).toContain("J");
+  expect(shadows.getAttribute("title")).toContain("J");
+  expect(shadows.getAttribute("title")).toContain("blue in the photo");
+  expect(highlights.getAttribute("title")).toContain("red in the photo");
+  expect(highlights.getAttribute("title")).toContain("J");
   fireEvent.click(shadows);
   expect(useEditorStore.getState().clipShadows).toBe(true);
   expect(useEditorStore.getState().clipHighlights).toBe(false);
@@ -173,30 +182,120 @@ it("keeps the lit state when a warning switches for the same histogram", () => {
 it("keeps the corner buttons off the plot's own image role", () => {
   useEditorStore.setState({ histogram: null, softProof: true });
   render(<StudioHistogram />);
-  const group = screen.getByRole("group", { name: "Clipping warnings" });
-  expect(within(group).getAllByRole("button")).toHaveLength(2);
+  // The photo histogram section names the corners' home; the triangles carry
+  // no second group label of their own.
+  const region = screen.getByRole("region", { name: "Photo histogram" });
+  expect(
+    within(region).getAllByRole("button", { name: /clipping/ }),
+  ).toHaveLength(2);
+  expect(screen.queryByRole("group", { name: "Photo histogram" })).toBeNull();
   useEditorStore.setState({ softProof: false });
 });
 
-it("draws the corner layers transparent over the plot (studio.css applied)", async () => {
+it("keeps fixed-size transparent control icons above the plot (studio.css applied)", async () => {
   // Vitest hands CSS imports (also `?raw`) over empty, so read the file: the
   // tests run on Node from the repository root, but the frontend tsconfig has
   // no Node types.
   // @ts-expect-error node:fs is untyped in the frontend tsconfig
   const { readFileSync } = await import("node:fs");
   const style = document.createElement("style");
-  style.textContent = readFileSync("src/components/studio/studio.css", "utf8") as string;
+  style.textContent = readFileSync(
+    "src/components/studio/studio.css",
+    "utf8",
+  ) as string;
   document.head.appendChild(style);
   try {
-    const { container } = render(<StudioHistogram />);
-    const plot = container.querySelector(".studio-histogram-plot > svg") as SVGElement;
-    const corners = container.querySelectorAll(".studio-clip-corners > svg");
+    const { container } = render(
+      <div className="studio-workspace">
+        <StudioHistogram />
+      </div>,
+    );
+    const plot = container.querySelector(
+      ".studio-histogram-plot > svg",
+    ) as SVGElement;
+    const group = container.querySelector(".studio-clip-corners")!;
+    const corners = group.querySelectorAll("button.studio-clip-corner > svg");
+    expect(group.nextElementSibling).toBe(plot.parentElement);
+    expect(plot.parentElement?.contains(group)).toBe(false);
     expect(corners).toHaveLength(2);
-    // The plot keeps its own background; the corner layers must not repeat it.
-    expect(getComputedStyle(plot).backgroundColor).not.toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
-    for (const layer of corners)
-      expect(getComputedStyle(layer).backgroundColor).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
+    // Only the graph owns a background and adaptive height. Icons never stretch.
+    expect(getComputedStyle(plot).backgroundColor).not.toMatch(
+      /transparent|rgba\(0, 0, 0, 0\)/,
+    );
+    expect(getComputedStyle(plot).height).toBe("82px");
+    const shadow = group.querySelector(".studio-clip-shadows")!;
+    const mark = shadow.querySelector("polygon")!;
+    // Assert the visual state contract with the real stylesheet, including
+    // the studio's general pressed-button styles.
+    for (const [state, fill, stroke] of [
+      ["", "rgba(0, 0, 0, 0)", "rgb(150, 154, 159)"],
+      ["is-on", "rgb(85, 88, 93)", "rgb(238, 240, 243)"],
+      ["is-lit", "rgb(0, 0, 0)", "rgb(238, 240, 243)"],
+      ["is-on is-lit", "rgb(0, 0, 0)", "rgb(238, 240, 243)"],
+    ]) {
+      shadow.setAttribute(
+        "class",
+        `studio-clip-corner studio-clip-shadows ${state}`,
+      );
+      expect(getComputedStyle(mark).fill).toBe(fill);
+      expect(getComputedStyle(mark).stroke).toBe(stroke);
+    }
+
+    const highlight = group.querySelector(".studio-clip-highlights")!;
+    const highlightMark = highlight.querySelector("polygon")!;
+    for (const [state, fill] of [
+      ["", "rgba(0, 0, 0, 0)"],
+      ["is-on", "rgb(200, 201, 204)"],
+      ["is-lit", "rgb(255, 255, 255)"],
+      ["is-on is-lit", "rgb(255, 255, 255)"],
+    ]) {
+      highlight.setAttribute("class", `studio-clip-corner studio-clip-highlights ${state}`);
+      expect(getComputedStyle(highlightMark).fill).toBe(fill);
+    }
+    expect(getComputedStyle(shadow).justifyContent).toBe("flex-start");
+    expect(getComputedStyle(highlight).justifyContent).toBe("flex-end");
+    for (const layer of corners) {
+      expect(getComputedStyle(layer).backgroundColor).toMatch(
+        /transparent|rgba\(0, 0, 0, 0\)/,
+      );
+      expect(getComputedStyle(layer).height).toBe("11px");
+      expect(getComputedStyle(layer).width).toBe("11px");
+      expect(getComputedStyle(layer.parentElement!).height).toBe("20px");
+      expect(getComputedStyle(layer.parentElement!).width).toBe("20px");
+    }
   } finally {
     style.remove();
   }
+});
+
+it("expresses independent warning and clipping states as control classes", () => {
+  useEditorStore.setState({
+    histogram: clippedHistogram(false, true) as never,
+    clipShadows: true,
+    clipHighlights: false,
+  });
+  render(<StudioHistogram />);
+  const shadows = screen.getByRole("button", { name: "Shadow clipping" });
+  const highlights = screen.getByRole("button", {
+    name: "Highlight clipping, clipped",
+  });
+  expect(shadows.tagName).toBe("BUTTON");
+  expect(shadows.classList.contains("is-on")).toBe(true);
+  expect(shadows.classList.contains("is-lit")).toBe(false);
+  expect(highlights.classList.contains("is-on")).toBe(false);
+  expect(highlights.classList.contains("is-lit")).toBe(true);
+  fireEvent.click(highlights);
+  expect(highlights.classList.contains("is-on")).toBe(true);
+  expect(highlights.classList.contains("is-lit")).toBe(true);
+  fireEvent.click(shadows);
+  expect(shadows.classList.contains("is-on")).toBe(false);
+  expect(shadows.classList.contains("is-lit")).toBe(false);
+});
+
+it("reserves native activation keys while leaving J to the app shortcut", () => {
+  const keys: string[] = [];
+  render(<div onKeyDown={(event) => keys.push(event.key)}><StudioHistogram /></div>);
+  const shadows = screen.getByRole("button", { name: "Shadow clipping" });
+  for (const key of [" ", "Enter", "j"]) fireEvent.keyDown(shadows, { key });
+  expect(keys).toEqual(["j"]);
 });

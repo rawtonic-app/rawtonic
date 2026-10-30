@@ -158,6 +158,7 @@
       "rotate_right": "Obróć w prawo",
       "select_all": "Zaznacz wszystko",
       "select_none": "Odznacz wszystko",
+      "shift_capture_time": "Przesuń czas wykonania…",
       "show_in_finder": "Pokaż w Finderze",
       "sync_settings": "Synchronizuj ustawienia",
       "tether_capture": "Wyzwól (aparat podłączony)",
@@ -218,6 +219,83 @@
       "recipes": "Eksportuj z recepturą"
     }
   },
+  "captureTime": {
+    "applied_one": "Poprawiono czas wykonania {{count}} zdjęcia",
+    "applied_few": "Poprawiono czas wykonania {{count}} zdjęć",
+    "applied_many": "Poprawiono czas wykonania {{count}} zdjęć",
+    "applied_other": "Poprawiono czas wykonania {{count}} zdjęć",
+    "apply_one": "Zastosuj do {{count}} zdjęcia",
+    "apply_few": "Zastosuj do {{count}} zdjęć",
+    "apply_many": "Zastosuj do {{count}} zdjęć",
+    "apply_other": "Zastosuj do {{count}} zdjęć",
+    "cameraCount": "{{name}} ({{n}})",
+    "cancel": "Anuluj",
+    "conflict_one": "Od tego podglądu zmieniono {{count}} zdjęcie. Niczego nie zapisano; sprawdź nowy podgląd i zastosuj ponownie.",
+    "conflict_few": "Od tego podglądu zmieniono {{count}} zdjęcia. Niczego nie zapisano; sprawdź nowy podgląd i zastosuj ponownie.",
+    "conflict_many": "Od tego podglądu zmieniono {{count}} zdjęć. Niczego nie zapisano; sprawdź nowy podgląd i zastosuj ponownie.",
+    "conflict_other": "Od tego podglądu zmieniono {{count}} zdjęcia. Niczego nie zapisano; sprawdź nowy podgląd i zastosuj ponownie.",
+    "correctedHelp": "RRRR-MM-DD GG:MM:SS, opcjonalnie z ułamkiem (.250). Bez niego zdjęcie zachowuje swój ułamek sekundy.",
+    "correctedTime": "Jego prawidłowy czas",
+    "direction": "Kierunek",
+    "earlier": "Wcześniej",
+    "errors": {
+      "field": "Wpisz liczbę całkowitą (sekundy mogą mieć do dziewięciu miejsc po przecinku).",
+      "fraction": "Ułamek sekundy może mieć najwyżej dziewięć cyfr.",
+      "invalid": "Nieprawidłowa data i godzina (RRRR-MM-DD GG:MM:SS).",
+      "outOfRange": "Czas musi mieścić się między rokiem 0001 a 9999."
+    },
+    "excluded": {
+      "noCaptureTime": "plik nie ma czasu wykonania",
+      "notInLibrary": "nie należy do tego projektu ani katalogu",
+      "offline": "offline: nie można odczytać czasu wykonania",
+      "otherLibrary": "należy do innego projektu lub katalogu"
+    },
+    "excludedCount_one": "Pominięto {{count}} zdjęcie",
+    "excludedCount_few": "Pominięto {{count}} zdjęcia",
+    "excludedCount_many": "Pominięto {{count}} zdjęć",
+    "excludedCount_other": "Pominięto {{count}} zdjęcia",
+    "failed": "Nie można zmienić czasu wykonania: {{error}}",
+    "filesUnchanged": "Twoje pliki zdjęć i ich daty plików nie są zmieniane. Sortowanie, wyszukiwanie, nazwy i eksport używają poprawionego czasu.",
+    "how": "Korekta",
+    "intro": "Koryguje źle ustawiony zegar aparatu: każde zdjęcie jest przesuwane o tyle samo, aby zdjęcia z kilku aparatów sortowały się w kolejności wykonania.",
+    "later": "Później",
+    "modes": {
+      "reference": "Ustaw czas jednego zdjęcia",
+      "reset_one": "Przywróć czas z pliku (poprawione: {{count}})",
+      "reset_few": "Przywróć czas z pliku (poprawione: {{count}})",
+      "reset_many": "Przywróć czas z pliku (poprawione: {{count}})",
+      "reset_other": "Przywróć czas z pliku (poprawione: {{count}})",
+      "shift": "Przesuń o"
+    },
+    "nothingToChange": "Nic do zmiany.",
+    "notInLibrary": "Przesuwanie czasu wykonania działa na zdjęciach w projekcie lub katalogu. Najpierw dodaj te zdjęcia do jednego z nich.",
+    "outOfRange_one": "{{name}} wyszłoby poza lata 0001–9999. Nie można niczego zastosować.",
+    "outOfRange_few": "{{count}} zdjęcia, np. {{name}}, wyszłyby poza lata 0001–9999. Nie można niczego zastosować.",
+    "outOfRange_many": "{{count}} zdjęć, np. {{name}}, wyszłoby poza lata 0001–9999. Nie można niczego zastosować.",
+    "outOfRange_other": "{{count}} zdjęcia, np. {{name}}, wyszłyby poza lata 0001–9999. Nie można niczego zastosować.",
+    "parts": {
+      "days": "Dni",
+      "hours": "Godziny",
+      "minutes": "Minuty",
+      "seconds": "Sekundy"
+    },
+    "rangeChange": "Z {{from}} – {{to}} na {{newFrom}} – {{newTo}}",
+    "reading": "Odczytywanie czasów wykonania…",
+    "referenceChange": "{{name}}: {{before}} → {{after}}",
+    "referencePhoto": "Zdjęcie wzorcowe",
+    "shiftEarlier": "Przesunięcie: {{days}} d {{hours}} h {{minutes}} min {{seconds}} s wcześniej",
+    "shiftLater": "Przesunięcie: {{days}} d {{hours}} h {{minutes}} min {{seconds}} s później",
+    "sidecarsFailed_one": "Biblioteka ma korektę; pliku ustawień {{count}} zdjęcia nie udało się jeszcze zapisać — zostanie zapisany przy jego następnej zmianie.",
+    "sidecarsFailed_few": "Biblioteka ma korektę; plików ustawień {{count}} zdjęć nie udało się jeszcze zapisać — zostaną zapisane przy ich następnej zmianie.",
+    "sidecarsFailed_many": "Biblioteka ma korektę; plików ustawień {{count}} zdjęć nie udało się jeszcze zapisać — zostaną zapisane przy ich następnej zmianie.",
+    "sidecarsFailed_other": "Biblioteka ma korektę; plików ustawień {{count}} zdjęć nie udało się jeszcze zapisać — zostaną zapisane przy ich następnej zmianie.",
+    "summary_one": "{{count}} zdjęcie",
+    "summary_few": "{{count}} zdjęcia",
+    "summary_many": "{{count}} zdjęć",
+    "summary_other": "{{count}} zdjęcia",
+    "title": "Przesuń czas wykonania",
+    "unknownCamera": "Nieznany aparat"
+  },
   "commandPalette": {
     "close": "Zamknij paletę poleceń",
     "empty": "Brak pasujących poleceń. Spróbuj innego wyszukiwania.",
@@ -226,6 +304,7 @@
     "search": "Szukaj poleceń…",
     "selectAtMostPhotos": "Wybierz najwyżej {{max}} zdjęć",
     "selectFourPhotos": "Wybierz co najmniej cztery zdjęcia",
+    "selectPhotos": "Zaznacz jedno lub więcej zdjęć",
     "selectTwoPhotos": "Wybierz co najmniej dwa zdjęcia"
   },
   "contextMenus": {
@@ -357,6 +436,7 @@
       "resetAdjustments_few": "Resetuj ustawienia w {{count}} obrazach",
       "resetAdjustments_many": "Resetuj ustawienia w {{count}} obrazach",
       "resetAdjustments_other": "Resetuj ustawienia w {{count}} obrazach",
+      "shiftCaptureTime": "Przesuń czas wykonania…",
       "showExplorer": "Pokaż w eksploratorze plików",
       "showFinder": "Pokaż w Finderze",
       "virtualCopy": "Kopia wirtualna"
@@ -3087,21 +3167,20 @@
     },
     "histogram": {
       "aria": "Histogram obrazu",
-      "clippingAria": "Ostrzeżenia o prześwietleniach i zadartych cieniach",
       "gamut": "Ostrzeżenie o gamucie",
       "gamutTitle": "Ostrzeżenie o gamucie: kolory spoza przestrzeni próby na czerwono",
       "graphAria": "Rozkład luminancji RGB zaznaczonego zdjęcia",
       "graphEmpty": "Histogram dostępny po otwarciu zdjęcia",
       "highlightClipping": "Ostrzeżenie o światłach",
       "highlightClippingLit": "Ostrzeżenie o światłach, prześwietlone",
-      "highlightClippingTitle": "Ostrzeżenie o światłach (prześwietlone światła; {{shortcut}} przełącza oba)",
+      "highlightClippingTitle": "Ostrzeżenie o przepalonych światłach (czerwony na zdjęciu; {{shortcut}} przełącza oba)",
       "proof": "Próba",
       "proofSpace": "Przestrzeń kolorów próby",
       "proofTitle": "Próba ekranowa: pokazuje zdjęcie tak, jak będzie wyglądał eksport w wybranej przestrzeni kolorów ({{shortcut}})",
       "selectPhoto": "Wybierz zdjęcie",
       "shadowClipping": "Ostrzeżenie o cieniach",
       "shadowClippingLit": "Ostrzeżenie o cieniach, zadarte",
-      "shadowClippingTitle": "Ostrzeżenie o cieniach (zadarte cienie; {{shortcut}} przełącza oba)",
+      "shadowClippingTitle": "Ostrzeżenie o obciętych cieniach (niebieski na zdjęciu; {{shortcut}} przełącza oba)",
       "title": "Histogram"
     },
     "layers": {
@@ -3885,6 +3964,7 @@
       "notInSession": "Niektóre zaznaczone zdjęcia nie należą do tego projektu.",
       "outsideSessions": "Poza projektem opis, autor, prawa autorskie i komentarz są zapisywane razem z edycją każdego zdjęcia; tytuł i pola IPTC są zapisywane w projektach.",
       "selectToSee": "Zaznacz zdjęcia, aby zobaczyć ich metadane.",
+      "shiftCaptureTime": "Przesuń czas wykonania…",
       "title": "Metadane",
       "toasts": {
         "keywordsRemoveFailed": "Nie udało się usunąć słów kluczowych: {{error}}",
@@ -4502,6 +4582,7 @@
         "searchLabel": "Szukaj zdjęć",
         "sort": "Sortuj zdjęcia",
         "sortBy": {
+          "captured": "Czas wykonania",
           "date": "Zmodyfikowano",
           "name": "Nazwa pliku",
           "rating": "Ocena"
@@ -4607,6 +4688,7 @@
   },
   "undoHistory": {
     "apply": "Zastosuj ustawienia",
+    "captureTime": "Przesuń czas wykonania",
     "color": "Ustaw etykietę koloru",
     "edit": "Edycja",
     "file": "Zmiana pliku",

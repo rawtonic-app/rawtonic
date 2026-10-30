@@ -40,6 +40,61 @@ pub struct FileExport<'a> {
     /// retained when other metadata is stripped. Creator contacts require
     /// `settings.keep_creator_contact` in that mode.
     pub catalog: Option<rawtonic_metadata::Metadata>,
+    /// The capture time the library corrected for the source (Shift Capture
+    /// Time), which its EXIF and file times take over the file's.
+    pub capture: Option<crate::exif_processing::CaptureFields>,
+}
+
+/// The capture time an app correction left in the source's `.rrdata` EXIF
+/// map when it differs from the file's own: what an export of a photograph
+/// outside any session folder carries (a catalog keeps its photographs
+/// anywhere, so the CLI cannot find the catalog from the photograph).
+pub fn sidecar_capture(source: &Path) -> Option<crate::exif_processing::CaptureFields> {
+    use crate::exif_processing::parse_creation_datetime;
+    let sidecar = crate::exif_processing::get_primary_sidecar_path(source);
+    let shown = crate::sidecars::read_sidecar_file(&sidecar).0.exif?;
+    let bytes = fs::read(source).ok()?;
+    let own = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
+    let field = |map: &crate::export_processing::ExifMap, key: &str| {
+        map.get(key)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let date = |map: &crate::export_processing::ExifMap| {
+        field(map, "DateTimeOriginal").and_then(|v| parse_creation_datetime(&v))
+    };
+    let corrected = date(&shown)?;
+    let same = date(&own) == Some(corrected)
+        && ["SubSecTimeOriginal", "OffsetTimeOriginal"]
+            .iter()
+            .all(|key| field(&shown, key) == field(&own, key));
+    (!same).then(|| {
+        [
+            (
+                "DateTimeOriginal",
+                Some(corrected.format("%Y-%m-%d %H:%M:%S").to_string()),
+            ),
+            ("SubSecTimeOriginal", field(&shown, "SubSecTimeOriginal")),
+            ("OffsetTimeOriginal", field(&shown, "OffsetTimeOriginal")),
+        ]
+    })
+}
+
+/// The source's EXIF map as the app's export reads it: extracted from the
+/// file, with a corrected capture time marked on it. `None` without EXIF.
+fn source_exif(
+    source: &Path,
+    capture: Option<&crate::exif_processing::CaptureFields>,
+) -> Option<crate::export_processing::ExifMap> {
+    let bytes = fs::read(source).ok()?;
+    let mut map = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
+    if map.is_empty() {
+        return None;
+    }
+    if let Some(fields) = capture {
+        crate::exif_processing::mark_corrected_capture(&mut map, fields);
+    }
+    Some(map)
 }
 
 /// A GPU context with the processor and source cache that consecutive
@@ -137,11 +192,7 @@ impl FileExporter {
         };
         // The app reads the EXIF map its loader cached for the source; it is
         // extracted the same way here.
-        let exif_sidecar = || {
-            let bytes = fs::read(job.source).ok()?;
-            let map = read_exif_data_from_bytes(&source_path_str, &bytes);
-            (!map.is_empty()).then_some(map)
-        };
+        let exif_sidecar = || source_exif(job.source, job.capture.as_ref());
         let catalog = || job.catalog.clone();
         let write = |path: &Path, _extension: &str, bytes: Vec<u8>| {
             write_new_output(path, bytes)
@@ -167,5 +218,57 @@ impl FileExporter {
             set_capture_file_times(job.output, capture_date_with(job.source, &exif_sidecar));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use little_exif::{exif_tag::ExifTag, metadata::Metadata};
+
+    #[test]
+    fn the_cli_export_reads_a_corrected_capture_time_like_the_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("camera.jpg");
+        image::DynamicImage::ImageRgb8(image::RgbImage::new(4, 4))
+            .save(&source)
+            .unwrap();
+        let mut exif = Metadata::new();
+        exif.set_tag(ExifTag::Make("Maker".into()));
+        exif.set_tag(ExifTag::DateTimeOriginal("2026:10:30 23:30:00".into()));
+        exif.set_tag(ExifTag::SubSecTimeOriginal("05".into()));
+        exif.write_to_file(&source).unwrap();
+        let plain = source_exif(&source, None).unwrap();
+        assert!(!plain.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
+        let fields = [
+            ("DateTimeOriginal", Some("2026-10-31 00:30:00".to_string())),
+            ("SubSecTimeOriginal", Some("05".to_string())),
+            ("OffsetTimeOriginal", None),
+        ];
+        let corrected = source_exif(&source, Some(&fields)).unwrap();
+        assert_eq!(corrected["DateTimeOriginal"], "2026-10-31 00:30:00");
+        assert_eq!(corrected["Make"], "Maker");
+        assert!(corrected.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
+        assert!(!corrected.contains_key("OffsetTimeOriginal"));
+        // Outside a session: the correction the app left beside the photo.
+        assert_eq!(sidecar_capture(&source), None, "no sidecar");
+        let sidecar = crate::exif_processing::get_primary_sidecar_path(&source);
+        let state = |date: &str| {
+            serde_json::json!({"version": 1, "rating": 0, "adjustments": null,
+                "exif": {"Make": "Maker", "DateTimeOriginal": date, "SubSecTimeOriginal": "05"}})
+            .to_string()
+        };
+        fs::write(&sidecar, state("2026-10-30 23:30:00")).unwrap();
+        assert_eq!(sidecar_capture(&source), None, "the file's own time");
+        fs::write(&sidecar, state("2026-10-31 00:30:00")).unwrap();
+        assert_eq!(
+            sidecar_capture(&source).unwrap()[0].1.as_deref(),
+            Some("2026-10-31 00:30:00")
+        );
+        // Its file times follow the corrected date.
+        let date = crate::exif_processing::capture_date_with(&source, &|| Some(corrected.clone()));
+        use chrono::{Datelike, Timelike};
+        let local = date.with_timezone(&chrono::Local);
+        assert_eq!((local.day(), local.hour(), local.minute()), (31, 0, 30));
     }
 }

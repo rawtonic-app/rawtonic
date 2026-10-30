@@ -441,6 +441,24 @@ describe("Keywords tool and the XMP count", () => {
     await vi.waitFor(() => expect(announced).toEqual(["keyword"]));
   });
 
+  it("keeps the old keywords of only the photographs the library could not save", async () => {
+    // The library saved the keyword for a and c, not for b.
+    mockInvoke.mockRejectedValue({ message: "Could not save 1 of 2 photos", failed: ["/job/Capture/b.arw"] });
+    render(<StudioKeywords />);
+    const input = screen.getByLabelText("Add keywords");
+    fireEvent.change(input, { target: { value: "harbour" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
+    // Written: the keyword is shown; not written: the word kept its own.
+    expect(tags["/job/Capture/a.arw"]).toEqual(["color:red", "dog", "user:beach", "user:harbour"]);
+    expect(tags["/job/Capture/b.arw"]).toEqual(["user:beach"]);
+    // The toast says why, not "[object Object]".
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Could not save 1 of 2 photos"));
+  });
+
   it("announces a successful keyword batch, and one waiting photograph is written in order", async () => {
     let write: (value?: unknown) => void = () => {};
     mockInvoke.mockImplementation(() => new Promise((resolve) => (write = resolve)));

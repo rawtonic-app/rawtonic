@@ -269,7 +269,7 @@ describe('the macOS menu bar', () => {
     // The rest register in their owners (appMenu.test.ts checks them).
     const owners = new Set(['command_palette', 'about', 'check_updates', 'keyboard_shortcuts', 'website', 'report_problem', 'select_none',
       'clear_recent', 'show_in_finder', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
-      'view_grid', 'view_loupe', 'view_develop', 'match_light']);
+      'view_grid', 'view_loupe', 'view_develop', 'match_light', 'shift_capture_time']);
     const missing = menuCommands().filter((command) => !owners.has(command) && !appCommand(command));
     expect(missing).toEqual([]);
   });

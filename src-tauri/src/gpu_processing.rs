@@ -10,13 +10,13 @@ use tauri::Manager;
 
 use crate::app_state::AppState;
 
+/// The processing context, created on first use. It is made without the
+/// window (the device and the first display variant start before the window
+/// exists, `start_early`); `attach_display` adds the window surface.
 pub fn get_or_init_gpu_context(
     state: &tauri::State<AppState>,
-    _app_handle: &tauri::AppHandle,
+    app_handle: &tauri::AppHandle,
 ) -> Result<GpuContext, String> {
-    #[cfg(not(target_os = "linux"))]
-    let app_handle = _app_handle;
-
     let mut context_lock = match state.gpu_context.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -31,7 +31,139 @@ pub fn get_or_init_gpu_context(
     if let Some(context) = &*context_lock {
         return Ok(context.clone());
     }
+    let instance = new_instance();
+    let (context, adapter) = create_context(state, app_handle, &instance, None)?;
+    *state.gpu_adapter.lock().unwrap_or_else(|e| e.into_inner()) = Some((instance, adapter));
+    *context_lock = Some(context.clone());
+    Ok(context)
+}
 
+/// Starts the device, the processor and with it the RAW default display
+/// variant on their own thread, before the window and its webview exist:
+/// on a cold driver shader cache the first Develop frame waits for that
+/// compile (11.7 s on NVIDIA/Windows; notes: benchmark-results/
+/// windows-gpu-vfio-2026-10-30/COLD-START-OPTIONS.md, B2).
+pub fn start_early(app_handle: &tauri::AppHandle) {
+    let app_handle = app_handle.clone();
+    let spawned = std::thread::Builder::new()
+        .name("gpu-start".into())
+        .spawn(move || {
+            let state = app_handle.state::<AppState>();
+            match get_or_init_gpu_context(&state, &app_handle) {
+                // A window whose adapter cannot present replaces the context
+                // while it holds the processor slot (`attach_display`): no
+                // processor for the replaced device.
+                Ok(context) => prewarm_gpu_processor_if(&state.gpu_processor, &context, || {
+                    is_current(&state, &context)
+                }),
+                Err(error) => {
+                    log::warn!(
+                        "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
+                        error
+                    );
+                    // Nothing to wait for.
+                    first_display_variant_settled();
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        log::warn!("GPU start thread unavailable: {error}");
+    }
+}
+
+/// Holds optional start-up work (background library passes, model
+/// warm-ups) until the RAW default display variant is compiled, for at most
+/// 30 s: a cold start's first Develop frame waits for that compile.
+pub fn after_first_display_variant() {
+    wait_for_first_display_variant(std::time::Duration::from_secs(30));
+}
+
+/// Presents onto the main window: its surface on the context's adapter, or,
+/// where that adapter cannot present to it, a new context from an adapter
+/// that can (the processor of the old one is dropped).
+#[cfg(not(target_os = "linux"))]
+pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHandle) {
+    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
+    if !settings.use_wgpu_renderer.unwrap_or(true) {
+        return;
+    }
+    let Some(window) = app_handle.get_webview_window("main") else {
+        return;
+    };
+    // Waits for a context the start thread is creating.
+    let context = match get_or_init_gpu_context(state, app_handle) {
+        Ok(context) => context,
+        Err(error) => {
+            log::warn!(
+                "GPU pre-initialization failed (editing and thumbnails may be degraded): {error}"
+            );
+            return;
+        }
+    };
+    let Some((instance, adapter)) = state
+        .gpu_adapter
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    else {
+        return;
+    };
+    let surface = match instance.create_surface(window.clone()) {
+        Ok(surface) => surface,
+        Err(error) => {
+            log::warn!("Failed to create surface, falling back to compute-only: {error}");
+            return;
+        }
+    };
+    if adapter.is_surface_supported(&surface) {
+        match configure_display(&context.device, &adapter, surface, &window) {
+            Ok(display) => {
+                *context.display.lock().unwrap_or_else(|e| e.into_inner()) = Some(display)
+            }
+            Err(error) => log::warn!("Window display unavailable, compute-only: {error}"),
+        }
+        return;
+    }
+    log::warn!("The GPU adapter cannot present to the window; choosing one that can.");
+    // No render may use the old processor with the new context.
+    let mut processor = state
+        .gpu_processor
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut context_lock = state.gpu_context.lock().unwrap_or_else(|e| e.into_inner());
+    *processor = None;
+    match create_context(state, app_handle, &instance, Some((surface, &window))) {
+        Ok((context, adapter)) => {
+            *state.gpu_adapter.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((instance, adapter));
+            *context_lock = Some(context.clone());
+            let app_handle = app_handle.clone();
+            std::thread::spawn(move || {
+                let state = app_handle.state::<AppState>();
+                prewarm_gpu_processor_if(&state.gpu_processor, &context, || {
+                    is_current(&state, &context)
+                });
+            });
+        }
+        Err(error) => {
+            *context_lock = None;
+            log::warn!("GPU initialization with the window failed: {error}");
+        }
+    }
+}
+
+/// Whether `context` is the app's processing context (not one replaced by
+/// `attach_display`).
+fn is_current(state: &AppState, context: &GpuContext) -> bool {
+    state
+        .gpu_context
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(&current.device, &context.device))
+}
+
+fn new_instance() -> wgpu::Instance {
     #[allow(unused_mut)]
     let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
 
@@ -39,7 +171,17 @@ pub fn get_or_init_gpu_context(
     if std::env::var("WGPU_BACKEND").is_err() {
         instance_desc.backends = wgpu::Backends::PRIMARY;
     }
+    wgpu::Instance::new(instance_desc)
+}
 
+/// A device on the high-performance adapter (one that can present to
+/// `window`'s surface when given), with that window's display.
+fn create_context(
+    state: &AppState,
+    app_handle: &tauri::AppHandle,
+    instance: &wgpu::Instance,
+    #[allow(unused_variables)] window: Option<(wgpu::Surface<'static>, &tauri::WebviewWindow)>,
+) -> Result<(GpuContext, wgpu::Adapter), String> {
     let flag_path = state.gpu_crash_flag_path.lock().unwrap().clone();
     if let Some(p) = &flag_path {
         if let Some(parent) = p.parent() {
@@ -49,61 +191,31 @@ pub fn get_or_init_gpu_context(
         // not take an initialisation in progress for a crash.
         let _ = std::fs::write(p, std::process::id().to_string());
     }
-
-    let instance = wgpu::Instance::new(instance_desc);
-
-    #[cfg(not(target_os = "linux"))]
-    let surface_opt = {
-        let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
-        let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
-
-        if use_wgpu_renderer {
-            if let Some(window) = app_handle.get_webview_window("main") {
-                match instance.create_surface(window) {
-                    Ok(surface) => Some(surface),
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to create surface, falling back to compute-only: {}",
-                            e
-                        );
-                        if let Some(p) = &flag_path {
-                            let _ = std::fs::remove_file(p);
-                        }
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
-
-    #[cfg(target_os = "linux")]
-    let surface_opt: Option<wgpu::Surface> = None;
-
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: surface_opt.as_ref(),
-        ..Default::default()
-    }))
-    .map_err(|e| {
+    let remove_flag = || {
         if let Some(p) = &flag_path {
             let _ = std::fs::remove_file(p);
         }
+    };
+
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: window.as_ref().map(|(surface, _)| surface),
+        ..Default::default()
+    }))
+    .map_err(|e| {
+        remove_flag();
         format!("Failed to find a wgpu adapter: {}", e)
     })?;
 
-    crate::contribute::note_gpu(&adapter.get_info());
+    let info = adapter.get_info();
+    log_adapter(&info);
+    crate::contribute::note_gpu(&info);
     let limits = adapter.limits();
 
     let (device, queue) =
         pollster::block_on(adapter.request_device(&processing_device_descriptor(&adapter)))
             .map_err(|e| {
-                if let Some(p) = &flag_path {
-                    let _ = std::fs::remove_file(p);
-                }
+                remove_flag();
                 e.to_string()
             })?;
 
@@ -111,81 +223,16 @@ pub fn get_or_init_gpu_context(
         log::error!("[wgpu-error] {}", err);
     }));
 
-    if let Some(p) = &flag_path {
-        let _ = std::fs::remove_file(p);
+    remove_flag();
+
+    if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
+        rawtonic_gpu::pipeline_cache::open(&device, &info, &cache_dir.join("gpu-pipelines"));
     }
 
     #[cfg(not(target_os = "linux"))]
-    let display_opt = if let Some(surface) = surface_opt {
-        let window = app_handle
-            .get_webview_window("main")
-            .ok_or("Failed to get main window")?;
-
-        let swapchain_caps = surface.get_capabilities(&adapter);
-        let swapchain_format = swapchain_caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| !f.is_srgb())
-            .unwrap_or(swapchain_caps.formats[0]);
-
-        let alpha_mode = if cfg!(target_os = "windows")
-            && swapchain_caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::Opaque)
-        {
-            wgpu::CompositeAlphaMode::Opaque
-        } else if swapchain_caps
-            .alpha_modes
-            .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
-        {
-            wgpu::CompositeAlphaMode::PreMultiplied
-        } else if swapchain_caps
-            .alpha_modes
-            .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
-        {
-            wgpu::CompositeAlphaMode::PostMultiplied
-        } else {
-            swapchain_caps.alpha_modes[0]
-        };
-
-        // macOS: present without waiting for vsync. Frames are presented once
-        // per preview job, not in a loop, and the window server still
-        // composites whole frames. With FIFO about one live frame in eleven
-        // waited ~26 ms for a free drawable while the previous ones queued for
-        // vsync. Elsewhere immediate presentation can tear, so FIFO stays.
-        let present_mode = if cfg!(target_os = "macos")
-            && swapchain_caps
-                .present_modes
-                .contains(&wgpu::PresentMode::Immediate)
-        {
-            wgpu::PresentMode::Immediate
-        } else {
-            wgpu::PresentMode::Fifo
-        };
-
-        let size = window
-            .inner_size()
-            .unwrap_or(tauri::PhysicalSize::new(1280, 720));
-        let config = wgpu::SurfaceConfiguration {
-            width: size.width.max(1),
-            height: size.height.max(1),
-            format: swapchain_format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            present_mode,
-            alpha_mode,
-            view_formats: vec![],
-            // Three drawables. Two would save one window-sized buffer (about
-            // 80 MB at 6K) but made live brush frames wait for a free one.
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&device, &config);
-        #[cfg(target_os = "macos")]
-        tag_display_layer_p3(&surface);
-
-        Some(WgpuDisplay::new(&device, surface, config)?)
-    } else {
-        None
+    let display_opt = match window {
+        Some((surface, window)) => Some(configure_display(&device, &adapter, surface, window)?),
+        None => None,
     };
 
     #[cfg(target_os = "linux")]
@@ -209,8 +256,79 @@ pub fn get_or_init_gpu_context(
         new_context.device.clone(),
         new_context.queue.clone(),
     );
-    *context_lock = Some(new_context.clone());
-    Ok(new_context)
+    Ok((new_context, adapter))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_display(
+    device: &wgpu::Device,
+    adapter: &wgpu::Adapter,
+    surface: wgpu::Surface<'static>,
+    window: &tauri::WebviewWindow,
+) -> Result<WgpuDisplay, String> {
+    let swapchain_caps = surface.get_capabilities(adapter);
+    let swapchain_format = swapchain_caps
+        .formats
+        .iter()
+        .copied()
+        .find(|f| !f.is_srgb())
+        .unwrap_or(swapchain_caps.formats[0]);
+
+    let alpha_mode = if cfg!(target_os = "windows")
+        && swapchain_caps
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::Opaque)
+    {
+        wgpu::CompositeAlphaMode::Opaque
+    } else if swapchain_caps
+        .alpha_modes
+        .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+    {
+        wgpu::CompositeAlphaMode::PreMultiplied
+    } else if swapchain_caps
+        .alpha_modes
+        .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+    {
+        wgpu::CompositeAlphaMode::PostMultiplied
+    } else {
+        swapchain_caps.alpha_modes[0]
+    };
+
+    // macOS: present without waiting for vsync. Frames are presented once
+    // per preview job, not in a loop, and the window server still
+    // composites whole frames. With FIFO about one live frame in eleven
+    // waited ~26 ms for a free drawable while the previous ones queued for
+    // vsync. Elsewhere immediate presentation can tear, so FIFO stays.
+    let present_mode = if cfg!(target_os = "macos")
+        && swapchain_caps
+            .present_modes
+            .contains(&wgpu::PresentMode::Immediate)
+    {
+        wgpu::PresentMode::Immediate
+    } else {
+        wgpu::PresentMode::Fifo
+    };
+
+    let size = window
+        .inner_size()
+        .unwrap_or(tauri::PhysicalSize::new(1280, 720));
+    let config = wgpu::SurfaceConfiguration {
+        width: size.width.max(1),
+        height: size.height.max(1),
+        format: swapchain_format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        present_mode,
+        alpha_mode,
+        view_formats: vec![],
+        // Three drawables. Two would save one window-sized buffer (about
+        // 80 MB at 6K) but made live brush frames wait for a free one.
+        desired_maximum_frame_latency: 2,
+    };
+    surface.configure(device, &config);
+    #[cfg(target_os = "macos")]
+    tag_display_layer_p3(&surface);
+
+    WgpuDisplay::new(device, surface, config)
 }
 
 /// The window's newest size in device pixels (width << 32 | height), for a
@@ -266,11 +384,21 @@ pub fn resize_display(context: GpuContext, width: u32, height: u32) {
 /// with decoding. A processor that already exists
 /// is kept; the render path creates one itself if this has not finished.
 pub fn prewarm_gpu_processor(slot: &GpuProcessorSlot, context: &GpuContext) {
+    prewarm_gpu_processor_if(slot, context, || true);
+}
+
+/// [`prewarm_gpu_processor`] when `current` still holds once the slot is
+/// taken.
+fn prewarm_gpu_processor_if(
+    slot: &GpuProcessorSlot,
+    context: &GpuContext,
+    current: impl FnOnce() -> bool,
+) {
     let mut processor_lock = match slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    if processor_lock.is_some() {
+    if processor_lock.is_some() || !current() {
         return;
     }
     let max_dim = context.limits.max_texture_dimension_2d;
@@ -282,7 +410,10 @@ pub fn prewarm_gpu_processor(slot: &GpuProcessorSlot, context: &GpuContext) {
                 height: max_dim,
             });
         }
-        Err(error) => log::warn!("GPU processor prewarm failed: {error}"),
+        Err(error) => {
+            log::warn!("GPU processor prewarm failed: {error}");
+            first_display_variant_settled();
+        }
     }
 }
 

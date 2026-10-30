@@ -162,6 +162,7 @@ pub fn start_checksum_pass(directory: PathBuf) {
                 }
                 std::thread::sleep(Duration::from_millis(200));
             }
+            crate::gpu_processing::after_first_display_variant();
             let mut cursor = 0;
             let mut recorded = 0;
             loop {

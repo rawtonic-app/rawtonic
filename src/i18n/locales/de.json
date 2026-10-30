@@ -158,6 +158,7 @@
       "rotate_right": "Nach rechts drehen",
       "select_all": "Alles auswählen",
       "select_none": "Auswahl aufheben",
+      "shift_capture_time": "Aufnahmezeit verschieben…",
       "show_in_finder": "Im Finder zeigen",
       "sync_settings": "Einstellungen synchronisieren",
       "tether_capture": "Auslösen (Tethering-Kamera)",
@@ -218,6 +219,67 @@
       "recipes": "Mit Rezept exportieren"
     }
   },
+  "captureTime": {
+    "applied_one": "Aufnahmezeit für {{count}} Foto korrigiert",
+    "applied_other": "Aufnahmezeit für {{count}} Fotos korrigiert",
+    "apply_one": "Auf {{count}} Foto anwenden",
+    "apply_other": "Auf {{count}} Fotos anwenden",
+    "cameraCount": "{{name}} ({{n}})",
+    "cancel": "Abbrechen",
+    "conflict_one": "{{count}} Foto wurde seit dieser Vorschau geändert. Nichts wurde geschrieben; prüfe die neue Vorschau und wende erneut an.",
+    "conflict_other": "{{count}} Fotos wurden seit dieser Vorschau geändert. Nichts wurde geschrieben; prüfe die neue Vorschau und wende erneut an.",
+    "correctedHelp": "JJJJ-MM-TT HH:MM:SS, optional mit Bruchteil (.250). Ohne behält das Foto seinen Sekundenbruchteil.",
+    "correctedTime": "Seine richtige Zeit",
+    "direction": "Richtung",
+    "earlier": "Früher",
+    "errors": {
+      "field": "Gib eine ganze Zahl ein (Sekunden mit bis zu neun Nachkommastellen).",
+      "fraction": "Der Sekundenbruchteil darf höchstens neun Ziffern haben.",
+      "invalid": "Kein gültiges Datum mit Uhrzeit (JJJJ-MM-TT HH:MM:SS).",
+      "outOfRange": "Die Zeit muss zwischen den Jahren 0001 und 9999 liegen."
+    },
+    "excluded": {
+      "noCaptureTime": "die Datei hat keine Aufnahmezeit",
+      "notInLibrary": "nicht in diesem Projekt oder Katalog",
+      "offline": "offline: Aufnahmezeit nicht lesbar",
+      "otherLibrary": "in einem anderen Projekt oder Katalog"
+    },
+    "excludedCount_one": "{{count}} Foto ausgelassen",
+    "excludedCount_other": "{{count}} Fotos ausgelassen",
+    "failed": "Aufnahmezeit konnte nicht geändert werden: {{error}}",
+    "filesUnchanged": "Deine Fotodateien und ihre Dateidaten bleiben unverändert. Sortierung, Suche, Namen und Exporte nutzen die korrigierte Zeit.",
+    "how": "Korrektur",
+    "intro": "Korrigiert eine falsch gestellte Kamerauhr: Jedes Foto wird um denselben Betrag verschoben, damit Fotos mehrerer Kameras in Aufnahmereihenfolge sortiert werden.",
+    "later": "Später",
+    "modes": {
+      "reference": "Zeit eines Fotos festlegen",
+      "reset_one": "Zurück zur Zeit aus der Datei ({{count}} korrigiert)",
+      "reset_other": "Zurück zur Zeit aus der Datei ({{count}} korrigiert)",
+      "shift": "Verschieben um"
+    },
+    "nothingToChange": "Nichts zu ändern.",
+    "notInLibrary": "Aufnahmezeit verschieben wirkt auf Fotos in einem Projekt oder Katalog. Füge diese Fotos zuerst einem hinzu.",
+    "outOfRange_one": "{{name}} läge außerhalb der Jahre 0001–9999. Nichts kann angewendet werden.",
+    "outOfRange_other": "{{count}} Fotos, etwa {{name}}, lägen außerhalb der Jahre 0001–9999. Nichts kann angewendet werden.",
+    "parts": {
+      "days": "Tage",
+      "hours": "Stunden",
+      "minutes": "Minuten",
+      "seconds": "Sekunden"
+    },
+    "rangeChange": "Von {{from}} – {{to}} zu {{newFrom}} – {{newTo}}",
+    "reading": "Aufnahmezeiten werden gelesen…",
+    "referenceChange": "{{name}}: {{before}} → {{after}}",
+    "referencePhoto": "Referenzfoto",
+    "shiftEarlier": "Verschiebung: {{days}} T {{hours}} h {{minutes}} min {{seconds}} s früher",
+    "shiftLater": "Verschiebung: {{days}} T {{hours}} h {{minutes}} min {{seconds}} s später",
+    "sidecarsFailed_one": "Die Bibliothek hat die Korrektur; die Einstellungsdatei von {{count}} Foto konnte noch nicht geschrieben werden und folgt mit seiner nächsten Änderung.",
+    "sidecarsFailed_other": "Die Bibliothek hat die Korrektur; die Einstellungsdateien von {{count}} Fotos konnten noch nicht geschrieben werden und folgen mit ihrer nächsten Änderung.",
+    "summary_one": "{{count}} Foto",
+    "summary_other": "{{count}} Fotos",
+    "title": "Aufnahmezeit verschieben",
+    "unknownCamera": "Unbekannte Kamera"
+  },
   "commandPalette": {
     "close": "Befehlspalette schließen",
     "empty": "Keine passenden Befehle. Versuche einen anderen Suchbegriff.",
@@ -226,6 +288,7 @@
     "search": "Befehle suchen…",
     "selectAtMostPhotos": "Wähle höchstens {{max}} Fotos aus",
     "selectFourPhotos": "Wähle mindestens vier Fotos aus",
+    "selectPhotos": "Wähle ein oder mehrere Fotos aus",
     "selectTwoPhotos": "Wähle mindestens zwei Fotos aus"
   },
   "contextMenus": {
@@ -329,6 +392,7 @@
       "renameImage_other": "{{count}} Bilder umbenennen",
       "resetAdjustments_one": "Einstellungen zurücksetzen",
       "resetAdjustments_other": "Einstellungen bei {{count}} Bildern zurücksetzen",
+      "shiftCaptureTime": "Aufnahmezeit verschieben…",
       "showExplorer": "Im Explorer anzeigen",
       "showFinder": "Im Finder zeigen",
       "virtualCopy": "Virtuelle Kopie"
@@ -2927,21 +2991,20 @@
     },
     "histogram": {
       "aria": "Bildhistogramm",
-      "clippingAria": "Warnungen für überstrahlte Lichter und abgesoffene Schatten",
       "gamut": "Farbumfang-Warnung",
       "gamutTitle": "Farbumfang-Warnung: Farben außerhalb des Proof-Farbraums in Rot",
       "graphAria": "RGB-Helligkeitsverteilung des ausgewählten Fotos",
       "graphEmpty": "Histogramm nach dem Öffnen eines Fotos verfügbar",
       "highlightClipping": "Lichterwarnung",
       "highlightClippingLit": "Lichterwarnung, ausgefressen",
-      "highlightClippingTitle": "Lichterwarnung (ausgefressene Lichter; {{shortcut}} schaltet beide)",
+      "highlightClippingTitle": "Lichterwarnung (rot im Foto; {{shortcut}} schaltet beide)",
       "proof": "Proof",
       "proofSpace": "Proof-Farbraum",
       "proofTitle": "Softproof: das Foto so zeigen, wie ein Export im gewählten Farbraum aussieht ({{shortcut}})",
       "selectPhoto": "Wähle ein Foto",
       "shadowClipping": "Schattenwarnung",
       "shadowClippingLit": "Schattenwarnung, abgesoffen",
-      "shadowClippingTitle": "Schattenwarnung (abgesoffene Schatten; {{shortcut}} schaltet beide)",
+      "shadowClippingTitle": "Schattenwarnung (blau im Foto; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
     },
     "layers": {
@@ -3669,6 +3732,7 @@
       "notInSession": "Einige ausgewählte Fotos gehören nicht zu diesem Projekt.",
       "outsideSessions": "Außerhalb von Projekten werden Beschreibung, Urheber, Copyright und Kommentar mit den Bearbeitungen jedes Fotos gespeichert; Titel und IPTC-Felder werden in Projekten gespeichert.",
       "selectToSee": "Wähle Fotos aus, um ihre Metadaten zu sehen.",
+      "shiftCaptureTime": "Aufnahmezeit verschieben…",
       "title": "Metadaten",
       "toasts": {
         "keywordsRemoveFailed": "Stichwörter konnten nicht entfernt werden: {{error}}",
@@ -4258,6 +4322,7 @@
         "searchLabel": "Fotos durchsuchen",
         "sort": "Fotos sortieren",
         "sortBy": {
+          "captured": "Aufnahmezeit",
           "date": "Geändert",
           "name": "Dateiname",
           "rating": "Bewertung"
@@ -4361,6 +4426,7 @@
   },
   "undoHistory": {
     "apply": "Einstellungen anwenden",
+    "captureTime": "Aufnahmezeit verschieben",
     "color": "Farbmarkierung festlegen",
     "edit": "Bearbeitung",
     "file": "Dateiänderung",

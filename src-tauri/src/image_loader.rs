@@ -1237,6 +1237,9 @@ pub async fn load_image(
             "cached": was_cached, "width": orig_width, "height": orig_height
         })
     );
+    // The decode keeps the file's EXIF (also in its cache): the capture
+    // time the library corrected since then is shown over it.
+    let exif_data = crate::session_bridge::with_capture_override(&source_path, exif_data);
     crate::contribute::note_camera(&exif_data);
     let preview_fallback = is_raw
         .then(|| preview_fallback_reason(&source_path_str))
@@ -1296,9 +1299,12 @@ async fn open_offline(
     if wanted != stored_decode_variant(&source.to_string_lossy()) {
         return Err(OTHER_VARIANT_OFFLINE.to_string());
     }
-    let exif = crate::exif_processing::read_rrexif_sidecar(source)
-        .or(stored_exif)
-        .unwrap_or_default();
+    let exif = crate::session_bridge::with_capture_override(
+        source,
+        crate::exif_processing::read_rrexif_sidecar(source)
+            .or(stored_exif)
+            .unwrap_or_default(),
+    );
     let read_source = source.to_path_buf();
     let read_settings = settings.clone();
     let full = tokio::task::spawn_blocking(move || {
