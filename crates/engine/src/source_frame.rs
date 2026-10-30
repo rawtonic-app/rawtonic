@@ -156,7 +156,10 @@ mod tests {
         assert_eq!(once, json!({KEY: 0}));
         assert_eq!(reset_recipe(&once), once);
         assert_eq!(requested(&once), 0);
-        assert_eq!(reset_recipe(&json!({"exposure": 1.0, KEY: 1})), json!({KEY: 1}));
+        assert_eq!(
+            reset_recipe(&json!({"exposure": 1.0, KEY: 1})),
+            json!({KEY: 1})
+        );
         // A never-edited photograph stays one (the newest frame).
         assert_eq!(reset_recipe(&json!({})), json!({}));
         assert_eq!(reset_recipe(&Value::Null), json!({}));

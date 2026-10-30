@@ -598,7 +598,8 @@ const OTHER_VARIANT_OFFLINE: &str = "This copy develops the RAW differently from
 /// older frame (no decode can follow) is edited in the frame it shows
 /// (src/hooks/useImageLoader.ts), so its edit never lands on another frame.
 pub fn new_edit_frame(source: &str, shown: u32) -> Option<u32> {
-    let newest = rawtonic_engine::source_frame::effective(source, rawtonic_engine::source_frame::VERSION);
+    let newest =
+        rawtonic_engine::source_frame::effective(source, rawtonic_engine::source_frame::VERSION);
     (shown != newest).then_some(shown)
 }
 

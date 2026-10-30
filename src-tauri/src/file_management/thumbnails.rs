@@ -1798,7 +1798,7 @@ mod thumbnail_queue_tests {
     /// another frame of the RAW.
     #[test]
     fn offline_thumbnails_use_previews_of_their_own_frame_only() {
-        use crate::preview_proxy::frame_fixture::{offline_cr3, frame_one_edit};
+        use crate::preview_proxy::frame_fixture::{frame_one_edit, offline_cr3};
         let settings = crate::app_settings::AppSettings::default();
         for (frame, shown) in [(0, false), (1, true)] {
             let directory = tempfile::tempdir().unwrap();

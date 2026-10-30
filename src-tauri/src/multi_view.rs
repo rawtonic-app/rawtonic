@@ -2733,7 +2733,7 @@ mod tests {
     /// preview of another frame than the recipe's (ADR 0020).
     #[test]
     fn offline_cells_use_previews_of_their_own_frame_only() {
-        use crate::preview_proxy::frame_fixture::{offline_cr3, frame_one_edit};
+        use crate::preview_proxy::frame_fixture::{frame_one_edit, offline_cr3};
         let _one = MEASURES_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let settings = crate::app_settings::AppSettings::default();
         let mut recipe = frame_one_edit();
