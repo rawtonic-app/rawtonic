@@ -304,13 +304,7 @@ impl PinnedPhoto {
             return map;
         };
         let mut map = map?;
-        for (key, value) in time.exif_fields() {
-            match value {
-                Some(value) => map.insert(key.into(), value),
-                None => map.remove(key),
-            };
-        }
-        map.insert(exif_processing::CAPTURE_CORRECTED.into(), "1".into());
+        exif_processing::mark_corrected_capture(&mut map, &time.exif_fields());
         Some(map)
     }
 

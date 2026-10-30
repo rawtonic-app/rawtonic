@@ -907,6 +907,23 @@ pub fn copy_full_exif_from_source(
 /// meaning none. Set only on the map an export reads, never stored.
 pub const CAPTURE_CORRECTED: &str = "RawtonicCaptureCorrected";
 
+/// The fields of a corrected capture time, as the library gives them
+/// (`DateTimeOriginal`, `SubSecTimeOriginal`, `OffsetTimeOriginal`; `None`
+/// removes one).
+pub type CaptureFields = [(&'static str, Option<String>); 3];
+
+/// Sets `fields` in a source's EXIF map and marks it corrected
+/// (`CAPTURE_CORRECTED`), for an export to write.
+pub fn mark_corrected_capture(map: &mut HashMap<String, String>, fields: &CaptureFields) {
+    for (key, value) in fields {
+        match value {
+            Some(value) => map.insert(key.to_string(), value.clone()),
+            None => map.remove(*key),
+        };
+    }
+    map.insert(CAPTURE_CORRECTED.into(), "1".into());
+}
+
 /// Writes a corrected capture time (`CAPTURE_CORRECTED`) over whatever date
 /// fields the export copied, whichever way it read them; other dates
 /// (digitized, modified) stay as the file has them.

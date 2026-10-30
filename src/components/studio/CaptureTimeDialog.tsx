@@ -52,7 +52,8 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
   const [parts, setParts] = useState<ShiftParts>(NO_SHIFT);
   const [reference, setReference] = useState<string>("");
   const [corrected, setCorrected] = useState("");
-  const [plan, setPlan] = useState<Plan | null>(null);
+  // A plan with the request it answers: Apply waits for the current one.
+  const [planned, setPlanned] = useState<{ key: string; plan: Plan } | null>(null);
   const [applying, setApplying] = useState(false);
   const [conflict, setConflict] = useState(false);
 
@@ -88,18 +89,18 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
           : null
         : { kind: "reset" };
   const requestKey = JSON.stringify(request);
+  const plan = planned?.key === requestKey ? planned.plan : null;
   useEffect(() => {
     if (!request || !items.length) {
-      setPlan(null);
+      setPlanned(null);
       return;
     }
     let current = true;
     planCaptureTimes(items, request)
-      .then((next) => current && setPlan(next))
+      .then((next) => current && setPlanned({ key: requestKey, plan: next }))
       .catch((error) => {
         if (!current) return;
-        // Never leave an earlier request's plan to apply.
-        setPlan(null);
+        setPlanned(null);
         toast.error(t("captureTime.failed", { error: String(error) }));
       });
     return () => {

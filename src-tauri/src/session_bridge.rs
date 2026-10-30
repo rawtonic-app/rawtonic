@@ -133,6 +133,23 @@ pub(crate) fn capture_override(
     lib.capture_override(&asset.id).ok()?
 }
 
+/// `exif` (a map read from the file or kept with its decode) with the
+/// source's corrected capture time, if it has one: what the app shows.
+pub(crate) fn with_capture_override(
+    source: &Path,
+    mut exif: HashMap<String, String>,
+) -> HashMap<String, String> {
+    if let Some(time) = capture_override(source) {
+        for (key, value) in time.exif_fields() {
+            match value {
+                Some(value) => exif.insert(key.into(), value),
+                None => exif.remove(key),
+            };
+        }
+    }
+    exif
+}
+
 /// Whether a virtual copy's sidecar (`<photo>.<copy>.rrdata`) is taken: its
 /// file is there, or the library keeps that copy (an offline photograph's).
 pub(crate) fn copy_exists(sidecar: &Path) -> bool {

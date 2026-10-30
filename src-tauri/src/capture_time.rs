@@ -633,6 +633,17 @@ mod tests {
         let written = std::fs::read_to_string(b.with_file_name("B.jpg.rrdata")).unwrap();
         assert!(written.contains("2026-10-31 00:45:00"), "{written}");
 
+        // A decode keeps the file's EXIF (also cached): what the app shows
+        // of it takes the correction.
+        let decoded = crate::exif_processing::read_exif_data(
+            &b.to_string_lossy(),
+            &std::fs::read(&b).unwrap(),
+        );
+        assert_eq!(
+            crate::session_bridge::with_capture_override(&b, decoded.clone())["DateTimeOriginal"],
+            "2026-10-31 00:45:00"
+        );
+
         // An export pins the corrected time for its EXIF and its names.
         let pinned = crate::export_processing::pin_photos(
             &[b.to_string_lossy().into_owned()],
@@ -664,6 +675,12 @@ mod tests {
         let shown = crate::exif_processing::read_rrexif_sidecar(&b).unwrap();
         assert_eq!(shown["DateTimeOriginal"], "2026-10-30 23:45:00");
         assert_eq!(shown["SubSecTimeOriginal"], "05");
+
+        assert_eq!(
+            crate::session_bridge::with_capture_override(&b, decoded.clone()),
+            decoded,
+            "after undo the file's EXIF is shown as it is"
+        );
 
         // The camera files were never written.
         assert_eq!([sha256(&a), sha256(&b)], hashes);

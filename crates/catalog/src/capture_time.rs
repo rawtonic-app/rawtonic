@@ -184,7 +184,11 @@ impl CaptureTime {
         };
         let target = CaptureTime::new(whole, target_fraction.as_deref(), None)?;
         let nanos = target.nanos()? - self.nanos()?;
-        let digits = target_fraction.as_deref().map_or(0, str::len);
+        // Exact to the finer of the two: .345 → .5 is +.155, not +.2.
+        let digits = target_fraction
+            .as_deref()
+            .map_or(0, str::len)
+            .max(self.subsec.as_deref().map_or(0, str::len));
         Ok(Shift::exact(nanos, digits))
     }
 
@@ -673,6 +677,12 @@ mod tests {
             reference.shift_to("2026-02-30 00:00:00"),
             Err(TimeError::Invalid)
         );
+        // Mixed precision: the shift keeps the reference's digits, and a
+        // coarser photo moves by exactly as much.
+        let s = reference.shift_to("2026-10-30 12:00:00.5").unwrap();
+        assert_eq!((s.nanos, s.digits), (155_000_000, 3));
+        let other = at("2026-10-30 12:00:00", Some("1"));
+        assert_eq!(other.shifted(&s).unwrap().subsec.as_deref(), Some("255"));
     }
 
     #[test]

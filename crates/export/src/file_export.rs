@@ -40,6 +40,26 @@ pub struct FileExport<'a> {
     /// retained when other metadata is stripped. Creator contacts require
     /// `settings.keep_creator_contact` in that mode.
     pub catalog: Option<rawtonic_metadata::Metadata>,
+    /// The capture time the library corrected for the source (Shift Capture
+    /// Time), which its EXIF and file times take over the file's.
+    pub capture: Option<crate::exif_processing::CaptureFields>,
+}
+
+/// The source's EXIF map as the app's export reads it: extracted from the
+/// file, with a corrected capture time marked on it. `None` without EXIF.
+fn source_exif(
+    source: &Path,
+    capture: Option<&crate::exif_processing::CaptureFields>,
+) -> Option<crate::export_processing::ExifMap> {
+    let bytes = fs::read(source).ok()?;
+    let mut map = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
+    if map.is_empty() {
+        return None;
+    }
+    if let Some(fields) = capture {
+        crate::exif_processing::mark_corrected_capture(&mut map, fields);
+    }
+    Some(map)
 }
 
 /// A GPU context with the processor and source cache that consecutive
@@ -137,11 +157,7 @@ impl FileExporter {
         };
         // The app reads the EXIF map its loader cached for the source; it is
         // extracted the same way here.
-        let exif_sidecar = || {
-            let bytes = fs::read(job.source).ok()?;
-            let map = read_exif_data_from_bytes(&source_path_str, &bytes);
-            (!map.is_empty()).then_some(map)
-        };
+        let exif_sidecar = || source_exif(job.source, job.capture.as_ref());
         let catalog = || job.catalog.clone();
         let write = |path: &Path, _extension: &str, bytes: Vec<u8>| {
             write_new_output(path, bytes)
@@ -167,5 +183,42 @@ impl FileExporter {
             set_capture_file_times(job.output, capture_date_with(job.source, &exif_sidecar));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use little_exif::{exif_tag::ExifTag, metadata::Metadata};
+
+    #[test]
+    fn the_cli_export_reads_a_corrected_capture_time_like_the_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("camera.jpg");
+        image::DynamicImage::ImageRgb8(image::RgbImage::new(4, 4))
+            .save(&source)
+            .unwrap();
+        let mut exif = Metadata::new();
+        exif.set_tag(ExifTag::Make("Maker".into()));
+        exif.set_tag(ExifTag::DateTimeOriginal("2026:10:30 23:30:00".into()));
+        exif.set_tag(ExifTag::SubSecTimeOriginal("05".into()));
+        exif.write_to_file(&source).unwrap();
+        let plain = source_exif(&source, None).unwrap();
+        assert!(!plain.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
+        let fields = [
+            ("DateTimeOriginal", Some("2026-10-31 00:30:00".to_string())),
+            ("SubSecTimeOriginal", Some("05".to_string())),
+            ("OffsetTimeOriginal", None),
+        ];
+        let corrected = source_exif(&source, Some(&fields)).unwrap();
+        assert_eq!(corrected["DateTimeOriginal"], "2026-10-31 00:30:00");
+        assert_eq!(corrected["Make"], "Maker");
+        assert!(corrected.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
+        assert!(!corrected.contains_key("OffsetTimeOriginal"));
+        // Its file times follow the corrected date.
+        let date = crate::exif_processing::capture_date_with(&source, &|| Some(corrected.clone()));
+        use chrono::{Datelike, Timelike};
+        let local = date.with_timezone(&chrono::Local);
+        assert_eq!((local.day(), local.hour(), local.minute()), (31, 0, 30));
     }
 }
