@@ -204,11 +204,9 @@ function curveInputLevel(
     luminance(shown) / Math.max(luminance(clipped), 1e-5),
     4,
   );
-  const carried = shown.map((v, c) => v + (pixel[c] - clipped[c]) * ratio) as [
-    number,
-    number,
-    number,
-  ];
+  const carried = gamutUnit(
+    shown.map((v, c) => v + (pixel[c] - clipped[c]) * ratio),
+  );
   const levels = wide ? wideCurveLevels(carried) : regioned;
   if (channel === "luma") return tone(levels, wide);
   const whole = version >= LONG_CURVE_VERSION;
@@ -228,10 +226,9 @@ function curveInputLevel(
   );
   let linear: number[];
   if (wide) {
-    linear = FROM_PROPHOTO.map(
-      (row) => row[0] * curved[0] + row[1] * curved[1] + row[2] * curved[2],
-    );
+    linear = matrix(FROM_PROPHOTO, curved);
   } else {
+    // carry_beyond_srgb
     const input = levels.map((v) => toLinear(v / 255));
     const carry = Math.min(
       luminance(curved.map((v) => Math.max(v, 0))) /
@@ -240,7 +237,8 @@ function curveInputLevel(
     );
     linear = curved.map((v, c) => v + (carried[c] - input[c]) * carry);
   }
-  return toEncoded(Math.max(luminance(linear), 0)) * 255;
+  // Both outputs are clipped to the gamut (`display_unit`).
+  return toEncoded(Math.max(luminance(gamutUnit(linear)), 0)) * 255;
 }
 
 const COLOUR_CURVES = ["red", "green", "blue"] as const;
@@ -344,6 +342,17 @@ const FROM_PROPHOTO = [
   [-0.2288135, 1.2317302, -0.0029169],
   [-0.0085698, -0.1532866, 1.1618565],
 ];
+
+const matrix = (m: number[][], v: number[]) =>
+  m.map((row) => row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
+
+/** Linear sRGB clipped to the ProPhoto gamut (shader `gamut_unit`). */
+function gamutUnit(linear: number[]): [number, number, number] {
+  if (linear.every((v) => v >= 0 && v <= 1))
+    return linear as [number, number, number];
+  const prophoto = matrix(TO_PROPHOTO, linear).map((v) => clamp(v, 0, 1));
+  return matrix(FROM_PROPHOTO, prophoto) as [number, number, number];
+}
 
 const luminance = (linear: number[]) =>
   0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];

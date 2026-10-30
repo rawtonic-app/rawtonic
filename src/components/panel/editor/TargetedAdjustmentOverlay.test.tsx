@@ -257,6 +257,13 @@ describe("targeted adjustment surface", () => {
     expect(useEditorStore.getState().adjustments).toBe(lifted);
     fireEvent.pointerLeave(el);
     expect(useEditorStore.getState().tatCurveMarker).toBeNull();
+    // A sample still on its way when the pointer leaves sets no marker.
+    let resolve!: (value: unknown) => void;
+    invoke.mockImplementation(() => new Promise((r) => (resolve = r)));
+    fireEvent.pointerMove(el, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerLeave(el);
+    await act(async () => resolve([linearFromSrgb([100, 100, 100])]));
+    expect(useEditorStore.getState().tatCurveMarker).toBeNull();
     // Other targets do not sample on hover.
     invoke.mockClear();
     useEditorStore.setState({ tatTarget: "regionCurve" });

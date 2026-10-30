@@ -46,8 +46,11 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const hover = useRef<{
     busy: boolean;
     next: { x: number; y: number } | null;
+    /** The pointer is over the photo (a sample arriving after it left is
+     * dropped). */
+    inside: boolean;
     gone: boolean;
-  }>({ busy: false, next: null, gone: false });
+  }>({ busy: false, next: null, inside: false, gone: false });
   useEffect(() => {
     const h = hover.current;
     h.gone = false;
@@ -76,6 +79,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     // A press since, or the tool or photo changed: the press marks it.
     if (
       !h.gone &&
+      h.inside &&
       !drag.current &&
       now.tatTarget === "curve" &&
       now.selectedImage?.path === path
@@ -174,6 +178,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     if (!d) {
       if (useEditorStore.getState().tatTarget !== "curve") return;
       const bounds = e.currentTarget.getBoundingClientRect();
+      hover.current.inside = true;
       hover.current.next = {
         x: (e.clientX - bounds.left) / bounds.width,
         y: (e.clientY - bounds.top) / bounds.height,
@@ -190,6 +195,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   };
 
   const onPointerLeave = () => {
+    hover.current.inside = false;
     hover.current.next = null;
     if (!drag.current) useEditorStore.getState().setEditor({ tatCurveMarker: null });
   };

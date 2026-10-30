@@ -322,6 +322,26 @@ describe("targeted adjustment", () => {
     const old = base();
     old.curves = { ...lifted.curves, version: 2 };
     expect(curveInputMean("curve", old, grey, "luminance")).toBe(120);
+    // A saturated colour beyond sRGB: the carried result is clipped to the
+    // gamut before the Luminance curve, as the shader's display_unit does.
+    old.curves = {
+      ...old.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 128, y: 200 },
+        { x: 255, y: 255 },
+      ],
+    };
+    const prophoto = [1, 0.3, 0.1];
+    const toSrgb = [
+      [2.0340763, -0.7273343, -0.3067417],
+      [-0.2288135, 1.2317302, -0.0029169],
+      [-0.0085698, -0.1532866, 1.1618565],
+    ];
+    const saturated = toSrgb.map((row) =>
+      row.reduce((sum, m, c) => sum + m * prophoto[c], 0),
+    ) as [number, number, number];
+    expect(curveInputMean("curve", old, [saturated], "luminance")).toBe(217);
   });
 
   it("sets an anchor on a click and moves a nearby point instead of adding one", () => {
