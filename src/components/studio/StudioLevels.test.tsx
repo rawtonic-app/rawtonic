@@ -20,7 +20,7 @@ import {
 import { useEditorStore } from "../../store/useEditorStore";
 import { linearFromSrgb } from "../../utils/targetedAdjustment";
 import TargetedAdjustmentOverlay from "../panel/editor/TargetedAdjustmentOverlay";
-import { StudioLevels } from "./StudioLevels";
+import { LEVELS_HISTOGRAM_DELAY_MS, StudioLevels } from "./StudioLevels";
 
 beforeAll(() => {
   // jsdom has no pointer capture.
@@ -201,6 +201,51 @@ describe("Levels panel", () => {
   });
 });
 
+describe("Levels input histogram", () => {
+  it("asks once the recipe rests, never for Levels' own edits or during drags", async () => {
+    vi.useFakeTimers();
+    try {
+      const counts = [0, 1, 2].map(() => {
+        const c = new Array(256).fill(0);
+        c[64] = 50;
+        return c;
+      });
+      invoke.mockResolvedValue(counts);
+      const asked = () =>
+        invoke.mock.calls.filter(([name]) => name === "levels_input_histogram").length;
+      renderLevels();
+      expect(asked()).toBe(0);
+      await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
+      expect(asked()).toBe(1);
+      expect(invoke).toHaveBeenCalledWith("levels_input_histogram", {
+        path: "/s/a.NEF",
+        adjustments: useEditorStore.getState().adjustments,
+      });
+      // Drawn from the counts: a peak at a quarter.
+      expect(document.querySelector(".histogram-red")?.getAttribute("d")).toContain("L64.25098039215686 2 ");
+      const set = (patch: Partial<Adjustments>) =>
+        act(async () => {
+          useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, ...patch } }));
+          vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS);
+        });
+      await set({ levels: { ...INITIAL_LEVELS, rgb: { ...INITIAL_LEVELS.rgb, inBlack: 30 } } });
+      expect(asked()).toBe(1);
+      useEditorStore.setState({ isSliderDragging: true });
+      await set({ exposure: 0.3 });
+      expect(asked()).toBe(1);
+      await act(async () => {
+        useEditorStore.setState({ isSliderDragging: false });
+        vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS - 1);
+      });
+      expect(asked()).toBe(1);
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(asked()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Levels picker on the photo", () => {
   it("samples what Levels receives and sets the active channel's point in one edit", async () => {
     const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
@@ -229,6 +274,19 @@ describe("Levels picker on the photo", () => {
     expect(state.adjustments.levels?.rgb).toMatchObject({ inBlack: 30, inWhite: 200 });
     expect(state.tatTarget).toBeNull();
     expect(state.isSliderDragging).toBe(false);
+  });
+
+  it("cancels when the channel tab changes while the photo is sampled", async () => {
+    useEditorStore.setState({ tatTarget: "levelsWhite", levelsChannel: "red" });
+    let answer: (pixels: unknown) => void = () => {};
+    invoke.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(<TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} />);
+    const el = screen.getByTestId("targeted-adjustment");
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
+    fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    useEditorStore.setState({ levelsChannel: "green" });
+    await act(async () => answer([linearFromSrgb([200, 200, 200])]));
+    expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
   });
 
   it("leaves the levels alone without a sample", async () => {

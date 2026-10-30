@@ -5,7 +5,9 @@ import {
   gammaOf,
   handlePosition,
   levelOutput,
-  levelsInputHistogram,
+  channelInputCounts,
+  levelsInputKey,
+  smoothedHistogram,
   midtoneOf,
   nudgedLevel,
   pickedLevels,
@@ -184,39 +186,34 @@ describe("auto levels", () => {
 });
 
 describe("levels input histogram", () => {
-  /** The rendered histogram of pixels at `values` after `levels`. */
-  const rendered = (values: number[], level: Level) => {
-    const bins = new Array(256).fill(0);
-    for (const v of values) bins[Math.round(levelOutput(level, v))] += 1;
-    return bins;
-  };
-  const peak = (bins: number[]) => bins.indexOf(Math.max(...bins));
-
-  it("is the rendered histogram at neutral levels", () => {
-    const bins = rendered([10, 100, 200], identity);
-    expect(levelsInputHistogram(bins, INITIAL_LEVELS, "rgb", "red")).toEqual(bins);
+  it("keys the request on everything but the levels", () => {
+    const a = { exposure: 0.5, levels: INITIAL_LEVELS };
+    const b = { exposure: 0.5, levels: { ...INITIAL_LEVELS, rgb: { ...identity, inBlack: 40 } } };
+    expect(levelsInputKey("/p.NEF", a)).toBe(levelsInputKey("/p.NEF", b));
+    expect(levelsInputKey("/p.NEF", a)).not.toBe(levelsInputKey("/p.NEF", { ...a, exposure: 0.6 }));
+    expect(levelsInputKey("/p.NEF", a)).not.toBe(levelsInputKey("/q.NEF", a));
   });
 
-  it("puts tones back where the input handles move them", () => {
-    const rgb: Level = { inBlack: 60, inWhite: 220, gamma: 1.6, outBlack: 0, outWhite: 255 };
-    const levels = { ...INITIAL_LEVELS, rgb };
-    for (const v of [80, 140, 200]) {
-      const back = levelsInputHistogram(rendered(new Array(50).fill(v), rgb), levels, "rgb", "green");
-      expect(Math.abs(peak(back) - v)).toBeLessThanOrEqual(1);
-      expect(back.reduce((a, b) => a + b, 0)).toBeCloseTo(50);
-    }
-    // Tones the black point clips pile up at it, not at 0.
-    const clipped = levelsInputHistogram(rendered([10, 20], rgb), levels, "rgb", "green");
-    expect(peak(clipped)).toBe(60);
+  it("gives a colour tab the composite's output of the counts", () => {
+    const counts = new Array(256).fill(0);
+    counts[100] = 7;
+    counts[10] = 3;
+    const levels = { ...INITIAL_LEVELS, rgb: { ...identity, inBlack: 40 } };
+    expect(channelInputCounts(counts, levels, "rgb")).toBe(counts);
+    const red = channelInputCounts(counts, levels, "red");
+    expect(red[Math.round(levelOutput(levels.rgb, 100))]).toBe(7);
+    // Clipped by the composite's black point: at 0.
+    expect(red[0]).toBe(3);
+    expect(red.reduce((a, b) => a + b, 0)).toBe(10);
   });
 
-  it("undoes only the colour channel's level on its tab", () => {
-    const rgb: Level = { ...identity, inBlack: 40 };
-    const red: Level = { ...identity, inWhite: 200 };
-    const levels = { ...INITIAL_LEVELS, rgb, red };
-    const shown = rendered([levelOutput(rgb, 150)], red);
-    // The red tab's handles act on the composite's output.
-    expect(peak(levelsInputHistogram(shown, levels, "red", "red"))).toBe(Math.round(levelOutput(rgb, 150)));
-    expect(Math.abs(peak(levelsInputHistogram(shown, levels, "rgb", "red")) - 150)).toBeLessThanOrEqual(1);
+  it("smooths as the main histogram and keeps the total", () => {
+    const counts = new Array(256).fill(0);
+    counts[128] = 100;
+    const smooth = smoothedHistogram(counts);
+    expect(smooth.reduce((a, b) => a + b, 0)).toBeCloseTo(100);
+    expect(smooth.indexOf(Math.max(...smooth))).toBe(128);
+    expect(smooth[130]).toBeGreaterThan(0);
+    expect(smooth[136]).toBe(0);
   });
 });

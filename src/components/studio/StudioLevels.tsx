@@ -6,6 +6,7 @@ import {
   type PointerEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { Pipette, Sparkles } from "lucide-react";
 import { useEditorStore } from "../../store/useEditorStore";
 import { INITIAL_LEVELS, type Adjustments, type Level, type Levels } from "../../utils/adjustments";
@@ -16,7 +17,9 @@ import {
   handlePosition,
   levelOf,
   levelValue,
-  levelsInputHistogram,
+  channelInputCounts,
+  levelsInputKey,
+  smoothedHistogram,
   nudgedLevel,
   withHandleAt,
   withLevelValue,
@@ -28,6 +31,7 @@ import { selectOnFocus } from "../../utils/selectOnFocus";
 import { ToolGroup } from "./StudioDevelop";
 import { histogramBins } from "./StudioHistogram";
 import type { ToolParams } from "./StudioToolCopy";
+import { Invokes } from "../ui/AppProperties";
 
 interface LevelsProps {
   values: Partial<Adjustments>;
@@ -130,6 +134,71 @@ function LevelField({
   );
 }
 
+/** How long the recipe rests before Levels' input histogram is asked for. */
+export const LEVELS_HISTOGRAM_DELAY_MS = 150;
+
+/**
+ * Counts of what Levels receive (red, green, blue; editor_preview.rs
+ * `levels_input_histogram`) for the shown photo, asked for again only when
+ * an adjustment other than Levels changes (so Levels' own drags never ask)
+ * and the recipe has rested, never during a drag, and again when a new
+ * preview frame arrives after the preview base was missing. Reads the
+ * store outside renders, so the tool does not re-render with every edit.
+ */
+function useLevelsInputCounts(): number[][] | null {
+  const [counts, setCounts] = useState<number[][] | null>(null);
+  useEffect(() => {
+    let key = "";
+    let answered = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let request = 0;
+    const ask = () => {
+      timer = null;
+      const { selectedImage, adjustments, isSliderDragging } = useEditorStore.getState();
+      if (!selectedImage?.isReady || isSliderDragging) return;
+      const next = levelsInputKey(selectedImage.path, adjustments);
+      if (next === key && answered) return;
+      key = next;
+      answered = false;
+      const id = ++request;
+      Promise.resolve()
+        .then(() =>
+          invoke<number[][] | null>(Invokes.LevelsInputHistogram, {
+            path: selectedImage.path,
+            adjustments,
+          }),
+        )
+        .then((result) => {
+          if (id !== request || !result) return;
+          answered = true;
+          setCounts(result);
+        })
+        .catch(() => {});
+    };
+    const schedule = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(ask, LEVELS_HISTOGRAM_DELAY_MS);
+    };
+    schedule();
+    const unsubscribe = useEditorStore.subscribe((state, previous) => {
+      if (state.selectedImage?.path !== previous.selectedImage?.path) setCounts(null);
+      if (
+        state.adjustments !== previous.adjustments ||
+        state.selectedImage !== previous.selectedImage ||
+        state.isSliderDragging !== previous.isSliderDragging ||
+        (!answered && state.histogram !== previous.histogram)
+      )
+        schedule();
+    });
+    return () => {
+      unsubscribe();
+      if (timer !== null) clearTimeout(timer);
+      request++;
+    };
+  }, []);
+  return counts;
+}
+
 /**
  * Capture One's Levels: the histogram of the channel (R, G and B overlaid
  * under RGB) with input handles for the black point, midtone (gamma) and
@@ -151,6 +220,7 @@ export function StudioLevels({
   const tatTarget = useEditorStore((s) => s.tatTarget);
   const setEditor = useEditorStore((s) => s.setEditor);
   const histogram = useEditorStore((s) => s.histogram);
+  const inputCounts = useLevelsInputCounts();
   const levels: Levels = { ...INITIAL_LEVELS, ...values.levels };
   const committed: Level = levelOf(levels, channel);
   // The level being edited shows at once: a drag's moves reach the recipe
@@ -251,16 +321,17 @@ export function StudioLevels({
     />
   );
   const shown = channel === "rgb" ? COLOURS : ([channel] as const);
-  const rendered = shown.map((c) => histogramBins(histogram?.[c]));
-  // Drawn as what Levels receive, so the handles sit on the tones they
-  // move (through the recipe's levels, which the histogram was rendered with).
-  const bins = shown.map((c, i) =>
-    levelsInputHistogram(rendered[i], levels, channel, c),
+  // What the channel's Levels receive, so the handles sit on the tones
+  // they move.
+  const bins = shown.map((c) =>
+    inputCounts
+      ? smoothedHistogram(channelInputCounts(inputCounts[COLOURS.indexOf(c)] ?? [], levels, channel))
+      : [],
   );
   const max = Math.max(1, ...bins.flat());
   const auto = () => {
     if (!histogram) return;
-    const bins = rendered;
+    const bins = shown.map((c) => histogramBins(histogram[c]));
     const next = autoLevels(bins, current);
     if (next) set({ ...current, ...next });
   };

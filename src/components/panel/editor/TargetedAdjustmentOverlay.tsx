@@ -75,15 +75,22 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       // Levels' pickers: one click, one edit; the sample is what Levels
       // receives (rendered with Levels left out).
       drag.current = null;
+      // The channel clicked for: a tab switch while sampling cancels.
+      const channel = view.levelsChannel;
       const pixels = await invoke<[number, number, number][] | null>(
         Invokes.SampleCurveInput,
         { ...point, adjustments: { ...adjustments, levels: INITIAL_LEVELS } },
       ).catch(() => null);
       const now = useEditorStore.getState();
-      if (now.selectedImage?.path !== path || now.tatTarget !== tatTarget) return;
+      if (
+        now.selectedImage?.path !== path ||
+        now.tatTarget !== tatTarget ||
+        now.levelsChannel !== channel
+      )
+        return;
       const levels = pickedLevels(
         now.adjustments.levels,
-        now.levelsChannel,
+        channel,
         tatTarget === "levelsBlack" ? "black" : "white",
         pixels,
       );

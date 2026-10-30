@@ -200,54 +200,45 @@ export function autoLevels(
   return { inBlack, inWhite };
 }
 
-/** The display value (0–255) a level turns into `y`: the inverse of
- * `levelOutput` within its output range. */
-function levelInput(level: Level, y: number): number {
-  const span = level.outWhite - level.outBlack;
-  if (Math.abs(span) < 1e-6) return (level.inBlack + level.inWhite) / 2;
-  const t = clamp((y - level.outBlack) / span, 0, 1);
-  return level.inBlack + (level.inWhite - level.inBlack) * t ** clamp(level.gamma, 0.1, 10);
+/** The cache key of Levels' input histogram: the recipe without its levels
+ * (Levels do not change their own input) and the photo. */
+export function levelsInputKey(path: string, adjustments: object): string {
+  const { levels: _levels, ...rest } = adjustments as { levels?: unknown };
+  return JSON.stringify([path, rest]);
 }
 
 /**
- * The histogram of what a channel's Levels receive, from the histogram of
- * the rendering (`bins`, of colour channel `colour`): each shown bin's
- * count is spread over the input values Levels turned into it, through
- * the colour channel's level and, for the composite tab, the composite's
- * too. So the handles sit on the tones they move. Exact while nothing after
- * Levels changes the tone (curves, LUTs); clipped tones pile up at the
- * point that clips them.
+ * The counts a channel's Levels receive, from the counts of what Levels
+ * receive (`levels_input_histogram`): the composite tab takes them as they
+ * are, a colour tab the composite's output of them (it acts after it).
  */
-export function levelsInputHistogram(
-  bins: number[],
+export function channelInputCounts(
+  counts: number[],
   levels: Partial<Levels> | undefined,
   channel: LevelChannel,
-  colour: "red" | "green" | "blue",
 ): number[] {
-  const size = bins.length;
-  if (size < 2) return bins;
-  const own = levelOf(levels, colour);
+  if (channel === "rgb") return counts;
   const rgb = levelOf(levels, "rgb");
-  const back = (y: number) => {
-    const v = levelInput(own, y);
-    return channel === "rgb" ? levelInput(rgb, v) : v;
-  };
-  const scale = 255 / (size - 1);
-  const out = new Array<number>(size).fill(0);
-  bins.forEach((count, i) => {
-    if (!count) return;
-    const a = back(Math.max(0, i - 0.5) * scale) / scale;
-    const b = back(Math.min(size - 1, i + 0.5) * scale) / scale;
-    const lo = Math.max(0, Math.min(a, b));
-    const hi = Math.min(size - 1, Math.max(a, b));
-    if (hi - lo < 1e-6) {
-      out[Math.round(lo)] += count;
-      return;
-    }
-    for (let k = Math.floor(lo); k <= Math.ceil(hi) && k < size; k++) {
-      const overlap = Math.min(hi, k + 0.5) - Math.max(lo, k - 0.5);
-      if (overlap > 0) out[k] += (count * overlap) / (hi - lo);
-    }
+  const out = new Array<number>(counts.length).fill(0);
+  const top = counts.length - 1;
+  counts.forEach((count, i) => {
+    const k = Math.round((levelOutput(rgb, (i / top) * 255) / 255) * top);
+    out[clamp(k, 0, top)] += count;
   });
   return out;
+}
+
+/** The main histogram's smoothing (image_processing.rs
+ * `apply_gaussian_smoothing`, sigma 2, edges clamped). */
+export function smoothedHistogram(counts: number[], sigma = 2): number[] {
+  const radius = Math.ceil(sigma * 3);
+  if (radius >= counts.length) return counts;
+  const kernel = Array.from({ length: 2 * radius + 1 }, (_, i) =>
+    Math.exp(-((i - radius) ** 2) / (2 * sigma * sigma)),
+  );
+  const sum = kernel.reduce((a, b) => a + b, 0);
+  const top = counts.length - 1;
+  return counts.map((_, i) =>
+    kernel.reduce((acc, w, k) => acc + (counts[clamp(i + k - radius, 0, top)] * w) / sum, 0),
+  );
 }

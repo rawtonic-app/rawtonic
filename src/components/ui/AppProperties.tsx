@@ -258,6 +258,7 @@ export enum Invokes {
   SampleLumaRange = 'sample_luma_range',
   SamplePreviewColor = 'sample_preview_color',
   SampleCurveInput = 'sample_curve_input',
+  LevelsInputHistogram = 'levels_input_histogram',
   SamplePreviewWhiteBalance = 'sample_preview_white_balance',
   SamplePreviewGreyWorld = 'sample_preview_grey_world',
   SetColorLabelForPaths = 'set_color_label_for_paths',
