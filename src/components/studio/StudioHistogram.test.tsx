@@ -266,3 +266,12 @@ it("expresses independent warning and clipping states as control classes", () =>
   expect(shadows.classList.contains("is-on")).toBe(false);
   expect(shadows.classList.contains("is-lit")).toBe(false);
 });
+
+
+it("reserves native activation keys while leaving J to the app shortcut", () => {
+  const keys: string[] = [];
+  render(<div onKeyDown={(event) => keys.push(event.key)}><StudioHistogram /></div>);
+  const shadows = screen.getByRole("button", { name: "Shadow clipping" });
+  for (const key of [" ", "Enter", "j"]) fireEvent.keyDown(shadows, { key });
+  expect(keys).toEqual(["j"]);
+});

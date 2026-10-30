@@ -42,7 +42,15 @@ function ClippingCorner({
       aria-pressed={on}
       title={title}
       data-clipping={lit || undefined}
-      onClick={onToggle}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      onKeyDown={(event) => {
+        // Space otherwise reaches the global zoom shortcut. Keep native
+        // button activation for Space/Enter and leave J available globally.
+        if (event.key === " " || event.key === "Enter") event.stopPropagation();
+      }}
     >
       <svg viewBox="0 0 12 12" aria-hidden="true">
         <title>{title}</title>
