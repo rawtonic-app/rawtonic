@@ -34,6 +34,7 @@ set -eu
 cd "$(dirname "$0")/.."
 DIR=scripts/review
 
+PREVIOUS=''
 BASE=origin/main; PLAN=''; FULL=1; REVIEWER=''; AUTHOR=''
 SWITCH="$(git rev-parse --path-format=absolute --git-common-dir)/rawtonic-reviewer"
 while [ $# -gt 0 ]; do
@@ -68,6 +69,10 @@ else
   git rev-parse -q --verify "$BASE" >/dev/null || { echo "review: unknown base $BASE" >&2; exit 2; }
   [ -n "$(git log --oneline "$BASE"..HEAD)" ] || { echo "review: no commits in $BASE..HEAD" >&2; exit 2; }
   HEAD_SHA=$(git rev-parse HEAD)
+  BRANCH=$(git branch --show-current)
+  if [ "$FULL" = 1 ]; then
+    PREVIOUS=$(python3 "$DIR/earlier_round.py" "$(git rev-parse --git-dir)/rawtonic-review" "$HEAD_SHA" --previous)
+  fi
   # Codex first: a Codex started from a Claude Code shell inherits CLAUDECODE.
   if [ -z "$AUTHOR" ]; then
     if [ -n "${CODEX_THREAD_ID:-}" ]; then AUTHOR=codex
@@ -123,6 +128,12 @@ elif [ "$REVIEWER" = claude ]; then
     }
     { printf '\n## Commits\n\n'; git log "$BASE"..HEAD; printf '\n## Diff\n\n'; cat "$DIFF"; } >>"$PROMPT"
   fi
+  if [ -n "$PREVIOUS" ]; then
+    python3 "$DIR/verified_diff.py" --base "$PREVIOUS" --head "$HEAD_SHA" --exact-base >"$DIFF" || {
+      echo "review: incremental input verification failed; no review was requested" >&2; exit 3;
+    }
+    { printf '\n## Incremental diff since earlier review (%s to %s)\n\n' "$PREVIOUS" "$HEAD_SHA"; cat "$DIFF"; } >>"$PROMPT"
+  fi
   claude -p --model "$MODEL" --tools Read,Grep,Glob --setting-sources '' --strict-mcp-config \
     --permission-mode dontAsk --output-format json --json-schema "$(cat "$DIR/verdict.schema.json")" \
     <"$PROMPT" >"$LOG" 2>&1 &&
@@ -156,10 +167,10 @@ if [ -z "$PLAN" ]; then
   if [ "$FULL" = 1 ]; then
     STORE="$(git rev-parse --git-dir)/rawtonic-review"
     mkdir -p "$STORE"
-    python3 -c 'import json, sys; v = json.load(open(sys.argv[1])); v["reviewer"] = sys.argv[3]; v["author"] = sys.argv[5]
+    python3 -c 'import json, sys; v = json.load(open(sys.argv[1])); v["reviewer"] = sys.argv[3]; v["author"] = sys.argv[5]; v["branch"] = sys.argv[6]
 if sys.argv[4]: v["summary"] = "Same-model review (reviewer switched to Claude, Codex limit). " + v["summary"]
 json.dump(v, open(sys.argv[2], "w"), indent=1)' \
-      "$OUT" "$STORE/$HEAD_SHA.json" "$REVIEWER" "${SAME_MODEL:-}" "$AUTHOR"
+      "$OUT" "$STORE/$HEAD_SHA.json" "$REVIEWER" "${SAME_MODEL:-}" "$AUTHOR" "$BRANCH"
   fi
 fi
 printf 'review: %s\n' "$VERDICT"

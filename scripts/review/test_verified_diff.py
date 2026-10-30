@@ -69,6 +69,20 @@ class VerifiedDiffTest(unittest.TestCase):
             cwd=self.root, capture_output=True, text=True,
         )
 
+    def test_exact_base_after_amend_excludes_unchanged_branch_work(self):
+        previous = self.git("rev-parse", "HEAD").decode().strip()
+        (self.root / "app.rs").write_text("fixed app code\n")
+        self.git("add", "-A")
+        self.git("commit", "--amend", "-q", "--no-edit")
+        result = subprocess.run(
+            [sys.executable, str(HELPER), "--base", previous, "--exact-base"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("-new app code", result.stdout)
+        self.assertIn("+fixed app code", result.stdout)
+        self.assertNotIn("sqlite3", result.stdout)
+
     def test_only_proven_upstream_bytes_are_elided_and_app_diff_remains(self):
         result = self.run_helper()
         self.assertEqual(result.returncode, 0, result.stderr)

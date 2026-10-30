@@ -146,9 +146,12 @@ def main() -> None:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--archive", type=Path, help="optional checksum-verified .crate archive")
+    parser.add_argument("--exact-base", action="store_true",
+                        help="compare endpoint trees after an earlier review, including rewritten history")
     args = parser.parse_args()
     head = git("rev-parse", "--verify", args.head + "^{commit}").decode().strip()
-    base = git("merge-base", args.base, head).decode().strip()
+    base = (git("rev-parse", "--verify", args.base + "^{commit}") if args.exact_base
+            else git("merge-base", args.base, head)).decode().strip()
     if exists(base, VENDOR) or not exists(head, VENDOR + "/Cargo.toml"):
         sys.stdout.buffer.write(git("diff", "--no-ext-diff", "--no-textconv", base, head))
         return
