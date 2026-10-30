@@ -199,3 +199,55 @@ export function autoLevels(
   if (inWhite - inBlack < 16) return null;
   return { inBlack, inWhite };
 }
+
+/** The display value (0–255) a level turns into `y`: the inverse of
+ * `levelOutput` within its output range. */
+function levelInput(level: Level, y: number): number {
+  const span = level.outWhite - level.outBlack;
+  if (Math.abs(span) < 1e-6) return (level.inBlack + level.inWhite) / 2;
+  const t = clamp((y - level.outBlack) / span, 0, 1);
+  return level.inBlack + (level.inWhite - level.inBlack) * t ** clamp(level.gamma, 0.1, 10);
+}
+
+/**
+ * The histogram of what a channel's Levels receive, from the histogram of
+ * the rendering (`bins`, of colour channel `colour`): each shown bin's
+ * count is spread over the input values Levels turned into it, through
+ * the colour channel's level and, for the composite tab, the composite's
+ * too. So the handles sit on the tones they move. Exact while nothing after
+ * Levels changes the tone (curves, LUTs); clipped tones pile up at the
+ * point that clips them.
+ */
+export function levelsInputHistogram(
+  bins: number[],
+  levels: Partial<Levels> | undefined,
+  channel: LevelChannel,
+  colour: "red" | "green" | "blue",
+): number[] {
+  const size = bins.length;
+  if (size < 2) return bins;
+  const own = levelOf(levels, colour);
+  const rgb = levelOf(levels, "rgb");
+  const back = (y: number) => {
+    const v = levelInput(own, y);
+    return channel === "rgb" ? levelInput(rgb, v) : v;
+  };
+  const scale = 255 / (size - 1);
+  const out = new Array<number>(size).fill(0);
+  bins.forEach((count, i) => {
+    if (!count) return;
+    const a = back(Math.max(0, i - 0.5) * scale) / scale;
+    const b = back(Math.min(size - 1, i + 0.5) * scale) / scale;
+    const lo = Math.max(0, Math.min(a, b));
+    const hi = Math.min(size - 1, Math.max(a, b));
+    if (hi - lo < 1e-6) {
+      out[Math.round(lo)] += count;
+      return;
+    }
+    for (let k = Math.floor(lo); k <= Math.ceil(hi) && k < size; k++) {
+      const overlap = Math.min(hi, k + 0.5) - Math.max(lo, k - 0.5);
+      if (overlap > 0) out[k] += (count * overlap) / (hi - lo);
+    }
+  });
+  return out;
+}

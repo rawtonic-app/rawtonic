@@ -16,6 +16,7 @@ import {
   handlePosition,
   levelOf,
   levelValue,
+  levelsInputHistogram,
   nudgedLevel,
   withHandleAt,
   withLevelValue,
@@ -93,7 +94,11 @@ function LevelField({
         editing.current = true;
         selectOnFocus.onFocus(e);
       }}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => {
+        canceled.current = false;
+        editing.current = true;
+        setText(e.target.value);
+      }}
       onBlur={() => {
         editing.current = false;
         const typed = Number(text);
@@ -102,7 +107,13 @@ function LevelField({
         canceled.current = false;
         setText(String(value));
       }}
-      onDoubleClick={onReset}
+      onDoubleClick={() => {
+        // The reset value shows at once and leaving does not commit the
+        // text from before it.
+        canceled.current = true;
+        editing.current = false;
+        onReset();
+      }}
       onKeyDown={(e) => {
         e.stopPropagation();
         if (e.key === "Enter") e.currentTarget.blur();
@@ -141,12 +152,16 @@ export function StudioLevels({
   const setEditor = useEditorStore((s) => s.setEditor);
   const histogram = useEditorStore((s) => s.histogram);
   const levels: Levels = { ...INITIAL_LEVELS, ...values.levels };
-  const current: Level = levelOf(levels, channel);
-  // The latest level for a drag's moves between renders.
+  const committed: Level = levelOf(levels, channel);
+  // The level being edited shows at once: a drag's moves reach the recipe
+  // in batches (sliderDraft), and the handles and fields follow the pointer.
+  const [draft, setDraft] = useState<{ channel: LevelChannel; level: Level } | null>(null);
+  const current = draft?.channel === channel ? draft.level : committed;
   const latest = useRef(current);
   latest.current = current;
   const set = (level: Level) => {
     latest.current = level;
+    setDraft({ channel, level });
     change({ levels: { ...levels, [channel]: level } });
   };
   const setValue = (key: LevelValue, value: number) =>
@@ -170,6 +185,11 @@ export function StudioLevels({
     outWhite: t("studio.tone.levels.outWhite"),
   };
   const drag = useRef<{ key: LevelValue; strip: DOMRect } | null>(null);
+  // Outside a drag the recipe's values win again once they arrive.
+  const committedKey = JSON.stringify(committed);
+  useEffect(() => {
+    if (!drag.current) setDraft(null);
+  }, [committedKey, channel]);
   const endDrag = () => {
     if (!drag.current) return;
     drag.current = null;
@@ -231,10 +251,16 @@ export function StudioLevels({
     />
   );
   const shown = channel === "rgb" ? COLOURS : ([channel] as const);
-  const bins = shown.map((c) => histogramBins(histogram?.[c]));
+  const rendered = shown.map((c) => histogramBins(histogram?.[c]));
+  // Drawn as what Levels receive, so the handles sit on the tones they
+  // move (through the recipe's levels, which the histogram was rendered with).
+  const bins = shown.map((c, i) =>
+    levelsInputHistogram(rendered[i], levels, channel, c),
+  );
   const max = Math.max(1, ...bins.flat());
   const auto = () => {
     if (!histogram) return;
+    const bins = rendered;
     const next = autoLevels(bins, current);
     if (next) set({ ...current, ...next });
   };

@@ -42,8 +42,9 @@ afterEach(() => {
   invoke.mockReset();
 });
 
-/** The tool with its values held like the panel holds them. */
-function renderLevels() {
+/** The tool with its values held like the panel holds them; `deferred`
+ * holds commits back like sliderDraft does during a drag. */
+function renderLevels(deferred = false) {
   const changes: Partial<Adjustments>[] = [];
   const interactions: boolean[] = [];
   function Harness() {
@@ -56,7 +57,7 @@ function renderLevels() {
         disabled={false}
         change={(patch) => {
           changes.push(patch);
-          setValues((v) => ({ ...v, ...patch }));
+          if (!deferred) setValues((v) => ({ ...v, ...patch }));
         }}
         onInteraction={(active) => interactions.push(active)}
       />
@@ -106,6 +107,19 @@ describe("Levels panel", () => {
     expect(field("Input black").value).toBe("60");
   });
 
+  it("follows a drag before its moves are committed", () => {
+    const { last } = renderLevels(true);
+    const black = handle("Input black");
+    strip(black);
+    fireEvent.pointerDown(black, { button: 0, clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(black, { clientX: 40, pointerId: 1 });
+    expect(last()?.rgb.inBlack).toBe(40);
+    expect(handle("Input black").getAttribute("aria-valuenow")).toBe("40");
+    expect(handle("Input black").style.left).toBe(`${(40 / 255) * 100}%`);
+    expect(field("Input black").value).toBe("40");
+    fireEvent.pointerUp(black, { pointerId: 1 });
+  });
+
   it("nudges with the arrow keys, Shift by ten", () => {
     const { last } = renderLevels();
     fireEvent.keyDown(handle("Input white"), { key: "ArrowLeft" });
@@ -147,6 +161,22 @@ describe("Levels panel", () => {
     fireEvent.keyDown(handle("Midtone"), { key: "ArrowDown" });
     fireEvent.doubleClick(field("Midtone"));
     expect(last()?.rgb.gamma).toBe(1);
+  });
+
+  it("resets a focused field without its old text coming back", () => {
+    const { changes, last } = renderLevels();
+    const black = field("Input black");
+    fireEvent.focus(black);
+    fireEvent.change(black, { target: { value: "10" } });
+    fireEvent.keyDown(black, { key: "Enter" });
+    fireEvent.blur(black);
+    expect(last()?.rgb.inBlack).toBe(10);
+    fireEvent.focus(black);
+    fireEvent.doubleClick(black);
+    expect(field("Input black").value).toBe("0");
+    fireEvent.blur(black);
+    expect(changes.map((c) => c.levels?.rgb.inBlack)).toEqual([10, 0]);
+    expect(field("Input black").value).toBe("0");
   });
 
   it("edits the channel of the active tab", () => {
