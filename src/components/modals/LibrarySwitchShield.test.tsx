@@ -6,7 +6,7 @@ import { useUIStore } from '../../store/useUIStore';
 
 afterEach(() => {
   cleanup();
-  useUIStore.setState({ switchingLibrary: false });
+  useUIStore.setState({ switchingLibrary: false, quitSaving: null });
 });
 
 it('holds the app in a modal dialog while the next library opens', () => {
@@ -16,5 +16,13 @@ it('holds the app in a modal dialog while the next library opens', () => {
   act(() => useUIStore.setState({ switchingLibrary: true }));
   expect(document.querySelector('dialog[open]')?.textContent).toBe('Opening library…');
   act(() => useUIStore.setState({ switchingLibrary: false }));
+  expect(document.querySelector('dialog[open]')).toBeNull();
+});
+
+it('holds the app the same way while a quit saves, with its progress', () => {
+  render(<LibrarySwitchShield />);
+  act(() => useUIStore.setState({ quitSaving: 'Saving changes before Rawtonic quits… (3/7)' }));
+  expect(document.querySelector('dialog[open]')?.textContent).toBe('Saving changes before Rawtonic quits… (3/7)');
+  act(() => useUIStore.setState({ quitSaving: null }));
   expect(document.querySelector('dialog[open]')).toBeNull();
 });

@@ -6,8 +6,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { act } from '@testing-library/react';
 import { BatchCommand, COMMANDS, mountAppListeners } from './quit.test.support';
-import { QUIT_NOTICE_ID, QUIT_NOTICE_MS, handleQuitRequest, registerQuitFlush } from './quit';
-import { toast } from 'react-toastify';
+import { cancelQuitRequest, handleQuitRequest, registerQuitFlush } from './quit';
+import { useUIStore } from '../store/useUIStore';
 import { allPhotoWritesSettled, photoBatches, photoWorkPending } from './photoWrites';
 import { debouncedSave, flushRecipeSaves, recipeWrite } from '../hooks/useEditorActions';
 import { INITIAL_ADJUSTMENTS } from './adjustments';
@@ -15,7 +15,6 @@ import { Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn((name) => Promise.resolve(['quit_saving', 'cancel_quit', 'finish_quit'].includes(String(name)) ? true : [])) }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: Object.assign(vi.fn(), { info: vi.fn(), update: vi.fn(), dismiss: vi.fn(), error: vi.fn() }) }));
 const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn((name, callback) => {
   callbacks.set(name, callback);
@@ -216,21 +215,59 @@ it('waits for an already-running batch and does not fail its previously saved ph
   expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
 });
 
-it('says it is saving once a quit waits, with how far the batch got, and clears that when done', async () => {
+it('holds the app while a quit saves, says how far the batch got, and lets go when done', async () => {
   const command = await batch(['/1.dng', '/2.dng']);
-  vi.useFakeTimers();
   const done = quit();
-  await vi.advanceTimersByTimeAsync(QUIT_NOTICE_MS - 1);
-  expect(toast.info).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(1);
-  expect(toast.info).toHaveBeenCalledWith('Saving changes before Rawtonic quits… (0/2)', expect.objectContaining({ toastId: QUIT_NOTICE_ID }));
-  vi.useRealTimers();
+  const shown = () => useUIStore.getState().quitSaving;
+  // At once: no edit may start once the quit has begun saving.
+  expect(shown()).toBe('Saving changes before Rawtonic quits… (0/2)');
+  await vi.waitFor(() => expect(progress()).toBe(1));
   command.photo('/1.dng');
-  expect(toast.update).toHaveBeenLastCalledWith(QUIT_NOTICE_ID, { render: 'Saving changes before Rawtonic quits… (1/2)' });
-  expect(toast.dismiss).not.toHaveBeenCalled();
+  expect(shown()).toBe('Saving changes before Rawtonic quits… (1/2)');
   command.photo('/2.dng');
   command.finish();
   await done;
-  expect(toast.dismiss).toHaveBeenCalledWith(QUIT_NOTICE_ID);
+  expect(shown()).toBeNull();
   expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
+});
+
+it('lets go of the app when the native side keeps it open, while the writes go on', async () => {
+  const command = await batch(['/slow.dng']);
+  const done = quit();
+  await vi.waitFor(() => expect(progress()).toBe(1));
+  expect(useUIStore.getState().quitSaving).not.toBeNull();
+  // app-quit-cancelled for this request (saving stalled).
+  expect(cancelQuitRequest(nextRequest)).toBe(true);
+  expect(useUIStore.getState().quitSaving).toBeNull();
+  command.photo('/slow.dng');
+  command.finish();
+  await done;
+  expect(useUIStore.getState().quitSaving).toBeNull();
+  expect(COMMANDS()).not.toContain(Invokes.FinishQuit);
+});
+
+it('names an edit whose save failed after the recipe flush answered, while the quit still waited', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const answer = vi.mocked(invoke).getMockImplementation()!;
+  // A rating queued behind a long file undo keeps the quit waiting.
+  let undone!: () => void;
+  const rating = photoWorkPending(new Promise<void>((resolve) => { undone = resolve; }));
+  const ask = vi.fn();
+  const done = quit(ask);
+  await vi.waitFor(() => expect(progress()).toBe(1));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Meanwhile an edit is saved, and that save fails.
+  vi.mocked(invoke).mockImplementation((name, args) =>
+    name === Invokes.SaveMetadataAndUpdateThumbnail ? Promise.reject(new Error('disk full')) : answer(name, args));
+  debouncedSave('/c.dng', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+  await debouncedSave.flush();
+  undone();
+  await rating;
+  await done;
+  expect(ask).toHaveBeenCalledOnce();
+  expect(ask.mock.calls[0][0]).toContain('Edits of c.dng');
+  expect(COMMANDS()).not.toContain(Invokes.FinishQuit);
+  vi.mocked(invoke).mockImplementation(answer);
+  expect(await flushRecipeSaves()).toEqual([]);
+  errorLog.mockRestore();
 });

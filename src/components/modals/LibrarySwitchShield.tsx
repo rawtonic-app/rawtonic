@@ -6,11 +6,14 @@ import { useUIStore } from '../../store/useUIStore';
  * While a library switch opens the next library (`switchLibraryAfterSaves`),
  * a modal dialog makes the app inert: no click, key, shortcut or menu
  * command reaches the photo still shown, whose edits would belong to the
- * library being left. Its text shows only when opening takes a while.
+ * library being left. A quit that saves holds the app the same way
+ * (`quitSaving`, utils/quit.ts): an edit made then could be saved after the
+ * quit's last look. Its text shows only when it takes a while.
  */
 export default function LibrarySwitchShield() {
   const { t } = useTranslation();
-  const switching = useUIStore((state) => state.switchingLibrary);
+  const quitting = useUIStore((state) => state.quitSaving);
+  const switching = useUIStore((state) => state.switchingLibrary) || quitting !== null;
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const element = dialog.current;
@@ -33,7 +36,7 @@ export default function LibrarySwitchShield() {
       aria-live="polite"
       onCancel={(event) => event.preventDefault()}
     >
-      <p>{t('session.switching')}</p>
+      <p>{quitting ?? t('session.switching')}</p>
     </dialog>
   );
 }

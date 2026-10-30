@@ -49,7 +49,7 @@ import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { registerLibrarySwitchReset, registerQuitFlush } from '../utils/quit';
+import { registerLibrarySwitchReset, registerQuitCheck, registerQuitFlush } from '../utils/quit';
 import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
@@ -233,6 +233,9 @@ export async function flushRecipeSaves(): Promise<string[]> {
 registerQuitFlush(async () =>
   (await flushRecipeSaves()).map((path) => `Edits of ${path.split(/[\\/]/).pop() ?? path}`),
 );
+// What a quit's last look finds unsaved: a recipe whose save failed after
+// the flush above answered.
+registerQuitCheck(() => [...unsavedRecipes.keys()].map((path) => `Edits of ${path.split(/[\\/]/).pop() ?? path}`));
 // Quitting and switching library also wait for catalog steps that write
 // later (a rating queued behind a file undo); a file operation's own drain
 // (`flushRecipeSaves`) must not, it would wait for itself.

@@ -1,7 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import i18n from 'i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { toast } from 'react-toastify';
 import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
 import {
@@ -11,6 +10,7 @@ import {
   onBatchWriteSettled,
   onPhotoWritesSettled,
   photoBatches,
+  photoWritesAndStepsSettled,
 } from './photoWrites';
 
 /** A write that must reach disk before the app quits (a debounced save):
@@ -140,37 +140,52 @@ class QuitDrain {
   }
 }
 
-/** How long a quit saves before it says so (a quick one shows nothing). */
-export const QUIT_NOTICE_MS = 500;
-export const QUIT_NOTICE_ID = 'quit-saving';
+/** The quit request whose save holds the app (`quitSaving`), if any. */
+let quitHold: number | null = null;
 
-/** The notice that the app saves before it quits: shown once saving takes
- * longer than `QUIT_NOTICE_MS`, with how far the running batches got. */
-function savingNotice(): { update(): void; stop(): void } {
-  let shown = false;
-  const text = () => {
-    let done = 0;
-    let total = 0;
-    for (const batch of photoBatches().values()) {
-      const count = batchPhotoCount(batch);
-      if (count.done >= count.total) continue;
-      done += count.done;
-      total += count.total;
-    }
-    return total > 0 ? i18n.t('notifications.quitSavingPhotos', { done, total }) : i18n.t('notifications.quitSaving');
+/** What the shield says while a quit saves: how far the running batches
+ * got, if any runs. */
+function quitSavingText(): string {
+  let done = 0;
+  let total = 0;
+  for (const batch of photoBatches().values()) {
+    const count = batchPhotoCount(batch);
+    if (count.done >= count.total) continue;
+    done += count.done;
+    total += count.total;
+  }
+  return total > 0 ? i18n.t('notifications.quitSavingPhotos', { done, total }) : i18n.t('notifications.quitSaving');
+}
+
+/** Holds the app while request `requestId` saves (the switch shield, with
+ * the quit's progress): an edit made during a quit could fail after the
+ * quit's last look at what is unsaved. Returns the progress update. */
+function holdForQuit(requestId: number): () => void {
+  quitHold = requestId;
+  useUIStore.getState().setUI({ quitSaving: quitSavingText() });
+  return () => {
+    if (quitHold === requestId) useUIStore.getState().setUI({ quitSaving: quitSavingText() });
   };
-  const timer = setTimeout(() => {
-    shown = true;
-    toast.info(text(), { toastId: QUIT_NOTICE_ID, autoClose: false, closeOnClick: false });
-  }, QUIT_NOTICE_MS);
-  return {
-    update: () => {
-      if (shown) toast.update(QUIT_NOTICE_ID, { render: text() });
-    },
-    stop: () => {
-      clearTimeout(timer);
-      if (shown) toast.dismiss(QUIT_NOTICE_ID);
-    },
+}
+
+/** Ends request `requestId`'s hold (saved, asked, or cancelled natively). */
+function releaseQuitHold(requestId: number): void {
+  if (quitHold !== requestId) return;
+  quitHold = null;
+  useUIStore.getState().setUI({ quitSaving: null });
+}
+
+/** What is still not saved, read without writing once every flush ran and
+ * the writes in flight settled (`registerQuitCheck`). */
+export type QuitCheck = () => string[];
+
+const checks = new Set<QuitCheck>();
+
+/** Registers a final check for quitting; returns its unregistration. */
+export function registerQuitCheck(check: QuitCheck): () => void {
+  checks.add(check);
+  return () => {
+    checks.delete(check);
   };
 }
 
@@ -209,19 +224,23 @@ function hearWrites(kept: QuitDrain, requestId: number, update: () => void): () 
 async function drainBeforeQuit(requestId: number): Promise<string[] | null> {
   const kept = new QuitDrain();
   kept.recordRunningBatches();
-  const notice = savingNotice();
-  const stopHearing = hearWrites(kept, requestId, notice.update);
+  const update = holdForQuit(requestId);
+  const stopHearing = hearWrites(kept, requestId, update);
   try {
     if (await invoke<boolean>(Invokes.QuitSaving, { requestId }) !== true) {
       cancelQuitRequest(requestId);
       return null;
     }
     kept.recordOther(await flushBeforeQuit());
+    // A write that settled after its flush answered (one in flight, or a
+    // step's) is in the final state: read it, without writing again.
+    await photoWritesAndStepsSettled();
+    kept.recordOther([...checks].flatMap((check) => check()));
     const items = kept.items();
     return items.length > 0 ? items : null;
   } finally {
     stopHearing();
-    notice.stop();
+    releaseQuitHold(requestId);
   }
 }
 
@@ -351,6 +370,8 @@ export function cancelQuitRequest(requestId: number): boolean {
   if (!Number.isSafeInteger(requestId) || requestId <= 0 || latestQuitRequest !== requestId) return false;
   latestQuitRequest = null;
   if (handlingQuit === requestId) handlingQuit = null;
+  // The app stays open and usable while the writes go on.
+  releaseQuitHold(requestId);
   return true;
 }
 
