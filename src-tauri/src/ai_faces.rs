@@ -482,13 +482,19 @@ pub async fn apply_face_retouch_to_paths(
                 )
                 .await
                 {
-                    Ok(()) => {
-                        done += 1;
-                        announcement(None, &[]);
-                    }
-                    Err(failure) => {
-                        log::warn!("Face retouch for {path}: {}", failure.message);
-                        settled(&mut failures, &failure.message);
+                    Ok(batch) => match batch.failure {
+                        None => {
+                            done += 1;
+                            announcement(None, &[]);
+                        }
+                        Some(failure) => {
+                            log::warn!("Face retouch for {path}: {}", failure.message);
+                            settled(&mut failures, &failure.message);
+                        }
+                    },
+                    Err(error) => {
+                        log::warn!("Face retouch for {path}: {error}");
+                        settled(&mut failures, &error);
                     }
                 }
             }

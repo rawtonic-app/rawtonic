@@ -1128,6 +1128,7 @@ fn export(args: ExportArgs) -> Result<()> {
             settings: settings.clone(),
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
             catalog: photo_metadata(photo, &source, &sidecar),
+            capture: corrected_capture(&source),
         });
         match result {
             Ok(()) => written.push(output.clone()),
@@ -1190,6 +1191,19 @@ fn photo_metadata(
         copy.rating,
         copy.tags.as_deref(),
     ))
+}
+/// The capture time a session corrected for a source (Shift Capture Time),
+/// as the app's export writes it.
+fn corrected_capture(
+    source: &std::path::Path,
+) -> Option<rawtonic_export::exif_processing::CaptureFields> {
+    let Some(session) = rawtonic_catalog::session_for(source) else {
+        // A catalog's photograph anywhere: its `.rrdata` carries the correction.
+        return rawtonic_export::file_export::sidecar_capture(source);
+    };
+    let lib = Library::open(&session).ok()?;
+    let asset = lib.asset_at(source).ok()??;
+    Some(lib.capture_override(&asset.id).ok()??.exif_fields())
 }
 /// The catalog metadata of a source inside a session, as the app writes it.
 fn catalog_metadata(source: &std::path::Path) -> Option<rawtonic_metadata::Metadata> {

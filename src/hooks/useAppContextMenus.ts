@@ -42,6 +42,7 @@ import {
   PencilSparkles,
   Ruler,
   SunMedium,
+  Clock,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
@@ -49,7 +50,7 @@ import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { canUndo, canRedo, getUndoLabel,
   getRedoLabel, undo, redo } from '../utils/appUndo';
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
@@ -77,6 +78,7 @@ import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
 import { isCurrentEditorImage, recipeWrite, useEditorActions } from './useEditorActions';
 import { useSeriesMatchDialog } from '../components/studio/SeriesMatchDialog';
+import { useCaptureTimeDialog } from '../components/studio/CaptureTimeDialog';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { runAutoStraighten } from '../utils/autoStraighten';
@@ -161,6 +163,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         const reference = candidates.find((path) => path && paths.includes(path)) ?? paths[0];
         useSeriesMatchDialog.getState().open({ paths: [...paths], references: [reference] });
       },
+    },
+    shift_capture_time: {
+      disabledHint: () => t('commandPalette.selectPhotos'),
+      enabled: () => useLibraryStore.getState().multiSelectedPaths.length > 0,
+      run: () => useCaptureTimeDialog.getState().open(useLibraryStore.getState().multiSelectedPaths),
     },
   }), [handleAutoLensCorrection, t]);
 
@@ -274,7 +281,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       event.preventDefault();
       event.stopPropagation();
 
-      const { selectedImage, resetHistory, copiedAdjustments, setEditor } =
+      const { selectedImage, copiedAdjustments, setEditor } =
         useEditorStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { setPanel, setUI } = useUIStore.getState();
@@ -412,7 +419,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                   aspectRatio: originalAspectRatio,
                   aiPatches: [],
                 };
-                resetHistory(resetData);
+                // One undoable step; the History before it stays.
+                debouncedSetHistory.flush();
+                useEditorStore.getState().pushHistory(resetData);
                 setEditor({ adjustments: resetData });
               },
             },
@@ -729,6 +738,12 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             const reference = candidates.find((p) => p && finalSelection.includes(p)) ?? finalSelection[0];
             useSeriesMatchDialog.getState().open({ paths: finalSelection, references: [reference] });
           },
+        },
+        {
+          disabled: selectionCount === 0,
+          icon: Clock,
+          label: t('contextMenus.thumbnail.shiftCaptureTime'),
+          onClick: () => useCaptureTimeDialog.getState().open(finalSelection),
         },
         {
           label: t('contextMenus.editor.productivity'),

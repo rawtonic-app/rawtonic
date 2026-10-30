@@ -158,6 +158,7 @@
       "rotate_right": "Pivoter à droite",
       "select_all": "Tout sélectionner",
       "select_none": "Ne rien sélectionner",
+      "shift_capture_time": "Décaler l'heure de prise de vue…",
       "show_in_finder": "Afficher dans le Finder",
       "sync_settings": "Synchroniser les réglages",
       "tether_capture": "Déclencher (appareil connecté)",
@@ -218,6 +219,75 @@
       "recipes": "Exporter avec une recette"
     }
   },
+  "captureTime": {
+    "applied_one": "Heure de prise de vue corrigée pour {{count}} photo",
+    "applied_many": "Heure de prise de vue corrigée pour {{count}} photos",
+    "applied_other": "Heure de prise de vue corrigée pour {{count}} photos",
+    "apply_one": "Appliquer à {{count}} photo",
+    "apply_many": "Appliquer à {{count}} photos",
+    "apply_other": "Appliquer à {{count}} photos",
+    "cameraCount": "{{name}} ({{n}})",
+    "cancel": "Annuler",
+    "conflict_one": "{{count}} photo a été modifiée depuis cet aperçu. Rien n'a été écrit ; vérifiez le nouvel aperçu et appliquez à nouveau.",
+    "conflict_many": "{{count}} photos ont été modifiées depuis cet aperçu. Rien n'a été écrit ; vérifiez le nouvel aperçu et appliquez à nouveau.",
+    "conflict_other": "{{count}} photos ont été modifiées depuis cet aperçu. Rien n'a été écrit ; vérifiez le nouvel aperçu et appliquez à nouveau.",
+    "correctedHelp": "AAAA-MM-JJ HH:MM:SS, avec une fraction en option (.250). Sans fraction, la photo garde sa fraction de seconde.",
+    "correctedTime": "Son heure exacte",
+    "direction": "Sens",
+    "earlier": "Plus tôt",
+    "errors": {
+      "field": "Saisissez un nombre entier (les secondes acceptent jusqu'à neuf décimales).",
+      "fraction": "La fraction de seconde peut avoir au plus neuf chiffres.",
+      "invalid": "Date et heure non valides (AAAA-MM-JJ HH:MM:SS).",
+      "outOfRange": "L'heure doit se situer entre les années 0001 et 9999."
+    },
+    "excluded": {
+      "noCaptureTime": "le fichier n'a pas d'heure de prise de vue",
+      "notInLibrary": "pas dans ce projet ou catalogue",
+      "offline": "hors ligne : heure de prise de vue illisible",
+      "otherLibrary": "dans un autre projet ou catalogue"
+    },
+    "excludedCount_one": "{{count}} photo exclue",
+    "excludedCount_many": "{{count}} photos exclues",
+    "excludedCount_other": "{{count}} photos exclues",
+    "failed": "Impossible de modifier l'heure de prise de vue : {{error}}",
+    "filesUnchanged": "Vos fichiers photo et leurs dates de fichier ne sont pas modifiés. Le tri, la recherche, les noms et les exports utilisent l'heure corrigée.",
+    "how": "Correction",
+    "intro": "Corrige une horloge d'appareil mal réglée : chaque photo est décalée de la même durée, pour que les photos de plusieurs appareils se trient dans l'ordre de prise de vue.",
+    "later": "Plus tard",
+    "modes": {
+      "reference": "Régler l'heure d'une photo",
+      "reset_one": "Revenir à l'heure du fichier ({{count}} corrigée)",
+      "reset_many": "Revenir à l'heure du fichier ({{count}} corrigées)",
+      "reset_other": "Revenir à l'heure du fichier ({{count}} corrigées)",
+      "shift": "Décaler de"
+    },
+    "nothingToChange": "Rien à modifier.",
+    "notInLibrary": "Décaler l'heure de prise de vue agit sur les photos d'un projet ou d'un catalogue. Ajoutez d'abord ces photos à l'un d'eux.",
+    "outOfRange_one": "{{name}} sortirait des années 0001–9999. Rien ne peut être appliqué.",
+    "outOfRange_many": "{{count}} photos, dont {{name}}, sortiraient des années 0001–9999. Rien ne peut être appliqué.",
+    "outOfRange_other": "{{count}} photos, dont {{name}}, sortiraient des années 0001–9999. Rien ne peut être appliqué.",
+    "parts": {
+      "days": "Jours",
+      "hours": "Heures",
+      "minutes": "Minutes",
+      "seconds": "Secondes"
+    },
+    "rangeChange": "De {{from}} – {{to}} à {{newFrom}} – {{newTo}}",
+    "reading": "Lecture des heures de prise de vue…",
+    "referenceChange": "{{name}} : {{before}} → {{after}}",
+    "referencePhoto": "Photo de référence",
+    "shiftEarlier": "Décalage : {{days}} j {{hours}} h {{minutes}} min {{seconds}} s plus tôt",
+    "shiftLater": "Décalage : {{days}} j {{hours}} h {{minutes}} min {{seconds}} s plus tard",
+    "sidecarsFailed_one": "La bibliothèque a la correction ; le fichier de réglages de {{count}} photo n'a pas encore pu être écrit et suivra à sa prochaine modification.",
+    "sidecarsFailed_many": "La bibliothèque a la correction ; les fichiers de réglages de {{count}} photos n'ont pas encore pu être écrits et suivront à leur prochaine modification.",
+    "sidecarsFailed_other": "La bibliothèque a la correction ; les fichiers de réglages de {{count}} photos n'ont pas encore pu être écrits et suivront à leur prochaine modification.",
+    "summary_one": "{{count}} photo",
+    "summary_many": "{{count}} photos",
+    "summary_other": "{{count}} photos",
+    "title": "Décaler l'heure de prise de vue",
+    "unknownCamera": "Appareil inconnu"
+  },
   "commandPalette": {
     "close": "Fermer la palette de commandes",
     "empty": "Aucune commande correspondante. Essayez une autre recherche.",
@@ -226,6 +296,7 @@
     "search": "Rechercher une commande…",
     "selectAtMostPhotos": "Sélectionnez au maximum {{max}} photos",
     "selectFourPhotos": "Sélectionnez au moins quatre photos",
+    "selectPhotos": "Sélectionnez une ou plusieurs photos",
     "selectTwoPhotos": "Sélectionnez au moins deux photos"
   },
   "contextMenus": {
@@ -343,6 +414,7 @@
       "resetAdjustments_one": "Réinitialiser les ajustements",
       "resetAdjustments_many": "Réinitialiser les ajustements sur {{count}} images",
       "resetAdjustments_other": "Réinitialiser les ajustements sur {{count}} images",
+      "shiftCaptureTime": "Décaler l'heure de prise de vue…",
       "showExplorer": "Afficher dans l'explorateur",
       "showFinder": "Afficher dans le Finder",
       "virtualCopy": "Copie virtuelle"
@@ -2992,14 +3064,14 @@
       "graphEmpty": "Histogramme disponible après l'ouverture d'une photo",
       "highlightClipping": "Alerte hautes lumières",
       "highlightClippingLit": "Alerte hautes lumières, écrêtées",
-      "highlightClippingTitle": "Alerte hautes lumières (hautes lumières écrêtées ; {{shortcut}} bascule les deux)",
+      "highlightClippingTitle": "Alerte d’écrêtage des hautes lumières (rouge sur la photo ; {{shortcut}} bascule les deux)",
       "proof": "Épreuve",
       "proofSpace": "Espace colorimétrique de l'épreuve",
       "proofTitle": "Épreuvage écran : afficher la photo telle qu'un export dans l'espace colorimétrique choisi ({{shortcut}})",
       "selectPhoto": "Sélectionnez une photo",
       "shadowClipping": "Alerte ombres",
       "shadowClippingLit": "Alerte ombres, écrêtées",
-      "shadowClippingTitle": "Alerte ombres (ombres écrêtées ; {{shortcut}} bascule les deux)",
+      "shadowClippingTitle": "Alerte d’écrêtage des ombres (bleu sur la photo ; {{shortcut}} bascule les deux)",
       "title": "Histogramme"
     },
     "layers": {
@@ -3755,6 +3827,7 @@
       "notInSession": "Certaines photos sélectionnées ne font pas partie de ce projet.",
       "outsideSessions": "Hors projet, la description, le créateur, le copyright et le commentaire sont enregistrés avec les retouches de chaque photo ; le titre et les champs IPTC sont enregistrés dans les projets.",
       "selectToSee": "Sélectionnez des photos pour voir leurs métadonnées.",
+      "shiftCaptureTime": "Décaler l'heure de prise de vue…",
       "title": "Métadonnées",
       "toasts": {
         "keywordsRemoveFailed": "Impossible de supprimer les mots-clés : {{error}}",
@@ -4358,6 +4431,7 @@
         "searchLabel": "Rechercher des photos",
         "sort": "Trier les photos",
         "sortBy": {
+          "captured": "Prise de vue",
           "date": "Modifiée",
           "name": "Nom de fichier",
           "rating": "Note"
@@ -4461,19 +4535,26 @@
     }
   },
   "undoHistory": {
+    "apply": "Appliquer les réglages",
+    "captureTime": "Décaler l'heure de prise de vue",
     "color": "Définir la couleur",
     "edit": "Modification",
     "file": "Modification de fichier",
     "flag": "Définir le marqueur",
+    "lensCorrection": "Correction de l'objectif",
     "matchLight": "Harmoniser la lumière",
     "move": "Déplacer",
     "notice": "{{action}} : {{name}}",
     "noticeMany": "{{action}} : {{name}} (+{{remaining}})",
+    "paste": "Coller les réglages",
     "rating": "Définir la note",
     "recipesNotAll": "Toutes les photos n'ont pas pu être écrites",
     "redoAction": "Rétablir : {{action}}",
     "rename": "Renommer",
+    "reset": "Réinitialiser",
     "skipFailed": "Ignorer les éléments en échec",
+    "style": "Appliquer le style",
+    "sync": "Synchroniser les réglages",
     "trash": "Mettre à la corbeille",
     "undoAction": "Annuler : {{action}}"
   },

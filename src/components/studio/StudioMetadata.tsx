@@ -14,6 +14,8 @@ import { COLOR_LABELS } from "../../utils/adjustments";
 import { ToolGroup } from "./StudioDevelop";
 import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
 import { submitPhotoWrite } from "../../utils/photoWrites";
+import { captureText } from "../../utils/captureTime";
+import { useCaptureTimeDialog } from "./CaptureTimeDialog";
 
 /** The editor's marker for keywords the user typed; other tags are automatic. */
 const USER_TAG_PREFIX = "user:";
@@ -601,7 +603,12 @@ export function StudioMetadataTool() {
     ["camera", t("studio.metadata.details.camera"), camera],
     ["lens", t("studio.metadata.details.lens"), exif.LensModel],
     ["exposure", t("studio.metadata.details.exposure"), exposureSummary(exif)],
-    ["captured", t("studio.metadata.details.captured"), exif.DateTimeOriginal],
+    [
+      "captured",
+      t("studio.metadata.details.captured"),
+      exif.DateTimeOriginal &&
+        captureText({ local: exif.DateTimeOriginal, subsec: exif.SubSecTimeOriginal, offset: exif.OffsetTimeOriginal }),
+    ],
     ["size", t("studio.metadata.details.size"), dimensions],
   ];
 
@@ -677,6 +684,16 @@ export function StudioMetadataTool() {
                 </div>
               ))}
           </dl>
+          {session && (
+            <button
+              type="button"
+              className="studio-metadata-action"
+              disabled={!sessionReady}
+              onClick={() => useCaptureTimeDialog.getState().open(paths)}
+            >
+              {t("studio.metadata.shiftCaptureTime")}
+            </button>
+          )}
         </div>
       )}
     </ToolGroup>

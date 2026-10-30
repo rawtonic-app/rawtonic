@@ -158,6 +158,7 @@
       "rotate_right": "Rotate Right",
       "select_all": "Select All",
       "select_none": "Select None",
+      "shift_capture_time": "Shift Capture Time…",
       "show_in_finder": "Show in Finder",
       "sync_settings": "Sync Settings",
       "tether_capture": "Capture (Tethered Camera)",
@@ -218,6 +219,67 @@
       "recipes": "Export with Recipe"
     }
   },
+  "captureTime": {
+    "applied_one": "Capture time corrected for {{count}} photo",
+    "applied_other": "Capture time corrected for {{count}} photos",
+    "apply_one": "Apply to {{count}} photo",
+    "apply_other": "Apply to {{count}} photos",
+    "cameraCount": "{{name}} ({{n}})",
+    "cancel": "Cancel",
+    "conflict_one": "{{count}} photo was changed since this preview. Nothing was written; check the new preview and apply again.",
+    "conflict_other": "{{count}} photos were changed since this preview. Nothing was written; check the new preview and apply again.",
+    "correctedHelp": "YYYY-MM-DD HH:MM:SS, optionally with a fraction (.250). Without one, the photo keeps its fraction of a second.",
+    "correctedTime": "Its correct time",
+    "direction": "Direction",
+    "earlier": "Earlier",
+    "errors": {
+      "field": "Enter a whole number (seconds may have up to nine decimals).",
+      "fraction": "The fraction of a second can have at most nine digits.",
+      "invalid": "Not a valid date and time (YYYY-MM-DD HH:MM:SS).",
+      "outOfRange": "The time must lie between the years 0001 and 9999."
+    },
+    "excluded": {
+      "noCaptureTime": "the file has no capture time",
+      "notInLibrary": "not in this project or catalog",
+      "offline": "offline: its capture time cannot be read",
+      "otherLibrary": "in another project or catalog"
+    },
+    "excludedCount_one": "{{count}} photo left out",
+    "excludedCount_other": "{{count}} photos left out",
+    "failed": "Capture time could not be changed: {{error}}",
+    "filesUnchanged": "Your photo files and their file dates are not changed. Sorting, search, names and exports use the corrected time.",
+    "how": "Correction",
+    "intro": "Corrects a camera clock that was set wrong: every photo moves by the same amount, so photos from several cameras sort in the order they were taken.",
+    "later": "Later",
+    "modes": {
+      "reference": "Set the time of one photo",
+      "reset_one": "Back to the time in the file ({{count}} corrected)",
+      "reset_other": "Back to the time in the file ({{count}} corrected)",
+      "shift": "Shift by"
+    },
+    "nothingToChange": "Nothing to change.",
+    "notInLibrary": "Shift Capture Time works on photos in a project or catalog. Add these photos to one first.",
+    "outOfRange_one": "{{name}} would leave the years 0001–9999. Nothing can be applied.",
+    "outOfRange_other": "{{count}} photos, such as {{name}}, would leave the years 0001–9999. Nothing can be applied.",
+    "parts": {
+      "days": "Days",
+      "hours": "Hours",
+      "minutes": "Minutes",
+      "seconds": "Seconds"
+    },
+    "rangeChange": "From {{from}} – {{to}} to {{newFrom}} – {{newTo}}",
+    "reading": "Reading capture times…",
+    "referenceChange": "{{name}}: {{before}} → {{after}}",
+    "referencePhoto": "Reference photo",
+    "shiftEarlier": "Shift: {{days}} d {{hours}} h {{minutes}} min {{seconds}} s earlier",
+    "shiftLater": "Shift: {{days}} d {{hours}} h {{minutes}} min {{seconds}} s later",
+    "sidecarsFailed_one": "The library has the correction; the settings file of {{count}} photo could not be written yet and follows with its next change.",
+    "sidecarsFailed_other": "The library has the correction; the settings files of {{count}} photos could not be written yet and follow with their next change.",
+    "summary_one": "{{count}} photo",
+    "summary_other": "{{count}} photos",
+    "title": "Shift Capture Time",
+    "unknownCamera": "Unknown camera"
+  },
   "commandPalette": {
     "close": "Close command palette",
     "empty": "No matching commands. Try another search.",
@@ -226,6 +288,7 @@
     "search": "Search commands…",
     "selectAtMostPhotos": "Select at most {{max}} photos",
     "selectFourPhotos": "Select at least four photos",
+    "selectPhotos": "Select one or more photos",
     "selectTwoPhotos": "Select at least two photos"
   },
   "contextMenus": {
@@ -329,6 +392,7 @@
       "renameImage_other": "Rename {{count}} photos",
       "resetAdjustments_one": "Reset adjustments",
       "resetAdjustments_other": "Reset adjustments on {{count}} photos",
+      "shiftCaptureTime": "Shift Capture Time…",
       "showExplorer": "Show in file manager",
       "showFinder": "Show in Finder",
       "virtualCopy": "Virtual copy"
@@ -2916,14 +2980,14 @@
       "graphEmpty": "Histogram available after opening a photo",
       "highlightClipping": "Highlight clipping",
       "highlightClippingLit": "Highlight clipping, clipped",
-      "highlightClippingTitle": "Highlight clipping (clipped highlights; {{shortcut}} switches both)",
+      "highlightClippingTitle": "Highlight clipping warning (red in the photo; {{shortcut}} switches both)",
       "proof": "Proof",
       "proofSpace": "Proof color space",
       "proofTitle": "Soft proofing: show the photo as an export in the chosen color space looks ({{shortcut}})",
       "selectPhoto": "Select a photo",
       "shadowClipping": "Shadow clipping",
       "shadowClippingLit": "Shadow clipping, clipped",
-      "shadowClippingTitle": "Shadow clipping (clipped shadows; {{shortcut}} switches both)",
+      "shadowClippingTitle": "Shadow clipping warning (blue in the photo; {{shortcut}} switches both)",
       "title": "Histogram"
     },
     "layers": {
@@ -3651,6 +3715,7 @@
       "notInSession": "Some selected photos are not part of this project.",
       "outsideSessions": "Outside projects, description, creator, copyright and comment are saved with each photo's edits; the title and IPTC fields are saved in projects.",
       "selectToSee": "Select photos to see their metadata.",
+      "shiftCaptureTime": "Shift Capture Time…",
       "title": "Metadata",
       "toasts": {
         "keywordsRemoveFailed": "Keywords could not be removed: {{error}}",
@@ -4240,6 +4305,7 @@
         "searchLabel": "Search photos",
         "sort": "Sort photos",
         "sortBy": {
+          "captured": "Capture time",
           "date": "Modified",
           "name": "Filename",
           "rating": "Rating"
@@ -4342,19 +4408,26 @@
     }
   },
   "undoHistory": {
+    "apply": "Apply Settings",
+    "captureTime": "Shift Capture Time",
     "color": "Set Color Label",
     "edit": "Edit",
     "file": "File Change",
     "flag": "Set Flag",
+    "lensCorrection": "Lens Correction",
     "matchLight": "Match Light",
     "move": "Move",
     "notice": "{{action}}: {{name}}",
     "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
+    "paste": "Paste Settings",
     "rating": "Set Rating",
     "recipesNotAll": "Not all photos could be written",
     "redoAction": "Redo {{action}}",
     "rename": "Rename",
+    "reset": "Reset",
     "skipFailed": "Skip failed items",
+    "style": "Apply Style",
+    "sync": "Sync Settings",
     "trash": "Move to Trash",
     "undoAction": "Undo {{action}}"
   },

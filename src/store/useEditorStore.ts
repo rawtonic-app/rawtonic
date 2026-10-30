@@ -225,7 +225,9 @@ interface EditorState {
   /** Arms or turns off a Levels picker (a new `target` in `tatTarget`) and
    * voids every sample of an earlier press: only the latest one applies. */
   setTatTarget: (target: EditorState['tatTarget']) => void;
-  pushHistory: (newAdjustments: Adjustments) => void;
+  /** `order`: the undo order of a batch step this entry is the open
+   * photograph's part of (appUndo.ts; default: a new edit's). */
+  pushHistory: (newAdjustments: Adjustments, order?: number) => void;
   undo: () => void;
   redo: () => void;
   resetHistory: (initialState: Adjustments) => void;
@@ -345,12 +347,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 },
     ),
 
-  pushHistory: (newAdj) => {
+  pushHistory: (newAdj, batchOrder) => {
     scheduledHistory.cancel();
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
-    const order = newEditOrder();
+    const order = batchOrder ?? newEditOrder();
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);

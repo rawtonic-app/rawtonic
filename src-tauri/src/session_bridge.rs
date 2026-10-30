@@ -123,6 +123,47 @@ pub fn catalog_metadata(source: &Path) -> Option<rawtonic_metadata::Metadata> {
     lib.metadata(&asset.id).ok()
 }
 
+/// The corrected capture time of a managed source (Shift Capture Time),
+/// `None` elsewhere.
+pub(crate) fn capture_override(
+    source: &Path,
+) -> Option<rawtonic_catalog::capture_time::CaptureTime> {
+    let lib = Library::open(&library_for(source)?).ok()?;
+    let asset = lib.asset_at(source).ok()??;
+    lib.capture_override(&asset.id).ok()?
+}
+
+/// `exif` (a map read from the file or kept with its decode, which may be
+/// older than the latest correction, reset or undo) with the capture time
+/// as it is now: the photograph's EXIF map (which every correction
+/// rewrites), then its correction, if it has one. What the app shows.
+pub(crate) fn with_capture_override(
+    source: &Path,
+    mut exif: HashMap<String, String>,
+) -> HashMap<String, String> {
+    if let Some(current) = crate::exif_processing::read_rrexif_sidecar(source) {
+        for key in [
+            "DateTimeOriginal",
+            "SubSecTimeOriginal",
+            "OffsetTimeOriginal",
+        ] {
+            match current.get(key) {
+                Some(value) => exif.insert(key.into(), value.clone()),
+                None => exif.remove(key),
+            };
+        }
+    }
+    if let Some(time) = capture_override(source) {
+        for (key, value) in time.exif_fields() {
+            match value {
+                Some(value) => exif.insert(key.into(), value),
+                None => exif.remove(key),
+            };
+        }
+    }
+    exif
+}
+
 /// Whether a virtual copy's sidecar (`<photo>.<copy>.rrdata`) is taken: its
 /// file is there, or the library keeps that copy (an offline photograph's).
 pub(crate) fn copy_exists(sidecar: &Path) -> bool {

@@ -144,3 +144,25 @@ describe('filename sorting', () => {
     expect(computeSortedLibrary({ ...hydrated, sortCriteria: { ...hydrated.sortCriteria, order: SortDirection.Ascending } }, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/b.ARW', '/shoot/c.ARW']);
   });
 });
+
+describe('capture-time order', () => {
+  it('sorts a burst within one second by its fraction, as corrected', () => {
+    const shot = (path: string, exif: Record<string, string>) => ({ ...file(path), exif });
+    const input = {
+      ...state(),
+      imageList: [
+        shot('/shoot/b.ARW', { DateTimeOriginal: '2026-10-30 12:00:00', SubSecTimeOriginal: '5' }),
+        shot('/shoot/a.ARW', { DateTimeOriginal: '2026-10-30 12:00:00', SubSecTimeOriginal: '45' }),
+        // Corrected from another camera: a later second, no fraction.
+        shot('/shoot/c.CR3', { DateTimeOriginal: '2026-10-30 12:00:01' }),
+        shot('/shoot/d.CR3', { DateTimeOriginal: '2026-10-30 11:59:59', SubSecTimeOriginal: '999' }),
+        // As a JPEG's own EXIF reads (colons): earlier day, so first.
+        shot('/shoot/e.jpg', { DateTimeOriginal: '2026:10:29 23:00:00' }),
+      ],
+      sortCriteria: { key: 'date_taken', order: SortDirection.Ascending },
+    };
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual([
+      '/shoot/e.jpg', '/shoot/d.CR3', '/shoot/a.ARW', '/shoot/b.ARW', '/shoot/c.CR3',
+    ]);
+  });
+});

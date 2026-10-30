@@ -278,6 +278,10 @@ pub struct PinnedPhoto {
     /// its export runs (`with_culling_owner`), never the library open then.
     #[serde(default)]
     pub owner: Option<String>,
+    /// Its capture time as the library corrected it (Shift Capture Time),
+    /// which its EXIF, names and file times take over the file's.
+    #[serde(default)]
+    pub capture: Option<rawtonic_catalog::capture_time::CaptureTime>,
 }
 
 impl PinnedPhoto {
@@ -285,6 +289,26 @@ impl PinnedPhoto {
     /// file holds it (what its first decode caches), never as a sidecar or
     /// library holds it by now.
     pub(crate) fn exif(&self, source: &Path) -> Option<std::collections::HashMap<String, String>> {
+        self.corrected(self.read_exif(source))
+    }
+
+    /// `map` with the corrected capture time (`capture`), marked for the
+    /// export (`CAPTURE_CORRECTED`). No map stays none: the export then
+    /// reads the camera's fields from the original, which a map of dates
+    /// alone would replace.
+    fn corrected(
+        &self,
+        map: Option<std::collections::HashMap<String, String>>,
+    ) -> Option<std::collections::HashMap<String, String>> {
+        let Some(time) = &self.capture else {
+            return map;
+        };
+        let mut map = map?;
+        exif_processing::mark_corrected_capture(&mut map, &time.exif_fields());
+        Some(map)
+    }
+
+    fn read_exif(&self, source: &Path) -> Option<std::collections::HashMap<String, String>> {
         match &self.exif {
             Some(exif) => Some(exif.clone().into_iter().collect()),
             None if !self.exif_from_original => None,
@@ -314,9 +338,11 @@ impl PinnedPhoto {
     /// the snapshot's, else the file's own (`capture_date_with`).
     fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
         exif_processing::capture_date_with(source, &|| {
-            self.exif
-                .as_ref()
-                .map(|exif| exif.clone().into_iter().collect())
+            self.corrected(
+                self.exif
+                    .as_ref()
+                    .map(|exif| exif.clone().into_iter().collect()),
+            )
         })
     }
 }
@@ -393,6 +419,7 @@ pub(crate) fn pin_photos(
                     exif: exif.map(|exif| exif.into_iter().collect()),
                     owner: owner.clone(),
                     from_original: Default::default(),
+                    capture: crate::session_bridge::capture_override(&source),
                 })
             })
         })

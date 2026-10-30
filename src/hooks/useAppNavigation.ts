@@ -58,7 +58,7 @@ function closeEditorImage() {
   const { selectedImage, resetHistory, setEditor } = useEditorStore.getState();
   if (!selectedImage) return;
   debouncedSave.flush();
-  debouncedSetHistory.cancel();
+  debouncedSetHistory.flush();
   setEditor({ selectedImage: null, finalPreviewUrl: null, uncroppedAdjustedPreviewUrl: null, histogram: null });
   setEditor({ adjustments: INITIAL_ADJUSTMENTS });
   resetHistory(INITIAL_ADJUSTMENTS);
@@ -168,7 +168,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
       useEditorStore.getState().patchesSentToBackend.clear();
       debouncedSave.flush();
-      debouncedSetHistory.cancel();
+      // The last edit is a step of the History the photograph keeps.
+      debouncedSetHistory.flush();
 
       if (selectedImage?.path && cachedEditStateRef.current) {
         globalImageCache.set(selectedImage.path, cachedEditStateRef.current);

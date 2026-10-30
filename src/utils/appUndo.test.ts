@@ -7,14 +7,18 @@ import { debouncedSetHistory, useEditorStore } from "../store/useEditorStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
 import { INITIAL_ADJUSTMENTS } from "./adjustments";
+import { editUndoOrder } from "./undoOrder";
 import {
   catalogAction,
   recipeAction,
+  recipeBatchAction,
   registerRecipeWriter,
+  type RecipeShown,
   type RecipeValues,
   undo,
   redo,
   canRedo,
+  canUndo,
   getUndoLabel,
   useCatalogUndoStore,
 } from "./appUndo";
@@ -925,5 +929,84 @@ it("photos not written by a batch recipe change are not part of its undo", async
   const writer = vi.fn(async (values: RecipeValues[]) => values);
   registerRecipeWriter(writer);
   await undo();
-  expect(writer).toHaveBeenCalledWith([{ path: "/a.nef", values: { exposure: 0 } }]);
+  expect(writer).toHaveBeenCalledWith([{ path: "/a.nef", values: { exposure: 0 } }], expect.anything());
+});
+
+/** Recipes on "disk" for the batch tests, written by a registered replacer. */
+function batchDisk(recipes: Record<string, unknown>) {
+  const replacer = vi.fn(
+    async (written: { path: string; adjustments: unknown }[], _shown: RecipeShown) => {
+      for (const { path, adjustments } of written) recipes[path] = adjustments;
+      return written.map(({ path }) => path);
+    },
+  );
+  registerRecipeWriter(async (values) => values, replacer);
+  const snapshot = (paths: string[], after: (path: string) => unknown) =>
+    paths.map((path) => {
+      const before = recipes[path];
+      recipes[path] = after(path);
+      return { path, before, after: recipes[path] };
+    });
+  return { replacer, snapshot };
+}
+
+it("one undo restores every photo a Sync changed, and redo applies it again (O-01)", async () => {
+  const recipes: Record<string, unknown> = {
+    "/b.nef": { exposure: 0.2 },
+    "/c.nef": {},
+  };
+  const { replacer, snapshot } = batchDisk(recipes);
+  const edited = { ...INITIAL_ADJUSTMENTS, exposure: 1.85 };
+  useEditorStore.getState().setEditor({ adjustments: edited });
+  debouncedSetHistory(edited);
+  debouncedSetHistory.flush();
+  await recipeBatchAction(
+    "sync",
+    async () => ({
+      failed: [],
+      changes: snapshot(["/b.nef", "/c.nef"], () => ({ exposure: 1.85 })),
+    }),
+    ["/b.nef", "/c.nef"],
+  );
+  expect(getUndoLabel()).toBe("Undo Sync Settings");
+  await undo();
+  expect(recipes).toEqual({ "/b.nef": { exposure: 0.2 }, "/c.nef": {} });
+  // The open photograph keeps its own edit; it is the next step.
+  expect(useEditorStore.getState().adjustments.exposure).toBe(1.85);
+  expect(getUndoLabel()).toBe("Undo Edit");
+  await redo();
+  expect(recipes).toEqual({
+    "/b.nef": { exposure: 1.85 },
+    "/c.nef": { exposure: 1.85 },
+  });
+  expect(replacer).toHaveBeenCalledTimes(2);
+});
+
+it("a paste onto the open photo and others is one undo step for all of them (O-01)", async () => {
+  const recipes: Record<string, unknown> = { "/b.nef": { contrast: 3 } };
+  const { replacer, snapshot } = batchDisk(recipes);
+  const pasted = { ...INITIAL_ADJUSTMENTS, exposure: 0.7 };
+  useEditorStore.getState().setEditor({ adjustments: pasted });
+  useEditorStore.getState().pushHistory(pasted);
+  const { history, historyIndex } = useEditorStore.getState();
+  await recipeBatchAction(
+    "paste",
+    async () => ({
+      failed: [],
+      changes: snapshot(["/b.nef"], () => ({ contrast: 3, exposure: 0.7 })),
+    }),
+    ["/b.nef"],
+    editUndoOrder(history, historyIndex),
+  );
+  expect(getUndoLabel()).toBe("Undo Paste Settings");
+  await undo();
+  expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+  expect(recipes["/b.nef"]).toEqual({ contrast: 3 });
+  // The open photograph travelled in its editor, not by loading it again.
+  expect(replacer.mock.calls[0][1]).toMatchObject({ skipOpen: true });
+  expect(canUndo()).toBe(false);
+  await redo();
+  expect(useEditorStore.getState().adjustments.exposure).toBe(0.7);
+  expect(recipes["/b.nef"]).toEqual({ contrast: 3, exposure: 0.7 });
+  expect(canRedo()).toBe(false);
 });
