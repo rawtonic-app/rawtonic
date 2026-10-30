@@ -4220,7 +4220,9 @@ pub struct GlobalAdjustments {
     /// export's or the display's space (0 = sRGB), ending with
     /// `output_matrix` and the space's transfer curve. Soft proofing of the
     /// display: y = code of the proofed space + 1 (0 = off), z = 1 marks
-    /// colours outside it.
+    /// colours outside it. w = 1: the render stops where Levels act and
+    /// stores their input clipped to the sRGB cube ([`LEVELS_INPUT_PROBE`];
+    /// the Levels histogram's probe only).
     pub output_space: [u32; 4],
     /// Linear sRGB → the output space's linear RGB.
     pub output_matrix: GpuMat3,
@@ -4347,6 +4349,12 @@ pub struct MaskAdjustments {
 }
 
 pub const MAX_MASKS: usize = 32;
+
+/// `GlobalAdjustments::output_space[3]` of the Levels histogram's probe: the
+/// shader stores the colour Levels receive, `clamp(base_srgb, 0, 1)`, and
+/// stops (no curves, output mapping or dither). Display and export renders
+/// leave it 0.
+pub const LEVELS_INPUT_PROBE: u32 = 1;
 pub use crate::color_grading::GRADING_LUT_SIZE;
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]

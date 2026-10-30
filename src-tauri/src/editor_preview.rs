@@ -1154,7 +1154,7 @@ pub async fn sample_curve_input(
             &path,
             recipe,
             ProbeArea::Point(normalized_x, normalized_y),
-            rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto,
+            ProbeOutput::Space(rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto),
             "sample_curve_input",
         )?;
         Ok(image.map(|image| prophoto_pixels(image.to_rgba8().as_raw())))
@@ -1166,9 +1166,9 @@ pub async fn sample_curve_input(
 /// Levels' histogram (Capture One shows the tool's input): counts per 8-bit
 /// display level of red, green and blue (every second pixel, as the main
 /// histogram samples; the panel smooths them as the main one) of the shown
-/// preview base rendered with Levels and everything after it left out
-/// (the curves' probe, `point_curve::curve_input_probe`, without the
-/// levels), in sRGB, the display values Levels act on. `adjustments` is the
+/// preview base rendered up to Levels (the curves' probe,
+/// `point_curve::curve_input_probe`, without the levels, stopped where
+/// Levels act: `LEVELS_INPUT_PROBE`), the display values Levels receive. `adjustments` is the
 /// recipe (without view states); its levels do not matter, so the frontend
 /// asks again only when another adjustment changes. None while no preview
 /// base of the recipe's geometry is cached.
@@ -1186,7 +1186,7 @@ pub async fn levels_input_histogram(
             &path,
             levels_input_probe(&adjustments),
             ProbeArea::Whole,
-            rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
+            ProbeOutput::LevelsInput,
             "levels_input_histogram",
         )?
         else {
@@ -1235,9 +1235,17 @@ enum ProbeArea {
     Whole,
 }
 
+/// What a probe render stores: the finished colour in an output space, or
+/// Levels' input (sRGB display values clipped to the cube, before any
+/// output mapping: `LEVELS_INPUT_PROBE`).
+enum ProbeOutput {
+    Space(rawtonic_engine::output_color_space::OutputColorSpace),
+    LevelsInput,
+}
+
 /// Renders `recipe` (a probe of the current recipe, without view states)
 /// from the cached preview base the shown frame was built from, with the
-/// layers' masks as the preview draws them, in `space`. None when `path` is
+/// layers' masks as the preview draws them, as `output` says. None when `path` is
 /// not the loaded photo or no preview base of the recipe's geometry is
 /// cached.
 fn render_probe(
@@ -1245,7 +1253,7 @@ fn render_probe(
     path: &str,
     mut recipe: serde_json::Value,
     area: ProbeArea,
-    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    output: ProbeOutput,
     caller_id: &str,
 ) -> Result<Option<image::DynamicImage>, String> {
     let state = app_handle.state::<AppState>();
@@ -1301,8 +1309,16 @@ fn render_probe(
         loaded_image.measures.as_ref(),
     );
     probe.global.detail_scale = scale;
-    probe.global.output_space[0] = space.shader_code();
-    probe.global.output_matrix = image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    match output {
+        ProbeOutput::Space(space) => {
+            probe.global.output_space[0] = space.shader_code();
+            probe.global.output_matrix =
+                image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        }
+        ProbeOutput::LevelsInput => {
+            probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
+        }
+    }
     let lut = recipe["lutPath"]
         .as_str()
         .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());

@@ -141,9 +141,12 @@ export const LEVELS_HISTOGRAM_DELAY_MS = 150;
  * Counts of what Levels receive (red, green, blue; editor_preview.rs
  * `levels_input_histogram`) for the shown photo, asked for again only when
  * an adjustment other than Levels changes (so Levels' own drags never ask)
- * and the recipe has rested, never during a drag, and again when a new
- * preview frame arrives after the preview base was missing. Reads the
- * store outside renders, so the tool does not re-render with every edit.
+ * or the native source is replaced (the full decode after the preview
+ * proxy, an AI Denoise source: a new `selectedImage` with the same path
+ * and recipe) and the recipe has rested, never during a drag, and again
+ * when a new preview frame arrives after the preview base was missing. An
+ * answer for an earlier source or recipe is dropped. Reads the store
+ * outside renders, so the tool does not re-render with every edit.
  */
 function useLevelsInputCounts(): number[][] | null {
   const [counts, setCounts] = useState<number[][] | null>(null);
@@ -152,15 +155,19 @@ function useLevelsInputCounts(): number[][] | null {
     let answered = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let request = 0;
+    // Counts the native sources the shown photo had (`selectedImage`
+    // replacements), part of the key.
+    let source = 0;
     const ask = () => {
       timer = null;
       const { selectedImage, adjustments, isSliderDragging } = useEditorStore.getState();
       if (!selectedImage?.isReady || isSliderDragging) return;
-      const next = levelsInputKey(selectedImage.path, adjustments);
+      const next = `${source}:${levelsInputKey(selectedImage.path, adjustments)}`;
       if (next === key && answered) return;
       key = next;
       answered = false;
       const id = ++request;
+      const asked = source;
       Promise.resolve()
         .then(() =>
           invoke<number[][] | null>(Invokes.LevelsInputHistogram, {
@@ -169,7 +176,7 @@ function useLevelsInputCounts(): number[][] | null {
           }),
         )
         .then((result) => {
-          if (id !== request || !result) return;
+          if (id !== request || asked !== source || !result) return;
           answered = true;
           setCounts(result);
         })
@@ -182,6 +189,7 @@ function useLevelsInputCounts(): number[][] | null {
     schedule();
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
       if (state.selectedImage?.path !== previous.selectedImage?.path) setCounts(null);
+      if (state.selectedImage !== previous.selectedImage) source++;
       if (
         state.adjustments !== previous.adjustments ||
         state.selectedImage !== previous.selectedImage ||

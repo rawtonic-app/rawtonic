@@ -7680,6 +7680,13 @@ fn main(
     }
 
     base_srgb = apply_filmic_exposure(base_srgb, t_brightness);
+    // Levels' input probe (`output_space.w`, set only by the Levels
+    // histogram's render): the colour Levels receive, clipped to the sRGB
+    // cube, without anything after it (no output mapping, no dither).
+    if (adjustments.global.output_space.w != 0u) {
+        textureStore(output_texture, id.xy, vec4<f32>(clamp(base_srgb, vec3<f32>(0.0), vec3<f32>(1.0)), original_alpha));
+        return;
+    }
     // The per-channel tools below act on the colour clipped to the sRGB
     // cube and carry the rest (carry_beyond_srgb).
     if (adjustments.global.levels_active.x != 0u) {

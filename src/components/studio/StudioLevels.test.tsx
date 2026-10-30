@@ -244,6 +244,53 @@ describe("Levels input histogram", () => {
       vi.useRealTimers();
     }
   });
+
+  it("asks again when the full decode replaces the proxy, dropping the proxy's late answer", async () => {
+    vi.useFakeTimers();
+    try {
+      const peak = (at: number) =>
+        [0, 1, 2].map(() => {
+          const c = new Array(256).fill(0);
+          c[at] = 50;
+          return c;
+        });
+      const answers: ((counts: number[][]) => void)[] = [];
+      invoke.mockImplementation(
+        () => new Promise<number[][]>((resolve) => answers.push(resolve)),
+      );
+      const asked = () =>
+        invoke.mock.calls.filter(([name]) => name === "levels_input_histogram").length;
+      const red = () => document.querySelector(".histogram-red")?.getAttribute("d") ?? "";
+      const swap = (image: object) =>
+        act(async () => {
+          useEditorStore.setState((s) => ({
+            selectedImage: { ...s.selectedImage!, ...image },
+          }));
+        });
+      const rest = () => act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
+      renderLevels();
+      await act(async () => vi.advanceTimersByTime(LEVELS_HISTOGRAM_DELAY_MS));
+      expect(asked()).toBe(1);
+      // An answered proxy: the full decode (same path and recipe) asks again.
+      await act(async () => answers[0](peak(64)));
+      expect(red()).toContain("L64.25098039215686 2 ");
+      await swap({ isPreviewReady: true });
+      await rest();
+      expect(asked()).toBe(2);
+      // Before that answer the source is replaced again: the answer from the
+      // earlier source arrives late and is dropped.
+      await swap({ isDecoded: true });
+      await act(async () => answers[1](peak(32)));
+      expect(red()).toContain("L64.25098039215686 2 ");
+      await rest();
+      expect(asked()).toBe(3);
+      await act(async () => answers[2](peak(128)));
+      expect(red()).not.toContain("L64.25098039215686 2 ");
+      expect(red()).toContain("L128.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("Levels picker on the photo", () => {
