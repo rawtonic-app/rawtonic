@@ -58,3 +58,26 @@ it('a photograph never left starts with its loaded recipe', () => {
   const loaded = recipe(0.3);
   expect(historyFor('/new.nef', loaded)).toEqual({ history: [loaded], historyIndex: 0 });
 });
+
+it('a batch still writing when its photograph was left becomes its entry once written (C02)', async () => {
+  const { recipeBatchAction, recipeStepsSince } = await import('./appUndo');
+  useEditorStore.setState({ history: [recipe(0)], historyIndex: 0 });
+  open('/a.nef');
+  useEditorStore.getState().pushHistory(recipe(1));
+  let written!: () => void;
+  const done = recipeBatchAction(
+    'sync',
+    () =>
+      new Promise((resolve) => {
+        written = () => resolve({ failed: [], changes: [{ path: '/a.nef', before: recipe(1), after: recipe(2) }] });
+      }),
+    ['/a.nef'],
+  );
+  // Left while the Sync (its order given out already) still writes it.
+  open('/b.nef');
+  written();
+  await done;
+  const { keptSince } = await import('./photoHistory');
+  const steps = recipeStepsSince('/a.nef', keptSince('/a.nef'));
+  expect(steps.map((step) => step.after)).toEqual([recipe(2)]);
+});
