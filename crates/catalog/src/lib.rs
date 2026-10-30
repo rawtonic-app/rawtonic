@@ -753,11 +753,11 @@ impl Library {
         Ok(previous)
     }
 
-    /// Replaces the photograph's metadata (an edit only in its editor
-    /// sidecar is adopted first: `adopt_editor_sidecar`).
+    /// Replaces the photograph's metadata. A caller that changes what it
+    /// read calls `adopt_editor_sidecar` before reading, so an edit only in
+    /// the editor sidecar (and its rating, label and keywords) is kept.
     pub fn set_metadata(&self, id: &str, metadata: &Metadata) -> Result<()> {
         metadata.validate()?;
-        self.adopt_editor_sidecar(id)?;
         let tx = self.conn.unchecked_transaction()?;
         write_metadata(&tx, id, metadata)?;
         tx.commit()?;
@@ -1287,6 +1287,7 @@ impl Library {
 
     /// Adopt an existing sidecar only as an explicit initialization/sync action.
     pub fn adopt_xmp(&self, asset: &str) -> Result<Metadata> {
+        self.adopt_editor_sidecar(asset)?;
         let path = self.asset(asset)?.path.with_extension("xmp");
         let text = fs::read_to_string(path)?;
         let (metadata, _) = rawtonic_metadata::read_xmp(&text)?;

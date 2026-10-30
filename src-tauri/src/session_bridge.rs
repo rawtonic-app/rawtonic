@@ -1143,6 +1143,9 @@ fn write_text_metadata(
         if changed.contains_key(id) {
             continue;
         }
+        // An edit only in its editor sidecar is the library's first, with
+        // the rating, label and keywords the photograph shows.
+        lib.adopt_editor_sidecar(id).map_err(|e| e.to_string())?;
         let mut meta = lib.metadata(id).map_err(|e| e.to_string())?;
         for (field, value) in [
             (&mut meta.title, &update.title),

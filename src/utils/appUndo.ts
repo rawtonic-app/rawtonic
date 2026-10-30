@@ -105,6 +105,8 @@ export interface XmpReport {
   failed: { path: string; reason: string }[];
   /** Use XMP: what undoes it. Its undo: the readings not undone. */
   undo: XmpReceipt[];
+  /** Use XMP: the photos read, one per `undo` receipt. */
+  read: string[];
 }
 interface FileStep {
   order: number;
@@ -476,8 +478,10 @@ function xmpFailures(report: XmpReport) {
     .map(({ path, reason }) => `${path.split(/[\\/]/).pop()}: ${reason}`)
     .join("; ");
 }
-/** Undo puts each photo's metadata back (unless it was edited since: those
- * readings stay to undo); redo reads the sidecars again. */
+/** Undo puts each photo's metadata back (unless it was edited since);
+ * redo reads the sidecars again. Photos that travelled move to the other
+ * side as one step; those that did not (edited since, offline, a failed
+ * write) stay where they were, to try again, and a notice says why. */
 async function travelXmp(
   step: Step,
   direction: "undo" | "redo",
@@ -487,9 +491,17 @@ async function travelXmp(
   const to = direction === "undo" ? "future" : "past";
   const xmp = step.xmp!;
   const directory = step.directory ?? "";
+  const part = (paths: string[], receipts: XmpReceipt[]): Step => {
+    const split = { ...step, xmp: { paths, receipts } };
+    currentTargets.set(split, paths);
+    return split;
+  };
   try {
     await enqueue(async () => {
       if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+      let moved: Step | null = null;
+      let left: Step | null = null;
+      let failure = "";
       try {
         if (direction === "undo") {
           const report = await invokeInOrder<XmpReport>(
@@ -497,24 +509,39 @@ async function travelXmp(
             { directory, steps: xmp.receipts, paths: xmp.paths },
             "useXmpUndo",
           );
+          // Undone ones are redone by reading their sidecars again.
+          if (report.done.length) moved = part(report.done, []);
           if (report.undo.length) {
-            xmp.receipts = report.undo;
-            throw new Error(xmpFailures(report));
+            left = part(report.failed.map(({ path }) => path), report.undo);
+            failure = xmpFailures(report);
           }
         } else {
           const report = await readXmp(directory, xmp.paths);
-          if (!report.undo.length)
-            throw new Error(xmpFailures(report) || i18n.t("undoHistory.recipesNotAll"));
-          xmp.receipts = report.undo;
+          if (report.read.length) moved = part(report.read, report.undo);
+          // Offline or failed before reading: kept to redo. Photos whose
+          // sidecar is no longer changed elsewhere have nothing to read.
+          const unread = [
+            ...report.offline,
+            ...report.failed.map(({ path }) => path),
+          ].filter((path) => !report.read.includes(path));
+          if (unread.length) {
+            left = part(unread, []);
+            failure = [
+              xmpFailures({ ...report, failed: report.failed.filter(({ path }) => !report.read.includes(path)) }),
+              ...report.offline.map((path) => `${path.split(/[\\/]/).pop()}: ${i18n.t("session.xmp.reason.offline", { count: 1 })}`),
+            ]
+              .filter(Boolean)
+              .join("; ");
+          }
         }
       } finally {
         xmpMetadataRead(directory);
       }
-      if (useCatalogUndoStore.getState()[from].includes(step))
-        useCatalogUndoStore.setState((s) => ({
-          [from]: s[from].filter((item) => item !== step),
-          [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
-        }));
+      useCatalogUndoStore.setState((s) => ({
+        [from]: s[from].flatMap((item) => (item === step ? (left ? [left] : []) : [item])),
+        [to]: moved && branch === startedOnBranch ? [...s[to], moved] : s[to],
+      }));
+      if (failure) throw new Error(failure);
     }, "catalog", xmp.paths);
   } catch (error) {
     const detail = String((error as { message?: string })?.message ?? error);

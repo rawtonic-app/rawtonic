@@ -43,6 +43,9 @@ pub struct XmpReport {
     /// For "Use XMP": what puts the library's metadata back. For its undo:
     /// the steps that could not be undone.
     pub undo: Vec<XmpUndo>,
+    /// For "Use XMP": the photographs read into the library, one per `undo`
+    /// step (also when writing the sidecar back failed).
+    pub read: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -111,6 +114,7 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
             XmpChoice::Xmp => lib.use_xmp(&asset.id).and_then(|undo| {
                 // Read: undoable even when writing the sidecar back fails.
                 report.undo.push(undo);
+                report.read.push(shown.clone());
                 lib.sync_xmp(&asset.id).map_err(|e| {
                     anyhow::anyhow!("Read from the XMP sidecar; writing it back failed: {e}")
                 })

@@ -386,6 +386,7 @@ fn every_metadata_write_adopts_an_edit_only_beside_the_photo_first() {
     assert_eq!(flag.lib.metadata(&flag.id).unwrap().rating, 3);
 
     let title = unadopted_edit(&external_packet(5));
+    title.lib.adopt_editor_sidecar(&title.id).unwrap();
     let mut meta = title.lib.metadata(&title.id).unwrap();
     meta.title = "Harbour".into();
     title.lib.set_metadata(&title.id, &meta).unwrap();
