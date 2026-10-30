@@ -5,7 +5,7 @@
 -- form (YYYY-MM-DD HH:MM:SS); `subsec` the fraction digits and `offset` the
 -- UTC offset as the file wrote them (EXIF SubSecTimeOriginal,
 -- OffsetTimeOriginal), NULL when it wrote none. No file is read or written.
-CREATE TABLE capture_overrides(
+CREATE TABLE IF NOT EXISTS capture_overrides(
  asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
  captured TEXT NOT NULL, subsec TEXT, offset TEXT);
 PRAGMA user_version=19;
