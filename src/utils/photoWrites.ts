@@ -220,15 +220,41 @@ export function submitPhotoWrite<T>(paths: string[], run: (id: number) => Promis
   return result;
 }
 
-/** Settles after every write submitted so far for `path`; undefined when
- * none is pending (a read of its recipe may start at once). */
-export function photoWritesSettled(path: string): Promise<void> | undefined {
-  return tails.get(photoWriteKey(path));
+/** Writes reserved for a photograph by a step that submits them once
+ * earlier work is done (`reservePhotoWrites`). */
+const reserved = new Map<string, Set<Promise<void>>>();
+
+/** Reserves the writes of `paths` that `work` (a catalog step waiting for
+ * earlier ones) submits later: reading a photograph's recipe
+ * (`photoWritesSettled`) waits for them too. Writes submitted meanwhile do
+ * not wait for it (it waits for earlier work, which may write first). */
+export function reservePhotoWrites(paths: string[], work: Promise<unknown>): void {
+  const settled = work.then(() => undefined, () => undefined);
+  for (const key of new Set(paths.map(photoWriteKey))) {
+    const set = reserved.get(key) ?? new Set();
+    set.add(settled);
+    reserved.set(key, set);
+    void settled.then(() => {
+      set.delete(settled);
+      if (set.size === 0 && reserved.get(key) === set) reserved.delete(key);
+    });
+  }
 }
 
-/** Whether a write for `path` is pending. */
+/** Settles after every write submitted (or reserved) so far for `path`;
+ * undefined when none is pending (a read of its recipe may start at once). */
+export function photoWritesSettled(path: string): Promise<void> | undefined {
+  const key = photoWriteKey(path);
+  const tail = tails.get(key);
+  const waiting = reserved.get(key);
+  if (!waiting?.size) return tail;
+  return Promise.all([tail, ...waiting]).then(() => photoWritesSettled(path));
+}
+
+/** Whether a write for `path` is pending (or reserved). */
 export function photoWritePending(path: string): boolean {
-  return tails.has(photoWriteKey(path));
+  const key = photoWriteKey(path);
+  return tails.has(key) || !!reserved.get(key)?.size;
 }
 
 /** Steps that submit their writes later (`photoWorkPending`). */

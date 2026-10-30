@@ -269,6 +269,53 @@ it("stays open when no destination was chosen", async () => {
   }
 });
 
+it("cancels the whole export when the first ticked recipe's folder is cancelled", async () => {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  vi.mocked(open).mockImplementation(() => Promise.resolve(null));
+  try {
+    const handleSettingsChange = vi.fn(async () => {});
+    const recipe = (id: string, name: string) =>
+      presetFromDraft(
+        { ...DEFAULT_RECIPE_DRAFT, where: "choose", folder: undefined },
+        id,
+        name,
+      );
+    useSettingsStore.setState({
+      appSettings: {
+        exportPresets: [recipe("web", "Web"), recipe("print", "Print")],
+      } as unknown as AppSettings,
+      handleSettingsChange,
+    });
+    const onStarted = vi.fn();
+    render(<StudioExport onStarted={onStarted} />);
+    const submit = document.querySelector(
+      ".studio-export-submit",
+    ) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Export with Print" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Export with 2 recipes" }),
+    );
+    await vi.waitFor(() => expect(open).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(submit.disabled).toBe(false),
+    );
+    // The whole export stopped: nothing queued, the second folder never
+    // asked for, no error, and the dialog did not close as a started export does.
+    expect(exported()).toHaveLength(0);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(useProcessStore.getState().exportState).toMatchObject({
+      status: Status.Idle,
+      errorMessage: "",
+    });
+    expect(onStarted).not.toHaveBeenCalled();
+    // The cancelled recipe's folder is not remembered as chosen.
+    expect(handleSettingsChange).not.toHaveBeenCalled();
+  } finally {
+    vi.mocked(open).mockImplementation(() => Promise.resolve("/out"));
+  }
+});
+
 it("starts a waiting export that a cancel held", () => {
   useProcessStore.setState({
     exportQueue: [job({ state: "queued", done: 0 })],
@@ -441,6 +488,26 @@ it("does not capitalise or correct a typed subfolder name", () => {
   expect(subfolder.getAttribute("autocapitalize")).toBe("off");
   expect(subfolder.getAttribute("autocorrect")).toBe("off");
   expect(subfolder.getAttribute("spellcheck")).toBe("false");
+});
+
+it("shows a subfolder name of spaces only as no subfolder, without a slash", () => {
+  render(<StudioExport />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
+    target: { value: "original" },
+  });
+  const plan = () =>
+    document.querySelector(".studio-export-plan li span")?.textContent ?? "";
+  const before = plan();
+  expect(before).not.toContain(" / ");
+  fireEvent.change(screen.getByLabelText("Subfolder"), {
+    target: { value: "   " },
+  });
+  expect(plan()).toBe(before);
+  expect(plan()).not.toContain(" / ");
+  fireEvent.change(screen.getByLabelText("Subfolder"), {
+    target: { value: " Web " },
+  });
+  expect(plan()).toContain("Next to the originals / Web");
 });
 
 /** Sets every export setting the inherited panel had through the Studio form. */

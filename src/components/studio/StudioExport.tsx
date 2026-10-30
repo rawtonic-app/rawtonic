@@ -31,6 +31,7 @@ import {
   printRadius,
   resizeRange,
   savedRecipes,
+  subfolderName,
   subfolderProblem,
   watermarkReady,
   type RecipeDraft,
@@ -329,6 +330,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const describeJob = (job: RecipeDraft) => {
     const format = FORMATS.find((f) => f.extension === job.format);
     const unit = RESIZE_UNITS[job.resizeMode];
+    const subfolder = subfolderName(job.subfolder);
     const size =
       job.resizeMode === "dimensions"
         ? `${job.resizeValue}×${job.resizeValue2} ${unit}`
@@ -348,7 +350,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       job.resize
         ? `${t(`studio.export.sizing.modes.${job.resizeMode}`)} ${size}`
         : t("studio.export.plan.fullSize"),
-      job.subfolder.trim() ? `${where} / ${job.subfolder.trim()}` : where,
+      subfolder ? `${where} / ${subfolder}` : where,
     ]
       .filter(Boolean)
       .join(" · ");

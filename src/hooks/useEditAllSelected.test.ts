@@ -46,9 +46,14 @@ function edit(change: Partial<Adjustments>) {
   );
 }
 
+/** The batch write as the backend answers it (`RecipeBatch`). */
+const batchWritten = (command: string) =>
+  Promise.resolve(command === Invokes.ApplyAdjustmentsToPaths ? { changes: [] } : undefined);
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  vi.mocked(invoke).mockImplementation(batchWritten as never);
   useSettingsStore.setState({ osPlatform: 'macos' });
   useLibraryStore.setState({ multiSelectedPaths: selection });
   useEditorStore.setState({
@@ -260,8 +265,8 @@ describe('Edit all selected', () => {
       let written!: () => void;
       vi.mocked(invoke).mockImplementation((command) =>
         command === Invokes.ApplyAdjustmentsToPaths
-          ? new Promise<void>((resolve) => {
-              written = resolve;
+          ? new Promise((resolve) => {
+              written = () => resolve({ changes: [] });
             })
           : Promise.resolve(),
       );
@@ -276,7 +281,7 @@ describe('Edit all selected', () => {
       vi.useRealTimers();
       await act(async () => written());
       await vi.waitFor(() => expect(live().at(-1)).toEqual({ contrast: 8 }));
-      vi.mocked(invoke).mockImplementation(() => Promise.resolve());
+      vi.mocked(invoke).mockImplementation(batchWritten as never);
     });
 
     it('clears the live changes when it is switched off and they are written', async () => {
@@ -310,6 +315,8 @@ describe('Edit all selected', () => {
         if (command === Invokes.ApplyAdjustmentsToPaths) {
           if (failing) throw new Error('database is locked');
           written[active].push(...(args as { paths: string[] }).paths);
+          // (`RecipeBatch`: the recipes it changed.)
+          return { changes: [] };
         }
         return undefined;
       });

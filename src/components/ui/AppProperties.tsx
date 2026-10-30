@@ -96,6 +96,7 @@ export enum Invokes {
   CancelSeriesMatch = 'cancel_series_match',
   ClearSeriesMatchCache = 'clear_series_match_cache',
   SetRecipeValues = 'set_recipe_values',
+  ReplaceRecipes = 'replace_recipes',
   ApplyAiDenoise = 'apply_ai_denoise',
   ThirdPartyLicenses = 'third_party_licenses',
   CalculateAutoAdjustments = 'calculate_auto_adjustments',

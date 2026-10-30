@@ -21,6 +21,15 @@ describe('export queue labels', () => {
     const actual = exportSettingsFromDraft(draft).settings.resize!.value;
     expect(exportJobLabel('Web', draft, 'jpg', '/out')).toContain(String(actual));
   });
+  it('names a subfolder only when one is given, never a trailing slash', () => {
+    const named = exportJobLabel('Web', { ...DEFAULT_RECIPE_DRAFT, subfolder: ' Web/small ' }, 'jpg', '/out');
+    expect(named).toBe('Web · JPG · Full resolution · /out / Web/small');
+    for (const subfolder of [' ', '   ', '\t\n']) {
+      const label = exportJobLabel('Web', { ...DEFAULT_RECIPE_DRAFT, subfolder }, 'jpg', '/out');
+      expect(label).toBe('Web · JPG · Full resolution · /out');
+      expect(label).not.toContain('/out /');
+    }
+  });
 });
 
 

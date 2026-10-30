@@ -355,64 +355,91 @@
 .studio-section-caption span:last-child {
   color: #8e9296;
 }
-.studio-histogram-plot {
-  position: relative;
-}
-.studio-histogram svg {
+.studio-histogram-plot > svg {
   width: 100%;
   height: 82px;
   background: #202123;
   display: block;
 }
-/* Clipping corners over the plot (StudioHistogram): a triangle per side,
-   switched on by a click, lit when that side of the histogram clips. */
-.studio-histogram .studio-clip-corners {
-  position: absolute;
-  inset: 0;
-  background: transparent;
-  pointer-events: none;
+/* Fixed-size controls in the caption strip, clear of the histogram curves. */
+.studio-clip-corners {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 2px;
 }
-/* The corner layers lie over the plot: transparent, not the plot's own
-   `.studio-histogram svg` background, or they would hide the histogram. */
-.studio-histogram .studio-clip-corners > svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  background: transparent;
+.studio-clip-corners .studio-section-caption {
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  margin-bottom: 0;
 }
-.studio-histogram .studio-clip-corners g {
-  pointer-events: auto;
+:is(.studio-workspace, .studio-controls) .studio-clip-corner {
+  display: flex;
+  align-items: center;
+  flex: 0 0 20px;
+  min-height: 20px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
   cursor: pointer;
-  outline: none;
 }
-.studio-histogram .studio-clip-corners g:focus-visible .studio-clip-corner-hit {
-  stroke: #eef0f3;
-  stroke-width: 1;
+:is(.studio-workspace, .studio-controls) .studio-clip-corner[aria-pressed="true"] {
+  background: transparent;
 }
-.studio-clip-corner-hit {
-  fill: transparent;
+:is(.studio-workspace, .studio-controls) .studio-clip-corner:hover:not(:disabled) {
+  background: #ffffff12;
+}
+/* The reset suppresses focus outlines with !important in the base layer. */
+@layer base {
+  .studio-clip-corner:focus-visible {
+    outline: 1px solid #eef0f3 !important;
+    outline-offset: 1px;
+  }
+}
+/* The glyph's outer edge meets the plot edge; its hit area extends inward. */
+.studio-clip-corners .studio-clip-shadows {
+  justify-content: flex-start;
+}
+.studio-clip-corners .studio-clip-highlights {
+  justify-content: flex-end;
+}
+.studio-clip-corner > svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+  background: transparent;
+  overflow: visible;
 }
 .studio-clip-corner-mark {
-  fill: #6f747a;
-  stroke: #202123;
+  fill: none;
+  stroke: #969a9f;
   stroke-width: 1;
-  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
 }
-/* Switched on even though nothing clips: dimmed in that side's colour. */
+.studio-clip-corner.is-on .studio-clip-corner-mark {
+  stroke: #eef0f3;
+}
 .studio-clip-shadows.is-on .studio-clip-corner-mark {
-  fill: #4d74a8;
+  fill: #55585d;
 }
 .studio-clip-highlights.is-on .studio-clip-corner-mark {
-  fill: #b35454;
+  fill: #c8c9cc;
 }
-/* This side clips: full colour, switched on or not. */
+/* Clipping remains visible independently of the warning's toggle. */
 .studio-clip-shadows.is-lit .studio-clip-corner-mark {
-  fill: #3f7fe0;
+  fill: #000;
+  stroke: #eef0f3;
 }
 .studio-clip-highlights.is-lit .studio-clip-corner-mark {
-  fill: #e04848;
+  fill: #fff;
+  stroke: #fff;
+}
+.studio-clip-corner.is-on.is-lit .studio-clip-corner-mark {
+  stroke: #eef0f3;
 }
 .histogram-red {
   fill: #c9676780;
@@ -2712,7 +2739,7 @@
   }
 }
 @media (max-height: 700px) {
-  .studio-histogram svg {
+  .studio-histogram-plot > svg {
     height: 58px;
   }
   .studio-histogram {
@@ -5827,6 +5854,25 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 /* System colours and native indicators survive Windows High Contrast, where
    box shadows and the custom radio gradient are suppressed. */
 @media (forced-colors: active) {
+  .studio-clip-corner .studio-clip-corner-mark {
+    fill: Canvas;
+    stroke: ButtonText;
+  }
+  .studio-clip-corner.is-on .studio-clip-corner-mark {
+    fill: ButtonText;
+  }
+  .studio-clip-corner.is-lit .studio-clip-corner-mark {
+    fill: Highlight;
+    stroke: Highlight;
+  }
+  .studio-clip-corner.is-on.is-lit .studio-clip-corner-mark {
+    stroke: ButtonText;
+  }
+  @layer base {
+    .studio-clip-corner:focus-visible {
+      outline-color: Highlight !important;
+    }
+  }
   .studio-dialog {
     border-color: CanvasText;
   }

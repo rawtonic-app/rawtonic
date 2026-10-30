@@ -54,7 +54,7 @@ export default function TaggingSubMenu({
       try {
         const prefixedTag = `${USER_TAG_PREFIX}${newTagValue}`;
         const pathsToUpdate = getPathsToUpdate();
-        await invokeInOrder(Invokes.AddTagForPaths, { paths: pathsToUpdate, tag: prefixedTag });
+        await invokeInOrder(Invokes.AddTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
         const newTags = [...tags, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag));
         setTags(newTags);
         onTagsChanged(paths, newTags);
@@ -69,7 +69,7 @@ export default function TaggingSubMenu({
     try {
       const prefixedTag = tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag;
       const pathsToUpdate = getPathsToUpdate();
-      await invokeInOrder(Invokes.RemoveTagForPaths, { paths: pathsToUpdate, tag: prefixedTag });
+      await invokeInOrder(Invokes.RemoveTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
       const newTags = tags.filter((t) => t.tag !== tagToRemove.tag);
       setTags(newTags);
       onTagsChanged(paths, newTags);

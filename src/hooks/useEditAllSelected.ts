@@ -149,7 +149,7 @@ onRecipeWritten((path, keys) => {
 /** Writes `changes` from `from` to `others`; what fails is shown and kept
  * as not saved (`failedWrites`). */
 function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, others: string[], from: string) {
-  const done = apply(changes, others, { openingNow: true, pasteFrom: from, replaceLayers: true, quiet: true });
+  const done = apply(changes, others, { openingNow: true, pasteFrom: from, replaceLayers: true, quiet: true, undoStep: false });
   if (!done) return null;
   const settled = done.then((notWritten) => {
     const paths = others.filter((path) => notWritten.includes(path));
@@ -337,6 +337,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,
+            undoStep: false,
           });
         }
       }
