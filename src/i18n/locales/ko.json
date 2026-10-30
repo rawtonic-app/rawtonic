@@ -2920,7 +2920,6 @@
     },
     "histogram": {
       "aria": "이미지 히스토그램",
-      "clippingAria": "클리핑 경고",
       "gamut": "색 영역 경고",
       "gamutTitle": "색 영역 경고: 교정 색 공간 밖의 색상을 빨간색으로 표시",
       "graphAria": "선택한 사진의 RGB 휘도 분포",

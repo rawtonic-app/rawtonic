@@ -2973,7 +2973,6 @@
     },
     "histogram": {
       "aria": "Photo histogram",
-      "clippingAria": "Clipping warnings",
       "gamut": "Gamut warning",
       "gamutTitle": "Gamut warning: colors outside the proofed color space in red",
       "graphAria": "RGB luminance distribution of the selected photo",

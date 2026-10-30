@@ -80,11 +80,7 @@ export default memo(function StudioHistogram() {
       className="studio-histogram"
       aria-label={t("studio.histogram.aria")}
     >
-      <div
-        className="studio-clip-corners"
-        role="group"
-        aria-label={t("studio.histogram.aria")}
-      >
+      <div className="studio-clip-corners">
         <ClippingCorner
           side="shadows"
           on={clipShadows}
