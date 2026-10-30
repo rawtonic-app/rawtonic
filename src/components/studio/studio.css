@@ -836,6 +836,19 @@
 .curve-blue {
   stroke: #87a9d0;
 }
+/* The targeted curve's input level under the pointer. */
+.curve-target {
+  pointer-events: none;
+  stroke: #e8c46a;
+}
+.curve-target line {
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+}
+.curve-target circle {
+  fill: none;
+  stroke-width: 1.4;
+}
 .curve-point {
   fill: #d9e2e9;
   stroke: #333;

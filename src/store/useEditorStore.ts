@@ -84,6 +84,12 @@ interface EditorState {
   tatTarget: import('../utils/targetedAdjustment').TatTarget | null;
   /** The colour mixer channel the last targeted drag acted on most. */
   tatFocus: string | null;
+  /** The point curve channel the curve panel shows (and the targeted
+   * curve moves). */
+  curveChannel: import('../utils/targetedAdjustment').CurveChannel;
+  /** The curve input level (0–255) under the targeted curve's pointer,
+   * marked on the curve; null when the pointer is off the photo. */
+  tatCurveMarker: number | null;
   /** Spot removal tool: on/off, the selected spot and the settings new
    * spots get (and the selected one shows). */
   isSpotToolActive: boolean;
@@ -273,6 +279,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isWbPickerActive: false,
   tatTarget: null,
   tatFocus: null,
+  curveChannel: 'luma',
+  tatCurveMarker: null,
   isSpotToolActive: false,
   activeSpotId: null,
   spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 },
