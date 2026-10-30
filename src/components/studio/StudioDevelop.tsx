@@ -254,8 +254,11 @@ export function PointCurve({
   const { t } = useTranslation();
   // The channel is the store's: the targeted curve moves the one shown.
   const channel = useEditorStore((s) => s.curveChannel);
+  // The marked input was the previous channel's: the next hover marks anew.
   const setChannel = (curveChannel: CurveChannel) =>
-    useEditorStore.getState().setEditor({ curveChannel });
+    useEditorStore
+      .getState()
+      .setEditor({ curveChannel, tatCurveMarker: null });
   const marker = useEditorStore((s) =>
     targeted && s.tatTarget === "curve" ? s.tatCurveMarker : null,
   );

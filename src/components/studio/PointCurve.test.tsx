@@ -38,8 +38,11 @@ describe("point curve targeted marker", () => {
     const marker = screen.getByTestId("curve-target-marker");
     expect(marker.querySelector("line")!.getAttribute("x1")).toBe("100");
     expect(marker.querySelector("circle")!.getAttribute("cy")).toBe(String(255 - 140));
+    // Another channel: the old channel's input is not shown on it.
     fireEvent.click(screen.getByRole("button", { name: "G" }));
     expect(useEditorStore.getState().curveChannel).toBe("green");
+    expect(container.querySelector(".curve-target")).toBeNull();
+    act(() => useEditorStore.setState({ tatCurveMarker: 100 }));
     expect(screen.getByTestId("curve-target-marker").querySelector("circle")!.getAttribute("cy")).toBe("155");
     // A layer's curves (not the targeted ones) and other targets: no marker.
     rerender(<PointCurve curves={curves} onChange={() => {}} disabled={false} onInteraction={() => {}} />);
