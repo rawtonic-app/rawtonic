@@ -268,7 +268,7 @@ export function StudioKeywords() {
         const missing = paths.filter((path) => !has(path));
         if (!missing.length) continue;
         const tag = `${USER_TAG_PREFIX}${keyword}`;
-        await invokeInOrder(Invokes.AddTagForPaths, { paths: missing, tag });
+        await invokeInOrder(Invokes.AddTagForPaths, { paths: missing, tag }, 'keyword');
         updateTags(missing, (tags) => [...tags, tag]);
       }
       setDraft("");
@@ -278,7 +278,7 @@ export function StudioKeywords() {
   };
   const remove = async (entry: (typeof keywords)[number]) => {
     try {
-      for (const tag of entry.tags) await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag });
+      for (const tag of entry.tags) await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, 'keyword');
       updateTags(paths, (tags) => tags.filter((tag) => !entry.tags.has(tag)));
     } catch (e) {
       toast.error(t("studio.metadata.toasts.keywordsRemoveFailed", { error: String(e) }));

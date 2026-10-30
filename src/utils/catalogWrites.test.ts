@@ -1,8 +1,12 @@
-import { expect, it, vi } from 'vitest';
+import { afterAll, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { CATALOG_CHANGED, invokeInOrder } from './catalogWrites';
+import { PHOTO_WRITES_SETTLED } from './photoWrites';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+
+// Nothing of one test may still wait in the queue of the next.
+afterAll(async () => (await import('./photoWrites')).allPhotoWritesSettled());
 
 it('writes ratings in the order they were given, also after a failure', async () => {
   const answers: Array<(value?: unknown) => void> = [];
@@ -89,4 +93,27 @@ it('waits for every metadata write given before, and those they start meanwhile'
   await label;
   await waiting;
   expect(settled).toBe(true);
+});
+
+it('announces a keyword batch that settled, also one that failed, so the XMP count follows both', async () => {
+  const announced: Array<{ kind: string; paths: string[]; failed: string[] }> = [];
+  const settled = (event: Event) =>
+    announced.push((event as CustomEvent<{ kind: string; paths: string[]; failed: string[] }>).detail);
+  window.addEventListener(PHOTO_WRITES_SETTLED, settled);
+  try {
+    // The library saved the keyword for one photograph and not the other.
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockRejectedValueOnce({ message: 'Could not save 1 of 2 photos', failed: ['/b'] });
+    await expect(invokeInOrder('add_tag_for_paths', { paths: ['/a', '/b'], tag: 'user:beach' }, 'keyword')).rejects.toMatchObject({ failed: ['/b'] });
+    await vi.waitFor(() => expect(announced).toHaveLength(1));
+    // A failed write changed nothing, but it still announces, as every
+    // settled write does: the bar counts the sidecars again after it.
+    expect(announced[0]).toMatchObject({ kind: 'keyword', paths: ['/a', '/b'], failed: ['/b'] });
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    await invokeInOrder('remove_tag_for_paths', { paths: ['/a'], tag: 'user:beach' }, 'keyword');
+    await vi.waitFor(() => expect(announced).toHaveLength(2));
+    expect(announced[1]).toMatchObject({ kind: 'keyword', paths: ['/a'], failed: [] });
+  } finally {
+    window.removeEventListener(PHOTO_WRITES_SETTLED, settled);
+  }
 });
