@@ -3416,10 +3416,8 @@
             "is": "és"
           },
           "choice": {
-            "empty": "no té valor",
             "is": "és",
-            "isNot": "no és",
-            "notEmpty": "té valor"
+            "isNot": "no és"
           },
           "date": {
             "between": "és entre",
