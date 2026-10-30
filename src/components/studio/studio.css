@@ -5728,3 +5728,38 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-dialog label.items-start > input:first-child {
   margin-top: 2px;
 }
+
+/* System colours and native indicators survive Windows High Contrast, where
+   box shadows and the custom radio gradient are suppressed. */
+@media (forced-colors: active) {
+  .studio-dialog {
+    border-color: CanvasText;
+  }
+  button.studio-button,
+  .studio-dialog textarea,
+  .studio-dialog input:not([type="checkbox"], [type="radio"]) {
+    border: 1px solid ButtonText;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    appearance: auto;
+    -webkit-appearance: auto;
+    background-image: none;
+    border-color: ButtonText;
+    accent-color: Highlight;
+  }
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate,
+  input[type='radio']:checked {
+    background-image: none;
+    border-color: Highlight;
+  }
+  .studio-dialog:focus-visible,
+  .studio-dialog :focus-visible,
+  button.studio-button:focus-visible,
+  input[type='checkbox']:focus-visible,
+  input[type='radio']:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+}
