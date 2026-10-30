@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
-import { undo, useCatalogUndoStore } from "../../utils/appUndo";
+import { redo, undo, useCatalogUndoStore } from "../../utils/appUndo";
 import SessionXmpStatus, {
   openPendingXmpView,
   PENDING_XMP_VIEW_ID,
@@ -260,5 +260,51 @@ describe("SessionXmpStatus", () => {
     await user.click(screen.getByRole("button", { name: "Keep library for all" }));
     const call = vi.mocked(invoke).mock.calls.find(([command]) => command === "session_xmp_resolve");
     expect((call?.[1] as { paths: string[] }).paths).toHaveLength(3000);
+  });
+
+  it("a redo that reads only some photos keeps the others to redo and says why", async () => {
+    const user = userEvent.setup();
+    useUIStore.setState({ activeView: "library" });
+    useCatalogUndoStore.setState({ past: [], future: [] });
+    let offline = false;
+    answer({
+      session_xmp_review: [changed("/job/a.ARW"), changed("/job/b.ARW")],
+      session_xmp_resolve: ({ paths }: { paths: string[] }) => {
+        const read = offline ? paths.filter((path) => path !== "/job/b.ARW") : paths;
+        return {
+          done: read,
+          read,
+          offline: offline ? ["/job/b.ARW"] : [],
+          conflicts: [],
+          failed: [],
+          undo: read.map((path) => ({ asset: path })),
+        };
+      },
+      session_xmp_undo: ({ steps }: { steps: { asset: string }[] }) => ({
+        done: steps.map((step) => step.asset),
+        read: [],
+        offline: [],
+        conflicts: [],
+        failed: [],
+        undo: [],
+      }),
+    });
+    render(<SessionXmpStatus directory="/job" count={2} onChanged={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "2 XMP not updated" }));
+    await user.click(await screen.findByRole("button", { name: "Use XMP for all" }));
+    await waitFor(() => expect(useCatalogUndoStore.getState().past).toHaveLength(1));
+    await act(async () => undo());
+    offline = true;
+    await act(async () => redo());
+    const { past, future } = useCatalogUndoStore.getState();
+    expect(past.map((step) => step.xmp?.paths)).toEqual([["/job/a.ARW"]]);
+    expect(future.map((step) => step.xmp?.paths)).toEqual([["/job/b.ARW"]]);
+    expect(toast.error).toHaveBeenCalled();
+    // Back online: Redo reads the one left.
+    offline = false;
+    await act(async () => redo());
+    expect(useCatalogUndoStore.getState().future).toHaveLength(0);
+    expect(useCatalogUndoStore.getState().past.map((step) => step.xmp?.paths)).toEqual([["/job/a.ARW"], ["/job/b.ARW"]]);
+    useCatalogUndoStore.setState({ past: [], future: [] });
   });
 });
