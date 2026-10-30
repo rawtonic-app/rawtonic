@@ -22,7 +22,9 @@
 # The full `scripts/check.sh --brief` runs unless it already passed on this
 # exact HEAD with a clean tree (stamp written by check.sh). Then
 # scripts/review.sh must approve this exact HEAD (its stored verdict is reused);
-# its summary and findings go into the pull request. Stops at the first
+# its summary and findings go into the pull request. If main moved since the
+# branch was checked, `check.sh --brief --quick` runs on the merge before it is
+# pushed (separately green changes can break each other). Stops at the first
 # problem; nothing is merged unless every step before it succeeded.
 # The last line of output always says the outcome: `ship: merged PR #N as
 # <sha>; …`, `ship: opened PR #N …`, `ship: dry run …` (exit 0) or
@@ -191,6 +193,16 @@ SUMMARY=$(printf '%s' "$TITLE" | sed 's/^[a-z]*\(([^)]*)\)\{0,1\}!\{0,1\}: //')
 if ! git -C "$MAIN_DIR" merge -q --no-ff "$HEAD_SHA" -m "Merge pull request #$PR_NUM: $SUMMARY"; then
   git -C "$MAIN_DIR" merge --abort
   die "merge conflict with main; rebase $BRANCH onto origin/main and ship again"
+fi
+# Main moved since the branch was checked: changes that pass on their own can
+# still break each other (#455/#456), so check the merged tree before pushing.
+if ! git merge-base --is-ancestor "$MAIN_BEFORE" "$HEAD_SHA"; then
+  STEP="check of the merge with main"
+  say "main moved since the branch was checked: scripts/check.sh --brief --quick on the merge"
+  if ! (cd "$MAIN_DIR" && scripts/check.sh --brief --quick); then
+    git -C "$MAIN_DIR" reset -q --keep "$MAIN_BEFORE" || warn "local merge not undone: git -C '$MAIN_DIR' reset --keep $MAIN_BEFORE"
+    die "the merge with current main fails the check; rebase $BRANCH onto origin/main, fix and ship again"
+  fi
 fi
 STEP="push main"
 if ! git -C "$MAIN_DIR" push -q origin main; then
