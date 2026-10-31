@@ -25,7 +25,7 @@ beforeEach(() => {
 
 const receipt = { photographs: 2, originalsCopied: 0, offline: 0, previews: 2, missingResources: 0, missingCurrentResources: 0, leftOut: 0 };
 /** The backend: nothing owned elsewhere unless `owned` says so. */
-function backend(owned: { id: string; path: string; library: string }[] = [], total = 2) {
+function backend(owned: { id: string; path: string; library: string; name: string }[] = [], total = 2) {
   vi.mocked(invoke).mockImplementation(async (command: string) =>
     command === "library_export_catalog_owned" ? { total, owned } : receipt);
 }
@@ -115,7 +115,8 @@ it("reports a failure and that nothing was created", async () => {
 
 it("photos another project owns are left out only after Export the others, and never all of them", async () => {
   const user = userEvent.setup();
-  const owned = [{ id: "t", path: "/Other/Capture/t.arw", library: "/Projects/Wedding" }];
+  // Named as the user knows the project, not by its folder.
+  const owned = [{ id: "t", path: "/Other/Capture/t.arw", library: "/Projects/PROJ", name: "Wedding Smith" }];
   backend(owned, 2);
   const onClose = vi.fn();
   render(<CatalogExportDialog directory="/Main" name="Main" selected={["/s/a.arw", "/Other/Capture/t.arw"]} shown={[]}
@@ -123,7 +124,7 @@ it("photos another project owns are left out only after Export the others, and n
   await user.click(screen.getByRole("button", { name: "Destination parent folder" }));
   await user.click(screen.getByRole("button", { name: "Export 2 photos" }));
   const notice = await screen.findByRole("alertdialog", { name: "1 photo belongs to another project or catalog" });
-  expect(notice.textContent).toMatch(/latest edits are in Wedding/);
+  expect(notice.textContent).toMatch(/latest edits are in Wedding Smith, not here/);
   expect(invoke).not.toHaveBeenCalledWith("library_export_catalog", expect.anything());
   await user.click(screen.getByRole("button", { name: "Export the others" }));
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("library_export_catalog",
@@ -136,6 +137,6 @@ it("photos another project owns are left out only after Export the others, and n
     onClose={vi.fn()} onOpen={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "Destination parent folder" }));
   await user.click(screen.getByRole("button", { name: "Export 1 photo" }));
-  expect((await screen.findByRole("alert")).textContent).toMatch(/belong to Wedding/);
+  expect((await screen.findByRole("alert")).textContent).toMatch(/belong to Wedding Smith:/);
   expect(invoke).not.toHaveBeenCalledWith("library_export_catalog", expect.anything());
 });

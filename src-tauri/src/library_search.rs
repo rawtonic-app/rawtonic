@@ -234,8 +234,9 @@ fn read_facts(
 /// metadata, change it and write it back (`sidecar_field_edit`), and the
 /// catalog commands (`session_bridge::write_turn`), in that order as they
 /// take them. None of them then writes back metadata read before the
-/// camera's rating was taken.
-fn metadata_turn() -> (MutexGuard<'static, ()>, MutexGuard<'static, ()>) {
+/// camera's rating was taken. An import preset takes it too
+/// (`session_bridge::session_ingest`).
+pub(crate) fn metadata_turn() -> (MutexGuard<'static, ()>, MutexGuard<'static, ()>) {
     (
         crate::file_management::sidecar_field_edit(),
         crate::session_bridge::write_turn(),

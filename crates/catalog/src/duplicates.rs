@@ -8,10 +8,17 @@
 //! the app trashes what the user marked through its journaled file
 //! operations, after `confirm_duplicates` read the files again.
 //!
+//! Ownership (coordinator decision 2026-10-31, notes:
+//! parity-gaps/G36-organization.md): a photograph whose file lies inside
+//! another library's folder is that library's (`Library::owner_elsewhere`,
+//! the rule Export as Catalog follows); it is listed but can never go to the
+//! Trash from here. `suggested_trash` keeps the copy with the most work and
+//! pre-marks only copies inside this library's own folder.
+//!
 //! Near-duplicates (visual similarity) and merging metadata are stage 2
 //! (notes: parity-gaps/G36-organization.md).
-use crate::Library;
 use crate::image_hash::{current, image_hash};
+use crate::{Library, Owner};
 use anyhow::Result;
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
@@ -71,15 +78,25 @@ pub struct DuplicateMember {
     pub flag: i8,
     pub label: String,
     pub keywords: usize,
+    /// Albums it is in (smart albums aside).
+    pub albums: usize,
     /// Virtual copies of it.
     pub copies: usize,
     /// It has a title, caption, creator, copyright or IPTC field.
     pub described: bool,
     /// Its RAW+JPEG companion, which goes to the Trash with it.
     pub companion: Option<PathBuf>,
+    /// The companion's image hash (None: no companion, or not readable).
+    #[serde(skip)]
+    pub companion_image: Option<String>,
     /// What part of the file was compared (`image_hash::Container` name):
     /// `file` means the whole file.
     pub compared: String,
+    /// The other library whose folder holds the file: it stays.
+    pub owner: Option<Owner>,
+    /// The file lies inside this library's own folder (not in a folder of
+    /// the user's that the library refers to where it is).
+    pub own_folder: bool,
 }
 
 /// Why a photograph marked for the Trash must stay (`confirm_duplicates`).
@@ -92,6 +109,65 @@ pub enum Refusal {
     /// Its RAW+JPEG companion would go with it, and no kept photograph's
     /// companion holds the same image data.
     Companion,
+    /// Its file lies inside another library's folder: that library owns it.
+    Owned,
+}
+
+/// Which photographs of a group (oldest import first, as
+/// `duplicate_groups` lists them) the review pre-marks for the Trash;
+/// `edited[i]`: member `i` has develop edits. A photograph of another
+/// library is never marked. Of the rest the one with the most work stays:
+/// the most kinds of it (edits, rating, flag, label, keywords, albums,
+/// virtual copies, title/caption/IPTC), then the most keywords, albums and
+/// virtual copies, then one with a paired JPEG (it goes with its RAW), then
+/// the oldest import. The others are marked only inside this library's own
+/// folder; files it refers to where they are stay unmarked unless the user
+/// marks them. One with a paired JPEG is marked only when the kept copy's
+/// paired JPEG holds the same image data, else confirming would refuse it
+/// (and so the whole step).
+pub fn suggested_trash(group: &[DuplicateMember], edited: &[bool]) -> Vec<bool> {
+    let worth = |i: usize| {
+        let m = &group[i];
+        let kinds = [
+            edited.get(i).copied().unwrap_or(false),
+            m.rating > 0,
+            m.flag != 0,
+            !m.label.is_empty(),
+            m.keywords > 0,
+            m.albums > 0,
+            m.copies > 0,
+            m.described,
+        ]
+        .into_iter()
+        .filter(|&k| k)
+        .count();
+        (
+            kinds,
+            m.keywords + m.albums + m.copies,
+            m.companion.is_some(),
+        )
+    };
+    let mut keep: Option<usize> = None;
+    for i in (0..group.len()).filter(|&i| group[i].owner.is_none()) {
+        if keep.is_none_or(|k| worth(i) > worth(k)) {
+            keep = Some(i);
+        }
+    }
+    group
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            keep.is_some_and(|k| {
+                // A RAW+JPEG pair goes as one: only while the kept copy's
+                // JPEG holds the same image data (`confirm_duplicates`).
+                k != i
+                    && (m.companion.is_none()
+                        || (m.companion_image.is_some()
+                            && m.companion_image == group[k].companion_image))
+            }) && m.owner.is_none()
+                && m.own_folder
+        })
+        .collect()
 }
 
 /// A photograph to hash: its id, file and the stamp the file has now.
@@ -239,7 +315,8 @@ impl Library {
                       WHERE i.asset_id=a.id),
                     m.rating,m.flag,m.label,m.data,
                     (SELECT count(*) FROM versions v WHERE v.asset_id=a.id AND v.is_primary=0),
-                    h.hash,h.size,h.mtime,a.raw_jpeg_pair
+                    h.hash,h.size,h.mtime,a.raw_jpeg_pair,
+                    (SELECT count(*) FROM collection_assets c WHERE c.asset_id=a.id)
              FROM assets a JOIN roots r ON r.id=a.root_id JOIN metadata m ON m.asset_id=a.id
              JOIN image_hashes h ON h.asset_id=a.id
              WHERE a.missing=0 AND {visible} AND h.hash IN (
@@ -272,7 +349,6 @@ impl Library {
                 (r.get::<_, i64>(13)?, r.get::<_, i64>(14)?),
                 DuplicateMember {
                     id: r.get(0)?,
-                    path,
                     size: r.get::<_, i64>(4)? as u64,
                     captured: r.get(5)?,
                     imported: r.get(6)?,
@@ -280,10 +356,15 @@ impl Library {
                     flag: r.get(8)?,
                     label: r.get(9)?,
                     keywords: metadata.keywords.len(),
+                    albums: r.get::<_, i64>(16)? as usize,
                     copies: r.get::<_, i64>(11)? as usize,
                     described,
+                    companion_image: None,
                     companion,
                     compared: hash.split(':').nth(1).unwrap_or_default().to_string(),
+                    owner: self.owner_elsewhere(&path),
+                    own_folder: path.starts_with(&self.directory),
+                    path,
                 },
             ))
         })?;
@@ -305,6 +386,13 @@ impl Library {
         let mut groups: Vec<Vec<DuplicateMember>> = groups
             .into_iter()
             .map(|(_, mut members)| {
+                for member in &mut members {
+                    member.companion_image = member.companion.as_deref().and_then(|companion| {
+                        image_hash(companion, &AtomicBool::new(false))
+                            .ok()
+                            .flatten()
+                    });
+                }
                 members.sort_by(|a, b| {
                     (a.imported.is_none(), &a.imported, &a.path).cmp(&(
                         b.imported.is_none(),
@@ -346,6 +434,10 @@ impl Library {
         }
         let mut refused = Vec::new();
         for path in trash {
+            if self.owner_elsewhere(path).is_some() {
+                refused.push((path.clone(), Refusal::Owned));
+                continue;
+            }
             match self.image_hash_now(path)? {
                 Some(hash) if kept.contains(&hash) => {}
                 _ => {

@@ -17,7 +17,6 @@ import {
   duplicateGroups,
   hasOwnWork,
   startDuplicatesPass,
-  suggestedKeep,
   useDuplicatesDialog,
   type DuplicateGroup,
   type DuplicateMember,
@@ -68,9 +67,12 @@ type Phase =
  * Find Duplicates' review: reads what is not compared yet (Stop keeps what
  * was read), then lists each group of photographs with identical image
  * data. The user marks per photograph whether it goes to the Trash; the
- * suggestion keeps every photograph with work of its own, else the oldest
- * import. Move to Trash checks the files again, then trashes only the
- * marked photographs, one undoable step; nothing is merged.
+ * suggestion (the backend's) keeps the copy with the most work, else the
+ * oldest import, and pre-marks only copies inside this library's folder. A
+ * photograph inside another project's or catalog's folder is greyed and
+ * cannot be marked: it belongs there. Move to Trash checks the files again,
+ * then trashes only the marked photographs, one undoable step; nothing is
+ * merged.
  */
 function DuplicatesDialog({ directory, trash }: { directory: string | null; trash: Trash }) {
   const { t } = useTranslation();
@@ -94,12 +96,7 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
       if (!directory) return;
       duplicateGroups(directory)
         .then((groups) => {
-          const marked = new Set<string>();
-          for (const group of groups) {
-            const keep = suggestedKeep(group);
-            for (const member of group) if (!keep.has(member.path)) marked.add(member.path);
-          }
-          setTrashed(marked);
+          setTrashed(new Set(groups.flat().filter((m) => m.suggested && !m.owner).map((m) => m.path)));
           setPhase({ kind: "review", groups, finished });
         })
         .catch((error) => setPhase({ kind: "failed", error: String(error) }));
@@ -157,13 +154,15 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
   const toTrash = groups.flat().filter((m) => trashed.has(m.path));
   const blocked = busy || toTrash.length === 0 || keepsNone.length > 0;
 
-  const toggle = (member: DuplicateMember) =>
+  const toggle = (member: DuplicateMember) => {
+    if (member.owner) return;
     setTrashed((marked) => {
       const next = new Set(marked);
       if (next.has(member.path)) next.delete(member.path);
       else next.add(member.path);
       return next;
     });
+  };
 
   const moveToTrash = async () => {
     if (blocked || !directory) return;
@@ -175,12 +174,14 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
       const refused = await confirmDuplicates(directory, keep, marked);
       const changed = refused.filter((r) => r.reason === "changed").length;
       const companions = refused.filter((r) => r.reason === "companion").length;
+      const owned = refused.filter((r) => r.reason === "owned").length;
       if (refused.length) {
         // Nothing moves. What changed is compared again, not offered on old data.
         setProblem(
           [
             changed && t("duplicates.changed", { count: changed }),
             companions && t("duplicates.companionKept", { count: companions }),
+            owned && t("duplicates.ownedKept", { count: owned }),
           ]
             .filter(Boolean)
             .join(" "),
@@ -219,12 +220,13 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
       member.flag === -1 && t("duplicates.badges.rejected"),
       member.label && t("duplicates.badges.label", { label: member.label }),
       member.keywords > 0 && t("duplicates.badges.keywords", { count: member.keywords }),
+      member.albums > 0 && t("duplicates.badges.albums", { count: member.albums }),
       member.copies > 0 && t("duplicates.badges.copies", { count: member.copies }),
       member.described && t("duplicates.badges.described"),
       member.companion && t("duplicates.badges.companion", { name: fileName(member.companion) }),
     ].filter(Boolean);
     return (
-      <li key={member.path} className={marked ? "is-trashed" : undefined}>
+      <li key={member.path} className={member.owner ? "is-owned" : marked ? "is-trashed" : undefined}>
         <span className="studio-duplicates-thumb">{thumbnails[member.path] ? <img src={thumbnails[member.path]} alt="" /> : null}</span>
         <span className="studio-duplicates-facts" id={`duplicates-${at}`}>
           <strong>{fileName(member.path)}</strong>
@@ -234,11 +236,15 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
             {t("duplicates.imported", { date: member.imported ? localTime(member.imported) : t("duplicates.unknown") })}
           </small>
           <small>{badges.length ? badges.join(" · ") : t("duplicates.badges.none")}</small>
+          {member.owner && (
+            <small className="studio-duplicates-owned">{t("duplicates.ownedBy", { name: member.owner.name })}</small>
+          )}
         </span>
-        <label className="studio-duplicates-choice">
+        <label className="studio-duplicates-choice" title={member.owner ? t("duplicates.ownedBy", { name: member.owner.name }) : undefined}>
           <input
             type="checkbox"
             checked={marked}
+            disabled={!!member.owner}
             aria-describedby={`duplicates-${at}`}
             onChange={() => toggle(member)}
           />

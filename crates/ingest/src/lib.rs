@@ -58,6 +58,10 @@ pub struct ImportResult {
     pub companion: Option<PathBuf>,
     #[serde(default)]
     pub companion_of: Option<PathBuf>,
+    /// The copy's header as registration read it, for an import preset
+    /// (`metadata::apply_to_copy`); never sent.
+    #[serde(skip)]
+    pub(crate) header: Option<rawtonic_naming::Capture>,
 }
 
 /// What a source brings to its import besides its bytes: its capture facts
@@ -1410,7 +1414,7 @@ fn register(
 ) -> ImportResult {
     // The copy's EXIF (its first megabyte; the copy was just verified) for
     // the library's search.
-    let facts = capture::capture_facts(&destination);
+    let (facts, header) = capture::copy_header(&destination);
     let registered = library
         .plan_add(&destination, contents.cloned().unwrap_or_default())
         .map(|planned| match facts {
@@ -1449,6 +1453,7 @@ fn register(
         asset_id,
         error,
         skipped: false,
+        header,
         ..Default::default()
     }
 }

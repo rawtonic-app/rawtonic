@@ -393,6 +393,16 @@
 :is(.studio-workspace, .studio-controls) .studio-clip-corner:hover:not(:disabled) {
   background: #ffffff12;
 }
+/* The box says whether the warning is on; the glyph's fill says whether
+   that side clips. Two states, two channels (as Lightroom's clipping
+   triangles: a frame when the overlay is on). */
+:is(.studio-workspace, .studio-controls) .studio-clip-corner.is-on {
+  background: #ffffff1f;
+  box-shadow: inset 0 0 0 1px #eef0f3b3;
+}
+:is(.studio-workspace, .studio-controls) .studio-clip-corner.is-on:hover:not(:disabled) {
+  background: #ffffff2e;
+}
 /* The reset suppresses focus outlines with !important in the base layer. */
 @layer base {
   .studio-clip-corner:focus-visible {
@@ -400,12 +410,16 @@
     outline-offset: 1px;
   }
 }
-/* The glyph's outer edge meets the plot edge; its hit area extends inward. */
+/* The glyph sits centred in its hover box; the box reaches past the plot
+   edge by the glyph's inset so the glyph's outer edge still meets it. */
+:is(.studio-workspace, .studio-controls) .studio-clip-corner {
+  justify-content: center;
+}
 .studio-clip-corners .studio-clip-shadows {
-  justify-content: flex-start;
+  margin: 0 4.5px 0 -4.5px;
 }
 .studio-clip-corners .studio-clip-highlights {
-  justify-content: flex-end;
+  margin: 0 -4.5px 0 4.5px;
 }
 .studio-clip-corner > svg {
   display: block;
@@ -422,12 +436,6 @@
 }
 .studio-clip-corner.is-on .studio-clip-corner-mark {
   stroke: #eef0f3;
-}
-.studio-clip-shadows.is-on .studio-clip-corner-mark {
-  fill: #55585d;
-}
-.studio-clip-highlights.is-on .studio-clip-corner-mark {
-  fill: #c8c9cc;
 }
 /* Clipping remains visible independently of the warning's toggle. */
 .studio-clip-shadows.is-lit .studio-clip-corner-mark {
@@ -2099,6 +2107,13 @@
   min-width: 0;
   max-width: 140px;
   text-overflow: ellipsis;
+}
+/* The eyes filter's entries are the longest ("Eyes to check", "Ulls a
+   revisar"): its own width where there is room, shortened only in the
+   narrowest grid. */
+.studio-library-filters select.studio-eyes-filter {
+  flex-basis: auto;
+  max-width: 180px;
 }
 @media (max-width: 1240px) {
   .studio-flag-label {
@@ -6066,6 +6081,19 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 }
 .studio-duplicates-groups ul li.is-trashed {
   opacity: 0.6;
+}
+/* Another project's or catalog's photo: listed, never marked here. */
+.studio-duplicates-groups ul li.is-owned {
+  opacity: 0.55;
+}
+.studio-duplicates-groups ul li.is-owned .studio-duplicates-thumb img {
+  filter: grayscale(1);
+}
+.studio-duplicates-groups ul li.is-owned .studio-duplicates-choice {
+  cursor: not-allowed;
+}
+.studio-duplicates-facts small.studio-duplicates-owned {
+  white-space: normal;
 }
 .studio-duplicates-thumb {
   display: flex;
