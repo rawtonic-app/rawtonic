@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
-import { useEyeCheck } from './useEyeCheck';
+import { BACKLOG_CHECK_MS, useEyeCheck } from './useEyeCheck';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, RawStatus, type AppSettings, type ImageFile } from '../components/ui/AppProperties';
@@ -37,6 +37,10 @@ it('starts for the open library, again for photographs added later, and stops on
   act(() => useLibraryStore.setState({ imageList: [photo('/A/1.arw'), photo('/A/2.arw')] }));
   await act(async () => vi.advanceTimersByTimeAsync(2500));
   expect(starts()).toBe(2);
+  // An import into a folder not shown (the list stays as it is), tethering
+  // or a hot folder: the library is asked again within BACKLOG_CHECK_MS.
+  await act(async () => vi.advanceTimersByTimeAsync(BACKLOG_CHECK_MS));
+  expect(starts()).toBe(3);
   expect(mockInvoke).not.toHaveBeenCalledWith(Invokes.StopEyeCheck, expect.anything());
   // Another library: A's pass is stopped by name, B's started.
   act(() => useLibraryStore.setState({ sessionDirectory: '/B' }));

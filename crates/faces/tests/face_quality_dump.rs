@@ -52,8 +52,19 @@ fn dumps_faces_of_real_photos() {
         return;
     };
     let models = FaceModels::load(&models).unwrap();
-    // A new file only: never truncates an existing one (a photograph).
-    let mut lines = std::fs::File::create_new(&out).unwrap();
+    // Published whole at the end as a new file (never over an existing
+    // one, such as a photograph; nothing partial after a failed run).
+    assert!(
+        std::fs::symlink_metadata(&out).is_err(),
+        "FACE_OUT exists: {}",
+        out.display()
+    );
+    let mut lines = tempfile::NamedTempFile::new_in(
+        out.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new(".")),
+    )
+    .unwrap();
     for file in jpegs(&photos) {
         let start = Instant::now();
         // Upright as displayed (EXIF orientation applied).
@@ -128,4 +139,6 @@ fn dumps_faces_of_real_photos() {
         });
         writeln!(lines, "{line}").unwrap();
     }
+    lines.as_file().sync_all().unwrap();
+    rawtonic_metadata::no_clobber::persist(lines, &out).unwrap();
 }

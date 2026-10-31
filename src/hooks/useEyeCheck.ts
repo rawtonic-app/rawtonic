@@ -16,6 +16,8 @@ const MODELS_MISSING = 'face-models-missing';
 const SUMMARY_DELAY_MS = 300;
 /** How long list changes settle before the pass is asked to start again. */
 const RESTART_DELAY_MS = 2000;
+/** How often the open library is asked for photographs not read yet. */
+export const BACKLOG_CHECK_MS = 30_000;
 
 /** The photographer asked to check eyes: turns the background check on for
  * every library and starts it here, downloading the face models if they
@@ -61,8 +63,17 @@ export function useEyeCheck() {
     };
   }, [directory, enabled]);
 
-  // Photographs that came in later (an import, tethering, a sync) are read
-  // too: a new list asks again (a running pass takes them anyway).
+  // Photographs that came in later are read too, however they came (an
+  // import into another folder, tethering, a hot folder, a sync): the
+  // catalog is asked for unread ones every BACKLOG_CHECK_MS (one count; a
+  // running pass takes them anyway), and at once when the list changes.
+  useEffect(() => {
+    if (!directory || !enabled) return;
+    const timer = setInterval(() => {
+      invoke(Invokes.StartEyeCheck, { directory, download: false }).catch(() => {});
+    }, BACKLOG_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [directory, enabled]);
   const firstList = useRef(true);
   useEffect(() => {
     if (firstList.current) {
