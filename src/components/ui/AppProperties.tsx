@@ -217,6 +217,7 @@ export enum Invokes {
   MoveFolder = 'move_folder',
   PlanMoveFiles = 'plan_move_files',
   PlanMoveFolder = 'plan_move_folder',
+  MoveSession = 'move_session',
   ReadExifForPaths = 'read_exif_for_paths',
   CaptureTimePreview = 'capture_time_preview',
   CaptureTimePlan = 'capture_time_plan',

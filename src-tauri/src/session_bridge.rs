@@ -523,6 +523,39 @@ fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())
 }
+/// Runs `f` holding the ingest gate (a session moving): no ingest, library
+/// copy or other session move starts meanwhile; `busy` when one runs.
+pub(crate) fn holding_import_gate<T>(
+    busy: &str,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
+        return Err(busy.into());
+    }
+    struct Release;
+    impl Drop for Release {
+        fn drop(&mut self) {
+            IMPORT_RUNNING.store(false, Ordering::Release);
+        }
+    }
+    let _release = Release;
+    f()
+}
+
+/// The session folder `from` is at `to` now (moved, or its move undone or
+/// redone). When it is the open library it is remembered at its new place
+/// (the next start opens it there); returns whether it was.
+pub(crate) fn session_moved(
+    app: &tauri::AppHandle,
+    from: &Path,
+    to: &Path,
+) -> Result<bool, String> {
+    if active_library_directory().as_deref() != Some(from) {
+        return Ok(false);
+    }
+    remember(app, to)?;
+    Ok(true)
+}
 #[tauri::command]
 pub async fn session_create(
     directory: String,

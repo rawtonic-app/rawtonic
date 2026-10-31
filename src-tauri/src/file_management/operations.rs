@@ -403,16 +403,13 @@ fn plan_move(
     }
     // A session keeps only photos inside its folder: photos moved out of it
     // would go offline there, so such a move is refused before anything
-    // moves. Catalogs keep originals anywhere.
-    let to_session = session_above(dest_path)?;
-    for image in &images {
-        let from_session = session_above(image.parent().unwrap_or(Path::new("")))?;
-        if let Some(session) = from_session.filter(|s| Some(s) != to_session.as_ref()) {
-            return Err(format!(
-                "This moves the photos out of the session {}, where they would go offline; nothing was moved. Move the whole session folder to the drive, or add the drive's folder to a catalog.",
-                session.file_name().unwrap_or_default().to_string_lossy()
-            ));
-        }
+    // moves (the Library offers to move the whole session instead).
+    // Catalogs keep originals anywhere.
+    if let Some(session) = session_left(&images, dest_path)? {
+        return Err(format!(
+            "This moves the photos out of the session {}, where they would go offline; nothing was moved. Move the whole session to the drive, or add the drive's folder to a catalog.",
+            session.file_name().unwrap_or_default().to_string_lossy()
+        ));
     }
     let steps = crate::file_operations::associated_files(&images)?
         .into_iter()
@@ -428,6 +425,19 @@ fn plan_move(
         format!("Move {} photos to {folder}", images.len())
     };
     Ok((steps, images, label))
+}
+
+/// The session the photos `images` would leave by moving into
+/// `destination` (another folder than any of theirs), if any.
+fn session_left(images: &[PathBuf], destination: &Path) -> Result<Option<PathBuf>, String> {
+    let to_session = session_above(destination)?;
+    for image in images {
+        let from_session = session_above(image.parent().unwrap_or(Path::new("")))?;
+        if let Some(session) = from_session.filter(|s| Some(s) != to_session.as_ref()) {
+            return Ok(Some(session));
+        }
+    }
+    Ok(None)
 }
 
 fn move_files_blocking(
@@ -458,6 +468,9 @@ pub struct MovePlan {
     pub source_drives: Vec<String>,
     /// Why the move cannot be done (nothing is changed then).
     pub refusal: Option<String>,
+    /// The move would take photos out of their session, which is not
+    /// done: the whole session can be moved there instead (G40).
+    pub session_move: Option<crate::session_move::SessionMoveOffer>,
 }
 
 #[tauri::command]
@@ -475,6 +488,19 @@ fn plan_move_files_blocking(
     source_paths: &[String],
     destination_folder: &str,
 ) -> Result<MovePlan, String> {
+    let images: Vec<PathBuf> = source_paths
+        .iter()
+        .map(|path| parse_virtual_path(path).0)
+        .collect();
+    let destination = Path::new(destination_folder);
+    if destination.is_dir()
+        && let Some(session) = session_left(&images, destination)?
+    {
+        return Ok(MovePlan {
+            session_move: Some(crate::session_move::offer(&session, destination)),
+            ..MovePlan::default()
+        });
+    }
     let (steps, images, _) = plan_move(source_paths, destination_folder)?;
     Ok(other_drive_plan(&steps, images.len(), destination_folder))
 }
@@ -482,7 +508,7 @@ fn plan_move_files_blocking(
 /// What the copy moves among `steps` involve (none: a plan that is not
 /// across drives): the files and bytes copied, the drives, and why the
 /// move cannot be done.
-fn other_drive_plan(
+pub(crate) fn other_drive_plan(
     steps: &[rawtonic_fileops::Step],
     photos: usize,
     destination_folder: &str,
@@ -565,7 +591,14 @@ pub async fn plan_move_folder(
     destination_folder: String,
 ) -> Result<MovePlan, String> {
     crate::file_management::blocking(move || {
-        let (step, _) = plan_folder_move(Path::new(&path), Path::new(&destination_folder))?;
+        let (folder, destination) = (Path::new(&path), Path::new(&destination_folder));
+        if let Some(session) = folder_leaves_session(folder, destination)? {
+            return Ok(MovePlan {
+                session_move: Some(crate::session_move::offer(&session, destination)),
+                ..MovePlan::default()
+            });
+        }
+        let (step, _) = plan_folder_move(folder, destination)?;
         let steps = [step];
         if !matches!(steps[0].to, rawtonic_fileops::Target::OtherVolume { .. }) {
             return Ok(MovePlan::default());
@@ -655,6 +688,20 @@ fn plan_folder_move(
             .to_string_lossy()
     );
     Ok((step, label))
+}
+
+/// The session the folder `folder` (inside it, not the session folder
+/// itself) would leave by moving into `destination`, if any.
+fn folder_leaves_session(folder: &Path, destination: &Path) -> Result<Option<PathBuf>, String> {
+    if !folder.is_dir() || !destination.is_dir() || folder.join("session.json").is_file() {
+        return Ok(None);
+    }
+    let parent = folder
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", folder.display()))?;
+    let from = session_above(parent.parent().unwrap_or(Path::new("")))?;
+    let to = session_above(destination)?;
+    Ok(from.filter(|session| Some(session) != to.as_ref()))
 }
 
 /// The session folder holding `folder` (itself or above it), by real
@@ -1123,6 +1170,56 @@ mod tests {
             &drive.to_string_lossy(),
         )
         .unwrap();
+    }
+
+    /// Where photos or a folder would leave their session, the plan offers
+    /// the whole session instead (G40), saying why when that cannot go
+    /// there either; nothing moves while planning.
+    #[test]
+    fn a_move_out_of_the_session_offers_the_whole_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let job = root.join("Job");
+        rawtonic_catalog::Library::create(&job, "Job", rawtonic_catalog::Mode::Session).unwrap();
+        let photo = job.join("Capture/A.NEF");
+        write(&photo, "a");
+        let drive = root.join("Drive/Shoots");
+        fs::create_dir_all(&drive).unwrap();
+        let source = [photo.to_string_lossy().into_owned()];
+
+        let plan = plan_move_files_blocking(&source, &drive.to_string_lossy()).unwrap();
+        let offer = plan.session_move.expect("offered");
+        assert_eq!(offer.session, job.to_string_lossy());
+        assert_eq!(offer.name, "Job");
+        assert_eq!(offer.destination, drive.to_string_lossy());
+        assert_eq!(offer.refusal, None);
+        assert!(!offer.cross_volume);
+        assert!(!plan.cross_volume);
+        // A folder of the session moved out offers the same.
+        let folder = job.join("Capture");
+        let plan = tauri::async_runtime::block_on(plan_move_folder(
+            folder.to_string_lossy().into_owned(),
+            drive.to_string_lossy().into_owned(),
+        ))
+        .unwrap();
+        assert_eq!(
+            plan.session_move.expect("offered").session,
+            job.to_string_lossy()
+        );
+        // Within the session nothing is offered.
+        fs::create_dir_all(job.join("Selects")).unwrap();
+        let plan =
+            plan_move_files_blocking(&source, &job.join("Selects").to_string_lossy()).unwrap();
+        assert!(plan.session_move.is_none());
+        // A name clash: offered, with why it cannot go there.
+        fs::create_dir_all(drive.join("Job")).unwrap();
+        let plan = plan_move_files_blocking(&source, &drive.to_string_lossy()).unwrap();
+        let refusal = plan.session_move.unwrap().refusal.expect("refused");
+        assert!(
+            refusal.contains("already holds something named Job"),
+            "{refusal}"
+        );
+        assert_eq!(read(&photo), "a");
     }
 
     /// A Trash folder that records what it was given (and refuses `refuse`).

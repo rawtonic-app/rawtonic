@@ -140,6 +140,15 @@ const PASS_DELAY: Duration = Duration::from_secs(20);
 /// The pause between two files of a pass.
 const PASS_PAUSE: Duration = Duration::from_millis(25);
 
+/// Stops the running pass, if any (its library is about to move).
+pub fn stop_checksum_pass() {
+    if let Ok(mut running) = CHECKSUM_PASS.lock()
+        && let Some(cancel) = running.take()
+    {
+        cancel.store(true, Ordering::Release);
+    }
+}
+
 /// Starts recording the content hash (SHA-256) of every photograph of the
 /// library at `directory` that has none yet, in the background: one file
 /// at a time, with pauses, after a delay; it stops when it is done, when
