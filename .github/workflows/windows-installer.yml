@@ -131,13 +131,12 @@ jobs:
           Get-Content $log.FullName
           "INSTALL_DIR=$dir" >> $env:GITHUB_ENV
       # A synthetic gradient, no photograph: the installed app decodes,
-      # develops on the GPU and encodes it without a window. Informational
-      # only: the runner's only adapter is WARP, Windows' software DX12, which
-      # Rawtonic does not support (first run 2026-10-30: 116 s shader compile,
-      # then heap corruption 0xC0000374; the private VM saw WARP crash too).
-      # Exports are qualified on real GPUs (G57), not here.
-      - name: Headless export (software GPU, informational)
-        continue-on-error: true
+      # develops on the GPU and encodes it without a window. The runner's only
+      # adapter is WARP, Windows' software DX12, whose shader compiler corrupts
+      # the heap on the processing pipeline (G57, task WW), so the app must
+      # refuse it with a clear message and exit 1; on a runner with a real GPU
+      # the export must succeed.
+      - name: Headless export (software GPU refused cleanly)
         run: |
           $logs = Join-Path $env:RUNNER_TEMP 'windows-export-logs'
           New-Item -ItemType Directory -Force $logs | Out-Null
@@ -159,13 +158,20 @@ jobs:
           $out = "$work\gradient.jpg"
           $watch = [Diagnostics.Stopwatch]::StartNew()
           $p = Start-Process "$env:INSTALL_DIR\rawtonic-app.exe" -ArgumentList 'export', "`"$png`"", '--output', "`"$out`"", '--format', 'jpeg' -RedirectStandardOutput "$logs\stdout.log" -RedirectStandardError "$logs\stderr.log" -PassThru
+          # Without a handle taken before the exit, ExitCode reads as null.
+          $null = $p.Handle
           if (-not $p.WaitForExit(900000)) { $p.Kill(); Write-Error 'export hung (15 min)'; exit 1 }
           "export exit $($p.ExitCode) after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
           $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter app.log -ErrorAction SilentlyContinue |
             Select-Object -First 1
           if ($log) { Get-Content $log.FullName -Tail 40 }
           if ($p.ExitCode -ne 0) {
-            Write-Host 'WARP export crashed — known gap G57'
+            $err = Get-Content "$logs\stderr.log" -Raw
+            if ($p.ExitCode -eq 1 -and $err -match 'software renderer \(WARP\) is not supported') {
+              if (Test-Path $out) { Write-Error 'a refused export left a file'; exit 1 }
+              'WARP refused cleanly (exit 1)'
+              exit 0
+            }
             Write-Error "export failed (exit $($p.ExitCode)); see windows-export-logs artifact"
             exit 1
           }

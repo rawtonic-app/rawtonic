@@ -8,6 +8,13 @@
 //! failure is kept, so a start where nothing works names what failed instead
 //! of ending without a word.
 //!
+//! Microsoft's software renderer (WARP, "Microsoft Basic Render Driver") is
+//! refused like a device that does not start: its shader compiler corrupts
+//! the heap while compiling the processing pipeline on the first dispatch
+//! (`d3d10warp!ShaderJIT`, 0xC0000374), so a WARP start would end in a
+//! crash instead of a message. Notes:
+//! parity-gaps/G57-dependency-and-distribution-qualification.md (WW).
+//!
 //! `RAWTONIC_GPU_FAIL_BACKENDS=vulkan` (a comma list as `WGPU_BACKEND`)
 //! makes device creation fail on those backends, to test the fallback on a
 //! machine where they work.
@@ -101,6 +108,15 @@ pub fn start_with_fallback<A, D>(
     ))
 }
 
+/// Why the adapter cannot run the processing pipeline, if it cannot: WARP,
+/// found by its PCI ids (Microsoft vendor 0x1414, device 0x8C) on DX12.
+pub fn unsupported_adapter(info: &wgpu::AdapterInfo) -> Option<&'static str> {
+    (info.backend == wgpu::Backend::Dx12 && info.vendor == 0x1414 && info.device == 0x8c).then_some(
+        "Windows' software renderer (WARP) is not supported: it crashes compiling the \
+         processing shader; a GPU with a Vulkan or DirectX 12 driver is needed",
+    )
+}
+
 fn names(backends: wgpu::Backends) -> String {
     wgpu::Backend::ALL
         .into_iter()
@@ -149,6 +165,9 @@ pub fn start_device(
         |(_, adapter, _)| adapter.get_info().backend,
         |(_, adapter, _)| adapter.get_info().name,
         |(_, adapter, _)| {
+            if let Some(reason) = unsupported_adapter(&adapter.get_info()) {
+                return Err(reason.into());
+            }
             if failing.contains(adapter.get_info().backend.into()) {
                 return Err("failed on purpose (RAWTONIC_GPU_FAIL_BACKENDS)".into());
             }
@@ -252,6 +271,30 @@ mod tests {
         );
         assert!(error.contains("dx12 (GPU on dx12): device lost"), "{error}");
         assert!(error.contains("gl: no adapter (none)"), "{error}");
+    }
+
+    fn adapter(backend: Backend, vendor: u32, device: u32) -> wgpu::AdapterInfo {
+        wgpu::AdapterInfo {
+            name: "adapter".into(),
+            vendor,
+            device,
+            device_type: wgpu::DeviceType::Cpu,
+            device_pci_bus_id: String::new(),
+            driver: String::new(),
+            driver_info: String::new(),
+            backend,
+            subgroup_min_size: 0,
+            subgroup_max_size: 0,
+            transient_saves_memory: false,
+        }
+    }
+
+    #[test]
+    fn warp_is_refused_and_other_adapters_are_not() {
+        assert!(unsupported_adapter(&adapter(Backend::Dx12, 0x1414, 0x8c)).is_some());
+        // Other software adapters (llvmpipe, SwiftShader) and real GPUs start.
+        assert!(unsupported_adapter(&adapter(Backend::Vulkan, 0x10005, 0)).is_none());
+        assert!(unsupported_adapter(&adapter(Backend::Dx12, 0x10de, 0x2206)).is_none());
     }
 
     #[test]
