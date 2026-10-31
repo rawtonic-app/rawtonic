@@ -705,6 +705,11 @@ pub fn remove(app: &AppHandle, job: &str) -> Result<(), String> {
 /// Pauses a job: a running one after its photos in progress (the queue
 /// then goes on), a waiting one at once.
 pub fn pause(app: &AppHandle, job: &str) -> Result<(), String> {
+    // A paused Edit With render could never be resumed (`resume`), and its
+    // Edit With waits for every render: it is cancelled instead.
+    if with_queue(|q| q.job(job)).is_some_and(|j| edit_with_of(&j.request).is_some()) {
+        return Err("An Edit With render is not paused: cancel it instead.".into());
+    }
     // Told under the lock: the job's last queue snapshot cannot come first.
     let pausing = with_running(&CURRENT, job, |running, _| {
         running.paused.store(true, Ordering::SeqCst);
