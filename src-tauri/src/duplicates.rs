@@ -13,7 +13,7 @@ use crate::file_management::parse_virtual_path;
 use crate::library_search::{FACTS_RECORDED, announcer};
 use crate::session_bridge::with_library;
 use rawtonic_catalog::Library;
-use rawtonic_catalog::duplicates::{DuplicateMember, Refusal};
+use rawtonic_catalog::duplicates::{DuplicateMember, Refusal, suggested_trash};
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
@@ -211,9 +211,12 @@ pub struct ReviewMember {
     pub member: DuplicateMember,
     /// Its develop settings differ from a fresh photograph's.
     pub edited: bool,
+    /// The review pre-marks it for the Trash (`suggested_trash`).
+    pub suggested: bool,
 }
 
-/// The groups of photographs with identical image data, as recorded.
+/// The groups of photographs with identical image data, as recorded, with
+/// the suggestion.
 #[tauri::command]
 pub async fn duplicates_groups(
     app: tauri::AppHandle,
@@ -225,11 +228,18 @@ pub async fn duplicates_groups(
         Ok(groups
             .into_iter()
             .map(|group| {
+                let edited: Vec<bool> = group
+                    .iter()
+                    .map(|member| edited(lib, member, &settings))
+                    .collect();
+                let suggested = suggested_trash(&group, &edited);
                 group
                     .into_iter()
-                    .map(|member| {
-                        let edited = edited(lib, &member, &settings);
-                        ReviewMember { member, edited }
+                    .zip(edited.into_iter().zip(suggested))
+                    .map(|(member, (edited, suggested))| ReviewMember {
+                        member,
+                        edited,
+                        suggested,
                     })
                     .collect()
             })
@@ -262,7 +272,8 @@ pub struct Refused {
 
 /// Checks the files again before the photographs in `trash` go to the
 /// Trash: returns those that must stay (no longer the image data of a
-/// photograph of `keep`, or a RAW+JPEG companion without a kept copy);
+/// photograph of `keep`, a RAW+JPEG companion without a kept copy, or
+/// another library's photograph);
 /// empty: go ahead.
 #[tauri::command]
 pub async fn duplicates_confirm(

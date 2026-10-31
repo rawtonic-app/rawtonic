@@ -88,13 +88,11 @@ pub fn owned_elsewhere(source: &Library, ids: &[String]) -> Result<Vec<OwnedElse
     let mut out = Vec::new();
     for id in ids {
         let path = source.asset(id)?.path;
-        if let Some(library) = rawtonic_catalog::session_for(&path)
-            && library != source.directory
-        {
+        if let Some(owner) = source.owner_elsewhere(&path) {
             out.push(OwnedElsewhere {
                 id: id.clone(),
                 path,
-                library,
+                library: owner.directory,
             });
         }
     }

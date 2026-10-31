@@ -2609,6 +2609,36 @@ pub(crate) fn resolve_moved(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// The library (session or catalog) whose folder holds a photograph another
+/// library added where it is. It owns that file: its latest edit is there,
+/// so the other library neither exports it as its own nor trashes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Owner {
+    pub directory: PathBuf,
+    /// Its name as the user knows it (the folder's name when its manifest
+    /// cannot be read).
+    pub name: String,
+}
+
+impl Library {
+    /// The other library whose folder holds `path`, if any.
+    pub fn owner_elsewhere(&self, path: &Path) -> Option<Owner> {
+        let directory = session_for(path).filter(|library| *library != self.directory)?;
+        let name = subset::read_manifest(&directory)
+            .map(|manifest| manifest.name)
+            .ok()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| {
+                directory
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+            })
+            .unwrap_or_default();
+        Some(Owner { directory, name })
+    }
+}
+
 /// Resolve only explicit Rawtonic session manifests; ordinary folders stay standalone.
 pub fn session_for(path: &Path) -> Option<PathBuf> {
     path.parent()?

@@ -2,7 +2,7 @@
 //! metadata or edits; hashes recorded per file state, dropped when the file
 //! changes; the "Is duplicate" rule; the check before trashing.
 
-use rawtonic_catalog::duplicates::Refusal;
+use rawtonic_catalog::duplicates::{DuplicateMember, Refusal, suggested_trash};
 use rawtonic_catalog::query::Rule;
 use rawtonic_catalog::{Library, Mode};
 use serde_json::json;
@@ -231,6 +231,163 @@ fn trashing_is_confirmed_against_the_files_as_they_are_now() {
     assert_eq!(
         lib.confirm_duplicates(&keep, &paths[1..2]).unwrap(),
         [(paths[1].clone(), Refusal::Changed)]
+    );
+}
+
+/// A photograph another library owns (a project's file the catalog added
+/// where it is) is listed with that library's name and refused for the
+/// Trash; a file the catalog refers to in the user's own folder is told
+/// apart from one inside the catalog's folder.
+#[test]
+fn a_photograph_another_library_owns_is_named_and_never_trashed() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonicalize().unwrap();
+    let scan = jpeg("e", b"scan");
+    let project = Library::create(&root.join("PROJ"), "Wedding Smith", Mode::Session).unwrap();
+    let theirs = project.directory.join("Capture/a.jpg");
+    fs::write(&theirs, &scan).unwrap();
+    project.add_asset(&theirs).unwrap();
+    let catalog = Library::create(&root.join("CAT"), "Main", Mode::Catalog).unwrap();
+    let own = catalog.directory.join("Photos/a.jpg");
+    let users = root.join("Shoot/a.jpg");
+    for path in [&own, &users] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, &scan).unwrap();
+    }
+    let own_id = catalog.add_asset(&own).unwrap().id;
+    catalog.add_asset(&users).unwrap();
+    catalog.add_asset(&theirs).unwrap();
+    let album = catalog.create_collection("Picks", None).unwrap();
+    catalog.add_to_collection(&album.id, &[own_id]).unwrap();
+    fill(&catalog);
+
+    let groups = catalog.duplicate_groups().unwrap();
+    assert_eq!(groups.len(), 1);
+    let at = |path: &PathBuf| groups[0].iter().find(|m| m.path == *path).unwrap();
+    let owner = at(&theirs)
+        .owner
+        .as_ref()
+        .expect("the project owns its file");
+    assert_eq!(
+        (owner.name.as_str(), owner.directory.clone()),
+        ("Wedding Smith", project.directory.clone())
+    );
+    assert!(!at(&theirs).own_folder);
+    assert_eq!(
+        (at(&own).owner.clone(), at(&own).own_folder, at(&own).albums),
+        (None, true, 1)
+    );
+    assert_eq!(
+        (at(&users).owner.clone(), at(&users).own_folder),
+        (None, false)
+    );
+
+    // Even marked by hand, the project's file stays.
+    assert_eq!(
+        catalog
+            .confirm_duplicates(std::slice::from_ref(&own), std::slice::from_ref(&theirs))
+            .unwrap(),
+        [(theirs.clone(), Refusal::Owned)]
+    );
+    // The project's own copy, seen from the project, is its own.
+    assert!(project.owner_elsewhere(&theirs).is_none());
+}
+
+fn member(name: &str, own_folder: bool) -> DuplicateMember {
+    DuplicateMember {
+        id: name.into(),
+        path: PathBuf::from(name),
+        size: 1,
+        captured: None,
+        imported: None,
+        rating: 0,
+        flag: 0,
+        label: String::new(),
+        keywords: 0,
+        albums: 0,
+        copies: 0,
+        described: false,
+        companion: None,
+        compared: "jpeg".into(),
+        owner: None,
+        own_folder,
+    }
+}
+
+/// The copy with the most work stays, whatever its import order; the others
+/// are suggested only inside the library's own folder.
+#[test]
+fn the_suggestion_keeps_the_copy_with_the_most_work() {
+    let rated_in_album = DuplicateMember {
+        rating: 3,
+        albums: 1,
+        ..member("rated", true)
+    };
+    let group = [
+        member("oldest", true),
+        rated_in_album,
+        member("plain", true),
+    ];
+    assert_eq!(suggested_trash(&group, &[false; 3]), [true, false, true]);
+    // An edit and a keyword outweigh a rating alone.
+    let keyworded = DuplicateMember {
+        keywords: 1,
+        ..member("keyworded", true)
+    };
+    let rated = DuplicateMember {
+        rating: 5,
+        ..member("rated", true)
+    };
+    assert_eq!(
+        suggested_trash(&[rated, keyworded], &[false, true]),
+        [true, false]
+    );
+}
+
+/// On a tie the oldest import stays; a file in the user's own folder is
+/// never pre-marked, even when another copy is kept.
+#[test]
+fn on_a_tie_the_oldest_import_stays_and_the_users_own_folders_are_not_marked() {
+    let group = [
+        member("oldest", true),
+        member("in the catalog", true),
+        member("in the user's folder", false),
+    ];
+    assert_eq!(suggested_trash(&group, &[false; 3]), [false, true, false]);
+    // The oldest is in the user's folder: it stays, the catalog's copy goes.
+    let group = [member("user's", false), member("catalog's", true)];
+    assert_eq!(suggested_trash(&group, &[false; 2]), [false, true]);
+    // Only files outside: nothing is marked.
+    let group = [member("a", false), member("b", false)];
+    assert_eq!(suggested_trash(&group, &[false; 2]), [false, false]);
+}
+
+/// Another library's photograph is never marked and not weighed: the copy
+/// with the most work among the rest stays.
+#[test]
+fn another_librarys_photograph_is_never_suggested() {
+    let owner = Some(rawtonic_catalog::Owner {
+        directory: PathBuf::from("/PROJ"),
+        name: "Wedding Smith".into(),
+    });
+    let theirs = DuplicateMember {
+        owner: owner.clone(),
+        rating: 5,
+        ..member("theirs", true)
+    };
+    let group = [theirs.clone(), member("ours", true), member("ours 2", true)];
+    assert_eq!(
+        suggested_trash(&group, &[true, false, false]),
+        [false, false, true]
+    );
+    // Only owned elsewhere and one more: that one stays.
+    assert_eq!(
+        suggested_trash(&[theirs.clone(), member("ours", true)], &[false; 2]),
+        [false, false]
+    );
+    assert_eq!(
+        suggested_trash(&[theirs.clone(), theirs], &[false; 2]),
+        [false, false]
     );
 }
 
