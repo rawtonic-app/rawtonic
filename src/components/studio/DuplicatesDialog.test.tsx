@@ -24,6 +24,8 @@ const member = (path: string, part: Partial<DuplicateMember> = {}): DuplicateMem
   label: "",
   keywords: 0,
   copies: 0,
+  described: false,
+  companion: null,
   compared: "bmff",
   edited: false,
   ...part,
@@ -36,7 +38,7 @@ const groups = [
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>();
 let starts = 0;
-let changedNext: string[] = [];
+let refusedNext: { path: string; reason: string }[] = [];
 const trash = vi.fn(async () => {});
 const calls = (name: string) => vi.mocked(invoke).mock.calls.filter(([command]) => command === name);
 
@@ -49,7 +51,7 @@ const finish = (run: number) =>
 
 beforeEach(async () => {
   starts = 0;
-  changedNext = [];
+  refusedNext = [];
   handlers.clear();
   trash.mockClear();
   await i18n.changeLanguage("en");
@@ -61,7 +63,7 @@ beforeEach(async () => {
   vi.mocked(invoke).mockImplementation(async (name: string) => {
     if (name === "duplicates_start") return ++starts;
     if (name === "duplicates_groups") return groups;
-    if (name === "duplicates_confirm") return changedNext;
+    if (name === "duplicates_confirm") return refusedNext;
     return undefined;
   });
 });
@@ -133,11 +135,22 @@ it("refuses to trash a whole group", async () => {
 
 it("trashes nothing when a file changed since it was compared, and compares again", async () => {
   await openReview();
-  changedNext = [`${LIBRARY}/Other/B.NEF`];
+  refusedNext = [{ path: `${LIBRARY}/Other/B.NEF`, reason: "changed" }];
   fireEvent.click(screen.getByRole("button", { name: "Move 3 Photos to Trash" }));
   await screen.findByText("1 photo changed since it was compared, so nothing was moved. Compared again.");
   expect(trash).not.toHaveBeenCalled();
   await waitFor(() => expect(calls("duplicates_start")).toHaveLength(2));
+});
+
+it("keeps a photo whose paired JPEG has no kept copy, without comparing again", async () => {
+  await openReview();
+  refusedNext = [{ path: `${LIBRARY}/Capture/A.CR3`, reason: "companion" }];
+  fireEvent.click(screen.getByRole("button", { name: "Move 3 Photos to Trash" }));
+  await screen.findByText(
+    "1 photo stays: its paired JPEG has no identical copy that stays, so nothing was moved.",
+  );
+  expect(trash).not.toHaveBeenCalled();
+  expect(calls("duplicates_start")).toHaveLength(1);
 });
 
 it("says when nothing is duplicated, and Stop stops the reading", async () => {

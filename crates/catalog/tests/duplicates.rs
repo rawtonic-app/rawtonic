@@ -2,6 +2,7 @@
 //! metadata or edits; hashes recorded per file state, dropped when the file
 //! changes; the "Is duplicate" rule; the check before trashing.
 
+use rawtonic_catalog::duplicates::Refusal;
 use rawtonic_catalog::query::Rule;
 use rawtonic_catalog::{Library, Mode};
 use serde_json::json;
@@ -223,14 +224,72 @@ fn trashing_is_confirmed_against_the_files_as_they_are_now() {
     fs::write(&paths[2], jpeg("e", b"edited elsewhere")).unwrap();
     assert_eq!(
         lib.confirm_duplicates(&keep, &paths[1..]).unwrap(),
-        [paths[2].clone()]
+        [(paths[2].clone(), Refusal::Changed)]
     );
     // The kept photograph is gone: nothing of its group is a duplicate.
     fs::remove_file(&paths[0]).unwrap();
     assert_eq!(
         lib.confirm_duplicates(&keep, &paths[1..2]).unwrap(),
-        [paths[1].clone()]
+        [(paths[1].clone(), Refusal::Changed)]
     );
+}
+
+/// A RAW+JPEG pair goes to the Trash as one: the RAW may go only while a
+/// kept photograph's companion holds the same JPEG image data.
+#[test]
+fn a_companion_jpeg_without_a_kept_copy_keeps_its_raw() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    for name in ["A.RAF", "B.RAF", "C.RAF"] {
+        fs::write(capture.join(name), jpeg("raw facts", b"sensor")).unwrap();
+    }
+    fs::write(capture.join("B.JPG"), jpeg("exif", b"camera jpeg")).unwrap();
+    fs::write(capture.join("C.JPG"), jpeg("other exif", b"camera jpeg")).unwrap();
+    lib.add_asset(&capture.join("A.RAF")).unwrap();
+    for name in ["B", "C"] {
+        let planned = lib
+            .plan_add(&capture.join(format!("{name}.RAF")), Default::default())
+            .unwrap()
+            .with_companion(&format!("{name}.JPG"))
+            .unwrap();
+        lib.insert_planned(vec![planned]).unwrap();
+    }
+    fill(&lib);
+    let group = &lib.duplicate_groups().unwrap()[0];
+    let companions: Vec<_> = group.iter().map(|m| m.companion.is_some()).collect();
+    assert_eq!(companions, [false, true, true]);
+    let [a, b, c] = ["A", "B", "C"].map(|n| capture.join(format!("{n}.RAF")));
+    // Only A (without a companion) is kept: B's JPEG has no kept copy.
+    assert_eq!(
+        lib.confirm_duplicates(std::slice::from_ref(&a), std::slice::from_ref(&b))
+            .unwrap(),
+        [(b.clone(), Refusal::Companion)]
+    );
+    // C keeps a companion with the same image data: B (and its JPEG) may go.
+    assert!(
+        lib.confirm_duplicates(&[a, c], std::slice::from_ref(&b))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn text_metadata_is_reported_with_the_photograph() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, _) = session(
+        d.path(),
+        &[("A.jpg", jpeg("e", b"scan")), ("B.jpg", jpeg("e", b"scan"))],
+    );
+    let mut metadata = lib.metadata(&ids[1]).unwrap();
+    metadata.description = "Bride and groom, first dance".into();
+    lib.set_metadata(&ids[1], &metadata).unwrap();
+    fill(&lib);
+    let described: Vec<_> = lib.duplicate_groups().unwrap()[0]
+        .iter()
+        .map(|m| (m.id.clone(), m.described))
+        .collect();
+    assert_eq!(described, [(ids[0].clone(), false), (ids[1].clone(), true)]);
 }
 
 #[test]

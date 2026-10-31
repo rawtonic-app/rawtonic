@@ -45,6 +45,10 @@ export interface DuplicateMember {
   label: string;
   keywords: number;
   copies: number;
+  /** It has a title, caption, creator, copyright or IPTC field. */
+  described: boolean;
+  /** Its RAW+JPEG companion (trashed with it). */
+  companion: string | null;
   /** What was compared: the image data of its container, or `file`. */
   compared: string;
   edited: boolean;
@@ -55,19 +59,34 @@ export type DuplicateGroup = DuplicateMember[];
 export const startDuplicatesPass = (directory: string) => invoke<number>(Invokes.DuplicatesStart, { directory });
 export const cancelDuplicatesPass = (run: number) => invoke(Invokes.DuplicatesCancel, { run });
 export const duplicateGroups = (directory: string) => invoke<DuplicateGroup[]>(Invokes.DuplicatesGroups, { directory });
-/** Paths of `trash` whose image data changed since compared (empty: go ahead). */
+/** A photo marked for the Trash that must stay: its image data changed
+ * since compared, or its paired JPEG has no identical copy that stays. */
+export interface Refused {
+  path: string;
+  reason: 'changed' | 'companion';
+}
+/** Photos of `trash` that must stay (empty: go ahead). */
 export const confirmDuplicates = (directory: string, keep: string[], trash: string[]) =>
-  invoke<string[]>(Invokes.DuplicatesConfirm, { directory, keep, trash });
+  invoke<Refused[]>(Invokes.DuplicatesConfirm, { directory, keep, trash });
 
-/** Work done on a photograph that trashing it would set aside. */
+/** Work done on a photograph (or a file that goes with it) that trashing
+ * it would set aside. */
 export const hasOwnWork = (member: DuplicateMember): boolean =>
-  member.edited || member.rating > 0 || member.flag !== 0 || member.label !== '' || member.keywords > 0 || member.copies > 0;
+  member.edited ||
+  member.rating > 0 ||
+  member.flag !== 0 ||
+  member.label !== '' ||
+  member.keywords > 0 ||
+  member.copies > 0 ||
+  member.described ||
+  member.companion !== null;
 
 /**
  * The photographs a group keeps by default: every one with work of its own
- * (edits, rating, flag, label, keywords, virtual copies), so no work is set
- * aside unasked; when none has any, the oldest import (the group comes
- * oldest first). The rest are suggested for the Trash.
+ * (edits, rating, flag, label, keywords, title/caption/IPTC, virtual
+ * copies, a paired JPEG), so no work is set aside unasked; when none has
+ * any, the oldest import (the group comes oldest first). The rest are
+ * suggested for the Trash.
  */
 export function suggestedKeep(group: DuplicateGroup): Set<string> {
   const worked = group.filter(hasOwnWork).map((member) => member.path);

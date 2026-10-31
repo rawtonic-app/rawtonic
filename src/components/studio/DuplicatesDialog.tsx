@@ -172,13 +172,24 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
     const marked = toTrash.map((m) => m.path);
     const keep = groups.flat().filter((m) => !trashed.has(m.path)).map((m) => m.path);
     try {
-      const changed = await confirmDuplicates(directory, keep, marked);
-      if (changed.length) {
-        // Compared again: what changed is not offered on old data.
-        setProblem(t("duplicates.changed", { count: changed.length }));
+      const refused = await confirmDuplicates(directory, keep, marked);
+      const changed = refused.filter((r) => r.reason === "changed").length;
+      const companions = refused.filter((r) => r.reason === "companion").length;
+      if (refused.length) {
+        // Nothing moves. What changed is compared again, not offered on old data.
+        setProblem(
+          [
+            changed && t("duplicates.changed", { count: changed }),
+            companions && t("duplicates.companionKept", { count: companions }),
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
         setBusy(false);
-        setAttempt((n) => n + 1);
-        setPhase({ kind: "reading", run: null, done: 0, total: 0 });
+        if (changed) {
+          setAttempt((n) => n + 1);
+          setPhase({ kind: "reading", run: null, done: 0, total: 0 });
+        }
         return;
       }
       close();
@@ -209,6 +220,8 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
       member.label && t("duplicates.badges.label", { label: member.label }),
       member.keywords > 0 && t("duplicates.badges.keywords", { count: member.keywords }),
       member.copies > 0 && t("duplicates.badges.copies", { count: member.copies }),
+      member.described && t("duplicates.badges.described"),
+      member.companion && t("duplicates.badges.companion", { name: fileName(member.companion) }),
     ].filter(Boolean);
     return (
       <li key={member.path} className={marked ? "is-trashed" : undefined}>

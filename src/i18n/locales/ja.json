@@ -630,8 +630,10 @@
   },
   "duplicates": {
     "badges": {
+      "companion": "ペアの JPEG {{name}}",
       "copies_one": "仮想コピー {{count}} 件",
       "copies_other": "仮想コピー {{count}} 件",
+      "described": "タイトル、キャプション、IPTC",
       "edited": "編集済み",
       "keywords_one": "キーワード {{count}} 件",
       "keywords_other": "キーワード {{count}} 件",
@@ -644,6 +646,8 @@
     "changed_one": "{{count}} 枚の写真が比較後に変更されたため、何も移動していません。再度比較しました。",
     "changed_other": "{{count}} 枚の写真が比較後に変更されたため、何も移動していません。再度比較しました。",
     "close": "閉じる",
+    "companionKept_one": "{{count}} 枚の写真は残ります：ペアの JPEG と同一のコピーが残らないため、何も移動していません。",
+    "companionKept_other": "{{count}} 枚の写真は残ります：ペアの JPEG と同一のコピーが残らないため、何も移動していません。",
     "comparedFile": "ファイル全体を比較",
     "comparedImage": "画像データを比較",
     "failed": "重複の検索に失敗しました：{{error}}",
@@ -661,7 +665,7 @@
     "readingStart": "画像データを比較中…",
     "stop": "停止",
     "stopped": "停止しました：これまでに比較した写真のみをグループ化しています。",
-    "suggestion": "ゴミ箱への移動を提案：独自の編集、レーティング、フラグ、カラーラベル、キーワード、仮想コピーがない写真。そうした作業のある写真はすべて残し、ない場合は最も古い読み込みを残します。何も統合しません。",
+    "suggestion": "ゴミ箱への移動を提案：独自の編集、レーティング、フラグ、カラーラベル、キーワード、タイトルやキャプション、仮想コピー、ペアの JPEG がない写真。そうした作業のある写真はすべて残し、ない場合は最も古い読み込みを残します。何も統合しません。",
     "summary_one": "重複グループ {{count}} 件（写真 {{photos}} 枚）",
     "summary_other": "重複グループ {{count}} 件（写真 {{photos}} 枚）",
     "title": "重複を検索",

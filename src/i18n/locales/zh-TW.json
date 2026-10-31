@@ -630,8 +630,10 @@
   },
   "duplicates": {
     "badges": {
+      "companion": "配對的 JPEG {{name}}",
       "copies_one": "{{count}} 個虛擬複本",
       "copies_other": "{{count}} 個虛擬複本",
+      "described": "標題、說明或 IPTC",
       "edited": "已編輯",
       "keywords_one": "{{count}} 個關鍵字",
       "keywords_other": "{{count}} 個關鍵字",
@@ -644,6 +646,8 @@
     "changed_one": "{{count}} 張照片在比較後已變更，因此未移動任何內容。已重新比較。",
     "changed_other": "{{count}} 張照片在比較後已變更，因此未移動任何內容。已重新比較。",
     "close": "關閉",
+    "companionKept_one": "{{count}} 張照片保留：其配對的 JPEG 沒有保留相同的複本，因此未移動任何內容。",
+    "companionKept_other": "{{count}} 張照片保留：其配對的 JPEG 沒有保留相同的複本，因此未移動任何內容。",
     "comparedFile": "已比較整個檔案",
     "comparedImage": "已比較影像資料",
     "failed": "尋找重複項目失敗：{{error}}",
@@ -661,7 +665,7 @@
     "readingStart": "正在比較影像資料…",
     "stop": "停止",
     "stopped": "已停止：僅將已比較的照片分組。",
-    "suggestion": "建議移到垃圾桶：沒有自己的編輯、星等、旗標、色彩標籤、關鍵字或虛擬複本的照片。凡有此類工作的照片都會保留；否則保留最早匯入的照片。不會合併任何內容。",
+    "suggestion": "建議移到垃圾桶：沒有自己的編輯、星等、旗標、色彩標籤、關鍵字、標題或說明、虛擬複本或配對 JPEG 的照片。凡有此類工作的照片都會保留；否則保留最早匯入的照片。不會合併任何內容。",
     "summary_one": "{{count}} 組重複項目（{{photos}} 張照片）",
     "summary_other": "{{count}} 組重複項目（{{photos}} 張照片）",
     "title": "尋找重複項目",

@@ -13,7 +13,7 @@ use crate::file_management::parse_virtual_path;
 use crate::library_search::{FACTS_RECORDED, announcer};
 use crate::session_bridge::with_library;
 use rawtonic_catalog::Library;
-use rawtonic_catalog::duplicates::DuplicateMember;
+use rawtonic_catalog::duplicates::{DuplicateMember, Refusal};
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
@@ -252,25 +252,43 @@ fn edited(
     crate::image_processing::is_image_edited(&state["adjustments"], is_raw, tonemapper)
 }
 
+/// A photograph marked for the Trash that must stay, and why.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Refused {
+    pub path: String,
+    pub reason: Refusal,
+}
+
 /// Checks the files again before the photographs in `trash` go to the
-/// Trash: returns those that no longer hold the same image data as a
-/// photograph of `keep` (empty: go ahead).
+/// Trash: returns those that must stay (no longer the image data of a
+/// photograph of `keep`, or a RAW+JPEG companion without a kept copy);
+/// empty: go ahead.
 #[tauri::command]
 pub async fn duplicates_confirm(
     directory: String,
     keep: Vec<String>,
     trash: Vec<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<Refused>, String> {
     with_library(directory, false, move |lib| {
         let paths = |paths: &[String]| -> Vec<PathBuf> {
             paths.iter().map(|p| parse_virtual_path(p).0).collect()
         };
-        let changed = lib
+        let refused = lib
             .confirm_duplicates(&paths(&keep), &paths(&trash))
             .map_err(|e| e.to_string())?;
         Ok(trash
             .into_iter()
-            .filter(|p| changed.contains(&parse_virtual_path(p).0))
+            .filter_map(|p| {
+                let source = parse_virtual_path(&p).0;
+                refused
+                    .iter()
+                    .find(|(path, _)| *path == source)
+                    .map(|(_, reason)| Refused {
+                        path: p,
+                        reason: *reason,
+                    })
+            })
             .collect())
     })
     .await

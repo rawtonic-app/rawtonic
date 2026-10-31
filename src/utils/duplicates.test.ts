@@ -12,6 +12,8 @@ const member = (path: string, part: Partial<DuplicateMember> = {}): DuplicateMem
   label: '',
   keywords: 0,
   copies: 0,
+  described: false,
+  companion: null,
   compared: 'tiff',
   edited: false,
   ...part,
@@ -19,7 +21,16 @@ const member = (path: string, part: Partial<DuplicateMember> = {}): DuplicateMem
 
 it('counts edits, culling, labels, keywords and virtual copies as work of its own', () => {
   expect(hasOwnWork(member('a'))).toBe(false);
-  for (const part of [{ edited: true }, { rating: 1 }, { flag: -1 }, { label: 'red' }, { keywords: 2 }, { copies: 1 }])
+  for (const part of [
+    { edited: true },
+    { rating: 1 },
+    { flag: -1 },
+    { label: 'red' },
+    { keywords: 2 },
+    { copies: 1 },
+    { described: true },
+    { companion: '/a.JPG' },
+  ])
     expect(hasOwnWork(member('a', part))).toBe(true);
 });
 

@@ -70,7 +70,9 @@ pub fn image_hash(path: &Path, cancel: &AtomicBool) -> Result<Option<String>> {
     let located = match sniff(head) {
         Some(Container::Jpeg) => jpeg(&mut file, &mut hash, cancel).map(|()| Container::Jpeg),
         Some(Container::Png) => png(&mut file, len, &mut hash, cancel).map(|()| Container::Png),
-        Some(kind) => ranges(&mut file, len, kind).and_then(|ranges| {
+        Some(kind) => layout(&mut file, len, kind).and_then(|(how, ranges)| {
+            hash.update((how.len() as u64).to_be_bytes());
+            hash.update(&how);
             hash_ranges(&mut file, &ranges, &mut hash, cancel)?;
             Ok(kind)
         }),
@@ -130,19 +132,28 @@ fn sniff(head: &[u8]) -> Option<Container> {
     }
 }
 
-/// Byte ranges (offset, length) of the image data, in file order as stored.
-fn ranges(file: &mut File, len: u64, kind: Container) -> Result<Vec<(u64, u64)>> {
-    let ranges = match kind {
-        Container::Tiff => tiff_ranges(file, len)?,
+/// How the image data decodes, and its byte ranges (offset, length).
+type Layout = (Vec<u8>, Vec<(u64, u64)>);
+
+/// How the image data is to be decoded (the layout facts stored apart from
+/// it: TIFF dimensions, sample layout and photometric tags, the RAF CFA
+/// header, the ISO media sample description), and its byte ranges (offset,
+/// length) in file order as stored. Both are hashed: the same bytes decoded
+/// another way are another image.
+fn layout(file: &mut File, len: u64, kind: Container) -> Result<Layout> {
+    let (how, ranges) = match kind {
+        Container::Tiff => tiff_layout(file, len)?,
         Container::Raf => {
             let mut header = [0u8; 108];
             file.seek(SeekFrom::Start(0))?;
             file.read_exact(&mut header)?;
             let be =
                 |at: usize| u64::from(u32::from_be_bytes(header[at..at + 4].try_into().unwrap()));
-            vec![(be(100), be(104))]
+            let (at, n) = (be(92), be(96));
+            ensure!(n <= 1 << 20 && at + n <= len, "CFA header outside the file");
+            (read_at(file, at, n as usize)?, vec![(be(100), be(104))])
         }
-        Container::Bmff => bmff_ranges(file, len)?,
+        Container::Bmff => bmff_layout(file, len)?,
         _ => bail!("not a range layout"),
     };
     ensure!(!ranges.is_empty(), "no image data");
@@ -152,7 +163,7 @@ fn ranges(file: &mut File, len: u64, kind: Container) -> Result<Vec<(u64, u64)>>
             "image data outside the file"
         );
     }
-    Ok(ranges)
+    Ok((how, ranges))
 }
 
 fn read_up_to(file: &mut File, offset: u64, buffer: &mut [u8]) -> Result<usize> {
@@ -208,9 +219,17 @@ const EXIF_IFD: u16 = 0x8769;
 /// Panasonic RW2: where the raw data starts.
 const RW2_RAW_OFFSET: u16 = 0x118;
 
-/// The strips or tiles of the IFD with the most image bytes in a TIFF
-/// layout.
-fn tiff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
+/// Tags that say how an IFD's strips or tiles decode: dimensions, sample
+/// layout, compression, photometric interpretation, strip/tile geometry,
+/// predictor, sample format, CFA pattern.
+const DECODING_TAGS: &[u16] = &[
+    0x100, 0x101, 0x102, 0x103, 0x106, 0x115, 0x116, 0x11C, 0x13D, 0x142, 0x143, 0x153, 0x828D,
+    0x828E,
+];
+
+/// The decoding tags and the strips or tiles of the IFD with the most image
+/// bytes in a TIFF layout.
+fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
     let head = read_at(file, 0, 8)?;
     let little = head[0] == b'I';
     let u16_at = |b: &[u8], at: usize| {
@@ -232,7 +251,7 @@ fn tiff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
     let rw2 = u16_at(&head, 2) == 0x55;
     let mut queue = vec![u64::from(u32_at(&head, 4))];
     let mut seen = std::collections::HashSet::new();
-    let mut best: Vec<(u64, u64)> = Vec::new();
+    let mut best: Layout = (Vec::new(), Vec::new());
     let mut best_total = 0u64;
     while let Some(ifd) = queue.pop() {
         if ifd == 0 || seen.len() >= 64 || !seen.insert(ifd) || ifd + 2 > len {
@@ -241,33 +260,38 @@ fn tiff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
         let count = usize::from(u16_at(&read_at(file, ifd, 2)?, 0));
         ensure!(count <= 4096, "implausible IFD");
         let entries = read_at(file, ifd + 2, count * 12 + 4)?;
+        // A field's values as numbers (rationals as their two parts), in
+        // the file's byte order whatever it is.
         let mut values = |at: usize| -> Result<Vec<u64>> {
             let kind = u16_at(&entries, at + 2);
             let n = u32_at(&entries, at + 4) as usize;
             ensure!(n <= 1 << 20, "implausible value count");
-            let size = match kind {
-                3 => 2,
-                4 | 13 => 4,
-                _ => bail!("offsets of type {kind}"),
+            let (size, parts) = match kind {
+                1 | 2 | 6 | 7 => (1, 1),
+                3 | 8 => (2, 1),
+                4 | 9 | 11 | 13 => (4, 1),
+                5 | 10 => (4, 2),
+                _ => bail!("values of type {kind}"),
             };
-            let data = if n * size <= 4 {
+            let bytes = n * size * parts;
+            let data = if bytes <= 4 {
                 entries[at + 8..at + 12].to_vec()
             } else {
-                read_at(file, u64::from(u32_at(&entries, at + 8)), n * size)?
+                read_at(file, u64::from(u32_at(&entries, at + 8)), bytes)?
             };
-            Ok((0..n)
-                .map(|i| {
-                    if size == 2 {
-                        u64::from(u16_at(&data, i * 2))
-                    } else {
-                        u64::from(u32_at(&data, i * 4))
-                    }
+            Ok((0..n * parts)
+                .map(|i| match size {
+                    1 => u64::from(data[i]),
+                    2 => u64::from(u16_at(&data, i * 2)),
+                    _ => u64::from(u32_at(&data, i * 4)),
                 })
                 .collect())
         };
         let mut offsets = Vec::new();
         let mut counts = Vec::new();
         let mut raw_offset = None;
+        // By tag, whatever order a writer put them in.
+        let mut decoding = std::collections::BTreeMap::new();
         for i in 0..count {
             let at = i * 12;
             match u16_at(&entries, at) {
@@ -275,6 +299,9 @@ fn tiff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
                 STRIP_BYTE_COUNTS | TILE_BYTE_COUNTS => counts = values(at)?,
                 RW2_RAW_OFFSET if rw2 => raw_offset = values(at)?.first().copied(),
                 SUB_IFDS | EXIF_IFD => queue.extend(values(at)?),
+                tag if DECODING_TAGS.contains(&tag) => {
+                    decoding.insert(tag, values(at)?);
+                }
                 _ => {}
             }
         }
@@ -293,7 +320,15 @@ fn tiff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
             let total: u64 = counts.iter().sum();
             if total > best_total {
                 best_total = total;
-                best = offsets.into_iter().zip(counts).collect();
+                let mut how = Vec::new();
+                for (tag, found) in decoding {
+                    how.extend(tag.to_be_bytes());
+                    how.extend((found.len() as u32).to_be_bytes());
+                    for value in found {
+                        how.extend(value.to_be_bytes());
+                    }
+                }
+                best = (how, offsets.into_iter().zip(counts).collect());
             }
         }
         queue.push(u64::from(u32_at(&entries, count * 12)));
@@ -301,13 +336,14 @@ fn tiff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
     Ok(best)
 }
 
-/// The samples of the track with the most bytes in an ISO media file.
-fn bmff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
+/// The sample description and samples of the track with the most bytes in
+/// an ISO media file.
+fn bmff_layout(file: &mut File, len: u64) -> Result<Layout> {
     let moov = boxes(file, 0, len)?
         .into_iter()
         .find(|b| &b.kind == b"moov")
         .context("no moov")?;
-    let mut best: Vec<(u64, u64)> = Vec::new();
+    let mut best: Layout = (Vec::new(), Vec::new());
     let mut best_total = 0;
     for trak in boxes(file, moov.body, moov.end)? {
         if &trak.kind != b"trak" {
@@ -320,7 +356,16 @@ fn bmff_ranges(file: &mut File, len: u64) -> Result<Vec<(u64, u64)>> {
         let total: u64 = samples.iter().map(|s| s.1).sum();
         if total > best_total {
             best_total = total;
-            best = samples;
+            let description = match boxes(file, stbl.body, stbl.end)?
+                .into_iter()
+                .find(|b| &b.kind == b"stsd")
+            {
+                Some(b) if b.end - b.body <= 1 << 20 => {
+                    read_at(file, b.body, (b.end - b.body) as usize)?
+                }
+                _ => Vec::new(),
+            };
+            best = (description, samples);
         }
     }
     Ok(best)
@@ -591,6 +636,18 @@ mod tests {
     /// `exif` as its text, a SubIFD) and the SubIFD's raw strips; `pad`
     /// bytes of padding before the raw data move it, as a metadata edit can.
     fn tiff(raw: &[&[u8]], exif: &[u8], pad: usize) -> Vec<u8> {
+        tiff_as(raw, exif, pad, 1, false)
+    }
+
+    /// `tiff` with the raw IFD's PhotometricInterpretation, and its
+    /// RowsPerStrip first or last (writers order tags differently).
+    fn tiff_as(
+        raw: &[&[u8]],
+        exif: &[u8],
+        pad: usize,
+        photometric: u16,
+        rows_last: bool,
+    ) -> Vec<u8> {
         let mut out = b"II*\0".to_vec();
         out.extend(8u32.to_le_bytes());
         let entry = |out: &mut Vec<u8>, tag: u16, kind: u16, n: u32, value: u32| {
@@ -607,7 +664,7 @@ mod tests {
         let exif_ifd_len = 2 + 12 + 4;
         let exif_text_at = exif_ifd_at + exif_ifd_len;
         let sub_at = exif_text_at + exif.len();
-        let sub_len = 2 + 2 * 12 + 4;
+        let sub_len = 2 + 4 * 12 + 4;
         let arrays_at = sub_at + sub_len;
         let data_at = arrays_at + raw.len() * 8 + pad;
         out.extend(4u16.to_le_bytes());
@@ -621,7 +678,11 @@ mod tests {
         entry(&mut out, 0x9286, 7, exif.len() as u32, exif_text_at as u32);
         out.extend(0u32.to_le_bytes());
         out.extend(exif);
-        out.extend(2u16.to_le_bytes());
+        out.extend(4u16.to_le_bytes());
+        if !rows_last {
+            entry(&mut out, 0x116, 4, 1, 64);
+        }
+        entry(&mut out, 0x106, 3, 1, u32::from(photometric));
         let (offsets_at, counts_at) = (arrays_at, arrays_at + raw.len() * 4);
         let one = raw.len() == 1;
         entry(
@@ -646,6 +707,9 @@ mod tests {
                 counts_at as u32
             },
         );
+        if rows_last {
+            entry(&mut out, 0x116, 4, 1, 64);
+        }
         out.extend(0u32.to_le_bytes());
         let mut at = data_at;
         for strip in raw {
@@ -689,6 +753,16 @@ mod tests {
         assert_ne!(hash(&original), hash(&different));
         let single = write(dir.path(), "d.nef", &tiff(&[&sensor], b"x", 3));
         assert!(hash(&single).starts_with("1:tiff:"));
+        // The same bytes decoded another way (black is zero instead of
+        // white) are another image.
+        let inverted = write(
+            dir.path(),
+            "e.tif",
+            &tiff_as(&[a, b], b"rating 0", 0, 0, false),
+        );
+        assert_ne!(hash(&original), hash(&inverted));
+        let reordered = write(dir.path(), "f.dng", &tiff_as(&[a, b], b"x", 5, 1, true));
+        assert_eq!(hash(&original), hash(&reordered));
     }
 
     fn jpeg_file(app: &[u8], scan: &[u8], trailer: &[u8]) -> Vec<u8> {
@@ -726,15 +800,27 @@ mod tests {
     }
 
     fn raf(cfa: &[u8], jpeg: &[u8]) -> Vec<u8> {
+        raf_with(cfa, jpeg, b"6000x4000")
+    }
+
+    /// `raf` with `header` as its CFA header (dimensions and layout).
+    fn raf_with(cfa: &[u8], jpeg: &[u8], header: &[u8]) -> Vec<u8> {
         let mut out = b"FUJIFILMCCD-RAW 0201FF383501".to_vec();
         out.resize(108, 0);
         let jpeg_at = 108;
-        let cfa_at = jpeg_at + jpeg.len();
-        out[84..88].copy_from_slice(&(jpeg_at as u32).to_be_bytes());
-        out[88..92].copy_from_slice(&(jpeg.len() as u32).to_be_bytes());
-        out[100..104].copy_from_slice(&(cfa_at as u32).to_be_bytes());
-        out[104..108].copy_from_slice(&(cfa.len() as u32).to_be_bytes());
+        let header_at = jpeg_at + jpeg.len();
+        let cfa_at = header_at + header.len();
+        let mut put = |at: usize, value: usize| {
+            out[at..at + 4].copy_from_slice(&(value as u32).to_be_bytes())
+        };
+        put(84, jpeg_at);
+        put(88, jpeg.len());
+        put(92, header_at);
+        put(96, header.len());
+        put(100, cfa_at);
+        put(104, cfa.len());
         out.extend(jpeg);
+        out.extend(header);
         out.extend(cfa);
         out
     }
@@ -760,6 +846,12 @@ mod tests {
         assert!(hash(&a).starts_with("1:raf:"));
         assert_eq!(hash(&a), hash(&b));
         assert_ne!(hash(&a), hash(&c));
+        let d = write(
+            dir.path(),
+            "d.raf",
+            &raf_with(b"sensor data", b"preview with exif", b"4000x6000"),
+        );
+        assert_ne!(hash(&a), hash(&d));
     }
 
     fn bx(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
@@ -772,6 +864,11 @@ mod tests {
     /// An ISO media file: ftyp, a metadata box of `meta` bytes, moov with
     /// two one-sample tracks (a preview and the raw), then mdat.
     fn cr3(raw: &[u8], meta: &[u8]) -> Vec<u8> {
+        cr3_with(raw, meta, b"CRAW 6000x4000")
+    }
+
+    /// `cr3` with `description` as each track's sample description.
+    fn cr3_with(raw: &[u8], meta: &[u8], description: &[u8]) -> Vec<u8> {
         let preview = b"small preview";
         let ftyp = bx(b"ftyp", b"crx \0\0\0\x01");
         let uuid = bx(b"uuid", meta);
@@ -783,7 +880,15 @@ mod tests {
             let mut stco = vec![0; 4];
             stco.extend(1u32.to_be_bytes());
             stco.extend(offset.to_be_bytes());
-            let stbl = bx(b"stbl", &[bx(b"stsz", &stsz), bx(b"stco", &stco)].concat());
+            let stbl = bx(
+                b"stbl",
+                &[
+                    bx(b"stsd", description),
+                    bx(b"stsz", &stsz),
+                    bx(b"stco", &stco),
+                ]
+                .concat(),
+            );
             bx(b"trak", &bx(b"mdia", &bx(b"minf", &stbl)))
         };
         // Lengths do not depend on the offsets: lay out once to measure.
@@ -816,6 +921,12 @@ mod tests {
         assert!(hash(&a).starts_with("1:bmff:"));
         assert_eq!(hash(&a), hash(&b));
         assert_ne!(hash(&a), hash(&c));
+        let other_size = write(
+            dir.path(),
+            "d.cr3",
+            &cr3_with(&raw, b"CMT1 rating 0", b"CRAW 4000x6000"),
+        );
+        assert_ne!(hash(&a), hash(&other_size));
     }
 
     fn png_file(text: &[u8], data: &[u8]) -> Vec<u8> {

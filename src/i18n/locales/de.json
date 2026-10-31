@@ -637,8 +637,10 @@
   },
   "duplicates": {
     "badges": {
+      "companion": "Gepaartes JPEG {{name}}",
       "copies_one": "{{count}} virtuelle Kopie",
       "copies_other": "{{count}} virtuelle Kopien",
+      "described": "Titel, Beschreibung oder IPTC",
       "edited": "Bearbeitet",
       "keywords_one": "{{count}} Stichwort",
       "keywords_other": "{{count}} Stichwörter",
@@ -651,6 +653,8 @@
     "changed_one": "{{count}} Foto hat sich seit dem Vergleich geändert, daher wurde nichts verschoben. Erneut verglichen.",
     "changed_other": "{{count}} Fotos haben sich seit dem Vergleich geändert, daher wurde nichts verschoben. Erneut verglichen.",
     "close": "Schließen",
+    "companionKept_one": "{{count}} Foto bleibt: Zu seinem gepaarten JPEG bleibt keine identische Kopie, daher wurde nichts verschoben.",
+    "companionKept_other": "{{count}} Fotos bleiben: Zu ihren gepaarten JPEGs bleibt keine identische Kopie, daher wurde nichts verschoben.",
     "comparedFile": "ganze Dateien verglichen",
     "comparedImage": "Bilddaten verglichen",
     "failed": "Duplikatsuche fehlgeschlagen: {{error}}",
@@ -668,7 +672,7 @@
     "readingStart": "Bilddaten werden verglichen…",
     "stop": "Stoppen",
     "stopped": "Gestoppt: Nur die bisher verglichenen Fotos sind gruppiert.",
-    "suggestion": "Für den Papierkorb vorgeschlagen: Fotos ohne eigene Bearbeitungen, Bewertung, Markierung, Farbe, Stichwörter oder virtuelle Kopien. Jedes Foto mit solcher Arbeit bleibt; sonst bleibt der älteste Import. Nichts wird zusammengeführt.",
+    "suggestion": "Für den Papierkorb vorgeschlagen: Fotos ohne eigene Bearbeitungen, Bewertung, Markierung, Farbe, Stichwörter, Titel oder Beschreibung, virtuelle Kopien oder gepaartes JPEG. Jedes Foto mit solcher Arbeit bleibt; sonst bleibt der älteste Import. Nichts wird zusammengeführt.",
     "summary_one": "{{count}} Duplikatgruppe ({{photos}} Fotos)",
     "summary_other": "{{count}} Duplikatgruppen ({{photos}} Fotos)",
     "title": "Duplikate suchen",

@@ -630,8 +630,10 @@
   },
   "duplicates": {
     "badges": {
+      "companion": "짝 JPEG {{name}}",
       "copies_one": "가상 복사본 {{count}}개",
       "copies_other": "가상 복사본 {{count}}개",
+      "described": "제목, 캡션 또는 IPTC",
       "edited": "편집됨",
       "keywords_one": "키워드 {{count}}개",
       "keywords_other": "키워드 {{count}}개",
@@ -644,6 +646,8 @@
     "changed_one": "사진 {{count}}장이 비교 후 변경되어 아무것도 이동하지 않았습니다. 다시 비교했습니다.",
     "changed_other": "사진 {{count}}장이 비교 후 변경되어 아무것도 이동하지 않았습니다. 다시 비교했습니다.",
     "close": "닫기",
+    "companionKept_one": "사진 {{count}}장은 남습니다: 짝 JPEG와 동일한 사본이 남지 않아 아무것도 이동하지 않았습니다.",
+    "companionKept_other": "사진 {{count}}장은 남습니다: 짝 JPEG와 동일한 사본이 남지 않아 아무것도 이동하지 않았습니다.",
     "comparedFile": "파일 전체 비교",
     "comparedImage": "이미지 데이터 비교",
     "failed": "중복 찾기 실패: {{error}}",
@@ -661,7 +665,7 @@
     "readingStart": "이미지 데이터 비교 중…",
     "stop": "중지",
     "stopped": "중지됨: 지금까지 비교한 사진만 그룹으로 묶었습니다.",
-    "suggestion": "휴지통으로 제안: 자체 편집, 별점, 플래그, 색상 레이블, 키워드, 가상 복사본이 없는 사진. 그런 작업이 있는 사진은 모두 유지하며, 없으면 가장 오래된 가져오기를 유지합니다. 아무것도 병합하지 않습니다.",
+    "suggestion": "휴지통으로 제안: 자체 편집, 별점, 플래그, 색상 레이블, 키워드, 제목이나 캡션, 가상 복사본, 짝 JPEG가 없는 사진. 그런 작업이 있는 사진은 모두 유지하며, 없으면 가장 오래된 가져오기를 유지합니다. 아무것도 병합하지 않습니다.",
     "summary_one": "중복 그룹 {{count}}개(사진 {{photos}}장)",
     "summary_other": "중복 그룹 {{count}}개(사진 {{photos}}장)",
     "title": "중복 찾기",

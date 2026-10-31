@@ -637,8 +637,10 @@
   },
   "duplicates": {
     "badges": {
+      "companion": "Paired JPEG {{name}}",
       "copies_one": "{{count}} virtual copy",
       "copies_other": "{{count}} virtual copies",
+      "described": "Title, caption or IPTC",
       "edited": "Edited",
       "keywords_one": "{{count}} keyword",
       "keywords_other": "{{count}} keywords",
@@ -651,6 +653,8 @@
     "changed_one": "{{count}} photo changed since it was compared, so nothing was moved. Compared again.",
     "changed_other": "{{count}} photos changed since they were compared, so nothing was moved. Compared again.",
     "close": "Close",
+    "companionKept_one": "{{count}} photo stays: its paired JPEG has no identical copy that stays, so nothing was moved.",
+    "companionKept_other": "{{count}} photos stay: their paired JPEGs have no identical copy that stays, so nothing was moved.",
     "comparedFile": "whole files compared",
     "comparedImage": "image data compared",
     "failed": "Finding duplicates failed: {{error}}",
@@ -668,7 +672,7 @@
     "readingStart": "Comparing image data…",
     "stop": "Stop",
     "stopped": "Stopped: only the photos compared so far are grouped.",
-    "suggestion": "Suggested for the Trash: photos without edits, rating, flag, label, keywords or virtual copies of their own. Every photo with such work is kept; otherwise the oldest import is kept. Nothing is merged.",
+    "suggestion": "Suggested for the Trash: photos without edits, rating, flag, label, keywords, title or caption, virtual copies or a paired JPEG of their own. Every photo with such work is kept; otherwise the oldest import is kept. Nothing is merged.",
     "summary_one": "{{count}} group of duplicates ({{photos}} photos)",
     "summary_other": "{{count}} groups of duplicates ({{photos}} photos)",
     "title": "Find Duplicates",

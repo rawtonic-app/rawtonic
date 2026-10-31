@@ -73,9 +73,25 @@ pub struct DuplicateMember {
     pub keywords: usize,
     /// Virtual copies of it.
     pub copies: usize,
+    /// It has a title, caption, creator, copyright or IPTC field.
+    pub described: bool,
+    /// Its RAW+JPEG companion, which goes to the Trash with it.
+    pub companion: Option<PathBuf>,
     /// What part of the file was compared (`image_hash::Container` name):
     /// `file` means the whole file.
     pub compared: String,
+}
+
+/// Why a photograph marked for the Trash must stay (`confirm_duplicates`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Refusal {
+    /// Its image data is no longer that of a kept photograph (its file, or
+    /// the kept one's, changed or went).
+    Changed,
+    /// Its RAW+JPEG companion would go with it, and no kept photograph's
+    /// companion holds the same image data.
+    Companion,
 }
 
 /// A photograph to hash: its id, file and the stamp the file has now.
@@ -223,7 +239,7 @@ impl Library {
                       WHERE i.asset_id=a.id),
                     m.rating,m.flag,m.label,m.data,
                     (SELECT count(*) FROM versions v WHERE v.asset_id=a.id AND v.is_primary=0),
-                    h.hash,h.size,h.mtime
+                    h.hash,h.size,h.mtime,a.raw_jpeg_pair
              FROM assets a JOIN roots r ON r.id=a.root_id JOIN metadata m ON m.asset_id=a.id
              JOIN image_hashes h ON h.asset_id=a.id
              WHERE a.missing=0 AND {visible} AND h.hash IN (
@@ -234,25 +250,39 @@ impl Library {
         ))?;
         let rows = query.query_map([], |r| {
             let data: String = r.get(10)?;
-            let keywords = serde_json::from_str::<serde_json::Value>(&data)
-                .ok()
-                .and_then(|d| d.get("keywords").and_then(|k| k.as_array()).map(Vec::len))
-                .unwrap_or(0);
+            let metadata: rawtonic_metadata::Metadata =
+                serde_json::from_str(&data).unwrap_or_default();
+            let described = [
+                &metadata.title,
+                &metadata.description,
+                &metadata.creator,
+                &metadata.copyright,
+            ]
+            .iter()
+            .any(|text| !text.trim().is_empty())
+                || metadata.iptc.values().any(|text| !text.trim().is_empty());
             let hash: String = r.get(12)?;
+            let path = self.row_path(r.get(1)?, r.get(2)?, r.get(3)?);
+            let companion = r
+                .get::<_, Option<String>>(15)?
+                .and_then(|name| path.parent().map(|folder| folder.join(name)))
+                .filter(|companion| companion.is_file());
             Ok((
                 hash.clone(),
                 (r.get::<_, i64>(13)?, r.get::<_, i64>(14)?),
                 DuplicateMember {
                     id: r.get(0)?,
-                    path: self.row_path(r.get(1)?, r.get(2)?, r.get(3)?),
+                    path,
                     size: r.get::<_, i64>(4)? as u64,
                     captured: r.get(5)?,
                     imported: r.get(6)?,
                     rating: r.get(7)?,
                     flag: r.get(8)?,
                     label: r.get(9)?,
-                    keywords,
+                    keywords: metadata.keywords.len(),
                     copies: r.get::<_, i64>(11)? as usize,
+                    described,
+                    companion,
                     compared: hash.split(':').nth(1).unwrap_or_default().to_string(),
                 },
             ))
@@ -292,25 +322,61 @@ impl Library {
 
     /// Before photographs marked in a review are trashed: reads the image
     /// data of each group's photographs again (recorded hashes are used
-    /// while their files are unchanged) and returns the paths of those in
-    /// `trash` that no longer hold the same image data as a present
-    /// photograph of `keep` (empty: all still duplicates). A group whose
-    /// kept photographs are all gone fails as a whole.
-    pub fn confirm_duplicates(&self, keep: &[PathBuf], trash: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    /// while their files are unchanged) and returns those of `trash` that
+    /// must stay, with why (empty: all may go). A photograph goes only while
+    /// a present photograph of `keep` holds the same image data, and, when
+    /// it has a RAW+JPEG companion (trashed with it), while a kept
+    /// photograph's companion holds that JPEG's image data.
+    pub fn confirm_duplicates(
+        &self,
+        keep: &[PathBuf],
+        trash: &[PathBuf],
+    ) -> Result<Vec<(PathBuf, Refusal)>> {
         let mut kept = std::collections::HashSet::new();
+        let mut kept_companions = std::collections::HashSet::new();
         for path in keep {
             if let Some(hash) = self.image_hash_now(path)? {
                 kept.insert(hash);
             }
+            if let Some(companion) = self.companion_at(path)?
+                && let Some(hash) = image_hash(&companion, &AtomicBool::new(false))?
+            {
+                kept_companions.insert(hash);
+            }
         }
-        let mut changed = Vec::new();
+        let mut refused = Vec::new();
         for path in trash {
             match self.image_hash_now(path)? {
                 Some(hash) if kept.contains(&hash) => {}
-                _ => changed.push(path.clone()),
+                _ => {
+                    refused.push((path.clone(), Refusal::Changed));
+                    continue;
+                }
+            }
+            if let Some(companion) = self.companion_at(path)? {
+                match image_hash(&companion, &AtomicBool::new(false))? {
+                    Some(hash) if kept_companions.contains(&hash) => {}
+                    _ => refused.push((path.clone(), Refusal::Companion)),
+                }
             }
         }
-        Ok(changed)
+        Ok(refused)
+    }
+
+    /// The RAW+JPEG companion file of the photograph at `path`, if it has
+    /// one and the file is there.
+    fn companion_at(&self, path: &Path) -> Result<Option<PathBuf>> {
+        let Some(asset) = self.asset_at(path)? else {
+            return Ok(None);
+        };
+        let name: Option<String> = self.conn.query_row(
+            "SELECT raw_jpeg_pair FROM assets WHERE id=?",
+            [&asset.id],
+            |r| r.get(0),
+        )?;
+        Ok(name
+            .and_then(|name| asset.path.parent().map(|folder| folder.join(name)))
+            .filter(|companion| companion.is_file()))
     }
 
     /// The image hash of the photograph at `path` as its file is now: the
