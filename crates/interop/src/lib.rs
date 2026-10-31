@@ -19,6 +19,7 @@ use std::{
 
 pub mod capture_one;
 pub mod lightroom;
+pub mod lightroom_settings;
 
 /// The develop settings of a photograph, in its editor's own form.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -53,6 +54,45 @@ pub struct Album {
     /// A collection set / album group, holding albums rather than photos.
     pub is_group: bool,
     pub photos: Vec<String>,
+    /// A smart collection: its rules, as the editor states them (the app
+    /// translates them into a smart album's rules).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smart: Option<SmartRules>,
+}
+
+/// A smart collection's rules in Lightroom's terms
+/// (`AgLibraryCollectionContent`: `s = { { criteria = "rating",
+/// operation = ">=", value = 4 }, combine = "intersect" }`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartRules {
+    /// `intersect` (all), `union` (any) or `exclude` (none).
+    pub combine: String,
+    pub rules: Vec<SmartRule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", untagged)]
+pub enum SmartRule {
+    Group(SmartRules),
+    Condition {
+        criteria: String,
+        operation: String,
+        value: SmartValue,
+        /// The range's end (`operation = "in"`).
+        value2: SmartValue,
+        /// `days`, `weeks`, `months`, `years` (`inLast`).
+        units: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum SmartValue {
+    None,
+    Bool(bool),
+    Number(f64),
+    Text(String),
 }
 
 /// What a reader found but does not bring over.

@@ -1,6 +1,6 @@
 //! Both readers against small libraries built with the tables and columns
 //! of real ones (Lightroom Classic 14 catalog schema, Capture One 16 session).
-use rawtonic_interop::{Develop, capture_one, lightroom};
+use rawtonic_interop::{Develop, SmartRule, SmartRules, SmartValue, capture_one, lightroom};
 use rusqlite::Connection;
 use std::{fs, path::Path};
 
@@ -120,6 +120,132 @@ fn lightroom_photos_metadata_settings_and_collections() {
     assert_eq!(lib.relink(&photos, &moved), 3);
     assert_eq!(lib.roots()[0].found, 1);
     assert_eq!(lib.photos[1].path, moved.join("2026/B.NEF"));
+}
+
+/// Lightroom Classic 15 keeps develop settings only as a Lua table in
+/// `Adobe_imageDevelopSettings.text` (its XMP packet holds the metadata);
+/// `hasDevelopAdjustmentsEx = -1` marks a photo at its defaults.
+#[test]
+fn lightroom_15_settings_come_from_the_settings_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = lightroom_catalog(dir.path(), dir.path());
+    let conn = Connection::open(&cat).unwrap();
+    conn.execute_batch(
+        r#"INSERT INTO AgLibraryFile VALUES(4,'c',"C",'ORF',1),(5,'d',"D",'ORF',1);
+           INSERT INTO Adobe_images VALUES(4,'i4',NULL,'',NULL,NULL,0,0,4),(5,'i5',NULL,'',NULL,NULL,0,0,5),
+                                          (6,'i6',NULL,'',"Black and white",4,0,0,4);
+           INSERT INTO Adobe_imageDevelopSettings VALUES
+             (4,NULL,1.0,4,'s = { ConvertToGrayscale = false,
+Exposure2012 = 0.3,
+ToneCurvePV2012 = { 0,
+0,
+64,
+56,
+255,
+255 } }'),
+             (5,NULL,-1.0,5,'s = { Exposure2012 = 0 }'),
+             (6,NULL,1.0,6,'s = { ConvertToGrayscale = true }');"#,
+    )
+    .unwrap();
+    // Lightroom Classic 15 keeps the XMP packet as a blob: its length
+    // (4 bytes, big-endian), then zlib.
+    let packet = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt><rdf:li xml:lang="x-default">Hochzeit Müller</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+    let mut blob = (packet.len() as u32).to_be_bytes().to_vec();
+    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut z, packet.as_bytes()).unwrap();
+    blob.extend(z.finish().unwrap());
+    conn.execute(
+        "INSERT INTO Adobe_AdditionalMetadata VALUES(4,'x4',4,?)",
+        [blob],
+    )
+    .unwrap();
+    drop(conn);
+    let lib = lightroom::read(&cat).unwrap();
+    let develop = |key: &str| {
+        lib.photos
+            .iter()
+            .find(|p| p.key == key)
+            .unwrap()
+            .develop
+            .clone()
+    };
+    let Develop::LightroomXmp(xmp) = develop("4") else {
+        panic!("no settings");
+    };
+    assert!(xmp.contains(r#"crs:Exposure2012="0.3""#), "{xmp}");
+    assert!(xmp.contains("<rdf:li>64, 56</rdf:li>"), "{xmp}");
+    assert_eq!(develop("5"), Develop::None, "at its defaults");
+    let c = lib.photos.iter().find(|p| p.key == "4").unwrap();
+    assert_eq!(c.metadata.title, "Hochzeit Müller", "compressed XMP packet");
+    assert!(
+        matches!(develop("6"), Develop::LightroomXmp(x) if x.contains(r#"crs:ConvertToGrayscale="true""#)),
+        "a virtual copy keeps its own settings"
+    );
+}
+
+/// Smart collections carry their rules; one whose rules cannot be read is
+/// counted, and a set left empty goes.
+#[test]
+fn lightroom_smart_collections_carry_their_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = lightroom_catalog(dir.path(), dir.path());
+    let conn = Connection::open(&cat).unwrap();
+    conn.execute_batch(
+        r#"CREATE TABLE AgLibraryCollectionContent (id_local INTEGER PRIMARY KEY, collection INTEGER NOT NULL DEFAULT 0,
+             content, owningModule);
+           INSERT INTO AgLibraryCollectionContent VALUES(1,12,'s = {
+	{
+		criteria = "rating",
+		operation = ">=",
+		value = 5,
+	},
+	{
+		{
+			criteria = "captureTime",
+			operation = "in",
+			value = "2010-01-01",
+			value2 = "2020-12-31",
+		},
+		combine = "union",
+	},
+	combine = "intersect",
+}','ag.library.smart_collection'),(2,14,'garbage','ag.library.smart_collection');"#,
+    )
+    .unwrap();
+    drop(conn);
+    let lib = lightroom::read(&cat).unwrap();
+    let five = lib.albums.iter().find(|a| a.name == "Five stars").unwrap();
+    assert_eq!(
+        five.smart,
+        Some(SmartRules {
+            combine: "intersect".into(),
+            rules: vec![
+                SmartRule::Condition {
+                    criteria: "rating".into(),
+                    operation: ">=".into(),
+                    value: SmartValue::Number(5.0),
+                    value2: SmartValue::None,
+                    units: None,
+                },
+                SmartRule::Group(SmartRules {
+                    combine: "union".into(),
+                    rules: vec![SmartRule::Condition {
+                        criteria: "captureTime".into(),
+                        operation: "in".into(),
+                        value: SmartValue::Text("2010-01-01".into()),
+                        value2: SmartValue::Text("2020-12-31".into()),
+                        units: None,
+                    }],
+                }),
+            ],
+        })
+    );
+    assert_eq!(lib.not_read.smart_albums, 1);
+    assert!(
+        !lib.albums
+            .iter()
+            .any(|a| a.name == "Smart only" || a.name == "Recent")
+    );
 }
 
 #[test]

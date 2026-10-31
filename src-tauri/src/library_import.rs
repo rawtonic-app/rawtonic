@@ -6,8 +6,10 @@
 //! Capture One style entries → `costyle`), and registers photographs,
 //! metadata, edits and albums in the open Rawtonic catalog. Nothing is
 //! written next to the photographs: no sidecars, no XMP.
-use rawtonic_catalog::{ALBUM, GROUP, Library, Mode};
-use rawtonic_interop::{Develop, Library as Source, NotRead, Photo, Root};
+use rawtonic_catalog::{ALBUM, Combine, Field, GROUP, Library, Mode, Op, Rule, SMART};
+use rawtonic_interop::{
+    Develop, Library as Source, NotRead, Photo, Root, SmartRule, SmartRules, SmartValue,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -78,10 +80,157 @@ fn preview(source: &Source, kind: &'static str) -> ImportPreview {
         edited: originals()
             .filter(|p| !matches!(p.develop, Develop::None))
             .count(),
-        albums: source.albums.iter().filter(|a| !a.is_group).count(),
+        albums: source
+            .albums
+            .iter()
+            .filter(|a| !a.is_group && a.smart.as_ref().is_none_or(|s| smart_rule(s).is_some()))
+            .count(),
         roots: source.roots(),
-        not_read: source.not_read.clone(),
+        not_read: NotRead {
+            smart_albums: source.not_read.smart_albums
+                + source
+                    .albums
+                    .iter()
+                    .filter(|a| a.smart.as_ref().is_some_and(|s| smart_rule(s).is_none()))
+                    .count(),
+            ..source.not_read.clone()
+        },
     }
+}
+
+/// A smart album's rules for a Lightroom smart collection's, or `None`
+/// when one of its criteria has no counterpart (the collection is then
+/// left out rather than shown with other photographs).
+pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
+    let combine = match rules.combine.as_str() {
+        "intersect" => Combine::All,
+        "union" => Combine::Any,
+        "exclude" => Combine::None,
+        _ => return None,
+    };
+    let rules = rules
+        .rules
+        .iter()
+        .map(|rule| match rule {
+            SmartRule::Group(group) => smart_rule(group),
+            SmartRule::Condition {
+                criteria,
+                operation,
+                value,
+                value2,
+                units,
+            } => smart_condition(criteria, operation, value, value2, units.as_deref()),
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(Rule::Group { combine, rules })
+}
+
+fn smart_condition(
+    criteria: &str,
+    operation: &str,
+    value: &SmartValue,
+    value2: &SmartValue,
+    units: Option<&str>,
+) -> Option<Rule> {
+    let number = |v: &SmartValue| match v {
+        SmartValue::Number(n) => Some(*n),
+        _ => None,
+    };
+    let text = |v: &SmartValue| match v {
+        SmartValue::Text(t) => Some(t.clone()),
+        _ => None,
+    };
+    let compare = |op: &str| match op {
+        "==" => Some(Op::Is),
+        "!=" => Some(Op::IsNot),
+        ">" => Some(Op::Gt),
+        ">=" => Some(Op::Ge),
+        "<" => Some(Op::Lt),
+        "<=" => Some(Op::Le),
+        _ => None,
+    };
+    let (field, op, value) = match criteria {
+        "rating" => (Field::Rating, compare(operation)?, json!(number(value)?)),
+        "pick" => {
+            let flag = match number(value)? as i64 {
+                1 => "picked",
+                0 => "unflagged",
+                -1 => "rejected",
+                _ => return None,
+            };
+            let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
+            (Field::Flag, op, json!(flag))
+        }
+        "labelColor" => {
+            let label = match number(value)? as i64 {
+                1 => "red",
+                2 => "yellow",
+                3 => "green",
+                4 => "blue",
+                5 => "purple",
+                _ => return None,
+            };
+            let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
+            (Field::Label, op, json!(label))
+        }
+        "keywords" => {
+            let op = match operation {
+                "any" => Op::ContainsAny,
+                "all" | "words" => Op::Contains,
+                "noneOf" => Op::NotContains,
+                "beginsWith" => Op::StartsWith,
+                "endsWith" => Op::EndsWith,
+                "empty" => Op::Empty,
+                "notEmpty" => Op::NotEmpty,
+                _ => return None,
+            };
+            let value = match op {
+                Op::Empty | Op::NotEmpty => Value::Null,
+                _ => json!(text(value)?),
+            };
+            (Field::Keyword, op, value)
+        }
+        "captureTime" => match operation {
+            "in" => (
+                Field::CaptureDate,
+                Op::Between,
+                json!([text(value)?, text(value2)?]),
+            ),
+            "inLast" | "notInLast" => {
+                let unit = units?;
+                if !matches!(unit, "days" | "weeks" | "months" | "years") {
+                    return None;
+                }
+                let op = if operation == "inLast" {
+                    Op::InLast
+                } else {
+                    Op::NotInLast
+                };
+                let amount = number(value)?;
+                (
+                    Field::CaptureDate,
+                    op,
+                    json!({"amount": amount as u64, "unit": unit}),
+                )
+            }
+            _ => (Field::CaptureDate, compare(operation)?, json!(text(value)?)),
+        },
+        "fileFormat" => {
+            let kind = match text(value)?.as_str() {
+                "RAW" => "raw",
+                "DNG" => "dng",
+                "JPG" => "jpeg",
+                "TIFF" => "tiff",
+                "PNG" => "png",
+                "HEIC" => "heif",
+                _ => return None,
+            };
+            let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
+            (Field::FileType, op, json!(kind))
+        }
+        _ => return None,
+    };
+    Some(Rule::Condition { field, op, value })
 }
 
 fn escape(text: &str) -> String {
@@ -164,20 +313,49 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 },
                 None => None,
             };
-            let kind = if album.is_group { GROUP } else { ALBUM };
-            let id = match existing
-                .iter()
-                .find(|c| c.name == album.name && c.parent == parent && c.kind == kind)
-            {
-                Some(c) => c.id.clone(),
-                None => {
-                    catalog
-                        .create_collection_of_kind(&album.name, parent.as_deref(), kind)
-                        .map_err(|e| e.to_string())?
-                        .id
-                }
+            let smart = match &album.smart {
+                Some(rules) => match smart_rule(rules) {
+                    Some(rule) => Some(rule),
+                    // Announced in the preview as not imported.
+                    None => continue,
+                },
+                None => None,
             };
-            if !album.is_group {
+            let kind = if album.is_group {
+                GROUP
+            } else if smart.is_some() {
+                SMART
+            } else {
+                ALBUM
+            };
+            // A smart album is reused only with the same rules: one of the
+            // same name with other rules (changed in Lightroom since the
+            // last import, or made here) stays as it is beside a new one.
+            let id = match existing.iter().find(|c| {
+                c.name == album.name
+                    && c.parent == parent
+                    && c.kind == kind
+                    && (smart.is_none() || c.rules.as_ref() == smart.as_ref())
+            }) {
+                Some(c) => c.id.clone(),
+                None => match &smart {
+                    Some(rule) => {
+                        catalog
+                            .create_smart_collection(&album.name, parent.as_deref(), rule)
+                            .map_err(|e| e.to_string())?
+                            .id
+                    }
+                    None => {
+                        catalog
+                            .create_collection_of_kind(&album.name, parent.as_deref(), kind)
+                            .map_err(|e| e.to_string())?
+                            .id
+                    }
+                },
+            };
+            if smart.is_some() {
+                report.albums += 1;
+            } else if !album.is_group {
                 let members: Vec<String> = album
                     .photos
                     .iter()
@@ -395,6 +573,7 @@ mod tests {
                     parent: None,
                     is_group: true,
                     photos: vec![],
+                    smart: None,
                 },
                 Album {
                     key: "11".into(),
@@ -402,10 +581,39 @@ mod tests {
                     parent: Some("10".into()),
                     is_group: false,
                     photos: vec!["1".into(), "3".into()],
+                    smart: None,
+                },
+                Album {
+                    key: "12".into(),
+                    name: "Best picks".into(),
+                    parent: Some("10".into()),
+                    is_group: false,
+                    photos: vec![],
+                    smart: Some(SmartRules {
+                        combine: "intersect".into(),
+                        rules: vec![
+                            condition("rating", ">=", SmartValue::Number(4.0)),
+                            condition("pick", "==", SmartValue::Number(1.0)),
+                        ],
+                    }),
+                },
+                // Edit time has no counterpart: left out, announced.
+                Album {
+                    key: "13".into(),
+                    name: "Recently edited".into(),
+                    parent: None,
+                    is_group: false,
+                    photos: vec![],
+                    smart: Some(SmartRules {
+                        combine: "intersect".into(),
+                        rules: vec![condition("touchTime", "inLast", SmartValue::Number(2.0))],
+                    }),
                 },
             ],
             not_read: NotRead::default(),
         };
+        let shown = preview(&source, "lightroom");
+        assert_eq!((shown.albums, shown.not_read.smart_albums), (2, 1));
         let report = import_into(&catalog, &source).unwrap();
         assert_eq!(
             (
@@ -415,7 +623,7 @@ mod tests {
                 report.copies_skipped,
                 report.albums
             ),
-            (1, 1, 1, 1, 1)
+            (1, 1, 1, 1, 2)
         );
         let asset = catalog.asset_at(&photos.join("A.NEF")).unwrap().unwrap();
         let meta = catalog.metadata(&asset.id).unwrap();
@@ -431,12 +639,97 @@ mod tests {
         let trips = collections.iter().find(|c| c.name == "Trips").unwrap();
         assert_eq!(italy.parent.as_deref(), Some(trips.id.as_str()));
         assert_eq!(catalog.collection_assets(&italy.id).unwrap().len(), 1);
+        let best = collections.iter().find(|c| c.name == "Best picks").unwrap();
+        assert_eq!((best.kind.as_str(), best.count), (SMART, 1));
+        let best_id = best.id.clone();
+        assert_eq!(best.parent.as_deref(), Some(trips.id.as_str()));
+        assert!(!collections.iter().any(|c| c.name == "Recently edited"));
         // Nothing was written beside the photographs.
         assert_eq!(fs::read_dir(&photos).unwrap().count(), before);
         // A second import changes nothing.
         import_into(&catalog, &source).unwrap();
         assert_eq!(catalog.collections().unwrap().len(), collections.len());
         assert_eq!(catalog.assets(None).unwrap().len(), 1);
+        // Rules changed in Lightroom since: a new smart album beside the
+        // earlier one, which keeps its rules.
+        let mut changed = source.clone();
+        changed.albums[2].smart = Some(SmartRules {
+            combine: "intersect".into(),
+            rules: vec![condition("rating", ">=", SmartValue::Number(5.0))],
+        });
+        import_into(&catalog, &changed).unwrap();
+        let after = catalog.collections().unwrap();
+        let best: Vec<_> = after.iter().filter(|c| c.name == "Best picks").collect();
+        assert_eq!(best.len(), 2);
+        assert!(best.iter().any(|c| c.id == best_id && c.count == 1));
+        assert!(best.iter().any(|c| c.id != best_id && c.count == 0));
+    }
+
+    fn condition(criteria: &str, operation: &str, value: SmartValue) -> SmartRule {
+        SmartRule::Condition {
+            criteria: criteria.into(),
+            operation: operation.into(),
+            value,
+            value2: SmartValue::None,
+            units: None,
+        }
+    }
+
+    /// Lightroom's smart collection criteria as smart album rules; one
+    /// criterion without a counterpart leaves the whole collection out.
+    #[test]
+    fn lightroom_smart_collections_translate() {
+        let rules = |combine: &str, rules: Vec<SmartRule>| SmartRules {
+            combine: combine.into(),
+            rules,
+        };
+        let rule = smart_rule(&rules(
+            "union",
+            vec![
+                condition("labelColor", "==", SmartValue::Number(1.0)),
+                condition("keywords", "any", SmartValue::Text("Rom Bird".into())),
+                SmartRule::Condition {
+                    criteria: "captureTime".into(),
+                    operation: "in".into(),
+                    value: SmartValue::Text("2010-01-01".into()),
+                    value2: SmartValue::Text("2020-12-31".into()),
+                    units: None,
+                },
+                SmartRule::Condition {
+                    criteria: "captureTime".into(),
+                    operation: "inLast".into(),
+                    value: SmartValue::Number(1.0),
+                    value2: SmartValue::None,
+                    units: Some("months".into()),
+                },
+                SmartRule::Group(rules(
+                    "exclude",
+                    vec![condition(
+                        "fileFormat",
+                        "==",
+                        SmartValue::Text("JPG".into()),
+                    )],
+                )),
+            ],
+        ))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&rule).unwrap(),
+            json!({"combine": "any", "rules": [
+                {"field": "label", "op": "is", "value": "red"},
+                {"field": "keyword", "op": "containsAny", "value": "Rom Bird"},
+                {"field": "captureDate", "op": "between", "value": ["2010-01-01", "2020-12-31"]},
+                {"field": "captureDate", "op": "inLast", "value": {"amount": 1, "unit": "months"}},
+                {"combine": "none", "rules": [{"field": "fileType", "op": "is", "value": "jpeg"}]},
+            ]})
+        );
+        for unknown in [
+            condition("hasAdjustments", "==", SmartValue::Bool(true)),
+            condition("fileFormat", "==", SmartValue::Text("VIDEO".into())),
+            condition("labelColor", "==", SmartValue::Number(6.0)),
+        ] {
+            assert!(smart_rule(&rules("intersect", vec![unknown])).is_none());
+        }
     }
 
     #[test]
@@ -619,7 +912,10 @@ mod tests {
     }
 
     /// Imports a real library (`RAWTONIC_IMPORT_SAMPLE`) into a temporary
-    /// catalog: the photographs are only read. Run by hand.
+    /// catalog: the photographs are only read. Run by hand. With
+    /// `RAWTONIC_IMPORT_OUT`, writes what landed in the catalog per photo
+    /// (`<source key>.json`: path, metadata, recipe) and `albums.json` there,
+    /// for field-by-field comparisons and CLI renders (`--adjustments`).
     #[test]
     #[ignore]
     fn import_a_real_library_into_a_scratch_catalog() {
@@ -627,30 +923,58 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let catalog =
             Library::create(&tmp.path().join("Scratch"), "Scratch", Mode::Catalog).unwrap();
-        let (lib, kind) = read_source(Path::new(&source)).unwrap();
         let started = std::time::Instant::now();
+        let (lib, kind) = read_source(Path::new(&source)).unwrap();
+        let read = started.elapsed().as_secs_f64();
         let report = import_into(&catalog, &lib).unwrap();
         println!(
-            "{kind}: {report:?} in {:.1} s",
+            "{kind}: {report:?}; read {read:.2} s, read + import {:.2} s",
             started.elapsed().as_secs_f64()
         );
-        for name in ["DSCF0123.RAF", "DSCF0124.RAF"] {
-            if let Some(photo) = lib
-                .photos
-                .iter()
-                .find(|p| p.path.ends_with(name) && p.path.is_file())
-            {
-                let asset = catalog.asset_at(&photo.path).unwrap().unwrap();
-                let state = catalog.editor_state(&asset.id).unwrap();
-                let adjustments = state.as_ref().map(|s| s["adjustments"].clone());
-                println!("{name} adjustments: {:?}", adjustments);
-                println!(
-                    "{name}: rating {} highlights {:?} exposure {:?}",
-                    catalog.metadata(&asset.id).unwrap().rating,
-                    adjustments.as_ref().map(|a| a["highlights"].clone()),
-                    adjustments.as_ref().map(|a| a["exposure"].clone())
-                );
-            }
+        let Ok(out) = std::env::var("RAWTONIC_IMPORT_OUT") else {
+            return;
+        };
+        let out = Path::new(&out);
+        fs::create_dir_all(out).unwrap();
+        for photo in &lib.photos {
+            let asset = catalog.asset_at(&photo.path).unwrap();
+            let (metadata, state) = match &asset {
+                Some(asset) => (
+                    serde_json::to_value(catalog.metadata(&asset.id).unwrap()).unwrap(),
+                    catalog.editor_state(&asset.id).unwrap(),
+                ),
+                None => (Value::Null, None),
+            };
+            let record = json!({
+                "path": photo.path,
+                "copyOf": photo.copy_of,
+                "asset": asset.as_ref().map(|a| a.id.clone()),
+                "metadata": metadata,
+                "adjustments": state.map(|s| s["adjustments"].clone()),
+            });
+            fs::write(
+                out.join(format!("{}.json", photo.key)),
+                serde_json::to_vec_pretty(&record).unwrap(),
+            )
+            .unwrap();
         }
+        let albums: Vec<Value> = catalog
+            .collections()
+            .unwrap()
+            .into_iter()
+            .map(|c| {
+                let members: Vec<String> = catalog
+                    .collection_assets(&c.id)
+                    .map(|a| a.into_iter().map(|a| a.id).collect())
+                    .unwrap_or_default();
+                json!({"collection": c, "members": members})
+            })
+            .collect();
+        fs::write(
+            out.join("albums.json"),
+            serde_json::to_vec_pretty(&json!({"report": format!("{report:?}"), "albums": albums}))
+                .unwrap(),
+        )
+        .unwrap();
     }
 }

@@ -5581,7 +5581,9 @@ name = "rawtonic-interop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "rawtonic-metadata",
+ "roxmltree",
  "rusqlite",
  "serde",
  "tempfile",

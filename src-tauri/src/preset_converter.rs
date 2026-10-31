@@ -1311,11 +1311,50 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             .unwrap_or_else(|| format!("Mask {}", index + 1));
         let mut sub_masks = Vec::new();
         let mut supported = true;
-        for (m_index, mask_li) in seq_items(correction, "CorrectionMasks")
-            .into_iter()
-            .enumerate()
-        {
-            let mask = described(mask_li);
+        // Lightroom Classic 15 keeps a brush as a `Mask/Aggregate` of its
+        // strokes (`crs:Masks`: `Mask/Paint` items, erasers among them):
+        // an additive, not inverted aggregate (with erasers: the first
+        // component) stands for its items, which
+        // take over its switch (`MaskActive`) and opacity (`MaskValue`).
+        let mut items = Vec::new();
+        for li in seq_items(correction, "CorrectionMasks") {
+            let mask = described(li);
+            let attr = |n: &str| mask.attribute((CRS_NS, n));
+            if attr("What") == Some("Mask/Aggregate") {
+                let children = seq_items(mask, "Masks");
+                // Its erasers subtract from everything before them once
+                // flattened: only right when nothing precedes the brush.
+                let erases = children.iter().any(|li| {
+                    described(*li)
+                        .attribute((CRS_NS, "MaskValue"))
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .is_some_and(|v| v <= 0.0)
+                });
+                if matches!(attr("MaskBlendMode"), None | Some("0"))
+                    && attr("MaskInverted") != Some("true")
+                    && (items.is_empty() || !erases)
+                {
+                    let active = attr("MaskActive") != Some("false");
+                    let value = attr("MaskValue")
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 1.0);
+                    items.extend(
+                        children
+                            .into_iter()
+                            .map(|li| (described(li), active, value)),
+                    );
+                } else {
+                    supported = false;
+                }
+            } else {
+                items.push((mask, true, 1.0));
+            }
+        }
+        for (m_index, (mask, group_active, group_value)) in items.into_iter().enumerate() {
+            if !supported {
+                break;
+            }
             let mattr = |n: &str| mask.attribute((CRS_NS, n));
             let mnum = |n: &str| mattr(n).and_then(|v| v.parse::<f64>().ok());
             // Geometric masks keep Lightroom's normalised geometry until a
@@ -1402,9 +1441,9 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             sub_masks.push(json!({
                 "id": format!("lr-{index}-{m_index}-{}", Uuid::new_v4()),
                 "type": kind,
-                "visible": mattr("MaskActive") != Some("false"),
+                "visible": group_active && mattr("MaskActive") != Some("false"),
                 "invert": mattr("MaskInverted") == Some("true"),
-                "opacity": (value * 100.0).clamp(0.0, 100.0),
+                "opacity": (value * group_value * 100.0).clamp(0.0, 100.0),
                 "mode": mode,
                 // AI masks are computed, geometry placed, when a photo opens.
                 "parameters": parameters,
@@ -2143,6 +2182,81 @@ mod tests {
             subs[2]["parameters"]["lrRange"],
             json!([0.0, 0.0, 0.25, 0.4])
         );
+    }
+
+    /// Lightroom Classic 15 wraps a brush's strokes in a `Mask/Aggregate`
+    /// (as its catalog stores them, LC task 2026-10-31).
+    #[test]
+    fn lightroom_15_aggregate_brushes_become_masks() {
+        let brush = |blend: &str, inverted: &str| {
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+  <crs:MaskGroupBasedCorrections><rdf:Seq>
+   <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Brush" crs:LocalExposure2012="0.25">
+    <crs:CorrectionMasks><rdf:Seq>
+     <rdf:li><rdf:Description crs:What="Mask/Aggregate" crs:MaskBlendMode="{blend}" crs:MaskInverted="{inverted}" crs:MaskValue="1">
+      <crs:Masks><rdf:Seq>
+       <rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.1" crs:Flow="1" crs:CenterWeight="0">
+        <crs:Dabs><rdf:Seq><rdf:li>d 0.62 0.50</rdf:li><rdf:li>d 0.64 0.51</rdf:li></rdf:Seq></crs:Dabs>
+       </rdf:Description></rdf:li>
+       <rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="0" crs:Radius="0.02" crs:Flow="1" crs:CenterWeight="0">
+        <crs:Dabs><rdf:Seq><rdf:li>d 0.63 0.50</rdf:li></rdf:Seq></crs:Dabs>
+       </rdf:Description></rdf:li>
+      </rdf:Seq></crs:Masks>
+     </rdf:Description></rdf:li>
+    </rdf:Seq></crs:CorrectionMasks>
+   </rdf:Description></rdf:li>
+  </rdf:Seq></crs:MaskGroupBasedCorrections>
+ </rdf:Description></rdf:RDF></x:xmpmeta>"#
+            )
+        };
+        let (layers, skipped) = super::lightroom_masks(&brush("0", "false"));
+        assert!(skipped.is_empty());
+        // A brush switched off in Lightroom stays off; its opacity carries over.
+        let off = brush("0", "false").replace(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="false" crs:MaskValue="0.5" crs:MaskActive="false""#,
+        );
+        let (off_layers, _) = super::lightroom_masks(&off);
+        for sub in off_layers[0]["subMasks"].as_array().unwrap() {
+            assert_eq!(sub["visible"], json!(false));
+            assert_eq!(sub["opacity"], json!(50.0));
+        }
+        let subs = layers[0]["subMasks"].as_array().unwrap();
+        assert_eq!(subs.len(), 2);
+        assert_eq!(
+            (subs[0]["type"].as_str(), subs[0]["mode"].as_str()),
+            (Some("brush"), Some("additive"))
+        );
+        assert_eq!(
+            subs[0]["parameters"]["lrNormalized"]["strokes"][0]["dabs"],
+            json!([[0.62, 0.5], [0.64, 0.51]])
+        );
+        assert_eq!(subs[1]["mode"], "subtractive", "the eraser");
+        // After another component its erasers would cut that one too:
+        // left out; without erasers it is flattened.
+        let gradient = r#"<rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.5" crs:ZeroY="0.5" crs:FullX="0.5" crs:FullY="0"/></rdf:li>
+     <rdf:li><rdf:Description crs:What="Mask/Aggregate""#;
+        let mixed = brush("0", "false").replacen(
+            r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#,
+            gradient,
+            1,
+        );
+        let (layers, skipped) = super::lightroom_masks(&mixed);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        let no_eraser = mixed.replace(
+            r#"crs:MaskValue="0" crs:Radius="0.02""#,
+            r#"crs:MaskValue="1" crs:Radius="0.02""#,
+        );
+        let (layers, skipped) = super::lightroom_masks(&no_eraser);
+        assert!(skipped.is_empty());
+        assert_eq!(layers[0]["subMasks"].as_array().unwrap().len(), 3);
+        // An aggregate that subtracts or is inverted is not flattened.
+        for (blend, inverted) in [("1", "false"), ("0", "true")] {
+            let (layers, skipped) = super::lightroom_masks(&brush(blend, inverted));
+            assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        }
     }
 
     #[test]

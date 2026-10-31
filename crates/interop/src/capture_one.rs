@@ -301,6 +301,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
             parent: parent.map(|p| p.to_string()),
             is_group: ent == group,
             photos,
+            smart: None,
         });
     }
     drop(q);
