@@ -23,17 +23,26 @@ const member = (path: string, part: Partial<DuplicateMember> = {}): DuplicateMem
   flag: 0,
   label: "",
   keywords: 0,
+  albums: 0,
   copies: 0,
   described: false,
   companion: null,
   compared: "bmff",
+  owner: null,
+  ownFolder: true,
   edited: false,
+  suggested: false,
   ...part,
 });
-// Oldest import first, as the backend lists them.
-const groups = [
-  [member("Capture/A.CR3"), member("Capture/A copy.CR3"), member("Selects/A.CR3", { rating: 4, keywords: 2 })],
-  [member("Capture/B.NEF", { compared: "tiff" }), member("Other/B.NEF", { compared: "tiff" })],
+// Oldest import first, as the backend lists them, with its suggestion.
+let groups: DuplicateMember[][] = [];
+const defaultGroups = () => [
+  [
+    member("Capture/A.CR3", { suggested: true }),
+    member("Capture/A copy.CR3", { suggested: true }),
+    member("Selects/A.CR3", { rating: 4, keywords: 2, albums: 1 }),
+  ],
+  [member("Capture/B.NEF", { compared: "tiff" }), member("Other/B.NEF", { compared: "tiff", suggested: true })],
 ];
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>();
@@ -51,6 +60,7 @@ const finish = (run: number) =>
 
 beforeEach(async () => {
   starts = 0;
+  groups = defaultGroups();
   refusedNext = [];
   handlers.clear();
   trash.mockClear();
@@ -94,14 +104,14 @@ const rowOf = (name: string, folder: string) =>
   screen.getAllByRole("listitem").find((li) => li.querySelectorAll("input").length === 1 && li.textContent?.includes(name) && li.textContent.includes(folder))!;
 const box = (name: string, folder: string) => within(rowOf(name, folder)).getByRole("checkbox") as HTMLInputElement;
 
-it("reads, then lists the groups with the suggestion: work of its own is kept, else the oldest import", async () => {
+it("reads, then lists the groups with the backend's suggestion pre-marked", async () => {
   await openReview();
   expect(screen.getAllByText("3 photos with identical image data · image data compared")).toHaveLength(1);
   // A: the rated copy with keywords stays, the two plain ones go.
   expect(box("A.CR3", "/Selects").checked).toBe(false);
   expect(box("A.CR3", "/Capture").checked).toBe(true);
   expect(box("A copy.CR3", "/Capture").checked).toBe(true);
-  expect(within(rowOf("A.CR3", "/Selects")).getByText(/★★★★ · 2 keywords/)).toBeTruthy();
+  expect(within(rowOf("A.CR3", "/Selects")).getByText(/★★★★ · 2 keywords · 1 album/)).toBeTruthy();
   // B: nothing of its own, so the oldest import stays.
   expect(box("B.NEF", "/Capture").checked).toBe(false);
   expect(box("B.NEF", "/Other").checked).toBe(true);
@@ -122,6 +132,47 @@ it("trashes exactly the marked photos after checking the files again, as one ste
   });
   expect(trash).toHaveBeenCalledWith(marked, { includeAssociated: false });
   expect(useDuplicatesDialog.getState().open).toBe(false);
+});
+
+it("greys another project's photo, which cannot be marked, and names that project", async () => {
+  groups = [
+    [
+      member("Photos/C.jpg", { suggested: false, edited: true }),
+      member("Capture/C.jpg", {
+        path: "/jobs/Smith/Capture/C.jpg",
+        ownFolder: false,
+        rating: 5,
+        owner: { directory: "/jobs/Smith", name: "Wedding Smith" },
+        // Even if a suggestion came marked, the owned photo stays unmarked.
+        suggested: true,
+      }),
+      member("Photos/C copy.jpg", { suggested: true }),
+    ],
+  ];
+  render(<DuplicatesDialogHost trash={trash} />);
+  act(() => useDuplicatesDialog.getState().show());
+  await waitFor(() => expect(calls("duplicates_start")).toHaveLength(1));
+  await act(async () => {});
+  await finish(1);
+  await screen.findByText("1 group of duplicates (3 photos)");
+  const row = rowOf("C.jpg", "/jobs/Smith/Capture");
+  expect(row.className).toBe("is-owned");
+  expect(within(row).getByText("Belongs to Wedding Smith: remove it there.")).toBeTruthy();
+  const owned = within(row).getByRole("checkbox") as HTMLInputElement;
+  expect(owned.disabled).toBe(true);
+  expect(owned.checked).toBe(false);
+  fireEvent.click(owned);
+  expect(owned.checked).toBe(false);
+  // The library's own copies may all go: the project's photo stays.
+  fireEvent.click(box("C.jpg", "/jobs/Wedding/Photos"));
+  expect(screen.queryByText("Keep at least one photo of this group.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Move 2 Photos to Trash" }));
+  await waitFor(() => expect(trash).toHaveBeenCalledTimes(1));
+  expect(calls("duplicates_confirm")[0][1]).toEqual({
+    directory: LIBRARY,
+    keep: ["/jobs/Smith/Capture/C.jpg"],
+    trash: [`${LIBRARY}/Photos/C.jpg`, `${LIBRARY}/Photos/C copy.jpg`],
+  });
 });
 
 it("refuses to trash a whole group", async () => {

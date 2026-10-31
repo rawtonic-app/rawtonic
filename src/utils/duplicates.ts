@@ -5,7 +5,8 @@
  * folders, metadata or edits. A background pass reads what is not compared
  * yet (progress and Stop in the activity centre); the review lists the
  * groups and trashes only what the user marked, through the journaled file
- * operations (one undoable step). Nothing is merged.
+ * operations (one undoable step). Nothing is merged. A photo inside another
+ * project's or catalog's folder belongs to it and cannot be marked here.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { create } from 'zustand';
@@ -44,6 +45,8 @@ export interface DuplicateMember {
   flag: number;
   label: string;
   keywords: number;
+  /** Albums it is in (smart albums aside). */
+  albums: number;
   copies: number;
   /** It has a title, caption, creator, copyright or IPTC field. */
   described: boolean;
@@ -51,7 +54,14 @@ export interface DuplicateMember {
   companion: string | null;
   /** What was compared: the image data of its container, or `file`. */
   compared: string;
+  /** The other project or catalog whose folder holds the file: it stays. */
+  owner: { directory: string; name: string } | null;
+  /** The file lies inside this library's own folder. */
+  ownFolder: boolean;
   edited: boolean;
+  /** Pre-marked for the Trash: the copy with the most work stays (on a tie
+   * the oldest import); only copies inside this library's folder are marked. */
+  suggested: boolean;
 }
 
 export type DuplicateGroup = DuplicateMember[];
@@ -60,10 +70,11 @@ export const startDuplicatesPass = (directory: string) => invoke<number>(Invokes
 export const cancelDuplicatesPass = (run: number) => invoke(Invokes.DuplicatesCancel, { run });
 export const duplicateGroups = (directory: string) => invoke<DuplicateGroup[]>(Invokes.DuplicatesGroups, { directory });
 /** A photo marked for the Trash that must stay: its image data changed
- * since compared, or its paired JPEG has no identical copy that stays. */
+ * since compared, its paired JPEG has no identical copy that stays, or
+ * another project or catalog owns it. */
 export interface Refused {
   path: string;
-  reason: 'changed' | 'companion';
+  reason: 'changed' | 'companion' | 'owned';
 }
 /** Photos of `trash` that must stay (empty: go ahead). */
 export const confirmDuplicates = (directory: string, keep: string[], trash: string[]) =>
@@ -77,21 +88,10 @@ export const hasOwnWork = (member: DuplicateMember): boolean =>
   member.flag !== 0 ||
   member.label !== '' ||
   member.keywords > 0 ||
+  member.albums > 0 ||
   member.copies > 0 ||
   member.described ||
   member.companion !== null;
-
-/**
- * The photographs a group keeps by default: every one with work of its own
- * (edits, rating, flag, label, keywords, title/caption/IPTC, virtual
- * copies, a paired JPEG), so no work is set aside unasked; when none has
- * any, the oldest import (the group comes oldest first). The rest are
- * suggested for the Trash.
- */
-export function suggestedKeep(group: DuplicateGroup): Set<string> {
-  const worked = group.filter(hasOwnWork).map((member) => member.path);
-  return new Set(worked.length ? worked : group.slice(0, 1).map((member) => member.path));
-}
 
 /** The review's open state; the activity centre's Review opens it too. */
 export const useDuplicatesDialog = create<{ open: boolean; show(): void; close(): void }>((set) => ({

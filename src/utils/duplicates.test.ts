@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { hasOwnWork, suggestedKeep, type DuplicateMember } from './duplicates';
+import { hasOwnWork, type DuplicateMember } from './duplicates';
 
 const member = (path: string, part: Partial<DuplicateMember> = {}): DuplicateMember => ({
   id: path,
@@ -11,15 +11,19 @@ const member = (path: string, part: Partial<DuplicateMember> = {}): DuplicateMem
   flag: 0,
   label: '',
   keywords: 0,
+  albums: 0,
   copies: 0,
   described: false,
   companion: null,
   compared: 'tiff',
+  owner: null,
+  ownFolder: true,
   edited: false,
+  suggested: false,
   ...part,
 });
 
-it('counts edits, culling, labels, keywords and virtual copies as work of its own', () => {
+it('counts edits, culling, labels, keywords, albums and virtual copies as work of its own', () => {
   expect(hasOwnWork(member('a'))).toBe(false);
   for (const part of [
     { edited: true },
@@ -27,19 +31,10 @@ it('counts edits, culling, labels, keywords and virtual copies as work of its ow
     { flag: -1 },
     { label: 'red' },
     { keywords: 2 },
+    { albums: 1 },
     { copies: 1 },
     { described: true },
     { companion: '/a.JPG' },
   ])
     expect(hasOwnWork(member('a', part))).toBe(true);
-});
-
-it('keeps every photo with work of its own, else the oldest import', () => {
-  // The backend lists a group oldest import first.
-  expect([...suggestedKeep([member('old'), member('new')])]).toEqual(['old']);
-  expect([...suggestedKeep([member('old'), member('rated', { rating: 3 })])]).toEqual(['rated']);
-  expect([...suggestedKeep([member('edited', { edited: true }), member('old'), member('kw', { keywords: 1 })])]).toEqual([
-    'edited',
-    'kw',
-  ]);
 });
