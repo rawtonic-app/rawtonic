@@ -265,16 +265,20 @@ fn stored_proxy(
         .flatten()
 }
 
-/// A never-edited RAW's plain decode cut to the camera's crop of the
-/// newest frame (`camera_crop`), as its export frames it. The crop is
-/// centred in the developed frame, so its share of each side carries over
-/// to a reduced decode.
-fn cut_to_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
-    let Some(crop) = rawtonic_engine::camera_crop::crops(source)
-        .get(rawtonic_engine::source_frame::VERSION as usize)
-        .copied()
-        .flatten()
-    else {
+/// A new recipe's plain decode (never edited, or a Reset's) cut to the
+/// camera's crop of the frame the recipe asks for
+/// (`camera_crop::initial_crop`, the rule of the GPU render), as its export
+/// frames it. The crop is centred in the developed frame, so its share of
+/// each side carries over to a reduced decode.
+fn cut_to_camera_crop(
+    image: DynamicImage,
+    recipe: &serde_json::Value,
+    source: &str,
+) -> DynamicImage {
+    let Some(crop) = rawtonic_engine::camera_crop::initial_crop(
+        recipe,
+        &rawtonic_engine::camera_crop::crops(source),
+    ) else {
         return image;
     };
     let share = |part: u32, margin: u32| part as f64 / (2 * margin + part) as f64;
@@ -310,6 +314,10 @@ pub(crate) fn develop_thumbnail(
     let adjustments = metadata
         .as_ref()
         .map_or(serde_json::Value::Null, |m| m.adjustments.clone());
+    // Where the render below cannot crop (no GPU): the cut to the camera's
+    // crop of a new recipe's frame.
+    let new_recipe = (is_raw && crate::image_processing::is_new_recipe(&adjustments))
+        .then(|| adjustments.clone());
 
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let always_decode_raw = settings.always_decode_raw_thumbnails.unwrap_or(false);
@@ -717,9 +725,9 @@ pub(crate) fn develop_thumbnail(
         } else if is_raw {
             apply_cpu_default_raw_processing(&mut final_image);
         }
-        if is_raw {
-            final_image = cut_to_camera_crop(final_image, &source_path_str);
-        }
+    }
+    if let Some(recipe) = new_recipe {
+        final_image = cut_to_camera_crop(final_image, &recipe, &source_path_str);
     }
 
     let fallback_orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
@@ -1778,6 +1786,43 @@ mod source_preview_tests {
 #[cfg(test)]
 mod thumbnail_queue_tests {
     use super::*;
+
+    /// Without a GPU a new recipe's thumbnail is cut by the same rule as the
+    /// GPU render's initial crop: never edited and after a Library Reset
+    /// alike, at the frame the recipe asks for; an edit keeps its frame.
+    #[test]
+    fn the_cpu_thumbnail_of_a_new_recipe_is_cut_to_the_camera_crop() {
+        use rawtonic_engine::source_facts::{SourceFacts, VERSION, register};
+        let path = "/offline/cpu-thumbnail-crop.CR3";
+        register(
+            path,
+            SourceFacts {
+                version: VERSION,
+                frames: Some(vec![0, 1]),
+                camera_crop: Some(vec![0, 250, 4000, 2250]),
+                ..Default::default()
+            },
+        );
+        let sensor = || DynamicImage::new_rgb8(400, 300);
+        let size = |recipe: serde_json::Value| {
+            let cut = cut_to_camera_crop(sensor(), &recipe, path);
+            (cut.width(), cut.height())
+        };
+        // 2250 of 2750 rows kept (the crop centred, its share of the height).
+        assert_eq!(size(serde_json::Value::Null), (400, 245));
+        assert_eq!(size(serde_json::json!({})), (400, 245));
+        // A Reset keeps the frame it states: frame 1 is cut, frame 0 (whose
+        // crop the facts do not know) and an edit are not.
+        assert_eq!(
+            size(serde_json::json!({"sourceFrameVersion": 1})),
+            (400, 245)
+        );
+        assert_eq!(
+            size(serde_json::json!({"sourceFrameVersion": 0})),
+            (400, 300)
+        );
+        assert_eq!(size(serde_json::json!({"exposure": 1.0})), (400, 300));
+    }
 
     #[test]
     fn a_recipe_uses_the_preview_proxy_only_when_made_for_its_decode_variant() {

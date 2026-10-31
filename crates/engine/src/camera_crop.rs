@@ -119,14 +119,26 @@ pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
     start_new_edit(adjustments, &crops(&source.to_string_lossy()));
 }
 
+/// The crop a new recipe (`is_new_recipe`) starts with, from the file's
+/// `crops` (`crops`): the one of the frame the recipe asks for
+/// (`source_frame::requested`). The single rule of every renderer, the GPU
+/// path through `apply_default` and the thumbnails without a GPU.
+pub fn initial_crop(adjustments: &Value, crops: &[Option<CameraCrop>]) -> Option<CameraCrop> {
+    if !crate::image_processing::is_new_recipe(adjustments) {
+        return None;
+    }
+    let version = crate::source_frame::requested(adjustments) as usize;
+    crops.get(version).copied().flatten()
+}
+
 /// `apply_default` with the file's `crops` (`crops`).
 fn start_new_edit(adjustments: &mut Value, crops: &[Option<CameraCrop>]) {
     if !crate::image_processing::is_new_recipe(adjustments) {
         return;
     }
+    let crop = initial_crop(adjustments, crops);
     crate::image_processing::apply_render_default(adjustments);
-    let version = crate::source_frame::requested(adjustments) as usize;
-    let Some(crop) = crops.get(version).copied().flatten() else {
+    let Some(crop) = crop else {
         return;
     };
     if let Some(map) = adjustments.as_object_mut() {

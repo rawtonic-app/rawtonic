@@ -1886,6 +1886,48 @@ mod tests {
         assert!(is_unresolved(&offline));
     }
 
+    /// Every render takes a new recipe's camera crop with its versions, in
+    /// the frame it asks for: a never-edited photo and a Library Reset's
+    /// recipe alike; an edit keeps its own.
+    #[test]
+    fn every_render_gives_a_new_recipe_the_cameras_crop_and_versions() {
+        use rawtonic_engine::source_facts::{SourceFacts, VERSION, register};
+        use serde_json::Value;
+        let path = "/offline/prepare-camera-crop.CR3";
+        register(
+            path,
+            SourceFacts {
+                version: VERSION,
+                frames: Some(vec![0, 1]),
+                camera_crop: Some(vec![0, 376, 4000, 2248]),
+                ..Default::default()
+            },
+        );
+        let prepared = |mut recipe: Value| {
+            // The photo is offline: the error is the unresolved lens only.
+            let _ = super::prepare_recipe_lens(&mut recipe, std::path::Path::new(path));
+            recipe
+        };
+        for new in [serde_json::json!({}), Value::Null] {
+            let recipe = prepared(new);
+            assert_eq!(recipe["crop"]["y"], 376);
+            assert_eq!(recipe["crop"]["height"], 2248);
+            assert_eq!(recipe["aspectRatio"], 4000.0 / 2248.0);
+            assert_eq!(recipe["sourceFrameVersion"], 1);
+            assert!(recipe["renderVersion"].is_u64());
+        }
+        // A Reset of a frame 1 edit crops; one of a frame 0 edit does not
+        // (the camera's crop of that frame is not known), versions either way.
+        let reset = prepared(serde_json::json!({"sourceFrameVersion": 1}));
+        assert_eq!(reset["crop"]["width"], 4000);
+        let legacy = prepared(serde_json::json!({"sourceFrameVersion": 0}));
+        assert!(legacy.get("crop").is_none());
+        assert!(legacy["renderVersion"].is_u64());
+        // An edit keeps its own crop.
+        let edit = prepared(serde_json::json!({"exposure": 1.0}));
+        assert!(edit.get("crop").is_none());
+    }
+
     #[test]
     fn user_comment_shows_its_text_not_hex() {
         use super::user_comment_text;
