@@ -6496,11 +6496,20 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-viewer-footer .studio-flags {
   flex-shrink: 0;
 }
-.studio-viewer-footer .studio-viewer-side.is-end > * {
-  flex-shrink: 0;
+/* The right group keeps what its controls need; the left one (the filename
+   shrinks with an ellipsis) gives way. */
+.studio-viewer-footer .studio-viewer-side.is-end {
+  min-width: max-content;
 }
-.studio-viewer-footer .studio-viewer-side {
+.studio-viewer-footer .studio-viewer-side:first-child {
   overflow: hidden;
+}
+/* Words beside the footer icons go before anything is clipped, whatever the
+   language (the German labels are the longest). */
+@container viewer-footer (max-width: 1000px) {
+  .studio-viewer-footer .optional-label {
+    display: none;
+  }
 }
 @container viewer-footer (max-width: 700px) {
   .studio-viewer-footer .footer-low {
