@@ -21,7 +21,7 @@ import { ToolGroup } from "./StudioDevelop";
 import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
-import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, previousImport } from "../../utils/folderSync";
+import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, SHOW_PREVIOUS_IMPORT, previousImport } from "../../utils/folderSync";
 import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
 import { CATALOG_CHANGED, CATALOG_EVENTS, SESSION_ALBUMS_CHANGED, catalogChanged, onCatalogChange } from "../../utils/catalogWrites";
 import type { Group, Rule } from "../../utils/librarySearch";
@@ -391,6 +391,11 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   useEffect(() => {
     const changed = () => { void loadImported(activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID ? true : undefined); };
     return onCatalogChange(changed, [IMPORTS_CHANGED, FILE_OPERATIONS_CHANGED, OFFLINE_CHANGED]);
+  }, [loadImported]);
+  useEffect(() => {
+    const open = () => { void loadImported(false); };
+    window.addEventListener(SHOW_PREVIOUS_IMPORT, open);
+    return () => window.removeEventListener(SHOW_PREVIOUS_IMPORT, open);
   }, [loadImported]);
 
   /** Shows `album` in the grid (`preserveEditor` refreshes it in place). */

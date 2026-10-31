@@ -426,3 +426,44 @@ it("keeps the crop-zoom wheel from the view also with Cmd/Ctrl pressed before it
   expect(editorWheel).not.toHaveBeenCalled();
   fireEvent.keyUp(window, { key: "Control" });
 });
+
+it("shows in the loupe's bar whether a rating or flag moves on, and switches it there", async () => {
+  const change = vi.fn(async (next: AppSettings) => useSettingsStore.setState({ appSettings: next }));
+  useSettingsStore.setState({ handleSettingsChange: change } as never);
+  workspace();
+  key("e");
+  const toggle = screen.getByRole("button", { name: "Auto-advance" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  // The tooltip names the key (Caps Lock), as the Photo menu does.
+  expect(toggle.getAttribute("title")).toContain("Caps Lock");
+  await act(async () => fireEvent.click(toggle));
+  expect(change).toHaveBeenCalledWith(expect.objectContaining({ autoAdvance: true }));
+  expect(screen.getByRole("button", { name: "Auto-advance" }).getAttribute("aria-pressed")).toBe("true");
+});
+
+it("includes a folder's subfolders on request and remembers it for that folder; on by default for a catalog's Photos", async () => {
+  const navigate = vi.fn();
+  const change = vi.fn(async (next: AppSettings) => useSettingsStore.setState({ appSettings: next }));
+  useSettingsStore.setState({ handleSettingsChange: change } as never);
+  useLibraryStore.setState({ currentFolderPath: "/qa/Cat.catalog/Photos", activeAlbumId: null, subfolderDefaultRoot: "/qa/Cat.catalog/Photos" });
+  render(
+    <StudioWorkspace
+      files={files} onShow={onShow} flagCounts={{ all: 2, picked: 0, rejected: 0, unflagged: 2 }}
+      transformWrapperRef={{ current: null }} onSelect={onSelect} onFilmSelect={noop} onOpen={noop}
+      onNavigate={navigate} onBack={onBack} onRate={noop} onContextMenu={noop} onEditorContextMenu={noop}
+      onCopy={noop} onPaste={noop} onReset={noop} onZoom={noop} requestThumbnails={noop} settings={null} onSettings={noop}
+    />,
+    { wrapper: withMenus },
+  );
+  const toggle = screen.getByRole("button", { name: "Include subfolders" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => fireEvent.click(toggle));
+  expect(change).toHaveBeenCalledWith(
+    expect.objectContaining({ subfolderViews: { "/qa/Cat.catalog/Photos": false } }),
+  );
+  expect(navigate).toHaveBeenCalledWith("/qa/Cat.catalog/Photos");
+  expect(screen.getByRole("button", { name: "Include subfolders" }).getAttribute("aria-pressed")).toBe("false");
+  // An album shows no folder: no toggle.
+  act(() => useLibraryStore.setState({ activeAlbumId: "session-album:p" }));
+  expect(screen.queryByRole("button", { name: "Include subfolders" })).toBeNull();
+});

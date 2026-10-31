@@ -45,6 +45,8 @@ import {
   RefreshCw,
   ListChecks,
   Maximize,
+  ChevronsRight,
+  FolderTree,
 } from "lucide-react";
 import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo, useCatalogUndoStore } from '../../utils/appUndo';
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
@@ -82,6 +84,7 @@ import { useEdgePeek } from "./useEdgePeek";
 import { useQuickAdjust } from "./useQuickAdjust";
 import { storedStudioLayout } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { showsSubfolders, withSubfolderView } from "../../utils/subfolderView";
 import { useRelightStore } from "../../store/useRelightStore";
 import { splitViewAvailable } from "../../utils/beforeAfter";
 import {
@@ -300,6 +303,22 @@ export default function StudioWorkspace(props: Props) {
   // takes what is left. The viewer itself is never scaled, so the native
   // display below the webview keeps its placement.
   const uiScale = useSettingsStore((s) => s.appSettings?.uiScale ?? 1);
+  const autoAdvance = useSettingsStore((s) => s.appSettings?.autoAdvance === true);
+  const toggleAutoAdvance = () => {
+    const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+    if (appSettings) void handleSettingsChange({ ...appSettings, autoAdvance: !appSettings.autoAdvance });
+  };
+  // Lightroom's Show Photos in Subfolders, remembered per folder (`subfolderView`).
+  const shownFolder = useLibraryStore((s) => (s.activeAlbumId ? null : s.currentFolderPath));
+  const subfolderDefault = useLibraryStore((s) => s.subfolderDefaultRoot);
+  const subfolders = useSettingsStore((s) =>
+    shownFolder ? showsSubfolders(shownFolder, s.appSettings, subfolderDefault) : false,
+  );
+  const toggleSubfolders = () => {
+    const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+    if (!shownFolder || !appSettings) return;
+    void handleSettingsChange(withSubfolderView(appSettings, shownFolder, !subfolders)).then(() => onNavigate(shownFolder));
+  };
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--ui-scale", String(uiScale));
@@ -1061,6 +1080,17 @@ export default function StudioWorkspace(props: Props) {
           {sortCriteria.order === SortDirection.Ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
         </button>
       </label>
+      {shownFolder && (
+        <button
+          className="studio-subfolders"
+          aria-pressed={subfolders}
+          title={t("session.hotFolder.includeSubfolders")}
+          onClick={toggleSubfolders}
+        >
+          <FolderTree size={13} />
+          <span>{t("session.hotFolder.includeSubfolders")}</span>
+        </button>
+      )}
     </div>
   );
   // Develop's viewer; the Library's loupe and full screen show the same.
@@ -1584,6 +1614,16 @@ export default function StudioWorkspace(props: Props) {
                     </button>
                   ))}
                 </div>
+                {/* Whether a rating or flag moves on: visible while culling, not only in a menu. */}
+                <button
+                  className="studio-auto-advance"
+                  aria-pressed={autoAdvance}
+                  title={withShortcut(t("settings.general.autoAdvanceDesc"), hint("toggle_auto_advance"))}
+                  onClick={toggleAutoAdvance}
+                >
+                  <ChevronsRight size={14} />
+                  <span className="optional-label">{t("settings.general.autoAdvance")}</span>
+                </button>
                 <div className="studio-viewer-side is-end">
                   <ViewerCaptureInfo />
                   <button

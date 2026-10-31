@@ -7,6 +7,7 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { RawStatus, EditedStatus } from "../ui/AppProperties";
 import type { FlagCounts, FlagFilter } from "../../utils/culling";
 import { filterAsRule, scopeRule, selectionCount } from "../../utils/librarySearch";
+import { folderViewMode } from "../../utils/subfolderView";
 import { useSmartAlbumEditor } from "./SmartAlbumEditor";
 import { checkEyes } from "../../hooks/useEyeCheck";
 
@@ -47,7 +48,8 @@ export default function StudioFilters({
         setSearch: s.setSearchCriteria,
       })),
     );
-  const viewMode = useSettingsStore((s) => s.appSettings?.libraryViewMode);
+  const subfolderDefault = useLibraryStore((s) => s.subfolderDefaultRoot);
+  const viewMode = useSettingsStore((s) => (folder ? folderViewMode(folder, s.appSettings, subfolderDefault) : undefined));
   const eyeCheck = useSettingsStore((s) => !!s.appSettings?.eyeCheck);
   const openSmartAlbum = useSmartAlbumEditor((s) => s.open);
   const chosen = selectionCount(filter.metadata);

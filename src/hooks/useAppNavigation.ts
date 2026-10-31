@@ -8,7 +8,8 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { Invokes, LibraryViewMode, ImageFile, type Activation } from '../components/ui/AppProperties';
+import { Invokes, ImageFile, type Activation } from '../components/ui/AppProperties';
+import { showsSubfolders } from '../utils/subfolderView';
 import type { FolderTree } from '../utils/folderTree';
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -338,7 +339,6 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       const { setLibrary } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
       const { setProcess } = useProcessStore.getState();
-      const libraryViewMode = appSettings?.libraryViewMode;
 
       if (!skipHistory && path) {
         useLibraryStore.getState().pushNavHistory({ type: 'folder', path });
@@ -398,7 +398,11 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         if (preloadedImages) {
           files = preloadedImages;
         } else {
-          files = await loadLibraryImages(path, libraryViewMode === LibraryViewMode.Recursive, load.signal);
+          files = await loadLibraryImages(
+            path,
+            showsSubfolders(path, appSettings, useLibraryStore.getState().subfolderDefaultRoot),
+            load.signal,
+          );
         }
         if (load.signal.aborted) return;
 

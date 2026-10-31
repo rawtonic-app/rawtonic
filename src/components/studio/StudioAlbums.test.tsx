@@ -11,6 +11,7 @@ import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { useSmartAlbumEditor } from "./SmartAlbumEditor";
 import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
 import { CATALOG_CHANGED, catalogChanged } from "../../utils/catalogWrites";
+import { SHOW_PREVIOUS_IMPORT } from "../../utils/folderSync";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn() } }));
@@ -175,6 +176,23 @@ describe("Previous Import", () => {
       window.dispatchEvent(new Event("rawtonic:imports-changed"));
     });
     expect(screen.getByText("Previous Import").closest("button")!.textContent).toContain("1");
+  });
+
+  it("opens the newest import in the grid when an import asks for it (Lightroom's Previous Import after Import)", async () => {
+    const paths = ["/job/Photos/2017/2017-01-15/Wedding0001.NEF"];
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) =>
+      command === "session_previous_import"
+        ? { batch: { id: 4, kind: "ingest", created_at: "2026-10-31 14:50:00", count: 1 }, paths }
+        : base(command, args),
+    );
+    const select = await renderTool();
+    expect(select).not.toHaveBeenCalled();
+    await act(async () => {
+      window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
+      window.dispatchEvent(new Event("rawtonic:imports-changed"));
+    });
+    expect(select).toHaveBeenCalledWith("session-previous-import", "Previous Import", paths, false);
   });
 });
 
