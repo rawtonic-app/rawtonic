@@ -905,3 +905,59 @@ fn travel_marks_the_xmp_pending_and_keeps_its_checksum() {
     w.main.travel_import(&receipt.report.undo, false).unwrap();
     assert_eq!(row(), (Some("now".into()), "pending".into()));
 }
+
+/// Review round 2: after an import that replaced an edit (keeping it as a
+/// snapshot here), the common state still advances, so a snapshot that
+/// came in and is then renamed on both sides is a conflict, not "there".
+#[test]
+fn the_common_state_advances_past_a_replaced_edit() {
+    let (_tmp, w) = world();
+    let a = &w.ids[0];
+    let there = w.laptop.primary_version(a).unwrap();
+    w.laptop.save_editor_state(a, &edit(1.2)).unwrap();
+    let snap = w
+        .laptop
+        .add_snapshot(&there, "S", json!({"exposure": 0.3}))
+        .unwrap();
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(receipt.report.replaced, 1);
+    let here = w.main.primary_version(a).unwrap();
+    assert!(
+        w.main
+            .snapshots(&here)
+            .unwrap()
+            .iter()
+            .any(|s| s.name == "Before import")
+    );
+    w.main.rename_snapshot(&here, &snap.id, "S (mine)").unwrap();
+    w.laptop
+        .rename_snapshot(&there, &snap.id, "S (client)")
+        .unwrap();
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    drop(source);
+    let photo = seen.photos.iter().find(|p| p.id == *a).unwrap();
+    assert_eq!(photo.side, Some(Side::Both), "{photo:?}");
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(
+        w.main
+            .snapshots(&here)
+            .unwrap()
+            .iter()
+            .any(|s| s.name == "S (mine)")
+    );
+}

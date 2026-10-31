@@ -71,11 +71,6 @@ pub const EXPORT_BASELINE: &str = "export-baseline.json";
 /// other catalog (`<its id>.json`).
 const IMPORT_BASELINES: &str = "import-baselines";
 
-/// One snapshot's digest in a `Baseline` (`snapshot/<key>`).
-fn is_snapshot_part(part: &str) -> bool {
-    part.starts_with("snapshot/")
-}
-
 /// The file of this catalog's record for the other catalog `id`, when the
 /// id is a plain name (a catalog id is a UUID; anything else, such as a
 /// path, is not used as a file name).
@@ -407,10 +402,12 @@ impl Library {
         for (incoming, target) in pairs {
             let theirs = other.import_digests(incoming, other_dir, &mut digests)?;
             let ours = self.import_digests(target, &self.directory, &mut digests)?;
-            // Snapshots only add up (a replaced edit is kept as one here).
+            // Each of their snapshots is here as it is there; snapshots only
+            // here (a replaced edit kept as "Before import") do not count, so
+            // the all-snapshots digest is left out.
             let same = theirs
                 .iter()
-                .filter(|(part, _)| !is_snapshot_part(part))
+                .filter(|(part, _)| part.as_str() != "snapshots")
                 .all(|(part, digest)| ours.get(part) == Some(digest));
             if same {
                 record.photos.insert(incoming.clone(), theirs);
