@@ -710,6 +710,10 @@ pub struct AppSettings {
     pub linux_gpu_optimization_migrated_v1: Option<bool>,
     #[serde(default)]
     pub library_view_mode: Option<String>,
+    /// Per folder: whether its grid includes its subfolders' photos (the
+    /// grid's Include subfolders, remembered per folder).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subfolder_views: Option<BTreeMap<String, bool>>,
     #[serde(default = "default_export_presets")]
     pub export_presets: Vec<ExportPreset>,
     #[serde(default)]
@@ -887,6 +891,7 @@ impl Default for AppSettings {
             ai_gpu: None,
             linux_gpu_optimization_migrated_v1: Some(true),
             library_view_mode: Some("flat".to_string()),
+            subfolder_views: None,
             export_presets: default_export_presets(),
             import_metadata_presets: Vec::new(),
             my_lenses: Some(Vec::new()),
@@ -1214,6 +1219,28 @@ mod tests {
         let cleared: AppSettings =
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(cleared.recent_libraries, Some(Vec::new()));
+    }
+
+    #[test]
+    fn subfolder_choices_per_folder_survive_a_save_and_load() {
+        let json =
+            r#"{"subfolderViews":{"/Shoots/Wedding.catalog/Photos":false,"/Shoots/Trip":true}}"#;
+        let loaded: AppSettings = serde_json::from_str(json).unwrap();
+        let views = loaded.subfolder_views.clone().unwrap();
+        assert_eq!(views.get("/Shoots/Wedding.catalog/Photos"), Some(&false));
+        assert_eq!(views.get("/Shoots/Trip"), Some(&true));
+        let saved = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(
+            saved["subfolderViews"]["/Shoots/Trip"],
+            serde_json::json!(true)
+        );
+        // Settings without choices stay without the key.
+        assert!(
+            serde_json::to_value(AppSettings::default())
+                .unwrap()
+                .get("subfolderViews")
+                .is_none()
+        );
     }
 
     #[test]

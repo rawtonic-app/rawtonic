@@ -1382,9 +1382,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       await refresh();
       // Lightroom shows the new photographs after Import; a dated destination
       // (Photos/2026/2026-10-31) would otherwise leave the shown folder empty.
+      // A photograph open in Develop, the loupe or full screen stays open.
       if (
         results.some((r) => r.destination && !r.skipped && !r.error) &&
-        useUIStore.getState().activeView !== "editor" &&
+        !viewerShown(useUIStore.getState()) &&
         useLibraryStore.getState().currentFolderPath === shownView
       )
         window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));

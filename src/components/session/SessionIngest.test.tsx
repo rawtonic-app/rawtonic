@@ -366,7 +366,7 @@ describe("Dropping photographs onto the window", () => {
     expect(navigate).toHaveBeenLastCalledWith("/jobs/Acme/Selects");
   });
 
-  it("after the copy the grid shows the new photographs (Previous Import), unless the user moved on meanwhile", async () => {
+  it("after the copy the grid shows the new photographs (Previous Import), unless the user moved on or opened a photograph meanwhile", async () => {
     const user = userEvent.setup();
     const shown = vi.fn();
     window.addEventListener(SHOW_PREVIOUS_IMPORT, shown);
@@ -387,7 +387,20 @@ describe("Dropping photographs onto the window", () => {
       await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "session_ingest")).toHaveLength(2));
       await act(async () => {});
       expect(shown).toHaveBeenCalledTimes(1);
+
+      // A photograph opened in the Library's loupe while copying stays open.
+      useLibraryStore.setState({ currentFolderPath: null });
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === "session_ingest") useUIStore.setState({ libraryLoupe: true });
+        return base(command, args);
+      });
+      drop(["/Volumes/CARD/DCIM"]);
+      await user.click(await screen.findByRole("button", { name: "Copy 2 photos" }));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "session_ingest")).toHaveLength(3));
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
     } finally {
+      useUIStore.setState({ libraryLoupe: false });
       window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
     }
   });
