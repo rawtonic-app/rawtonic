@@ -1313,15 +1313,26 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
         let mut supported = true;
         // Lightroom Classic 15 keeps a brush as a `Mask/Aggregate` of its
         // strokes (`crs:Masks`: `Mask/Paint` items, erasers among them):
-        // an additive, not inverted aggregate stands for its items, which
+        // an additive, not inverted aggregate (with erasers: the first
+        // component) stands for its items, which
         // take over its switch (`MaskActive`) and opacity (`MaskValue`).
         let mut items = Vec::new();
         for li in seq_items(correction, "CorrectionMasks") {
             let mask = described(li);
             let attr = |n: &str| mask.attribute((CRS_NS, n));
             if attr("What") == Some("Mask/Aggregate") {
+                let children = seq_items(mask, "Masks");
+                // Its erasers subtract from everything before them once
+                // flattened: only right when nothing precedes the brush.
+                let erases = children.iter().any(|li| {
+                    described(*li)
+                        .attribute((CRS_NS, "MaskValue"))
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .is_some_and(|v| v <= 0.0)
+                });
                 if matches!(attr("MaskBlendMode"), None | Some("0"))
                     && attr("MaskInverted") != Some("true")
+                    && (items.is_empty() || !erases)
                 {
                     let active = attr("MaskActive") != Some("false");
                     let value = attr("MaskValue")
@@ -1329,7 +1340,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                         .unwrap_or(1.0)
                         .clamp(0.0, 1.0);
                     items.extend(
-                        seq_items(mask, "Masks")
+                        children
                             .into_iter()
                             .map(|li| (described(li), active, value)),
                     );
@@ -2223,6 +2234,24 @@ mod tests {
             json!([[0.62, 0.5], [0.64, 0.51]])
         );
         assert_eq!(subs[1]["mode"], "subtractive", "the eraser");
+        // After another component its erasers would cut that one too:
+        // left out; without erasers it is flattened.
+        let gradient = r#"<rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.5" crs:ZeroY="0.5" crs:FullX="0.5" crs:FullY="0"/></rdf:li>
+     <rdf:li><rdf:Description crs:What="Mask/Aggregate""#;
+        let mixed = brush("0", "false").replacen(
+            r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#,
+            gradient,
+            1,
+        );
+        let (layers, skipped) = super::lightroom_masks(&mixed);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        let no_eraser = mixed.replace(
+            r#"crs:MaskValue="0" crs:Radius="0.02""#,
+            r#"crs:MaskValue="1" crs:Radius="0.02""#,
+        );
+        let (layers, skipped) = super::lightroom_masks(&no_eraser);
+        assert!(skipped.is_empty());
+        assert_eq!(layers[0]["subMasks"].as_array().unwrap().len(), 3);
         // An aggregate that subtracts or is inverted is not flattened.
         for (blend, inverted) in [("1", "false"), ("0", "true")] {
             let (layers, skipped) = super::lightroom_masks(&brush(blend, inverted));
