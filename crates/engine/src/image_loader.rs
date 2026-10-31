@@ -178,7 +178,7 @@ pub struct DecodeVariant {
     pub frame: u32,
     /// The black handling (black_bias.rs): `BlackLevels::Unbiased` from
     /// `renderVersion` 8, so lifted high-ISO shadows keep their level and
-    /// colour.
+    /// colour, `BlackLevels::UnbiasedBorder` from 10.
     pub black: BlackLevels,
     /// How clipped colours are rebuilt (highlight_reconstruction.rs):
     /// `HighlightRebuild::Ratios` from `renderVersion` 9, so large partly
@@ -196,6 +196,13 @@ pub const DEAD_TEST_RENDER_VERSION: u64 = 3;
 /// (`BlackLevels::Unbiased`; notes:
 /// benchmark-results/hc-highlight-clip-2026-10-30/).
 pub const BLACK_RENDER_VERSION: u64 = 8;
+
+/// The render version from which the masked border's black replaces a
+/// decoder's that spreads over the 2 × 2 positions more than
+/// `black_bias::BORDER_NOISE` levels beyond the border's
+/// (`BlackLevels::UnbiasedBorder`; notes:
+/// benchmark-results/cb-channel-black-2026-11-01/).
+pub const BORDER_BLACK_RENDER_VERSION: u64 = 10;
 
 /// The render version from which clipped colours inside larger partly
 /// clipped areas are rebuilt from colour ratios measured away from the clip
@@ -225,7 +232,9 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
         } else {
             0
         },
-        black: if render_version >= BLACK_RENDER_VERSION {
+        black: if render_version >= BORDER_BLACK_RENDER_VERSION {
+            BlackLevels::UnbiasedBorder
+        } else if render_version >= BLACK_RENDER_VERSION {
             BlackLevels::Unbiased
         } else {
             BlackLevels::Clipped
@@ -2142,7 +2151,12 @@ mod decode_variant_tests {
         assert_eq!(black(json!({ "exposure": 1 })), BlackLevels::Clipped);
         assert_eq!(black(json!({ "renderVersion": 7 })), BlackLevels::Clipped);
         assert_eq!(black(json!({ "renderVersion": 8 })), BlackLevels::Unbiased);
-        assert_eq!(black(json!({})), BlackLevels::Unbiased);
+        assert_eq!(black(json!({ "renderVersion": 9 })), BlackLevels::Unbiased);
+        assert_eq!(
+            black(json!({ "renderVersion": 10 })),
+            BlackLevels::UnbiasedBorder
+        );
+        assert_eq!(black(json!({})), BlackLevels::UnbiasedBorder);
         let highlights = |recipe| decode_variant(&recipe, "/p/A.NEF").highlights;
         assert_eq!(
             highlights(json!({ "exposure": 1 })),

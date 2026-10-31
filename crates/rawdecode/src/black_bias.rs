@@ -37,7 +37,45 @@ pub enum BlackLevels {
     /// The masked border's black where it differs, and the shadows' means
     /// restored after the demosaic (`masked_black`, `ShadowMeans`).
     Unbiased,
+    /// As `Unbiased`, with the border's black taken already when the
+    /// decoder's levels spread over the 2 × 2 positions more than
+    /// `BORDER_NOISE` levels beyond the border's own spread (`renderVersion`
+    /// 10).
+    UnbiasedBorder,
 }
+
+impl BlackLevels {
+    /// Whether the shadows' means are restored and the masked border can
+    /// replace the decoder's black.
+    pub fn unbiased(self) -> bool {
+        self != Self::Clipped
+    }
+
+    /// How many levels the decoder's spread over the 2 × 2 positions may
+    /// exceed the masked border's before the border's levels are used; None
+    /// when the decoder's levels are kept.
+    pub fn border_margin(self) -> Option<f32> {
+        match self {
+            Self::Clipped => None,
+            Self::Unbiased => Some(8.0),
+            Self::UnbiasedBorder => Some(BORDER_NOISE),
+        }
+    }
+}
+
+/// The masked border's level per 2 × 2 position is a few levels uncertain
+/// (column banding). A decoder whose levels spread more than this beyond
+/// the border's records per-position offsets the photosites do not have:
+/// the two greens of a quad see the same light, and on the EOS 500D at
+/// ISO 3200 (maker notes 1020/1027 for its greens, border 1024.5/1023.7)
+/// they are 7.5 levels apart at zero signal with the maker notes' levels
+/// and 0.4 with the border's. Every measured Canon CR2 with a border (127
+/// raw.pixls.us and RawNIND files) whose spreads differ by more than 3 levels (EOS 500D and 7D at ISO 3200, EOS M
+/// and 550D at ISO 1600: 3.7-5.9 levels) gets closer greens from the
+/// border; below that the two cannot be told apart (EOS 7D at ISO 1250,
+/// 2.4 levels, keeps the decoder's). Notes:
+/// benchmark-results/cb-channel-black-2026-11-01/.
+pub const BORDER_NOISE: f32 = 3.0;
 
 /// Block side in photosites: a whole number of 2 × 2 and 6 × 6 periods.
 pub const BLOCK: usize = 12;

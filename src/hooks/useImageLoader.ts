@@ -343,6 +343,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             colorNoiseMultiscale: loadImageResult.color_noise_multiscale ?? undefined,
             deadPixelAdjacent: loadImageResult.dead_pixel_adjacent ?? undefined,
             unbiasedBlack: loadImageResult.unbiased_black ?? undefined,
+            borderBlack: loadImageResult.border_black ?? undefined,
             highlightRatios: loadImageResult.highlight_ratios ?? undefined,
             // Offline: the preview proxy is all there is (no decode follows).
             offline: loadImageResult.offline ?? null,

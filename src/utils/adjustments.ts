@@ -1389,6 +1389,17 @@ export const UNBIASED_BLACK_RENDER_VERSION = 8;
 export const unbiasedBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= UNBIASED_BLACK_RENDER_VERSION;
 
+/** The render version from which the masked sensor border's black replaces
+ * a decoder's that spreads over the 2 × 2 positions more than 3 levels
+ * beyond the border's (crates/engine/src/image_loader.rs
+ * `BORDER_BLACK_RENDER_VERSION`). */
+export const BORDER_BLACK_RENDER_VERSION = 10;
+
+/** Whether a recipe's RAW is developed with that border black, as the
+ * backend decides (`image_loader::decode_variant`). */
+export const borderBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= BORDER_BLACK_RENDER_VERSION;
+
 /** The render version from which clipped colours inside larger partly
  * clipped areas are rebuilt from colour ratios (crates/engine/src/image_loader.rs
  * `HIGHLIGHT_RENDER_VERSION`). */

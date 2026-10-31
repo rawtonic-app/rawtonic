@@ -399,8 +399,8 @@ pub fn current_key(
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
 /// when set so earlier proxies keep their key, the second dead-photosite
 /// test, a frame other than version 0's (`source_frame`), the unbiased
-/// blacks (`BlackLevels::Unbiased`) and the ratio highlight rebuild
-/// (`HighlightRebuild::Ratios`).
+/// blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`) and the ratio
+/// highlight rebuild (`HighlightRebuild::Ratios`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
         "hl={:?};linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
@@ -422,10 +422,10 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     } else {
         key
     };
-    let key = if variant.black == BlackLevels::Unbiased {
-        key + ";black=unbiased"
-    } else {
-        key
+    let key = match variant.black {
+        BlackLevels::Clipped => key,
+        BlackLevels::Unbiased => key + ";black=unbiased",
+        BlackLevels::UnbiasedBorder => key + ";black=border",
     };
     if variant.highlights == HighlightRebuild::Ratios {
         key + ";highlights=ratios"
@@ -454,7 +454,9 @@ pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
             .split_once(";frame=")
             .and_then(|(_, frame)| frame.split(';').next()?.parse().ok())
             .unwrap_or(0),
-        black: if decoder.contains(";black=unbiased") {
+        black: if decoder.contains(";black=border") {
+            BlackLevels::UnbiasedBorder
+        } else if decoder.contains(";black=unbiased") {
             BlackLevels::Unbiased
         } else {
             BlackLevels::Clipped
@@ -1556,7 +1558,7 @@ mod tests {
         multiscale: true,
         dead_test: DeadTest::Adjacent,
         frame: 0,
-        black: BlackLevels::Unbiased,
+        black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
     };
     /// A decode for an edit with the old colour noise filter.
@@ -1913,7 +1915,11 @@ mod tests {
         for multiscale in [false, true] {
             for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
                 for frame in [0, 1] {
-                    for black in [BlackLevels::Clipped, BlackLevels::Unbiased] {
+                    for black in [
+                        BlackLevels::Clipped,
+                        BlackLevels::Unbiased,
+                        BlackLevels::UnbiasedBorder,
+                    ] {
                         for highlights in [HighlightRebuild::Offsets, HighlightRebuild::Ratios] {
                             let variant = DecodeVariant {
                                 multiscale,
