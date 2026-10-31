@@ -812,6 +812,25 @@ async function replaceRecipes(recipes: { path: string; adjustments: unknown }[],
   await showWrittenRecipes(written, shown);
   return written;
 }
+/** A recipe batch run outside the editor (the repair of a batch a crash cut
+ * short, utils/interruptedBatches): on the photos' write queues after their
+ * pending saves; the open photograph and the Library's active one then show
+ * what was written, so no older editor save follows it. Resolves with the
+ * photos not written. */
+export async function writeRecipeRepair(paths: string[], command: string, args: Record<string, unknown>): Promise<string[]> {
+  paths.forEach((path) => globalImageCache.delete(path));
+  const { changes, failed } = await recipeWrite(
+    paths,
+    () => recordedBatch(invoke<RecipeBatch>(command, args), paths, 'repair an interrupted batch', true),
+    { kind: 'repair', failedOf: recordedFailed, preserveUnsaved: false },
+  );
+  const written = changes.map((change) => change.path);
+  written.forEach((path) => unsavedRecipes.delete(path));
+  recipeWritten(written, null);
+  await showWrittenRecipes(written);
+  return failed;
+}
+
 registerRecipeWriter(writeRecipeValues, replaceRecipes);
 
 // A drag's last moves commit as it ends, before the final render.

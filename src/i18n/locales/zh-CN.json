@@ -65,6 +65,7 @@
       "failed": "无法完成{{batch}}：{{error}}",
       "keywordAdd": "关键词“{{tag}}”",
       "keywordRemove": "移除关键词“{{tag}}”",
+      "notWritten_other": "有 {{count}} 张照片无法写入",
       "paste": "粘贴设置",
       "preset": "预设",
       "rating": "评级 {{rating}}",

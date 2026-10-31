@@ -65,6 +65,7 @@
       "failed": "{{batch}} を完了できませんでした: {{error}}",
       "keywordAdd": "キーワード「{{tag}}」",
       "keywordRemove": "キーワード「{{tag}}」の削除",
+      "notWritten_other": "{{count}} 枚の写真を書き込めませんでした",
       "paste": "設定のペースト",
       "preset": "プリセット",
       "rating": "レーティング {{rating}}",

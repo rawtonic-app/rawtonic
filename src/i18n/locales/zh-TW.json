@@ -65,6 +65,7 @@
       "failed": "無法完成{{batch}}：{{error}}",
       "keywordAdd": "關鍵字「{{tag}}」",
       "keywordRemove": "移除關鍵字「{{tag}}」",
+      "notWritten_other": "有 {{count}} 張照片無法寫入",
       "paste": "貼上設定",
       "preset": "預設集",
       "rating": "評等 {{rating}}",

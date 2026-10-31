@@ -65,6 +65,7 @@
       "failed": "{{batch}}을(를) 완료할 수 없습니다: {{error}}",
       "keywordAdd": "키워드 “{{tag}}”",
       "keywordRemove": "키워드 “{{tag}}” 제거",
+      "notWritten_other": "사진 {{count}}장을 기록할 수 없습니다",
       "paste": "설정 붙여넣기",
       "preset": "프리셋",
       "rating": "별점 {{rating}}",

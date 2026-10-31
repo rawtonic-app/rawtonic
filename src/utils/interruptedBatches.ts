@@ -21,7 +21,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { notify } from '../activity/notify';
 import { invokeInOrder } from './catalogWrites';
 import { catalogChanged } from './catalogEvents';
-import { submitPhotoWrite } from './photoWrites';
+import { writeRecipeRepair } from '../hooks/useEditorActions';
 
 /** What the batch wrote (`BatchKind` in batch_journal.rs). */
 export type InterruptedBatchKind =
@@ -66,10 +66,9 @@ function batchName({ batch }: InterruptedBatch): string {
   }
 }
 
-/** Throws when a batch command reports photographs it did not write. */
-function written(result: unknown) {
-  const failure = (result as { failure?: { failed?: unknown } } | null)?.failure;
-  if (failure) throw new Error(JSON.stringify(failure));
+/** Throws when a recipe repair left photographs not written. */
+function allWritten(failed: string[]) {
+  if (failed.length) throw new Error(i18n.t('activity.interrupted.notWritten', { count: failed.length }));
 }
 
 /** Groups paths by the value they get back. */
@@ -90,7 +89,7 @@ export async function applyToRest(batch: InterruptedBatch) {
   if (batch.rest.length === 0) return;
   const args = { ...batch.args, paths: batch.rest };
   if (batch.command === Invokes.ApplyAdjustmentsToPaths) {
-    written(await submitPhotoWrite(batch.rest, () => invoke(batch.command, args), { kind: batch.batch.kind }));
+    allWritten(await writeRecipeRepair(batch.rest, batch.command, args));
     catalogChanged();
   } else {
     await invokeInOrder(batch.command, args, batch.batch.kind);
@@ -109,7 +108,7 @@ export async function undoApplied(batch: InterruptedBatch) {
     case 'style':
     case 'preset': {
       const changes = undo.map((entry) => ({ path: entry.path, adjustments: entry.before }));
-      written(await submitPhotoWrite(paths, () => invoke(Invokes.ReplaceRecipes, { changes }), { kind: 'restore' }));
+      allWritten(await writeRecipeRepair(paths, Invokes.ReplaceRecipes, { changes }));
       catalogChanged();
       return;
     }
@@ -130,21 +129,39 @@ export async function undoApplied(batch: InterruptedBatch) {
   }
 }
 
-/** Puts `batch` under Needs attention with its three choices; `refresh`
- * shows the photographs anew after a repair. */
-export function offerInterruptedBatch(batch: InterruptedBatch, refresh: () => Promise<void> | void = () => {}) {
+/** The library each offered batch belongs to, by job id (null: none open). */
+const offered = new Map<string, string | null>();
+
+/** Puts `batch` of the library `directory` under Needs attention with its
+ * three choices; `refresh` shows the photographs anew after a repair. A
+ * choice works only while that library is open (its photographs' commands
+ * write into the open library). */
+export function offerInterruptedBatch(
+  batch: InterruptedBatch,
+  directory: string | null,
+  refresh: () => Promise<void> | void = () => {},
+) {
+  offered.set(batch.id, directory);
   const name = batchName(batch);
+  const here = () => useLibraryStore.getState().sessionDirectory === directory;
   const forget = () =>
     invoke(Invokes.DismissInterruptedBatch, { id: batch.id }).catch((error) =>
       console.warn('Could not forget the interrupted batch:', error),
     );
   const settle = (repair: (batch: InterruptedBatch) => Promise<void>) => async () => {
+    if (!here()) {
+      // Withdrawn: offered again when its library opens.
+      offered.delete(batch.id);
+      useActivityStore.getState().resolve(activityId(batch));
+      return;
+    }
     try {
       await repair(batch);
       await invoke(Invokes.DismissInterruptedBatch, { id: batch.id });
     } catch (error) {
       notify.error(i18n.t('activity.interrupted.failed', { batch: name, error: String(error) }));
-      offerInterruptedBatch(batch, refresh);
+      // Offered again as it is now: part of the repair may have been written.
+      await reoffer(batch.id, directory, refresh);
     } finally {
       await Promise.resolve(refresh()).catch(() => {});
     }
@@ -169,26 +186,42 @@ export function offerInterruptedBatch(batch: InterruptedBatch, refresh: () => Pr
   });
 }
 
-const offered = new Set<string>();
-
-/** Offers the batches earlier runs left in `directory` (the library that
- * just opened; null: none is open), each once per app run. */
-export async function offerInterruptedBatches(directory: string | null, refresh?: () => Promise<void> | void) {
+async function listed(directory: string | null): Promise<InterruptedBatch[] | null> {
   const batches = await invoke<InterruptedBatch[]>(Invokes.InterruptedBatches, { directory }).catch((error) => {
     console.warn('Could not list interrupted batches:', error);
     return null;
   });
-  if (!Array.isArray(batches) || useLibraryStore.getState().sessionDirectory !== directory) return;
+  if (!Array.isArray(batches) || useLibraryStore.getState().sessionDirectory !== directory) return null;
+  return batches;
+}
+
+/** Offers job `id` again with what its photographs show now. */
+async function reoffer(id: string, directory: string | null, refresh: () => Promise<void> | void) {
+  const batch = (await listed(directory))?.find((candidate) => candidate.id === id);
+  if (batch && batch.rest.length) offerInterruptedBatch(batch, directory, refresh);
+  else if (batch) void invoke(Invokes.DismissInterruptedBatch, { id }).catch(() => {});
+}
+
+/** Offers the batches earlier runs left in `directory` (the library that
+ * just opened; null: none is open), each once per app run; those of
+ * another library are withdrawn (offered again when it opens). */
+export async function offerInterruptedBatches(directory: string | null, refresh?: () => Promise<void> | void) {
+  for (const [id, owner] of [...offered]) {
+    if (owner === directory) continue;
+    offered.delete(id);
+    useActivityStore.getState().resolve(`batch:interrupted:${id}`);
+  }
+  const batches = await listed(directory);
+  if (!batches) return;
   for (const batch of batches) {
     if (offered.has(batch.id)) continue;
-    offered.add(batch.id);
     // Every photograph reached after all (a kill after the last write):
     // nothing to choose.
     if (batch.rest.length === 0) {
       void invoke(Invokes.DismissInterruptedBatch, { id: batch.id }).catch(() => {});
       continue;
     }
-    offerInterruptedBatch(batch, refresh);
+    offerInterruptedBatch(batch, directory, refresh);
   }
 }
 

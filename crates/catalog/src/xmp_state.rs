@@ -72,17 +72,28 @@ impl Library {
     /// with None): the open-time write of the XMP a quit or crash left
     /// behind goes in parts, each after the photographs' earlier writes.
     pub fn write_pending_xmp_of(&self, only: Option<&[PathBuf]>) -> Result<XmpRetry> {
-        let only: Option<HashSet<&Path>> =
-            only.map(|paths| paths.iter().map(PathBuf::as_path).collect());
-        let mut retry = XmpRetry::default();
-        for id in self.pending_xmp()? {
-            let path = self.asset(&id)?.path;
-            if only
-                .as_ref()
-                .is_some_and(|only| !only.contains(path.as_path()))
-            {
-                continue;
+        let pending = self.pending_xmp()?;
+        // A part: its own photographs, looked up directly (not every pending
+        // one loaded for each part).
+        let ids = match only {
+            None => pending,
+            Some(paths) => {
+                let pending: HashSet<String> = pending.into_iter().collect();
+                let mut ids = Vec::new();
+                for path in paths {
+                    if let Some(asset) = self.asset_at(path)?
+                        && pending.contains(&asset.id)
+                        && !ids.contains(&asset.id)
+                    {
+                        ids.push(asset.id);
+                    }
+                }
+                ids
             }
+        };
+        let mut retry = XmpRetry::default();
+        for id in ids {
+            let path = self.asset(&id)?.path;
             let problem = match self.xmp_problem(&id, &path)? {
                 // `sync_xmp` refuses a changed sidecar too; it is not even read twice.
                 Some(problem) => Some(problem),

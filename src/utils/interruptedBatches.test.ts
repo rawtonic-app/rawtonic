@@ -109,18 +109,41 @@ describe('interrupted batches', () => {
     ]);
   });
 
-  it('keeps the batch on offer when its repair fails', async () => {
+  it('offers the batch again as it is now when its repair fails part way', async () => {
     const calls: [string, unknown][] = [];
     answer([paste], calls);
     await offerInterruptedBatches('/job');
+    const now = { ...paste, applied: 3, undo: [...paste.undo, { path: '/job/Capture/c.ARW', before: null }], rest: ['/job/Capture/d.ARW'] };
     vi.mocked(invoke).mockImplementation(async (command: string) => {
       calls.push([command, null]);
-      if (command === 'apply_adjustments_to_paths') return { changes: [], failure: { failed: ['/job/Capture/c.ARW'] } };
+      if (command === 'apply_adjustments_to_paths')
+        return { changes: [{ path: '/job/Capture/c.ARW', before: null, after: {} }], failure: { message: 'disk', failed: ['/job/Capture/d.ARW'] } };
+      if (command === 'interrupted_batches') return [now];
       return null;
     });
     await action('Apply to the rest').run();
     expect(calls.map(([command]) => command)).not.toContain('dismiss_interrupted_batch');
+    await vi.waitFor(() => expect(entry()?.title).toBe('Interrupted: Paste Settings applied to 3 of 4 photos'));
     expect(entry()?.status).toBe('warning');
+  });
+
+  it('repairs only while its own library is open, and withdraws the offer when another opens', async () => {
+    const calls: [string, unknown][] = [];
+    answer([paste], calls);
+    await offerInterruptedBatches('/job');
+    const offeredEntry = entry()!;
+    useLibraryStore.setState({ sessionDirectory: '/other' });
+    // A click on the entry still on screen writes nothing into the other library.
+    await offeredEntry.actions!.find((a) => a.label === 'Apply to the rest')!.run();
+    expect(calls.map(([command]) => command)).not.toContain('apply_adjustments_to_paths');
+    answer([], calls);
+    await offerInterruptedBatches('/other');
+    expect(entry()).toBeUndefined();
+    // Offered again when its library opens again.
+    answer([paste], calls);
+    useLibraryStore.setState({ sessionDirectory: '/job' });
+    await offerInterruptedBatches('/job');
+    expect(entry()?.title).toBe('Interrupted: Paste Settings applied to 2 of 4 photos');
   });
 
   it('forgets the batch when its entry is closed, as Dismiss does', async () => {

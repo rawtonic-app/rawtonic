@@ -15,6 +15,7 @@ import {
   updateAdjustments,
   useEditorActions,
   waitForPendingMetadataSave,
+  writeRecipeRepair,
 } from './useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -995,4 +996,16 @@ describe('the frame of the RAW (ADR 0020, "new photos only")', () => {
     expect(useEditorStore.getState().adjustments.exposure).toBe(3);
     expect(frame()).toBe(0);
   });
+});
+
+it('shows a repaired recipe in the open photograph, so no older editor save follows it', async () => {
+  const { useUIStore } = await import('../store/useUIStore');
+  useUIStore.setState({ activeView: 'editor' });
+  renderHook(useEditorActions);
+  const repaired = writeRecipeRepair(['/first.dng'], Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', adjustments: { exposure: 1.5 } }] });
+  await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: {}, after: { exposure: 1.5 } }] });
+  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1.5 } });
+  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1.5 } });
+  await expect(repaired).resolves.toEqual([]);
+  expect(useEditorStore.getState().adjustments.exposure).toBe(1.5);
 });

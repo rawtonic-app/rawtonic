@@ -69,6 +69,8 @@
       "failed": "{{batch}} konnte nicht abgeschlossen werden: {{error}}",
       "keywordAdd": "Stichwort „{{tag}}“",
       "keywordRemove": "Entfernen des Stichworts „{{tag}}“",
+      "notWritten_one": "{{count}} Foto konnte nicht geschrieben werden",
+      "notWritten_other": "{{count}} Fotos konnten nicht geschrieben werden",
       "paste": "Einstellungen einfügen",
       "preset": "Vorgabe",
       "rating": "Bewertung {{rating}}",
