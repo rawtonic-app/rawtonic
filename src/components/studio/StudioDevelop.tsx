@@ -237,6 +237,23 @@ const RegionCurveLine = memo(function RegionCurveLine({ region }: { region: Regi
   );
 });
 
+/** The region curve's split points (percent of the input) and their ranges,
+ * as the sliders they replace had them. */
+type SplitKey = "shadowSplit" | "midtoneSplit" | "highlightSplit";
+const SPLIT_KEYS: SplitKey[] = ["shadowSplit", "midtoneSplit", "highlightSplit"];
+const SPLIT_RANGES: Record<SplitKey, [number, number]> = {
+  shadowSplit: [5, 45],
+  midtoneSplit: [25, 75],
+  highlightSplit: [55, 95],
+};
+const SPLIT_LABELS = {
+  shadowSplit: "studio.tone.regionCurve.aria.shadowSplit",
+  midtoneSplit: "studio.tone.regionCurve.aria.midtoneSplit",
+  highlightSplit: "studio.tone.regionCurve.aria.highlightSplit",
+} as const;
+/** Height of the split handles' strip under the plot, in curve units. */
+const SPLIT_STRIP = 16;
+
 export function PointCurve({
   curves,
   region,
@@ -245,10 +262,13 @@ export function PointCurve({
   onInteraction,
   wholeCurves = false,
   targeted = false,
+  onRegionChange,
 }: {
   curves: Curves;
   /** Lightroom's region curve, drawn under the luma curve when set. */
   region?: RegionCurve;
+  /** With `region`: its three split points as handles under the RGB curve. */
+  onRegionChange?(region: RegionCurve): void;
   onChange(curves: Curves): void;
   disabled: boolean;
   onInteraction(active: boolean): void;
@@ -274,6 +294,10 @@ export function PointCurve({
   // store gets them at the slider cadence and commits every
   // COMMIT_INTERVAL_MS (sliderDraft.ts), too seldom to draw from.
   const [dragged, setDragged] = useState<Coord[] | null>(null);
+  // The split point being dragged, and the one whose exact value is typed.
+  const [splitDrag, setSplitDrag] = useState<SplitKey | null>(null);
+  const [splitEdit, setSplitEdit] = useState<SplitKey | null>(null);
+  const histogram = useEditorStore((s) => s.histogram);
   // Curves without a Luminance curve start it neutral.
   const points = dragged ??
     curves[channel] ?? [
@@ -317,6 +341,28 @@ export function PointCurve({
       }).join(" "),
     [rendered],
   );
+  // The photo's histogram behind the curve (both reference editors), the
+  // shown channel's; the RGB and Luminance curves show the luminance one.
+  const histogramValues =
+    histogram &&
+    (channel === "red" || channel === "green" || channel === "blue"
+      ? histogram[channel]
+      : histogram.luma);
+  const histogramPath = useMemo(() => {
+    if (!histogramValues?.length) return null;
+    const max = Math.max(1, ...histogramValues);
+    const last = Math.max(1, histogramValues.length - 1);
+    return `M0 255 ${histogramValues
+      .map((v, i) => `L${((i * 255) / last).toFixed(2)} ${(255 - Math.sqrt(Math.max(0, v) / max) * 240).toFixed(2)}`)
+      .join(" ")} L255 255 Z`;
+  }, [histogramValues]);
+  const splits = channel === "luma" && region && onRegionChange ? region : null;
+  const setSplit = (key: SplitKey, value: number) => {
+    if (!region || !onRegionChange) return;
+    const [min, max] = SPLIT_RANGES[key];
+    const next = Math.max(min, Math.min(max, Math.round(value)));
+    if (next !== region[key]) onRegionChange({ ...region, [key]: next });
+  };
   const position = (event: React.PointerEvent<SVGSVGElement>) => {
     const matrix = event.currentTarget.getScreenCTM();
     return matrix
@@ -364,13 +410,15 @@ export function PointCurve({
       </div>
       <svg
         ref={svgRef}
-        viewBox="0 0 255 255"
+        viewBox={splits ? `0 0 255 ${255 + SPLIT_STRIP}` : "0 0 255 255"}
         role="group"
         aria-label={t("studio.develop.curve.aria", {
           channel: t(`studio.develop.curve.ariaChannels.${channel}`),
         })}
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return;
+          // The split strip under the plot adds no curve points.
+          if ((e.target as Element).closest?.(".curve-split, .curve-split-track")) return;
           const p = position(e);
           if (!p) return;
           const nearest = points.findIndex(
@@ -420,6 +468,9 @@ export function PointCurve({
         onPointerCancel={end}
         onLostPointerCapture={end}
       >
+        {histogramPath && (
+          <path d={histogramPath} className="curve-histogram" data-channel={channel === "luminance" ? "luma" : channel} />
+        )}
         {[64, 128, 192].map((p) => (
           <g key={p} className="curve-grid">
             <line x1={p} x2={p} y1="0" y2="255" />
@@ -442,6 +493,89 @@ export function PointCurve({
               r={3.5}
             />
           </g>
+        )}
+        {dragged && selected !== null && points[selected] && (
+          // Capture One's crosshair through the dragged point.
+          <g className="curve-crosshair">
+            <line x1={points[selected].x} x2={points[selected].x} y1="0" y2="255" />
+            <line x1="0" x2="255" y1={255 - points[selected].y} y2={255 - points[selected].y} />
+          </g>
+        )}
+        {splits && (
+          <>
+            <rect className="curve-split-track" x="0" y={258} width="255" height={SPLIT_STRIP - 3} />
+            {SPLIT_KEYS.map((key) => {
+              const [min, max] = SPLIT_RANGES[key];
+              const value = splits[key];
+              const name = t(SPLIT_LABELS[key]);
+              return (
+                <g
+                  key={key}
+                  role="slider"
+                  tabIndex={disabled ? -1 : 0}
+                  aria-label={name}
+                  aria-valuemin={min}
+                  aria-valuemax={max}
+                  aria-valuenow={value}
+                  aria-disabled={disabled || undefined}
+                  className={`curve-split ${splitDrag === key ? "is-dragging" : ""}`}
+                  transform={`translate(${(value * 255) / 100} 0)`}
+                  onPointerDown={(e) => {
+                    if (disabled || e.button !== 0) return;
+                    e.stopPropagation();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    setSplitDrag(key);
+                    onInteraction(true);
+                  }}
+                  onPointerMove={(e) => {
+                    if (splitDrag !== key || !e.buttons) return;
+                    const matrix = svgRef.current?.getScreenCTM();
+                    if (!matrix) return;
+                    const { x } = curvePointerPosition(e.clientX, e.clientY, matrix.inverse());
+                    setSplit(key, (x * 100) / 255);
+                  }}
+                  onPointerUp={(e) => {
+                    if (splitDrag !== key) return;
+                    e.stopPropagation();
+                    if (e.currentTarget.hasPointerCapture(e.pointerId))
+                      e.currentTarget.releasePointerCapture(e.pointerId);
+                    setSplitDrag(null);
+                    onInteraction(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (disabled) return;
+                    const step = e.shiftKey ? 10 : 1;
+                    const next =
+                      e.key === "ArrowLeft" || e.key === "ArrowDown"
+                        ? value - step
+                        : e.key === "ArrowRight" || e.key === "ArrowUp"
+                          ? value + step
+                          : e.key === "Home"
+                            ? min
+                            : e.key === "End"
+                              ? max
+                              : null;
+                    if (next === null) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    debouncedSetHistory.flush();
+                    setSplit(key, next);
+                    debouncedSetHistory.flush();
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (!disabled) setSplitEdit(key);
+                  }}
+                >
+                  <title>{t("studio.tone.regionCurve.splitHint", { name, value })}</title>
+                  <path d={`M0 ${259} L-5 ${255 + SPLIT_STRIP} L5 ${255 + SPLIT_STRIP} Z`} />
+                  <text className="curve-split-value" x="0" y="251" textAnchor="middle">
+                    {value}
+                  </text>
+                </g>
+              );
+            })}
+          </>
         )}
         {points.map((p, i) => (
           <circle
@@ -518,6 +652,35 @@ export function PointCurve({
           />
         ))}
       </svg>
+      {splits && splitEdit && (
+        <label className="curve-split-entry">
+          {t(SPLIT_LABELS[splitEdit])}
+          <input
+            type="number"
+            aria-label={t(SPLIT_LABELS[splitEdit])}
+            min={SPLIT_RANGES[splitEdit][0]}
+            max={SPLIT_RANGES[splitEdit][1]}
+            defaultValue={splits[splitEdit]}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                const value = Number(e.currentTarget.value);
+                if (e.currentTarget.value.trim() && Number.isFinite(value)) setSplit(splitEdit, value);
+                setSplitEdit(null);
+              } else if (e.key === "Escape") {
+                setSplitEdit(null);
+              }
+            }}
+            onBlur={(e) => {
+              const value = Number(e.currentTarget.value);
+              if (e.currentTarget.value.trim() && Number.isFinite(value)) setSplit(splitEdit, value);
+              setSplitEdit(null);
+            }}
+          />
+        </label>
+      )}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {selected !== null && points[selected] && t("studio.develop.curve.point", {
           index: selected + 1,
@@ -1413,6 +1576,9 @@ export default function StudioDevelop() {
                         ...INITIAL_REGION_CURVE,
                         ...(values.regionCurve as RegionCurve | undefined),
                       }
+                }
+                onRegionChange={
+                  layer ? undefined : (regionCurve) => change({ regionCurve })
                 }
                 disabled={!panelsReady}
                 onInteraction={onInteraction}

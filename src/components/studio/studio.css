@@ -1040,6 +1040,72 @@
   fill: none;
   stroke-width: 1.4;
 }
+/* The photo's histogram behind the curve, faint enough to keep the curve
+   and grid in front (notes: reference/ux-develop-core-2026-10-31, D3). */
+.curve-histogram {
+  fill: #8a8d9233;
+  stroke: none;
+  pointer-events: none;
+}
+/* Crosshair through the point being dragged. */
+.curve-crosshair {
+  pointer-events: none;
+  stroke: #c9ccd0;
+  stroke-width: 0.6;
+  stroke-dasharray: 2 2;
+}
+/* Region split handles in a strip under the plot (D4): the number shows on
+   hover, focus and while dragging. */
+.curve-split-track {
+  fill: #2a2b2e;
+}
+.curve-split {
+  cursor: ew-resize;
+  outline: none;
+}
+.curve-split path {
+  fill: #a9adb3;
+  stroke: #17181a;
+  stroke-width: 0.8;
+}
+.curve-split:hover path,
+.curve-split:focus-visible path,
+.curve-split.is-dragging path {
+  fill: #ffffff;
+}
+.curve-split:focus-visible path {
+  stroke: #829daf;
+  stroke-width: 1.4;
+}
+.curve-split-value {
+  fill: #e1e3e5;
+  font-size: 9px;
+  opacity: 0;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: #202123;
+  stroke-width: 2px;
+}
+.curve-split:hover .curve-split-value,
+.curve-split:focus-visible .curve-split-value,
+.curve-split.is-dragging .curve-split-value {
+  opacity: 1;
+}
+.curve-split-entry {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: #aeb1b6;
+  font-size: 10px;
+}
+.curve-split-entry input {
+  width: 45px;
+  background: #202123;
+  border: 1px solid #829daf;
+  text-align: right;
+}
 .curve-point {
   fill: #d9e2e9;
   stroke: #333;

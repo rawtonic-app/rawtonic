@@ -4538,6 +4538,7 @@
           "shadowSplit": "Tiefen"
         },
         "region": "Bereiche",
+        "splitHint": "{{name}}: {{value}}. Ziehen oder Pfeiltasten; Doppelklick, um einen Wert einzugeben",
         "splits": "Grenzen"
       }
     },
