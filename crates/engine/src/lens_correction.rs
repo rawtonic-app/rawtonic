@@ -1590,6 +1590,49 @@ mod tests {
         assert!(super::camera_crop_factor(&db, "Panasonic", "DC-LX100M2").is_some());
     }
 
+    /// Diffraction correction reads a body's crop factor from the bundled
+    /// database at render time (bodies without FocalPlaneXResolution), so a
+    /// database update that adds a body or changes a crop factor changes
+    /// saved edits' exports. Such an update needs a new
+    /// `diffraction::VERSION` that keeps older recipes on the earlier table
+    /// (as `CAMERAS_ADDED_2026_10_18`); then record the new fingerprint.
+    /// notes: benchmark-results/lens-pinning-2026-10-31/REPORT.md.
+    #[test]
+    fn the_camera_crop_factors_diffraction_reads_are_those_its_versions_know() {
+        let mut rows: Vec<String> = super::embedded_lens_db()
+            .cameras
+            .iter()
+            .map(|camera| {
+                let names = |names: &[MultiName]| {
+                    names
+                        .iter()
+                        .map(|name| name.value.as_str())
+                        .collect::<Vec<_>>()
+                        .join("|")
+                };
+                format!(
+                    "{}\t{}\t{}",
+                    names(&camera.maker),
+                    names(&camera.model),
+                    camera.cropfactor
+                )
+            })
+            .collect();
+        rows.sort();
+        // FNV-1a: stable across toolchains, unlike the std hasher.
+        let fingerprint = rows
+            .join("\n")
+            .bytes()
+            .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            });
+        assert_eq!(
+            (rows.len(), format!("{fingerprint:016x}")),
+            (1057, "54ec57bdc4d10421".to_string()),
+            "the bundled database's camera table changed: give diffraction a new version first"
+        );
+    }
+
     use super::*;
 
     /// lensfun's Canon RF 28mm F2.8 STM entry (full-frame calibration).

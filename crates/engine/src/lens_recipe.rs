@@ -71,6 +71,37 @@ pub fn lens_profile_stamp(recipe: &Value) -> String {
     stamp.to_string()
 }
 
+/// Whether a recipe's `lensProfileFor` names this stamp: compared as JSON,
+/// numbers to within a few ulps. serde_json's default float parsing reads
+/// some saved parameters one ulp off (0.9999979138374329 as …328), so every
+/// load of a saved recipe would otherwise count as a new lens choice and
+/// its next save would resolve it in the current database.
+fn stamp_matches(resolved: &str, stamp: &str) -> bool {
+    fn same(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Number(x), Value::Number(y)) => match (x.as_f64(), y.as_f64()) {
+                (Some(x), Some(y)) => (x - y).abs() <= 8.0 * f64::EPSILON * x.abs().max(y.abs()),
+                _ => x == y,
+            },
+            (Value::Array(x), Value::Array(y)) => {
+                x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same(x, y))
+            }
+            (Value::Object(x), Value::Object(y)) => {
+                x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
+            }
+            _ => a == b,
+        }
+    }
+    resolved == stamp
+        || match (
+            serde_json::from_str::<Value>(resolved),
+            serde_json::from_str::<Value>(stamp),
+        ) {
+            (Ok(a), Ok(b)) => same(&a, &b),
+            _ => false,
+        }
+}
+
 /// A recipe handed to the editor: one saved before `lensProfileFor` gets it
 /// in memory, so undo and redo carry it too (its parameters were resolved
 /// for its lens choice when it was saved).
@@ -94,14 +125,14 @@ pub fn resolve_lens_params_in_adjustments(
     let keep = match lookup {
         LensLookup::Keep { previous } => {
             match adjustments.get(LENS_PROFILE_FOR).and_then(Value::as_str) {
-                Some(resolved) => resolved == stamp,
+                Some(resolved) => stamp_matches(resolved, &stamp),
                 // Only a recipe saved before the key, or one resolved for
                 // this very choice and these parameters, vouches for them;
                 // never one marked unresolved.
                 None => previous.is_some_and(|previous| {
                     match previous.get(LENS_PROFILE_FOR).and_then(Value::as_str) {
-                        None => lens_profile_stamp(previous) == stamp,
-                        Some(resolved) => resolved == stamp,
+                        None => stamp_matches(&lens_profile_stamp(previous), &stamp),
+                        Some(resolved) => stamp_matches(resolved, &stamp),
                     }
                 }),
             }
@@ -669,5 +700,71 @@ mod tests {
         let before = recipe.clone();
         resolve_unresolved(&mut recipe, &None, None, source).unwrap();
         assert_eq!(recipe, before);
+    }
+
+    /// A saved edit read back from its sidecar or session (serde_json reads
+    /// 0.9999979138374329 one ulp off) keeps its parameters when the
+    /// database has re-measured the lens since: notes
+    /// benchmark-results/lens-pinning-2026-10-31/REPORT.md.
+    #[test]
+    fn a_saved_edit_read_back_keeps_its_lens_parameters_after_a_database_update() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("lenses.xml"),
+            r#"<lensdatabase><lens>
+                <maker>Sony</maker><model>FE 16-35mm f/2.8 GM</model><mount>Sony E</mount>
+                <cropfactor>1.0</cropfactor>
+                <calibration>
+                    <distortion model="ptlens" focal="32" a="0.012" b="-0.030" c="0.040"/>
+                    <tca model="poly3" focal="32" vr="1.0003" vb="0.9999972"/>
+                </calibration>
+            </lens></lensdatabase>"#,
+        )
+        .unwrap();
+        let db = crate::lens_correction::load_lensfun_dir(tmp.path());
+        let exif = Some(HashMap::from([
+            ("Make".to_string(), "SONY".to_string()),
+            ("LensModel".to_string(), "FE 16-35mm F2.8 GM".to_string()),
+            ("FocalLength".to_string(), "32".to_string()),
+        ]));
+        // As the earlier database resolved them (exact values, as computed).
+        let exact = |text: &str| serde_json::json!(text.parse::<f64>().unwrap());
+        let params = serde_json::json!({"k1": exact("0.03443861846195967"),
+            "k2": exact("-0.04139006873443622"), "k3": exact("0.04591815849754445"), "model": 1,
+            "tca_vr": exact("1.0001007914543152"), "tca_vb": exact("0.9999979138374329"),
+            "vig_k1": exact("-0.5930870989310151"), "vig_k2": exact("0.2407320427779709"),
+            "vig_k3": exact("-0.12457150215351342")});
+        let mut saved = serde_json::json!({"lensCorrectionMode": "auto", "lensMaker": "Sony",
+            "lensModel": "FE 16-35mm f/2.8 GM", "lensDistortionParams": params});
+        saved[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(&saved));
+        let mut read_back: Value = serde_json::from_str(&saved.to_string()).unwrap();
+        read_back["exposure"] = serde_json::json!(0.3);
+        let kept_params = read_back["lensDistortionParams"].clone();
+        resolve_lens_params_in_adjustments(
+            &mut read_back,
+            LensLookup::Keep { previous: None },
+            &exif,
+            Some(&db),
+            Path::new("/photos/DSC00009.ARW"),
+        );
+        assert_eq!(read_back["lensDistortionParams"], kept_params);
+        // Auto lens correction takes the re-measured profile.
+        resolve_lens_params_in_adjustments(
+            &mut read_back,
+            LensLookup::Fresh,
+            &exif,
+            Some(&db),
+            Path::new("/photos/DSC00009.ARW"),
+        );
+        assert_ne!(read_back["lensDistortionParams"], kept_params);
+        assert!(read_back["lensDistortionParams"].is_object());
+        // Other parameters or another lens are not this stamp.
+        assert!(!stamp_matches(LENS_UNRESOLVED, &lens_profile_stamp(&saved)));
+        let mut other = saved.clone();
+        other["lensDistortionParams"]["tca_vb"] = serde_json::json!(0.99999791383743);
+        assert!(!stamp_matches(
+            saved[LENS_PROFILE_FOR].as_str().unwrap(),
+            &lens_profile_stamp(&other)
+        ));
     }
 }
