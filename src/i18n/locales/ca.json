@@ -2511,6 +2511,7 @@
       "hint": "Cerca pols del sensor en zones llises com el cel o fons i en previsualitza punts de correcció",
       "searching": "S'està cercant pols…",
       "skippedOtherCamera": "Omeses (una altra càmera): {{names}}.",
+      "skippedOtherFrame": "Omeses (un altre enquadrament: mode de retall o proporció): {{names}}.",
       "skippedUnknownCamera": "Omeses (càmera desconeguda): {{names}}.",
       "sync": "Sincronitza la pols amb les fotos seleccionades ({{number}})",
       "synced": "Pols sincronitzada en fotos: {{number}}.",

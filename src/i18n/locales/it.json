@@ -2511,6 +2511,7 @@
       "hint": "Trova la polvere del sensore su zone uniformi come cielo o fondali e mostra in anteprima i punti di correzione",
       "searching": "Ricerca della polvere…",
       "skippedOtherCamera": "Saltate (altra fotocamera): {{names}}.",
+      "skippedOtherFrame": "Saltate (altro fotogramma: modalità ritaglio o proporzioni): {{names}}.",
       "skippedUnknownCamera": "Saltate (fotocamera sconosciuta): {{names}}.",
       "sync": "Sincronizza la polvere con le foto selezionate ({{number}})",
       "synced": "Polvere sincronizzata sulle foto: {{number}}.",

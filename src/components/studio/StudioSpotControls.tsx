@@ -164,9 +164,10 @@ export function StudioFindDust() {
     }
   };
   const sync = async () => {
+    if (!path) return;
     setSyncing(true);
     try {
-      const { failed, skipped } = await syncDustToPaths(others, useEditorStore.getState().adjustments);
+      const { failed, skipped } = await syncDustToPaths(path, others, useEditorStore.getState().adjustments);
       const done = others.length - failed.length - skipped.length;
       const parts = [t("spotRemoval.dust.synced", { number: Math.max(0, done) })];
       const named = (reason: string) =>
@@ -174,6 +175,7 @@ export function StudioFindDust() {
       if (named("otherCamera")) parts.push(t("spotRemoval.dust.skippedOtherCamera", { names: named("otherCamera") }));
       if (named("unknownCamera"))
         parts.push(t("spotRemoval.dust.skippedUnknownCamera", { names: named("unknownCamera") }));
+      if (named("otherFrame")) parts.push(t("spotRemoval.dust.skippedOtherFrame", { names: named("otherFrame") }));
       setMessage(parts.join(" "));
     } catch (error) {
       console.error("Sync dust failed:", error);

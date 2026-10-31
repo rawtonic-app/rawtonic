@@ -2310,6 +2310,7 @@
       "hint": "在天空或背景等平坦区域查找传感器灰尘，并预览修复点",
       "searching": "正在查找灰尘…",
       "skippedOtherCamera": "已跳过（其他相机）：{{names}}。",
+      "skippedOtherFrame": "已跳过（其他画幅：裁切模式或长宽比）：{{names}}。",
       "skippedUnknownCamera": "已跳过（相机未知）：{{names}}。",
       "sync": "将灰尘同步到所选照片（{{number}}）",
       "synced": "已同步灰尘的照片：{{number}}。",

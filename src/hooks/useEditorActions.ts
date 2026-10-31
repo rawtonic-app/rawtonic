@@ -670,14 +670,16 @@ async function countedForQuit<T>(entry: number, command: Promise<T>): Promise<T>
 }
 
 /** A photograph "Sync dust" left alone, and why (`sync_dust_spots`). */
-export type DustSkipped = { path: string; reason: 'otherCamera' | 'unknownCamera' };
+export type DustSkipped = { path: string; reason: 'otherCamera' | 'unknownCamera' | 'otherFrame' };
 
 /** "Sync dust to selected photos": the open photograph's Find Dust spots
- * (`adjustments`, as they stand) added to `paths` at the same sensor place,
- * for photographs of the same camera only (src-tauri/src/spot_removal.rs
+ * (`adjustments`, as they stand, of `source`, which must still be open)
+ * added to `paths` at the same sensor place, for photographs of the same
+ * camera and frame only (src-tauri/src/spot_removal.rs
  * `sync_dust_spots`); one undo step. Resolves with the photographs not
  * written and those skipped. */
 export async function syncDustToPaths(
+  source: string,
   paths: string[],
   adjustments: Adjustments,
 ): Promise<{ failed: string[]; skipped: DustSkipped[] }> {
@@ -690,6 +692,7 @@ export async function syncDustToPaths(
         () =>
           recordedBatch(
             invoke<RecipeBatch & { skipped: DustSkipped[] }>(Invokes.SyncDustSpots, {
+              source,
               paths,
               jsAdjustments: adjustments,
             }).then((batch) => {

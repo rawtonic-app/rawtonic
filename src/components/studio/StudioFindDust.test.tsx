@@ -144,13 +144,20 @@ describe("Find Dust", () => {
     expect(screen.queryByText(/spotRemoval\.dust\.sync /)).toBeNull();
     cleanup();
     useLibraryStore.setState({ multiSelectedPaths: ["/s/a.NEF", "/s/b.NEF", "/s/c.NEF", "/s/d.CR3"] });
-    sync.mockResolvedValue({ failed: [], skipped: [{ path: "/s/d.CR3", reason: "otherCamera" }] });
+    sync.mockResolvedValue({
+      failed: [],
+      skipped: [
+        { path: "/s/d.CR3", reason: "otherCamera" },
+        { path: "/s/c.NEF", reason: "otherFrame" },
+      ],
+    });
     render(<StudioFindDust />);
     await act(async () => {
       fireEvent.click(screen.getByText(/spotRemoval\.dust\.sync \{"number":3\}/));
     });
-    expect(sync).toHaveBeenCalledWith(["/s/b.NEF", "/s/c.NEF", "/s/d.CR3"], expect.objectContaining({ spots: [dusty] }));
-    expect(screen.getByText(/spotRemoval\.dust\.synced \{"number":2\}/)).toBeTruthy();
+    expect(sync).toHaveBeenCalledWith("/s/a.NEF", ["/s/b.NEF", "/s/c.NEF", "/s/d.CR3"], expect.objectContaining({ spots: [dusty] }));
+    expect(screen.getByText(/spotRemoval\.dust\.synced \{"number":1\}/)).toBeTruthy();
+    expect(screen.getByText(/skippedOtherFrame \{"names":"c.NEF"\}/)).toBeTruthy();
     expect(screen.getByText(/skippedOtherCamera \{"names":"d.CR3"\}/)).toBeTruthy();
   });
 });

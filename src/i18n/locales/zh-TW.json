@@ -2310,6 +2310,7 @@
       "hint": "在天空或背景等平坦區域尋找感光元件灰塵，並預覽修復點",
       "searching": "正在尋找灰塵…",
       "skippedOtherCamera": "已略過（其他相機）：{{names}}。",
+      "skippedOtherFrame": "已略過（其他畫幅：裁切模式或長寬比）：{{names}}。",
       "skippedUnknownCamera": "已略過（相機不明）：{{names}}。",
       "sync": "將灰塵同步到所選相片（{{number}}）",
       "synced": "已同步灰塵的相片：{{number}}。",

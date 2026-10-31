@@ -2633,6 +2633,7 @@
       "hint": "Znajduje kurz na matrycy na gładkich obszarach, takich jak niebo lub tła, i pokazuje podgląd punktów korekcji",
       "searching": "Szukanie kurzu…",
       "skippedOtherCamera": "Pominięte (inny aparat): {{names}}.",
+      "skippedOtherFrame": "Pominięte (inny kadr: tryb przycięcia lub proporcje): {{names}}.",
       "skippedUnknownCamera": "Pominięte (nieznany aparat): {{names}}.",
       "sync": "Synchronizuj kurz z zaznaczonymi zdjęciami ({{number}})",
       "synced": "Kurz zsynchronizowany na zdjęciach: {{number}}.",

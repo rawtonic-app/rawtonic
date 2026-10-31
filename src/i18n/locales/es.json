@@ -2511,6 +2511,7 @@
       "hint": "Busca polvo del sensor en zonas lisas como el cielo o fondos y previsualiza puntos de corrección sobre él",
       "searching": "Buscando polvo…",
       "skippedOtherCamera": "Omitidas (otra cámara): {{names}}.",
+      "skippedOtherFrame": "Omitidas (otro encuadre: modo de recorte o proporción): {{names}}.",
       "skippedUnknownCamera": "Omitidas (cámara desconocida): {{names}}.",
       "sync": "Sincronizar polvo con las fotos seleccionadas ({{number}})",
       "synced": "Polvo sincronizado en fotos: {{number}}.",

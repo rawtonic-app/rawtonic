@@ -2310,6 +2310,7 @@
       "hint": "空や背景などの平坦な部分でセンサーのダストを検出し、修復スポットをプレビューします",
       "searching": "ダストを検索中…",
       "skippedOtherCamera": "スキップ (別のカメラ): {{names}}。",
+      "skippedOtherFrame": "スキップ (別のフレーム: クロップモードまたはアスペクト比): {{names}}。",
       "skippedUnknownCamera": "スキップ (カメラ不明): {{names}}。",
       "sync": "選択した写真にダストを同期 ({{number}})",
       "synced": "ダストを同期した写真: {{number}}。",

@@ -2389,6 +2389,7 @@
       "hint": "Findet Sensorstaub auf ebenen Flächen wie Himmel oder Hintergründen und zeigt Reparaturpunkte darauf in der Vorschau",
       "searching": "Suche nach Staub…",
       "skippedOtherCamera": "Übersprungen (andere Kamera): {{names}}.",
+      "skippedOtherFrame": "Übersprungen (anderes Bildformat: Crop-Modus oder Seitenverhältnis): {{names}}.",
       "skippedUnknownCamera": "Übersprungen (Kamera unbekannt): {{names}}.",
       "sync": "Staub auf ausgewählte Fotos übertragen ({{number}})",
       "synced": "Staub auf Fotos übertragen: {{number}}.",

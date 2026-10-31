@@ -2511,6 +2511,7 @@
       "hint": "Trouve la poussière du capteur sur les zones unies comme le ciel ou les fonds et prévisualise des points de correction dessus",
       "searching": "Recherche de poussière…",
       "skippedOtherCamera": "Ignorées (autre appareil) : {{names}}.",
+      "skippedOtherFrame": "Ignorées (autre cadre : mode recadrage ou format) : {{names}}.",
       "skippedUnknownCamera": "Ignorées (appareil inconnu) : {{names}}.",
       "sync": "Synchroniser la poussière avec les photos sélectionnées ({{number}})",
       "synced": "Poussière synchronisée sur des photos : {{number}}.",

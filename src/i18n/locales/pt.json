@@ -2511,6 +2511,7 @@
       "hint": "Encontra poeira do sensor em áreas lisas como céu ou fundos e pré-visualiza pontos de correção nelas",
       "searching": "A procurar poeira…",
       "skippedOtherCamera": "Ignoradas (outra câmara): {{names}}.",
+      "skippedOtherFrame": "Ignoradas (outro enquadramento: modo de recorte ou proporção): {{names}}.",
       "skippedUnknownCamera": "Ignoradas (câmara desconhecida): {{names}}.",
       "sync": "Sincronizar poeira com as fotos selecionadas ({{number}})",
       "synced": "Poeira sincronizada em fotos: {{number}}.",

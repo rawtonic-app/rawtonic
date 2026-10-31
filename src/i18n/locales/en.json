@@ -2389,6 +2389,7 @@
       "hint": "Finds sensor dust on flat areas such as sky or backdrops and previews heal spots on it",
       "searching": "Searching for dust…",
       "skippedOtherCamera": "Skipped (other camera): {{names}}.",
+      "skippedOtherFrame": "Skipped (other frame: crop mode or aspect ratio): {{names}}.",
       "skippedUnknownCamera": "Skipped (camera unknown): {{names}}.",
       "sync": "Sync dust to selected photos ({{number}})",
       "synced": "Dust synced to photos: {{number}}.",
