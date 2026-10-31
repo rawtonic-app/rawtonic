@@ -96,6 +96,10 @@ import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
 import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
 import { withSourceFrameOf } from '../utils/sourceFrame';
+import { useStackStore, stackKey } from '../store/useStackStore';
+import {
+  groupIntoStack, moveToTopOfStack, removeFromStack, setAllStacks, toggleStacks, unstack, useAutoStackDialog,
+} from '../utils/stacks';
 
 const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
 
@@ -513,6 +517,37 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       t,
     ],
   );
+
+  /** Stacking (Lightroom's Photo › Stacking) for the right-clicked photo
+   * (`path`, the top of a new stack) and the selection it acts on. */
+  const stackingMenu = (path: string, paths: string[]): Option => {
+    const ordered = [path, ...paths.filter((p) => p !== path)];
+    const { byPath, stacks } = useStackStore.getState();
+    const stacked = ordered.some((p) => byPath.has(stackKey(p)));
+    return {
+      label: t('appMenu.submenus.stacking'),
+      icon: Layers,
+      submenu: [
+        { label: t('appMenu.items.stack_group'), disabled: ordered.length < 2, onClick: () => void groupIntoStack(ordered) },
+        { label: t('appMenu.items.stack_unstack'), disabled: !stacked, onClick: () => void unstack(ordered) },
+        { label: t('appMenu.items.stack_remove'), disabled: !stacked, onClick: () => void removeFromStack(ordered) },
+        {
+          label: t('appMenu.items.stack_move_top'),
+          disabled: !byPath.has(stackKey(path)),
+          onClick: () => void moveToTopOfStack(path),
+        },
+        { type: OPTION_SEPARATOR },
+        { label: t('appMenu.items.stack_toggle'), disabled: !stacked, onClick: () => void toggleStacks(ordered) },
+        { label: t('appMenu.items.stack_collapse_all'), disabled: !stacks.length, onClick: () => void setAllStacks(true) },
+        { label: t('appMenu.items.stack_expand_all'), disabled: !stacks.length, onClick: () => void setAllStacks(false) },
+        { type: OPTION_SEPARATOR },
+        {
+          label: t('appMenu.items.auto_stack'),
+          onClick: () => useAutoStackDialog.getState().open(useLibraryStore.getState().imageList.map((f) => f.path)),
+        },
+      ],
+    };
+  };
 
   const handleThumbnailContextMenu = useCallback(
     (event: React.MouseEvent, path: string, forceSingleSelection: boolean = false) => {
@@ -1019,6 +1054,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               },
             ]
           : []),
+        ...(sessionDirectory ? [stackingMenu(path, finalSelection)] : []),
         { type: OPTION_SEPARATOR },
         {
           disabled: !isSingleSelection,

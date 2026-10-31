@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KEYBIND_DEFINITIONS, buildComboMap, conflictingActions, shortcutHint } from './keyboardUtils';
+import { KEYBIND_DEFINITIONS, buildComboMap, conflictingActions, shortcutHint, splitByView } from './keyboardUtils';
 
 describe('keybinds', () => {
   it.each([
@@ -53,7 +53,7 @@ describe('keybinds', () => {
     const map = buildComboMap(null);
     const clashes = [...map].filter(([, actions]) => {
       // Library-only and Develop-only actions may share a key.
-      return actions.length > 1 && !(actions.includes('view_loupe') && actions.includes('tool_erase') && actions.length === 2);
+      return actions.length > 1 && !splitByView(actions);
     });
     expect(clashes).toEqual([]);
   });

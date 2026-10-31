@@ -206,6 +206,7 @@
     "items": {
       "about": "关于 {{app}}",
       "auto_adjust": "自动调整",
+      "auto_stack": "按拍摄时间自动堆栈…",
       "auto_white_balance": "自动白平衡",
       "check_updates": "检查更新…",
       "clear_recent": "清除菜单",
@@ -249,6 +250,13 @@
       "shift_capture_time": "调整拍摄时间…",
       "show_activity": "活动…",
       "show_in_finder": "在访达中显示",
+      "stack_collapse_all": "折叠所有堆栈",
+      "stack_expand_all": "展开所有堆栈",
+      "stack_group": "组合为堆栈",
+      "stack_move_top": "移到堆栈顶部",
+      "stack_remove": "从堆栈中移除",
+      "stack_toggle": "折叠/展开堆栈",
+      "stack_unstack": "取消堆栈",
       "sync_settings": "同步设置",
       "tether_capture": "拍摄（联机相机）",
       "toggle_all_panels": "所有面板和栏",
@@ -306,7 +314,8 @@
       "panels": "面板",
       "rating": "星级",
       "recent": "打开最近使用",
-      "recipes": "使用配方导出"
+      "recipes": "使用配方导出",
+      "stacking": "堆栈"
     }
   },
   "captureTime": {
@@ -2314,6 +2323,42 @@
     "size": "大小",
     "sizeAria": "污点大小",
     "visualize": "显示污点"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "创建 {{count}} 个堆栈",
+      "apply_other": "创建 {{count}} 个堆栈",
+      "cancel": "取消",
+      "done_one": "已创建 {{count}} 个堆栈",
+      "done_other": "已创建 {{count}} 个堆栈",
+      "interval": "照片间隔",
+      "intro": "与上一张相隔不超过此时间拍摄的照片归入同一堆栈。已在堆栈中的照片保持不变。",
+      "kind": {
+        "bracket_one": "{{count}} 组包围曝光",
+        "bracket_other": "{{count}} 组包围曝光",
+        "burst_one": "{{count}} 组连拍",
+        "burst_other": "{{count}} 组连拍"
+      },
+      "leftOut_one": "{{count}} 张没有拍摄时间或已在堆栈中的照片未计入",
+      "leftOut_other": "{{count}} 张没有拍摄时间或已在堆栈中的照片未计入",
+      "minutes_one": "{{count}} 分钟",
+      "minutes_other": "{{count}} 分钟",
+      "minutesSeconds": "{{minutes}} 分 {{seconds}} 秒",
+      "preview_one": "{{photos}} 张照片组成 {{count}} 个堆栈",
+      "preview_other": "{{photos}} 张照片组成 {{count}} 个堆栈",
+      "reading": "正在计算…",
+      "seconds_one": "{{count}} 秒",
+      "seconds_other": "{{count}} 秒",
+      "title": "按拍摄时间自动堆栈",
+      "useCameraData": "如有相机连拍和包围曝光数据则使用"
+    },
+    "badge": {
+      "collapse_one": "{{count}} 张照片的堆栈 – 折叠",
+      "collapse_other": "{{count}} 张照片的堆栈 – 折叠",
+      "expand_one": "{{count}} 张照片的堆栈 – 展开",
+      "expand_other": "{{count}} 张照片的堆栈 – 展开"
+    },
+    "failed": "堆栈失败：{{error}}"
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -4715,6 +4760,7 @@
     "rename": "重命名",
     "reset": "重置",
     "skipFailed": "跳过失败的项目",
+    "stacks": "堆栈",
     "style": "应用样式",
     "sync": "同步设置",
     "trash": "移至回收站",

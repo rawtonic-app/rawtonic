@@ -223,6 +223,7 @@
     "items": {
       "about": "À propos de {{app}}",
       "auto_adjust": "Réglage automatique",
+      "auto_stack": "Empiler automatiquement par heure de prise de vue…",
       "auto_white_balance": "Balance des blancs automatique",
       "check_updates": "Rechercher des mises à jour…",
       "clear_recent": "Effacer le menu",
@@ -266,6 +267,13 @@
       "shift_capture_time": "Décaler l'heure de prise de vue…",
       "show_activity": "Activité…",
       "show_in_finder": "Afficher dans le Finder",
+      "stack_collapse_all": "Réduire toutes les piles",
+      "stack_expand_all": "Développer toutes les piles",
+      "stack_group": "Grouper dans une pile",
+      "stack_move_top": "Placer en haut de la pile",
+      "stack_remove": "Retirer de la pile",
+      "stack_toggle": "Réduire/développer la pile",
+      "stack_unstack": "Dégrouper la pile",
       "sync_settings": "Synchroniser les réglages",
       "tether_capture": "Déclencher (appareil connecté)",
       "toggle_all_panels": "Tous les panneaux et barres",
@@ -323,7 +331,8 @@
       "panels": "Panneaux",
       "rating": "Note",
       "recent": "Ouvrir un élément récent",
-      "recipes": "Exporter avec une recette"
+      "recipes": "Exporter avec une recette",
+      "stacking": "Empilement"
     }
   },
   "captureTime": {
@@ -2499,6 +2508,52 @@
     "size": "Taille",
     "sizeAria": "Taille de la zone",
     "visualize": "Visualiser les défauts"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "Créer {{count}} pile",
+      "apply_many": "Créer {{count}} piles",
+      "apply_other": "Créer {{count}} piles",
+      "cancel": "Annuler",
+      "done_one": "{{count}} pile créée",
+      "done_many": "{{count}} piles créées",
+      "done_other": "{{count}} piles créées",
+      "interval": "Temps entre les photos",
+      "intro": "Les photos prises au plus tard ce délai après la précédente forment une pile. Les photos déjà dans une pile restent telles quelles.",
+      "kind": {
+        "bracket_one": "{{count}} bracketing",
+        "bracket_many": "{{count}} bracketings",
+        "bracket_other": "{{count}} bracketings",
+        "burst_one": "{{count}} rafale",
+        "burst_many": "{{count}} rafales",
+        "burst_other": "{{count}} rafales"
+      },
+      "leftOut_one": "{{count}} photo sans heure de prise de vue ou déjà empilée est ignorée",
+      "leftOut_many": "{{count}} photos sans heure de prise de vue ou déjà empilées sont ignorées",
+      "leftOut_other": "{{count}} photos sans heure de prise de vue ou déjà empilées sont ignorées",
+      "minutes_one": "{{count}} minute",
+      "minutes_many": "{{count}} minutes",
+      "minutes_other": "{{count}} minutes",
+      "minutesSeconds": "{{minutes}} min {{seconds}} s",
+      "preview_one": "{{count}} pile de {{photos}} photos",
+      "preview_many": "{{count}} piles de {{photos}} photos",
+      "preview_other": "{{count}} piles de {{photos}} photos",
+      "reading": "Comptage…",
+      "seconds_one": "{{count}} seconde",
+      "seconds_many": "{{count}} secondes",
+      "seconds_other": "{{count}} secondes",
+      "title": "Empiler automatiquement par heure de prise de vue",
+      "useCameraData": "Utiliser les données de rafale et de bracketing de l’appareil si disponibles"
+    },
+    "badge": {
+      "collapse_one": "Pile de {{count}} photo – réduire",
+      "collapse_many": "Pile de {{count}} photos – réduire",
+      "collapse_other": "Pile de {{count}} photos – réduire",
+      "expand_one": "Pile de {{count}} photo – développer",
+      "expand_many": "Pile de {{count}} photos – développer",
+      "expand_other": "Pile de {{count}} photos – développer"
+    },
+    "failed": "Échec de l’empilement : {{error}}"
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -5001,6 +5056,7 @@
     "rename": "Renommer",
     "reset": "Réinitialiser",
     "skipFailed": "Ignorer les éléments en échec",
+    "stacks": "Empilement",
     "style": "Appliquer le style",
     "sync": "Synchroniser les réglages",
     "trash": "Mettre à la corbeille",

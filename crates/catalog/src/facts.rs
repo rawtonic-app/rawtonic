@@ -43,6 +43,17 @@ pub struct CaptureFacts {
     /// with the facts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_rating: Option<u8>,
+    /// EXIF ExposureMode: 0 auto, 1 manual, 2 auto bracket (Auto-Stack's
+    /// bracket rule, `stacks::auto_groups`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposure_mode: Option<u8>,
+    /// EXIF ExposureBiasValue (EV).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposure_bias: Option<f64>,
+    /// The maker's frame number within a continuous-drive burst (1 for its
+    /// first frame), where the reader knows the maker's field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u32>,
 }
 
 impl CaptureFacts {
@@ -81,6 +92,11 @@ impl CaptureFacts {
                     .map(rawtonic_metadata::provenance::source_type_code),
             ),
             camera_rating: self.camera_rating.filter(|r| (1..=5).contains(r)),
+            exposure_mode: self.exposure_mode.filter(|m| *m <= 2),
+            exposure_bias: self
+                .exposure_bias
+                .filter(|v| v.is_finite() && v.abs() <= 64.0),
+            sequence: self.sequence.filter(|n| (1..=1_000_000).contains(n)),
         }
     }
 }
@@ -100,7 +116,8 @@ pub(crate) fn write_facts(
     let facts = facts.sanitized();
     let written = conn.execute(
         "UPDATE assets SET capture_time=?,make=?,camera=?,lens=?,focal_length=?,aperture=?,iso=?,
-                exposure=?,source_type=?,facts_read=1 WHERE id=?",
+                exposure=?,source_type=?,exposure_mode=?,exposure_bias=?,sequence=?,facts_read=1
+         WHERE id=?",
         params![
             facts.captured,
             facts.make.unwrap_or_default(),
@@ -111,6 +128,9 @@ pub(crate) fn write_facts(
             facts.iso,
             facts.exposure,
             facts.source_type.unwrap_or_default(),
+            facts.exposure_mode,
+            facts.exposure_bias,
+            facts.sequence,
             id
         ],
     )? == 1;
@@ -155,7 +175,7 @@ impl Library {
             .conn
             .query_row(
                 "SELECT capture_time,make,camera,lens,focal_length,aperture,iso,exposure,facts_read,
-                        source_type
+                        source_type,exposure_mode,exposure_bias,sequence
                  FROM assets WHERE id=?",
                 [id],
                 |r| {
@@ -174,6 +194,9 @@ impl Library {
                             exposure: r.get(7)?,
                             source_type: text(9)?,
                             camera_rating: None,
+                            exposure_mode: r.get(10)?,
+                            exposure_bias: r.get(11)?,
+                            sequence: r.get(12)?,
                         },
                         r.get(8)?,
                     ))

@@ -620,6 +620,9 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
         exposure: capture.exposure.map(|(n, d)| f64::from(n) / f64::from(d)),
         source_type: capture.source_type,
         camera_rating: capture.rating.filter(|rating| (1..=5).contains(rating)),
+        exposure_mode: capture.exposure_mode,
+        exposure_bias: capture.exposure_bias,
+        sequence: capture.sequence,
     })
 }
 
@@ -693,6 +696,11 @@ pub fn from_bytes(bytes: &[u8]) -> Capture {
         apply_raw(&mut capture, &metadata);
     }
     if let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(bytes)) {
+        apply_exif(&mut capture, &exif);
+    }
+    if let Some(jpeg) = raf_jpeg(bytes)
+        && let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(jpeg))
+    {
         apply_exif(&mut capture, &exif);
     }
     if capture.captured.is_none()
@@ -908,6 +916,13 @@ fn apply_raw(capture: &mut Capture, metadata: &rawler::decoders::RawMetadata) {
         .copyright
         .take()
         .or(clean(exif.copyright.as_deref()));
+    capture.exposure_mode = capture
+        .exposure_mode
+        .or(exif.exposure_mode.and_then(|m| u8::try_from(m).ok()));
+    capture.exposure_bias = capture.exposure_bias.or(exif
+        .exposure_bias
+        .filter(|r| r.d != 0)
+        .map(|r| f64::from(r.n) / f64::from(r.d)));
 }
 
 fn ascii(exif: &exif::Exif, tag: exif::Tag) -> Option<String> {
@@ -988,6 +1003,74 @@ fn apply_exif(capture: &mut Capture, exif: &exif::Exif) {
         .copyright
         .take()
         .or_else(|| ascii(exif, Tag::Copyright));
+    capture.exposure_mode = capture.exposure_mode.or_else(|| {
+        exif.get_field(Tag::ExposureMode, exif::In::PRIMARY)
+            .and_then(|f| f.value.get_uint(0))
+            .and_then(|m| u8::try_from(m).ok())
+    });
+    capture.exposure_bias = capture.exposure_bias.or_else(|| {
+        match &exif
+            .get_field(Tag::ExposureBiasValue, exif::In::PRIMARY)?
+            .value
+        {
+            exif::Value::SRational(values) => values
+                .first()
+                .filter(|r| r.denom != 0)
+                .map(|r| f64::from(r.num) / f64::from(r.denom)),
+            _ => None,
+        }
+    });
+    capture.sequence = capture.sequence.or_else(|| {
+        match &exif.get_field(Tag::MakerNote, exif::In::PRIMARY)?.value {
+            exif::Value::Undefined(note, _) => burst_frame(note),
+            _ => None,
+        }
+    });
+}
+
+/// The frame number within a continuous-drive burst a maker note states (1
+/// for its first frame; `None` for a single shot or a maker note not
+/// known). Read: Fujifilm's SequenceNumber (tag 0x1101 of its maker note,
+/// 0 for a single shot). Other makers' notes give no frame number this
+/// reader knows; their bursts are grouped by capture time.
+fn burst_frame(note: &[u8]) -> Option<u32> {
+    if !note.starts_with(b"FUJIFILM") {
+        return None;
+    }
+    let le16 = |at: usize| {
+        note.get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let le32 = |at: usize| {
+        note.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    let ifd = le32(8)? as usize;
+    let count = le16(ifd)? as usize;
+    (0..count.min(512)).find_map(|i| {
+        let at = ifd + 2 + 12 * i;
+        (le16(at)? == 0x1101 && le16(at + 2)? == 3)
+            .then(|| le16(at + 8))
+            .flatten()
+            .map(u32::from)
+            .filter(|n| *n > 0)
+    })
+}
+
+/// A Fujifilm RAF's embedded JPEG within `bytes` (its offset and length
+/// at bytes 84 and 88 of the RAF header), cut at the end of `bytes`: its
+/// EXIF holds the maker note.
+fn raf_jpeg(bytes: &[u8]) -> Option<&[u8]> {
+    if !bytes.starts_with(b"FUJIFILM") {
+        return None;
+    }
+    let be32 = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    let (offset, length) = (be32(84)?, be32(88)?);
+    bytes.get(offset..offset.saturating_add(length).min(bytes.len()))
 }
 
 /// Formats whose files are developed images rather than RAWs: a sidecar
@@ -1170,6 +1253,34 @@ pub fn apply_sidecar(capture: &mut Capture, metadata: &rawtonic_metadata::Metada
 pub(crate) mod tests {
     use super::*;
 
+    #[test]
+    fn a_fujifilm_maker_note_gives_the_burst_frame_number() {
+        let note = |value: u16| {
+            let mut n = b"FUJIFILM".to_vec();
+            n.extend_from_slice(&12u32.to_le_bytes());
+            n.extend_from_slice(&2u16.to_le_bytes());
+            for (tag, value) in [(0x1100u16, 0u16), (0x1101, value)] {
+                n.extend_from_slice(&tag.to_le_bytes());
+                n.extend_from_slice(&3u16.to_le_bytes());
+                n.extend_from_slice(&1u32.to_le_bytes());
+                n.extend_from_slice(&value.to_le_bytes());
+                n.extend_from_slice(&[0, 0]);
+            }
+            n
+        };
+        assert_eq!(burst_frame(&note(3)), Some(3));
+        // 0: a single shot.
+        assert_eq!(burst_frame(&note(0)), None);
+        assert_eq!(burst_frame(b"Nikon\0\x02"), None);
+        assert_eq!(burst_frame(&note(3)[..20]), None);
+    }
+
+    #[test]
+    fn the_exif_exposure_mode_marks_an_auto_bracket() {
+        let capture = from_bytes(&tiff_exif("2026:01:02 03:04:05"));
+        assert_eq!(capture.exposure_mode, Some(2));
+    }
+
     /// A little-endian TIFF/EXIF block: IFD0 with Make, Model, DateTime
     /// and an EXIF sub-IFD with the exposure and the original date.
     pub(crate) fn tiff_exif(original: &str) -> Vec<u8> {
@@ -1227,6 +1338,7 @@ pub(crate) mod tests {
                 (0x9011, V::Ascii("+02:00")),
                 (0x920a, V::Rational(35, 1)),
                 (0x9291, V::Ascii("042")),
+                (0xa402, V::Short(2)),
                 (0xa431, V::Ascii("012345678901")),
                 (0xa434, V::Ascii("Test Lens 35mm F2.8")),
             ]

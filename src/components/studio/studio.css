@@ -1854,6 +1854,63 @@
 .studio-photo.is-rejected .studio-photo-image img {
   opacity: 0.45;
 }
+/* Stacks: the top's badge with the count (a click collapses or expands);
+   expanded members share a tint and a bar joins each to the one before. */
+.studio-photo.is-stacked {
+  position: relative;
+}
+.studio-photo-stack {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 3px;
+  min-height: 18px !important;
+  padding: 0 5px !important;
+  border-radius: 2px;
+  background: #1d2a36e6 !important;
+  color: #cfe3f5 !important;
+  font-size: 10px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.studio-photo.is-stack-collapsed .studio-photo-stack {
+  background: #2f5b80 !important;
+  color: #fff !important;
+}
+.studio-photo.is-stacked:not(.is-stack-collapsed) {
+  background: #31363c;
+}
+.studio-photo.is-stacked:not(.is-stack-collapsed).is-selected {
+  background: #464c53;
+}
+.studio-photo.is-stack-middle::before,
+.studio-photo.is-stack-last::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -18px;
+  width: 17px;
+  height: 3px;
+  background: #4f7ea6;
+  pointer-events: none;
+}
+.is-filmstrip .studio-photo.is-stack-middle::before,
+.is-filmstrip .studio-photo.is-stack-last::before {
+  left: -6px;
+  width: 5px;
+}
+.studio-photo-stack-place {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4f7ea6;
+}
 .studio-photo-color {
   min-height: 16px;
   padding: 1px 4px;

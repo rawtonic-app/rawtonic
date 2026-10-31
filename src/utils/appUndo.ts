@@ -13,6 +13,7 @@ import { photoWorkPending, reservePhotoWrites } from "./photoWrites";
 import { writeCaptureTimes, type PlannedChange } from "./captureTime";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
 import { registerWrittenSteps, travelKeptHistory } from "./photoHistory";
+import { refreshStacks, type StackChange } from "../store/useStackStore";
 
 export type CullingValue =
   | { kind: "rating" | "flag"; value: number }
@@ -82,13 +83,16 @@ export type BatchLabel =
   | "apply";
 interface Step {
   order: number;
-  action: CullingValue["kind"] | "recipes" | "xmp" | "captureTime";
+  action: CullingValue["kind"] | "recipes" | "xmp" | "captureTime" | "stacks";
   changes: CullingChange[];
   /** A batch recipe change (series match): one step for all its photos. */
   recipes?: RecipeChange[];
   /** A capture-time correction: the changes that take it back (undo) or
    * do it again (redo), and the library it was written to. */
   captureTime?: { library: string; undo: PlannedChange[]; redo: PlannedChange[] };
+  /** A stack command (Group, Unstack, Auto-Stack, …): the stacks it
+   * touched before and after, put back by `stacks_restore`. */
+  stacks?: { library: string; change: StackChange };
   /** A batch edit of whole recipes (paste, sync, reset, …). */
   snapshots?: RecipeSnapshot[];
   label?: BatchLabel;
@@ -405,6 +409,32 @@ export async function captureTimeAction(library: string, changes: PlannedChange[
     fileRedoBlocked: true,
   }));
   return applied;
+}
+
+/** Records a stack command already written to `library` as one undoable
+ * step (nothing when it changed nothing). */
+export function stackAction(library: string, change: StackChange, paths: string[]) {
+  if (JSON.stringify(change.before) === JSON.stringify(change.after)) return;
+  debouncedSetHistory.flush();
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1),
+  });
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: "stacks",
+    changes: [],
+    stacks: { library, change },
+    directory: useLibraryStore.getState().sessionDirectory,
+  };
+  currentTargets.set(step, paths);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true,
+  }));
 }
 
 /** Runs a batch recipe edit of `paths` (paste, sync, reset, …) as one
@@ -833,6 +863,7 @@ function actionLabel(direction: "undo" | "redo") {
       return batchLabel(catalogStep(direction)!.label);
     if (action === "xmp") return i18n.t("undoHistory.useXmp");
     if (action === "captureTime") return i18n.t("undoHistory.captureTime");
+    if (action === "stacks") return i18n.t("undoHistory.stacks");
     return null;
   }
   return null;
@@ -1047,6 +1078,14 @@ async function travel(
     }
     return;
   }
+  if (step.stacks) {
+    try {
+      await travelStacks(step, direction, startedOnBranch);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
+    return;
+  }
   if (step.captureTime) {
     try {
       await travelCaptureTime(step, direction, startedOnBranch);
@@ -1218,6 +1257,37 @@ async function travelRecipes(
     );
   }
 }
+/** Undo/redo of a stack command: its stacks as they were or became. */
+async function travelStacks(
+  step: Step,
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  const { library, change } = step.stacks!;
+  try {
+    await enqueue(async () => {
+      if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+      await invokeInOrder(Invokes.StacksRestore, { library, change, undo: direction === "undo" });
+      if (useCatalogUndoStore.getState()[from].includes(step))
+        useCatalogUndoStore.setState((s) => ({
+          [from]: s[from].filter((item) => item !== step),
+          [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
+        }));
+    }, "catalog", currentTargets.get(step));
+  } catch (error) {
+    const detail = String((error as { message?: string })?.message ?? error);
+    notify.error(
+      direction === "undo"
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
+    );
+  } finally {
+    await refreshStacks(library);
+  }
+}
+
 /** Undo/redo of a capture-time correction: all its photos or none (a
  * photo corrected since conflicts and the step stays to look at again). */
 async function travelCaptureTime(
@@ -1298,6 +1368,7 @@ export function followLibraryMove(from: string, to: string, keep = true) {
       for (const change of [...step.captureTime.undo, ...step.captureTime.redo]) change.path = at(change.path);
     }
     if (step.xmp) step.xmp.paths = step.xmp.paths.map(at);
+    if (step.stacks) step.stacks.library = at(step.stacks.library);
     const paths = currentTargets.get(step);
     if (paths) currentTargets.set(step, paths.map(at));
   }

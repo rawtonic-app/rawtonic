@@ -31,6 +31,7 @@ pub mod ingest_jobs;
 pub mod query;
 pub mod session_move;
 pub mod snapshots;
+pub mod stacks;
 pub mod subset;
 pub mod volume;
 pub mod xmp_review;
@@ -51,7 +52,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 21;
+pub const DB_SCHEMA_VERSION: u32 = 22;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -351,6 +352,8 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0019.sql"))?;
         conn.execute_batch(include_str!("../migrations/0020.sql"))?;
         conn.execute_batch(include_str!("../migrations/0021.sql"))?;
+        Self::add_columns_22(&conn)?;
+        conn.execute_batch(include_str!("../migrations/0022.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -497,7 +500,30 @@ impl Library {
         if version < 21 {
             tx.execute_batch(include_str!("../migrations/0021.sql"))?;
         }
+        if version < 22 {
+            Self::add_columns_22(&tx)?;
+            tx.execute_batch(include_str!("../migrations/0022.sql"))?;
+        }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Schema 22's burst and bracket fact columns (`migrations/0022.sql`),
+    /// each only where it is missing.
+    fn add_columns_22(conn: &Connection) -> Result<()> {
+        let columns: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('assets')")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (name, kind) in [
+            ("exposure_mode", "INTEGER"),
+            ("exposure_bias", "REAL"),
+            ("sequence", "INTEGER"),
+        ] {
+            if !columns.iter().any(|c| c == name) {
+                conn.execute_batch(&format!("ALTER TABLE assets ADD COLUMN {name} {kind}"))?;
+            }
+        }
         Ok(())
     }
 

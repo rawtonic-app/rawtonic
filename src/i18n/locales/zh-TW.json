@@ -206,6 +206,7 @@
     "items": {
       "about": "關於 {{app}}",
       "auto_adjust": "自動調整",
+      "auto_stack": "依拍攝時間自動堆疊…",
       "auto_white_balance": "自動白平衡",
       "check_updates": "檢查更新項目…",
       "clear_recent": "清除選單",
@@ -249,6 +250,13 @@
       "shift_capture_time": "調整拍攝時間…",
       "show_activity": "活動…",
       "show_in_finder": "在 Finder 中顯示",
+      "stack_collapse_all": "收合所有堆疊",
+      "stack_expand_all": "展開所有堆疊",
+      "stack_group": "群組為堆疊",
+      "stack_move_top": "移到堆疊頂端",
+      "stack_remove": "從堆疊移除",
+      "stack_toggle": "收合/展開堆疊",
+      "stack_unstack": "取消堆疊",
       "sync_settings": "同步設定",
       "tether_capture": "拍攝（連線相機）",
       "toggle_all_panels": "所有面板與列",
@@ -306,7 +314,8 @@
       "panels": "面板",
       "rating": "星等",
       "recent": "打開最近使用",
-      "recipes": "使用配方匯出"
+      "recipes": "使用配方匯出",
+      "stacking": "堆疊"
     }
   },
   "captureTime": {
@@ -2314,6 +2323,42 @@
     "size": "大小",
     "sizeAria": "污點大小",
     "visualize": "顯示污點"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "建立 {{count}} 個堆疊",
+      "apply_other": "建立 {{count}} 個堆疊",
+      "cancel": "取消",
+      "done_one": "已建立 {{count}} 個堆疊",
+      "done_other": "已建立 {{count}} 個堆疊",
+      "interval": "相片間隔",
+      "intro": "與上一張相隔不超過此時間拍攝的相片會放入同一堆疊。已在堆疊中的相片維持不變。",
+      "kind": {
+        "bracket_one": "{{count}} 組包圍曝光",
+        "bracket_other": "{{count}} 組包圍曝光",
+        "burst_one": "{{count}} 組連拍",
+        "burst_other": "{{count}} 組連拍"
+      },
+      "leftOut_one": "{{count}} 張沒有拍攝時間或已在堆疊中的相片未計入",
+      "leftOut_other": "{{count}} 張沒有拍攝時間或已在堆疊中的相片未計入",
+      "minutes_one": "{{count}} 分鐘",
+      "minutes_other": "{{count}} 分鐘",
+      "minutesSeconds": "{{minutes}} 分 {{seconds}} 秒",
+      "preview_one": "{{photos}} 張相片組成 {{count}} 個堆疊",
+      "preview_other": "{{photos}} 張相片組成 {{count}} 個堆疊",
+      "reading": "正在計算…",
+      "seconds_one": "{{count}} 秒",
+      "seconds_other": "{{count}} 秒",
+      "title": "依拍攝時間自動堆疊",
+      "useCameraData": "若有相機連拍與包圍曝光資料則使用"
+    },
+    "badge": {
+      "collapse_one": "{{count}} 張相片的堆疊 – 收合",
+      "collapse_other": "{{count}} 張相片的堆疊 – 收合",
+      "expand_one": "{{count}} 張相片的堆疊 – 展開",
+      "expand_other": "{{count}} 張相片的堆疊 – 展開"
+    },
+    "failed": "堆疊失敗：{{error}}"
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -4715,6 +4760,7 @@
     "rename": "重新命名",
     "reset": "重設",
     "skipFailed": "略過失敗的項目",
+    "stacks": "堆疊",
     "style": "套用樣式",
     "sync": "同步設定",
     "trash": "移至垃圾桶",

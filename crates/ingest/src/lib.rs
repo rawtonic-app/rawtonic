@@ -1762,6 +1762,8 @@ mod exif_and_sidecar_tests {
                 exposure: Some(0.004),
                 source_type: None,
                 camera_rating: None,
+                exposure_mode: Some(2),
+                ..Default::default()
             }
         );
         assert_eq!(lib.facts_backlog().unwrap(), 0);

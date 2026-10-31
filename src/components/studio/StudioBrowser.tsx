@@ -8,7 +8,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
-import { Image as ImageIcon, Star, SlidersHorizontal, Flag, X, Unlink } from "lucide-react";
+import { Image as ImageIcon, Star, SlidersHorizontal, Flag, X, Unlink, Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useProcessStore } from "../../store/useProcessStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -22,6 +22,8 @@ import { startTileDrag } from "./tileDrag";
 import { reportLibraryPresentation } from '../../utils/libraryListing';
 import { offlineTitle } from '../../utils/offline';
 import { PhotoEyesBadge } from "./StudioEyes";
+import type { StackMark } from "../../store/useStackStore";
+import { toggleStacks } from "../../utils/stacks";
 
 export function visibleRange(
   count: number,
@@ -60,6 +62,7 @@ const Tile = memo(function Tile({
   onRate,
   onContextMenu,
   film,
+  stack,
 }: {
   file: ImageFile;
   selected: boolean;
@@ -69,6 +72,8 @@ const Tile = memo(function Tile({
   onRate(rating: number, paths: string[]): void;
   onContextMenu(event: MouseEvent, path: string): void;
   film: boolean;
+  /** Its place in a stack shown in this listing. */
+  stack?: StackMark;
 }) {
   const { t } = useTranslation();
   const url = useProcessStore((s) => s.thumbnails[file.path]);
@@ -97,7 +102,8 @@ const Tile = memo(function Tile({
   };
   return (
     <div
-      className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""}`}
+      className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""}${stack ? ` is-stacked is-stack-${stack.position}${stack.collapsed ? " is-stack-collapsed" : ""}` : ""}`}
+      data-stack={stack?.stackId}
       role="option"
       aria-selected={selected}
       aria-label={label}
@@ -133,6 +139,10 @@ const Tile = memo(function Tile({
             <SlidersHorizontal className="studio-photo-edited" size={12} />
           )}
           <PhotoEyesBadge path={file.path} compact={film} />
+          {stack && !stack.top && (
+            // Expanded: its place in the stack (the top carries the badge).
+            <span className="studio-photo-stack-place" aria-hidden="true" />
+          )}
           {file.is_offline && (
             // The file is missing or its drive is disconnected (Lightroom's
             // "!" badge); right-click › Locate photo relinks it.
@@ -166,6 +176,20 @@ const Tile = memo(function Tile({
           </span>
         )}
       </button>
+      {stack?.top && (
+        // Lightroom's stack badge: the count; a click collapses or expands.
+        <button
+          type="button"
+          className="studio-photo-stack"
+          aria-label={t(stack.collapsed ? "stacks.badge.expand" : "stacks.badge.collapse", { count: stack.count })}
+          title={`${t(stack.collapsed ? "stacks.badge.expand" : "stacks.badge.collapse", { count: stack.count })} · S`}
+          aria-expanded={!stack.collapsed}
+          onClick={() => void toggleStacks([file.path])}
+        >
+          <Layers size={11} />
+          <span>{stack.count}</span>
+        </button>
+      )}
       {!film && (
       <div className="studio-photo-rating" aria-label={t("studio.library.browser.rating")}>
         {[1, 2, 3, 4, 5].map((n) => (
@@ -202,8 +226,11 @@ export default function StudioBrowser({
   onImport,
   size = 190,
   listing,
+  stackMarks,
 }: {
   files: ImageFile[];
+  /** Photos shown as part of a stack, by path. */
+  stackMarks?: Map<string, StackMark>;
   film?: boolean;
   /** Which listing `files` is (folder or album, search, filter, sort): a new
    * one starts at the top; photos added or removed keep the place. */
@@ -429,6 +456,7 @@ export default function StudioBrowser({
                   onRate={onRate}
                   onContextMenu={onContextMenu}
                   film={film}
+                  stack={stackMarks?.get(file.path)}
                 />
               </div>
             );
