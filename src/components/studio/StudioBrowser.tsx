@@ -21,6 +21,7 @@ import CachedThumbnail from "../ui/CachedThumbnail";
 import { startTileDrag } from "./tileDrag";
 import { reportLibraryPresentation } from '../../utils/libraryListing';
 import { offlineTitle } from '../../utils/offline';
+import { PhotoEyesBadge } from "./StudioEyes";
 
 export function visibleRange(
   count: number,
@@ -131,6 +132,7 @@ const Tile = memo(function Tile({
           {file.is_edited && (
             <SlidersHorizontal className="studio-photo-edited" size={12} />
           )}
+          <PhotoEyesBadge path={file.path} compact={film} />
           {file.is_offline && (
             // The file is missing or its drive is disconnected (Lightroom's
             // "!" badge); right-click › Locate photo relinks it.

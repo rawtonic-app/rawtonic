@@ -48,6 +48,12 @@
       "running": "正在导出 {{label}}",
       "waiting": "等待导出：{{label}}"
     },
+    "eyes": {
+      "done": "眼睛已检查（{{n}}）",
+      "failed": "无法读取：{{n}}",
+      "running": "正在检查眼睛",
+      "stopped": "眼睛检查已停止（已读取 {{n}}）"
+    },
     "import": {
       "starting": "正在开始导入…"
     },
@@ -1843,6 +1849,11 @@
       },
       "title": "数据管理"
     },
+    "eyeCheck": {
+      "desc": "读取图库中每张人脸的眼睛（睁开、闭上、不可见、不确定），用于图库的眼睛筛选和放大视图。仅为建议：不会拒绝或删除任何内容。使用人脸模型（应你的请求下载一次）。",
+      "title": "眼睛检查",
+      "toggle": "在后台检查眼睛"
+    },
     "general": {
       "autoAdvance": "自动前进",
       "autoAdvanceDesc": "评分或标记后，从当前显示的照片或网格中单独选中的照片前进。使用 Caps Lock 或照片菜单切换。",
@@ -3038,6 +3049,37 @@
         "width": "宽度（短边的 %）"
       }
     },
+    "eyes": {
+      "asRead": "{{state}}（建议；点击更正）",
+      "callFailed": "无法保存你的判断：{{error}}",
+      "callMenu": "你对这张人脸的判断",
+      "download": "下载人脸模型",
+      "faceLabel": "人脸 {{n}}：{{state}}",
+      "faces": "人脸及其眼睛",
+      "filter": "按眼睛筛选",
+      "filterAll": "所有眼睛",
+      "filterCheck": "眼睛：需检查",
+      "filterClosed": "闭眼",
+      "modelsMissing": "检查眼睛需要人脸模型。",
+      "noFaces": "无人脸",
+      "start": "检查眼睛…",
+      "startFailed": "无法检查眼睛：{{error}}",
+      "state": {
+        "closed": "闭眼或半闭",
+        "notVisible": "眼睛不可见",
+        "open": "睁眼",
+        "uncertain": "不确定：请检查"
+      },
+      "suggestion": "人脸分析给出的建议；不会拒绝或删除任何内容。",
+      "summary": {
+        "check": "需检查：{{n}}",
+        "closed": "闭眼：{{n}}",
+        "faces": "人脸：{{n}}",
+        "notVisible": "眼睛不可见：{{n}}"
+      },
+      "useReading": "使用建议（{{state}}）",
+      "yourCall": "{{state}}（你的判断；建议：{{read}}）"
+    },
     "faceRetouch": {
       "allFaces": "所有人脸",
       "applied": "已应用到 {{done}}/{{total}} 张",
@@ -3474,6 +3516,12 @@
         "and": "和",
         "cancel": "取消",
         "choices": {
+          "eyes": {
+            "closed": "闭眼或半闭",
+            "notVisible": "不可见",
+            "open": "睁眼",
+            "uncertain": "需检查"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3516,6 +3564,7 @@
           "details": "除关键词外的任意文本",
           "duplicate": "重复项（图像数据相同）",
           "exposure": "快门速度（秒）",
+          "eyes": "眼睛",
           "filename": "文件名",
           "fileType": "文件类型",
           "flag": "旗标",

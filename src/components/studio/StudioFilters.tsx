@@ -8,6 +8,7 @@ import { RawStatus, EditedStatus } from "../ui/AppProperties";
 import type { FlagCounts, FlagFilter } from "../../utils/culling";
 import { filterAsRule, scopeRule, selectionCount } from "../../utils/librarySearch";
 import { useSmartAlbumEditor } from "./SmartAlbumEditor";
+import { checkEyes } from "../../hooks/useEyeCheck";
 
 const flags = [
   { value: "all", label: "studio.library.flags.all", Icon: Images },
@@ -47,6 +48,7 @@ export default function StudioFilters({
       })),
     );
   const viewMode = useSettingsStore((s) => s.appSettings?.libraryViewMode);
+  const eyeCheck = useSettingsStore((s) => !!s.appSettings?.eyeCheck);
   const openSmartAlbum = useSmartAlbumEditor((s) => s.open);
   const chosen = selectionCount(filter.metadata);
   const asSmartAlbum = filterAsRule(
@@ -58,6 +60,7 @@ export default function StudioFilters({
   );
   const active =
     (filter.flag ?? "all") !== "all" ||
+    (filter.eyes ?? "all") !== "all" ||
     filter.rating !== 0 ||
     filter.colors.length > 0 ||
     filter.rawStatus !== RawStatus.All ||
@@ -122,6 +125,29 @@ export default function StudioFilters({
         )}
       </select>
       {children}
+      {sessionDirectory && (
+        // Faces' eyes (a suggestion, never a reject): closed or partly, or
+        // in need of a check. Until turned on, the one entry starts it.
+        <select
+          aria-label={t("studio.eyes.filter")}
+          title={t("studio.eyes.suggestion")}
+          value={eyeCheck ? (filter.eyes ?? "all") : "all"}
+          onChange={(e) => {
+            if (e.target.value === "start") void checkEyes(sessionDirectory);
+            else setFilter({ eyes: e.target.value as "all" | "closed" | "check" });
+          }}
+        >
+          <option value="all">{t("studio.eyes.filterAll")}</option>
+          {eyeCheck ? (
+            <>
+              <option value="closed">{t("studio.eyes.filterClosed")}</option>
+              <option value="check">{t("studio.eyes.filterCheck")}</option>
+            </>
+          ) : (
+            <option value="start">{t("studio.eyes.start")}</option>
+          )}
+        </select>
+      )}
       {sessionDirectory && onToggleMetadata && (
         <button
           className="studio-metadata-toggle"
@@ -167,6 +193,7 @@ export default function StudioFilters({
         onClick={() => {
           setFilter({
             flag: "all",
+            eyes: "all",
             rating: 0,
             colors: [],
             rawStatus: RawStatus.All,

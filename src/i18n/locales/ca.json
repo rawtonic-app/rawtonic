@@ -59,6 +59,12 @@
       "running": "S’està exportant {{label}}",
       "waiting": "Esperant per exportar {{label}}"
     },
+    "eyes": {
+      "done": "Ulls comprovats ({{n}})",
+      "failed": "Il·legibles: {{n}}",
+      "running": "Comprovant els ulls",
+      "stopped": "Comprovació d'ulls aturada ({{n}} llegides)"
+    },
     "import": {
       "starting": "S’està iniciant la importació…"
     },
@@ -1994,6 +2000,11 @@
       },
       "title": "Gestió de dades"
     },
+    "eyeCheck": {
+      "desc": "Llegeix els ulls de cada cara de la biblioteca (oberts, tancats, no visibles, incerts) per al filtre d'ulls de la biblioteca i la lupa. Només un suggeriment: no es rebutja ni s'elimina res. Fa servir els models de cares, baixats una vegada quan ho demanis.",
+      "title": "Comprovació d'ulls",
+      "toggle": "Comprova els ulls en segon pla"
+    },
     "general": {
       "autoAdvance": "Avanç automàtic",
       "autoAdvanceDesc": "En valorar o marcar, avança des de la foto mostrada o una selecció individual de la graella. Activa-ho amb Bloq Maj o al menú Foto.",
@@ -3202,6 +3213,37 @@
         "width": "Amplada (% del costat curt)"
       }
     },
+    "eyes": {
+      "asRead": "{{state}} (suggeriment; fes clic per corregir)",
+      "callFailed": "No s'ha pogut desar la teva indicació: {{error}}",
+      "callMenu": "La teva indicació per a aquesta cara",
+      "download": "Baixa els models de cares",
+      "faceLabel": "Cara {{n}}: {{state}}",
+      "faces": "Cares i els seus ulls",
+      "filter": "Filtra per ulls",
+      "filterAll": "Tots els ulls",
+      "filterCheck": "Ulls: per comprovar",
+      "filterClosed": "Ulls tancats",
+      "modelsMissing": "Comprovar els ulls necessita els models de cares.",
+      "noFaces": "Cap cara",
+      "start": "Comprova els ulls…",
+      "startFailed": "No s'han pogut comprovar els ulls: {{error}}",
+      "state": {
+        "closed": "Ulls tancats o mig tancats",
+        "notVisible": "Ulls no visibles",
+        "open": "Ulls oberts",
+        "uncertain": "Incert: comprova-ho"
+      },
+      "suggestion": "Un suggeriment de l'anàlisi de cares; no es rebutja ni s'elimina res.",
+      "summary": {
+        "check": "per comprovar: {{n}}",
+        "closed": "ulls tancats: {{n}}",
+        "faces": "Cares: {{n}}",
+        "notVisible": "ulls no visibles: {{n}}"
+      },
+      "useReading": "Fes servir el suggeriment ({{state}})",
+      "yourCall": "{{state}} (la teva indicació; suggeriment: {{read}})"
+    },
     "faceRetouch": {
       "allFaces": "Totes les cares",
       "applied": "Aplicat a {{done}} de {{total}}",
@@ -3682,6 +3724,12 @@
         "and": "i",
         "cancel": "Cancel·la",
         "choices": {
+          "eyes": {
+            "closed": "Tancats o mig tancats",
+            "notVisible": "No visibles",
+            "open": "Oberts",
+            "uncertain": "Per comprovar"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3724,6 +3772,7 @@
           "details": "Qualsevol text excepte paraules clau",
           "duplicate": "Duplicat (dades d'imatge idèntiques)",
           "exposure": "Velocitat d’obturació (s)",
+          "eyes": "Ulls",
           "filename": "Nom del fitxer",
           "fileType": "Tipus de fitxer",
           "flag": "Marca",

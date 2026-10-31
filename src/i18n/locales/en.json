@@ -52,6 +52,12 @@
       "running": "Exporting {{label}}",
       "waiting": "Waiting to export {{label}}"
     },
+    "eyes": {
+      "done": "Eyes checked ({{n}})",
+      "failed": "Not readable: {{n}}",
+      "running": "Checking eyes",
+      "stopped": "Eye check stopped ({{n}} read)"
+    },
     "import": {
       "starting": "Starting import…"
     },
@@ -1898,6 +1904,11 @@
       },
       "title": "Data Management"
     },
+    "eyeCheck": {
+      "desc": "Reads every face's eyes in the library (open, closed, not visible, uncertain) for the Library's eye filter and the Loupe. A suggestion only: nothing is rejected or removed. Uses the face models, downloaded once when you ask.",
+      "title": "Eye check",
+      "toggle": "Check eyes in the background"
+    },
     "general": {
       "autoAdvance": "Auto-advance",
       "autoAdvanceDesc": "Rating or flagging advances from the photo shown, or from a single grid selection. Toggle with Caps Lock or the Photo menu.",
@@ -3099,6 +3110,37 @@
         "width": "Width (% of short edge)"
       }
     },
+    "eyes": {
+      "asRead": "{{state}} (suggestion; click to correct)",
+      "callFailed": "Your call could not be saved: {{error}}",
+      "callMenu": "Your call for this face",
+      "download": "Download face models",
+      "faceLabel": "Face {{n}}: {{state}}",
+      "faces": "Faces and their eyes",
+      "filter": "Filter by eyes",
+      "filterAll": "All eyes",
+      "filterCheck": "Eyes: needs check",
+      "filterClosed": "Eyes closed",
+      "modelsMissing": "Checking eyes needs the face models.",
+      "noFaces": "No faces",
+      "start": "Check eyes…",
+      "startFailed": "Eyes could not be checked: {{error}}",
+      "state": {
+        "closed": "Eyes closed or partly closed",
+        "notVisible": "Eyes not visible",
+        "open": "Eyes open",
+        "uncertain": "Uncertain: please check"
+      },
+      "suggestion": "A suggestion from the face analysis; nothing is rejected or removed.",
+      "summary": {
+        "check": "to check: {{n}}",
+        "closed": "eyes closed: {{n}}",
+        "faces": "Faces: {{n}}",
+        "notVisible": "eyes not visible: {{n}}"
+      },
+      "useReading": "Use the suggestion ({{state}})",
+      "yourCall": "{{state}} (your call; suggested: {{read}})"
+    },
     "faceRetouch": {
       "allFaces": "All faces",
       "applied": "Applied to {{done}} of {{total}}",
@@ -3557,6 +3599,12 @@
         "and": "and",
         "cancel": "Cancel",
         "choices": {
+          "eyes": {
+            "closed": "Closed or partly closed",
+            "notVisible": "Not visible",
+            "open": "Open",
+            "uncertain": "Needs check"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3599,6 +3647,7 @@
           "details": "Any text but keywords",
           "duplicate": "Duplicate (identical image data)",
           "exposure": "Shutter speed (s)",
+          "eyes": "Eyes",
           "filename": "File name",
           "fileType": "File type",
           "flag": "Flag",

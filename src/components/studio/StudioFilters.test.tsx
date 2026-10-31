@@ -53,6 +53,7 @@ it("applies flag and color filters and clears every hidden constraint", async ()
   await user.click(screen.getByRole("button", { name: "Clear filters" }));
   expect(useLibraryStore.getState().filterCriteria).toEqual({
     flag: "all",
+    eyes: "all",
     rating: 0,
     colors: [],
     rawStatus: RawStatus.All,

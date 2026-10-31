@@ -20,6 +20,7 @@ pub mod checksum;
 pub mod companion;
 pub mod derived;
 pub mod duplicates;
+pub mod face_eyes;
 pub mod facts;
 pub mod folder_sync;
 pub mod folders;
@@ -48,7 +49,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 20;
+pub const DB_SCHEMA_VERSION: u32 = 21;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -347,6 +348,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0018.sql"))?;
         conn.execute_batch(include_str!("../migrations/0019.sql"))?;
         conn.execute_batch(include_str!("../migrations/0020.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0021.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -489,6 +491,9 @@ impl Library {
         }
         if version < 20 {
             tx.execute_batch(include_str!("../migrations/0020.sql"))?;
+        }
+        if version < 21 {
+            tx.execute_batch(include_str!("../migrations/0021.sql"))?;
         }
         tx.commit()?;
         Ok(())

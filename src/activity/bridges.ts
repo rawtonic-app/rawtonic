@@ -2,7 +2,8 @@
 /**
  * Feeds the activity centre from the app's existing reporting paths that
  * keep their own state: the export queue, AI tasks, AI Denoise, model
- * downloads, library indexing, batch commands and the photo write queue.
+ * downloads, library indexing, the eye check, batch commands and the photo
+ * write queue.
  * Paths that only say something once go through `notify` instead.
  */
 import { invoke } from '@tauri-apps/api/core';
@@ -354,6 +355,30 @@ export function startActivityBridges(): () => void {
     listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
     listenSafely<DuplicatesFinished>(DUPLICATES_FINISHED, syncDuplicatesFinished),
+    // The eye check's background pass (`face_eyes`): progress and Cancel.
+    listenSafely<{ done: number; total: number }>('eye-check-progress', ({ done, total }) => {
+      const activity = useActivityStore.getState();
+      const fields = {
+        source: 'app' as const,
+        title: i18n.t('activity.eyes.running'),
+        progress: total > 0 ? { done, total } : undefined,
+        cancel: () => invoke(Invokes.StopEyeCheck).catch(() => {}),
+      };
+      if (activity.entries.some((entry) => entry.id === 'library:eyes' && entry.status === 'running'))
+        activity.update('library:eyes', fields);
+      else activity.start({ id: 'library:eyes', ...fields });
+    }),
+    listenSafely<{ read: number; failed: number; cancelled: boolean }>('eye-check-done', ({ read, failed, cancelled }) => {
+      const activity = useActivityStore.getState();
+      if (read + failed === 0) {
+        activity.finish('library:eyes');
+        return;
+      }
+      activity.finish('library:eyes', {
+        title: i18n.t(cancelled ? 'activity.eyes.stopped' : 'activity.eyes.done', { n: read.toLocaleString() }),
+        detail: failed > 0 ? i18n.t('activity.eyes.failed', { n: failed.toLocaleString() }) : undefined,
+      });
+    }),
     listenSafely<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ taskId, done, total }) => {
       if (taskId && total > 0) useActivityStore.getState().update(`ai:task:${taskId}`, { progress: { done, total } });
     }),
