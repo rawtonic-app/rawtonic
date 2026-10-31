@@ -108,7 +108,7 @@ describe("profile browser", () => {
     await waitFor(() => expect(browser.querySelectorAll("img")).toHaveLength(7));
     const variants = tileCalls.flatMap((call) => call.variants);
     expect(variants).toContainEqual({ cameraProfile: "profiles/Studio.dcp" });
-    expect(variants).toContainEqual({ lutPath: "/res/Warm 200.cube", lutIntensity: 100, lutIsSceneReferred: true });
+    expect(variants).toContainEqual(expect.objectContaining({ lutPath: "/res/Warm 200.cube", lutIntensity: 100, lutIsSceneReferred: true }));
     expect(variants).toContainEqual(expect.objectContaining({ blackAndWhite: true }));
     expect(invoke).toHaveBeenCalledWith("profile_thumbnails", expect.objectContaining({ path: "/s/Capture/a.CR3", adjustments: expect.objectContaining({ exposure: 0.5 }) }));
   });
@@ -129,6 +129,33 @@ describe("profile browser", () => {
     // A second Esc closes the browser.
     fireEvent.keyDown(tile(browser, "Studio flash"), { key: "Escape" });
     expect(screen.queryByRole("region", { name: "Profile browser" })).toBeNull();
+  });
+
+  it("ends a focus preview when the focus leaves the tiles or the search filters it away", async () => {
+    const browser = await openBrowser();
+    const search = within(browser).getByRole("searchbox", { name: "Search profiles" });
+    tile(browser, "Studio flash").focus();
+    expect(useEditorStore.getState().previewOverride).not.toBeNull();
+    search.focus();
+    expect(useEditorStore.getState().previewOverride).toBeNull();
+    tile(browser, "Studio flash").focus();
+    fireEvent.change(search, { target: { value: "warm" } });
+    expect(useEditorStore.getState().previewOverride).toBeNull();
+  });
+
+  it("shows, previews and applies a look with Effects on, also when they were off", async () => {
+    useEditorStore.setState((s) => ({
+      adjustments: { ...s.adjustments, sectionVisibility: { ...s.adjustments.sectionVisibility, effects: false } },
+    }));
+    const browser = await openBrowser();
+    await waitFor(() => expect(tileCalls.length).toBeGreaterThan(0));
+    const warm = tileCalls.flatMap((c) => c.variants).find((v) => v.lutPath === "/res/Warm 200.cube");
+    expect(warm).toMatchObject({ sectionVisibility: { effects: true } });
+    fireEvent.mouseEnter(tile(browser, "Warm"));
+    expect(useEditorStore.getState().previewOverride?.sectionVisibility?.effects).toBe(true);
+    fireEvent.click(tile(browser, "Warm"));
+    await waitFor(() => expect(useEditorStore.getState().adjustments.lutPath).toBe("/res/Warm 200.cube"));
+    expect(useEditorStore.getState().adjustments.sectionVisibility?.effects).toBe(true);
   });
 
   it("applies a click as one history step", async () => {

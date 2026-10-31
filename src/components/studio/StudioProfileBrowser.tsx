@@ -62,6 +62,14 @@ const BATCH = 8;
 const sameMixer = (a: unknown, b: unknown) =>
   !!a && !!b && Object.entries(b as Record<string, number>).every(([k, v]) => (a as Record<string, number>)[k] === v);
 
+/** A tile's keys over `adjustments`: a look turns the Effects section on,
+ * as applying it does (`handleLutSelect`), so tile, preview and result
+ * agree. */
+export function tileKeys(tile: Pick<ProfileTile, "kind" | "variant">, adjustments: Adjustments): Record<string, unknown> {
+  if (tile.kind !== "look" || !tile.variant.lutPath) return tile.variant;
+  return { ...tile.variant, sectionVisibility: { ...adjustments.sectionVisibility, effects: true } };
+}
+
 /** The recipe with a tile's keys (the hover preview). */
 export function withVariant(adjustments: Adjustments, variant: Record<string, unknown>): Adjustments {
   const out = { ...adjustments } as Record<string, unknown>;
@@ -246,7 +254,7 @@ export default function StudioProfileBrowser({
     if (!selectedImage?.isReady || disabled) return;
     previewing.current = true;
     timeHoverFrame();
-    setEditor({ previewOverride: withVariant(adjustments, tile.variant) });
+    setEditor({ previewOverride: withVariant(adjustments, tileKeys(tile, adjustments)) });
   };
   useEffect(() => endPreview, []);
   useEffect(() => {
@@ -401,7 +409,11 @@ export default function StudioProfileBrowser({
               aria-label={t("studio.profileBrowser.search")}
               placeholder={t("studio.profileBrowser.search")}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                // Filtering may remove the previewed tile.
+                endPreview();
+                setQuery(e.target.value);
+              }}
             />
             <button
               type="button"
@@ -422,7 +434,16 @@ export default function StudioProfileBrowser({
               <List size={12} />
             </button>
           </div>
-          <div ref={grid} className="studio-profile-groups" onMouseLeave={endPreview}>
+          <div
+            ref={grid}
+            className="studio-profile-groups"
+            onMouseLeave={endPreview}
+            // Focus leaving the tiles ends their preview, as the pointer does.
+            onBlur={(e) => {
+              if (!(e.relatedTarget instanceof HTMLElement && e.relatedTarget.classList.contains("studio-profile-tile")))
+                endPreview();
+            }}
+          >
             {shown.length === 0 && <div className="studio-hint">{t("studio.profileBrowser.noMatch")}</div>}
             {shown.map(([group, list]) => (
               <section key={group} aria-label={group}>
@@ -587,7 +608,7 @@ function useTileThumbnails(opened: boolean, tiles: ProfileTile[], imagePath: str
           answer = await invoke<ArrayBuffer>(Invokes.ProfileThumbnails, {
             path: imagePath,
             adjustments: recipe,
-            variants: batch.map((tile) => tile.variant),
+            variants: batch.map((tile) => tileKeys(tile, recipe)),
             size,
             generation,
           });
