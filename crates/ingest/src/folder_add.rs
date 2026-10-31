@@ -146,7 +146,9 @@ pub fn plan_folder_add(
                     return false;
                 }
             }
-            || held(path);
+            || held(path)
+            // The content of a photograph's companion: part of it.
+            || crate::held_companion(library, path).is_ok_and(|held| held.is_some());
         if known {
             *registered.borrow_mut() += 1;
         }
@@ -175,7 +177,7 @@ pub fn plan_folder_add(
     // A JPEG beside a RAW the catalog holds: the RAW comes along so the two
     // pair up as `add_batch` pairs them (ADR 0013), not as a photograph of
     // its own.
-    let context = registered_partners(library, &files, pair_raw)?;
+    let context = registered_partners(library, &files, &accept, pair_raw)?;
     files.extend(context.iter().cloned());
     files.sort();
     let groups = pair_sources(&files, pair_raw);
@@ -204,11 +206,13 @@ pub fn plan_folder_add(
 }
 
 /// The registered RAWs that `files`' JPEGs (or HEIFs) belong beside: the
-/// only other file of the JPEG's name (letter case aside) in its folder is
-/// a RAW the catalog holds at that place without a companion.
+/// only other photograph file (`accept`; sidecars such as `NAME.xmp` do not
+/// count) of the JPEG's name (letter case aside) in its folder is a RAW the
+/// catalog holds at that place without a companion.
 fn registered_partners(
     library: &Library,
     files: &[PathBuf],
+    accept: &dyn Fn(&Path) -> bool,
     pair_raw: Option<fn(&Path) -> bool>,
 ) -> Result<Vec<PathBuf>> {
     let Some(is_raw) = pair_raw else {
@@ -242,7 +246,7 @@ fn registered_partners(
         });
         let same: Vec<&PathBuf> = listing
             .iter()
-            .filter(|p| *p != file && stem(p) == stem(file))
+            .filter(|p| *p != file && stem(p) == stem(file) && accept(p))
             .collect();
         let [raw] = same.as_slice() else {
             continue;

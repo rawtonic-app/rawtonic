@@ -275,6 +275,8 @@ fn a_jpeg_added_later_joins_its_registered_raw() {
     let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
     let shoot = d.path().join("Drive/Shoot");
     write(&shoot.join("A.NEF"), b"raw a");
+    // Review r2: its XMP sidecar is no photograph and does not block the pair.
+    write(&shoot.join("A.xmp"), rated_xmp(2).as_bytes());
     write(&shoot.join("B.NEF"), b"raw b");
     let first = plan(&lib, &shoot, true);
     add(&lib, &first.files, &AtomicBool::new(false), |_| {});
@@ -316,13 +318,24 @@ fn copies_of_held_photographs_do_not_fill_the_limit() {
             format!("photo {i}").as_bytes(),
         );
     }
+    // Review r2: copies of a recorded companion JPEG count as held too.
+    let pair = d.path().join("Drive/Pair");
+    write(&pair.join("P.NEF"), b"pair raw");
+    write(&pair.join("P.JPG"), b"pair jpeg");
+    add(
+        &lib,
+        &plan(&lib, &pair, true).files,
+        &AtomicBool::new(false),
+        |_| {},
+    );
+    write(&backup.join("A_3.JPG"), b"pair jpeg");
     write(&backup.join("Z_new.NEF"), b"a new photo");
     let planned = plan_folder_add(&lib, &backup, true, supported, Some(raw), 2).unwrap();
     assert_eq!(
         planned.files,
         vec![backup.join("Z_new.NEF").canonicalize().unwrap()]
     );
-    assert_eq!(planned.registered, 3);
+    assert_eq!(planned.registered, 4);
 }
 
 /// Review r1: a folder that cannot be read is named, never passed over as
