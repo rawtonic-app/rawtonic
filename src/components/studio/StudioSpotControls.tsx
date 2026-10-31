@@ -1,9 +1,13 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
+import { invoke } from "@tauri-apps/api/core";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
 import AdjustmentControl from "./AdjustmentControl";
 import { useEditorStore } from "../../store/useEditorStore";
-import { updateAdjustments } from "../../hooks/useEditorActions";
+import { useLibraryStore } from "../../store/useLibraryStore";
+import { syncDustToPaths, updateAdjustments } from "../../hooks/useEditorActions";
+import { Invokes } from "../ui/AppProperties";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { shortcutHint } from "../../utils/keyboardUtils";
 import type { Spot } from "../../utils/adjustments";
@@ -43,8 +47,191 @@ export function StudioSpotPanel() {
         {key ? t("studio.spot.withShortcut", { text: label, key }) : label}
       </button>
       <StudioSpotControls />
+      <StudioFindDust />
       <StudioSpotList />
     </>
+  );
+}
+
+type FoundDust = { spots: Array<Record<string, unknown>>; facesChecked: boolean };
+
+/** File name of a path, for naming skipped photos. */
+const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+/** Find Dust (Lightroom's Dust > Apply, our own detector:
+ * crates/engine/src/dust.rs): previews the sensor dust found on flat areas
+ * at the spot sensitivity (the slider changes it live), and Apply makes them
+ * ordinary heal spots, listed and editable like placed ones, in one undo
+ * step; running again never adds a spot twice. "Sync dust" gives the other
+ * selected photos of the same camera the same spots at the same sensor
+ * place (sync_dust_spots). */
+export function StudioFindDust() {
+  const { t } = useTranslation();
+  const { startSpotTool } = useStudioTools();
+  const mode = useEditorStore((s) => s.spotSettings.mode);
+  const preview = useEditorStore((s) => s.dustPreview);
+  const visualize = useEditorStore((s) => s.spotVisualize);
+  const path = useEditorStore((s) => s.selectedImage?.path);
+  const ready = useEditorStore((s) => Boolean(s.selectedImage?.isReady));
+  // What the found spots depend on: the spots, the geometry and the crop.
+  const placeKey = useEditorStore((s) => {
+    const a = s.adjustments;
+    return JSON.stringify([a.spots, a.aiPatches?.length, a.crop, a.rotation, a.orientationSteps, a.flipHorizontal, a.flipVertical]);
+  });
+  const dustSpots = useEditorStore((s) => (s.adjustments.spots ?? []).filter((spot) => spot.dust).length);
+  const multiSelected = useLibraryStore((s) => s.multiSelectedPaths);
+  const others = multiSelected.filter((p) => p !== path);
+  const [message, setMessage] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const on = preview !== null;
+  const setEditor = useEditorStore((s) => s.setEditor);
+
+  // Remove and Red eye make no heal spots, and the preview is drawn by the
+  // spot tool: switching to them or ending the tool ends it.
+  const toolOn = useEditorStore((s) => s.isSpotToolActive);
+  useEffect(() => {
+    if (mode === "remove" || mode === "redEye" || !toolOn) setEditor({ dustPreview: null });
+  }, [mode, toolOn, setEditor]);
+
+  // Another photo: the preview and the last message belong to the old one.
+  useEffect(() => {
+    setMessage(null);
+    return () => setEditor({ dustPreview: null });
+  }, [path, setEditor]);
+
+  // The preview, refreshed when the sensitivity, the spots or the geometry
+  // change (the backend caches the analysis: a new sensitivity only filters).
+  useEffect(() => {
+    if (!on || !ready) return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      const { adjustments } = useEditorStore.getState();
+      invoke<FoundDust>(Invokes.FindDust, { sensitivity: visualize.sensitivity, apply: false, jsAdjustments: adjustments })
+        .then((found) => {
+          if (!live || useEditorStore.getState().dustPreview === null) return;
+          setEditor({
+            dustPreview: {
+              spots: found.spots as Array<{ x: number; y: number; radius: number }>,
+              facesChecked: found.facesChecked,
+              busy: false,
+            },
+          });
+        })
+        .catch((error) => {
+          console.error("Find dust failed:", error);
+          if (live) setEditor({ dustPreview: null });
+        });
+    }, 120);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [on, ready, visualize.sensitivity, placeKey, path, setEditor]);
+
+  if (mode === "remove" || mode === "redEye") return null;
+
+  const start = () => {
+    startSpotTool();
+    setMessage(null);
+    setEditor({ dustPreview: { spots: [], facesChecked: true, busy: true } });
+  };
+  const cancel = () => setEditor({ dustPreview: null });
+  const apply = async () => {
+    const { adjustments, spotSettings } = useEditorStore.getState();
+    const at = path;
+    try {
+      const found = await invoke<FoundDust>(Invokes.FindDust, {
+        sensitivity: visualize.sensitivity,
+        apply: true,
+        jsAdjustments: adjustments,
+      });
+      if (useEditorStore.getState().selectedImage?.path !== at) return;
+      const spots = found.spots.map((spot) => ({
+        id: crypto.randomUUID(),
+        mode: "heal" as const,
+        feather: spotSettings.feather,
+        opacity: 100,
+        ...(spot as { x: number; y: number; radius: number; sourceX: number; sourceY: number; dust: { x: number; y: number } }),
+        visible: true,
+      }));
+      // One undo step for the whole run.
+      if (spots.length > 0) updateAdjustments((prev) => ({ ...prev, spots: [...(prev.spots ?? []), ...spots] }));
+      setEditor({ dustPreview: null });
+      setMessage(t("spotRemoval.dust.applied", { number: spots.length }));
+    } catch (error) {
+      console.error("Find dust failed:", error);
+      setMessage(t("spotRemoval.dust.failed"));
+    }
+  };
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      const { failed, skipped } = await syncDustToPaths(others, useEditorStore.getState().adjustments);
+      const done = others.length - failed.length - skipped.length;
+      const parts = [t("spotRemoval.dust.synced", { number: Math.max(0, done) })];
+      const named = (reason: string) =>
+        skipped.filter((s) => s.reason === reason).map((s) => fileName(s.path)).join(", ");
+      if (named("otherCamera")) parts.push(t("spotRemoval.dust.skippedOtherCamera", { names: named("otherCamera") }));
+      if (named("unknownCamera"))
+        parts.push(t("spotRemoval.dust.skippedUnknownCamera", { names: named("unknownCamera") }));
+      setMessage(parts.join(" "));
+    } catch (error) {
+      console.error("Sync dust failed:", error);
+      setMessage(t("spotRemoval.dust.failed"));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="studio-find-dust" data-testid="find-dust">
+      {!on ? (
+        <button type="button" className="studio-text-button" disabled={!ready} title={t("spotRemoval.dust.hint")} onClick={start}>
+          {t("spotRemoval.dust.find")}
+        </button>
+      ) : (
+        <>
+          <AdjustmentControl
+            label={t("spotRemoval.sensitivity")}
+            ariaLabel={t("spotRemoval.sensitivityAria")}
+            value={visualize.sensitivity}
+            min={0}
+            max={100}
+            defaultValue={50}
+            onChange={(sensitivity) => setEditor({ spotVisualize: { ...visualize, sensitivity } })}
+          />
+          <p className="studio-hint" role="status">
+            {preview.busy ? t("spotRemoval.dust.searching") : t("spotRemoval.dust.found", { number: preview.spots.length })}
+            {!preview.busy && !preview.facesChecked && ` ${t("spotRemoval.dust.facesNotChecked")}`}
+          </p>
+          <div className="studio-inline">
+            <button
+              type="button"
+              className="studio-text-button"
+              disabled={preview.busy || preview.spots.length === 0}
+              onClick={() => void apply()}
+            >
+              {t("spotRemoval.dust.apply")}
+            </button>
+            <button type="button" className="studio-text-button" onClick={cancel}>
+              {t("spotRemoval.cancel")}
+            </button>
+          </div>
+        </>
+      )}
+      {!on && dustSpots > 0 && others.length > 0 && (
+        <button
+          type="button"
+          className="studio-text-button"
+          disabled={syncing}
+          title={t("spotRemoval.dust.syncHint")}
+          onClick={() => void sync()}
+        >
+          {t("spotRemoval.dust.sync", { number: others.length })}
+        </button>
+      )}
+      {message && <p className="studio-hint" role="status">{message}</p>}
+    </div>
   );
 }
 

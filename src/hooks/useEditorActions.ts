@@ -669,6 +669,46 @@ async function countedForQuit<T>(entry: number, command: Promise<T>): Promise<T>
   }
 }
 
+/** A photograph "Sync dust" left alone, and why (`sync_dust_spots`). */
+export type DustSkipped = { path: string; reason: 'otherCamera' | 'unknownCamera' };
+
+/** "Sync dust to selected photos": the open photograph's Find Dust spots
+ * (`adjustments`, as they stand) added to `paths` at the same sensor place,
+ * for photographs of the same camera only (src-tauri/src/spot_removal.rs
+ * `sync_dust_spots`); one undo step. Resolves with the photographs not
+ * written and those skipped. */
+export async function syncDustToPaths(
+  paths: string[],
+  adjustments: Adjustments,
+): Promise<{ failed: string[]; skipped: DustSkipped[] }> {
+  let skipped: DustSkipped[] = [];
+  const failed = await recipeBatchAction(
+    'sync',
+    (step) =>
+      recipeWrite(
+        paths,
+        () =>
+          recordedBatch(
+            invoke<RecipeBatch & { skipped: DustSkipped[] }>(Invokes.SyncDustSpots, {
+              paths,
+              jsAdjustments: adjustments,
+            }).then((batch) => {
+              skipped = batch.skipped ?? [];
+              return batch;
+            }),
+            paths,
+            'sync dust',
+          ),
+        { kind: 'sync', failedOf: recordedFailed, step },
+      ),
+    paths,
+  );
+  const written = paths.filter((path) => !failed.includes(path) && !skipped.some((s) => s.path === path));
+  written.forEach((path) => unsavedRecipes.delete(path));
+  recipeWritten(written, ['spots']);
+  return { failed, skipped };
+}
+
 /** Shows the recipes `written` on the open photograph (unless `shown`
  * says its editor travelled them itself; a changed one becomes an entry of
  * its History with the step's undo order) and on the Library's active one. */

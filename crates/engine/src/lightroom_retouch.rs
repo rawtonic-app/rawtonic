@@ -195,7 +195,7 @@ pub fn placed_spot(
 /// radius along the mask frame's x, carried to the base, so it is solved
 /// for that (a stretching or distorting geometry scales the two frames
 /// unequally along different directions). None when it does not converge.
-fn mask_radius(
+pub(crate) fn mask_radius(
     adjustments: &Value,
     frame: (f64, f64),
     centre: (f64, f64),

@@ -837,6 +837,10 @@ export interface Spot {
    * first point and `sourceX`/`sourceY` where that point copies from.
    * Absent (or one point): a circle. */
   points?: Array<{ x: number; y: number }>;
+  /** Made by Find Dust: where the dust sits on the sensor (normalised in
+   * the unrotated raw), which "Sync dust" and later runs use to recognise
+   * the same dust (crates/engine/src/dust.rs). */
+  dust?: { x: number; y: number };
 }
 
 /** A red eye or pet eye correction (Lightroom's Red Eye tool, Capture One's

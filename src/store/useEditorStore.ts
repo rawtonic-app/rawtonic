@@ -116,6 +116,10 @@ interface EditorState {
   };
   /** Lightroom's Visualize Spots: the band-pass view under the spots. */
   spotVisualize: { on: boolean; sensitivity: number };
+  /** Find Dust's preview (Lightroom's Dust > Apply): the dust spots found
+   * at the spot sensitivity, drawn on the photo until Apply or Cancel; null
+   * when off. `facesChecked`: faces were left out (face models installed). */
+  dustPreview: { spots: Array<{ x: number; y: number; radius: number }>; facesChecked: boolean; busy: boolean } | null;
   /** Red eye mode of the spot tool: what new corrections get (and the
    * selected one shows). `size`: radius of the circle a click searches
    * (a drag sizes it), mask-frame pixels. */
@@ -303,6 +307,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeSpotId: null,
   spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 },
   spotVisualize: { on: false, sensitivity: 50 },
+  dustPreview: null,
   redEyeSettings: { kind: 'red', size: 40, pupilSize: 50, darken: 50, catchlight: true },
   showFaceBlemishes: false,
   faceProtect: { painting: false, erase: false, size: 30, feather: 50 },

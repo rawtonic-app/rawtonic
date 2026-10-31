@@ -741,6 +741,8 @@ pub fn run() {
             red_eye::red_eye_point,
             spot_removal::find_spot_source,
             spot_removal::visualize_spots,
+            spot_removal::find_dust,
+            spot_removal::sync_dust_spots,
             auto_white_balance::auto_white_balance_for,
             lut_processing::list_luts,
             legal::third_party_licenses,
