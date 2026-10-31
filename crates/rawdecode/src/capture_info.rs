@@ -579,13 +579,14 @@ pub fn aspect_crop(data: &[u8]) -> Option<AspectCrop> {
 }
 
 /// The size of the camera's own image where it records an aspect ratio
-/// set in the camera (`camera_crop`): Canon's AspectInfo (maker note
-/// 0x009a: 1:1, 4:3, 16:9, 4:5) in a CR2 or CR3, else the Exif
-/// PixelXDimension and PixelYDimension of a TIFF-based RAW (also ORF and
-/// RW2 with their own magic numbers). None for other containers (RAF).
-pub fn camera_image_size(data: &[u8]) -> Option<(u32, u32)> {
+/// set in the camera (`camera_crop`), and whether it is in the sensor's
+/// axes: Canon's AspectInfo (maker note 0x009a: 1:1, 4:3, 16:9, 4:5) in a
+/// CR2 or CR3 is; the Exif PixelXDimension and PixelYDimension of a
+/// TIFF-based RAW (also ORF and RW2 with their own magic numbers) may be
+/// turned with the photo. None for other containers (RAF).
+pub fn camera_image_size(data: &[u8]) -> Option<(u32, u32, bool)> {
     if let Some(size) = canon_aspect_size(data) {
-        return size;
+        return size.map(|(width, height)| (width, height, true));
     }
     let little = match data.get(..2)? {
         b"II" => true,
@@ -600,7 +601,11 @@ pub fn camera_image_size(data: &[u8]) -> Option<(u32, u32)> {
         let value = *exif.reals(tag)?.first()?;
         (1.0..100_000.0).contains(&value).then_some(value as u32)
     };
-    Some((one(EXIF_PIXEL_X_DIMENSION)?, one(EXIF_PIXEL_Y_DIMENSION)?))
+    Some((
+        one(EXIF_PIXEL_X_DIMENSION)?,
+        one(EXIF_PIXEL_Y_DIMENSION)?,
+        false,
+    ))
 }
 
 /// A CR3's or CR2's Canon AspectInfo: Some(the cropped image's size) for

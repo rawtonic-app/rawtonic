@@ -46,40 +46,62 @@ fn read(source: &RawSource, frame_version: u32) -> Option<CameraCrop> {
     if rawler::get_decoder(source).ok()?.format_hint() == rawler::decoders::FormatHint::DNG {
         return None;
     }
-    let (width, height) = crate::source_frame::frame(source, frame_version)?.size();
-    let camera = crate::capture_info::camera_image_size(source.buf())?;
+    let frame = crate::source_frame::frame(source, frame_version)?;
+    let (width, height) = frame.size();
+    // Canon records the frame in the sensor's axes (its 4:5 is upright on a
+    // landscape sensor), which the development turns with the photo. An
+    // Exif image size may already be turned; its frames (16:9 on 4:3) lie
+    // along the sensor's long side, so it takes the frame's.
+    let (camera_width, camera_height, sensor_axes) =
+        crate::capture_info::camera_image_size(source.buf())?;
+    let (long, short) = (
+        camera_width.max(camera_height),
+        camera_width.min(camera_height),
+    );
+    let camera = if sensor_axes {
+        if (5..=8).contains(&frame.orientation) {
+            (camera_height, camera_width)
+        } else {
+            (camera_width, camera_height)
+        }
+    } else if width >= height {
+        (long, short)
+    } else {
+        (short, long)
+    };
     crop_for(width, height, camera)
 }
 
-/// The camera image `camera` (width, height in any orientation) as a crop
-/// of a `width` × `height` developed frame, centred, turned to the frame's
-/// orientation: its own size where it fits, else the largest rectangle of
-/// its aspect ratio. None where the aspect ratio is the frame's.
+/// The camera image `camera` (width, height in the developed frame's axes)
+/// as a centred crop of a `width` × `height` developed frame: its own size
+/// where it fits, else the largest rectangle of its aspect ratio. None
+/// where the aspect ratio is the frame's.
 pub fn crop_for(width: u32, height: u32, camera: (u32, u32)) -> Option<CameraCrop> {
-    let (long, short) = (width.max(height) as f64, width.min(height) as f64);
-    let (camera_long, camera_short) =
-        (camera.0.max(camera.1) as f64, camera.0.min(camera.1) as f64);
+    let (frame_width, frame_height) = (width as f64, height as f64);
+    let (camera_width, camera_height) = (camera.0 as f64, camera.1 as f64);
     // A thumbnail's or a reduced JPEG's size tells nothing reliable, nor do
     // degenerate sizes.
-    if short < 1.0 || camera_short < 1.0 || camera_long * 2.0 < long {
+    if frame_width.min(frame_height) < 1.0
+        || camera_width.min(camera_height) < 1.0
+        || camera_width.max(camera_height) * 2.0 < frame_width.max(frame_height)
+    {
         return None;
     }
-    let (frame_ratio, camera_ratio) = (long / short, camera_long / camera_short);
-    if (camera_ratio / frame_ratio).ln().abs() < SAME_ASPECT || camera_ratio > 4.0 {
+    let camera_ratio = camera_width / camera_height;
+    if (camera_ratio / (frame_width / frame_height)).ln().abs() < SAME_ASPECT
+        || !(0.25..=4.0).contains(&camera_ratio)
+    {
         return None;
     }
-    // Along the frame's long side.
-    let (crop_long, crop_short) = if camera_long <= long && camera_short <= short {
-        (camera_long, camera_short)
-    } else if camera_ratio > frame_ratio {
-        (long, (long / camera_ratio).round())
+    let (crop_width, crop_height) = if camera_width <= frame_width && camera_height <= frame_height
+    {
+        (camera_width, camera_height)
     } else {
-        ((short * camera_ratio).round(), short)
-    };
-    let (crop_width, crop_height) = if width >= height {
-        (crop_long, crop_short)
-    } else {
-        (crop_short, crop_long)
+        let scale = (frame_width / camera_width).min(frame_height / camera_height);
+        (
+            (camera_width * scale).round().min(frame_width),
+            (camera_height * scale).round().min(frame_height),
+        )
     };
     let (crop_width, crop_height) = (crop_width as u32, crop_height as u32);
     Some(CameraCrop {
@@ -106,9 +128,9 @@ mod tests {
                 height: 2248
             })
         );
-        // Turned upright: the frame's long side is its height.
+        // Turned upright (the reader turns the recorded size with it).
         assert_eq!(
-            crop_for(3000, 4000, (4000, 2248)),
+            crop_for(3000, 4000, (2248, 4000)),
             Some(CameraCrop {
                 x: 376,
                 y: 0,
@@ -124,6 +146,35 @@ mod tests {
                 y: 0,
                 width: 4000,
                 height: 4000
+            })
+        );
+        // Canon 4:5 is upright on the landscape sensor, 5:4 once turned.
+        assert_eq!(
+            crop_for(6000, 4000, (3200, 4000)),
+            Some(CameraCrop {
+                x: 1400,
+                y: 0,
+                width: 3200,
+                height: 4000
+            })
+        );
+        assert_eq!(
+            crop_for(4000, 6000, (4000, 3200)),
+            Some(CameraCrop {
+                x: 0,
+                y: 1400,
+                width: 4000,
+                height: 3200
+            })
+        );
+        // Larger than the frame: its aspect ratio, as large as fits.
+        assert_eq!(
+            crop_for(5000, 3000, (6000, 3375)),
+            Some(CameraCrop {
+                x: 0,
+                y: 93,
+                width: 5000,
+                height: 2813
             })
         );
         // The same aspect, rounded differently: no crop.

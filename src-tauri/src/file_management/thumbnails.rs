@@ -265,6 +265,30 @@ fn stored_proxy(
         .flatten()
 }
 
+/// A never-edited RAW's plain decode cut to the camera's crop of the
+/// newest frame (`camera_crop`), as its export frames it. The crop is
+/// centred in the developed frame, so its share of each side carries over
+/// to a reduced decode.
+fn cut_to_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
+    let Some(crop) = rawtonic_engine::camera_crop::crops(source)
+        .get(rawtonic_engine::source_frame::VERSION as usize)
+        .copied()
+        .flatten()
+    else {
+        return image;
+    };
+    let share = |part: u32, margin: u32| part as f64 / (2 * margin + part) as f64;
+    let (width, height) = (image.width(), image.height());
+    let cut_width = ((width as f64 * share(crop.width, crop.x)).round() as u32).clamp(1, width);
+    let cut_height = ((height as f64 * share(crop.height, crop.y)).round() as u32).clamp(1, height);
+    image.crop_imm(
+        (width - cut_width) / 2,
+        (height - cut_height) / 2,
+        cut_width,
+        cut_height,
+    )
+}
+
 /// The thumbnail of `path_str` developed with `metadata`'s adjustments
 /// (none: as a photograph never edited), as the Library shows it. Its
 /// decoded base is cached under `cache_key` (a photograph's own thumbnails
@@ -297,8 +321,14 @@ pub(crate) fn develop_thumbnail(
         .then(|| stored_proxy(&source_path, &adjustments, &settings))
         .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
-        // A new recipe (none, or a Reset's) renders as its export does.
-        (Some(_), metadata) if crate::image_processing::is_new_recipe(&adjustments) => {
+        // A new recipe renders as its export does: none (with a proxy to
+        // develop; without one the camera's JPEG or a plain decode below), or
+        // a Reset's.
+        (proxy, metadata)
+            if is_raw
+                && crate::image_processing::is_new_recipe(&adjustments)
+                && (proxy.is_some() || !adjustments.is_null()) =>
+        {
             let mut recipe = if adjustments.is_null() {
                 serde_json::json!({})
             } else {
@@ -686,6 +716,9 @@ pub(crate) fn develop_thumbnail(
             crate::image_processing::apply_cpu_agx_tonemap(&mut final_image);
         } else if is_raw {
             apply_cpu_default_raw_processing(&mut final_image);
+        }
+        if is_raw {
+            final_image = cut_to_camera_crop(final_image, &source_path_str);
         }
     }
 

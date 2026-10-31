@@ -105,22 +105,30 @@ pub fn recipe_values(crop: CameraCrop) -> (Value, Value) {
     )
 }
 
-/// Puts the camera's crop into a new recipe (`is_new_recipe`, before
-/// `apply_render_default` makes it an edit) of the RAW at `source`, for the
-/// frame the recipe develops (`source_frame::requested`). Saved edits keep
-/// their own crop; files without another camera frame are left alone.
+/// Starts a new recipe (`is_new_recipe`) of the RAW at `source` as a new
+/// edit: the render, sharpening and frame versions
+/// (`image_processing::apply_render_default`), then the camera's crop of
+/// the frame it develops (`source_frame::requested`). Both together, since
+/// the crop alone would make the recipe an edit and its versions would be
+/// skipped. Saved edits keep their own crop (and versions); files without
+/// another camera frame get only the versions.
 pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
     if !crate::image_processing::is_new_recipe(adjustments) {
         return;
     }
-    let path = source.to_string_lossy();
+    start_new_edit(adjustments, &crops(&source.to_string_lossy()));
+}
+
+/// `apply_default` with the file's `crops` (`crops`).
+fn start_new_edit(adjustments: &mut Value, crops: &[Option<CameraCrop>]) {
+    if !crate::image_processing::is_new_recipe(adjustments) {
+        return;
+    }
+    crate::image_processing::apply_render_default(adjustments);
     let version = crate::source_frame::requested(adjustments) as usize;
-    let Some(crop) = crops(&path).get(version).copied().flatten() else {
+    let Some(crop) = crops.get(version).copied().flatten() else {
         return;
     };
-    if adjustments.is_null() {
-        *adjustments = serde_json::json!({});
-    }
     if let Some(map) = adjustments.as_object_mut() {
         let (crop, aspect) = recipe_values(crop);
         map.insert("crop".to_string(), crop);
@@ -135,21 +143,49 @@ mod tests {
 
     #[test]
     fn only_new_recipes_get_the_camera_crop() {
-        // Not a RAW: nothing to read, nothing changes.
-        let mut recipe = json!({});
-        apply_default(&mut recipe, std::path::Path::new("/p/A.jpg"));
-        assert_eq!(recipe, json!({}));
-        // An edit keeps its own crop (none): never read.
-        let mut edited = json!({"exposure": 1.0});
-        apply_default(&mut edited, std::path::Path::new("/missing/A.SRW"));
-        assert_eq!(edited, json!({"exposure": 1.0}));
+        let crop = CameraCrop {
+            x: 0,
+            y: 376,
+            width: 4000,
+            height: 2248,
+        };
+        // A new recipe becomes a new edit with the crop: its versions are
+        // set too (the crop alone would make it an edit without them).
+        for new in [json!({}), Value::Null] {
+            let mut recipe = new;
+            start_new_edit(&mut recipe, &[Some(crop), Some(crop)]);
+            assert_eq!(
+                recipe["renderVersion"],
+                json!(crate::image_processing::RENDER_VERSION)
+            );
+            assert_eq!(
+                recipe[crate::source_frame::KEY],
+                json!(crate::source_frame::VERSION)
+            );
+            assert!(recipe["sharpenVersion"].is_u64());
+            assert_eq!(recipe["crop"], recipe_values(crop).0);
+            assert_eq!(recipe["aspectRatio"], json!(4000.0 / 2248.0));
+        }
+        // A Reset's recipe keeps its frame and takes that frame's crop.
+        let mut reset = json!({crate::source_frame::KEY: 0});
+        start_new_edit(&mut reset, &[None, Some(crop)]);
+        assert_eq!(reset[crate::source_frame::KEY], json!(0));
+        assert!(reset.get("crop").is_none());
         assert_eq!(
-            recipe_values(CameraCrop {
-                x: 0,
-                y: 376,
-                width: 4000,
-                height: 2248
-            }),
+            reset["renderVersion"],
+            json!(crate::image_processing::RENDER_VERSION)
+        );
+        // An edit keeps its own crop (none) and versions.
+        let mut edited = json!({"exposure": 1.0});
+        start_new_edit(&mut edited, &[Some(crop), Some(crop)]);
+        assert_eq!(edited, json!({"exposure": 1.0}));
+        // Not a RAW: only the versions, the file is never read.
+        let mut other = json!({});
+        apply_default(&mut other, std::path::Path::new("/p/A.jpg"));
+        assert!(other.get("crop").is_none());
+        assert!(other["renderVersion"].is_u64());
+        assert_eq!(
+            recipe_values(crop),
             (
                 json!({"unit": "px", "x": 0, "y": 376, "width": 4000, "height": 2248}),
                 json!(4000.0 / 2248.0)
