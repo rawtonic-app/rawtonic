@@ -5985,6 +5985,10 @@ fn display_shader_readback_matches_display_frames() {
             let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
             prepare_preview_pipeline(&processor, preview_features(&adjustments));
             let masks = upload_test_masks(width, height, adjustments.mask_count as usize);
+            // Readbacks compute the detail stage inline; display frames cache it
+            // in a pass of its own, which `cached_detail_matches_inline_detail`
+            // compares with the inline stage.
+            processor.force_inline_detail.store(true, Ordering::Relaxed);
             processor
                 .run(
                     &view,
@@ -6000,6 +6004,9 @@ fn display_shader_readback_matches_display_frames() {
                     RenderOutputPrecision::EightBit,
                 )
                 .unwrap();
+            processor
+                .force_inline_detail
+                .store(false, Ordering::Relaxed);
             let display = read_texture_data_roi(
                 &context.device,
                 &context.queue,
@@ -6971,11 +6978,18 @@ fn cached_detail_matches_inline_detail() {
                 .force_inline_detail
                 .store(false, Ordering::Relaxed);
             assert_eq!(cached, cached_again, "{profile}: cached frames differ");
-            // Stored as 32-bit floats, the cache reproduces the inline stage exactly
-            // (16-bit storage flipped saturated channels by up to 220 levels).
+            // Stored as 32-bit floats, the cache reproduces the inline stage (16-bit
+            // storage flipped saturated channels by up to 220 levels): exactly on
+            // Metal and RADV; NVIDIA's Vulkan compiler rounds the same detail
+            // stage differently in its own pass and in `main` (SPIR-V without
+            // NoContraction, which naga cannot emit, lets a driver contract float
+            // maths per pipeline), one code apart in at most 0.002 % of the
+            // pixels (2026-10-31, RTX 3080).
+            let (largest, differing) = byte_differences(&inline, &cached);
             assert!(
-                inline == cached,
-                "{width}x{height} {profile}: cached detail differs"
+                largest <= 1 && differing * 10_000 <= inline.len() / 4,
+                "{width}x{height} {profile}: cached detail differs by up to {largest} \
+                 in {differing} pixels"
             );
             checked += 1;
         }
@@ -14425,6 +14439,19 @@ fn edge_fringe_scene(width: u32, height: u32, sigma: f32) -> image::Rgb32FImage 
             c[2] * (1.0 + n) + 0.3 * sigma * noise(x, y, 2),
         ])
     })
+}
+
+/// The largest channel difference of two RGBA8 images and the number of
+/// pixels that differ.
+fn byte_differences(a: &[u8], b: &[u8]) -> (u8, usize) {
+    assert_eq!(a.len(), b.len());
+    a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0).fold(
+        (0, 0),
+        |(largest, differing), (a, b)| {
+            let d = a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+            (largest.max(d), differing + usize::from(d > 0))
+        },
+    )
 }
 
 /// Per-channel differences of two float images: (mean, p99.9, max, share
