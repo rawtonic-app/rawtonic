@@ -1313,7 +1313,8 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
         let mut supported = true;
         // Lightroom Classic 15 keeps a brush as a `Mask/Aggregate` of its
         // strokes (`crs:Masks`: `Mask/Paint` items, erasers among them):
-        // an additive, not inverted aggregate stands for its items.
+        // an additive, not inverted aggregate stands for its items, which
+        // take over its switch (`MaskActive`) and opacity (`MaskValue`).
         let mut items = Vec::new();
         for li in seq_items(correction, "CorrectionMasks") {
             let mask = described(li);
@@ -1322,15 +1323,24 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 if matches!(attr("MaskBlendMode"), None | Some("0"))
                     && attr("MaskInverted") != Some("true")
                 {
-                    items.extend(seq_items(mask, "Masks").into_iter().map(described));
+                    let active = attr("MaskActive") != Some("false");
+                    let value = attr("MaskValue")
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 1.0);
+                    items.extend(
+                        seq_items(mask, "Masks")
+                            .into_iter()
+                            .map(|li| (described(li), active, value)),
+                    );
                 } else {
                     supported = false;
                 }
             } else {
-                items.push(mask);
+                items.push((mask, true, 1.0));
             }
         }
-        for (m_index, mask) in items.into_iter().enumerate() {
+        for (m_index, (mask, group_active, group_value)) in items.into_iter().enumerate() {
             if !supported {
                 break;
             }
@@ -1420,9 +1430,9 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             sub_masks.push(json!({
                 "id": format!("lr-{index}-{m_index}-{}", Uuid::new_v4()),
                 "type": kind,
-                "visible": mattr("MaskActive") != Some("false"),
+                "visible": group_active && mattr("MaskActive") != Some("false"),
                 "invert": mattr("MaskInverted") == Some("true"),
-                "opacity": (value * 100.0).clamp(0.0, 100.0),
+                "opacity": (value * group_value * 100.0).clamp(0.0, 100.0),
                 "mode": mode,
                 // AI masks are computed, geometry placed, when a photo opens.
                 "parameters": parameters,
@@ -2192,6 +2202,16 @@ mod tests {
         };
         let (layers, skipped) = super::lightroom_masks(&brush("0", "false"));
         assert!(skipped.is_empty());
+        // A brush switched off in Lightroom stays off; its opacity carries over.
+        let off = brush("0", "false").replace(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="false" crs:MaskValue="0.5" crs:MaskActive="false""#,
+        );
+        let (off_layers, _) = super::lightroom_masks(&off);
+        for sub in off_layers[0]["subMasks"].as_array().unwrap() {
+            assert_eq!(sub["visible"], json!(false));
+            assert_eq!(sub["opacity"], json!(50.0));
+        }
         let subs = layers[0]["subMasks"].as_array().unwrap();
         assert_eq!(subs.len(), 2);
         assert_eq!(
