@@ -1,6 +1,8 @@
 //! Times Export as Catalog (G39) of N photographs by reference from a
 //! catalog of 2·N, each with a three-step edit history, metadata and an
-//! album. The originals are small placeholder files: by reference they are
+//! album, and Import from Catalog of them back: first unchanged (review
+//! and skip), then after a new edit of every one in the exported catalog
+//! (all replaced), then N new photographs by reference. The originals are small placeholder files: by reference they are
 //! not read, so this measures the database work (snapshot, pruning,
 //! re-pathing, compaction) and publishing, not copying originals.
 //!
@@ -75,5 +77,45 @@ fn main() -> anyhow::Result<()> {
         took.as_secs_f64() * 1000.0 / receipt.photographs as f64,
         fs::metadata(root.join("Job/catalog.sqlite"))?.len() / 1024
     );
+    let import = |label: &str| -> anyhow::Result<()> {
+        let started = Instant::now();
+        let receipt = rawtonic_ingest::catalog_import::import(
+            &lib,
+            &root.join("Job"),
+            &rawtonic_ingest::catalog_import::Options {
+                new_photos: rawtonic_ingest::catalog_import::NewPhotos::Reference,
+                changed: None,
+                overrides: Default::default(),
+                include_new: true,
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )?;
+        println!(
+            "import {label}: {:.3} s (added {}, replaced {}, unchanged {})",
+            started.elapsed().as_secs_f64(),
+            receipt.report.added,
+            receipt.report.replaced,
+            receipt.unchanged
+        );
+        Ok(())
+    };
+    import("unchanged")?;
+    let job = Library::open(&root.join("Job"))?;
+    for id in chosen {
+        job.save_editor_state(
+            id,
+            &json!({"adjustments": {"exposure": 1.25, "contrast": 7}}),
+        )?;
+    }
+    import("all edited there")?;
+    let more: Vec<PathBuf> = (0..count)
+        .map(|n| root.join("Shoot").join(format!("NEW_{n:05}.ARW")))
+        .collect();
+    for (n, file) in more.iter().enumerate() {
+        fs::write(file, format!("new placeholder {n}"))?;
+    }
+    job.add_files(&more)?;
+    import("new photographs")?;
     Ok(())
 }

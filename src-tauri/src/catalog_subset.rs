@@ -1,5 +1,5 @@
-//! Export as Catalog (G39): the app glue over
-//! `rawtonic_ingest::catalog_export`. Photographs chosen in the open
+//! Export as Catalog and Import from Catalog (G39): the app glue over
+//! `rawtonic_ingest::catalog_export` and `catalog_import`. Photographs chosen in the open
 //! library (a session or a catalog) become a new catalog; with "Include
 //! previews" their Standard previews go along, so they edit offline where
 //! their originals are not.
@@ -107,6 +107,66 @@ pub async fn library_export_catalog_owned(
 #[tauri::command]
 pub fn library_export_catalog_cancel() {
     CANCEL_EXPORT.store(true, Ordering::Release);
+}
+
+static CANCEL_IMPORT: AtomicBool = AtomicBool::new(false);
+
+pub const IMPORT_PROGRESS: &str = "catalog-import-progress";
+
+/// What the catalog at `other` would bring into the open catalog at
+/// `target`: new, changed and (counted) unchanged photographs. Reads only.
+#[tauri::command]
+pub async fn library_import_catalog_review(
+    target: String,
+    other: String,
+) -> Result<rawtonic_ingest::catalog_import::Review, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = rawtonic_catalog::Library::open(Path::new(&target)).map_err(|e| e.to_string())?;
+        let source = rawtonic_ingest::catalog_import::open_source(&lib, Path::new(&other))
+            .map_err(|e| format!("{e:#}"))?;
+        rawtonic_ingest::catalog_import::review(&lib, &source).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Imports the catalog at `other` into the open catalog at `target` as
+/// `options` says, in one transaction (copies of originals first). Holds
+/// the ingest gate.
+#[tauri::command]
+pub async fn library_import_catalog(
+    target: String,
+    other: String,
+    options: rawtonic_ingest::catalog_import::Options,
+    app: tauri::AppHandle,
+) -> Result<rawtonic_ingest::catalog_import::Receipt, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::session_bridge::holding_import_gate(
+            "Wait for the current import or library copy to finish",
+            || {
+                CANCEL_IMPORT.store(false, Ordering::Release);
+                let lib = rawtonic_catalog::Library::open(Path::new(&target))
+                    .map_err(|e| e.to_string())?;
+                rawtonic_ingest::catalog_import::import(
+                    &lib,
+                    Path::new(&other),
+                    &options,
+                    &CANCEL_IMPORT,
+                    |progress| {
+                        let _ = app.emit(IMPORT_PROGRESS, progress);
+                    },
+                )
+                .map_err(|e| format!("{e:#}"))
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn library_import_catalog_cancel() {
+    CANCEL_IMPORT.store(true, Ordering::Release);
 }
 
 /// The Standard previews of the exported photographs, into the staged

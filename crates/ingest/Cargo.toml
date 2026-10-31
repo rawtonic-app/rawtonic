@@ -17,6 +17,7 @@ rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = 
 chrono.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
+log = "0.4"
 rawtonic-naming = { path = "../naming", version = "0.1.0" }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0" }
 
@@ -26,5 +27,6 @@ libc = "0.2.189"
 [dev-dependencies]
 tempfile.workspace = true
 image = "0.25.10"
+rusqlite = { version = "0.40", features = ["bundled"] }
 rawtonic-merge = { path = "../merge", version = "0.1.0" }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0", features = ["test-support"] }

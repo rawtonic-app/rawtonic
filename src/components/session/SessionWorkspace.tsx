@@ -4,6 +4,7 @@ import { validNamingTemplate, validSequenceStart, type NamePreview } from "../..
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import CatalogExportDialog from "./CatalogExportDialog";
+import CatalogImportDialog from "./CatalogImportDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
 import SessionXmpStatus from "./SessionXmpStatus";
 import ActivityCentre from "../activity/ActivityCentre";
@@ -357,6 +358,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [catalog, setCatalog] = useState(false);
   const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
   const [catalogExport, setCatalogExport] = useState<{ selected: string[]; shown: string[] } | null>(null);
+  const [catalogImport, setCatalogImport] = useState(false);
   /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
   const [syncing, setSyncing] = useState<{ folder: string | null } | null>(null);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
@@ -1448,6 +1450,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                     setCatalogExport({ selected: [...multiSelectedPaths], shown: imageList.map((image) => image.path) });
                   },
                 },
+                {
+                  // Into catalogs only: a session stays self-contained (G40).
+                  label: t("session.catalogImport.menu"),
+                  icon: Import,
+                  disabled: session?.manifest.mode !== "catalog",
+                  onClick: () => setCatalogImport(true),
+                },
                 { label: t("session.transfer.transfer"), icon: FolderOpen, disabled: !session || !!hotFolder,
                   onClick: () => setTransfer("transfer") },
                 { label: t("session.transfer.backup"), icon: Database, disabled: !session || !!hotFolder,
@@ -1653,6 +1662,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         onClose={() => setCatalogExport(null)} onOpen={async (directory) => {
           await switchLibraryAfterSaves(async () =>
             navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
+        }} />}
+      {catalogImport && session && <CatalogImportDialog directory={session.directory}
+        onClose={() => setCatalogImport(false)} onDone={async () => {
+          const directory = session.directory;
+          await switchLibraryAfterSaves(async () =>
+            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
+          // New photos form an import batch: Previous Import shows them.
+          window.dispatchEvent(new Event(IMPORTS_CHANGED));
         }} />}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {

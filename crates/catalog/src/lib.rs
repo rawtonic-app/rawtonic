@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 pub mod add;
 pub mod capture_time;
+pub mod catalog_import;
 pub mod checksum;
 pub mod companion;
 pub mod derived;

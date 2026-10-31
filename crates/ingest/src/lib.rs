@@ -2,6 +2,7 @@
 pub mod batch;
 pub mod capture;
 pub mod catalog_export;
+pub mod catalog_import;
 mod copy;
 pub mod hot_folder;
 pub mod metadata;
