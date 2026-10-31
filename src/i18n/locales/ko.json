@@ -2763,6 +2763,7 @@
         "expandAll": "모든 도구 펼치기",
         "moveDown": "아래로 이동",
         "moveUp": "위로 이동",
+        "oneOpen": "한 번에 도구 하나만 열기",
         "restoreOrder": "기본 순서 복원",
         "restoreOrderMenu": "기본 도구 순서 복원",
         "restoreOrderTitle": "도구를 원래 순서로 되돌립니다"
@@ -2900,7 +2901,6 @@
       "whiteBalance": {
         "auto": "자동 화이트 밸런스",
         "autoTitle": "자동 화이트 밸런스 ({{shortcut}})",
-        "camera": "카메라 화이트 밸런스",
         "picker": "화이트 밸런스 선택 도구",
         "pickerOnBackground": "화이트 밸런스 선택 도구는 배경에서 사용할 수 있습니다",
         "pickNeutral": "중립 영역 선택",

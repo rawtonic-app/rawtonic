@@ -2763,6 +2763,7 @@
         "expandAll": "展開所有工具",
         "moveDown": "下移",
         "moveUp": "上移",
+        "oneOpen": "一次只開啟一個工具",
         "restoreOrder": "還原預設順序",
         "restoreOrderMenu": "還原預設工具順序",
         "restoreOrderTitle": "將工具恢復為原始順序"
@@ -2900,7 +2901,6 @@
       "whiteBalance": {
         "auto": "自動白平衡",
         "autoTitle": "自動白平衡（{{shortcut}}）",
-        "camera": "相機白平衡",
         "picker": "白平衡滴管",
         "pickerOnBackground": "白平衡滴管僅在背景上可用",
         "pickNeutral": "選取中性區域",

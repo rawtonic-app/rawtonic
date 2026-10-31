@@ -31,6 +31,7 @@ export default function StudioWhiteBalance({
   onAuto,
   onInteraction,
   fallback,
+  picker,
 }: {
   values: WhiteBalanceValues;
   imagePath: string | undefined;
@@ -39,6 +40,9 @@ export default function StudioWhiteBalance({
   onAuto(): void;
   onInteraction?(active: boolean): void;
   fallback?: ReactNode;
+  /** The white balance picker, shown in the WB row beside the presets
+   * (Lightroom and Capture One both keep it there). */
+  picker?: ReactNode;
 }) {
   const { t } = useTranslation();
   const [asShot, setAsShot] = useState<Balance | null>(null);
@@ -71,46 +75,59 @@ export default function StudioWhiteBalance({
 
   return (
     <>
-      <label className="studio-inline">
-        <span>{t("studio.whiteBalance.short")}</span>
-        <select
-          aria-label={t("studio.whiteBalance.aria.mode")}
-          value={mode}
-          disabled={disabled}
-          onChange={(e) => {
-            const next = e.target.value as WhiteBalanceMode;
-            if (next === "auto") {
-              // Lightroom's Auto: the balance found for this photo, kept.
-              onAuto();
-              return;
-            }
-            onChange(
-              next === "asShot"
-                ? {
-                    whiteBalance: undefined,
-                    wbTemperature: undefined,
-                    wbTint: undefined,
-                  }
-                : next === "custom"
-                  ? { whiteBalance: "custom" }
-                  : {
-                      whiteBalance: next,
+      <div className="studio-inline">
+        <label>
+          <span>{t("studio.whiteBalance.short")}</span>
+          <select
+            aria-label={t("studio.whiteBalance.aria.mode")}
+            value={mode}
+            disabled={disabled}
+            onChange={(e) => {
+              const next = e.target.value as WhiteBalanceMode;
+              if (next === "auto") {
+                // Lightroom's Auto: the balance found for this photo, kept.
+                onAuto();
+                return;
+              }
+              onChange(
+                next === "asShot"
+                  ? {
+                      whiteBalance: undefined,
                       wbTemperature: undefined,
                       wbTint: undefined,
-                    },
-            );
-          }}
-        >
-          <option value="asShot">{t("studio.whiteBalance.modes.asShot")}</option>
-          <option value="auto">{t("studio.whiteBalance.modes.auto")}</option>
-          {(Object.keys(WHITE_BALANCE_PRESETS) as (keyof typeof WHITE_BALANCE_PRESETS)[]).map((key) => (
-            <option key={key} value={key}>
-              {t(`studio.whiteBalance.modes.${key}`)}
+                    }
+                  : next === "custom"
+                    ? { whiteBalance: "custom" }
+                    : {
+                        whiteBalance: next,
+                        wbTemperature: undefined,
+                        wbTint: undefined,
+                      },
+              );
+            }}
+          >
+            <option value="asShot">
+              {t("studio.whiteBalance.modes.asShot")}
             </option>
-          ))}
-          {mode === "custom" && <option value="custom">{t("studio.whiteBalance.modes.custom")}</option>}
-        </select>
-      </label>
+            <option value="auto">{t("studio.whiteBalance.modes.auto")}</option>
+            {(
+              Object.keys(
+                WHITE_BALANCE_PRESETS,
+              ) as (keyof typeof WHITE_BALANCE_PRESETS)[]
+            ).map((key) => (
+              <option key={key} value={key}>
+                {t(`studio.whiteBalance.modes.${key}`)}
+              </option>
+            ))}
+            {mode === "custom" && (
+              <option value="custom">
+                {t("studio.whiteBalance.modes.custom")}
+              </option>
+            )}
+          </select>
+        </label>
+        {picker}
+      </div>
       <AdjustmentControl
         label={t("studio.whiteBalance.temp")}
         ariaLabel={t("studio.whiteBalance.aria.temperature")}
