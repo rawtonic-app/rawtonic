@@ -7,8 +7,8 @@
 //! English names, two more colours (`Orange`, `Pink`) and, by default, the
 //! colour's number in `photoshop:Urgency`; for no tag it writes the label
 //! `None` with urgency 0. It ignores an empty label and then reads the colour
-//! back from the urgency, so a label cleared elsewhere stays cleared only
-//! with urgency 0. Observed on scratch sidecars (notes:
+//! back from the urgency, but takes `None` as no tag whatever the urgency
+//! says. Observed on scratch sidecars (notes:
 //! benchmark-results/xi-xmp-interop-2026-11-01/REPORT.md).
 
 /// Rawtonic's colour labels (Lightroom's default set), as stored.
@@ -77,8 +77,8 @@ pub fn stored(name: &str) -> String {
     canonical(name).map_or_else(|| name.to_string(), str::to_string)
 }
 
-/// Capture One's `photoshop:Urgency` for no colour tag.
-pub const NO_URGENCY: &str = "0";
+/// Capture One's label for no colour tag.
+pub const NONE: &str = "None";
 
 /// The text to write for `label` into a sidecar that holds `previous`: the
 /// sidecar's own text while it names the same colour, else the label's name
@@ -100,7 +100,7 @@ pub fn for_sidecar(label: &str, previous: &str) -> String {
         .to_string()
 }
 
-/// Capture One's `photoshop:Urgency` for a label, if it has one.
+/// The `photoshop:Urgency` Capture One writes for a label, if it has one.
 pub fn urgency(label: &str) -> Option<&'static str> {
     let label = stored(label);
     URGENCY

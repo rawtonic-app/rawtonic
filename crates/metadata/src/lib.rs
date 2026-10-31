@@ -378,12 +378,12 @@ fn parse_pick(value: &str) -> Result<i8> {
 }
 
 /// A photo's keywords from the flat `dc:subject` and the hierarchical
-/// `lr:hierarchicalSubject` (`A|B|C`). With a hierarchy, its paths are the
-/// keywords: Lightroom lists every level of them in `dc:subject` too, and
-/// Capture One lists each path's ancestors (`A`, `A|B`) and its levels as
-/// entries of their own; those are not keywords apart from the path. A flat
-/// term no path contains (added by an application that writes `dc:subject`
-/// only) is kept.
+/// `lr:hierarchicalSubject` (`A|B|C`). With a hierarchy, its entries are the
+/// keywords, each as assigned (also a root keyword named like a level of a
+/// path, or a path's ancestor that Capture One lists); `dc:subject`, where
+/// Lightroom and Capture One list every level of the paths as a term, only
+/// adds the terms no entry holds (written by an application that writes
+/// `dc:subject` only).
 fn keywords_from(flat: Vec<String>, hierarchical: Vec<String>) -> Vec<String> {
     let clean = |list: Vec<String>| -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
@@ -402,17 +402,7 @@ fn keywords_from(flat: Vec<String>, hierarchical: Vec<String>) -> Vec<String> {
         .filter(|k| k.contains('|'))
         .flat_map(|k| k.split('|').map(str::trim))
         .collect();
-    let mut keywords: Vec<String> = hierarchical
-        .iter()
-        .filter(|k| {
-            let ancestor = hierarchical
-                .iter()
-                .any(|other| other.len() > k.len() && other.starts_with(&format!("{k}|")));
-            let level = !k.contains('|') && levels.contains(&k.as_str());
-            !ancestor && !level
-        })
-        .cloned()
-        .collect();
+    let mut keywords = hierarchical.clone();
     for term in flat {
         if !levels.contains(&term.as_str()) && !keywords.contains(&term) {
             keywords.push(term);
@@ -634,13 +624,18 @@ fn merge_xmp_with(
     let mut removals: Vec<std::ops::Range<usize>> = Vec::new();
     // The label in the sidecar's own words (`labels::for_sidecar`).
     let previous_label = property(root, XMP, "Label").unwrap_or_default();
-    let label = labels::for_sidecar(&metadata.label, &previous_label);
-    // Capture One keeps its colour tag's number in `photoshop:Urgency` and
-    // reads it back when the label is empty: a number it wrote for the old
-    // label follows the new one (0 for none, which clears its tag); any
-    // other urgency is the photographer's.
-    let urgency_follows = property(root, PHOTOSHOP, "Urgency")
+    // Capture One reads an empty label as "unchanged" and brings its colour
+    // back from the urgency it keeps beside the label; its own `None` clears
+    // the tag. A cleared label is written as `None` where the sidecar's
+    // urgency is the one Capture One writes for the old label. The urgency
+    // itself is never changed: it may be the photographer's own.
+    let capture_one_tag = property(root, PHOTOSHOP, "Urgency")
         .is_some_and(|u| Some(u.trim()) == labels::urgency(&previous_label));
+    let label = if metadata.label.is_empty() && capture_one_tag {
+        labels::NONE.to_string()
+    } else {
+        labels::for_sidecar(&metadata.label, &previous_label)
+    };
     // IPTC fields this model has a value for replace the sidecar's; the
     // others stay as they are, so IPTC written by Lightroom or Capture One
     // before Rawtonic knew the field is never dropped.
@@ -656,7 +651,6 @@ fn merge_xmp_with(
                 .is_some_and(|k| replace_iptc || metadata.iptc.contains_key(k))
             || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
             || (replace_iptc && !has_contact && contact_key(namespace, name).is_some())
-            || (urgency_follows && namespace == Some(PHOTOSHOP) && name == "Urgency")
     };
     let owned =
         |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
@@ -709,8 +703,8 @@ fn merge_xmp_with(
     out.push_str(&base[cursor..close]);
     // Line breaks around the replaced description would otherwise pile up.
     out.truncate(out.trim_end().len());
-    // Lightroom's label colour beside the name, the pick flag other
-    // applications read, and Capture One's urgency when it follows the label.
+    // Lightroom's label colour beside the name and the pick flag other
+    // applications read.
     let mut shared = format!(" xmpDM:pick=\"{}\"", metadata.flag);
     if metadata.flag != 0 {
         shared.push_str(&format!(" xmpDM:good=\"{}\"", metadata.flag > 0));
@@ -721,10 +715,6 @@ fn merge_xmp_with(
             " photoshop:LabelColor=\"{}\"",
             colour.to_lowercase()
         ));
-    }
-    if urgency_follows {
-        let code = labels::urgency(&metadata.label).unwrap_or(labels::NO_URGENCY);
-        photoshop.push_str(&format!(" photoshop:Urgency=\"{code}\""));
     }
     let namespaces = iptc_namespaces(metadata);
     if !photoshop.is_empty() && namespaces.is_empty() {

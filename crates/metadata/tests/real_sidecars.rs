@@ -155,15 +155,21 @@ fn an_unchanged_label_keeps_the_text_lightroom_wrote() {
 }
 
 #[test]
-fn capture_one_keyword_paths_and_their_ancestors_are_one_keyword_each() {
+fn capture_one_keywords_are_its_entries_without_the_flat_terms() {
     let meta = read(C1_KEYWORDS);
     assert_eq!(meta.rating, 3);
     assert_eq!(meta.label, "Red");
+    // Every entry Capture One assigned (also its ancestors and the levels it
+    // took over as keywords of their own); `dc:subject` adds nothing more.
     assert_eq!(
         meta.keywords,
         [
             "Places|Europe|Berlin",
             "Street",
+            "Europe",
+            "Places",
+            "Travel",
+            "Travel|Italy",
             "Travel|Italy|Lugano",
             "Tea & Cake"
         ]
@@ -173,6 +179,30 @@ fn capture_one_keyword_paths_and_their_ancestors_are_one_keyword_each() {
     for part in foreign_parts(C1_KEYWORDS, OWNED) {
         assert!(written.contains(&part), "lost: {part}");
     }
+}
+
+#[test]
+fn a_root_keyword_named_like_a_level_of_a_path_is_kept() {
+    // `Berlin` assigned on its own beside `Places|Germany|Berlin`.
+    let packet = LIGHTROOM
+        .replace(
+            "<rdf:li>Animals|Bird</rdf:li>",
+            "<rdf:li>Berlin</rdf:li>\n     <rdf:li>Places|Germany|Berlin</rdf:li>",
+        )
+        .replace("<rdf:li>Animals</rdf:li>", "<rdf:li>Germany</rdf:li>")
+        .replace("<rdf:li>Bird</rdf:li>", "<rdf:li>Places</rdf:li>");
+    let meta = read(&packet);
+    assert_eq!(
+        meta.keywords,
+        [
+            "Berlin",
+            "Places|Germany|Berlin",
+            "Places|Europe|Berlin",
+            "Street"
+        ]
+    );
+    let written = merge_xmp(Some(&packet), &meta, None).unwrap();
+    assert_eq!(read(&written).keywords, meta.keywords);
 }
 
 #[test]
@@ -212,25 +242,41 @@ fn capture_one_none_is_no_label() {
 }
 
 #[test]
-fn capture_one_urgency_follows_the_label_it_was_written_for() {
-    // Capture One reads its colour tag back from the urgency when the label
-    // is empty; urgency 0 is its "no tag".
+fn a_label_cleared_in_rawtonic_stays_cleared_in_capture_one() {
+    // Capture One takes an empty label as unchanged and brings its colour
+    // back from the urgency; it takes its own `None` as no tag.
     let mut meta = read(C1_IPTC);
     meta.label.clear();
     let cleared = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
-    assert!(cleared.contains("xmp:Label=\"\""), "{cleared}");
-    assert!(cleared.contains("photoshop:Urgency=\"0\""), "{cleared}");
-    assert!(!cleared.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
+    assert!(cleared.contains("xmp:Label=\"None\""), "{cleared}");
+    assert_eq!(read(&cleared).label, "");
+    // A label set or cleared again later is written as usual.
     meta.label = "Blue".into();
-    let blue = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
-    assert!(blue.contains("photoshop:Urgency=\"3\""));
-    assert!(!blue.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
-    // An urgency that is not the label's number is the photographer's own.
+    let blue = merge_xmp(Some(&cleared), &meta, None).unwrap();
+    assert!(blue.contains("xmp:Label=\"Blue\""));
+}
+
+#[test]
+fn the_urgency_is_never_changed() {
+    // It may be the photographer's own, even when it matches the label's
+    // number: only Capture One rewrites it.
+    let mut meta = read(C1_IPTC);
+    for label in ["", "Blue"] {
+        meta.label = label.into();
+        let written = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
+        assert!(written.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
+        assert!(!written.contains("photoshop:Urgency=\""));
+    }
+    // Without Capture One's number for the old label, clearing writes an
+    // empty label (Lightroom would show `None` as a label of its own).
     let own = C1_IPTC.replace(
         "<photoshop:Urgency>2</photoshop:Urgency>",
         "<photoshop:Urgency>8</photoshop:Urgency>",
     );
-    let kept = merge_xmp(Some(&own), &meta, None).unwrap();
-    assert!(kept.contains("<photoshop:Urgency>8</photoshop:Urgency>"));
-    assert!(!kept.contains("photoshop:Urgency=\""));
+    meta.label.clear();
+    let written = merge_xmp(Some(&own), &meta, None).unwrap();
+    assert!(written.contains("xmp:Label=\"\""));
+    assert!(written.contains("<photoshop:Urgency>8</photoshop:Urgency>"));
+    let lightroom = merge_xmp(Some(LIGHTROOM), &meta, None).unwrap();
+    assert!(lightroom.contains("xmp:Label=\"\""));
 }
