@@ -29,14 +29,14 @@ export interface TextMetadata {
   description: string;
   creator: string;
   copyright: string;
-  /** IPTC fields (rawtonic_metadata::IPTC_FIELDS), absent when empty. */
+  /** IPTC fields (rawtonic_metadata::IPTC_FIELDS); explicit empty strings clear fields. */
   [iptc: string]: string | undefined;
 }
 type TextField = string;
 
+export const IPTC_LIST_FIELDS = new Set<string>(["personInImage", "organisationInImageName", "organisationInImageCode", "modelAge", "subjectCode", "scene"]);
 /** IPTC Core and Extension sections of the Metadata tool, as Capture One and Lightroom
  * group them: section ids and field ids (labels in `studio.metadata.iptc`). */
-export const IPTC_LIST_FIELDS = new Set<string>(["personInImage", "organisationInImageName", "organisationInImageCode", "modelAge", "subjectCode", "scene"]);
 export const IPTC_SECTIONS = [
   ["content", ["headline", "subjectCode", "scene", "intellectualGenre", "captionWriter", "dateCreated"]],
   ["location", ["location", "city", "state", "country", "countryCode"]],

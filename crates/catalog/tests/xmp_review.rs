@@ -251,6 +251,11 @@ fn an_undo_never_overwrites_an_edit_from_another_connection() {
 #[test]
 fn keep_library_removes_iptc_the_library_has_empty_and_keeps_unmodelled_properties() {
     let f = synced();
+    let mut metadata = f.lib.metadata(&f.id).unwrap();
+    metadata.iptc.insert("city".into(), String::new());
+    metadata.iptc.insert("creatorEmail".into(), String::new());
+    f.lib.set_metadata(&f.id, &metadata).unwrap();
+    f.lib.sync_xmp(&f.id).unwrap();
     // Another editor adds a city and a creator e-mail beside a property
     // Rawtonic does not model.
     let text = fs::read_to_string(&f.xmp).unwrap().replace(
@@ -458,4 +463,59 @@ fn uppercase_sidecar_is_discovered_adopted_checked_and_updated_in_place() {
     assert!(lib.sync_xmp(&id).is_err());
     assert_eq!(fs::read(&upper).unwrap(), before);
     assert!(!lower.exists());
+}
+
+#[test]
+fn keep_library_preserves_unheld_real_iptc_and_applies_explicit_core_and_extension_clears() {
+    for packet in [
+        include_str!("../../metadata/tests/fixtures/lightroom-classic-15.6-de.xmp"),
+        include_str!("../../metadata/tests/fixtures/capture-one-16.6-iptc.xmp"),
+    ] {
+        for extension in ["xmp", "XMP"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let lib = Library::create(tmp.path(), "Legacy", Mode::Session).unwrap();
+            let photo = tmp.path().join("Capture/legacy.arw");
+            fs::write(&photo, b"synthetic original").unwrap();
+            let id = lib.add_asset(&photo).unwrap().id;
+            // A pre-existing catalog never read IPTC (also models an external
+            // editor writing fields after the photo was first registered).
+            assert!(lib.metadata(&id).unwrap().iptc.is_empty());
+            let path = photo.with_extension(extension);
+            fs::write(&path, packet).unwrap();
+            let mut stamps = rawtonic_catalog::SidecarStamps::default();
+            assert_eq!(
+                lib.check_xmp_sidecars(None, &mut stamps)
+                    .unwrap()
+                    .changed
+                    .as_slice(),
+                std::slice::from_ref(&id)
+            );
+            lib.keep_library_xmp(&id).unwrap();
+            let written = fs::read_to_string(&path).unwrap();
+            let original = rawtonic_metadata::read_xmp(packet).unwrap().0;
+            assert_eq!(
+                rawtonic_metadata::read_xmp(&written).unwrap().0.iptc,
+                original.iptc
+            );
+            // Core absence (City) no longer means clear. Explicit empties
+            // clear both Core and Extension, and remain clear on later writes.
+            let mut metadata = lib.metadata(&id).unwrap();
+            metadata.iptc.insert("city".into(), String::new());
+            metadata.iptc.insert("personInImage".into(), String::new());
+            lib.set_metadata(&id, &metadata).unwrap();
+            lib.keep_library_xmp(&id).unwrap();
+            lib.sync_xmp(&id).unwrap();
+            let read = rawtonic_metadata::read_xmp(&fs::read_to_string(&path).unwrap())
+                .unwrap()
+                .0;
+            assert!(!read.iptc.contains_key("city"));
+            assert!(!read.iptc.contains_key("personInImage"));
+            assert_eq!(read.iptc["event"], original.iptc["event"]);
+            assert_eq!(read.iptc["dateCreated"], original.iptc["dateCreated"]);
+            if extension == "XMP" {
+                assert!(!photo.with_extension("xmp").exists());
+            }
+            assert_eq!(fs::read(&photo).unwrap(), b"synthetic original");
+        }
+    }
 }
