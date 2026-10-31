@@ -32,7 +32,7 @@ update comes from the notes bundled with the app and needs no network access.
 Rawtonic otherwise goes online only when you ask it to:
 
 - **AI models.** The first time you use an AI tool (masks, depth-based Relight, AI Denoise,
-  object removal, automatic keywords), Rawtonic downloads that tool's model
+  object removal, automatic keywords, Check eyes), Rawtonic downloads that tool's model
   from Rawtonic's model pack on GitHub (github.com/rawtonic-app/models)
   and checks its SHA-256. GitHub sees your IP address, as with any
   download. Adding a Relight light starts local depth analysis and downloads the
