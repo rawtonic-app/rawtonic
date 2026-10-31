@@ -389,6 +389,27 @@ it("reads the list again and recounts offline photographs when the catalog caugh
   useLibraryStore.setState({ sessionDirectory: null });
 });
 
+it("follows a moved session's photos in another open library and reopens the photo open in Develop there", async () => {
+  const { useEditorStore } = await import("../store/useEditorStore");
+  const { useUIStore } = await import("../store/useUIStore");
+  const refreshImageList = vi.fn();
+  const handleImageSelect = vi.fn();
+  useLibraryStore.setState({ sessionDirectory: "/catalog", currentFolderPath: "/jobs/S7/Capture" });
+  useEditorStore.setState({ selectedImage: { path: "/jobs/S7/Capture/A.RAF" } as never });
+  useUIStore.setState({ activeView: "editor" });
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList, markGenerated: vi.fn(), handleImageSelect,
+  }));
+  await vi.waitFor(() => expect(callbacks.has("session-moved")).toBe(true));
+  await act(async () => callbacks.get("session-moved")!({ payload: { from: "/jobs/S7", to: "/archive/S7" } }));
+  expect(useLibraryStore.getState().currentFolderPath).toBe("/archive/S7/Capture");
+  expect(refreshImageList).toHaveBeenCalled();
+  expect(handleImageSelect).toHaveBeenCalledWith("/archive/S7/Capture/A.RAF", true);
+  useEditorStore.setState({ selectedImage: null });
+  useLibraryStore.setState({ sessionDirectory: null, currentFolderPath: null });
+});
+
 it("tells Previous Import about each new hot folder capture", async () => {
   const imported = vi.fn();
   window.addEventListener("rawtonic:imports-changed", imported);

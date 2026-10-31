@@ -618,13 +618,17 @@ export function useTauriListeners({
       // A session moved whose photos another open library (a catalog)
       // holds: the catalog's records followed it (file_operations.rs
       // `sync_catalog`); the shown folders, picks and thumbnails follow,
-      // and the list is read again. The open session itself is opened
-      // again at its new place by SessionWorkspace.
-      listen<{ from: string; to: string }>('session-moved', ({ payload }) => {
+      // and the list is read again; a photograph of it open in Develop or
+      // the Library opens again at its new place. The open session itself
+      // is opened again at its new place by SessionWorkspace (which closes
+      // the photograph open in it).
+      listen<{ from: string; to: string }>('session-moved', async ({ payload }) => {
         if (!isEffectActive || useLibraryStore.getState().sessionDirectory === payload.from) return;
-        followPathMoves([payload]);
+        const { openPhoto } = followPathMoves([payload]);
         void refs.current.refreshAllFolderTrees();
-        refs.current.refreshImageList();
+        await refs.current.refreshImageList();
+        if (openPhoto && useEditorStore.getState().selectedImage)
+          refs.current.handleImageSelect?.(openPhoto, useUIStore.getState().activeView === 'editor');
         void recountAfterFileOperation();
       }),
       listen<string[]>('export-outputs-written', (event) => {
