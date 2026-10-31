@@ -130,4 +130,29 @@ describe('sourceDevelopToApply', () => {
     ).toBeNull();
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, renderVersion: 3 }, false)).toBeNull();
   });
+
+  it('develops again when the black handling flips with the render version', () => {
+    const clipped = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: false };
+    const unbiased = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: true };
+    // Saved edits before render version 8 keep the clipped blacks.
+    expect(sourceDevelopToApply(clipped, { ...v2, renderVersion: 7 }, false)).toBeNull();
+    expect(sourceDevelopToApply(unbiased, { ...v2, renderVersion: 8 }, false)).toBeNull();
+    // Reset of an older edit (render version 8), and undo back.
+    expect(sourceDevelopToApply(clipped, { ...v2, renderVersion: 8 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+    });
+    expect(sourceDevelopToApply(unbiased, { ...v2, renderVersion: 7 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: false,
+    });
+    // Failed before: not retried.
+    expect(
+      sourceDevelopToApply({ ...clipped, unbiasedBlackFailed: true }, { ...v2, renderVersion: 8 }, false),
+    ).toBeNull();
+  });
 });

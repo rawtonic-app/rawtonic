@@ -52,6 +52,7 @@ pub fn develop_raw_image_with(
         None,
         crate::hot_pixels::DeadTest::default(),
         0,
+        crate::black_bias::BlackLevels::default(),
     )
 }
 
@@ -73,9 +74,10 @@ impl std::fmt::Debug for DraftSink {
 /// instead of a separate fast decode beside the full one, which competed
 /// with it for the cores and decoded the file twice. The full development
 /// is the same with or without a sink, and starts once the sink returns.
-/// `dead_test` picks the test for dead photosites (hot_pixels.rs; the
-/// recipe's `renderVersion` decides it), `frame_version` the frame
-/// (source_frame.rs; the recipe's `sourceFrameVersion`).
+/// `dead_test` picks the test for dead photosites (hot_pixels.rs) and
+/// `black` the black handling (black_bias.rs; the recipe's `renderVersion`
+/// decides both), `frame_version` the frame (source_frame.rs; the recipe's
+/// `sourceFrameVersion`).
 #[allow(clippy::too_many_arguments)]
 pub fn develop_raw_image_with_draft(
     file_bytes: &[u8],
@@ -87,6 +89,7 @@ pub fn develop_raw_image_with_draft(
     draft: Option<&DraftSink>,
     dead_test: crate::hot_pixels::DeadTest,
     frame_version: u32,
+    black: crate::black_bias::BlackLevels,
 ) -> Result<DynamicImage> {
     let (developed_image, orientation) = develop_internal(
         file_bytes,
@@ -98,6 +101,7 @@ pub fn develop_raw_image_with_draft(
         draft,
         dead_test,
         frame_version,
+        black,
     )?;
     #[cfg(feature = "performance-profiling")]
     let _orientation_stage = crate::performance::PerformanceStage::new("raw_orientation");
@@ -192,6 +196,7 @@ fn develop_internal(
     draft: Option<&DraftSink>,
     dead_test: crate::hot_pixels::DeadTest,
     frame_version: u32,
+    black: crate::black_bias::BlackLevels,
 ) -> Result<(DynamicImage, Orientation)> {
     let check_cancel = || -> Result<()> {
         if let Some((tracker, generation)) = &cancel_token
@@ -287,6 +292,9 @@ fn develop_internal(
         _ => (false, true),
     };
 
+    if black == crate::black_bias::BlackLevels::Unbiased {
+        use_masked_black(&mut raw_image);
+    }
     // Canon sRAW/mRAW is YCbCr that rawler converts to RGB which is already
     // black-subtracted; rawler still applies the sensor black (~512), which
     // crushed shadows and tinted them teal (5D Mark IV mRAW, 2026-10-02).
@@ -420,6 +428,22 @@ fn develop_internal(
             None => log::info!("Mosaic denoising skipped: not a 2 x 2 Bayer mosaic"),
         }
     }
+    // Signed means of the mosaic's colours before it is clipped at black
+    // (black_bias.rs); not for drafts or fast developments, nor beside CFA
+    // gain maps (they change the mosaic after the clip).
+    let shadow_means = (black == crate::black_bias::BlackLevels::Unbiased
+        && is_rgb_mosaic
+        && !fast_demosaic
+        && superccd.is_none()
+        && cfa_opcodes.is_empty())
+    .then(|| {
+        // The mosaic's units (develop_rgb_mosaic: `apply_scaling` times
+        // `rescale_factor`), sensor white at 1.
+        let to_white = (u32::MAX as f32 - original_black_level)
+            / (original_white_level - original_black_level).max(1.0);
+        shadow_means_of(&raw_image, to_white)
+    })
+    .flatten();
     let clip_levels = if is_rgb_mosaic {
         match (&raw_image.photometric, &raw_image.data) {
             (RawPhotometricInterpretation::Cfa(config), rawler::RawImageData::Integer(samples)) => {
@@ -719,7 +743,7 @@ fn develop_internal(
         draft_developer
             .steps
             .retain(|&step| step != ProcessingStep::SRgb);
-        let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true, &cancelled)
+        let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true, &cancelled, None)
             .and_then(|own| match own {
                 Some(intermediate) => Ok(intermediate),
                 None => Ok(draft_developer.develop_intermediate(&draft_raw)?),
@@ -760,7 +784,13 @@ fn develop_internal(
         let own = if is_linear_format {
             None
         } else {
-            develop_rgb_mosaic(&mut raw_image, rescale_factor, fast_demosaic, &cancelled)?
+            develop_rgb_mosaic(
+                &mut raw_image,
+                rescale_factor,
+                fast_demosaic,
+                &cancelled,
+                shadow_means.as_ref(),
+            )?
         };
         match own {
             Some(intermediate) => intermediate,
@@ -1717,11 +1747,108 @@ fn sony_linear_white(
 /// `None` for other layouts or without a usable colour matrix; rawler's
 /// develop handles those. With `draft`, X-Trans mosaics are binned 3 x 3
 /// instead of demosaiced; other drafts return `None` and use rawler's.
+/// The black levels of a 2 × 2 repeat read from the masked sensor border
+/// (black_bias.rs `masked_black`) where the camera has one and the
+/// decoder's levels spread over the repeat's positions by more than
+/// `MAX_EXTRA_SPREAD` beyond the border's own spread: per-colour levels
+/// that the photosites do not show (EOS 7D maker notes at ISO 12800:
+/// 2032-2061, its border 2044-2048, Adobe's level 2047). The border's
+/// column banding (up to ±10 levels at high ISO) leaves its level a few
+/// levels uncertain, so a decoder level within that stays.
+fn use_masked_black(raw_image: &mut RawImage) {
+    const MAX_EXTRA_SPREAD: f32 = 8.0;
+    let RawPhotometricInterpretation::Cfa(config) = &raw_image.photometric else {
+        return;
+    };
+    if raw_image.cpp != 1
+        || raw_image.blackareas.is_empty()
+        || config.cfa.width != 2
+        || config.cfa.height != 2
+        || !config.cfa.is_rgb()
+    {
+        return;
+    }
+    let (width, height) = (raw_image.width, raw_image.height);
+    let active = raw_image
+        .active_area
+        .map(|a| (a.p.x, a.p.y, a.d.w, a.d.h))
+        .unwrap_or((0, 0, 0, 0));
+    let areas: Vec<_> = raw_image
+        .blackareas
+        .iter()
+        .map(|a| (a.p.x, a.p.y, a.d.w, a.d.h))
+        .collect();
+    let masked = match &raw_image.data {
+        rawler::RawImageData::Integer(v) => {
+            crate::black_bias::masked_black(&areas, active, width, height, 2, 2, |i| v[i] as f32)
+        }
+        rawler::RawImageData::Float(v) => {
+            crate::black_bias::masked_black(&areas, active, width, height, 2, 2, |i| v[i])
+        }
+    };
+    let Some(masked) = masked else {
+        return;
+    };
+    let decoder = raw_image.blacklevel.as_bayer_array();
+    let spread = |v: &[f32]| {
+        v.iter().copied().fold(f32::MIN, f32::max) - v.iter().copied().fold(f32::MAX, f32::min)
+    };
+    if spread(&decoder) > spread(&masked) + MAX_EXTRA_SPREAD {
+        log::info!("Black level from the masked border: {masked:?} (decoder {decoder:?})");
+        raw_image.blacklevel = rawler::rawimage::BlackLevel::new(&masked, 2, 2, 1);
+    }
+}
+
+/// `ShadowMeans` of the active area of an RGB mosaic, signed, in the units
+/// of `apply_scaling` (black 0, the scaling's white 1) times `to_white`: the
+/// units the demosaic sees before white balance, sensor white at 1 (the
+/// noise model's brightness bands are fractions of it; the decoder's white
+/// was set to `u32::MAX` before, `develop_internal`).
+fn shadow_means_of(raw_image: &RawImage, to_white: f32) -> Option<crate::black_bias::ShadowMeans> {
+    let RawPhotometricInterpretation::Cfa(config) = &raw_image.photometric else {
+        return None;
+    };
+    let roi = raw_image.active_area.unwrap_or_else(|| {
+        rawler::imgop::Rect::new(rawler::imgop::Point::new(0, 0), raw_image.dim())
+    });
+    let width = raw_image.width;
+    let levels = raw_image.blacklevel.as_bayer_array();
+    let whites = raw_image.whitelevel.as_bayer_array();
+    // `apply_scaling` works on 2 × 2 positions from the buffer origin.
+    let pos = |r: usize, c: usize| (r % 2) * 2 + c % 2;
+    let scale: [f32; 4] = std::array::from_fn(|i| to_white / (whites[i] - levels[i]).max(1.0));
+    let cfa = &config.cfa;
+    let color = |r: usize, c: usize| cfa.color_at(roi.p.y + r, roi.p.x + c).min(2);
+    Some(match &raw_image.data {
+        rawler::RawImageData::Integer(v) => crate::black_bias::ShadowMeans::measure(
+            roi.d.w,
+            roi.d.h,
+            |r, c| {
+                let (y, x) = (roi.p.y + r, roi.p.x + c);
+                let i = pos(y, x);
+                (v[y * width + x] as f32 - levels[i]) * scale[i]
+            },
+            color,
+        ),
+        rawler::RawImageData::Float(v) => crate::black_bias::ShadowMeans::measure(
+            roi.d.w,
+            roi.d.h,
+            |r, c| {
+                let (y, x) = (roi.p.y + r, roi.p.x + c);
+                let i = pos(y, x);
+                (v[y * width + x] - levels[i]) * scale[i]
+            },
+            color,
+        ),
+    })
+}
+
 fn develop_rgb_mosaic(
     raw_image: &mut RawImage,
     rescale_factor: f32,
     draft: bool,
     cancelled: crate::demosaic::Cancel,
+    shadow_means: Option<&crate::black_bias::ShadowMeans>,
 ) -> Result<Option<Intermediate>> {
     use rawler::imgop::matrix::{multiply, normalize, pseudo_inverse};
     use rawler::imgop::xyz::{Illuminant, SRGB_TO_XYZ_D65};
@@ -1803,6 +1930,11 @@ fn develop_rgb_mosaic(
     };
     let (out_w, out_h) = (roi_w / bin, roi_h / bin);
     drop(mosaic);
+    if let Some(means) = shadow_means.filter(|_| bin == 1) {
+        // The means are in the mosaic's units before white balance.
+        let changed = means.restore(&mut rgb, roi_w, [0, 1, 2].map(|k| wb[k]));
+        log::info!("Shadow means restored on {changed} pixels");
+    }
     // Tile buffers were freed on the worker threads, whose allocator heaps
     // keep those pages until they collect.
     rayon::broadcast(|_| crate::allocator::release_freed_memory());
@@ -2029,12 +2161,101 @@ pub fn get_fast_demosaic_scale_factor(
 #[cfg(test)]
 mod frame_tests {
     use super::*;
+    use crate::black_bias::BlackLevels;
     use image::GenericImageView;
     use rawler::imgop::{Dim2, Point, Rect};
     use rawler::pixarray::Color2D;
 
     fn rect(x: usize, y: usize, w: usize, h: usize) -> Rect {
         Rect::new(Point::new(x, y), Dim2::new(w, h))
+    }
+
+    /// A 12-bit RGGB DNG (black 256, white 4095) whose upper half is 3
+    /// levels above black and whose lower half is bright, with shot noise
+    /// and 10 levels of read noise (`noisy`) or without.
+    fn shadow_ramp_dng(noisy: bool) -> Vec<u8> {
+        let (w, h) = (192u32, 192u32);
+        let mut seed = 11u64;
+        let mut uniform = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as f32 / (1u64 << 31) as f32) - 0.5
+        };
+        let samples: Vec<u16> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .map(|(_, y)| {
+                let signal: f32 = if y < h / 2 { 3.0 } else { 2000.0 };
+                let sigma = (100.0 + 0.5 * signal).sqrt();
+                let n: f32 = (0..4).map(|_| uniform()).sum::<f32>() * 1.732;
+                let v = 256.0 + signal + if noisy { sigma * n } else { 0.0 };
+                v.round().clamp(0.0, 4095.0) as u16
+            })
+            .collect();
+        crate::fingerprint::synthetic::mosaic_dng(w, h, (2, 2), &[0, 1, 1, 2], &samples)
+    }
+
+    #[test]
+    fn unbiased_blacks_keep_the_dark_means_and_leave_bright_rows_alone() {
+        let develop = |bytes: &[u8], black| {
+            develop_raw_image_with_draft(
+                bytes,
+                false,
+                2.5,
+                "auto".into(),
+                None,
+                None,
+                None,
+                crate::hot_pixels::DeadTest::default(),
+                0,
+                black,
+            )
+            .unwrap()
+            .to_rgb32f()
+        };
+        let clean = develop(&shadow_ramp_dng(false), BlackLevels::Clipped);
+        let clipped = develop(&shadow_ramp_dng(true), BlackLevels::Clipped);
+        let unbiased = develop(&shadow_ramp_dng(true), BlackLevels::Unbiased);
+        // Orientation 6 turns the mosaic: its upper half is the right half.
+        let (w, h) = clean.dimensions();
+        let mean = |img: &image::Rgb32FImage, dark: bool, k: usize| {
+            let cols = if dark {
+                w / 2 + 8..w - 8
+            } else {
+                8..w / 2 - 24
+            };
+            let mut sum = 0.0f64;
+            let mut n = 0.0f64;
+            for y in 8..h - 8 {
+                for x in cols.clone() {
+                    sum += img.get_pixel(x, y)[k] as f64;
+                    n += 1.0;
+                }
+            }
+            sum / n
+        };
+        // The clip lifts the dark half by about the signal itself; the
+        // restored means are within sampling noise of the clean frame's.
+        let error = |img: &image::Rgb32FImage| -> f64 {
+            (0..3)
+                .map(|k| (mean(img, true, k) - mean(&clean, true, k)).abs())
+                .sum()
+        };
+        let signal: f64 = (0..3).map(|k| mean(&clean, true, k)).sum();
+        assert!(
+            error(&clipped) > 0.3 * signal,
+            "{} of {signal}",
+            error(&clipped)
+        );
+        assert!(
+            error(&unbiased) < 0.25 * error(&clipped),
+            "{} vs {}",
+            error(&unbiased),
+            error(&clipped)
+        );
+        for k in 0..3 {
+            assert_eq!(mean(&unbiased, false, k), mean(&clipped, false, k));
+        }
     }
 
     #[test]
@@ -2291,6 +2512,7 @@ mod draft_tests {
                 Some(&sink),
                 crate::hot_pixels::DeadTest::default(),
                 0,
+                crate::black_bias::BlackLevels::default(),
             )
             .unwrap();
             let full_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -2358,6 +2580,7 @@ mod draft_tests {
                 Some(&sink),
                 crate::hot_pixels::DeadTest::default(),
                 0,
+                crate::black_bias::BlackLevels::default(),
             );
             let full = FULL_DEVELOPMENTS.with(std::cell::Cell::get) - before;
             let name = path.file_name().unwrap().to_string_lossy().into_owned();

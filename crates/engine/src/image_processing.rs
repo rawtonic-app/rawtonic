@@ -5789,9 +5789,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// exports with the shader variant specialized for the recipe's features
 /// (`SPECIALIZED_EXPORT_RENDER_VERSION`). 6 (2026-10-26) computes the lens
 /// and geometry warp in f32 (`F32_WARP_RENDER_VERSION`). 7 (2026-10-27)
-/// computes that warp on the GPU (`GPU_WARP_RENDER_VERSION`).
+/// computes that warp on the GPU (`GPU_WARP_RENDER_VERSION`). 8 (2026-10-31)
+/// keeps the shadows' means through the black clip and the demosaic and
+/// reads a black level the decoder got wrong from the masked border
+/// (`image_loader::BLACK_RENDER_VERSION`, black_bias.rs).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 7;
+pub const RENDER_VERSION: u64 = 8;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

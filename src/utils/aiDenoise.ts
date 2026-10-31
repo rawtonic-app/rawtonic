@@ -1,5 +1,5 @@
 import type { SelectedImage } from '../components/ui/AppProperties';
-import { colorNoiseMultiscale, deadPixelAdjacent, type Adjustments } from './adjustments';
+import { colorNoiseMultiscale, deadPixelAdjacent, unbiasedBlack, type Adjustments } from './adjustments';
 
 /** A recipe's AI Denoise amount (0 … 100) as the backend reads it
  * (`ai_denoise_amount`): off with Detail or its Noise reduction tool
@@ -52,6 +52,9 @@ export interface SourceDevelop {
   /** With the second dead-photosite test (`renderVersion` 3; undefined: the
    * stored recipe's). */
   deadPixelAdjacent?: boolean;
+  /** With unbiased blacks (`renderVersion` 8; undefined: the stored
+   * recipe's). */
+  unbiasedBlack?: boolean;
 }
 
 /**
@@ -59,7 +62,8 @@ export interface SourceDevelop {
  * recipe, or null when it does: its AI Denoise amount (`aiDenoiseToApply`)
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
- * dead-photosite test (`deadPixelAdjacent`) differs from the source's. Only decoded RAWs on their file; never during a slider drag.
+ * dead-photosite test (`deadPixelAdjacent`) or its black handling
+ * (`unbiasedBlack`) differs from the source's. Only decoded RAWs on their file; never during a slider drag.
  */
 export function sourceDevelopToApply(
   image: Pick<
@@ -74,6 +78,8 @@ export function sourceDevelopToApply(
     | 'colorNoiseMultiscaleFailed'
     | 'deadPixelAdjacent'
     | 'deadPixelAdjacentFailed'
+    | 'unbiasedBlack'
+    | 'unbiasedBlackFailed'
     | 'offline'
   > | null,
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
@@ -94,19 +100,24 @@ export function sourceDevelopToApply(
   const haveDead = image.deadPixelAdjacent;
   const wantedDead = image.offline || haveDead === undefined ? haveDead : deadPixelAdjacent(adjustments);
   const dead = wantedDead === image.deadPixelAdjacentFailed ? haveDead : wantedDead;
-  if (aiDenoise === null && multiscale === have && dead === haveDead) return null;
+  // And for the black handling (`renderVersion` 8).
+  const haveBlack = image.unbiasedBlack;
+  const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
+  const black = wantedBlack === image.unbiasedBlackFailed ? haveBlack : wantedBlack;
+  if (aiDenoise === null && multiscale === have && dead === haveDead && black === haveBlack) return null;
   const version = aiDenoise === null ? image.aiDenoiseVersion : adjustments.aiDenoiseVersion;
   return {
     aiDenoise: aiDenoise ?? Math.round(image.aiDenoise ?? 0),
     ...(version !== undefined && version !== null ? { aiDenoiseVersion: version } : {}),
     multiscale,
     deadPixelAdjacent: dead,
+    unbiasedBlack: black,
   };
 }
 
 /**
  * How a recipe develops the RAW before any adjustment (AI Denoise amount and
- * version, colour noise filter, dead-photosite test), as a string: equal for
+ * version, colour noise filter, dead-photosite test, black handling), as a string: equal for
  * recipes whose renders can share one source. Empty for other photographs,
  * whose source does not depend on it.
  */
@@ -124,5 +135,6 @@ export function developmentSignature(
     amount > 0 ? (adjustments.aiDenoiseVersion ?? 1) : 1,
     colorNoiseMultiscale(adjustments, true),
     deadPixelAdjacent(adjustments),
+    unbiasedBlack(adjustments),
   ]);
 }

@@ -502,14 +502,15 @@ export function useImageProcessing(
     [previewQueue, currentResRef],
   );
 
-  // AI Denoise, the colour noise filter's base and the dead-photosite test
-  // live in the decode: develop the RAW again when the recipe's differ from
+  // AI Denoise, the colour noise filter's base, the dead-photosite test and
+  // the black handling live in the decode: develop the RAW again when the recipe's differ from
   // the source's (src/utils/aiDenoise.ts), then render.
   const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
   const developAiDenoiseVersion = sourceDevelop?.aiDenoiseVersion;
   const developMultiscale = sourceDevelop?.multiscale;
   const developDeadPixel = sourceDevelop?.deadPixelAdjacent;
+  const developUnbiasedBlack = sourceDevelop?.unbiasedBlack;
   // The newest develop request: it alone clears the busy note, on every way
   // it ends (done, failed, cancelled, photograph switched).
   const sourceDevelopRequestRef = useRef(0);
@@ -520,19 +521,21 @@ export function useImageProcessing(
     const version = developAiDenoiseVersion;
     const multiscale = developMultiscale;
     const deadPixelAdjacent = developDeadPixel;
+    const unbiasedBlack = developUnbiasedBlack;
     const current = useEditorStore.getState().selectedImage;
     const changesAiDenoise =
       amount !== Math.round(current?.aiDenoise ?? 0) ||
       (amount > 0 && (version ?? 1) !== (current?.aiDenoiseVersion ?? 1));
     const changesFilter = multiscale !== current?.colorNoiseMultiscale;
     const changesDeadTest = deadPixelAdjacent !== current?.deadPixelAdjacent;
+    const changesBlack = unbiasedBlack !== current?.unbiasedBlack;
     const request = ++sourceDevelopRequestRef.current;
     const settleBusy = () => {
       if (request === sourceDevelopRequestRef.current && useEditorStore.getState().aiDenoiseBusy)
         setEditor({ aiDenoiseBusy: false });
     };
     if (changesAiDenoise) setEditor({ aiDenoiseBusy: true });
-    invoke<number>(Invokes.ApplyAiDenoise, { path, amount, version, multiscale, deadPixelAdjacent })
+    invoke<number>(Invokes.ApplyAiDenoise, { path, amount, version, multiscale, deadPixelAdjacent, unbiasedBlack })
       .then((applied) => {
         const editor = useEditorStore.getState();
         if (editor.selectedImage?.path !== path) return settleBusy();
@@ -546,6 +549,7 @@ export function useImageProcessing(
             aiDenoiseVersion: applied > 0 ? (version ?? 1) : 1,
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
+            ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
           },
         });
         const targetRes = currentResRef.current;
@@ -572,6 +576,7 @@ export function useImageProcessing(
                   ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
+                  ...(!changesAiDenoise && changesBlack ? { unbiasedBlackFailed: unbiasedBlack } : {}),
                 },
               }
             : {}),
@@ -584,6 +589,7 @@ export function useImageProcessing(
     developAiDenoiseVersion,
     developMultiscale,
     developDeadPixel,
+    developUnbiasedBlack,
     setEditor,
     previewQueue,
     currentResRef,

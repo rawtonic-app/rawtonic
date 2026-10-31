@@ -716,6 +716,9 @@ export interface LoadImageResult {
    * is not the newest (image_loader.rs `new_edit_frame`: offline, on
    * previews of an older frame); null otherwise. */
   new_edit_frame?: number | null;
+  /** The source was developed with unbiased blacks (`renderVersion` 8);
+   * null for preview data. */
+  unbiased_black?: boolean | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;
@@ -776,6 +779,11 @@ export interface SelectedImage {
   deadPixelAdjacent?: boolean;
   /** A dead-photosite test the source failed to develop for (not retried). */
   deadPixelAdjacentFailed?: boolean;
+  /** The decoded source was developed with unbiased blacks (`unbiasedBlack`
+   * in src/utils/adjustments.ts); unknown for preview data. */
+  unbiasedBlack?: boolean;
+  /** A black handling the source failed to develop for (not retried). */
+  unbiasedBlackFailed?: boolean;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
   metadata?: ImageMetadata | null;
