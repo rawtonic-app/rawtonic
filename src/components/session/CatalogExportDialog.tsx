@@ -188,7 +188,8 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
           <input type="checkbox" checked={includeOriginals} disabled={busy} onChange={(e) => setIncludeOriginals(e.target.checked)} />
           {t("session.catalogExport.includeOriginals")}
         </label>
-        <p className="session-create-description">{t(includeOriginals ? "session.catalogExport.originalsHint" : "session.catalogExport.referenceHint")}</p>
+        <p className="session-create-description">{t(includeOriginals ? "session.catalogExport.originalsHint" : "session.catalogExport.referenceHint")}
+          {!includeOriginals && <> {t("session.catalogExport.ownCopied")}</>}</p>
         <label className="session-ingest-album">
           <input type="checkbox" checked={includePreviews} disabled={busy} onChange={(e) => setIncludePreviews(e.target.checked)} />
           {t("session.catalogExport.includePreviews")}

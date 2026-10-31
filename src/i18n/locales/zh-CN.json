@@ -1351,6 +1351,7 @@
       "open": "打开目录",
       "originalsCopied_other": "已复制并校验 {{count}} 个原始文件",
       "originalsHint": "原始文件会复制到目录文件夹并校验，因此该文件夹可以移到其他磁盘或电脑。",
+      "ownCopied": "保存在此项目或目录自身文件夹中的照片属于它，始终会被复制。",
       "photos": "照片",
       "previews_other": "已包含 {{count}} 个预览",
       "previewsHint": "复制照片的标准预览，无需原始文件也能编辑。",

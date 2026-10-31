@@ -1433,6 +1433,7 @@
       "originalsCopied_many": "{{count}} originals copiats i verificats",
       "originalsCopied_other": "{{count}} originals copiats i verificats",
       "originalsHint": "Els originals es copien a la carpeta del catàleg i es verifiquen, perquè la carpeta pugui anar a un altre disc o ordinador.",
+      "ownCopied": "Les fotos desades a la carpeta mateixa d'aquest projecte o catàleg li pertanyen i sempre es copien.",
       "photos": "Fotos",
       "previews_one": "{{count}} previsualització inclosa",
       "previews_many": "{{count}} previsualitzacions incloses",

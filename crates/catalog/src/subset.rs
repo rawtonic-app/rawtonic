@@ -200,9 +200,28 @@ impl Library {
         Ok(())
     }
 
-    /// Rebuilds the database file so nothing of the removed photographs
-    /// stays in its free pages (an exported catalog is handed on).
+    /// Rebuilds the search index and the database file so nothing of the
+    /// removed photographs stays behind (an exported catalog is handed on):
+    /// full-text deletions only mark entries until their index segments
+    /// merge, and `VACUUM` alone keeps live segments as they are. The index
+    /// is made again from its remaining rows with its own definition.
     pub fn compact(&self) -> Result<()> {
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let ddl: String = tx.query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='asset_search'",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.execute_batch(
+            "CREATE TEMP TABLE kept_search AS SELECT asset_id, content FROM asset_search;
+             DROP TABLE asset_search;",
+        )?;
+        tx.execute_batch(&ddl)?;
+        tx.execute_batch(
+            "INSERT INTO asset_search(asset_id, content) SELECT asset_id, content FROM temp.kept_search;
+             DROP TABLE temp.kept_search;",
+        )?;
+        tx.commit()?;
         self.conn.execute_batch("VACUUM")?;
         Ok(())
     }

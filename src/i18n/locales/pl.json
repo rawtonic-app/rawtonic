@@ -1493,6 +1493,7 @@
       "originalsCopied_many": "Skopiowano i zweryfikowano {{count}} oryginałów",
       "originalsCopied_other": "Skopiowano i zweryfikowano {{count}} oryginału",
       "originalsHint": "Oryginały są kopiowane do folderu katalogu i weryfikowane, więc folder można przenieść na inny dysk lub komputer.",
+      "ownCopied": "Zdjęcia w folderze tego projektu lub katalogu należą do niego i są zawsze kopiowane.",
       "photos": "Zdjęcia",
       "previews_one": "Dołączono {{count}} podgląd",
       "previews_few": "Dołączono {{count}} podglądy",

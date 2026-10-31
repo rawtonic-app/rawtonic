@@ -1433,6 +1433,7 @@
       "originalsCopied_many": "{{count}} originais copiados e verificados",
       "originalsCopied_other": "{{count}} originais copiados e verificados",
       "originalsHint": "Os originais são copiados para a pasta do catálogo e verificados, para que a pasta possa ir para outro disco ou computador.",
+      "ownCopied": "As fotos guardadas na própria pasta deste projeto ou catálogo pertencem a ele e são sempre copiadas.",
       "photos": "Fotos",
       "previews_one": "{{count}} pré-visualização incluída",
       "previews_many": "{{count}} pré-visualizações incluídas",

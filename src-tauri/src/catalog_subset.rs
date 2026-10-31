@@ -85,6 +85,22 @@ fn copy_previews(
     exported: &[Exported],
     cancel: &AtomicBool,
 ) -> anyhow::Result<usize> {
+    copy_previews_from(
+        stage,
+        exported,
+        cancel,
+        preview_proxy::outside_sessions_dir().as_deref(),
+    )
+}
+
+/// `copy_previews` with the previews of photographs outside sessions in
+/// `outside`.
+fn copy_previews_from(
+    stage: &Path,
+    exported: &[Exported],
+    cancel: &AtomicBool,
+    outside: Option<&Path>,
+) -> anyhow::Result<usize> {
     let carried = stage.join(".cache").join(preview_proxy::CARRIED_PREVIEWS);
     let mut copied = 0;
     for photo in exported {
@@ -94,6 +110,7 @@ fn copy_previews(
             &photo.from,
             &photo.to,
             (!inside).then_some(carried.as_path()),
+            outside,
         )
         .map_err(anyhow::Error::msg)?
         {
@@ -109,20 +126,7 @@ mod tests {
     use rawtonic_catalog::{Library, Mode};
     use std::fs;
 
-    /// Previews follow the photographs into the new catalog: a copied
-    /// original's under the catalog's previews, named for its new place; a
-    /// referenced one's among the carried previews, which opening the
-    /// catalog on another computer makes that photograph's previews.
-    #[test]
-    fn standard_previews_go_with_the_exported_photographs() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
-        let session = Library::create(&root.join("Session"), "S", Mode::Session).unwrap();
-        let photo = session.directory.join("Capture/a.arw");
-        fs::write(&photo, b"raw").unwrap();
-        let id = session.add_asset(&photo).unwrap().id;
-        let preview = preview_proxy::proxy_path(&photo).unwrap();
-        fs::create_dir_all(preview.parent().unwrap()).unwrap();
+    fn preview_bytes() -> Vec<u8> {
         let image = image::DynamicImage::new_rgb32f(4, 2);
         let key = preview_proxy::ProxyKey {
             file_size: 3,
@@ -130,41 +134,77 @@ mod tests {
             decoder: "test".into(),
             engine: 1,
         };
-        let bytes = preview_proxy::encode(&image, 8, 4, key);
+        preview_proxy::encode(&image, 8, 4, key)
+    }
+
+    /// Previews follow the photographs into the new catalog: a copied
+    /// original's (a session's always is) under the catalog's previews,
+    /// named for its new place; a referenced one's among the carried
+    /// previews, which opening the catalog on another computer makes that
+    /// photograph's previews.
+    #[test]
+    fn standard_previews_go_with_the_exported_photographs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let outside = root.join("app-previews");
+        let bytes = preview_bytes();
+        let session = Library::create(&root.join("Session"), "S", Mode::Session).unwrap();
+        let photo = session.directory.join("Capture/a.arw");
+        fs::write(&photo, b"raw").unwrap();
+        let id = session.add_asset(&photo).unwrap().id;
+        let preview = preview_proxy::proxy_path(&photo).unwrap();
+        fs::create_dir_all(preview.parent().unwrap()).unwrap();
         fs::write(&preview, &bytes).unwrap();
-        for (copy, name) in [(true, "Copied"), (false, "Referenced")] {
+        let catalog = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
+        let external = root.join("Shoot/b.arw");
+        fs::create_dir_all(external.parent().unwrap()).unwrap();
+        fs::write(&external, b"raw").unwrap();
+        let external_id = catalog.add_asset(&external).unwrap().id;
+        let external_preview =
+            preview_proxy::standard_path_with(&external, Some(&outside)).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(&external_preview, &bytes).unwrap();
+        let export = |source: &Path, id: &str, name: &str| {
             let to = root.join(name);
             let receipt = export_catalog(
-                &session.directory,
-                std::slice::from_ref(&id),
+                source,
+                &[id.to_string()],
                 &to,
                 &Options {
                     name: name.into(),
-                    include_originals: copy,
+                    include_originals: false,
                 },
                 &AtomicBool::new(false),
                 |_| {},
-                copy_previews,
+                |stage, exported, cancel| {
+                    copy_previews_from(stage, exported, cancel, Some(&outside))
+                },
             )
             .unwrap();
             assert_eq!(receipt.previews, 1, "{name}");
-            let catalog = Library::open(&to).unwrap();
-            let place = catalog.asset(&id).unwrap().path;
-            if copy {
-                let moved = preview_proxy::proxy_path(&place).unwrap();
-                assert!(moved.starts_with(&to), "{}", moved.display());
-                assert!(moved.is_file());
-            } else {
-                let carried = fs::read_dir(to.join(".cache").join(preview_proxy::CARRIED_PREVIEWS))
-                    .unwrap()
-                    .count();
-                assert_eq!(carried, 1);
-            }
+            to
+        };
+        let copied = export(&session.directory, &id, "Copied");
+        let place = Library::open(&copied).unwrap().asset(&id).unwrap().path;
+        let moved = preview_proxy::proxy_path(&place).unwrap();
+        assert!(moved.starts_with(&copied), "{}", moved.display());
+        assert!(moved.is_file());
+        let referenced = export(&catalog.directory, &external_id, "Referenced");
+        let carried: Vec<_> = fs::read_dir(
+            referenced
+                .join(".cache")
+                .join(preview_proxy::CARRIED_PREVIEWS),
+        )
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+        assert_eq!(carried, [external_preview.file_name().unwrap()]);
+        for file in [&preview, &external_preview] {
+            assert_eq!(
+                fs::read(file).unwrap(),
+                bytes,
+                "the source's preview is unchanged"
+            );
         }
-        assert_eq!(
-            fs::read(&preview).unwrap(),
-            bytes,
-            "the source's preview is unchanged"
-        );
     }
 }

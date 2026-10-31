@@ -1351,6 +1351,7 @@
       "open": "카탈로그 열기",
       "originalsCopied_other": "원본 {{count}}개 복사 및 검증 완료",
       "originalsHint": "원본을 카탈로그 폴더에 복사하고 검증하므로 폴더를 다른 드라이브나 컴퓨터로 옮길 수 있습니다.",
+      "ownCopied": "이 프로젝트나 카탈로그 폴더 안의 사진은 거기에 속하므로 항상 복사됩니다.",
       "photos": "사진",
       "previews_other": "미리 보기 {{count}}개 포함",
       "previewsHint": "사진의 표준 미리 보기를 복사해 원본 없이 편집할 수 있게 합니다.",

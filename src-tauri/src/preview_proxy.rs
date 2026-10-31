@@ -1247,13 +1247,26 @@ pub fn carry_over(from: &Path, to: &Path) -> usize {
 /// sessions, which `adopt_carried` fills from it.
 pub const CARRIED_PREVIEWS: &str = "carried-previews";
 
+/// Where the Standard proxy of `source` lives when the previews of
+/// photographs outside sessions are in `outside`.
+pub(crate) fn standard_path_with(source: &Path, outside: Option<&Path>) -> Option<PathBuf> {
+    let (dir, name) = location_with(source, outside)?;
+    Some(dir.join(format!("{name}.rtpx")))
+}
+
 /// Copies the Standard preview of the photograph `from` (if it has one) to
 /// be the Standard preview of `to`: where `to`'s previews live, or into
 /// `carried` (a catalog's carried previews) for a photograph outside the
 /// catalog. Never replaces a file; the copy's header names `to`. Returns
-/// whether a preview was copied.
-pub fn copy_standard(from: &Path, to: &Path, carried: Option<&Path>) -> Result<bool, String> {
-    let Some(source) = proxy_path(from).filter(|p| p.is_file()) else {
+/// whether a preview was copied. The previews of photographs outside
+/// sessions are in `outside` (`outside_sessions_dir`).
+pub fn copy_standard(
+    from: &Path,
+    to: &Path,
+    carried: Option<&Path>,
+    outside: Option<&Path>,
+) -> Result<bool, String> {
+    let Some(source) = standard_path_with(from, outside).filter(|p| p.is_file()) else {
         return Ok(false);
     };
     // Carried previews are named and labelled by the photograph's absolute

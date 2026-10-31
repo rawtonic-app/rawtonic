@@ -61,7 +61,7 @@ fn source(root: &Path) -> Source {
     fs::create_dir_all(&shoot).unwrap();
     let mut ids = Vec::new();
     let mut files = Vec::new();
-    for (index, name) in ["wedding-a.arw", "wedding-b.arw", "private-third.arw"]
+    for (index, name) in ["wedding-a.arw", "wedding-b.arw", "private-qxjz.arw"]
         .iter()
         .enumerate()
     {
@@ -190,7 +190,17 @@ fn exports_only_the_chosen_photographs_with_everything_that_is_theirs() {
     // Nothing of the third photograph is left in the database file.
     drop(job);
     let bytes = fs::read(to.join("catalog.sqlite")).unwrap();
-    assert!(!bytes.windows(13).any(|w| w == b"private-third"));
+    assert!(!bytes.windows(12).any(|w| w == b"private-qxjz"));
+    // Nor in the search index: deleted full-text entries are only marked
+    // until their index segments merge, so their trigrams ("qxj", "xjz")
+    // would still be in the file.
+    for trigram in [b"qxj", b"xjz"] {
+        assert!(
+            !bytes.windows(3).any(|w| w == trigram),
+            "{}",
+            String::from_utf8_lossy(trigram)
+        );
+    }
     assert!(!bytes.windows(10).any(|w| w == b"Third only"));
     // The source and the originals are unchanged.
     assert_eq!(src.lib.assets(None).unwrap().len(), 3);
@@ -439,4 +449,89 @@ fn an_offline_original_is_exported_by_reference_but_not_copied() {
     let job = Library::open(&to).unwrap();
     assert!(job.asset(&src.ids[1]).unwrap().missing);
     assert!(!job.asset(&src.ids[0]).unwrap().missing);
+}
+
+#[test]
+fn photographs_inside_the_source_library_are_always_copied() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    // A session's photographs belong to it: a catalog referring to them
+    // would edit them in the session's name.
+    let session = Library::create(&root.join("Session"), "S", Mode::Session).unwrap();
+    let file = session.directory.join("Capture/a.arw");
+    fs::write(&file, b"session original").unwrap();
+    let id = session.add_asset(&file).unwrap().id;
+    // A catalog's own copy and a photograph outside it.
+    let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
+    let own = main.directory.join("Photos/own.arw");
+    fs::write(&own, b"catalog copy").unwrap();
+    let outside = root.join("Shoot/out.arw");
+    fs::create_dir_all(outside.parent().unwrap()).unwrap();
+    fs::write(&outside, b"outside").unwrap();
+    let own_id = main.add_asset(&own).unwrap().id;
+    let out_id = main.add_asset(&outside).unwrap().id;
+    let receipt = export_catalog(
+        &session.directory,
+        std::slice::from_ref(&id),
+        &root.join("A"),
+        &options(false),
+        &go(),
+        |_| {},
+        no_stage,
+    )
+    .unwrap();
+    assert_eq!(receipt.originals_copied, 1);
+    let a = Library::open(&root.join("A")).unwrap();
+    assert!(a.asset(&id).unwrap().path.starts_with(&a.directory));
+    let receipt = export_catalog(
+        &main.directory,
+        &[own_id.clone(), out_id.clone()],
+        &root.join("B"),
+        &options(false),
+        &go(),
+        |_| {},
+        no_stage,
+    )
+    .unwrap();
+    assert_eq!(receipt.originals_copied, 1);
+    let b = Library::open(&root.join("B")).unwrap();
+    assert!(b.asset(&own_id).unwrap().path.starts_with(&b.directory));
+    assert_eq!(b.asset(&out_id).unwrap().path, outside);
+    assert_eq!(fs::read(&file).unwrap(), b"session original");
+}
+
+#[test]
+fn an_exported_catalog_exports_again_with_its_resources() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let src = source(&root);
+    let first = root.join("First");
+    export_catalog(
+        &src.lib.directory,
+        &src.ids[..1],
+        &first,
+        &options(false),
+        &go(),
+        |_| {},
+        no_stage,
+    )
+    .unwrap();
+    // The LUT is the first catalog's own now (a relative reference).
+    let second = root.join("Second");
+    let receipt = export_catalog(
+        &first,
+        &src.ids[..1],
+        &second,
+        &options(false),
+        &go(),
+        |_| {},
+        no_stage,
+    )
+    .unwrap();
+    assert_eq!(receipt.missing_resources, 0);
+    let job = Library::open(&second).unwrap();
+    let state = job.editor_state(&src.ids[0]).unwrap().unwrap();
+    let lut = Path::new(state["adjustments"]["lutPath"].as_str().unwrap());
+    assert!(lut.starts_with(&second), "{}", lut.display());
+    assert_eq!(fs::read(lut).unwrap(), b"LUT");
 }

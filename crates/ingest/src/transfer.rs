@@ -367,9 +367,7 @@ pub fn copy_library(
         });
     }
     let mut copier = ResourceCopier::new(&stage_root, &source, cancel);
-    let mut rewrite =
-        |value: &str, used: ResourceUse<'_>| -> Result<String> { copier.rewrite(value, used) };
-    snapshot.rewrite_resources(&mut rewrite)?;
+    snapshot.rewrite_resources(|value, used: ResourceUse<'_>| copier.rewrite(value, used))?;
     let owners: BTreeMap<_, _> = originals
         .iter()
         .map(|(from, to)| (to.parent().unwrap(), from.as_path()))
@@ -392,10 +390,13 @@ pub fn copy_library(
             owner,
             current: true,
         };
-        resources::visit(&mut value, &mut |resource| match rewrite(resource, used) {
-            Ok(next) => *resource = next,
-            Err(e) => error = Some(e),
-        });
+        resources::visit(
+            &mut value,
+            &mut |resource| match copier.rewrite_sidecar(resource, used) {
+                Ok(next) => *resource = next,
+                Err(e) => error = Some(e),
+            },
+        );
         if let Some(e) = error {
             return Err(e);
         }
@@ -464,6 +465,9 @@ pub fn copy_library(
 /// their reference.
 pub(crate) struct ResourceCopier<'a> {
     stage_root: &'a Path,
+    /// The folder the library's database sees its own photographs in (the
+    /// stage, unless a snapshot lies elsewhere): their files are `source`'s.
+    view: &'a Path,
     source: &'a Path,
     cancel: &'a AtomicBool,
     copied: BTreeMap<PathBuf, String>,
@@ -474,6 +478,7 @@ impl<'a> ResourceCopier<'a> {
     pub(crate) fn new(stage_root: &'a Path, source: &'a Path, cancel: &'a AtomicBool) -> Self {
         Self {
             stage_root,
+            view: stage_root,
             source,
             cancel,
             copied: BTreeMap::new(),
@@ -485,21 +490,41 @@ impl<'a> ResourceCopier<'a> {
         self.missing.values().filter(|&&current| current).count()
     }
 
+    /// A reference stored in the library's database: a relative one is the
+    /// library's own (`resources::localize` made it relative to the library
+    /// folder), wherever its photograph is.
     pub(crate) fn rewrite(&mut self, value: &str, used: ResourceUse<'_>) -> Result<String> {
-        let (stage_root, source, cancel) = (self.stage_root, self.source, self.cancel);
+        let root = self.source.to_path_buf();
+        self.rewrite_from(value, used, root)
+    }
+
+    /// A reference in an editor sidecar beside a photograph: a relative one
+    /// is the library's holding that photograph.
+    pub(crate) fn rewrite_sidecar(&mut self, value: &str, used: ResourceUse<'_>) -> Result<String> {
+        let (view, source) = (self.view, self.source);
+        let owner = used.owner.map(|path| {
+            path.strip_prefix(view)
+                .map(|r| source.join(r))
+                .unwrap_or_else(|_| path.to_path_buf())
+        });
+        let root = owner
+            .as_deref()
+            .and_then(rawtonic_catalog::session_for)
+            .unwrap_or_else(|| source.to_path_buf());
+        self.rewrite_from(value, used, root)
+    }
+
+    fn rewrite_from(
+        &mut self,
+        value: &str,
+        used: ResourceUse<'_>,
+        owner_root: PathBuf,
+    ) -> Result<String> {
+        let (stage_root, cancel) = (self.stage_root, self.cancel);
         check(cancel)?;
         if value.is_empty() {
             return Ok(value.into());
         }
-        let owner = used.owner.map(|path| {
-            path.strip_prefix(stage_root)
-                .map(|r| source.join(r))
-                .unwrap_or_else(|_| path.to_path_buf())
-        });
-        let owner_root = owner
-            .as_deref()
-            .and_then(rawtonic_catalog::session_for)
-            .unwrap_or_else(|| source.to_path_buf());
         let path = if let Some(relative) = resources::relative(value) {
             owner_root.join(relative)
         } else if Path::new(value).is_absolute() {

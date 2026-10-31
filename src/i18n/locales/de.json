@@ -1373,6 +1373,7 @@
       "originalsCopied_one": "{{count}} Original kopiert und geprüft",
       "originalsCopied_other": "{{count}} Originale kopiert und geprüft",
       "originalsHint": "Die Originale werden in den Katalogordner kopiert und geprüft, sodass der Ordner auf ein anderes Laufwerk oder einen anderen Computer wandern kann.",
+      "ownCopied": "Fotos im eigenen Ordner dieses Projekts oder Katalogs gehören dazu und werden immer kopiert.",
       "photos": "Fotos",
       "previews_one": "{{count}} Vorschau enthalten",
       "previews_other": "{{count}} Vorschauen enthalten",

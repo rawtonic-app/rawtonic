@@ -183,7 +183,12 @@ impl Library {
                 params![stored, id],
             )?;
         }
-        tx.execute("DELETE FROM roots WHERE external=1", [])?;
+        // External folders nothing is in any more (all of them for a
+        // complete copy; an exported catalog keeps those it refers to).
+        tx.execute(
+            "DELETE FROM roots WHERE external=1 AND id NOT IN (SELECT root_id FROM assets)",
+            [],
+        )?;
         // These are queued jobs/undoable filesystem operations of the source,
         // not edit history. Replaying them on another computer is invalid.
         tx.execute("DELETE FROM tasks", [])?;

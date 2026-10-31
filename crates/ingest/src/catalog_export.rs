@@ -12,8 +12,10 @@
 //! companion JPEG, and stored relative to the catalog, so the folder can
 //! move. Without, the catalog refers to the originals where they are; on
 //! another computer they show as offline (on their previews) until their
-//! drive is connected. Edit resources (LUTs, profiles, mask images) are
-//! always copied into the catalog's `resources/`.
+//! drive is connected. Photographs inside the source library's own folder
+//! (all of a session's) belong to it and are always copied. Edit resources
+//! (LUTs, profiles, mask images) are always copied into the catalog's
+//! `resources/`.
 use crate::transfer::{ResourceCopier, check, copy_file, flush_staged, walk};
 use anyhow::{Context, Result, ensure};
 use rawtonic_catalog::{Library, portable::ResourceUse};
@@ -136,99 +138,112 @@ pub fn export_catalog(
         ..Receipt::default()
     };
     let mut exported = Vec::with_capacity(assets.len());
-    if options.include_originals {
-        let missing: Vec<String> = originals
-            .iter()
-            .filter(|path| !path.is_file())
-            .map(|path| path.display().to_string())
-            .collect();
-        ensure!(
-            missing.is_empty(),
-            "Originals not available ({}); connect their drive or export without originals:\n{}",
-            missing.len(),
-            missing.join("\n")
-        );
-        let folders = folder_names(&originals);
-        let mut places = Vec::with_capacity(assets.len());
-        for (index, (asset, from)) in assets.iter().zip(&originals).enumerate() {
-            check(cancel)?;
-            let folder = &folders[from.parent().context("Original has no folder")?];
-            let relative = PathBuf::from("Photos")
-                .join(folder)
-                .join(from.file_name().context("Original has no filename")?);
-            rawtonic_catalog::portable_relative(&relative)?;
-            let to = stage_root.join(&relative);
-            ensure!(
-                !to.exists(),
-                "Two photographs would share {}",
-                relative.display()
-            );
-            copy_file(from, &to, cancel)?;
-            ensure!(
-                fs::metadata(&to)?.len() == asset.size
-                    && rawtonic_catalog::fingerprint(&to)? == asset.fingerprint,
-                "Original has changed since it was registered: {}",
-                from.display()
-            );
-            // Its XMP and its companion JPEG come along beside it.
-            let mut sidecars = Vec::new();
-            let xmp = from.with_extension("xmp");
-            if xmp.try_exists()? {
-                sidecars.push(xmp);
-            }
-            if let Some(record) = catalog.companion_record(asset)?
-                && let Some(name) = record.path.file_name()
-            {
-                let companion = from.with_file_name(name);
-                if record.matches(&companion) {
-                    sidecars.push(companion);
-                }
-            }
-            for file in sidecars {
-                ensure!(
-                    fs::symlink_metadata(&file)?.file_type().is_file(),
-                    "Sidecar is not a regular file: {}",
-                    file.display()
-                );
-                let beside = to.with_file_name(file.file_name().context("Sidecar has no name")?);
-                if !beside.exists() {
-                    copy_file(&file, &beside, cancel)?;
-                }
-            }
-            places.push((asset.id.clone(), relative));
-            exported.push(Exported {
-                id: asset.id.clone(),
-                from: from.clone(),
-                to,
-            });
-            receipt.originals_copied += 1;
-            progress(Progress {
-                phase: "originals",
-                done: index + 1,
-                total: assets.len(),
-            });
-        }
-        copy_resources(&catalog, &stage_root, &source, cancel, &mut receipt)?;
-        catalog.internalize_assets(&places)?;
-        catalog.write_portable_sidecars()?;
-    } else {
-        copy_resources(&catalog, &stage_root, &source, cancel, &mut receipt)?;
-        let places: Vec<(String, PathBuf)> = assets
-            .iter()
-            .zip(&originals)
-            .map(|(asset, from)| (asset.id.clone(), from.clone()))
-            .collect();
-        catalog.reference_assets(&places)?;
-        for (asset, from) in assets.iter().zip(&originals) {
+    // A photograph inside the source library's folder belongs to it (a
+    // session's, a catalog's own copies): a catalog referring to it would
+    // edit it in the other library's name. It is always copied; only
+    // photographs outside any library are referred to where they are.
+    let copied: Vec<bool> = originals
+        .iter()
+        .map(|path| options.include_originals || path.starts_with(&source))
+        .collect();
+    let missing: Vec<String> = originals
+        .iter()
+        .zip(&copied)
+        .filter(|(path, copy)| **copy && !path.is_file())
+        .map(|(path, _)| path.display().to_string())
+        .collect();
+    ensure!(
+        missing.is_empty(),
+        "Originals not available ({}); connect their drive or export without originals:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    let to_copy: Vec<PathBuf> = originals
+        .iter()
+        .zip(&copied)
+        .filter(|(_, copy)| **copy)
+        .map(|(path, _)| path.clone())
+        .collect();
+    let folders = folder_names(&to_copy);
+    let mut places = Vec::new();
+    let mut referenced = Vec::new();
+    for ((asset, from), copy) in assets.iter().zip(&originals).zip(&copied) {
+        check(cancel)?;
+        if !copy {
             if !from.is_file() {
                 receipt.offline += 1;
             }
+            referenced.push((asset.id.clone(), from.clone()));
             exported.push(Exported {
                 id: asset.id.clone(),
                 from: from.clone(),
                 to: from.clone(),
             });
+            continue;
         }
+        let folder = &folders[from.parent().context("Original has no folder")?];
+        let relative = PathBuf::from("Photos")
+            .join(folder)
+            .join(from.file_name().context("Original has no filename")?);
+        rawtonic_catalog::portable_relative(&relative)?;
+        let to = stage_root.join(&relative);
+        ensure!(
+            !to.exists(),
+            "Two photographs would share {}",
+            relative.display()
+        );
+        copy_file(from, &to, cancel)?;
+        ensure!(
+            fs::metadata(&to)?.len() == asset.size
+                && rawtonic_catalog::fingerprint(&to)? == asset.fingerprint,
+            "Original has changed since it was registered: {}",
+            from.display()
+        );
+        // Its XMP and its companion JPEG come along beside it.
+        let mut sidecars = Vec::new();
+        let xmp = from.with_extension("xmp");
+        if xmp.try_exists()? {
+            sidecars.push(xmp);
+        }
+        if let Some(record) = catalog.companion_record(asset)?
+            && let Some(name) = record.path.file_name()
+        {
+            let companion = from.with_file_name(name);
+            if record.matches(&companion) {
+                sidecars.push(companion);
+            }
+        }
+        for file in sidecars {
+            ensure!(
+                fs::symlink_metadata(&file)?.file_type().is_file(),
+                "Sidecar is not a regular file: {}",
+                file.display()
+            );
+            let beside = to.with_file_name(file.file_name().context("Sidecar has no name")?);
+            if !beside.exists() {
+                copy_file(&file, &beside, cancel)?;
+            }
+        }
+        places.push((asset.id.clone(), relative));
+        exported.push(Exported {
+            id: asset.id.clone(),
+            from: from.clone(),
+            to,
+        });
+        receipt.originals_copied += 1;
+        progress(Progress {
+            phase: "originals",
+            done: receipt.originals_copied,
+            total: to_copy.len(),
+        });
+    }
+    copy_resources(&catalog, &stage_root, &source, cancel, &mut receipt)?;
+    if !referenced.is_empty() {
+        catalog.reference_assets(&referenced)?;
+    }
+    if !places.is_empty() {
+        catalog.internalize_assets(&places)?;
+        catalog.write_portable_sidecars()?;
     }
     for folder in [
         &catalog.manifest.capture,
