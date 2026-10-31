@@ -107,9 +107,8 @@ import {
   type PromptGesture,
 } from '../../../utils/objectPrompts';
 import { objectSelectionBusy } from '../../../hooks/useAiMasking';
+import { CROP_ROTATE_BAND_PX, cropModeBox } from '../../../utils/viewerDisplay';
 
-/** Screen pixels outside the crop frame where a drag rotates the photo. */
-const CROP_ROTATE_BAND = 36;
 /** The white balance picker's cursor: an eyedropper (Lightroom, Capture One)
  * whose tip, the sampled point, is the hotspot; dark outline under a light
  * stroke so it reads on any photo. */
@@ -1886,12 +1885,15 @@ const ImageCanvas = memo(
         return null;
       }
 
-      const scale = Math.min(viewportWidth / uncroppedEffectiveWidth, viewportHeight / uncroppedEffectiveHeight);
-
-      const renderWidth = uncroppedEffectiveWidth * scale;
-      const renderHeight = uncroppedEffectiveHeight * scale;
-
-      return { width: renderWidth, height: renderHeight };
+      // Room around the frame for the handles and the rotate band (the
+      // Editor places the native photo in the same box).
+      return cropModeBox(
+        viewportWidth,
+        viewportHeight,
+        uncroppedEffectiveWidth,
+        uncroppedEffectiveHeight,
+        imageRenderSize.margin ?? 0,
+      );
     }, [selectedImage?.width, selectedImage?.height, imageRenderSize, adjustments.orientationSteps]);
 
     useEffect(() => {
@@ -2981,7 +2983,7 @@ const ImageCanvas = memo(
         const dy = Math.max(selection.top - y, 0, y - selection.bottom);
         if (dx === 0 && dy === 0) return null;
         const besidePhoto = x < box.left || x > box.right || y < box.top || y > box.bottom;
-        if (!besidePhoto && Math.hypot(dx, dy) > CROP_ROTATE_BAND) return null;
+        if (!besidePhoto && Math.hypot(dx, dy) > CROP_ROTATE_BAND_PX) return null;
         return { x: (selection.left + selection.right) / 2, y: (selection.top + selection.bottom) / 2 };
       },
       [isStraightenActive, isGuidedPerspectiveActive],

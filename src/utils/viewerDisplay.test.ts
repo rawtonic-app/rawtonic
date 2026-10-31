@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CROP_ROTATE_BAND_PX,
   clampViewerZoom,
+  cropModeBox,
+  cropModeMarginPx,
   fitInViewer,
   fitZoomValue,
   isOutsidePhoto,
@@ -113,4 +116,49 @@ it('finds the photograph on screen after pan and zoom, so the proof margin count
   const zoomed = photoScreenRect({ left: 200, top: 40 }, { scale: 2, positionX: -500, positionY: -300 }, fitted);
   expect(zoomed.left).toBeCloseTo(200 - 500 + 140 * 2);
   expect(zoomed.width).toBeCloseTo(fitted.width * 2);
+});
+
+describe('crop mode margin', () => {
+  // Every side of the box keeps at least `margin` to the viewer edge.
+  const roomAround = (cw: number, ch: number, box: { width: number; height: number }) =>
+    Math.min((cw - box.width) / 2, (ch - box.height) / 2);
+
+  it('keeps the rotate band around the uncropped frame without a proof margin', () => {
+    expect(cropModeMarginPx(1600, 1000)).toBe(CROP_ROTATE_BAND_PX);
+    for (const [cw, ch, w, h] of [
+      [1600, 1000, 6000, 4000], // landscape photo, landscape viewer
+      [1600, 1000, 4000, 6000], // portrait photo
+      [700, 1200, 6000, 4000], // portrait viewer
+      [700, 1200, 4000, 6000],
+      [2560, 1400, 6000, 6000], // full screen, square
+    ]) {
+      const box = cropModeBox(cw, ch, w, h);
+      expect(roomAround(cw, ch, box)).toBeGreaterThanOrEqual(CROP_ROTATE_BAND_PX - 1e-9);
+      expect(box.width / box.height).toBeCloseTo(w / h, 9);
+      // Contained: one side touches the margin.
+      expect(roomAround(cw, ch, box)).toBeCloseTo(CROP_ROTATE_BAND_PX, 9);
+    }
+  });
+
+  it('uses the proof margin when it is larger than the band', () => {
+    const proof = proofMarginPx(1600, 1000, 10); // 100 px
+    expect(cropModeMarginPx(1600, 1000, proof)).toBe(100);
+    expect(roomAround(1600, 1000, cropModeBox(1600, 1000, 6000, 4000, proof))).toBeCloseTo(100, 9);
+    // A smaller proof margin still leaves the band.
+    expect(cropModeMarginPx(1600, 1000, 24)).toBe(CROP_ROTATE_BAND_PX);
+  });
+
+  it('keeps a photograph in a very small viewer', () => {
+    expect(cropModeMarginPx(200, 100)).toBe(25);
+    const box = cropModeBox(200, 100, 6000, 4000);
+    expect(box.height).toBe(50);
+    expect(box.width).toBeCloseTo(75, 9);
+    expect(cropModeMarginPx(0, 0)).toBe(0);
+    expect(cropModeBox(0, 0, 6000, 4000)).toEqual({ width: 0, height: 0 });
+    expect(cropModeBox(800, 600, 0, 4000)).toEqual({ width: 0, height: 0 });
+  });
+
+  it('ignores a proof margin that is not a number', () => {
+    expect(cropModeMarginPx(1600, 1000, Number.NaN)).toBe(CROP_ROTATE_BAND_PX);
+  });
 });
