@@ -73,7 +73,7 @@ export default function RelightDirectionBall({
     useEditorStore.getState().setEditor({ isSliderDragging: false });
   };
   // A drag cut short by closing the tool keeps what it did, as one step.
-  useEffect(() => () => finish(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => finish(false), []);
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     const image = useEditorStore.getState().selectedImage;
     if (inactive || e.button !== 0 || !image?.isReady) return;
