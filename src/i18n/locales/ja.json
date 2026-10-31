@@ -278,6 +278,7 @@
       "view_develop": "現像",
       "view_grid": "ライブラリグリッド",
       "view_loupe": "ルーペ",
+      "virtual_copy": "新規仮想コピー",
       "website": "GitHubの{{app}}",
       "zoom_100": "100 %表示",
       "zoom_fit": "ウインドウに合わせる",
@@ -2747,7 +2748,6 @@
       "layers": {
         "background": "背景",
         "copyName": "{{name}} のコピー",
-        "defaultName": "レイヤー {{number}}",
         "delete": "{{name}}を削除",
         "dragOrder": "ドラッグしてレイヤーの順序を変更",
         "drawMaskInside": "マスクを内側に描画",
@@ -2772,6 +2772,7 @@
           "sky": "空",
           "subject": "被写体"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "適用される表示レイヤーは最大 {{limit}} 個です。先にレイヤーを非表示にするか削除してください。",
         "listAria": "レイヤー",
         "menu": {
@@ -4091,6 +4092,8 @@
     },
     "presets": {
       "amount": "プリセットの適用量",
+      "amountIdle": "適用量",
+      "amountIdleHint": "開いている写真だけにプリセットを適用すると、適用量を調整できます",
       "appliedStyle": "適用中のスタイル：クリックすると元に戻します",
       "appliesAll": "保存時のすべての設定を適用します",
       "appliesBuiltin": "Rawtonic 独自のプリセット：含まれる設定を適用します",

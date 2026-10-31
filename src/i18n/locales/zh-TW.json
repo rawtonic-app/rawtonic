@@ -278,6 +278,7 @@
       "view_develop": "沖印",
       "view_grid": "圖庫格狀",
       "view_loupe": "放大檢視",
+      "virtual_copy": "新增虛擬副本",
       "website": "GitHub 上的 {{app}}",
       "zoom_100": "縮放至 100 %",
       "zoom_fit": "符合視窗",
@@ -2747,7 +2748,6 @@
       "layers": {
         "background": "背景",
         "copyName": "{{name}} 副本",
-        "defaultName": "圖層 {{number}}",
         "delete": "刪除{{name}}",
         "dragOrder": "拖曳以變更圖層順序",
         "drawMaskInside": "在內部繪製遮色片",
@@ -2772,6 +2772,7 @@
           "sky": "天空",
           "subject": "主體"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "最多套用 {{limit}} 個可見圖層。請先隱藏或刪除一個圖層。",
         "listAria": "圖層",
         "menu": {
@@ -4091,6 +4092,8 @@
     },
     "presets": {
       "amount": "預設強度",
+      "amountIdle": "強度",
+      "amountIdleHint": "僅對開啟的照片套用預設後即可調整其強度",
       "appliedStyle": "已套用的樣式：按一下即可移除",
       "appliesAll": "套用儲存時的全部設定",
       "appliesBuiltin": "Rawtonic 自有預設：套用其包含的設定",

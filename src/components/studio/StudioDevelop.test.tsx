@@ -216,6 +216,21 @@ describe("Develop tool contracts", () => {
     expect(amountMax()).toBe(100);
   });
 
+  // UXR3: Capture One names a new layer after its mask ("Brush mask 1"), so
+  // the layer list and the viewer bar's layer menu say what each one holds.
+  it("names a new layer after its kind, numbered per kind", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Layers & masks" }));
+    fireEvent.click(screen.getByRole("button", { name: "New linear gradient layer" }));
+    fireEvent.click(screen.getByRole("button", { name: "New linear gradient layer" }));
+    fireEvent.click(screen.getByRole("button", { name: "New radial gradient layer" }));
+    expect(useEditorStore.getState().adjustments.masks.map((m) => m.name)).toEqual([
+      "Linear 1",
+      "Linear 2",
+      "Radial 1",
+    ]);
+  });
+
   it("makes brightness fine-grained, preserves stored units and isolates local edits", () => {
     useEditorStore.setState({
       adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), brightness: 0.4 },

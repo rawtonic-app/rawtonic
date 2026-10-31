@@ -295,6 +295,7 @@
       "view_develop": "Revelar",
       "view_grid": "Grade da biblioteca",
       "view_loupe": "Lupa",
+      "virtual_copy": "Nova cópia virtual",
       "website": "{{app}} no GitHub",
       "zoom_100": "Zoom 100 %",
       "zoom_fit": "Ajustar à janela",
@@ -2947,7 +2948,6 @@
       "layers": {
         "background": "Fundo",
         "copyName": "{{name}} cópia",
-        "defaultName": "Camada {{number}}",
         "delete": "Excluir {{name}}",
         "dragOrder": "Arraste para mudar a ordem das camadas",
         "drawMaskInside": "Desenhar máscara dentro",
@@ -2972,6 +2972,7 @@
           "sky": "Céu",
           "subject": "Motivo"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "São aplicadas no máximo {{limit}} camadas visíveis. Oculte ou exclua uma camada primeiro.",
         "listAria": "Camadas",
         "menu": {
@@ -4370,6 +4371,8 @@
     },
     "presets": {
       "amount": "Intensidade da predefinição",
+      "amountIdle": "Intensidade",
+      "amountIdleHint": "Aplique uma predefinição apenas à foto aberta para ajustar a intensidade",
       "appliedStyle": "Estilo aplicado: clique para o retirar",
       "appliesAll": "Aplica todas as configurações com que foi salva",
       "appliesBuiltin": "Predefinição própria do Rawtonic: aplica as definições que contém",

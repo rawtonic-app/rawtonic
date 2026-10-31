@@ -295,6 +295,7 @@
       "view_develop": "Sviluppo",
       "view_grid": "Griglia della libreria",
       "view_loupe": "Lente",
+      "virtual_copy": "Nuova copia virtuale",
       "website": "{{app}} su GitHub",
       "zoom_100": "Zoom al 100 %",
       "zoom_fit": "Adatta alla finestra",
@@ -2947,7 +2948,6 @@
       "layers": {
         "background": "Sfondo",
         "copyName": "{{name}} copia",
-        "defaultName": "Livello {{number}}",
         "delete": "Elimina {{name}}",
         "dragOrder": "Trascina per cambiare l'ordine dei livelli",
         "drawMaskInside": "Disegna maschera all'interno",
@@ -2972,6 +2972,7 @@
           "sky": "Cielo",
           "subject": "Soggetto"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "Vengono applicati al massimo {{limit}} livelli visibili. Nascondi o elimina prima un livello.",
         "listAria": "Livelli",
         "menu": {
@@ -4370,6 +4371,8 @@
     },
     "presets": {
       "amount": "Quantità del predefinito",
+      "amountIdle": "Quantità",
+      "amountIdleHint": "Applica un predefinito solo alla foto aperta per regolarne la quantità",
       "appliedStyle": "Stile applicato: fai clic per rimuoverlo",
       "appliesAll": "Applica tutte le impostazioni con cui è stato salvato",
       "appliesBuiltin": "Preset di Rawtonic: applica le impostazioni che contiene",

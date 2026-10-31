@@ -295,6 +295,7 @@
       "view_develop": "Revela",
       "view_grid": "Graella de la biblioteca",
       "view_loupe": "Lupa",
+      "virtual_copy": "Nova còpia virtual",
       "website": "{{app}} a GitHub",
       "zoom_100": "Zoom al 100 %",
       "zoom_fit": "Ajusta a la finestra",
@@ -2947,7 +2948,6 @@
       "layers": {
         "background": "Fons",
         "copyName": "{{name}} còpia",
-        "defaultName": "Capa {{number}}",
         "delete": "Suprimeix {{name}}",
         "dragOrder": "Arrossega per canviar l'ordre de les capes",
         "drawMaskInside": "Dibuixa la màscara a dins",
@@ -2972,6 +2972,7 @@
           "sky": "Cel",
           "subject": "Subjecte"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "S'apliquen com a màxim {{limit}} capes visibles. Amaga o elimina primer una capa.",
         "listAria": "Capes",
         "menu": {
@@ -4370,6 +4371,8 @@
     },
     "presets": {
       "amount": "Quantitat del preajust",
+      "amountIdle": "Quantitat",
+      "amountIdleHint": "Aplica un preajust només a la foto oberta per ajustar-ne la quantitat",
       "appliedStyle": "Estil aplicat: feu clic per retirar-lo",
       "appliesAll": "Aplica tota la configuració amb què es va desar",
       "appliesBuiltin": "Predefinit propi de Rawtonic: aplica els ajustos que conté",

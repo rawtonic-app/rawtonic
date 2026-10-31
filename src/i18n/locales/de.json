@@ -285,6 +285,7 @@
       "view_develop": "Entwickeln",
       "view_grid": "Bibliotheksraster",
       "view_loupe": "Lupe",
+      "virtual_copy": "Neue virtuelle Kopie",
       "website": "{{app}} auf GitHub",
       "zoom_100": "Zoom 100 %",
       "zoom_fit": "Ganzes Bild",
@@ -2819,7 +2820,6 @@
       "layers": {
         "background": "Hintergrund",
         "copyName": "{{name}} Kopie",
-        "defaultName": "Ebene {{number}}",
         "delete": "{{name}} löschen",
         "dragOrder": "Ziehen, um die Ebenenreihenfolge zu ändern",
         "drawMaskInside": "Maske innen zeichnen",
@@ -2844,6 +2844,7 @@
           "sky": "Himmel",
           "subject": "Motiv"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "Es werden höchstens {{limit}} sichtbare Ebenen angewendet. Blende zuerst eine Ebene aus oder lösche sie.",
         "listAria": "Ebenen",
         "menu": {
@@ -4202,6 +4203,8 @@
     },
     "presets": {
       "amount": "Stärke der Vorgabe",
+      "amountIdle": "Stärke",
+      "amountIdleHint": "Wende eine Vorgabe nur auf das geöffnete Foto an, um ihre Stärke einzustellen",
       "appliedStyle": "Angewendeter Stil: klicken, um ihn zurückzunehmen",
       "appliesAll": "Wendet alle Einstellungen an, mit denen sie gespeichert wurde",
       "appliesBuiltin": "Rawtonics eigene Vorgabe: wendet die enthaltenen Einstellungen an",

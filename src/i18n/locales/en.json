@@ -285,6 +285,7 @@
       "view_develop": "Develop",
       "view_grid": "Library Grid",
       "view_loupe": "Loupe",
+      "virtual_copy": "New Virtual Copy",
       "website": "{{app}} on GitHub",
       "zoom_100": "Zoom to 100 %",
       "zoom_fit": "Zoom to Fit",
@@ -2819,7 +2820,6 @@
       "layers": {
         "background": "Background",
         "copyName": "{{name}} copy",
-        "defaultName": "Layer {{number}}",
         "delete": "Delete {{name}}",
         "dragOrder": "Drag to change the layer order",
         "drawMaskInside": "Draw Mask Inside",
@@ -2844,6 +2844,7 @@
           "sky": "Sky",
           "subject": "Subject"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "Up to {{limit}} visible layers are applied. Hide or delete a layer first.",
         "listAria": "Layers",
         "menu": {
@@ -4202,6 +4203,8 @@
     },
     "presets": {
       "amount": "Preset amount",
+      "amountIdle": "Amount",
+      "amountIdleHint": "Apply a preset to the open photo alone to set how strongly it applies",
       "appliedStyle": "Applied style: click to take it back",
       "appliesAll": "Applies all settings it was saved with",
       "appliesBuiltin": "Rawtonic's own preset: applies the settings it holds",
