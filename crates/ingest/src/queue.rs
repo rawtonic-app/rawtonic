@@ -123,6 +123,20 @@ pub fn run_job(
     library: &Library,
     id: &str,
     cancel: &AtomicBool,
+    on_file: impl FnMut(FileDone<'_>),
+) -> Result<Vec<ImportResult>> {
+    run_job_in_turn(library, id, cancel, &crate::metadata::no_turn, on_file)
+}
+
+/// `run_job` in a library other writers edit too (the app's rating, label
+/// and keyword edits): the job's import preset reads, changes and writes
+/// each photograph's metadata in their `turn`, so an edit made while the
+/// import runs (or before a resumed run reaches the photograph) is kept.
+pub fn run_job_in_turn(
+    library: &Library,
+    id: &str,
+    cancel: &AtomicBool,
+    turn: crate::metadata::WriteTurn<'_>,
     mut on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
     let _sidecars = crate::capture::SidecarScope::new();
@@ -268,10 +282,11 @@ pub fn run_job(
         // A resumed unfinished item intentionally reapplies its immutable
         // snapshot, including explicit overwrites. Completed items never replay.
         // Catalog-write errors stop here for retry rather than silently losing
-        // the requested preset; optional camera fields were validated earlier.
+        // the requested preset; optional camera fields were validated earlier,
+        // and keywords the photograph has no room for are a warning on it.
         if let Some(metadata) = &options.metadata {
             for result in &mut done {
-                crate::metadata::apply_to_copy(library, result, metadata)?;
+                crate::metadata::apply_to_copy(library, result, metadata, turn)?;
             }
         }
         // Into the album before the photograph counts as done: a run cut

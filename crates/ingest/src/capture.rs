@@ -43,8 +43,11 @@ pub fn read_capture(path: &Path) -> Capture {
 /// Rights and descriptive metadata embedded in the photograph's own XMP
 /// packet (not its thumbnail's), with EXIF creator/copyright as fallback.
 /// Used only when an import preset is selected, after verified publication.
+/// `header` is the copy's header as registration read it (`copy_header`),
+/// read again only when the copy was registered by an earlier run.
 pub(crate) fn import_metadata(
     path: &Path,
+    header: Option<Capture>,
 ) -> anyhow::Result<(rawtonic_metadata::Metadata, Option<i32>)> {
     use chrono::Datelike;
     let read_packet = || -> anyhow::Result<rawtonic_metadata::Metadata> {
@@ -64,7 +67,9 @@ pub(crate) fn import_metadata(
     // Optional enrichment follows read_header's tolerance: damaged or
     // unreadable embedded packets must not veto a verified photograph.
     let mut metadata = read_packet().unwrap_or_default();
-    let capture = read_capture_within(path, FACTS_LIMIT);
+    // Only the dated sources are used below, so the modification-time
+    // fallback of `read_capture_within` makes no difference.
+    let capture = header.unwrap_or_else(|| read_capture_within(path, FACTS_LIMIT));
     let year = capture
         .captured
         .filter(|_| {
@@ -593,11 +598,30 @@ fn bmff_metadata_within(
 /// is tried again later. A capture time only from the file's own metadata,
 /// never its modification time.
 pub fn capture_facts(path: &Path) -> Option<rawtonic_catalog::CaptureFacts> {
-    let file = fs::File::open(path).ok()?;
-    let meta = file.metadata().ok().filter(|m| m.is_file())?;
-    match read_header(file, meta.len(), FACTS_LIMIT) {
-        (capture, None) => facts_of(capture),
-        (_, Some(_)) => None,
+    copy_header(path).0
+}
+
+/// One read of a copy's header (`FACTS_LIMIT`): its capture facts as
+/// `capture_facts` gives them, and what was read (also before a read
+/// error) for an import preset (`import_metadata`), so registration and
+/// the preset do not read the same header twice.
+pub(crate) fn copy_header(
+    path: &Path,
+) -> (Option<rawtonic_catalog::CaptureFacts>, Option<Capture>) {
+    let Ok(file) = fs::File::open(path) else {
+        return (None, None);
+    };
+    let Some(len) = file
+        .metadata()
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+    else {
+        return (None, None);
+    };
+    match read_header(file, len, FACTS_LIMIT) {
+        (capture, None) => (facts_of(capture.clone()), Some(capture)),
+        (capture, Some(_)) => (None, Some(capture)),
     }
 }
 

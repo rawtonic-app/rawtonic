@@ -256,9 +256,30 @@ pub fn import_batch(
     cancel: &AtomicBool,
     on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
+    import_batch_in_turn(
+        library,
+        sources,
+        options,
+        cancel,
+        &crate::metadata::no_turn,
+        on_file,
+    )
+}
+
+/// `import_batch` in a library other writers edit too: an import preset
+/// changes each photograph's metadata in their `turn`
+/// (`queue::run_job_in_turn`).
+pub fn import_batch_in_turn(
+    library: &Library,
+    sources: &[PathBuf],
+    options: &BatchOptions<'_>,
+    cancel: &AtomicBool,
+    turn: crate::metadata::WriteTurn<'_>,
+    on_file: impl FnMut(FileDone<'_>),
+) -> Result<Vec<ImportResult>> {
     destination_folder(library, options.folder, options.roots)?;
     let job = crate::queue::create_job(library, sources, options)?;
-    crate::queue::run_job(library, &job, cancel, on_file)
+    crate::queue::run_job_in_turn(library, &job, cancel, turn, on_file)
 }
 
 /// Where a source photograph is, which decides how an import into a
@@ -486,10 +507,17 @@ fn add_one(
     // Registered with what its sidecars hold (editor sidecar, else XMP
     // rating, label and keywords) in one transaction; they are read, never
     // written. An unreadable sidecar keeps the file out.
+    // A photograph not yet in the library: no other writer can edit it
+    // meanwhile, so no write turn is needed.
+    let mut note = None;
     let mut report = if let Some(preset) = metadata {
         library.add_files_with_metadata_edit(
             &[source.to_path_buf()],
-            |photo, metadata, initialized| preset.prepare(photo, source, metadata, initialized),
+            |photo, metadata, initialized| {
+                let embedded = crate::metadata::ImportMetadata::embedded(photo, source, None)?;
+                note = preset.merge(embedded, metadata, initialized);
+                Ok(())
+            },
         )?
     } else {
         library.add_files(&[source.to_path_buf()])?
@@ -507,7 +535,7 @@ fn add_one(
         .or_else(|| report.known.pop())
         .context("Nothing was registered")?;
     known.entry(key).or_default().push(asset.path.clone());
-    Ok(ImportResult {
+    let mut result = ImportResult {
         source: source.into(),
         destination: Some(asset.path),
         backup: None,
@@ -515,7 +543,11 @@ fn add_one(
         error: None,
         skipped: false,
         ..Default::default()
-    })
+    };
+    if let Some(note) = note {
+        crate::metadata::warn(&mut result, note);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
