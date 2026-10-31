@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use image::ImageDecoder;
+use rawtonic_faces::parse::Class;
 use rawtonic_faces::{FaceModels, analyze};
 use serde_json::json;
 
@@ -71,7 +72,31 @@ fn dumps_faces_of_real_photos() {
             .faces
             .iter()
             .map(|f| {
+                // The parse's class probabilities at each eye (iris centre,
+                // or YuNet's eye keypoint without landmarks): sunglasses
+                // read as accessories, not face skin.
+                let eyes = match &f.landmarks {
+                    Some(p) => [p[468], p[473]],
+                    None => [f.detection.keypoints[0], f.detection.keypoints[1]],
+                };
+                let eye_parse: Vec<Vec<f32>> = eyes
+                    .iter()
+                    .map(|&[x, y]| {
+                        [
+                            Class::Background,
+                            Class::Hair,
+                            Class::BodySkin,
+                            Class::FaceSkin,
+                            Class::Clothes,
+                            Class::Accessories,
+                        ]
+                        .iter()
+                        .map(|&c| f.parse.sample(c, x, y).0)
+                        .collect()
+                    })
+                    .collect();
                 json!({
+                    "eye_parse": eye_parse,
                     "score": f.detection.score,
                     "bbox": f.detection.bbox,
                     "keypoints": f.detection.keypoints,
