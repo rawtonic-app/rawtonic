@@ -119,7 +119,8 @@ pub enum Refusal {
 /// virtual copies, then one with a paired JPEG (it goes with its RAW), then
 /// the oldest import. The others are marked only inside this library's own
 /// folder; files it refers to where they are stay unmarked unless the user
-/// marks them.
+/// marks them. One with a paired JPEG is marked only when the kept copy has
+/// one too, else confirming would refuse it (and so the whole step).
 pub fn suggested_trash(group: &[DuplicateMember], edited: &[bool]) -> Vec<bool> {
     let worth = |i: usize| {
         let m = &group[i];
@@ -151,7 +152,14 @@ pub fn suggested_trash(group: &[DuplicateMember], edited: &[bool]) -> Vec<bool> 
     group
         .iter()
         .enumerate()
-        .map(|(i, m)| keep.is_some_and(|k| k != i) && m.owner.is_none() && m.own_folder)
+        .map(|(i, m)| {
+            keep.is_some_and(|k| {
+                // A RAW+JPEG pair goes as one: only while the kept copy has a
+                // JPEG of its own (`confirm_duplicates` compares the two).
+                k != i && (m.companion.is_none() || group[k].companion.is_some())
+            }) && m.owner.is_none()
+                && m.own_folder
+        })
         .collect()
 }
 

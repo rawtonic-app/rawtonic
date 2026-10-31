@@ -431,6 +431,62 @@ fn a_companion_jpeg_without_a_kept_copy_keeps_its_raw() {
     );
 }
 
+/// The suggestion never marks a RAW+JPEG pair whose JPEG has no kept copy:
+/// accepting it as it comes passes the check before trashing.
+#[test]
+fn the_suggestion_passes_the_check_with_raw_jpeg_pairs() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    for name in ["A.RAF", "B.RAF", "C.RAF"] {
+        fs::write(capture.join(name), jpeg("raw facts", b"sensor")).unwrap();
+    }
+    for name in ["B.JPG", "C.JPG"] {
+        fs::write(capture.join(name), jpeg("exif", b"camera jpeg")).unwrap();
+    }
+    let a = lib.add_asset(&capture.join("A.RAF")).unwrap().id;
+    let mut ids = vec![a.clone()];
+    for name in ["B", "C"] {
+        let planned = lib
+            .plan_add(&capture.join(format!("{name}.RAF")), Default::default())
+            .unwrap()
+            .with_companion(&format!("{name}.JPG"))
+            .unwrap();
+        ids.push(lib.insert_planned(vec![planned]).unwrap().pop().unwrap().0);
+    }
+    let rate = |id: &str| {
+        lib.set_metadata(
+            id,
+            &rawtonic_metadata::Metadata {
+                rating: 3,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let accept = |lib: &Library| {
+        fill(lib);
+        let group = &lib.duplicate_groups().unwrap()[0];
+        let marked = suggested_trash(group, &vec![false; group.len()]);
+        let (trash, keep): (Vec<_>, Vec<_>) =
+            group.iter().zip(&marked).partition(|(_, marked)| **marked);
+        let paths = |list: Vec<(&DuplicateMember, &bool)>| -> Vec<PathBuf> {
+            list.into_iter().map(|(m, _)| m.path.clone()).collect()
+        };
+        let (trash, keep) = (paths(trash), paths(keep));
+        assert!(lib.confirm_duplicates(&keep, &trash).unwrap().is_empty());
+        names(trash)
+    };
+    // The RAW alone is rated: it stays, and the pairs stay with it.
+    rate(&a);
+    assert!(accept(&lib).is_empty());
+    // A pair is rated: the other pair goes (their JPEGs are identical), the
+    // RAW alone too.
+    rate(&ids[1]);
+    lib.set_metadata(&a, &Default::default()).unwrap();
+    assert_eq!(accept(&lib), ["A.RAF", "C.RAF"]);
+}
+
 #[test]
 fn text_metadata_is_reported_with_the_photograph() {
     let d = tempfile::tempdir().unwrap();
