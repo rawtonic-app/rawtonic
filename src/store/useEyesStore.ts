@@ -42,6 +42,19 @@ export const effectiveEyes = (face: EyeFace): EyeState => face.overrideState ?? 
 /** How many paths one summary request asks about. */
 const SUMMARY_BATCH = 2000;
 
+/** The face the Loupe's strip points at on the open photograph: the one
+ * hovered or focused there, else the one pinned by a click. */
+export interface FaceMark {
+  path: string;
+  faces: EyeFace[];
+  hovered: number | null;
+  pinned: number | null;
+}
+
+/** The index of the face whose box the photograph shows, if any. */
+export const markedFace = (mark: FaceMark | null): number | null =>
+  mark ? (mark.hovered ?? mark.pinned) : null;
+
 interface EyesState {
   /** By path as listed; a path without an entry is not read (yet). */
   summaries: Record<string, EyeSummary>;
@@ -52,6 +65,13 @@ interface EyesState {
   load(directory: string, paths: string[]): Promise<void>;
   changed(): void;
   reset(): void;
+  /** The Loupe strip's face box (null: none shown). */
+  faceMark: FaceMark | null;
+  /** The strip's faces of `path` (a new photograph starts unmarked). */
+  showFaces(path: string, faces: EyeFace[] | null): void;
+  hoverFace(path: string, index: number | null): void;
+  /** Pins `index` (null unpins). */
+  pinFace(path: string, index: number | null): void;
 }
 
 export const useEyesStore = create<EyesState>((set, get) => ({
@@ -74,6 +94,19 @@ export const useEyesStore = create<EyesState>((set, get) => ({
   },
   changed: () => set((s) => ({ generation: s.generation + 1 })),
   reset: () => set({ summaries: {} }),
+  faceMark: null,
+  showFaces: (path, faces) =>
+    set((s) => {
+      if (!faces?.length) return { faceMark: null };
+      const same = s.faceMark?.path === path;
+      // The same photograph read again keeps its marks while its faces stay.
+      const keep = (i: number | null | undefined) => (same && i != null && i < faces.length ? i : null);
+      return { faceMark: { path, faces, hovered: keep(s.faceMark?.hovered), pinned: keep(s.faceMark?.pinned) } };
+    }),
+  hoverFace: (path, index) =>
+    set((s) => (s.faceMark?.path === path ? { faceMark: { ...s.faceMark, hovered: index } } : {})),
+  pinFace: (path, index) =>
+    set((s) => (s.faceMark?.path === path ? { faceMark: { ...s.faceMark, pinned: index } } : {})),
 }));
 
 /** Sets the photographer's call on one face (null: the reading counts again). */

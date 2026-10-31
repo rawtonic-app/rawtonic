@@ -3271,6 +3271,7 @@
       "filterClosed": "闭眼",
       "modelsMissing": "检查眼睛需要人脸模型。",
       "noFaces": "无人脸",
+      "showFace": "在照片上显示人脸 {{n}}",
       "start": "检查眼睛…",
       "startFailed": "无法检查眼睛：{{error}}",
       "state": {

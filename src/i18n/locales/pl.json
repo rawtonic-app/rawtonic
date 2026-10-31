@@ -3644,6 +3644,7 @@
       "filterClosed": "Oczy zamknięte",
       "modelsMissing": "Sprawdzanie oczu wymaga modeli twarzy.",
       "noFaces": "Brak twarzy",
+      "showFace": "Pokaż twarz {{n}} na zdjęciu",
       "start": "Sprawdź oczy…",
       "startFailed": "Nie udało się sprawdzić oczu: {{error}}",
       "state": {

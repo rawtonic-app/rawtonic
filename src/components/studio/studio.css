@@ -6476,10 +6476,73 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-eye-menu button[aria-checked="true"] {
   background: color-mix(in srgb, var(--studio-accent) 22%, transparent);
 }
+/* A face crop is the button that shows its box on the photograph. */
+.studio-loupe-face-crop {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+.studio-loupe-face-crop:focus-visible {
+  outline: 2px solid var(--studio-accent);
+  outline-offset: 1px;
+}
+/* The face whose box the photograph shows: a light frame outside its
+   call's ring; pinned, the accent frame. */
+.studio-loupe-face.is-marked {
+  outline: 2px solid var(--studio-text);
+  outline-offset: 2px;
+}
+.studio-loupe-face.is-pinned {
+  outline: 2px solid var(--studio-accent);
+  outline-offset: 2px;
+}
+/* The face's box on the photograph (FaceBoxOverlay): the strip badge's
+   colour, with its icon and words. Open eyes white, as Lightroom's box;
+   closed amber; not visible grey; uncertain white and dashed. */
+.face-box-overlay {
+  --face-box: #f2f2f2;
+}
+.face-box-overlay.is-closed {
+  --face-box: #e6c47e;
+}
+.face-box-overlay.is-notVisible {
+  --face-box: #a3a3a3;
+}
+.face-box-rim {
+  fill: none;
+  stroke: #000000a6;
+  stroke-linejoin: round;
+}
+.face-box-line {
+  fill: none;
+  stroke: var(--face-box);
+  stroke-linejoin: round;
+}
+.face-box-label {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: #1c1d1fe6;
+  color: var(--face-box);
+  font-size: 11px;
+  white-space: nowrap;
+  transform-origin: 0 0;
+}
 @media (forced-colors: active) {
   .studio-eyes-badge,
-  .studio-eye-call {
+  .studio-eye-call,
+  .face-box-label {
     border: 1px solid CanvasText;
+  }
+  .face-box-line {
+    stroke: CanvasText;
   }
 }
 /* Two-state toggles of the loupe bar and the grid toolbar (Auto-advance,

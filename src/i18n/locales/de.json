@@ -3358,6 +3358,7 @@
       "filterClosed": "Augen geschlossen",
       "modelsMissing": "Für die Augenprüfung werden die Gesichtsmodelle gebraucht.",
       "noFaces": "Keine Gesichter",
+      "showFace": "Gesicht {{n}} auf dem Foto zeigen",
       "start": "Augen prüfen…",
       "startFailed": "Augen konnten nicht geprüft werden: {{error}}",
       "state": {

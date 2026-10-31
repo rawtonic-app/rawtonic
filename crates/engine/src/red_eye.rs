@@ -566,6 +566,41 @@ pub fn image_point(adjustments: &Value, width: u32, height: u32, x: f64, y: f64)
     (base.0 / unit, base.1 / unit)
 }
 
+/// Points per edge of `box_outline_shown`'s outline: enough for lens
+/// distortion to bend a face-sized box visibly.
+const OUTLINE_STEPS: usize = 4;
+
+/// Where the photo `adjustments` describe (base image `width` × `height`)
+/// shows a box given as fractions `[x, y, width, height]` of its base image
+/// — a face found on the photograph as shot, upright and uncropped
+/// (`face_eyes`): its outline in mask-frame pixels, `OUTLINE_STEPS` points
+/// per edge from the top left along the top edge, so turns, flips,
+/// straightening, transforms and lens distortion carry it as they carry the
+/// photo (`to_mask`, as the red eye corrections are shown). None when the
+/// geometry cannot show a point of it.
+pub fn box_outline_shown(
+    adjustments: &Value,
+    width: u32,
+    height: u32,
+    bbox: [f64; 4],
+) -> Option<Vec<(f64, f64)>> {
+    let (w, h) = (f64::from(width), f64::from(height));
+    let [x0, y0] = [bbox[0] * w, bbox[1] * h];
+    let [x1, y1] = [(bbox[0] + bbox[2]) * w, (bbox[1] + bbox[3]) * h];
+    let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+    let frame = mask_frame(adjustments, width, height);
+    (0..4)
+        .flat_map(|edge| {
+            let (a, b) = (corners[edge], corners[(edge + 1) % 4]);
+            (0..OUTLINE_STEPS).map(move |k| {
+                let t = k as f64 / OUTLINE_STEPS as f64;
+                (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+            })
+        })
+        .map(|p| to_mask(adjustments, frame, p))
+        .collect()
+}
+
 /// Finds the pupil inside the circle of `radius` mask-frame pixels around
 /// mask-frame (`x`, `y`): for red eyes the connected area around the
 /// reddest point whose redness is more than half-way from the rim's to that
@@ -1100,6 +1135,56 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_face_box_is_shown_where_the_geometry_puts_it() {
+        // A face box (fractions of the upright base image, 80 × 64) carried
+        // through a turn, a flip, straightening, a transform and lens
+        // distortion: every outline point lands back on the box's edge.
+        let bbox = [0.25, 0.3, 0.2, 0.25];
+        let edge = |(x, y): (f64, f64)| {
+            let (x0, y0, x1, y1) = (20.0, 19.2, 36.0, 35.2);
+            let on_x =
+                ((x - x0).abs() < 0.02 || (x - x1).abs() < 0.02) && y > y0 - 0.02 && y < y1 + 0.02;
+            let on_y =
+                ((y - y0).abs() < 0.02 || (y - y1).abs() < 0.02) && x > x0 - 0.02 && x < x1 + 0.02;
+            on_x || on_y
+        };
+        for adjustments in [
+            json!({}),
+            json!({"orientationSteps": 1}),
+            json!({"orientationSteps": 3, "flipHorizontal": true, "rotation": 8.0}),
+            json!({"transformVertical": 20.0, "transformAspect": 30.0, "rotation": -5.0}),
+            json!({"lensDistortionParams": {"k1": -0.1, "k2": 0.02, "k3": 0.0, "model": 0}}),
+        ] {
+            let outline = box_outline_shown(&adjustments, 80, 64, bbox).unwrap();
+            assert_eq!(outline.len(), 4 * OUTLINE_STEPS);
+            let frame = mask_frame(&adjustments, 80, 64);
+            for &p in &outline {
+                let b = to_base(&adjustments, frame, p.0, p.1);
+                assert!(edge(b), "{adjustments}: {p:?} -> {b:?}");
+            }
+            // The first point is the box's top left as the geometry shows it.
+            let corner = shown_point(&adjustments, (20.0, 19.2));
+            assert!(
+                (outline[0].0 - corner.0).abs() < 0.15 && (outline[0].1 - corner.1).abs() < 0.15
+            );
+        }
+        // Without geometry, the box itself; lens distortion moves it.
+        let plain = box_outline_shown(&json!({}), 80, 64, bbox).unwrap();
+        let lens = json!({"lensDistortionParams": {"k1": -0.1, "k2": 0.02, "k3": 0.0, "model": 0}});
+        let bent = box_outline_shown(&lens, 80, 64, bbox).unwrap();
+        assert!(
+            plain
+                .iter()
+                .zip(&bent)
+                .any(|(a, b)| (a.0 - b.0).hypot(a.1 - b.1) > 0.05)
+        );
+        assert!(
+            (plain[OUTLINE_STEPS * 2].0 - 36.0).abs() < 0.01
+                && (plain[OUTLINE_STEPS * 2].1 - 35.2).abs() < 0.01
+        );
     }
 
     #[test]
