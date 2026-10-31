@@ -53,6 +53,10 @@ const DEFAULT_TONE_CURVE_POINTS: [(f32, f32); 6] = [
 ];
 const CAMERA_RAW_BLACK: f32 = 0.005;
 const CAMERA_RAW_BLACK_NEUTRAL: f32 = 0.006;
+/// renderVersion 10's scene-referred black (shader `camera_raw_black`).
+const CR_SCENE_BLACK_FOLLOW: f32 = 0.25;
+const CR_SCENE_BLACK_REFERENCE_EV: f32 = 0.4;
+const CR_SCENE_TOE_SPAN: f32 = 3.5;
 /// Highlight roll-off of the neutral look (shader `CR_ROLLOFF_*`).
 const CR_ROLLOFF_KNEE: f32 = 0.55;
 const CR_ROLLOFF_LIMIT: f32 = 1.02;
@@ -65,18 +69,31 @@ pub enum DisplayCurve {
     /// The default tone curve; `neutral` selects the black ramp of the
     /// neutral-colour look.
     CameraRaw { neutral: bool },
+    /// The neutral look of renderVersion 10 and later: its black point stays
+    /// at a scene level that follows a quarter of baseline + Exposure, under
+    /// a soft toe (shader `camera_raw_black`); `baseline_ev` is the file's.
+    SceneBlack { baseline_ev: f32 },
     /// A file's own curve (display EV every 0.25 scene EV from −12 EV);
     /// `black` is false for DNGs with DefaultBlackRender = None.
     Profile { curve: [f32; 49], black: bool },
 }
 
 impl DisplayCurve {
-    pub fn for_look(look: &crate::baseline_exposure::BaseLook) -> Self {
+    /// The curve a recipe of `render_version` renders `look` with.
+    pub fn for_look(look: &crate::baseline_exposure::BaseLook, render_version: u64) -> Self {
         match (look.camera_raw, look.profile_curve) {
             (true, Some(curve)) => Self::Profile {
                 curve,
                 black: !look.no_black_render,
             },
+            (true, None)
+                if look.neutral_colour
+                    && render_version >= crate::baseline_exposure::SCENE_BLACK_RENDER_VERSION =>
+            {
+                Self::SceneBlack {
+                    baseline_ev: look.baseline_for(render_version),
+                }
+            }
             (true, None) => Self::CameraRaw {
                 neutral: look.neutral_colour,
             },
@@ -88,6 +105,7 @@ impl DisplayCurve {
     fn display_ev(&self, scene_ev: f32) -> f32 {
         let (table, black) = match self {
             Self::Standard => return standard_display_ev(scene_ev),
+            Self::SceneBlack { .. } => return self.display_ev_exposed(scene_ev, 0.0),
             Self::CameraRaw { neutral: false } => (&DEFAULT_TONE_CURVE, CAMERA_RAW_BLACK),
             Self::CameraRaw { neutral: true } => (&DEFAULT_TONE_CURVE, CAMERA_RAW_BLACK_NEUTRAL),
             Self::Profile { curve, black } => (curve, if *black { CAMERA_RAW_BLACK } else { 0.0 }),
@@ -100,15 +118,27 @@ impl DisplayCurve {
     }
 
     /// Display EV of a scene EV with an Exposure. The neutral Camera Raw
-    /// look scales its black point with Exposure (shader
-    /// `camera_raw_black`), so Exposure acts after its black ramp there.
+    /// look before renderVersion 10 scales its black point with Exposure
+    /// (shader `camera_raw_black`), so Exposure acts after its black ramp
+    /// there; from 10 Exposure acts before it and moves the black a quarter.
     pub fn display_ev_exposed(&self, scene_ev: f32, exposure: f32) -> f32 {
-        let table = match self {
-            Self::CameraRaw { neutral: true } => &DEFAULT_TONE_CURVE,
+        let mut ramped = match self {
+            Self::CameraRaw { neutral: true } => {
+                camera_raw_black_ramp(2f32.powf(scene_ev), CAMERA_RAW_BLACK_NEUTRAL)
+                    * 2f32.powf(exposure)
+            }
+            Self::SceneBlack { baseline_ev } => {
+                let black = (CAMERA_RAW_BLACK_NEUTRAL
+                    * 2f32.powf(
+                        CR_SCENE_BLACK_FOLLOW
+                            * (exposure + baseline_ev - CR_SCENE_BLACK_REFERENCE_EV),
+                    ))
+                .min(0.05);
+                scene_black_ramp(2f32.powf(scene_ev + exposure), black)
+            }
             _ => return self.display_ev(scene_ev + exposure),
         };
-        let mut ramped = camera_raw_black_ramp(2f32.powf(scene_ev), CAMERA_RAW_BLACK_NEUTRAL)
-            * 2f32.powf(exposure);
+        let table = &DEFAULT_TONE_CURVE;
         if ramped > CR_ROLLOFF_KNEE {
             let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
             ramped = CR_ROLLOFF_KNEE + span * (1.0 - (-(ramped - CR_ROLLOFF_KNEE) / span).exp());
@@ -170,6 +200,21 @@ pub fn with_base_curve(display_ev: f32, base_curve: u32) -> f32 {
         _ => return display_ev,
     };
     (display_ev + change).min(0.0)
+}
+
+/// renderVersion 10's black ramp (shader `camera_raw_black_ramp`): below
+/// `CR_SCENE_TOE_SPAN` x black a power of the input meeting the straight
+/// ramp with its value and slope.
+fn scene_black_ramp(x: f32, black: f32) -> f32 {
+    let slope = 1.0 / (1.0 - black);
+    let top = CR_SCENE_TOE_SPAN * black;
+    if x >= top {
+        (x - black) * slope
+    } else if x <= 0.0 {
+        0.0
+    } else {
+        slope * (top - black) * (x / top).powf(top / (top - black))
+    }
 }
 
 fn camera_raw_black_ramp(x: f32, black: f32) -> f32 {
@@ -638,8 +683,44 @@ mod tests {
         assert!(shader.contains("const DEFAULT_TONE_CURVE_START_EV: f32 = -12.0;"));
         assert!(shader.contains("const CAMERA_RAW_BLACK: f32 = 0.005;"));
         assert!(shader.contains("const CAMERA_RAW_BLACK_NEUTRAL: f32 = 0.006;"));
+        assert!(shader.contains(&format!(
+            "const CR_SCENE_BLACK_FOLLOW: f32 = {CR_SCENE_BLACK_FOLLOW};"
+        )));
+        assert!(shader.contains(&format!(
+            "const CR_SCENE_BLACK_REFERENCE_EV: f32 = {CR_SCENE_BLACK_REFERENCE_EV};"
+        )));
+        assert!(shader.contains(&format!(
+            "const CR_SCENE_TOE_SPAN: f32 = {CR_SCENE_TOE_SPAN};"
+        )));
         assert!(shader.contains("const CR_ROLLOFF_KNEE: f32 = 0.55;"));
         assert!(shader.contains("const CR_ROLLOFF_LIMIT: f32 = 1.02;"));
+    }
+
+    #[test]
+    fn scene_black_keeps_the_deepest_tones_under_exposure() {
+        // The toe meets the straight ramp with its value and slope.
+        let black: f32 = 0.006;
+        let top = CR_SCENE_TOE_SPAN * black;
+        let (below, above) = (
+            scene_black_ramp(top * 0.9999, black),
+            scene_black_ramp(top, black),
+        );
+        assert!((below - above).abs() < 1e-5, "{below} {above}");
+        let slope = |x: f32| {
+            (scene_black_ramp(x * 1.001, black) - scene_black_ramp(x, black)) / (x * 0.001)
+        };
+        assert!((slope(top * 0.999) / slope(top) - 1.0).abs() < 0.01);
+        assert!(scene_black_ramp(0.5 * black, black) > 0.0);
+        // Before renderVersion 10 Exposure +2 left a tone at the black point
+        // black; from 10 it rises with the curve, more than 2 EV.
+        let old = DisplayCurve::CameraRaw { neutral: true };
+        let new = DisplayCurve::SceneBlack { baseline_ev: 0.4 };
+        let scene = black.log2();
+        assert!(new.display_ev_exposed(scene, 2.0) - new.display_ev_exposed(scene, 0.0) > 2.0);
+        assert!(new.display_ev_exposed(scene, 2.0) > old.display_ev_exposed(scene, 2.0) + 1.0);
+        // Midtones keep their level at Exposure 0.
+        let mid = (0.18f32).log2();
+        assert!((new.display_ev(mid) - old.display_ev(mid)).abs() < 0.01);
     }
 
     #[test]

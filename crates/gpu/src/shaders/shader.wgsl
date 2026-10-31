@@ -5581,6 +5581,21 @@ const CAMERA_RAW_BLACK: f32 = 0.005;
 // once their levels matched Adobe's; 0.6 % fits that profile
 // (notes: reference/tone-controls.md, 2026-10-05).
 const CAMERA_RAW_BLACK_NEUTRAL: f32 = 0.006;
+// renderVersion 10 (profile_curve[15].x = 1): Camera Raw renders a RAW from
+// baseline + Exposure only, and its deepest tones follow either change
+// with the slope of its whole tone curve: the black point does not scale
+// with Exposure. Measured against Camera Raw's renders at Exposure -1..+2
+// on 21 base-ISO RAWs of 9 makes and on extended-ISO twins (the same data
+// with the ISO metadata at base): a black that follows a quarter of
+// baseline + Exposure (from the 0.6 % at a baseline of 0.4 EV) under a toe
+// whose power keeps the ramp's log slope from 3.5 x the black down to zero
+// (no hard zero below it, so channel differences near black are not
+// magnified tenfold) left the deepest bands within 0.2-0.5 EV at every
+// Exposure (the scaled ramp: up to 8.5 EV darker at +2) and the twins
+// within 0.17 EV (notes: benchmark-results/br-black-ramp-2026-11-01).
+const CR_SCENE_BLACK_FOLLOW: f32 = 0.25;
+const CR_SCENE_BLACK_REFERENCE_EV: f32 = 0.4;
+const CR_SCENE_TOE_SPAN: f32 = 3.5;
 const CAMERA_RAW_SATURATION: f32 = 1.15;
 const CAMERA_RAW_BLUE_HUE: f32 = 265.0;
 const CAMERA_RAW_BLUE_REACH: f32 = 45.0;
@@ -5635,8 +5650,15 @@ fn camera_raw_curve(x: f32) -> f32 {
     return exp2(mix(DEFAULT_TONE_CURVE[index], DEFAULT_TONE_CURVE[index + 1u], t));
 }
 
+// renderVersion 10's scene-referred black and soft toe (looks with flags 2-4).
+fn camera_raw_scene_black() -> bool {
+    return adjustments.global.profile_curve[15].x > 0.5 && adjustments.global.profile_curve[15].w > 1.5;
+}
+
 // The neutral look's black point scales with Exposure, so Exposure acts
-// 1:1 in the deepest tones as in Lightroom.
+// 1:1 in the deepest tones. From renderVersion 10 this is the black only
+// the tone sliders place their tables and order guards by (they were
+// fitted to it); the base tone ramps from `camera_raw_scene_black_level`.
 fn camera_raw_black() -> f32 {
     // DNG DefaultBlackRender = None: no black subtraction.
     if (adjustments.global.profile_curve[15].z > 0.5) {
@@ -5660,6 +5682,33 @@ fn camera_raw_black_ramp(x: f32) -> f32 {
     }
     let y = x - (black - radius);
     return slope / (4.0 * radius) * y * y;
+}
+
+// renderVersion 10's black point of the base tone: it follows a quarter of
+// baseline + Exposure (`CR_SCENE_BLACK_FOLLOW`); 0 without a black.
+fn camera_raw_scene_black_level() -> f32 {
+    if (adjustments.global.profile_curve[15].z > 0.5) {
+        return 0.0;
+    }
+    let ev = adjustments.global.exposure + adjustments.global.baseline_exposure - CR_SCENE_BLACK_REFERENCE_EV;
+    return min(CAMERA_RAW_BLACK_NEUTRAL * exp2(CR_SCENE_BLACK_FOLLOW * ev), 0.05);
+}
+
+// renderVersion 10's black ramp: below `CR_SCENE_TOE_SPAN` x black a power
+// of the input that meets the straight ramp with its value and slope.
+fn camera_raw_scene_black_ramp(x: f32, black: f32) -> f32 {
+    if (black <= 0.0) {
+        return x;
+    }
+    let slope = 1.0 / (1.0 - black);
+    let top = CR_SCENE_TOE_SPAN * black;
+    if (x >= top) {
+        return (x - black) * slope;
+    }
+    if (x <= 0.0) {
+        return 0.0;
+    }
+    return slope * (top - black) * pow(x / top, top / (top - black));
 }
 
 // Rawtonic's colour rendition for the neutral look (all RAWs except files
@@ -5827,6 +5876,10 @@ fn apply_camera_profile(c: vec3<f32>) -> vec3<f32> {
 fn camera_raw_tonemap(scene: vec3<f32>) -> vec3<f32> {
     let p = max(srgb_to_prophoto(scene), vec3<f32>(0.0));
     var ramped = vec3<f32>(camera_raw_black_ramp(p.r), camera_raw_black_ramp(p.g), camera_raw_black_ramp(p.b));
+    if (camera_raw_scene_black()) {
+        let black = camera_raw_scene_black_level();
+        ramped = vec3<f32>(camera_raw_scene_black_ramp(p.r, black), camera_raw_scene_black_ramp(p.g, black), camera_raw_scene_black_ramp(p.b, black));
+    }
     // A camera profile's LookTable acts after exposure, before the curve.
     if (adjustments.global.camera_profile.y != 0u && adjustments.global.camera_profile_look.x != 0u) {
         ramped = dcp_table(ramped, adjustments.global.camera_profile_look, adjustments.global.camera_profile.z);

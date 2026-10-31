@@ -70,6 +70,14 @@ const STANDARD_MODE: u32 = 2;
 /// and the camera's JPEG render them (notes: benchmark-results/
 /// sx-extended-low-iso-2026-10-31). Folded into version 9 before release.
 pub const CAPTURE_GAIN_RENDER_VERSION: u64 = 9;
+/// The render version from which the neutral Camera Raw look's black point
+/// stays at a scene level instead of scaling with Exposure, under a soft
+/// toe (shader `camera_raw_black`, `camera_raw_black_ramp`): Camera Raw's
+/// render depends on baseline + Exposure only and keeps its deepest
+/// shadows when either changes (Exposure +2: up to 8.5 EV darker than
+/// Camera Raw before; extended low ISOs up to 4 EV; notes: benchmark-results/
+/// br-black-ramp-2026-11-01).
+pub const SCENE_BLACK_RENDER_VERSION: u64 = 10;
 pub const CAMERA_RAW_MODE: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -145,6 +153,11 @@ impl BaseLook {
             // Next to the flag: 1 = no black ramp.
             if self.no_black_render {
                 global.profile_curve[15][2] = 1.0;
+            }
+            // First slot: 1 = the scene-referred black and soft toe of
+            // renderVersion 10 (looks with flags 2-4).
+            if global.scene_black != 0 {
+                global.profile_curve[15][0] = 1.0;
             }
             if self.phone_defaults {
                 global.whites += PHONE_WHITES;
@@ -883,6 +896,23 @@ mod tests {
                 "v{version}"
             );
             assert_eq!(global.exposure, exposure);
+        }
+    }
+
+    #[test]
+    fn the_scene_black_counts_from_render_version_10() {
+        let look = BaseLook {
+            camera_raw: true,
+            neutral_colour: true,
+            ..BaseLook::NONE
+        };
+        for (version, expected) in [(9, 0.0), (10, 1.0)] {
+            let recipe = serde_json::json!({ "renderVersion": version });
+            let mut global =
+                crate::image_processing::get_all_adjustments_from_json(&recipe, true, None).global;
+            global.tonemapper_mode = super::STANDARD_MODE;
+            look.apply(&mut global);
+            assert_eq!(global.profile_curve[15][0], expected, "v{version}");
         }
     }
 
