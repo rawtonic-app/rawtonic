@@ -2349,6 +2349,8 @@
       "reading": "세는 중…",
       "seconds_one": "{{count}}초",
       "seconds_other": "{{count}}초",
+      "single_one": "사진 {{count}}장은 그대로 남습니다",
+      "single_other": "사진 {{count}}장은 그대로 남습니다",
       "title": "촬영 시간으로 자동 스택",
       "useCameraData": "카메라의 연속 촬영 및 브라케팅 정보가 있으면 사용"
     },
@@ -2356,9 +2358,12 @@
       "collapse_one": "사진 {{count}}장 스택 – 접기",
       "collapse_other": "사진 {{count}}장 스택 – 접기",
       "expand_one": "사진 {{count}}장 스택 – 펼치기",
-      "expand_other": "사진 {{count}}장 스택 – 펼치기"
+      "expand_other": "사진 {{count}}장 스택 – 펼치기",
+      "place": "스택에서 {{index}} / {{total}}"
     },
-    "failed": "스택하지 못했습니다: {{error}}"
+    "failed": "스택하지 못했습니다: {{error}}",
+    "trashTop_one": "스택의 맨 위 사진만 이동하며 다음 사진이 맨 위가 됩니다.",
+    "trashTop_other": "스택 {{count}}개의 맨 위 사진만 이동하며 각각 다음 사진이 맨 위가 됩니다."
   },
   "storage": {
     "aiLimit": "AI result limit",

@@ -2349,6 +2349,8 @@
       "reading": "正在計算…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "single_one": "{{count}} 張相片維持單獨",
+      "single_other": "{{count}} 張相片維持單獨",
       "title": "依拍攝時間自動堆疊",
       "useCameraData": "若有相機連拍與包圍曝光資料則使用"
     },
@@ -2356,9 +2358,12 @@
       "collapse_one": "{{count}} 張相片的堆疊 – 收合",
       "collapse_other": "{{count}} 張相片的堆疊 – 收合",
       "expand_one": "{{count}} 張相片的堆疊 – 展開",
-      "expand_other": "{{count}} 張相片的堆疊 – 展開"
+      "expand_other": "{{count}} 張相片的堆疊 – 展開",
+      "place": "堆疊中第 {{index}} / {{total}} 張"
     },
-    "failed": "堆疊失敗：{{error}}"
+    "failed": "堆疊失敗：{{error}}",
+    "trashTop_one": "只移動堆疊頂端的相片；下一張會成為頂端。",
+    "trashTop_other": "只移動 {{count}} 個堆疊頂端的相片；每個堆疊的下一張會成為頂端。"
   },
   "storage": {
     "aiLimit": "AI result limit",

@@ -16,6 +16,7 @@ vi.mock("../../activity/notify", () => ({
 const paths = ["/job/Capture/1.ARW", "/job/Capture/2.ARW", "/job/Capture/3.ARW", "/job/Capture/4.ARW"];
 
 beforeEach(() => {
+  localStorage.clear();
   vi.mocked(invoke).mockReset();
   useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
   useLibraryStore.setState({ sessionDirectory: "/job" });
@@ -47,6 +48,7 @@ it("previews the stacks as the interval moves and makes them as one undo step", 
   render(<AutoStackDialogHost />);
   await screen.findByText("1 stack from 2 photos");
   expect(screen.getByText("1 bracket")).toBeTruthy();
+  expect(screen.getByText("1 photo stays single")).toBeTruthy();
   expect(screen.getByText("1 photo without a capture time or already in a stack is left out")).toBeTruthy();
   expect(invoke).toHaveBeenCalledWith("stacks_auto_plan", { paths, options: { intervalSecs: 60, useCameraData: true } });
 
@@ -65,6 +67,11 @@ it("previews the stacks as the interval moves and makes them as one undo step", 
     groups: [{ kind: "time", assets: ["1", "2", "3", "4"] }],
   });
   expect(canUndo()).toBe(true);
+  // The next run starts at the interval used (Lightroom remembers it).
+  useAutoStackDialog.getState().open(paths);
+  await waitFor(() =>
+    expect(invoke).toHaveBeenLastCalledWith("stacks_auto_plan", { paths, options: { intervalSecs: 300, useCameraData: true } }),
+  );
 });
 
 it("names intervals from a second to an hour", () => {

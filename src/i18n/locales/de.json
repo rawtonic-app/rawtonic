@@ -2421,6 +2421,8 @@
       "reading": "Wird gezählt…",
       "seconds_one": "{{count}} Sekunde",
       "seconds_other": "{{count}} Sekunden",
+      "single_one": "{{count}} Foto bleibt einzeln",
+      "single_other": "{{count}} Fotos bleiben einzeln",
       "title": "Automatisch nach Aufnahmezeit stapeln",
       "useCameraData": "Serien- und Belichtungsreihen-Daten der Kamera nutzen, wenn vorhanden"
     },
@@ -2428,9 +2430,12 @@
       "collapse_one": "Stapel mit {{count}} Foto – zuklappen",
       "collapse_other": "Stapel mit {{count}} Fotos – zuklappen",
       "expand_one": "Stapel mit {{count}} Foto – aufklappen",
-      "expand_other": "Stapel mit {{count}} Fotos – aufklappen"
+      "expand_other": "Stapel mit {{count}} Fotos – aufklappen",
+      "place": "{{index}} von {{total}} im Stapel"
     },
-    "failed": "Stapeln fehlgeschlagen: {{error}}"
+    "failed": "Stapeln fehlgeschlagen: {{error}}",
+    "trashTop_one": "Nur das oberste Foto des Stapels wird verschoben; das nächste wird oberstes.",
+    "trashTop_other": "Nur die obersten Fotos von {{count}} Stapeln werden verschoben; jeweils das nächste wird oberstes."
   },
   "storage": {
     "aiLimit": "Limit für KI-Ergebnisse",

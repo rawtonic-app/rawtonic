@@ -2542,6 +2542,9 @@
       "seconds_one": "{{count}} segon",
       "seconds_many": "{{count}} segons",
       "seconds_other": "{{count}} segons",
+      "single_one": "{{count}} foto queda sola",
+      "single_many": "{{count}} fotos queden soles",
+      "single_other": "{{count}} fotos queden soles",
       "title": "Apila automàticament per hora de captura",
       "useCameraData": "Fes servir les dades de ràfega i horquillat de la càmera si n’hi ha"
     },
@@ -2551,9 +2554,13 @@
       "collapse_other": "Pila de {{count}} fotos – replega",
       "expand_one": "Pila d’{{count}} foto – desplega",
       "expand_many": "Pila de {{count}} fotos – desplega",
-      "expand_other": "Pila de {{count}} fotos – desplega"
+      "expand_other": "Pila de {{count}} fotos – desplega",
+      "place": "{{index}} de {{total}} a la pila"
     },
-    "failed": "No s’ha pogut apilar: {{error}}"
+    "failed": "No s’ha pogut apilar: {{error}}",
+    "trashTop_one": "Només es mou la foto de dalt de la pila; la següent passa a dalt.",
+    "trashTop_many": "Només es mouen les fotos de dalt de {{count}} piles; la següent de cada pila passa a dalt.",
+    "trashTop_other": "Només es mouen les fotos de dalt de {{count}} piles; la següent de cada pila passa a dalt."
   },
   "storage": {
     "aiLimit": "AI result limit",

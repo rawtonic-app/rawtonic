@@ -98,7 +98,7 @@ import { noteTool } from '../components/contribute/usageStats';
 import { withSourceFrameOf } from '../utils/sourceFrame';
 import { useStackStore, stackKey } from '../store/useStackStore';
 import {
-  groupIntoStack, moveToTopOfStack, removeFromStack, setAllStacks, toggleStacks, unstack, useAutoStackDialog,
+  autoStackScope, groupIntoStack, moveToTopOfStack, removeFromStack, setAllStacks, toggleStacks, unstack, useAutoStackDialog,
 } from '../utils/stacks';
 
 const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
@@ -543,7 +543,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         { type: OPTION_SEPARATOR },
         {
           label: t('appMenu.items.auto_stack'),
-          onClick: () => useAutoStackDialog.getState().open(useLibraryStore.getState().imageList.map((f) => f.path)),
+          onClick: () => useAutoStackDialog.getState().open(autoStackScope()),
         },
       ],
     };

@@ -2542,6 +2542,9 @@
       "seconds_one": "{{count}} secondo",
       "seconds_many": "{{count}} secondi",
       "seconds_other": "{{count}} secondi",
+      "single_one": "{{count}} foto resta singola",
+      "single_many": "{{count}} foto restano singole",
+      "single_other": "{{count}} foto restano singole",
       "title": "Raggruppa automaticamente per ora di scatto",
       "useCameraData": "Usa i dati di raffica e bracketing della fotocamera se disponibili"
     },
@@ -2551,9 +2554,13 @@
       "collapse_other": "Pila di {{count}} foto – comprimi",
       "expand_one": "Pila di {{count}} foto – espandi",
       "expand_many": "Pila di {{count}} foto – espandi",
-      "expand_other": "Pila di {{count}} foto – espandi"
+      "expand_other": "Pila di {{count}} foto – espandi",
+      "place": "{{index}} di {{total}} nella pila"
     },
-    "failed": "Raggruppamento non riuscito: {{error}}"
+    "failed": "Raggruppamento non riuscito: {{error}}",
+    "trashTop_one": "Viene spostata solo la foto in cima alla pila; la successiva va in cima.",
+    "trashTop_many": "Vengono spostate solo le foto in cima a {{count}} pile; la successiva di ognuna va in cima.",
+    "trashTop_other": "Vengono spostate solo le foto in cima a {{count}} pile; la successiva di ognuna va in cima."
   },
   "storage": {
     "aiLimit": "AI result limit",

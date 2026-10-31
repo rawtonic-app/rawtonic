@@ -2663,6 +2663,10 @@
       "seconds_few": "{{count}} sekundy",
       "seconds_many": "{{count}} sekund",
       "seconds_other": "{{count}} sekundy",
+      "single_one": "{{count}} zdjęcie zostaje pojedyncze",
+      "single_few": "{{count}} zdjęcia zostają pojedyncze",
+      "single_many": "{{count}} zdjęć zostaje pojedynczych",
+      "single_other": "{{count}} zdjęcia zostaje pojedynczych",
       "title": "Automatyczne stosy wg czasu wykonania",
       "useCameraData": "Użyj danych serii i bracketingu z aparatu, jeśli są dostępne"
     },
@@ -2674,9 +2678,14 @@
       "expand_one": "Stos {{count}} zdjęcia – rozwiń",
       "expand_few": "Stos {{count}} zdjęć – rozwiń",
       "expand_many": "Stos {{count}} zdjęć – rozwiń",
-      "expand_other": "Stos {{count}} zdjęć – rozwiń"
+      "expand_other": "Stos {{count}} zdjęć – rozwiń",
+      "place": "{{index}} z {{total}} w stosie"
     },
-    "failed": "Nie udało się utworzyć stosu: {{error}}"
+    "failed": "Nie udało się utworzyć stosu: {{error}}",
+    "trashTop_one": "Przenoszone jest tylko zdjęcie z wierzchu stosu; następne trafia na wierzch.",
+    "trashTop_few": "Przenoszone są tylko zdjęcia z wierzchu {{count}} stosów; w każdym następne trafia na wierzch.",
+    "trashTop_many": "Przenoszone są tylko zdjęcia z wierzchu {{count}} stosów; w każdym następne trafia na wierzch.",
+    "trashTop_other": "Przenoszone są tylko zdjęcia z wierzchu {{count}} stosu; w każdym następne trafia na wierzch."
   },
   "storage": {
     "aiLimit": "AI result limit",

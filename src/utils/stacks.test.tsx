@@ -10,7 +10,8 @@ import { arrangeStacks, indexStacks, setStacks, useStackStore, type WebStack } f
 import { useUIStore } from "../store/useUIStore";
 import { canUndo, getUndoLabel, redo, undo, useCatalogUndoStore } from "./appUndo";
 import { runAppCommand } from "./appCommands";
-import { groupIntoStack, selectShownMembers, toggleStacks, useStackCommands } from "./stacks";
+import { autoStackScope, groupIntoStack, selectShownMembers, toggleStacks, useStackCommands } from "./stacks";
+import { buildComboMap } from "./keyboardUtils";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => []), convertFileSrc: (p: string) => p }));
 vi.mock("../activity/notify", () => ({
@@ -97,6 +98,20 @@ describe("the grid's stacks", () => {
       <StudioBrowser files={list} stackMarks={marks} onSelect={vi.fn()} onOpen={vi.fn()} onRate={vi.fn()}
         onContextMenu={vi.fn()} requestThumbnails={vi.fn()} />,
     );
+    expect(screen.getByRole("button", { name: "Stack of 2 photos – expand" })).toBeTruthy();
+    // Expanded, a member says where it is.
+    cleanup();
+    const open = arrangeStacks(files, indexStacks([stack("t", ["c", "d", "e"], false)]));
+    render(
+      <StudioBrowser files={open.list} stackMarks={open.marks} onSelect={vi.fn()} onOpen={vi.fn()} onRate={vi.fn()}
+        onContextMenu={vi.fn()} requestThumbnails={vi.fn()} />,
+    );
+    expect(screen.getByRole("img", { name: "2 of 3 in the stack" })).toBeTruthy();
+    cleanup();
+    render(
+      <StudioBrowser files={list} stackMarks={marks} onSelect={vi.fn()} onOpen={vi.fn()} onRate={vi.fn()}
+        onContextMenu={vi.fn()} requestThumbnails={vi.fn()} />,
+    );
     const badge = screen.getByRole("button", { name: "Stack of 2 photos – expand" });
     expect(badge.textContent).toBe("2");
     fireEvent.click(badge);
@@ -143,6 +158,17 @@ describe("stack commands", () => {
     stop();
     expect(seen).toEqual([[files[0].path]]);
     expect(useLibraryStore.getState().libraryActivePath).toBe(files[0].path);
+  });
+
+  it("binds ⇧S to Move to Top in the Library and keeps it for soft proofing in Develop", () => {
+    expect(buildComboMap(null).get("shift+KeyS")?.sort()).toEqual(["stack_move_top", "toggle_soft_proof"]);
+  });
+
+  it("auto-stacks the selection when it holds several photos, else the folder", () => {
+    useLibraryStore.setState({ multiSelectedPaths: [files[0].path] });
+    expect(autoStackScope()).toHaveLength(5);
+    useLibraryStore.setState({ multiSelectedPaths: [files[0].path, files[1].path] });
+    expect(autoStackScope()).toEqual([files[0].path, files[1].path]);
   });
 
   it("makes no undo step when nothing changed", async () => {

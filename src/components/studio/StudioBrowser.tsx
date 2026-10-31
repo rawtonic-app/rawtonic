@@ -140,8 +140,11 @@ const Tile = memo(function Tile({
           )}
           <PhotoEyesBadge path={file.path} compact={film} />
           {stack && !stack.top && (
-            // Expanded: its place in the stack (the top carries the badge).
-            <span className="studio-photo-stack-place" aria-hidden="true" />
+            // Expanded: its place in the stack, "3 of 5" on hover
+            // (Lightroom); the top carries the badge.
+            <span className="studio-photo-stack-place" role="img"
+              aria-label={t("stacks.badge.place", { index: stack.index + 1, total: stack.count })}
+              title={t("stacks.badge.place", { index: stack.index + 1, total: stack.count })} />
           )}
           {file.is_offline && (
             // The file is missing or its drive is disconnected (Lightroom's

@@ -2349,6 +2349,8 @@
       "reading": "計算中…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "single_one": "{{count}} 枚は単独のまま",
+      "single_other": "{{count}} 枚は単独のまま",
       "title": "撮影時間で自動スタック",
       "useCameraData": "カメラの連写・ブラケット情報があれば使用する"
     },
@@ -2356,9 +2358,12 @@
       "collapse_one": "{{count}} 枚のスタック – 折りたたむ",
       "collapse_other": "{{count}} 枚のスタック – 折りたたむ",
       "expand_one": "{{count}} 枚のスタック – 展開",
-      "expand_other": "{{count}} 枚のスタック – 展開"
+      "expand_other": "{{count}} 枚のスタック – 展開",
+      "place": "スタック内 {{index}} / {{total}}"
     },
-    "failed": "スタックできませんでした: {{error}}"
+    "failed": "スタックできませんでした: {{error}}",
+    "trashTop_one": "スタックの先頭の写真だけが移動され、次の写真が先頭になります。",
+    "trashTop_other": "{{count}} 個のスタックの先頭の写真だけが移動され、それぞれ次の写真が先頭になります。"
   },
   "storage": {
     "aiLimit": "AI result limit",

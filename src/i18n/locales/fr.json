@@ -2542,6 +2542,9 @@
       "seconds_one": "{{count}} seconde",
       "seconds_many": "{{count}} secondes",
       "seconds_other": "{{count}} secondes",
+      "single_one": "{{count}} photo reste seule",
+      "single_many": "{{count}} photos restent seules",
+      "single_other": "{{count}} photos restent seules",
       "title": "Empiler automatiquement par heure de prise de vue",
       "useCameraData": "Utiliser les données de rafale et de bracketing de l’appareil si disponibles"
     },
@@ -2551,9 +2554,13 @@
       "collapse_other": "Pile de {{count}} photos – réduire",
       "expand_one": "Pile de {{count}} photo – développer",
       "expand_many": "Pile de {{count}} photos – développer",
-      "expand_other": "Pile de {{count}} photos – développer"
+      "expand_other": "Pile de {{count}} photos – développer",
+      "place": "{{index}} sur {{total}} dans la pile"
     },
-    "failed": "Échec de l’empilement : {{error}}"
+    "failed": "Échec de l’empilement : {{error}}",
+    "trashTop_one": "Seule la photo du haut de la pile est déplacée ; la suivante passe en haut.",
+    "trashTop_many": "Seules les photos du haut de {{count}} piles sont déplacées ; la suivante de chaque pile passe en haut.",
+    "trashTop_other": "Seules les photos du haut de {{count}} piles sont déplacées ; la suivante de chaque pile passe en haut."
   },
   "storage": {
     "aiLimit": "AI result limit",

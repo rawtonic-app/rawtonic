@@ -34,6 +34,8 @@ export interface StackMark {
   top: boolean;
   /** Its place among the stack's members shown next to each other. */
   position: 'only' | 'first' | 'middle' | 'last';
+  /** Its place among the listed members, 0 for the shown top. */
+  index: number;
 }
 
 interface StackState {
@@ -156,6 +158,7 @@ export function arrangeStacks(
         count: group.length,
         collapsed: stack.collapsed,
         top: i === 0,
+        index: i,
         position: shown.length === 1 ? 'only' : i === 0 ? 'first' : i === shown.length - 1 ? 'last' : 'middle',
       });
     });

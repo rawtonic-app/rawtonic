@@ -65,6 +65,13 @@ export function setAllStacks(collapsed: boolean) {
   return run(Invokes.StacksSetCollapsed, { paths, collapsed }, paths);
 }
 
+/** What Auto-Stack looks at: the selection when it holds more than one
+ * photo, else the whole shown folder (Lightroom acts on the view). */
+export function autoStackScope(): string[] {
+  const { multiSelectedPaths, imageList } = useLibraryStore.getState();
+  return multiSelectedPaths.length > 1 ? [...multiSelectedPaths] : imageList.map((f) => f.path);
+}
+
 const libraryShown = () => useUIStore.getState().activeView === 'library';
 const selected = () => useLibraryStore.getState().multiSelectedPaths;
 
@@ -110,7 +117,7 @@ export function useStackCommands() {
       auto_stack: {
         enabled: () => libraryShown() && !!useLibraryStore.getState().sessionDirectory
           && useLibraryStore.getState().imageList.length > 1,
-        run: () => useAutoStackDialog.getState().open(useLibraryStore.getState().imageList.map((f) => f.path)),
+        run: () => useAutoStackDialog.getState().open(autoStackScope()),
       },
     });
     return () => {

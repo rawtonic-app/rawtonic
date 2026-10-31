@@ -2349,6 +2349,8 @@
       "reading": "正在计算…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "single_one": "{{count}} 张照片保持单独",
+      "single_other": "{{count}} 张照片保持单独",
       "title": "按拍摄时间自动堆栈",
       "useCameraData": "如有相机连拍和包围曝光数据则使用"
     },
@@ -2356,9 +2358,12 @@
       "collapse_one": "{{count}} 张照片的堆栈 – 折叠",
       "collapse_other": "{{count}} 张照片的堆栈 – 折叠",
       "expand_one": "{{count}} 张照片的堆栈 – 展开",
-      "expand_other": "{{count}} 张照片的堆栈 – 展开"
+      "expand_other": "{{count}} 张照片的堆栈 – 展开",
+      "place": "堆栈中第 {{index}} / {{total}} 张"
     },
-    "failed": "堆栈失败：{{error}}"
+    "failed": "堆栈失败：{{error}}",
+    "trashTop_one": "只移动堆栈顶部的照片；下一张成为顶部。",
+    "trashTop_other": "只移动 {{count}} 个堆栈顶部的照片；每个堆栈的下一张成为顶部。"
   },
   "storage": {
     "aiLimit": "AI result limit",

@@ -1,4 +1,5 @@
 import { createElement, useCallback, useEffect } from 'react';
+import { stackKey, useStackStore } from '../store/useStackStore';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -951,6 +952,15 @@ export function useFileOperations(
       modalMessage = opsCount('trashManyMessage', pathsToDelete.length, { hint });
       confirmText = ops('trashSelectedOnly');
     }
+
+    // A collapsed stack shows its top only: say that only it goes, and that
+    // the next member becomes the top (Lightroom shows the stack first).
+    const { byPath } = useStackStore.getState();
+    const collapsedTops = useLibraryStore.getState().activeAlbumId === null
+      ? pathsToDelete.filter((path) => byPath.get(stackKey(path))?.stack.collapsed).length
+      : 0;
+    if (collapsedTops > 0)
+      modalMessage = `${modalMessage} ${i18next.t('stacks.trashTop', { count: collapsedTops })}`;
 
     setUI({
       confirmModalState: {

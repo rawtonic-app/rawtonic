@@ -2421,6 +2421,8 @@
       "reading": "Counting…",
       "seconds_one": "{{count}} second",
       "seconds_other": "{{count}} seconds",
+      "single_one": "{{count}} photo stays single",
+      "single_other": "{{count}} photos stay single",
       "title": "Auto-Stack by Capture Time",
       "useCameraData": "Use camera burst and bracket data when available"
     },
@@ -2428,9 +2430,12 @@
       "collapse_one": "Stack of {{count}} photo – collapse",
       "collapse_other": "Stack of {{count}} photos – collapse",
       "expand_one": "Stack of {{count}} photo – expand",
-      "expand_other": "Stack of {{count}} photos – expand"
+      "expand_other": "Stack of {{count}} photos – expand",
+      "place": "{{index}} of {{total}} in the stack"
     },
-    "failed": "Stacking failed: {{error}}"
+    "failed": "Stacking failed: {{error}}",
+    "trashTop_one": "Only the stack's top photo goes; the next photo in the stack becomes its top.",
+    "trashTop_other": "Only the top photos of {{count}} stacks go; the next photo in each becomes its top."
   },
   "storage": {
     "aiLimit": "AI result limit",

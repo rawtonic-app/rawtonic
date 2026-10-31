@@ -2542,6 +2542,9 @@
       "seconds_one": "{{count}} segundo",
       "seconds_many": "{{count}} segundos",
       "seconds_other": "{{count}} segundos",
+      "single_one": "{{count}} foto fica sozinha",
+      "single_many": "{{count}} fotos ficam sozinhas",
+      "single_other": "{{count}} fotos ficam sozinhas",
       "title": "Empilhar automaticamente por hora de captura",
       "useCameraData": "Usar dados de sequência e bracketing da câmara quando existirem"
     },
@@ -2551,9 +2554,13 @@
       "collapse_other": "Pilha de {{count}} fotos – recolher",
       "expand_one": "Pilha de {{count}} foto – expandir",
       "expand_many": "Pilha de {{count}} fotos – expandir",
-      "expand_other": "Pilha de {{count}} fotos – expandir"
+      "expand_other": "Pilha de {{count}} fotos – expandir",
+      "place": "{{index}} de {{total}} na pilha"
     },
-    "failed": "Falha ao empilhar: {{error}}"
+    "failed": "Falha ao empilhar: {{error}}",
+    "trashTop_one": "Só a foto do topo da pilha é movida; a seguinte passa a ser o topo.",
+    "trashTop_many": "Só as fotos do topo de {{count}} pilhas são movidas; a seguinte de cada uma passa a ser o topo.",
+    "trashTop_other": "Só as fotos do topo de {{count}} pilhas são movidas; a seguinte de cada uma passa a ser o topo."
   },
   "storage": {
     "aiLimit": "AI result limit",
