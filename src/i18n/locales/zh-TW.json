@@ -289,6 +289,7 @@
       "toggle_left_panel": "左側面板",
       "toggle_metadata": "照片資訊",
       "toggle_multi_view": "多重檢視",
+      "toggle_original": "之前（整張照片）",
       "toggle_pointer_readout": "指標 RGB 讀數",
       "toggle_proof_margin": "校樣邊界",
       "toggle_right_panel": "右側面板",
@@ -2130,6 +2131,7 @@
         "toggle_masks": "切換遮色片面板",
         "toggle_metadata": "中繼資料工具（圖庫）或相片資訊（顯影、全螢幕）",
         "toggle_multi_view": "多圖檢視：選取的照片並排顯示",
+        "toggle_original": "切換：整張照片之前",
         "toggle_pointer_readout": "切換指標 RGB 讀數",
         "toggle_proof_margin": "切換校樣邊距",
         "toggle_right_panel": "切換右側面板",
@@ -3023,6 +3025,7 @@
       "toolGroup": {
         "isOn": "{{tool}} 開啟",
         "reset": "重設{{tool}}",
+        "resetOrHold": "重設{{tool}}（按住，或按住 Alt/Option 鍵按下：顯示不含此工具的照片）",
         "turnOff": "關閉{{tool}}",
         "turnOn": "開啟{{tool}}"
       },
@@ -4816,6 +4819,7 @@
         "compareMode": {
           "left-right": "左右分割",
           "off": "關閉",
+          "side-by-side": "並排",
           "top-bottom": "上下分割"
         },
         "compareModes": "對比模式",
@@ -4839,6 +4843,7 @@
         "splitDivider": "前後對比分割線",
         "togglePanels": "顯示/隱藏面板",
         "undo": "復原",
+        "withoutTool": "不含{{tool}}",
         "zoom": "縮放"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

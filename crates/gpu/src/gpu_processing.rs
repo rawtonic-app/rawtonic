@@ -1873,6 +1873,29 @@ pub fn split_shows(
     split_x.is_some() && !frame_uncropped && before_frame_key == Some(frame_key)
 }
 
+/// The display shader's `split` uniform: x the before is shown, y the
+/// divider, z top/bottom, w the side-by-side pane offset. Side by side keeps
+/// its before pane (the background while its before is on its way, so the
+/// after never reaches into it at a zoom) whether or not the before shows.
+pub fn split_uniform(
+    before_shows: bool,
+    split_x: Option<f32>,
+    vertical: bool,
+    side_by_side_offset: f32,
+) -> [f32; 4] {
+    let side_by_side = split_x.is_some() && side_by_side_offset > 0.0;
+    [
+        if before_shows { 1.0 } else { 0.0 },
+        split_x.unwrap_or(0.0),
+        if vertical && !side_by_side { 1.0 } else { 0.0 },
+        if side_by_side {
+            side_by_side_offset
+        } else {
+            0.0
+        },
+    ]
+}
+
 /// The display's render pipeline (display.wgsl) for a `format` target and
 /// its two bind group layouts: frame (transform, image, sampler, mask
 /// overlay) and the split view's before.
@@ -2023,6 +2046,10 @@ pub struct WgpuDisplay {
     /// The before/after divider's screen coordinate (device pixels); `None` = no split.
     pub split_x: Option<f32>,
     pub split_vertical: bool,
+    /// Side by side (> 0): `split_x` is the left edge of the after pane and
+    /// the before pane, this many device pixels to its left, shows the whole
+    /// before placed like the after (same zoom and pan). 0: the overlaid split.
+    pub split_offset: f32,
     /// Set by each preview job before it renders: the photograph and framing
     /// of its frame (see `SplitBefore::frame_key`). Applied when presented.
     pub next_frame_split_key: u64,
@@ -2285,6 +2312,7 @@ impl WgpuDisplay {
             frame_serial: 0,
             split_x: None,
             split_vertical: false,
+            split_offset: 0.0,
             next_frame_split_key: 0,
             frame_split_key: 0,
             split_before: None,
@@ -2693,7 +2721,13 @@ impl WgpuDisplay {
         } else {
             current.resized(width, height, self.frame_uncropped)
         };
+        // Side by side, the divider is the panes' layout edge (the webview
+        // sends it again for the new size), not a point of the photograph.
+        let side_by_side = self.split_offset > 0.0;
         self.split_x = self.split_x.map(|x| {
+            if side_by_side {
+                return x;
+            }
             let axis = |r: [f32; 4]| {
                 if self.split_vertical {
                     [r[1], r[0], r[3], r[2]]
@@ -2783,12 +2817,12 @@ impl WgpuDisplay {
             transform.clip = cell.area;
         }
         let split_active = self.split_active();
-        transform.split = [
-            if split_active { 1.0 } else { 0.0 },
-            self.split_x.unwrap_or(0.0),
-            if self.split_vertical { 1.0 } else { 0.0 },
-            0.0,
-        ];
+        transform.split = split_uniform(
+            split_active,
+            self.split_x.filter(|_| !multi),
+            self.split_vertical,
+            self.split_offset,
+        );
         self.latest_transform.split = transform.split;
         queue.write_buffer(&self.transform_buffer, 0, bytemuck::bytes_of(&transform));
         let before = match (&self.split_before, split_active) {

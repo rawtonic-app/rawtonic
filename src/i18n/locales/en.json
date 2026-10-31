@@ -300,6 +300,7 @@
       "toggle_left_panel": "Left Panel",
       "toggle_metadata": "Photo Info",
       "toggle_multi_view": "Multi View",
+      "toggle_original": "Before (Whole Photo)",
       "toggle_pointer_readout": "Pointer RGB Readout",
       "toggle_proof_margin": "Proof Margin",
       "toggle_right_panel": "Right Panel",
@@ -2213,6 +2214,7 @@
         "toggle_masks": "Toggle Masks panel",
         "toggle_metadata": "Metadata tool (Library) or photo info (Develop, full screen)",
         "toggle_multi_view": "Multi view: selected photos side by side",
+        "toggle_original": "Toggle: whole photo before",
         "toggle_pointer_readout": "Toggle pointer RGB readout",
         "toggle_proof_margin": "Toggle proof margin",
         "toggle_right_panel": "Toggle Right Panel",
@@ -3106,6 +3108,7 @@
       "toolGroup": {
         "isOn": "{{tool}} on",
         "reset": "Reset {{tool}}",
+        "resetOrHold": "Reset {{tool}} (hold, or Alt/Option-press: show the photo without it)",
         "turnOff": "Turn {{tool}} off",
         "turnOn": "Turn {{tool}} on"
       },
@@ -4947,6 +4950,7 @@
         "compareMode": {
           "left-right": "Split left/right",
           "off": "Off",
+          "side-by-side": "Side by side",
           "top-bottom": "Split top/bottom"
         },
         "compareModes": "Compare mode",
@@ -4970,6 +4974,7 @@
         "splitDivider": "Before/after divider",
         "togglePanels": "Toggle panels",
         "undo": "Undo",
+        "withoutTool": "Without {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

@@ -1,4 +1,5 @@
 import { cropResetValues } from "../../utils/cameraCrop";
+import { useToolBeforeHold } from "../../hooks/useToolBeforeHold";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
@@ -106,6 +107,7 @@ export function ToolGroup({
   children,
   open = true,
   onReset,
+  before = true,
   copy,
   toggle,
   actions,
@@ -123,6 +125,10 @@ export function ToolGroup({
   actions?: ReactNode;
   open?: boolean;
   onReset?: () => void;
+  /** Holding the reset (⌥ + press, or a long press) shows the photograph
+   * without this tool (`useToolBeforeHold`); false for tools whose reset is
+   * no look (settings, framing). */
+  before?: boolean;
   /** Parameters for Capture One's per-tool copy/apply (photo only); tools
    * in `PRESET_TOOLS` also get a preset menu for them. */
   copy?: ToolParams;
@@ -146,6 +152,7 @@ export function ToolGroup({
   }, [isOpen, onOpenChange]);
   const menu = useToolMenu();
   const openOnly = useToolOpenOnly();
+  const hold = useToolBeforeHold(name, before ? onReset : undefined);
   return (
     <details
       className={`studio-tool-group ${toggle && !toggle.enabled ? "is-off" : ""}`}
@@ -196,12 +203,16 @@ export function ToolGroup({
         {onReset && (
           <button
             type="button"
-            title={t("studio.develop.toolGroup.reset", { tool: name })}
+            title={before ? t("studio.develop.toolGroup.resetOrHold", { tool: name }) : t("studio.develop.toolGroup.reset", { tool: name })}
             aria-label={t("studio.develop.toolGroup.reset", { tool: name })}
-            onClick={(e) => {
-              e.preventDefault();
-              onReset();
-            }}
+            {...(before
+              ? hold
+              : {
+                  onClick: (e: React.MouseEvent) => {
+                    e.preventDefault();
+                    onReset();
+                  },
+                })}
           >
             <RotateCcw size={12} />
           </button>
@@ -1815,6 +1826,7 @@ export default function StudioDevelop() {
               open
               expand={isSpotToolActive}
               onReset={resetSpotSettings}
+              before={false}
             >
               <StudioSpotPanel />
             </ToolGroup>
@@ -2116,6 +2128,7 @@ export default function StudioDevelop() {
               key="crop"
               title="Crop"
               label={t("studio.develop.groups.crop")}
+              before={false}
               onReset={() =>
                 change({
                   ...Object.fromEntries(

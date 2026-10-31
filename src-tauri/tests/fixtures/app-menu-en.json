@@ -585,6 +585,14 @@
         },
         {
           "kind": "item",
+          "id": "cmd:toggle_original",
+          "label": "Before (Whole Photo)",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Backslash",
+          "checked": false
+        },
+        {
+          "kind": "item",
           "id": "cmd:toggle_multi_view",
           "label": "Multi View",
           "enabled": false,

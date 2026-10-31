@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { useEditorStore } from "../../store/useEditorStore";
+import { capturingAdjustments } from "../../hooks/useEditorActions";
 import {
   MAX_COLOR_RANGES,
   MAX_LAYER_COLOR_RANGES,
@@ -274,7 +275,8 @@ export default function StudioColorEditor({
       copy={copy}
       open={ranges.length > 0}
       onReset={() => {
-        setEditor({
+        // Its per-tool before (a held reset) changes no view state.
+        if (!capturingAdjustments()) setEditor({
           activeColorRangeId: null,
           colorPickerTarget: null,
           colorRangeShow: null,

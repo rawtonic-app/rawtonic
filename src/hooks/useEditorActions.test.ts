@@ -12,6 +12,10 @@ import {
   registerScheduledRecipe,
   rememberOpenedRecipe,
   startBeforePeek,
+  startToolBefore,
+  endToolBefore,
+  adjustmentsAfter,
+  toggleBeforeView,
   updateAdjustments,
   useEditorActions,
   waitForPendingMetadataSave,
@@ -1039,4 +1043,66 @@ it('writes a failed earlier save before a partial repair applies onto it', async
   await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [{ path: '/kept.dng', before: {}, after: {} }] });
   await expect(repaired).resolves.toEqual([]);
   errorLog.mockRestore();
+});
+
+describe('per-tool before and the whole-photo toggle', () => {
+  beforeEach(() => {
+    useEditorStore.setState({ showOriginal: false, toolBefore: null, previewOverride: null, isSliderDragging: false });
+  });
+  const resetExposure = () => updateAdjustments((prev) => ({ ...prev, exposure: 0 }));
+
+  it('shows the photograph as the tool reset would leave it, writing nothing', () => {
+    const before = useEditorStore.getState();
+    expect(startToolBefore('Exposure', resetExposure)).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.toolBefore).toBe('Exposure');
+    expect(state.previewOverride).toMatchObject({ exposure: 0 });
+    // The recipe and its history are untouched; nothing is saved.
+    expect(state.adjustments).toBe(before.adjustments);
+    expect(state.adjustments.exposure).toBe(-2);
+    expect(state.history).toBe(before.history);
+    expect(state.historyIndex).toBe(before.historyIndex);
+    endToolBefore();
+    expect(useEditorStore.getState()).toMatchObject({ toolBefore: null, previewOverride: null });
+    expect(useEditorStore.getState().adjustments).toBe(before.adjustments);
+    expect(vi.mocked(invoke)).not.toHaveBeenCalled();
+  });
+
+  it('applies the tool reset to the recipe it is given (a layer reset changes that layer only)', () => {
+    const layered = { ...INITIAL_ADJUSTMENTS, exposure: 1, masks: [{ id: 'a', adjustments: { exposure: 2 } }, { id: 'b', adjustments: { exposure: 3 } }] } as never;
+    useEditorStore.setState({ adjustments: layered });
+    const without = adjustmentsAfter(() =>
+      updateAdjustments((prev) => ({ ...prev, masks: prev.masks.map((m) => (m.id === 'a' ? { ...m, adjustments: { ...m.adjustments, exposure: 0 } } : m)) })),
+    )!;
+    expect(without.exposure).toBe(1);
+    expect(without.masks.map((m) => m.adjustments.exposure)).toEqual([0, 3]);
+    expect(useEditorStore.getState().adjustments).toBe(layered);
+  });
+
+  it('does not cover another preview, a drag or a photograph still loading', () => {
+    useEditorStore.setState({ showOriginal: true });
+    expect(startToolBefore('Exposure', resetExposure)).toBe(false);
+    useEditorStore.setState({ showOriginal: false, isSliderDragging: true });
+    expect(startToolBefore('Exposure', resetExposure)).toBe(false);
+    useEditorStore.setState({ isSliderDragging: false });
+    select('/loading.dng', false);
+    expect(startToolBefore('Exposure', resetExposure)).toBe(false);
+    expect(useEditorStore.getState().toolBefore).toBeNull();
+  });
+
+  it('ends with an edit, which applies to the recipe, not the preview', () => {
+    startToolBefore('Exposure', resetExposure);
+    updateAdjustments({ contrast: 10 });
+    const state = useEditorStore.getState();
+    expect(state).toMatchObject({ toolBefore: null, previewOverride: null });
+    expect(state.adjustments).toMatchObject({ exposure: -2, contrast: 10 });
+  });
+
+  it('toggles the whole photograph before on and off', () => {
+    toggleBeforeView();
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    expect(useEditorStore.getState().previewOverride?.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
+    toggleBeforeView();
+    expect(useEditorStore.getState()).toMatchObject({ showOriginal: false, previewOverride: null });
+  });
 });

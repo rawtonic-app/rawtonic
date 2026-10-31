@@ -542,6 +542,21 @@ describe("Before/After keys", () => {
     });
   });
 
+  it("latches the whole photograph before with Ctrl+\\ until pressed again, unlike the held \\", () => {
+    key("keydown", "Backslash", { key: "\\", ctrlKey: true });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    key("keyup", "Backslash", { key: "\\", ctrlKey: true });
+    window.dispatchEvent(new Event("blur"));
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    key("keydown", "Backslash", { key: "\\", ctrlKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ showOriginal: false, previewOverride: null });
+    // The held key still ends with its release.
+    key("keydown", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    key("keyup", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState().showOriginal).toBe(false);
+  });
+
   it("toggles with Y and cycles orientations with Shift+Y without resetting zoom or divider", () => {
     useEditorStore.setState({ zoom: 3, splitPosition: 0.3 });
     key("keydown", "KeyY", { key: "y" });
@@ -551,9 +566,11 @@ describe("Before/After keys", () => {
     key("keydown", "KeyY", { key: "Y", shiftKey: true, repeat: true });
     expect(useEditorStore.getState().splitView).toBe(true);
     key("keydown", "KeyY", { key: "Y", shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'side-by-side' });
+    key("keydown", "KeyY", { key: "Y", shiftKey: true });
     expect(useEditorStore.getState().splitView).toBe(false);
     key("keydown", "KeyY", { key: "y" });
-    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'top-bottom', zoom: 3, splitPosition: 0.3 });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'side-by-side', zoom: 3, splitPosition: 0.3 });
     key("keydown", "KeyY", { key: "Y", shiftKey: true });
     key("keydown", "KeyY", { key: "Y", shiftKey: true });
     expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });

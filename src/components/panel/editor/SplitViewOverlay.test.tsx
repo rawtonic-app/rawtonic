@@ -1,16 +1,16 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import SplitViewOverlay from './SplitViewOverlay';
+import SplitViewOverlay, { ViewerBeforeBadge } from './SplitViewOverlay';
 import { useEditorStore } from '../../../store/useEditorStore';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: { tool?: string }) => (options?.tool ? `${key}:${options.tool}` : key) }) }));
 
 beforeAll(() => {
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.hasPointerCapture = () => true;
   Element.prototype.releasePointerCapture = () => {};
 });
-beforeEach(() => useEditorStore.setState({ splitView: true, splitOrientation: 'left-right', splitPosition: 0.5, showOriginal: false }));
+beforeEach(() => useEditorStore.setState({ splitView: true, splitOrientation: 'left-right', splitPosition: 0.5, showOriginal: false, toolBefore: null }));
 afterEach(cleanup);
 
 /** The viewer spans x 100…900 on screen. */
@@ -135,4 +135,24 @@ it('moves the top/bottom divider vertically with pointer and keyboard', () => {
   expect(useEditorStore.getState().splitPosition).toBeCloseTo(0.34);
   fireEvent.keyDown(divider, { key: 'End' });
   expect(useEditorStore.getState().splitPosition).toBe(1);
+});
+
+it('side by side labels both panes and has no divider to drag', () => {
+  useEditorStore.setState({ splitOrientation: 'side-by-side' });
+  render(<SplitViewOverlay />);
+  expect(screen.getByText('studio.workspace.viewer.splitBefore')).toBeTruthy();
+  expect(screen.getByText('studio.workspace.viewer.splitAfter')).toBeTruthy();
+  expect(screen.queryByRole('slider')).toBeNull();
+  expect(screen.getByTestId('side-by-side-seam')).toBeTruthy();
+});
+
+it('names the tool left out while its reset is held, and the whole before', () => {
+  const { rerender } = render(<ViewerBeforeBadge />);
+  expect(screen.queryByTestId('viewer-before-badge')).toBeNull();
+  act(() => useEditorStore.setState({ toolBefore: 'Exposure' }));
+  rerender(<ViewerBeforeBadge />);
+  expect(screen.getByText('studio.workspace.viewer.withoutTool:Exposure')).toBeTruthy();
+  act(() => useEditorStore.setState({ toolBefore: null, showOriginal: true }));
+  rerender(<ViewerBeforeBadge />);
+  expect(screen.getByText('studio.workspace.viewer.splitBefore')).toBeTruthy();
 });

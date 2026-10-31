@@ -314,6 +314,7 @@
       "toggle_left_panel": "Tauler esquerre",
       "toggle_metadata": "Informació de la foto",
       "toggle_multi_view": "Vista múltiple",
+      "toggle_original": "Abans (foto sencera)",
       "toggle_pointer_readout": "Lectura RGB del punter",
       "toggle_proof_margin": "Marge de prova",
       "toggle_right_panel": "Tauler dret",
@@ -2339,6 +2340,7 @@
         "toggle_masks": "Alternar tauler de Màscares",
         "toggle_metadata": "Eina Metadades (Biblioteca) o informació de la foto (Revelatge, pantalla completa)",
         "toggle_multi_view": "Vista múltiple: fotos seleccionades una al costat de l’altra",
+        "toggle_original": "Commuta: tota la foto abans",
         "toggle_pointer_readout": "Activa/desactiva la lectura RGB del punter",
         "toggle_proof_margin": "Activa/desactiva el marge de prova",
         "toggle_right_panel": "Commutar el panell dret",
@@ -3245,6 +3247,7 @@
       "toolGroup": {
         "isOn": "{{tool}} activat",
         "reset": "Restableix {{tool}}",
+        "resetOrHold": "Restableix {{tool}} (mantén premut, o prem amb Alt/Opció: mostra la foto sense l’eina)",
         "turnOff": "Desactiva {{tool}}",
         "turnOn": "Activa {{tool}}"
       },
@@ -5138,6 +5141,7 @@
         "compareMode": {
           "left-right": "Divisió esquerra/dreta",
           "off": "Desactivat",
+          "side-by-side": "Costat a costat",
           "top-bottom": "Divisió superior/inferior"
         },
         "compareModes": "Mode de comparació",
@@ -5161,6 +5165,7 @@
         "splitDivider": "Divisor abans/després",
         "togglePanels": "Mostra o amaga els taulers",
         "undo": "Desfés",
+        "withoutTool": "Sense {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

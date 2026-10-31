@@ -11,27 +11,24 @@ import { browserSplitWidth } from "../../../utils/beforeAfter";
 import type { RenderSize } from "../../../hooks/useImageRenderSize";
 import type { Adjustments } from "../../../utils/adjustments";
 
-/** Before pixels in the same transformed SVG as the browser's edited frame.
- * The clip is in viewer coordinates, so moving the divider never renders. */
-export default function BrowserSplitImage({
+/** The browser's before frame (Linux): the unedited recipe, or the snapshot
+ * compared with, at the resolution the viewer shows it at; `null` path while
+ * `active` is false. */
+export function useBrowserBeforeFrame({
   path,
   adjustments,
   size,
   transform,
-  enabled,
+  active,
   decoded,
 }: {
   path: string;
   adjustments: Adjustments;
   size: RenderSize;
-  transform: { scale: number; positionX: number; positionY: number };
-  enabled: boolean;
+  transform: { scale: number };
+  active: boolean;
   decoded?: boolean;
 }) {
-  const linux = useSettingsStore((s) => s.osPlatform === "linux");
-  const split = useEditorStore((s) => s.splitView && !s.showOriginal);
-  const vertical = useEditorStore((s) => s.splitOrientation === 'top-bottom');
-  const position = useEditorStore((s) => s.splitPosition);
   const view = useEditorStore(
     useShallow((s) => ({
       showClipping: showClippingValue(s.clipHighlights, s.clipShadows),
@@ -40,8 +37,6 @@ export default function BrowserSplitImage({
       colorRangeShow: s.colorRangeShow,
     })),
   );
-  const id = useId();
-  const active = linux && enabled && split;
   // A snapshot compared with is the before; its list read again re-reads it.
   useEditorStore((s) => s.beforeSnapshot);
   useSnapshotStore((s) => s.snapshots);
@@ -61,12 +56,48 @@ export default function BrowserSplitImage({
       ) * 64,
     ),
   );
-  const { frame, error } = useBrowserViewPreview(
+  return useBrowserViewPreview(
     active ? path : null,
     recipe,
     resolution,
     String(decoded),
   );
+}
+
+/** The before frame's place holder: a spinner, or the error that stopped it. */
+export function BeforeFrameStatus({ error }: { error?: string | null }) {
+  return error ? (
+    <TriangleAlert size={18} role="img" aria-label={error} />
+  ) : (
+    <Loader2 size={18} className="animate-spin" />
+  );
+}
+
+/** Before pixels in the same transformed SVG as the browser's edited frame.
+ * The clip is in viewer coordinates, so moving the divider never renders.
+ * Side by side, the before has its own pane (BrowserBeforePane). */
+export default function BrowserSplitImage({
+  path,
+  adjustments,
+  size,
+  transform,
+  enabled,
+  decoded,
+}: {
+  path: string;
+  adjustments: Adjustments;
+  size: RenderSize;
+  transform: { scale: number; positionX: number; positionY: number };
+  enabled: boolean;
+  decoded?: boolean;
+}) {
+  const linux = useSettingsStore((s) => s.osPlatform === "linux");
+  const split = useEditorStore((s) => s.splitView && !s.showOriginal && s.splitOrientation !== 'side-by-side');
+  const vertical = useEditorStore((s) => s.splitOrientation === 'top-bottom');
+  const position = useEditorStore((s) => s.splitPosition);
+  const id = useId();
+  const active = linux && enabled && split;
+  const { frame, error } = useBrowserBeforeFrame({ path, adjustments, size, transform, active, decoded });
   if (!active) return null;
   const extent = vertical
     ? browserSplitWidth(position, { containerWidth: size.containerHeight, offsetX: size.offsetY, width: size.height }, { scale: transform.scale, positionX: transform.positionY })
@@ -89,11 +120,7 @@ export default function BrowserSplitImage({
         />
       ) : (
         <foreignObject x={8} y={32} width={24} height={24}>
-          {error ? (
-            <TriangleAlert size={18} role="img" aria-label={error} />
-          ) : (
-            <Loader2 size={18} className="animate-spin" />
-          )}
+          <BeforeFrameStatus error={error} />
         </foreignObject>
       )}
     </g>

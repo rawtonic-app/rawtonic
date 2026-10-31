@@ -314,6 +314,7 @@
       "toggle_left_panel": "Painel esquerdo",
       "toggle_metadata": "Informações da foto",
       "toggle_multi_view": "Vista múltipla",
+      "toggle_original": "Antes (foto inteira)",
       "toggle_pointer_readout": "Leitura RGB do ponteiro",
       "toggle_proof_margin": "Margem de prova",
       "toggle_right_panel": "Painel direito",
@@ -2339,6 +2340,7 @@
         "toggle_masks": "Alternar painel de Máscaras",
         "toggle_metadata": "Ferramenta Metadados (Biblioteca) ou informações da foto (Revelação, ecrã inteiro)",
         "toggle_multi_view": "Vista múltipla: fotos selecionadas lado a lado",
+        "toggle_original": "Alternar: foto inteira antes",
         "toggle_pointer_readout": "Alternar leitura RGB do ponteiro",
         "toggle_proof_margin": "Alternar margem de prova",
         "toggle_right_panel": "Alternar painel direito",
@@ -3245,6 +3247,7 @@
       "toolGroup": {
         "isOn": "{{tool}} ativado",
         "reset": "Redefinir {{tool}}",
+        "resetOrHold": "Repor {{tool}} (manter premido, ou premir com Alt/Opção: mostrar a foto sem a ferramenta)",
         "turnOff": "Desativar {{tool}}",
         "turnOn": "Ativar {{tool}}"
       },
@@ -5138,6 +5141,7 @@
         "compareMode": {
           "left-right": "Divisão esquerda/direita",
           "off": "Desativado",
+          "side-by-side": "Lado a lado",
           "top-bottom": "Divisão superior/inferior"
         },
         "compareModes": "Modo de comparação",
@@ -5161,6 +5165,7 @@
         "splitDivider": "Divisor antes/depois",
         "togglePanels": "Mostrar/ocultar painéis",
         "undo": "Desfazer",
+        "withoutTool": "Sem {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

@@ -289,6 +289,7 @@
       "toggle_left_panel": "左侧面板",
       "toggle_metadata": "照片信息",
       "toggle_multi_view": "多图视图",
+      "toggle_original": "之前（整张照片）",
       "toggle_pointer_readout": "指针 RGB 读数",
       "toggle_proof_margin": "打样边距",
       "toggle_right_panel": "右侧面板",
@@ -2130,6 +2131,7 @@
         "toggle_masks": "切换蒙版面板",
         "toggle_metadata": "元数据工具（图库）或照片信息（显影、全屏）",
         "toggle_multi_view": "多图视图：选中的照片并排显示",
+        "toggle_original": "切换：整张照片之前",
         "toggle_pointer_readout": "切换指针 RGB 读数",
         "toggle_proof_margin": "切换校样边距",
         "toggle_right_panel": "切换右侧面板",
@@ -3023,6 +3025,7 @@
       "toolGroup": {
         "isOn": "{{tool}} 开启",
         "reset": "重置{{tool}}",
+        "resetOrHold": "重置{{tool}}（按住，或按住 Alt/Option 键按下：显示不含此工具的照片）",
         "turnOff": "关闭{{tool}}",
         "turnOn": "开启{{tool}}"
       },
@@ -4816,6 +4819,7 @@
         "compareMode": {
           "left-right": "左右分割",
           "off": "关闭",
+          "side-by-side": "并排",
           "top-bottom": "上下分割"
         },
         "compareModes": "对比模式",
@@ -4839,6 +4843,7 @@
         "splitDivider": "前后对比分割线",
         "togglePanels": "显示/隐藏面板",
         "undo": "撤销",
+        "withoutTool": "不含{{tool}}",
         "zoom": "缩放"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

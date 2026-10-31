@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { INITIAL_ADJUSTMENTS } from './adjustments';
 import {
   BEFORE_FRAMING_KEYS,
+  COMPARE_MODES,
   DEFAULT_SPLIT_POSITION,
+  nextCompareMode,
+  parseSplitOrientation,
   clampSplitPosition,
   nudgeSplitPosition,
   originalPreviewAdjustments,
@@ -110,5 +113,27 @@ describe('before/after', () => {
     expect(browserSplitWidth(0.5, size, { scale: 2, positionX: -200 })).toBe(250);
     expect(browserSplitWidth(0, size, { scale: 2, positionX: 0 })).toBe(0);
     expect(browserSplitWidth(1, size, { scale: 1, positionX: -100 })).toBe(800);
+  });
+});
+
+describe('side by side', () => {
+  it('is the cycle step after top-bottom and comes back to off', () => {
+    expect(COMPARE_MODES).toEqual(['off', 'left-right', 'top-bottom', 'side-by-side']);
+    expect(nextCompareMode('off')).toBe('left-right');
+    expect(nextCompareMode('left-right')).toBe('top-bottom');
+    expect(nextCompareMode('top-bottom')).toBe('side-by-side');
+    expect(nextCompareMode('side-by-side')).toBe('off');
+  });
+
+  it('restores a stored layout, anything else as left-right', () => {
+    expect(parseSplitOrientation('side-by-side')).toBe('side-by-side');
+    expect(parseSplitOrientation('top-bottom')).toBe('top-bottom');
+    expect(parseSplitOrientation('diagonal')).toBe('left-right');
+    expect(parseSplitOrientation(undefined)).toBe('left-right');
+  });
+
+  it('has no divider for the keys to move', () => {
+    expect(nudgeSplitPosition(0.5, 'ArrowLeft', false, 'side-by-side')).toBeNull();
+    expect(nudgeSplitPosition(0.5, 'Home', false, 'side-by-side')).toBeNull();
   });
 });

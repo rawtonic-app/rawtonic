@@ -289,6 +289,7 @@
       "toggle_left_panel": "左パネル",
       "toggle_metadata": "写真情報",
       "toggle_multi_view": "マルチビュー",
+      "toggle_original": "補正前（写真全体）",
       "toggle_pointer_readout": "ポインターのRGB表示",
       "toggle_proof_margin": "校正マージン",
       "toggle_right_panel": "右パネル",
@@ -2130,6 +2131,7 @@
         "toggle_masks": "マスクパネルの表示/非表示",
         "toggle_metadata": "メタデータツール（ライブラリ）または写真の情報（現像、フルスクリーン）",
         "toggle_multi_view": "マルチビュー：選択した写真を並べて表示",
+        "toggle_original": "切り替え: 写真全体を補正前で表示",
         "toggle_pointer_readout": "ポインターのRGB表示を切り替え",
         "toggle_proof_margin": "プルーフマージンの切り替え",
         "toggle_right_panel": "右パネルの表示/非表示",
@@ -3023,6 +3025,7 @@
       "toolGroup": {
         "isOn": "{{tool}} オン",
         "reset": "{{tool}}をリセット",
+        "resetOrHold": "{{tool}}をリセット（長押し、またはAlt/Optionを押しながら押す: このツールなしの写真を表示）",
         "turnOff": "{{tool}}をオフ",
         "turnOn": "{{tool}}をオン"
       },
@@ -4816,6 +4819,7 @@
         "compareMode": {
           "left-right": "左右に分割",
           "off": "オフ",
+          "side-by-side": "横に並べる",
           "top-bottom": "上下に分割"
         },
         "compareModes": "比較モード",
@@ -4839,6 +4843,7 @@
         "splitDivider": "補正前/補正後の境界線",
         "togglePanels": "パネルの表示/非表示",
         "undo": "取り消し",
+        "withoutTool": "{{tool}}なし",
         "zoom": "ズーム"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

@@ -314,6 +314,7 @@
       "toggle_left_panel": "Panneau gauche",
       "toggle_metadata": "Infos de la photo",
       "toggle_multi_view": "Vue multiple",
+      "toggle_original": "Avant (photo entière)",
       "toggle_pointer_readout": "Valeurs RVB sous le pointeur",
       "toggle_proof_margin": "Marge d'épreuve",
       "toggle_right_panel": "Panneau droit",
@@ -2339,6 +2340,7 @@
         "toggle_masks": "Basculer le panneau des masques",
         "toggle_metadata": "Outil Métadonnées (Bibliothèque) ou informations sur la photo (Développement, plein écran)",
         "toggle_multi_view": "Vue multiple : photos sélectionnées côte à côte",
+        "toggle_original": "Basculer : toute la photo avant",
         "toggle_pointer_readout": "Afficher/masquer les valeurs RVB sous le pointeur",
         "toggle_proof_margin": "Afficher/masquer la marge d'épreuve",
         "toggle_right_panel": "Afficher/Masquer le panneau droit",
@@ -3245,6 +3247,7 @@
       "toolGroup": {
         "isOn": "{{tool}} activé",
         "reset": "Réinitialiser {{tool}}",
+        "resetOrHold": "Réinitialiser {{tool}} (maintenir, ou appuyer avec Alt/Option : afficher la photo sans l’outil)",
         "turnOff": "Désactiver {{tool}}",
         "turnOn": "Activer {{tool}}"
       },
@@ -5138,6 +5141,7 @@
         "compareMode": {
           "left-right": "Division gauche/droite",
           "off": "Désactivé",
+          "side-by-side": "Côte à côte",
           "top-bottom": "Division haut/bas"
         },
         "compareModes": "Mode de comparaison",
@@ -5161,6 +5165,7 @@
         "splitDivider": "Séparateur avant/après",
         "togglePanels": "Afficher/masquer les panneaux",
         "undo": "Annuler",
+        "withoutTool": "Sans {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

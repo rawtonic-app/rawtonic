@@ -32,7 +32,7 @@ import {
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
-import { splitViewAvailable, type CompareMode } from '../utils/beforeAfter';
+import { nextCompareMode, splitViewAvailable, type CompareMode } from '../utils/beforeAfter';
 import { beforeAdjustments } from '../utils/beforeSnapshot';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import {
@@ -840,7 +840,7 @@ export async function writeRecipeRepair(
       useLibraryStore.getState().setLibrary({ libraryActivePath: selectedImage.path });
       useUIStore.getState().setUI({ activeView: 'library', slideDirection: 1 });
     }
-    useEditorStore.getState().setEditor({ selectedImage: null, zoom: 1, showOriginal: false, previewOverride: null });
+    useEditorStore.getState().setEditor({ selectedImage: null, zoom: 1, showOriginal: false, toolBefore: null, previewOverride: null });
   }
   paths.forEach((path) => globalImageCache.delete(path));
   const { changes, failed } = await recipeWrite(
@@ -874,6 +874,11 @@ function commitDraft(path: string, adjustments: Adjustments) {
 /** The editor's adjustment update outside React (history included). During a
  * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS. */
 export function updateAdjustments(value: AdjustmentsUpdate) {
+  if (captured) {
+    const prev = captured.adjustments;
+    captured.adjustments = typeof value === 'function' ? value(prev) : { ...prev, ...value };
+    return;
+  }
   const current = useEditorStore.getState();
   const image = current.selectedImage;
   if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
@@ -902,9 +907,55 @@ export function updateAdjustments(value: AdjustmentsUpdate) {
     debouncedSetHistory(newAdjustments);
     return {
       adjustments: newAdjustments,
-      ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
+      ...(state.showOriginal || state.toolBefore ? { showOriginal: false, toolBefore: null, previewOverride: null } : {}),
     };
   });
+}
+
+/** Adjustment updates caught by `adjustmentsAfter` instead of applied. */
+let captured: { adjustments: Adjustments } | null = null;
+
+/** Whether adjustment updates are being caught (`adjustmentsAfter`): a
+ * tool's reset run for its per-tool before leaves view states alone. */
+export const capturingAdjustments = () => captured !== null;
+
+/**
+ * The recipe `run`'s adjustment updates (updateAdjustments, any tool's
+ * `setAdjustments`) would make of the current one, with none applied: no
+ * recipe change, no history step. Null without a ready photograph.
+ */
+export function adjustmentsAfter(run: () => void): Adjustments | null {
+  const state = useEditorStore.getState();
+  if (!state.selectedImage?.isReady || captured) return null;
+  captured = { adjustments: state.adjustments };
+  try {
+    run();
+    return captured.adjustments;
+  } finally {
+    captured = null;
+  }
+}
+
+/**
+ * Per-tool before (Capture One's held reset): the photograph as `reset`
+ * (the tool's own reset, on the photo or the active layer) would leave it,
+ * shown in the preview only until endToolBefore. Not while another
+ * preview (the whole before, a LUT hover) is on screen.
+ */
+export function startToolBefore(tool: string, reset: () => void): boolean {
+  const state = useEditorStore.getState();
+  if (state.showOriginal || state.previewOverride || state.isSliderDragging) return false;
+  const without = adjustmentsAfter(reset);
+  if (!without) return false;
+  state.setEditor({ toolBefore: tool, previewOverride: without });
+  return true;
+}
+
+/** Ends the per-tool before; nothing happens when it is not showing. */
+export function endToolBefore() {
+  useEditorStore.getState().setEditor((state) =>
+    state.toolBefore ? { toolBefore: null, previewOverride: null } : state,
+  );
 }
 
 /**
@@ -921,6 +972,13 @@ export function startBeforePeek(): boolean {
     return { showOriginal: true, previewOverride: beforeAdjustments(state.adjustments) };
   });
   return started;
+}
+
+/** The whole-photograph before as a toggle (Lightroom's \): on until
+ * toggled again or an edit; never a history step. */
+export function toggleBeforeView() {
+  if (useEditorStore.getState().showOriginal) endBeforePeek();
+  else startBeforePeek();
 }
 
 /** Ends the held before peek; nothing happens when it is not showing. */
@@ -1095,7 +1153,7 @@ export function useEditorActions() {
   }, [setCompareMode]);
   const cycleCompareMode = useCallback(() => {
     const state = useEditorStore.getState();
-    setCompareMode(!state.splitView ? 'left-right' : state.splitOrientation === 'left-right' ? 'top-bottom' : 'off');
+    setCompareMode(nextCompareMode(state.splitView ? state.splitOrientation : 'off'));
   }, [setCompareMode]);
 
   const handleLutSelect = useCallback(
