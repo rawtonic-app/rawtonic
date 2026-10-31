@@ -107,8 +107,11 @@ export function keepSelectionShown(byPath: Map<string, StackEntry>) {
   };
   const next = [...new Set(library.multiSelectedPaths.map(visible))];
   const active = library.libraryActivePath ? visible(library.libraryActivePath) : null;
-  if (next.join('\n') !== library.multiSelectedPaths.join('\n') || active !== library.libraryActivePath)
-    library.setLibrary({ multiSelectedPaths: next, libraryActivePath: active });
+  // The Shift-click anchor too: a hidden one would start no range.
+  const anchor = library.selectionAnchorPath ? visible(library.selectionAnchorPath) : null;
+  if (next.join('\n') !== library.multiSelectedPaths.join('\n') || active !== library.libraryActivePath
+    || anchor !== library.selectionAnchorPath)
+    library.setLibrary({ multiSelectedPaths: next, libraryActivePath: active, selectionAnchorPath: anchor });
 }
 
 let generation = 0;
