@@ -152,6 +152,10 @@ describe("Find Dust", () => {
       ],
     });
     render(<StudioFindDust />);
+    // Find dust and Sync dust are two buttons in one wrapping row, not one run-on label.
+    const row = screen.getByText(/spotRemoval\.dust\.sync \{"number":3\}/).parentElement!;
+    expect(row.classList.contains("studio-inline-wrap")).toBe(true);
+    expect(row.querySelectorAll("button")).toHaveLength(2);
     await act(async () => {
       fireEvent.click(screen.getByText(/spotRemoval\.dust\.sync \{"number":3\}/));
     });
