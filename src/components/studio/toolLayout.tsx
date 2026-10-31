@@ -194,6 +194,10 @@ export function ToolColumn({
   const setAllOpen = (open: boolean, only?: string) =>
     saveLayout((layout) => {
       const next = { ...layout.open };
+      // Opening one alone also closes the column's remembered tools that are
+      // not shown right now (they may come back after a photo switch).
+      if (only !== undefined)
+        for (const key of Object.keys(next)) if (key.startsWith(`${scope}/`)) next[key] = false;
       for (const title of columnTitles())
         next[`${scope}/${title}`] = only === undefined ? open : title === only;
       return { ...layout, open: next };

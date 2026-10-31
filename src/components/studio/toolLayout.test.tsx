@@ -126,6 +126,17 @@ describe("one tool open at a time", () => {
     expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([false, true, false]);
   });
 
+  it("also closes remembered tools that are not shown right now", () => {
+    // Codex r2: a tool open before a photo switch hid it came back open
+    // beside the one opened meanwhile.
+    useSettingsStore.setState({
+      appSettings: { toolLayout: { solo: { "develop:all": true }, open: { "develop:all/Delta": true } } } as unknown as AppSettings,
+    });
+    render(<Column />);
+    toggle("Beta", true);
+    expect(useSettingsStore.getState().appSettings?.toolLayout?.open?.["develop:all/Delta"]).toBe(false);
+  });
+
   it("opens only the Option-clicked tool without the setting", () => {
     render(<Column />);
     expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([true, false, true]);
