@@ -452,7 +452,7 @@ fn an_offline_original_is_exported_by_reference_but_not_copied() {
 }
 
 #[test]
-fn photographs_inside_the_source_library_are_always_copied() {
+fn photographs_inside_any_library_are_always_copied() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().canonicalize().unwrap();
     // A session's photographs belong to it: a catalog referring to them
@@ -470,6 +470,11 @@ fn photographs_inside_the_source_library_are_always_copied() {
     fs::write(&outside, b"outside").unwrap();
     let own_id = main.add_asset(&own).unwrap().id;
     let out_id = main.add_asset(&outside).unwrap().id;
+    // Added where it is from another session's Capture folder.
+    let other = Library::create(&root.join("Other session"), "O", Mode::Session).unwrap();
+    let theirs = other.directory.join("Capture/theirs.arw");
+    fs::write(&theirs, b"another session's").unwrap();
+    let theirs_id = main.add_asset(&theirs).unwrap().id;
     let receipt = export_catalog(
         &session.directory,
         std::slice::from_ref(&id),
@@ -485,7 +490,7 @@ fn photographs_inside_the_source_library_are_always_copied() {
     assert!(a.asset(&id).unwrap().path.starts_with(&a.directory));
     let receipt = export_catalog(
         &main.directory,
-        &[own_id.clone(), out_id.clone()],
+        &[own_id.clone(), out_id.clone(), theirs_id.clone()],
         &root.join("B"),
         &options(false),
         &go(),
@@ -493,9 +498,11 @@ fn photographs_inside_the_source_library_are_always_copied() {
         no_stage,
     )
     .unwrap();
-    assert_eq!(receipt.originals_copied, 1);
+    assert_eq!(receipt.originals_copied, 2);
     let b = Library::open(&root.join("B")).unwrap();
     assert!(b.asset(&own_id).unwrap().path.starts_with(&b.directory));
+    assert!(b.asset(&theirs_id).unwrap().path.starts_with(&b.directory));
+    assert_eq!(fs::read(&theirs).unwrap(), b"another session's");
     assert_eq!(b.asset(&out_id).unwrap().path, outside);
     assert_eq!(fs::read(&file).unwrap(), b"session original");
 }

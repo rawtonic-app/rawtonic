@@ -1373,7 +1373,7 @@
       "originalsCopied_one": "{{count}} original copied and verified",
       "originalsCopied_other": "{{count}} originals copied and verified",
       "originalsHint": "Originals are copied into the catalog folder and verified, so the folder can move to another drive or computer.",
-      "ownCopied": "Photos kept inside this project or catalog's own folder belong to it and are always copied.",
+      "ownCopied": "Photos inside the folder of a project or catalog belong to it and are always copied.",
       "photos": "Photos",
       "previews_one": "{{count}} preview included",
       "previews_other": "{{count}} previews included",

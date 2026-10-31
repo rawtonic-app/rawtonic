@@ -1351,7 +1351,7 @@
       "open": "開啟目錄",
       "originalsCopied_other": "已複製並驗證 {{count}} 個原始檔案",
       "originalsHint": "原始檔案會複製到目錄資料夾並驗證，因此資料夾可以移到其他磁碟或電腦。",
-      "ownCopied": "存放在此專案或目錄本身資料夾中的照片屬於它，一律會被複製。",
+      "ownCopied": "存放在專案或目錄資料夾中的照片屬於它，一律會被複製。",
       "photos": "照片",
       "previews_other": "已包含 {{count}} 個預覽",
       "previewsHint": "複製照片的標準預覽，不需原始檔案也能編輯。",

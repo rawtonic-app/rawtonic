@@ -12,8 +12,8 @@
 //! companion JPEG, and stored relative to the catalog, so the folder can
 //! move. Without, the catalog refers to the originals where they are; on
 //! another computer they show as offline (on their previews) until their
-//! drive is connected. Photographs inside the source library's own folder
-//! (all of a session's) belong to it and are always copied. Edit resources
+//! drive is connected. Photographs inside a library's folder (the source's
+//! own, a session's) belong to that library and are always copied. Edit resources
 //! (LUTs, profiles, mask images) are always copied into the catalog's
 //! `resources/`.
 use crate::transfer::{ResourceCopier, check, copy_file, flush_staged, walk};
@@ -138,13 +138,14 @@ pub fn export_catalog(
         ..Receipt::default()
     };
     let mut exported = Vec::with_capacity(assets.len());
-    // A photograph inside the source library's folder belongs to it (a
-    // session's, a catalog's own copies): a catalog referring to it would
-    // edit it in the other library's name. It is always copied; only
-    // photographs outside any library are referred to where they are.
+    // A photograph inside a library's folder belongs to that library (the
+    // source's own copies, a session's photographs, also those a catalog
+    // added where they are): a catalog referring to it would edit it in
+    // that library's name. It is always copied; only photographs outside
+    // any library are referred to where they are.
     let copied: Vec<bool> = originals
         .iter()
-        .map(|path| options.include_originals || path.starts_with(&source))
+        .map(|path| options.include_originals || rawtonic_catalog::session_for(path).is_some())
         .collect();
     let missing: Vec<String> = originals
         .iter()

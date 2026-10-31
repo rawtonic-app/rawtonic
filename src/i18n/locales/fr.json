@@ -1433,7 +1433,7 @@
       "originalsCopied_many": "{{count}} originaux copiés et vérifiés",
       "originalsCopied_other": "{{count}} originaux copiés et vérifiés",
       "originalsHint": "Les originaux sont copiés dans le dossier du catalogue et vérifiés, pour que le dossier puisse aller sur un autre disque ou ordinateur.",
-      "ownCopied": "Les photos rangées dans le dossier même de ce projet ou catalogue lui appartiennent et sont toujours copiées.",
+      "ownCopied": "Les photos rangées dans le dossier d’un projet ou d’un catalogue lui appartiennent et sont toujours copiées.",
       "photos": "Photos",
       "previews_one": "{{count}} aperçu inclus",
       "previews_many": "{{count}} aperçus inclus",
