@@ -423,6 +423,44 @@ pub async fn set_face_eyes(
     Ok(())
 }
 
+/// Where the open photograph at `path` shows each of `boxes` (fractions of
+/// the image the pass read: upright, uncropped, for a RAW its camera JPEG,
+/// which shows the camera's aspect crop of a whole-sensor frame) with its
+/// recipe's geometry: the outline in mask-frame pixels
+/// (`rawtonic_engine::red_eye::box_outline_shown`, the mapping the red eye
+/// corrections use), for the Loupe's face box; None for a box the geometry
+/// cannot show. `width` × `height` is the base image.
+#[tauri::command]
+pub async fn face_boxes_shown(
+    path: String,
+    js_adjustments: serde_json::Value,
+    width: u32,
+    height: u32,
+    boxes: Vec<[f64; 4]>,
+) -> Result<Vec<Option<Vec<(f64, f64)>>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (source, _) = crate::file_management::parse_virtual_path(&path);
+        let region = rawtonic_engine::camera_crop::camera_image_region(
+            &source.to_string_lossy(),
+            &js_adjustments,
+        );
+        boxes
+            .iter()
+            .map(|&b| {
+                rawtonic_engine::red_eye::box_outline_shown(
+                    &js_adjustments,
+                    width,
+                    height,
+                    b,
+                    region,
+                )
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// A crop of each of `boxes` (fractions of the upright photograph) as a
 /// small JPEG data URL, for the Loupe's faces: the eyes large enough to
 /// check the call.

@@ -146,6 +146,7 @@ export enum Invokes {
   PhotoEyeSummaries = 'photo_eye_summaries',
   SetFaceEyes = 'set_face_eyes',
   FaceEyeCrops = 'face_eye_crops',
+  FaceBoxesShown = 'face_boxes_shown',
   AnalyzeFaceRetouch = 'analyze_face_retouch',
   ApplyFaceRetouchToPaths = 'apply_face_retouch_to_paths',
   GenerateAiSubjectMask = 'generate_ai_subject_mask',

@@ -3271,6 +3271,7 @@
       "filterClosed": "目を閉じている",
       "modelsMissing": "目の確認には顔モデルが必要です。",
       "noFaces": "顔なし",
+      "showFace": "顔 {{n}} を写真上に表示",
       "start": "目を確認…",
       "startFailed": "目を確認できませんでした：{{error}}",
       "state": {

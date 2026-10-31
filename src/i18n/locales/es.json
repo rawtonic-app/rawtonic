@@ -3501,6 +3501,7 @@
       "filterClosed": "Ojos cerrados",
       "modelsMissing": "Comprobar los ojos necesita los modelos de caras.",
       "noFaces": "Sin caras",
+      "showFace": "Mostrar la cara {{n}} en la foto",
       "start": "Comprobar ojos…",
       "startFailed": "No se pudieron comprobar los ojos: {{error}}",
       "state": {

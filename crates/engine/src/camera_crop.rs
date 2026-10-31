@@ -119,6 +119,15 @@ pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
     start_new_edit(adjustments, &crops(&source.to_string_lossy()));
 }
 
+/// The part of the developed frame the camera's own image (a RAW's
+/// embedded JPEG) shows, for the recipe `adjustments` of the photo at
+/// `path`: the camera's crop in the frame version the recipe develops.
+/// None where that is the whole frame (and for files other than RAWs).
+pub fn camera_image_region(path: &str, adjustments: &Value) -> Option<CameraCrop> {
+    let version = crate::source_frame::requested(adjustments) as usize;
+    crops(path).get(version).copied().flatten()
+}
+
 /// The crop a new recipe (`is_new_recipe`) starts with, from the file's
 /// `crops` (`crops`): the one of the frame the recipe asks for
 /// (`source_frame::requested`). The single rule of every renderer, the GPU

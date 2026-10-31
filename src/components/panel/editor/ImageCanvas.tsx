@@ -35,6 +35,7 @@ import { useRelightStore } from '../../../store/useRelightStore';
 import SpotOverlay from './SpotOverlay';
 import RedEyeOverlay from './RedEyeOverlay';
 import FaceRetouchOverlay from './FaceRetouchOverlay';
+import FaceBoxOverlay from './FaceBoxOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
 import { clearDraftPatch, registerDraftPatchHost } from '../../../utils/browserDraftPatch';
 import { useDecodedPreview } from '../../../hooks/useDecodedPreview';
@@ -3414,6 +3415,21 @@ const ImageCanvas = memo(
 
           </div>
 
+          {/* The Loupe face strip's face, where the photograph shows it. */}
+          {selectedImage.isReady && !holdingNativeFrame && !isCropping && !isMasking && !isShowingOriginal && (
+            <FaceBoxOverlay
+              rect={{
+                left: imageRenderSize.offsetX,
+                top: imageRenderSize.offsetY,
+                width: imageRenderSize.width,
+                height: imageRenderSize.height,
+              }}
+              cropX={cropX}
+              cropY={cropY}
+              scale={imageRenderSize.scale || 1}
+              zoom={effectiveZoomScale}
+            />
+          )}
           {isSpotToolActive && redEyeMode && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && (
             <RedEyeOverlay
               rect={{

@@ -3501,6 +3501,7 @@
       "filterClosed": "Ulls tancats",
       "modelsMissing": "Comprovar els ulls necessita els models de cares.",
       "noFaces": "Cap cara",
+      "showFace": "Mostra la cara {{n}} a la foto",
       "start": "Comprova els ulls…",
       "startFailed": "No s'han pogut comprovar els ulls: {{error}}",
       "state": {

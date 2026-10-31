@@ -3501,6 +3501,7 @@
       "filterClosed": "Occhi chiusi",
       "modelsMissing": "Il controllo degli occhi richiede i modelli dei volti.",
       "noFaces": "Nessun volto",
+      "showFace": "Mostra il volto {{n}} sulla foto",
       "start": "Controlla gli occhi…",
       "startFailed": "Impossibile controllare gli occhi: {{error}}",
       "state": {

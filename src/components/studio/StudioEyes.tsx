@@ -9,6 +9,7 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import {
   effectiveEyes,
+  markedFace,
   setFaceEyes,
   useEyesStore,
   type EyeCall,
@@ -26,14 +27,14 @@ import { Invokes } from "../ui/AppProperties";
  * eyes need no badge. A suggestion only: nothing is rejected or removed.
  */
 
-const ICONS: Record<EyeState, typeof Eye> = {
+export const EYE_ICONS: Record<EyeState, typeof Eye> = {
   open: Eye,
   closed: EyeClosed,
   notVisible: Glasses,
   uncertain: CircleQuestionMark,
 };
 
-function stateLabel(t: TFunction, state: EyeState) {
+export function stateLabel(t: TFunction, state: EyeState) {
   switch (state) {
     case "open":
       return t("studio.eyes.state.open");
@@ -129,7 +130,31 @@ export function LoupeFaces({ path }: { path?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   useEffect(() => setMenu(null), [path]);
+  // The faces whose box the photograph may show (FaceBoxOverlay); none once
+  // the strip goes.
+  const { showFaces, hoverFace, pinFace } = useEyesStore.getState();
+  // A refresh of the same photograph's faces (a call, a background reading)
+  // keeps the hovered and pinned face; leaving the photograph or the strip
+  // drops them.
+  useEffect(() => {
+    if (path) showFaces(path, faces ?? null);
+  }, [path, faces, showFaces]);
+  useEffect(
+    () => () => {
+      if (path && useEyesStore.getState().faceMark?.path === path) showFaces(path, null);
+    },
+    [path, showFaces],
+  );
+  const pinned = useEyesStore((s) => (s.faceMark && s.faceMark.path === path ? s.faceMark.pinned : null));
+  const marked = useEyesStore((s) => (s.faceMark?.path === path ? markedFace(s.faceMark) : null));
   if (!read || !path || !faces?.length) return null;
+  /** Pins face `index` and moves the focus to its crop (arrow keys). */
+  const step = (index: number) => {
+    // The keys take over from a pointer still resting on another crop.
+    hoverFace(path, null);
+    pinFace(path, index);
+    strip.current?.querySelectorAll<HTMLButtonElement>(".studio-loupe-face-crop")[index]?.focus();
+  };
   const summary: EyeSummary = {
     faces: faces.length,
     closed: faces.filter((f) => effectiveEyes(f) === "closed").length,
@@ -153,8 +178,12 @@ export function LoupeFaces({ path }: { path?: string }) {
         if (e.key === "Escape" && menu !== null) {
           e.stopPropagation();
           setMenu(null);
+        } else if (e.key === "Escape" && pinned !== null) {
+          e.stopPropagation();
+          pinFace(path, null);
         }
       }}
+      onMouseLeave={() => hoverFace(path, null)}
       onBlur={(e) => {
         if (!strip.current?.contains(e.relatedTarget as Node | null)) setMenu(null);
       }}
@@ -165,14 +194,40 @@ export function LoupeFaces({ path }: { path?: string }) {
       <div className="studio-loupe-faces-list" role="list">
         {faces.map((face, index) => {
           const state = effectiveEyes(face);
-          const Icon = ICONS[state];
+          const Icon = EYE_ICONS[state];
           const label = stateLabel(t, state);
           const title = face.overrideState
             ? t("studio.eyes.yourCall", { state: label, read: stateLabel(t, face.state) })
             : t("studio.eyes.asRead", { state: label });
           return (
-            <div key={face.face} role="listitem" className={`studio-loupe-face is-${state}`}>
-              {urls[index] ? <img src={urls[index]} alt="" draggable={false} /> : <span className="studio-loupe-face-empty" />}
+            <div
+              key={face.face}
+              role="listitem"
+              className={`studio-loupe-face is-${state}${marked === index ? " is-marked" : ""}${pinned === index ? " is-pinned" : ""}`}
+            >
+              {/* Hover shows the face's box on the photograph, a click keeps
+                  it shown (again, Esc or another face lets go); the arrow
+                  keys move it from face to face. */}
+              <button
+                className="studio-loupe-face-crop"
+                aria-label={t("studio.eyes.showFace", { n: index + 1 })}
+                title={t("studio.eyes.showFace", { n: index + 1 })}
+                aria-pressed={pinned === index}
+                onMouseEnter={() => hoverFace(path, index)}
+                onMouseLeave={() => hoverFace(path, null)}
+                onClick={() => pinFace(path, pinned === index ? null : index)}
+                onKeyDown={(e) => {
+                  const next =
+                    e.key === "ArrowRight" ? index + 1 : e.key === "ArrowLeft" ? index - 1 : null;
+                  if (next === null) return;
+                  // Not the photograph navigation on the same keys.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (next >= 0 && next < faces.length) step(next);
+                }}
+              >
+                {urls[index] ? <img src={urls[index]} alt="" draggable={false} /> : <span className="studio-loupe-face-empty" />}
+              </button>
               <button
                 className={`studio-eye-call is-${state} ${face.overrideState ? "is-own" : ""}`}
                 aria-label={t("studio.eyes.faceLabel", { n: index + 1, state: label })}
@@ -198,7 +253,7 @@ export function LoupeFaces({ path }: { path?: string }) {
                   style={{ left: menu.left, bottom: menu.bottom }}
                 >
                   {(["open", "closed", "notVisible"] as const).map((option) => {
-                    const OptionIcon = ICONS[option];
+                    const OptionIcon = EYE_ICONS[option];
                     return (
                       <button
                         key={option}

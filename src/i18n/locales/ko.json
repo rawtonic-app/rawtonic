@@ -3271,6 +3271,7 @@
       "filterClosed": "눈 감음",
       "modelsMissing": "눈 확인에는 얼굴 모델이 필요합니다.",
       "noFaces": "얼굴 없음",
+      "showFace": "사진에서 얼굴 {{n}} 표시",
       "start": "눈 확인…",
       "startFailed": "눈을 확인하지 못했습니다: {{error}}",
       "state": {
