@@ -4282,7 +4282,11 @@ pub struct GlobalAdjustments {
     /// Film grain colour (`grainColor` / 100, grain version 3): 0 one
     /// neutral layer like black-and-white film, 1 independent dye layers.
     pub grain_color: f32,
-    pub gamut_mapping_padding: [u32; 2],
+    /// renderVersion 9 (`baseline_exposure::CAPTURE_GAIN_RENDER_VERSION`):
+    /// 1 = `BaseLook::apply` adds the capture gain to `baseline_exposure`.
+    /// Read on the CPU only (the shader's struct ends before it).
+    pub capture_gain: u32,
+    pub gamut_mapping_padding: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -5346,7 +5350,10 @@ fn get_global_adjustments_from_json(
         gamut_mapping: u32::from(render_version(js_adjustments) >= GAMUT_MAPPING_RENDER_VERSION),
         grain_color: (js_adjustments["grainColor"].as_f64().unwrap_or(0.0) / 100.0).clamp(0.0, 1.0)
             as f32,
-        gamut_mapping_padding: [0; 2],
+        capture_gain: u32::from(
+            render_version(js_adjustments) >= crate::baseline_exposure::CAPTURE_GAIN_RENDER_VERSION,
+        ),
+        gamut_mapping_padding: 0,
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -5795,7 +5802,8 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// (`image_loader::BLACK_RENDER_VERSION`, black_bias.rs). 9 (2026-10-31)
 /// rebuilds clipped colours inside larger partly clipped areas from colour
 /// ratios measured away from the clip (`image_loader::HIGHLIGHT_RENDER_VERSION`,
-/// highlight_reconstruction.rs).
+/// highlight_reconstruction.rs), and gives RAWs at extended low ISOs Camera
+/// Raw's default exposure (`baseline_exposure::CAPTURE_GAIN_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
 pub const RENDER_VERSION: u64 = 9;
 
@@ -5859,6 +5867,16 @@ pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
 /// a never-edited photo renders, and before a batch edit (paste, preset,
 /// Auto) fills one. Saved recipes, partial ones included, keep the versions
 /// they were made with.
+/// The render version a recipe develops with: a new recipe's is the
+/// current one (`apply_render_default`), a saved one keeps its own.
+pub fn effective_render_version(adjustments: &serde_json::Value) -> u64 {
+    if is_new_recipe(adjustments) {
+        RENDER_VERSION
+    } else {
+        render_version(adjustments)
+    }
+}
+
 pub fn apply_render_default(adjustments: &mut serde_json::Value) {
     if !is_new_recipe(adjustments) {
         return;
@@ -7584,18 +7602,20 @@ pub fn base_curve_index(name: Option<&str>) -> u32 {
 /// Auto adjust for one image: Capture One-like for RAWs rendered with the
 /// Standard base look (new photographs), the inherited heuristics otherwise
 /// (Classic and AgX edits, non-RAW files).
+/// `render_version`: the recipe's (its baseline is part of what Auto predicts).
 pub fn auto_adjustments_json(
     image: &DynamicImage,
     path: &str,
     is_raw: bool,
     tone_mapper: Option<&str>,
     base_curve: Option<&str>,
+    render_version: u64,
 ) -> serde_json::Value {
     if is_raw && tone_mapper.is_none_or(|name| name == "standard") {
         let look = crate::baseline_exposure::base_look(path);
         crate::auto_adjust::standard_auto_to_json(&crate::auto_adjust::standard_auto_adjustments(
             image,
-            look.baseline_ev,
+            look.baseline_for(render_version),
             crate::auto_adjust::DisplayCurve::for_look(&look),
             base_curve_index(base_curve),
         ))

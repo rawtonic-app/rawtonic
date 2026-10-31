@@ -957,6 +957,7 @@ pub async fn apply_auto_adjustments_to_paths(
                         crate::formats::is_raw_file(&source_path_str),
                         tone_mapper.as_deref(),
                         base_curve.as_deref(),
+                        crate::image_processing::effective_render_version(&recipe),
                     );
 
                     // Read again for the write: the photo may have been

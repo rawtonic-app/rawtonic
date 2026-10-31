@@ -69,6 +69,7 @@ pub fn apply_auto_settings(
         true,
         None,
         None,
+        rawtonic_engine::image_processing::RENDER_VERSION,
     );
     rawtonic_engine::auto_adjust::merge_auto_adjustments(adjustments, &auto);
 }
