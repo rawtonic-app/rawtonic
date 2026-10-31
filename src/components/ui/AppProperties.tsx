@@ -768,6 +768,9 @@ export interface LoadImageResult {
   /** The source was developed with unbiased blacks (`renderVersion` 8);
    * null for preview data. */
   unbiased_black?: boolean | null;
+  /** ... and with the masked border's black beyond 3 extra levels
+   * (`renderVersion` 11); null for preview data. */
+  border_black?: boolean | null;
   /** The source's clipped colours were rebuilt from colour ratios
    * (`renderVersion` 9); null for preview data. */
   highlight_ratios?: boolean | null;
@@ -836,6 +839,12 @@ export interface SelectedImage {
   unbiasedBlack?: boolean;
   /** A black handling the source failed to develop for (not retried). */
   unbiasedBlackFailed?: boolean;
+  /** The decoded source was developed with the masked border's black beyond
+   * 3 extra levels (`borderBlack` in src/utils/adjustments.ts); unknown for
+   * preview data. */
+  borderBlack?: boolean;
+  /** A border black handling the source failed to develop for (not retried). */
+  borderBlackFailed?: boolean;
   /** The decoded source's clipped colours were rebuilt from colour ratios
    * (`highlightRatios` in src/utils/adjustments.ts); unknown for preview
    * data. */
