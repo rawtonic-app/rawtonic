@@ -229,7 +229,7 @@ it("keeps fixed-size transparent control icons above the plot (studio.css applie
     // the studio's general pressed-button styles.
     for (const [state, fill, stroke] of [
       ["", "rgba(0, 0, 0, 0)", "rgb(150, 154, 159)"],
-      ["is-on", "rgb(85, 88, 93)", "rgb(238, 240, 243)"],
+      ["is-on", "rgba(0, 0, 0, 0)", "rgb(238, 240, 243)"],
       ["is-lit", "rgb(0, 0, 0)", "rgb(238, 240, 243)"],
       ["is-on is-lit", "rgb(0, 0, 0)", "rgb(238, 240, 243)"],
     ]) {
@@ -245,15 +245,29 @@ it("keeps fixed-size transparent control icons above the plot (studio.css applie
     const highlightMark = highlight.querySelector("polygon")!;
     for (const [state, fill] of [
       ["", "rgba(0, 0, 0, 0)"],
-      ["is-on", "rgb(200, 201, 204)"],
+      ["is-on", "rgba(0, 0, 0, 0)"],
       ["is-lit", "rgb(255, 255, 255)"],
       ["is-on is-lit", "rgb(255, 255, 255)"],
     ]) {
       highlight.setAttribute("class", `studio-clip-corner studio-clip-highlights ${state}`);
       expect(getComputedStyle(highlightMark).fill).toBe(fill);
     }
-    expect(getComputedStyle(shadow).justifyContent).toBe("flex-start");
-    expect(getComputedStyle(highlight).justifyContent).toBe("flex-end");
+    // The warning's on state is the box, independent of the glyph's fill.
+    for (const [state, background, frame] of [
+      ["", "rgba(0, 0, 0, 0)", false],
+      ["is-lit", "rgba(0, 0, 0, 0)", false],
+      ["is-on", "rgba(255, 255, 255, 0.12)", true],
+      ["is-on is-lit", "rgba(255, 255, 255, 0.12)", true],
+    ] as const) {
+      shadow.setAttribute("class", `studio-clip-corner studio-clip-shadows ${state}`);
+      expect(getComputedStyle(shadow).backgroundColor).toBe(background);
+      expect(getComputedStyle(shadow).boxShadow.includes("inset")).toBe(frame);
+    }
+    // Glyphs sit centred in their boxes; the boxes reach past the plot edge.
+    expect(getComputedStyle(shadow).justifyContent).toBe("center");
+    expect(getComputedStyle(highlight).justifyContent).toBe("center");
+    expect(getComputedStyle(shadow).marginLeft).toBe("-4.5px");
+    expect(getComputedStyle(highlight).marginRight).toBe("-4.5px");
     for (const layer of corners) {
       expect(getComputedStyle(layer).backgroundColor).toMatch(
         /transparent|rgba\(0, 0, 0, 0\)/,
