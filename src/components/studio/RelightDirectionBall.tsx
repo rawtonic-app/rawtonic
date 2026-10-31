@@ -67,6 +67,9 @@ export default function RelightDirectionBall({
             l.id === d.before.id ? d.before : l,
           ),
         }));
+      // The restored light renders as a draft too: commit it before the
+      // history is settled, so a cancelled drag leaves no step.
+      flushSliderDraft();
       debouncedSetHistory.cancel();
       if (!cancel && d.moved) state.pushHistory(useEditorStore.getState().adjustments);
     }

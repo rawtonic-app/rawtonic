@@ -522,6 +522,21 @@ it("records a long ball drag rendered as drafts as one undo step", async () => {
       rotation: start.rotation,
       elevation: start.elevation,
     });
+    // A long drag cancelled with Esc leaves no step (and keeps redo).
+    const history = useEditorStore.getState().history.length;
+    fireEvent.pointerDown(ball, { button: 0, clientX: 40, clientY: 56, pointerId: 1 });
+    fireEvent.pointerMove(ball, { clientX: 30, clientY: 56, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(COMMIT_INTERVAL_MS + 10));
+    fireEvent.pointerMove(ball, { clientX: 20, clientY: 56, pointerId: 1 });
+    fireEvent.keyDown(ball, { key: "Escape" });
+    act(() => vi.advanceTimersByTime(2000));
+    expect(useEditorStore.getState().history.length).toBe(history);
+    expect(useEditorStore.getState().adjustments.relightLights![0]).toMatchObject({
+      rotation: start.rotation,
+      elevation: start.elevation,
+    });
+    act(() => useEditorStore.getState().redo());
+    expect(useEditorStore.getState().adjustments.relightLights![0]).toMatchObject({ rotation: 90, elevation: 5 });
   } finally {
     vi.useRealTimers();
     unregister();
