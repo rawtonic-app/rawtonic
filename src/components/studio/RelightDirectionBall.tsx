@@ -5,6 +5,7 @@ import {
   debouncedSetHistory,
   updateAdjustments,
 } from "../../hooks/useEditorActions";
+import { flushSliderDraft } from "../../utils/sliderDraft";
 import {
   relightBallPatch,
   relightBallPoint,
@@ -55,6 +56,8 @@ export default function RelightDirectionBall({
     const d = drag.current;
     if (!d) return;
     drag.current = null;
+    // The last draft is committed first, so the gesture is one step.
+    flushSliderDraft();
     const state = useEditorStore.getState();
     if (state.selectedImage?.path === d.path) {
       if (cancel && d.moved)

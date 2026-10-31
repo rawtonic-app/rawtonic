@@ -13,6 +13,7 @@ import {
   updateAdjustments,
   debouncedSetHistory,
 } from "../../../hooks/useEditorActions";
+import { flushSliderDraft } from "../../../utils/sliderDraft";
 import {
   matchesRelightGeometry,
   relightBallPatch,
@@ -98,6 +99,8 @@ export default function RelightOverlay({
           ),
         }));
       else if (changed) apply();
+      // The last draft is committed first, so the gesture is one step.
+      flushSliderDraft();
       debouncedSetHistory.cancel();
       if (!cancel && changed)
         useEditorStore

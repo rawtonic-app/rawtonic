@@ -400,10 +400,15 @@ export function relightControlReason(
     case "skinReflections":
       return !depth.valid ? "needsAnalysis" : depth.faces ? null : "needsFace";
     case "diffusion":
-      // Diffusion wraps light around the surfaces' turn away from it and
-      // lifts a pattern's shadows: a frontal light without a pattern
-      // already reaches every surface facing the camera.
-      return depth.valid && !patterned && light.type === "sun" && light.elevation >= 70
+      // In the first ranges Diffusion widens the terminator and lifts a
+      // pattern's shadows: a frontal light without a pattern already
+      // reaches every surface facing the camera. From range 2 it mixes the
+      // response towards an even share at any direction.
+      return (light.rangeVersion ?? 1) < 2 &&
+        depth.valid &&
+        !patterned &&
+        light.type === "sun" &&
+        light.elevation >= 70
         ? "frontalLight"
         : null;
     case "shadows":
@@ -498,13 +503,20 @@ export function relightDragPatch(
   if (handle === "source") {
     const sourceX = clampRelight(source.x + dx, -100, 200);
     const sourceY = clampRelight(source.y + dy, -100, 200);
-    const vx = (sourceX - light.x) * width,
-      vy = (sourceY - light.y) * height;
+    const angle = (x: number, y: number) => {
+      const vx = (x - light.x) * width,
+        vy = (y - light.y) * height;
+      return Math.hypot(vx, vy) > 1 ? (Math.atan2(-vx, vy) * 180) / Math.PI : null;
+    };
+    // The sun turns by the angle its source moved around the centre: a
+    // direction set with the ball stays until the source is moved.
+    const from = angle(source.x, source.y),
+      to = angle(sourceX, sourceY);
     return {
       sourceX,
       sourceY,
-      ...(light.type === "sun" && Math.hypot(vx, vy) > 1
-        ? { rotation: relightAngle((Math.atan2(-vx, vy) * 180) / Math.PI) }
+      ...(light.type === "sun" && from !== null && to !== null
+        ? { rotation: relightAngle(light.rotation + to - from) }
         : {}),
     };
   }

@@ -469,7 +469,10 @@ it("keeps a preset light the user changed during the analysis where the user put
 it("greys diffusion out for a frontal light and says why", () => {
   withFaceDepth();
   useEditorStore.setState((s) => ({
-    adjustments: { ...s.adjustments, relightLights: [{ ...s.adjustments.relightLights![0], elevation: 85 }] },
+    adjustments: {
+      ...s.adjustments,
+      relightLights: [{ ...s.adjustments.relightLights![0], elevation: 85, rangeVersion: undefined }],
+    },
   }));
   mount();
   expect((screen.getByRole("slider", { name: "Diffusion" }) as HTMLInputElement).disabled).toBe(true);
@@ -492,4 +495,35 @@ it("offers an old light the current ranges, as one undoable step", () => {
   expect(light.rangeVersion).toBe(2);
   expect(light.intensity).toBeCloseTo(52, 0);
   expect(screen.queryByRole("button", { name: "Use the current ranges" })).toBeNull();
+});
+
+it("records a long ball drag rendered as drafts as one undo step", async () => {
+  const { registerSliderDraftRenderer, COMMIT_INTERVAL_MS } = await import("../../utils/sliderDraft");
+  const unregister = registerSliderDraftRenderer(() => true);
+  vi.useFakeTimers();
+  try {
+    withFaceDepth();
+    useEditorStore.getState().resetHistory(useEditorStore.getState().adjustments);
+    const start = useEditorStore.getState().adjustments.relightLights![0];
+    mount();
+    const ball = screen.getByRole("slider", { name: "Light direction" });
+    ball.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 112, height: 112, right: 112, bottom: 112, x: 0, y: 0 }) as DOMRect;
+    fireEvent.pointerDown(ball, { button: 0, clientX: 40, clientY: 56, pointerId: 1 });
+    fireEvent.pointerMove(ball, { clientX: 30, clientY: 56, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(COMMIT_INTERVAL_MS + 10));
+    fireEvent.pointerMove(ball, { clientX: 6, clientY: 56, pointerId: 1 });
+    fireEvent.pointerUp(ball, { clientX: 6, clientY: 56, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2000));
+    const state = useEditorStore.getState();
+    expect(state.adjustments.relightLights![0]).toMatchObject({ rotation: 90, elevation: 5 });
+    act(() => state.undo());
+    expect(useEditorStore.getState().adjustments.relightLights![0]).toMatchObject({
+      rotation: start.rotation,
+      elevation: start.elevation,
+    });
+  } finally {
+    vi.useRealTimers();
+    unregister();
+  }
 });

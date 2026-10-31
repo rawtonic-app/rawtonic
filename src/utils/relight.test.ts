@@ -169,10 +169,13 @@ it("says why a control cannot act on a light", () => {
   expect(relightControlReason("direction", { ...sun, type: "spot" }, portrait)).toBe("spotDirection");
   expect(relightControlReason("skinReflections", sun, scene)).toBe("needsFace");
   expect(relightControlReason("skinReflections", sun, portrait)).toBeNull();
-  expect(relightControlReason("diffusion", { ...sun, elevation: 80 }, portrait)).toBe("frontalLight");
+  const old = { ...sun, rangeVersion: undefined };
+  expect(relightControlReason("diffusion", { ...old, elevation: 80 }, portrait)).toBe("frontalLight");
+  // From range 2 Diffusion evens out a frontal light too.
+  expect(relightControlReason("diffusion", { ...sun, elevation: 80 }, portrait)).toBeNull();
   expect(relightControlReason("diffusion", { ...sun, elevation: 20 }, portrait)).toBeNull();
   // A pattern's shadows are lifted by diffusion at any height.
-  expect(relightControlReason("diffusion", { ...sun, elevation: 80, pattern: "blinds" }, portrait)).toBeNull();
+  expect(relightControlReason("diffusion", { ...old, elevation: 80, pattern: "blinds" }, portrait)).toBeNull();
   expect(relightControlReason("shadows", sun, scene)).toBe("needsPatternOrSubject");
   expect(relightControlReason("elevation", sun, none)).toBe("needsAnalysis");
 });
@@ -189,4 +192,14 @@ it("moves an old light to the current ranges as bright as it was", () => {
   // Range 2's constants are the renderer's.
   expect(relightRs).toMatch(/const RANGE_2_MAX_GAIN: f32 = 4\.;/);
   expect(relightRs).toMatch(/const RANGE_2_EXPONENT: f32 = 1\.5;/);
+});
+
+it("turns a sun by the angle its source moves, keeping a direction set with the ball", () => {
+  // Ball set the light from the right; the source handle still sits upper left.
+  const light = { ...createRelightLight(), rotation: -90, sourceX: 20, sourceY: 20 };
+  const patch = relightDragPatch(light, "source", { x: 20, y: 20 }, { x: 20.5, y: 20 }, 100, 100);
+  expect(Math.abs(patch.rotation! + 90)).toBeLessThan(2);
+  // Half a turn around the centre turns the light half a turn.
+  const half = relightDragPatch(light, "source", { x: 20, y: 20 }, { x: 80, y: 80 }, 100, 100);
+  expect(half.rotation).toBeCloseTo(90);
 });
