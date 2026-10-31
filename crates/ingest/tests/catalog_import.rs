@@ -45,6 +45,7 @@ fn options(new_photos: NewPhotos) -> Options {
         changed: None,
         overrides: HashMap::new(),
         include_new: true,
+        before_snapshot: "Before import".into(),
     }
 }
 
@@ -507,4 +508,139 @@ fn new_photographs_inside_the_other_catalog_are_copied_not_referenced() {
     assert_eq!(fs::read(&path).unwrap(), b"taken on the trip");
     assert_eq!(fs::read(&own).unwrap(), b"taken on the trip");
     assert_eq!(exposure(&w.main, &e), json!(0.3));
+}
+
+#[test]
+fn replace_keeps_the_replaced_edit_as_a_snapshot_and_brings_snapshots_and_copies() {
+    let (_tmp, w) = world();
+    let a = &w.ids[0];
+    // Here: a snapshot of the exported edit; there: it is renamed and a new
+    // edit made; a virtual copy with a snapshot of its own is added.
+    let version = w.main.primary_version(a).unwrap();
+    let taken = w
+        .main
+        .add_snapshot(
+            &version,
+            "Warm",
+            json!({"exposure": 0.0, "temperature": 10}),
+        )
+        .unwrap();
+    let laptop_version = w.laptop.primary_version(a).unwrap();
+    // The laptop catalog was exported before the snapshot: give it the same.
+    let db = rusqlite::Connection::open(w.laptop.directory.join("catalog.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO snapshots(id,version_id,name,created_at,adjustments) VALUES(?,?,?,?,?)",
+        rusqlite::params![
+            taken.id,
+            laptop_version,
+            "Warm",
+            taken.created_at,
+            r#"{"exposure":0.0,"temperature":10}"#
+        ],
+    )
+    .unwrap();
+    drop(db);
+    w.laptop
+        .rename_snapshot(&laptop_version, &taken.id, "Warm (client)")
+        .unwrap();
+    w.laptop.save_editor_state(a, &edit(1.0)).unwrap();
+    let mut copy = json!({"version": 1, "adjustments": {"exposure": 0.6}});
+    rawtonic_catalog::snapshots::set_in_state(
+        &mut copy,
+        &[rawtonic_catalog::Snapshot::new("Copy look", json!({"exposure": 0.6})).unwrap()],
+    )
+    .unwrap();
+    w.laptop.save_copy_state(a, "c0ffee", &copy).unwrap();
+
+    let mut opts = options(NewPhotos::Reference);
+    opts.before_snapshot = "Before import from Laptop".into();
+    let receipt = import(&w.main, &w.laptop.directory, &opts, &go(), |_| {}).unwrap();
+    assert_eq!(receipt.report.replaced, 1);
+    assert!(receipt.report.touched.contains(a));
+    assert_eq!(exposure(&w.main, a), json!(1.0));
+    let names: Vec<String> = w
+        .main
+        .snapshots(&version)
+        .unwrap()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    assert_eq!(names, ["Warm (client)", "Before import from Laptop"]);
+    let before = w.main.snapshots(&version).unwrap().pop().unwrap();
+    assert_eq!(before.adjustments["exposure"], json!(0.0));
+    assert_eq!(
+        w.main.copy_state(a, "c0ffee").unwrap(),
+        w.laptop.copy_state(a, "c0ffee").unwrap(),
+        "the copy with its snapshot"
+    );
+    // Nothing left to do.
+    let again = import(&w.main, &w.laptop.directory, &opts, &go(), |_| {}).unwrap();
+    assert_eq!((again.report.replaced, again.unchanged), (0, 2));
+}
+
+#[test]
+fn replacing_with_an_unedited_photo_applies_it_and_keeps_the_edit() {
+    let (_tmp, w) = world();
+    // Exported unedited, edited here afterwards; the untouched exported
+    // catalog imported with Replace.
+    let file = w.root.join("Shoot/e.arw");
+    fs::write(&file, b"never edited").unwrap();
+    let e = w.main.add_asset(&file).unwrap().id;
+    let plain = w.root.join("Plain");
+    export_catalog(
+        &w.main.directory,
+        std::slice::from_ref(&e),
+        &plain,
+        &catalog_export::Options {
+            name: "Plain".into(),
+            include_originals: false,
+            leave_out_owned_elsewhere: false,
+        },
+        &go(),
+        |_| {},
+        |_, _, _| Ok(0),
+    )
+    .unwrap();
+    w.main.save_editor_state(&e, &edit(2.5)).unwrap();
+    let mut replace = options(NewPhotos::Reference);
+    replace.changed = Some(Choice::Replace);
+    let receipt = import(&w.main, &plain, &replace, &go(), |_| {}).unwrap();
+    assert_eq!(receipt.report.replaced, 1);
+    let state = w.main.editor_state(&e).unwrap().unwrap();
+    assert!(state["adjustments"].is_null(), "{state}");
+    let version = w.main.primary_version(&e).unwrap();
+    let kept = w.main.snapshots(&version).unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].adjustments["exposure"], json!(2.5));
+    let again = import(&w.main, &plain, &replace, &go(), |_| {}).unwrap();
+    assert_eq!((again.report.replaced, again.unchanged), (0, 1));
+}
+
+#[test]
+fn copies_never_go_into_another_library() {
+    let (_tmp, w) = world();
+    let card = w.root.join("Card");
+    fs::create_dir_all(&card).unwrap();
+    fs::write(card.join("d.arw"), b"new").unwrap();
+    w.laptop.add_asset(&card.join("d.arw")).unwrap();
+    let session = Library::create(&w.root.join("Session"), "S", Mode::Session).unwrap();
+    let error = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Copy(session.directory.join("Capture"))),
+        &go(),
+        |_| {},
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("choose a folder outside other projects"),
+        "{error}"
+    );
+    assert_eq!(
+        fs::read_dir(session.directory.join("Capture"))
+            .unwrap()
+            .count(),
+        0
+    );
 }

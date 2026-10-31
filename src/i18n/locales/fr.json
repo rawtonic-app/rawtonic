@@ -1468,6 +1468,7 @@
       "added_many": "{{count}} nouvelles photos ajoutées",
       "added_other": "{{count}} nouvelles photos ajoutées",
       "applying": "Application des modifications",
+      "beforeSnapshot": "Avant l’import depuis {{name}}",
       "cancelled": "Import depuis le catalogue « {{name}} » annulé ; rien n’a été modifié",
       "cancelling": "Annulation de l’import…",
       "change": {
@@ -1508,7 +1509,7 @@
       "newPhotos_other": "Nouvelles photos ({{count}})",
       "nothing": "Rien à importer : chaque photo est identique dans les deux catalogues.",
       "offline": "original indisponible",
-      "otherUnchanged": "L’autre catalogue reste inchangé. Une retouche remplacée reste dans l’historique de la photo.",
+      "otherUnchanged": "L’autre catalogue reste inchangé. Une retouche remplacée est gardée comme instantané de la photo.",
       "replaced_one": "{{count}} photo mise à jour",
       "replaced_many": "{{count}} photos mises à jour",
       "replaced_other": "{{count}} photos mises à jour",

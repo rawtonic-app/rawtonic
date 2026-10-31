@@ -1468,6 +1468,7 @@
       "added_many": "{{count}} fotos noves afegides",
       "added_other": "{{count}} fotos noves afegides",
       "applying": "S'estan aplicant els canvis",
+      "beforeSnapshot": "Abans d'importar de {{name}}",
       "cancelled": "Importació del catàleg «{{name}}» cancel·lada; no s'ha canviat res",
       "cancelling": "S'està cancel·lant la importació…",
       "change": {
@@ -1508,7 +1509,7 @@
       "newPhotos_other": "Fotos noves ({{count}})",
       "nothing": "No hi ha res a importar: totes les fotos són iguals als dos catàlegs.",
       "offline": "original no disponible",
-      "otherUnchanged": "L'altre catàleg no canvia. Una edició substituïda queda a l'historial de la foto.",
+      "otherUnchanged": "L'altre catàleg no canvia. Una edició substituïda es conserva com a instantània de la foto.",
       "replaced_one": "{{count}} foto actualitzada",
       "replaced_many": "{{count}} fotos actualitzades",
       "replaced_other": "{{count}} fotos actualitzades",

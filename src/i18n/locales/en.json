@@ -1401,6 +1401,7 @@
       "added_one": "{{count}} new photo added",
       "added_other": "{{count}} new photos added",
       "applying": "Applying the changes",
+      "beforeSnapshot": "Before import from {{name}}",
       "cancelled": "Import from catalog “{{name}}” cancelled; nothing was changed",
       "cancelling": "Cancelling the import…",
       "change": {
@@ -1438,7 +1439,7 @@
       "newPhotos_other": "New photos ({{count}})",
       "nothing": "Nothing to import: every photo is the same in both catalogs.",
       "offline": "original not available",
-      "otherUnchanged": "The other catalog stays unchanged. A replaced edit stays in the photo's history.",
+      "otherUnchanged": "The other catalog stays unchanged. A replaced edit is kept as a snapshot of the photo.",
       "replaced_one": "{{count}} photo updated",
       "replaced_other": "{{count}} photos updated",
       "running": "Importing from catalog “{{name}}”",

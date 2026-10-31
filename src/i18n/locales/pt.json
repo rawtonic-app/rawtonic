@@ -1468,6 +1468,7 @@
       "added_many": "{{count}} fotos novas adicionadas",
       "added_other": "{{count}} fotos novas adicionadas",
       "applying": "Aplicando as alterações",
+      "beforeSnapshot": "Antes da importação de {{name}}",
       "cancelled": "Importação do catálogo “{{name}}” cancelada; nada foi alterado",
       "cancelling": "Cancelando a importação…",
       "change": {
@@ -1508,7 +1509,7 @@
       "newPhotos_other": "Fotos novas ({{count}})",
       "nothing": "Nada a importar: todas as fotos são iguais nos dois catálogos.",
       "offline": "original indisponível",
-      "otherUnchanged": "O outro catálogo permanece inalterado. Uma edição substituída fica no histórico da foto.",
+      "otherUnchanged": "O outro catálogo permanece inalterado. Uma edição substituída é guardada como instantâneo da foto.",
       "replaced_one": "{{count}} foto atualizada",
       "replaced_many": "{{count}} fotos atualizadas",
       "replaced_other": "{{count}} fotos atualizadas",

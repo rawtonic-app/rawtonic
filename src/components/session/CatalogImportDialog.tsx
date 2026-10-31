@@ -9,7 +9,7 @@
  * original, never by name. The review lists new photographs (added where
  * they are, or copied to a chosen folder) and changed ones, with one choice
  * for the run and one per photo: Replace edits and metadata (the default;
- * the replaced edit stays in the photo's history), Keep current (the
+ * the replaced edit is kept as a snapshot of the photo), Keep current (the
  * default for photos only this catalog changed) or Import as virtual copy.
  * Unchanged photos are skipped and counted. The import runs in the
  * background with progress and Cancel in the activity centre.
@@ -46,6 +46,8 @@ export interface CatalogImportOptions {
   changed: ImportChoice | null;
   overrides: Record<string, ImportChoice>;
   includeNew: boolean;
+  /** Name of the snapshot keeping an edit that Replace replaces. */
+  beforeSnapshot: string;
 }
 interface Receipt {
   added: number; replaced: number; virtualCopies: number; kept: number; albumsCreated: number;
@@ -175,6 +177,7 @@ export default function CatalogImportDialog({ directory, onClose, onDone }: Prop
         changed: runChoice,
         overrides,
         includeNew,
+        beforeSnapshot: t("session.catalogImport.beforeSnapshot", { name: review.name }),
       };
       void runCatalogImport(directory, other, review.name, options, onDone);
       onClose();

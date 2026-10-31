@@ -1535,6 +1535,7 @@
       "added_many": "Dodano nowe zdjęcia: {{count}}",
       "added_other": "Dodano nowe zdjęcia: {{count}}",
       "applying": "Stosowanie zmian",
+      "beforeSnapshot": "Przed importem z {{name}}",
       "cancelled": "Anulowano import z katalogu „{{name}}”; nic nie zmieniono",
       "cancelling": "Anulowanie importu…",
       "change": {
@@ -1578,7 +1579,7 @@
       "newPhotos_other": "Nowe zdjęcia ({{count}})",
       "nothing": "Nie ma czego importować: wszystkie zdjęcia są takie same w obu katalogach.",
       "offline": "oryginał niedostępny",
-      "otherUnchanged": "Drugi katalog pozostaje bez zmian. Zastąpiona edycja zostaje w historii zdjęcia.",
+      "otherUnchanged": "Drugi katalog pozostaje bez zmian. Zastąpiona edycja zostaje zachowana jako migawka zdjęcia.",
       "replaced_one": "Zaktualizowano {{count}} zdjęcie",
       "replaced_few": "Zaktualizowano zdjęcia: {{count}}",
       "replaced_many": "Zaktualizowano zdjęcia: {{count}}",

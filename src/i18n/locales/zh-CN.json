@@ -1372,6 +1372,7 @@
       "addByReference": "在另一目录中的位置添加",
       "added_other": "已添加 {{count}} 张新照片",
       "applying": "正在应用更改",
+      "beforeSnapshot": "从 {{name}} 导入前",
       "cancelled": "从目录“{{name}}”导入已取消；未做任何更改",
       "cancelling": "正在取消导入…",
       "change": {
@@ -1406,7 +1407,7 @@
       "newPhotos_other": "新照片（{{count}}）",
       "nothing": "没有可导入的内容：两个目录中的所有照片都相同。",
       "offline": "原始文件不可用",
-      "otherUnchanged": "另一个目录保持不变。被替换的编辑保留在照片的历史记录中。",
+      "otherUnchanged": "另一个目录保持不变。被替换的编辑会保留为照片的快照。",
       "replaced_other": "已更新 {{count}} 张照片",
       "running": "正在从目录“{{name}}”导入",
       "source": "要导入的目录",

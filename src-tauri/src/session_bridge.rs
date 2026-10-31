@@ -1841,6 +1841,39 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     }
 }
 
+/// `rederive`, and the derived sidecars of the photograph's virtual copies
+/// (`<file>.<copy>.rrdata`), which listings find copies by and which the
+/// editor reads for a photograph that is online: after the library changed
+/// them itself (Import from Catalog). Written only when they differ.
+pub(crate) fn rederive_with_copies(lib: &Library, id: &str) {
+    rederive(lib, id);
+    let (Ok(asset), Ok(copies)) = (lib.asset(id), lib.copies(id)) else {
+        return;
+    };
+    let Some(name) = asset
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+    else {
+        return;
+    };
+    for copy in copies {
+        let Ok(Some(state)) = lib.copy_state(id, &copy) else {
+            continue;
+        };
+        let sidecar = asset.path.with_file_name(format!("{name}.{copy}.rrdata"));
+        let current: Option<Value> = fs::read(&sidecar)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        if current.as_ref() != Some(&state)
+            && let Ok(bytes) = serde_json::to_vec_pretty(&state)
+            && let Err(e) = rawtonic_metadata::atomic_write(&sidecar, bytes)
+        {
+            log::warn!("Editor sidecar pending for {}: {e}", sidecar.display());
+        }
+    }
+}
+
 /// `verify_paths` for an opened library, bringing the derived files of
 /// photographs that came back up to date.
 fn check_files(lib: &Library) -> anyhow::Result<usize> {

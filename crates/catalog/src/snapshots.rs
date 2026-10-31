@@ -231,6 +231,48 @@ pub(crate) fn insert(
     Ok(())
 }
 
+/// Stores `snapshots` for `version`: new ones after those it has, and one
+/// with an id the version has already in its place (renamed or updated
+/// elsewhere: Import from Catalog).
+pub(crate) fn upsert(
+    tx: &Connection,
+    directory: &std::path::Path,
+    version: &str,
+    snapshots: &[Snapshot],
+) -> Result<()> {
+    for snapshot in snapshots {
+        let key: Option<i64> = tx
+            .query_row(
+                "SELECT key FROM snapshots WHERE version_id=? AND id=?",
+                params![version, snapshot.id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(key) = key else {
+            insert(tx, directory, version, std::slice::from_ref(snapshot))?;
+            continue;
+        };
+        snapshot.validate()?;
+        let mut adjustments = snapshot.adjustments.clone();
+        rawtonic_metadata::resources::localize(&mut adjustments, directory);
+        let hashes = store_blobs(tx, &mut adjustments)?;
+        let text = serde_json::to_string(&adjustments)?;
+        ensure!(text.len() <= MAX_ADJUSTMENTS, "Snapshot too large");
+        tx.execute(
+            "UPDATE snapshots SET name=?,created_at=?,adjustments=? WHERE key=?",
+            params![snapshot.name, snapshot.created_at, text, key],
+        )?;
+        tx.execute("DELETE FROM snapshot_blob_refs WHERE snapshot_key=?", [key])?;
+        for hash in hashes {
+            tx.execute(
+                "INSERT OR IGNORE INTO snapshot_blob_refs(snapshot_key,hash) VALUES(?,?)",
+                params![key, hash],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// Whether `version` has any snapshot.
 pub(crate) fn any(tx: &Connection, version: &str) -> Result<bool> {
     Ok(tx

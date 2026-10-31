@@ -84,6 +84,8 @@ pub struct Plan {
     pub changed: Vec<Changed>,
     /// The import batch kind of the new ones: "add" or "ingest" (copied).
     pub batch_kind: &'static str,
+    /// The name of the snapshot that keeps an edit Replace replaces.
+    pub before: String,
 }
 
 /// A changed photograph of a `Plan`.
@@ -106,6 +108,9 @@ pub struct Report {
     pub virtual_copies: usize,
     pub kept: usize,
     pub albums_created: usize,
+    /// The photographs here whose edits or copies changed (their derived
+    /// editor sidecars are to be written again).
+    pub touched: Vec<String>,
 }
 
 /// What a photograph carries that an import compares, with resources
@@ -161,6 +166,10 @@ impl Library {
         let version = self.primary_version(asset)?;
         Ok(self.recipe(&version)?.and_then(|recipe| {
             let mut state = recipe.get("editor_state").cloned()?;
+            // An edit back to the defaults (`UNEDITED`) is no edit.
+            if state.get("adjustments").is_none_or(Value::is_null) {
+                return None;
+            }
             if let Some(map) = state.as_object_mut() {
                 map.remove("rating");
                 map.remove("tags");
@@ -194,11 +203,12 @@ impl Library {
             .prepare("SELECT face,override_state FROM face_eyes WHERE asset_id=? ORDER BY face")?
             .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
+        // Of the photograph and of its virtual copies (by the copy's id).
         let snapshots = self
             .conn
             .prepare(
-                "SELECT s.id,s.name,s.adjustments FROM snapshots s JOIN versions v ON v.id=s.version_id
-                 WHERE v.asset_id=? AND v.is_primary=1",
+                "SELECT CASE WHEN v.is_primary=1 THEN '' ELSE v.name END || '/' || s.id,s.name,s.adjustments
+                 FROM snapshots s JOIN versions v ON v.id=s.version_id WHERE v.asset_id=?",
             )?
             .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?;
@@ -526,6 +536,9 @@ impl Library {
         if !plan.new.is_empty() {
             add_new(&tx, self, plan)?;
             report.added = plan.new.len();
+            report
+                .touched
+                .extend(plan.new.iter().map(|(id, _)| id.clone()));
             here.extend(plan.new.iter().map(|(id, _)| (id.clone(), id.clone())));
         }
         for changed in &plan.changed {
@@ -533,12 +546,22 @@ impl Library {
             match changed.choice {
                 Choice::Keep => report.kept += 1,
                 Choice::Replace => {
-                    replace(&tx, other, incoming, target, &changed.changes)?;
+                    replace(
+                        &tx,
+                        self,
+                        other,
+                        incoming,
+                        target,
+                        &changed.changes,
+                        &plan.before,
+                    )?;
                     here.push((incoming.clone(), target.clone()));
+                    report.touched.push(target.clone());
                     report.replaced += 1;
                 }
                 Choice::VirtualCopy => {
                     as_virtual_copy(&tx, other, incoming, target)?;
+                    report.touched.push(target.clone());
                     report.virtual_copies += 1;
                 }
             }
@@ -701,15 +724,25 @@ fn add_new(tx: &Connection, lib: &Library, plan: &Plan) -> Result<()> {
     Ok(())
 }
 
+/// The edit an unedited photograph stores when an import replaces an edit
+/// with none: it opens with the defaults of a never-edited photograph (as
+/// `with_library_metadata` shows one), and has an edit of its own, so an
+/// editor sidecar beside it is never adopted over it.
+const UNEDITED: &str = r#"{"schema_version":1,"process_version":"rapidraw-1.6.4","adjustments":null,"editor_state":{"version":1,"adjustments":null},"layers":[]}"#;
+
 /// The incoming photograph's edit, virtual copies, metadata, capture-time
-/// correction, eye calls and new snapshots replace the photograph's here.
-/// The edit is a new step of its history; copies only here stay.
+/// correction, eye calls and snapshots replace the photograph's here (only
+/// what differs). The edit is a new step of its history, and the edit it
+/// replaces is kept as a snapshot named `before` (the app's Snapshots
+/// panel brings it back); copies only here stay.
 fn replace(
     tx: &Connection,
+    lib: &Library,
     other: &Library,
     incoming: &str,
     target: &str,
     changes: &[&str],
+    before: &str,
 ) -> Result<()> {
     let version: String = tx.query_row(
         "SELECT id FROM versions WHERE asset_id=? AND is_primary=1",
@@ -717,32 +750,67 @@ fn replace(
         |r| r.get(0),
     )?;
     let theirs = other.primary_version(incoming)?;
-    if changes.contains(&"edit")
-        && let Some(recipe) = other.recipe(&theirs)?
-    {
-        write_recipe(tx, &version, &serde_json::to_string(&recipe)?)?;
+    if changes.contains(&"edit") {
+        if let Some(adjustments) = lib
+            .recipe(&version)?
+            .and_then(|recipe| recipe.pointer("/editor_state/adjustments").cloned())
+            .filter(Value::is_object)
+        {
+            crate::snapshots::insert(
+                tx,
+                &lib.directory,
+                &version,
+                &[crate::Snapshot::new(before, adjustments)?],
+            )?;
+        }
+        let payload = match other.recipe(&theirs)? {
+            Some(recipe) => serde_json::to_string(&recipe)?,
+            None => UNEDITED.to_string(),
+        };
+        write_recipe(tx, &version, &payload)?;
     }
     if changes.contains(&"metadata") {
         write_metadata(tx, target, &other.metadata(incoming)?)?;
     }
-    if changes.contains(&"copies") {
-        let copies: Vec<(String, Option<String>)> = other
-            .conn
-            .prepare("SELECT name,legacy_state FROM versions WHERE asset_id=? AND is_primary=0")?
-            .query_map([incoming], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?;
-        for (name, state) in copies {
-            if tx.execute(
-                "UPDATE versions SET legacy_state=? WHERE asset_id=? AND name=? AND is_primary=0",
-                params![state, target, name],
-            )? == 0
-            {
-                tx.execute(
-                    "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state) VALUES(?,?,?,0,?)",
-                    params![uuid::Uuid::new_v4().to_string(), target, name, state],
-                )?;
-            }
+    // Their virtual copies (state and snapshots); copies only here stay.
+    let copies: Vec<(String, String, Option<String>)> = other
+        .conn
+        .prepare("SELECT id,name,legacy_state FROM versions WHERE asset_id=? AND is_primary=0")?
+        .query_map([incoming], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    if changes.contains(&"copies") || changes.contains(&"snapshots") {
+        for (their_copy, name, state) in copies {
+            let existing: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
+                    params![target, name],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let here = match existing {
+                Some(here) => {
+                    tx.execute(
+                        "UPDATE versions SET legacy_state=? WHERE id=?",
+                        params![state, here],
+                    )?;
+                    here
+                }
+                None => {
+                    let here = uuid::Uuid::new_v4().to_string();
+                    tx.execute(
+                        "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state) VALUES(?,?,?,0,?)",
+                        params![here, target, name, state],
+                    )?;
+                    here
+                }
+            };
+            let snapshots = crate::snapshots::read(&other.conn, &lib.directory, &their_copy)?;
+            crate::snapshots::upsert(tx, &lib.directory, &here, &snapshots)?;
         }
+    }
+    if changes.contains(&"snapshots") {
+        let snapshots = crate::snapshots::read(&other.conn, &lib.directory, &theirs)?;
+        crate::snapshots::upsert(tx, &lib.directory, &version, &snapshots)?;
     }
     let set_target = format!("'{}'", target.replace('\'', "''"));
     let theirs_only = format!("WHERE o.asset_id='{}'", incoming.replace('\'', "''"));
@@ -760,46 +828,6 @@ fn replace(
         tx.execute("DELETE FROM eye_reads WHERE asset_id=?", [target])?;
         copy_rows(tx, "eye_reads", &theirs_only, &[("asset_id", &set_target)])?;
         copy_rows(tx, "face_eyes", &theirs_only, &[("asset_id", &set_target)])?;
-    }
-    if !changes.contains(&"snapshots") {
-        return Ok(());
-    }
-    // Snapshots taken there that are not here (same snapshot id).
-    let snapshot_offset: i64 =
-        tx.query_row("SELECT coalesce(max(key),0) FROM main.snapshots", [], |r| {
-            r.get(0)
-        })?;
-    let theirs_version = format!(
-        "WHERE o.version_id='{}' AND o.id NOT IN (SELECT id FROM main.snapshots WHERE version_id='{}')",
-        theirs.replace('\'', "''"),
-        version.replace('\'', "''")
-    );
-    let key = format!("o.key+{snapshot_offset}");
-    let set_version = format!("'{}'", version.replace('\'', "''"));
-    let keys: Vec<i64> = tx
-        .prepare(&format!(
-            "SELECT o.key FROM other.snapshots o {theirs_version}"
-        ))?
-        .query_map([], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    copy_rows(
-        tx,
-        "snapshots",
-        &theirs_version,
-        &[("key", &key), ("version_id", &set_version)],
-    )?;
-    for old in keys {
-        tx.execute(
-            "INSERT OR IGNORE INTO main.recipe_blobs(hash,data)
-               SELECT b.hash,b.data FROM other.recipe_blobs b
-               WHERE b.hash IN (SELECT hash FROM other.snapshot_blob_refs WHERE snapshot_key=?)",
-            [old],
-        )?;
-        tx.execute(
-            "INSERT INTO main.snapshot_blob_refs(snapshot_key,hash)
-               SELECT snapshot_key+?,hash FROM other.snapshot_blob_refs WHERE snapshot_key=?",
-            params![snapshot_offset, old],
-        )?;
     }
     Ok(())
 }

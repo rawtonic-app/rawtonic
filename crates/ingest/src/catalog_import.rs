@@ -149,6 +149,14 @@ pub struct Options {
     /// Bring in the new photographs at all.
     #[serde(default = "yes")]
     pub include_new: bool,
+    /// The name of the snapshot that keeps an edit Replace replaces (the
+    /// app's translation of "Before import from …").
+    #[serde(default = "before_import")]
+    pub before_snapshot: String,
+}
+
+fn before_import() -> String {
+    "Before import".into()
 }
 
 fn yes() -> bool {
@@ -260,6 +268,7 @@ pub fn import(
         new: Vec::new(),
         changed,
         batch_kind: "add",
+        before: options.before_snapshot.clone(),
     };
     // A new photograph inside the other library's folder (its own copies)
     // belongs to it: referring to it would edit it in that library's name.
@@ -287,6 +296,7 @@ pub fn import(
         }
         fs::create_dir_all(&folder)?;
         let copied = copy_originals(
+            target,
             &source,
             &to_copy,
             &folder,
@@ -352,6 +362,7 @@ impl Drop for Placed {
 /// `folder/<their folder's name>/`, verified, then puts each folder in
 /// place under a free name. Returns (id, new place).
 fn copy_originals(
+    target: &Library,
     source: &Source,
     new: &[&Incoming],
     folder: &Path,
@@ -366,6 +377,17 @@ fn copy_originals(
         !folder.starts_with(&source.directory),
         "Choose a folder outside the catalog you import from"
     );
+    // A folder another library owns would make the copies its photographs
+    // (their edits would go there, not here).
+    if let Some(library) = rawtonic_catalog::session_for(&folder.join("_"))
+        && library != target.directory
+    {
+        anyhow::bail!(
+            "{} belongs to {}; choose a folder outside other projects and catalogs",
+            folder.display(),
+            library.display()
+        );
+    }
     let missing: Vec<String> = new
         .iter()
         .filter(|p| !p.available)

@@ -1372,6 +1372,7 @@
       "addByReference": "다른 카탈로그의 위치 그대로 추가",
       "added_other": "새 사진 {{count}}장 추가",
       "applying": "변경 사항 적용 중",
+      "beforeSnapshot": "{{name}}에서 가져오기 전",
       "cancelled": "카탈로그 “{{name}}” 가져오기를 취소했습니다. 바뀐 것이 없습니다",
       "cancelling": "가져오기 취소 중…",
       "change": {
@@ -1406,7 +1407,7 @@
       "newPhotos_other": "새 사진 ({{count}})",
       "nothing": "가져올 것이 없습니다. 모든 사진이 두 카탈로그에서 같습니다.",
       "offline": "원본을 사용할 수 없음",
-      "otherUnchanged": "다른 카탈로그는 바뀌지 않습니다. 바뀐 편집은 사진의 기록에 남습니다.",
+      "otherUnchanged": "다른 카탈로그는 바뀌지 않습니다. 바뀐 편집은 사진의 스냅숏으로 남습니다.",
       "replaced_other": "사진 {{count}}장 업데이트",
       "running": "카탈로그 “{{name}}”에서 가져오는 중",
       "source": "가져올 카탈로그",

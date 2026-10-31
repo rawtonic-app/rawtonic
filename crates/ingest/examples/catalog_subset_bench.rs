@@ -87,6 +87,7 @@ fn main() -> anyhow::Result<()> {
                 changed: None,
                 overrides: Default::default(),
                 include_new: true,
+                before_snapshot: "Before import".into(),
             },
             &AtomicBool::new(false),
             |_| {},

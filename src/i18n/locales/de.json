@@ -1401,6 +1401,7 @@
       "added_one": "{{count}} neues Foto hinzugefügt",
       "added_other": "{{count}} neue Fotos hinzugefügt",
       "applying": "Änderungen werden übernommen",
+      "beforeSnapshot": "Vor dem Import aus {{name}}",
       "cancelled": "Import aus Katalog „{{name}}“ abgebrochen; nichts wurde geändert",
       "cancelling": "Import wird abgebrochen…",
       "change": {
@@ -1438,7 +1439,7 @@
       "newPhotos_other": "Neue Fotos ({{count}})",
       "nothing": "Nichts zu importieren: Alle Fotos sind in beiden Katalogen gleich.",
       "offline": "Original nicht verfügbar",
-      "otherUnchanged": "Der andere Katalog bleibt unverändert. Eine ersetzte Bearbeitung bleibt im Verlauf des Fotos.",
+      "otherUnchanged": "Der andere Katalog bleibt unverändert. Eine ersetzte Bearbeitung bleibt als Schnappschuss des Fotos erhalten.",
       "replaced_one": "{{count}} Foto aktualisiert",
       "replaced_other": "{{count}} Fotos aktualisiert",
       "running": "Import aus Katalog „{{name}}“",

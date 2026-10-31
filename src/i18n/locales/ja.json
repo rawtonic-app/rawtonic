@@ -1372,6 +1372,7 @@
       "addByReference": "相手のカタログの場所のまま追加",
       "added_other": "新しい写真を {{count}} 枚追加",
       "applying": "変更を適用中",
+      "beforeSnapshot": "{{name}} からの読み込み前",
       "cancelled": "カタログ「{{name}}」からの読み込みをキャンセルしました。何も変更されていません",
       "cancelling": "読み込みをキャンセル中…",
       "change": {
@@ -1406,7 +1407,7 @@
       "newPhotos_other": "新しい写真（{{count}}）",
       "nothing": "読み込むものはありません。すべての写真が両方のカタログで同じです。",
       "offline": "元ファイルがありません",
-      "otherUnchanged": "相手のカタログは変更されません。置き換えた編集は写真の履歴に残ります。",
+      "otherUnchanged": "相手のカタログは変更されません。置き換えた編集は写真のスナップショットとして残ります。",
       "replaced_other": "{{count}} 枚を更新",
       "running": "カタログ「{{name}}」から読み込み中",
       "source": "読み込むカタログ",

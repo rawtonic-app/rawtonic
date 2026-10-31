@@ -1372,6 +1372,7 @@
       "addByReference": "在另一目錄中的位置加入",
       "added_other": "已加入 {{count}} 張新照片",
       "applying": "正在套用變更",
+      "beforeSnapshot": "從 {{name}} 匯入前",
       "cancelled": "從目錄「{{name}}」匯入已取消；未做任何變更",
       "cancelling": "正在取消匯入…",
       "change": {
@@ -1406,7 +1407,7 @@
       "newPhotos_other": "新照片（{{count}}）",
       "nothing": "沒有可匯入的內容：兩個目錄中的所有照片都相同。",
       "offline": "原始檔案無法使用",
-      "otherUnchanged": "另一個目錄保持不變。被取代的編輯保留在照片的歷程中。",
+      "otherUnchanged": "另一個目錄保持不變。被取代的編輯會保留為照片的快照。",
       "replaced_other": "已更新 {{count}} 張照片",
       "running": "正在從目錄「{{name}}」匯入",
       "source": "要匯入的目錄",

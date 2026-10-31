@@ -63,7 +63,7 @@ it("imports with per-photo choices and copies of new originals, after saving edi
     target: "/Main", other: "/laptop/Job",
     options: {
       newPhotos: { mode: "copy", folder: "/photos/Imported" }, changed: "replace",
-      overrides: { a: "virtualCopy", b: "keep" }, includeNew: true,
+      overrides: { a: "virtualCopy", b: "keep" }, includeNew: true, beforeSnapshot: "Before import from Laptop",
     },
   }));
   expect(vi.mocked(flushBeforeQuit).mock.invocationCallOrder[0])
@@ -98,7 +98,7 @@ it("reports the result and refreshes the catalog; a failure says nothing was cha
     added: 1, replaced: 2, virtualCopies: 0, kept: 1, albumsCreated: 1, unchanged: 5, originalsCopied: 0, offline: 0, missingResources: 0, leftOut: 0,
   });
   const onDone = vi.fn().mockResolvedValue(undefined);
-  const options = { newPhotos: { mode: "reference" as const }, changed: null, overrides: {}, includeNew: true };
+  const options = { newPhotos: { mode: "reference" as const }, changed: null, overrides: {}, includeNew: true, beforeSnapshot: "Before" };
   await runCatalogImport("/Main", "/laptop/Job", "Laptop", options, onDone);
   const done = useActivityStore.getState().entries.find((entry) => entry.status === "done")!;
   expect(done.title).toBe("Imported from catalog “Laptop”");

@@ -147,7 +147,7 @@ pub async fn library_import_catalog(
                 CANCEL_IMPORT.store(false, Ordering::Release);
                 let lib = rawtonic_catalog::Library::open(Path::new(&target))
                     .map_err(|e| e.to_string())?;
-                rawtonic_ingest::catalog_import::import(
+                let receipt = rawtonic_ingest::catalog_import::import(
                     &lib,
                     Path::new(&other),
                     &options,
@@ -156,7 +156,13 @@ pub async fn library_import_catalog(
                         let _ = app.emit(IMPORT_PROGRESS, progress);
                     },
                 )
-                .map_err(|e| format!("{e:#}"))
+                .map_err(|e| format!("{e:#}"))?;
+                // The editor and listings read an online photograph's
+                // edits and virtual copies from the sidecars beside it.
+                for id in &receipt.report.touched {
+                    crate::session_bridge::rederive_with_copies(&lib, id);
+                }
+                Ok(receipt)
             },
         )
     })
@@ -299,5 +305,33 @@ mod tests {
                 "the source's preview is unchanged"
             );
         }
+    }
+
+    /// After an import the editor and listings find a photograph's new
+    /// edit and virtual copies in the sidecars beside it.
+    #[test]
+    fn imported_edits_and_copies_reach_the_sidecars() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let lib = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
+        let photo = root.join("Shoot/a.arw");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, b"raw").unwrap();
+        let id = lib.add_asset(&photo).unwrap().id;
+        lib.save_editor_state(&id, &serde_json::json!({"adjustments": {"exposure": 1}}))
+            .unwrap();
+        lib.save_copy_state(
+            &id,
+            "c0ffee",
+            &serde_json::json!({"adjustments": {"exposure": 2}}),
+        )
+        .unwrap();
+        crate::session_bridge::rederive_with_copies(&lib, &id);
+        let read = |name: &str| -> serde_json::Value {
+            serde_json::from_slice(&fs::read(photo.with_file_name(name)).unwrap()).unwrap()
+        };
+        assert_eq!(read("a.arw.rrdata")["adjustments"]["exposure"], 1);
+        assert_eq!(read("a.arw.c0ffee.rrdata")["adjustments"]["exposure"], 2);
+        assert_eq!(fs::read(&photo).unwrap(), b"raw");
     }
 }
