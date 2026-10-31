@@ -673,6 +673,9 @@ pub struct AppSettings {
     /// user's tool order per column (missing = default order).
     #[serde(default)]
     pub tool_layout: Option<ToolLayout>,
+    /// Ids of the favourite presets and styles, in the order starred.
+    #[serde(default)]
+    pub favorite_presets: Option<Vec<String>>,
     /// The brush's last size, hardness, opacity and flow (Capture One keeps
     /// them across photos and launches).
     #[serde(default)]
@@ -877,6 +880,7 @@ impl Default for AppSettings {
             crop_grid: None,
             crop_shade: None,
             tool_layout: None,
+            favorite_presets: None,
             brush_defaults: None,
             sort_criteria: None,
             filter_criteria: None,

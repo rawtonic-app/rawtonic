@@ -3440,6 +3440,33 @@
   box-shadow: inset 2px 0 0 var(--studio-accent, #9cc2e0);
   color: #fff;
 }
+/* A preset and its favourite star: the star shows on hover or focus, and
+   always (filled, accent) once the preset is a favourite. */
+.studio-preset-row {
+  display: flex;
+  align-items: center;
+}
+.studio-preset-row > .studio-preset {
+  flex: 1;
+  min-width: 0;
+}
+.studio-workspace .studio-preset-star {
+  flex: none;
+  padding: 3px 5px;
+  color: #8f949a;
+  opacity: 0;
+}
+.studio-preset-row:hover > .studio-preset-star,
+.studio-workspace .studio-preset-star:focus-visible {
+  opacity: 1;
+}
+.studio-workspace .studio-preset-star:hover {
+  color: #eef0f2;
+}
+.studio-workspace .studio-preset-star.is-on {
+  opacity: 1;
+  color: var(--studio-accent, #9cc2e0);
+}
 .studio-workspace .studio-preset .studio-preset-applied-mark {
   margin-left: auto;
   color: var(--studio-accent, #9cc2e0);

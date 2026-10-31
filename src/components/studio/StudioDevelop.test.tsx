@@ -231,6 +231,22 @@ describe("Develop tool contracts", () => {
     ]);
   });
 
+  // UXR3 D3 (notes reference/ux-local-tools-2026-10-31): dodge and burn
+  // on a layer starts with Exposure, which sat under White balance and the
+  // Snapshots/History dock (4 actions against Lightroom's and Capture
+  // One's 3). For a layer Exposure comes first, as in Lightroom's masks.
+  it("puts Exposure before White balance for a layer, after it for the photo", () => {
+    mount();
+    const order = () =>
+      [...document.querySelectorAll<HTMLElement>("details.studio-tool-group")]
+        .map((group) => group.dataset.toolTitle)
+        .filter((title) => title === "White balance" || title === "Exposure");
+    expect(order()).toEqual(["White balance", "Exposure"]);
+    fireEvent.click(screen.getByRole("button", { name: "Layers & masks" }));
+    fireEvent.click(screen.getByRole("button", { name: "New brush layer" }));
+    expect(order()).toEqual(["Exposure", "White balance"]);
+  });
+
   it("makes brightness fine-grained, preserves stored units and isolates local edits", () => {
     useEditorStore.setState({
       adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), brightness: 0.4 },

@@ -1060,6 +1060,84 @@ export default function StudioDevelop() {
         },
       }),
   });
+  // Before Exposure for the photograph, after it for a layer.
+  const whiteBalanceGroup = inTab("all", "layers") && (
+            <ToolGroup
+              key="whiteBalance"
+              title="White balance"
+              label={t("studio.develop.groups.whiteBalance")}
+              onReset={() =>
+                reset(
+                  layer
+                    ? ["temperature", "tint"]
+                    : [
+                        "temperature",
+                        "tint",
+                        "whiteBalance",
+                        "wbTemperature",
+                        "wbTint",
+                      ],
+                )
+              }
+              copy={photoOnly([
+                ["whiteBalance", t("studio.develop.groups.whiteBalance")],
+                ["wbTemperature", t("studio.develop.whiteBalance.temp")],
+                ["wbTint", t("adjustments.color.tint")],
+                [
+                  "temperature",
+                  t("studio.develop.whiteBalance.relativeTemperature"),
+                ],
+                ["tint", t("studio.develop.whiteBalance.relativeTint")],
+              ])}
+              toggle={toolSwitch("whiteBalance")}
+              actions={
+                !layer && (
+                  <button
+                    type="button"
+                    className="studio-tool-auto"
+                    disabled={!panelsReady}
+                    aria-label={t("studio.develop.whiteBalance.auto")}
+                    title={t("studio.develop.whiteBalance.autoTitle", { shortcut: "⌘⇧U" })}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void handleAutoWhiteBalance();
+                    }}
+                  >
+                    <Sparkles size={12} />
+                    {t("studio.develop.auto.label")}
+                  </button>
+                )
+              }
+            >
+              {selectedImage?.isRaw && !layer ? (
+                <StudioWhiteBalance
+                  values={adjustments}
+                  imagePath={selectedImage.path}
+                  disabled={!panelsReady}
+                  onChange={change}
+                  onAuto={() => void handleAutoWhiteBalance()}
+                  onInteraction={onInteraction}
+                  picker={wbPicker}
+                  fallback={
+                    <>
+                      {relativePickerRow}
+                      {relativeWhiteBalance}
+                    </>
+                  }
+                />
+              ) : (
+                <>
+                  {relativePickerRow}
+                  {relativeWhiteBalance}
+                </>
+              )}
+              {selectedImage?.isRaw &&
+                !layer &&
+                (!!adjustments.temperature || !!adjustments.tint) &&
+                relativeWhiteBalance}
+            </ToolGroup>
+  );
+
   return (
     <div className="studio-develop">
       <PerfProfiler id="histogram">
@@ -1356,82 +1434,7 @@ export default function StudioDevelop() {
               </label>
             </ToolGroup>
           )}
-          {inTab("all", "layers") && (
-            <ToolGroup
-              key="whiteBalance"
-              title="White balance"
-              label={t("studio.develop.groups.whiteBalance")}
-              onReset={() =>
-                reset(
-                  layer
-                    ? ["temperature", "tint"]
-                    : [
-                        "temperature",
-                        "tint",
-                        "whiteBalance",
-                        "wbTemperature",
-                        "wbTint",
-                      ],
-                )
-              }
-              copy={photoOnly([
-                ["whiteBalance", t("studio.develop.groups.whiteBalance")],
-                ["wbTemperature", t("studio.develop.whiteBalance.temp")],
-                ["wbTint", t("adjustments.color.tint")],
-                [
-                  "temperature",
-                  t("studio.develop.whiteBalance.relativeTemperature"),
-                ],
-                ["tint", t("studio.develop.whiteBalance.relativeTint")],
-              ])}
-              toggle={toolSwitch("whiteBalance")}
-              actions={
-                !layer && (
-                  <button
-                    type="button"
-                    className="studio-tool-auto"
-                    disabled={!panelsReady}
-                    aria-label={t("studio.develop.whiteBalance.auto")}
-                    title={t("studio.develop.whiteBalance.autoTitle", { shortcut: "⌘⇧U" })}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      void handleAutoWhiteBalance();
-                    }}
-                  >
-                    <Sparkles size={12} />
-                    {t("studio.develop.auto.label")}
-                  </button>
-                )
-              }
-            >
-              {selectedImage?.isRaw && !layer ? (
-                <StudioWhiteBalance
-                  values={adjustments}
-                  imagePath={selectedImage.path}
-                  disabled={!panelsReady}
-                  onChange={change}
-                  onAuto={() => void handleAutoWhiteBalance()}
-                  onInteraction={onInteraction}
-                  picker={wbPicker}
-                  fallback={
-                    <>
-                      {relativePickerRow}
-                      {relativeWhiteBalance}
-                    </>
-                  }
-                />
-              ) : (
-                <>
-                  {relativePickerRow}
-                  {relativeWhiteBalance}
-                </>
-              )}
-              {selectedImage?.isRaw &&
-                !layer &&
-                (!!adjustments.temperature || !!adjustments.tint) &&
-                relativeWhiteBalance}
-            </ToolGroup>
-          )}
+          {!layer && whiteBalanceGroup}
           {inTab("all", "layers") && (
             <ToolGroup
               key="exposure"
@@ -1499,6 +1502,9 @@ export default function StudioDevelop() {
               )}
             </ToolGroup>
           )}
+          {/* For a layer Exposure comes first (dodge and burn, Lightroom's
+              masks); White balance follows it. */}
+          {layer && whiteBalanceGroup}
           {inTab("all", "layers") && (
             <ToolGroup
               key="presence"

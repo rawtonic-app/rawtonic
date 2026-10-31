@@ -472,6 +472,8 @@ export interface AppSettings {
   cropShade?: number;
   /** Open tools ("<column>/<tool>") and the tool order per column. */
   toolLayout?: ToolLayout;
+  /** Ids of the favourite presets and styles, in the order starred. */
+  favoritePresets?: string[];
   /** The brush's last size, hardness, opacity and flow. */
   brushDefaults?: Partial<Pick<BrushSettings, "size" | "hardness" | "opacity" | "flow">>;
   enableAiTagging?: boolean;

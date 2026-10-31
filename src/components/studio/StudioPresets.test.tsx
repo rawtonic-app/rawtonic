@@ -315,6 +315,65 @@ describe("preset amount", () => {
   });
 });
 
+// UXR3 D5 (notes reference/ux-local-tools-2026-10-31): Lightroom's
+// favourite presets. A star on a preset (shown on hover, always once on)
+// keeps it in a Favourites group at the top of the list.
+describe("favourite presets", () => {
+  it("stars a preset into a Favourites group on top, kept in the settings, and unstars it", async () => {
+    await renderTool();
+    // The star beside a preset (its row's other button).
+    const star = (preset: RegExp, index = 0) =>
+      screen.getAllByRole("button", { name: preset })[index].parentElement!.querySelector<HTMLButtonElement>(".studio-preset-star")!;
+    expect(screen.queryByRole("button", { name: /^Favorites/ })).toBeNull();
+    expect(star(/^Warm evening$/).getAttribute("aria-pressed")).toBe("false");
+    expect(star(/^Warm evening$/).getAttribute("aria-label")).toBe("Add to favorites");
+    fireEvent.click(star(/^Warm evening$/));
+    expect(useSettingsStore.getState().appSettings?.favoritePresets).toEqual(["warm"]);
+    expect(mockInvoke).toHaveBeenCalledWith("save_settings", expect.anything());
+    // The group comes first and holds the preset; a click there applies it.
+    const groups = [...document.querySelectorAll(".studio-preset-folder")].map((el) => el.textContent);
+    expect(groups[0]).toMatch(/^Favorites/);
+    expect(screen.getAllByRole("button", { name: /^Warm evening$/ })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Warm evening$/ })[0]);
+    expect(apply).toHaveBeenCalledWith({ temperature: 12 }, ["/job/a.arw"]);
+    // Built-in styles can be favourites too; the star reads on without hover.
+    fireEvent.click(star(/B&W high contrast/));
+    expect(useSettingsStore.getState().appSettings?.favoritePresets).toEqual(["warm", "bw-high-contrast"]);
+    const on = star(/^Warm evening$/);
+    expect(on.getAttribute("aria-pressed")).toBe("true");
+    expect(on.getAttribute("aria-label")).toBe("Remove from favorites");
+    expect(on.className).toContain("is-on");
+    fireEvent.click(on);
+    expect(useSettingsStore.getState().appSettings?.favoritePresets).toEqual(["bw-high-contrast"]);
+  });
+
+  // Review round 1: a favourite shows twice; Rename edits only the entry
+  // whose menu was used, so the field stays open for typing.
+  it("renames a favourite in the entry it was asked from", async () => {
+    for (const index of [0, 1]) {
+      cleanup();
+      useSettingsStore.setState({ appSettings: { favoritePresets: ["warm"] } as AppSettings });
+      await renderTool();
+      fireEvent.contextMenu(screen.getAllByRole("button", { name: /^Warm evening$/ })[index]);
+      fireEvent.click(screen.getByText("Rename"));
+      const fields = screen.getAllByRole("textbox", { name: "Rename Warm evening" });
+      expect(fields).toHaveLength(1);
+      expect(document.activeElement).toBe(fields[0]);
+    }
+  });
+
+  it("finds favourites by name and leaves out a favourite that is gone", async () => {
+    useSettingsStore.setState({ appSettings: { favoritePresets: ["gone", "warm"] } as AppSettings });
+    await renderTool();
+    const group = () => document.querySelector(".studio-preset-group-favorites")!;
+    expect([...group().querySelectorAll(".studio-preset span")].map((el) => el.textContent)).toEqual(["Warm evening"]);
+    // Finding presets finds favourites by name too.
+    const favorites = { folderName: "Favorites", ids: ["warm"] };
+    expect(groupPresets(stored, "warm", null, favorites)[0].folder?.name).toBe("Favorites");
+    expect(groupPresets(stored, "contrast", null, favorites).map((g) => g.folder?.name)).toEqual(["Black & white"]);
+  });
+});
+
 describe("preview and folders (Lightroom, Capture One)", () => {
   it("previews a preset on the open photo while hovered, without applying it", async () => {
     vi.useFakeTimers();

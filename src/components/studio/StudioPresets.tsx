@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { ArrowDownAZ, Check, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles } from "lucide-react";
+import { ArrowDownAZ, Check, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles, Star } from "lucide-react";
 import { notify } from "../../activity/notify";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
@@ -21,6 +21,8 @@ import { noteTool } from "../contribute/usageStats";
 type Entry = { folder: { id: string; name: string; builtin?: boolean } | null; presets: Preset[] };
 
 const BUILTIN_FOLDER = "builtin";
+const FAVORITES_FOLDER = "favorites";
+const NO_FAVORITES: string[] = [];
 
 /** Root presets first (as one unnamed group), then folders in their order. */
 /** Rawtonic's own styles (`builtins`, names as shown) follow in their own
@@ -29,6 +31,7 @@ export function groupPresets(
   items: UserPreset[],
   query = "",
   builtins: { folderName: string; presets: Preset[]; nameOf(preset: Preset): string } | null = null,
+  favorites: { folderName: string; ids: string[] } | null = null,
 ): Entry[] {
   const needle = query.trim().toLowerCase();
   const match = (preset: Preset) => (builtins && preset.builtin ? builtins.nameOf(preset) : preset.name).toLowerCase().includes(needle);
@@ -48,7 +51,16 @@ export function groupPresets(
     if (presets.length || !needle)
       folders.push({ folder: { id: BUILTIN_FOLDER, name: builtins.folderName, builtin: true }, presets });
   }
-  return root.length ? [{ folder: null, presets: root }, ...folders] : folders;
+  const groups = root.length ? [{ folder: null, presets: root }, ...folders] : folders;
+  // Lightroom's Favorites: the starred presets (also built-in styles) on
+  // top, in the order they were starred; one that is gone is left out.
+  if (favorites?.ids.length) {
+    const shown = new Map(groups.flatMap((group) => group.presets.map((preset) => [preset.id, preset] as const)));
+    const presets = favorites.ids.flatMap((id) => shown.get(id) ?? []);
+    if (presets.length)
+      return [{ folder: { id: FAVORITES_FOLDER, name: favorites.folderName, builtin: true }, presets }, ...groups];
+  }
+  return groups;
 }
 
 /** Styles replace one another and a click on the applied one removes it;
@@ -205,6 +217,9 @@ export default function StudioPresets() {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
+  // The group whose entry of a preset is renamed: a favourite shows twice
+  // (Favorites and its own group), and only the entry clicked is edited.
+  const [renamingIn, setRenamingIn] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Preset | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The open photo's last applied style (`appliedStyle` in its recipe).
@@ -216,6 +231,16 @@ export default function StudioPresets() {
   useEffect(() => {
     void loadBuiltinPresets();
   }, []);
+  const favoriteIds = useSettingsStore((s) => s.appSettings?.favoritePresets) ?? NO_FAVORITES;
+  const toggleFavorite = (preset: Preset) => {
+    const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+    if (!appSettings) return;
+    const ids = appSettings.favoritePresets ?? [];
+    void handleSettingsChange({
+      ...appSettings,
+      favoritePresets: ids.includes(preset.id) ? ids.filter((id) => id !== preset.id) : [...ids, preset.id],
+    });
+  };
   const groups = useMemo(
     () =>
       groupPresets(
@@ -224,8 +249,9 @@ export default function StudioPresets() {
         showBuiltins
           ? { folderName: t("studio.presets.builtinFolder"), presets: builtins, nameOf: (preset) => presetName(t, preset) }
           : null,
+        { folderName: t("studio.presets.favorites"), ids: favoriteIds },
       ),
-    [presets, query, showBuiltins, builtins, t],
+    [presets, query, showBuiltins, builtins, t, favoriteIds],
   );
   const folders = groups.flatMap((group) => (group.folder && !group.folder.builtin ? [group.folder] : []));
   const count = presets.reduce((n, item) => n + (item.preset ? 1 : item.folder?.children.length ?? 0), 0);
@@ -303,13 +329,19 @@ export default function StudioPresets() {
       notify.error(t("studio.presets.toasts.exportFailed", { error: String(error) }));
     }
   };
-  const menu = (e: MouseEvent, preset: Preset) => {
+  const menu = (e: MouseEvent, preset: Preset, groupKey: string) => {
     e.preventDefault();
     endPreview();
     // Built-ins are read-only.
     if (preset.builtin) return;
     showContextMenu(e.clientX, e.clientY, [
-      { label: t("studio.presets.menu.rename"), onClick: () => setRenaming(preset.id) },
+      {
+        label: t("studio.presets.menu.rename"),
+        onClick: () => {
+          setRenamingIn(groupKey);
+          setRenaming(preset.id);
+        },
+      },
       {
         label: t("studio.presets.menu.update"),
         disabled: !ready,
@@ -643,7 +675,7 @@ export default function StudioPresets() {
           const key = group.folder?.id ?? "";
           const open = !group.folder || query.trim() !== "" || !collapsed.has(key);
           return (
-            <div key={key} role="listitem">
+            <div key={key} role="listitem" className={key === FAVORITES_FOLDER ? "studio-preset-group-favorites" : undefined}>
               {group.folder && renaming === group.folder.id ? (
                 <input
                   className="studio-metadata-input"
@@ -683,7 +715,7 @@ export default function StudioPresets() {
               )}
               {open &&
                 group.presets.map((preset) =>
-                  renaming === preset.id ? (
+                  renaming === preset.id && renamingIn === key ? (
                     <input
                       key={preset.id}
                       className="studio-metadata-input"
@@ -694,8 +726,8 @@ export default function StudioPresets() {
                       onBlur={() => setRenaming(null)}
                     />
                   ) : (
+                    <div key={preset.id} className="studio-preset-row">
                     <button
-                      key={preset.id}
                       className={`studio-preset ${group.folder ? "is-nested" : ""} ${isStyle(preset) && appliedStyle?.id === preset.id ? "is-applied" : ""}`}
                       disabled={!panelsReady}
                       aria-pressed={isStyle(preset) ? appliedStyle?.id === preset.id : undefined}
@@ -709,7 +741,7 @@ export default function StudioPresets() {
                               : t("studio.presets.appliesAll")
                       }
                       onClick={() => apply(preset)}
-                      onContextMenu={(e) => menu(e, preset)}
+                      onContextMenu={(e) => menu(e, preset, key)}
                       onMouseEnter={() => startPreview(preset)}
                       onMouseLeave={endPreview}
                     >
@@ -719,6 +751,18 @@ export default function StudioPresets() {
                         <Check size={11} className="studio-preset-applied-mark" data-applied-mark aria-hidden />
                       )}
                     </button>
+                    {/* Lightroom's favourites: shown on hover, always once on. */}
+                    <button
+                      type="button"
+                      className={`studio-preset-star ${favoriteIds.includes(preset.id) ? "is-on" : ""}`}
+                      aria-pressed={favoriteIds.includes(preset.id)}
+                      aria-label={t(favoriteIds.includes(preset.id) ? "studio.presets.favoriteRemove" : "studio.presets.favoriteAdd")}
+                      title={t(favoriteIds.includes(preset.id) ? "studio.presets.favoriteRemove" : "studio.presets.favoriteAdd")}
+                      onClick={() => toggleFavorite(preset)}
+                    >
+                      <Star size={11} fill={favoriteIds.includes(preset.id) ? "currentColor" : "none"} />
+                    </button>
+                    </div>
                   ),
                 )}
             </div>
