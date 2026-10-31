@@ -396,3 +396,38 @@ fn only_what_is_still_changed_elsewhere_is_marked() {
     assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 0);
     assert_eq!(lib.summary().unwrap().xmp_pending, 0);
 }
+
+/// Synthetic catalog timing only: 5,000 invented photos and changed sidecars,
+/// with a warm file cache. Setup and the sidecar scan are outside the timer.
+/// Run explicitly with --ignored --nocapture; no speed gate or UI claim.
+#[test]
+#[ignore = "synthetic 5,000-photo marking timing"]
+fn time_marking_five_thousand_changed_sidecars() {
+    let temp = tempfile::tempdir().unwrap();
+    let names: Vec<_> = (0..5000).map(|i| format!("{i:04}.ARW")).collect();
+    let names: Vec<_> = names.iter().map(String::as_str).collect();
+    let (lib, ids, paths) = session(temp.path(), &names);
+    for id in &ids {
+        lib.sync_xmp(id).unwrap();
+    }
+    for path in &paths {
+        fs::write(path.with_extension("xmp"), "another program").unwrap();
+    }
+    let check = lib
+        .check_xmp_sidecars(None, &mut SidecarStamps::default())
+        .unwrap();
+    assert_eq!(check.changed.len(), 5000);
+    let conn = rusqlite::Connection::open(lib.directory.join("session.sqlite")).unwrap();
+    for run in 1..=3 {
+        conn.execute("UPDATE metadata SET xmp_status='synced'", [])
+            .unwrap();
+        let start = std::time::Instant::now();
+        let marked = lib.mark_changed_elsewhere(&check.changed).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(marked, 5000);
+        eprintln!(
+            "synthetic catalog marking: run={run} photos={marked} elapsed_ms={:.3}",
+            elapsed.as_secs_f64() * 1000.0
+        );
+    }
+}
