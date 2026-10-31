@@ -45,11 +45,11 @@ pub struct Progress {
     pub path: String,
 }
 
-fn check(cancel: &AtomicBool) -> Result<()> {
+pub(crate) fn check(cancel: &AtomicBool) -> Result<()> {
     ensure!(!cancel.load(Ordering::Acquire), "Copy cancelled");
     Ok(())
 }
-fn digest(path: &Path, cancel: &AtomicBool) -> Result<String> {
+pub(crate) fn digest(path: &Path, cancel: &AtomicBool) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hash = Sha256::new();
     let mut buffer = vec![0; 1024 * 1024];
@@ -63,7 +63,7 @@ fn digest(path: &Path, cancel: &AtomicBool) -> Result<String> {
     }
     Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
-fn walk(root: &Path, out: &mut Vec<PathBuf>, skip_cache: bool) -> Result<()> {
+pub(crate) fn walk(root: &Path, out: &mut Vec<PathBuf>, skip_cache: bool) -> Result<()> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
         let path = entry.path();
@@ -104,7 +104,7 @@ fn excluded(relative: &Path) -> bool {
             )
         )
 }
-fn copy_file(source: &Path, to: &Path, cancel: &AtomicBool) -> Result<()> {
+pub(crate) fn copy_file(source: &Path, to: &Path, cancel: &AtomicBool) -> Result<()> {
     check(cancel)?;
     fs::create_dir_all(to.parent().context("Missing destination parent")?)?;
     let metadata = fs::metadata(source)?;
@@ -366,70 +366,9 @@ pub fn copy_library(
             path: relative.to_string_lossy().into_owned(),
         });
     }
-    let mut resources_copied = BTreeMap::<PathBuf, String>::new();
-    // Resources that are not there, with whether what a photograph shows
-    // now uses them.
-    let mut resources_missing = BTreeMap::<PathBuf, bool>::new();
-    let mut rewrite = |value: &str, used: ResourceUse<'_>| -> Result<String> {
-        check(cancel)?;
-        if value.is_empty() {
-            return Ok(value.into());
-        }
-        let owner = used.owner.map(|path| {
-            path.strip_prefix(&stage_root)
-                .map(|r| source.join(r))
-                .unwrap_or_else(|_| path.to_path_buf())
-        });
-        let owner_root = owner
-            .as_deref()
-            .and_then(rawtonic_catalog::session_for)
-            .unwrap_or_else(|| source.clone());
-        let path = if let Some(relative) = resources::relative(value) {
-            owner_root.join(relative)
-        } else if Path::new(value).is_absolute() {
-            PathBuf::from(value)
-        } else {
-            rawtonic_catalog::validate_relative(Path::new(value))?;
-            owner_root.join(value)
-        };
-        // Already gone (a LUT deleted after an old undo step or a preset
-        // used it): there is nothing to copy, and stopping would leave the
-        // user without any backup. The reference stays as it is (the file
-        // may come back on this computer) and is counted in the receipt.
-        if !path
-            .try_exists()
-            .with_context(|| format!("Cannot read edit resource {}", path.display()))?
-        {
-            *resources_missing.entry(path).or_default() |= used.current;
-            return Ok(value.into());
-        }
-        let path = path
-            .canonicalize()
-            .with_context(|| format!("Cannot read edit resource {}", path.display()))?;
-        if let Some(value) = resources_copied.get(&path) {
-            return Ok(value.clone());
-        }
-        let hash = digest(&path, cancel)?;
-        let relative = PathBuf::from("resources")
-            .join(&hash)
-            .join(path.file_name().context("Resource has no filename")?);
-        let to = stage_root.join(&relative);
-        if !to.exists() {
-            copy_file(&path, &to, cancel)?;
-        }
-        ensure!(
-            digest(&to, cancel)? == hash,
-            "Copied resource checksum mismatch: {}",
-            to.display()
-        );
-        let value = format!(
-            "{}{}",
-            resources::PREFIX,
-            relative.to_string_lossy().replace('\\', "/")
-        );
-        resources_copied.insert(path, value.clone());
-        Ok(value)
-    };
+    let mut copier = ResourceCopier::new(&stage_root, &source, cancel);
+    let mut rewrite =
+        |value: &str, used: ResourceUse<'_>| -> Result<String> { copier.rewrite(value, used) };
     snapshot.rewrite_resources(&mut rewrite)?;
     let owners: BTreeMap<_, _> = originals
         .iter()
@@ -483,11 +422,8 @@ pub fn copy_library(
         created_at: chrono::Utc::now().to_rfc3339(),
         photographs: assets.len(),
         files: BTreeMap::new(),
-        missing_resources: resources_missing.len(),
-        missing_current_resources: resources_missing
-            .values()
-            .filter(|&&current| current)
-            .count(),
+        missing_resources: copier.missing.len(),
+        missing_current_resources: copier.missing_current(),
     };
     for path in all {
         check(cancel)?;
@@ -521,6 +457,97 @@ pub fn copy_library(
     Ok(receipt)
 }
 
+/// Copies the edit resources (LUTs, camera profiles, mask images) a staged
+/// library's recipes name into its `resources/<sha256>/` folder and rewrites
+/// each reference to that copy. Resources already gone are counted
+/// (`missing`, with whether what a photograph shows now uses them) and keep
+/// their reference.
+pub(crate) struct ResourceCopier<'a> {
+    stage_root: &'a Path,
+    source: &'a Path,
+    cancel: &'a AtomicBool,
+    copied: BTreeMap<PathBuf, String>,
+    pub(crate) missing: BTreeMap<PathBuf, bool>,
+}
+
+impl<'a> ResourceCopier<'a> {
+    pub(crate) fn new(stage_root: &'a Path, source: &'a Path, cancel: &'a AtomicBool) -> Self {
+        Self {
+            stage_root,
+            source,
+            cancel,
+            copied: BTreeMap::new(),
+            missing: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn missing_current(&self) -> usize {
+        self.missing.values().filter(|&&current| current).count()
+    }
+
+    pub(crate) fn rewrite(&mut self, value: &str, used: ResourceUse<'_>) -> Result<String> {
+        let (stage_root, source, cancel) = (self.stage_root, self.source, self.cancel);
+        check(cancel)?;
+        if value.is_empty() {
+            return Ok(value.into());
+        }
+        let owner = used.owner.map(|path| {
+            path.strip_prefix(stage_root)
+                .map(|r| source.join(r))
+                .unwrap_or_else(|_| path.to_path_buf())
+        });
+        let owner_root = owner
+            .as_deref()
+            .and_then(rawtonic_catalog::session_for)
+            .unwrap_or_else(|| source.to_path_buf());
+        let path = if let Some(relative) = resources::relative(value) {
+            owner_root.join(relative)
+        } else if Path::new(value).is_absolute() {
+            PathBuf::from(value)
+        } else {
+            rawtonic_catalog::validate_relative(Path::new(value))?;
+            owner_root.join(value)
+        };
+        // Already gone (a LUT deleted after an old undo step or a preset
+        // used it): there is nothing to copy, and stopping would leave the
+        // user without any copy. The reference stays as it is (the file
+        // may come back on this computer) and is counted.
+        if !path
+            .try_exists()
+            .with_context(|| format!("Cannot read edit resource {}", path.display()))?
+        {
+            *self.missing.entry(path).or_default() |= used.current;
+            return Ok(value.into());
+        }
+        let path = path
+            .canonicalize()
+            .with_context(|| format!("Cannot read edit resource {}", path.display()))?;
+        if let Some(value) = self.copied.get(&path) {
+            return Ok(value.clone());
+        }
+        let hash = digest(&path, cancel)?;
+        let relative = PathBuf::from("resources")
+            .join(&hash)
+            .join(path.file_name().context("Resource has no filename")?);
+        let to = stage_root.join(&relative);
+        if !to.exists() {
+            copy_file(&path, &to, cancel)?;
+        }
+        ensure!(
+            digest(&to, cancel)? == hash,
+            "Copied resource checksum mismatch: {}",
+            to.display()
+        );
+        let value = format!(
+            "{}{}",
+            resources::PREFIX,
+            relative.to_string_lossy().replace('\\', "/")
+        );
+        self.copied.insert(path, value.clone());
+        Ok(value)
+    }
+}
+
 /// Flushes a staged copy to its drive, opened for writing: Windows flushes
 /// only a handle with write access (`FlushFileBuffers` answers access
 /// denied to a read-only one, which `File::open` asks for). The staged
@@ -530,7 +557,7 @@ pub fn copy_library(
 /// whether the flush worked or not, before it can be published. Other
 /// systems flush a read-only handle as it is.
 #[cfg(windows)]
-fn flush_staged(path: PathBuf) -> Result<()> {
+pub(crate) fn flush_staged(path: PathBuf) -> Result<()> {
     let kept = fs::metadata(&path)?.permissions();
     let mut writable = kept.clone();
     #[expect(
@@ -557,7 +584,7 @@ fn flush_staged(path: PathBuf) -> Result<()> {
 }
 
 #[cfg(not(windows))]
-fn flush_staged(path: PathBuf) -> Result<()> {
+pub(crate) fn flush_staged(path: PathBuf) -> Result<()> {
     fs::File::open(&path)
         .and_then(|file| file.sync_all())
         .with_context(|| format!("Cannot flush {}", path.display()))

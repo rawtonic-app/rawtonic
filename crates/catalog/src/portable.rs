@@ -196,9 +196,15 @@ impl Library {
         Ok(())
     }
 
-    /// Emit the snapshot's authoritative states, including offline copies.
+    /// Emit the snapshot's authoritative states, including offline copies,
+    /// beside the photographs inside the library folder.
     pub fn write_portable_sidecars(&self) -> Result<()> {
         for asset in self.assets(None)? {
+            // Photographs referenced outside the library (a catalog exported
+            // by reference) keep the sidecars beside their files untouched.
+            if !asset.path.starts_with(&self.directory) {
+                continue;
+            }
             let name = asset.path.file_name().unwrap().to_string_lossy();
             if let Some(mut state) = self.editor_state(&asset.id)? {
                 rawtonic_metadata::resources::localize(&mut state, &self.directory);

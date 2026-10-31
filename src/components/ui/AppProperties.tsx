@@ -54,6 +54,8 @@ export enum Invokes {
   SessionIngestCaptureInfo = 'session_ingest_capture_info',
   SessionIngestThumbnail = 'session_ingest_thumbnail',
   LibraryCopy = 'library_copy',
+  LibraryExportCatalog = 'library_export_catalog',
+  LibraryExportCatalogCancel = 'library_export_catalog_cancel',
   SessionCancelIngest = 'session_cancel_ingest',
   SessionLastDirectory = 'session_last_directory',
   SessionLast = 'session_last',

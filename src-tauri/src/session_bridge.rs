@@ -603,6 +603,8 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
             let _stage = crate::performance::PerformanceStage::new("session_db_open");
             Library::open(Path::new(&directory)).map_err(|e| e.to_string())?
         };
+        // Previews a catalog brought from another computer (G39).
+        crate::preview_proxy::adopt_carried(&lib.directory);
         {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("session_index");
@@ -1324,7 +1326,7 @@ pub(crate) fn with_library_blocking<T>(
     work(&lib)
 }
 
-fn asset_ids(lib: &Library, paths: &[String]) -> Result<Vec<String>, String> {
+pub(crate) fn asset_ids(lib: &Library, paths: &[String]) -> Result<Vec<String>, String> {
     Ok(registered_assets(lib, paths)?
         .into_iter()
         .map(|(_, id)| id)

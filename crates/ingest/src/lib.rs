@@ -1,6 +1,7 @@
 //! Verified ingest: streaming reads, bounded memory and no-clobber publication.
 pub mod batch;
 pub mod capture;
+pub mod catalog_export;
 mod copy;
 pub mod hot_folder;
 pub mod metadata;

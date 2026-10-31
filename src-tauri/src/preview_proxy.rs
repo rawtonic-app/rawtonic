@@ -1241,6 +1241,94 @@ pub fn carry_over(from: &Path, to: &Path) -> usize {
         .count()
 }
 
+/// Where a catalog keeps the Standard previews of photographs outside its
+/// folder that it brought from another computer (Export as Catalog with
+/// previews, G39): named as in the previews folder of photographs outside
+/// sessions, which `adopt_carried` fills from it.
+pub const CARRIED_PREVIEWS: &str = "carried-previews";
+
+/// Copies the Standard preview of the photograph `from` (if it has one) to
+/// be the Standard preview of `to`: where `to`'s previews live, or into
+/// `carried` (a catalog's carried previews) for a photograph outside the
+/// catalog. Never replaces a file; the copy's header names `to`. Returns
+/// whether a preview was copied.
+pub fn copy_standard(from: &Path, to: &Path, carried: Option<&Path>) -> Result<bool, String> {
+    let Some(source) = proxy_path(from).filter(|p| p.is_file()) else {
+        return Ok(false);
+    };
+    // Carried previews are named and labelled by the photograph's absolute
+    // path, as where it is not inside a library its previews are found.
+    let (target, label) = match carried {
+        Some(dir) => {
+            let label = to.to_string_lossy().into_owned();
+            (dir.join(format!("{}.rtpx", file_stem_for(&label))), label)
+        }
+        None => (
+            proxy_path(to).ok_or("No preview location")?,
+            source_label(to),
+        ),
+    };
+    if target.exists() {
+        return Ok(false);
+    }
+    let dir = target.parent().ok_or("No preview folder")?;
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let used = fs::metadata(&source).and_then(|m| m.modified()).ok();
+    let bytes = fs::read(&source).map_err(|e| e.to_string())?;
+    write_new(&target, &bytes).map_err(|e| e.to_string())?;
+    relabel(&target, &label)?;
+    if let Some(used) = used {
+        mark_used_at(&target, used);
+    }
+    Ok(true)
+}
+
+/// Writes `bytes` as the new file `path` (complete or not at all, never
+/// replacing a file).
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let parent = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    rawtonic_metadata::no_clobber::persist(temp, path)?;
+    Ok(())
+}
+
+/// Makes the previews a catalog carried from another computer
+/// (`CARRIED_PREVIEWS` in its `.cache`) the previews of those photographs
+/// here, where none are yet: hard-linked, or copied across drives. The
+/// carried files stay. Returns how many were taken.
+pub fn adopt_carried(catalog: &Path) -> usize {
+    let (Some(outside), Ok(entries)) = (
+        outside_sessions_dir(),
+        fs::read_dir(catalog.join(".cache").join(CARRIED_PREVIEWS)),
+    ) else {
+        return 0;
+    };
+    let mut taken = 0;
+    for entry in entries.flatten() {
+        let from = entry.path();
+        if from.extension().is_none_or(|e| e != "rtpx")
+            || !entry.file_type().is_ok_and(|t| t.is_file())
+        {
+            continue;
+        }
+        let to = outside.join(entry.file_name());
+        if to.exists() || fs::create_dir_all(&outside).is_err() {
+            continue;
+        }
+        if fs::hard_link(&from, &to).is_ok()
+            || fs::read(&from)
+                .ok()
+                .is_some_and(|bytes| write_new(&to, &bytes).is_ok())
+        {
+            taken += 1;
+        }
+    }
+    taken
+}
+
 /// Rewrites the source label in the header of the proxy file at `path`,
 /// atomically and without touching its image bytes or its format version;
 /// its last-use time is kept.
