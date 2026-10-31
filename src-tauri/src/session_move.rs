@@ -143,7 +143,7 @@ impl Drop for ResumePasses {
 fn wait_until_free<T>(dir: &Path, check: impl Fn() -> anyhow::Result<T>) -> Result<T, String> {
     crate::folder_sync::stop_checksum_pass();
     crate::library_search::stop_facts_pass();
-    crate::face_eyes::stop_eye_check();
+    crate::face_eyes::stop_eye_check(None);
     let started = Instant::now();
     loop {
         match check() {

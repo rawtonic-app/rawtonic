@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
@@ -14,6 +14,8 @@ import { EYES_CHANGED } from './useCatalogSearch';
 const MODELS_MISSING = 'face-models-missing';
 /** How long list changes settle before the summaries are read again. */
 const SUMMARY_DELAY_MS = 300;
+/** How long list changes settle before the pass is asked to start again. */
+const RESTART_DELAY_MS = 2000;
 
 /** The photographer asked to check eyes: turns the background check on for
  * every library and starts it here, downloading the face models if they
@@ -31,8 +33,10 @@ export async function checkEyes(directory: string) {
 /**
  * Runs the eye check of the open library while it is turned on: starts the
  * background pass (never downloading by itself; without the face models it
- * offers the download), and keeps the Library's per-photograph summaries
- * to the listed photographs and to every reading or call.
+ * offers the download) and again for photographs added later, stops it when
+ * the library closes or the check is turned off, and keeps the Library's
+ * per-photograph summaries to the listed photographs and to every reading
+ * or call.
  */
 export function useEyeCheck() {
   const directory = useLibraryStore((s) => s.sessionDirectory);
@@ -40,6 +44,8 @@ export function useEyeCheck() {
   const enabled = useSettingsStore((s) => !!s.appSettings?.eyeCheck);
   const generation = useEyesStore((s) => s.generation);
 
+  // Starts the pass for this library; it stops when the library closes or
+  // the check is turned off.
   useEffect(() => {
     if (!directory || !enabled) return;
     invoke(Invokes.StartEyeCheck, { directory, download: false }).catch((error) => {
@@ -49,7 +55,37 @@ export function useEyeCheck() {
         });
       else notify.warn(i18n.t('studio.eyes.startFailed', { error: String(error) }));
     });
+    return () => {
+      // This library's pass only: the next library's may have started.
+      invoke(Invokes.StopEyeCheck, { directory }).catch(() => {});
+    };
   }, [directory, enabled]);
+
+  // Photographs that came in later (an import, tethering, a sync) are read
+  // too: a new list asks again (a running pass takes them anyway).
+  const firstList = useRef(true);
+  useEffect(() => {
+    if (firstList.current) {
+      firstList.current = false;
+      return;
+    }
+    if (!directory || !enabled) return;
+    const timer = setTimeout(() => {
+      invoke(Invokes.StartEyeCheck, { directory, download: false }).catch(() => {});
+    }, RESTART_DELAY_MS);
+    return () => clearTimeout(timer);
+    // `directory` and `enabled` start it above; only a new list asks here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageList]);
+
+  // With the check off, its filter would hide photographs it no longer
+  // shows: it goes back to all eyes.
+  const settingsRead = useSettingsStore((s) => s.appSettings !== null);
+  useEffect(() => {
+    if (!settingsRead || enabled) return;
+    const { filterCriteria, setFilterCriteria } = useLibraryStore.getState();
+    if ((filterCriteria.eyes ?? 'all') !== 'all') setFilterCriteria({ eyes: 'all' });
+  }, [settingsRead, enabled]);
 
   useEffect(() => {
     if (!directory) return;

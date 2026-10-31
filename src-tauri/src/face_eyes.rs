@@ -115,15 +115,17 @@ pub fn read_image(image: &RgbImage, models: &FaceModels) -> anyhow::Result<Vec<E
 }
 
 /// Reads every photograph of the library at `directory` the catalog has no
-/// current reading of, newest first, until done or `cancel` is set.
-/// Returns how many were read and how many failed.
+/// current reading of, newest first, until done or `cancel` is set,
+/// counting in `counts` how many were read and how many failed (also when
+/// it stops on an error).
 fn run_pass(
     directory: &Path,
     models: &FaceModels,
     cancel: &AtomicBool,
-) -> anyhow::Result<(usize, usize)> {
+    counts: &mut (usize, usize),
+) -> anyhow::Result<()> {
     let total = Library::open(directory)?.eye_backlog_count(eyes::VERSION)?;
-    let (mut read, mut failed) = (0, 0);
+    let (read, failed) = counts;
     // Photographs whose file is not there now (a drive going away while the
     // pass runs): left unread, not taken again in this pass.
     let mut skipped = std::collections::HashSet::new();
@@ -163,19 +165,19 @@ fn run_pass(
             match &reading {
                 Ok(faces) => {
                     lib.record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Ok(faces))?;
-                    read += 1;
+                    *read += 1;
                 }
                 Err(error) => {
                     log::warn!("Eyes not read for {}: {error}", item.path.display());
                     lib.record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Err(error))?;
-                    failed += 1;
+                    *failed += 1;
                 }
             }
             emit(
                 EYES_PROGRESS,
                 Progress {
                     directory,
-                    done: (read + failed).min(total),
+                    done: (*read + *failed).min(total),
                     total,
                 },
             );
@@ -183,7 +185,7 @@ fn run_pass(
         }
         emit(EYES_CHANGED, directory);
     }
-    Ok((read, failed))
+    Ok(())
 }
 
 /// Starts the pass for the library at `directory` with `models` in the
@@ -208,16 +210,16 @@ fn start_pass(directory: PathBuf, models: Arc<FaceModels>) {
         .spawn(move || {
             std::thread::sleep(PASS_DELAY);
             let started = Instant::now();
-            let outcome = run_pass(&directory, &models, &cancel);
+            let mut counts = (0, 0);
+            if let Err(e) = run_pass(&directory, &models, &cancel, &mut counts) {
+                log::warn!("Eye check paused: {e:#}");
+            }
             let cancelled = cancel.swap(true, Ordering::AcqRel);
-            let (read, failed) = match outcome {
-                Ok(counts) => counts,
-                Err(e) => {
-                    log::warn!("Eye check paused: {e:#}");
-                    (0, 0)
-                }
-            };
+            let (read, failed) = counts;
             if read + failed > 0 {
+                // Readings recorded since the last batch's announcement (a
+                // Cancel or an error mid-batch) reach badges and filters too.
+                emit(EYES_CHANGED, &directory);
                 log::info!(
                     "Read the eyes of {read} photographs ({failed} failed) in {:.1} s",
                     started.elapsed().as_secs_f64()
@@ -252,9 +254,11 @@ pub async fn start_eye_check(
     if !download {
         let settings = crate::app_settings::load_settings(app_handle.clone())?;
         if !settings.eye_check.unwrap_or(false) {
+            stop_eye_check(None);
             return Ok(());
         }
     }
+    stop_other_pass(Path::new(&directory));
     let models = crate::ai_faces::models(&app_handle, download).await?;
     let backlog = with_library(directory.clone(), false, |lib| {
         lib.eye_backlog_count(eyes::VERSION)
@@ -268,12 +272,26 @@ pub async fn start_eye_check(
     Ok(())
 }
 
-/// Stops the running pass (Cancel in the activity centre, a library
-/// closing or moving). The next library opening starts it again.
-#[tauri::command]
-pub fn stop_eye_check() {
+/// Stops a running pass of another library than `directory`: a library
+/// opened after it never sees its progress, and it reads no more files.
+fn stop_other_pass(directory: &Path) {
     if let Ok(running) = PASS.lock()
-        && let Some((_, cancel)) = running.as_ref()
+        && let Some((library, cancel)) = running.as_ref()
+        && library != directory
+    {
+        cancel.store(true, Ordering::Release);
+    }
+}
+
+/// Stops the running pass: Cancel in the activity centre and the check
+/// turned off (any library), a library closing or moving (`directory`: only
+/// that library's, never a pass started meanwhile for the next one). The
+/// next start goes on.
+#[tauri::command]
+pub fn stop_eye_check(directory: Option<String>) {
+    if let Ok(running) = PASS.lock()
+        && let Some((library, cancel)) = running.as_ref()
+        && directory.is_none_or(|d| Path::new(&d) == library)
     {
         cancel.store(true, Ordering::Release);
     }
@@ -491,9 +509,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_stop_names_the_library_it_stops() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        *PASS.lock().unwrap() = Some((PathBuf::from("/A"), cancel.clone()));
+        // Library B opening or closing leaves A's pass alone…
+        stop_eye_check(Some("/B".into()));
+        stop_other_pass(Path::new("/A"));
+        assert!(!cancel.load(Ordering::Acquire));
+        // …A closing, B starting, or Cancel stop it.
+        stop_eye_check(Some("/A".into()));
+        assert!(cancel.swap(false, Ordering::AcqRel));
+        stop_other_pass(Path::new("/B"));
+        assert!(cancel.swap(false, Ordering::AcqRel));
+        stop_eye_check(None);
+        assert!(cancel.load(Ordering::Acquire));
+        *PASS.lock().unwrap() = None;
+    }
+
     /// Reads the eyes of every photograph in `FACE_PHOTOS` (one level of
     /// subfolders) exactly as the pass does (preview, upright, analysis,
-    /// call), writing one JSON line per photograph to `FACE_OUT` with the
+    /// call), writing one JSON line per photograph to `FACE_OUT` (a new file) with the
     /// time per step (notes: benchmark-results/fqb-eyes-2026-10-31/).
     /// Needs `FACE_MODELS` and `ORT_DYLIB_PATH`.
     ///
@@ -522,7 +558,8 @@ mod tests {
             .filter(|p| rawtonic_engine::formats::is_supported_image_file(p))
             .collect();
         files.sort();
-        let mut lines = std::fs::File::create(out).unwrap();
+        // A new file only: never truncates an existing one (a photograph).
+        let mut lines = std::fs::File::create_new(out).unwrap();
         for file in files {
             let start = Instant::now();
             let image = upright_preview(&file).unwrap();

@@ -7,7 +7,7 @@
 //! (benchmark-results/fqb-eyes-2026-10-31/). Ignored: needs the
 //! models (`FACE_MODELS`), ONNX Runtime (`ORT_DYLIB_PATH`), photos
 //! (`FACE_PHOTOS`, a folder of JPEG files, one level of subfolders per
-//! shoot) and the output file (`FACE_OUT`).
+//! shoot) and the output file (`FACE_OUT`, which must not exist yet).
 //!
 //! cargo test -p rawtonic-faces --release --test face_quality_dump -- --ignored --nocapture
 
@@ -52,7 +52,8 @@ fn dumps_faces_of_real_photos() {
         return;
     };
     let models = FaceModels::load(&models).unwrap();
-    let mut lines = std::fs::File::create(&out).unwrap();
+    // A new file only: never truncates an existing one (a photograph).
+    let mut lines = std::fs::File::create_new(&out).unwrap();
     for file in jpegs(&photos) {
         let start = Instant::now();
         // Upright as displayed (EXIF orientation applied).
