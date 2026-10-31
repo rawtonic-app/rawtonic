@@ -183,7 +183,12 @@ impl Library {
                 params![stored, id],
             )?;
         }
-        tx.execute("DELETE FROM roots WHERE external=1", [])?;
+        // External folders nothing is in any more (all of them for a
+        // complete copy; an exported catalog keeps those it refers to).
+        tx.execute(
+            "DELETE FROM roots WHERE external=1 AND id NOT IN (SELECT root_id FROM assets)",
+            [],
+        )?;
         // These are queued jobs/undoable filesystem operations of the source,
         // not edit history. Replaying them on another computer is invalid.
         tx.execute("DELETE FROM tasks", [])?;
@@ -196,9 +201,15 @@ impl Library {
         Ok(())
     }
 
-    /// Emit the snapshot's authoritative states, including offline copies.
+    /// Emit the snapshot's authoritative states, including offline copies,
+    /// beside the photographs inside the library folder.
     pub fn write_portable_sidecars(&self) -> Result<()> {
         for asset in self.assets(None)? {
+            // Photographs referenced outside the library (a catalog exported
+            // by reference) keep the sidecars beside their files untouched.
+            if !asset.path.starts_with(&self.directory) {
+                continue;
+            }
             let name = asset.path.file_name().unwrap().to_string_lossy();
             if let Some(mut state) = self.editor_state(&asset.id)? {
                 rawtonic_metadata::resources::localize(&mut state, &self.directory);

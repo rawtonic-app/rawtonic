@@ -30,6 +30,7 @@ pub mod ingest_jobs;
 pub mod query;
 pub mod session_move;
 pub mod snapshots;
+pub mod subset;
 pub mod volume;
 pub mod xmp_review;
 pub mod xmp_state;

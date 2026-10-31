@@ -26,5 +26,6 @@ libc = "0.2.189"
 [dev-dependencies]
 tempfile.workspace = true
 image = "0.25.10"
+rusqlite = { version = "0.40", features = ["bundled"] }
 rawtonic-merge = { path = "../merge", version = "0.1.0" }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0", features = ["test-support"] }

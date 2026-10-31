@@ -31,6 +31,7 @@ mod camera_preview;
 mod camera_profile;
 mod camera_tethering;
 mod capture_time;
+mod catalog_subset;
 mod collage;
 mod contribute;
 mod costyle;
@@ -859,6 +860,9 @@ pub fn run() {
             file_management::move_folder,
             file_management::plan_move_folder,
             session_move::move_session,
+            catalog_subset::library_export_catalog,
+            catalog_subset::library_export_catalog_cancel,
+            catalog_subset::library_export_catalog_owned,
             file_management::rename_folder,
             file_management::rename_files,
             file_management::preview_rename,

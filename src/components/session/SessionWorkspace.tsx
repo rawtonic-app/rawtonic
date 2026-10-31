@@ -3,6 +3,7 @@ import { withMovedLibrary, withRecentLibrary } from "../../utils/recentLibraries
 import { validNamingTemplate, validSequenceStart, type NamePreview } from "../../utils/namingTemplates";
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
+import CatalogExportDialog from "./CatalogExportDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
 import SessionXmpStatus from "./SessionXmpStatus";
 import ActivityCentre from "../activity/ActivityCentre";
@@ -355,6 +356,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [parent, setParent] = useState("");
   const [catalog, setCatalog] = useState(false);
   const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
+  const [catalogExport, setCatalogExport] = useState<{ selected: string[]; shown: string[] } | null>(null);
   /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
   const [syncing, setSyncing] = useState<{ folder: string | null } | null>(null);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
@@ -1436,6 +1438,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   disabled: !session,
                   onClick: () => setSyncing({ folder: null }),
                 },
+                {
+                  // The selection, or what the folder or album shows (G39).
+                  label: t("session.catalogExport.menu"),
+                  icon: Database,
+                  disabled: !session,
+                  onClick: () => {
+                    const { multiSelectedPaths, imageList } = useLibraryStore.getState();
+                    setCatalogExport({ selected: [...multiSelectedPaths], shown: imageList.map((image) => image.path) });
+                  },
+                },
                 { label: t("session.transfer.transfer"), icon: FolderOpen, disabled: !session || !!hotFolder,
                   onClick: () => setTransfer("transfer") },
                 { label: t("session.transfer.backup"), icon: Database, disabled: !session || !!hotFolder,
@@ -1636,6 +1648,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           }}
         />
       )}
+      {catalogExport && session && <CatalogExportDialog directory={session.directory} name={session.manifest.name}
+        selected={catalogExport.selected} shown={catalogExport.shown}
+        onClose={() => setCatalogExport(null)} onOpen={async (directory) => {
+          await switchLibraryAfterSaves(async () =>
+            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
+        }} />}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {
           await switchLibraryAfterSaves(async () =>
