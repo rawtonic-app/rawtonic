@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createImagePatchFetch,
   createPatchSampler,
+  patchFromRgba,
+  sampleBlock,
   frameTexel,
   loupePlacement,
   patchCell,
@@ -145,5 +148,61 @@ describe('createPatchSampler', () => {
     answer(patchOf());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onSample).not.toHaveBeenCalled();
+  });
+});
+
+describe('browser-rendered preview patches (no native display)', () => {
+  // Pixel (x, y) of a 20 × 17 image is [x, y, x + y, 255].
+  const image = (left: number, top: number, width: number, height: number) => {
+    const data: number[] = [];
+    for (let y = top; y < top + height; y += 1) for (let x = left; x < left + width; x += 1) data.push(x, y, x + y, 255);
+    return data;
+  };
+
+  it('uses the renderer’s block, centre and mean (preview_sample_roi, sample_center)', () => {
+    expect(sampleBlock(0.5, 0.5, 20, 17)).toEqual({ left: 5, top: 3, width: 11, height: 11 });
+    const centre = patchFromRgba(image, 20, 17, 0.5, 0.5)!;
+    expect(centre.center).toEqual([5, 5]);
+    expect(patchCell(centre, 5, 5)).toEqual([10, 8, 18]);
+    expect(centre.mean).toEqual([10, 8, 18]);
+    expect(centre.frame).toEqual([20, 17]);
+    // The last pixel: a 5 × 5 block at the corner, centre on that pixel.
+    const corner = patchFromRgba(image, 20, 17, 1, 1)!;
+    expect([corner.width, corner.height, ...corner.center]).toEqual([5, 5, 4, 4]);
+    expect(readoutColor(corner)).toEqual([17, 14, 31]);
+    expect(patchFromRgba(image, 20, 17, 1.2, 0.5)).toBeNull();
+  });
+
+  it('reads the block from the preview image', async () => {
+    const drawn: number[][] = [];
+    class FakeImage {
+      crossOrigin = '';
+      src = '';
+      naturalWidth = 20;
+      naturalHeight = 17;
+      decode() {
+        return Promise.resolve();
+      }
+    }
+    vi.stubGlobal('Image', FakeImage);
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect() {},
+      drawImage(_image: unknown, left: number, top: number, width: number, height: number) {
+        drawn.push([left, top, width, height]);
+      },
+      getImageData(_x: number, _y: number, width: number, height: number) {
+        const [left, top] = drawn[drawn.length - 1];
+        return { data: image(left, top, width, height) };
+      },
+    } as never);
+    let url: string | null = 'blob:preview-1';
+    const fetch = createImagePatchFetch(() => url);
+    const patch = await fetch('/a.raw', 0.5, 0.5);
+    expect(drawn[0]).toEqual([5, 3, 11, 11]);
+    expect(patch?.mean).toEqual([10, 8, 18]);
+    url = null;
+    expect(await fetch('/a.raw', 0.5, 0.5)).toBeNull();
+    getContext.mockRestore();
+    vi.unstubAllGlobals();
   });
 });

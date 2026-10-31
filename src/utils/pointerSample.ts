@@ -111,10 +111,88 @@ export const usePointerSampleStore = create<PointerSampleState>((set) => ({
 
 /** `inputAt`: the pointer event's time stamp (performance.now() base). */
 type Request = { path: string; x: number; y: number; clientX: number; clientY: number; inputAt?: number };
-type Fetch = (path: string, x: number, y: number) => Promise<PreviewPatch | null>;
+export type Fetch = (path: string, x: number, y: number) => Promise<PreviewPatch | null>;
 
 const fetchPatch: Fetch = (path, x, y) =>
   invoke<PreviewPatch | null>(Invokes.SamplePreviewPatch, { path, normalizedX: x, normalizedY: y });
+
+/** The renderer's picker block (`preview_sample_roi` in crates/gpu): 11 × 11
+ * pixels centred on the point, clipped at the image's edges. */
+export function sampleBlock(x: number, y: number, width: number, height: number) {
+  const centerX = Math.floor(x * width);
+  const centerY = Math.floor(y * height);
+  const left = Math.max(0, centerX - 5);
+  const top = Math.max(0, centerY - 5);
+  return { left, top, width: Math.min(centerX + 6, width) - left, height: Math.min(centerY + 6, height) - top };
+}
+
+/** A patch from 8-bit sRGB RGBA pixels of a whole `width` × `height` image
+ * (the browser-rendered preview on Linux, where there is no native frame):
+ * the same block, centre and mean as the native `sample_display_patch`. */
+export function patchFromRgba(
+  read: (left: number, top: number, width: number, height: number) => ArrayLike<number>,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+): PreviewPatch | null {
+  if (!(width > 0 && height > 0) || !(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return null;
+  const block = sampleBlock(x, y, width, height);
+  if (block.width <= 0 || block.height <= 0) return null;
+  const rgba = read(block.left, block.top, block.width, block.height);
+  const count = block.width * block.height;
+  const pixels: number[] = [];
+  const sum = [0, 0, 0];
+  for (let i = 0; i < count; i += 1) {
+    for (let c = 0; c < 3; c += 1) {
+      pixels.push(rgba[i * 4 + c]);
+      sum[c] += rgba[i * 4 + c];
+    }
+  }
+  const [cx, cy] = frameTexel(x, y, width, height);
+  return {
+    column: 0,
+    row: 0,
+    width: block.width,
+    height: block.height,
+    pixels,
+    center: [cx - block.left, cy - block.top],
+    mean: [sum[0] / count, sum[1] / count, sum[2] / count],
+    frame: [width, height],
+  };
+}
+
+/** Patches of the browser-rendered preview at `url()` (the image the white
+ * balance picker's fallback samples). Only the newest image is kept. */
+export function createImagePatchFetch(url: () => string | null): Fetch {
+  let loaded: { url: string; image: Promise<HTMLImageElement> } | null = null;
+  const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  canvas?.setAttribute('width', String(PATCH_SIZE));
+  canvas?.setAttribute('height', String(PATCH_SIZE));
+  const context = canvas?.getContext('2d', { willReadFrequently: true }) ?? null;
+  return async (_path, x, y) => {
+    const current = url();
+    if (!current || !context) return null;
+    if (loaded?.url !== current) {
+      const image = new Image();
+      image.crossOrigin = 'Anonymous';
+      image.src = current;
+      loaded = { url: current, image: image.decode().then(() => image) };
+    }
+    const image = await loaded.image;
+    return patchFromRgba(
+      (left, top, width, height) => {
+        context.clearRect(0, 0, PATCH_SIZE, PATCH_SIZE);
+        context.drawImage(image, left, top, width, height, 0, 0, width, height);
+        return context.getImageData(0, 0, width, height).data;
+      },
+      image.naturalWidth,
+      image.naturalHeight,
+      x,
+      y,
+    );
+  };
+}
 
 /** Pointer moves → samples, coalesced: at most one request in flight; moves
  * that arrive meanwhile are dropped but the newest, which is sent when the

@@ -1778,10 +1778,13 @@ const ImageCanvas = memo(
     const pickerActive = isWbPickerActive || isLumaPickerActive || (!!tatTarget && isLevelsPicker(tatTarget));
     const pointerReadout = appSettings?.pointerReadout ?? false;
     const readoutUnit = appSettings?.pointerReadoutUnit === 'percent' ? 'percent' : 'rgb255';
+    // Without the native display (Linux), the browser-rendered preview the
+    // white balance picker's fallback samples; never a camera JPEG.
+    const browserPreview = isWgpuActive ? null : (finalPreviewUrl ?? null);
     const sampling =
-      !!isWgpuActive && !!selectedImage.isReady && !isCropping && !showOriginal && !splitView &&
-      (pickerActive || pointerReadout);
-    usePointerSampling(canvasRootRef, imageRectRef, selectedImage.path, sampling);
+      (!!isWgpuActive || !!browserPreview) && !!selectedImage.isReady && !isCropping && !showOriginal &&
+      !splitView && (pickerActive || pointerReadout);
+    usePointerSampling(canvasRootRef, imageRectRef, selectedImage.path, sampling, browserPreview);
     const brushGesture = useBrushGesture(
       canvasRootRef,
       Boolean(isBrushActive),

@@ -29,10 +29,10 @@ const patch: PreviewPatch = {
   frame: [400, 300],
 };
 
-function Viewer({ enabled, picker }: { enabled: boolean; picker: boolean }) {
+function Viewer({ enabled, picker, preview = null }: { enabled: boolean; picker: boolean; preview?: string | null }) {
   const root = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLDivElement>(null);
-  usePointerSampling(root, image, '/a.raw', enabled);
+  usePointerSampling(root, image, '/a.raw', enabled, preview);
   return (
     <div className="studio-viewer" data-testid="viewer">
       <div ref={root} data-testid="root">
@@ -67,8 +67,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const setup = (enabled = true, picker = true) => {
-  render(<Viewer enabled={enabled} picker={picker} />);
+const setup = (enabled = true, picker = true, preview: string | null = null) => {
+  render(<Viewer enabled={enabled} picker={picker} preview={preview} />);
   // The viewer's box on screen; the zoomed canvas inside it is larger.
   screen.getByTestId('viewer').getBoundingClientRect = () => rect(0, 0, 1000, 800);
   screen.getByTestId('root').getBoundingClientRect = () => rect(-2000, -1500, 5000, 4000);
@@ -118,6 +118,33 @@ it('hides off the photograph and does not sample during a drag', async () => {
   expect(screen.queryByTestId('picker-loupe')).toBeNull();
 });
 
+it('hides on a press over the photograph and does not sample until the next move after release', async () => {
+  setup();
+  const root = screen.getByTestId('root');
+  await act(async () => {
+    fireEvent.pointerMove(root, { clientX: 300, clientY: 125, buttons: 0 });
+  });
+  await screen.findByTestId('picker-loupe');
+  vi.mocked(invoke).mockClear();
+  await act(async () => {
+    fireEvent.pointerDown(root, { clientX: 300, clientY: 125, buttons: 1 });
+  });
+  expect(screen.queryByTestId('picker-loupe')).toBeNull();
+  // Frames rendered during the drag are not sampled at the old position.
+  await act(async () => {
+    fireEvent.pointerMove(root, { clientX: 320, clientY: 130, buttons: 1 });
+    frameReady.handler?.({ payload: { path: '/a.raw' } });
+  });
+  expect(invoke).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('picker-loupe')).toBeNull();
+  await act(async () => {
+    fireEvent.pointerUp(window);
+    fireEvent.pointerMove(root, { clientX: 320, clientY: 130, buttons: 0 });
+  });
+  expect(invoke).toHaveBeenCalledTimes(1);
+  await screen.findByTestId('picker-loupe');
+});
+
 it('samples again when a new frame is shown under a resting pointer', async () => {
   setup();
   await act(async () => {
@@ -132,6 +159,20 @@ it('samples again when a new frame is shown under a resting pointer', async () =
     frameReady.handler?.({ payload: { path: '/a.raw' } });
   });
   expect(invoke).toHaveBeenCalledTimes(2);
+});
+
+it('samples the browser-rendered preview without a native display', async () => {
+  frameReady.handler = null;
+  setup(true, true, 'blob:preview');
+  await act(async () => {
+    fireEvent.pointerMove(screen.getByTestId('root'), { clientX: 300, clientY: 125, buttons: 0 });
+  });
+  // jsdom has no canvas: the loupe shows, without values, and nothing
+  // went to the native renderer.
+  const loupe = await screen.findByTestId('picker-loupe');
+  expect(loupe.textContent).toContain('R –');
+  expect(invoke).not.toHaveBeenCalled();
+  expect(frameReady.handler).toBeNull();
 });
 
 it('does nothing while off', async () => {

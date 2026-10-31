@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { performanceDiagnosticsEnabled, reportPerformance } from '../../../hooks/usePerformanceDiagnostics';
 import {
   PATCH_SIZE,
+  createImagePatchFetch,
   createPatchSampler,
   loupePlacement,
   patchCell,
@@ -16,18 +17,25 @@ import {
   type ReadoutUnit,
 } from '../../../utils/pointerSample';
 
-/** Samples the shown frame under the pointer while `enabled` (a picker is
- * on, or the viewer bar's readout): pointer moves over `rootRef`, mapped
- * through the photograph's on-screen rect (`imageRef`), at most one sample
- * per frame. Not while a button is held (a drag on the photograph is a
- * stroke, a crop or a pan, and must not wait behind readbacks); a new frame
- * under a resting pointer is sampled again. */
+/** Samples the shown photograph under the pointer while `enabled` (a picker
+ * is on, or the viewer bar's readout): pointer moves over `rootRef`, mapped
+ * through the photograph's on-screen rect (`imageRef`), one sample in
+ * flight. The native frame, or with `browserPreview` (no native display,
+ * e.g. Linux) that rendered image. A press hides the loupe and stops
+ * sampling until the next move after its release (a drag on the photograph
+ * is a stroke, a crop or a pan, and must not wait behind readbacks); a new
+ * frame under a resting pointer is sampled again. */
 export function usePointerSampling(
   rootRef: RefObject<HTMLElement | null>,
   imageRef: RefObject<Element | null>,
   path: string,
   enabled: boolean,
+  browserPreview: string | null = null,
 ) {
+  const previewRef = useRef(browserPreview);
+  previewRef.current = browserPreview;
+  const askRef = useRef<(() => void) | null>(null);
+  const browser = browserPreview !== null;
   useEffect(() => {
     const root = rootRef.current;
     const setSample = usePointerSampleStore.getState().set;
@@ -36,64 +44,87 @@ export function usePointerSampling(
       return;
     }
     let last: { clientX: number; clientY: number } | null = null;
-    const sampler = createPatchSampler((sample, inputAt) => {
-      if (!last) return;
-      setSample(sample);
-      if (performanceDiagnosticsEnabled && inputAt !== undefined) {
-        // Profiling builds: pointer event → sample answered, and → the next
-        // animation frame after the readout's commit (not photon time).
-        const answered = performance.now();
-        requestAnimationFrame(() =>
-          reportPerformance('pointer_readout', {
-            input_to_sample_ms: answered - inputAt,
-            input_to_frame_ms: performance.now() - inputAt,
-            sampled: sample.patch ? 1 : 0,
-          }),
-        );
-      }
-    });
-    const ask = (inputAt = performance.now()) => {
-      const image = imageRef.current;
-      if (!last || !image) return;
-      const point = pointerToNormalized(last.clientX, last.clientY, image.getBoundingClientRect());
-      if (!point) {
-        last = null;
-        sampler.cancel();
-        setSample(null);
-        return;
-      }
-      sampler.request({ path, x: point.x, y: point.y, clientX: last.clientX, clientY: last.clientY, inputAt });
-    };
-    const onMove = (event: PointerEvent) => {
-      if (event.buttons !== 0) return;
-      last = { clientX: event.clientX, clientY: event.clientY };
-      // Synthetic input can carry a zero time stamp.
-      ask(event.timeStamp > 0 ? event.timeStamp : performance.now());
-    };
-    const onLeave = () => {
+    let held = false;
+    const sampler = createPatchSampler(
+      (sample, inputAt) => {
+        if (!last || held) return;
+        setSample(sample);
+        if (performanceDiagnosticsEnabled && inputAt !== undefined) {
+          // Profiling builds: pointer event → sample answered, and → the next
+          // animation frame after the readout's commit (not photon time).
+          const answered = performance.now();
+          requestAnimationFrame(() =>
+            reportPerformance('pointer_readout', {
+              input_to_sample_ms: answered - inputAt,
+              input_to_frame_ms: performance.now() - inputAt,
+              sampled: sample.patch ? 1 : 0,
+            }),
+          );
+        }
+      },
+      browser ? createImagePatchFetch(() => previewRef.current) : undefined,
+    );
+    const stop = () => {
       last = null;
       sampler.cancel();
       setSample(null);
     };
+    const ask = (inputAt = performance.now()) => {
+      const image = imageRef.current;
+      if (!last || held || !image) return;
+      const point = pointerToNormalized(last.clientX, last.clientY, image.getBoundingClientRect());
+      if (!point) {
+        stop();
+        return;
+      }
+      sampler.request({ path, x: point.x, y: point.y, clientX: last.clientX, clientY: last.clientY, inputAt });
+    };
+    askRef.current = () => ask();
+    const onMove = (event: PointerEvent) => {
+      if (event.buttons !== 0) return;
+      held = false;
+      last = { clientX: event.clientX, clientY: event.clientY };
+      // Synthetic input can carry a zero time stamp.
+      ask(event.timeStamp > 0 ? event.timeStamp : performance.now());
+    };
+    const onDown = () => {
+      held = true;
+      stop();
+    };
+    const onUp = () => {
+      held = false;
+    };
     root.addEventListener('pointermove', onMove, { passive: true });
-    root.addEventListener('pointerleave', onLeave);
+    root.addEventListener('pointerleave', stop);
+    root.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ path: string }>('wgpu-frame-ready', (event) => {
-      if (event.payload?.path === path) ask();
-    }).then((stop) => {
-      if (disposed) stop();
-      else unlisten = stop;
-    }).catch(() => {});
+    if (!browser)
+      void listen<{ path: string }>('wgpu-frame-ready', (event) => {
+        if (event.payload?.path === path) ask();
+      }).then((unlistenFrames) => {
+        if (disposed) unlistenFrames();
+        else unlisten = unlistenFrames;
+      }).catch(() => {});
     return () => {
       disposed = true;
+      askRef.current = null;
       unlisten?.();
       root.removeEventListener('pointermove', onMove);
-      root.removeEventListener('pointerleave', onLeave);
+      root.removeEventListener('pointerleave', stop);
+      root.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onUp, true);
       sampler.cancel();
       setSample(null);
     };
-  }, [rootRef, imageRef, path, enabled]);
+  }, [rootRef, imageRef, path, enabled, browser]);
+  // A new browser-rendered preview under a resting pointer.
+  useEffect(() => {
+    if (browserPreview) askRef.current?.();
+  }, [browserPreview]);
 }
 
 const CELL = 12;
