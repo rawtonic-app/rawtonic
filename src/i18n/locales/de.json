@@ -62,6 +62,21 @@
       "starting": "Import startet …"
     },
     "indexing": "Bibliothek wird indiziert",
+    "interrupted": {
+      "applyRest": "Auf die übrigen anwenden",
+      "color": "Farbmarkierung",
+      "detail": "Ein Beenden oder Absturz hat diesen Stapel angehalten, bevor alle Fotos geschrieben waren. Wende ihn auf die übrigen an, mache den angewendeten Teil rückgängig oder lass die Fotos, wie sie sind. Die Fotos selbst werden nie verändert.",
+      "failed": "{{batch}} konnte nicht abgeschlossen werden: {{error}}",
+      "keywordAdd": "Stichwort „{{tag}}“",
+      "keywordRemove": "Entfernen des Stichworts „{{tag}}“",
+      "paste": "Einstellungen einfügen",
+      "preset": "Vorgabe",
+      "rating": "Bewertung {{rating}}",
+      "style": "Stil",
+      "title_one": "Unterbrochen: {{batch}} auf {{applied}} von {{count}} Foto angewendet",
+      "title_other": "Unterbrochen: {{batch}} auf {{applied}} von {{count}} Fotos angewendet",
+      "undoApplied": "Angewendeten Teil rückgängig machen"
+    },
     "leftovers": {
       "kept_one": "{{count}} unfertiger Ordner eines unterbrochenen Auftrags wurde belassen",
       "kept_other": "{{count}} unfertige Ordner eines unterbrochenen Auftrags wurden belassen",
@@ -1929,6 +1944,7 @@
     },
     "xmp": {
       "buttonTitle": "Einige XMP-Dateien sind nicht auf dem Stand der Bibliothek. Klicke für Details und um sie erneut zu schreiben.",
+      "catchUp": "XMP-Dateien aus der letzten Sitzung werden geschrieben",
       "conflictHeading_one": "{{count}} XMP-Datei von einem anderen Programm geändert",
       "conflictHeading_other": "{{count}} XMP-Dateien von einem anderen Programm geändert",
       "conflictHint": "Wähle, wessen Metadaten bleiben. Deine Bearbeitung bleibt in jedem Fall, wie sie ist.",

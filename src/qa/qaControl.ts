@@ -9,6 +9,7 @@ import {
   dialogState,
   queueDialogAnswers,
 } from "./dialogAnswers";
+import { useActivityStore } from "../store/useActivityStore";
 import { useEditorStore } from "../store/useEditorStore";
 import { onDraftShown } from "../utils/browserDraftPatch";
 import { useLibraryStore } from "../store/useLibraryStore";
@@ -38,6 +39,7 @@ export interface QaElement {
 }
 
 const stores: Record<string, { getState: () => unknown }> = {
+  activity: useActivityStore,
   editor: useEditorStore,
   library: useLibraryStore,
   process: useProcessStore,

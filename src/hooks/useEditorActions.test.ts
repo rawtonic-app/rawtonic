@@ -263,6 +263,34 @@ it.each([
   errorLog.mockRestore();
 });
 
+it('names the open photograph to a paste batch it is part of (offered whole after a crash)', async () => {
+  useEditorStore.setState({ copiedFrom: '/source.dng' });
+  const { result } = renderHook(useEditorActions);
+  act(() => {
+    result.current.handlePasteAdjustments(['/first.dng', '/second.dng']);
+  });
+  await act(async () => {});
+  const call = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
+  expect(call?.[1]).toMatchObject({ paths: ['/second.dng'], open: '/first.dng' });
+});
+
+it('writes the open photograph\'s waiting save before a paste batch that includes it', async () => {
+  useEditorStore.setState({ copiedFrom: '/source.dng' });
+  debouncedSave('/first.dng', { ...INITIAL_ADJUSTMENTS, exposure: -2 });
+  const { result } = renderHook(useEditorActions);
+  act(() => {
+    result.current.handlePasteAdjustments(['/first.dng', '/second.dng']);
+  });
+  await act(async () => {});
+  const commands = vi.mocked(invoke).mock.calls.map(([command]) => command);
+  const saved = commands.indexOf(Invokes.SaveMetadataAndUpdateThumbnail);
+  expect(saved).toBeGreaterThanOrEqual(0);
+  // The batch waits in the photograph's queue for that save.
+  expect(commands.indexOf(Invokes.ApplyAdjustmentsToPaths)).toBe(-1);
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+  expect(pending.some((request) => request.command === Invokes.ApplyAdjustmentsToPaths)).toBe(true);
+});
+
 it('writes two pastes onto the same photograph queued one after the other, neither waiting for the later', async () => {
   const { result } = renderHook(useEditorActions);
   act(() => {

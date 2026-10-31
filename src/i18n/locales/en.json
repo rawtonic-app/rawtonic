@@ -62,6 +62,21 @@
       "starting": "Starting import…"
     },
     "indexing": "Indexing the library",
+    "interrupted": {
+      "applyRest": "Apply to the rest",
+      "color": "Color label",
+      "detail": "A quit or crash stopped this batch before every photo was written. Apply it to the rest, undo the part that was applied, or leave the photos as they are. Your photos themselves are never changed.",
+      "failed": "{{batch}} could not be finished: {{error}}",
+      "keywordAdd": "Keyword “{{tag}}”",
+      "keywordRemove": "Removing keyword “{{tag}}”",
+      "paste": "Paste Settings",
+      "preset": "Preset",
+      "rating": "Rating {{rating}}",
+      "style": "Style",
+      "title_one": "Interrupted: {{batch}} applied to {{applied}} of {{count}} photo",
+      "title_other": "Interrupted: {{batch}} applied to {{applied}} of {{count}} photos",
+      "undoApplied": "Undo the applied part"
+    },
     "leftovers": {
       "kept_one": "{{count}} unfinished folder of an interrupted job was left in place",
       "kept_other": "{{count}} unfinished folders of an interrupted job were left in place",
@@ -1929,6 +1944,7 @@
     },
     "xmp": {
       "buttonTitle": "Some XMP files are behind the library. Click for details and to write them again.",
+      "catchUp": "Writing XMP files left over from the last session",
       "conflictHeading_one": "{{count}} XMP file changed by another program",
       "conflictHeading_other": "{{count}} XMP files changed by another program",
       "conflictHint": "Choose whose metadata to keep. Your edit stays as it is either way.",

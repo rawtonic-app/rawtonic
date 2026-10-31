@@ -607,6 +607,8 @@ type RecipeWrite<T> = {
   /** A long batch command (Auto, face retouch) that reports each photograph
    * it writes, given its tag (`countedForQuit`). */
   batch?: boolean;
+  /** One more write to wait for, submitted before (`PhotoWrite.after`). */
+  after?: Promise<unknown>;
 };
 
 /**
@@ -622,7 +624,7 @@ type RecipeWrite<T> = {
 export function recipeWrite<T>(
   paths: string[],
   mutation: (tag: string) => Promise<T>,
-  { kind, failedOf, preserveUnsaved = true, step, batch = false }: RecipeWrite<T>,
+  { kind, failedOf, preserveUnsaved = true, step, batch = false, after }: RecipeWrite<T>,
 ): Promise<T> {
   // An edit of one of them made before this write is saved before it.
   if (scheduledSave !== null && paths.some((path) => photoWriteKey(path) === photoWriteKey(scheduledSave!)))
@@ -650,7 +652,7 @@ export function recipeWrite<T>(
         return run();
       });
     },
-    { kind, failedOf, step, batch },
+    { kind, failedOf, step, batch, after },
   );
 }
 
@@ -1290,6 +1292,8 @@ export function useEditorActions() {
       // A style is taken back from the open photo by its editor's recipe
       // (the saved one may be behind it).
       const pastedOntoOpen = Boolean(open && (paste || presetWithAiMasks || style));
+      /** The open photograph's writes before the paste (the batch waits for them). */
+      let openSaved: Promise<unknown> | undefined;
       // The open photograph's History entry for this edit (its own step,
       // made at once) is its part of the batch's undo step.
       debouncedSetHistory.flush();
@@ -1297,6 +1301,11 @@ export function useEditorActions() {
       flushSliderDraft();
       const openBefore = useEditorStore.getState().adjustments;
       if (open && pastedOntoOpen) {
+        // Its save still waiting (the recipe it opened with, edits before)
+        // goes ahead of the batch: the batch's record of how it was before
+        // must not take that save for its own paste (crate batch_journal).
+        debouncedSave.flush();
+        openSaved = photoWritesSettled(open.path)?.catch(() => undefined);
         // At once, as one step: a drag's moves since the last commit are
         // part of the edit it is pasted onto.
         flushSliderDraft();
@@ -1348,12 +1357,15 @@ export function useEditorActions() {
               adjustments: adjustmentsToApply,
               ...(paste ? { paste } : {}),
               ...(style ? { style } : {}),
+              // Recorded with the batch a crash may cut short (the editor
+              // writes its own part).
+              ...(pastedOntoOpen ? { open: open!.path } : {}),
             }),
             others,
             'paste adjustments',
               quiet,
             ),
-          { kind: style ? 'style' : paste ? 'paste' : 'preset', failedOf: recordedFailed, step },
+          { kind: style ? 'style' : paste ? 'paste' : 'preset', failedOf: recordedFailed, step, after: openSaved },
         );
       const written = undoStep
         ? recipeBatchAction(

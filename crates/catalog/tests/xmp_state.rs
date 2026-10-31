@@ -60,6 +60,30 @@ fn a_saved_recipe_is_pending_until_written() {
 }
 
 #[test]
+fn writing_pending_xmp_in_parts_writes_only_the_part_asked_for() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW"]);
+    for id in &ids {
+        let mut meta = lib.metadata(id).unwrap();
+        meta.rating = 2;
+        lib.set_metadata(id, &meta).unwrap();
+    }
+    assert_eq!(lib.summary().unwrap().xmp_pending, 3);
+    // A path not pending (or not in the library) is skipped, not an error.
+    let part = [paths[1].clone(), d.path().join("elsewhere.ARW")];
+    let retry = lib.write_pending_xmp_of(Some(&part)).unwrap();
+    assert_eq!((retry.written, retry.unsaved.len()), (1, 0));
+    assert!(paths[1].with_extension("xmp").is_file());
+    assert!(!paths[0].with_extension("xmp").exists());
+    assert_eq!(
+        lib.pending_xmp_paths().unwrap(),
+        [paths[0].clone(), paths[2].clone()]
+    );
+    assert_eq!(lib.write_pending_xmp_of(None).unwrap().written, 2);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+}
+
+#[test]
 fn a_rating_not_written_to_its_xmp_yet_is_pending_until_written_again() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW"]);

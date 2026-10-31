@@ -6,7 +6,7 @@ use crate::Library;
 use anyhow::Result;
 use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -65,9 +65,24 @@ impl Library {
     /// never replaced and an offline photograph is not tried. Only sidecars
     /// are written, never the photographs.
     pub fn write_pending_xmp(&self) -> Result<XmpRetry> {
+        self.write_pending_xmp_of(None)
+    }
+
+    /// `write_pending_xmp` for those of `only` still pending (all of them
+    /// with None): the open-time write of the XMP a quit or crash left
+    /// behind goes in parts, each after the photographs' earlier writes.
+    pub fn write_pending_xmp_of(&self, only: Option<&[PathBuf]>) -> Result<XmpRetry> {
+        let only: Option<HashSet<&Path>> =
+            only.map(|paths| paths.iter().map(PathBuf::as_path).collect());
         let mut retry = XmpRetry::default();
         for id in self.pending_xmp()? {
             let path = self.asset(&id)?.path;
+            if only
+                .as_ref()
+                .is_some_and(|only| !only.contains(path.as_path()))
+            {
+                continue;
+            }
             let problem = match self.xmp_problem(&id, &path)? {
                 // `sync_xmp` refuses a changed sidecar too; it is not even read twice.
                 Some(problem) => Some(problem),

@@ -3,6 +3,7 @@
 //! - temporary files of sidecar writes, exports into Output, ingest copies
 //!   and cached previews: only files with Rawtonic's temporary-file prefix
 //!   older than `rawtonic_metadata::temp::STALE_AGE`;
+//!   (also directly in the backup folders of unfinished ingest jobs);
 //! - abandoned staging folders of Import from Catalog (its copied originals
 //!   and its snapshot of the other catalog): only marked ones no job holds
 //!   (`rawtonic_metadata::staging`).
@@ -21,8 +22,9 @@ use std::{
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Swept {
-    /// Temporary files removed.
+    /// Temporary files removed, and their bytes.
     pub temp_files: usize,
+    pub temp_bytes: u64,
     /// Staging folders removed, their bytes, and those left in place.
     pub staging: staging::Removed,
 }
@@ -51,7 +53,35 @@ impl Library {
         for folder in folders.iter().filter(|f| f.is_dir()) {
             sweep_tree(folder, &self.directory, now, cancel, &mut swept);
         }
+        // An interrupted ingest copies into its backup folder too: that
+        // folder only (it may hold anything; only our temporary files go).
+        for backup in self.ingest_backup_folders()? {
+            if cancel.load(Ordering::Acquire) {
+                break;
+            }
+            swept.add_temp(temp::sweep_folder(&backup, now));
+        }
         Ok(swept)
+    }
+
+    /// The backup folders of the ingest jobs not finished yet.
+    fn ingest_backup_folders(&self) -> Result<Vec<PathBuf>> {
+        let mut folders: Vec<PathBuf> = self
+            .unfinished_ingest_jobs()?
+            .into_iter()
+            .filter_map(|job| job.options.get("backup")?.as_str().map(PathBuf::from))
+            .filter(|folder| folder.is_absolute())
+            .collect();
+        folders.sort();
+        folders.dedup();
+        Ok(folders)
+    }
+}
+
+impl Swept {
+    fn add_temp(&mut self, removed: temp::Removed) {
+        self.temp_files += removed.files;
+        self.temp_bytes += removed.bytes;
     }
 }
 
@@ -66,7 +96,7 @@ fn sweep_tree(top: &Path, library: &Path, now: SystemTime, cancel: &AtomicBool, 
         {
             continue;
         }
-        swept.temp_files += temp::sweep_folder(&folder, now);
+        swept.add_temp(temp::sweep_folder(&folder, now));
         swept
             .staging
             .add(staging::remove_abandoned(&folder, staging::CATALOG_IMPORT));
@@ -129,6 +159,44 @@ mod tests {
         assert_eq!(lib.sweep_leftovers(later, &never).unwrap().temp_files, 3);
         assert!(!sidecar.exists() && !export.exists() && !preview.exists());
         assert!(foreign.exists());
+    }
+
+    #[test]
+    fn a_killed_ingest_leaves_nothing_in_its_backup_folder_and_the_size_is_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::create(&dir.path().join("Job"), "Job", Mode::Session).unwrap();
+        let card = dir.path().join("card");
+        let backup = dir.path().join("Backup");
+        let finished_backup = dir.path().join("Old backup");
+        for folder in [&card, &backup, &finished_backup] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        fs::write(card.join("C1.ARW"), b"raw").unwrap();
+        let item = [(
+            crate::ingest_jobs::SourceFile::read(&card.join("C1.ARW")),
+            None,
+        )];
+        lib.create_ingest_job(&serde_json::json!({ "backup": backup }), &item)
+            .unwrap();
+        let done = lib
+            .create_ingest_job(&serde_json::json!({ "backup": finished_backup }), &item)
+            .unwrap();
+        lib.set_ingest_job_state(&done, crate::ingest_jobs::JobState::Cancelled)
+            .unwrap();
+        let partial = |folder: &Path| {
+            let mut file = temp::file_for(&folder.join("C1_1.ARW")).unwrap();
+            std::io::Write::write_all(&mut file, &[7; 2048]).unwrap();
+            file.keep().unwrap().1
+        };
+        let left = partial(&backup);
+        let not_ours_to_sweep = partial(&finished_backup);
+        let user_file = backup.join("Notes.txt");
+        fs::write(&user_file, b"mine").unwrap();
+        let later = SystemTime::now() + temp::STALE_AGE + Duration::from_secs(1);
+        let swept = lib.sweep_leftovers(later, &AtomicBool::new(false)).unwrap();
+        assert_eq!((swept.temp_files, swept.temp_bytes), (1, 2048));
+        assert!(!left.exists());
+        assert!(user_file.exists() && not_ours_to_sweep.exists());
     }
 
     #[test]

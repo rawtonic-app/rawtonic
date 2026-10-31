@@ -69,6 +69,22 @@
       "starting": "Démarrage de l’importation…"
     },
     "indexing": "Indexation de la bibliothèque",
+    "interrupted": {
+      "applyRest": "Appliquer aux autres",
+      "color": "Libellé de couleur",
+      "detail": "Une fermeture ou un plantage a arrêté ce lot avant que toutes les photos soient écrites. Appliquez-le aux autres, annulez la partie appliquée ou laissez les photos telles quelles. Les photos elles-mêmes ne sont jamais modifiées.",
+      "failed": "{{batch}} n’a pas pu être terminé : {{error}}",
+      "keywordAdd": "Mot-clé « {{tag}} »",
+      "keywordRemove": "Retrait du mot-clé « {{tag}} »",
+      "paste": "Coller les réglages",
+      "preset": "Préréglage",
+      "rating": "Note {{rating}}",
+      "style": "Style",
+      "title_one": "Interrompu : {{batch}} appliqué à {{applied}} photo sur {{count}}",
+      "title_many": "Interrompu : {{batch}} appliqué à {{applied}} photos sur {{count}}",
+      "title_other": "Interrompu : {{batch}} appliqué à {{applied}} photos sur {{count}}",
+      "undoApplied": "Annuler la partie appliquée"
+    },
     "leftovers": {
       "kept_one": "{{count}} dossier inachevé d’une tâche interrompue a été laissé en place",
       "kept_many": "{{count}} dossiers inachevés d’une tâche interrompue ont été laissés en place",
@@ -2039,6 +2055,7 @@
     },
     "xmp": {
       "buttonTitle": "Certains fichiers XMP ne sont pas à jour par rapport à la bibliothèque. Cliquez pour les détails et pour les réécrire.",
+      "catchUp": "Écriture des fichiers XMP restés en attente depuis la dernière session",
       "conflictHeading_one": "{{count}} fichier XMP modifié par un autre programme",
       "conflictHeading_many": "{{count}} fichiers XMP modifiés par un autre programme",
       "conflictHeading_other": "{{count}} fichiers XMP modifiés par un autre programme",

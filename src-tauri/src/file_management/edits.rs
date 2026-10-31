@@ -10,6 +10,7 @@ use super::resolve_thumbnail_cache_dir;
 use super::sync_metadata_from_xmp;
 use super::sync_metadata_to_xmp;
 use crate::app_state::AppState;
+use crate::batch_journal::{self, BatchKind};
 use crate::formats::is_raw_file;
 use crate::gpu_processing;
 use crate::image_loader;
@@ -347,7 +348,7 @@ pub(crate) async fn recorded_batch(
 }
 
 /// Where pasted or synced settings come from (`apply_adjustments_to_paths`).
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PasteFrom {
     /// The photograph (or virtual copy) they were copied from.
@@ -364,7 +365,7 @@ pub struct PasteFrom {
 }
 
 /// The processing versions of a new edit (`newEditResponses` in the editor).
-#[derive(serde::Deserialize, Debug, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
 pub struct NewEditResponses {
     pub raw: serde_json::Map<String, Value>,
     pub other: serde_json::Map<String, Value>,
@@ -374,7 +375,7 @@ pub struct NewEditResponses {
 /// replaces the style last applied to each photograph, or with `remove`
 /// takes `id` back from the photographs it is the last applied style of
 /// (`rawtonic_engine::applied_style`).
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct StyleOp {
     pub id: String,
     #[serde(default)]
@@ -393,9 +394,33 @@ pub async fn apply_adjustments_to_paths(
     adjustments: Value,
     paste: Option<PasteFrom>,
     style: Option<StyleOp>,
+    open: Option<String>,
     app_handle: AppHandle,
 ) -> Result<RecipeBatch, String> {
     Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
+        // A kill before every photograph is written is offered at the next
+        // open (crate::batch_journal).
+        let batch = if style.is_some() {
+            BatchKind::Style
+        } else if paste.is_some() {
+            BatchKind::Paste
+        } else {
+            BatchKind::Preset
+        };
+        let args =
+            serde_json::json!({ "adjustments": adjustments, "paste": paste, "style": style });
+        // `open`: the open photograph, which the editor gives the same
+        // settings itself; it belongs to the batch the photographer made.
+        let members: Vec<String> = paths.iter().cloned().chain(open).collect();
+        let _job = batch_journal::begin(
+            app_handle,
+            batch,
+            "apply_adjustments_to_paths",
+            args,
+            None,
+            &members,
+            batch_journal::current,
+        );
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let lens_db = crate::lens_correction::global_lens_db();
 
@@ -1154,6 +1179,13 @@ pub async fn set_color_label_for_paths(
         crate::session_bridge::active_library_directory()
             .map(|dir| dir.to_string_lossy().into_owned())
     });
+    let job = (
+        BatchKind::Color {
+            color: color.clone(),
+        },
+        "set_color_label_for_paths",
+        serde_json::json!({ "color": color, "directory": directory }),
+    );
     culling_worker(
         paths
             .into_iter()
@@ -1166,6 +1198,7 @@ pub async fn set_color_label_for_paths(
             .collect(),
         directory,
         app_handle,
+        Some(job),
     )
     .await
 }
@@ -1181,6 +1214,11 @@ pub async fn set_rating_for_paths(
         crate::session_bridge::active_library_directory()
             .map(|dir| dir.to_string_lossy().into_owned())
     });
+    let job = (
+        BatchKind::Rating { rating },
+        "set_rating_for_paths",
+        serde_json::json!({ "rating": rating, "directory": directory }),
+    );
     culling_worker(
         paths
             .into_iter()
@@ -1193,6 +1231,7 @@ pub async fn set_rating_for_paths(
             .collect(),
         directory,
         app_handle,
+        Some(job),
     )
     .await
 }
@@ -1313,15 +1352,32 @@ fn write_prepared_culling(write: CullingWrite, xmp: Option<bool>) -> Result<Cull
     })
 }
 
+/// `job`: the batch recorded before the first photograph is written
+/// (`crate::batch_journal`), with its command and arguments.
 async fn culling_worker(
     values: Vec<CullingWrite>,
     directory: Option<String>,
     app_handle: AppHandle,
+    job: Option<(BatchKind, &'static str, Value)>,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
     let paths: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
-    super::blocking(move || write_culling(values, directory, &app_handle, Vec::new()))
-        .await
-        .unwrap_or_else(|error| unsaved(&paths, &error).map(|()| Vec::new()))
+    let recorded = paths.clone();
+    super::blocking(move || {
+        let _job = job.and_then(|(batch, command, args)| {
+            batch_journal::begin(
+                &app_handle,
+                batch,
+                command,
+                args,
+                directory.as_deref().map(Path::new),
+                &recorded,
+                batch_journal::current,
+            )
+        });
+        write_culling(values, directory, &app_handle, Vec::new())
+    })
+    .await
+    .unwrap_or_else(|error| unsaved(&paths, &error).map(|()| Vec::new()))
 }
 
 fn write_culling(

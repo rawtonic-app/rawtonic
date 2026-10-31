@@ -76,6 +76,23 @@
       "starting": "Rozpoczynanie importu…"
     },
     "indexing": "Indeksowanie biblioteki",
+    "interrupted": {
+      "applyRest": "Zastosuj do pozostałych",
+      "color": "Etykieta koloru",
+      "detail": "Zamknięcie lub awaria przerwały tę partię, zanim zapisano wszystkie zdjęcia. Zastosuj ją do pozostałych, cofnij zastosowaną część albo zostaw zdjęcia bez zmian. Same zdjęcia nigdy nie są zmieniane.",
+      "failed": "Nie udało się dokończyć: {{batch}}: {{error}}",
+      "keywordAdd": "Słowo kluczowe „{{tag}}”",
+      "keywordRemove": "Usuwanie słowa kluczowego „{{tag}}”",
+      "paste": "Wklej ustawienia",
+      "preset": "Ustawienie predefiniowane",
+      "rating": "Ocena {{rating}}",
+      "style": "Styl",
+      "title_one": "Przerwano: {{batch}} zastosowano do {{applied}} z {{count}} zdjęcia",
+      "title_few": "Przerwano: {{batch}} zastosowano do {{applied}} z {{count}} zdjęć",
+      "title_many": "Przerwano: {{batch}} zastosowano do {{applied}} z {{count}} zdjęć",
+      "title_other": "Przerwano: {{batch}} zastosowano do {{applied}} z {{count}} zdjęć",
+      "undoApplied": "Cofnij zastosowaną część"
+    },
     "leftovers": {
       "kept_one": "Pozostawiono {{count}} niedokończony folder przerwanego zadania",
       "kept_few": "Pozostawiono {{count}} niedokończone foldery przerwanego zadania",
@@ -2149,6 +2166,7 @@
     },
     "xmp": {
       "buttonTitle": "Niektóre pliki XMP nie są zgodne z biblioteką. Kliknij, aby zobaczyć szczegóły i zapisać je ponownie.",
+      "catchUp": "Zapisywanie plików XMP pozostałych z ostatniej sesji",
       "conflictHeading_one": "{{count}} plik XMP zmieniony przez inny program",
       "conflictHeading_few": "{{count}} pliki XMP zmienione przez inny program",
       "conflictHeading_many": "{{count}} plików XMP zmienionych przez inny program",

@@ -69,6 +69,22 @@
       "starting": "S’està iniciant la importació…"
     },
     "indexing": "S’està indexant la biblioteca",
+    "interrupted": {
+      "applyRest": "Aplica a la resta",
+      "color": "Etiqueta de color",
+      "detail": "Un tancament o una fallada ha aturat aquest lot abans d’escriure totes les fotos. Aplica’l a la resta, desfés la part aplicada o deixa les fotos com són. Les fotos mateixes no es modifiquen mai.",
+      "failed": "No s’ha pogut acabar {{batch}}: {{error}}",
+      "keywordAdd": "Paraula clau «{{tag}}»",
+      "keywordRemove": "Treure la paraula clau «{{tag}}»",
+      "paste": "Enganxa els ajustos",
+      "preset": "Preajust",
+      "rating": "Valoració {{rating}}",
+      "style": "Estil",
+      "title_one": "Interromput: {{batch}} aplicat a {{applied}} de {{count}} foto",
+      "title_many": "Interromput: {{batch}} aplicat a {{applied}} de {{count}} fotos",
+      "title_other": "Interromput: {{batch}} aplicat a {{applied}} de {{count}} fotos",
+      "undoApplied": "Desfés la part aplicada"
+    },
     "leftovers": {
       "kept_one": "S’ha deixat al seu lloc {{count}} carpeta sense acabar d’una tasca interrompuda",
       "kept_many": "S’han deixat al seu lloc {{count}} carpetes sense acabar d’una tasca interrompuda",
@@ -2039,6 +2055,7 @@
     },
     "xmp": {
       "buttonTitle": "Alguns fitxers XMP no estan al dia amb la biblioteca. Fes clic per veure'n els detalls i tornar-los a escriure.",
+      "catchUp": "S’estan escrivint els fitxers XMP pendents de l’última sessió",
       "conflictHeading_one": "{{count}} fitxer XMP modificat per un altre programa",
       "conflictHeading_many": "{{count}} fitxers XMP modificats per un altre programa",
       "conflictHeading_other": "{{count}} fitxers XMP modificats per un altre programa",

@@ -79,39 +79,93 @@ pub fn is_temp_name(name: &OsStr) -> bool {
         .is_some_and(|name| name.starts_with(TEMP_PREFIX))
 }
 
+/// Temporary files of ours a sweep removed, and their size.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Removed {
+    pub files: usize,
+    pub bytes: u64,
+}
+
+impl Removed {
+    pub fn add(&mut self, other: Removed) {
+        self.files += other.files;
+        self.bytes += other.bytes;
+    }
+}
+
 /// Removes `path` if it is a leftover temporary file of ours: our prefix, a
 /// plain file (never a symlink or folder), last modified at least
-/// [`STALE_AGE`] before `now`. Returns whether it was removed.
-pub fn remove_stale(path: &Path, now: SystemTime) -> io::Result<bool> {
+/// [`STALE_AGE`] before `now`. Returns its size when it was removed.
+pub fn remove_stale(path: &Path, now: SystemTime) -> io::Result<Option<u64>> {
     if !path.file_name().is_some_and(is_temp_name) {
-        return Ok(false);
+        return Ok(None);
     }
     let meta = fs::symlink_metadata(path)?;
     if !meta.file_type().is_file() {
-        return Ok(false);
+        return Ok(None);
     }
     let age = now
         .duration_since(meta.modified()?)
         .unwrap_or(Duration::ZERO);
     if age < STALE_AGE {
-        return Ok(false);
+        return Ok(None);
     }
     fs::remove_file(path)?;
-    Ok(true)
+    Ok(Some(meta.len()))
 }
 
 /// Removes the leftover temporary files of ours directly in `dir` (not in
-/// its subfolders); returns how many. A folder that cannot be read counts as
-/// none (it may be on a drive that is gone).
-pub fn sweep_folder(dir: &Path, now: SystemTime) -> usize {
+/// its subfolders). A folder that cannot be read counts as none (it may be
+/// on a drive that is gone).
+pub fn sweep_folder(dir: &Path, now: SystemTime) -> Removed {
     let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
+        return Removed::default();
     };
-    entries
-        .flatten()
-        .filter(|entry| is_temp_name(&entry.file_name()))
-        .filter(|entry| remove_stale(&entry.path(), now).unwrap_or(false))
-        .count()
+    let mut removed = Removed::default();
+    for entry in entries.flatten() {
+        if !is_temp_name(&entry.file_name()) {
+            continue;
+        }
+        if let Ok(Some(bytes)) = remove_stale(&entry.path(), now) {
+            removed.add(Removed { files: 1, bytes });
+        }
+    }
+    removed
+}
+
+/// The name a temporary file of ours was to become (as [`prefix_for`] put
+/// it in, at most its first 200 bytes); None for other files.
+pub fn target_name(temp: &OsStr) -> Option<&str> {
+    temp.to_str()?
+        .strip_prefix(TEMP_PREFIX)?
+        .rsplit_once('-')
+        .map(|(target, _)| target)
+}
+
+/// Removes the temporary files of ours directly in `dir` whose target name
+/// `ours` accepts (plain files only), whatever their age: for a job that
+/// resumes writes only it makes, under names it knows the pattern of.
+pub fn remove_leftovers_matching(dir: &Path, ours: impl Fn(&str) -> bool) -> Removed {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Removed::default();
+    };
+    let mut removed = Removed::default();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !target_name(&name).is_some_and(&ours) {
+            continue;
+        }
+        let Ok(meta) = fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        if meta.file_type().is_file() && fs::remove_file(entry.path()).is_ok() {
+            removed.add(Removed {
+                files: 1,
+                bytes: meta.len(),
+            });
+        }
+    }
+    removed
 }
 
 #[cfg(test)]
@@ -168,14 +222,17 @@ mod tests {
         }
         let soon = SystemTime::now() + Duration::from_secs(60);
         assert!(
-            !remove_stale(&ours, soon).unwrap(),
+            remove_stale(&ours, soon).unwrap().is_none(),
             "a fresh one may still be written"
         );
         let later = SystemTime::now() + STALE_AGE + Duration::from_secs(1);
-        assert_eq!(sweep_folder(dir.path(), later), 1);
+        assert_eq!(
+            sweep_folder(dir.path(), later),
+            Removed { files: 1, bytes: 0 }
+        );
         assert!(!ours.exists());
         assert!(other.exists() && photo.exists());
-        assert!(!remove_stale(&photo, later).unwrap());
+        assert!(remove_stale(&photo, later).unwrap().is_none());
     }
 
     #[cfg(unix)]
@@ -189,8 +246,40 @@ mod tests {
         let folder = dir.path().join(format!("{TEMP_PREFIX}folder"));
         fs::create_dir(&folder).unwrap();
         let later = SystemTime::now() + STALE_AGE + Duration::from_secs(1);
-        assert_eq!(sweep_folder(dir.path(), later), 0);
+        assert_eq!(sweep_folder(dir.path(), later).files, 0);
         assert!(target.exists() && folder.exists());
         assert!(fs::symlink_metadata(&link).is_ok());
+    }
+
+    #[test]
+    fn a_sweep_says_how_much_it_freed_and_matching_names_only_their_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut big = file_for(&dir.path().join("C1_2.ARW")).unwrap();
+        std::io::Write::write_all(&mut big, &[0; 1000]).unwrap();
+        let big = big.keep().unwrap().1;
+        let sidecar = file_for(&dir.path().join("C1_2.ARW.rrdata"))
+            .unwrap()
+            .keep()
+            .unwrap()
+            .1;
+        assert_eq!(target_name(big.file_name().unwrap()), Some("C1_2.ARW"));
+        assert_eq!(target_name(OsStr::new(".tmpAbC123")), None);
+        let removed = remove_leftovers_matching(dir.path(), |name| name == "C1_2.ARW");
+        assert_eq!(
+            removed,
+            Removed {
+                files: 1,
+                bytes: 1000
+            }
+        );
+        assert!(!big.exists() && sidecar.exists());
+        let later = SystemTime::now() + STALE_AGE + Duration::from_secs(1);
+        let mut old = file_for(&dir.path().join("x.jpg")).unwrap();
+        std::io::Write::write_all(&mut old, &[0; 7]).unwrap();
+        old.keep().unwrap();
+        assert_eq!(
+            sweep_folder(dir.path(), later),
+            Removed { files: 2, bytes: 7 }
+        );
     }
 }
