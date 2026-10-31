@@ -486,6 +486,8 @@ export interface AppSettings {
   rootFolders?: string[];
   recentLibraries?: string[];
   libraryViewMode?: LibraryViewMode;
+  /** Per folder: whether its grid includes the photos of its subfolders. */
+  subfolderViews?: Record<string, boolean>;
   sortCriteria?: SortCriteria;
   /** Legacy: there is no theme choice any more; old values are kept but ignored. */
   theme?: string;
@@ -658,6 +660,8 @@ export interface ContextMenuCustomProps {
 export interface ToolLayout {
   open?: Record<string, boolean>;
   order?: Record<string, string[]>;
+  /** Columns that keep one tool open at a time (opening one closes the others). */
+  solo?: Record<string, boolean>;
 }
 
 export interface Option {

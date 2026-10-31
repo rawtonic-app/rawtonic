@@ -217,7 +217,8 @@ interface ImageCanvasProps {
   updateSubMask(id: string | null, subMask: Partial<SubMask>): void;
   interactivePatch?: { url: string; normX: number; normY: number; normW: number; normH: number } | null;
   isWbPickerActive?: boolean;
-  onWbPicked?: () => void;
+  /** A pick was applied; `keep` false ends the white balance picker. */
+  onWbPicked?: (keep?: boolean) => void;
   setAdjustments(fn: (prev: Adjustments) => Adjustments): void;
   overlayMode?: OverlayMode;
   overlayRotation?: number;
@@ -2078,6 +2079,8 @@ const ImageCanvas = memo(
         const imgLogicalHeight = imageRenderSize.height / imageRenderSize.scale;
 
         if (x < 0 || x > imgLogicalWidth || y < 0 || y > imgLogicalHeight) return;
+        // Shift keeps the white balance picker on after this pick.
+        const keepPicker = Boolean(e.evt?.shiftKey);
 
         const requestId = ++whiteBalanceRequestRef.current;
         const colorTarget = useEditorStore.getState().colorPickerTarget;
@@ -2099,7 +2102,7 @@ const ImageCanvas = memo(
             ...prev,
             ...balance,
           }));
-          onWbPicked();
+          onWbPicked(keepPicker);
         }).catch((error) => {
           if (useEditorStore.getState().selectedImage === selectedImage && requestId === whiteBalanceRequestRef.current) {
             notify.error(`Could not sample white balance: ${error}`);

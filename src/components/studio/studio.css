@@ -777,6 +777,26 @@
 .adjustment-track:hover::-webkit-slider-thumb {
   background: #e2e9ef;
 }
+/* Hover and press read without the tooltip (notes:
+   reference/ux-develop-core-2026-10-31): the label, a drag handle itself,
+   lights up under the pointer; while the slider or label is dragged the
+   thumb grows, turns white and gets a ring, and the value brightens. */
+.adjustment-control:not(.is-disabled):hover > label {
+  color: #eef0f2;
+}
+.adjustment-control.is-active > label,
+.adjustment-control.is-active input.adjustment-value {
+  color: #ffffff;
+}
+.adjustment-control.is-active .adjustment-track::-webkit-slider-thumb {
+  width: 11px;
+  height: 11px;
+  margin-top: -4px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 2px #829daf99,
+    0 1px 2px #0009;
+}
 .adjustment-track.temperature::-webkit-slider-runnable-track {
   background: linear-gradient(90deg, #6b99c7, #d0b263);
 }
@@ -1019,6 +1039,72 @@
 .curve-target circle {
   fill: none;
   stroke-width: 1.4;
+}
+/* The photo's histogram behind the curve, faint enough to keep the curve
+   and grid in front (notes: reference/ux-develop-core-2026-10-31, D3). */
+.curve-histogram {
+  fill: #8a8d9233;
+  stroke: none;
+  pointer-events: none;
+}
+/* Crosshair through the point being dragged. */
+.curve-crosshair {
+  pointer-events: none;
+  stroke: #c9ccd0;
+  stroke-width: 0.6;
+  stroke-dasharray: 2 2;
+}
+/* Region split handles in a strip under the plot (D4): the number shows on
+   hover, focus and while dragging. */
+.curve-split-track {
+  fill: #2a2b2e;
+}
+.curve-split {
+  cursor: ew-resize;
+  outline: none;
+}
+.curve-split path {
+  fill: #a9adb3;
+  stroke: #17181a;
+  stroke-width: 0.8;
+}
+.curve-split:hover path,
+.curve-split:focus-visible path,
+.curve-split.is-dragging path {
+  fill: #ffffff;
+}
+.curve-split:focus-visible path {
+  stroke: #829daf;
+  stroke-width: 1.4;
+}
+.curve-split-value {
+  fill: #e1e3e5;
+  font-size: 9px;
+  opacity: 0;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: #202123;
+  stroke-width: 2px;
+}
+.curve-split:hover .curve-split-value,
+.curve-split:focus-visible .curve-split-value,
+.curve-split.is-dragging .curve-split-value {
+  opacity: 1;
+}
+.curve-split-entry {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: #aeb1b6;
+  font-size: 10px;
+}
+.curve-split-entry input {
+  width: 45px;
+  background: #202123;
+  border: 1px solid #829daf;
+  text-align: right;
 }
 .curve-point {
   fill: #d9e2e9;
@@ -1768,6 +1854,11 @@
   background: #2d2e30;
   padding: 7px;
   border-radius: 1px;
+}
+/* Hover (Lightroom's lighter cell under the pointer): a lighter fill only,
+   so it never reads as selected (fill + border) or current (light border). */
+.studio-photo:not(.is-selected):hover {
+  background: #36383b;
 }
 .studio-photo.is-selected {
   background: #464c53;
@@ -6282,4 +6373,22 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   .studio-eye-call {
     border: 1px solid CanvasText;
   }
+}
+/* Two-state toggles of the loupe bar and the grid toolbar (Auto-advance,
+   Include subfolders): on adds an accent frame to the pressed tint, so on
+   and off read apart without the tooltip and differ from hover (fill only). */
+.studio-auto-advance,
+.studio-subfolders {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.studio-auto-advance[aria-pressed="true"],
+.studio-subfolders[aria-pressed="true"] {
+  border-color: #7f9bb3;
 }

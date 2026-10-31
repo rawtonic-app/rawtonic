@@ -2843,6 +2843,7 @@
         "expandAll": "모든 도구 펼치기",
         "moveDown": "아래로 이동",
         "moveUp": "위로 이동",
+        "oneOpen": "한 번에 도구 하나만 열기",
         "restoreOrder": "기본 순서 복원",
         "restoreOrderMenu": "기본 도구 순서 복원",
         "restoreOrderTitle": "도구를 원래 순서로 되돌립니다"
@@ -2980,10 +2981,9 @@
       "whiteBalance": {
         "auto": "자동 화이트 밸런스",
         "autoTitle": "자동 화이트 밸런스 ({{shortcut}})",
-        "camera": "카메라 화이트 밸런스",
         "picker": "화이트 밸런스 선택 도구",
         "pickerOnBackground": "화이트 밸런스 선택 도구는 배경에서 사용할 수 있습니다",
-        "pickNeutral": "중립 영역 선택",
+        "pickNeutral": "중립 영역 선택 (Shift+클릭: 계속 선택)",
         "relative": "상대 보정",
         "relativeTemperature": "상대 색온도",
         "relativeTint": "상대 틴트",
@@ -4449,6 +4449,7 @@
           "shadowSplit": "섀도우"
         },
         "region": "영역",
+        "splitHint": "{{name}}: {{value}}. 드래그하거나 화살표 키 사용, 더블클릭하여 값 입력",
         "splits": "경계"
       }
     },

@@ -3192,6 +3192,7 @@
         "expandAll": "Rozwiń wszystkie narzędzia",
         "moveDown": "Przesuń w dół",
         "moveUp": "Przesuń w górę",
+        "oneOpen": "Tylko jedno otwarte narzędzie",
         "restoreOrder": "Przywróć domyślną kolejność",
         "restoreOrderMenu": "Przywróć domyślną kolejność narzędzi",
         "restoreOrderTitle": "Przywróć narzędziom pierwotną kolejność"
@@ -3329,10 +3330,9 @@
       "whiteBalance": {
         "auto": "Automatyczny balans bieli",
         "autoTitle": "Automatyczny balans bieli ({{shortcut}})",
-        "camera": "Balans bieli aparatu",
         "picker": "Próbnik balansu bieli",
         "pickerOnBackground": "Próbnik balansu bieli jest dostępny na tle",
-        "pickNeutral": "Wybierz neutralny obszar",
+        "pickNeutral": "Wybierz neutralny obszar (Shift+klik: wybieraj dalej)",
         "relative": "Korekta względna",
         "relativeTemperature": "Temperatura względna",
         "relativeTint": "Zabarwienie względne",
@@ -4932,6 +4932,7 @@
           "shadowSplit": "Cienie"
         },
         "region": "Zakresy",
+        "splitHint": "{{name}}: {{value}}. Przeciągnij lub użyj strzałek; kliknij dwukrotnie, aby wpisać wartość",
         "splits": "Podziały"
       }
     },

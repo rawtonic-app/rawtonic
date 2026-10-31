@@ -99,13 +99,16 @@ export function rankCommands(
 }
 
 /** The same tree as the native menu; app-only commands join Edit/Help. */
+/** Linux and Windows have no native menu bar: the ⋯ menu holds the menu tree. */
+export const hasOverflowMenu = (platform: string) => platform === "linux" || platform === "windows";
+
 export function overflowCommands(
   platform: string,
   t: Translate,
   keybinds?: Record<string, string[]> | null,
   enabled = appCommandEnabled,
 ): Option[] {
-  if (platform !== "linux" && platform !== "windows") return [];
+  if (!hasOverflowMenu(platform)) return [];
   const built = buildMenuSpec(t, keybinds, enabled).spec.menus;
   const convert = (nodes: MenuNode[]): Option[] =>
     nodes

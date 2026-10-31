@@ -5,6 +5,7 @@ import { notify } from '../activity/notify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { folderViewMode } from '../utils/subfolderView';
 import {
   photographPath,
   scopeRule,
@@ -66,8 +67,11 @@ export function useCatalogSearch() {
     }
     // Which shown photographs the catalog knows (a listing also shows files
     // it does not hold, e.g. a session's Output; those are matched here).
-    const { currentFolderPath, activeAlbumId } = useLibraryStore.getState();
-    const scope = scopeRule(currentFolderPath, activeAlbumId, useSettingsStore.getState().appSettings?.libraryViewMode);
+    const { currentFolderPath, activeAlbumId, subfolderDefaultRoot } = useLibraryStore.getState();
+    const viewMode = currentFolderPath
+      ? folderViewMode(currentFolderPath, useSettingsStore.getState().appSettings, subfolderDefaultRoot)
+      : undefined;
+    const scope = scopeRule(currentFolderPath, activeAlbumId, viewMode);
     // A folder the grid lists (not an album view): answers come in its form.
     const listed = activeAlbumId ? null : currentFolderPath;
     const search = (asked: Rule) => searchLibrary(directory, asked, listed);

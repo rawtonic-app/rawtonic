@@ -10,7 +10,7 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import type { AppSettings } from "../ui/AppProperties";
-import { requestFolderSync } from "../../utils/folderSync";
+import { SHOW_PREVIOUS_IMPORT, requestFolderSync } from "../../utils/folderSync";
 import { requestAddFolder } from "./addFolder";
 
 type DragDropPayload =
@@ -365,6 +365,45 @@ describe("Dropping photographs onto the window", () => {
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ folder: "/jobs/Acme/Selects" });
     expect(navigate).toHaveBeenLastCalledWith("/jobs/Acme/Selects");
+  });
+
+  it("after the copy the grid shows the new photographs (Previous Import), unless the user moved on or opened a photograph meanwhile", async () => {
+    const user = userEvent.setup();
+    const shown = vi.fn();
+    window.addEventListener(SHOW_PREVIOUS_IMPORT, shown);
+    try {
+      await open();
+      drop(["/Volumes/CARD/DCIM"]);
+      await user.click(await screen.findByRole("button", { name: "Copy 2 photos" }));
+      await waitFor(() => expect(shown).toHaveBeenCalledTimes(1));
+
+      // Another folder opened while the card was copying: the view stays there.
+      const base = vi.mocked(invoke).getMockImplementation()!;
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === "session_ingest") useLibraryStore.setState({ currentFolderPath: "/jobs/Acme/Selects" });
+        return base(command, args);
+      });
+      drop(["/Volumes/CARD/DCIM"]);
+      await user.click(await screen.findByRole("button", { name: "Copy 2 photos" }));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "session_ingest")).toHaveLength(2));
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
+
+      // A photograph opened in the Library's loupe while copying stays open.
+      useLibraryStore.setState({ currentFolderPath: null });
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === "session_ingest") useUIStore.setState({ libraryLoupe: true });
+        return base(command, args);
+      });
+      drop(["/Volumes/CARD/DCIM"]);
+      await user.click(await screen.findByRole("button", { name: "Copy 2 photos" }));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "session_ingest")).toHaveLength(3));
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
+    } finally {
+      useUIStore.setState({ libraryLoupe: false });
+      window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
+    }
   });
 
   it("a folder outside the library is not a destination: the drop goes to Capture", async () => {

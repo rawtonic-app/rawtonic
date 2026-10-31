@@ -2922,6 +2922,7 @@
         "expandAll": "Alle Werkzeuge aufklappen",
         "moveDown": "Nach unten",
         "moveUp": "Nach oben",
+        "oneOpen": "Nur ein Werkzeug geöffnet",
         "restoreOrder": "Standardreihenfolge wiederherstellen",
         "restoreOrderMenu": "Standardreihenfolge der Werkzeuge wiederherstellen",
         "restoreOrderTitle": "Werkzeuge wieder in ihre ursprüngliche Reihenfolge bringen"
@@ -3059,10 +3060,9 @@
       "whiteBalance": {
         "auto": "Automatischer Weißabgleich",
         "autoTitle": "Automatischer Weißabgleich ({{shortcut}})",
-        "camera": "Kamera-Weißabgleich",
         "picker": "Weißabgleich-Pipette",
         "pickerOnBackground": "Die Weißabgleich-Pipette ist auf dem Hintergrund verfügbar",
-        "pickNeutral": "Neutralen Bereich wählen",
+        "pickNeutral": "Neutralen Bereich wählen (Umschalt-Klick: weiter wählen)",
         "relative": "Relative Korrektur",
         "relativeTemperature": "Relative Temperatur",
         "relativeTint": "Relative Tönung",
@@ -4570,6 +4570,7 @@
           "shadowSplit": "Tiefen"
         },
         "region": "Bereiche",
+        "splitHint": "{{name}}: {{value}}. Ziehen oder Pfeiltasten; Doppelklick, um einen Wert einzugeben",
         "splits": "Grenzen"
       }
     },

@@ -225,6 +225,9 @@ export const PREVIOUS_IMPORT_VIEW_ID = 'session-previous-import';
 /** Fired after an ingest, a synchronization or a hot folder capture added
  * photographs, so Previous Import counts and shows them. */
 export const IMPORTS_CHANGED = 'rawtonic:imports-changed';
+/** An import finished in the view it showed: open Previous Import (Lightroom shows the
+ * new photographs after Import; dated subfolders would leave the destination empty). */
+export const SHOW_PREVIOUS_IMPORT = 'rawtonic:show-previous-import';
 
 export interface ImportBatchInfo {
   id: number;

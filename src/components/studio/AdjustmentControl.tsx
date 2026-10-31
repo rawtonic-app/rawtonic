@@ -71,6 +71,8 @@ export default memo(function AdjustmentControl({
   const id = useId();
   const [local, setLocal] = useState(value);
   const [text, setText] = useState(shownValue(value, step));
+  // A slider or label drag in progress: the row shows its pressed state.
+  const [dragging, setDragging] = useState(false);
   const active = useRef(false);
   const frame = useRef<number | null>(null);
   const pending = useRef(value);
@@ -82,6 +84,8 @@ export default memo(function AdjustmentControl({
   const interactionCallback = useRef(onInteraction);
   interactionCallback.current = onInteraction;
   const scrub = useRef<{ x: number; value: number } | null>(null);
+  // An Option-drag on the track: a tenth of the track's own movement per pixel.
+  const fine = useRef<{ x: number; value: number; perPixel: number } | null>(null);
   // Slider positions: value units, or the scale's with 1000 steps.
   const trackMin = scale ? scale.toTrack(min) : min;
   const trackMax = scale ? scale.toTrack(max) : max;
@@ -130,12 +134,15 @@ export default memo(function AdjustmentControl({
   };
   const begin = () => {
     active.current = true;
+    setDragging(true);
     onInteraction?.(true);
   };
   const end = () => {
     flush();
     active.current = false;
     scrub.current = null;
+    fine.current = null;
+    setDragging(false);
     onInteraction?.(false);
   };
   const reset = () => {
@@ -194,7 +201,9 @@ export default memo(function AdjustmentControl({
     end();
   };
   return (
-    <div className={`adjustment-control ${disabled ? "is-disabled" : ""}`}>
+    <div
+      className={`adjustment-control ${disabled ? "is-disabled" : ""} ${dragging ? "is-active" : ""}`}
+    >
       <label
         htmlFor={id}
         title={t("studio.adjustment.scrubHint")}
@@ -227,7 +236,31 @@ export default memo(function AdjustmentControl({
         value={toTrack(local)}
         disabled={disabled}
         onChange={(e) => update(fromTrack(Number(e.target.value)))}
-        onPointerDown={begin}
+        onPointerDown={(e) => {
+          if (e.altKey && !disabled && e.button === 0) {
+            // Fine control (Option, as on the label): the thumb does not jump
+            // to the pointer and moves a tenth of a plain drag per pixel.
+            e.preventDefault();
+            // preventDefault also stops the native focus move: keys go here next.
+            e.currentTarget.focus();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            const width = e.currentTarget.getBoundingClientRect().width;
+            fine.current = {
+              x: e.clientX,
+              value: toTrack(local),
+              perPixel: width > 0 ? (trackMax - trackMin) / width / 10 : 0,
+            };
+          }
+          begin();
+        }}
+        onPointerMove={(e) => {
+          if (!fine.current) return;
+          const { x, value, perPixel } = fine.current;
+          update(
+            fromTrack(Math.max(trackMin, Math.min(trackMax, value + (e.clientX - x) * perPixel))),
+            step / 10,
+          );
+        }}
         onPointerUp={end}
         onPointerCancel={end}
         onBlur={() => {

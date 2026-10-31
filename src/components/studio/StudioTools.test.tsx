@@ -646,6 +646,16 @@ describe("workspace keyboard accessibility", () => {
     expect(document.activeElement).toBe(photo);
   });
 
+  it("starts the tool column at 340 px, so sliders are as fine as the reference editors'", () => {
+    // UXR1: a 300 px column gave Exposure a 112 px track (0.097 EV/px)
+    // against Lightroom's 0.070 (notes: reference/ux-develop-core-2026-10-31).
+    localStorage.removeItem("rawtonic.studio.width");
+    localStorage.removeItem("retouch.studio.width");
+    workspace();
+    const separator = screen.getByRole("separator", { name: "Tool panel width" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("340");
+  });
+
   it.each(["split-tools", "tools-left"] as const)("moves the separator in the arrow direction in %s", (layout) => {
     useUIStore.getState().setStudioToolLayout(layout);
     workspace();

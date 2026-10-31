@@ -128,10 +128,7 @@ export function RegionCurveControls({
       {slider("lights")}
       {slider("darks")}
       {slider("shadows")}
-      <div className="studio-subheading">{t("studio.tone.regionCurve.splits")}</div>
-      {slider("shadowSplit", 5, 45, 25)}
-      {slider("midtoneSplit", 25, 75, 50)}
-      {slider("highlightSplit", 55, 95, 75)}
+      {/* The split points are handles under the curve (PointCurve). */}
 
     </>
   );

@@ -52,14 +52,26 @@ it.each(["linux", "windows"])(
     expect(run).toHaveBeenCalledOnce();
   },
 );
-it("preserves the existing macOS overflow menu", () => {
+it("is not shown on macOS, where the menu bar holds every command", () => {
   useSettingsStore.setState({ osPlatform: "macos" });
   render(
     <ContextMenuProvider>
       <AppOverflowMenu />
     </ContextMenuProvider>,
   );
+  // The menu bar's Help holds Report a problem…: a one-item ⋯ menu is not shown.
+  expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+});
+
+it("lists Report a problem… once, inside Help", async () => {
+  useSettingsStore.setState({ osPlatform: "linux" });
+  render(
+    <ContextMenuProvider>
+      <AppOverflowMenu />
+    </ContextMenuProvider>,
+  );
   fireEvent.click(screen.getByRole("button", { name: "More" }));
-  expect(screen.getAllByRole("menuitem")).toHaveLength(1);
-  expect(screen.queryByRole("menuitem", { name: "File" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: /report a problem/i })).toBeNull();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Help" }));
+  expect(await screen.findAllByRole("menuitem", { name: /report a problem/i })).toHaveLength(1);
 });

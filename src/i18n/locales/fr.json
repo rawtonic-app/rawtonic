@@ -3057,6 +3057,7 @@
         "expandAll": "Développer tous les outils",
         "moveDown": "Descendre",
         "moveUp": "Monter",
+        "oneOpen": "Un seul outil ouvert à la fois",
         "restoreOrder": "Rétablir l'ordre par défaut",
         "restoreOrderMenu": "Rétablir l'ordre par défaut des outils",
         "restoreOrderTitle": "Remettre les outils dans leur ordre d'origine"
@@ -3194,10 +3195,9 @@
       "whiteBalance": {
         "auto": "Balance des blancs automatique",
         "autoTitle": "Balance des blancs automatique ({{shortcut}})",
-        "camera": "Balance des blancs de l'appareil",
         "picker": "Pipette de balance des blancs",
         "pickerOnBackground": "La pipette de balance des blancs est disponible sur l'arrière-plan",
-        "pickNeutral": "Choisir une zone neutre",
+        "pickNeutral": "Choisir une zone neutre (Maj+clic : continuer)",
         "relative": "Correction relative",
         "relativeTemperature": "Température relative",
         "relativeTint": "Teinte relative",
@@ -4751,6 +4751,7 @@
           "shadowSplit": "Ombres"
         },
         "region": "Zones",
+        "splitHint": "{{name}} : {{value}}. Faire glisser ou utiliser les flèches ; double-clic pour saisir une valeur",
         "splits": "Séparations"
       }
     },

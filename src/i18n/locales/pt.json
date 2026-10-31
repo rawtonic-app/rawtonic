@@ -3057,6 +3057,7 @@
         "expandAll": "Expandir todas as ferramentas",
         "moveDown": "Mover para baixo",
         "moveUp": "Mover para cima",
+        "oneOpen": "Uma ferramenta aberta de cada vez",
         "restoreOrder": "Restaurar ordem padrão",
         "restoreOrderMenu": "Restaurar a ordem padrão das ferramentas",
         "restoreOrderTitle": "Colocar as ferramentas de volta na ordem original"
@@ -3194,10 +3195,9 @@
       "whiteBalance": {
         "auto": "Balanço de brancos automático",
         "autoTitle": "Balanço de brancos automático ({{shortcut}})",
-        "camera": "Balanço de branco da câmera",
         "picker": "Conta-gotas de balanço de branco",
         "pickerOnBackground": "O conta-gotas de balanço de branco está disponível no fundo",
-        "pickNeutral": "Escolha uma área neutra",
+        "pickNeutral": "Escolha uma área neutra (Shift+clique: continuar a escolher)",
         "relative": "Correção relativa",
         "relativeTemperature": "Temperatura relativa",
         "relativeTint": "Tonalidade relativa",
@@ -4751,6 +4751,7 @@
           "shadowSplit": "Sombras"
         },
         "region": "Regiões",
+        "splitHint": "{{name}}: {{value}}. Arraste ou use as setas; duplo clique para escrever um valor",
         "splits": "Divisões"
       }
     },

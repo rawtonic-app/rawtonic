@@ -313,3 +313,25 @@ it("reserves native activation keys while leaving J to the app shortcut", () => 
   for (const key of [" ", "Enter", "j"]) fireEvent.keyDown(shadows, { key });
   expect(keys).toEqual(["j"]);
 });
+
+it("writes the capture settings under the histogram with their units, as the viewer bar does", () => {
+  // The backend gives the focal length as a bare number ("12"); the
+  // histogram line printed it as "12", the bar under the photo "12 mm".
+  useEditorStore.setState({
+    selectedImage: {
+      path: "/scratch/a.orf",
+      isRaw: true,
+      width: 5184,
+      height: 3888,
+      exif: { ISO: "1600", FNumber: "f/7.1", ExposureTime: "1/60 s", FocalLength: "12" },
+    } as never,
+  });
+  try {
+    render(<StudioHistogram />);
+    const line = document.querySelector<HTMLElement>(".studio-exif-line")!;
+    const parts = [...line.querySelectorAll("span")].map((s) => s.textContent);
+    expect(parts).toEqual(["ISO 1600", "f/7.1", "1/60 s", "12 mm"]);
+  } finally {
+    useEditorStore.setState({ selectedImage: null });
+  }
+});

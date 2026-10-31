@@ -396,7 +396,12 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     [setAdjustments],
   );
 
-  const handleWbPicked = useCallback(() => {}, []);
+  // One white balance pick ends the picker (Lightroom's default); Shift-click
+  // keeps it on for another try, Esc ends it any time. Colour range samples
+  // keep their picker (`keep` true).
+  const handleWbPicked = useCallback((keep = true) => {
+    if (!keep) useEditorStore.getState().setEditor({ isWbPickerActive: false });
+  }, []);
 
   const isCropping = activePanel === Panel.Crop;
   const isMasking = activePanel === Panel.Masks;
