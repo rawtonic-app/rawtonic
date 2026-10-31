@@ -626,12 +626,11 @@ fn merge_xmp_with(
     let previous_label = property(root, XMP, "Label").unwrap_or_default();
     // Capture One reads an empty label as "unchanged" and brings its colour
     // back from the urgency it keeps beside the label; its own `None` clears
-    // the tag. A cleared label is written as `None` where the sidecar's
-    // urgency is the one Capture One writes for the old label. The urgency
-    // itself is never changed: it may be the photographer's own.
-    let capture_one_tag = property(root, PHOTOSHOP, "Urgency")
-        .is_some_and(|u| Some(u.trim()) == labels::urgency(&previous_label));
-    let label = if metadata.label.is_empty() && capture_one_tag {
+    // the tag. So a cleared label is written as `None` in every sidecar that
+    // holds an urgency, on every save. The urgency itself is never changed:
+    // it may be the photographer's own.
+    let has_urgency = property(root, PHOTOSHOP, "Urgency").is_some();
+    let label = if metadata.label.is_empty() && has_urgency {
         labels::NONE.to_string()
     } else {
         labels::for_sidecar(&metadata.label, &previous_label)

@@ -5,7 +5,8 @@
 //! `Lila`) and matches the names it reads against its own label set only: an
 //! English `Blue` shows as a white custom label there. Capture One writes the
 //! English names, two more colours (`Orange`, `Pink`) and, by default, the
-//! colour's number in `photoshop:Urgency`; for no tag it writes the label
+//! colour's number in `photoshop:Urgency` (Red 1, Green 2, Blue 3, Pink 4,
+//! Purple 5, Orange 6, Yellow 7); for no tag it writes the label
 //! `None` with urgency 0. It ignores an empty label and then reads the colour
 //! back from the urgency, but takes `None` as no tag whatever the urgency
 //! says. Observed on scratch sidecars (notes:
@@ -21,17 +22,6 @@ pub const LABELS: [&str; 5] = ["Red", "Yellow", "Green", "Blue", "Purple"];
 const NAMES: [([&str; 5], &[&str]); 2] = [
     (["Red", "Yellow", "Green", "Blue", "Purple"], &[]),
     (["Rot", "Gelb", "Grün", "Blau", "Lila"], &["Violett"]),
-];
-
-/// Capture One's colour tags and the `photoshop:Urgency` it writes for each.
-const URGENCY: [(&str, &str); 7] = [
-    ("Red", "1"),
-    ("Green", "2"),
-    ("Blue", "3"),
-    ("Pink", "4"),
-    ("Purple", "5"),
-    ("Orange", "6"),
-    ("Yellow", "7"),
 ];
 
 /// The label a name stands for in one of the common interface languages
@@ -100,15 +90,6 @@ pub fn for_sidecar(label: &str, previous: &str) -> String {
         .to_string()
 }
 
-/// The `photoshop:Urgency` Capture One writes for a label, if it has one.
-pub fn urgency(label: &str) -> Option<&'static str> {
-    let label = stored(label);
-    URGENCY
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case(&label))
-        .map(|(_, code)| *code)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,12 +114,5 @@ mod tests {
         assert_eq!(for_sidecar("Blue", "Rouge"), "Blue");
         assert_eq!(for_sidecar("Orange", "Rot"), "Orange");
         assert_eq!(for_sidecar("Red", "Violett"), "Rot");
-    }
-
-    #[test]
-    fn capture_one_urgency_of_each_colour() {
-        assert_eq!(urgency("Rot"), Some("1"));
-        assert_eq!(urgency("Orange"), Some("6"));
-        assert_eq!(urgency(""), None);
     }
 }

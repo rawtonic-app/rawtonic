@@ -250,10 +250,28 @@ fn a_label_cleared_in_rawtonic_stays_cleared_in_capture_one() {
     let cleared = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
     assert!(cleared.contains("xmp:Label=\"None\""), "{cleared}");
     assert_eq!(read(&cleared).label, "");
-    // A label set or cleared again later is written as usual.
+    // Saved again (another change before Capture One reads it): still none.
+    let mut again = read(&cleared);
+    again.rating = 4;
+    let saved = merge_xmp(Some(&cleared), &again, None).unwrap();
+    assert!(saved.contains("xmp:Label=\"None\""), "{saved}");
+    assert!(saved.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
+    // A label set again is written as usual.
     meta.label = "Blue".into();
-    let blue = merge_xmp(Some(&cleared), &meta, None).unwrap();
+    let blue = merge_xmp(Some(&saved), &meta, None).unwrap();
     assert!(blue.contains("xmp:Label=\"Blue\""));
+}
+
+#[test]
+fn a_label_changed_then_cleared_stays_cleared_in_capture_one() {
+    // Green → Blue → none, each saved before Capture One rewrites the urgency.
+    let mut meta = read(C1_IPTC);
+    meta.label = "Blue".into();
+    let blue = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
+    meta.label.clear();
+    let cleared = merge_xmp(Some(&blue), &meta, None).unwrap();
+    assert!(cleared.contains("xmp:Label=\"None\""), "{cleared}");
+    assert!(cleared.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
 }
 
 #[test]
@@ -261,22 +279,16 @@ fn the_urgency_is_never_changed() {
     // It may be the photographer's own, even when it matches the label's
     // number: only Capture One rewrites it.
     let mut meta = read(C1_IPTC);
-    for label in ["", "Blue"] {
+    for label in ["", "Blue", "Red"] {
         meta.label = label.into();
         let written = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
         assert!(written.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
         assert!(!written.contains("photoshop:Urgency=\""));
     }
-    // Without Capture One's number for the old label, clearing writes an
-    // empty label (Lightroom would show `None` as a label of its own).
-    let own = C1_IPTC.replace(
-        "<photoshop:Urgency>2</photoshop:Urgency>",
-        "<photoshop:Urgency>8</photoshop:Urgency>",
-    );
+    // A sidecar without an urgency (Lightroom's) gets an empty label:
+    // Lightroom would show `None` as a label of its own.
     meta.label.clear();
-    let written = merge_xmp(Some(&own), &meta, None).unwrap();
-    assert!(written.contains("xmp:Label=\"\""));
-    assert!(written.contains("<photoshop:Urgency>8</photoshop:Urgency>"));
     let lightroom = merge_xmp(Some(LIGHTROOM), &meta, None).unwrap();
     assert!(lightroom.contains("xmp:Label=\"\""));
+    assert!(!lightroom.contains("Urgency"));
 }
