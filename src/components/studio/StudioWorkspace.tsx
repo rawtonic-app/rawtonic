@@ -64,7 +64,7 @@ import { ExportQueuePanel } from "./StudioExportQueue";
 import { OPEN_EXPORT_QUEUE } from "../../utils/catalogEvents";
 import PreviewBuildStatus from "./PreviewBuildStatus";
 import PreferencesDialog from "./PreferencesDialog";
-import { ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
+import { PointerReadout, ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
 import { CameraPreviewButton } from "./CameraPreview";
 import OfflineBadge, { OfflineCount } from "./OfflineBadge";
 import StillPreviewBadge from "./StillPreviewBadge";
@@ -1459,6 +1459,7 @@ export default function StudioWorkspace(props: Props) {
                   ))}
                 </div>
                 <div className="studio-viewer-side is-end">
+                  <PointerReadout />
                   <ViewerCaptureInfo />
                   <button
                     title={withShortcut(t("studio.workspace.footer.copyAdjustments"), "⇧⌘C")}

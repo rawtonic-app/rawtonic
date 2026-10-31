@@ -274,6 +274,7 @@
       "toggle_left_panel": "左パネル",
       "toggle_metadata": "写真情報",
       "toggle_multi_view": "マルチビュー",
+      "toggle_pointer_readout": "ポインターのRGB表示",
       "toggle_proof_margin": "校正マージン",
       "toggle_right_panel": "右パネル",
       "toggle_side_panels": "サイドパネル",
@@ -873,6 +874,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "スポイトルーペ"
     }
   },
   "errors": {
@@ -2106,6 +2110,7 @@
         "toggle_masks": "マスクパネルの表示/非表示",
         "toggle_metadata": "メタデータツール（ライブラリ）または写真の情報（現像、フルスクリーン）",
         "toggle_multi_view": "マルチビュー：選択した写真を並べて表示",
+        "toggle_pointer_readout": "ポインターのRGB表示を切り替え",
         "toggle_proof_margin": "プルーフマージンの切り替え",
         "toggle_right_panel": "右パネルの表示/非表示",
         "toggle_side_panels": "サイドパネルの表示/非表示",
@@ -4742,6 +4747,8 @@
         "fitTitle": "ウィンドウに合わせる",
         "hidePanels": "パネルを隠す",
         "imageViewer": "画像ビューア",
+        "pointerReadout": "ポインター位置のR, G, B",
+        "pointerReadoutTitle": "ポインター位置の写真のR, G, B（sRGB、スポイトの11 × 11平均）。クリックで0–255と%を切り替え。",
         "proofMargin": "プルーフマージン",
         "proofMarginTitle": "写真の周りのプルーフマージン",
         "redo": "やり直し",

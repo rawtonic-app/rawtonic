@@ -274,6 +274,7 @@
       "toggle_left_panel": "左側面板",
       "toggle_metadata": "照片資訊",
       "toggle_multi_view": "多重檢視",
+      "toggle_pointer_readout": "指標 RGB 讀數",
       "toggle_proof_margin": "校樣邊界",
       "toggle_right_panel": "右側面板",
       "toggle_side_panels": "側邊面板",
@@ -873,6 +874,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} 畫素"
       }
+    },
+    "pickerLoupe": {
+      "label": "取色器放大鏡"
     }
   },
   "errors": {
@@ -2106,6 +2110,7 @@
         "toggle_masks": "切換遮色片面板",
         "toggle_metadata": "中繼資料工具（圖庫）或相片資訊（顯影、全螢幕）",
         "toggle_multi_view": "多圖檢視：選取的照片並排顯示",
+        "toggle_pointer_readout": "切換指標 RGB 讀數",
         "toggle_proof_margin": "切換校樣邊距",
         "toggle_right_panel": "切換右側面板",
         "toggle_side_panels": "隱藏/顯示側邊面板",
@@ -4742,6 +4747,8 @@
         "fitTitle": "符合視窗",
         "hidePanels": "隱藏面板",
         "imageViewer": "影像檢視器",
+        "pointerReadout": "指標下的 R、G、B",
+        "pointerReadoutTitle": "指標下相片的 R、G、B（sRGB，取色器的 11 × 11 平均值）。按一下可在 0–255 與 % 之間切換。",
         "proofMargin": "校樣邊距",
         "proofMarginTitle": "相片周圍的校樣邊距",
         "redo": "重做",

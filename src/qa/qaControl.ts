@@ -307,6 +307,25 @@ async function domDrag(params: Params) {
   return { points: points.length, interval_ms: interval };
 }
 
+/** Synthetic hover: pointer moves without a pressed button over `points`
+ * (each to the element there), `interval_ms` apart. Reaches the page in a
+ * background window, where native mouse moves are not delivered; it does not
+ * set CSS :hover. */
+async function domHover(params: Params) {
+  const points = params.points as [number, number][];
+  if (!Array.isArray(points) || points.length < 1)
+    throw new Error("a hover needs at least one point");
+  const interval =
+    typeof params.interval_ms === "number" ? params.interval_ms : 1000 / 60;
+  const extra = modifiers(params);
+  for (const [i, [x, y]] of points.entries()) {
+    if (i > 0) await sleep(interval);
+    const target = document.elementFromPoint(x, y);
+    if (target) firePointer(target, "move", x, y, 0, extra);
+  }
+  return { points: points.length, interval_ms: interval };
+}
+
 function key(params: Params) {
   if (typeof params.key !== "string") throw new Error("key must be a string");
   const target = document.activeElement ?? document.body;
@@ -543,6 +562,8 @@ export async function handleQaRequest(
       return domClick(params);
     case "ui.drag":
       return domDrag(params);
+    case "ui.hover":
+      return domHover(params);
     case "ui.key":
       return key(params);
     case "ui.type":

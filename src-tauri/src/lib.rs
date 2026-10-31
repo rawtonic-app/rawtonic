@@ -707,6 +707,7 @@ pub fn run() {
             session_bridge::session_flags,
             editor_preview::apply_adjustments,
             gpu_processing::sample_preview_color,
+            gpu_processing::sample_preview_patch,
             editor_preview::sample_curve_input,
             editor_preview::levels_input_histogram,
             gpu_processing::sample_preview_white_balance,

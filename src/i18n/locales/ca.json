@@ -295,6 +295,7 @@
       "toggle_left_panel": "Tauler esquerre",
       "toggle_metadata": "Informació de la foto",
       "toggle_multi_view": "Vista múltiple",
+      "toggle_pointer_readout": "Lectura RGB del punter",
       "toggle_proof_margin": "Marge de prova",
       "toggle_right_panel": "Tauler dret",
       "toggle_side_panels": "Taulers laterals",
@@ -927,6 +928,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "Lupa del comptagotes"
     }
   },
   "errors": {
@@ -2311,6 +2315,7 @@
         "toggle_masks": "Alternar tauler de Màscares",
         "toggle_metadata": "Eina Metadades (Biblioteca) o informació de la foto (Revelatge, pantalla completa)",
         "toggle_multi_view": "Vista múltiple: fotos seleccionades una al costat de l’altra",
+        "toggle_pointer_readout": "Activa/desactiva la lectura RGB del punter",
         "toggle_proof_margin": "Activa/desactiva el marge de prova",
         "toggle_right_panel": "Commutar el panell dret",
         "toggle_side_panels": "Amaga o mostra els panells laterals",
@@ -5060,6 +5065,8 @@
         "fitTitle": "Ajusta a la finestra",
         "hidePanels": "Amaga els taulers",
         "imageViewer": "Visor d'imatges",
+        "pointerReadout": "R, G, B sota el punter",
+        "pointerReadoutTitle": "R, G, B de la foto sota el punter (sRGB, la mitjana 11 × 11 dels comptagotes). Fes clic per alternar entre 0–255 i %.",
         "proofMargin": "Marge de prova",
         "proofMarginTitle": "Marge de prova al voltant de la foto",
         "redo": "Refés",

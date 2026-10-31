@@ -274,6 +274,7 @@
       "toggle_left_panel": "왼쪽 패널",
       "toggle_metadata": "사진 정보",
       "toggle_multi_view": "다중 보기",
+      "toggle_pointer_readout": "포인터 RGB 표시",
       "toggle_proof_margin": "교정 여백",
       "toggle_right_panel": "오른쪽 패널",
       "toggle_side_panels": "측면 패널",
@@ -873,6 +874,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "스포이트 확대경"
     }
   },
   "errors": {
@@ -2106,6 +2110,7 @@
         "toggle_masks": "마스크 패널 전환",
         "toggle_metadata": "메타데이터 도구(라이브러리) 또는 사진 정보(현상, 전체 화면)",
         "toggle_multi_view": "다중 보기: 선택한 사진을 나란히 표시",
+        "toggle_pointer_readout": "포인터 RGB 표시 전환",
         "toggle_proof_margin": "교정 여백 전환",
         "toggle_right_panel": "오른쪽 패널 토글",
         "toggle_side_panels": "사이드 패널 숨기기/표시",
@@ -4742,6 +4747,8 @@
         "fitTitle": "창에 맞춤",
         "hidePanels": "패널 숨기기",
         "imageViewer": "이미지 뷰어",
+        "pointerReadout": "포인터 아래 R, G, B",
+        "pointerReadoutTitle": "포인터 아래 사진의 R, G, B (sRGB, 스포이트의 11 × 11 평균). 클릭하면 0–255와 %를 전환합니다.",
         "proofMargin": "교정 여백",
         "proofMarginTitle": "사진 주위의 교정 여백",
         "redo": "다시 실행",

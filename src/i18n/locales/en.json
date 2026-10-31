@@ -283,6 +283,7 @@
       "toggle_left_panel": "Left Panel",
       "toggle_metadata": "Photo Info",
       "toggle_multi_view": "Multi View",
+      "toggle_pointer_readout": "Pointer RGB Readout",
       "toggle_proof_margin": "Proof Margin",
       "toggle_right_panel": "Right Panel",
       "toggle_side_panels": "Side Panels",
@@ -882,6 +883,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "Picker loupe"
     }
   },
   "errors": {
@@ -2187,6 +2191,7 @@
         "toggle_masks": "Toggle Masks panel",
         "toggle_metadata": "Metadata tool (Library) or photo info (Develop, full screen)",
         "toggle_multi_view": "Multi view: selected photos side by side",
+        "toggle_pointer_readout": "Toggle pointer RGB readout",
         "toggle_proof_margin": "Toggle proof margin",
         "toggle_right_panel": "Toggle Right Panel",
         "toggle_side_panels": "Hide or show the side panels",
@@ -4871,6 +4876,8 @@
         "fitTitle": "Fit in window",
         "hidePanels": "Hide panels",
         "imageViewer": "Photo viewer",
+        "pointerReadout": "R, G, B under the pointer",
+        "pointerReadoutTitle": "R, G, B of the photo under the pointer (sRGB, the colour pickers' 11 × 11 average). Click to switch between 0–255 and %.",
         "proofMargin": "Proof margin",
         "proofMarginTitle": "Proof margin around the photo",
         "redo": "Redo",

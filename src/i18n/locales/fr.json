@@ -295,6 +295,7 @@
       "toggle_left_panel": "Panneau gauche",
       "toggle_metadata": "Infos de la photo",
       "toggle_multi_view": "Vue multiple",
+      "toggle_pointer_readout": "Valeurs RVB sous le pointeur",
       "toggle_proof_margin": "Marge d'épreuve",
       "toggle_right_panel": "Panneau droit",
       "toggle_side_panels": "Panneaux latéraux",
@@ -927,6 +928,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "Loupe de la pipette"
     }
   },
   "errors": {
@@ -2311,6 +2315,7 @@
         "toggle_masks": "Basculer le panneau des masques",
         "toggle_metadata": "Outil Métadonnées (Bibliothèque) ou informations sur la photo (Développement, plein écran)",
         "toggle_multi_view": "Vue multiple : photos sélectionnées côte à côte",
+        "toggle_pointer_readout": "Afficher/masquer les valeurs RVB sous le pointeur",
         "toggle_proof_margin": "Afficher/masquer la marge d'épreuve",
         "toggle_right_panel": "Afficher/Masquer le panneau droit",
         "toggle_side_panels": "Masquer ou afficher les panneaux latéraux",
@@ -5060,6 +5065,8 @@
         "fitTitle": "Ajuster à la fenêtre",
         "hidePanels": "Masquer les panneaux",
         "imageViewer": "Visionneuse",
+        "pointerReadout": "R, V, B sous le pointeur",
+        "pointerReadoutTitle": "R, V, B de la photo sous le pointeur (sRVB, la moyenne 11 × 11 des pipettes). Cliquez pour basculer entre 0–255 et %.",
         "proofMargin": "Marge d'épreuve",
         "proofMarginTitle": "Marge d'épreuve autour de la photo",
         "redo": "Rétablir",

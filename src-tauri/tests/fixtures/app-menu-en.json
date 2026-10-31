@@ -602,6 +602,13 @@
         },
         {
           "kind": "item",
+          "id": "cmd:toggle_pointer_readout",
+          "label": "Pointer RGB Readout",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
           "id": "cmd:toggle_camera_preview",
           "label": "Camera Preview",
           "enabled": false,

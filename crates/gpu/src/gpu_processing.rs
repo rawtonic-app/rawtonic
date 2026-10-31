@@ -3550,6 +3550,69 @@ pub fn preview_sample_roi(width: u32, height: u32, x: f64, y: f64) -> Option<Roi
     })
 }
 
+/// The display pixel a normalised point falls on (the centre of
+/// [`preview_sample_roi`]).
+pub fn sample_center(width: u32, height: u32, x: f64, y: f64) -> (u32, u32) {
+    (
+        ((x * width as f64).floor() as u32).min(width.saturating_sub(1)),
+        ((y * height as f64).floor() as u32).min(height.saturating_sub(1)),
+    )
+}
+
+/// A block of the shown frame, in sRGB 0–255 ([`GpuProcessor::sample_display_patch`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DisplayPatch {
+    /// Where the block starts in the full 11 × 11 picker block (it is
+    /// clipped at the photograph's edges and the rendered part).
+    pub column: u32,
+    pub row: u32,
+    pub width: u32,
+    pub height: u32,
+    /// Row-major R, G, B per pixel, each display pixel converted on its own.
+    pub pixels: Vec<u8>,
+    /// The sampled pixel, in block coordinates.
+    pub center: [u32; 2],
+    /// The colour pickers' value: the mean of the whole 11 × 11 block
+    /// (display values averaged, then converted, as the pickers always did);
+    /// `None` when part of it was not rendered.
+    pub mean: Option<[f64; 3]>,
+    /// The display frame's size: one cell covers (photograph width /
+    /// frame width) photograph pixels.
+    pub frame: [u32; 2],
+}
+
+fn display_patch(
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    raw: &[u8],
+    read: Roi,
+    block: Roi,
+    center: (u32, u32),
+    frame: (u32, u32),
+) -> DisplayPatch {
+    let mean = (read == block)
+        .then(|| mean_rgb8(raw).map(|rgb| display_to_srgb(space, rgb)))
+        .flatten();
+    let pixels = raw
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|pixel| {
+            display_to_srgb(space, [0, 1, 2].map(|c| f64::from(pixel[c])))
+                .map(|value| value.round().clamp(0.0, 255.0) as u8)
+        })
+        .collect();
+    DisplayPatch {
+        column: read.x - block.x,
+        row: read.y - block.y,
+        width: read.width,
+        height: read.height,
+        pixels,
+        center: [center.0 - read.x, center.1 - read.y],
+        mean,
+        frame: [frame.0, frame.1],
+    }
+}
+
 pub fn mean_rgb8(pixels: &[u8]) -> Option<[f64; 3]> {
     let pixels = pixels.as_chunks::<4>().0;
     if pixels.is_empty() {
@@ -6848,6 +6911,8 @@ impl GpuProcessor {
             .clone()
     }
 
+    /// The colour pickers' sample: the mean of [`preview_sample_roi`] in the
+    /// shown frame, in sRGB 0–255 (see [`Self::sample_display_patch`]).
     pub fn sample_display_color(
         &self,
         path: &str,
@@ -6857,50 +6922,83 @@ impl GpuProcessor {
         x: f64,
         y: f64,
     ) -> Result<Option<[f64; 3]>, String> {
-        let frame = self
-            .display_frame
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(frame) = frame
-            .as_ref()
-            .filter(|frame| frame.identity.matches(path, source, load, render))
-        else {
+        Ok(self
+            .sample_display_patch(path, source, load, render, x, y)?
+            .and_then(|patch| patch.mean))
+    }
+
+    /// The pixels of the shown display frame around a point (normalised to
+    /// the displayed, cropped photograph) for the picker loupe and the
+    /// pointer readout: [`preview_sample_roi`] (11 × 11 display pixels, the
+    /// block the colour pickers average), clipped to the part of the frame
+    /// that was rendered. One readback of at most 484 bytes; the frame never
+    /// leaves the GPU. `None` when the frame is not the current one of
+    /// `path` or the point is outside the rendered part.
+    pub fn sample_display_patch(
+        &self,
+        path: &str,
+        source: &Arc<DynamicImage>,
+        load: usize,
+        render: usize,
+        x: f64,
+        y: f64,
+    ) -> Result<Option<DisplayPatch>, String> {
+        // Hold neither lock during the readback: the next frame may be bound
+        // meanwhile (the targets stay alive through the Arc).
+        let (targets, frame_roi) = {
+            let frame = self
+                .display_frame
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let Some(frame) = frame
+                .as_ref()
+                .filter(|frame| frame.identity.matches(path, source, load, render))
+            else {
+                return Ok(None);
+            };
+            let targets = self
+                .display_targets
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let Some(targets) = targets.as_ref() else {
+                return Ok(None);
+            };
+            (Arc::clone(targets), frame.roi)
+        };
+        let Some(block) = preview_sample_roi(targets.width, targets.height, x, y) else {
             return Ok(None);
         };
-        let targets = self
-            .display_targets
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(targets) = targets.as_ref() else {
+        let center = sample_center(targets.width, targets.height, x, y);
+        let Some(read) = intersect_roi(block, frame_roi).filter(|read| {
+            (read.x..read.x + read.width).contains(&center.0)
+                && (read.y..read.y + read.height).contains(&center.1)
+        }) else {
             return Ok(None);
         };
-        let Some(sample) = preview_sample_roi(targets.width, targets.height, x, y) else {
-            return Ok(None);
-        };
-        if sample.x < frame.roi.x
-            || sample.y < frame.roi.y
-            || sample.x + sample.width > frame.roi.x + frame.roi.width
-            || sample.y + sample.height > frame.roi.y + frame.roi.height
-        {
-            return Ok(None);
-        }
-        let pixels = read_texture_data_roi(
+        let raw = read_texture_data_roi(
             &self.context.device,
             &self.context.queue,
             &targets.output_texture,
             wgpu::Origin3d {
-                x: sample.x,
-                y: sample.y,
+                x: read.x,
+                y: read.y,
                 z: 0,
             },
             wgpu::Extent3d {
-                width: sample.width,
-                height: sample.height,
+                width: read.width,
+                height: read.height,
                 depth_or_array_layers: 1,
             },
             4,
         )?;
-        Ok(mean_rgb8(&pixels).map(|rgb| display_to_srgb(self.context.display_space, rgb)))
+        Ok(Some(display_patch(
+            self.context.display_space,
+            &raw,
+            read,
+            block,
+            center,
+            (targets.width, targets.height),
+        )))
     }
 
     /// The tile `main` writes its `analytics_output` to, as large as the

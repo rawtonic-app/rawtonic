@@ -108,6 +108,8 @@ import {
 } from '../../../utils/objectPrompts';
 import { objectSelectionBusy } from '../../../hooks/useAiMasking';
 import { CROP_ROTATE_BAND_PX, cropModeBox } from '../../../utils/viewerDisplay';
+import { PickerLoupe, usePointerSampling } from './PickerLoupe';
+import { isLevelsPicker } from '../../../utils/targetedAdjustment';
 
 /** The white balance picker's cursor: an eyedropper (Lightroom, Capture One)
  * whose tip, the sampled point, is the hotspot; dark outline under a light
@@ -1767,6 +1769,22 @@ const ImageCanvas = memo(
 
     // Control+Option drags change the brush instead of painting (Capture One).
     const canvasRootRef = useRef<HTMLDivElement>(null);
+    // The picker loupe and the viewer bar's pointer readout sample the shown
+    // native frame under the pointer (PickerLoupe.tsx); the photograph's
+    // on-screen rect maps the pointer as the pickers' clicks do.
+    const imageRectRef = useRef<SVGSVGElement>(null);
+    const splitView = useEditorStore((state) => state.splitView);
+    // isWbPickerActive also covers the colour editor's picker (Editor.tsx).
+    const pickerActive = isWbPickerActive || isLumaPickerActive || (!!tatTarget && isLevelsPicker(tatTarget));
+    const pointerReadout = appSettings?.pointerReadout ?? false;
+    const readoutUnit = appSettings?.pointerReadoutUnit === 'percent' ? 'percent' : 'rgb255';
+    // Without the native display (Linux), the browser-rendered preview the
+    // white balance picker's fallback samples; never a camera JPEG.
+    const browserPreview = isWgpuActive ? null : (finalPreviewUrl ?? null);
+    const sampling =
+      (!!isWgpuActive || !!browserPreview) && !!selectedImage.isReady && !isCropping && !showOriginal &&
+      !splitView && (pickerActive || pointerReadout);
+    usePointerSampling(canvasRootRef, imageRectRef, selectedImage.path, sampling, browserPreview);
     const brushGesture = useBrushGesture(
       canvasRootRef,
       Boolean(isBrushActive),
@@ -3285,6 +3303,7 @@ const ImageCanvas = memo(
             ))}
           </div>
         )}
+        {sampling && pickerActive && <PickerLoupe unit={readoutUnit} anchorRef={canvasRootRef} />}
         <div
           className="absolute inset-0 w-full h-full transition-opacity duration-200 flex items-center justify-center"
           style={{
@@ -3302,6 +3321,7 @@ const ImageCanvas = memo(
           >
             <div className="absolute inset-0 w-full h-full">
               <svg
+                ref={imageRectRef}
                 className="pointer-events-none"
                 style={
                   imageRenderSize.width > 0 && imageRenderSize.height > 0

@@ -5178,6 +5178,175 @@ fn display_color_sample_uses_developed_output_and_clamps_edges() {
     assert_eq!(sample("source.raw", 4, 7, 0.5, 0.5), None);
 }
 
+#[test]
+fn display_patch_maps_the_point_into_the_clipped_block() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    // A 20 × 17 frame, the point on its last pixel: the picker block is
+    // clipped to 5 × 5 at the corner and the centre stays on the point.
+    let block = preview_sample_roi(20, 17, 1.0, 1.0).unwrap();
+    let center = sample_center(20, 17, 1.0, 1.0);
+    assert_eq!(center, (19, 16));
+    let raw: Vec<u8> = (0..25u8).flat_map(|i| [i, 2 * i, 3 * i, 255]).collect();
+    let patch = display_patch(OutputColorSpace::Srgb, &raw, block, block, center, (20, 17));
+    assert_eq!((patch.column, patch.row), (0, 0));
+    assert_eq!((patch.width, patch.height), (5, 5));
+    assert_eq!(patch.center, [4, 4]);
+    assert_eq!(&patch.pixels[..6], &[0, 0, 0, 1, 2, 3]);
+    assert_eq!(patch.mean, Some([12.0, 24.0, 36.0]));
+    // Only part of the block rendered (a zoomed frame's edge): the cells
+    // keep their place in the 11 × 11 block, and there is no picker mean.
+    let full = preview_sample_roi(40, 40, 0.5, 0.5).unwrap();
+    let read = Roi {
+        x: 18,
+        y: 15,
+        width: 8,
+        height: 11,
+    };
+    let raw = vec![128u8; 8 * 11 * 4];
+    let patch = display_patch(OutputColorSpace::Srgb, &raw, read, full, (20, 20), (40, 40));
+    assert_eq!((patch.column, patch.row), (3, 0));
+    assert_eq!(patch.center, [2, 5]);
+    assert_eq!(patch.mean, None);
+    // Display P3 values are converted per cell, as the picker converts its mean.
+    let p3 = display_patch(
+        OutputColorSpace::DisplayP3,
+        &[200, 100, 50, 255],
+        Roi {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+        Roi {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+        (0, 0),
+        (1, 1),
+    );
+    let expected = display_to_srgb(OutputColorSpace::DisplayP3, [200.0, 100.0, 50.0]);
+    assert_eq!(p3.pixels, expected.map(|v| v.round() as u8).to_vec());
+    assert_eq!(p3.mean, Some(expected));
+}
+
+#[test]
+#[ignore = "requires a native GPU; the loupe's patch and the colour picker read the same pixels"]
+fn display_patch_matches_the_colour_picker_sample() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 40, 30).unwrap();
+    let source = Arc::new(DynamicImage::new_rgb8(40, 30));
+    let targets = processor.display_targets(40, 30);
+    let data: Vec<u8> = (0..30u32)
+        .flat_map(|y| {
+            (0..40u32).flat_map(move |x| [(x * 6) as u8, (y * 8) as u8, ((x * y) % 251) as u8, 255])
+        })
+        .collect();
+    context.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &targets.output_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(40 * 4),
+            rows_per_image: Some(30),
+        },
+        wgpu::Extent3d {
+            width: 40,
+            height: 30,
+            depth_or_array_layers: 1,
+        },
+    );
+    let set_roi = |roi: Roi| {
+        *processor.display_frame.lock().unwrap() = Some(DisplayFrame {
+            identity: DisplayFrameIdentity {
+                path: "source.raw".into(),
+                source: Arc::downgrade(&source),
+                load_generation: 1,
+                render_generation: 2,
+            },
+            roi,
+        });
+    };
+    set_roi(Roi {
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 30,
+    });
+    let to_srgb = |x: u32, y: u32| {
+        let i = ((y * 40 + x) * 4) as usize;
+        display_to_srgb(
+            context.display_space,
+            [0, 1, 2].map(|c| f64::from(data[i + c])),
+        )
+        .map(|v| v.round() as u8)
+    };
+    for (x, y) in [
+        (0.5, 0.5),
+        (0.13, 0.71),
+        (0.0, 0.0),
+        (1.0, 1.0),
+        (0.99, 0.02),
+    ] {
+        let patch = processor
+            .sample_display_patch("source.raw", &source, 1, 2, x, y)
+            .unwrap()
+            .unwrap();
+        let picked = processor
+            .sample_display_color("source.raw", &source, 1, 2, x, y)
+            .unwrap();
+        assert_eq!(patch.mean, picked, "readout == pick at {x},{y}");
+        assert!(picked.is_some());
+        let (cx, cy) = sample_center(40, 30, x, y);
+        let index = ((patch.center[1] * patch.width + patch.center[0]) * 3) as usize;
+        assert_eq!(
+            &patch.pixels[index..index + 3],
+            &to_srgb(cx, cy),
+            "centre cell at {x},{y}"
+        );
+        assert_eq!(patch.frame, [40, 30]);
+    }
+    // A zoomed frame rendered only the left half: a point near its edge
+    // still shows the rendered cells, without a picker value.
+    set_roi(Roi {
+        x: 0,
+        y: 0,
+        width: 22,
+        height: 30,
+    });
+    let patch = processor
+        .sample_display_patch("source.raw", &source, 1, 2, 0.5, 0.5)
+        .unwrap()
+        .unwrap();
+    assert_eq!((patch.column, patch.width), (0, 7));
+    assert_eq!(patch.mean, None);
+    assert_eq!(
+        processor
+            .sample_display_color("source.raw", &source, 1, 2, 0.5, 0.5)
+            .unwrap(),
+        None
+    );
+    // Outside the rendered part, or another photograph: nothing.
+    assert!(
+        processor
+            .sample_display_patch("source.raw", &source, 1, 2, 0.8, 0.5)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        processor
+            .sample_display_patch("other.raw", &source, 1, 2, 0.2, 0.5)
+            .unwrap()
+            .is_none()
+    );
+}
+
 fn brute_force_changed_bands(
     previous: &[Arc<MaskBitmap>],
     current: &[Arc<MaskBitmap>],

@@ -1774,6 +1774,7 @@
   color: var(--studio-accent);
 }
 .studio-viewer-footer {
+  position: relative;
   height: 33px;
   border-top: 1px solid var(--studio-line);
   font-size: 10px;
@@ -3218,6 +3219,54 @@
 }
 /* Capture One-style readout beside the brush rings during a Control+Option
    drag (size/hardness; with Shift opacity/flow). */
+/* The picker loupe (PickerLoupe.tsx): beside the pointer, never under it. */
+.picker-loupe {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  padding: 1px;
+  border-radius: 3px;
+  background: #1c1d1fe6;
+  box-shadow: 0 2px 10px #0008;
+  color: #e6e7e9;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.picker-loupe canvas {
+  display: block;
+}
+.picker-loupe-values {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  height: 22px;
+  align-items: center;
+  white-space: nowrap;
+}
+.picker-loupe-values > span > span {
+  color: #b2b5ba;
+}
+/* The viewer bar's pointer readout: fixed-width values so nothing shifts. */
+.studio-pointer-readout {
+  display: inline-flex;
+  gap: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.studio-pointer-readout > span {
+  display: inline-flex;
+  gap: 3px;
+}
+/* Each value beside its own letter, with room for its widest value, so the
+   letters stay put and no value reads as the next channel's. */
+.studio-pointer-readout-value {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: left;
+}
+.studio-pointer-readout[data-unit="percent"] .studio-pointer-readout-value {
+  min-width: 5ch;
+}
 .brush-gesture-readout {
   position: absolute;
   z-index: 20;
@@ -6420,4 +6469,18 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-auto-advance[aria-pressed="true"],
 .studio-subfolders[aria-pressed="true"] {
   border-color: #7f9bb3;
+}
+/* A narrow footer (down to the smallest window) has no room for the readout
+   beside its controls: it floats just above the footer's right end instead,
+   out of the footer's flow, so it never pushes or covers a footer control. */
+@container viewer-footer (max-width: 820px) {
+  .studio-pointer-readout {
+    position: absolute;
+    right: 8px;
+    bottom: calc(100% + 6px);
+    padding: 3px 7px;
+    border-radius: 3px;
+    background: #1c1d1fe6;
+    color: #e6e7e9;
+  }
 }

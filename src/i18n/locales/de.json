@@ -283,6 +283,7 @@
       "toggle_left_panel": "Linke Leiste",
       "toggle_metadata": "Fotoinfo",
       "toggle_multi_view": "Mehrfachansicht",
+      "toggle_pointer_readout": "RGB-Anzeige am Zeiger",
       "toggle_proof_margin": "Proof-Rand",
       "toggle_right_panel": "Rechte Leiste",
       "toggle_side_panels": "Seitenleisten",
@@ -882,6 +883,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "Pipettenlupe"
     }
   },
   "errors": {
@@ -2187,6 +2191,7 @@
         "toggle_masks": "Maskieren-Panel ein-/ausblenden",
         "toggle_metadata": "Metadaten-Werkzeug (Bibliothek) oder Foto-Informationen (Entwickeln, Vollbild)",
         "toggle_multi_view": "Mehrfachansicht: ausgewählte Fotos nebeneinander",
+        "toggle_pointer_readout": "RGB-Anzeige am Zeiger ein/aus",
         "toggle_proof_margin": "Prüfrand ein/aus",
         "toggle_right_panel": "Rechtes Panel ein-/ausblenden",
         "toggle_side_panels": "Seitenpanels aus-/einblenden",
@@ -4871,6 +4876,8 @@
         "fitTitle": "In Fenster einpassen",
         "hidePanels": "Bedienfelder ausblenden",
         "imageViewer": "Bildansicht",
+        "pointerReadout": "R, G, B unter dem Zeiger",
+        "pointerReadoutTitle": "R, G, B des Fotos unter dem Zeiger (sRGB, der 11 × 11-Mittelwert der Farbpipetten). Klicken wechselt zwischen 0–255 und %.",
         "proofMargin": "Prüfrand",
         "proofMarginTitle": "Prüfrand um das Foto",
         "redo": "Wiederholen",
