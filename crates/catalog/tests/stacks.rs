@@ -75,7 +75,7 @@ fn group_unstack_remove_top_and_collapse_are_one_step_each() {
     let expanded = lib
         .set_stacks_collapsed(&photos(&ids, &[0]), Some(false))
         .unwrap();
-    assert_eq!(stack(&lib, &ids, 0).unwrap().1, false);
+    assert!(!stack(&lib, &ids, 0).unwrap().1);
     undo_redo(
         &lib,
         &expanded,
