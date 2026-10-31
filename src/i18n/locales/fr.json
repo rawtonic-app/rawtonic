@@ -3377,7 +3377,7 @@
       "faces": "Visages et leurs yeux",
       "filter": "Filtrer par yeux",
       "filterAll": "Tous les yeux",
-      "filterCheck": "Yeux : à vérifier",
+      "filterCheck": "Yeux à vérifier",
       "filterClosed": "Yeux fermés",
       "modelsMissing": "La vérification des yeux nécessite les modèles de visage.",
       "noFaces": "Aucun visage",

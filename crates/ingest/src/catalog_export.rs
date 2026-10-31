@@ -80,6 +80,8 @@ pub struct OwnedElsewhere {
     pub path: PathBuf,
     /// The library that owns it.
     pub library: PathBuf,
+    /// That library's name as the user knows it.
+    pub name: String,
 }
 
 /// The photographs `ids` of `source` that another library owns. They are
@@ -93,6 +95,7 @@ pub fn owned_elsewhere(source: &Library, ids: &[String]) -> Result<Vec<OwnedElse
                 id: id.clone(),
                 path,
                 library: owner.directory,
+                name: owner.name,
             });
         }
     }
@@ -178,7 +181,11 @@ pub fn export_catalog(
             owned.len(),
             owned
                 .iter()
-                .map(|(_, path, library)| format!("{} ({})", path.display(), library.display()))
+                .map(|(_, path, library)| format!(
+                    "{} ({})",
+                    path.display(),
+                    rawtonic_catalog::library_name(library)
+                ))
                 .collect::<Vec<_>>()
                 .join("\n")
         );

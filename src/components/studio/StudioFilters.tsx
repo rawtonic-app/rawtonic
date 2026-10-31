@@ -129,6 +129,7 @@ export default function StudioFilters({
         // Faces' eyes (a suggestion, never a reject): closed or partly, or
         // in need of a check. Until turned on, the one entry starts it.
         <select
+          className="studio-eyes-filter"
           aria-label={t("studio.eyes.filter")}
           title={t("studio.eyes.suggestion")}
           value={eyeCheck ? (filter.eyes ?? "all") : "all"}

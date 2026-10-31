@@ -2051,6 +2051,13 @@
   max-width: 140px;
   text-overflow: ellipsis;
 }
+/* The eyes filter's entries are the longest ("Eyes to check", "Ulls a
+   revisar"): its own width where there is room, shortened only in the
+   narrowest grid. */
+.studio-library-filters select.studio-eyes-filter {
+  flex-basis: auto;
+  max-width: 180px;
+}
 @media (max-width: 1240px) {
   .studio-flag-label {
     display: none;
