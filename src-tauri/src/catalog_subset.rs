@@ -326,12 +326,27 @@ mod tests {
             &serde_json::json!({"adjustments": {"exposure": 2}}),
         )
         .unwrap();
+        // An untouched photograph whose only edit is a virtual copy.
+        let untouched = root.join("Shoot/b.arw");
+        fs::write(&untouched, b"raw b").unwrap();
+        let b = lib.add_asset(&untouched).unwrap().id;
+        lib.save_copy_state(
+            &b,
+            "b0b0b0",
+            &serde_json::json!({"adjustments": {"exposure": 3}}),
+        )
+        .unwrap();
+        assert!(lib.editor_state(&b).unwrap().is_none());
         crate::session_bridge::rederive(&lib, &id);
+        crate::session_bridge::rederive(&lib, &b);
         let read = |name: &str| -> serde_json::Value {
             serde_json::from_slice(&fs::read(photo.with_file_name(name)).unwrap()).unwrap()
         };
         assert_eq!(read("a.arw.rrdata")["adjustments"]["exposure"], 1);
         assert_eq!(read("a.arw.c0ffee.rrdata")["adjustments"]["exposure"], 2);
+        assert_eq!(read("b.arw.b0b0b0.rrdata")["adjustments"]["exposure"], 3);
+        assert!(!untouched.with_file_name("b.arw.rrdata").exists());
         assert_eq!(fs::read(&photo).unwrap(), b"raw");
+        assert_eq!(fs::read(&untouched).unwrap(), b"raw b");
     }
 }

@@ -1819,6 +1819,9 @@ pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkRepor
 /// they differ) and its XMP follows, as after an edit. The original is not
 /// touched.
 pub(crate) fn rederive(lib: &Library, id: &str) {
+    // The copies' sidecars whether or not the photograph has an edit of
+    // its own (an untouched photograph can have edited copies).
+    rederive_copies(lib, id);
     let Ok(asset) = lib.asset(id) else { return };
     let Ok(Some(state)) = lib.editor_state(id) else {
         return;
@@ -1838,7 +1841,6 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     {
         log::warn!("Editor sidecar pending for {}: {e}", asset.path.display());
     }
-    rederive_copies(lib, id);
     if let Err(e) = lib.sync_xmp(id) {
         log::warn!("XMP pending for {}: {e}", asset.path.display());
     }
