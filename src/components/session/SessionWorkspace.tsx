@@ -1432,7 +1432,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // (Photos/2026/2026-10-31) would otherwise leave the shown folder empty.
       // A photograph open in Develop, the loupe or full screen stays open.
       if (
-        results.some((r) => r.destination && !r.skipped && !r.error) &&
+        // A JPEG joining a RAW already there forms no import batch.
+        results.some((r) => r.destination && !r.skipped && !r.error && !r.companion_of) &&
         !viewerShown(useUIStore.getState()) &&
         useLibraryStore.getState().currentFolderPath === shownView
       )

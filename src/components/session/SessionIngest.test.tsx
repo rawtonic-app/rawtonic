@@ -693,6 +693,54 @@ describe("Folders › Add Folder… (G39 AF)", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("2 photos added"));
   });
 
+  it("JPEGs joining RAWs already in the catalog keep the folder shown (no Previous Import)", async () => {
+    const user = userEvent.setup();
+    lastSession = catalog;
+    respond(catalog);
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "session_last" || command === "session_summary") return catalog;
+      if (command === "session_flags") return {};
+      if (command === "catalog_add_folder_scan")
+        return {
+          files: ["/Volumes/Archive/A.NEF", "/Volumes/Archive/A.JPG"],
+          photographs: 0,
+          companions: 1,
+          registered: 1,
+          unreadable: [],
+          owned: [],
+          truncated: false,
+        };
+      if (command === "session_ingest")
+        return [
+          { source: "/Volumes/Archive/A.NEF", destination: "/Volumes/Archive/A.NEF", skipped: true, error: null },
+          {
+            source: "/Volumes/Archive/A.JPG",
+            destination: "/Volumes/Archive/A.JPG",
+            skipped: false,
+            error: null,
+            companion_of: "/Volumes/Archive/A.NEF",
+          },
+        ];
+      return { path: catalog.directory, children: [] };
+    });
+    render(
+      <ContextMenuProvider>
+        <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+      </ContextMenuProvider>,
+    );
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    const shown = vi.fn();
+    window.addEventListener(SHOW_PREVIOUS_IMPORT, shown);
+    act(() => {
+      requestAddFolder({ folder: "/Volumes/Archive", show: async () => {} });
+    });
+    await user.click(await screen.findByRole("button", { name: "Keep the JPEGs with their RAWs" }));
+    await waitFor(() => expect(ingestCall()).toBeTruthy());
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    expect(shown).not.toHaveBeenCalled();
+    window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
+  });
+
   it("in a project, the folder is only shown; Copy into this project… opens the verified copy import", async () => {
     const user = userEvent.setup();
     respond(summary);
