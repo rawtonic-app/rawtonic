@@ -192,7 +192,7 @@ pub fn preview_name(
 /// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
 /// photograph) as `<photo stem>.xmp` (`copy_beside`).
 fn copy_sidecar(sidecar: &Path, photo: &Path, barrier: &mut Barrier) -> Result<PathBuf> {
-    let target = photo.with_extension("xmp");
+    let target = rawtonic_metadata::sidecar_path(photo);
     copy_beside_all(
         sidecar,
         &[target],

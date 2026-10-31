@@ -4531,6 +4531,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Дополнительные сведения о моделях",
+          "captionWriter": "Автор подписи",
           "city": "Город",
           "country": "Страна",
           "countryCode": "Код страны ISO",
@@ -4544,17 +4546,31 @@
           "creatorRegion": "Регион / Область (контакт)",
           "creatorUrl": "Веб-сайт",
           "credit": "Строка авторства",
+          "dateCreated": "Дата создания",
+          "digitalSourceType": "Тип цифрового источника",
+          "event": "Событие",
           "headline": "Заголовок новости",
           "instructions": "Инструкции",
+          "intellectualGenre": "Интеллектуальный жанр",
           "jobId": "Идентификатор задания",
           "location": "Место съёмки",
+          "maxAvailHeight": "Максимальная доступная высота",
+          "maxAvailWidth": "Максимальная доступная ширина",
+          "modelAge": "Возраст моделей (по одному в строке)",
+          "organisationInImageCode": "Коды организаций (по одному в строке)",
+          "organisationInImageName": "Изображённые организации (по одной в строке)",
+          "personInImage": "Изображённые люди (по одному в строке)",
+          "rightsUrl": "URL прав",
+          "scene": "Коды сцены (по одному в строке)",
           "source": "Источник",
           "state": "Регион / Область",
+          "subjectCode": "Коды темы (по одному в строке)",
           "usageTerms": "Условия использования"
         },
         "sections": {
           "content": "Содержание",
           "creatorContact": "Контакты автора",
+          "extension": "Расширение IPTC",
           "location": "Место",
           "status": "Статус"
         }

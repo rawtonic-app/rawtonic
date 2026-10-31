@@ -4066,6 +4066,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "モデルの追加情報",
+          "captionWriter": "キャプション作成者",
           "city": "市区町村",
           "country": "国",
           "countryCode": "ISO 国コード",
@@ -4079,17 +4081,31 @@
           "creatorRegion": "都道府県（連絡先）",
           "creatorUrl": "ウェブサイト",
           "credit": "クレジット",
+          "dateCreated": "作成日時",
+          "digitalSourceType": "デジタルソースの種類",
+          "event": "イベント",
           "headline": "見出し",
           "instructions": "指示",
+          "intellectualGenre": "知的ジャンル",
           "jobId": "ジョブ識別子",
           "location": "地域",
+          "maxAvailHeight": "利用可能な最大高さ",
+          "maxAvailWidth": "利用可能な最大幅",
+          "modelAge": "モデルの年齢（1行に1件）",
+          "organisationInImageCode": "組織コード（1行に1件）",
+          "organisationInImageName": "写っている組織（1行に1組織）",
+          "personInImage": "写っている人物（1行に1人）",
+          "rightsUrl": "権利情報URL",
+          "scene": "シーンコード（1行に1件）",
           "source": "ソース",
           "state": "都道府県",
+          "subjectCode": "被写体コード（1行に1件）",
           "usageTerms": "使用条件"
         },
         "sections": {
           "content": "コンテンツ",
           "creatorContact": "作成者の連絡先",
+          "extension": "IPTC拡張",
           "location": "場所",
           "status": "ステータス"
         }

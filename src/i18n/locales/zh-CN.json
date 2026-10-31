@@ -4066,6 +4066,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "模特附加信息",
+          "captionWriter": "说明撰写者",
           "city": "城市",
           "country": "国家",
           "countryCode": "ISO 国家代码",
@@ -4079,17 +4081,31 @@
           "creatorRegion": "省/州（联系方式）",
           "creatorUrl": "网站",
           "credit": "署名行",
+          "dateCreated": "创建日期",
+          "digitalSourceType": "数字来源类型",
+          "event": "事件",
           "headline": "大标题",
           "instructions": "说明",
+          "intellectualGenre": "内容体裁",
           "jobId": "作业标识符",
           "location": "子位置",
+          "maxAvailHeight": "可用的最大高度",
+          "maxAvailWidth": "可用的最大宽度",
+          "modelAge": "模特年龄（每行一个）",
+          "organisationInImageCode": "组织代码（每行一个）",
+          "organisationInImageName": "画面中的组织（每行一个）",
+          "personInImage": "画面中的人物（每行一人）",
+          "rightsUrl": "权利信息网址",
+          "scene": "场景代码（每行一个）",
           "source": "来源",
           "state": "省/州",
+          "subjectCode": "主题代码（每行一个）",
           "usageTerms": "使用条款"
         },
         "sections": {
           "content": "内容",
           "creatorContact": "创作者联系方式",
+          "extension": "IPTC 扩展",
           "location": "位置",
           "status": "状态"
         }

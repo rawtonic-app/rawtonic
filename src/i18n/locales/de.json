@@ -4183,6 +4183,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Zusätzliche Modellinformationen",
+          "captionWriter": "Verfasser der Bildunterschrift",
           "city": "Stadt",
           "country": "Land",
           "countryCode": "ISO-Ländercode",
@@ -4196,17 +4198,31 @@
           "creatorRegion": "Bundesland / Kanton (Kontakt)",
           "creatorUrl": "Website",
           "credit": "Bildnachweis",
+          "dateCreated": "Erstellungsdatum",
+          "digitalSourceType": "Digitaler Quellentyp",
+          "event": "Ereignis",
           "headline": "Überschrift",
           "instructions": "Anweisungen",
+          "intellectualGenre": "Intellektuelles Genre",
           "jobId": "Auftragskennung",
           "location": "Ortsdetail",
+          "maxAvailHeight": "Maximal verfügbare Höhe",
+          "maxAvailWidth": "Maximal verfügbare Breite",
+          "modelAge": "Modellalter (eines pro Zeile)",
+          "organisationInImageCode": "Organisationscodes (einer pro Zeile)",
+          "organisationInImageName": "Abgebildete Organisationen (eine pro Zeile)",
+          "personInImage": "Abgebildete Personen (eine pro Zeile)",
+          "rightsUrl": "Rechte-URL",
+          "scene": "Szenen-Codes (einer pro Zeile)",
           "source": "Quelle",
           "state": "Bundesland / Kanton",
+          "subjectCode": "Themen-Codes (einer pro Zeile)",
           "usageTerms": "Nutzungsbedingungen"
         },
         "sections": {
           "content": "Inhalt",
           "creatorContact": "Kontakt des Urhebers",
+          "extension": "IPTC-Erweiterung",
           "location": "Ort",
           "status": "Status"
         }

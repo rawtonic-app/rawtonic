@@ -4357,6 +4357,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Informazioni aggiuntive sui modelli",
+          "captionWriter": "Autore della didascalia",
           "city": "Città",
           "country": "Paese",
           "countryCode": "Codice paese ISO",
@@ -4370,17 +4372,31 @@
           "creatorRegion": "Stato / Provincia (contatto)",
           "creatorUrl": "Sito web",
           "credit": "Riga di credito",
+          "dateCreated": "Data di creazione",
+          "digitalSourceType": "Tipo di sorgente digitale",
+          "event": "Evento",
           "headline": "Titolo principale",
           "instructions": "Istruzioni",
+          "intellectualGenre": "Genere intellettuale",
           "jobId": "Identificativo lavoro",
           "location": "Località",
+          "maxAvailHeight": "Altezza massima disponibile",
+          "maxAvailWidth": "Larghezza massima disponibile",
+          "modelAge": "Età dei modelli (una per riga)",
+          "organisationInImageCode": "Codici delle organizzazioni (uno per riga)",
+          "organisationInImageName": "Organizzazioni raffigurate (una per riga)",
+          "personInImage": "Persone raffigurate (una per riga)",
+          "rightsUrl": "URL dei diritti",
+          "scene": "Codici scena (uno per riga)",
           "source": "Fonte",
           "state": "Stato / Provincia",
+          "subjectCode": "Codici soggetto (uno per riga)",
           "usageTerms": "Condizioni d'uso"
         },
         "sections": {
           "content": "Contenuto",
           "creatorContact": "Contatto dell'autore",
+          "extension": "Estensione IPTC",
           "location": "Luogo",
           "status": "Stato"
         }

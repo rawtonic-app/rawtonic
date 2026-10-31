@@ -4531,6 +4531,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Dodatkowe informacje o modelach",
+          "captionWriter": "Autor podpisu",
           "city": "Miasto",
           "country": "Kraj",
           "countryCode": "Kod kraju ISO",
@@ -4544,17 +4546,31 @@
           "creatorRegion": "Województwo / Region (kontakt)",
           "creatorUrl": "Strona WWW",
           "credit": "Podpis autorski",
+          "dateCreated": "Data utworzenia",
+          "digitalSourceType": "Typ źródła cyfrowego",
+          "event": "Wydarzenie",
           "headline": "Nagłówek",
           "instructions": "Instrukcje",
+          "intellectualGenre": "Gatunek intelektualny",
           "jobId": "Identyfikator zlecenia",
           "location": "Miejsce",
+          "maxAvailHeight": "Maksymalna dostępna wysokość",
+          "maxAvailWidth": "Maksymalna dostępna szerokość",
+          "modelAge": "Wiek modeli (jeden na wiersz)",
+          "organisationInImageCode": "Kody organizacji (jeden na wiersz)",
+          "organisationInImageName": "Przedstawione organizacje (jedna na wiersz)",
+          "personInImage": "Przedstawione osoby (jedna na wiersz)",
+          "rightsUrl": "URL praw",
+          "scene": "Kody sceny (jeden na wiersz)",
           "source": "Źródło",
           "state": "Województwo / Region",
+          "subjectCode": "Kody tematu (jeden na wiersz)",
           "usageTerms": "Warunki użytkowania"
         },
         "sections": {
           "content": "Treść",
           "creatorContact": "Kontakt do autora",
+          "extension": "Rozszerzenie IPTC",
           "location": "Lokalizacja",
           "status": "Status"
         }

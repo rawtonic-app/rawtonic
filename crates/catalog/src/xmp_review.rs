@@ -80,9 +80,10 @@ impl Library {
     }
 
     /// Resolves a conflict for the library: its metadata and recipe replace
-    /// the sidecar's owned properties (everything else in the sidecar is
-    /// kept). Refused while the photograph is offline; a sidecar changed
-    /// again meanwhile is a conflict again, not overwritten.
+    /// the sidecar's owned properties. IPTC keys absent from the library
+    /// stay in the sidecar; only explicit empty values clear them. Refused
+    /// while the photograph is offline; a sidecar changed again meanwhile
+    /// is a conflict again, not overwritten.
     pub fn keep_library_xmp(&self, asset: &str) -> Result<()> {
         let path = self.writable_sidecar(asset)?;
         // The edit the photograph shows is what the sidecar gets.
@@ -92,7 +93,7 @@ impl Library {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
         };
-        self.write_sidecar(asset, &path, current.as_deref(), true)
+        self.write_sidecar(asset, &path, current.as_deref())
     }
 
     /// Resolves a conflict for the sidecar: the metadata Rawtonic reads
@@ -205,12 +206,12 @@ impl Library {
             self.xmp_owners(&a.path)? == 1,
             "RAW/JPEG sidecar ownership needs pair resolution"
         );
-        Ok(a.path.with_extension("xmp"))
+        Ok(rawtonic_metadata::sidecar_path(&a.path))
     }
 
     /// Writes the library's metadata and recipe over a sidecar whose digest
-    /// is `expected` (None: there is none); `replace_iptc` as
-    /// `rawtonic_metadata::write_xmp_replacing_iptc`. A changed sidecar marks a
+    /// is `expected` (None: there is none). Absent IPTC keys are preserved;
+    /// stored values and explicit clears win. A changed sidecar marks a
     /// conflict; other failures (read-only, a full disk) leave the state as
     /// it was, so the photograph stays pending.
     pub(crate) fn write_sidecar(
@@ -218,7 +219,6 @@ impl Library {
         asset: &str,
         path: &std::path::Path,
         expected: Option<&str>,
-        replace_iptc: bool,
     ) -> Result<()> {
         let recipe = self.recipe(&self.primary_version(asset)?)?;
         let data: String =
@@ -227,11 +227,7 @@ impl Library {
                     r.get(0)
                 })?;
         let metadata: Metadata = serde_json::from_str(&data)?;
-        let written = if replace_iptc {
-            rawtonic_metadata::write_xmp_replacing_iptc(path, &metadata, recipe.as_ref(), expected)
-        } else {
-            rawtonic_metadata::write_xmp(path, &metadata, recipe.as_ref(), expected)
-        };
+        let written = rawtonic_metadata::write_xmp(path, &metadata, recipe.as_ref(), expected);
         match written {
             Ok(hash) => {
                 // In sync only with the metadata written: an edit committed

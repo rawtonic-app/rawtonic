@@ -290,7 +290,7 @@ pub fn export_catalog(
         );
         // Its XMP and its companion JPEG come along beside it.
         let mut sidecars = Vec::new();
-        let xmp = from.with_extension("xmp");
+        let xmp = rawtonic_metadata::sidecar_path(from);
         if xmp.try_exists()? {
             sidecars.push(xmp);
         }

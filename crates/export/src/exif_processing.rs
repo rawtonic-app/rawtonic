@@ -1997,7 +1997,11 @@ mod tests {
             let (kept, _) = rawtonic_metadata::read_xmp(&xmp).unwrap();
             assert_eq!(kept.creator, "Photographer");
             assert_eq!(kept.copyright, "All rights reserved");
-            assert_eq!(kept.iptc.len(), 2);
+            assert_eq!(kept.iptc.len(), if generated { 3 } else { 2 });
+            assert_eq!(
+                kept.iptc.get("digitalSourceType").map(String::as_str),
+                generated.then_some(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI)
+            );
             assert_eq!(kept.iptc["creatorEmail"], "photo@example.invalid");
             assert_eq!(kept.iptc["usageTerms"], "Licensed use only");
             assert!(kept.title.is_empty() && kept.keywords.is_empty());
