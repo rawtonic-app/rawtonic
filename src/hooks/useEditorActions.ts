@@ -7,6 +7,7 @@ import { noteWriteError } from '../activity/bridges';
 import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
+import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -813,16 +814,39 @@ async function replaceRecipes(recipes: { path: string; adjustments: unknown }[],
   return written;
 }
 /** A recipe batch run outside the editor (the repair of a batch a crash cut
- * short, utils/interruptedBatches): on the photos' write queues after their
- * pending saves; the open photograph and the Library's active one then show
- * what was written, so no older editor save follows it. Resolves with the
- * photos not written. */
-export async function writeRecipeRepair(paths: string[], command: string, args: Record<string, unknown>): Promise<string[]> {
+ * short, utils/interruptedBatches), on the photos' write queues after their
+ * pending saves. A photograph of it open in Develop is closed first (its
+ * edits written), as a file operation closes one it moves: no editor holds
+ * an old recipe of it while the repair is written, and one opened meanwhile
+ * reads its recipe after the repair. `whole`: the command writes whole
+ * recipes (Undo the applied part), so an earlier failed save is not
+ * written first; otherwise it is, and the command applies onto it. The
+ * Library's active photograph then shows what was written. Resolves with
+ * the photos not written. */
+export async function writeRecipeRepair(
+  paths: string[],
+  command: string,
+  args: Record<string, unknown>,
+  { whole }: { whole: boolean },
+): Promise<string[]> {
+  const { selectedImage } = useEditorStore.getState();
+  const keys = new Set(paths.map(photoWriteKey));
+  if (selectedImage && keys.has(photoWriteKey(selectedImage.path))) {
+    flushSliderDraft();
+    scheduleUnsavedEditorRecipe();
+    debouncedSave.flush();
+    debouncedSetHistory.flush();
+    if (useUIStore.getState().activeView === 'editor') {
+      useLibraryStore.getState().setLibrary({ libraryActivePath: selectedImage.path });
+      useUIStore.getState().setUI({ activeView: 'library', slideDirection: 1 });
+    }
+    useEditorStore.getState().setEditor({ selectedImage: null, zoom: 1, showOriginal: false, previewOverride: null });
+  }
   paths.forEach((path) => globalImageCache.delete(path));
   const { changes, failed } = await recipeWrite(
     paths,
     () => recordedBatch(invoke<RecipeBatch>(command, args), paths, 'repair an interrupted batch', true),
-    { kind: 'repair', failedOf: recordedFailed, preserveUnsaved: false },
+    { kind: 'repair', failedOf: recordedFailed, preserveUnsaved: !whole },
   );
   const written = changes.map((change) => change.path);
   written.forEach((path) => unsavedRecipes.delete(path));

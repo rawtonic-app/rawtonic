@@ -998,14 +998,35 @@ describe('the frame of the RAW (ADR 0020, "new photos only")', () => {
   });
 });
 
-it('shows a repaired recipe in the open photograph, so no older editor save follows it', async () => {
+it('closes a photograph a recipe repair writes, so no editor holds its old recipe, and shows the result', async () => {
   const { useUIStore } = await import('../store/useUIStore');
   useUIStore.setState({ activeView: 'editor' });
   renderHook(useEditorActions);
-  const repaired = writeRecipeRepair(['/first.dng'], Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', adjustments: { exposure: 1.5 } }] });
+  const repaired = writeRecipeRepair(
+    ['/first.dng'],
+    Invokes.ReplaceRecipes,
+    { changes: [{ path: '/first.dng', adjustments: { exposure: 1.5 } }] },
+    { whole: true },
+  );
+  expect(useEditorStore.getState().selectedImage).toBeNull();
+  expect(useUIStore.getState().activeView).toBe('library');
   await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: {}, after: { exposure: 1.5 } }] });
   await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1.5 } });
-  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1.5 } });
   await expect(repaired).resolves.toEqual([]);
-  expect(useEditorStore.getState().adjustments.exposure).toBe(1.5);
+  expect(useLibraryStore.getState().libraryActiveAdjustments.exposure).toBe(1.5);
+});
+
+it('writes a failed earlier save before a partial repair applies onto it', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
+  debouncedSave('/kept.dng', { ...INITIAL_ADJUSTMENTS, temperature: 42 });
+  await act(async () => { await debouncedSave.flush(); });
+  const repaired = writeRecipeRepair(['/kept.dng'], Invokes.ApplyAdjustmentsToPaths, { paths: ['/kept.dng'], adjustments: { exposure: 1 } }, { whole: false });
+  await act(async () => {});
+  expect(pending.at(-1)?.command).toBe(Invokes.SaveMetadataAndUpdateThumbnail);
+  expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ adjustments: { temperature: 42 } });
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [{ path: '/kept.dng', before: {}, after: {} }] });
+  await expect(repaired).resolves.toEqual([]);
+  errorLog.mockRestore();
 });

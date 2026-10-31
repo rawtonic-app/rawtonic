@@ -89,7 +89,7 @@ export async function applyToRest(batch: InterruptedBatch) {
   if (batch.rest.length === 0) return;
   const args = { ...batch.args, paths: batch.rest };
   if (batch.command === Invokes.ApplyAdjustmentsToPaths) {
-    allWritten(await writeRecipeRepair(batch.rest, batch.command, args));
+    allWritten(await writeRecipeRepair(batch.rest, batch.command, args, { whole: false }));
     catalogChanged();
   } else {
     await invokeInOrder(batch.command, args, batch.batch.kind);
@@ -108,7 +108,7 @@ export async function undoApplied(batch: InterruptedBatch) {
     case 'style':
     case 'preset': {
       const changes = undo.map((entry) => ({ path: entry.path, adjustments: entry.before }));
-      allWritten(await writeRecipeRepair(paths, Invokes.ReplaceRecipes, { changes }));
+      allWritten(await writeRecipeRepair(paths, Invokes.ReplaceRecipes, { changes }, { whole: true }));
       catalogChanged();
       return;
     }
