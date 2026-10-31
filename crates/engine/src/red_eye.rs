@@ -571,9 +571,11 @@ pub fn image_point(adjustments: &Value, width: u32, height: u32, x: f64, y: f64)
 const OUTLINE_STEPS: usize = 4;
 
 /// Where the photo `adjustments` describe (base image `width` × `height`)
-/// shows a box given as fractions `[x, y, width, height]` of its base image
-/// — a face found on the photograph as shot, upright and uncropped
-/// (`face_eyes`): its outline in mask-frame pixels, `OUTLINE_STEPS` points
+/// shows a box given as fractions `[x, y, width, height]` of `region` of
+/// its base image (the whole of it when None) — a face found on the camera's
+/// own image of the photograph, upright and uncropped (`face_eyes`; a RAW's
+/// embedded JPEG shows the camera's aspect crop of a whole-sensor frame,
+/// `camera_crop::camera_image_region`): its outline in mask-frame pixels, `OUTLINE_STEPS` points
 /// per edge from the top left along the top edge, so turns, flips,
 /// straightening, transforms and lens distortion carry it as they carry the
 /// photo (`to_mask`, as the red eye corrections are shown). None when the
@@ -583,10 +585,18 @@ pub fn box_outline_shown(
     width: u32,
     height: u32,
     bbox: [f64; 4],
+    region: Option<crate::camera_crop::CameraCrop>,
 ) -> Option<Vec<(f64, f64)>> {
-    let (w, h) = (f64::from(width), f64::from(height));
-    let [x0, y0] = [bbox[0] * w, bbox[1] * h];
-    let [x1, y1] = [(bbox[0] + bbox[2]) * w, (bbox[1] + bbox[3]) * h];
+    let (ox, oy, w, h) = region.map_or((0.0, 0.0, f64::from(width), f64::from(height)), |r| {
+        (
+            f64::from(r.x),
+            f64::from(r.y),
+            f64::from(r.width),
+            f64::from(r.height),
+        )
+    });
+    let [x0, y0] = [ox + bbox[0] * w, oy + bbox[1] * h];
+    let [x1, y1] = [ox + (bbox[0] + bbox[2]) * w, oy + (bbox[1] + bbox[3]) * h];
     let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
     let frame = mask_frame(adjustments, width, height);
     (0..4)
@@ -1158,7 +1168,7 @@ mod tests {
             json!({"transformVertical": 20.0, "transformAspect": 30.0, "rotation": -5.0}),
             json!({"lensDistortionParams": {"k1": -0.1, "k2": 0.02, "k3": 0.0, "model": 0}}),
         ] {
-            let outline = box_outline_shown(&adjustments, 80, 64, bbox).unwrap();
+            let outline = box_outline_shown(&adjustments, 80, 64, bbox, None).unwrap();
             assert_eq!(outline.len(), 4 * OUTLINE_STEPS);
             let frame = mask_frame(&adjustments, 80, 64);
             for &p in &outline {
@@ -1172,14 +1182,28 @@ mod tests {
             );
         }
         // Without geometry, the box itself; lens distortion moves it.
-        let plain = box_outline_shown(&json!({}), 80, 64, bbox).unwrap();
+        let plain = box_outline_shown(&json!({}), 80, 64, bbox, None).unwrap();
         let lens = json!({"lensDistortionParams": {"k1": -0.1, "k2": 0.02, "k3": 0.0, "model": 0}});
-        let bent = box_outline_shown(&lens, 80, 64, bbox).unwrap();
+        let bent = box_outline_shown(&lens, 80, 64, bbox, None).unwrap();
         assert!(
             plain
                 .iter()
                 .zip(&bent)
                 .any(|(a, b)| (a.0 - b.0).hypot(a.1 - b.1) > 0.05)
+        );
+        // Read on a camera image that shows a centred 64 × 64 crop of the
+        // frame: the fractions are of that crop.
+        let square = crate::camera_crop::CameraCrop {
+            x: 8,
+            y: 0,
+            width: 64,
+            height: 64,
+        };
+        let in_crop = box_outline_shown(&json!({}), 80, 64, bbox, Some(square)).unwrap();
+        assert!((in_crop[0].0 - 24.0).abs() < 0.01 && (in_crop[0].1 - 19.2).abs() < 0.01);
+        assert!(
+            (in_crop[OUTLINE_STEPS * 2].0 - 36.8).abs() < 0.01
+                && (in_crop[OUTLINE_STEPS * 2].1 - 35.2).abs() < 0.01
         );
         assert!(
             (plain[OUTLINE_STEPS * 2].0 - 36.0).abs() < 0.01

@@ -1,6 +1,6 @@
 import '../../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { invoke } from '@tauri-apps/api/core';
 import FaceBoxOverlay from './FaceBoxOverlay';
@@ -23,10 +23,11 @@ const face = (index: number, state: 'open' | 'closed' | 'uncertain') => ({
   accessories: 0,
   overrideState: null,
 });
-const eyes: PhotoEyes = { faces: [face(0, 'open'), face(1, 'closed'), face(2, 'uncertain')], error: null };
-let shownCalls: { jsAdjustments: Record<string, unknown>; width: number; height: number; boxes: number[][] }[];
+let eyes: PhotoEyes = { faces: [face(0, 'open'), face(1, 'closed'), face(2, 'uncertain')], error: null };
+let shownCalls: { path: string; jsAdjustments: Record<string, unknown>; width: number; height: number; boxes: number[][] }[];
 
 beforeEach(() => {
+  eyes = { faces: [face(0, 'open'), face(1, 'closed'), face(2, 'uncertain')], error: null };
   shownCalls = [];
   mockInvoke.mockReset();
   mockInvoke.mockImplementation(async (command, args) => {
@@ -77,6 +78,7 @@ it('shows a face box while its crop is hovered, through the geometry, never by c
   renderLoupe();
   await waitFor(() => expect(shownCalls).toHaveLength(1));
   // The recipe and base size go with the boxes; the backend applies the geometry.
+  expect(shownCalls[0].path).toBe(PATH);
   expect(shownCalls[0].width).toBe(1000);
   expect(shownCalls[0].jsAdjustments.rotation).toBe(4);
   expect(shownCalls[0].boxes).toEqual(eyes.faces!.map((f) => f.bbox));
@@ -186,4 +188,27 @@ it('shows nothing for another photograph than the strip’s', async () => {
   expect(overlay()).not.toBeNull();
   useEditorStore.setState({ selectedImage: { path: '/job/b.arw', width: 1000, height: 500, isReady: true } as never });
   await waitFor(() => expect(overlay()).toBeNull());
+});
+
+it('the keys take over from a pointer still resting on a crop', async () => {
+  const user = userEvent.setup();
+  renderLoupe();
+  await waitFor(() => expect(shownCalls).toHaveLength(1));
+  // Click and leave the pointer there.
+  await user.click(crop(1));
+  await user.keyboard('{ArrowRight}');
+  expect(screen.getByRole('img', { name: 'Face 2: Eyes closed or partly closed' })).toBeTruthy();
+});
+
+it('keeps the pinned face when the faces are read again (a call, a background reading)', async () => {
+  const user = userEvent.setup();
+  renderLoupe();
+  await waitFor(() => expect(shownCalls).toHaveLength(1));
+  await user.click(crop(2));
+  await user.unhover(crop(2));
+  // A call on face 2 refreshes the strip's faces.
+  eyes = { ...eyes, faces: eyes.faces!.map((f) => (f.face === 1 ? { ...f, overrideState: 'open' as const } : f)) };
+  act(() => useEyesStore.getState().changed());
+  await waitFor(() => expect(screen.getByRole('img', { name: 'Face 2: Eyes open' })).toBeTruthy());
+  expect(crop(2).getAttribute('aria-pressed')).toBe('true');
 });

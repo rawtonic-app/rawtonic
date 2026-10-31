@@ -98,10 +98,14 @@ export const useEyesStore = create<EyesState>((set, get) => ({
   showFaces: (path, faces) =>
     set((s) => {
       if (!faces?.length) return { faceMark: null };
-      const same = s.faceMark?.path === path;
-      // The same photograph read again keeps its marks while its faces stay.
-      const keep = (i: number | null | undefined) => (same && i != null && i < faces.length ? i : null);
-      return { faceMark: { path, faces, hovered: keep(s.faceMark?.hovered), pinned: keep(s.faceMark?.pinned) } };
+      const mark = s.faceMark?.path === path ? s.faceMark : null;
+      // The same photograph read again keeps its marks on the same faces.
+      const keep = (i: number | null | undefined) => {
+        const id = i == null ? undefined : mark?.faces[i]?.face;
+        const at = id === undefined ? -1 : faces.findIndex((f) => f.face === id);
+        return at < 0 ? null : at;
+      };
+      return { faceMark: { path, faces, hovered: keep(mark?.hovered), pinned: keep(mark?.pinned) } };
     }),
   hoverFace: (path, index) =>
     set((s) => (s.faceMark?.path === path ? { faceMark: { ...s.faceMark, hovered: index } } : {})),

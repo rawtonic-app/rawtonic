@@ -52,6 +52,7 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
     if (!path || !boxesKey || !width || !height) return;
     let current = true;
     invoke<([number, number][] | null)[]>(Invokes.FaceBoxesShown, {
+      path,
       jsAdjustments: useEditorStore.getState().adjustments,
       width,
       height,

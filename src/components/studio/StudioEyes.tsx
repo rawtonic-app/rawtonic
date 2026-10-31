@@ -133,18 +133,25 @@ export function LoupeFaces({ path }: { path?: string }) {
   // The faces whose box the photograph may show (FaceBoxOverlay); none once
   // the strip goes.
   const { showFaces, hoverFace, pinFace } = useEyesStore.getState();
+  // A refresh of the same photograph's faces (a call, a background reading)
+  // keeps the hovered and pinned face; leaving the photograph or the strip
+  // drops them.
   useEffect(() => {
-    if (!path) return;
-    showFaces(path, faces ?? null);
-    return () => {
-      if (useEyesStore.getState().faceMark?.path === path) showFaces(path, null);
-    };
+    if (path) showFaces(path, faces ?? null);
   }, [path, faces, showFaces]);
+  useEffect(
+    () => () => {
+      if (path && useEyesStore.getState().faceMark?.path === path) showFaces(path, null);
+    },
+    [path, showFaces],
+  );
   const pinned = useEyesStore((s) => (s.faceMark && s.faceMark.path === path ? s.faceMark.pinned : null));
   const marked = useEyesStore((s) => (s.faceMark?.path === path ? markedFace(s.faceMark) : null));
   if (!read || !path || !faces?.length) return null;
   /** Pins face `index` and moves the focus to its crop (arrow keys). */
   const step = (index: number) => {
+    // The keys take over from a pointer still resting on another crop.
+    hoverFace(path, null);
     pinFace(path, index);
     strip.current?.querySelectorAll<HTMLButtonElement>(".studio-loupe-face-crop")[index]?.focus();
   };
