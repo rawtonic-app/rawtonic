@@ -62,6 +62,12 @@ impl FaceModels {
             parser: open(PARSER_FILE, ModelKind::FaceParser)?,
         })
     }
+
+    /// The faces of `image` found by the detector alone (no landmarks or
+    /// parsing): where a tool must keep away from faces (Find Dust).
+    pub fn detect(&self, image: &RgbImage) -> Result<Vec<Detection>> {
+        self.detector.run(|s| detect::detect(s, image))
+    }
 }
 
 #[derive(Clone, Debug)]

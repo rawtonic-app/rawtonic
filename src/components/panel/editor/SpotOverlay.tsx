@@ -198,6 +198,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const activeSpotId = useEditorStore((s) => s.activeSpotId);
   const settings = useEditorStore((s) => s.spotSettings);
   const visualize = useEditorStore((s) => s.spotVisualize);
+  // Find Dust's spots before Apply (StudioFindDust), drawn dashed in amber.
+  const dustPreview = useEditorStore((s) => s.dustPreview);
   const [view, setView] = useState<string | null>(null);
   const [draft, setDraft] = useState<Spot | null>(null);
   // The spot under the pointer while no button is down (Lightroom marks it
@@ -982,6 +984,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
             </g>
           );
         })}
+        {dustPreview?.spots.map((d, i) => (
+          <g key={`dust-${i}`} style={{ color: '#f0c060' }} data-testid="dust-preview">
+            {circle(`dust-${i}`, d.x, d.y, d.radius, 'spot-dust', true)}
+          </g>
+        ))}
         {box && <g style={{ color: '#fff' }}>{rectangle('drawing-box', box.start, box.end, false)}</g>}
         {eraseBox && (
           <g style={{ color: OP_COLOUR.subtract }} data-testid="spot-erase-box">

@@ -49,6 +49,23 @@ const overlay = () => {
   return el;
 };
 
+describe("Find Dust preview", () => {
+  it("draws the found spots dashed where the photo shows them, until Apply or Cancel", () => {
+    useEditorStore.setState({
+      dustPreview: { spots: [{ x: 200, y: 100, radius: 20 }, { x: 300, y: 200, radius: 10 }], facesChecked: true, busy: false },
+    });
+    overlay();
+    const shown = screen.getAllByTestId("dust-preview");
+    expect(shown).toHaveLength(2);
+    const ring = shown[0].querySelectorAll("circle")[1];
+    // Mask (200, 100) at half size from the crop at (100, 50).
+    expect([ring.getAttribute("cx"), ring.getAttribute("cy"), ring.getAttribute("r")]).toEqual(["50", "25", "10"]);
+    expect(ring.getAttribute("stroke-dasharray")).toBeTruthy();
+    act(() => useEditorStore.setState({ dustPreview: null }));
+    expect(screen.queryAllByTestId("dust-preview")).toHaveLength(0);
+  });
+});
+
 describe("spot removal overlay", () => {
   it("places a spot with the backend's automatic source", async () => {
     invoke.mockResolvedValue([260, 150]);

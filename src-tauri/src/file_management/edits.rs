@@ -219,7 +219,7 @@ fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
 }
 
 /// `Some(create if missing)` when edits are synced to XMP sidecars.
-fn xmp_sync(app_handle: &AppHandle) -> Option<bool> {
+pub(crate) fn xmp_sync(app_handle: &AppHandle) -> Option<bool> {
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     settings
         .enable_xmp_sync
@@ -301,7 +301,7 @@ pub struct RecipeBatch {
 
 /// `edit_sidecars` that also returns the recipe changes of the photographs
 /// written (read in the same sidecar turn as the edit).
-fn edit_sidecars_recorded(
+pub(crate) fn edit_sidecars_recorded(
     paths: &[String],
     xmp: Option<bool>,
     edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
@@ -324,7 +324,7 @@ fn edit_sidecars_recorded(
 }
 
 /// `save_then_regenerate` for a recorded batch edit (`edit_sidecars_recorded`).
-async fn recorded_batch(
+pub(crate) async fn recorded_batch(
     app_handle: AppHandle,
     paths: Vec<String>,
     work: impl FnOnce(&AppHandle, &[String]) -> (Vec<RecipeChange>, Vec<(String, String)>)

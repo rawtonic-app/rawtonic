@@ -194,6 +194,8 @@ export enum Invokes {
   RedEyesShown = 'red_eyes_shown',
   FindSpotSource = 'find_spot_source',
   VisualizeSpots = 'visualize_spots',
+  FindDust = 'find_dust',
+  SyncDustSpots = 'sync_dust_spots',
   LoadImage = 'load_image',
   LoadImageProxy = 'load_image_proxy',
   ActivatePhoto = 'activate_photo',

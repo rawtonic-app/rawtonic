@@ -716,7 +716,11 @@ fn ring_statistics(
 /// The best source centre (base pixels) for a target circle: the candidate
 /// whose surroundings match the target's best, at 2.5–5 radii, whole
 /// circle and surroundings inside the photo; slightly prefers near ones.
-fn best_source(image: &Rgb32FImage, target: (f64, f64), radius: f64) -> Option<(f64, f64)> {
+pub(crate) fn best_source(
+    image: &Rgb32FImage,
+    target: (f64, f64),
+    radius: f64,
+) -> Option<(f64, f64)> {
     let (w, h) = (image.width() as f64, image.height() as f64);
     let margin = radius * 1.8;
     let inside = |p: (f64, f64)| {
@@ -1103,6 +1107,14 @@ pub fn spot_band_pass(
     )
 }
 
+/// How much a spot must stand out at `sensitivity` (0–100, more shows
+/// more), as a multiple of a reference level: Visualize Spots' threshold
+/// over the band-pass median, and Find Dust's (`dust::min_contrast`), so the
+/// one slider means the same in both.
+pub fn sensitivity_factor(sensitivity: f64) -> f32 {
+    6.0 - 4.5 * (sensitivity.clamp(0.0, 100.0) / 100.0) as f32
+}
+
 /// The Visualize Spots view at `sensitivity` (0–100, more shows more):
 /// white where the band-pass exceeds a multiple of its median.
 pub fn visualize(
@@ -1110,7 +1122,7 @@ pub fn visualize(
     median: f32,
     sensitivity: f64,
 ) -> image::GrayImage {
-    let threshold = median * (6.0 - 4.5 * (sensitivity.clamp(0.0, 100.0) / 100.0) as f32);
+    let threshold = median * sensitivity_factor(sensitivity);
     image::GrayImage::from_fn(band.width(), band.height(), |x, y| {
         let v = band.get_pixel(x, y)[0];
         let t = ((v - threshold) / threshold).clamp(0.0, 1.0);
