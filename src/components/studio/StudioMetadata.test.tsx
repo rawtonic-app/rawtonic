@@ -282,6 +282,30 @@ describe("Metadata tool", () => {
     expect(country.value).toBe("Switzerland");
   });
 
+  it("edits and clears IPTC Extension lists for the selection", async () => {
+    const original = { ...empty, personInImage: "Person A\nPerson B", event: "Event" };
+    mockInvoke.mockImplementation(async (command, args) =>
+      command === "session_all_text_metadata"
+        ? { "/job/Capture/a.arw": original, "/job/Capture/b.arw": original }
+        : command === "session_set_text_metadata"
+          ? Object.fromEntries((args as { paths: string[]; update: object }).paths.map((p) => [p, { ...original, ...(args as { update: object }).update }]))
+          : undefined,
+    );
+    render(<StudioMetadataTool />);
+    await act(async () => {});
+    const people = screen.getByLabelText("People shown (one per line)") as HTMLTextAreaElement;
+    expect(people.tagName).toBe("TEXTAREA");
+    expect(people.value).toBe("Person A\nPerson B");
+    fireEvent.focus(people);
+    fireEvent.change(people, { target: { value: "" } });
+    await act(async () => { fireEvent.blur(people); });
+    expect(mockInvoke).toHaveBeenLastCalledWith("session_set_text_metadata", {
+      directory: "/job", paths: ["/job/Capture/a.arw", "/job/Capture/b.arw"], update: { personInImage: "" },
+    });
+    expect(people.value).toBe("");
+    expect((screen.getByLabelText("Event") as HTMLInputElement).value).toBe("Event");
+  });
+
   it("reads the session's metadata again when a photograph is renamed", async () => {
     const catalog: Record<string, typeof empty> = { ...records, "/job/Capture/c.arw": empty };
     mockInvoke.mockImplementation(async (command) =>

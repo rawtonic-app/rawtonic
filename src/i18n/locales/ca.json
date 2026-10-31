@@ -4357,6 +4357,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Informació addicional dels models",
+          "captionWriter": "Autor del peu de foto",
           "city": "Ciutat",
           "country": "País",
           "countryCode": "Codi de país ISO",
@@ -4370,17 +4372,31 @@
           "creatorRegion": "Estat / Província (contacte)",
           "creatorUrl": "Lloc web",
           "credit": "Línia de crèdit",
+          "dateCreated": "Data de creació",
+          "digitalSourceType": "Tipus de font digital",
+          "event": "Esdeveniment",
           "headline": "Titular",
           "instructions": "Instruccions",
+          "intellectualGenre": "Gènere intel·lectual",
           "jobId": "Identificador de feina",
           "location": "Sububicació",
+          "maxAvailHeight": "Alçada màxima disponible",
+          "maxAvailWidth": "Amplada màxima disponible",
+          "modelAge": "Edats dels models (una per línia)",
+          "organisationInImageCode": "Codis d’organització (un per línia)",
+          "organisationInImageName": "Organitzacions mostrades (una per línia)",
+          "personInImage": "Persones mostrades (una per línia)",
+          "rightsUrl": "URL dels drets",
+          "scene": "Codis d’escena (un per línia)",
           "source": "Font",
           "state": "Estat / Província",
+          "subjectCode": "Codis de tema (un per línia)",
           "usageTerms": "Condicions d'ús"
         },
         "sections": {
           "content": "Contingut",
           "creatorContact": "Contacte de l'autor",
+          "extension": "Extensió IPTC",
           "location": "Ubicació",
           "status": "Estat"
         }

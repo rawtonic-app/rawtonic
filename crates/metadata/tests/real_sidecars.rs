@@ -43,6 +43,21 @@ fn foreign_parts(text: &str, owned: &[&str]) -> Vec<String> {
 /// What Rawtonic models: rating, label, flags, keywords, Dublin Core and the
 /// IPTC Core fields it edits (Lightroom's and Capture One's prefixes).
 const OWNED: &[&str] = &[
+    "Iptc4xmpExt:PersonInImage",
+    "Iptc4xmpExt:OrganisationInImageName",
+    "Iptc4xmpExt:OrganisationInImageCode",
+    "Iptc4xmpExt:Event",
+    "Iptc4xmpExt:ModelAge",
+    "Iptc4xmpExt:AddlModelInfo",
+    "Iptc4xmpExt:MaxAvailHeight",
+    "Iptc4xmpExt:MaxAvailWidth",
+    "Iptc4xmpExt:DigitalSourceType",
+    "Iptc4xmpCore:SubjectCode",
+    "Iptc4xmpCore:Scene",
+    "Iptc4xmpCore:IntellectualGenre",
+    "photoshop:CaptionWriter",
+    "photoshop:DateCreated",
+    "xmpRights:WebStatement",
     "xmp:Rating",
     "xmp:Label",
     "photoshop:LabelColor",
@@ -346,4 +361,92 @@ fn capture_one_extra_colours_keep_their_exact_property_on_unrelated_edits() {
         assert!(written.contains(&format!("<xmp:Label>{label}</xmp:Label>")));
         assert_eq!(read(&written).label, label);
     }
+}
+
+#[test]
+fn real_iptc_extension_and_remaining_core_fields_read_edit_clear_and_export() {
+    let expected = [
+        ("personInImage", "Person A\nPerson B"),
+        ("organisationInImageName", "Org Shown"),
+        ("organisationInImageCode", "ORG1"),
+        ("event", "Test Event 2026"),
+        ("modelAge", "25"),
+        ("additionalModelInfo", "Model info"),
+        ("maxAvailHeight", "3000"),
+        ("maxAvailWidth", "4000"),
+        ("digitalSourceType", "Original digital capture"),
+        ("subjectCode", "15000000"),
+        ("scene", "011000"),
+        ("intellectualGenre", "Feature"),
+        ("captionWriter", "Writer W"),
+        ("dateCreated", "2026-05-01T10:20:30"),
+        ("rightsUrl", "https://example.invalid/rights"),
+    ];
+    for packet in [LIGHTROOM, C1_IPTC] {
+        let metadata = read(packet);
+        for (key, value) in expected {
+            assert_eq!(
+                metadata.iptc.get(key).map(String::as_str),
+                Some(value),
+                "{key}"
+            );
+        }
+        let mut changed = metadata.clone();
+        changed
+            .iptc
+            .insert("personInImage".into(), "A, B; C & D\nOther person".into());
+        changed.iptc.insert("event".into(), "New event <2>".into());
+        changed.iptc.insert("maxAvailWidth".into(), "6000".into());
+        let written = merge_xmp(Some(packet), &changed, None).unwrap();
+        assert_eq!(read(&written).iptc, changed.iptc);
+        let export = rawtonic_metadata::export_xmp(&changed, "Rawtonic").unwrap();
+        assert_eq!(read(&export).iptc, changed.iptc);
+        // Missing library fields keep the sidecar value; explicit empty values
+        // clear it, on every subsequent save too.
+        let missing = Metadata::default();
+        let kept = merge_xmp(Some(packet), &missing, None).unwrap();
+        assert_eq!(read(&kept).iptc, metadata.iptc);
+        for (key, _) in expected {
+            changed.iptc.insert(key.into(), String::new());
+        }
+        let cleared = merge_xmp(Some(packet), &changed, None).unwrap();
+        let cleared = merge_xmp(Some(&cleared), &changed, None).unwrap();
+        for (key, _) in expected {
+            assert!(!read(&cleared).iptc.contains_key(key), "stale {key}");
+        }
+    }
+}
+
+#[test]
+fn generated_export_marking_wins_over_imported_source_type() {
+    let metadata = read(LIGHTROOM);
+    let exported = rawtonic_metadata::export_xmp_with_source(
+        &metadata,
+        "Rawtonic",
+        Some(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI),
+    )
+    .unwrap();
+    assert_eq!(
+        read(&exported).iptc["digitalSourceType"],
+        rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI
+    );
+    assert_eq!(
+        exported.matches("Iptc4xmpExt:DigitalSourceType=").count(),
+        1
+    );
+    assert!(!exported.contains("Original digital capture"));
+}
+
+#[test]
+fn clearing_last_contact_field_keeps_foreign_contact_properties() {
+    let packet = LIGHTROOM.replace("<Iptc4xmpCore:CreatorContactInfo", "<Iptc4xmpCore:CreatorContactInfo xmlns:other=\"https://example.invalid/\" other:Pager=\"123\"");
+    let mut metadata = read(&packet);
+    for (key, _, _, kind) in rawtonic_metadata::IPTC_FIELDS {
+        if *kind == rawtonic_metadata::IptcKind::Contact {
+            metadata.iptc.insert((*key).into(), String::new());
+        }
+    }
+    let written = merge_xmp(Some(&packet), &metadata, None).unwrap();
+    assert!(written.contains("other:Pager=\"123\""));
+    assert!(!read(&written).iptc.contains_key("creatorEmail"));
 }

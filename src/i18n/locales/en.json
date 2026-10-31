@@ -4183,6 +4183,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Additional model information",
+          "captionWriter": "Caption writer",
           "city": "City",
           "country": "Country",
           "countryCode": "ISO country code",
@@ -4196,17 +4198,31 @@
           "creatorRegion": "Contact state / province",
           "creatorUrl": "Website",
           "credit": "Credit line",
+          "dateCreated": "Date created",
+          "digitalSourceType": "Digital source type",
+          "event": "Event",
           "headline": "Headline",
           "instructions": "Instructions",
+          "intellectualGenre": "Intellectual genre",
           "jobId": "Job identifier",
           "location": "Sublocation",
+          "maxAvailHeight": "Maximum available height",
+          "maxAvailWidth": "Maximum available width",
+          "modelAge": "Model ages (one per line)",
+          "organisationInImageCode": "Organisation codes (one per line)",
+          "organisationInImageName": "Organisations shown (one per line)",
+          "personInImage": "People shown (one per line)",
+          "rightsUrl": "Rights URL",
+          "scene": "Scene codes (one per line)",
           "source": "Source",
           "state": "State / Province",
+          "subjectCode": "Subject codes (one per line)",
           "usageTerms": "Rights usage terms"
         },
         "sections": {
           "content": "Content",
           "creatorContact": "Creator contact",
+          "extension": "IPTC Extension",
           "location": "Location",
           "status": "Status"
         }

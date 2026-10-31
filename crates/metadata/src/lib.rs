@@ -39,14 +39,66 @@ pub enum IptcKind {
     Simple,
     /// A language alternative (`rdf:Alt`), written as `x-default`.
     Alt,
+    /// An unordered list, edited as one item per line.
+    Bag,
     /// A field of `Iptc4xmpCore:CreatorContactInfo`.
     Contact,
 }
 
-/// The IPTC Core fields Rawtonic keeps (Capture One's and Lightroom's IPTC
+/// The IPTC Core and Extension fields Rawtonic keeps (Capture One's and Lightroom's IPTC
 /// panels): key in [`Metadata::iptc`], namespace, XMP name, kind. Title,
 /// description, creator and copyright are Dublin Core fields of `Metadata`.
 pub const IPTC_FIELDS: &[(&str, &str, &str, IptcKind)] = &[
+    ("personInImage", IPTC_EXT, "PersonInImage", IptcKind::Bag),
+    (
+        "organisationInImageName",
+        IPTC_EXT,
+        "OrganisationInImageName",
+        IptcKind::Bag,
+    ),
+    (
+        "organisationInImageCode",
+        IPTC_EXT,
+        "OrganisationInImageCode",
+        IptcKind::Bag,
+    ),
+    ("event", IPTC_EXT, "Event", IptcKind::Alt),
+    ("modelAge", IPTC_EXT, "ModelAge", IptcKind::Bag),
+    (
+        "additionalModelInfo",
+        IPTC_EXT,
+        "AddlModelInfo",
+        IptcKind::Simple,
+    ),
+    (
+        "maxAvailHeight",
+        IPTC_EXT,
+        "MaxAvailHeight",
+        IptcKind::Simple,
+    ),
+    ("maxAvailWidth", IPTC_EXT, "MaxAvailWidth", IptcKind::Simple),
+    (
+        "digitalSourceType",
+        IPTC_EXT,
+        "DigitalSourceType",
+        IptcKind::Simple,
+    ),
+    ("subjectCode", IPTC_CORE, "SubjectCode", IptcKind::Bag),
+    ("scene", IPTC_CORE, "Scene", IptcKind::Bag),
+    (
+        "intellectualGenre",
+        IPTC_CORE,
+        "IntellectualGenre",
+        IptcKind::Simple,
+    ),
+    (
+        "captionWriter",
+        PHOTOSHOP,
+        "CaptionWriter",
+        IptcKind::Simple,
+    ),
+    ("dateCreated", PHOTOSHOP, "DateCreated", IptcKind::Simple),
+    ("rightsUrl", XMP_RIGHTS, "WebStatement", IptcKind::Simple),
     ("headline", PHOTOSHOP, "Headline", IptcKind::Simple),
     ("location", IPTC_CORE, "Location", IptcKind::Simple),
     ("city", PHOTOSHOP, "City", IptcKind::Simple),
@@ -126,7 +178,8 @@ pub struct Metadata {
     pub description: String,
     pub creator: String,
     pub copyright: String,
-    /// IPTC Core fields by the keys of [`IPTC_FIELDS`]; empty ones are absent.
+    /// IPTC fields by [`IPTC_FIELDS`]. An absent key preserves the sidecar's
+    /// value; an explicit empty string clears it on every write.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub iptc: BTreeMap<String, String>,
 }
@@ -354,7 +407,17 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
             {
                 let key = iptc_key(namespace, tag).or_else(|| contact_key(namespace, tag));
                 if let Some(key) = key {
-                    result.set_iptc(key, &value());
+                    let value = if iptc_field(key).is_some_and(|(_, _, kind)| kind == IptcKind::Bag)
+                    {
+                        node.descendants()
+                            .filter(|n| n.has_tag_name((RDF, "li")))
+                            .filter_map(|n| n.text())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    } else {
+                        value()
+                    };
+                    result.set_iptc(key, &value);
                 }
             }
             (Some(DC), "subject") | (Some(LR), "hierarchicalSubject") => {
@@ -438,12 +501,18 @@ fn subject_terms(keywords: &[String]) -> Vec<&str> {
 /// Namespace declarations for [`iptc_elements`]; none without IPTC, so
 /// sidecars and exports without IPTC stay as they were.
 fn iptc_namespaces(metadata: &Metadata) -> String {
-    if metadata.iptc.values().all(|v| v.trim().is_empty()) {
+    if metadata.iptc.is_empty() {
         return String::new();
     }
-    format!(
+    let mut namespaces = format!(
         " xmlns:photoshop=\"{PHOTOSHOP}\" xmlns:Iptc4xmpCore=\"{IPTC_CORE}\" xmlns:xmpRights=\"{XMP_RIGHTS}\""
-    )
+    );
+    if metadata.iptc.iter().any(|(key, value)| {
+        !value.trim().is_empty() && iptc_field(key).is_some_and(|(ns, _, _)| ns == IPTC_EXT)
+    }) {
+        namespaces.push_str(&format!(" xmlns:Iptc4xmpExt=\"{IPTC_EXT}\""));
+    }
+    namespaces
 }
 
 /// The first value of a simple property (attribute or element text, or the
@@ -565,6 +634,7 @@ fn iptc_elements(
     let prefix = |ns: &str| match ns {
         PHOTOSHOP => "photoshop",
         IPTC_CORE => "Iptc4xmpCore",
+        IPTC_EXT => "Iptc4xmpExt",
         _ => "xmpRights",
     };
     let mut out = String::new();
@@ -580,6 +650,13 @@ fn iptc_elements(
         };
         let tag = format!("{}:{name}", prefix(ns));
         match kind {
+            IptcKind::Bag => {
+                out.push_str(&format!("<{tag}><rdf:Bag>"));
+                for item in value.lines().map(str::trim).filter(|v| !v.is_empty()) {
+                    out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(item)));
+                }
+                out.push_str(&format!("</rdf:Bag></{tag}>"));
+            }
             IptcKind::Simple => out.push_str(&format!("<{tag}>{}</{tag}>", escape(value))),
             IptcKind::Alt => out.push_str(&format!(
                 "<{tag}><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></{tag}>",
@@ -588,7 +665,7 @@ fn iptc_elements(
             IptcKind::Contact => contact.push_str(&format!("<{tag}>{}</{tag}>", escape(value))),
         }
     }
-    if !contact.is_empty() {
+    if !contact.is_empty() || !foreign.start.is_empty() || !foreign.children.is_empty() {
         out.push_str(&format!(
             "<Iptc4xmpCore:CreatorContactInfo{} rdf:parseType=\"Resource\">{contact}{}</Iptc4xmpCore:CreatorContactInfo>",
             foreign.start, foreign.children
@@ -849,8 +926,11 @@ pub fn export_xmp_with_source(
         escape(creator_tool)
     ));
     if let Some(source) = digital_source_type {
+        if !iptc_namespaces(metadata).contains("xmlns:Iptc4xmpExt=") {
+            out.push_str(&format!(" xmlns:Iptc4xmpExt=\"{IPTC_EXT}\""));
+        }
         out.push_str(&format!(
-            " xmlns:Iptc4xmpExt=\"{IPTC_EXT}\" Iptc4xmpExt:DigitalSourceType=\"{}\"",
+            " Iptc4xmpExt:DigitalSourceType=\"{}\"",
             escape(source)
         ));
     }
@@ -879,8 +959,12 @@ pub fn export_xmp_with_source(
             escape(&metadata.creator)
         ));
     }
+    let mut export_metadata = metadata.clone();
+    if digital_source_type.is_some() {
+        export_metadata.iptc.remove("digitalSourceType");
+    }
     out.push_str(&iptc_elements(
-        metadata,
+        &export_metadata,
         &BTreeMap::new(),
         &ForeignContact::default(),
     ));

@@ -4357,6 +4357,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Informations complémentaires sur les modèles",
+          "captionWriter": "Auteur de la légende",
           "city": "Ville",
           "country": "Pays",
           "countryCode": "Code pays ISO",
@@ -4370,17 +4372,31 @@
           "creatorRegion": "État / Province (contact)",
           "creatorUrl": "Site web",
           "credit": "Crédit",
+          "dateCreated": "Date de création",
+          "digitalSourceType": "Type de source numérique",
+          "event": "Événement",
           "headline": "Titre principal",
           "instructions": "Instructions",
+          "intellectualGenre": "Genre intellectuel",
           "jobId": "Identifiant de travail",
           "location": "Sous-lieu",
+          "maxAvailHeight": "Hauteur maximale disponible",
+          "maxAvailWidth": "Largeur maximale disponible",
+          "modelAge": "Âges des modèles (un par ligne)",
+          "organisationInImageCode": "Codes des organisations (un par ligne)",
+          "organisationInImageName": "Organisations représentées (une par ligne)",
+          "personInImage": "Personnes représentées (une par ligne)",
+          "rightsUrl": "URL des droits",
+          "scene": "Codes de scène (un par ligne)",
           "source": "Source",
           "state": "État / Province",
+          "subjectCode": "Codes de sujet (un par ligne)",
           "usageTerms": "Conditions d'utilisation"
         },
         "sections": {
           "content": "Contenu",
           "creatorContact": "Contact du créateur",
+          "extension": "Extension IPTC",
           "location": "Lieu",
           "status": "Statut"
         }

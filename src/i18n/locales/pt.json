@@ -4357,6 +4357,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Informações adicionais dos modelos",
+          "captionWriter": "Autor da legenda",
           "city": "Cidade",
           "country": "País",
           "countryCode": "Código ISO do país",
@@ -4370,17 +4372,31 @@
           "creatorRegion": "Estado / Província (contato)",
           "creatorUrl": "Site",
           "credit": "Linha de crédito",
+          "dateCreated": "Data de criação",
+          "digitalSourceType": "Tipo de fonte digital",
+          "event": "Evento",
           "headline": "Manchete",
           "instructions": "Instruções",
+          "intellectualGenre": "Género intelectual",
           "jobId": "Identificador do trabalho",
           "location": "Sublocal",
+          "maxAvailHeight": "Altura máxima disponível",
+          "maxAvailWidth": "Largura máxima disponível",
+          "modelAge": "Idades dos modelos (uma por linha)",
+          "organisationInImageCode": "Códigos de organização (um por linha)",
+          "organisationInImageName": "Organizações retratadas (uma por linha)",
+          "personInImage": "Pessoas retratadas (uma por linha)",
+          "rightsUrl": "URL dos direitos",
+          "scene": "Códigos de cena (um por linha)",
           "source": "Fonte",
           "state": "Estado / Província",
+          "subjectCode": "Códigos de assunto (um por linha)",
           "usageTerms": "Termos de uso"
         },
         "sections": {
           "content": "Conteúdo",
           "creatorContact": "Contato do autor",
+          "extension": "Extensão IPTC",
           "location": "Local",
           "status": "Status"
         }

@@ -4066,6 +4066,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "추가 모델 정보",
+          "captionWriter": "캡션 작성자",
           "city": "도시",
           "country": "국가",
           "countryCode": "ISO 국가 코드",
@@ -4079,17 +4081,31 @@
           "creatorRegion": "시/도(연락처)",
           "creatorUrl": "웹사이트",
           "credit": "크레딧",
+          "dateCreated": "생성 날짜",
+          "digitalSourceType": "디지털 소스 유형",
+          "event": "이벤트",
           "headline": "헤드라인",
           "instructions": "지침",
+          "intellectualGenre": "지적 장르",
           "jobId": "작업 식별자",
           "location": "세부 위치",
+          "maxAvailHeight": "사용 가능한 최대 높이",
+          "maxAvailWidth": "사용 가능한 최대 너비",
+          "modelAge": "모델 나이 (줄당 하나)",
+          "organisationInImageCode": "조직 코드 (줄당 하나)",
+          "organisationInImageName": "사진 속 조직 (줄당 하나)",
+          "personInImage": "사진 속 인물 (줄당 한 명)",
+          "rightsUrl": "권리 URL",
+          "scene": "장면 코드 (줄당 하나)",
           "source": "출처",
           "state": "시/도",
+          "subjectCode": "주제 코드 (줄당 하나)",
           "usageTerms": "사용 조건"
         },
         "sections": {
           "content": "콘텐츠",
           "creatorContact": "작성자 연락처",
+          "extension": "IPTC 확장",
           "location": "위치",
           "status": "상태"
         }
