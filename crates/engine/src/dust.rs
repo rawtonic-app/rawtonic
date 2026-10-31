@@ -394,8 +394,8 @@ fn analyse_with(
                             if dx == 0 && dy == 0 {
                                 continue;
                             }
-                            let o = best[(y as isize + dy) as usize * w + (x as isize + dx) as usize]
-                                [side]
+                            let o = best
+                                [(y as isize + dy) as usize * w + (x as isize + dx) as usize][side]
                                 .0;
                             let earlier = dy < 0 || (dy == 0 && dx < 0);
                             if o > c || (earlier && o == c) {
@@ -431,7 +431,13 @@ fn analyse_with(
             if c < 0.5 * floor {
                 return None;
             }
-            measure(values, &integral, (x as isize, y as isize), a as isize, sigma)
+            measure(
+                values,
+                &integral,
+                (x as isize, y as isize),
+                a as isize,
+                sigma,
+            )
         })
         .collect();
     let dusty: Vec<bool> = measured
@@ -733,7 +739,11 @@ fn measure(
         .map(|(s, _)| *s)
         .collect();
     let outliers = 1.0 - kept.len() as f32 / wide.len() as f32;
-    let fit = if kept.len() >= 16 { plane(&kept)? } else { first };
+    let fit = if kept.len() >= 16 {
+        plane(&kept)?
+    } else {
+        first
+    };
     let all = residuals(fit, &wide);
     let (_, s) = spread(&all);
     let variance = all.iter().map(|r| r * r).sum::<f32>() / all.len() as f32;
@@ -938,7 +948,13 @@ pub fn heal_spots(
                 SOURCE_UNEVEN,
             )
             .or_else(|| {
-                crate::spot_removal::best_source_with(&image, c.centre, c.radius, &[], SOURCE_UNEVEN)
+                crate::spot_removal::best_source_with(
+                    &image,
+                    c.centre,
+                    c.radius,
+                    &[],
+                    SOURCE_UNEVEN,
+                )
             })?;
             let (sx, sy) = crate::spot_removal::to_mask_point(
                 adjustments,
@@ -1470,7 +1486,9 @@ mod tests {
     #[ignore = "measurement: needs DUST_HEAL"]
     fn heal_bases() {
         let dir = std::path::PathBuf::from(std::env::var("DUST_HEAL").unwrap());
-        let clean_dir = std::env::var("DUST_CLEAN").ok().map(std::path::PathBuf::from);
+        let clean_dir = std::env::var("DUST_CLEAN")
+            .ok()
+            .map(std::path::PathBuf::from);
         let load = |path: &std::path::Path| -> Option<DynamicImage> {
             let bytes = std::fs::read(path).ok()?;
             let u = |i: usize| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
@@ -1543,7 +1561,10 @@ mod tests {
                     .collect()
             });
             let mut found = targets.unwrap_or_else(|| placed(&analysis, 50.0, &json!({})));
-            if let Some(k) = std::env::var("DUST_RADIUS").ok().and_then(|k| k.parse::<f64>().ok()) {
+            if let Some(k) = std::env::var("DUST_RADIUS")
+                .ok()
+                .and_then(|k| k.parse::<f64>().ok())
+            {
                 for f in &mut found {
                     f.radius *= k;
                     f.base.radius *= k;
@@ -1636,7 +1657,8 @@ mod tests {
                     let n = |k: &str| s[k].as_f64().unwrap();
                     let (x, y, r) = (n("x"), n("y"), n("radius"));
                     let bias = clean.as_ref().map(|c| {
-                        let (mut sum, mut count, mut ring, mut nr) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+                        let (mut sum, mut count, mut ring, mut nr) =
+                            (0.0f64, 0.0f64, 0.0f64, 0.0f64);
                         let reach = (2.2 * r).ceil() as i64;
                         for yy in (y as i64 - reach).max(0)..(y as i64 + reach).min(h) {
                             for xx in (x as i64 - reach).max(0)..(x as i64 + reach).min(w) {
@@ -1653,15 +1675,15 @@ mod tests {
                         sum / count.max(1.0) / (ring / nr.max(1.0)).max(1e-6) * 100.0
                     });
                     let error = clean.as_ref().map(|c| {
-                        let (mut sum, mut count, mut ring, mut nr) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+                        let (mut sum, mut count, mut ring, mut nr) =
+                            (0.0f64, 0.0f64, 0.0f64, 0.0f64);
                         let reach = (2.2 * r).ceil() as i64;
                         for yy in (y as i64 - reach).max(0)..(y as i64 + reach).min(h) {
                             for xx in (x as i64 - reach).max(0)..(x as i64 + reach).min(w) {
                                 let d = (xx as f64 + 0.5 - x).hypot(yy as f64 + 0.5 - y);
                                 if d <= r {
-                                    sum += f64::from(
-                                        (luma(&healed, xx, yy) - luma(c, xx, yy)).abs(),
-                                    );
+                                    sum +=
+                                        f64::from((luma(&healed, xx, yy) - luma(c, xx, yy)).abs());
                                     count += 1.0;
                                 } else if d > 1.3 * r && d < 2.2 * r {
                                     ring += f64::from(luma(c, xx, yy));

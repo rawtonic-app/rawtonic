@@ -750,11 +750,7 @@ fn uneven_inside(image: &Rgb32FImage, centre: (f64, f64), radius: f64) -> f64 {
         for k in 0..n {
             let phi = std::f64::consts::TAU * k as f64 / n as f64;
             let (cs, sn) = (phi.cos() * ring, phi.sin() * ring);
-            let v = sample(
-                image,
-                centre.0 + radius * cs,
-                centre.1 + radius * sn,
-            );
+            let v = sample(image, centre.0 + radius * cs, centre.1 + radius * sn);
             for i in 0..3 {
                 let d = encode(v[i]) as f64 - (c[i][0] + c[i][1] * cs + c[i][2] * sn);
                 sum += d * d;
