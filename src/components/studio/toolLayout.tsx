@@ -83,7 +83,9 @@ export function useToolOpen(title: string, defaultOpen: boolean) {
   const stored = useSettingsStore((s) => s.appSettings?.toolLayout?.open?.[key]);
   // Without settings (not loaded yet) the choice still holds for this view.
   const [local, setLocal] = useState<boolean | null>(null);
-  const open = stored ?? local ?? defaultOpen;
+  // With one tool open at a time, a tool never opened or closed starts closed
+  // (it may mount later, e.g. after switching photos).
+  const open = stored ?? local ?? (solo ? false : defaultOpen);
   const setOpen = (next: boolean) => {
     setLocal(next);
     if (next && solo && openOnly) openOnly(title);

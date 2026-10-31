@@ -116,6 +116,16 @@ describe("one tool open at a time", () => {
     expect([isOpen("Alpha"), isOpen("Gamma")]).toEqual([true, true]);
   });
 
+  it("keeps tools that appear later closed while the setting is on", () => {
+    // Codex r1: a tool mounted after switching photos (Base characteristics
+    // for a RAW) opened by default beside the one open tool.
+    useSettingsStore.setState({
+      appSettings: { toolLayout: { solo: { "develop:all": true }, open: { "develop:all/Beta": true } } } as unknown as AppSettings,
+    });
+    render(<Column />);
+    expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([false, true, false]);
+  });
+
   it("opens only the Option-clicked tool without the setting", () => {
     render(<Column />);
     expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([true, false, true]);
