@@ -6,6 +6,7 @@ import { ToolType } from '../panel/right/Masks';
 import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
 import type { ImportMetadataPreset } from '../session/IngestMetadata';
 import type { MetadataSelection } from '../../utils/librarySearch';
+import type { CameraCrops } from '../../utils/cameraCrop';
 
 export const GLOBAL_KEYS = [
   ' ',
@@ -159,6 +160,7 @@ export enum Invokes {
   AutodetectLens = 'autodetect_lens',
   CalculateUpright = 'calculate_upright',
   CalculateAutoStraighten = 'calculate_auto_straighten',
+  GetCameraCrops = 'get_camera_crops',
   GetCameraLensProfile = 'get_camera_lens_profile',
   GetLensDistortionParams = 'get_lens_distortion_params',
   GetLensfunLensesForMaker = 'get_lensfun_lenses_for_maker',
@@ -751,6 +753,9 @@ export interface SelectedImage {
   aiDenoise?: number;
   /** Its `aiDenoiseVersion` (missing: 1). */
   aiDenoiseVersion?: number;
+  /** The camera's crop for each frame version, which new recipes start
+   * with (src/utils/cameraCrop.ts; RAWs only). */
+  cameraCrops?: CameraCrops;
   /** An AI Denoise amount that failed for this source (not retried). */
   aiDenoiseFailed?: number;
   /** The `aiDenoiseVersion` that failed with it (missing: 1). */

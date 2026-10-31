@@ -523,8 +523,9 @@ fn pasted_into(
     }
     let mut new_adjustments = base;
     let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
-    // A photo without an edit starts one: the current render
-    // version, as the editor's new edits.
+    // A photo without an edit starts one: the camera's crop and the current
+    // render version, as the editor's new edits (a pasted crop replaces it).
+    rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
     crate::image_processing::apply_render_default(&mut new_adjustments);
     // Its processing versions are a new edit's own.
     if new_edit
@@ -734,6 +735,10 @@ pub async fn apply_auto_lens_correction_to_paths(
                 let mut existing_metadata =
                     crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
+                rawtonic_engine::camera_crop::apply_default(
+                    &mut existing_metadata.adjustments,
+                    source_path,
+                );
                 crate::image_processing::apply_render_default(&mut existing_metadata.adjustments);
 
                 if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
@@ -792,17 +797,22 @@ pub async fn set_recipe_values(
     let before = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let written = before.clone();
     let result = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
-        edit_sidecars(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
-            let values = by_path.get(path).ok_or("no values")?;
-            let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-            crate::image_processing::apply_render_default(&mut metadata.adjustments);
-            let old = set_values(&mut metadata.adjustments, values)?;
-            written.lock().unwrap().push(RecipeValues {
-                path: path.to_string(),
-                values: old,
-            });
-            Ok(metadata)
-        })
+        edit_sidecars(
+            paths,
+            xmp_sync(app_handle),
+            |path, source_path, sidecar_path| {
+                let values = by_path.get(path).ok_or("no values")?;
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+                rawtonic_engine::camera_crop::apply_default(&mut metadata.adjustments, source_path);
+                crate::image_processing::apply_render_default(&mut metadata.adjustments);
+                let old = set_values(&mut metadata.adjustments, values)?;
+                written.lock().unwrap().push(RecipeValues {
+                    path: path.to_string(),
+                    values: old,
+                });
+                Ok(metadata)
+            },
+        )
     })
     .await;
     let mut before = std::mem::take(&mut *before.lock().unwrap());
@@ -953,6 +963,10 @@ pub async fn apply_auto_adjustments_to_paths(
                     // edited or tagged while it was decoded and measured.
                     let _turn = sidecar_field_edit();
                     let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                    rawtonic_engine::camera_crop::apply_default(
+                        &mut existing_metadata.adjustments,
+                        &source_path,
+                    );
                     crate::image_processing::apply_render_default(
                         &mut existing_metadata.adjustments,
                     );

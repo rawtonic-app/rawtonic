@@ -14,6 +14,7 @@ import {
   type Adjustments,
 } from '../utils/adjustments';
 import { withNewEditFrame } from '../utils/sourceFrame';
+import { withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited } from '../utils/neverEdited';
 import { historyFor, keptSince } from '../utils/photoHistory';
@@ -174,6 +175,12 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           const cameraRequest = invoke<{ params: Adjustments['lensDistortionParams'] } | null>(
             Invokes.GetCameraLensProfile, { path: selectedImage.path },
           ).catch(() => null);
+          // The aspect ratio set in the camera, the crop new recipes start
+          // with (src/utils/cameraCrop.ts); kept for a Reset.
+          const cropsRequest = isRawPhoto(selectedImage.path)
+            ? invoke<CameraCrops>(Invokes.GetCameraCrops, { path: selectedImage.path }).catch(() => null)
+            : Promise.resolve(null);
+          let cameraCrops: CameraCrops = null;
           let batches: { order: number; recipe: Adjustments }[] = [];
           // The recipe to render: saved, or the defaults for a never-edited photo.
           const recipeFor = async (
@@ -189,21 +196,40 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // data, the edge-fringe pass and the automatic lateral CA, as its
             // export does.
             const camera = isRaw && neverEdited(savedAdjustments) ? await cameraRequest : null;
+            cameraCrops = isRaw ? await cropsRequest : null;
             // Kept for a paste onto it while it is not edited (it pastes onto
             // this saved recipe, as onto a closed photograph). A new recipe
             // shown on previews of an older frame (offline: no decode follows)
             // is edited in the frame it shows (src/utils/sourceFrame.ts).
-            const editor = editorRecipe(savedAdjustments, isRaw, width, height, camera);
+            const editor = editorRecipe(savedAdjustments, isRaw, width, height, camera, cameraCrops);
             const saved = savedAdjustments as Partial<Adjustments> | null | undefined;
             const isNew = !saved || Boolean((saved as { is_null?: boolean }).is_null) || isNewRecipe(saved);
-            const shown = isNew && saved?.sourceFrameVersion == null ? withNewEditFrame(editor, newEditFrame) : editor;
-            rememberOpenedRecipe(selectedImage.path, { saved: savedAdjustments ?? null, camera, width, height, shown });
+            // In the frame it shows, with that frame's camera crop.
+            const shown =
+              isNew && saved?.sourceFrameVersion == null && newEditFrame != null
+                ? withCameraCrop(withNewEditFrame(editor, newEditFrame), isRaw ? cameraCrops : null, width, height)
+                : editor;
+            rememberOpenedRecipe(selectedImage.path, {
+              saved: savedAdjustments ?? null,
+              camera,
+              crops: cameraCrops,
+              width,
+              height,
+              shown,
+            });
             // The batch edits written onto it while it was not open, each a
             // History entry of its own (photoHistory.ts).
             batches = await Promise.all(
               recipeStepsSince(selectedImage.path, keptSince(selectedImage.path)).map(async ({ order, after }) => ({
                 order,
-                recipe: editorRecipe(after, isRaw, width, height, isRaw && neverEdited(after) ? await cameraRequest : null),
+                recipe: editorRecipe(
+                  after,
+                  isRaw,
+                  width,
+                  height,
+                  isRaw && neverEdited(after) ? await cameraRequest : null,
+                  cameraCrops,
+                ),
               })),
             );
             return shown;
@@ -232,7 +258,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   width: Math.round(width * previewScale),
                   height: Math.round(height * previewScale),
                 },
-                selectedImage: { ...state.selectedImage, ...image, height, width },
+                selectedImage: { ...state.selectedImage, ...image, cameraCrops, height, width },
               };
             });
           };
