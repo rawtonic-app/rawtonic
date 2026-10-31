@@ -3459,7 +3459,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 256;
+const PREVIEW_PIPELINE_COUNT: usize = 512;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3469,7 +3469,7 @@ const PREVIEW_PIPELINE_COUNT: usize = 256;
 const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Display variant bits (see `create_preview_pipeline`): sharpen 1,
 /// highlights 2, curves 4, masks 8, noise reduction 16, tone sliders 32,
-/// relight 64, refined noise reduction 128.
+/// relight 64, refined noise reduction 128, range-2 relight lights 256.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3483,6 +3483,11 @@ const RELIGHT_PREVIEW_FEATURE: usize = 64;
 /// copy: the RAW default variant 17 took 3.5 instead of 4.3 s on a cold
 /// NVIDIA driver cache (RTX 3080, G56).
 const REFINED_NR_PREVIEW_FEATURE: usize = 128;
+/// A light of Relight's range version 2 (`RELIGHT_RANGE2`). Only recipes
+/// with one compile its code: with it present but idle, Metal compiled the
+/// relight stage differently and changed older lights' exports by one
+/// 16-bit step in a few pixels.
+const RELIGHT_RANGE2_FEATURE: usize = 256;
 /// A RAW with the default detail settings (Sharpening 40, Color 25).
 const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16;
 
@@ -3609,6 +3614,10 @@ pub struct GpuProcessor {
     /// [`MainOutput`][luminance noise profile][edge pass].
     long_curve_pipelines:
         [[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; MAIN_OUTPUTS],
+    /// General pipelines with Relight's range-2 code (`RELIGHT_RANGE2`), for
+    /// recipes with such a light, by [`MainOutput`][curve table][luminance
+    /// noise profile][edge pass]; the others are compiled without it.
+    range2_pipelines: Range2Pipelines,
     /// The global curve table in `curve_luts_buffer`'s first slot.
     curve_table_loaded: Mutex<Option<Arc<Vec<[f32; 4]>>>>,
     detail_bgl: wgpu::BindGroupLayout,
@@ -4656,6 +4665,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     // and adds 0 (shader `apply_relight`).
     let relight =
         g.relight.chunks(5).any(|light| light[0][3] > 0.0) || g.relight_depth[..2] != [0, 0];
+    let relight_range2 = relight_range2(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -4680,6 +4690,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | (usize::from(noise_reduction) << 4)
         | if tone { TONE_PREVIEW_FEATURE } else { 0 }
         | if relight { RELIGHT_PREVIEW_FEATURE } else { 0 }
+        | if relight_range2 { RELIGHT_RANGE2_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -4687,6 +4698,16 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         } else {
             0
         }
+}
+
+/// Whether a lit light of the recipe has Relight's range version 2
+/// (`relight::gpu_lights` flag bit 7).
+fn relight_range2(adjustments: &AllAdjustments) -> bool {
+    adjustments
+        .global
+        .relight
+        .chunks(5)
+        .any(|light| light[0][3] > 0.0 && (light[3][1] as u32) & 128 != 0)
 }
 
 /// The noise refinements with which the shader takes its default noise
@@ -4703,6 +4724,10 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
         | RELIGHT_PREVIEW_FEATURE
         | REFINED_NR_PREVIEW_FEATURE
 }
+
+/// `GpuProcessor::range2_pipelines`.
+type Range2Pipelines =
+    [[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; MAIN_OUTPUTS];
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -5057,6 +5082,7 @@ fn create_preview_pipeline(
         ("ENABLE_TONE", ((features >> 5) & 1) as f64),
         ("ENABLE_RELIGHT", ((features >> 6) & 1) as f64),
         ("NR_REFINED", ((features >> 7) & 1) as f64),
+        ("RELIGHT_RANGE2", ((features >> 8) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -6030,6 +6056,7 @@ impl GpuProcessor {
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
             long_curve_pipelines: Default::default(),
+            range2_pipelines: Default::default(),
             curve_table_loaded: Mutex::new(None),
             detail_bgl,
             detail_layout,
@@ -7117,6 +7144,17 @@ impl GpuProcessor {
     ) -> Option<Result<&wgpu::ComputePipeline, String>> {
         let edge = edge_noise_reduction(adjustments);
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
+        if relight_range2(adjustments) {
+            let long = adjustments.global.region_curve_active[1] != 0;
+            return match self.range2_pipelines[0][usize::from(long)][usize::from(profile)]
+                [usize::from(edge)]
+            .get()
+            {
+                Some(Some(pipeline)) => Some(Ok(pipeline)),
+                Some(None) => Some(Err("Relight range 2 pipeline unavailable".to_string())),
+                None => None,
+            };
+        }
         if adjustments.global.region_curve_active[1] != 0 {
             // Only the curve-table pipeline renders this recipe (or reports
             // that it failed); never the plain one.
@@ -7286,7 +7324,9 @@ impl GpuProcessor {
         {
             Some(pipeline) => Ok(pipeline),
             // The general pipeline with the noise passes the recipe needs.
-            None if adjustments.specialized_export => self.general_pipeline(adjustments, output),
+            None if adjustments.specialized_export || relight_range2(adjustments) => {
+                self.general_pipeline(adjustments, output)
+            }
             None => self.plain_pipeline(output),
         }
     }
@@ -7357,6 +7397,9 @@ impl GpuProcessor {
         adjustments: &AllAdjustments,
         output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
+        if relight_range2(adjustments) {
+            return self.range2_pipeline(adjustments, output);
+        }
         if adjustments.global.region_curve_active[1] != 0 {
             return self.long_curve_pipeline(adjustments, output);
         }
@@ -7440,6 +7483,42 @@ impl GpuProcessor {
             Some(pipeline) => Ok(pipeline),
             // The plain pipeline would render only the first 16 points.
             None => Err("Curve table pipeline unavailable".to_string()),
+        }
+    }
+
+    /// `general_pipeline` for recipes with a range-2 Relight light, with the
+    /// curve table and noise passes the recipe needs; separate pipelines, so
+    /// the others' exports keep their bits.
+    fn range2_pipeline(
+        &self,
+        adjustments: &AllAdjustments,
+        output: MainOutput,
+    ) -> Result<&wgpu::ComputePipeline, String> {
+        let edge = edge_noise_reduction(adjustments);
+        let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
+        let long = adjustments.global.region_curve_active[1] != 0;
+        let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
+        match self.range2_pipelines[output.index()][usize::from(long)][usize::from(profile)]
+            [usize::from(edge)]
+        .get_or_init(|| {
+            self.compile_general(
+                "Compute Pipeline (relight range 2)",
+                output,
+                &[
+                    ("EDGE_NR", on(edge)),
+                    ("LUMA_PROFILE", on(profile)),
+                    ("LONG_CURVES", on(long)),
+                    ("RELIGHT_RANGE2", 1.0),
+                ],
+            )
+            .inspect_err(|error| log::error!("Relight range 2 pipeline unavailable: {error}"))
+            .ok()
+        })
+        .as_ref()
+        {
+            Some(pipeline) => Ok(pipeline),
+            // The plain pipeline would render its lights in the first ranges.
+            None => Err("Relight range 2 pipeline unavailable".to_string()),
         }
     }
 

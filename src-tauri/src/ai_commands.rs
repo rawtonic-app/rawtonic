@@ -1364,6 +1364,7 @@ pub async fn generate_relight_depth(
                 });
                 crate::ai_processing::run_subject_model(&small, &subject_model, is_raw, None)
                     .and_then(|matte| {
+                        let center = subject_center(&matte);
                         let analysis = crate::ai_processing::analyze_subject(
                             &small,
                             is_raw,
@@ -1376,9 +1377,9 @@ pub async fn generate_relight_depth(
                                 sky: sky.as_ref(),
                             },
                         )?;
-                        Ok((analysis.png, analysis.light, analysis.inverse))
+                        Ok((analysis.png, analysis.light, analysis.inverse, center))
                     })
-                    .inspect(|(_, light, _)| {
+                    .inspect(|(_, light, ..)| {
                         log::info!(
                             "Relight: subject analyzed in {} ms, own lighting {}",
                             start.elapsed().as_millis(),
@@ -1415,8 +1416,11 @@ pub async fn generate_relight_depth(
         "version": 5,
         "camera": camera,
     });
-    if let Some((subject, light, inverse)) = subject {
+    if let Some((subject, light, inverse, center)) = subject {
         result["subject"] = encode(subject).into();
+        if let Some(center) = center {
+            result["subjectCenter"] = serde_json::json!(center);
+        }
         if let Some(light) = light {
             result["sourceLight"] = serde_json::json!(light);
         }
@@ -1425,6 +1429,25 @@ pub async fn generate_relight_depth(
         }
     }
     Ok(result)
+}
+
+/// The centre of the subject matte's opaque part, x/y normalized to the
+/// frame (where the editor places Relight presets on photos without a face).
+fn subject_center(matte: &image::GrayImage) -> Option<[f32; 2]> {
+    let (mut x, mut y, mut n) = (0f64, 0f64, 0f64);
+    for (px, py, v) in matte.enumerate_pixels() {
+        if v[0] >= 128 {
+            x += f64::from(px) + 0.5;
+            y += f64::from(py) + 0.5;
+            n += 1.;
+        }
+    }
+    (n > 0.).then(|| {
+        [
+            (x / n / f64::from(matte.width())) as f32,
+            (y / n / f64::from(matte.height())) as f32,
+        ]
+    })
 }
 
 /// Reads an image the user chose as a Relight pattern and returns it as the
@@ -1451,6 +1474,19 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 mod tests {
     use super::{WarmUp, warm_up_model};
     use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn subject_center_is_the_opaque_matte_centroid() {
+        let matte = image::GrayImage::from_fn(10, 4, |x, y| {
+            image::Luma([if (6..10).contains(&x) && y < 2 {
+                255
+            } else {
+                40
+            }])
+        });
+        assert_eq!(super::subject_center(&matte), Some([0.8, 0.25]));
+        assert_eq!(super::subject_center(&image::GrayImage::new(3, 3)), None);
+    }
 
     /// Runs `warm_up_model` on a fake model 7: `stops` are the answers of
     /// `stop` in turn, `run` the run's result. Returns the outcome, whether

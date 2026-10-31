@@ -169,3 +169,30 @@ it("returning to the starting point before release restores the original without
   );
   expect(useEditorStore.getState().history).toHaveLength(1);
 });
+it("aims a sun with the direction ball on the photo: drag, arrow keys, Esc cancels", () => {
+  mount();
+  const ball = screen.getByRole("button", { name: "Light 1: direction" });
+  const light = () => useEditorStore.getState().adjustments.relightLights![0];
+  // The ring sits on the pattern centre (no face): (450, 300) on screen,
+  // 64 px radius at zoom 2. Its left rim is grazing light from the left.
+  fireEvent.pointerDown(ball, { button: 0, clientX: 420, clientY: 280 });
+  fireEvent.pointerMove(ball, { clientX: 386, clientY: 300 });
+  fireEvent.pointerUp(ball, { clientX: 386, clientY: 300 });
+  expect(light()).toMatchObject({ rotation: 90, elevation: 5 });
+  expect(useEditorStore.getState().history).toHaveLength(2);
+  fireEvent.keyDown(ball, { key: "ArrowRight", shiftKey: true });
+  expect(light().elevation).toBeGreaterThan(20);
+  const before = light();
+  fireEvent.pointerDown(ball, { button: 0, clientX: 420, clientY: 280 });
+  fireEvent.pointerMove(ball, { clientX: 450, clientY: 236 });
+  expect(light().rotation).toBe(180);
+  fireEvent.keyDown(ball, { key: "Escape" });
+  expect(light()).toEqual(before);
+  // Spots aim from where they sit: no direction ball.
+  act(() =>
+    useEditorStore.setState((s) => ({
+      adjustments: { ...s.adjustments, relightLights: [{ ...light(), type: "spot" }] },
+    })),
+  );
+  expect(screen.queryByRole("button", { name: "Light 1: direction" })).toBeNull();
+});
