@@ -2998,6 +2998,7 @@
         "moire": "Moiré",
         "noiseReduction": "Réduction du bruit",
         "presence": "Présence",
+        "profile": "Profil",
         "toneCurve": "Courbe des tonalités",
         "whiteBalance": "Balance des blancs"
       },
@@ -4573,6 +4574,26 @@
       "forCamera": "Pour {{camera}}",
       "importDcp": "Importer un DCP…",
       "label": "Profil"
+    },
+    "profileBrowser": {
+      "amount": "Intensité du look",
+      "colour": "Couleur",
+      "favourite": "Ajouter {{name}} aux favoris",
+      "grid": "Afficher en grille",
+      "groups": {
+        "bw": "Noir et blanc",
+        "camera": "Appareil",
+        "favourites": "Favoris",
+        "imported": "Looks importés",
+        "looks": "Looks"
+      },
+      "list": "Afficher en liste",
+      "noMatch": "Aucun profil ne correspond",
+      "open": "Parcourir les profils",
+      "openTitle": "Afficher chaque profil d’appareil, look et mélange noir et blanc sur cette photo",
+      "search": "Rechercher des profils",
+      "title": "Navigateur de profils",
+      "unfavourite": "Retirer {{name}} des favoris"
     },
     "relight": {
       "add": "Ajouter une lumière",

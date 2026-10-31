@@ -44,6 +44,8 @@ interface EditorState {
 
   // Previews & Overlays
   finalPreviewUrl: string | null;
+  /** Counts finished (not dragged) preview frames, native or JPEG. */
+  previewFrames: number;
   uncroppedAdjustedPreviewUrl: string | null;
   interactivePatch: InteractivePatch | null;
   showOriginal: boolean;
@@ -266,6 +268,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   historyPending: false,
 
   finalPreviewUrl: null,
+  previewFrames: 0,
   uncroppedAdjustedPreviewUrl: null,
   showOriginal: false,
   splitView: false,

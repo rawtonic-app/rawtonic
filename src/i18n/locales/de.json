@@ -2861,6 +2861,7 @@
         "moire": "Moiré",
         "noiseReduction": "Rauschreduzierung",
         "presence": "Präsenz",
+        "profile": "Profil",
         "toneCurve": "Gradationskurve",
         "whiteBalance": "Weißabgleich"
       },
@@ -4393,6 +4394,26 @@
       "forCamera": "Für {{camera}}",
       "importDcp": "DCP importieren…",
       "label": "Profil"
+    },
+    "profileBrowser": {
+      "amount": "Look-Stärke",
+      "colour": "Farbe",
+      "favourite": "{{name}} zu den Favoriten",
+      "grid": "Als Raster zeigen",
+      "groups": {
+        "bw": "Schwarzweiß",
+        "camera": "Kamera",
+        "favourites": "Favoriten",
+        "imported": "Importierte Looks",
+        "looks": "Looks"
+      },
+      "list": "Als Liste zeigen",
+      "noMatch": "Kein Profil passt",
+      "open": "Profile durchsuchen",
+      "openTitle": "Alle Kameraprofile, Looks und Schwarzweiß-Mischungen auf diesem Foto zeigen",
+      "search": "Profile suchen",
+      "title": "Profilbrowser",
+      "unfavourite": "{{name}} aus den Favoriten entfernen"
     },
     "relight": {
       "add": "Licht hinzufügen",

@@ -2998,6 +2998,7 @@
         "moire": "Moaré",
         "noiseReduction": "Reducció de soroll",
         "presence": "Presència",
+        "profile": "Perfil",
         "toneCurve": "Corba de tons",
         "whiteBalance": "Balanç de blancs"
       },
@@ -4573,6 +4574,26 @@
       "forCamera": "Per a {{camera}}",
       "importDcp": "Importa DCP…",
       "label": "Perfil"
+    },
+    "profileBrowser": {
+      "amount": "Intensitat del look",
+      "colour": "Color",
+      "favourite": "Afegeix {{name}} als preferits",
+      "grid": "Mostra com a quadrícula",
+      "groups": {
+        "bw": "Blanc i negre",
+        "camera": "Càmera",
+        "favourites": "Preferits",
+        "imported": "Looks importats",
+        "looks": "Looks"
+      },
+      "list": "Mostra com a llista",
+      "noMatch": "Cap perfil coincideix",
+      "open": "Explora els perfils",
+      "openTitle": "Mostra cada perfil de càmera, look i mescla de blanc i negre en aquesta foto",
+      "search": "Cerca perfils",
+      "title": "Navegador de perfils",
+      "unfavourite": "Treu {{name}} dels preferits"
     },
     "relight": {
       "add": "Afegeix llum",

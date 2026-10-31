@@ -274,6 +274,8 @@ export enum Invokes {
   SnapshotUpdate = 'snapshot_update',
   SnapshotDelete = 'snapshot_delete',
   SnapshotThumbnail = 'snapshot_thumbnail',
+  ProfileThumbnails = 'profile_thumbnails',
+  CancelProfileThumbnails = 'cancel_profile_thumbnails',
   SessionAlbumAdd = 'session_album_add',
   SessionAllTextMetadata = 'session_all_text_metadata',
   SessionAlbumPaths = 'session_album_paths',
@@ -441,6 +443,7 @@ export interface AppSettings {
   checkForUpdates?: boolean;
   /** Rawtonic's own presets and styles in the Styles panel and the tools' preset menus (missing: shown). */
   showBuiltinPresets?: boolean;
+  favoriteProfiles?: string[];
   /** Develop: a rating or flag key steps to the next photograph (missing: off). */
   autoAdvance?: boolean;
   /** Offer a crash report after Rawtonic quit unexpectedly (missing: yes). */

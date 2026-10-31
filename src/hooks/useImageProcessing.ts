@@ -307,7 +307,11 @@ export function useImageProcessing(
           if (prefix === 'WGPU_RENDER') {
             setEditor((state) => {
               if (state.interactivePatch?.url.startsWith('blob:')) URL.revokeObjectURL(state.interactivePatch.url);
-              return { interactivePatch: null, nativeCropFrame: cropEdit };
+              return {
+                interactivePatch: null,
+                nativeCropFrame: cropEdit,
+                ...(dragging ? {} : { previewFrames: state.previewFrames + 1 }),
+              };
             });
             // A finished frame may have a new framing, resolution or source
             // (the full decode): the split's before follows (unchanged
@@ -346,7 +350,7 @@ export function useImageProcessing(
                   }
                 }, 250);
               }
-              return { finalPreviewUrl: url };
+              return { finalPreviewUrl: url, previewFrames: state.previewFrames + 1 };
             });
 
             setEditor((state) => {

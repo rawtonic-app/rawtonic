@@ -2780,6 +2780,7 @@
         "moire": "摩尔纹",
         "noiseReduction": "降噪",
         "presence": "质感",
+        "profile": "配置文件",
         "toneCurve": "色调曲线",
         "whiteBalance": "白平衡"
       },
@@ -4270,6 +4271,26 @@
       "forCamera": "适用于 {{camera}}",
       "importDcp": "导入 DCP…",
       "label": "配置文件"
+    },
+    "profileBrowser": {
+      "amount": "风格数量",
+      "colour": "彩色",
+      "favourite": "将 {{name}} 加入收藏",
+      "grid": "以网格显示",
+      "groups": {
+        "bw": "黑白",
+        "camera": "相机",
+        "favourites": "收藏",
+        "imported": "导入的风格",
+        "looks": "风格"
+      },
+      "list": "以列表显示",
+      "noMatch": "没有匹配的配置文件",
+      "open": "浏览配置文件",
+      "openTitle": "在此照片上显示每个相机配置文件、风格和黑白混合",
+      "search": "搜索配置文件",
+      "title": "配置文件浏览器",
+      "unfavourite": "从收藏中移除 {{name}}"
     },
     "relight": {
       "add": "添加光源",

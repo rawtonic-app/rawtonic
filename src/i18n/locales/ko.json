@@ -2780,6 +2780,7 @@
         "moire": "모아레",
         "noiseReduction": "노이즈 감소",
         "presence": "외관",
+        "profile": "프로필",
         "toneCurve": "톤 커브",
         "whiteBalance": "화이트 밸런스"
       },
@@ -4270,6 +4271,26 @@
       "forCamera": "{{camera}}용",
       "importDcp": "DCP 가져오기…",
       "label": "프로필"
+    },
+    "profileBrowser": {
+      "amount": "룩 적용량",
+      "colour": "컬러",
+      "favourite": "{{name}}을(를) 즐겨찾기에 추가",
+      "grid": "격자로 보기",
+      "groups": {
+        "bw": "흑백",
+        "camera": "카메라",
+        "favourites": "즐겨찾기",
+        "imported": "가져온 룩",
+        "looks": "룩"
+      },
+      "list": "목록으로 보기",
+      "noMatch": "일치하는 프로필 없음",
+      "open": "프로필 찾아보기",
+      "openTitle": "이 사진에 모든 카메라 프로필, 룩, 흑백 믹스를 표시",
+      "search": "프로필 검색",
+      "title": "프로필 브라우저",
+      "unfavourite": "{{name}}을(를) 즐겨찾기에서 제거"
     },
     "relight": {
       "add": "조명 추가",

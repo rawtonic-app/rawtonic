@@ -616,6 +616,11 @@ pub struct AppSettings {
     /// preset menus (missing: shown).
     #[serde(default)]
     pub show_builtin_presets: Option<bool>,
+    /// The profile browser's favourites in the order starred, kept like
+    /// `favorite_presets` (`camera:<profile>`, `look:builtin:<name>`,
+    /// `look:<imported path>`, `bw:<mix id>`; missing: none).
+    #[serde(default)]
+    pub favorite_profiles: Option<Vec<String>>,
     /// Develop: a rating or flag key steps to the next photograph (missing:
     /// off).
     #[serde(default)]
@@ -857,6 +862,7 @@ impl Default for AppSettings {
             show_whats_new: None,
             crash_reports: None,
             show_builtin_presets: None,
+            favorite_profiles: None,
             auto_advance: None,
             usage_stats: None,
             tether_experimental_canon: None,
