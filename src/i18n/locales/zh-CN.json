@@ -1331,14 +1331,17 @@
   "session": {
     "addFolder": {
       "add_other": "添加 {{count}} 张照片",
+      "addCompanions": "将 JPEG 与其 RAW 保留在一起",
       "banner_other": "“{{name}}”中的 {{count}} 张照片显示在这里，但不在目录中：不会被计数、搜索或导出。",
       "bannerAdd": "将这些照片添加到目录",
       "bannerLater": "以后再说",
       "cancel": "取消",
+      "companions_other": "{{count}} 个 JPEG 将与目录中已有的 RAW 合并。",
       "copy": "复制到此项目…",
       "failed": "无法读取文件夹：{{error}}",
       "intro": "照片在原位置添加：不会复制、移动或在其旁边写入任何内容。RAW+JPEG 成对的文件作为一张照片添加；会读取 XMP 文件中的评级、标签和关键字。",
       "nothing": "没有新照片：这里的一切都已在目录中。",
+      "nothingNew": "没有新照片。",
       "owned_other": "{{count}} 个文件属于“{{name}}”，不会添加：请打开该资料库来处理它们。",
       "reading": "正在读取文件夹…",
       "registered_other": "已跳过目录中已有的 {{count}} 个文件。",
@@ -1348,7 +1351,8 @@
       "subfolders": "包括子文件夹",
       "title": "将“{{name}}”添加到目录",
       "toAdd_other": "要添加 {{count}} 张照片",
-      "truncated": "本次只添加前 {{n}} 个文件；再次添加该文件夹以添加其余文件。"
+      "truncated": "本次只添加前 {{n}} 个文件；再次添加该文件夹以添加其余文件。",
+      "unreadable_other": "{{count}} 个文件夹无法读取，已略过，第一个：{{first}}"
     },
     "bar": {
       "hotFolder": "监视文件夹",

@@ -1331,14 +1331,17 @@
   "session": {
     "addFolder": {
       "add_other": "加入 {{count}} 張照片",
+      "addCompanions": "將 JPEG 與其 RAW 保留在一起",
       "banner_other": "「{{name}}」中的 {{count}} 張照片顯示在這裡，但不在目錄中：不會被計數、搜尋或匯出。",
       "bannerAdd": "將這些照片加入目錄",
       "bannerLater": "以後再說",
       "cancel": "取消",
+      "companions_other": "{{count}} 個 JPEG 將與目錄中已有的 RAW 合併。",
       "copy": "複製到此專案…",
       "failed": "無法讀取資料夾：{{error}}",
       "intro": "照片在原位置加入：不會複製、移動或在其旁邊寫入任何內容。RAW+JPEG 成對的檔案作為一張照片加入；會讀取 XMP 檔案中的評等、標籤和關鍵字。",
       "nothing": "沒有新照片：這裡的一切都已在目錄中。",
+      "nothingNew": "沒有新照片。",
       "owned_other": "{{count}} 個檔案屬於「{{name}}」，不會加入：請開啟該資料庫來處理它們。",
       "reading": "正在讀取資料夾…",
       "registered_other": "已略過目錄中已有的 {{count}} 個檔案。",
@@ -1348,7 +1351,8 @@
       "subfolders": "包括子資料夾",
       "title": "將「{{name}}」加入目錄",
       "toAdd_other": "要加入 {{count}} 張照片",
-      "truncated": "這次只加入前 {{n}} 個檔案；再次加入該資料夾以加入其餘檔案。"
+      "truncated": "這次只加入前 {{n}} 個檔案；再次加入該資料夾以加入其餘檔案。",
+      "unreadable_other": "{{count}} 個資料夾無法讀取，已略過，第一個：{{first}}"
     },
     "bar": {
       "hotFolder": "監看資料夾",

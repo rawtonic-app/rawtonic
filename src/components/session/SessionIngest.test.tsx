@@ -605,7 +605,7 @@ describe("Folders › Add Folder… (G39 AF)", () => {
       if (command === "session_last" || command === "session_summary") return library;
       if (command === "session_flags") return {};
       if (command === "catalog_add_folder_scan")
-        return { files, photographs: 2, registered: 1, owned: [], truncated: false };
+        return { files, photographs: 2, companions: 0, registered: 1, unreadable: [], owned: [], truncated: false };
       if (command === "session_ingest_scan")
         return {
           files: files.map((path) => ({ path, size: 1, duplicate: false, medium: "disk" })),

@@ -7,7 +7,11 @@
 export interface FolderPlan {
   files: string[];
   photographs: number;
+  /** JPEGs joining a RAW the catalog holds (the RAW is in `files`). */
+  companions: number;
   registered: number;
+  /** Folders that could not be read: their photos were left out. */
+  unreadable: string[];
   owned: { library: string; name: string; count: number }[];
   truncated: boolean;
 }

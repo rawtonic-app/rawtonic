@@ -266,3 +266,87 @@ fn time_adding_a_thousand_files() {
     );
     assert_eq!(again.registered, 1_000);
 }
+
+/// Review r1: JPEGs put beside RAWs added earlier pair with them on the next
+/// Add Folder… instead of becoming photographs of their own.
+#[test]
+fn a_jpeg_added_later_joins_its_registered_raw() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+    let shoot = d.path().join("Drive/Shoot");
+    write(&shoot.join("A.NEF"), b"raw a");
+    write(&shoot.join("B.NEF"), b"raw b");
+    let first = plan(&lib, &shoot, true);
+    add(&lib, &first.files, &AtomicBool::new(false), |_| {});
+    write(&shoot.join("A.JPG"), b"jpeg a");
+    write(&shoot.join("C.JPG"), b"jpeg c");
+    let again = plan(&lib, &shoot, true);
+    assert_eq!((again.photographs, again.companions), (1, 1), "{again:?}");
+    add(&lib, &again.files, &AtomicBool::new(false), |_| {});
+    assert_eq!(lib.summary().unwrap().assets, 3, "A (with its JPEG), B, C");
+    let a = lib.asset_at(&shoot.join("A.NEF")).unwrap().unwrap();
+    assert!(lib.companion(&a).unwrap().is_some());
+    assert!(lib.asset_at(&shoot.join("A.JPG")).unwrap().is_none());
+    assert!(plan(&lib, &shoot, true).files.is_empty());
+}
+
+/// Review r1: a copy of a photograph the catalog holds elsewhere counts as
+/// held, so a scan cut at the limit by such copies still reaches new files.
+#[test]
+fn copies_of_held_photographs_do_not_fill_the_limit() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+    let originals = d.path().join("Drive/Originals");
+    for i in 0..3 {
+        write(
+            &originals.join(format!("O_{i}.NEF")),
+            format!("photo {i}").as_bytes(),
+        );
+    }
+    add(
+        &lib,
+        &plan(&lib, &originals, true).files,
+        &AtomicBool::new(false),
+        |_| {},
+    );
+    let backup = d.path().join("Drive/Backup");
+    for i in 0..3 {
+        write(
+            &backup.join(format!("A_{i}.NEF")),
+            format!("photo {i}").as_bytes(),
+        );
+    }
+    write(&backup.join("Z_new.NEF"), b"a new photo");
+    let planned = plan_folder_add(&lib, &backup, true, supported, Some(raw), 2).unwrap();
+    assert_eq!(
+        planned.files,
+        vec![backup.join("Z_new.NEF").canonicalize().unwrap()]
+    );
+    assert_eq!(planned.registered, 3);
+}
+
+/// Review r1: a folder that cannot be read is named, never passed over as
+/// if it were empty; an unreadable chosen folder is an error.
+#[cfg(unix)]
+#[test]
+fn unreadable_folders_are_reported() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+    let shoot = d.path().join("Drive/Shoot");
+    write(&shoot.join("A.NEF"), b"raw a");
+    let locked = shoot.join("locked");
+    write(&locked.join("B.NEF"), b"raw b");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = fs::read_dir(&locked).is_ok(); // running as root
+    let planned = plan_folder_add(&lib, &shoot, true, supported, Some(raw), 100);
+    let whole = plan_folder_add(&lib, &locked, true, supported, Some(raw), 100);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    if readable {
+        return;
+    }
+    let planned = planned.unwrap();
+    assert_eq!(planned.files.len(), 1);
+    assert_eq!(planned.unreadable, vec![locked.canonicalize().unwrap()]);
+    assert!(whole.unwrap_err().to_string().contains("cannot be read"));
+}

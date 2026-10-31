@@ -14,7 +14,9 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const plan = (over: Partial<FolderPlan> = {}): FolderPlan => ({
   files: ["/Drive/Shoot/A.NEF", "/Drive/Shoot/A.JPG", "/Drive/Shoot/sub/B.NEF"],
   photographs: 2,
+  companions: 0,
   registered: 0,
+  unreadable: [],
   owned: [],
   truncated: false,
   ...over,
@@ -79,6 +81,18 @@ it("in a project, says the folder is only shown and offers the verified copy", (
   expect(onShow).toHaveBeenCalled();
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(onClose).toHaveBeenCalled();
+});
+
+it("names unreadable folders and JPEGs that join their RAWs", async () => {
+  vi.mocked(invoke).mockResolvedValue(
+    plan({ files: ["/Drive/Shoot/A.NEF", "/Drive/Shoot/A.JPG"], photographs: 0, companions: 1, unreadable: ["/Drive/Shoot/locked"] }),
+  );
+  const { onAdd } = dialog(true);
+  await screen.findByText("No new photos.");
+  expect(screen.getByText("1 JPEG joins its RAW already in the catalog.")).toBeTruthy();
+  expect(screen.getByText("1 folder could not be read and was left out: /Drive/Shoot/locked")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Keep the JPEGs with their RAWs" }));
+  expect(onAdd).toHaveBeenCalledWith(["/Drive/Shoot/A.NEF", "/Drive/Shoot/A.JPG"]);
 });
 
 it("reports a folder that cannot be read", async () => {

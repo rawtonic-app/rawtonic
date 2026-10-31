@@ -99,10 +99,23 @@ export default function AddFolderDialog({
               {shown ? (
                 <>
                   <p>
-                    {shown.files.length
-                      ? t("session.addFolder.toAdd", { count: shown.photographs })
-                      : t("session.addFolder.nothing")}
+                    {!shown.files.length
+                      ? t("session.addFolder.nothing")
+                      : shown.photographs
+                        ? t("session.addFolder.toAdd", { count: shown.photographs })
+                        : t("session.addFolder.nothingNew")}
                   </p>
+                  {shown.companions > 0 && (
+                    <p className="studio-help">{t("session.addFolder.companions", { count: shown.companions })}</p>
+                  )}
+                  {shown.unreadable.length > 0 && (
+                    <p className="studio-help" title={shown.unreadable.join("\n")}>
+                      {t("session.addFolder.unreadable", {
+                        count: shown.unreadable.length,
+                        first: shown.unreadable[0],
+                      })}
+                    </p>
+                  )}
                   {shown.registered > 0 && (
                     <p className="studio-help">{t("session.addFolder.registered", { count: shown.registered })}</p>
                   )}
@@ -138,7 +151,9 @@ export default function AddFolderDialog({
             <button type="submit" className="is-primary" disabled={!shown}>
               {shown && !shown.files.length
                 ? t("session.addFolder.show")
-                : t("session.addFolder.add", { count: shown?.photographs ?? 0 })}
+                : shown && !shown.photographs
+                  ? t("session.addFolder.addCompanions")
+                  : t("session.addFolder.add", { count: shown?.photographs ?? 0 })}
             </button>
           ) : (
             <>

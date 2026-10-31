@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use rawtonic_catalog::{Library, Mode};
 use serde::Serialize;
 
-use crate::batch::{expand_sources, pair_sources};
+use crate::batch::{COMPANION_EXTENSIONS, expand_sources_checked, pair_sources};
 
 /// Files of the folder another library owns (they lie inside its folder: a
 /// session keeps its own photographs), by that library.
@@ -33,10 +33,17 @@ pub struct OwnedFiles {
 pub struct FolderPlan {
     /// The files to register, in name order (at most the limit).
     pub files: Vec<PathBuf>,
-    /// Photographs among `files` (a RAW+JPEG pair counts once).
+    /// New photographs among `files` (a RAW+JPEG pair counts once).
     pub photographs: usize,
-    /// Files the catalog holds already (photographs or companions): skipped.
+    /// JPEGs (or HEIFs) that join a RAW the catalog holds already, beside
+    /// them (the RAW is in `files` for the pairing, and skipped there).
+    pub companions: usize,
+    /// Files the catalog holds already, at their place or as a copy of the
+    /// same content elsewhere (photographs or companions): skipped.
     pub registered: usize,
+    /// Folders that could not be read (in whole or in part): their
+    /// photographs were left out.
+    pub unreadable: Vec<PathBuf>,
     /// Files refused because another library owns them.
     pub owned: Vec<OwnedFiles>,
     /// More files were there than `limit`: adding again takes the rest.
@@ -76,6 +83,44 @@ pub fn plan_folder_add(
     // Which library's folder holds a folder, looked up once per folder.
     let owners = RefCell::new(HashMap::<PathBuf, Option<PathBuf>>::new());
     let failure = RefCell::new(None::<anyhow::Error>);
+    // Content the catalog holds at another place: such a file would be
+    // skipped as a duplicate (`add_batch` compares SHA-256), so it counts as
+    // held and does not take a place in the limit (adding the folder again
+    // reaches the files after it).
+    let mut by_content: HashMap<(u64, String), Vec<PathBuf>> = HashMap::new();
+    for asset in library.assets(None)? {
+        by_content
+            .entry((asset.size, asset.fingerprint))
+            .or_default()
+            .push(asset.path);
+    }
+    let sizes: std::collections::HashSet<u64> = by_content.keys().map(|(size, _)| *size).collect();
+    let hashes = RefCell::new(HashMap::<PathBuf, Option<String>>::new());
+    let held = |path: &Path| -> bool {
+        let Ok(size) = fs::metadata(path).map(|m| m.len()) else {
+            return false;
+        };
+        if !sizes.contains(&size) {
+            return false;
+        }
+        let Some(paths) = rawtonic_catalog::fingerprint(path)
+            .ok()
+            .and_then(|fp| by_content.get(&(size, fp)))
+        else {
+            return false;
+        };
+        let Ok(hash) = crate::sha256(path) else {
+            return false;
+        };
+        paths.iter().any(|known| {
+            hashes
+                .borrow_mut()
+                .entry(known.clone())
+                .or_insert_with(|| known.is_file().then(|| crate::sha256(known).ok()).flatten())
+                .as_deref()
+                == Some(hash.as_str())
+        })
+    };
     let take = |path: &Path| -> bool {
         if failure.borrow().is_some() || !accept(path) {
             return false;
@@ -100,14 +145,15 @@ pub fn plan_folder_add(
                     *failure.borrow_mut() = Some(e);
                     return false;
                 }
-            };
+            }
+            || held(path);
         if known {
             *registered.borrow_mut() += 1;
         }
         !known
     };
-    let (files, truncated) = if subfolders {
-        expand_sources(std::slice::from_ref(&folder), take, limit)
+    let (mut files, truncated, unreadable) = if subfolders {
+        expand_sources_checked(std::slice::from_ref(&folder), take, limit)
     } else {
         let mut files: Vec<PathBuf> = fs::read_dir(&folder)
             .with_context(|| format!("{} cannot be read", folder.display()))?
@@ -116,14 +162,32 @@ pub fn plan_folder_add(
             .filter(|path| path.is_file())
             .collect();
         files.sort();
-        expand_sources(&files, take, limit)
+        expand_sources_checked(&files, take, limit)
     };
     if let Some(e) = failure.into_inner() {
         return Err(e);
     }
-    let photographs = pair_sources(&files, pair_raw).len();
+    anyhow::ensure!(
+        !unreadable.contains(&folder),
+        "{} cannot be read",
+        folder.display()
+    );
+    // A JPEG beside a RAW the catalog holds: the RAW comes along so the two
+    // pair up as `add_batch` pairs them (ADR 0013), not as a photograph of
+    // its own.
+    let context = registered_partners(library, &files, pair_raw)?;
+    files.extend(context.iter().cloned());
+    files.sort();
+    let groups = pair_sources(&files, pair_raw);
+    let companions = groups
+        .iter()
+        .filter(|g| context.contains(&g.photo) && g.companion.is_some())
+        .count();
+    let photographs = groups.len() - context.len();
     Ok(FolderPlan {
         photographs,
+        companions,
+        unreadable,
         files,
         registered: registered.into_inner(),
         owned: owned
@@ -137,4 +201,60 @@ pub fn plan_folder_add(
             .collect(),
         truncated,
     })
+}
+
+/// The registered RAWs that `files`' JPEGs (or HEIFs) belong beside: the
+/// only other file of the JPEG's name (letter case aside) in its folder is
+/// a RAW the catalog holds at that place without a companion.
+fn registered_partners(
+    library: &Library,
+    files: &[PathBuf],
+    pair_raw: Option<fn(&Path) -> bool>,
+) -> Result<Vec<PathBuf>> {
+    let Some(is_raw) = pair_raw else {
+        return Ok(Vec::new());
+    };
+    let stem = |path: &Path| {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().to_ascii_lowercase())
+    };
+    let mut listings: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+    let mut partners = Vec::new();
+    for file in files {
+        let companion = file.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            COMPANION_EXTENSIONS
+                .iter()
+                .any(|c| c.eq_ignore_ascii_case(e))
+        });
+        let Some(folder) = file.parent().filter(|_| companion) else {
+            continue;
+        };
+        let listing = listings.entry(folder.to_path_buf()).or_insert_with(|| {
+            fs::read_dir(folder)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.is_file())
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        let same: Vec<&PathBuf> = listing
+            .iter()
+            .filter(|p| *p != file && stem(p) == stem(file))
+            .collect();
+        let [raw] = same.as_slice() else {
+            continue;
+        };
+        if !is_raw(raw) || files.contains(raw) || partners.contains(*raw) {
+            continue;
+        }
+        if let Some(asset) = library.asset_at(raw)?
+            && library.companion_record(&asset)?.is_none()
+        {
+            partners.push((*raw).clone());
+        }
+    }
+    Ok(partners)
 }
