@@ -58,6 +58,9 @@ const PANASONIC_DISTORTION_INFO: u16 = 0x0119;
 const PANASONIC_CA_INFO: u16 = 0x011b;
 const OLYMPUS_ASPECT_FRAME: u16 = 0x1113;
 const SUB_IFDS: u16 = 0x014a;
+/// Sony ARW raw directory: the gain of the capture, 128 = the sensor's
+/// readout at the set ISO (64 at extended ISO 50 on a base-100 body).
+const SONY_CAPTURE_GAIN: u16 = 0x7316;
 
 /// Maker-note facts of other makers.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -102,6 +105,28 @@ pub fn read_maker_flags(path: &str) -> MakerFlags {
         }
     }
     flags
+}
+
+/// Sony's capture gain (tag 0x7316 of the ARW raw directory; 128 =
+/// nominal). Bodies with an extended low ISO record it below 128 there: they
+/// read the sensor at base ISO, exposed longer by the ratio, and the camera
+/// pulls its JPEG down by that much (an α7C at ISO 50 writes 64, its maker
+/// note StopsAboveBaseISO −1). Adobe's baseline follows it on the bodies
+/// whose rule has no ISO steps of its own (`camera_exposure::Capture`).
+pub fn sony_capture_gain(path: &str) -> Option<u16> {
+    if !path.to_ascii_lowercase().ends_with(".arw") {
+        return None;
+    }
+    let mut file = BufReader::new(File::open(path).ok()?);
+    let tiff = GenericTiffReader::new(&mut file, 0, 0, None, &[]).ok()?;
+    tiff.root_ifd()
+        .sub_ifds()
+        .get(&SUB_IFDS)?
+        .iter()
+        .find_map(|raw| raw.get_entry(SONY_CAPTURE_GAIN))
+        .filter(|entry| entry.count() == 1)
+        .and_then(|entry| entry.value.get_u16(0).ok().flatten())
+        .filter(|gain| *gain > 0)
 }
 
 /// Nikon maker-note ISO (tag 0x0002: [0, ISO]). Nikon writes no EXIF ISO

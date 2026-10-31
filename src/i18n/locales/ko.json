@@ -58,6 +58,21 @@
       "starting": "가져오기 시작 중…"
     },
     "indexing": "라이브러리 색인 중",
+    "interrupted": {
+      "applyRest": "나머지에 적용",
+      "color": "색상 레이블",
+      "detail": "종료 또는 충돌로 모든 사진이 기록되기 전에 이 일괄 작업이 중단되었습니다. 나머지에 적용하거나, 적용된 부분을 실행 취소하거나, 그대로 두세요. 사진 자체는 절대 변경되지 않습니다.",
+      "failed": "{{batch}}을(를) 완료할 수 없습니다: {{error}}",
+      "keywordAdd": "키워드 “{{tag}}”",
+      "keywordRemove": "키워드 “{{tag}}” 제거",
+      "notWritten_other": "사진 {{count}}장을 기록할 수 없습니다",
+      "paste": "설정 붙여넣기",
+      "preset": "프리셋",
+      "rating": "별점 {{rating}}",
+      "style": "스타일",
+      "title_other": "중단됨: {{batch}}이(가) {{count}}장 중 {{applied}}장에 적용됨",
+      "undoApplied": "적용된 부분 실행 취소"
+    },
     "leftovers": {
       "kept_other": "중단된 작업의 미완성 폴더 {{count}}개를 그대로 두었습니다",
       "removed_other": "중단된 작업의 미완성 사본 {{size}}을(를) 제거했습니다",
@@ -1859,6 +1874,7 @@
     },
     "xmp": {
       "buttonTitle": "일부 XMP 파일이 라이브러리보다 뒤처져 있습니다. 클릭하면 자세한 내용을 보고 다시 쓸 수 있습니다.",
+      "catchUp": "지난 세션에서 남은 XMP 파일을 쓰는 중",
       "conflictHeading_other": "XMP 파일 {{count}}개가 다른 프로그램에서 변경됨",
       "conflictHint": "어느 쪽 메타데이터를 유지할지 선택하세요. 어느 쪽이든 편집 내용은 그대로입니다.",
       "count_other": "XMP {{count}}개 업데이트 안 됨",

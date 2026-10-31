@@ -1362,7 +1362,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 9;
+export const RENDER_VERSION = 11;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1388,6 +1388,17 @@ export const UNBIASED_BLACK_RENDER_VERSION = 8;
  * decides (`image_loader::decode_variant`). */
 export const unbiasedBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= UNBIASED_BLACK_RENDER_VERSION;
+
+/** The render version from which the masked sensor border's black replaces
+ * a decoder's that spreads over the 2 × 2 positions more than 3 levels
+ * beyond the border's (crates/engine/src/image_loader.rs
+ * `BORDER_BLACK_RENDER_VERSION`). */
+export const BORDER_BLACK_RENDER_VERSION = 11;
+
+/** Whether a recipe's RAW is developed with that border black, as the
+ * backend decides (`image_loader::decode_variant`). */
+export const borderBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= BORDER_BLACK_RENDER_VERSION;
 
 /** The render version from which clipped colours inside larger partly
  * clipped areas are rebuilt from colour ratios (crates/engine/src/image_loader.rs

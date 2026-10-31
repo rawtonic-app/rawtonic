@@ -53,6 +53,8 @@ export interface ActivityEntry {
   actions?: ActivityAction[];
   /** The photographs it is about: Show photos. */
   paths?: string[];
+  /** Run when the user dismisses it (what it offered is then declined). */
+  onDismiss?: () => unknown;
   createdAt: number;
   updatedAt: number;
 }
@@ -159,7 +161,9 @@ export const useActivityStore = create<ActivityState>((set, get) => {
       return reported.id;
     },
     dismiss(id) {
+      const dismissed = get().entries.find((e) => e.id === id && e.status !== 'running');
       set((state) => ({ entries: state.entries.filter((e) => e.id !== id || e.status === 'running') }));
+      if (dismissed?.onDismiss) void Promise.resolve().then(() => dismissed.onDismiss!()).catch(() => {});
     },
     resolve(id) {
       set((state) => ({ entries: state.entries.filter((e) => e.id !== id) }));

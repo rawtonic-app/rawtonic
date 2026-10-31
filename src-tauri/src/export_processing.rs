@@ -833,9 +833,10 @@ impl Drop for Lane {
 /// PC drew 32–34 frames a second with 200 photos selected, 44–48 with
 /// this, export time unchanged (notes: parity-gaps/G44).
 /// macOS keeps the default: its lower classes move threads to the
-/// efficiency cores (see `proxy_worker`'s builds).
+/// efficiency cores (see `proxy_worker`'s builds). Also the preview
+/// proxies' prefetch and build threads (`proxy_worker`).
 #[cfg(target_os = "linux")]
-fn lower_thread_priority() {
+pub(crate) fn lower_thread_priority() {
     let param = libc::sched_param { sched_priority: 0 };
     // SAFETY: changes the calling thread's own policy (0 = this thread);
     // `param` outlives the call.
@@ -848,7 +849,7 @@ fn lower_thread_priority() {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn lower_thread_priority() {}
+pub(crate) fn lower_thread_priority() {}
 
 /// One recipe of an export run: its settings, where its files go and the
 /// queued job that records its photos.

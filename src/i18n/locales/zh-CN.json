@@ -58,6 +58,21 @@
       "starting": "正在开始导入…"
     },
     "indexing": "正在为图库建立索引",
+    "interrupted": {
+      "applyRest": "应用到其余照片",
+      "color": "颜色标签",
+      "detail": "退出或崩溃使此批量操作在所有照片写入前停止。可将其应用到其余照片、撤销已应用的部分，或保持现状。照片本身从不会被更改。",
+      "failed": "无法完成{{batch}}：{{error}}",
+      "keywordAdd": "关键词“{{tag}}”",
+      "keywordRemove": "移除关键词“{{tag}}”",
+      "notWritten_other": "有 {{count}} 张照片无法写入",
+      "paste": "粘贴设置",
+      "preset": "预设",
+      "rating": "评级 {{rating}}",
+      "style": "风格",
+      "title_other": "已中断：{{batch}}已应用到 {{count}} 张中的 {{applied}} 张照片",
+      "undoApplied": "撤销已应用的部分"
+    },
     "leftovers": {
       "kept_other": "保留了中断任务的 {{count}} 个未完成文件夹",
       "removed_other": "已移除中断任务留下的 {{size}} 未完成副本",
@@ -1859,6 +1874,7 @@
     },
     "xmp": {
       "buttonTitle": "部分 XMP 文件未与图库同步。点击查看详情并重新写入。",
+      "catchUp": "正在写入上次会话遗留的 XMP 文件",
       "conflictHeading_other": "{{count}} 个 XMP 文件已被其他程序修改",
       "conflictHint": "选择保留哪一方的元数据。无论哪种选择,你的编辑都保持不变。",
       "count_other": "{{count}} 个 XMP 未更新",

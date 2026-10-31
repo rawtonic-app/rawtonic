@@ -958,6 +958,58 @@ mod tests {
         assert_eq!(names(&backup), all);
     }
 
+    /// The same, for the companion JPEG's copies and a backup copy whose
+    /// name got a collision suffix (#496 review): a resumed photograph
+    /// removes those of its own too, never another photograph's.
+    #[test]
+    fn a_resumed_job_removes_partial_companion_and_suffixed_backup_copies() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let backup = d.path().join("backup");
+        fs::create_dir_all(&backup).unwrap();
+        let sources = card(d.path());
+        let mut opts = options("{orig}");
+        opts.backup = Some(&backup);
+        let id = create_job(&lib, &sources, &opts).unwrap();
+        let capture = lib.directory.join("Capture");
+        // C2 (item 2, with C2.JPG) planned when the run was killed.
+        lib.set_ingest_item(
+            &id,
+            2,
+            ItemState::Copying,
+            Some(&capture.join("C2.ARW")),
+            None,
+            None,
+        )
+        .unwrap();
+        let partial = |path: PathBuf| {
+            let (mut file, path) = rawtonic_metadata::temp::file_for(&path)
+                .unwrap()
+                .keep()
+                .unwrap();
+            std::io::Write::write_all(&mut file, b"half").unwrap();
+            path
+        };
+        let ours = [
+            partial(capture.join("C2.JPG")),
+            partial(backup.join("C2_1.ARW")),
+            partial(backup.join("C2_1.JPG")),
+        ];
+        // Another photograph's: a longer name, and a sidecar write.
+        let others = [
+            partial(backup.join("C20.ARW")),
+            partial(capture.join("C2_1.ARW.rrdata")),
+        ];
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+        for path in &ours {
+            assert!(!path.exists(), "{}", path.display());
+        }
+        for path in &others {
+            assert!(path.exists(), "{}", path.display());
+        }
+    }
+
     /// Cut off after its backup copy was published, before the library's:
     /// the backup is kept, not made a second time.
     #[test]

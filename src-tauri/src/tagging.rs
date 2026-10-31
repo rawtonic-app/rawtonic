@@ -497,6 +497,15 @@ fn add_tag_for_paths_blocking(
     tag: String,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
+    let _job = crate::batch_journal::begin(
+        &app_handle,
+        crate::batch_journal::BatchKind::KeywordAdd { tag: tag.clone() },
+        "add_tag_for_paths",
+        serde_json::json!({ "tag": tag }),
+        None,
+        &paths,
+        crate::batch_journal::current,
+    );
     tag_paths(&paths, &app_handle, |tags| {
         if !tags.contains(&tag) {
             tags.push(tag.clone());
@@ -526,6 +535,15 @@ fn remove_tag_for_paths_blocking(
     tag: String,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
+    let _job = crate::batch_journal::begin(
+        &app_handle,
+        crate::batch_journal::BatchKind::KeywordRemove { tag: tag.clone() },
+        "remove_tag_for_paths",
+        serde_json::json!({ "tag": tag }),
+        None,
+        &paths,
+        crate::batch_journal::current,
+    );
     tag_paths(&paths, &app_handle, |tags| {
         tags.retain(|t| t != &tag);
     })

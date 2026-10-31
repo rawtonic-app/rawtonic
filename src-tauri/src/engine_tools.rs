@@ -28,7 +28,14 @@ fn private_raw_auto_recipes() {
                 &crate::image_processing::perform_auto_analysis(&image),
             )
         } else {
-            crate::image_processing::auto_adjustments_json(&image, path, true, None, None)
+            crate::image_processing::auto_adjustments_json(
+                &image,
+                path,
+                true,
+                None,
+                None,
+                crate::image_processing::RENDER_VERSION,
+            )
         };
         let mut json = serde_json::json!({});
         crate::auto_adjust::merge_auto_adjustments(&mut json, &auto);
@@ -37,8 +44,11 @@ fn private_raw_auto_recipes() {
             "PRED {name} {:?}",
             crate::auto_adjust::predicted_display_percentiles(
                 &image,
-                look.baseline_ev,
-                crate::auto_adjust::DisplayCurve::for_look(&look),
+                look.baseline_for(crate::image_processing::RENDER_VERSION),
+                crate::auto_adjust::DisplayCurve::for_look(
+                    &look,
+                    crate::image_processing::RENDER_VERSION
+                ),
                 0.0
             )
         );

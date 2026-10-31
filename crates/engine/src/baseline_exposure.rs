@@ -64,6 +64,20 @@ const GAIN_MAP_OFFSET_EV: f32 = -0.05;
 const BASELINE_EXPOSURE_TAG: u16 = 50730;
 const BASELINE_EXPOSURE_OFFSET_TAG: u16 = 51109;
 const STANDARD_MODE: u32 = 2;
+/// The render version from which RAWs develop with the capture gain in
+/// their baseline (`BaseLook::capture_gain_ev`): Sony's extended low ISOs
+/// (50, 64, 80 on base-100 bodies) a stop or less darker, as Camera Raw
+/// and the camera's JPEG render them (notes: benchmark-results/
+/// sx-extended-low-iso-2026-10-31). Folded into version 9 before release.
+pub const CAPTURE_GAIN_RENDER_VERSION: u64 = 9;
+/// The render version from which the neutral Camera Raw look's black point
+/// stays at a scene level instead of scaling with Exposure, under a soft
+/// toe (shader `camera_raw_black`, `camera_raw_black_ramp`): Camera Raw's
+/// render depends on baseline + Exposure only and keeps its deepest
+/// shadows when either changes (Exposure +2: up to 8.5 EV darker than
+/// Camera Raw before; extended low ISOs up to 4 EV; notes: benchmark-results/
+/// br-black-ramp-2026-11-01).
+pub const SCENE_BLACK_RENDER_VERSION: u64 = 10;
 pub const CAMERA_RAW_MODE: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -83,6 +97,11 @@ pub struct BaseLook {
     /// Camera Raw's default settings for phones it has a profile for
     /// (`camera_raw_phone_defaults`), added on top of the user's sliders.
     pub phone_defaults: bool,
+    /// EV that renderVersion 9 (`CAPTURE_GAIN_RENDER_VERSION`) adds to
+    /// `baseline_ev`: Sony's capture gain (−1 at extended ISO 50) and the
+    /// revised Adobe rows (camera_exposure::adobe_baseline_with_capture_gain).
+    /// Added to the baseline by `apply`.
+    pub capture_gain_ev: f32,
 }
 
 pub const PROFILE_CURVE_SAMPLES: usize = 49;
@@ -95,11 +114,30 @@ impl BaseLook {
         profile_curve: None,
         no_black_render: false,
         phone_defaults: false,
+        capture_gain_ev: 0.0,
     };
+
+    /// The baseline a recipe of this render version develops with.
+    pub fn baseline_for(&self, render_version: u64) -> f32 {
+        if render_version >= CAPTURE_GAIN_RENDER_VERSION {
+            self.baseline_ev + self.capture_gain_ev
+        } else {
+            self.baseline_ev
+        }
+    }
 
     /// Sets the baseline and, for the Standard tone mapper, the variant.
     pub fn apply(self, global: &mut GlobalAdjustments) {
-        global.baseline_exposure = self.baseline_ev;
+        // renderVersion 9 adds the capture gain to the baseline, as Adobe's
+        // ISO rules of other makers always were (the black ramp keeps
+        // following Exposure: Camera Raw's midtones within 0.04 EV; notes:
+        // benchmark-results/sx-extended-low-iso-2026-10-31).
+        global.baseline_exposure = self.baseline_ev
+            + if global.capture_gain != 0 {
+                self.capture_gain_ev
+            } else {
+                0.0
+            };
         if self.camera_raw && global.tonemapper_mode == STANDARD_MODE {
             global.tonemapper_mode = CAMERA_RAW_MODE;
             // Flag in the last slot: 1 = the file's own curve (and colour),
@@ -115,6 +153,11 @@ impl BaseLook {
             // Next to the flag: 1 = no black ramp.
             if self.no_black_render {
                 global.profile_curve[15][2] = 1.0;
+            }
+            // First slot: 1 = the scene-referred black and soft toe of
+            // renderVersion 10 (looks with flags 2-4).
+            if global.scene_black != 0 {
+                global.profile_curve[15][0] = 1.0;
             }
             if self.phone_defaults {
                 global.whites += PHONE_WHITES;
@@ -165,7 +208,7 @@ pub fn apply_base_look(
 /// merge, see rawtonic-merge) the same baseline as `path` itself: such DNGs
 /// take the Adobe offset on top of their tag.
 pub fn dng_baseline_equivalent(path: &str) -> f32 {
-    base_look(path).baseline_ev - ADOBE_BASELINE_OFFSET_EV
+    base_look(path).baseline_for(crate::image_processing::RENDER_VERSION) - ADOBE_BASELINE_OFFSET_EV
 }
 
 /// Base look for this file (no baseline for non-RAW files).
@@ -200,6 +243,7 @@ pub fn base_look(path: &str) -> BaseLook {
                 profile_curve: tags.profile_curve,
                 no_black_render: tags.no_black_render,
                 phone_defaults: false,
+                capture_gain_ev: 0.0,
             }
         } else if tags.gain_table_map && tags.profile_curve.is_some() {
             // Apple ProRAW and Pixel 8 Pro: Camera Raw renders them with the
@@ -212,6 +256,7 @@ pub fn base_look(path: &str) -> BaseLook {
                 profile_curve: tags.profile_curve,
                 no_black_render: tags.no_black_render,
                 phone_defaults: false,
+                capture_gain_ev: 0.0,
             }
         } else {
             // Other DNGs: the same offset to the file's BaselineExposure as
@@ -232,6 +277,7 @@ pub fn base_look(path: &str) -> BaseLook {
                 // without the black ramp, which matches Camera Raw.
                 no_black_render: tags.no_black_render || tags.gain_table_map,
                 phone_defaults: tags.phone_defaults,
+                capture_gain_ev: 0.0,
             }
         }
     } else {
@@ -245,21 +291,29 @@ pub fn base_look(path: &str) -> BaseLook {
             .then(|| read_raf_exposure_bias(path))
             .flatten();
         let adobe = adobe_baseline_for_path(path, fujifilm_bias);
+        let baseline_ev = |adobe: Option<f32>| match adobe {
+            Some(baseline) => {
+                baseline + ADOBE_BASELINE_OFFSET_EV + adobe_white_correction_for_path(path)
+                    - fujifilm_dynamic_range_ev_for_path(path)
+            }
+            None => fujifilm_bias
+                .map(|bias| -bias)
+                .unwrap_or(PROPRIETARY_CAMERA_RAW_EV),
+        };
+        let baseline = baseline_ev(adobe.original);
+        // Cameras without Adobe's value still take the capture gain.
+        let revised = match adobe.revised {
+            Some(revised) => baseline_ev(Some(revised)),
+            None => baseline + adobe.unlisted_gain_ev,
+        };
         BaseLook {
-            baseline_ev: match adobe {
-                Some(baseline) => {
-                    baseline + ADOBE_BASELINE_OFFSET_EV + adobe_white_correction_for_path(path)
-                        - fujifilm_dynamic_range_ev_for_path(path)
-                }
-                None => fujifilm_bias
-                    .map(|bias| -bias)
-                    .unwrap_or(PROPRIETARY_CAMERA_RAW_EV),
-            },
+            baseline_ev: baseline,
             camera_raw: true,
             neutral_colour: true,
             profile_curve: None,
             no_black_render: false,
             phone_defaults: false,
+            capture_gain_ev: revised - baseline,
         }
     };
     let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -270,9 +324,20 @@ pub fn base_look(path: &str) -> BaseLook {
     value
 }
 
+/// Adobe's BaselineExposure for a file under both rule sets.
+#[derive(Debug, Clone, Copy, Default)]
+struct AdobeBaselines {
+    /// `camera_exposure::adobe_baseline` (render versions before 9).
+    original: Option<f32>,
+    /// `camera_exposure::adobe_baseline_with_capture_gain` (9 on).
+    revised: Option<f32>,
+    /// The capture gain of a Sony body without a rule (9 on).
+    unlisted_gain_ev: f32,
+}
+
 /// Adobe's BaselineExposure for this file (camera_exposure.rs rules with
 /// the file's capture details), `None` for cameras without a value.
-fn adobe_baseline_for_path(path: &str, fujifilm_bias: Option<f32>) -> Option<f32> {
+fn adobe_baseline_for_path(path: &str, fujifilm_bias: Option<f32>) -> AdobeBaselines {
     // rawler's metadata readers panic on some unsupported variants (X3F);
     // a missing baseline is the right outcome for those.
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -280,9 +345,10 @@ fn adobe_baseline_for_path(path: &str, fujifilm_bias: Option<f32>) -> Option<f32
     }))
     .ok()
     .flatten()
+    .unwrap_or_default()
 }
 
-fn adobe_baseline_for_path_inner(path: &str, fujifilm_bias: Option<f32>) -> Option<f32> {
+fn adobe_baseline_for_path_inner(path: &str, fujifilm_bias: Option<f32>) -> Option<AdobeBaselines> {
     let (make, model, canonical, iso) = read_camera(path)?;
     // Regional names ("EOS Rebel T3i") use their base model's rules
     // ("EOS 600D") unless the table has the name itself.
@@ -313,6 +379,10 @@ fn adobe_baseline_for_path_inner(path: &str, fujifilm_bias: Option<f32>) -> Opti
             .then(|| crate::capture_info::fujifilm_dynamic_range(path))
             .flatten(),
         extension: crate::camera_exposure::extension_key(path),
+        sony_gain: make
+            .eq_ignore_ascii_case("sony")
+            .then(|| crate::capture_info::sony_capture_gain(path))
+            .flatten(),
         ..Default::default()
     };
     if crate::camera_exposure::needs_image_shape(&make, &model)
@@ -321,7 +391,11 @@ fn adobe_baseline_for_path_inner(path: &str, fujifilm_bias: Option<f32>) -> Opti
         capture.width = Some(width);
         capture.multi_channel = multi_channel;
     }
-    crate::camera_exposure::adobe_baseline(&make, &model, &capture)
+    Some(AdobeBaselines {
+        original: crate::camera_exposure::adobe_baseline(&make, &model, &capture),
+        revised: crate::camera_exposure::adobe_baseline_with_capture_gain(&make, &model, &capture),
+        unlisted_gain_ev: crate::camera_exposure::capture_gain_ev(capture.sony_gain),
+    })
 }
 
 /// The white-level extension Camera Raw applies to Fujifilm SuperCCD SR /
@@ -653,7 +727,8 @@ mod adobe_check {
             }
             let path = format!("{root}/{file}");
             let bias = super::read_raf_exposure_bias(&path);
-            let value = super::adobe_baseline_for_path(&path, bias);
+            // The current rules (render version 9: with the capture gain).
+            let value = super::adobe_baseline_for_path(&path, bias).revised;
             if std::env::var_os("RAWTONIC_PRINT_ALL").is_some() {
                 let camera = super::read_camera(&path);
                 println!(
@@ -778,6 +853,7 @@ mod tests {
             profile_curve: Some(identity),
             no_black_render: false,
             phone_defaults: false,
+            capture_gain_ev: 0.0,
         };
         let mut global = GlobalAdjustments::default();
         global.tonemapper_mode = 2;
@@ -797,6 +873,47 @@ mod tests {
         global.tonemapper_mode = 2;
         unblacked.apply(&mut global);
         assert_eq!(global.profile_curve[15][2], 1.0);
+    }
+
+    #[test]
+    fn the_capture_gain_counts_from_render_version_9() {
+        let look = BaseLook {
+            baseline_ev: 0.76,
+            camera_raw: true,
+            capture_gain_ev: -1.0,
+            ..BaseLook::NONE
+        };
+        assert_eq!(look.baseline_for(8), 0.76);
+        assert!((look.baseline_for(9) + 0.24).abs() < 1e-6);
+        for (version, expected) in [(8, 0.76), (9, -0.24)] {
+            let recipe = serde_json::json!({ "renderVersion": version, "exposure": 0.5 });
+            let mut global =
+                crate::image_processing::get_all_adjustments_from_json(&recipe, true, None).global;
+            let exposure = global.exposure;
+            look.apply(&mut global);
+            assert!(
+                (global.baseline_exposure - expected).abs() < 1e-6,
+                "v{version}"
+            );
+            assert_eq!(global.exposure, exposure);
+        }
+    }
+
+    #[test]
+    fn the_scene_black_counts_from_render_version_10() {
+        let look = BaseLook {
+            camera_raw: true,
+            neutral_colour: true,
+            ..BaseLook::NONE
+        };
+        for (version, expected) in [(9, 0.0), (10, 1.0)] {
+            let recipe = serde_json::json!({ "renderVersion": version });
+            let mut global =
+                crate::image_processing::get_all_adjustments_from_json(&recipe, true, None).global;
+            global.tonemapper_mode = super::STANDARD_MODE;
+            look.apply(&mut global);
+            assert_eq!(global.profile_curve[15][0], expected, "v{version}");
+        }
     }
 
     #[test]
@@ -835,6 +952,7 @@ mod tests {
             profile_curve: None,
             no_black_render: false,
             phone_defaults: false,
+            capture_gain_ev: 0.0,
         };
         for (mode, expected) in [(0u32, 0u32), (1, 1), (2, 3)] {
             let mut global = GlobalAdjustments::default();

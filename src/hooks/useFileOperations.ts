@@ -2,7 +2,6 @@ import { createElement, useCallback, useEffect } from 'react';
 import { stackKey, useStackStore } from '../store/useStackStore';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
 import { notify } from '../activity/notify';
 import { useActivityStore } from '../store/useActivityStore';
 import i18next from 'i18next';
@@ -14,6 +13,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { ImageFile, Invokes } from '../components/ui/AppProperties';
 import { followPathMoves, type PathMove } from '../utils/pathKeyedState';
 import { recountAfterFileOperation } from '../utils/offline';
+import { openDialog } from '../utils/fileDialog';
 import { flushRecipeSaves } from './useEditorActions';
 import {
   fileAction,
@@ -799,7 +799,7 @@ export function useFileOperations(
       const name = path.split(/[\\/]/).pop() ?? path;
       const picked =
         destination ??
-        (await open({ directory: true, multiple: false, title: ops('moveFolderTo', { name }) }).catch(() => null));
+        (await openDialog({ directory: true, multiple: false, title: ops('moveFolderTo', { name }) }).catch(() => null));
       if (typeof picked !== 'string' || !picked) return;
       const move = async () => {
         try {

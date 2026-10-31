@@ -48,9 +48,12 @@ pub struct LoadImageResult {
     /// The `sourceFrameVersion` a first edit made on what is shown carries
     /// when it is not the newest (`new_edit_frame`); None otherwise.
     pub new_edit_frame: Option<u32>,
-    /// The source was developed with `BlackLevels::Unbiased`
-    /// (`renderVersion` 8); None for preview data.
+    /// The source was developed with `BlackLevels::Unbiased` or
+    /// `UnbiasedBorder` (`renderVersion` 8); None for preview data.
     pub unbiased_black: Option<bool>,
+    /// ... with `BlackLevels::UnbiasedBorder` (`renderVersion` 11); None for
+    /// preview data.
+    pub border_black: Option<bool>,
     /// The source's clipped colours were rebuilt with
     /// `HighlightRebuild::Ratios` (`renderVersion` 9); None for preview data.
     pub highlight_ratios: Option<bool>,
@@ -640,8 +643,10 @@ pub fn decoded_cache_key(
     if variant.frame > 0 {
         key.push_str(&format!("\u{1}frame {}", variant.frame));
     }
-    if variant.black == BlackLevels::Unbiased {
-        key.push_str("\u{1}black-unbiased");
+    match variant.black {
+        BlackLevels::Clipped => {}
+        BlackLevels::Unbiased => key.push_str("\u{1}black-unbiased"),
+        BlackLevels::UnbiasedBorder => key.push_str("\u{1}black-unbiased-border"),
     }
     if variant.highlights == HighlightRebuild::Ratios {
         key.push_str("\u{1}highlights-ratios");
@@ -727,8 +732,9 @@ fn clear_derived_caches(state: &AppState) {
 /// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
 /// its stored recipe's) and for its dead-photosite test
 /// (`dead_pixel_adjacent`: `DeadTest::Adjacent`; None: its stored
-/// recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`;
-/// None: its stored recipe's) and highlight rebuild (`highlight_ratios`:
+/// recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`,
+/// with `border_black` `UnbiasedBorder`; None: its stored recipe's) and
+/// highlight rebuild (`highlight_ratios`:
 /// `HighlightRebuild::Ratios`; None: its stored recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
 /// The editor calls it when the recipe's AI Denoise amount or colour noise
@@ -745,6 +751,7 @@ pub async fn apply_ai_denoise(
     multiscale: Option<bool>,
     dead_pixel_adjacent: Option<bool>,
     unbiased_black: Option<bool>,
+    border_black: Option<bool>,
     highlight_ratios: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
@@ -770,10 +777,13 @@ pub async fn apply_ai_denoise(
             None => stored.dead_test,
         },
         frame: open.and_then(|(frame, _)| frame).unwrap_or(stored.frame),
-        black: match unbiased_black {
-            Some(true) => BlackLevels::Unbiased,
-            Some(false) => BlackLevels::Clipped,
-            None => stored.black,
+        black: match (
+            unbiased_black.unwrap_or(stored.black.unbiased()),
+            border_black.unwrap_or(stored.black == BlackLevels::UnbiasedBorder),
+        ) {
+            (false, _) => BlackLevels::Clipped,
+            (true, false) => BlackLevels::Unbiased,
+            (true, true) => BlackLevels::UnbiasedBorder,
         },
         highlights: match highlight_ratios {
             Some(true) => HighlightRebuild::Ratios,
@@ -1307,7 +1317,8 @@ pub async fn load_image(
         "[PERF] {}",
         serde_json::json!({
             "stage": "load_image", "ms": performance_start.elapsed().as_secs_f64() * 1000.0,
-            "cached": was_cached, "width": orig_width, "height": orig_height
+            "cached": was_cached, "width": orig_width, "height": orig_height,
+            "epoch_ms": crate::performance::epoch_ms()
         })
     );
     // The decode keeps the file's EXIF (also in its cache): the capture
@@ -1332,7 +1343,8 @@ pub async fn load_image(
         new_edit_frame: is_raw
             .then(|| new_edit_frame(&source_path_str, variant.frame))
             .flatten(),
-        unbiased_black: Some(variant.black == BlackLevels::Unbiased),
+        unbiased_black: Some(variant.black.unbiased()),
+        border_black: Some(variant.black == BlackLevels::UnbiasedBorder),
         highlight_ratios: Some(variant.highlights == HighlightRebuild::Ratios),
         developed_from_preview: preview_fallback.is_some(),
         camera_help: preview_fallback
@@ -1432,6 +1444,7 @@ async fn open_offline(
             dead_pixel_adjacent: None,
             new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
             unbiased_black: None,
+            border_black: None,
             highlight_ratios: None,
             developed_from_preview: false,
             camera_help: false,
@@ -1489,6 +1502,7 @@ async fn open_offline(
         dead_pixel_adjacent: None,
         new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
         unbiased_black: None,
+        border_black: None,
         highlight_ratios: None,
         developed_from_preview: false,
         camera_help: false,
@@ -1633,6 +1647,14 @@ mod activation_tests {
             decoded_cache_key("/p/A.NEF", None, ratios),
             decoded_cache_key("/p/A.NEF", None, unbiased)
         );
+        let border = DecodeVariant {
+            black: BlackLevels::UnbiasedBorder,
+            ..ratios
+        };
+        assert_ne!(
+            decoded_cache_key("/p/A.NEF", None, border),
+            decoded_cache_key("/p/A.NEF", None, ratios)
+        );
     }
 
     #[test]
@@ -1649,7 +1671,7 @@ mod activation_tests {
                 multiscale: true,
                 dead_test: DeadTest::Adjacent,
                 frame: 0,
-                black: BlackLevels::Unbiased,
+                black: BlackLevels::UnbiasedBorder,
                 highlights: HighlightRebuild::Ratios,
             }
         );
@@ -1734,6 +1756,20 @@ mod activation_tests {
         assert_eq!(
             stored_decode_variant(&format!("{raw_str}?vc=c4")).highlights,
             HighlightRebuild::Ratios
+        );
+        // ... and the border's black only beyond 8 extra levels until it
+        // is 11.
+        assert_eq!(
+            stored_decode_variant(&format!("{raw_str}?vc=c4")).black,
+            BlackLevels::Unbiased
+        );
+        write(
+            &dir.path().join("A.NEF.c5.rrdata"),
+            serde_json::json!({ "colorNoiseReduction": 25, "renderVersion": 11 }),
+        );
+        assert_eq!(
+            stored_decode_variant(&format!("{raw_str}?vc=c5")).black,
+            BlackLevels::UnbiasedBorder
         );
     }
 

@@ -58,6 +58,21 @@
       "starting": "読み込みを開始しています…"
     },
     "indexing": "ライブラリをインデックス中",
+    "interrupted": {
+      "applyRest": "残りに適用",
+      "color": "カラーラベル",
+      "detail": "終了またはクラッシュにより、すべての写真が書き込まれる前にこの一括処理が止まりました。残りに適用するか、適用済みの部分を取り消すか、そのままにしてください。写真そのものは変更されません。",
+      "failed": "{{batch}} を完了できませんでした: {{error}}",
+      "keywordAdd": "キーワード「{{tag}}」",
+      "keywordRemove": "キーワード「{{tag}}」の削除",
+      "notWritten_other": "{{count}} 枚の写真を書き込めませんでした",
+      "paste": "設定のペースト",
+      "preset": "プリセット",
+      "rating": "レーティング {{rating}}",
+      "style": "スタイル",
+      "title_other": "中断: {{batch}} は {{count}} 枚中 {{applied}} 枚に適用済み",
+      "undoApplied": "適用済みの部分を取り消す"
+    },
     "leftovers": {
       "kept_other": "中断したジョブの未完成のフォルダー {{count}} 個をそのまま残しました",
       "removed_other": "中断したジョブの未完成のコピー {{size}} を削除しました",
@@ -1859,6 +1874,7 @@
     },
     "xmp": {
       "buttonTitle": "一部の XMP ファイルがライブラリの内容に追いついていません。クリックすると詳細を表示し、再書き込みできます。",
+      "catchUp": "前回のセッションで残った XMP ファイルを書き込み中",
       "conflictHeading_other": "{{count}} 件の XMP ファイルが別のプログラムで変更されました",
       "conflictHint": "どちらのメタデータを残すか選んでください。どちらでも編集内容はそのままです。",
       "count_other": "{{count}} 件の XMP が未更新",

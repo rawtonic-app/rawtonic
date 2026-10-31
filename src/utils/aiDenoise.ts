@@ -1,5 +1,6 @@
 import type { SelectedImage } from '../components/ui/AppProperties';
 import {
+  borderBlack,
   colorNoiseMultiscale,
   deadPixelAdjacent,
   highlightRatios,
@@ -61,6 +62,9 @@ export interface SourceDevelop {
   /** With unbiased blacks (`renderVersion` 8; undefined: the stored
    * recipe's). */
   unbiasedBlack?: boolean;
+  /** With the masked border's black beyond 3 extra levels (`renderVersion`
+   * 11; undefined: the stored recipe's). */
+  borderBlack?: boolean;
   /** With the ratio highlight rebuild (`renderVersion` 9; undefined: the
    * stored recipe's). */
   highlightRatios?: boolean;
@@ -72,7 +76,7 @@ export interface SourceDevelop {
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
  * dead-photosite test (`deadPixelAdjacent`), its black handling
- * (`unbiasedBlack`) or its highlight rebuild (`highlightRatios`) differs
+ * (`unbiasedBlack`, `borderBlack`) or its highlight rebuild (`highlightRatios`) differs
  * from the source's. Only decoded RAWs on their file; never during a slider drag.
  */
 export function sourceDevelopToApply(
@@ -90,6 +94,8 @@ export function sourceDevelopToApply(
     | 'deadPixelAdjacentFailed'
     | 'unbiasedBlack'
     | 'unbiasedBlackFailed'
+    | 'borderBlack'
+    | 'borderBlackFailed'
     | 'highlightRatios'
     | 'highlightRatiosFailed'
     | 'offline'
@@ -116,6 +122,10 @@ export function sourceDevelopToApply(
   const haveBlack = image.unbiasedBlack;
   const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
   const black = wantedBlack === image.unbiasedBlackFailed ? haveBlack : wantedBlack;
+  // And for the border's black (`renderVersion` 11).
+  const haveBorder = image.borderBlack;
+  const wantedBorder = image.offline || haveBorder === undefined ? haveBorder : borderBlack(adjustments);
+  const border = wantedBorder === image.borderBlackFailed ? haveBorder : wantedBorder;
   // And for the highlight rebuild (`renderVersion` 9).
   const haveRatios = image.highlightRatios;
   const wantedRatios = image.offline || haveRatios === undefined ? haveRatios : highlightRatios(adjustments);
@@ -125,6 +135,7 @@ export function sourceDevelopToApply(
     multiscale === have &&
     dead === haveDead &&
     black === haveBlack &&
+    border === haveBorder &&
     ratios === haveRatios
   )
     return null;
@@ -135,6 +146,7 @@ export function sourceDevelopToApply(
     multiscale,
     deadPixelAdjacent: dead,
     unbiasedBlack: black,
+    borderBlack: border,
     highlightRatios: ratios,
   };
 }
@@ -160,5 +172,6 @@ export function developmentSignature(
     colorNoiseMultiscale(adjustments, true),
     deadPixelAdjacent(adjustments),
     unbiasedBlack(adjustments),
+    borderBlack(adjustments),
   ]);
 }

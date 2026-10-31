@@ -168,15 +168,17 @@ pub struct LeftoversReport {
 /// the webview.
 pub fn report_leftovers(
     app: &tauri::AppHandle,
-    temp_files: usize,
+    temp: rawtonic_metadata::temp::Removed,
     staging: &rawtonic_metadata::staging::Removed,
 ) {
+    let temp_files = temp.files;
     use tauri::Emitter;
     if temp_files == 0 && staging.folders == 0 && staging.kept.is_empty() {
         return;
     }
     log::info!(
-        "Interrupted jobs' leftovers: removed {temp_files} temporary files and {} staging folders ({} bytes); left {:?}",
+        "Interrupted jobs' leftovers: removed {temp_files} temporary files ({} bytes) and {} staging folders ({} bytes); left {:?}",
+        temp.bytes,
         staging.folders,
         staging.bytes,
         staging.kept
@@ -186,7 +188,8 @@ pub fn report_leftovers(
         LeftoversReport {
             temp_files,
             folders: staging.folders,
-            bytes: staging.bytes,
+            // What the activity centre says was freed: temporary files too.
+            bytes: staging.bytes + temp.bytes,
             kept: staging.kept.clone(),
         },
     );
@@ -203,7 +206,14 @@ pub fn start_leftover_sweep(app: tauri::AppHandle, directory: PathBuf) {
                 return;
             };
             match lib.sweep_leftovers(std::time::SystemTime::now(), &AtomicBool::new(false)) {
-                Ok(swept) => report_leftovers(&app, swept.temp_files, &swept.staging),
+                Ok(swept) => report_leftovers(
+                    &app,
+                    rawtonic_metadata::temp::Removed {
+                        files: swept.temp_files,
+                        bytes: swept.temp_bytes,
+                    },
+                    &swept.staging,
+                ),
                 Err(e) => log::warn!("Leftovers of interrupted jobs not swept: {e:#}"),
             }
         });

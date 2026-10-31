@@ -8739,7 +8739,8 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         .map(|v| v.trim().parse().unwrap())
         .collect();
     assert_eq!(default_curve.len(), 49);
-    let render = |recipe: &serde_json::Value, flag: f32| -> Vec<[u16; 3]> {
+    // `scene_black`: renderVersion 10's scene-referred black and soft toe.
+    let render = |recipe: &serde_json::Value, flag: f32, scene_black: bool| -> Vec<[u16; 3]> {
         let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(2));
         adjustments.global.tonemapper_mode = 3;
         set_test_image_key(&mut adjustments, recipe);
@@ -8749,6 +8750,7 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
             }
         }
         adjustments.global.profile_curve[15][3] = flag;
+        adjustments.global.profile_curve[15][0] = if scene_black { 1.0 } else { 0.0 };
         let (pixels, ..) = processor
             .run(
                 &view,
@@ -8814,11 +8816,17 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     // where it rises slowly near black (a code is 0.01 EV at 1.4e-4).
     let columns = 64..(width - 64) as usize;
     let mut failures = Vec::new();
-    for (flag, recipe) in [2.0f32, 3.0, 1.0]
-        .into_iter()
-        .flat_map(|flag| recipes.iter().map(move |recipe| (flag, recipe)))
+    for ((flag, scene_black), recipe) in [
+        (2.0f32, false),
+        (3.0, false),
+        (1.0, false),
+        (2.0, true),
+        (3.0, true),
+    ]
+    .into_iter()
+    .flat_map(|look| recipes.iter().map(move |recipe| (look, recipe)))
     {
-        let toned = render(recipe, flag);
+        let toned = render(recipe, flag, scene_black);
         let mut worst: Option<(f64, usize, usize, usize)> = None;
         for x in columns.clone().skip(24) {
             for k in 1..=24 {
@@ -8838,7 +8846,7 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         if let Some((excess, x, k, c)) = worst {
             let scene = low_ev + span_ev * x as f32 / (width - 1) as f32;
             failures.push(format!(
-                "flag {flag} {recipe}: channel {c} falls from {} to {} over {k} steps to scene {scene:.2} EV ({excess:.1}× the limit)",
+                "flag {flag} scene black {scene_black} {recipe}: channel {c} falls from {} to {} over {k} steps to scene {scene:.2} EV ({excess:.1}× the limit)",
                 toned[x - k][c], toned[x][c]
             ));
         }

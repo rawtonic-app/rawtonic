@@ -58,6 +58,21 @@
       "starting": "正在開始匯入…"
     },
     "indexing": "正在為圖庫建立索引",
+    "interrupted": {
+      "applyRest": "套用到其餘照片",
+      "color": "色彩標籤",
+      "detail": "結束或當機使此批次作業在所有照片寫入前停止。可將其套用到其餘照片、復原已套用的部分，或保持原狀。照片本身絕不會被變更。",
+      "failed": "無法完成{{batch}}：{{error}}",
+      "keywordAdd": "關鍵字「{{tag}}」",
+      "keywordRemove": "移除關鍵字「{{tag}}」",
+      "notWritten_other": "有 {{count}} 張照片無法寫入",
+      "paste": "貼上設定",
+      "preset": "預設集",
+      "rating": "評等 {{rating}}",
+      "style": "風格",
+      "title_other": "已中斷：{{batch}}已套用到 {{count}} 張中的 {{applied}} 張照片",
+      "undoApplied": "復原已套用的部分"
+    },
     "leftovers": {
       "kept_other": "保留了中斷工作的 {{count}} 個未完成資料夾",
       "removed_other": "已移除中斷工作留下的 {{size}} 未完成副本",
@@ -1859,6 +1874,7 @@
     },
     "xmp": {
       "buttonTitle": "部分 XMP 檔案未與圖庫同步。按一下以查看詳細資訊並重新寫入。",
+      "catchUp": "正在寫入上次工作階段遺留的 XMP 檔案",
       "conflictHeading_other": "{{count}} 個 XMP 檔案已被其他程式修改",
       "conflictHint": "選擇保留哪一方的中繼資料。無論哪種選擇,你的編輯都保持不變。",
       "count_other": "{{count}} 個 XMP 未更新",

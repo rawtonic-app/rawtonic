@@ -681,14 +681,17 @@ pub async fn session_pending_xmp(directory: String) -> Result<Vec<PathBuf>, Stri
     .await
     .map_err(|e| e.to_string())?
 }
-/// Writes those sidecars again (the session bar's "Try again"); only XMP
+/// Writes those sidecars again (the session bar's "Try again", all of
+/// them; the write at library open, `paths` part by part); only XMP
 /// sidecars are written, a sidecar changed elsewhere is never replaced.
 #[tauri::command]
 pub async fn session_write_pending_xmp(
     directory: String,
+    paths: Option<Vec<PathBuf>>,
 ) -> Result<rawtonic_catalog::XmpRetry, String> {
-    with_library(directory, true, |lib| {
-        lib.write_pending_xmp().map_err(|e| e.to_string())
+    with_library(directory, true, move |lib| {
+        lib.write_pending_xmp_of(paths.as_deref())
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

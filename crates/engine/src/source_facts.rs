@@ -47,7 +47,9 @@ use crate::lens_correction::LensDistortionParams;
 /// opens only on previews of its recipe's frame.
 /// 15: `camera_crop`, so that an offline never-edited photograph starts
 /// with the camera's crop.
-pub const VERSION: u32 = 15;
+/// 16: `base_look.capture_gain_ev` (renderVersion 9's extended-low-ISO
+/// pull), so that an offline Sony photograph at ISO 50 develops with it.
+pub const VERSION: u32 = 16;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -115,6 +117,14 @@ pub struct StoredBaseLook {
     pub profile_curve: Option<Vec<f32>>,
     pub no_black_render: bool,
     pub phone_defaults: bool,
+    /// `BaseLook::capture_gain_ev` (facts version 16; older facts are
+    /// re-made by Build Previews before they are used offline).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub capture_gain_ev: f32,
+}
+
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
 }
 
 impl From<BaseLook> for StoredBaseLook {
@@ -126,6 +136,7 @@ impl From<BaseLook> for StoredBaseLook {
             profile_curve: look.profile_curve.map(|curve| curve.to_vec()),
             no_black_render: look.no_black_render,
             phone_defaults: look.phone_defaults,
+            capture_gain_ev: look.capture_gain_ev,
         }
     }
 }
@@ -142,6 +153,7 @@ impl StoredBaseLook {
                 .and_then(|curve| <[f32; PROFILE_CURVE_SAMPLES]>::try_from(curve).ok()),
             no_black_render: self.no_black_render,
             phone_defaults: self.phone_defaults,
+            capture_gain_ev: self.capture_gain_ev,
         }
     }
 }
@@ -371,6 +383,7 @@ mod tests {
             profile_curve: Some(curve),
             no_black_render: true,
             phone_defaults: false,
+            capture_gain_ev: -1.0,
         };
         let colour = crate::raw_processing::ImageColor {
             camera_to_srgb: [[1.5, -0.4, -0.1], [-0.2, 1.4, -0.2], [0.0, -0.5, 1.5]],

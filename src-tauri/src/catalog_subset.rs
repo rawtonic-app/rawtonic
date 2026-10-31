@@ -67,7 +67,11 @@ pub async fn library_export_catalog(
                     },
                 )
                 .inspect(|receipt| {
-                    crate::folder_sync::report_leftovers(&app, 0, &receipt.abandoned)
+                    crate::folder_sync::report_leftovers(
+                        &app,
+                        Default::default(),
+                        &receipt.abandoned,
+                    )
                 })
                 .map_err(|e| format!("{e:#}"))
             },

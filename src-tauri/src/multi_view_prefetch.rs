@@ -461,6 +461,11 @@ fn let_held_go_for_memory() {
 /// Milliseconds since `EPOCH` of the last interactive preview frame or zoom
 /// work; 0: none yet.
 static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
+/// The same of the user's own work only (interactive frames, zoom work),
+/// not the primary's decodes: what the step prefetch waits [`QUIET`] after.
+static LAST_INTERACTION: AtomicU64 = AtomicU64::new(0);
+/// The same of the end of the primary's last decode or frame.
+static LAST_PRIMARY_WORK: AtomicU64 = AtomicU64::new(0);
 /// Zoomed regions being developed.
 static REGIONS_BUSY: AtomicUsize = AtomicUsize::new(0);
 /// Full decodes of the primary under way.
@@ -478,11 +483,44 @@ fn now_ms() -> u64 {
 }
 
 pub(crate) fn since_activity() -> Duration {
-    let last = LAST_ACTIVITY.load(Ordering::Relaxed);
+    since(&LAST_ACTIVITY)
+}
+
+fn since(last: &AtomicU64) -> Duration {
+    let last = last.load(Ordering::Relaxed);
     if last == 0 {
         return Duration::MAX;
     }
     Duration::from_millis(now_ms().saturating_sub(last))
+}
+
+fn interaction_now() {
+    let now = now_ms();
+    LAST_ACTIVITY.store(now, Ordering::Relaxed);
+    LAST_INTERACTION.store(now, Ordering::Relaxed);
+}
+
+/// After the primary's decode or frame, how long the step prefetch
+/// (`proxy_worker`) waits before the next photograph's decode starts: long
+/// enough for the frame the frontend asks for once the decode is in (its
+/// request comes after the load's answer) to start, not [`QUIET`]. Waiting
+/// [`QUIET`] after every decode, too, nothing was ever decoded ahead when
+/// stepping faster than about one photograph per second, and on a six-core
+/// PC (a 36 MP decode 1.3 s) not even at two seconds per photograph
+/// (notes: benchmark-results/fst-fast-steps-2026-11-01/REPORT.md).
+pub(crate) const SETTLE: Duration = Duration::from_millis(150);
+
+/// How long the step prefetch still waits: [`QUIET`] after the user's own
+/// work (a slider or brush drag, a zoom), [`SETTLE`] after the primary's
+/// decode or frame; zero when it may start (unless [`busy`]).
+pub(crate) fn step_prefetch_wait() -> Duration {
+    step_wait(since(&LAST_INTERACTION), since(&LAST_PRIMARY_WORK))
+}
+
+fn step_wait(since_interaction: Duration, since_primary_work: Duration) -> Duration {
+    QUIET
+        .saturating_sub(since_interaction)
+        .max(SETTLE.saturating_sub(since_primary_work))
 }
 
 /// The preview worker develops a frame of the primary while the guard
@@ -497,7 +535,7 @@ impl PreviewFrame {
     pub(crate) fn start(interactive: bool) -> Self {
         PREVIEW_FRAMES.fetch_add(1, Ordering::SeqCst);
         if interactive {
-            LAST_ACTIVITY.store(now_ms(), Ordering::Relaxed);
+            interaction_now();
             if let Some(worker) = WORKER.get()
                 && worker.decoding.load(Ordering::Relaxed)
             {
@@ -511,8 +549,9 @@ impl PreviewFrame {
 impl Drop for PreviewFrame {
     fn drop(&mut self) {
         if self.interactive {
-            LAST_ACTIVITY.store(now_ms(), Ordering::Relaxed);
+            interaction_now();
         }
+        LAST_PRIMARY_WORK.store(now_ms(), Ordering::Relaxed);
         PREVIEW_FRAMES.fetch_sub(1, Ordering::SeqCst);
         if let Some(worker) = WORKER.get() {
             worker.wake.notify_one();
@@ -555,7 +594,7 @@ impl RegionsBusy {
 impl Drop for RegionsBusy {
     fn drop(&mut self) {
         if self.quiet_after {
-            LAST_ACTIVITY.store(now_ms(), Ordering::Relaxed);
+            interaction_now();
         }
         REGIONS_BUSY.fetch_sub(1, Ordering::SeqCst);
         if let Some(worker) = WORKER.get() {
@@ -583,7 +622,9 @@ impl PrimaryDecode {
 
 impl Drop for PrimaryDecode {
     fn drop(&mut self) {
-        LAST_ACTIVITY.store(now_ms(), Ordering::Relaxed);
+        let now = now_ms();
+        LAST_ACTIVITY.store(now, Ordering::Relaxed);
+        LAST_PRIMARY_WORK.store(now, Ordering::Relaxed);
         PRIMARY_DECODES.fetch_sub(1, Ordering::SeqCst);
         if let Some(worker) = WORKER.get() {
             worker.wake.notify_one();
@@ -1582,6 +1623,21 @@ mod tests {
         // No budget: every written one goes.
         assert!(make_room(&mut all, 0, 0, None));
         assert_eq!(keys(&all), ["b"]);
+    }
+
+    #[test]
+    fn the_step_prefetch_waits_quiet_after_edits_and_only_settles_after_a_decode() {
+        let ms = Duration::from_millis;
+        // Neither yet: no wait.
+        assert_eq!(step_wait(Duration::MAX, Duration::MAX), Duration::ZERO);
+        // Right after the primary's decode or frame: the short settle only,
+        // not the quiet time an edit asks for (stepping on at 0.6 s per
+        // photograph left no room for it).
+        assert_eq!(step_wait(Duration::MAX, ms(0)), SETTLE);
+        assert_eq!(step_wait(Duration::MAX, SETTLE), Duration::ZERO);
+        // A drag ended 100 ms ago: the rest of the quiet time.
+        assert_eq!(step_wait(ms(100), Duration::MAX), QUIET - ms(100));
+        assert_eq!(step_wait(ms(100), ms(0)), QUIET - ms(100));
     }
 
     #[test]

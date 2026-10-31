@@ -399,8 +399,8 @@ pub fn current_key(
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
 /// when set so earlier proxies keep their key, the second dead-photosite
 /// test, a frame other than version 0's (`source_frame`), the unbiased
-/// blacks (`BlackLevels::Unbiased`) and the ratio highlight rebuild
-/// (`HighlightRebuild::Ratios`).
+/// blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`) and the ratio
+/// highlight rebuild (`HighlightRebuild::Ratios`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
         "hl={:?};linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
@@ -422,10 +422,10 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     } else {
         key
     };
-    let key = if variant.black == BlackLevels::Unbiased {
-        key + ";black=unbiased"
-    } else {
-        key
+    let key = match variant.black {
+        BlackLevels::Clipped => key,
+        BlackLevels::Unbiased => key + ";black=unbiased",
+        BlackLevels::UnbiasedBorder => key + ";black=border",
     };
     if variant.highlights == HighlightRebuild::Ratios {
         key + ";highlights=ratios"
@@ -454,7 +454,9 @@ pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
             .split_once(";frame=")
             .and_then(|(_, frame)| frame.split(';').next()?.parse().ok())
             .unwrap_or(0),
-        black: if decoder.contains(";black=unbiased") {
+        black: if decoder.contains(";black=border") {
+            BlackLevels::UnbiasedBorder
+        } else if decoder.contains(";black=unbiased") {
             BlackLevels::Unbiased
         } else {
             BlackLevels::Clipped
@@ -964,11 +966,31 @@ fn decode_rows(
 fn register_facts(source: &Path, header: &Header) {
     let path = source.to_string_lossy();
     match &header.facts {
-        Some(facts) => source_facts::register(&path, facts.clone()),
+        Some(facts) => {
+            let mut facts = facts.clone();
+            // The base look of the newest facts the photo's previews keep:
+            // an older 1:1 preview kept beside a rebuilt Standard one lacks
+            // what later versions added (16: renderVersion 9's capture gain).
+            if let Some(newer) = newest_base_look(source, facts.version) {
+                facts.base_look = Some(newer);
+            }
+            source_facts::register(&path, facts)
+        }
         None => log::info!(
             "The preview of {path} keeps no camera data (made before 2026-10-10): it renders offline without its base look and lens defaults until it is rebuilt"
         ),
     }
+}
+
+/// The base look of the facts of `source`'s previews newer than `version`
+/// (the newest), if any.
+fn newest_base_look(source: &Path, version: u32) -> Option<source_facts::StoredBaseLook> {
+    [ProxyKind::Full, ProxyKind::Standard]
+        .into_iter()
+        .filter_map(|kind| read_header(&proxy_path_of(source, kind)?)?.facts)
+        .filter(|facts| facts.version > version && facts.base_look.is_some())
+        .max_by_key(|facts| facts.version)?
+        .base_look
 }
 
 /// For an offline `source` (its RAW cannot be read): registers the facts
@@ -1536,7 +1558,7 @@ mod tests {
         multiscale: true,
         dead_test: DeadTest::Adjacent,
         frame: 0,
-        black: BlackLevels::Unbiased,
+        black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
     };
     /// A decode for an edit with the old colour noise filter.
@@ -1893,7 +1915,11 @@ mod tests {
         for multiscale in [false, true] {
             for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
                 for frame in [0, 1] {
-                    for black in [BlackLevels::Clipped, BlackLevels::Unbiased] {
+                    for black in [
+                        BlackLevels::Clipped,
+                        BlackLevels::Unbiased,
+                        BlackLevels::UnbiasedBorder,
+                    ] {
                         for highlights in [HighlightRebuild::Offsets, HighlightRebuild::Ratios] {
                             let variant = DecodeVariant {
                                 multiscale,
@@ -2073,6 +2099,53 @@ mod tests {
         }
         assert_eq!(stored_size(&photo, &settings), None);
         assert!(!has_full(&photo, &settings));
+    }
+
+    /// Rewrites the facts in the header of `source`'s proxy of `kind`.
+    fn rewrite_facts(source: &Path, kind: ProxyKind, change: impl FnOnce(&mut SourceFacts)) {
+        let path = proxy_path_of(source, kind).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let (mut header, at) = parse_header(&bytes).unwrap();
+        change(header.facts.as_mut().unwrap());
+        let json = serde_json::to_vec(&header).unwrap();
+        let mut out = bytes[..8].to_vec();
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json);
+        out.extend_from_slice(&bytes[at..]);
+        fs::write(&path, out).unwrap();
+    }
+
+    #[test]
+    fn an_older_full_preview_does_not_drop_the_newer_base_look() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
+        // A rebuilt Standard preview knows the capture gain; the 1:1 one is
+        // from before it (facts version 15).
+        rewrite_facts(&photo, ProxyKind::Standard, |facts| {
+            facts.base_look.as_mut().unwrap().capture_gain_ev = -1.0;
+        });
+        rewrite_facts(&photo, ProxyKind::Full, |facts| {
+            facts.version = source_facts::VERSION - 1;
+            facts.base_look.as_mut().unwrap().capture_gain_ev = 0.0;
+        });
+        let key = photo.to_string_lossy().into_owned();
+        let away = dir.path().join("away.RAF");
+        fs::rename(&photo, &away).unwrap();
+        let gain = || {
+            source_facts::registered(&key)
+                .and_then(|facts| facts.base_look.clone())
+                .map(|look| look.capture_gain_ev)
+        };
+        prepare_offline(&photo);
+        assert_eq!(gain(), Some(-1.0));
+        source_facts::forget(&key);
+        read_kind(&photo, ProxyKind::Full, &settings);
+        assert_eq!(gain(), Some(-1.0));
+        fs::rename(&away, &photo).unwrap();
+        prepare_offline(&photo);
     }
 
     #[test]

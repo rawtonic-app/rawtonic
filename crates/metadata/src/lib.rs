@@ -1,4 +1,5 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
+pub mod labels;
 pub mod no_clobber;
 pub mod provenance;
 pub mod resources;
@@ -22,6 +23,9 @@ pub const PHOTOSHOP: &str = "http://ns.adobe.com/photoshop/1.0/";
 pub const IPTC_CORE: &str = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
 pub const XMP_RIGHTS: &str = "http://ns.adobe.com/xap/1.0/rights/";
 pub const IPTC_EXT: &str = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+/// XMP Dynamic Media: Lightroom Classic (15) and Bridge write the pick flag
+/// as `xmpDM:pick` (1 pick, -1 reject, 0 none) with `xmpDM:good`.
+pub const XMP_DM: &str = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
 /// IPTC Digital Source Type of a photo with areas made by a generative model
 /// (object removal, generative fill): the machine-readable marking the EU AI
 /// Act (Art. 50(2)) asks of such output.
@@ -212,19 +216,23 @@ fn managed(namespace: Option<&str>, name: &str) -> bool {
         Some(DC) => ["subject", "title", "description", "creator", "rights"].contains(&name),
         Some(LR) => name == "hierarchicalSubject",
         Some(RT | FORMER_RT) => ["Flag", "Recipe"].contains(&name),
+        Some(XMP_DM) => ["pick", "good"].contains(&name),
+        Some(PHOTOSHOP) => name == "LabelColor",
         _ => false,
     }
 }
 
 /// Whether a packet says anything about the culling flag: Rawtonic's own
-/// `Flag` property, or a rejected rating (`xmp:Rating` -1). Other editors
+/// `Flag` property, the shared `xmpDM:pick`, or a rejected rating
+/// (`xmp:Rating` -1). Other editors
 /// rewriting a sidecar may leave the flag out; reading such a packet back
 /// keeps the library's flag rather than taking the absent one as "unflagged".
 pub fn carries_flag(text: &str) -> Result<bool> {
     ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let doc = roxmltree::Document::parse(text)?;
     let flag = |namespace: Option<&str>, name: &str| {
-        matches!(namespace, Some(RT | FORMER_RT)) && name == "Flag"
+        (matches!(namespace, Some(RT | FORMER_RT)) && name == "Flag")
+            || (namespace == Some(XMP_DM) && name == "pick")
     };
     let rejected = |namespace: Option<&str>, name: &str, value: &str| {
         namespace == Some(XMP) && name == "Rating" && value.trim() == "-1"
@@ -249,6 +257,11 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     // in any order: Rawtonic writes ratings 0–5 and its flag apart, so a -1
     // rating beside a pick is an outside change the flag did not follow.
     let mut rejected = false;
+    // The pick flag other applications write (`xmpDM:pick`) wins over
+    // Rawtonic's own property, which they leave as it was.
+    let mut pick: Option<i8> = None;
+    let mut flat = Vec::new();
+    let mut hierarchical = Vec::new();
     for node in doc.descendants().filter(|n| n.is_element()) {
         let name = node.tag_name();
         for attr in node.attributes() {
@@ -258,8 +271,9 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                     result.rating = rating.max(0) as u8;
                     rejected |= rating == -1;
                 }
-                (Some(XMP), "Label") => result.label = attr.value().into(),
+                (Some(XMP), "Label") => result.label = labels::stored(attr.value()),
                 (Some(RT | FORMER_RT), "Flag") => result.flag = attr.value().parse()?,
+                (Some(XMP_DM), "pick") => pick = Some(parse_pick(attr.value())?),
                 (namespace, name) => {
                     let key = iptc_key(namespace, name).or_else(|| {
                         node.ancestors()
@@ -296,12 +310,28 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                 result.rating = rating.max(0) as u8;
                 rejected |= rating == -1;
             }
-            (Some(XMP), "Label") => result.label = value(),
+            (Some(XMP), "Label") => result.label = labels::stored(&value()),
             (Some(RT | FORMER_RT), "Flag") => result.flag = value().parse()?,
+            (Some(XMP_DM), "pick") => pick = Some(parse_pick(&value())?),
             (Some(RT | FORMER_RT), "Recipe") => recipe = Some(serde_json::from_str(&value())?),
             (Some(DC), "title") => result.title = value(),
             (Some(DC), "description") => result.description = value(),
-            (Some(DC), "creator") => result.creator = value(),
+            // Several creators (Capture One adds the camera's artist to the
+            // one set by hand) are one field, as Lightroom shows them.
+            (Some(DC), "creator") => {
+                let creators: Vec<&str> = node
+                    .descendants()
+                    .filter(|n| n.has_tag_name((RDF, "li")))
+                    .filter_map(|n| n.text())
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .collect();
+                result.creator = if creators.is_empty() {
+                    value()
+                } else {
+                    creators.join("; ")
+                };
+            }
             (Some(DC), "rights") => result.copyright = value(),
             (namespace, tag)
                 if iptc_key(namespace, tag).is_some()
@@ -316,22 +346,81 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                 }
             }
             (Some(DC), "subject") | (Some(LR), "hierarchicalSubject") => {
-                for li in node.descendants().filter(|n| n.has_tag_name((RDF, "li"))) {
-                    if let Some(s) = li.text()
-                        && !result.keywords.iter().any(|k| k == s)
-                    {
-                        result.keywords.push(s.into());
-                    }
-                }
+                let list = if name.namespace() == Some(DC) {
+                    &mut flat
+                } else {
+                    &mut hierarchical
+                };
+                list.extend(
+                    node.descendants()
+                        .filter(|n| n.has_tag_name((RDF, "li")))
+                        .filter_map(|n| n.text())
+                        .map(str::to_string),
+                );
             }
             _ => {}
         }
+    }
+    result.keywords = keywords_from(flat, hierarchical);
+    if let Some(pick) = pick {
+        result.flag = pick;
     }
     if rejected {
         result.flag = -1;
     }
     result.validate()?;
     Ok((result, recipe))
+}
+
+fn parse_pick(value: &str) -> Result<i8> {
+    let pick: i8 = value.trim().parse()?;
+    Ok(pick.clamp(-1, 1))
+}
+
+/// A photo's keywords from the flat `dc:subject` and the hierarchical
+/// `lr:hierarchicalSubject` (`A|B|C`). With a hierarchy, its entries are the
+/// keywords, each as assigned (also a root keyword named like a level of a
+/// path, or a path's ancestor that Capture One lists); `dc:subject`, where
+/// Lightroom and Capture One list every level of the paths as a term, only
+/// adds the terms no entry holds (written by an application that writes
+/// `dc:subject` only).
+fn keywords_from(flat: Vec<String>, hierarchical: Vec<String>) -> Vec<String> {
+    let clean = |list: Vec<String>| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for k in list {
+            let k = k.trim();
+            if !k.is_empty() && !out.iter().any(|o| o == k) {
+                out.push(k.to_string());
+            }
+        }
+        out
+    };
+    let flat = clean(flat);
+    let hierarchical = clean(hierarchical);
+    let levels: Vec<&str> = hierarchical
+        .iter()
+        .filter(|k| k.contains('|'))
+        .flat_map(|k| k.split('|').map(str::trim))
+        .collect();
+    let mut keywords = hierarchical.clone();
+    for term in flat {
+        if !levels.contains(&term.as_str()) && !keywords.contains(&term) {
+            keywords.push(term);
+        }
+    }
+    keywords
+}
+
+/// The terms of `dc:subject` for the keywords: every level of a
+/// hierarchical keyword as a term of its own, as Lightroom writes them.
+fn subject_terms(keywords: &[String]) -> Vec<&str> {
+    let mut terms: Vec<&str> = Vec::new();
+    for term in keywords.iter().flat_map(|k| k.split('|')).map(str::trim) {
+        if !term.is_empty() && !terms.contains(&term) {
+            terms.push(term);
+        }
+    }
+    terms
 }
 
 /// Namespace declarations for [`iptc_elements`]; none without IPTC, so
@@ -343,6 +432,26 @@ fn iptc_namespaces(metadata: &Metadata) -> String {
     format!(
         " xmlns:photoshop=\"{PHOTOSHOP}\" xmlns:Iptc4xmpCore=\"{IPTC_CORE}\" xmlns:xmpRights=\"{XMP_RIGHTS}\""
     )
+}
+
+/// The first value of a simple property (attribute or element text, or the
+/// first `rdf:li`) anywhere in the packet.
+fn property(root: roxmltree::Node, namespace: &str, name: &str) -> Option<String> {
+    root.descendants()
+        .filter(|n| n.is_element())
+        .find_map(|node| {
+            if let Some(value) = node.attribute((namespace, name)) {
+                return Some(value.to_string());
+            }
+            node.has_tag_name((namespace, name)).then(|| {
+                node.descendants()
+                    .find(|n| n.has_tag_name((RDF, "li")))
+                    .and_then(|n| n.text())
+                    .or_else(|| node.text())
+                    .unwrap_or("")
+                    .to_string()
+            })
+        })
 }
 
 /// What other applications keep inside the sidecar's creator contact
@@ -357,7 +466,8 @@ struct ForeignContact {
 }
 
 /// Prefixes the description Rawtonic writes declares (`merge_xmp_with`).
-const OWN_PREFIXES: [(&str, &str); 8] = [
+const OWN_PREFIXES: [(&str, &str); 9] = [
+    ("xmpDM", XMP_DM),
     ("rdf", RDF),
     ("xmp", XMP),
     ("dc", DC),
@@ -512,6 +622,26 @@ fn merge_xmp_with(
     );
     let close = root.range().start + root_text.rfind("</").context("Missing RDF closing tag")?;
     let mut removals: Vec<std::ops::Range<usize>> = Vec::new();
+    // The label in the sidecar's own words (`labels::for_sidecar`).
+    let previous_label = property(root, XMP, "Label").unwrap_or_default();
+    // Lightroom writes `photoshop:LabelColor` beside every label it sets;
+    // Capture One never does. Rawtonic keeps that pair only where it is.
+    let lightroom_label = property(root, PHOTOSHOP, "LabelColor").is_some();
+    // Capture One reads an empty label as "unchanged" and brings its colour
+    // back from the urgency it keeps beside the label; its own `None` clears
+    // the tag. So a label cleared in a sidecar that holds an urgency and no
+    // Lightroom label colour is written as `None` (on every later save too:
+    // the previous label is then `None`). A photo that had no label keeps
+    // none, and the urgency itself is never changed: it may be the
+    // photographer's own.
+    let cleared = !previous_label.trim().is_empty();
+    let capture_one_none =
+        cleared && !lightroom_label && property(root, PHOTOSHOP, "Urgency").is_some();
+    let label = if metadata.label.is_empty() && capture_one_none {
+        labels::NONE.to_string()
+    } else {
+        labels::for_sidecar(&metadata.label, &previous_label)
+    };
     // IPTC fields this model has a value for replace the sidecar's; the
     // others stay as they are, so IPTC written by Lightroom or Capture One
     // before Rawtonic knew the field is never dropped.
@@ -579,7 +709,24 @@ fn merge_xmp_with(
     out.push_str(&base[cursor..close]);
     // Line breaks around the replaced description would otherwise pile up.
     out.truncate(out.trim_end().len());
-    out.push_str(&format!("\n<rdf:Description xmlns:rdf=\"{RDF}\" xmlns:xmp=\"{XMP}\" xmlns:dc=\"{DC}\" xmlns:lr=\"{LR}\" xmlns:rawtonic=\"{RT}\"{} rdf:about=\"\" xmp:Rating=\"{}\" xmp:Label=\"{}\" rawtonic:Flag=\"{}\">", iptc_namespaces(metadata), metadata.rating, escape(&metadata.label), metadata.flag));
+    // Lightroom's label colour beside the name and the pick flag other
+    // applications read.
+    let mut shared = format!(" xmpDM:pick=\"{}\"", metadata.flag);
+    if metadata.flag != 0 {
+        shared.push_str(&format!(" xmpDM:good=\"{}\"", metadata.flag > 0));
+    }
+    let mut photoshop = String::new();
+    if let Some(colour) = labels::canonical(&metadata.label).filter(|_| lightroom_label) {
+        photoshop.push_str(&format!(
+            " photoshop:LabelColor=\"{}\"",
+            colour.to_lowercase()
+        ));
+    }
+    let namespaces = iptc_namespaces(metadata);
+    if !photoshop.is_empty() && namespaces.is_empty() {
+        shared.push_str(&format!(" xmlns:photoshop=\"{PHOTOSHOP}\""));
+    }
+    out.push_str(&format!("\n<rdf:Description xmlns:rdf=\"{RDF}\" xmlns:xmp=\"{XMP}\" xmlns:dc=\"{DC}\" xmlns:lr=\"{LR}\" xmlns:rawtonic=\"{RT}\" xmlns:xmpDM=\"{XMP_DM}\"{namespaces} rdf:about=\"\" xmp:Rating=\"{}\" xmp:Label=\"{}\" rawtonic:Flag=\"{}\"{shared}{photoshop}>", metadata.rating, escape(&label), metadata.flag));
     for (tag, val) in [
         ("title", &metadata.title),
         ("description", &metadata.description),
@@ -590,10 +737,21 @@ fn merge_xmp_with(
             escape(val)
         ));
     }
-    out.push_str(&format!(
-        "<dc:creator><rdf:Seq><rdf:li>{}</rdf:li></rdf:Seq></dc:creator>",
-        escape(&metadata.creator)
-    ));
+    // Several creators ("A; B", as read) go back as entries of their own.
+    out.push_str("<dc:creator><rdf:Seq>");
+    let mut creators: Vec<&str> = metadata
+        .creator
+        .split(';')
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .collect();
+    if creators.is_empty() {
+        creators.push("");
+    }
+    for creator in creators {
+        out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(creator)));
+    }
+    out.push_str("</rdf:Seq></dc:creator>");
     // The contact structure is rewritten as a whole; its fields this model
     // does not set keep the sidecar's values.
     let kept_contact: BTreeMap<String, String> = if has_contact && !replace_iptc {
@@ -614,10 +772,15 @@ fn merge_xmp_with(
         ForeignContact::default()
     };
     out.push_str(&iptc_elements(metadata, &kept_contact, &foreign));
-    for tag in ["dc:subject", "lr:hierarchicalSubject"] {
+    // Every level of a hierarchical keyword is a term of `dc:subject` and
+    // the keyword itself an entry of `lr:hierarchicalSubject`, as Lightroom
+    // writes them; a hierarchy in `dc:subject` would be one odd keyword there.
+    let terms = subject_terms(&metadata.keywords);
+    let keywords: Vec<&str> = metadata.keywords.iter().map(String::as_str).collect();
+    for (tag, values) in [("dc:subject", terms), ("lr:hierarchicalSubject", keywords)] {
         out.push_str(&format!("<{tag}><rdf:Bag>"));
-        for keyword in &metadata.keywords {
-            out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(keyword)));
+        for value in values {
+            out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(value)));
         }
         out.push_str(&format!("</rdf:Bag></{tag}>"));
     }
