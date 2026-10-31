@@ -193,6 +193,24 @@ describe('undo follows the paths it moves back', () => {
     expect(useUIStore.getState().activeView).toBe('library');
   });
 
+  it('leaves a whole-session move undone to the session reopening, reading nothing at the old place', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(
+      summary({
+        kind: 'moveSession',
+        label: 'Move session job to Archive',
+        items: 1,
+        moves: [{ from: '/Archive/job', to: '/job' }],
+      }),
+    );
+    const refresh = vi.fn(() => Promise.resolve());
+    const refreshTrees = vi.fn(() => Promise.resolve());
+    const { result } = renderHook(() => useFileOperations(refresh, refreshTrees, vi.fn(), vi.fn(), []));
+    await result.current.handleUndoFileOperation();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(refreshTrees).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Move session job to Archive'));
+  });
+
   it('reopens the photo in Develop when it was open there', async () => {
     vi.mocked(invoke).mockResolvedValueOnce(undoneRename);
     const handleImageSelect = vi.fn();

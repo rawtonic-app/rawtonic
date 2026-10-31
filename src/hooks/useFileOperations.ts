@@ -156,6 +156,13 @@ function offerSessionMove(offer: SessionMoveOffer) {
   });
 }
 
+/** The kind of a whole-session move's operation (`KIND` in
+ * src-tauri/src/session_move.rs). Its move, undo and redo are followed by
+ * the `session-moved` event (SessionWorkspace reopens the session at its
+ * new place, useTauriListeners refreshes another open library), not here:
+ * reading the list now would read the session where it no longer is. */
+const SESSION_MOVE = 'moveSession';
+
 /** `move_session`'s refusal while an export of the session waits, runs or
  * is paused (`EXPORTS_PENDING` in src-tauri/src/session_move.rs). */
 const EXPORTS_PENDING = 'Finish or cancel the exports of this session first';
@@ -617,6 +624,10 @@ export function useFileOperations(
         return;
       }
       warnAboutNote(summary);
+      if (summary.kind === SESSION_MOVE) {
+        notify.success(i18next.t('studio.library.fileOperations.undone', { label: summary.label, key: redoKey() }));
+        return;
+      }
       // Renamed and moved photographs and folders are back at their old
       // places: the selection, the open photograph, picks and thumbnails
       // go with them, as after a rename.
@@ -651,6 +662,10 @@ export function useFileOperations(
         return;
       }
       warnAboutNote(summary);
+      if (summary.kind === SESSION_MOVE) {
+        notify.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
+        return;
+      }
       // As after the operation itself: path-keyed state follows the moves.
       const reopen = followMoves(summary.moves ?? []);
       notify.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
