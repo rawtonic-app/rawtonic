@@ -1358,7 +1358,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 7;
+export const RENDER_VERSION = 8;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1374,6 +1374,16 @@ export const DEAD_PIXEL_RENDER_VERSION = 3;
  * recipe of a never-edited photo already carries `RENDER_VERSION`). */
 export const deadPixelAdjacent = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= DEAD_PIXEL_RENDER_VERSION;
+
+/** The render version from which a RAW's shadows keep their means through
+ * the black clip and the demosaic (crates/engine/src/image_loader.rs
+ * `BLACK_RENDER_VERSION`). */
+export const UNBIASED_BLACK_RENDER_VERSION = 8;
+
+/** Whether a recipe's RAW is developed with unbiased blacks, as the backend
+ * decides (`image_loader::decode_variant`). */
+export const unbiasedBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= UNBIASED_BLACK_RENDER_VERSION;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */

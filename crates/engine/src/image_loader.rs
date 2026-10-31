@@ -8,6 +8,7 @@ use base64::{Engine as _, engine::general_purpose};
 use exif::{Reader as ExifReader, Tag};
 use image::{DynamicImage, GenericImageView, ImageReader, imageops};
 use rawler::Orientation;
+pub use rawtonic_rawdecode::black_bias::BlackLevels;
 pub use rawtonic_rawdecode::hot_pixels::DeadTest;
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -153,6 +154,8 @@ pub struct BaseImageOptions {
     pub dead_test: DeadTest,
     /// The frame version developed (`DecodeVariant::frame`).
     pub frame: u32,
+    /// The black handling (`DecodeVariant::black`).
+    pub black: BlackLevels,
 }
 
 /// What a recipe asks of the RAW decode beyond the app's preferences. Bases
@@ -170,11 +173,22 @@ pub struct DecodeVariant {
     /// alike (`source_frame::effective`), so 0 on every file no frame
     /// version changes.
     pub frame: u32,
+    /// The black handling (black_bias.rs): `BlackLevels::Unbiased` from
+    /// `renderVersion` 8, so lifted high-ISO shadows keep their level and
+    /// colour.
+    pub black: BlackLevels,
 }
 
 /// The render version from which dead photosites must also be darker than
 /// their adjacent samples of the other colours (`DeadTest::Adjacent`).
 pub const DEAD_TEST_RENDER_VERSION: u64 = 3;
+
+/// The render version from which RAW shadows keep the means of their
+/// samples through the black clip and the demosaic, and a decoder's black
+/// level that the masked border contradicts is replaced
+/// (`BlackLevels::Unbiased`; notes:
+/// benchmark-results/hc-highlight-clip-2026-10-30/).
+pub const BLACK_RENDER_VERSION: u64 = 8;
 
 /// The decode variant of the recipe rendered on the source file at
 /// `source` (a never-edited one renders as a new edit,
@@ -197,6 +211,11 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
             crate::source_frame::effective(source, crate::source_frame::requested(adjustments))
         } else {
             0
+        },
+        black: if render_version >= BLACK_RENDER_VERSION {
+            BlackLevels::Unbiased
+        } else {
+            BlackLevels::Clipped
         },
     }
 }
@@ -232,6 +251,7 @@ impl BaseImageOptions {
             draft: None,
             dead_test: DeadTest::SameColour,
             frame: 0,
+            black: BlackLevels::Clipped,
         }
     }
 
@@ -248,11 +268,12 @@ impl BaseImageOptions {
     }
 
     /// The options for a photo whose recipe asks for `variant`: its colour
-    /// noise filter (`for_color_noise`), its test for dead photosites and
-    /// its frame.
+    /// noise filter (`for_color_noise`), its test for dead photosites, its
+    /// frame and its black handling.
     pub fn for_variant(mut self, variant: DecodeVariant) -> Self {
         self.dead_test = variant.dead_test;
         self.frame = variant.frame;
+        self.black = variant.black;
         self.for_color_noise(variant.multiscale)
     }
 
@@ -349,6 +370,7 @@ pub fn load_base_image_measured(
         draft,
         dead_test,
         frame,
+        black,
     } = options.clone();
     if is_raw_file(path_for_ext_check) {
         let cancelled = cancel_token
@@ -366,6 +388,7 @@ pub fn load_base_image_measured(
                 draft.as_deref(),
                 dead_test,
                 frame,
+                black,
             )
         })) {
             Ok(Ok(mut image)) => {
@@ -2079,7 +2102,7 @@ mod color_noise_option_tests {
 
 #[cfg(test)]
 mod decode_variant_tests {
-    use super::{DeadTest, decode_variant};
+    use super::{BlackLevels, DeadTest, decode_variant};
     use serde_json::json;
 
     #[test]
@@ -2093,6 +2116,11 @@ mod decode_variant_tests {
         // A never-edited photo renders as a new edit.
         assert_eq!(test(serde_json::Value::Null), DeadTest::Adjacent);
         assert_eq!(test(json!({})), DeadTest::Adjacent);
+        let black = |recipe| decode_variant(&recipe, "/p/A.NEF").black;
+        assert_eq!(black(json!({ "exposure": 1 })), BlackLevels::Clipped);
+        assert_eq!(black(json!({ "renderVersion": 7 })), BlackLevels::Clipped);
+        assert_eq!(black(json!({ "renderVersion": 8 })), BlackLevels::Unbiased);
+        assert_eq!(black(json!({})), BlackLevels::Unbiased);
         // The colour noise filter is decided as before.
         assert!(decode_variant(&json!({}), "/p/A.NEF").multiscale);
         assert!(!decode_variant(&json!({ "colorNoiseReduction": 25 }), "/p/A.NEF").multiscale);

@@ -52,6 +52,7 @@ pub fn develop_raw_image_with(
         None,
         crate::hot_pixels::DeadTest::default(),
         0,
+        crate::black_bias::BlackLevels::default(),
     )
 }
 
@@ -73,9 +74,10 @@ impl std::fmt::Debug for DraftSink {
 /// instead of a separate fast decode beside the full one, which competed
 /// with it for the cores and decoded the file twice. The full development
 /// is the same with or without a sink, and starts once the sink returns.
-/// `dead_test` picks the test for dead photosites (hot_pixels.rs; the
-/// recipe's `renderVersion` decides it), `frame_version` the frame
-/// (source_frame.rs; the recipe's `sourceFrameVersion`).
+/// `dead_test` picks the test for dead photosites (hot_pixels.rs) and
+/// `black` the black handling (black_bias.rs; the recipe's `renderVersion`
+/// decides both), `frame_version` the frame (source_frame.rs; the recipe's
+/// `sourceFrameVersion`).
 #[allow(clippy::too_many_arguments)]
 pub fn develop_raw_image_with_draft(
     file_bytes: &[u8],
@@ -87,6 +89,7 @@ pub fn develop_raw_image_with_draft(
     draft: Option<&DraftSink>,
     dead_test: crate::hot_pixels::DeadTest,
     frame_version: u32,
+    black: crate::black_bias::BlackLevels,
 ) -> Result<DynamicImage> {
     let (developed_image, orientation) = develop_internal(
         file_bytes,
@@ -98,6 +101,7 @@ pub fn develop_raw_image_with_draft(
         draft,
         dead_test,
         frame_version,
+        black,
     )?;
     #[cfg(feature = "performance-profiling")]
     let _orientation_stage = crate::performance::PerformanceStage::new("raw_orientation");
@@ -192,6 +196,7 @@ fn develop_internal(
     draft: Option<&DraftSink>,
     dead_test: crate::hot_pixels::DeadTest,
     frame_version: u32,
+    black: crate::black_bias::BlackLevels,
 ) -> Result<(DynamicImage, Orientation)> {
     let check_cancel = || -> Result<()> {
         if let Some((tracker, generation)) = &cancel_token
@@ -287,6 +292,9 @@ fn develop_internal(
         _ => (false, true),
     };
 
+    if black == crate::black_bias::BlackLevels::Unbiased {
+        use_masked_black(&mut raw_image);
+    }
     // Canon sRAW/mRAW is YCbCr that rawler converts to RGB which is already
     // black-subtracted; rawler still applies the sensor black (~512), which
     // crushed shadows and tinted them teal (5D Mark IV mRAW, 2026-10-02).
@@ -420,6 +428,16 @@ fn develop_internal(
             None => log::info!("Mosaic denoising skipped: not a 2 x 2 Bayer mosaic"),
         }
     }
+    // Signed means of the mosaic's colours before it is clipped at black
+    // (black_bias.rs); not for drafts or fast developments, nor beside CFA
+    // gain maps (they change the mosaic after the clip).
+    let shadow_means = (black == crate::black_bias::BlackLevels::Unbiased
+        && is_rgb_mosaic
+        && !fast_demosaic
+        && superccd.is_none()
+        && cfa_opcodes.is_empty())
+    .then(|| shadow_means_of(&raw_image))
+    .flatten();
     let clip_levels = if is_rgb_mosaic {
         match (&raw_image.photometric, &raw_image.data) {
             (RawPhotometricInterpretation::Cfa(config), rawler::RawImageData::Integer(samples)) => {
@@ -719,7 +737,7 @@ fn develop_internal(
         draft_developer
             .steps
             .retain(|&step| step != ProcessingStep::SRgb);
-        let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true, &cancelled)
+        let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true, &cancelled, None)
             .and_then(|own| match own {
                 Some(intermediate) => Ok(intermediate),
                 None => Ok(draft_developer.develop_intermediate(&draft_raw)?),
@@ -760,7 +778,13 @@ fn develop_internal(
         let own = if is_linear_format {
             None
         } else {
-            develop_rgb_mosaic(&mut raw_image, rescale_factor, fast_demosaic, &cancelled)?
+            develop_rgb_mosaic(
+                &mut raw_image,
+                rescale_factor,
+                fast_demosaic,
+                &cancelled,
+                shadow_means.as_ref(),
+            )?
         };
         match own {
             Some(intermediate) => intermediate,
@@ -1717,11 +1741,105 @@ fn sony_linear_white(
 /// `None` for other layouts or without a usable colour matrix; rawler's
 /// develop handles those. With `draft`, X-Trans mosaics are binned 3 x 3
 /// instead of demosaiced; other drafts return `None` and use rawler's.
+/// The black levels of a 2 × 2 repeat read from the masked sensor border
+/// (black_bias.rs `masked_black`) where the camera has one and the
+/// decoder's levels spread over the repeat's positions by more than
+/// `MAX_EXTRA_SPREAD` beyond the border's own spread: per-colour levels
+/// that the photosites do not show (EOS 7D maker notes at ISO 12800:
+/// 2032-2061, its border 2044-2048, Adobe's level 2047). The border's
+/// column banding (up to ±10 levels at high ISO) leaves its level a few
+/// levels uncertain, so a decoder level within that stays.
+fn use_masked_black(raw_image: &mut RawImage) {
+    const MAX_EXTRA_SPREAD: f32 = 8.0;
+    let RawPhotometricInterpretation::Cfa(config) = &raw_image.photometric else {
+        return;
+    };
+    if raw_image.cpp != 1
+        || raw_image.blackareas.is_empty()
+        || config.cfa.width != 2
+        || config.cfa.height != 2
+        || !config.cfa.is_rgb()
+    {
+        return;
+    }
+    let (width, height) = (raw_image.width, raw_image.height);
+    let active = raw_image
+        .active_area
+        .map(|a| (a.p.x, a.p.y, a.d.w, a.d.h))
+        .unwrap_or((0, 0, 0, 0));
+    let areas: Vec<_> = raw_image
+        .blackareas
+        .iter()
+        .map(|a| (a.p.x, a.p.y, a.d.w, a.d.h))
+        .collect();
+    let masked = match &raw_image.data {
+        rawler::RawImageData::Integer(v) => {
+            crate::black_bias::masked_black(&areas, active, width, height, 2, 2, |i| v[i] as f32)
+        }
+        rawler::RawImageData::Float(v) => {
+            crate::black_bias::masked_black(&areas, active, width, height, 2, 2, |i| v[i])
+        }
+    };
+    let Some(masked) = masked else {
+        return;
+    };
+    let decoder = raw_image.blacklevel.as_bayer_array();
+    let spread = |v: &[f32]| {
+        v.iter().copied().fold(f32::MIN, f32::max) - v.iter().copied().fold(f32::MAX, f32::min)
+    };
+    if spread(&decoder) > spread(&masked) + MAX_EXTRA_SPREAD {
+        log::info!("Black level from the masked border: {masked:?} (decoder {decoder:?})");
+        raw_image.blacklevel = rawler::rawimage::BlackLevel::new(&masked, 2, 2, 1);
+    }
+}
+
+/// `ShadowMeans` of the active area of an RGB mosaic, in the units of
+/// `apply_scaling` (black 0, the scaling's white 1), signed.
+fn shadow_means_of(raw_image: &RawImage) -> Option<crate::black_bias::ShadowMeans> {
+    let RawPhotometricInterpretation::Cfa(config) = &raw_image.photometric else {
+        return None;
+    };
+    let roi = raw_image.active_area.unwrap_or_else(|| {
+        rawler::imgop::Rect::new(rawler::imgop::Point::new(0, 0), raw_image.dim())
+    });
+    let width = raw_image.width;
+    let levels = raw_image.blacklevel.as_bayer_array();
+    let whites = raw_image.whitelevel.as_bayer_array();
+    // `apply_scaling` works on 2 × 2 positions from the buffer origin.
+    let pos = |r: usize, c: usize| (r % 2) * 2 + c % 2;
+    let scale: [f32; 4] = std::array::from_fn(|i| 1.0 / (whites[i] - levels[i]).max(1.0));
+    let cfa = &config.cfa;
+    let color = |r: usize, c: usize| cfa.color_at(roi.p.y + r, roi.p.x + c).min(2);
+    Some(match &raw_image.data {
+        rawler::RawImageData::Integer(v) => crate::black_bias::ShadowMeans::measure(
+            roi.d.w,
+            roi.d.h,
+            |r, c| {
+                let (y, x) = (roi.p.y + r, roi.p.x + c);
+                let i = pos(y, x);
+                (v[y * width + x] as f32 - levels[i]) * scale[i]
+            },
+            color,
+        ),
+        rawler::RawImageData::Float(v) => crate::black_bias::ShadowMeans::measure(
+            roi.d.w,
+            roi.d.h,
+            |r, c| {
+                let (y, x) = (roi.p.y + r, roi.p.x + c);
+                let i = pos(y, x);
+                (v[y * width + x] - levels[i]) * scale[i]
+            },
+            color,
+        ),
+    })
+}
+
 fn develop_rgb_mosaic(
     raw_image: &mut RawImage,
     rescale_factor: f32,
     draft: bool,
     cancelled: crate::demosaic::Cancel,
+    shadow_means: Option<&crate::black_bias::ShadowMeans>,
 ) -> Result<Option<Intermediate>> {
     use rawler::imgop::matrix::{multiply, normalize, pseudo_inverse};
     use rawler::imgop::xyz::{Illuminant, SRGB_TO_XYZ_D65};
@@ -1803,6 +1921,10 @@ fn develop_rgb_mosaic(
     };
     let (out_w, out_h) = (roi_w / bin, roi_h / bin);
     drop(mosaic);
+    if let Some(means) = shadow_means.filter(|_| bin == 1) {
+        let changed = means.restore(&mut rgb, roi_w, [0, 1, 2].map(|k| wb[k] * rescale_factor));
+        log::info!("Shadow means restored on {changed} pixels");
+    }
     // Tile buffers were freed on the worker threads, whose allocator heaps
     // keep those pages until they collect.
     rayon::broadcast(|_| crate::allocator::release_freed_memory());
@@ -2291,6 +2413,7 @@ mod draft_tests {
                 Some(&sink),
                 crate::hot_pixels::DeadTest::default(),
                 0,
+                crate::black_bias::BlackLevels::default(),
             )
             .unwrap();
             let full_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -2358,6 +2481,7 @@ mod draft_tests {
                 Some(&sink),
                 crate::hot_pixels::DeadTest::default(),
                 0,
+                crate::black_bias::BlackLevels::default(),
             );
             let full = FULL_DEVELOPMENTS.with(std::cell::Cell::get) - before;
             let name = path.file_name().unwrap().to_string_lossy().into_owned();

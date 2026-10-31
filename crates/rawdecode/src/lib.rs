@@ -3,6 +3,7 @@
 //! defaults need. Derived from RapidRAW (commit a82251f, AGPL-3.0); no Tauri,
 //! catalog or develop-model dependencies.
 
+pub mod black_bias;
 pub mod camera_crop;
 pub mod camera_exposure;
 pub mod camera_matrices;

@@ -48,6 +48,9 @@ pub struct LoadImageResult {
     /// The `sourceFrameVersion` a first edit made on what is shown carries
     /// when it is not the newest (`new_edit_frame`); None otherwise.
     pub new_edit_frame: Option<u32>,
+    /// The source was developed with `BlackLevels::Unbiased`
+    /// (`renderVersion` 8); None for preview data.
+    pub unbiased_black: Option<bool>,
     /// The RAW data could not be developed and the camera's embedded preview
     /// is shown instead (an unsupported camera or RAW mode, a damaged file).
     pub developed_from_preview: bool,
@@ -634,6 +637,9 @@ pub fn decoded_cache_key(
     if variant.frame > 0 {
         key.push_str(&format!("\u{1}frame {}", variant.frame));
     }
+    if variant.black == BlackLevels::Unbiased {
+        key.push_str("\u{1}black-unbiased");
+    }
     key
 }
 
@@ -715,7 +721,8 @@ fn clear_derived_caches(state: &AppState) {
 /// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
 /// its stored recipe's) and for its dead-photosite test
 /// (`dead_pixel_adjacent`: `DeadTest::Adjacent`; None: its stored
-/// recipe's), and makes
+/// recipe's) and black handling (`unbiased_black`: `BlackLevels::Unbiased`;
+/// None: its stored recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
 /// The editor calls it when the recipe's AI Denoise amount or colour noise
 /// filter differs from the source's (src/utils/aiDenoise.ts). The frame
@@ -723,12 +730,14 @@ fn clear_derived_caches(state: &AppState) {
 /// opened again instead (`load_image`), and a develop that would change the
 /// size fails rather than replace the source under the editor's overlays.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn apply_ai_denoise(
     path: String,
     amount: f32,
     version: Option<u8>,
     multiscale: Option<bool>,
     dead_pixel_adjacent: Option<bool>,
+    unbiased_black: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<f32, String> {
@@ -753,6 +762,11 @@ pub async fn apply_ai_denoise(
             None => stored.dead_test,
         },
         frame: open.and_then(|(frame, _)| frame).unwrap_or(stored.frame),
+        black: match unbiased_black {
+            Some(true) => BlackLevels::Unbiased,
+            Some(false) => BlackLevels::Clipped,
+            None => stored.black,
+        },
     };
     let recipe =
         serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version.unwrap_or(1) });
@@ -1305,6 +1319,7 @@ pub async fn load_image(
         new_edit_frame: is_raw
             .then(|| new_edit_frame(&source_path_str, variant.frame))
             .flatten(),
+        unbiased_black: Some(variant.black == BlackLevels::Unbiased),
         developed_from_preview: preview_fallback.is_some(),
         camera_help: preview_fallback
             .as_deref()
@@ -1402,6 +1417,7 @@ async fn open_offline(
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
             new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
+            unbiased_black: None,
             developed_from_preview: false,
             camera_help: false,
         }));
@@ -1457,6 +1473,7 @@ async fn open_offline(
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,
         new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
+        unbiased_black: None,
         developed_from_preview: false,
         camera_help: false,
     }))
@@ -1554,6 +1571,7 @@ mod activation_tests {
             multiscale,
             dead_test,
             frame: 0,
+            black: BlackLevels::Clipped,
         };
         let plain = decoded_cache_key("/p/A.NEF", None, DecodeVariant::default());
         let multiscale = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::SameColour));
@@ -1585,6 +1603,11 @@ mod activation_tests {
             framed,
             decoded_cache_key("/p/A.CR3", None, ms(true, DeadTest::Adjacent))
         );
+        let unbiased = DecodeVariant {
+            black: BlackLevels::Unbiased,
+            ..ms(true, DeadTest::Adjacent)
+        };
+        assert_ne!(decoded_cache_key("/p/A.NEF", None, unbiased), adjacent);
     }
 
     #[test]
@@ -1601,6 +1624,7 @@ mod activation_tests {
                 multiscale: true,
                 dead_test: DeadTest::Adjacent,
                 frame: 0,
+                black: BlackLevels::Unbiased,
             }
         );
         let settings = AppSettings::default();
@@ -1616,6 +1640,7 @@ mod activation_tests {
             multiscale,
             dead_test: DeadTest::SameColour,
             frame: 0,
+            black: BlackLevels::Clipped,
         };
         assert_eq!(base_options(&settings, variant(true)).color_nr_amount, 0.0);
         assert_eq!(
@@ -1656,6 +1681,19 @@ mod activation_tests {
         assert_eq!(
             stored_decode_variant(&format!("{raw_str}?vc=c2")).dead_test,
             DeadTest::Adjacent
+        );
+        // ... and the clipped blacks until it is 8.
+        assert_eq!(
+            stored_decode_variant(&format!("{raw_str}?vc=c2")).black,
+            BlackLevels::Clipped
+        );
+        write(
+            &dir.path().join("A.NEF.c3.rrdata"),
+            serde_json::json!({ "colorNoiseReduction": 25, "renderVersion": 8 }),
+        );
+        assert_eq!(
+            stored_decode_variant(&format!("{raw_str}?vc=c3")).black,
+            BlackLevels::Unbiased
         );
     }
 
