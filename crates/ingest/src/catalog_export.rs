@@ -32,6 +32,9 @@ pub struct Options {
     /// The new catalog's name (shown in the app).
     pub name: String,
     pub include_originals: bool,
+    /// Leave out the photographs another library owns (`owned_elsewhere`)
+    /// instead of refusing the export.
+    pub leave_out_owned_elsewhere: bool,
 }
 
 /// A photograph of the new catalog: where its original is in the source
@@ -63,6 +66,39 @@ pub struct Receipt {
     pub previews: usize,
     pub missing_resources: usize,
     pub missing_current_resources: usize,
+    /// Photographs left out because another library owns them.
+    pub left_out: usize,
+}
+
+/// A chosen photograph whose file lies inside another library's folder (a
+/// session's photograph a catalog added where it is): that library holds
+/// its current edit, so the source's record of it may be older.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnedElsewhere {
+    pub id: String,
+    pub path: PathBuf,
+    /// The library that owns it.
+    pub library: PathBuf,
+}
+
+/// The photographs `ids` of `source` that another library owns. They are
+/// never exported: their latest edit is not in `source`.
+pub fn owned_elsewhere(source: &Library, ids: &[String]) -> Result<Vec<OwnedElsewhere>> {
+    let mut out = Vec::new();
+    for id in ids {
+        let path = source.asset(id)?.path;
+        if let Some(library) = rawtonic_catalog::session_for(&path)
+            && library != source.directory
+        {
+            out.push(OwnedElsewhere {
+                id: id.clone(),
+                path,
+                library,
+            });
+        }
+    }
+    Ok(out)
 }
 
 /// Checks the destination: a new folder (or an empty existing one) whose
@@ -123,6 +159,42 @@ pub fn export_catalog(
     let stage_root = staged.path().canonicalize()?;
     let catalog = Library::subset_from(&source, &stage_root, &options.name, ids)?;
     catalog.check_integrity()?;
+    // Photographs another library owns: their latest edit is there, so
+    // what this library holds of them may be older. Never exported.
+    let owned: Vec<(String, PathBuf, PathBuf)> = catalog
+        .assets(None)?
+        .into_iter()
+        .filter_map(|asset| {
+            let path = match asset.path.strip_prefix(&stage_root) {
+                Ok(relative) => source.join(relative),
+                Err(_) => asset.path.clone(),
+            };
+            let library = rawtonic_catalog::session_for(&path)?;
+            (library != source).then_some((asset.id, path, library))
+        })
+        .collect();
+    if !owned.is_empty() {
+        ensure!(
+            options.leave_out_owned_elsewhere,
+            "{} photographs belong to another project or catalog; export them from there:\n{}",
+            owned.len(),
+            owned
+                .iter()
+                .map(|(_, path, library)| format!("{} ({})", path.display(), library.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let left: Vec<String> = unique
+            .iter()
+            .filter(|id| !owned.iter().any(|(owned, _, _)| owned == **id))
+            .map(|id| (*id).clone())
+            .collect();
+        ensure!(
+            !left.is_empty(),
+            "All chosen photographs belong to another project or catalog; export them from there"
+        );
+        catalog.retain_only(&left)?;
+    }
     let assets = catalog.assets(None)?;
     // Where each original is: a photograph inside the source library is at
     // its place there (the snapshot sees it relative to the stage).
@@ -135,14 +207,15 @@ pub fn export_catalog(
         .collect();
     let mut receipt = Receipt {
         photographs: assets.len(),
+        left_out: owned.len(),
         ..Receipt::default()
     };
     let mut exported = Vec::with_capacity(assets.len());
-    // A photograph inside a library's folder belongs to that library (the
-    // source's own copies, a session's photographs, also those a catalog
-    // added where they are): a catalog referring to it would edit it in
-    // that library's name. It is always copied; only photographs outside
-    // any library are referred to where they are.
+    // A photograph inside the source library's folder (its own copies, all
+    // of a session's) belongs to it: a catalog referring to it would edit
+    // it in the source's name. It is always copied; only photographs
+    // outside any library are referred to where they are (those another
+    // library owns were left out above).
     let copied: Vec<bool> = originals
         .iter()
         .map(|path| options.include_originals || rawtonic_catalog::session_for(path).is_some())

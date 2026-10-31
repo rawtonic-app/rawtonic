@@ -24,6 +24,7 @@ pub async fn library_export_catalog(
     destination: String,
     include_originals: bool,
     include_previews: bool,
+    leave_out_owned_elsewhere: bool,
     app: tauri::AppHandle,
 ) -> Result<Receipt, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -51,6 +52,7 @@ pub async fn library_export_catalog(
                     &Options {
                         name,
                         include_originals,
+                        leave_out_owned_elsewhere,
                     },
                     &CANCEL_EXPORT,
                     |progress| {
@@ -67,6 +69,36 @@ pub async fn library_export_catalog(
                 .map_err(|e| format!("{e:#}"))
             },
         )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Of the photographs at `paths` in the library at `source`: how many
+/// there are and those another library owns (Export as Catalog leaves them
+/// out or refuses: their latest edit is in that library).
+#[derive(serde::Serialize)]
+pub struct OwnedReport {
+    total: usize,
+    owned: Vec<rawtonic_ingest::catalog_export::OwnedElsewhere>,
+}
+
+#[tauri::command]
+pub async fn library_export_catalog_owned(
+    source: String,
+    paths: Vec<String>,
+) -> Result<OwnedReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = rawtonic_catalog::Library::open(Path::new(&source)).map_err(|e| e.to_string())?;
+        let mut ids = crate::session_bridge::asset_ids(&lib, &paths)?;
+        ids.sort();
+        ids.dedup();
+        let owned = rawtonic_ingest::catalog_export::owned_elsewhere(&lib, &ids)
+            .map_err(|e| format!("{e:#}"))?;
+        Ok(OwnedReport {
+            total: ids.len(),
+            owned,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -173,6 +205,7 @@ mod tests {
                 &Options {
                     name: name.into(),
                     include_originals: false,
+                    leave_out_owned_elsewhere: false,
                 },
                 &AtomicBool::new(false),
                 |_| {},

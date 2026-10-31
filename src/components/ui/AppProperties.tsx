@@ -56,6 +56,7 @@ export enum Invokes {
   LibraryCopy = 'library_copy',
   LibraryExportCatalog = 'library_export_catalog',
   LibraryExportCatalogCancel = 'library_export_catalog_cancel',
+  LibraryExportCatalogOwned = 'library_export_catalog_owned',
   SessionCancelIngest = 'session_cancel_ingest',
   SessionLastDirectory = 'session_last_directory',
   SessionLast = 'session_last',

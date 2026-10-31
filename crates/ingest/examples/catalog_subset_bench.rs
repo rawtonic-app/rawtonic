@@ -61,6 +61,7 @@ fn main() -> anyhow::Result<()> {
         &Options {
             name: "Job".into(),
             include_originals: false,
+            leave_out_owned_elsewhere: false,
         },
         &AtomicBool::new(false),
         |_| {},

@@ -31,6 +31,7 @@ export interface CatalogExportReceipt {
   previews: number;
   missingResources: number;
   missingCurrentResources: number;
+  leftOut: number;
 }
 export interface CatalogExportRequest {
   source: string;
@@ -38,7 +39,11 @@ export interface CatalogExportRequest {
   destination: string;
   includeOriginals: boolean;
   includePreviews: boolean;
+  /** Leave out photos another project or catalog owns (else refused). */
+  leaveOutOwnedElsewhere: boolean;
 }
+/** Photos of the export whose file lies in another library's folder. */
+interface OwnedReport { total: number; owned: { id: string; path: string; library: string }[] }
 
 /** The activity centre's entry of a running export. */
 export const CATALOG_EXPORT_ACTIVITY = "catalog-export";
@@ -76,6 +81,7 @@ export async function runCatalogExport(request: CatalogExportRequest, onOpen: (d
       receipt.originalsCopied ? t("session.catalogExport.originalsCopied", { count: receipt.originalsCopied }) : t("session.catalogExport.referenced"),
       receipt.previews ? t("session.catalogExport.previews", { count: receipt.previews }) : "",
       receipt.offline ? t("session.catalogExport.offline", { count: receipt.offline }) : "",
+      receipt.leftOut ? t("session.catalogExport.leftOut", { count: receipt.leftOut }) : "",
       receipt.missingResources ? t("session.transfer.missingResources", {
         files: receipt.missingResources, current: receipt.missingCurrentResources,
       }) : "",
@@ -130,6 +136,8 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
   const [includePreviews, setIncludePreviews] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** Photos another library owns, waiting for "Export the others". */
+  const [owned, setOwned] = useState<OwnedReport["owned"] | null>(null);
   const paths = scope === "selected" ? selected : shown;
   const invalidFolder = !folder.trim() || [".", ".."].includes(folder.trim()) || /[/\\:*?"<>|]/.test(folder);
 
@@ -146,15 +154,29 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
     } catch (e) { setError(String(e)); }
   }
 
-  async function start() {
+  const libraries = (list: OwnedReport["owned"]) =>
+    [...new Set(list.map((photo) => photo.library.split(/[\\/]/).pop()))].join(", ");
+
+  async function start(leaveOutOwnedElsewhere = false) {
     setBusy(true); setError("");
     try {
       // The export reads the library's database: every edit and metadata
       // change made so far goes there first.
       const failures = await flushBeforeQuit();
       if (failures.length) throw new Error(t("session.transfer.unsaved", { files: failures.join(", ") }));
+      if (!leaveOutOwnedElsewhere) {
+        // Photos another project or catalog owns have their latest edit
+        // there: never exported, so the photographer decides first.
+        const report = await invoke<OwnedReport>(Invokes.LibraryExportCatalogOwned, { source: directory, paths });
+        if (report.owned.length) {
+          if (report.owned.length >= report.total) throw new Error(t("session.catalogExport.ownedAll", { libraries: libraries(report.owned) }));
+          setOwned(report.owned);
+          setBusy(false);
+          return;
+        }
+      }
       const destination = await join(parent, folder.trim());
-      void runCatalogExport({ source: directory, paths, destination, includeOriginals, includePreviews }, onOpen);
+      void runCatalogExport({ source: directory, paths, destination, includeOriginals, includePreviews, leaveOutOwnedElsewhere }, onOpen);
       onClose();
     } catch (e) {
       setError(String(e));
@@ -196,10 +218,20 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
         </label>
         <p className="session-create-description">{t("session.catalogExport.previewsHint")}</p>
         <p className="session-create-description">{t("session.catalogExport.includes")}</p>
+        {owned && (
+          <div className="session-error" role="alertdialog" aria-label={t("session.catalogExport.ownedTitle", { count: owned.length })}>
+            <strong>{t("session.catalogExport.ownedTitle", { count: owned.length })}</strong>
+            <p>{t("session.catalogExport.ownedHint", { libraries: libraries(owned) })}</p>
+            <button type="button" className="session-action" onClick={() => setOwned(null)}>{t("session.progress.cancel")}</button>{" "}
+            <button type="button" className="session-action session-primary" onClick={() => { setOwned(null); void start(true); }}>
+              {t("session.catalogExport.exportOthers")}
+            </button>
+          </div>
+        )}
         {error && <p className="session-error" role="alert"><OperationError detail={error} /></p>}
         <div className="session-dialog-footer">
           <span>{t("session.catalogExport.sourceUnchanged")}</span>
-          <button type="submit" className="session-action session-primary" disabled={!paths.length || !parent || invalidFolder || busy}>
+          <button type="submit" className="session-action session-primary" disabled={!paths.length || !parent || invalidFolder || busy || !!owned}>
             {t("session.catalogExport.export", { count: paths.length })}
           </button>
         </div>

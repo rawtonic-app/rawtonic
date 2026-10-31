@@ -27,6 +27,7 @@ fn options(include_originals: bool) -> Options {
     Options {
         name: "Job".into(),
         include_originals,
+        leave_out_owned_elsewhere: false,
     }
 }
 
@@ -452,7 +453,7 @@ fn an_offline_original_is_exported_by_reference_but_not_copied() {
 }
 
 #[test]
-fn photographs_inside_any_library_are_always_copied() {
+fn own_photographs_are_copied_and_another_librarys_never_exported() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().canonicalize().unwrap();
     // A session's photographs belong to it: a catalog referring to them
@@ -488,20 +489,68 @@ fn photographs_inside_any_library_are_always_copied() {
     assert_eq!(receipt.originals_copied, 1);
     let a = Library::open(&root.join("A")).unwrap();
     assert!(a.asset(&id).unwrap().path.starts_with(&a.directory));
-    let receipt = export_catalog(
+    // Its latest edit is in that session, not here: never exported. The
+    // export is refused, or leaves it out when asked.
+    let in_other = other.add_asset(&theirs).unwrap().id;
+    other
+        .save_editor_state(&in_other, &json!({"adjustments": {"exposure": 2}}))
+        .unwrap();
+    let chosen = [own_id.clone(), out_id.clone(), theirs_id.clone()];
+    let owned = rawtonic_ingest::catalog_export::owned_elsewhere(&main, &chosen).unwrap();
+    assert_eq!(owned.len(), 1);
+    assert_eq!(owned[0].library, other.directory);
+    let error = export_catalog(
         &main.directory,
-        &[own_id.clone(), out_id.clone(), theirs_id.clone()],
+        &chosen,
         &root.join("B"),
         &options(false),
         &go(),
         |_| {},
         no_stage,
     )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("belong to another project or catalog"),
+        "{error}"
+    );
+    assert!(!root.join("B").exists());
+    let only_theirs = std::slice::from_ref(&theirs_id);
+    let mut leave_out = options(false);
+    leave_out.leave_out_owned_elsewhere = true;
+    assert!(
+        export_catalog(
+            &main.directory,
+            only_theirs,
+            &root.join("B"),
+            &leave_out,
+            &go(),
+            |_| {},
+            no_stage
+        )
+        .is_err()
+    );
+    let receipt = export_catalog(
+        &main.directory,
+        &chosen,
+        &root.join("B"),
+        &leave_out,
+        &go(),
+        |_| {},
+        no_stage,
+    )
     .unwrap();
-    assert_eq!(receipt.originals_copied, 2);
+    assert_eq!(
+        (
+            receipt.photographs,
+            receipt.left_out,
+            receipt.originals_copied
+        ),
+        (2, 1, 1)
+    );
     let b = Library::open(&root.join("B")).unwrap();
     assert!(b.asset(&own_id).unwrap().path.starts_with(&b.directory));
-    assert!(b.asset(&theirs_id).unwrap().path.starts_with(&b.directory));
+    assert!(b.asset(&theirs_id).is_err());
     assert_eq!(fs::read(&theirs).unwrap(), b"another session's");
     assert_eq!(b.asset(&out_id).unwrap().path, outside);
     assert_eq!(fs::read(&file).unwrap(), b"session original");

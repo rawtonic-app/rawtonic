@@ -104,7 +104,7 @@ impl Library {
     /// source library rather than to its photographs: queued jobs, the file
     /// operation journal, the watched folder and the folder drive cache.
     /// One transaction. Every id in `keep` must be a photograph here.
-    pub(crate) fn retain_only(&self, keep: &[String]) -> Result<()> {
+    pub fn retain_only(&self, keep: &[String]) -> Result<()> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         tx.execute_batch("CREATE TEMP TABLE keep_assets(id TEXT PRIMARY KEY)")?;
         {
