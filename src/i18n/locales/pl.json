@@ -76,6 +76,17 @@
       "starting": "Rozpoczynanie importu…"
     },
     "indexing": "Indeksowanie biblioteki",
+    "leftovers": {
+      "kept_one": "Pozostawiono {{count}} niedokończony folder przerwanego zadania",
+      "kept_few": "Pozostawiono {{count}} niedokończone foldery przerwanego zadania",
+      "kept_many": "Pozostawiono {{count}} niedokończonych folderów przerwanego zadania",
+      "kept_other": "Pozostawiono {{count}} niedokończone foldery przerwanego zadania",
+      "removed_one": "Usunięto {{size}} niedokończonych kopii przerwanego zadania",
+      "removed_few": "Usunięto {{size}} niedokończonych kopii przerwanych zadań",
+      "removed_many": "Usunięto {{size}} niedokończonych kopii przerwanych zadań",
+      "removed_other": "Usunięto {{size}} niedokończonych kopii przerwanych zadań",
+      "removedDetail": "Usunięto tylko kopie utworzone przez przerwane zadanie; oryginały i ukończone pliki pozostały nietknięte."
+    },
     "notice": "Coś wymaga uwagi",
     "progress": "Gotowe w {{percent}} %",
     "resume": "Wznów",

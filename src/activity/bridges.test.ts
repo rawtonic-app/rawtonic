@@ -214,3 +214,22 @@ it('reports a failed duplicate comparison until dismissed', async () => {
   });
   expect(entry('duplicates:5')).toMatchObject({ status: 'failure', title: 'Finding duplicates failed', detail: 'disk gone' });
 });
+
+it('says once what an interrupted job left and was removed, and names staging folders left in place', async () => {
+  await vi.waitFor(() => expect(handlers.has('leftovers-removed')).toBe(true));
+  act(() =>
+    handlers.get('leftovers-removed')!({
+      payload: { tempFiles: 2, folders: 1, bytes: 2_400_000_000, kept: ['/cat/Photos/.rawtonic-import-old'] },
+    }),
+  );
+  expect(entry('leftovers:removed')).toMatchObject({
+    status: 'done',
+    source: 'files',
+    title: 'Removed 2.4 GB of unfinished copies from interrupted jobs',
+  });
+  expect(entry('leftovers:kept')).toMatchObject({
+    status: 'warning',
+    title: '1 unfinished folder of an interrupted job was left in place',
+    detail: '/cat/Photos/.rawtonic-import-old',
+  });
+});

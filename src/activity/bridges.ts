@@ -10,6 +10,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
 import { Invokes } from '../components/ui/AppProperties';
+import { formatBytes } from '../utils/previews';
 import { useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
@@ -295,6 +296,30 @@ export function syncDuplicatesFinished(finished: DuplicatesFinished) {
   });
 }
 
+/** Mirrors `LeftoversReport` in src-tauri/src/folder_sync.rs. */
+export type LeftoversReport = { tempFiles: number; folders: number; bytes: number; kept: string[] };
+
+/** What an interrupted job left (a crash, a kill) was removed at the next
+ * start or export (G66): said once, with the space it freed; staging
+ * folders that could not be removed safely are a warning naming them. */
+export function syncLeftovers({ tempFiles, folders, bytes, kept }: LeftoversReport) {
+  const activity = useActivityStore.getState();
+  if (folders > 0 || tempFiles > 0)
+    activity.report('done', {
+      id: 'leftovers:removed',
+      source: 'files',
+      title: i18n.t('activity.leftovers.removed', { size: formatBytes(bytes), count: folders + tempFiles }),
+      detail: i18n.t('activity.leftovers.removedDetail'),
+    });
+  if (kept.length > 0)
+    activity.report('warning', {
+      id: 'leftovers:kept',
+      source: 'files',
+      title: i18n.t('activity.leftovers.kept', { count: kept.length }),
+      detail: kept.join('\n'),
+    });
+}
+
 /** Tauri's `listen`, quiet without the native side (tests, `npm run dev`). */
 function listenSafely<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   return Promise.resolve()
@@ -354,6 +379,7 @@ export function startActivityBridges(): () => void {
     }),
     listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
+    listenSafely<LeftoversReport>('leftovers-removed', syncLeftovers),
     listenSafely<DuplicatesFinished>(DUPLICATES_FINISHED, syncDuplicatesFinished),
     // The eye check's background pass (`face_eyes`): progress and Cancel.
     listenSafely<{ done: number; total: number }>('eye-check-progress', ({ done, total }) => {

@@ -22,9 +22,9 @@ pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::
     use std::io::Write;
     let path = path.as_ref();
     let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
-    let builder = tempfile::Builder::new();
-    #[cfg(unix)]
-    let mut builder = builder;
+    let prefix = rawtonic_metadata::temp::prefix_for(path);
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(&prefix);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

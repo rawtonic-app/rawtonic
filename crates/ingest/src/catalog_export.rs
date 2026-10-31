@@ -68,6 +68,9 @@ pub struct Receipt {
     pub missing_current_resources: usize,
     /// Photographs left out because another library owns them.
     pub left_out: usize,
+    /// What earlier, interrupted exports into the same folder left and this
+    /// one removed (`rawtonic_metadata::staging`).
+    pub abandoned: rawtonic_metadata::staging::Removed,
 }
 
 /// A chosen photograph whose file lies inside another library's folder (a
@@ -154,9 +157,16 @@ pub fn export_catalog(
     let unique: HashSet<&String> = ids.iter().collect();
     ensure!(!unique.is_empty(), "Choose at least one photograph");
     check(cancel)?;
-    let staged = tempfile::Builder::new()
-        .prefix(".rawtonic-export-")
-        .tempdir_in(&parent)?;
+    // What an export killed here before left (G66), then this one's stage.
+    let abandoned = rawtonic_metadata::staging::remove_abandoned(
+        &parent,
+        rawtonic_metadata::staging::CATALOG_EXPORT,
+    );
+    let staged = rawtonic_metadata::staging::Staging::new_in(
+        &parent,
+        rawtonic_metadata::staging::CATALOG_EXPORT,
+        &format!("Export as Catalog from {}", source.display()),
+    )?;
     let stage_root = staged.path().canonicalize()?;
     let catalog = Library::subset_from(&source, &stage_root, &options.name, ids)?;
     catalog.check_integrity()?;
@@ -354,9 +364,11 @@ pub fn export_catalog(
         // Checked empty above; `remove_dir` removes nothing else.
         fs::remove_dir(&destination)?;
     }
+    let staged = staged.unmark()?;
     rawtonic_fileops::rename_no_clobber(&stage_root, &destination)?;
     // Published: the temporary folder's name is gone, nothing to clean up.
     let _ = staged.keep();
+    receipt.abandoned = abandoned;
     Ok(receipt)
 }
 

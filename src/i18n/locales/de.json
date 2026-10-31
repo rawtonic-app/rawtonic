@@ -62,6 +62,13 @@
       "starting": "Import startet …"
     },
     "indexing": "Bibliothek wird indiziert",
+    "leftovers": {
+      "kept_one": "{{count}} unfertiger Ordner eines unterbrochenen Auftrags wurde belassen",
+      "kept_other": "{{count}} unfertige Ordner eines unterbrochenen Auftrags wurden belassen",
+      "removed_one": "{{size}} unfertige Kopien eines unterbrochenen Auftrags entfernt",
+      "removed_other": "{{size}} unfertige Kopien unterbrochener Aufträge entfernt",
+      "removedDetail": "Entfernt wurden nur Kopien, die der unterbrochene Auftrag angelegt hatte; Originale und fertige Dateien blieben unberührt."
+    },
     "notice": "Etwas braucht deine Aufmerksamkeit",
     "progress": "{{percent}} % erledigt",
     "resume": "Fortsetzen",

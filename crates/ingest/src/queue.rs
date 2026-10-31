@@ -920,6 +920,44 @@ mod tests {
         assert!(lib.unfinished_ingest_jobs().unwrap().is_empty());
     }
 
+    /// Killed while copying a photograph into the library and the backup
+    /// (G66 app kill test): the half-written temporary copies it left are
+    /// removed when the job resumes, so neither folder keeps them.
+    #[test]
+    fn a_resumed_job_removes_the_partial_copies_a_killed_run_left() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let backup = d.path().join("backup");
+        fs::create_dir_all(&backup).unwrap();
+        let sources = card(d.path());
+        let mut opts = options("{orig}");
+        opts.backup = Some(&backup);
+        let id = create_job(&lib, &sources, &opts).unwrap();
+        let capture = lib.directory.join("Capture");
+        // C1 (item 1) planned, both temporary copies half written.
+        lib.set_ingest_item(
+            &id,
+            1,
+            ItemState::Copying,
+            Some(&capture.join("C1.ARW")),
+            None,
+            None,
+        )
+        .unwrap();
+        for folder in [&capture, &backup] {
+            let (mut file, _) = rawtonic_metadata::temp::file_for(&folder.join("C1.ARW"))
+                .unwrap()
+                .keep()
+                .unwrap();
+            std::io::Write::write_all(&mut file, b"raw").unwrap();
+        }
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+        let all = ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"];
+        assert_eq!(names(&capture), all);
+        assert_eq!(names(&backup), all);
+    }
+
     /// Cut off after its backup copy was published, before the library's:
     /// the backup is kept, not made a second time.
     #[test]

@@ -69,6 +69,15 @@
       "starting": "Démarrage de l’importation…"
     },
     "indexing": "Indexation de la bibliothèque",
+    "leftovers": {
+      "kept_one": "{{count}} dossier inachevé d’une tâche interrompue a été laissé en place",
+      "kept_many": "{{count}} dossiers inachevés d’une tâche interrompue ont été laissés en place",
+      "kept_other": "{{count}} dossiers inachevés d’une tâche interrompue ont été laissés en place",
+      "removed_one": "{{size}} de copies inachevées d’une tâche interrompue supprimés",
+      "removed_many": "{{size}} de copies inachevées de tâches interrompues supprimés",
+      "removed_other": "{{size}} de copies inachevées de tâches interrompues supprimés",
+      "removedDetail": "Seules les copies faites par la tâche interrompue ont été supprimées ; les originaux et les fichiers terminés n’ont pas été touchés."
+    },
     "notice": "Un élément requiert votre attention",
     "progress": "{{percent}} % effectué",
     "resume": "Reprendre",

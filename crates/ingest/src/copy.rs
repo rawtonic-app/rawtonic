@@ -443,8 +443,11 @@ fn copy_verified_from(
     ensure!(before.is_file(), "Source is not a file");
     let mut temps = Vec::with_capacity(destinations.len());
     for destination in destinations {
-        let parent = destination.parent().context("Destination has no parent")?;
-        temps.push((NamedTempFile::new_in(parent)?, destination.to_path_buf()));
+        ensure!(destination.parent().is_some(), "Destination has no parent");
+        temps.push((
+            rawtonic_metadata::temp::file_for(destination)?,
+            destination.to_path_buf(),
+        ));
     }
     ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
     let (sha256, bytes, content) = match read {

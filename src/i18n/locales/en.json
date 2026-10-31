@@ -62,6 +62,13 @@
       "starting": "Starting import…"
     },
     "indexing": "Indexing the library",
+    "leftovers": {
+      "kept_one": "{{count}} unfinished folder of an interrupted job was left in place",
+      "kept_other": "{{count}} unfinished folders of an interrupted job were left in place",
+      "removed_one": "Removed {{size}} of unfinished copies from an interrupted job",
+      "removed_other": "Removed {{size}} of unfinished copies from interrupted jobs",
+      "removedDetail": "Only copies the interrupted job had made were removed; originals and finished files were not touched."
+    },
     "notice": "Something needs your attention",
     "progress": "{{percent}} % done",
     "resume": "Resume",
