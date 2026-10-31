@@ -721,10 +721,73 @@ pub(crate) fn best_source(
     target: (f64, f64),
     radius: f64,
 ) -> Option<(f64, f64)> {
+    best_source_with(image, target, radius, &[], 0.0)
+}
+
+/// Mean squared deviation (working space, per channel) of a circle's
+/// inside from the plane through its rim: what a heal copies on top of
+/// the smooth fill its boundary gives (a speck, a cloud's edge, a
+/// curved gradient), which a flat source does not add.
+fn uneven_inside(image: &Rgb32FImage, centre: (f64, f64), radius: f64) -> f64 {
+    // The plane through the rim, from its first harmonics.
+    let samples = 32;
+    let mut c = [[0.0f64; 3]; 3];
+    for k in 0..samples {
+        let phi = std::f64::consts::TAU * k as f64 / samples as f64;
+        let (cs, sn) = (phi.cos(), phi.sin());
+        let v = sample(image, centre.0 + radius * cs, centre.1 + radius * sn);
+        for i in 0..3 {
+            let e = encode(v[i]) as f64;
+            c[i][0] += e / samples as f64;
+            c[i][1] += 2.0 * e * cs / samples as f64;
+            c[i][2] += 2.0 * e * sn / samples as f64;
+        }
+    }
+    let mut sum = 0.0;
+    let mut count = 0usize;
+    for ring in [0.0, 0.25, 0.5, 0.75] {
+        let n = if ring == 0.0 { 1 } else { 24 };
+        for k in 0..n {
+            let phi = std::f64::consts::TAU * k as f64 / n as f64;
+            let (cs, sn) = (phi.cos() * ring, phi.sin() * ring);
+            let v = sample(
+                image,
+                centre.0 + radius * cs,
+                centre.1 + radius * sn,
+            );
+            for i in 0..3 {
+                let d = encode(v[i]) as f64 - (c[i][0] + c[i][1] * cs + c[i][2] * sn);
+                sum += d * d;
+            }
+            count += 3;
+        }
+    }
+    sum / count as f64
+}
+
+/// `best_source`, leaving out sources whose circle reaches any of `avoid`
+/// (centre, radius: other dust) and adding `uneven` × the source's uneven
+/// inside (`uneven_inside`) to each candidate's score.
+pub(crate) fn best_source_with(
+    image: &Rgb32FImage,
+    target: (f64, f64),
+    radius: f64,
+    avoid: &[((f64, f64), f64)],
+    uneven: f64,
+) -> Option<(f64, f64)> {
     let (w, h) = (image.width() as f64, image.height() as f64);
     let margin = radius * 1.8;
+    let clear = |p: (f64, f64)| {
+        avoid
+            .iter()
+            .all(|(c, r)| (c.0 - p.0).hypot(c.1 - p.1) >= radius * 1.1 + r)
+    };
     let inside = |p: (f64, f64)| {
-        p.0 - margin >= 0.0 && p.1 - margin >= 0.0 && p.0 + margin < w && p.1 + margin < h
+        p.0 - margin >= 0.0
+            && p.1 - margin >= 0.0
+            && p.0 + margin < w
+            && p.1 + margin < h
+            && clear(p)
     };
     // The target's surroundings, as statistics a good source interior
     // should share (a tussock or a branch inside the source would be copied).
@@ -744,7 +807,13 @@ pub(crate) fn best_source(
             })
             .sum::<f64>()
             / 3.0;
-        (surround_difference(image, target, p, radius) + content) * (1.0 + 0.04 * distance / radius)
+        let flatness = if uneven > 0.0 {
+            uneven * uneven_inside(image, p, radius)
+        } else {
+            0.0
+        };
+        (surround_difference(image, target, p, radius) + content + flatness)
+            * (1.0 + 0.04 * distance / radius)
     };
     let mut best: Option<((f64, f64), f64)> = None;
     for distance in [2.5, 3.2, 4.0, 5.0].map(|d| d * radius) {

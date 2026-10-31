@@ -31,42 +31,85 @@ use serde_json::{Value, json};
 /// per work pixel on 24 MP, 3.5 on 45 MP: the smallest dust a pro sees at
 /// 100 % spans several work pixels).
 const WORK_EDGE: usize = 2400;
-/// Inner half-sizes (work pixels) of the box sizes searched.
-const SCALES: [usize; 8] = [1, 2, 3, 4, 6, 8, 11, 15];
+/// Inner half-sizes (work pixels) of the box sizes searched: up to discs
+/// of about 1.5 % of the long edge (dust far from focus, wide apertures).
+const SCALES: [usize; 10] = [1, 2, 3, 4, 6, 8, 11, 15, 20, 27];
 /// Relative darkening (in square-root space) needed at sensitivity 50; the
 /// slider scales it as Visualize Spots scales its threshold.
 const CONTRAST_AT_50: f32 = 0.006;
-/// Darker than this share is an object (a bird, a letter), not dust.
-const MAX_CONTRAST: f32 = 0.18;
-/// Minimum significance over photon noise.
-const MIN_SIGNIFICANCE: f32 = 5.0;
-/// Surroundings' texture (left after the plane fit and photon noise: an
-/// edge, a line, fine detail) may be at most this share of the spot's
-/// darkening.
-const TEXTURE_PER_CONTRAST: f32 = 0.5;
-/// … and at most this share of their brightness.
-const MAX_TEXTURE: f32 = 0.012;
-/// The surroundings' change across may be at most this many times the
-/// spot's darkening or this share of their brightness (an edge).
-const STEP_PER_CONTRAST: f32 = 3.0;
-const MAX_STEP: f32 = 0.05;
-/// Surroundings brightness range (square root of linear luminance).
-const MIN_LEVEL: f32 = 0.12;
-const MAX_LEVEL: f32 = 0.97;
-/// Isolation: other darker specks of at least this share of a spot's
-/// contrast within `ISOLATION_REACH` × (size + 2) work pixels …
-const NEIGHBOUR_SHARE: f32 = 0.5;
-const ISOLATION_REACH: usize = 8;
-/// … may be at most this many (dust may lie in small groups).
-const MAX_NEIGHBOURS: usize = 2;
-/// A spot's darkest pixel may be at most this many times as dark as its
-/// box: dust shadows are soft.
-const MAX_PEAK: f32 = 3.0;
 /// Smallest half-size of a dust shadow's box, as a share of the long edge
 /// (about 4 sensor pixels at 6000).
 const MIN_HALF_SIZE: f64 = 0.0007;
 /// At most this many spots per photo.
 const MAX_SPOTS: usize = 400;
+/// Heal circle radius over the reach of the shadow (`shadow_reach`).
+const HEAL_MARGIN: f64 = 1.2;
+/// Weight of a heal source's uneven inside in its score
+/// (`spot_removal::best_source_with`).
+const SOURCE_UNEVEN: f64 = 16.0;
+
+/// The detector's gates (`Gates::DEFAULT`; the measurement harness tries
+/// others on the development set only).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct Gates {
+    /// Darker than this share is an object (a bird, a letter), not dust.
+    max_contrast: f32,
+    /// Minimum significance over photon noise.
+    min_significance: f32,
+    /// Texture of the wider surroundings (their robust spread around a
+    /// plane, photon noise taken out) at most this share of the spot's
+    /// darkening …
+    texture_per_contrast: f32,
+    /// … and at most this share of their brightness.
+    max_texture: f32,
+    /// The spot's own rim (the ring just outside it, in eight sectors) may
+    /// differ from the plane by at most this share of the darkening between
+    /// its lightest and darkest sector: a line or an edge crossing the spot
+    /// makes one side darker or lighter, a dust shadow does not.
+    rim_spread: f32,
+    /// Each quarter of the spot is at least this share of its darkening
+    /// darker than the plane: a dust shadow is round, the end of a branch
+    /// or the corner of a shape is not.
+    min_quarter: f32,
+    /// Surroundings brightness range (square root of linear luminance).
+    min_level: f32,
+    max_level: f32,
+    /// Isolation: specks of at least `neighbour_share` of a spot's contrast
+    /// within `isolation_reach` × (size + 2) work pixels that are not dust
+    /// (darker ones that fail the dust test, lighter ones not larger than
+    /// the spot) may be at most `max_neighbours`: dust may lie in dense
+    /// groups, grain and mottled surfaces have such specks everywhere.
+    neighbour_share: f32,
+    isolation_reach: usize,
+    max_neighbours: usize,
+    /// A spot's darkest pixel may be at most this many times as dark as its
+    /// box: dust shadows are soft.
+    max_peak: f32,
+}
+
+impl Gates {
+    const DEFAULT: Gates = Gates {
+        max_contrast: 0.18,
+        min_significance: 5.0,
+        texture_per_contrast: 0.3,
+        max_texture: 0.012,
+        rim_spread: 0.6,
+        min_quarter: 0.5,
+        min_level: 0.12,
+        max_level: 0.97,
+        neighbour_share: 0.5,
+        isolation_reach: 8,
+        max_neighbours: 8,
+        max_peak: 2.5,
+    };
+}
+
+impl Default for Gates {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
 
 /// One dust candidate in base-image pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -156,14 +199,6 @@ fn ring(i: &Integral, x: isize, y: isize, inner: isize, outer: isize) -> (f64, f
 
 fn mean(s: (f64, f64, f64)) -> f64 {
     if s.2 > 0.0 { s.0 / s.2 } else { 0.0 }
-}
-
-fn variance(s: (f64, f64, f64)) -> f64 {
-    if s.2 > 1.0 {
-        (s.1 / s.2 - (s.0 / s.2).powi(2)).max(0.0)
-    } else {
-        0.0
-    }
 }
 
 /// What the detector looks at: square root of the linear luminance,
@@ -258,6 +293,18 @@ pub fn analyse(base: &DynamicImage, encoded: bool, faces: &[[f64; 4]]) -> DustAn
 
 /// `analyse` on a work copy of a base image of `size`.
 pub fn analyse_work(work: &WorkCopy, size: (u32, u32), faces: &[[f64; 4]]) -> DustAnalysis {
+    analyse_with(work, size, faces, &Gates::DEFAULT, None)
+}
+
+/// `analyse_work` with `gates`; `dump` (the measurement harness) collects
+/// every candidate's measures before any gate.
+fn analyse_with(
+    work: &WorkCopy,
+    size: (u32, u32),
+    faces: &[[f64; 4]],
+    gates: &Gates,
+    dump: Option<&std::sync::Mutex<Vec<Value>>>,
+) -> DustAnalysis {
     let (width, height) = size;
     let (values, w, h, factor) = (&work.values, work.width, work.height, work.factor);
     let mut analysis = DustAnalysis {
@@ -277,14 +324,16 @@ pub fn analyse_work(work: &WorkCopy, size: (u32, u32), faces: &[[f64; 4]]) -> Du
     let long = f64::from(width.max(height));
     let min_half = ((MIN_HALF_SIZE * long / factor as f64).ceil() as usize).max(1);
 
-    // Per pixel: the size with the strongest significant darkening.
-    let best: Vec<(f32, u8)> = (0..h)
+    // Per pixel: the size with the strongest significant darkening, and
+    // the same for brightening (specks lighter than their ring: textures
+    // and noise have them as often as darker ones, dust never).
+    let best: Vec<[(f32, u8); 2]> = (0..h)
         .into_par_iter()
         .flat_map_iter(|y| {
             let integral = &integral;
             (0..w).map(move |x| {
                 let (x, y) = (x as isize, y as isize);
-                let mut found = (0.0f32, 0u8);
+                let mut found = [(0.0f32, 0u8); 2];
                 for (k, &a) in SCALES.iter().enumerate() {
                     if a < min_half {
                         continue;
@@ -293,14 +342,28 @@ pub fn analyse_work(work: &WorkCopy, size: (u32, u32), faces: &[[f64; 4]]) -> Du
                     let inner = integral.square(x, y, a);
                     let around = ring(integral, x, y, a, 2 * a + 1);
                     let (mi, mr) = (mean(inner), mean(around));
-                    if mr < MIN_LEVEL as f64 {
+                    if mr < gates.min_level as f64 {
                         continue;
                     }
-                    let d = (mr - mi) as f32;
-                    let spread = sigma * ((1.0 / inner.2 + 1.0 / around.2.max(1.0)) as f32).sqrt();
-                    let contrast = d / mr as f32;
-                    if d > MIN_SIGNIFICANCE * spread && contrast > found.0 {
-                        found = (contrast, k as u8);
+                    // Against the ring's four sides without the lightest and
+                    // the darkest: a smooth gradient cancels, and the edge of
+                    // a bright cloud or a dark branch on one side does not
+                    // make the pixels beside it a speck.
+                    let m = 2 * a + 1;
+                    let mut sides = [
+                        integral.boxed(x - m, y - m, x - a - 1, y + m),
+                        integral.boxed(x + a + 1, y - m, x + m, y + m),
+                        integral.boxed(x - a, y - m, x + a, y - a - 1),
+                        integral.boxed(x - a, y + a + 1, x + a, y + m),
+                    ];
+                    sides.sort_by(|p, q| mean(*p).total_cmp(&mean(*q)));
+                    let middle = (sides[1].0 + sides[2].0, sides[1].2 + sides[2].2);
+                    let d = (middle.0 / middle.1.max(1.0) - mi) as f32;
+                    let spread = sigma * ((1.0 / inner.2 + 1.0 / middle.1.max(1.0)) as f32).sqrt();
+                    let contrast = d.abs() / mr as f32;
+                    let side = usize::from(d < 0.0);
+                    if d.abs() > gates.min_significance * spread && contrast > found[side].0 {
+                        found[side] = (contrast, k as u8);
                     }
                 }
                 found
@@ -308,81 +371,140 @@ pub fn analyse_work(work: &WorkCopy, size: (u32, u32), faces: &[[f64; 4]]) -> Du
         })
         .collect();
 
-    // Local maxima of the darkening (ties go to the first in reading
-    // order), down to a share of the floor: the neighbours the isolation
-    // test counts.
-    let peaks: Vec<(usize, usize, f32, usize)> = (2..h - 2)
-        .into_par_iter()
-        .flat_map_iter(|y| {
-            let best = &best;
-            (2..w - 2).filter_map(move |x| {
-                let (c, k) = best[y * w + x];
-                if c < NEIGHBOUR_SHARE * floor {
-                    return None;
-                }
-                for dy in -1isize..=1 {
-                    for dx in -1isize..=1 {
-                        if dx == 0 && dy == 0 {
-                            continue;
-                        }
-                        let o = best[(y as isize + dy) as usize * w + (x as isize + dx) as usize].0;
-                        let earlier = dy < 0 || (dy == 0 && dx < 0);
-                        if o > c || (earlier && o == c) {
-                            return None;
+    // Local maxima of the darkening and of the brightening (ties go to the
+    // first in reading order), down to a share of the floor: the
+    // neighbours the isolation test counts.
+    let maxima = |side: usize| -> Vec<(usize, usize, f32, usize)> {
+        (2..h - 2)
+            .into_par_iter()
+            .flat_map_iter(|y| {
+                let best = &best;
+                (2..w - 2).filter_map(move |x| {
+                    let (c, k) = best[y * w + x][side];
+                    if c < gates.neighbour_share * floor {
+                        return None;
+                    }
+                    for dy in -1isize..=1 {
+                        for dx in -1isize..=1 {
+                            if dx == 0 && dy == 0 {
+                                continue;
+                            }
+                            let o = best[(y as isize + dy) as usize * w + (x as isize + dx) as usize]
+                                [side]
+                                .0;
+                            let earlier = dy < 0 || (dy == 0 && dx < 0);
+                            if o > c || (earlier && o == c) {
+                                return None;
+                            }
                         }
                     }
-                }
-                Some((x, y, c, SCALES[k as usize]))
+                    Some((x, y, c, SCALES[k as usize]))
+                })
+            })
+            .collect()
+    };
+    let (peaks, light) = (maxima(0), maxima(1));
+    let cell = 32usize;
+    let (gw, gh) = (w.div_ceil(cell), h.div_ceil(cell));
+    let gridded = |specks: &[(usize, usize, f32, usize)]| {
+        let mut grid: Vec<Vec<usize>> = vec![Vec::new(); gw * gh];
+        for (i, p) in specks.iter().enumerate() {
+            grid[(p.1 / cell) * gw + p.0 / cell].push(i);
+        }
+        grid
+    };
+    let (grid, light_grid) = (gridded(&peaks), gridded(&light));
+
+    // Every darker speck judged as dust on its own (its surroundings, its
+    // shape), before isolation: dust among other dust is not texture.
+    let measured: Vec<Option<Measures>> = peaks
+        .par_iter()
+        .map(|&(x, y, c, a)| {
+            // The box-against-ring darkening is a first sieve; the contrast
+            // that counts is measured against the surroundings' plane (other
+            // dust or an edge in the ring lowers or raises the first).
+            if c < 0.5 * floor {
+                return None;
+            }
+            measure(values, &integral, (x as isize, y as isize), a as isize, sigma)
+        })
+        .collect();
+    let dusty: Vec<bool> = measured
+        .iter()
+        .map(|m| {
+            m.is_some_and(|m| {
+                m.passes(gates) && (floor..=gates.max_contrast).contains(&m.contrast())
             })
         })
         .collect();
-    let cell = 32usize;
-    let (gw, gh) = (w.div_ceil(cell), h.div_ceil(cell));
-    let mut grid: Vec<Vec<usize>> = vec![Vec::new(); gw * gh];
-    for (i, p) in peaks.iter().enumerate() {
-        grid[(p.1 / cell) * gw + p.0 / cell].push(i);
-    }
 
     let mut candidates: Vec<(Candidate, f32)> = peaks
         .par_iter()
-        .filter_map(|&(x, y, c, a)| {
-            if c < floor {
-                return None;
-            }
-            // Dust stands alone on a flat area; mottled or textured
-            // surfaces (floors, roofs, out-of-focus foliage) have many
-            // darker specks of the same kind around each one.
-            let reach = ISOLATION_REACH * (a + 2);
-            let (cx0, cx1) = (
-                x.saturating_sub(reach) / cell,
-                ((x + reach) / cell).min(gw - 1),
-            );
-            let (cy0, cy1) = (
-                y.saturating_sub(reach) / cell,
-                ((y + reach) / cell).min(gh - 1),
-            );
-            let own = (2 * a + 1) as f64;
-            let mut neighbours = 0;
-            for gy in cy0..=cy1 {
-                for gx in cx0..=cx1 {
-                    for &j in &grid[gy * gw + gx] {
-                        let (ox, oy, oc, _) = peaks[j];
-                        let d = (ox as f64 - x as f64).hypot(oy as f64 - y as f64);
-                        if d > own && d <= reach as f64 && oc >= NEIGHBOUR_SHARE * c {
-                            neighbours += 1;
+        .enumerate()
+        .filter_map(|(i, &(x, y, c, a))| {
+            let measures = measured[i]?;
+            // Dust stands alone or among other dust on a flat area; mottled
+            // or textured surfaces (floors, roofs, foliage, grain) have
+            // specks around each one that are not dust: lighter ones, or
+            // darker ones that fail the dust test.
+            let count = |specks: &[(usize, usize, f32, usize)],
+                         grid: &[Vec<usize>],
+                         reach: usize,
+                         counted: &dyn Fn(usize) -> bool| {
+                let (cx0, cx1) = (
+                    x.saturating_sub(reach) / cell,
+                    ((x + reach) / cell).min(gw - 1),
+                );
+                let (cy0, cy1) = (
+                    y.saturating_sub(reach) / cell,
+                    ((y + reach) / cell).min(gh - 1),
+                );
+                let own = (2 * a + 1) as f64;
+                let mut neighbours = 0;
+                for gy in cy0..=cy1 {
+                    for gx in cx0..=cx1 {
+                        for &j in &grid[gy * gw + gx] {
+                            let (ox, oy, oc, _) = specks[j];
+                            let d = (ox as f64 - x as f64).hypot(oy as f64 - y as f64);
+                            if d > own
+                                && d <= reach as f64
+                                && oc >= gates.neighbour_share * c
+                                && counted(j)
+                            {
+                                neighbours += 1;
+                            }
                         }
                     }
                 }
+                neighbours
+            };
+            let all = |_: usize| true;
+            let not_dust = |j: usize| !dusty[j];
+            let small_dark = |j: usize| !dusty[j] && peaks[j].3 <= a;
+            let small_light = |j: usize| light[j].3 <= a;
+            if let Some(dump) = dump {
+                let reaches = [4, 8, 12, 16, 24].map(|k| k * (a + 2));
+                let n = |specks: &[(usize, usize, f32, usize)],
+                         grid: &[Vec<usize>],
+                         counted: &dyn Fn(usize) -> bool| {
+                    reaches.map(|r| count(specks, grid, r, counted))
+                };
+                dump.lock().unwrap().push(json!({
+                    "x": x, "y": y, "a": a, "c": c, "m": measures,
+                    "n": n(&peaks, &grid, &all),
+                    "nd": n(&peaks, &grid, &not_dust),
+                    "nds": n(&peaks, &grid, &small_dark),
+                    "nb": n(&light, &light_grid, &all),
+                    "nbs": n(&light, &light_grid, &small_light),
+                }));
             }
-            if neighbours > MAX_NEIGHBOURS {
+            let reach = gates.isolation_reach * (a + 2);
+            let neighbours = count(&peaks, &grid, reach, &not_dust)
+                + count(&light, &light_grid, reach, &small_light);
+            if neighbours > gates.max_neighbours || !dusty[i] {
                 return None;
             }
-            let a = a as isize;
-            let (contrast, darkening) =
-                flat_surroundings(values, &integral, x as isize, y as isize, a, sigma)?;
-            if !(floor..=MAX_CONTRAST).contains(&contrast) {
-                return None;
-            }
+            let (contrast, darkening) = (measures.contrast(), measures.darkening);
             let centre = (
                 (x as f64 + 0.5) * factor as f64,
                 (y as f64 + 0.5) * factor as f64,
@@ -397,8 +519,12 @@ pub fn analyse_work(work: &WorkCopy, size: (u32, u32), faces: &[[f64; 4]]) -> Du
             if in_face {
                 return None;
             }
-            // The heal circle covers the disc and its soft rim.
-            let radius = ((1.6 * a as f64 + 1.5) * factor as f64).max(4.0);
+            // The heal circle covers the disc and its soft rim: out to where
+            // the darkening has faded, with a margin for the faint tail (a
+            // heal circle that leaves part of the rim outside carries its
+            // darkening into the healed disc).
+            let reach = shadow_reach(values, (w, h), (x, y), a, measures.level);
+            let radius = (HEAL_MARGIN * (reach + 1.0) * factor as f64).max(4.0);
             Some((
                 Candidate {
                     centre,
@@ -428,73 +554,249 @@ pub fn analyse_work(work: &WorkCopy, size: (u32, u32), faces: &[[f64; 4]]) -> Du
     analysis
 }
 
-/// Contrast and darkening of a spot at (x, y) of size `a` when its
-/// surroundings are flat, else None.
-fn flat_surroundings(
+/// How far (work pixels) the shadow of a spot of size `a` at `at` reaches
+/// from its centre: the first ring (one pixel wide) whose mean is less than
+/// a tenth of the centre's darkening below `level`, kept between the box
+/// and three times its size. A ring's mean is the plane's value at the
+/// centre, so a smooth gradient does not shift it.
+fn shadow_reach(
+    values: &[f32],
+    (w, h): (usize, usize),
+    (x, y): (usize, usize),
+    a: usize,
+    level: f32,
+) -> f64 {
+    let limit = 3 * a + 3;
+    let mut rings = vec![(0.0f32, 0u32); limit + 1];
+    let (x0, x1) = (x.saturating_sub(limit), (x + limit).min(w - 1));
+    let (y0, y1) = (y.saturating_sub(limit), (y + limit).min(h - 1));
+    for yy in y0..=y1 {
+        for xx in x0..=x1 {
+            let d = (xx as f64 - x as f64).hypot(yy as f64 - y as f64).round() as usize;
+            if d <= limit {
+                rings[d].0 += values[yy * w + xx];
+                rings[d].1 += 1;
+            }
+        }
+    }
+    let dark = |k: usize| level - rings[k].0 / rings[k].1.max(1) as f32;
+    let centre = (0..=a.div_ceil(2)).map(dark).sum::<f32>() / (a.div_ceil(2) + 1) as f32;
+    (a.max(1)..=limit)
+        .find(|&k| rings[k].1 > 0 && dark(k) < 0.1 * centre)
+        .unwrap_or(limit) as f64
+}
+
+/// Least-squares plane v = gx·dx + gy·dy + c through `samples` (dx, dy, v).
+fn plane(samples: &[(f32, f32, f32)]) -> Option<(f64, f64, f64)> {
+    let (mut sxx, mut sxy, mut syy, mut sx, mut sy, mut n) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    let (mut sxv, mut syv, mut sv) = (0.0, 0.0, 0.0);
+    for &(dx, dy, v) in samples {
+        let (dx, dy, v) = (f64::from(dx), f64::from(dy), f64::from(v));
+        sxx += dx * dx;
+        sxy += dx * dy;
+        syy += dy * dy;
+        sx += dx;
+        sy += dy;
+        n += 1.0;
+        sxv += dx * v;
+        syv += dy * v;
+        sv += v;
+    }
+    // Normal equations [[sxx sxy sx] [sxy syy sy] [sx sy n]] · (gx gy c) = (sxv syv sv).
+    let det = sxx * (syy * n - sy * sy) - sxy * (sxy * n - sy * sx) + sx * (sxy * sy - syy * sx);
+    if det.abs() < 1e-9 {
+        return None;
+    }
+    let solve = |a: [f64; 3], b: [f64; 3], c: [f64; 3]| {
+        a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0])
+    };
+    let (r0, r1, r2) = ([sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]);
+    let rhs = [sxv, syv, sv];
+    let col = |k: usize| {
+        let mut m = [r0, r1, r2];
+        for (row, value) in m.iter_mut().zip(rhs) {
+            row[k] = value;
+        }
+        solve(m[0], m[1], m[2]) / det
+    };
+    Some((col(0), col(1), col(2)))
+}
+
+/// Median of `v` (reordered).
+fn median(v: &mut [f32]) -> f32 {
+    let k = v.len() / 2;
+    *v.select_nth_unstable_by(k, f32::total_cmp).1
+}
+
+/// What the gates judge of a candidate spot at `at` of size `a`, all in
+/// square-root luminance against its surroundings: a plane fitted robustly
+/// to the wider ring (other dust, a cloud's edge or a branch in part of it
+/// are left out of the fit and of the texture), so dust among other dust or
+/// near an edge is judged by what is around it.
+#[derive(Debug, Clone, Copy, Serialize)]
+struct Measures {
+    /// The plane at the spot (the surroundings' brightness).
+    level: f32,
+    /// Plane minus the spot's box mean.
+    darkening: f32,
+    /// Robust spread of the wider ring around the plane, photon noise out.
+    texture: f32,
+    /// Lightest minus darkest of the rim's eight sectors.
+    rim: f32,
+    /// The least dark of the spot's four quarters (darkening, positive).
+    quarter: f32,
+    /// The darkest pixel of the box below the plane (positive).
+    peak: f32,
+    /// Share of the wider ring the plane fit left out (not plane-like).
+    outliers: f32,
+    /// Standard deviation of the whole wider ring around the plane, photon
+    /// noise out (what the robust spread ignores).
+    rough: f32,
+}
+
+impl Measures {
+    fn contrast(&self) -> f32 {
+        self.darkening / self.level
+    }
+
+    fn passes(&self, gates: &Gates) -> bool {
+        let d = self.darkening;
+        (gates.min_level..=gates.max_level).contains(&self.level)
+            && d > 0.0
+            && self.texture <= gates.texture_per_contrast * d
+            && self.texture <= gates.max_texture * self.level
+            && self.rim <= gates.rim_spread * d
+            && self.quarter >= gates.min_quarter * d
+            && self.peak <= gates.max_peak * d
+    }
+}
+
+fn measure(
     values: &[f32],
     i: &Integral,
-    x: isize,
-    y: isize,
+    at: (isize, isize),
     a: isize,
     sigma: f32,
-) -> Option<(f32, f32)> {
-    let inner = i.square(x, y, a);
-    let near = ring(i, x, y, a, 2 * a + 1);
-    let (mi, mr) = (mean(inner), mean(near));
-    if !(MIN_LEVEL as f64..=MAX_LEVEL as f64).contains(&mr) {
-        return None;
-    }
-    let darkening = (mr - mi) as f32;
-    if darkening <= 0.0 {
-        return None;
-    }
-    // The wider surroundings, outside the spot and its rim.
+) -> Option<Measures> {
+    let (x, y) = at;
+    let (w, h) = (i.w as isize, i.h as isize);
+    let value = |xx: isize, yy: isize| {
+        (xx >= 0 && yy >= 0 && xx < w && yy < h).then(|| values[(yy * w + xx) as usize])
+    };
+    // The wider surroundings, outside the spot and its rim, sampled on a
+    // grid of about 2500 points at most.
     let m = 2 * a + 1;
     let b = (5 * a + 3).max(m + 4);
-    let wide = ring(i, x, y, m, b);
-    let side = |x0, y0, x1, y1| mean(i.boxed(x0, y0, x1, y1));
-    let (left, right) = (
-        side(x - b, y - b, x - m - 1, y + b),
-        side(x + m + 1, y - b, x + b, y + b),
-    );
-    let (top, bottom) = (
-        side(x - b, y - b, x + b, y - m - 1),
-        side(x - b, y + m + 1, x + b, y + b),
-    );
-    let span = (b + m + 1) as f64;
-    let (gx, gy) = ((right - left) / span, (bottom - top) / span);
-    let level = mean(wide);
-    if level < MIN_LEVEL as f64 {
+    let stride = ((2 * b + 1) / 50).max(1);
+    let mut wide: Vec<(f32, f32, f32)> = Vec::new();
+    let mut yy = -b;
+    while yy <= b {
+        let mut xx = -b;
+        while xx <= b {
+            if xx.abs().max(yy.abs()) > m
+                && let Some(v) = value(x + xx, y + yy)
+            {
+                wide.push((xx as f32, yy as f32, v));
+            }
+            xx += stride;
+        }
+        yy += stride;
+    }
+    if wide.len() < 16 {
         return None;
     }
-    // A plane's variance over the square of half-size b is g² b² / 3 per
-    // axis (the hole changes it little).
-    let plane = (gx * gx + gy * gy) * (b * b) as f64 / 3.0;
-    let texture = ((variance(wide) - plane - (sigma as f64).powi(2)).max(0.0)).sqrt() as f32;
-    // A dust shadow is soft: its darkest pixel is not much darker than its
-    // disc. A speck in focus (dirt, a nail head) is far darker in its middle
-    // than the box the darkening was measured over.
-    let darkest = (y - a..=y + a)
-        .filter(|&yy| yy >= 0 && (yy as usize) < i.h)
-        .flat_map(|yy| {
-            (x - a..=x + a)
-                .filter(|&xx| xx >= 0 && (xx as usize) < i.w)
-                .map(move |xx| values[yy as usize * i.w + xx as usize])
-        })
-        .fold(f32::INFINITY, f32::min);
-    let peak = mr as f32 - darkest;
-    // An edge beside the spot: a jump across the surroundings that is large
-    // both against the spot and in itself (a smooth sky gradient is not).
-    let step = ((right - left).abs().max((bottom - top).abs())) as f32;
-    let edge = step > STEP_PER_CONTRAST * darkening && step > MAX_STEP * level as f32;
-    if texture > TEXTURE_PER_CONTRAST * darkening
-        || texture > MAX_TEXTURE * level as f32
-        || edge
-        || peak > MAX_PEAK * darkening
-    {
+    let residuals = |p: (f64, f64, f64), s: &[(f32, f32, f32)]| -> Vec<f32> {
+        s.iter()
+            .map(|&(dx, dy, v)| v - (p.0 * f64::from(dx) + p.1 * f64::from(dy) + p.2) as f32)
+            .collect()
+    };
+    let spread = |r: &[f32]| -> (f32, f32) {
+        let mut r = r.to_vec();
+        let mid = median(&mut r);
+        let mut dev: Vec<f32> = r.iter().map(|v| (v - mid).abs()).collect();
+        (mid, 1.4826 * median(&mut dev))
+    };
+    // Fit, leave out what does not belong to the plane, fit again.
+    let first = plane(&wide)?;
+    let (mid, s1) = spread(&residuals(first, &wide));
+    let limit = 3.0 * s1.max(sigma);
+    let kept: Vec<(f32, f32, f32)> = wide
+        .iter()
+        .zip(residuals(first, &wide))
+        .filter(|(_, r)| (r - mid).abs() <= limit)
+        .map(|(s, _)| *s)
+        .collect();
+    let outliers = 1.0 - kept.len() as f32 / wide.len() as f32;
+    let fit = if kept.len() >= 16 { plane(&kept)? } else { first };
+    let all = residuals(fit, &wide);
+    let (_, s) = spread(&all);
+    let variance = all.iter().map(|r| r * r).sum::<f32>() / all.len() as f32;
+    let rough = (variance - sigma * sigma).max(0.0).sqrt();
+    let level = fit.2 as f32;
+    let darkening = level - mean(i.square(x, y, a)) as f32;
+    if darkening <= 0.0 || level <= 0.0 {
         return None;
     }
-    Some((darkening / mr as f32, darkening))
+    let texture = (s * s - sigma * sigma).max(0.0).sqrt();
+    let at_plane = |dx: isize, dy: isize| (fit.0 * dx as f64 + fit.1 * dy as f64 + fit.2) as f32;
+    // The rim in eight sectors and the spot in four quarters, against the
+    // plane; and the darkest pixel (a speck in focus is far darker in its
+    // middle than the box: dirt, a nail head).
+    let mut sectors = [(0.0f32, 0u32); 8];
+    let mut quarters = [(0.0f32, 0u32); 4];
+    let mut darkest = f32::INFINITY;
+    for dy in -m..=m {
+        for dx in -m..=m {
+            let Some(v) = value(x + dx, y + dy) else {
+                continue;
+            };
+            let r = v - at_plane(dx, dy);
+            if dx.abs().max(dy.abs()) > a {
+                let angle = (dy as f32).atan2(dx as f32);
+                let k = (((angle / std::f32::consts::TAU + 1.0) * 8.0) as usize) % 8;
+                sectors[k].0 += r;
+                sectors[k].1 += 1;
+            } else {
+                darkest = darkest.min(r);
+                if dx != 0 && dy != 0 {
+                    let q = usize::from(dx > 0) + 2 * usize::from(dy > 0);
+                    quarters[q].0 += r;
+                    quarters[q].1 += 1;
+                }
+            }
+        }
+    }
+    let means = |parts: &[(f32, u32)]| -> Vec<f32> {
+        parts
+            .iter()
+            .filter(|p| p.1 > 0)
+            .map(|p| p.0 / p.1 as f32)
+            .collect()
+    };
+    let rim = means(&sectors);
+    let (lo, hi) = rim
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(l, h), &v| {
+            (l.min(v), h.max(v))
+        });
+    if rim.len() < 5 {
+        return None;
+    }
+    // Quarters exist from a = 1 on (the centre row and column are left out).
+    let quarter = means(&quarters)
+        .iter()
+        .fold(f32::INFINITY, |q, &v| q.min(-v));
+    Some(Measures {
+        level,
+        darkening,
+        texture,
+        rim: hi - lo,
+        quarter,
+        peak: -darkest,
+        outliers,
+        rough,
+    })
 }
 
 /// A found spot where the photo shows it: mask-frame centre and radius
@@ -596,11 +898,14 @@ fn distance_to(path: &[(f64, f64)], p: (f64, f64)) -> f64 {
 /// image with the recipe's patches and spots) and `dust`, the spot in the
 /// unrotated raw of the photo decoded with EXIF `orientation` (normalised
 /// centre, radius as a share of the unrotated width), which `sync_items`
-/// and a later run use to recognise the same dust. Spots without a source
-/// are left out.
+/// and a later run use to recognise the same dust. A source stays clear
+/// of `analysis`'s candidates (other dust, down to the most sensitive
+/// setting) and prefers an even inside. Spots without a source are left
+/// out.
 pub fn heal_spots(
     base: &DynamicImage,
     adjustments: &Value,
+    analysis: &DustAnalysis,
     found: &[FoundSpot],
     orientation: u16,
 ) -> Vec<Value> {
@@ -612,7 +917,19 @@ pub fn heal_spots(
         .par_iter()
         .filter_map(|spot| {
             let c = spot.base;
-            let source = crate::spot_removal::best_source(&image, c.centre, c.radius)?;
+            let avoid: Vec<((f64, f64), f64)> = analysis
+                .candidates
+                .iter()
+                .filter(|o| o.centre != c.centre)
+                .map(|o| (o.centre, o.radius))
+                .collect();
+            let source = crate::spot_removal::best_source_with(
+                &image,
+                c.centre,
+                c.radius,
+                &avoid,
+                SOURCE_UNEVEN,
+            )?;
             let (sx, sy) = crate::spot_removal::to_mask_point(
                 adjustments,
                 frame,
@@ -884,6 +1201,99 @@ mod tests {
     }
 
     #[test]
+    fn finds_dust_among_other_dust_and_beside_clouds() {
+        // A dense group of dust (each disc has six others within ten radii)
+        // and two discs beside a bright cloud: the old flatness and
+        // isolation tests left all of them out.
+        let mut spots: Vec<(f32, f32, f32, f32)> = (0..8)
+            .map(|k| {
+                let (col, row) = ((k % 4) as f32, (k / 4) as f32);
+                (600.0 + 70.0 * col, 400.0 + 70.0 * row, 12.0, 0.06)
+            })
+            .collect();
+        spots.push((2050.0, 1050.0, 12.0, 0.06));
+        spots.push((2000.0, 1400.0, 12.0, 0.06));
+        let image = photo(3000, 2000, &spots, |x, y, v| {
+            // A soft bright cloud left of the two discs, 2.5 radii away.
+            let d = ((x as f32 - 2350.0) / 250.0).hypot((y as f32 - 1230.0) / 150.0);
+            v * (1.0 + 0.6 * ((1.4 - d) / 0.4).clamp(0.0, 1.0))
+        });
+        let found = select(&analyse(&image, false, &[]), 50.0);
+        for &(x, y, ..) in &spots {
+            assert!(
+                near(&found, x as f64, y as f64, 15.0),
+                "missed ({x}, {y}): {found:?}"
+            );
+        }
+        assert_eq!(found.len(), spots.len(), "{found:?}");
+    }
+
+    #[test]
+    fn leaves_out_speckled_texture() {
+        // Grain-like specks, darker and lighter ones alike (a rough wall, a
+        // noisy floor), at dust's size and contrast; one real dust disc.
+        let speck = |x: u32, y: u32| -> f32 {
+            let (cx, cy) = (x / 16, y / 16);
+            let h = (cx.wrapping_mul(2_654_435_761) ^ cy.wrapping_mul(40_503)).wrapping_mul(97);
+            let (ox, oy) = ((h % 5) as f32 + 6.0, ((h >> 8) % 5) as f32 + 6.0);
+            let d = ((x % 16) as f32 - ox).hypot((y % 16) as f32 - oy) / 4.0;
+            let sign = if (h >> 16) % 2 == 0 { -1.0 } else { 1.0 };
+            1.0 + sign * 0.07 * ((1.3 - d) / 0.6).clamp(0.0, 1.0)
+        };
+        let image = photo(3000, 2000, &[(400.0, 300.0, 12.0, 0.06)], |x, y, v| {
+            if x > 1200 && y > 600 {
+                v * speck(x, y)
+            } else {
+                v
+            }
+        });
+        let found = select(&analyse(&image, false, &[]), 50.0);
+        assert!(near(&found, 400.0, 300.0, 15.0), "{found:?}");
+        // Nothing inside the texture (a speck on its border, with flat sky
+        // on one side, may look like dust).
+        assert!(
+            found
+                .iter()
+                .all(|c| c.centre.0 < 1250.0 || c.centre.1 < 650.0),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn heal_circles_cover_the_rim_and_sources_avoid_other_dust() {
+        // Dust is darker out to 1.3 radii (`dust`); a heal circle that
+        // stops short carries the rim's darkening into the healed disc.
+        let spots = [
+            (800.0, 600.0, 14.0, 0.06),
+            (860.0, 600.0, 14.0, 0.06),
+            (800.0, 660.0, 14.0, 0.06),
+            (1800.0, 1200.0, 20.0, 0.05),
+        ];
+        let image = photo(2600, 1800, &spots, |_, _, v| v);
+        let analysis = analyse(&image, false, &[]);
+        let found = placed(&analysis, 50.0, &json!({}));
+        assert_eq!(found.len(), spots.len(), "{found:?}");
+        for f in &found {
+            let (_, _, r, _) = spots
+                .iter()
+                .find(|s| (s.0 as f64 - f.x).hypot(s.1 as f64 - f.y) < 15.0)
+                .unwrap();
+            assert!(
+                f.radius >= 1.3 * *r as f64 && f.radius <= 3.0 * *r as f64,
+                "{f:?}"
+            );
+        }
+        for s in heal_spots(&image, &json!({}), &analysis, &found, 1) {
+            let n = |k: &str| s[k].as_f64().unwrap();
+            let (sx, sy, r) = (n("sourceX"), n("sourceY"), n("radius"));
+            for &(x, y, dr, _) in &spots {
+                let d = (sx - x as f64).hypot(sy - y as f64);
+                assert!(d >= r + 1.3 * dr as f64, "source {s} on dust ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
     fn leaves_out_faces_and_dark_objects() {
         // A freckle-like dot inside a face box, and a bird (a dark blob, far
         // darker than dust).
@@ -947,7 +1357,7 @@ mod tests {
             "{found:?}"
         );
         // The heal spots carry their raw position and a source off the dust.
-        let spots = heal_spots(&image, &adjustments, &found, 1);
+        let spots = heal_spots(&image, &adjustments, &analysis, &found, 1);
         assert_eq!(spots.len(), 1);
         let s = &spots[0];
         let d = (s["sourceX"].as_f64().unwrap() - s["x"].as_f64().unwrap())
@@ -967,7 +1377,9 @@ mod tests {
     /// runs the detector on the work copies `print_dust` cached
     /// (`STEM.work`: width, height, factor, base width, base height as
     /// little-endian u32, then the values as f32) in `$DUST_WORK` and writes
-    /// STEM.json beside each with every candidate.
+    /// STEM.found.json beside each with every candidate (`$DUST_TAG`:
+    /// STEM.TAG.json). `$DUST_GATES`: JSON overriding gates (camelCase
+    /// names of `Gates`), for trying them on the development set.
     /// `DUST_WORK=dir cargo test -p rawtonic-engine --lib dust::tests::work_copies -- --ignored --nocapture`
     #[test]
     #[ignore = "measurement: needs DUST_WORK"]
@@ -979,6 +1391,11 @@ mod tests {
             .filter(|p| p.extension().is_some_and(|e| e == "work"))
             .collect();
         entries.sort();
+        let gates: Gates = std::env::var("DUST_GATES")
+            .ok()
+            .map(|g| serde_json::from_str(&g).unwrap())
+            .unwrap_or_default();
+        let tag = std::env::var("DUST_TAG").unwrap_or_else(|_| "found".into());
         for path in entries {
             let bytes = std::fs::read(&path).unwrap();
             let u = |i: usize| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
@@ -996,14 +1413,29 @@ mod tests {
                 height: h,
                 factor,
             };
-            let analysis = analyse_work(&work, (bw, bh), &[]);
+            let dump = std::sync::Mutex::new(Vec::new());
+            let dumping = std::env::var("DUST_DUMP").is_ok();
+            let analysis = analyse_with(&work, (bw, bh), &[], &gates, dumping.then_some(&dump));
+            if dumping {
+                let integral = Integral::new(&work.values, w, h);
+                std::fs::write(
+                    path.with_extension("measures.json"),
+                    serde_json::to_string(&json!({
+                        "sigma": noise(&work.values, w, h, &integral),
+                        "factor": factor, "w": w, "h": h, "bw": bw, "bh": bh,
+                        "peaks": dump.into_inner().unwrap(),
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+            }
             let candidates: Vec<Value> = analysis
                 .candidates
                 .iter()
                 .map(|c| json!({"x": c.centre.0, "y": c.centre.1, "radius": c.radius, "contrast": c.contrast}))
                 .collect();
             std::fs::write(
-                path.with_extension("found.json"),
+                path.with_extension(format!("{tag}.json")),
                 serde_json::to_string(&json!({"candidates": candidates})).unwrap(),
             )
             .unwrap();
@@ -1012,6 +1444,245 @@ mod tests {
                 path.file_stem().unwrap().to_string_lossy(),
                 analysis.candidates.len(),
                 select(&analysis, 50.0).len()
+            );
+        }
+    }
+
+    /// Measurement harness (notes: benchmark-results/fd2-dust-recall-2026-11-01):
+    /// finds and heals the dust of each STEM.base in `$DUST_HEAL` (written by
+    /// the app's `print_dust` with `$DUST_BASE`) as Find dust's Apply does
+    /// (feather 0, opacity 100) and writes STEM.heal.json: per spot the
+    /// residual darkening before and after, (ring − disc) / ring of the
+    /// sRGB-encoded mean in % (disc within 0.6 radius, ring 1.3–2.2 radii);
+    /// with `$DUST_CLEAN` (the same photos without the painted discs) also the
+    /// mean deviation from the clean photo inside the spot, in % of its ring.
+    #[test]
+    #[ignore = "measurement: needs DUST_HEAL"]
+    fn heal_bases() {
+        let dir = std::path::PathBuf::from(std::env::var("DUST_HEAL").unwrap());
+        let clean_dir = std::env::var("DUST_CLEAN").ok().map(std::path::PathBuf::from);
+        let load = |path: &std::path::Path| -> Option<DynamicImage> {
+            let bytes = std::fs::read(path).ok()?;
+            let u = |i: usize| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
+            let values: Vec<f32> = bytes[8..]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f32::from_le_bytes(*c))
+                .collect();
+            Some(DynamicImage::ImageRgb32F(
+                Rgb32FImage::from_raw(u(0), u(1), values).unwrap(),
+            ))
+        };
+        let mut entries: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|e| e == "base"))
+            .collect();
+        entries.sort();
+        let encode = |v: f32| {
+            let v = v.clamp(0.0, 1.0);
+            if v <= 0.003_130_8 {
+                v * 12.92
+            } else {
+                1.055 * v.powf(1.0 / 2.4) - 0.055
+            }
+        };
+        for path in entries {
+            let image = load(&path).unwrap();
+            let clean = clean_dir
+                .as_ref()
+                .and_then(|d| load(&d.join(path.file_name().unwrap())))
+                .map(|c| c.to_rgb32f());
+            let analysis = analyse(&image, false, &[]);
+            let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+            // `$DUST_TARGETS`: {stem: [{x, y, r}]} heals these instead (r 0:
+            // the radius of the candidate found there, else of the target).
+            let targets: Option<Vec<FoundSpot>> = std::env::var("DUST_TARGETS").ok().map(|t| {
+                let t: Value = serde_json::from_str(&std::fs::read_to_string(t).unwrap()).unwrap();
+                t[&stem]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|p| {
+                        let (x, y, r) = (
+                            p["x"].as_f64().unwrap(),
+                            p["y"].as_f64().unwrap(),
+                            p["r"].as_f64().unwrap(),
+                        );
+                        let near = analysis.candidates.iter().find(|c| {
+                            (c.centre.0 - x).hypot(c.centre.1 - y) < 1.2 * c.radius.max(r) + 4.0
+                        });
+                        let radius = if p["fixed"].as_bool() == Some(true) {
+                            r
+                        } else {
+                            near.map_or(r, |c| c.radius)
+                        };
+                        let base = Candidate {
+                            centre: near.map_or((x, y), |c| c.centre),
+                            radius,
+                            contrast: 0.0,
+                        };
+                        FoundSpot {
+                            x: base.centre.0,
+                            y: base.centre.1,
+                            radius,
+                            base,
+                        }
+                    })
+                    .collect()
+            });
+            let mut found = targets.unwrap_or_else(|| placed(&analysis, 50.0, &json!({})));
+            if let Some(k) = std::env::var("DUST_RADIUS").ok().and_then(|k| k.parse::<f64>().ok()) {
+                for f in &mut found {
+                    f.radius *= k;
+                    f.base.radius *= k;
+                }
+            }
+            // `$DUST_PLAIN_SOURCE`: the sources as before FD2 (the manual
+            // spot's search), for the A/B.
+            // `$DUST_SOURCE` = "avoid,uneven" (e.g. "0,0"): the source search
+            // with these settings, for trying them on the development set.
+            let variant: Option<(bool, f64)> = std::env::var("DUST_SOURCE").ok().map(|v| {
+                let (a, u) = v.split_once(',').unwrap();
+                (a == "1", u.parse().unwrap())
+            });
+            let healing = if let Some((avoiding, uneven)) = variant {
+                let rgb = image.to_rgb32f();
+                found
+                    .iter()
+                    .filter_map(|f| {
+                        let avoid: Vec<((f64, f64), f64)> = analysis
+                            .candidates
+                            .iter()
+                            .filter(|o| avoiding && o.centre != f.base.centre)
+                            .map(|o| (o.centre, o.radius))
+                            .collect();
+                        let s = crate::spot_removal::best_source_with(
+                            &rgb,
+                            f.base.centre,
+                            f.radius,
+                            &avoid,
+                            uneven,
+                        )?;
+                        Some(json!({"x": f.x, "y": f.y, "radius": f.radius,
+                                    "sourceX": s.0, "sourceY": s.1, "visible": true}))
+                    })
+                    .collect()
+            } else if std::env::var("DUST_PLAIN_SOURCE").is_ok() {
+                let rgb = image.to_rgb32f();
+                found
+                    .iter()
+                    .filter_map(|f| {
+                        let s = crate::spot_removal::best_source(&rgb, f.base.centre, f.radius)?;
+                        Some(json!({"x": f.x, "y": f.y, "radius": f.radius,
+                                    "sourceX": s.0, "sourceY": s.1, "visible": true}))
+                    })
+                    .collect()
+            } else {
+                heal_spots(&image, &json!({}), &analysis, &found, 1)
+            };
+            let spots: Vec<Value> = healing
+                .into_iter()
+                .enumerate()
+                .map(|(k, mut s)| {
+                    s["id"] = json!(k.to_string());
+                    s["mode"] = json!("heal");
+                    s["feather"] = json!(0.0);
+                    s["opacity"] = json!(100.0);
+                    s
+                })
+                .collect();
+            let healed = crate::spot_removal::apply_spots(&image, &json!({"spots": spots}))
+                .unwrap()
+                .to_rgb32f();
+            let original = image.to_rgb32f();
+            let (w, h) = (original.width() as i64, original.height() as i64);
+            let luma = |im: &Rgb32FImage, x: i64, y: i64| {
+                let p = im.get_pixel(x as u32, y as u32);
+                (encode(p[0]) + encode(p[1]) + encode(p[2])) / 3.0
+            };
+            let residual = |im: &Rgb32FImage, cx: f64, cy: f64, r: f64| {
+                let (mut inner, mut ni, mut ring, mut nr) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+                let reach = (2.2 * r).ceil() as i64;
+                for y in (cy as i64 - reach).max(0)..(cy as i64 + reach).min(h) {
+                    for x in (cx as i64 - reach).max(0)..(cx as i64 + reach).min(w) {
+                        let d = (x as f64 + 0.5 - cx).hypot(y as f64 + 0.5 - cy);
+                        if d <= 0.6 * r {
+                            inner += f64::from(luma(im, x, y));
+                            ni += 1.0;
+                        } else if d > 1.3 * r && d < 2.2 * r {
+                            ring += f64::from(luma(im, x, y));
+                            nr += 1.0;
+                        }
+                    }
+                }
+                let (inner, ring) = (inner / ni.max(1.0), ring / nr.max(1.0));
+                (ring - inner) / ring.max(1e-6) * 100.0
+            };
+            let rows: Vec<Value> = spots
+                .iter()
+                .map(|s| {
+                    let n = |k: &str| s[k].as_f64().unwrap();
+                    let (x, y, r) = (n("x"), n("y"), n("radius"));
+                    let bias = clean.as_ref().map(|c| {
+                        let (mut sum, mut count, mut ring, mut nr) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+                        let reach = (2.2 * r).ceil() as i64;
+                        for yy in (y as i64 - reach).max(0)..(y as i64 + reach).min(h) {
+                            for xx in (x as i64 - reach).max(0)..(x as i64 + reach).min(w) {
+                                let d = (xx as f64 + 0.5 - x).hypot(yy as f64 + 0.5 - y);
+                                if d <= 1.5 * r {
+                                    sum += f64::from(luma(&healed, xx, yy) - luma(c, xx, yy));
+                                    count += 1.0;
+                                } else if d > 1.5 * r && d < 2.2 * r {
+                                    ring += f64::from(luma(c, xx, yy));
+                                    nr += 1.0;
+                                }
+                            }
+                        }
+                        sum / count.max(1.0) / (ring / nr.max(1.0)).max(1e-6) * 100.0
+                    });
+                    let error = clean.as_ref().map(|c| {
+                        let (mut sum, mut count, mut ring, mut nr) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+                        let reach = (2.2 * r).ceil() as i64;
+                        for yy in (y as i64 - reach).max(0)..(y as i64 + reach).min(h) {
+                            for xx in (x as i64 - reach).max(0)..(x as i64 + reach).min(w) {
+                                let d = (xx as f64 + 0.5 - x).hypot(yy as f64 + 0.5 - y);
+                                if d <= r {
+                                    sum += f64::from(
+                                        (luma(&healed, xx, yy) - luma(c, xx, yy)).abs(),
+                                    );
+                                    count += 1.0;
+                                } else if d > 1.3 * r && d < 2.2 * r {
+                                    ring += f64::from(luma(c, xx, yy));
+                                    nr += 1.0;
+                                }
+                            }
+                        }
+                        sum / count.max(1.0) / (ring / nr.max(1.0)).max(1e-6) * 100.0
+                    });
+                    json!({
+                        "x": x, "y": y, "r": r, "sx": n("sourceX"), "sy": n("sourceY"),
+                        "before": residual(&original, x, y, r),
+                        "after": residual(&healed, x, y, r),
+                        "error": error, "bias": bias,
+                    })
+                })
+                .collect();
+            std::fs::write(
+                path.with_extension("heal.json"),
+                serde_json::to_string(&rows).unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                path.with_extension("spots.json"),
+                serde_json::to_string(&json!({"spots": spots})).unwrap(),
+            )
+            .unwrap();
+            println!(
+                "{}: {} spots",
+                path.file_stem().unwrap().to_string_lossy(),
+                rows.len()
             );
         }
     }
