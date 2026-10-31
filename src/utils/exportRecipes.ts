@@ -1,4 +1,4 @@
-import { validSequenceStart } from "./namingTemplates";
+import { translateLegacyExport, validSequenceStart } from "./namingTemplates";
 import {
   BorderBasis,
   FILE_FORMATS,
@@ -50,13 +50,15 @@ export interface RecipeDraft {
   metadata: boolean;
   stripGps: boolean;
   keepCreatorContact?: boolean;
+  /** The name template, in the naming tokens (`rawtonic_naming`). */
   template: string;
   sequenceStart: number;
   /** Session Output folder, next to the originals, or a folder. */
   where: 'output' | 'original' | 'choose';
   /** The folder for `choose`, when the recipe remembers one. */
   folder?: string;
-  /** Put the files in this folder inside the destination (any destination). */
+  /** Put the files in this folder inside the destination (any destination);
+   * a folder template in the naming tokens (`{job}/{date}/{format}`). */
   subfolder: string;
   /** Recreate the photographs' folders below their library root. */
   preserveFolders: boolean;
@@ -114,7 +116,7 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   metadata: true,
   stripGps: true,
   keepCreatorContact: false,
-  template: '{original_filename}-edited',
+  template: '{orig_base}-edited',
   sequenceStart: 1,
   where: 'choose',
   subfolder: '',
@@ -205,7 +207,9 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     keepMetadata: draft.metadata,
     stripGps: draft.stripGps,
     keepCreatorContact: !!draft.keepCreatorContact,
-    filenameTemplate: draft.template,
+    // The naming tokens; `filenameTemplate` held the first export tokens.
+    filenameTemplate: '',
+    nameTemplate: draft.template,
     sequenceStart: draft.sequenceStart,
     destinationType:
       draft.where === 'output' ? 'sessionOutput' : draft.where === 'original' ? 'originalFolder' : 'customFolder',
@@ -264,7 +268,8 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     metadata: !!preset.keepMetadata,
     stripGps: !!preset.stripGps,
     keepCreatorContact: !!preset.keepCreatorContact,
-    template: preset.filenameTemplate || '{original_filename}',
+    // Recipes saved before the naming tokens are read in them.
+    template: preset.nameTemplate || translateLegacyExport(preset.filenameTemplate || '{original_filename}'),
     sequenceStart: validSequenceStart(preset.sequenceStart ?? 1) ? (preset.sequenceStart ?? 1) : 1,
     where:
       preset.destinationType === 'sessionOutput'
@@ -313,8 +318,9 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
   return {
     outputFormat: draft.format,
     settings: {
-      filenameTemplate: draft.template,
-    sequenceStart: draft.sequenceStart,
+      filenameTemplate: null,
+      nameTemplate: draft.template,
+      sequenceStart: draft.sequenceStart,
       jpegQuality: clamp(Math.round(draft.quality), 1, 100),
       tiffBitDepth: draft.depth,
       colorSpace: draft.colorSpace,

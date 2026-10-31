@@ -8,7 +8,8 @@
   color: var(--naming-text);
   font-size: 12px;
 }
-.naming-editor label {
+.naming-editor label,
+.naming-editor .naming-label {
   font-weight: 600;
 }
 .naming-editor input,
@@ -162,4 +163,102 @@
 }
 .naming-editor .naming-counter input[type="number"] {
   width: 120px;
+}
+
+/* The format field: free text inputs and token chips in one line. */
+.naming-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 3px 6px;
+  background: var(--naming-surface);
+  border: 1px solid var(--naming-line);
+  border-radius: 4px;
+  cursor: text;
+}
+.naming-field:focus-within {
+  border-color: var(--app-accent, #b4c8d3);
+}
+.naming-field.is-invalid {
+  border-color: var(--app-error-color, #f5a5a5);
+}
+.naming-field .naming-drop-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 0;
+}
+.naming-editor .naming-field input.naming-text {
+  width: auto;
+  min-width: 1ch;
+  min-height: 24px;
+  padding: 2px 1px;
+  border: 0;
+  background: transparent;
+  font-family: ui-monospace, monospace;
+}
+.naming-editor .naming-field input.naming-text:focus-visible {
+  outline: none;
+}
+.naming-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border-radius: 12px;
+  background: var(--app-bg-tertiary, #3b3e43);
+  border: 1px solid var(--naming-line);
+  padding: 0 2px 0 0;
+}
+.naming-chip.is-invalid {
+  border-color: var(--app-error-color, #f5a5a5);
+}
+.naming-editor .naming-chip button,
+.naming-editor .naming-chip select {
+  min-height: 22px;
+  padding: 1px 6px;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  width: auto;
+}
+.naming-editor .naming-chip .naming-chip-option {
+  font-size: 11px;
+  color: var(--app-text-secondary, #b8bec6);
+}
+.naming-editor .naming-chip .naming-chip-remove {
+  padding: 1px 4px;
+  display: inline-flex;
+  align-items: center;
+}
+.naming-hint {
+  color: var(--app-text-secondary, #b8bec6);
+  font-size: 11px;
+}
+.naming-counter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.naming-counter-row .naming-counter {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 120px;
+  font-weight: 500;
+}
+.naming-group {
+  border: 0;
+  padding: 0;
+  margin: 8px 0 0;
+}
+.naming-group legend {
+  font-size: 11px;
+  color: var(--app-text-secondary, #b8bec6);
+  padding: 0;
+}
+.naming-code {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
 }

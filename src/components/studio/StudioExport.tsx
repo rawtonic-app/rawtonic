@@ -1,5 +1,6 @@
-import { runExportJobs } from "../../utils/runExportJobs";
-import { validNamingTemplate, validSequenceStart } from "../../utils/namingTemplates";
+import { runExportJobs, submittedFrom } from "../../utils/runExportJobs";
+import { validNamingTemplate, validSequenceStart, type NamingPreview } from "../../utils/namingTemplates";
+import { readJobName, writeJobName } from "../../utils/exportJob";
 import NamingEditor from "../ui/NamingEditor";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -141,7 +142,16 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const checked = recipes.filter((r) => checkedIds.includes(r.id));
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
-  const subfolderError = subfolderProblem(draft.subfolder);
+  const subfolderError =
+    subfolderProblem(draft.subfolder) ??
+    (validNamingTemplate(draft.subfolder, "export", "folder") ? null : "tokens");
+  // The job name of {job}, remembered per library (`exportJob`).
+  const [jobName, setJobName] = useState(() => readJobName(session));
+  useEffect(() => setJobName(readJobName(session)), [session]);
+  const changeJobName = (name: string) => {
+    setJobName(name);
+    writeJobName(session, name);
+  };
   const watermarkMissing = draft.watermark && !watermarkReady(draft);
   // Installed fonts for a text watermark, read once when first needed.
   const [fonts, setFonts] = useState<string[] | null>(null);
@@ -222,6 +232,35 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   // Only the estimate for the current settings is shown.
   const estimate =
     estimated?.request === estimateRequest ? estimated.size : null;
+
+  // The live example: what the form's name and subfolder templates give
+  // the first photo to export, from its own metadata (`export_naming_preview`).
+  const [named, setNamed] = useState<{ request: string; preview: NamingPreview } | null>(null);
+  const namingRequest = JSON.stringify({
+    path: paths[0] ?? null,
+    exportSettings: { ...exportSettingsFromDraft(form).settings, jobName, recipeName: editedRecipe?.name ?? "" },
+    outputFormat: form.format,
+    total: paths.length,
+    library: submittedFrom(session),
+  });
+  const namingValid = validNamingTemplate(draft.template, "export") && !subfolderError;
+  useEffect(() => {
+    const request = JSON.parse(namingRequest) as { path: string | null };
+    if (!request.path || !namingValid) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      invoke<NamingPreview>(Invokes.ExportNamingPreview, request)
+        .then((preview) => !stale && preview && setNamed({ request: namingRequest, preview }))
+        .catch(() => {
+          // The illustrative example stays.
+        });
+    }, 250);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [namingRequest, namingValid]);
+  const namePreview = named?.request === namingRequest ? named.preview : null;
 
   /** Changes the saved recipes as they are now in the settings, so several
    * changes in a row (a folder remembered per recipe while exporting) all stay. */
@@ -492,24 +531,23 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             </button>
           )}
         </label>
-        <label>
-          {t("studio.export.destination.subfolder")}
-          <input
-            aria-label={t("studio.export.destination.subfolderAria")}
-            placeholder={t("studio.export.none")}
-            value={draft.subfolder}
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            aria-invalid={!!subfolderError}
-            onChange={(e) => set({ subfolder: e.target.value })}
-          />
-        </label>
-        {subfolderError && (
-          <small className="studio-export-error" role="alert">
-            {t(`studio.export.destination.errors.${subfolderError}`)}
-          </small>
-        )}
+        <NamingEditor
+          kind="folder"
+          mode="export"
+          value={draft.subfolder}
+          onChange={(subfolder) => set({ subfolder })}
+          label={t("studio.export.destination.subfolder")}
+          original={paths[0]}
+          extension={draft.format}
+          job={jobName}
+          total={paths.length}
+          preview={namePreview ? { name: namePreview.folder ?? "" } : null}
+          invalidMessage={
+            subfolderError && subfolderError !== "tokens"
+              ? t(`studio.export.destination.errors.${subfolderError}`)
+              : null
+          }
+        />
         {target !== "original" && (
           <label className="studio-check">
             <input
@@ -598,8 +636,19 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       </fieldset>
       <fieldset disabled={choosing} className="studio-export-naming">
         <legend>{t("naming.title")}</legend>
+        <label className="studio-export-job">
+          {t("studio.export.job.label")}
+          <input
+            value={jobName}
+            placeholder={t("studio.export.job.placeholder")}
+            maxLength={120}
+            spellCheck={false}
+            onChange={(e) => changeJobName(e.target.value)}
+          />
+        </label>
         <NamingEditor mode="export" value={draft.template} onChange={(template) => set({ template })}
           label={t("studio.export.file.template")} original={paths[0]} extension={draft.format} total={paths.length}
+          job={jobName} preview={namePreview ? { name: namePreview.name } : null}
           sequenceStart={draft.sequenceStart} onSequenceStartChange={(sequenceStart) => set({ sequenceStart })} />
       </fieldset>
       <fieldset disabled={choosing}>

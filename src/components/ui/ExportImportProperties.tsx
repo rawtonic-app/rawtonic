@@ -36,7 +36,13 @@ export type TiffBitDepth = 8 | 16;
 export type OutputColorSpace = 'srgb' | 'displayP3' | 'adobeRgb' | 'proPhoto';
 
 export interface ExportSettings {
+  /** The first export tokens (`{original_filename}`), read for old recipes. */
   filenameTemplate: string | null;
+  /** The name template in the naming tokens; outranks `filenameTemplate`. */
+  nameTemplate?: string | null;
+  /** What `{job}` and `{recipe}` fill. */
+  jobName?: string;
+  recipeName?: string;
   sequenceStart?: number;
   jpegQuality: number;
   tiffBitDepth: TiffBitDepth;
@@ -160,7 +166,9 @@ export interface ExportPreset {
   keepCreatorContact?: boolean;
   exportMasks?: boolean;
   preserveFolders?: boolean;
+  /** The first export tokens; recipes saved since hold `nameTemplate`. */
   filenameTemplate: string;
+  nameTemplate?: string;
   sequenceStart?: number;
   enableWatermark: boolean;
   watermarkPath: string | null;

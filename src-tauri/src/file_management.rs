@@ -11,8 +11,6 @@ pub use rawtonic_engine::file_io::read_file_mapped;
 // Camera JPEGs are sufficient for the browser even when smaller than the
 // configured medium cache size. Develop/export still decode the original RAW.
 
-pub use rawtonic_export::export_processing::generate_filename_from_template;
-
 mod albums;
 mod edits;
 mod folders;

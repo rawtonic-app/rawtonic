@@ -185,31 +185,27 @@ pub fn plan_export_items(paths: Vec<String>) -> Vec<(usize, String, usize, Optio
     export_items
 }
 
-/// An export file's stem: the template applied to the source, then `_VCnn`
-/// for a virtual copy (its number in the path, else its appearance).
+/// An export file's stem: `filename_template` (naming tokens) filled from
+/// `naming` (`ExportSettings::naming_context`), then `_VCnn` for a virtual
+/// copy (its number in the path, else its appearance). A template its
+/// tokens leave empty for this photo gives the original's name
+/// (`render_or_original`). Fails on a template the naming tokens refuse or
+/// a name no file can have.
 pub fn export_stem(
     filename_template: &str,
-    original_path: &Path,
-    sequence: usize,
-    total_paths: usize,
-    file_date: &chrono::DateTime<chrono::Utc>,
+    naming: &rawtonic_naming::Context,
     appearance_count: usize,
     explicit_vc: Option<u32>,
-) -> String {
-    let mut new_stem = crate::export_processing::generate_filename_from_template(
-        filename_template,
-        original_path,
-        sequence,
-        total_paths,
-        file_date,
-    );
+) -> Result<String, String> {
+    let mut new_stem = rawtonic_naming::render_or_original(filename_template, naming)
+        .map_err(|e| format!("The file name template '{filename_template}' cannot be used: {e}"))?;
 
     if let Some(vc_id) = explicit_vc {
         new_stem = format!("{}_VC{:02}", new_stem, vc_id);
     } else if appearance_count > 1 {
         new_stem = format!("{}_VC{:02}", new_stem, appearance_count - 1);
     }
-    new_stem
+    Ok(new_stem)
 }
 
 #[cfg(test)]
@@ -263,15 +259,13 @@ mod tests {
             .iter()
             .map(|(i, photo, appearance, vc)| {
                 let (path, _) = parse_virtual_path(photo);
-                export_stem(
-                    "{original_filename}_edited",
-                    &path,
-                    i + 1,
-                    6,
-                    &date,
-                    *appearance,
-                    *vc,
-                )
+                let settings: crate::export_processing::ExportSettings =
+                    serde_json::from_value(serde_json::json!({
+                        "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+                    }))
+                    .unwrap();
+                let naming = settings.naming_context(&path, i + 1, 6, &date, "jpg", None);
+                export_stem(&settings.naming_template(), &naming, *appearance, *vc).unwrap()
             })
             .collect();
         assert_eq!(

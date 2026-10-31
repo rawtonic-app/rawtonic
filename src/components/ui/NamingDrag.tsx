@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 
+/** A chip of the format field (token `index`) or a token from the lists. */
 export type NamingDragData =
-  | { kind: "part"; index: number; text: string }
+  | { kind: "chip"; index: number; text: string }
   | { kind: "token"; text: string };
 
 export function NamingDragButton({
@@ -10,17 +11,23 @@ export function NamingDragButton({
   data,
   children,
   onClick,
-  pressed,
+  onDoubleClick,
+  onKeyDown,
   className,
   title,
+  label,
+  buttonRef,
 }: {
   id: string;
   data: NamingDragData;
   children: ReactNode;
-  onClick: () => void;
-  pressed?: boolean;
+  onClick?: () => void;
+  onDoubleClick?: () => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
   className?: string;
   title?: string;
+  label?: string;
+  buttonRef?: (node: HTMLButtonElement | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id,
@@ -29,42 +36,44 @@ export function NamingDragButton({
   return (
     <button
       type="button"
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node);
+        buttonRef?.(node);
+      }}
       {...attributes}
       {...listeners}
-      aria-pressed={pressed}
+      aria-label={label}
       title={title}
       className={`${className ?? ""} naming-draggable${isDragging ? " is-dragging" : ""}`}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onKeyDown={onKeyDown}
     >
       {children}
     </button>
   );
 }
 
-/** Dropping on a block inserts before it; the final target appends. */
+/** Free text `index` of the format field: a dropped token lands at its end
+ * (before token `index`). */
 export function NamingDropSlot({
   index,
   children,
-  label,
-  dragging,
 }: {
   index: number;
   children?: ReactNode;
-  label: string;
-  dragging: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `slot-${index}`,
     data: { index },
   });
   return (
-    <div
+    <span
       ref={setNodeRef}
-      className={`naming-drop-slot${isOver ? " is-over" : ""}${!children ? " is-end" : ""}`}
+      className={`naming-drop-slot${isOver ? " is-over" : ""}`}
       data-drop-index={index}
     >
-      {children ?? <span>{dragging ? label : "+"}</span>}
-    </div>
+      {children}
+    </span>
   );
 }

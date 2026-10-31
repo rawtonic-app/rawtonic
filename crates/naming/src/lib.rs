@@ -55,7 +55,100 @@ pub const TOKENS: &[&str] = &[
     "title",
     "creator",
     "copyright",
+    // Export only (empty elsewhere): the output's format and recipe name.
+    "format",
+    "recipe",
 ];
+
+/// The tokens `Capture` fills: a template without them needs no read of
+/// the photograph's metadata (`needs_capture`).
+pub const CAPTURE_TOKENS: &[&str] = &[
+    "subsec",
+    "tz",
+    "make",
+    "model",
+    "camera",
+    "serial",
+    "lens",
+    "iso",
+    "focal",
+    "aperture",
+    "shutter",
+    "creator",
+    "copyright",
+    "title",
+    "rating",
+    "color",
+];
+
+/// The date formats `{date:FORMAT}` offers (`{date}` is `yyyy-mm-dd`):
+/// one token whose format is chosen, as in Capture One.
+pub const DATE_FORMATS: &[(&str, &str)] = &[
+    ("yyyy-mm-dd", "%Y-%m-%d"),
+    ("yyyymmdd", "%Y%m%d"),
+    ("yymmdd", "%y%m%d"),
+    ("yyyy_mm_dd", "%Y_%m_%d"),
+    ("dd-mm-yyyy", "%d-%m-%Y"),
+    ("dd.mm.yyyy", "%d.%m.%Y"),
+    ("ddmmyyyy", "%d%m%Y"),
+    ("mm-dd-yyyy", "%m-%d-%Y"),
+];
+
+/// The time formats `{time:FORMAT}` offers (`{time}` is `hh-MM-ss`).
+pub const TIME_FORMATS: &[(&str, &str)] = &[
+    ("hh-MM-ss", "%H-%M-%S"),
+    ("hhMMss", "%H%M%S"),
+    ("hh.MM.ss", "%H.%M.%S"),
+    ("hhMM", "%H%M"),
+];
+
+/// The names of the tokens `template` uses (without counter widths,
+/// formats or transforms); malformed parts are left to `render`.
+pub fn template_tokens(template: &str) -> impl Iterator<Item = &str> {
+    template.split('{').skip(1).filter_map(|part| {
+        let expression = part.split_once('}')?.0;
+        let token = expression.split('|').next().unwrap_or_default();
+        Some(token.split_once(':').map_or(token, |(name, _)| name))
+    })
+}
+
+/// Whether `template` uses a token the photograph's metadata fills.
+pub fn needs_capture(template: &str) -> bool {
+    template_tokens(template).any(|t| CAPTURE_TOKENS.contains(&t))
+}
+
+/// The tokens of the first export and rename templates, which used their
+/// own names (`{MM}` was the month there, the minute here).
+const LEGACY_TOKENS: &[(&str, &str)] = &[
+    ("{original_filename}", "{orig_base}"),
+    ("{sequence}", "{seq:auto}"),
+    ("{YYYY}", "{yyyy}"),
+    ("{MM}", "{mm}"),
+    ("{DD}", "{dd}"),
+    ("{hh}", "{hh}"),
+    ("{mm}", "{MM}"),
+];
+
+/// An export template saved before exports used these tokens, written
+/// with them: the same names (`{sequence}` keeps its width fitted to the
+/// batch, `{seq:auto}`). Text between tokens stays as it was.
+pub fn translate_legacy_export(template: &str) -> String {
+    let mut output = String::with_capacity(template.len());
+    let mut rest = template;
+    'outer: while !rest.is_empty() {
+        for (old, new) in LEGACY_TOKENS {
+            if let Some(after) = rest.strip_prefix(old) {
+                output.push_str(new);
+                rest = after;
+                continue 'outer;
+            }
+        }
+        let c = rest.chars().next().unwrap_or_default();
+        output.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    output
+}
 
 /// Where a capture date came from, best first. Ingest tries them in this
 /// order: EXIF DateTimeOriginal (the shutter release; for maker formats
@@ -193,6 +286,10 @@ pub struct Context {
     pub original: String,
     pub sequence: u64,
     pub sequence_start: u64,
+    /// The batch's last counter, which `{seq:auto}` pads to the width of
+    /// (none: the counter's own width).
+    #[serde(default)]
+    pub sequence_last: Option<u64>,
     #[serde(default)]
     pub values: BTreeMap<String, String>,
 }
@@ -219,6 +316,7 @@ impl Context {
             original: original.into(),
             sequence,
             sequence_start: 1,
+            sequence_last: None,
             values: BTreeMap::new(),
         }
     }
@@ -301,9 +399,26 @@ fn expand(expression: &str, context: &Context) -> Result<String> {
         .split_once(':')
         .map_or((token, None), |(a, b)| (a, Some(b)));
     let mut value = context.value(name)?;
-    if let Some(pad) = pad {
-        ensure!(name == "seq", "Use |pad:N for non-sequence tokens");
-        value = format!("{value:0>width$}", width = width(pad)?);
+    match (name, pad) {
+        (_, None) => {}
+        ("seq", Some("auto")) => {
+            let last = context.sequence_last.unwrap_or(0).max(context.sequence);
+            value = format!("{value:0>width$}", width = last.to_string().len());
+        }
+        ("seq", Some(pad)) => value = format!("{value:0>width$}", width = width(pad)?),
+        ("date" | "time", Some(format)) => {
+            let formats = if name == "date" {
+                DATE_FORMATS
+            } else {
+                TIME_FORMATS
+            };
+            let (_, pattern) = formats
+                .iter()
+                .find(|(key, _)| *key == format)
+                .ok_or_else(|| anyhow::anyhow!("Unknown {name} format: {format}"))?;
+            value = context.captured.format(pattern).to_string();
+        }
+        _ => bail!("Use |pad:N for non-sequence tokens"),
     }
     for transform in parts {
         value = match transform {
@@ -355,6 +470,25 @@ pub fn validate_component(name: &str) -> Result<()> {
 
 /// Render a filename, rejecting unknown tokens and malformed templates.
 pub fn render(template: &str, context: &Context) -> Result<String> {
+    let output = fill(template, context)?;
+    validate_component(&output)?;
+    Ok(output)
+}
+
+/// `render`, except that a template whose tokens all render empty for
+/// this photo (`{title}` of an untitled one) gives the original's name
+/// without its extension, rather than failing a batch midway.
+pub fn render_or_original(template: &str, context: &Context) -> Result<String> {
+    let output = fill(template, context)?;
+    if output.trim().is_empty() {
+        return render("{orig_base}", context);
+    }
+    validate_component(&output)?;
+    Ok(output)
+}
+
+/// `template` with its tokens filled, not yet checked as a name.
+fn fill(template: &str, context: &Context) -> Result<String> {
     ensure!(template.len() <= 4096, "Template too long");
     let mut output = String::new();
     let mut remaining = template;
@@ -371,7 +505,6 @@ pub fn render(template: &str, context: &Context) -> Result<String> {
     }
     ensure!(!remaining.contains('}'), "Unmatched closing brace");
     output.push_str(remaining);
-    validate_component(&output)?;
     Ok(output)
 }
 
@@ -382,6 +515,30 @@ pub fn render_relative(template: &str, context: &Context) -> Result<std::path::P
         .map(|part| render(part, context))
         .collect::<Result<Vec<_>>>()?;
     Ok(parts.iter().collect())
+}
+
+/// A folder below a destination from `template` (`{job}/{date}/{format}`):
+/// folders are separated by `/` (or a backslash) in the template, never by a
+/// token's value. A folder a token leaves empty is left out, and trailing
+/// dots and spaces (which Windows drops) are trimmed from each; `..`, a
+/// reserved name or character fails. Never absolute: a leading separator
+/// is no root. Empty when the template gives no folder.
+pub fn render_folder(template: &str, context: &Context) -> Result<std::path::PathBuf> {
+    let mut folder = std::path::PathBuf::new();
+    for part in template.split(['/', '\\']) {
+        let name = fill(part, context)?;
+        let name = name.trim().trim_end_matches(['.', ' ']);
+        if name.is_empty() {
+            ensure!(
+                !part.trim().starts_with('.'),
+                "Relative traversal is not a folder name"
+            );
+            continue;
+        }
+        validate_component(name)?;
+        folder.push(name);
+    }
+    Ok(folder)
 }
 
 #[cfg(test)]
@@ -531,6 +688,109 @@ mod tests {
             render("{orig_num}", &Context::new("photo.jpg", 1)).ok(),
             None
         );
+    }
+
+    #[test]
+    fn date_and_time_formats_are_token_choices() {
+        let mut c = Context::new("DSC_0001.ARW", 3);
+        c.captured =
+            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        let render = |t: &str| render(t, &c).unwrap();
+        assert_eq!(render("{date}"), "2026-03-07");
+        assert_eq!(render("{date:yyyymmdd}_{time:hhMMss}"), "20260307_090502");
+        assert_eq!(render("{date:dd.mm.yyyy}"), "07.03.2026");
+        assert_eq!(render("{date:mm-dd-yyyy} {time:hhMM}"), "03-07-2026 0905");
+        for (format, _) in DATE_FORMATS {
+            assert!(validate_component(&render(&format!("{{date:{format}}}"))).is_ok());
+        }
+        assert!(super::render("{date:%Y}", &c).is_err());
+        assert!(super::render("{time:yyyy}", &c).is_err());
+        assert!(super::render("{iso:4}", &c).is_err());
+    }
+
+    #[test]
+    fn a_name_left_empty_by_its_tokens_is_the_original_name() {
+        let c = Context::new("DSC_0001.ARW", 1);
+        assert_eq!(render_or_original("{title}", &c).unwrap(), "DSC_0001");
+        assert_eq!(render_or_original(" {job} ", &c).unwrap(), "DSC_0001");
+        assert!(render("{title}", &c).is_err());
+        assert!(render_or_original("{title}.", &c).is_err());
+        assert!(render_or_original("{oops}", &c).is_err());
+    }
+
+    #[test]
+    fn an_auto_counter_fits_the_batch() {
+        let mut c = Context::new("a.arw", 7);
+        assert_eq!(render("{seq:auto}", &c).unwrap(), "7");
+        c.sequence_last = Some(120);
+        assert_eq!(render("{seq:auto}", &c).unwrap(), "007");
+        c.sequence = 1000;
+        assert_eq!(render("{seq:auto}", &c).unwrap(), "1000");
+    }
+
+    /// Export and rename templates saved with the first token names keep
+    /// giving the names they gave (`generate_filename_from_template`).
+    #[test]
+    fn legacy_export_templates_keep_their_names() {
+        assert_eq!(
+            translate_legacy_export("{YYYY}{MM}{DD}-{hh}{mm}_{original_filename}_{sequence} x"),
+            "{yyyy}{mm}{dd}-{hh}{MM}_{orig_base}_{seq:auto} x"
+        );
+        assert_eq!(
+            translate_legacy_export("Zürich_{sequence}"),
+            "Zürich_{seq:auto}"
+        );
+        let mut c = Context::new("DSC_0001.ARW", 3);
+        c.sequence_last = Some(12);
+        c.captured =
+            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        assert_eq!(
+            render(
+                &translate_legacy_export("{YYYY}{MM}{DD}_{hh}{mm}_{original_filename}_{sequence}"),
+                &c
+            )
+            .unwrap(),
+            "20260307_0905_DSC_0001_03"
+        );
+    }
+
+    #[test]
+    fn folders_from_tokens_stay_inside_the_destination() {
+        let mut c = Context::new("DSC_0001.ARW", 1);
+        c.captured =
+            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.values.insert("job".into(), "Acme/../Zürich.".into());
+        c.values.insert("format".into(), "JPEG".into());
+        let folder = |t: &str, c: &Context| render_folder(t, c);
+        assert_eq!(
+            folder("{job}/{date}/{format}", &c).unwrap(),
+            std::path::PathBuf::from("Acme_.._Zürich/2026-03-07/JPEG")
+        );
+        // An empty token leaves its folder out; a leading separator is no root.
+        assert_eq!(
+            folder("/{title}/web\\{yyyy}", &c).unwrap(),
+            std::path::PathBuf::from("web/2026")
+        );
+        assert_eq!(folder("", &c).unwrap(), std::path::PathBuf::new());
+        c.values.insert("title".into(), "..".into());
+        assert_eq!(
+            folder("{title}/a", &c).unwrap(),
+            std::path::PathBuf::from("a")
+        );
+        for bad in ["../x", "a/../b", "./a", "C:/x", "a/CON", "{oops}"] {
+            assert!(folder(bad, &c).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn templates_name_their_tokens() {
+        let t = "{date:yyyymmdd}_{seq:4|upper}-{lens|lower}";
+        assert_eq!(
+            template_tokens(t).collect::<Vec<_>>(),
+            ["date", "seq", "lens"]
+        );
+        assert!(needs_capture(t));
+        assert!(!needs_capture("{orig_base}_{seq:auto}_{job}"));
     }
 
     proptest! {

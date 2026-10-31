@@ -806,6 +806,7 @@ pub fn run() {
             image_loader::load_embedded_preview,
             export_processing::export_images,
             export_processing::export_images_batch,
+            export_processing::export_naming_preview,
             export_processing::cancel_export,
             export_processing::estimate_export_sizes,
             export_processing::list_font_families,

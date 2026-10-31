@@ -4,7 +4,6 @@
 //! JPEG) and what stops it; the rename runs exactly the plan the dialog
 //! showed (`rename_files`), the journal checking no-clobber again.
 //! Part of `file_management` (ADR 0009).
-use super::generate_filename_from_template;
 use super::parse_virtual_path;
 use crate::formats::{is_raw_file, is_supported_image_file};
 use chrono::{DateTime, Utc};
@@ -162,25 +161,30 @@ fn folder_entries(folder: &Path) -> Vec<String> {
     names
 }
 
-/// A batch of several names without a sequence or original name would
+/// A batch of several names without a counter or original name would
 /// give every photo the same name: it is numbered.
 fn effective_template(template: &str, names: usize) -> String {
     let template = template.trim();
-    if names > 1 && !template.contains("{sequence}") && !template.contains("{original_filename}") {
-        format!("{template}_{{sequence}}")
+    let numbered = rawtonic_naming::template_tokens(template)
+        .any(|t| matches!(t, "seq" | "orig" | "orig_base" | "orig_num"));
+    if names > 1 && !numbered {
+        format!("{template}_{{seq:auto}}")
     } else {
         template.to_string()
     }
 }
 
 /// What the plan reads about photos, each once: a verified companion
-/// (its whole content hashed) and the capture date. The rename dialog
+/// (its whole content hashed), the capture date and, for templates with
+/// camera or metadata tokens, its facts with the library's metadata
+/// (`naming_capture`). The rename dialog
 /// keeps them while it is open (`preview_rename`); the rename itself
 /// reads them again.
 #[derive(Default)]
 pub struct PhotoFacts {
     companions: HashMap<PathBuf, Option<PathBuf>>,
     dates: HashMap<PathBuf, DateTime<Utc>>,
+    captures: HashMap<PathBuf, rawtonic_naming::Capture>,
 }
 
 impl PhotoFacts {
@@ -197,21 +201,58 @@ impl PhotoFacts {
             .entry(photo.to_path_buf())
             .or_insert_with(|| crate::exif_processing::get_creation_date_from_path(photo))
     }
+
+    fn capture(&mut self, photo: &Path) -> &rawtonic_naming::Capture {
+        self.captures.entry(photo.to_path_buf()).or_insert_with(|| {
+            crate::export_processing::naming_capture(
+                photo,
+                crate::session_bridge::catalog_metadata(photo).as_ref(),
+            )
+        })
+    }
 }
 
-const DATE_TOKENS: [&str; 5] = ["{YYYY}", "{MM}", "{DD}", "{hh}", "{mm}"];
+/// `name` without `photo`'s extension when it ends in it (any case), as a
+/// template with `{orig}` or `.{ext}` gives it: each file of the photo keeps
+/// its own extension, appended to the stem (as an import keeps it,
+/// `rawtonic_ingest::render_name`).
+fn without_extension(name: String, photo: &Path) -> String {
+    let Some(ext) = photo.extension().and_then(|e| e.to_str()) else {
+        return name;
+    };
+    let cut = name.len().saturating_sub(ext.len() + 1);
+    match name.get(cut..) {
+        Some(tail) if cut > 0 && tail.starts_with('.') && tail[1..].eq_ignore_ascii_case(ext) => {
+            name[..cut].to_string()
+        }
+        _ => name,
+    }
+}
+
+/// The naming tokens of the capture date.
+const DATE_TOKENS: [&str; 13] = [
+    "yyyy", "yy", "mm", "month", "mon", "dd", "doy", "weekday", "hh", "MM", "ss", "date", "time",
+];
 
 /// Plans renaming `paths` (photos or virtual copies) after `template`,
 /// reading every fact fresh.
+#[cfg(test)]
 pub fn plan_rename(paths: &[String], template: &str) -> RenamePlan {
-    plan_rename_with(paths, template, &mut PhotoFacts::default())
+    plan_rename_with(paths, template, 1, &mut PhotoFacts::default())
 }
 
 /// Plans renaming `paths` (photos or virtual copies) after `template`.
 /// Photos of one name in one folder (independent RAW and JPEG sharing an
 /// XMP) are one name in the sequence and keep sharing a name; its date
-/// is the RAW's. A verified companion is renamed with its photo.
-pub fn plan_rename_with(paths: &[String], template: &str, facts: &mut PhotoFacts) -> RenamePlan {
+/// is the RAW's. A verified companion is renamed with its photo. The
+/// template uses the naming tokens of ingest and export (`rawtonic_naming`),
+/// its counter starting at `sequence_start`.
+pub fn plan_rename_with(
+    paths: &[String],
+    template: &str,
+    sequence_start: u64,
+    facts: &mut PhotoFacts,
+) -> RenamePlan {
     let mut photos: Vec<PathBuf> = Vec::new();
     for path in paths {
         let (photo, _) = parse_virtual_path(path);
@@ -246,14 +287,31 @@ pub fn plan_rename_with(paths: &[String], template: &str, facts: &mut PhotoFacts
             .find(|&&i| is_raw_file(&photos[i]))
             .unwrap_or(&members[0]);
         let lead_path = &photos[lead];
-        let date = if DATE_TOKENS.iter().any(|t| template.contains(t)) {
-            facts.date(lead_path)
-        } else {
-            DateTime::<Utc>::default()
-        };
-        let new_stem =
-            generate_filename_from_template(&template, lead_path, g + 1, groups.len(), &date);
-        let invalid = new_stem.is_empty() || new_stem.contains(['/', '\\']);
+        let mut naming =
+            rawtonic_naming::Context::new(file_name(lead_path), sequence_start + g as u64);
+        naming.sequence_start = sequence_start;
+        naming.sequence_last = Some(sequence_start + groups.len() as u64 - 1);
+        if let Some(folder) = lead_path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+        {
+            naming.values.insert("folder".into(), folder.into());
+        }
+        if rawtonic_naming::needs_capture(&template) {
+            naming.apply_capture(facts.capture(lead_path));
+        }
+        if rawtonic_naming::template_tokens(&template).any(|t| DATE_TOKENS.contains(&t)) {
+            naming.captured = facts
+                .date(lead_path)
+                .with_timezone(&chrono::Local)
+                .naive_local();
+        }
+        let rendered = rawtonic_naming::render(&template, &naming);
+        let invalid = rendered.is_err();
+        let new_stem = rendered
+            .map(|name| without_extension(name, lead_path))
+            .unwrap_or_else(|_| template.clone());
         let folder = lead_path.parent().unwrap_or(Path::new("")).to_path_buf();
         let entries = folder_entries(&folder);
         for &i in members {
@@ -641,7 +699,7 @@ mod tests {
         let plan = plan_rename(&paths[..1], "Job");
         assert_eq!(file_name(&plan.photos[0].to), "Job.NEF");
         // Unchanged names plan nothing.
-        let plan = plan_rename(&paths[..2], "{original_filename}");
+        let plan = plan_rename(&paths[..2], "{orig_base}");
         assert!(plan.files().is_empty() && !plan.blocked());
         // Taken, doubled and invalid names.
         let plan = plan_rename(&paths[..1], "P2");
@@ -675,6 +733,58 @@ mod tests {
     }
 
     /// No refusals by a case-only change of the same file.
+    /// Metadata tokens read what the photographer set in the library, not
+    /// only what the camera wrote.
+    #[test]
+    fn metadata_tokens_come_from_the_library() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, capture) = session(tmp.path());
+        write(&capture, &["A.NEF", "B.NEF"]);
+        lib.add_files(&[capture.join("A.NEF"), capture.join("B.NEF")])
+            .unwrap();
+        let id = lib.asset_at(&capture.join("A.NEF")).unwrap().unwrap().id;
+        let metadata = rawtonic_metadata::Metadata {
+            title: "Harbour".into(),
+            label: "Red".into(),
+            rating: 4,
+            ..lib.metadata(&id).unwrap()
+        };
+        lib.set_metadata(&id, &metadata).unwrap();
+        let paths = ["A.NEF", "B.NEF"].map(|n| arg(&capture.join(n)));
+        let plan = plan_rename(&paths, "{title}{color}{rating}_{seq:auto}");
+        assert_eq!(plan.photos[0].to, capture.join("HarbourRed4_1.NEF"));
+        assert_eq!(plan.photos[1].to, capture.join("0_2.NEF"));
+    }
+
+    #[test]
+    fn a_template_with_the_extension_gives_it_once() {
+        assert_eq!(
+            without_extension("x_DSC.NEF".into(), Path::new("/a/DSC.NEF")),
+            "x_DSC"
+        );
+        assert_eq!(
+            without_extension("x.nef".into(), Path::new("/a/DSC.NEF")),
+            "x"
+        );
+        assert_eq!(
+            without_extension(".NEF".into(), Path::new("/a/DSC.NEF")),
+            ".NEF"
+        );
+        assert_eq!(
+            without_extension("xNEF".into(), Path::new("/a/DSC.NEF")),
+            "xNEF"
+        );
+        assert_eq!(
+            without_extension("x.jpg".into(), Path::new("/a/DSC.NEF")),
+            "x.jpg"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), &["A.NEF", "A.JPG"]);
+        let paths = [arg(&dir.path().join("A.NEF"))];
+        let plan = plan_rename(&paths, "Job_{orig}");
+        assert_eq!(plan.photos[0].to, dir.path().join("Job_A.NEF"));
+    }
+
     #[test]
     fn a_case_only_rename_is_not_a_conflict() {
         let tmp = tempfile::tempdir().unwrap();
@@ -742,12 +852,12 @@ mod tests {
         // Changed since the preview: nothing is renamed.
         write(&capture, &["A.NEF.b7c8d9.rrdata"]);
         let error =
-            crate::file_management::checked_rename_steps(&paths, "Job", &expected).unwrap_err();
+            crate::file_management::checked_rename_steps(&paths, "Job", 1, &expected).unwrap_err();
         assert!(error.contains("changed since the preview"), "{error}");
         fs::remove_file(capture.join("A.NEF.b7c8d9.rrdata")).unwrap();
 
         let (plan, steps, label) =
-            crate::file_management::checked_rename_steps(&paths, "Job", &expected)
+            crate::file_management::checked_rename_steps(&paths, "Job", 1, &expected)
                 .unwrap()
                 .unwrap();
         assert_eq!(plan, preview);

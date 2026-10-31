@@ -484,7 +484,7 @@ it("saves the recipe on Return in its name field instead of exporting", () => {
 
 it("does not capitalise or correct a typed subfolder name", () => {
   render(<StudioExport />);
-  const subfolder = screen.getByLabelText("Subfolder");
+  const subfolder = screen.getByLabelText("Put in subfolder");
   expect(subfolder.getAttribute("autocapitalize")).toBe("off");
   expect(subfolder.getAttribute("autocorrect")).toBe("off");
   expect(subfolder.getAttribute("spellcheck")).toBe("false");
@@ -499,12 +499,12 @@ it("shows a subfolder name of spaces only as no subfolder, without a slash", () 
     document.querySelector(".studio-export-plan li span")?.textContent ?? "";
   const before = plan();
   expect(before).not.toContain(" / ");
-  fireEvent.change(screen.getByLabelText("Subfolder"), {
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), {
     target: { value: "   " },
   });
   expect(plan()).toBe(before);
   expect(plan()).not.toContain(" / ");
-  fireEvent.change(screen.getByLabelText("Subfolder"), {
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), {
     target: { value: " Web " },
   });
   expect(plan()).toContain("Next to the originals / Web");
@@ -519,7 +519,7 @@ async function fillEverything() {
   const tick = (label: string) => fireEvent.click(screen.getByLabelText(label));
   change("Format", "webp");
   change("WebP quality", "72");
-  change("Subfolder", "Web/small");
+  change("Put in subfolder", "Web/small");
   tick("Keep the folder structure");
   tick("Date files with the capture time");
   tick("Resize to fit");
@@ -779,7 +779,7 @@ it("holds the export until a watermark image is chosen or a subfolder is valid",
   expect(submit().disabled).toBe(true);
   fireEvent.click(screen.getByLabelText("Add a watermark"));
   expect(submit().disabled).toBe(false);
-  fireEvent.change(screen.getByLabelText("Subfolder"), {
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), {
     target: { value: "../elsewhere" },
   });
   expect(screen.getByRole("alert").textContent).toMatch(
@@ -901,22 +901,29 @@ it("exports into a wide colour space in every image format", async () => {
   expect(space.value).toBe("proPhoto");
 });
 
-it("resolves date naming presets through the export engine even for a single photo", async () => {
+it("offers a single photo's file the name the export engine gives it", async () => {
   useLibraryStore.setState({ multiSelectedPaths: ["/p/a.RAF"] });
+  vi.mocked(invoke).mockImplementation(((command: string) =>
+    Promise.resolve(command === "export_naming_preview" ? { folder: "", name: "20261011_a.jpg" } : undefined)) as never);
   render(<StudioExport />);
   fireEvent.change(screen.getByLabelText("Naming preset"), { target: { value: "builtin:1" } });
   fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
-  await vi.waitFor(() => expect(exported()).toContainEqual(expect.objectContaining({
-    isExplicitFilePath: false,
-    exportSettings: expect.objectContaining({ filenameTemplate: "{YYYY}{MM}{DD}_{original_filename}" }),
-  })));
   const { save } = await import("@tauri-apps/plugin-dialog");
-  expect(save).not.toHaveBeenCalled();
+  await vi.waitFor(() =>
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: "20261011_a.jpg" })),
+  );
+  expect(invoke).toHaveBeenCalledWith(
+    "export_naming_preview",
+    expect.objectContaining({
+      path: "/p/a.RAF",
+      exportSettings: expect.objectContaining({ nameTemplate: "{date:yyyymmdd}_{orig_base}" }),
+    }),
+  );
 });
 
 it("sends a custom counter start to batch exports and uses it in the single-file save dialog", async () => {
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Filename template"), { target: { value: "Image_{sequence}" } });
+  fireEvent.change(screen.getByLabelText("Filename template"), { target: { value: "Image_{seq}" } });
   fireEvent.change(screen.getByLabelText("Counter starts at"), { target: { value: "98" } });
   fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
   await vi.waitFor(() => expect(exported()).toContainEqual(expect.objectContaining({
@@ -926,11 +933,18 @@ it("sends a custom counter start to batch exports and uses it in the single-file
   useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } });
   useLibraryStore.setState({ multiSelectedPaths: ["/p/a.RAF"] });
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Filename template"), { target: { value: "Image_{sequence}" } });
+  fireEvent.change(screen.getByLabelText("Filename template"), { target: { value: "Image_{seq}" } });
   fireEvent.change(screen.getByLabelText("Counter starts at"), { target: { value: "0" } });
   fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
   const { save } = await import("@tauri-apps/plugin-dialog");
-  await vi.waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: "Image_0.jpg" })));
+  // The name offered is the one the backend gives the photo with that start.
+  await vi.waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(
+      "export_naming_preview",
+      expect.objectContaining({ exportSettings: expect.objectContaining({ nameTemplate: "Image_{seq}", sequenceStart: 0 }) }),
+    ),
+  );
+  await vi.waitFor(() => expect(save).toHaveBeenCalled());
 });
 
 it("shows a translated summary with backend export details as secondary text", () => {
@@ -980,4 +994,29 @@ it("keeps a visible edge on its footer buttons in Windows contrast themes", () =
   expect(buttons.length).toBeGreaterThan(1);
   expect(buttons.every((button) => !button.classList.contains("studio-button"))).toBe(true);
   expect(buttons.map((button) => button.textContent)).toEqual(["Cancel export", "Add to queue"]);
+});
+
+it("sends the job name and a folder template, and remembers the job name for the library", async () => {
+  useLibraryStore.setState({ sessionDirectory: "/Shoots/Wedding", multiSelectedPaths: ["/p/a.RAF", "/p/b.RAF"] });
+  localStorage.removeItem("rawtonic.export.job:/Shoots/Wedding");
+  render(<StudioExport />);
+  const job = screen.getByLabelText("Job name") as HTMLInputElement;
+  // Unset, the job is the library's name, as {job} on import.
+  expect(job.value).toBe("Wedding");
+  fireEvent.change(job, { target: { value: "Acme" } });
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/{date}/{format}" } });
+  fireEvent.click(screen.getByRole("button", { name: "Export" }));
+  await vi.waitFor(() =>
+    expect(exported()).toContainEqual(
+      expect.objectContaining({
+        exportSettings: expect.objectContaining({ jobName: "Acme", subfolder: "{job}/{date}/{format}" }),
+      }),
+    ),
+  );
+  cleanup();
+  useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } });
+  render(<StudioExport />);
+  expect((screen.getByLabelText("Job name") as HTMLInputElement).value).toBe("Acme");
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/../x" } });
+  expect((screen.getByRole("button", { name: "Export" }) as HTMLButtonElement).disabled).toBe(true);
 });

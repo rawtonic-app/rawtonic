@@ -47,11 +47,14 @@ it('previews the final names, sidecars and notes and saves exactly that plan', a
     ],
   };
   const { onSave } = open(['/s/A.NEF', '/s/B.NEF'], plan);
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Job' } });
+  // A batch is named in the naming editor of import and export.
+  const template = () => screen.getByLabelText('File Naming Template');
+  fireEvent.change(template(), { target: { value: 'Job' } });
   const list = await screen.findByTestId('rename-preview');
   expect(invoke).toHaveBeenLastCalledWith(Invokes.PreviewRename, {
     paths: ['/s/A.NEF', '/s/B.NEF'],
     nameTemplate: 'Job',
+    sequenceStart: 1,
     refresh: true,
   });
   const rows = within(list).getAllByRole('listitem');
@@ -60,13 +63,14 @@ it('previews the final names, sidecars and notes and saves exactly that plan', a
   expect(rows[1].textContent).toContain('B.xmp is renamed with this RAW; B.JPG keeps its name without it.');
   expect(screen.getByText('Photos renamed: 2 · files in all: 5')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  expect(onSave).toHaveBeenCalledWith('Job', [...plan.photos[0].files, ...plan.photos[1].files]);
+  expect(onSave).toHaveBeenCalledWith('Job', [...plan.photos[0].files, ...plan.photos[1].files], 1);
   // Later templates reuse the facts read for this opening.
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Job2' } });
+  fireEvent.change(template(), { target: { value: 'Job2' } });
   await waitFor(() =>
     expect(invoke).toHaveBeenLastCalledWith(Invokes.PreviewRename, {
       paths: ['/s/A.NEF', '/s/B.NEF'],
       nameTemplate: 'Job2',
+      sequenceStart: 1,
       refresh: false,
     }),
   );

@@ -1021,7 +1021,7 @@ export function useFileOperations(
   );
 
   const handleSaveRename = useCallback(
-    async (nameTemplate: string, expected: PlannedFile[]) => {
+    async (nameTemplate: string, expected: PlannedFile[], sequenceStart = 1) => {
       const { renameTargetPaths, setUI } = useUIStore.getState();
 
       if (renameTargetPaths.length > 0 && nameTemplate) {
@@ -1032,6 +1032,7 @@ export function useFileOperations(
               invoke<string[]>(Invokes.RenameFiles, {
                 expected,
                 nameTemplate,
+                sequenceStart,
                 paths: renameTargetPaths,
               }),
             "rename",

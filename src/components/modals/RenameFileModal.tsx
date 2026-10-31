@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { FILENAME_VARIABLES } from '../ui/ExportImportProperties';
+import NamingEditor from '../ui/NamingEditor';
+import { validNamingTemplate, validSequenceStart } from '../../utils/namingTemplates';
 import { Invokes } from '../ui/AppProperties';
 import Text from '../ui/Text';
 import { TextVariants } from '../../types/typography';
@@ -42,7 +43,7 @@ interface RenameFileModalProps {
   isOpen: boolean;
   onClose(): void;
   /** Runs the previewed plan: `expected` is its files, refused if they changed since. */
-  onSave(template: string, expected: PlannedFile[]): void;
+  onSave(template: string, expected: PlannedFile[], sequenceStart: number): void;
 }
 
 const nameOf = (path: string) => path.split(/[\\/]/).pop() ?? path;
@@ -50,12 +51,12 @@ const nameOf = (path: string) => path.split(/[\\/]/).pop() ?? path;
 export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave }: RenameFileModalProps) {
   const { t } = useTranslation();
   const [nameTemplate, setNameTemplate] = useState('');
+  const [sequenceStart, setSequenceStart] = useState(1);
   const [plan, setPlan] = useState<RenamePlan | null>(null);
   const [planFor, setPlanFor] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
-  const nameInputRef = useRef<HTMLInputElement>(null);
   const request = useRef(0);
   // The first preview of each opening reads the photos' facts again.
   const fresh = useRef(true);
@@ -72,7 +73,7 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
           setNameTemplate(nameWithoutExt);
         }
       } else {
-        setNameTemplate('{original_filename}');
+        setNameTemplate('{orig_base}');
       }
       fresh.current = true;
       setIsMounted(true);
@@ -83,6 +84,7 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
       const timer = setTimeout(() => {
         setIsMounted(false);
         setNameTemplate('');
+        setSequenceStart(1);
         setPlan(null);
         setPlanFor(null);
       }, 300);
@@ -93,17 +95,22 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
   // The final names, sidecars and conflicts for the current template,
   // planned by the backend exactly as Save runs it.
   const template = nameTemplate.trim();
+  // A batch's template is checked here first; a single name is the name.
+  const ready =
+    !!template &&
+    (isSingleFile || (validNamingTemplate(template, 'rename') && validSequenceStart(sequenceStart)));
+  const planKey = `${sequenceStart}:${template}`;
   useEffect(() => {
-    if (!isOpen || !template || !filesToRename.length) return;
+    if (!isOpen || !ready || !filesToRename.length) return;
     const id = ++request.current;
     const timer = setTimeout(() => {
       const refresh = fresh.current;
       fresh.current = false;
-      invoke<RenamePlan>(Invokes.PreviewRename, { paths: filesToRename, nameTemplate: template, refresh })
+      invoke<RenamePlan>(Invokes.PreviewRename, { paths: filesToRename, nameTemplate: template, sequenceStart, refresh })
         .then((next) => {
           if (id !== request.current) return;
           setPlan(next);
-          setPlanFor(template);
+          setPlanFor(planKey);
           setPreviewError(null);
         })
         .catch((err) => {
@@ -114,19 +121,19 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
         });
     }, 150);
     return () => clearTimeout(timer);
-  }, [isOpen, template, filesToRename]);
+  }, [isOpen, ready, template, sequenceStart, planKey, filesToRename]);
 
-  const current = plan && planFor === template ? plan : null;
+  const current = ready && plan && planFor === planKey ? plan : null;
   const files = useMemo(() => (current ? current.photos.flatMap((photo) => photo.files) : []), [current]);
   const blocked = current?.photos.some((photo) => photo.problems.length > 0) ?? false;
   const canSave = !!current && !blocked && files.length > 0;
 
   const handleSave = useCallback(() => {
     if (current && canSave) {
-      onSave(template, files);
+      onSave(template, files, sequenceStart);
       onClose();
     }
-  }, [current, canSave, template, files, onSave, onClose]);
+  }, [current, canSave, template, files, sequenceStart, onSave, onClose]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -142,23 +149,6 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
     },
     [handleSave, onClose],
   );
-
-  const handleVariableClick = (variable: string) => {
-    if (!nameInputRef.current) {
-      return;
-    }
-    const input = nameInputRef.current;
-    const start = input?.selectionStart || 0;
-    const end = input?.selectionEnd || 0;
-    const currentValue = input.value;
-    const newValue = currentValue.substring(0, start) + variable + currentValue.substring(end);
-    setNameTemplate(newValue);
-    setTimeout(() => {
-      input.focus();
-      const newCursorPos = start + variable.length;
-      input.setSelectionRange(newCursorPos, newCursorPos);
-    }, 0);
-  };
 
   const describeNote = (note: Note) =>
     note.kind === 'xmpWithRaw'
@@ -211,35 +201,34 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
             : t('modals.renameFile.titleMultiple', { count: fileCount })}
         </h2>
 
-        <div>
+        {isSingleFile ? (
           <div>
             <Text variant={TextVariants.label} className="block mb-2">
-              {isSingleFile ? t('modals.renameFile.newName') : t('modals.renameFile.fileNamingTemplate')}
+              {t('modals.renameFile.newName')}
             </Text>
             <input
               autoFocus
               className="w-full px-2 py-1.5"
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNameTemplate(e.target.value)}
               onKeyDown={handleKeyDown}
-              ref={nameInputRef}
               type="text"
               value={nameTemplate}
             />
-            {!isSingleFile && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {FILENAME_VARIABLES.map((variable: string) => (
-                  <button
-                    className="studio-button"
-                    key={variable}
-                    onClick={() => handleVariableClick(variable)}
-                  >
-                    {variable}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
-        </div>
+        ) : (
+          // The naming editor of import and export, the same tokens.
+          <NamingEditor
+            mode="rename"
+            label={t('modals.renameFile.fileNamingTemplate')}
+            value={nameTemplate}
+            onChange={setNameTemplate}
+            original={filesToRename[0]}
+            total={fileCount}
+            sequenceStart={sequenceStart}
+            onSequenceStartChange={setSequenceStart}
+            preview={current?.photos[0] ? { name: nameOf(current.photos[0].to) } : null}
+          />
+        )}
 
         <div aria-label={t('modals.renameFile.preview')} role="region">
           <Text variant={TextVariants.label} className="block mb-1">

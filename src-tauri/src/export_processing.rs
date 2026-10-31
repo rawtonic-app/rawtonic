@@ -1208,28 +1208,29 @@ fn plan_output_path(
     item: &PhotoItem,
     source_path: &Path,
     file_date: &chrono::DateTime<chrono::Utc>,
+    capture: Option<&rawtonic_naming::Capture>,
     mask_layers: usize,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
 ) -> Result<std::path::PathBuf, String> {
     let export_settings = &target.export_settings;
     let output_folder_path = Path::new(&target.output_folder_or_file);
     let total_paths = item.total_paths;
-    let filename_template = export_settings
-        .filename_template
-        .as_deref()
-        .unwrap_or("{original_filename}_edited");
-
     let (sequence, last_sequence) =
         export_settings.filename_counter(item.global_index, total_paths);
-    let new_stem = rawtonic_export::sidecars::export_stem(
-        filename_template,
+    let naming = export_settings.naming_context(
         source_path,
         sequence,
         last_sequence,
         file_date,
+        &target.output_format,
+        capture,
+    );
+    let new_stem = rawtonic_export::sidecars::export_stem(
+        &export_settings.naming_template(),
+        &naming,
         item.appearance_count,
         item.explicit_vc,
-    );
+    )?;
 
     let new_filename = format!("{}.{}", new_stem, target.output_format);
 
@@ -1242,6 +1243,7 @@ fn plan_output_path(
             output_folder_path,
             export_settings,
             &target.base_origin_folders,
+            &naming,
         )?;
         if dir != output_folder_path
             && let Err(e) = std::fs::create_dir_all(&dir)
@@ -1286,6 +1288,26 @@ fn plan_output_path(
         used.extend(family(&output_path));
     }
     Ok(output_path)
+}
+
+/// What the naming tokens read about `original` for its export and rename
+/// names: its header's facts and its XMP sidecar's (`source_facts`, as an
+/// import reads them), with the rating, label, title, creator and copyright
+/// the library holds (`metadata`) over the file's.
+pub(crate) fn naming_capture(
+    original: &Path,
+    metadata: Option<&rawtonic_metadata::Metadata>,
+) -> rawtonic_naming::Capture {
+    let mut capture = rawtonic_ingest::source_facts(original).capture;
+    if let Some(metadata) = metadata {
+        let text = |value: &str| Some(value.to_string()).filter(|v| !v.trim().is_empty());
+        capture.rating = Some(metadata.rating);
+        capture.label = text(&metadata.label);
+        capture.title = text(&metadata.title).or(capture.title);
+        capture.creator = text(&metadata.creator).or(capture.creator);
+        capture.copyright = text(&metadata.copyright).or(capture.copyright);
+    }
+    capture
 }
 
 /// Each of `targets` in turn: its file is planned right before it is
@@ -1365,6 +1387,10 @@ fn export_photo(
     let is_raw = is_raw_file(&source_path_str);
     let original_path = std::path::Path::new(&source_path_str);
     let file_date = pinned.naming_date(original_path);
+    let capture = wanted
+        .iter()
+        .any(|&t| targets[t].export_settings.naming_needs_capture())
+        .then(|| naming_capture(original_path, pinned.metadata.as_ref()));
 
     // Each recipe's file is named (and recorded) right before it is
     // written, as when each recipe was its own export.
@@ -1380,6 +1406,7 @@ fn export_photo(
             &item,
             original_path,
             &file_date,
+            capture.as_ref(),
             mask_layers,
             used_paths,
         )?;
@@ -1690,6 +1717,68 @@ pub async fn export_images(
     .await
 }
 
+/// What a recipe's name and subfolder templates give `path` (the first of
+/// `total` photos): the Export dialog's live example and a single photo's
+/// file name. The photo is read as its export reads it (`pin_photos`
+/// through `library`): its corrected capture date and the library's
+/// rating, label, title, creator and copyright.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportNamePreview {
+    /// The subfolder below the destination ("" for none), `/`-separated.
+    pub folder: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub async fn export_naming_preview(
+    path: String,
+    export_settings: ExportSettings,
+    output_format: String,
+    total: usize,
+    library: crate::export_queue::SubmittedFrom,
+) -> Result<ExportNamePreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (source, _) = parse_virtual_path(&path);
+        let pinned =
+            pin_photos(std::slice::from_ref(&path), None, None, library.directory())?.remove(0);
+        let date = pinned.naming_date(&source);
+        let capture = export_settings
+            .naming_needs_capture()
+            .then(|| naming_capture(&source, pinned.metadata.as_ref()));
+        let (sequence, last) = export_settings.filename_counter(0, total.max(1));
+        let naming = export_settings.naming_context(
+            &source,
+            sequence,
+            last,
+            &date,
+            &output_format,
+            capture.as_ref(),
+        );
+        let stem = rawtonic_export::sidecars::export_stem(
+            &export_settings.naming_template(),
+            &naming,
+            1,
+            None,
+        )?;
+        let folder = match export_settings.subfolder.as_deref() {
+            Some(sub) => rawtonic_naming::render_folder(sub.trim(), &naming)
+                .map_err(|e| e.to_string())?
+                .iter()
+                .map(|part| part.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/"),
+            None => String::new(),
+        };
+        Ok(ExportNamePreview {
+            folder,
+            name: format!("{stem}.{output_format}"),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The exports of a photo set's ticked recipes, queued together so they run
 /// as one: each photo is developed once for all of them.
 #[tauri::command]
@@ -1798,6 +1887,9 @@ pub async fn run_headless_export(
         strip_gps: false,
         keep_creator_contact: session.keep_creator_contact,
         filename_template: None,
+        name_template: None,
+        job_name: None,
+        recipe_name: None,
         sequence_start: None,
         watermark: None,
         export_masks: false,
@@ -2470,6 +2562,7 @@ mod tests {
                     &item,
                     Path::new("/photos/foo.NEF"),
                     &date,
+                    None,
                     1,
                     &used,
                 )
@@ -2531,8 +2624,16 @@ mod tests {
         let used = std::sync::Mutex::new(std::collections::HashSet::new());
         let date = chrono::Utc::now();
         let plan = |t: &ExportTarget, index, path: &str| {
-            let planned =
-                plan_output_path(t, &item(index, path), Path::new(path), &date, 2, &used).unwrap();
+            let planned = plan_output_path(
+                t,
+                &item(index, path),
+                Path::new(path),
+                &date,
+                None,
+                2,
+                &used,
+            )
+            .unwrap();
             planned.file_name().unwrap().to_string_lossy().into_owned()
         };
         // Photo 2 reaches recipe B first; then photo 1, recipe A (2 layers).

@@ -13,6 +13,7 @@ import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
 import { flushRecipeSaves } from '../hooks/useEditorActions';
 import { photoWritesAndStepsSettled } from './photoWrites';
+import { readJobName } from './exportJob';
 
 /** The library an export is submitted from, as `export_images` takes it:
  * always stated, so an export from no library never takes one opened later. */
@@ -42,6 +43,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
   const session = useLibraryStore.getState().sessionDirectory;
   const openEdit = currentEditForExport(useEditorStore.getState());
   const originFolders = useLibraryStore.getState().rootPaths;
+  const jobName = readJobName(session);
   const status = useProcessStore.getState().exportState.status;
   const queued = status === Status.Exporting || status === Status.Cancelling;
   const changeRecipes = (change: (current: ExportPreset[]) => ExportPreset[]) => {
@@ -62,23 +64,21 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
     if (job.where === "original")
       return { path: "originalFolderDummy", isFile: false };
     if (job.folder) return { path: job.folder, isFile: false };
-    // One photograph asks for a file name, unless folders are made for it.
-    // Date tokens must be resolved from the source by the export engine.
-    // Choosing a directory avoids saving literal {YYYY} in a single-file name.
-    const needsSourceDate = /\{(?:YYYY|MM|DD|hh|mm)\}/.test(job.template);
-    if (single && !needsSourceDate && !job.preserveFolders && !subfolderName(job.subfolder)) {
-      const filename = paths[0]
-        .split("/")
-        .pop()!
-        .replace(/\.[^.]+$/, "");
+    // One photograph asks for a file name, unless folders are made for it;
+    // the name offered is the one its template gives it.
+    if (single && !job.preserveFolders && !subfolderName(job.subfolder)) {
+      const { settings } = exportSettingsFromDraft(job);
+      const stem = paths[0].split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
+      const named = await invoke<{ name: string } | undefined>(Invokes.ExportNamingPreview, {
+        path: paths[0],
+        exportSettings: { ...settings, jobName },
+        outputFormat: extension,
+        total: 1,
+        library: submittedFrom(session),
+      }).catch(() => undefined);
       const file = await save({
         title: t("studio.export.dialogs.exportFile", { name }),
-        defaultPath:
-          job.template
-            .replaceAll("{original_filename}", filename)
-            .replaceAll("{sequence}", String(job.sequenceStart)) +
-          "." +
-          extension,
+        defaultPath: named?.name ?? `${stem}.${extension}`,
         filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
       });
       return typeof file === "string" ? { path: file, isFile: true } : null;
@@ -132,7 +132,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
         baseOriginFolders: originFolders,
-        exportSettings: job.settings,
+        exportSettings: { ...job.settings, jobName, recipeName: job.recipe?.name ?? "" },
         outputFormat: job.outputFormat,
         ...openEdit,
         library: submittedFrom(session),

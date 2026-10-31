@@ -880,6 +880,7 @@ fn delete_files_with_associated_blocking(
 pub async fn preview_rename(
     paths: Vec<String>,
     name_template: String,
+    sequence_start: Option<u64>,
     refresh: bool,
 ) -> Result<super::rename_plan::RenamePlan, String> {
     static KEPT: std::sync::Mutex<Option<(Vec<String>, super::rename_plan::PhotoFacts)>> =
@@ -890,22 +891,34 @@ pub async fn preview_rename(
             *kept = Some((paths.clone(), Default::default()));
         }
         let (_, facts) = kept.as_mut().expect("just set");
-        super::rename_plan::plan_rename_with(&paths, &name_template, facts)
+        super::rename_plan::plan_rename_with(
+            &paths,
+            &name_template,
+            sequence_start.unwrap_or(1),
+            facts,
+        )
     })
     .await
 }
 
-/// Renames `paths` after `name_template` as previewed: `expected` is the
-/// previewed plan's files; if the files changed since, nothing is renamed.
+/// Renames `paths` after `name_template` (its counter from
+/// `sequence_start`) as previewed: `expected` is the previewed plan's
+/// files; if the files changed since, nothing is renamed.
 #[tauri::command]
 pub async fn rename_files(
     paths: Vec<String>,
     name_template: String,
+    sequence_start: Option<u64>,
     expected: Vec<super::rename_plan::PlannedFile>,
     app_handle: AppHandle,
 ) -> Result<Vec<String>, String> {
     crate::file_management::blocking(move || {
-        let steps = checked_rename_steps(&paths, &name_template, &expected)?;
+        let steps = checked_rename_steps(
+            &paths,
+            &name_template,
+            sequence_start.unwrap_or(1),
+            &expected,
+        )?;
         let Some((plan, steps, label)) = steps else {
             return Ok(paths);
         };
@@ -921,6 +934,7 @@ pub async fn rename_files(
 pub(crate) fn checked_rename_steps(
     paths: &[String],
     template: &str,
+    sequence_start: u64,
     expected: &[super::rename_plan::PlannedFile],
 ) -> Result<
     Option<(
@@ -930,7 +944,12 @@ pub(crate) fn checked_rename_steps(
     )>,
     String,
 > {
-    let plan = super::rename_plan::plan_rename(paths, template);
+    let plan = super::rename_plan::plan_rename_with(
+        paths,
+        template,
+        sequence_start,
+        &mut Default::default(),
+    );
     let files = plan.files();
     if files != expected {
         return Err(
