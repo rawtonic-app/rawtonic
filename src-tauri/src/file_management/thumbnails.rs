@@ -297,8 +297,14 @@ pub(crate) fn develop_thumbnail(
         .then(|| stored_proxy(&source_path, &adjustments, &settings))
         .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
-        (Some(_), metadata) if adjustments.is_null() => {
-            let mut recipe = serde_json::json!({});
+        // A new recipe (none, or a Reset's) renders as its export does.
+        (Some(_), metadata) if crate::image_processing::is_new_recipe(&adjustments) => {
+            let mut recipe = if adjustments.is_null() {
+                serde_json::json!({})
+            } else {
+                adjustments.clone()
+            };
+            rawtonic_engine::camera_crop::apply_default(&mut recipe, &source_path);
             crate::embedded_lens::apply_default(&mut recipe, &source_path);
             let mut meta = metadata.unwrap_or_default();
             meta.adjustments = recipe.clone();

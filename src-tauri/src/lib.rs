@@ -26,6 +26,7 @@ mod auto_white_balance;
 mod browser_preview_transport;
 mod bw_auto;
 mod cache_utils;
+mod camera_crop;
 mod camera_preview;
 mod camera_profile;
 mod camera_tethering;
@@ -882,6 +883,7 @@ pub fn run() {
             culling::cull_images,
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,
+            camera_crop::get_camera_crops,
             upright::calculate_upright,
             auto_straighten::calculate_auto_straighten,
             image_loader::load_image_proxy,

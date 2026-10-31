@@ -1,3 +1,4 @@
+import type { Crop } from 'react-image-crop';
 import {
   ADJUSTMENT_GROUPS,
   RENDER_VERSION,
@@ -173,13 +174,31 @@ export function detectionPending(sub: SubMask): boolean {
 export function pasteInto(
   base: Adjustments | null,
   pasted: Partial<Adjustments>,
-  { samePhoto, replaceLayers, newEdit, keepNulls = false }: { samePhoto: boolean; replaceLayers: boolean; newEdit?: Record<string, unknown>; keepNulls?: boolean },
+  {
+    samePhoto,
+    replaceLayers,
+    newEdit,
+    keepNulls = false,
+    cameraCrop = null,
+  }: {
+    samePhoto: boolean;
+    replaceLayers: boolean;
+    newEdit?: Record<string, unknown>;
+    keepNulls?: boolean;
+    /** The camera's crop a new recipe starts with (src/utils/cameraCrop.ts). */
+    cameraCrop?: Crop | null;
+  },
 ): Adjustments | null {
   const out: Record<string, unknown> = { ...(base ?? {}) };
   if (Object.keys(out).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion')) {
     out.renderVersion = RENDER_VERSION;
     // A Reset's frame stays (`source_frame::reset_recipe`).
     out.sourceFrameVersion ??= SOURCE_FRAME_VERSION;
+    // As `camera_crop::apply_default`; a pasted crop replaces it.
+    if (cameraCrop) {
+      out.crop = { ...cameraCrop };
+      out.aspectRatio = cameraCrop.width / cameraCrop.height;
+    }
     for (const [key, value] of Object.entries(newEdit ?? {})) if (!(key in out)) out[key] = value;
   }
   const rendered = (masks: unknown) => ((masks as MaskContainer[] | undefined) ?? []).filter(isRenderedLayer).length;

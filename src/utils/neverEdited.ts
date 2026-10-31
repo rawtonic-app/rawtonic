@@ -4,9 +4,11 @@ import {
   CAMERA_GEOMETRY_VERSION,
   FRINGE_VERSION,
   initialAdjustmentsFor,
+  isNewRecipe,
   normalizeLoadedAdjustments,
   type Adjustments,
 } from './adjustments';
+import { withCameraCrop, type CameraCrops } from './cameraCrop';
 
 /** The camera's own lens data for a photograph (`get_camera_lens_profile`). */
 export type CameraLens = { params: Adjustments['lensDistortionParams'] } | null;
@@ -47,15 +49,28 @@ export async function withNeverEditedDefaults(
   return applyNeverEditedDefaults(recipe, saved, isRaw, await camera());
 }
 
+/** Whether a saved recipe `saved` is new (none, or a Reset's: `isNewRecipe`). */
+export const newSaved = (saved: unknown): boolean =>
+  !saved || Boolean((saved as { is_null?: boolean }).is_null) || isNewRecipe(saved as Partial<Adjustments>);
+
 /** The recipe the editor opens a saved recipe `saved` (none: never edited)
- * of a photograph `width` × `height` with: normalized, the photo's aspect
+ * of a photograph `width` × `height` with: normalized, a new recipe with
+ * the camera's crop (`crops`, src/utils/cameraCrop.ts), the photo's aspect
  * ratio when it has no crop, a never-edited RAW's defaults (`camera`: its
  * lens data, asked for by the caller when `neverEdited`). */
-export function editorRecipe(saved: unknown, isRaw: boolean, width: number, height: number, camera: CameraLens): Adjustments {
-  const recipe =
+export function editorRecipe(
+  saved: unknown,
+  isRaw: boolean,
+  width: number,
+  height: number,
+  camera: CameraLens,
+  crops?: CameraCrops,
+): Adjustments {
+  let recipe =
     saved && !(saved as { is_null?: boolean }).is_null
       ? normalizeLoadedAdjustments(saved as Adjustments, isRaw)
       : initialAdjustmentsFor(isRaw);
+  if (isRaw && newSaved(saved)) recipe = withCameraCrop(recipe, crops, width, height);
   if (!recipe.aspectRatio && !recipe.crop) recipe.aspectRatio = width / height;
   return applyNeverEditedDefaults(recipe, saved, isRaw, camera);
 }

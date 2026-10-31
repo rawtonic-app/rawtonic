@@ -45,7 +45,9 @@ use crate::lens_correction::LensDistortionParams;
 /// 13: `camera_lens` at camera geometry version 7 (Fujifilm's knot table).
 /// 14: `frames` (`source_frame::frames`), so that an offline photograph
 /// opens only on previews of its recipe's frame.
-pub const VERSION: u32 = 14;
+/// 15: `camera_crop`, so that an offline never-edited photograph starts
+/// with the camera's crop.
+pub const VERSION: u32 = 15;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -94,6 +96,12 @@ pub struct SourceFacts {
     /// on its previews whatever frame they show).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frames: Option<Vec<u32>>,
+    /// `camera_crop::crops` of the newest frame: the aspect ratio set in the
+    /// camera, which new edits start with as their crop (x, y, width,
+    /// height; empty where the camera set none). Absent in facts from
+    /// before it: an offline never-edited photograph then starts without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_crop: Option<Vec<u32>>,
 }
 
 /// `BaseLook` in a serializable form (its curve as a list).
@@ -277,6 +285,12 @@ pub fn collect(path: &str) -> SourceFacts {
         camera_lens_geometry,
         lensfun_default: crate::embedded_lens::lensfun_default(source),
         frames: crate::source_frame::frames(path),
+        camera_crop: crate::camera_crop::crops(path)
+            .get(crate::source_frame::VERSION as usize)
+            .copied()
+            .flatten()
+            .map_or_else(Vec::new, |c| vec![c.x, c.y, c.width, c.height])
+            .into(),
     };
     facts.set_image_key(crate::image_key::for_path(path));
     if let Some(key) = key {
@@ -300,13 +314,26 @@ fn source_key(path: &str) -> &str {
 }
 
 /// The readers use `facts` for the RAW at `path` from now on (it is
-/// offline and opens on its previews).
-pub fn register(path: &str, facts: SourceFacts) {
+/// offline and opens on its previews). What older facts do not keep (an
+/// older preview read after a newer one: the file's `frames`, the camera's
+/// crop) stays as the facts registered before told it: they are facts of
+/// the same file, and losing them would let an older 1:1 preview undo
+/// which frame the photograph's recipes develop.
+pub fn register(path: &str, mut facts: SourceFacts) {
     let mut registry = registry().lock().unwrap_or_else(|e| e.into_inner());
     if registry.len() > 4096 {
         registry.clear();
     }
-    registry.insert(source_key(path).to_string(), Arc::new(facts));
+    let key = source_key(path).to_string();
+    if let Some(known) = registry.get(&key) {
+        if facts.frames.is_none() {
+            facts.frames = known.frames.clone();
+        }
+        if facts.camera_crop.is_none() {
+            facts.camera_crop = known.camera_crop.clone();
+        }
+    }
+    registry.insert(key, Arc::new(facts));
 }
 
 /// The RAW at `path` can be read again: its readers go back to the file.
@@ -376,6 +403,7 @@ mod tests {
             camera_lens_geometry: Default::default(),
             lensfun_default: None,
             frames: Some(vec![0, 1]),
+            camera_crop: Some(vec![0, 376, 4000, 2248]),
         };
         let json = serde_json::to_string(&facts).unwrap();
         let back: SourceFacts = serde_json::from_str(&json).unwrap();
@@ -407,6 +435,48 @@ mod tests {
             look,
             "the base look reader uses the registered facts"
         );
+        forget(path);
+        assert!(registered(path).is_none());
+    }
+
+    /// FR1 r3: an older 1:1 preview read after a newer Standard one (its
+    /// facts without `frames`) must not undo which frame the photograph's
+    /// recipes develop offline; newer facts still replace older ones.
+    #[test]
+    fn older_facts_keep_the_known_frames() {
+        let path = "/offline/volume/Job/Capture/IMG_FRAMES.CR3";
+        let newer = SourceFacts {
+            version: VERSION,
+            noise_level: Some(0.02),
+            frames: Some(vec![0, 1]),
+            camera_crop: Some(Vec::new()),
+            ..Default::default()
+        };
+        register(path, newer);
+        register(
+            path,
+            SourceFacts {
+                version: 13,
+                noise_level: Some(0.01),
+                ..Default::default()
+            },
+        );
+        let kept = registered(path).unwrap();
+        assert_eq!(kept.frames, Some(vec![0, 1]));
+        assert_eq!(kept.camera_crop, Some(Vec::new()));
+        // The older preview's own facts otherwise (its version included).
+        assert_eq!((kept.version, kept.noise_level), (13, Some(0.01)));
+        assert_eq!(crate::source_frame::effective(path, 1), 1);
+        // Facts that know the frames say what they say.
+        register(
+            path,
+            SourceFacts {
+                version: VERSION,
+                frames: Some(vec![0, 0]),
+                ..Default::default()
+            },
+        );
+        assert_eq!(registered(path).unwrap().frames, Some(vec![0, 0]));
         forget(path);
         assert!(registered(path).is_none());
     }

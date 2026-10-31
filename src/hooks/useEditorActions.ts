@@ -45,7 +45,8 @@ import {
 } from '../utils/settingsClipboard';
 import { MAX_RENDERED_LAYERS } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
-import { editorRecipe, neverEdited, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import { editorRecipe, neverEdited, newSaved, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import { cameraCropFor, withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
@@ -330,7 +331,15 @@ const currentEditOrder = () => {
  * lens data and size its editor recipe was made with, and that recipe,
  * `shown`): a paste onto it while it still shows that recipe pastes onto
  * this, as onto a closed photograph. */
-type OpenedRecipe = { saved: unknown; camera: CameraLens; width: number; height: number; shown: Adjustments };
+type OpenedRecipe = {
+  saved: unknown;
+  camera: CameraLens;
+  /** Its camera crops (src/utils/cameraCrop.ts). */
+  crops?: CameraCrops;
+  width: number;
+  height: number;
+  shown: Adjustments;
+};
 let openedRecipe: ({ path: string } & OpenedRecipe) | null = null;
 export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
@@ -360,6 +369,7 @@ function pastedOpen(
       : null;
   const saved = opened ? (opened.saved as Adjustments | null) : current;
   let base = saved && !(saved as { is_null?: boolean }).is_null ? saved : null;
+
   // A style replaces the last applied one (`appliedStyle`): onto the photo
   // with that one taken back, as the backend applies it to the others.
   const reverted = style && base ? revertStyle(base) : null;
@@ -371,6 +381,10 @@ function pastedOpen(
         replaceLayers: paste?.replaceLayers ?? true,
         keepNulls: !paste,
         newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
+        // A new recipe starts with the camera's crop of the frame it shows.
+        cameraCrop: opened && open.isRaw && newSaved(opened.saved)
+          ? cameraCropFor(opened.crops, current.sourceFrameVersion)
+          : null,
       });
   if (!merged) {
     notify.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
@@ -383,7 +397,7 @@ function pastedOpen(
   // recipe fills it in again as loading does (the version a recipe without
   // it renders with).
   const shown = opened
-    ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera)
+    ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera, opened.crops)
     : reverted?.removed
       ? normalizeLoadedAdjustments(merged, open.isRaw)
       : merged;
@@ -661,8 +675,9 @@ async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
           : await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path }).catch(() => null)
         : null;
     if (isCurrentEditorImage(path)) {
-      const normalized = editorRecipe(saved, !!isRaw, width, height, camera);
-      rememberOpenedRecipe(path, { saved, camera, width, height, shown: normalized });
+      const crops = useEditorStore.getState().selectedImage?.cameraCrops;
+      const normalized = editorRecipe(saved, !!isRaw, width, height, camera, crops);
+      rememberOpenedRecipe(path, { saved, camera, crops, width, height, shown: normalized });
       const { adjustments, pushHistory } = useEditorStore.getState();
       if (!sameAdjustmentValue(normalized, adjustments)) {
         debouncedSetHistory.flush();
@@ -1065,10 +1080,14 @@ export function useEditorActions() {
             && isCurrentEditorImage(selectedImage.path)) {
             const aspect =
               selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-            const resetData = withSourceFrameOf(
+            const kept = withSourceFrameOf(
               { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] },
               useEditorStore.getState().adjustments,
             );
+            // Back to the camera's crop of its frame (src/utils/cameraCrop.ts).
+            const resetData = selectedImage.isRaw
+              ? withCameraCrop(kept, selectedImage.cameraCrops, selectedImage.width, selectedImage.height)
+              : kept;
             // One undoable step, as in Capture One and Lightroom.
             debouncedSetHistory.flush();
             pushHistory(resetData, openOrder);

@@ -45,6 +45,9 @@ const SONY_LENS_TYPE: u16 = 0xb027;
 const NIKON_ISO_INFO: u16 = 0x0025;
 const NIKON_COLOR_SPACE: u16 = 0x001e;
 const EXIF_COLOR_SPACE: u16 = 0xa001;
+const EXIF_PIXEL_X_DIMENSION: u16 = 0xa002;
+const EXIF_PIXEL_Y_DIMENSION: u16 = 0xa003;
+const CANON_ASPECT_INFO: u16 = 0x009a;
 const EXIF_INTEROP_POINTER: u16 = 0xa005;
 const INTEROP_INDEX: u16 = 0x0001;
 const DNG_PREVIEW_COLOR_SPACE: u16 = 50970;
@@ -573,6 +576,74 @@ pub fn aspect_crop(data: &[u8]) -> Option<AspectCrop> {
         (right - left) as usize + 1,
         (bottom - top) as usize + 1,
     ))
+}
+
+/// The size of the camera's own image where it records an aspect ratio
+/// set in the camera (`camera_crop`): Canon's AspectInfo (maker note
+/// 0x009a: 1:1, 4:3, 16:9, 4:5) in a CR2 or CR3, else the Exif
+/// PixelXDimension and PixelYDimension of a TIFF-based RAW (also ORF and
+/// RW2 with their own magic numbers). None for other containers (RAF).
+pub fn camera_image_size(data: &[u8]) -> Option<(u32, u32)> {
+    if let Some(size) = canon_aspect_size(data) {
+        return size;
+    }
+    let little = match data.get(..2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let root_at = SliceIfd::new(data, 0, little).u32(4)? as usize;
+    let root = SliceIfd::new(data, root_at, little);
+    let exif_at = root.entry(EXIF_IFD_POINTER).map(|e| e.3)?;
+    let exif = SliceIfd::new(data, root.u32(exif_at)? as usize, little);
+    let one = |tag: u16| -> Option<u32> {
+        let value = *exif.reals(tag)?.first()?;
+        (1.0..100_000.0).contains(&value).then_some(value as u32)
+    };
+    Some((one(EXIF_PIXEL_X_DIMENSION)?, one(EXIF_PIXEL_Y_DIMENSION)?))
+}
+
+/// A CR3's or CR2's Canon AspectInfo: Some(the cropped image's size) for
+/// an aspect ratio set in the camera, Some(None) for the sensor's own (3:2,
+/// or the APS-H / APS-C crop modes, which the decode frames itself); None
+/// when the file is no Canon file with the tag.
+fn canon_aspect_size(data: &[u8]) -> Option<Option<(u32, u32)>> {
+    let values: Vec<u32> = if data.get(4..8) == Some(b"ftyp") {
+        let mut cursor = std::io::Cursor::new(data);
+        let bmff = Bmff::new(&mut cursor).ok()?;
+        let entry = bmff
+            .filebox
+            .moov
+            .cr3desc
+            .as_ref()?
+            .cmt3
+            .tiff
+            .root_ifd()
+            .get_entry(CANON_ASPECT_INFO)?
+            .clone();
+        (0..entry.count().min(5) as usize)
+            .map(|i| entry.force_u32(i))
+            .collect()
+    } else {
+        // CR2: "II*\0" and "CR" at 8; a plain IFD, offsets from the header.
+        if data.get(8..10) != Some(b"CR") {
+            return None;
+        }
+        let note_at = maker_note_slice(data)?.as_ptr() as usize - data.as_ptr() as usize;
+        let note = SliceIfd::new(data, note_at, data.get(..2)? == b"II");
+        let (_, typ, count, at) = *note.entry(CANON_ASPECT_INFO)?;
+        if typ != 4 {
+            return None;
+        }
+        (0..count.min(5) as usize)
+            .map(|i| note.u32(at + 4 * i))
+            .collect::<Option<_>>()?
+    };
+    let [ratio, width, height, ..] = values[..] else {
+        return None;
+    };
+    // 1 = 1:1, 2 = 4:3, 7 = 16:9, 8 = 4:5 (0 = 3:2; 12, 13 = APS-H, APS-C).
+    Some((matches!(ratio, 1 | 2 | 7 | 8) && width > 0 && height > 0).then_some((width, height)))
 }
 
 /// Minimal TIFF directory over a byte slice with offsets relative to the
