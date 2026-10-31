@@ -131,6 +131,12 @@ export enum Invokes {
   GenerateAiSkyMask = 'generate_ai_sky_mask',
   GenerateAiPeopleMask = 'generate_ai_people_mask',
   DetectPeople = 'detect_people',
+  StartEyeCheck = 'start_eye_check',
+  StopEyeCheck = 'stop_eye_check',
+  PhotoEyes = 'photo_eyes',
+  PhotoEyeSummaries = 'photo_eye_summaries',
+  SetFaceEyes = 'set_face_eyes',
+  FaceEyeCrops = 'face_eye_crops',
   AnalyzeFaceRetouch = 'analyze_face_retouch',
   ApplyFaceRetouchToPaths = 'apply_face_retouch_to_paths',
   GenerateAiSubjectMask = 'generate_ai_subject_mask',
@@ -451,6 +457,9 @@ export interface AppSettings {
   /** The brush's last size, hardness, opacity and flow. */
   brushDefaults?: Partial<Pick<BrushSettings, "size" | "hardness" | "opacity" | "flow">>;
   enableAiTagging?: boolean;
+  /** Read every face's eyes in the background for culling (turned on by
+   * the first Check Eyes; `face_eyes`). */
+  eyeCheck?: boolean;
   aiTagCount?: number;
   customAiTags?: string[];
   filterCriteria?: FilterCriteria;
@@ -570,6 +579,9 @@ export interface FilterCriteria {
   rawStatus: RawStatus;
   editedStatus?: EditedStatus;
   flag?: 'all' | 'picked' | 'unflagged' | 'rejected';
+  /** Faces' eyes: closed (or partly, never counting uncertain ones) or
+   * needing a check (`face_eyes`). */
+  eyes?: 'all' | 'closed' | 'check';
   /** Values chosen in the Library's metadata lists (camera, lens, …); the
    * library's catalog finds the photographs that have them. */
   metadata?: MetadataSelection;
@@ -716,6 +728,9 @@ export interface LoadImageResult {
    * is not the newest (image_loader.rs `new_edit_frame`: offline, on
    * previews of an older frame); null otherwise. */
   new_edit_frame?: number | null;
+  /** The source was developed with unbiased blacks (`renderVersion` 8);
+   * null for preview data. */
+  unbiased_black?: boolean | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;
@@ -776,6 +791,11 @@ export interface SelectedImage {
   deadPixelAdjacent?: boolean;
   /** A dead-photosite test the source failed to develop for (not retried). */
   deadPixelAdjacentFailed?: boolean;
+  /** The decoded source was developed with unbiased blacks (`unbiasedBlack`
+   * in src/utils/adjustments.ts); unknown for preview data. */
+  unbiasedBlack?: boolean;
+  /** A black handling the source failed to develop for (not retried). */
+  unbiasedBlackFailed?: boolean;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
   metadata?: ImageMetadata | null;

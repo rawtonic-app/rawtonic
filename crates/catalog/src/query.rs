@@ -108,6 +108,11 @@ pub enum Field {
     /// Duplicates' hashes as recorded, `duplicates.rs`; photographs not
     /// hashed yet are not duplicates).
     Duplicate,
+    /// A face's eyes as the photographer called them, else as read
+    /// (`face_eyes`): `closed` (closed or partly), `uncertain` (needs a
+    /// check), `notVisible` or `open`; a photograph matches when one of its
+    /// faces does.
+    Eyes,
 }
 
 /// How a condition compares.
@@ -1044,6 +1049,24 @@ impl<'a> Compiler<'a> {
                 }
                 _ => self.text_column("a.source_type", op, value),
             },
+            Field::Eyes => {
+                let parts = names(value)?
+                    .iter()
+                    .map(|name| {
+                        let state = crate::face_eyes::STATES
+                            .iter()
+                            .find(|s| s.to_lowercase() == *name)
+                            .with_context(|| format!("Unknown eye state {name}"))?;
+                        Ok(crate::face_eyes::has_face_sql(state))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let test = format!("({})", parts.join(" OR "));
+                match op {
+                    Op::Is => Ok(test),
+                    Op::IsNot => Ok(format!("NOT {test}")),
+                    _ => bail!("Use is / is not for eyes"),
+                }
+            }
             Field::Album => {
                 let id = text_value(value)?;
                 let test = self.album(&id)?;

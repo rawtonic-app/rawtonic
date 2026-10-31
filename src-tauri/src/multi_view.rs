@@ -2775,8 +2775,8 @@ mod tests {
         let _one = MEASURES_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let (dir, photo) = session_photo("follow", b"first");
         let path = photo.to_string_lossy().to_string();
-        // The never-edited master's decode variant (render version 3).
-        let recipe = serde_json::json!({"fringeVersion": 2, "renderVersion": 3});
+        // The never-edited master's decode variant (render version 8).
+        let recipe = serde_json::json!({"fringeVersion": 2, "renderVersion": 8});
         let image = DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(64, 48, |x, y| {
             image::Rgb([x as f32 / 64.0, y as f32 / 48.0, 0.5])
         }));
@@ -2878,7 +2878,7 @@ mod tests {
         let variant = crate::image_loader::stored_decode_variant(&path);
         crate::preview_proxy::write_full(&photo, &decode, &settings, variant, None).unwrap();
         assert!(crate::preview_proxy::has_full(&photo, &settings));
-        let recipe = serde_json::json!({"fringeVersion": 2, "autoCaVersion": 2, "renderVersion": 3,
+        let recipe = serde_json::json!({"fringeVersion": 2, "autoCaVersion": 2, "renderVersion": 8,
             "lensDistortionParams": {"k1": -0.05}, "colorNoiseReduction": 25, "colorNoiseVersion": 9});
         // Warm: measured by the background work after the preview was made.
         measure_preview(&path, &recipe, &settings);

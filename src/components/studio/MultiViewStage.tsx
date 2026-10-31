@@ -26,6 +26,7 @@ import { useMultiViewZoom } from "./useMultiViewZoom";
 import { useEditAllSelected } from "../../hooks/useEditAllSelected";
 import { proofMarginPx } from "../../utils/viewerDisplay";
 import BrowserViewCell from "./BrowserViewCell";
+import { PhotoEyesBadge } from "./StudioEyes";
 import "./multiView.css";
 
 interface Props {
@@ -369,6 +370,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
           <span className="studio-mv-name" title={path}>
             {fileName(path)}
           </span>
+          <PhotoEyesBadge path={path} compact={g.level === "narrow"} />
           {g.level !== "narrow" && rating > 0 && (
             <span className="studio-mv-stars" aria-label={t("studio.multiView.rating", { count: rating })}>
               {"★".repeat(rating)}

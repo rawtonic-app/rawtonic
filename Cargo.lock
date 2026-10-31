@@ -5509,9 +5509,12 @@ dependencies = [
  "image",
  "ndarray",
  "ort",
+ "rawtonic-metadata",
  "rawtonic-onnx",
  "rayon",
+ "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

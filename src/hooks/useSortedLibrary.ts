@@ -265,6 +265,8 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     const photo = photographPath(image.path);
     const unknown = catalogMatches !== null && catalogKnown !== null && !catalogKnown.has(photo);
     if (unknown && selectionCount(filterCriteria.metadata) > 0) return false;
+    // Only the catalog reads eyes: a file it does not hold has none.
+    if (unknown && (filterCriteria.eyes ?? 'all') !== 'all') return false;
     if (catalogMatches !== null && !unknown) {
       // A virtual copy is found as its photograph (its own keywords are
       // not in the catalog's index: an open gap, G37).

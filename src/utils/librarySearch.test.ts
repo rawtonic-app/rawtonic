@@ -69,6 +69,10 @@ describe('library search rules', () => {
       { field: 'label', op: 'is', value: ['red', 'none'] },
       { field: 'flag', op: 'is', value: 'picked' },
     ]);
+    // Eyes: closed (uncertain never counts) or needing a check.
+    expect(cullingRules({ ...filter, eyes: 'closed' })).toEqual([{ field: 'eyes', op: 'is', value: 'closed' }]);
+    expect(cullingRules({ ...filter, eyes: 'check' })).toEqual([{ field: 'eyes', op: 'is', value: 'uncertain' }]);
+    expect(cullingRules({ ...filter, eyes: 'all' })).toEqual([]);
   });
 
   it('scopes to what the grid shows', () => {
@@ -99,6 +103,9 @@ describe('library search rules', () => {
       ],
     });
     expect(searchRule('bride', undefined)).toEqual({ field: 'text', op: 'contains', value: 'bride' });
+    // The eye filter alone is a search the catalog answers.
+    expect(searchRule('', undefined, 'closed')).toEqual({ field: 'eyes', op: 'is', value: 'closed' });
+    expect(searchRule('', undefined, 'all')).toBeNull();
     const scope = scopeRule('/job/Capture', null, LibraryViewMode.Flat);
     expect(
       filterAsRule(scope, 'bride', { lens: ['FE 85mm F1.4 GM'] }, { colors: [], rating: 4, rawStatus: RawStatus.All }),

@@ -48,6 +48,12 @@
       "running": "書き出し中: {{label}}",
       "waiting": "書き出し待ち: {{label}}"
     },
+    "eyes": {
+      "done": "目を確認しました（{{n}}）",
+      "failed": "読み取れません：{{n}}",
+      "running": "目を確認中",
+      "stopped": "目の確認を停止しました（{{n}} 件読み取り）"
+    },
     "import": {
       "starting": "読み込みを開始しています…"
     },
@@ -1843,6 +1849,11 @@
       },
       "title": "データ管理"
     },
+    "eyeCheck": {
+      "desc": "ライブラリ内のすべての顔の目（開き・閉じ・見えない・不確か）を読み取り、ライブラリの目フィルターとルーペに使います。提案にすぎず、何も除外・削除されません。顔モデルを使用します（ご依頼時に一度だけダウンロード）。",
+      "title": "目の確認",
+      "toggle": "バックグラウンドで目を確認"
+    },
     "general": {
       "autoAdvance": "自動送り",
       "autoAdvanceDesc": "評価やフラグの後、表示中の写真またはグリッドで1枚選択した写真から次へ進みます。Caps Lockまたは写真メニューで切り替えます。",
@@ -3038,6 +3049,37 @@
         "width": "幅（短辺の %）"
       }
     },
+    "eyes": {
+      "asRead": "{{state}}（提案。クリックで修正）",
+      "callFailed": "指定を保存できませんでした：{{error}}",
+      "callMenu": "この顔の指定",
+      "download": "顔モデルをダウンロード",
+      "faceLabel": "顔 {{n}}：{{state}}",
+      "faces": "顔と目",
+      "filter": "目で絞り込む",
+      "filterAll": "すべての目",
+      "filterCheck": "目：要確認",
+      "filterClosed": "目を閉じている",
+      "modelsMissing": "目の確認には顔モデルが必要です。",
+      "noFaces": "顔なし",
+      "start": "目を確認…",
+      "startFailed": "目を確認できませんでした：{{error}}",
+      "state": {
+        "closed": "目を閉じている・半目",
+        "notVisible": "目が見えない",
+        "open": "目が開いている",
+        "uncertain": "不確か：確認してください"
+      },
+      "suggestion": "顔分析による提案です。何も除外・削除されません。",
+      "summary": {
+        "check": "要確認：{{n}}",
+        "closed": "閉じた目：{{n}}",
+        "faces": "顔：{{n}}",
+        "notVisible": "見えない目：{{n}}"
+      },
+      "useReading": "提案を使う（{{state}}）",
+      "yourCall": "{{state}}（あなたの指定。提案：{{read}}）"
+    },
     "faceRetouch": {
       "allFaces": "すべての顔",
       "applied": "{{total}} 枚中 {{done}} 枚に適用しました",
@@ -3474,6 +3516,12 @@
         "and": "～",
         "cancel": "キャンセル",
         "choices": {
+          "eyes": {
+            "closed": "閉じている・半目",
+            "notVisible": "見えない",
+            "open": "開いている",
+            "uncertain": "要確認"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3516,6 +3564,7 @@
           "details": "キーワード以外の任意のテキスト",
           "duplicate": "重複（同一の画像データ）",
           "exposure": "シャッタースピード（秒）",
+          "eyes": "目",
           "filename": "ファイル名",
           "fileType": "ファイルの種類",
           "flag": "フラグ",

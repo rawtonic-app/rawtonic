@@ -19,6 +19,8 @@ export const SEARCH_DELAY_MS = 80;
 export const FACTS_RECORDED = 'library-facts-recorded';
 /** An edit changed what a recipe says about AI (`library_search::AI_FACTS_CHANGED`). */
 export const AI_FACTS_CHANGED = 'library-ai-facts-changed';
+/** Eyes were read or called (`face_eyes::EYES_CHANGED`). */
+export const EYES_CHANGED = 'library-eyes-changed';
 
 /**
  * Keeps `catalogMatches` to what the library's catalog finds for the search
@@ -32,19 +34,20 @@ export function useCatalogSearch() {
   const directory = useLibraryStore((s) => s.sessionDirectory);
   const text = useLibraryStore((s) => s.searchCriteria.text);
   const selection = useLibraryStore((s) => s.filterCriteria.metadata);
+  const eyes = useLibraryStore((s) => s.filterCriteria.eyes);
   // A new list (a folder refreshed after a rename, move or background
   // tagging) is asked about again: its paths or keywords may have changed.
   const imageList = useLibraryStore((s) => s.imageList);
 
   // Facts the background pass recorded (a library opened after an update,
-  // photographs added by an edit) and edits that changed a recipe's AI
-  // facts are catalog changes too: searches, lists and smart albums follow
+  // photographs added by an edit), edits that changed a recipe's AI facts
+  // and eyes read or called are catalog changes too: searches, lists and smart albums follow
   // them.
   useEffect(() => {
     if (!directory) return;
     const stops: (() => void)[] = [];
     let gone = false;
-    for (const event of [FACTS_RECORDED, AI_FACTS_CHANGED])
+    for (const event of [FACTS_RECORDED, AI_FACTS_CHANGED, EYES_CHANGED])
       listen(event, () => catalogChanged())
         .then((unlisten) => (gone ? unlisten() : stops.push(unlisten)))
         .catch(() => {});
@@ -55,7 +58,7 @@ export function useCatalogSearch() {
   }, [directory]);
 
   useEffect(() => {
-    const rule = directory ? searchRule(text, selection) : null;
+    const rule = directory ? searchRule(text, selection, eyes) : null;
     const { setLibrary } = useLibraryStore.getState();
     if (!directory || !rule) {
       setLibrary({ catalogMatches: null, catalogKnown: null });
@@ -103,5 +106,5 @@ export function useCatalogSearch() {
       clearTimeout(timer);
       stop();
     };
-  }, [directory, text, selection, imageList]);
+  }, [directory, text, selection, eyes, imageList]);
 }
