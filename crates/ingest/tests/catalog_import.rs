@@ -544,6 +544,17 @@ fn replace_keeps_the_replaced_edit_as_a_snapshot_and_brings_snapshots_and_copies
         .rename_snapshot(&laptop_version, &taken.id, "Warm (client)")
         .unwrap();
     w.laptop.save_editor_state(a, &edit(1.0)).unwrap();
+    // A snapshot using a LUT outside the catalog: copied into this
+    // catalog's resources, and the same snapshot after (content compared).
+    let lut = w.root.join("look.cube");
+    fs::write(&lut, b"LUT").unwrap();
+    w.laptop
+        .add_snapshot(
+            &laptop_version,
+            "With LUT",
+            json!({"exposure": 0.2, "lutPath": lut}),
+        )
+        .unwrap();
     let mut copy = json!({"version": 1, "adjustments": {"exposure": 0.6}});
     rawtonic_catalog::snapshots::set_in_state(
         &mut copy,
@@ -565,8 +576,11 @@ fn replace_keeps_the_replaced_edit_as_a_snapshot_and_brings_snapshots_and_copies
         .into_iter()
         .map(|s| s.name)
         .collect();
-    assert_eq!(names, ["Warm (client)", "Before import from Laptop"]);
-    let before = w.main.snapshots(&version).unwrap().pop().unwrap();
+    assert_eq!(
+        names,
+        ["Warm (client)", "Before import from Laptop", "With LUT"]
+    );
+    let before = w.main.snapshots(&version).unwrap().remove(1);
     assert_eq!(before.adjustments["exposure"], json!(0.0));
     assert_eq!(
         w.main.copy_state(a, "c0ffee").unwrap(),

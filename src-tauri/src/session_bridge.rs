@@ -1812,10 +1812,12 @@ pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkRepor
     }
 }
 
-/// A photograph is back (relinked, found again, its drive reconnected): the
-/// derived editor sidecar beside it is brought up to the library's state
-/// (edits made while it was offline; written only when it differs) and its
-/// XMP follows, as after an edit. The original is not touched.
+/// A photograph is back (relinked, found again, its drive reconnected) or
+/// the library changed it itself (Import from Catalog): the derived editor
+/// sidecars beside it, its own and its virtual copies', are brought up to
+/// the library's state (edits made while it was offline; written only when
+/// they differ) and its XMP follows, as after an edit. The original is not
+/// touched.
 pub(crate) fn rederive(lib: &Library, id: &str) {
     let Ok(asset) = lib.asset(id) else { return };
     let Ok(Some(state)) = lib.editor_state(id) else {
@@ -1836,17 +1838,19 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     {
         log::warn!("Editor sidecar pending for {}: {e}", asset.path.display());
     }
+    rederive_copies(lib, id);
     if let Err(e) = lib.sync_xmp(id) {
         log::warn!("XMP pending for {}: {e}", asset.path.display());
     }
 }
 
-/// `rederive`, and the derived sidecars of the photograph's virtual copies
+/// The derived sidecars of the photograph's virtual copies
 /// (`<file>.<copy>.rrdata`), which listings find copies by and which the
-/// editor reads for a photograph that is online: after the library changed
-/// them itself (Import from Catalog). Written only when they differ.
-pub(crate) fn rederive_with_copies(lib: &Library, id: &str) {
-    rederive(lib, id);
+/// editor reads for a photograph that is online, brought up to the
+/// library's state (written only when they differ): after the library
+/// changed them while the photograph was offline, or itself (Import from
+/// Catalog).
+fn rederive_copies(lib: &Library, id: &str) {
     let (Ok(asset), Ok(copies)) = (lib.asset(id), lib.copies(id)) else {
         return;
     };

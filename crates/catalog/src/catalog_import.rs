@@ -210,8 +210,16 @@ impl Library {
                 "SELECT CASE WHEN v.is_primary=1 THEN '' ELSE v.name END || '/' || s.id,s.name,s.adjustments
                  FROM snapshots s JOIN versions v ON v.id=s.version_id WHERE v.asset_id=?",
             )?
-            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect::<rusqlite::Result<_>>()?;
+            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?)))?
+            .collect::<rusqlite::Result<Vec<(String, String, String)>>>()?
+            .into_iter()
+            .map(|(key, name, text)| -> Result<(String, String, String)> {
+                // Resources named by their content, as for edits.
+                let mut adjustments: Value = serde_json::from_str(&text)?;
+                digests.normalize(&mut adjustments, root);
+                Ok((key, name, serde_json::to_string(&adjustments)?))
+            })
+            .collect::<Result<_>>()?;
         Ok(Facts {
             edit,
             copies,

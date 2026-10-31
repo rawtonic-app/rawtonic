@@ -160,7 +160,7 @@ pub async fn library_import_catalog(
                 // The editor and listings read an online photograph's
                 // edits and virtual copies from the sidecars beside it.
                 for id in &receipt.report.touched {
-                    crate::session_bridge::rederive_with_copies(&lib, id);
+                    crate::session_bridge::rederive(&lib, id);
                 }
                 Ok(receipt)
             },
@@ -326,7 +326,7 @@ mod tests {
             &serde_json::json!({"adjustments": {"exposure": 2}}),
         )
         .unwrap();
-        crate::session_bridge::rederive_with_copies(&lib, &id);
+        crate::session_bridge::rederive(&lib, &id);
         let read = |name: &str| -> serde_json::Value {
             serde_json::from_slice(&fs::read(photo.with_file_name(name)).unwrap()).unwrap()
         };
