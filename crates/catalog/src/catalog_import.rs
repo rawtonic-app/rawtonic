@@ -804,7 +804,7 @@ impl Library {
             match changed.choice {
                 Choice::Keep => report.kept += 1,
                 Choice::Replace => {
-                    replace(
+                    report.undo.extend(replace(
                         &tx,
                         self,
                         other,
@@ -812,8 +812,7 @@ impl Library {
                         target,
                         &changed.changes,
                         &plan.before,
-                        &mut report.undo,
-                    )?;
+                    )?);
                     here.push((incoming.clone(), target.clone()));
                     report.touched.push(target.clone());
                     report.replaced += 1;
@@ -993,7 +992,8 @@ const UNEDITED: &str = r#"{"schema_version":1,"process_version":"rapidraw-1.6.4"
 /// correction, eye calls and snapshots replace the photograph's here (only
 /// what differs). The edit is a new step of its history, and the edit it
 /// replaces is kept as a snapshot named `before` (the app's Snapshots
-/// panel brings it back); copies only here stay.
+/// panel brings it back); copies only here stay. Returns what puts the
+/// replaced metadata back, when it replaced any.
 fn replace(
     tx: &Connection,
     lib: &Library,
@@ -1002,8 +1002,8 @@ fn replace(
     target: &str,
     changes: &[&str],
     before: &str,
-    undo: &mut Vec<crate::xmp_review::XmpUndo>,
-) -> Result<()> {
+) -> Result<Option<crate::xmp_review::XmpUndo>> {
+    let mut undo = None;
     let version: String = tx.query_row(
         "SELECT id FROM versions WHERE asset_id=? AND is_primary=1",
         [target],
@@ -1039,7 +1039,7 @@ fn replace(
         let theirs = other.metadata(incoming)?;
         write_metadata(tx, target, &theirs)?;
         // `write_metadata` stores exactly this serialization.
-        undo.push(crate::xmp_review::XmpUndo {
+        undo = Some(crate::xmp_review::XmpUndo {
             asset: target.to_string(),
             before,
             after: serde_json::to_string(&theirs)?,
@@ -1105,7 +1105,7 @@ fn replace(
         copy_rows(tx, "eye_reads", &theirs_only, &[("asset_id", &set_target)])?;
         copy_rows(tx, "face_eyes", &theirs_only, &[("asset_id", &set_target)])?;
     }
-    Ok(())
+    Ok(undo)
 }
 
 /// The incoming photograph's edit as a new virtual copy here; the
