@@ -1774,6 +1774,7 @@
   color: var(--studio-accent);
 }
 .studio-viewer-footer {
+  position: relative;
   height: 33px;
   border-top: 1px solid var(--studio-line);
   font-size: 10px;
@@ -6416,16 +6417,17 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-subfolders[aria-pressed="true"] {
   border-color: #7f9bb3;
 }
-/* A narrow footer keeps the readout the user turned on: tighter, and the
-   Copy / Paste words give way to it (their icons stay). */
+/* A narrow footer (down to the smallest window) has no room for the readout
+   beside its controls: it floats just above the footer's right end instead,
+   out of the footer's flow, so it never pushes or covers a footer control. */
 @container viewer-footer (max-width: 820px) {
   .studio-pointer-readout {
-    gap: 5px;
-  }
-  .studio-pointer-readout[data-unit="percent"] .studio-pointer-readout-value {
-    min-width: 4ch;
-  }
-  .studio-viewer-footer:has(.studio-pointer-readout) .optional-label {
-    display: none;
+    position: absolute;
+    right: 8px;
+    bottom: calc(100% + 6px);
+    padding: 3px 7px;
+    border-radius: 3px;
+    background: #1c1d1fe6;
+    color: #e6e7e9;
   }
 }
