@@ -3024,6 +3024,7 @@
       "title": "ヒストグラム"
     },
     "layers": {
+      "bandWidth": "帯の幅",
       "brush": {
         "autoMask": "自動マスク",
         "brushFlow": "ブラシの流量",
@@ -3041,6 +3042,7 @@
       "drawTitle": "このレイヤーのマスクに描画（グラデーションは編集可能なまま）",
       "erase": "消去",
       "eraseTitle": "このレイヤーのマスクから消去（グラデーションは編集可能なまま）",
+      "gradientBand": "両側グラデーション",
       "invert": "反転",
       "invertTitle": "このレイヤーのマスクを反転",
       "lumaRange": {

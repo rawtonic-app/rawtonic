@@ -3183,6 +3183,7 @@
       "title": "Histogramme"
     },
     "layers": {
+      "bandWidth": "Largeur de bande",
       "brush": {
         "autoMask": "Masquage automatique",
         "brushFlow": "Flux du pinceau",
@@ -3200,6 +3201,7 @@
       "drawTitle": "Peindre sur le masque de ce calque (les dégradés restent modifiables)",
       "erase": "Effacer",
       "eraseTitle": "Effacer du masque de ce calque (les dégradés restent modifiables)",
+      "gradientBand": "Bande à deux côtés",
       "invert": "Inverser",
       "invertTitle": "Inverser le masque de ce calque",
       "lumaRange": {

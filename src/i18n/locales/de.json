@@ -3088,6 +3088,7 @@
       "title": "Histogramm"
     },
     "layers": {
+      "bandWidth": "Bandbreite",
       "brush": {
         "autoMask": "Automatisch maskieren",
         "brushFlow": "Pinselfluss",
@@ -3105,6 +3106,7 @@
       "drawTitle": "Auf die Maske dieser Ebene malen (Verläufe bleiben bearbeitbar)",
       "erase": "Radieren",
       "eraseTitle": "Aus der Maske dieser Ebene radieren (Verläufe bleiben bearbeitbar)",
+      "gradientBand": "Beidseitiges Band",
       "invert": "Umkehren",
       "invertTitle": "Maske dieser Ebene umkehren",
       "lumaRange": {

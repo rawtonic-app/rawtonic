@@ -698,6 +698,10 @@ export interface LoadImageResult {
   /** The source was developed with the second dead-photosite test
    * (`renderVersion` 3); null for preview data. */
   dead_pixel_adjacent?: boolean | null;
+  /** The `sourceFrameVersion` a first edit on what is shown carries when it
+   * is not the newest (image_loader.rs `new_edit_frame`: offline, on
+   * previews of an older frame); null otherwise. */
+  new_edit_frame?: number | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;

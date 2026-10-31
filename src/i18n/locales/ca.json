@@ -3183,6 +3183,7 @@
       "title": "Histograma"
     },
     "layers": {
+      "bandWidth": "Amplada de banda",
       "brush": {
         "autoMask": "Màscara automàtica",
         "brushFlow": "Flux del pinzell",
@@ -3200,6 +3201,7 @@
       "drawTitle": "Pinta a la màscara d'aquesta capa (els degradats continuen sent editables)",
       "erase": "Esborra",
       "eraseTitle": "Esborra de la màscara d'aquesta capa (els degradats continuen sent editables)",
+      "gradientBand": "Banda de dos costats",
       "invert": "Inverteix",
       "invertTitle": "Inverteix la màscara d'aquesta capa",
       "lumaRange": {

@@ -403,7 +403,7 @@ fn render_key(recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64
 fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
     let (source_path, _) = parse_virtual_path(path);
     let source = source_path.to_string_lossy();
-    let variant = crate::image_loader::decode_variant(recipe, is_raw_file(&source_path));
+    let variant = crate::image_loader::decode_variant(recipe, &source);
     crate::image_loader::decoded_cache_key(&source, None, variant)
 }
 
@@ -621,7 +621,10 @@ fn load_source(
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(path, crate::image_loader::decode_variant(recipe, true))
+        .get(
+            path,
+            crate::image_loader::decode_variant(recipe, &source_path.to_string_lossy()),
+        )
         .filter(|_| proxy_fits)
     {
         let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
@@ -1427,7 +1430,7 @@ fn load_full_source(
         measures,
     };
     let image = Arc::new(image);
-    let variant = crate::image_loader::decode_variant(recipe, is_raw);
+    let variant = crate::image_loader::decode_variant(recipe, &source_str);
     let held = crate::multi_view_prefetch::offer_decode(
         path, &key, &image, measures, variant, generation, settings,
     );
@@ -2724,6 +2727,34 @@ mod tests {
             None
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The multi view never measures or reads rows of an offline 1:1
+    /// preview of another frame than the recipe's (ADR 0020).
+    #[test]
+    fn offline_cells_use_previews_of_their_own_frame_only() {
+        use crate::preview_proxy::frame_fixture::{frame_one_edit, offline_cr3};
+        let _one = MEASURES_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let settings = crate::app_settings::AppSettings::default();
+        let mut recipe = frame_one_edit();
+        recipe["fringeVersion"] = serde_json::json!(2);
+        for (frame, shown) in [(0, false), (1, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let photo = offline_cr3(directory.path(), recipe.clone(), frame);
+            let path = photo.to_string_lossy().to_string();
+            measure_preview(&path, &recipe, &settings);
+            let measured = crate::preview_proxy::full_key(&photo, &settings)
+                .and_then(|key| known_measures(&path, &recipe, MeasuredOn::Preview(&key)));
+            assert_eq!(measured.is_some(), shown);
+            assert_eq!(
+                crate::preview_proxy::full_size(&photo, &settings).is_some(),
+                shown
+            );
+            assert_eq!(
+                crate::preview_proxy::read_full_rows(&photo, &settings, (0, 4), (0, 4)).is_some(),
+                shown
+            );
+        }
     }
 
     #[test]

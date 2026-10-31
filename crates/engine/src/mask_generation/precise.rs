@@ -314,7 +314,11 @@ fn linear_coverage(
                 } else {
                     dist / half_width
                 };
-                *pixel = (0.5 - t * 0.5).clamp(0.0, 1.0);
+                *pixel = if let Some(band) = &params.band {
+                    band.coverage(dist, scale)
+                } else {
+                    (0.5 - t * 0.5).clamp(0.0, 1.0)
+                };
             }
         });
     coverage
@@ -954,6 +958,21 @@ impl SureMeans {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn linear_tests_band_keeps_fractional_coverage_and_matches_byte_masks() {
+        let params = serde_json::json!({"startX": 0.0, "startY": 50.0,
+            "endX": 100.0, "endY": 50.0, "band": {"width": 20.0, "feather": 10.0}});
+        let coverage = super::linear_coverage(&params, 100, 100, 1.0, (0.0, 0.0));
+        let bytes = super::super::generate_linear_bitmap(&params, 100, 100, 1.0, (0.0, 0.0));
+        assert_eq!(coverage[45 * 100 + 30], 1.0);
+        assert_eq!(coverage[35 * 100 + 30], 0.5);
+        assert_eq!(coverage[65 * 100 + 30], 0.5);
+        assert_eq!(coverage[25 * 100 + 30], 0.0);
+        for (float, byte) in coverage.iter().zip(bytes.as_raw()) {
+            assert_eq!((float * 255.0) as u8, *byte);
+        }
+    }
+
     use super::*;
 
     fn brute_force(feature: &[bool], width: usize, height: usize) -> Vec<f32> {
