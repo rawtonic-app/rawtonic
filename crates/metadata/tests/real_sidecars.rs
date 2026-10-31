@@ -1,0 +1,214 @@
+//! Sidecars written by Lightroom Classic 15.6 (German interface) and Capture
+//! One 16.6.6 for CC0 scratch photos, scrubbed (no profile or look data, no
+//! serial numbers or personal names): Rawtonic reads what they hold and,
+//! writing its changes, keeps what they wrote and it does not model.
+//! notes: benchmark-results/xi-xmp-interop-2026-11-01/REPORT.md
+use rawtonic_metadata::{Metadata, merge_xmp, read_xmp};
+
+const LIGHTROOM: &str = include_str!("fixtures/lightroom-classic-15.6-de.xmp");
+const C1_KEYWORDS: &str = include_str!("fixtures/capture-one-16.6-keywords.xmp");
+const C1_IPTC: &str = include_str!("fixtures/capture-one-16.6-iptc.xmp");
+
+fn read(text: &str) -> Metadata {
+    read_xmp(text).unwrap().0
+}
+
+/// The source text of every element and attribute in `text` that holds
+/// none of `owned`, so a test can check they come back byte for byte.
+fn foreign_parts(text: &str, owned: &[&str]) -> Vec<String> {
+    let doc = roxmltree::Document::parse(text).unwrap();
+    let description = doc
+        .descendants()
+        .find(|n| n.tag_name().name() == "Description")
+        .unwrap();
+    let is_owned = |qname: &str| owned.contains(&qname);
+    let mut parts: Vec<String> = description
+        .attributes()
+        .map(|a| text[a.range()].to_string())
+        .filter(|a| !is_owned(a.split('=').next().unwrap()))
+        .collect();
+    for child in description.children().filter(|n| n.is_element()) {
+        let source = &text[child.range()];
+        let qname = source[1..]
+            .split(|c: char| c.is_whitespace() || c == '>')
+            .next()
+            .unwrap();
+        if !is_owned(qname) {
+            parts.push(source.to_string());
+        }
+    }
+    parts
+}
+
+/// What Rawtonic models: rating, label, flags, keywords, Dublin Core and the
+/// IPTC Core fields it edits (Lightroom's and Capture One's prefixes).
+const OWNED: &[&str] = &[
+    "xmp:Rating",
+    "xmp:Label",
+    "photoshop:LabelColor",
+    "xmpDM:pick",
+    "xmpDM:good",
+    "dc:title",
+    "dc:description",
+    "dc:creator",
+    "dc:rights",
+    "dc:subject",
+    "lr:hierarchicalSubject",
+    "lightroom:hierarchicalSubject",
+    "photoshop:Headline",
+    "photoshop:City",
+    "photoshop:State",
+    "photoshop:Country",
+    "photoshop:TransmissionReference",
+    "photoshop:Instructions",
+    "photoshop:Credit",
+    "photoshop:Source",
+    "photoshop:AuthorsPosition",
+    "photoshop:Urgency",
+    "Iptc4xmpCore:Location",
+    "Iptc4xmpCore:CountryCode",
+    "Iptc4xmpCore:CreatorContactInfo",
+    "xmpRights:UsageTerms",
+];
+
+#[test]
+fn lightroom_labels_flags_and_keywords_are_read_as_lightroom_shows_them() {
+    let meta = read(LIGHTROOM);
+    assert_eq!(meta.rating, 1);
+    // German "Gelb" is the yellow label, not a label named "Gelb".
+    assert_eq!(meta.label, "Yellow");
+    // Lightroom's reject (xmpDM:pick -1).
+    assert_eq!(meta.flag, -1);
+    // The keyword paths only, not their levels again as keywords of their own.
+    assert_eq!(
+        meta.keywords,
+        ["Animals|Bird", "Places|Europe|Berlin", "Street"]
+    );
+    assert_eq!(meta.title, "Title 2 – Spree bank");
+    assert_eq!(meta.creator, "Test Creator");
+    assert_eq!(meta.iptc["headline"], "Headline 2");
+    assert_eq!(meta.iptc["creatorEmail"], "creator@example.invalid");
+    assert_eq!(meta.iptc["usageTerms"], "Editorial use only");
+}
+
+#[test]
+fn a_pick_set_in_lightroom_wins_over_the_flag_rawtonic_wrote_before() {
+    let mut meta = read(LIGHTROOM);
+    meta.flag = 1;
+    let ours = merge_xmp(Some(LIGHTROOM), &meta, None).unwrap();
+    // Lightroom rewrites its pick, leaving Rawtonic's own property as it was.
+    let theirs = ours
+        .replace("xmpDM:pick=\"1\"", "xmpDM:pick=\"0\"")
+        .replace(" xmpDM:good=\"true\"", "");
+    assert_eq!(read(&theirs).flag, 0);
+}
+
+#[test]
+fn rawtonic_writes_lightroom_labels_flags_and_keywords_lightroom_reads() {
+    let mut meta = read(LIGHTROOM);
+    meta.label = "Blue".into();
+    meta.flag = 1;
+    meta.keywords.push("Places|Europe|Paris".into());
+    let written = merge_xmp(Some(LIGHTROOM), &meta, None).unwrap();
+    // Lightroom matches label names against its own (German) label set.
+    assert!(written.contains("xmp:Label=\"Blau\""), "{written}");
+    assert!(written.contains("photoshop:LabelColor=\"blue\""));
+    assert!(written.contains("xmpDM:pick=\"1\" xmpDM:good=\"true\""));
+    assert!(!written.contains("LabelColor=\"yellow\""));
+    // dc:subject holds terms, the hierarchy stays in hierarchicalSubject.
+    let doc = roxmltree::Document::parse(&written).unwrap();
+    let items = |name: &str| -> Vec<String> {
+        doc.descendants()
+            .filter(|n| n.tag_name().name() == name)
+            .flat_map(|n| n.descendants().filter(|l| l.tag_name().name() == "li"))
+            .map(|l| l.text().unwrap_or("").to_string())
+            .collect()
+    };
+    let subject = items("subject");
+    assert!(subject.iter().all(|t| !t.contains('|')), "{subject:?}");
+    assert!(subject.contains(&"Paris".to_string()));
+    assert_eq!(
+        items("hierarchicalSubject"),
+        [
+            "Animals|Bird",
+            "Places|Europe|Berlin",
+            "Street",
+            "Places|Europe|Paris"
+        ]
+    );
+    let back = read(&written);
+    assert_eq!(back.label, "Blue");
+    assert_eq!(back.flag, 1);
+    assert_eq!(back.keywords, meta.keywords);
+    // Develop settings, GPS, IPTC Extension and history come back as written.
+    for part in foreign_parts(LIGHTROOM, OWNED) {
+        assert!(written.contains(&part), "lost: {part}");
+    }
+}
+
+#[test]
+fn an_unchanged_label_keeps_the_text_lightroom_wrote() {
+    let meta = read(LIGHTROOM);
+    let written = merge_xmp(Some(LIGHTROOM), &meta, None).unwrap();
+    assert!(written.contains("xmp:Label=\"Gelb\""));
+    assert!(written.contains("xmpDM:pick=\"-1\" xmpDM:good=\"false\""));
+}
+
+#[test]
+fn capture_one_keyword_paths_and_their_ancestors_are_one_keyword_each() {
+    let meta = read(C1_KEYWORDS);
+    assert_eq!(meta.rating, 3);
+    assert_eq!(meta.label, "Red");
+    assert_eq!(
+        meta.keywords,
+        [
+            "Places|Europe|Berlin",
+            "Street",
+            "Travel|Italy|Lugano",
+            "Tea & Cake"
+        ]
+    );
+    let written = merge_xmp(Some(C1_KEYWORDS), &meta, None).unwrap();
+    assert_eq!(read(&written).keywords, meta.keywords);
+    for part in foreign_parts(C1_KEYWORDS, OWNED) {
+        assert!(written.contains(&part), "lost: {part}");
+    }
+}
+
+#[test]
+fn capture_one_creators_and_iptc_survive_a_rewrite() {
+    let meta = read(C1_IPTC);
+    // Capture One adds the camera's artist to the creator set by hand.
+    assert_eq!(meta.creator, "Camera Artist; Test Creator");
+    assert_eq!(meta.label, "Green");
+    assert_eq!(meta.iptc["creatorCity"], "Exampletown");
+    assert_eq!(meta.iptc["location"], "Riverbank");
+    let written = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
+    assert!(written.contains("<rdf:li>Camera Artist</rdf:li><rdf:li>Test Creator</rdf:li>"));
+    assert_eq!(read(&written), meta);
+    for part in foreign_parts(C1_IPTC, OWNED) {
+        assert!(written.contains(&part), "lost: {part}");
+    }
+}
+
+#[test]
+fn capture_one_urgency_follows_the_label_it_was_written_for() {
+    // Capture One reads its colour tag back from the urgency when the label
+    // is empty: a cleared label must take the urgency with it.
+    let mut meta = read(C1_IPTC);
+    meta.label.clear();
+    let cleared = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
+    assert!(!cleared.contains("Urgency"), "{cleared}");
+    meta.label = "Blue".into();
+    let blue = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
+    assert!(blue.contains("photoshop:Urgency=\"3\""));
+    assert!(!blue.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
+    // An urgency that is not the label's number is the photographer's own.
+    let own = C1_IPTC.replace(
+        "<photoshop:Urgency>2</photoshop:Urgency>",
+        "<photoshop:Urgency>8</photoshop:Urgency>",
+    );
+    let kept = merge_xmp(Some(&own), &meta, None).unwrap();
+    assert!(kept.contains("<photoshop:Urgency>8</photoshop:Urgency>"));
+    assert!(!kept.contains("photoshop:Urgency=\""));
+}

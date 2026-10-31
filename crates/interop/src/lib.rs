@@ -119,38 +119,11 @@ pub struct Root {
     pub found: usize,
 }
 
-/// Rawtonic's colour labels (Lightroom's default set).
-pub const LABELS: [&str; 5] = ["Red", "Yellow", "Green", "Blue", "Purple"];
-
 /// A label name in one of the common interface languages, or `""`.
 pub fn label_from_name(name: &str) -> String {
-    let lower = name.trim().to_lowercase();
-    let label = match lower.as_str() {
-        "red" | "rot" | "rouge" | "rojo" | "rosso" | "vermelho" | "rood" | "czerwony"
-        | "красный" | "赤" | "红色" | "紅色" | "빨간색" => "Red",
-        "yellow" | "gelb" | "jaune" | "amarillo" | "giallo" | "amarelo" | "geel" | "żółty"
-        | "желтый" | "黄" | "黄色" | "노란색" => "Yellow",
-        "green" | "grün" | "vert" | "verde" | "groen" | "zielony" | "зеленый" | "緑" | "绿色"
-        | "綠色" | "녹색" => "Green",
-        "blue" | "blau" | "bleu" | "azul" | "blu" | "blauw" | "niebieski" | "синий" | "青"
-        | "蓝色" | "藍色" | "파란색" => "Blue",
-        "purple"
-        | "violett"
-        | "lila"
-        | "violet"
-        | "morado"
-        | "púrpura"
-        | "viola"
-        | "roxo"
-        | "paars"
-        | "fioletowy"
-        | "фиолетовый"
-        | "紫"
-        | "紫色"
-        | "보라색" => "Purple",
-        _ => "",
-    };
-    label.to_string()
+    rawtonic_metadata::labels::canonical(name)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// Opens a copy of another application's SQLite database, read-only. The
