@@ -2625,18 +2625,24 @@ impl Library {
     /// The other library whose folder holds `path`, if any.
     pub fn owner_elsewhere(&self, path: &Path) -> Option<Owner> {
         let directory = session_for(path).filter(|library| *library != self.directory)?;
-        let name = subset::read_manifest(&directory)
-            .map(|manifest| manifest.name)
-            .ok()
-            .filter(|name| !name.trim().is_empty())
-            .or_else(|| {
-                directory
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-            })
-            .unwrap_or_default();
+        let name = library_name(&directory);
         Some(Owner { directory, name })
     }
+}
+
+/// The name of the library (session or catalog) at `directory` as the user
+/// knows it: its manifest's, else its folder's.
+pub fn library_name(directory: &Path) -> String {
+    subset::read_manifest(directory)
+        .map(|manifest| manifest.name)
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| {
+            directory
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default()
 }
 
 /// Resolve only explicit Rawtonic session manifests; ordinary folders stay standalone.

@@ -3255,7 +3255,7 @@
       "faces": "Faces and their eyes",
       "filter": "Filter by eyes",
       "filterAll": "All eyes",
-      "filterCheck": "Eyes: needs check",
+      "filterCheck": "Eyes to check",
       "filterClosed": "Eyes closed",
       "modelsMissing": "Checking eyes needs the face models.",
       "noFaces": "No faces",

@@ -211,7 +211,15 @@ impl Library {
                 continue;
             }
             let name = asset.path.file_name().unwrap().to_string_lossy();
-            if let Some(mut state) = self.editor_state(&asset.id)? {
+            // A photograph never edited whose metadata is only the file's
+            // own (its camera's rating) has nothing of the library's to
+            // carry: a sidecar would be adopted on opening as the library's
+            // metadata, and its XMP marked as not updated (notes: G39).
+            let carries = !self.is_untouched(&asset.id)?
+                || !self
+                    .snapshots(&self.primary_version(&asset.id)?)?
+                    .is_empty();
+            if carries && let Some(mut state) = self.editor_state(&asset.id)? {
                 rawtonic_metadata::resources::localize(&mut state, &self.directory);
                 fs::write(
                     asset.path.with_file_name(format!("{name}.rrdata")),

@@ -3377,7 +3377,7 @@
       "faces": "Volti e loro occhi",
       "filter": "Filtra per occhi",
       "filterAll": "Tutti gli occhi",
-      "filterCheck": "Occhi: da controllare",
+      "filterCheck": "Occhi incerti",
       "filterClosed": "Occhi chiusi",
       "modelsMissing": "Il controllo degli occhi richiede i modelli dei volti.",
       "noFaces": "Nessun volto",

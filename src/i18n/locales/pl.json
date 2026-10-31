@@ -3499,7 +3499,7 @@
       "faces": "Twarze i ich oczy",
       "filter": "Filtruj według oczu",
       "filterAll": "Wszystkie oczy",
-      "filterCheck": "Oczy: do sprawdzenia",
+      "filterCheck": "Oczy: sprawdź",
       "filterClosed": "Oczy zamknięte",
       "modelsMissing": "Sprawdzanie oczu wymaga modeli twarzy.",
       "noFaces": "Brak twarzy",

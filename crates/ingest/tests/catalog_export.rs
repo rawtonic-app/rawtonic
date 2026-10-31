@@ -499,6 +499,8 @@ fn own_photographs_are_copied_and_another_librarys_never_exported() {
     let owned = rawtonic_ingest::catalog_export::owned_elsewhere(&main, &chosen).unwrap();
     assert_eq!(owned.len(), 1);
     assert_eq!(owned[0].library, other.directory);
+    // Named as the user knows it ("O"), not by its folder.
+    assert_eq!(owned[0].name, "O");
     let error = export_catalog(
         &main.directory,
         &chosen,
@@ -511,7 +513,7 @@ fn own_photographs_are_copied_and_another_librarys_never_exported() {
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("belong to another project or catalog"),
+        error.contains("belong to another project or catalog") && error.contains("(O)"),
         "{error}"
     );
     assert!(!root.join("B").exists());
@@ -590,4 +592,73 @@ fn an_exported_catalog_exports_again_with_its_resources() {
     let lut = Path::new(state["adjustments"]["lutPath"].as_str().unwrap());
     assert!(lut.starts_with(&second), "{}", lut.display());
     assert_eq!(fs::read(lut).unwrap(), b"LUT");
+}
+
+/// Nothing waits to be written right after an export: a photograph whose
+/// only metadata is its camera's own rating gets no editor sidecar, which
+/// opening the catalog would adopt as the library's metadata (and so mark
+/// its XMP as not updated). Photographs with the library's own work keep
+/// theirs, and their XMP state goes along.
+#[test]
+fn a_fresh_export_has_no_xmp_waiting() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
+    let photos = main.directory.join("Photos");
+    fs::create_dir_all(&photos).unwrap();
+    let mut ids = Vec::new();
+    for name in ["camera.jpg", "rated.jpg", "plain.jpg"] {
+        let path = photos.join(name);
+        fs::write(&path, name).unwrap();
+        ids.push(main.add_asset(&path).unwrap().id);
+    }
+    // The camera's rating (facts pass) and one set in the library.
+    main.record_facts(
+        &ids[0],
+        &rawtonic_catalog::CaptureFacts {
+            camera_rating: Some(3),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    main.set_metadata(
+        &ids[1],
+        &Metadata {
+            rating: 4,
+            ..Metadata::default()
+        },
+    )
+    .unwrap();
+    assert!(main.write_pending_xmp().unwrap().unsaved.is_empty());
+    assert_eq!(main.summary().unwrap().xmp_pending, 0);
+    for originals in [false, true] {
+        let to = root.join(format!("Export {originals}"));
+        export_catalog(
+            &main.directory,
+            &ids,
+            &to,
+            &options(originals),
+            &go(),
+            |_| {},
+            no_stage,
+        )
+        .unwrap();
+        let new = Library::open(&to).unwrap();
+        // What opening it does: untouched photographs adopt their sidecars.
+        for id in &ids {
+            let path = new.asset(id).unwrap().path;
+            let contents = rawtonic_catalog::Contents::read_sidecars(&path).unwrap();
+            new.adopt_contents(id, &contents).unwrap();
+        }
+        assert_eq!(
+            new.summary().unwrap().xmp_pending,
+            0,
+            "originals {originals}"
+        );
+        assert_eq!(new.metadata(&ids[0]).unwrap().rating, 3);
+        assert_eq!(new.metadata(&ids[1]).unwrap().rating, 4);
+        let camera = new.asset(&ids[0]).unwrap().path;
+        assert!(!camera.with_file_name("camera.jpg.rrdata").exists());
+        assert!(camera.with_file_name("rated.jpg.rrdata").exists());
+    }
 }

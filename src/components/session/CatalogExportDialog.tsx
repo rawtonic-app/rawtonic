@@ -43,7 +43,8 @@ export interface CatalogExportRequest {
   leaveOutOwnedElsewhere: boolean;
 }
 /** Photos of the export whose file lies in another library's folder. */
-interface OwnedReport { total: number; owned: { id: string; path: string; library: string }[] }
+/** `name`: the owning library's name as the user knows it. */
+interface OwnedReport { total: number; owned: { id: string; path: string; library: string; name: string }[] }
 
 /** The activity centre's entry of a running export. */
 export const CATALOG_EXPORT_ACTIVITY = "catalog-export";
@@ -155,7 +156,7 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
   }
 
   const libraries = (list: OwnedReport["owned"]) =>
-    [...new Set(list.map((photo) => photo.library.split(/[\\/]/).pop()))].join(", ");
+    [...new Set(list.map((photo) => photo.name || photo.library.split(/[\\/]/).pop()))].join(", ");
 
   async function start(leaveOutOwnedElsewhere = false) {
     setBusy(true); setError("");

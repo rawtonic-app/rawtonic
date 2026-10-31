@@ -3377,7 +3377,7 @@
       "faces": "Caras y sus ojos",
       "filter": "Filtrar por ojos",
       "filterAll": "Todos los ojos",
-      "filterCheck": "Ojos: por comprobar",
+      "filterCheck": "Ojos a revisar",
       "filterClosed": "Ojos cerrados",
       "modelsMissing": "Comprobar los ojos necesita los modelos de caras.",
       "noFaces": "Sin caras",
