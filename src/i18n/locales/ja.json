@@ -4406,6 +4406,20 @@
       "x": "X位置",
       "y": "Y位置"
     },
+    "scopes": {
+      "aria": "写真のスコープ",
+      "empty": "写真を開くとスコープを表示できます",
+      "luma": "輝度",
+      "lumaAria": "表示中の写真の輝度波形",
+      "mode": "表示",
+      "parade": "パレード",
+      "paradeAria": "表示中の写真のRGBパレード",
+      "rgb": "RGB",
+      "rgbAria": "表示中の写真のRGB波形",
+      "title": "スコープ",
+      "vectorscope": "ベクトル",
+      "vectorscopeAria": "表示中の写真のベクトルスコープ"
+    },
     "seriesMatch": {
       "after": "調整後",
       "analysing": "分析中 {{done}} / {{total}}…",

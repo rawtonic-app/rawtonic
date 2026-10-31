@@ -47,6 +47,7 @@ pub mod proxy_codec;
 pub mod red_eye;
 pub mod region_curve;
 pub mod relight;
+pub mod scopes;
 pub mod series_match;
 pub mod session_layout;
 pub mod source_facts;

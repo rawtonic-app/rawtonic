@@ -9,10 +9,12 @@ use std::num::NonZero;
 
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
-use crate::image_processing::{AllAdjustments, ClippedSides, MAX_MASKS, Point};
+use crate::image_processing::{AllAdjustments, MAX_MASKS, Point};
 use crate::lut::Lut;
 use crate::mask_generation::MaskBitmap;
+use crate::scopes::ClippedSides;
 use rawtonic_engine::color_noise::{self, ChromaPyramid};
+use rawtonic_engine::output_color_space::OutputColorSpace;
 use rayon::prelude::*;
 
 #[cfg(test)]
@@ -1729,6 +1731,8 @@ pub struct AnalyticsJob {
     pub active_waveform_channel: Option<String>,
     /// The clipping sides the render found (`analytics_output`).
     pub clipped: ClippedSides,
+    /// The output space the image is encoded in (the shown one).
+    pub space: OutputColorSpace,
 }
 
 pub struct AnalyticsConfig {
@@ -3865,6 +3869,7 @@ struct AnalyticsReadbackJob {
     height: u32,
     padded_bytes_per_row: u32,
     analytics: AnalyticsConfig,
+    space: OutputColorSpace,
 }
 
 fn complete_analytics_readback(device: &wgpu::Device, job: AnalyticsReadbackJob) {
@@ -3909,13 +3914,19 @@ fn complete_analytics_readback(device: &wgpu::Device, job: AnalyticsReadbackJob)
     };
     drop(mapped);
     job.buffer.unmap();
-    send_analytics(job.analytics, job.width, job.height, pixels);
+    send_analytics(job.analytics, job.space, job.width, job.height, pixels);
 }
 
 /// Sends the analytics of `pixels`, a render's `analytics_output`: the
 /// image without the clipping warnings or the colour range view, and in alpha
 /// the clipping sides of each pixel (1 shadows, 2 highlights).
-fn send_analytics(analytics: AnalyticsConfig, width: u32, height: u32, pixels: Vec<u8>) {
+fn send_analytics(
+    analytics: AnalyticsConfig,
+    space: OutputColorSpace,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+) {
     let clipped = clipped_sides(&pixels);
     if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
         analytics.sender.send(AnalyticsJob {
@@ -3924,6 +3935,7 @@ fn send_analytics(analytics: AnalyticsConfig, width: u32, height: u32, pixels: V
             compute_waveform: analytics.compute_waveform,
             active_waveform_channel: analytics.active_waveform_channel,
             clipped,
+            space,
         });
     }
 }
@@ -9950,6 +9962,10 @@ fn render_dynamic_image(
         request.adjustments.global.output_matrix =
             crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
     }
+    // The scopes read the frame in the space it is encoded in.
+    let analytics_space =
+        OutputColorSpace::from_shader_code(request.adjustments.global.output_space[0])
+            .unwrap_or_default();
     let start_time = Instant::now();
     let (width, height) = match &source {
         RenderSource::Image { image, .. } => image.dimensions(),
@@ -10243,9 +10259,10 @@ fn render_dynamic_image(
                 height: out_h,
                 padded_bytes_per_row: async_padded_bpr,
                 analytics,
+                space: analytics_space,
             });
         } else if let Some(RenderedPixels::U8(pixels)) = analytics_pixels {
-            send_analytics(analytics, out_w, out_h, pixels);
+            send_analytics(analytics, analytics_space, out_w, out_h, pixels);
         } else {
             log::warn!("Skipping analytics for a high-precision CPU readback");
         }

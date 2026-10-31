@@ -7,6 +7,6 @@ pub mod device_start;
 pub mod gpu_processing;
 pub mod pipeline_cache;
 
-use rawtonic_engine::{camera_profile, image_processing, lut, mask_generation};
+use rawtonic_engine::{camera_profile, image_processing, lut, mask_generation, scopes};
 #[cfg(feature = "performance-profiling")]
 use rawtonic_runtime::performance;

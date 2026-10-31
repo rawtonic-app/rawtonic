@@ -4406,6 +4406,20 @@
       "x": "X 위치",
       "y": "Y 위치"
     },
+    "scopes": {
+      "aria": "사진 스코프",
+      "empty": "사진을 열면 스코프를 볼 수 있습니다",
+      "luma": "휘도",
+      "lumaAria": "표시된 사진의 휘도 파형",
+      "mode": "보기",
+      "parade": "퍼레이드",
+      "paradeAria": "표시된 사진의 RGB 퍼레이드",
+      "rgb": "RGB",
+      "rgbAria": "표시된 사진의 RGB 파형",
+      "title": "스코프",
+      "vectorscope": "벡터",
+      "vectorscopeAria": "표시된 사진의 벡터스코프"
+    },
     "seriesMatch": {
       "after": "맞춘 후",
       "analysing": "분석 중 {{done}} / {{total}}…",

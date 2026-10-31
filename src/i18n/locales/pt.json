@@ -4709,6 +4709,20 @@
       "x": "Posição X",
       "y": "Posição Y"
     },
+    "scopes": {
+      "aria": "Monitores da foto",
+      "empty": "Monitores disponíveis após abrir uma foto",
+      "luma": "Luma",
+      "lumaAria": "Forma de onda de luma da foto exibida",
+      "mode": "Vista",
+      "parade": "Parade",
+      "paradeAria": "Parade RGB da foto exibida",
+      "rgb": "RGB",
+      "rgbAria": "Forma de onda RGB da foto exibida",
+      "title": "Monitores",
+      "vectorscope": "Vetor",
+      "vectorscopeAria": "Vetorscópio da foto exibida"
+    },
     "seriesMatch": {
       "after": "Igualada",
       "analysing": "Analisando {{done}} de {{total}}…",

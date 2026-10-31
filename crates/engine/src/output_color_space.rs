@@ -51,6 +51,13 @@ impl OutputColorSpace {
         }
     }
 
+    /// The space of a shader `output_space` code (`shader_code`).
+    pub fn from_shader_code(code: u32) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|space| space.shader_code() == code)
+    }
+
     pub fn is_wide(self) -> bool {
         self != Self::Srgb
     }

@@ -48,6 +48,7 @@ use imgref::ImgRef;
 use mozjpeg_rs::Encoder;
 use mozjpeg_rs::Preset;
 use rawtonic_engine::formats;
+use rawtonic_engine::scopes;
 #[cfg(not(target_os = "linux"))]
 use rgb::FromSlice;
 #[cfg(not(target_os = "linux"))]
@@ -1169,8 +1170,8 @@ pub async fn sample_curve_input(
 }
 
 /// Levels' histogram (Capture One shows the tool's input): counts per 8-bit
-/// display level of red, green and blue (every second pixel, as the main
-/// histogram samples; the panel smooths them as the main one) of the shown
+/// display level of red, green and blue (every pixel, as the main histogram
+/// counts; the panel smooths them as the main one) of the shown
 /// preview base rendered up to Levels (the curves' probe,
 /// `point_curve::curve_input_probe`, without the levels, stopped where
 /// Levels act: `LEVELS_INPUT_PROBE`), the display values Levels receive. `adjustments` is the
@@ -1214,23 +1215,18 @@ fn levels_input_probe(adjustments: &serde_json::Value) -> serde_json::Value {
     recipe
 }
 
-/// Per-channel counts of 8-bit levels, every second pixel (as
-/// `calculate_histogram_from_image` samples).
+/// Per-channel counts of 8-bit levels over every pixel (as the main
+/// histogram counts them).
 fn level_counts(image: &image::DynamicImage) -> [Vec<u32>; 3] {
-    let mut counts = [vec![0u32; 256], vec![0u32; 256], vec![0u32; 256]];
-    for pixel in image
-        .to_rgba8()
-        .as_raw()
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .step_by(2)
-    {
-        for (c, count) in counts.iter_mut().enumerate() {
-            count[usize::from(pixel[c])] += 1;
-        }
-    }
-    counts
+    let counts = scopes::histogram_counts(
+        image,
+        scopes::ScopeSpace::of(rawtonic_engine::output_color_space::OutputColorSpace::Srgb),
+    );
+    [
+        counts.red.to_vec(),
+        counts.green.to_vec(),
+        counts.blue.to_vec(),
+    ]
 }
 
 /// What a probe render covers: the pixels around a point of the shown
@@ -1908,11 +1904,16 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("analytics_compute");
-        let histogram_data =
-            image_processing::calculate_histogram_from_image(&job.image, job.clipped).ok();
+        let histogram_data = scopes::calculate_histogram_from_image(
+            &job.image,
+            scopes::ScopeSpace::of(job.space),
+            job.clipped,
+        )
+        .ok();
         let waveform_data = if job.compute_waveform {
-            image_processing::calculate_waveform_from_image(
+            scopes::calculate_waveform_from_image(
                 &job.image,
+                job.space,
                 job.active_waveform_channel.as_deref(),
             )
             .ok()
@@ -3977,7 +3978,7 @@ mod levels_input_tests {
     }
 
     #[test]
-    fn counts_every_second_pixel_per_channel() {
+    fn counts_every_pixel_per_channel() {
         let mut image = image::RgbaImage::new(4, 1);
         for (x, value) in [10u8, 20, 30, 40].into_iter().enumerate() {
             image.put_pixel(x as u32, 0, image::Rgba([value, 255 - value, 7, 255]));
@@ -3985,15 +3986,15 @@ mod levels_input_tests {
         let counts = level_counts(&image::DynamicImage::ImageRgba8(image));
         assert_eq!(counts[0][10], 1);
         assert_eq!(counts[0][30], 1);
-        assert_eq!(counts[0][20], 0);
+        assert_eq!(counts[0][20], 1);
         assert_eq!(counts[1][245], 1);
-        assert_eq!(counts[2][7], 2);
+        assert_eq!(counts[2][7], 4);
         assert_eq!(
             counts
                 .iter()
                 .map(|c| c.iter().sum::<u32>())
                 .collect::<Vec<_>>(),
-            [2, 2, 2]
+            [4, 4, 4]
         );
     }
 }
