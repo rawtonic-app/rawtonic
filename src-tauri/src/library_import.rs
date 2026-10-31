@@ -328,10 +328,15 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             } else {
                 ALBUM
             };
-            let id = match existing
-                .iter()
-                .find(|c| c.name == album.name && c.parent == parent && c.kind == kind)
-            {
+            // A smart album is reused only with the same rules: one of the
+            // same name with other rules (changed in Lightroom since the
+            // last import, or made here) stays as it is beside a new one.
+            let id = match existing.iter().find(|c| {
+                c.name == album.name
+                    && c.parent == parent
+                    && c.kind == kind
+                    && (smart.is_none() || c.rules.as_ref() == smart.as_ref())
+            }) {
                 Some(c) => c.id.clone(),
                 None => match &smart {
                     Some(rule) => {
@@ -636,6 +641,7 @@ mod tests {
         assert_eq!(catalog.collection_assets(&italy.id).unwrap().len(), 1);
         let best = collections.iter().find(|c| c.name == "Best picks").unwrap();
         assert_eq!((best.kind.as_str(), best.count), (SMART, 1));
+        let best_id = best.id.clone();
         assert_eq!(best.parent.as_deref(), Some(trips.id.as_str()));
         assert!(!collections.iter().any(|c| c.name == "Recently edited"));
         // Nothing was written beside the photographs.
@@ -644,6 +650,19 @@ mod tests {
         import_into(&catalog, &source).unwrap();
         assert_eq!(catalog.collections().unwrap().len(), collections.len());
         assert_eq!(catalog.assets(None).unwrap().len(), 1);
+        // Rules changed in Lightroom since: a new smart album beside the
+        // earlier one, which keeps its rules.
+        let mut changed = source.clone();
+        changed.albums[2].smart = Some(SmartRules {
+            combine: "intersect".into(),
+            rules: vec![condition("rating", ">=", SmartValue::Number(5.0))],
+        });
+        import_into(&catalog, &changed).unwrap();
+        let after = catalog.collections().unwrap();
+        let best: Vec<_> = after.iter().filter(|c| c.name == "Best picks").collect();
+        assert_eq!(best.len(), 2);
+        assert!(best.iter().any(|c| c.id == best_id && c.count == 1));
+        assert!(best.iter().any(|c| c.id != best_id && c.count == 0));
     }
 
     fn condition(criteria: &str, operation: &str, value: SmartValue) -> SmartRule {

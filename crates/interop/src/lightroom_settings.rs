@@ -285,7 +285,10 @@ pub fn to_xmp(text: &str) -> Option<String> {
         })
         .collect();
     description_body(&mut out, &entries);
-    out.push_str("</rdf:Description></rdf:RDF></x:xmpmeta>");
+    if !out.ends_with("/>") {
+        out.push_str("</rdf:Description>");
+    }
+    out.push_str("</rdf:RDF></x:xmpmeta>");
     Some(out)
 }
 
@@ -495,5 +498,8 @@ WhiteBalance = "As Shot",
         assert!(xmp.contains(r#"<rdf:li><rdf:Description crs:What="Mask/Ellipse" crs:X="0.45" crs:Y="0.13"/></rdf:li>"#));
         assert!(!xmp.contains("x-default") && !xmp.contains("AILook"));
         assert!(to_xmp("s = { 1, 2 }").is_none());
+        // Scalars only: the description closes itself.
+        let scalars = to_xmp("s = { Exposure2012 = 0.3, ConvertToGrayscale = true }").unwrap();
+        roxmltree::Document::parse(&scalars).expect("well-formed");
     }
 }
