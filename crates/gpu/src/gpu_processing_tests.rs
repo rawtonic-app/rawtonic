@@ -15260,6 +15260,168 @@ fn edge_fringe_gpu_timing_probe() {
     }
 }
 
+/// The clipping marks in the wide output spaces: the thresholds 0.998 and
+/// 0.002 are encoded values of the space the frame is judged in (the output
+/// space, or the soft-proofed one while proofing), compared as its linear
+/// values. Adobe RGB and ProPhoto have power-law curves, so their shadow
+/// limits (1.2e-6 and 1.4e-5 linear) lie far below sRGB's (1.5e-4): grey in
+/// between clips in sRGB only. Colours inside the space but outside sRGB
+/// are unmarked, the ones beyond it are marked on that side. The frame is a
+/// display image (sRGB-encoded values), as a JPEG or the shader's display
+/// values are.
+#[test]
+#[ignore = "requires a native GPU; clipping marks in Adobe RGB, ProPhoto and their soft proofs"]
+fn clipping_marks_follow_the_limits_of_the_wide_spaces() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    const WIDTH: u32 = 256;
+    const HEIGHT: u32 = 5;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), WIDTH, HEIGHT).unwrap();
+    let extent = wgpu::Extent3d {
+        width: WIDTH,
+        height: HEIGHT,
+        depth_or_array_layers: 1,
+    };
+    let configs = [
+        (
+            OutputColorSpace::AdobeRgb,
+            json!({}),
+            OutputColorSpace::AdobeRgb,
+        ),
+        (
+            OutputColorSpace::ProPhoto,
+            json!({}),
+            OutputColorSpace::ProPhoto,
+        ),
+        (
+            OutputColorSpace::Srgb,
+            json!({ "softProof": "adobeRgb" }),
+            OutputColorSpace::AdobeRgb,
+        ),
+        (
+            OutputColorSpace::Srgb,
+            json!({ "softProof": "proPhoto" }),
+            OutputColorSpace::ProPhoto,
+        ),
+        // The proofed space judges, not the output's.
+        (
+            OutputColorSpace::AdobeRgb,
+            json!({ "softProof": "proPhoto" }),
+            OutputColorSpace::ProPhoto,
+        ),
+    ];
+    for (output, recipe, judged) in configs {
+        let to_srgb = rawtonic_engine::output_color_space::invert(&judged.from_linear_srgb());
+        let linear_srgb = |colour: [f64; 3]| -> [f32; 3] {
+            to_srgb.map(|row| row.iter().zip(colour).map(|(a, b)| a * b).sum::<f64>() as f32)
+        };
+        let high = judged.transfer().to_linear(0.998);
+        let low = judged.transfer().to_linear(0.002);
+        // Each row in the judged space's linear values: grey across the
+        // highlight limit (0), grey across the shadow limit (1), a green
+        // inside it and outside sRGB (2), a channel below zero (3) and one
+        // above one (4).
+        let judged_values: Vec<[f64; 3]> = (0..HEIGHT)
+            .flat_map(|y| {
+                (0..WIDTH).map(move |x| {
+                    let t = f64::from(x) / f64::from(WIDTH - 1);
+                    match y {
+                        0 => [high * (0.98 + 0.04 * t); 3],
+                        1 => [low * 10f64.powf(-1.0 + 3.0 * t); 3],
+                        2 => [0.05, 0.4 + 0.3 * t, 0.05],
+                        3 => [0.3, 0.5, -0.02 - 0.2 * t],
+                        _ => [0.3, 0.5, 1.02 + 0.3 * t],
+                    }
+                })
+            })
+            .collect();
+        // The frame is a display image: sRGB-encoded values, which the
+        // input decodes with its linear segment below the cutoff, negatives
+        // included (colours outside sRGB).
+        let encode = |linear: f32| {
+            let v = f64::from(linear);
+            (if v <= 0.003_130_8 {
+                12.92 * v
+            } else {
+                1.055 * v.powf(1.0 / 2.4) - 0.055
+            }) as f32
+        };
+        let pixels: Vec<[f32; 3]> = judged_values
+            .iter()
+            .map(|&c| linear_srgb(c).map(encode))
+            .collect();
+        let view = linear_texture(&context, &pixels, WIDTH, HEIGHT);
+        let mut adjustments = get_all_adjustments_from_json(&recipe, false, None);
+        adjustments.global.output_space[0] = output.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(output.from_linear_srgb_f32());
+        processor
+            .run(
+                &view,
+                WIDTH,
+                HEIGHT,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        let analytics = read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_analytics_texture(),
+            wgpu::Origin3d::ZERO,
+            extent,
+            4,
+        )
+        .unwrap();
+        let marks: Vec<u8> = analytics.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
+        // Marks: 1 shadows, 2 highlights. Pixels within 1 % of a limit
+        // (the 16-bit input, the matrix) may go either way.
+        let mut checked = [0usize; 2];
+        for (i, (&mark, value)) in marks.iter().zip(&judged_values).enumerate() {
+            let side = |limit: f64, above: bool| {
+                if above {
+                    value.iter().any(|&v| v > limit * 1.01)
+                } else {
+                    value.iter().any(|&v| v < limit * 0.99 || v < -1e-9)
+                }
+            };
+            let inside = |limit: f64, above: bool| {
+                if above {
+                    value.iter().all(|&v| v < limit * 0.99)
+                } else {
+                    value.iter().all(|&v| v > limit * 1.01)
+                }
+            };
+            let (x, y) = (i as u32 % WIDTH, i as u32 / WIDTH);
+            let label = format!("{output:?} {recipe} row {y} x {x}: {value:?} mark {mark}");
+            if side(high, true) {
+                assert!(mark & 2 != 0, "{label}: not marked as highlight clipping");
+                checked[0] += 1;
+            } else if inside(high, true) {
+                assert!(mark & 2 == 0, "{label}: highlight-marked inside the limit");
+                checked[1] += 1;
+            }
+            if side(low, false) {
+                assert!(mark & 1 != 0, "{label}: not marked as shadow clipping");
+                checked[0] += 1;
+            } else if inside(low, false) {
+                assert!(mark & 1 == 0, "{label}: shadow-marked inside the limit");
+                checked[1] += 1;
+            }
+        }
+        assert!(
+            checked[0] > WIDTH as usize && checked[1] > WIDTH as usize,
+            "{output:?} {recipe}: too few pixels checked {checked:?}"
+        );
+    }
+}
+
 /// The clipping warnings mark pixels on the display only: the histogram's
 /// image (`analytics_output`) is the frame without them, and its clipping
 /// marks are the warnings' own tests, the same whichever warnings are on.

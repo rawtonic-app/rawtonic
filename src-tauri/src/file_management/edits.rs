@@ -1605,6 +1605,60 @@ mod tests {
         assert_eq!(paste(serde_json::json!({}))[KEY], VERSION);
     }
 
+    /// Editing a photograph without an edit (or after a Library Reset) from
+    /// the batch tools starts it as a new edit: the camera's crop of its
+    /// frame with the new edit's versions, as the editor's first edit does.
+    #[test]
+    fn a_batch_edit_starts_a_new_recipe_with_the_cameras_crop_and_versions() {
+        use rawtonic_engine::source_facts::{SourceFacts, VERSION, register};
+        use rawtonic_engine::source_frame::KEY;
+        let path = "/offline/batch-camera-crop.CR3";
+        register(
+            path,
+            SourceFacts {
+                version: VERSION,
+                frames: Some(vec![0, 1]),
+                camera_crop: Some(vec![0, 376, 4000, 2248]),
+                ..Default::default()
+            },
+        );
+        let paste = |base: Value| {
+            pasted_into(
+                base,
+                &None,
+                path,
+                Path::new(path),
+                &serde_json::json!({"exposure": 1.0}),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        for new in [
+            Value::Null,
+            serde_json::json!({}),
+            serde_json::json!({KEY: 1}),
+        ] {
+            let recipe = paste(new);
+            assert_eq!(recipe["exposure"], 1.0);
+            assert_eq!(recipe["crop"]["y"], 376);
+            assert_eq!(recipe["aspectRatio"], 4000.0 / 2248.0);
+            assert_eq!(recipe[KEY], 1);
+            assert!(recipe["renderVersion"].is_u64());
+        }
+        // A pasted crop replaces it; an edited photograph keeps its own.
+        let own = serde_json::json!({"exposure": 0.2, "renderVersion": 4});
+        assert!(paste(own).get("crop").is_none());
+        let mut values = Value::Null;
+        rawtonic_engine::camera_crop::apply_default(&mut values, Path::new(path));
+        assert_eq!(values["crop"]["height"], 2248);
+        let before = values.clone();
+        rawtonic_engine::camera_crop::apply_default(&mut values, Path::new(path));
+        assert_eq!(values, before, "applied once");
+    }
+
     /// A style replaces the photograph's last applied style with that
     /// photograph's own values before it; applying it again removes it.
     #[test]
