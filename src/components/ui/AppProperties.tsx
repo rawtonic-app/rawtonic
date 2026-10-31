@@ -476,6 +476,8 @@ export interface AppSettings {
   rootFolders?: string[];
   recentLibraries?: string[];
   libraryViewMode?: LibraryViewMode;
+  /** Per folder: whether its grid includes the photos of its subfolders. */
+  subfolderViews?: Record<string, boolean>;
   sortCriteria?: SortCriteria;
   /** Legacy: there is no theme choice any more; old values are kept but ignored. */
   theme?: string;

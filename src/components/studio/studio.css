@@ -1769,6 +1769,11 @@
   padding: 7px;
   border-radius: 1px;
 }
+/* Hover (Lightroom's lighter cell under the pointer): a lighter fill only,
+   so it never reads as selected (fill + border) or current (light border). */
+.studio-photo:not(.is-selected):hover {
+  background: #36383b;
+}
 .studio-photo.is-selected {
   background: #464c53;
   border-color: #798794;
@@ -6181,4 +6186,22 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   .studio-eye-call {
     border: 1px solid CanvasText;
   }
+}
+/* Two-state toggles of the loupe bar and the grid toolbar (Auto-advance,
+   Include subfolders): on adds an accent frame to the pressed tint, so on
+   and off read apart without the tooltip and differ from hover (fill only). */
+.studio-auto-advance,
+.studio-subfolders {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.studio-auto-advance[aria-pressed="true"],
+.studio-subfolders[aria-pressed="true"] {
+  border-color: #7f9bb3;
 }

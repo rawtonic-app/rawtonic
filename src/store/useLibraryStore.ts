@@ -47,6 +47,9 @@ interface LibraryState {
   imageRatings: Record<string, number>;
   imageFlags: Record<string, number>;
   sessionDirectory: string | null;
+  /** The folder whose grid includes its subfolders unless the user turned
+   * that off (a catalog's Photos root with its dated folders). */
+  subfolderDefaultRoot: string | null;
   multiSelectedPaths: Array<string>;
   selectionAnchorPath: string | null;
   libraryActivePath: string | null;
@@ -99,6 +102,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   imageRatings: {},
   imageFlags: {},
   sessionDirectory: null,
+  subfolderDefaultRoot: null,
   multiSelectedPaths: [],
   selectionAnchorPath: null,
   libraryActivePath: null,

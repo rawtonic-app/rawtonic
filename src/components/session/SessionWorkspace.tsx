@@ -67,7 +67,7 @@ import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offl
 import { watchXmpSidecars } from "../../utils/xmpCheck";
 import { requestAutoAdvance } from "../../utils/photoStepping";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
-import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
+import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, SHOW_PREVIOUS_IMPORT, type OpenFolderSyncDetail } from "../../utils/folderSync";
 import IngestMetadata, { type ImportMetadata } from "./IngestMetadata";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
 import {
@@ -441,8 +441,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         ui.setStudioToolLayout(ui.studioToolLayout);
       }
       setSession(summary);
+      // A catalog files its photographs in dated folders under Photos: that
+      // folder's grid includes them (Lightroom's Show Photos in Subfolders).
+      const subfolderDefaultRoot = summary.manifest.mode === "catalog" ? await join(root, summary.manifest.capture) : null;
       useLibraryStore.getState().setLibrary({
         sessionDirectory: root,
+        subfolderDefaultRoot,
         imageFlags: flags,
         rootPaths: [root],
         folderTrees: [tree],
@@ -1336,6 +1340,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         : (folder ?? (await join(session.directory, session.manifest.capture)));
       setImportMode(adding ? "add" : "copy");
       if (useUIStore.getState().activeView !== "editor") await onNavigate(destination);
+      // The view this import shows; still shown afterwards, it changes to Previous Import.
+      const shownView = useLibraryStore.getState().currentFolderPath;
       // Cancel pressed before the ingest started (the backend clears its
       // cancel flag when it starts): nothing is copied.
       if (cancelRequested.current) return;
@@ -1374,6 +1380,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         albumError,
       });
       await refresh();
+      // Lightroom shows the new photographs after Import; a dated destination
+      // (Photos/2026/2026-10-31) would otherwise leave the shown folder empty.
+      if (
+        results.some((r) => r.destination && !r.skipped && !r.error) &&
+        useUIStore.getState().activeView !== "editor" &&
+        useLibraryStore.getState().currentFolderPath === shownView
+      )
+        window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
     } catch (e) {
       notify.error(String(e), { autoClose: false });
     } finally {

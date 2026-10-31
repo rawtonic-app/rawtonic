@@ -4,8 +4,9 @@
  * library without one uses its folder's name, as `{job}` on import holds
  * the library's name. */
 const key = (library: string | null) => `rawtonic.export.job:${library ?? ""}`;
+// A catalog's folder carries ".catalog" after its name (`SessionWorkspace`).
 const libraryName = (library: string | null) =>
-  (library ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+  ((library ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "").replace(/\.catalog$/i, "");
 
 export function readJobName(library: string | null): string {
   try {

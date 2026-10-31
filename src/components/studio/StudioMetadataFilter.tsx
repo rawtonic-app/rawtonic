@@ -5,6 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { onCatalogChange } from "../../utils/catalogWrites";
+import { folderViewMode } from "../../utils/subfolderView";
 import {
   FACET_FIELDS,
   SOURCE_TYPES,
@@ -156,7 +157,8 @@ export default function StudioMetadataFilter() {
       setFilter: s.setFilterCriteria,
     })),
   );
-  const viewMode = useSettingsStore((s) => s.appSettings?.libraryViewMode);
+  const subfolderDefault = useLibraryStore((s) => s.subfolderDefaultRoot);
+  const viewMode = useSettingsStore((s) => (folder ? folderViewMode(folder, s.appSettings, subfolderDefault) : undefined));
   // A refreshed list (rename, move, background tagging) is counted again.
   const imageList = useLibraryStore((s) => s.imageList);
   const selection = filter.metadata;
