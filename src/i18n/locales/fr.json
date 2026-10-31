@@ -231,6 +231,7 @@
       "copy_image_path": "Copier le chemin",
       "delete_selected": "Placer dans la corbeille",
       "find_duplicates": "Rechercher les doublons…",
+      "edit_with": "Modifier avec…",
       "flag_pick": "Retenir",
       "flag_reject": "Rejeter",
       "flag_unflag": "Sans marquage",
@@ -241,6 +242,7 @@
       "new_session": "Nouveau projet ou catalogue…",
       "open_session": "Ouvrir un projet ou un catalogue…",
       "open_settings": "Préférences…",
+      "open_with": "Ouvrir avec…",
       "paste_adjustments": "Coller les réglages",
       "paste_from_previous": "Coller les réglages de la photo précédente",
       "rate_0": "Aucune étoile",
@@ -453,10 +455,33 @@
       "tagging": "Marquage",
       "undo": "Annuler"
     },
+    "editWith": {
+      "failed": "Échec de Modifier avec : {{error}}",
+      "generatedAreas": "Modifier avec n’est pas encore disponible pour les photos comportant des zones générées : {{names}}",
+      "interrupted": "« Modifier avec » dans {{app}} a été interrompu à la fermeture de Rawtonic. Réessayez pour rendre à nouveau les photos.",
+      "label": "Modifier avec",
+      "notLinked": "Rendu, mais non ajouté à la bibliothèque : {{error}}",
+      "openIn": "Ouvrir dans",
+      "recipe": "Recette",
+      "rendering": "Rendu pour {{app}}…",
+      "someFailed": "{{failed}} photos sur {{total}} n’ont pas pu être rendues.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Empilement de mise au point",
       "hdrPanorama": "Panorama HDR",
       "title": "Fusionner"
+    },
+    "openWith": {
+      "chooseTitle": "Choisir une application",
+      "default": "Par défaut",
+      "failed": "Impossible d’ouvrir les fichiers : {{error}}",
+      "label": "Ouvrir avec",
+      "none": "Aucune application n’ouvre ces fichiers",
+      "other": "Autre…",
+      "reading": "Recherche des applications…",
+      "unsupported": "Disponible uniquement sur macOS"
     },
     "tagging": {
       "addTagTooltip": "Ajouter une étiquette",
@@ -3252,6 +3277,7 @@
       "title": "Histogramme"
     },
     "layers": {
+      "bandWidth": "Largeur de bande",
       "brush": {
         "autoMask": "Masquage automatique",
         "brushFlow": "Flux du pinceau",
@@ -3269,6 +3295,7 @@
       "drawTitle": "Peindre sur le masque de ce calque (les dégradés restent modifiables)",
       "erase": "Effacer",
       "eraseTitle": "Effacer du masque de ce calque (les dégradés restent modifiables)",
+      "gradientBand": "Bande à deux côtés",
       "invert": "Inverser",
       "invertTitle": "Inverser le masque de ce calque",
       "lumaRange": {
@@ -3443,6 +3470,7 @@
         "moveFolderTo": "Déplacer « {{name}} » vers",
         "nothingToRedo": "Aucune opération sur les fichiers à rétablir.",
         "nothingToUndo": "Aucune opération sur les fichiers à annuler.",
+        "openExportQueue": "Ouvrir la file d'exportation",
         "otherDriveConfirm": "Copier et déplacer",
         "otherDriveFolderMessage_one": "Le dossier « {{name}} » et tout son contenu ({{count}} photo, {{files}} fichiers, {{size}}) sont copiés sur {{drive}}, qui a {{free}} libres, et vérifiés octet par octet. Ensuite, le dossier d’origine va dans la corbeille de {{sources}} ; si quelque chose y a changé entre-temps, ou si son disque n’a pas de corbeille, il reste à sa place. Annuler le recopie.",
         "otherDriveFolderMessage_many": "Le dossier « {{name}} » et tout son contenu ({{count}} photos, {{files}} fichiers, {{size}}) sont copiés sur {{drive}}, qui a {{free}} libres, et vérifiés octet par octet. Ensuite, le dossier d’origine va dans la corbeille de {{sources}} ; si quelque chose y a changé entre-temps, ou si son disque n’a pas de corbeille, il reste à sa place. Annuler le recopie.",
@@ -3458,6 +3486,15 @@
         "renameFolderFailed": "Impossible de renommer le dossier : {{error}}",
         "selectForSelects": "Sélectionnez des photos à déplacer vers Selects.",
         "selectsNeedSession": "Déplacer vers Selects fonctionne dans les sessions.",
+        "sessionMoveConfirm": "Déplacer toute la session dans « {{folder}} »",
+        "sessionMoved": "Session « {{name}} » déplacée dans « {{folder}} ». {{hint}}",
+        "sessionMoveExportsPending": "Terminez ou annulez d'abord les exportations de la session « {{name}} » : elles lisent ses photos, que le déplacement emporterait. Rien n'a été déplacé.",
+        "sessionMoveFailed": "Impossible de déplacer la session « {{name}} » : {{error}}",
+        "sessionMoveOtherDrive": "Elle est copiée sur {{drive}} ({{size}}, {{free}} libres là-bas) et vérifiée octet par octet ; ensuite seulement, le dossier d'origine de la session va à la Corbeille. Annuler la remet en place.",
+        "sessionMoveRefused": "Les photos restent dans leur session « {{name}} », et la session entière ne peut pas y aller : {{error}}",
+        "sessionMoveSameDrive": "Elle est déplacée sur son disque en une seule étape ; Annuler la remet en place.",
+        "sessionMoveTitle": "Déplacer toute la session « {{name}} » ?",
+        "sessionMoveWhy": "Les photos restent dans leur session « {{name}} », pour qu'elle reste un dossier autonome qui se déplace d'un bloc ; vous pouvez plutôt déplacer toute la session dans « {{folder}} ».",
         "stopCopying": "Arrêter",
         "trashConfirm": "Placer dans la corbeille",
         "trashCopiesConfirm": "Tout déplacer",

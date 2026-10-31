@@ -345,7 +345,7 @@ fn with_face_retouch(
         &bytes,
         source,
         false,
-        &rawtonic_engine::image_loader::BaseImageOptions::default().for_recipe(&recipe, is_raw),
+        &rawtonic_engine::image_loader::BaseImageOptions::default().for_recipe(&recipe, source),
         None,
     )?;
     // The geometry as the export renders it (the camera's lens correction

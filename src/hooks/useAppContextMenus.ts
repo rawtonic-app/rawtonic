@@ -2,6 +2,8 @@ import { ComponentProps, useCallback, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Aperture,
+  AppWindow,
+  SquarePen,
   Check,
   ClipboardPaste,
   Copy,
@@ -75,6 +77,12 @@ import {
 } from '../utils/adjustments';
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
+import {
+  EditWithSubMenu,
+  OpenWithSubMenu,
+  editWithOptions,
+  openWithOptions,
+} from '../components/studio/OpenWithMenus';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
 import { isCurrentEditorImage, recipeWrite, useEditorActions } from './useEditorActions';
 import { useSeriesMatchDialog } from '../components/studio/SeriesMatchDialog';
@@ -87,6 +95,7 @@ import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
 import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
+import { withSourceFrameOf } from '../utils/sourceFrame';
 
 const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
 
@@ -105,6 +114,15 @@ export interface UseAppContextMenusProps {
   handleShowMissing?: () => void;
   /** After Locate Photo / Locate Folder (else the view is refreshed). */
   handleRelinked?: (report: RelinkReport) => Promise<void>;
+}
+
+/** The photographs the menu bar's photo commands act on: the one open in
+ * Develop, the loupe or the full screen, else the Library's selection. */
+export function menuBarPhotos(): string[] {
+  const { activeView, isFullScreen, libraryLoupe } = useUIStore.getState();
+  const shown = useEditorStore.getState().selectedImage?.path;
+  if (activeView === 'editor' || isFullScreen || libraryLoupe) return shown ? [shown] : [];
+  return useLibraryStore.getState().multiSelectedPaths;
 }
 
 export function useAppContextMenus(props: UseAppContextMenusProps) {
@@ -276,6 +294,51 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
     [albumIcons, t],
   );
 
+  /** Open With / Edit With for `paths` (one or several photographs). */
+  const openWithItems = useCallback(
+    (paths: string[]): Option[] => [
+      {
+        icon: AppWindow,
+        label: t('contextMenus.openWith.label'),
+        submenu: [{ customComponent: OpenWithSubMenu, customProps: { paths } }],
+      },
+      {
+        icon: SquarePen,
+        label: t('contextMenus.editWith.label'),
+        submenu: [
+          { customComponent: EditWithSubMenu, customProps: { paths, onRendered: props.refreshImageList } },
+        ],
+      },
+    ],
+    [props.refreshImageList, t],
+  );
+
+  // The menu bar's Photo › Open With… / Edit With…: its menus cannot list
+  // programs, so the same entries open as a menu in the window.
+  const refreshImageList = props.refreshImageList;
+  useEffect(() => {
+    const show = (build: (paths: string[]) => Promise<Option[]>) => {
+      const paths = menuBarPhotos();
+      if (!paths.length) return;
+      build(paths)
+        .then((options) => showContextMenu(Math.max(5, window.innerWidth / 2 - 130), 60, options))
+        .catch((e) => notify.error(t('contextMenus.openWith.failed', { error: String(e) })));
+    };
+    return registerAppCommands({
+      open_with: {
+        enabled: () => menuBarPhotos().length > 0,
+        run: () => show((paths) => openWithOptions(paths, t)),
+      },
+      edit_with: {
+        enabled: () => menuBarPhotos().length > 0,
+        run: () =>
+          show((paths) =>
+            editWithOptions(paths, t, useSettingsStore.getState().appSettings?.exportPresets, refreshImageList),
+          ),
+      },
+    });
+  }, [refreshImageList, showContextMenu, t]);
+
   const handleEditorContextMenu = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
@@ -296,6 +359,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           icon: FileInput,
           onClick: () => setPanel(Panel.Export),
         },
+        ...openWithItems([selectedImage.path]),
         { type: OPTION_SEPARATOR },
         { label: getUndoLabel(), icon: Undo, onClick: () => { void undo(); }, disabled: !canUndo() },
         { label: getRedoLabel(), icon: Redo, onClick: () => { void redo(); }, disabled: !canRedo() },
@@ -414,11 +478,15 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               onClick: () => {
                 const originalAspectRatio =
                   selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-                const resetData = {
-                  ...initialAdjustmentsFor(!!selectedImage.isRaw),
-                  aspectRatio: originalAspectRatio,
-                  aiPatches: [],
-                };
+                // The photo keeps the frame it was edited in (src/utils/sourceFrame.ts).
+                const resetData = withSourceFrameOf(
+                  {
+                    ...initialAdjustmentsFor(!!selectedImage.isRaw),
+                    aspectRatio: originalAspectRatio,
+                    aiPatches: [],
+                  },
+                  useEditorStore.getState().adjustments,
+                );
                 // One undoable step; the History before it stays.
                 debouncedSetHistory.flush();
                 useEditorStore.getState().pushHistory(resetData);
@@ -441,6 +509,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handleSetColorLabel,
       applyTagDelta,
       showContextMenu,
+      openWithItems,
       t,
     ],
   );
@@ -710,9 +779,14 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 onClick: () => props.handleImageSelect(finalSelection[0]),
               },
               { icon: FileInput, label: exportLabel, onClick: onExportClick },
+              ...openWithItems(finalSelection),
               { type: OPTION_SEPARATOR },
             ]
-          : [{ icon: FileInput, label: exportLabel, onClick: onExportClick }, { type: OPTION_SEPARATOR }]),
+          : [
+              { icon: FileInput, label: exportLabel, onClick: onExportClick },
+              ...openWithItems(finalSelection),
+              { type: OPTION_SEPARATOR },
+            ]),
         {
           disabled: !isSingleSelection,
           icon: Copy,
@@ -989,6 +1063,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       applyTagDelta,
       handleResetAdjustments,
       showContextMenu,
+      openWithItems,
       props,
       t,
     ],

@@ -93,6 +93,22 @@ it("lists every job newest first, empty or not, and acts on single jobs", () => 
   expect(invoke).not.toHaveBeenCalledWith("export_queue_remove", { job: "j1" });
 });
 
+it("offers only Cancel on Edit With renders: never paused, never resumed", () => {
+  useProcessStore.setState({
+    exportQueue: [
+      job({ id: "e1", label: "A.NEF as TIFF", editWith: true }),
+      job({ id: "e2", label: "B.NEF as TIFF", state: "queued", done: 0, editWith: true }),
+      job({ id: "e3", label: "C.NEF as TIFF", state: "cancelled", done: 0, editWith: true }),
+    ],
+    exportQueueHeld: true,
+  });
+  render(<ExportQueuePanel onClose={vi.fn()} />);
+  const region = screen.getByRole("region", { name: "Export queue" });
+  for (const name of ["Pause", "Resume", "Start", "Retry"])
+    expect(within(region).queryByRole("button", { name })).toBeNull();
+  expect(within(region).getAllByRole("button", { name: "Cancel" })).toHaveLength(2);
+});
+
 it("offers Start on waiting jobs and the queue once it is held", () => {
   useProcessStore.setState({ exportQueue: [job({ state: "queued", done: 0 })], exportQueueHeld: true });
   render(<ExportQueuePanel onClose={vi.fn()} />);

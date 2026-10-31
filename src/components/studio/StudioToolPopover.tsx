@@ -1,3 +1,4 @@
+import { cropResetValues } from "../../utils/cameraCrop";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -128,7 +129,15 @@ export default function StudioToolPopover({
       return {
         label: t("studio.tools.popover.resetCrop"),
         run: () =>
-          setAdjustments((prev) => ({ ...prev, crop: null, aspectRatio: null, rotation: 0 })),
+          setAdjustments((prev) => ({
+            ...prev,
+            ...cropResetValues(
+              useEditorStore.getState().selectedImage,
+              prev.sourceFrameVersion,
+              prev.orientationSteps,
+            ),
+            rotation: 0,
+          })),
       };
     if (tools.brushActive)
       return {

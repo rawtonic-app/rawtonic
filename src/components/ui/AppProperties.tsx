@@ -6,6 +6,7 @@ import { ToolType } from '../panel/right/Masks';
 import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
 import type { ImportMetadataPreset } from '../session/IngestMetadata';
 import type { MetadataSelection } from '../../utils/librarySearch';
+import type { CameraCrops } from '../../utils/cameraCrop';
 
 export const GLOBAL_KEYS = [
   ' ',
@@ -159,6 +160,7 @@ export enum Invokes {
   AutodetectLens = 'autodetect_lens',
   CalculateUpright = 'calculate_upright',
   CalculateAutoStraighten = 'calculate_auto_straighten',
+  GetCameraCrops = 'get_camera_crops',
   GetCameraLensProfile = 'get_camera_lens_profile',
   GetLensDistortionParams = 'get_lens_distortion_params',
   GetLensfunLensesForMaker = 'get_lensfun_lenses_for_maker',
@@ -217,6 +219,7 @@ export enum Invokes {
   MoveFolder = 'move_folder',
   PlanMoveFiles = 'plan_move_files',
   PlanMoveFolder = 'plan_move_folder',
+  MoveSession = 'move_session',
   ReadExifForPaths = 'read_exif_for_paths',
   CaptureTimePreview = 'capture_time_preview',
   CaptureTimePlan = 'capture_time_plan',
@@ -286,6 +289,14 @@ export enum Invokes {
   SetAppMenu = 'set_app_menu',
   SetAppMenuState = 'set_app_menu_state',
   AppMenuTextAction = 'app_menu_text_action',
+  OpenWithApps = 'open_with_apps',
+  OpenWithOpen = 'open_with_open',
+  OpenWithPrefs = 'open_with_prefs',
+  EditWithApps = 'edit_with_apps',
+  EditWithSetRecipe = 'edit_with_set_recipe',
+  EditWithStart = 'edit_with_start',
+  EditWithFinish = 'edit_with_finish',
+  EditWithInterrupted = 'edit_with_interrupted',
   StartBackgroundIndexing = 'start_background_indexing',
   MergePhotos = 'merge_photos',
   SaveMerge = 'save_merge',
@@ -701,6 +712,10 @@ export interface LoadImageResult {
   /** The source was developed with the second dead-photosite test
    * (`renderVersion` 3); null for preview data. */
   dead_pixel_adjacent?: boolean | null;
+  /** The `sourceFrameVersion` a first edit on what is shown carries when it
+   * is not the newest (image_loader.rs `new_edit_frame`: offline, on
+   * previews of an older frame); null otherwise. */
+  new_edit_frame?: number | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;
@@ -742,6 +757,9 @@ export interface SelectedImage {
   aiDenoise?: number;
   /** Its `aiDenoiseVersion` (missing: 1). */
   aiDenoiseVersion?: number;
+  /** The camera's crop for each frame version, which new recipes start
+   * with (src/utils/cameraCrop.ts; RAWs only). */
+  cameraCrops?: CameraCrops;
   /** An AI Denoise amount that failed for this source (not retried). */
   aiDenoiseFailed?: number;
   /** The `aiDenoiseVersion` that failed with it (missing: 1). */

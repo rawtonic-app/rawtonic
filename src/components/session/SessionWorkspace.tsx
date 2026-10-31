@@ -1,5 +1,5 @@
 import { buildComboMap, normalizeCombo } from "../../utils/keyboardUtils";
-import { withRecentLibrary } from "../../utils/recentLibraries";
+import { withMovedLibrary, withRecentLibrary } from "../../utils/recentLibraries";
 import { validNamingTemplate, validSequenceStart, type NamePreview } from "../../utils/namingTemplates";
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
@@ -82,7 +82,7 @@ import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestM
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
 import { invokeInOrder } from "../../utils/catalogWrites";
-import { catalogAction, showCullingChanges, useCatalogUndoStore, type CullingChange } from "../../utils/appUndo";
+import { catalogAction, followLibraryMove, showCullingChanges, useCatalogUndoStore, type CullingChange } from "../../utils/appUndo";
 import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
@@ -478,6 +478,45 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       restoreLastSession(navigate, setError);
     }
     return unsubscribe;
+  }, [navigate]);
+
+  // A session folder moved (Move the whole session, or its undo/redo): its
+  // recent-libraries entry and the undo history follow, and the open
+  // session opens again there (the same library: its history stays). Another
+  // open library (a catalog holding its photos) is refreshed by
+  // useTauriListeners.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ from: string; to: string }>("session-moved", ({ payload }) => {
+      const settings = useSettingsStore.getState();
+      if (settings.appSettings)
+        void settings.handleSettingsChange({
+          ...settings.appSettings,
+          recentLibraries: withMovedLibrary(settings.appSettings.recentLibraries, payload.from, payload.to),
+        });
+      if (useLibraryStore.getState().sessionDirectory !== payload.from) {
+        followLibraryMove(payload.from, payload.to);
+        return;
+      }
+      void invoke<SessionSummary>(Invokes.SessionOpen, { directory: payload.to })
+        .then((summary) => {
+          followLibraryMove(payload.from, summary.directory);
+          return navigate(summary);
+        })
+        .catch((err) => {
+          followLibraryMove(payload.from, payload.to, false);
+          setError(String(err));
+        });
+    }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
   }, [navigate]);
 
   useLayoutEffect(() => {

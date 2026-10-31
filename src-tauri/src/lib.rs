@@ -26,6 +26,7 @@ mod auto_white_balance;
 mod browser_preview_transport;
 mod bw_auto;
 mod cache_utils;
+mod camera_crop;
 mod camera_preview;
 mod camera_profile;
 mod camera_tethering;
@@ -70,6 +71,7 @@ mod moebius;
 mod multi_view;
 mod multi_view_prefetch;
 mod negative_conversion;
+mod open_with;
 #[cfg(feature = "performance-profiling")]
 mod performance;
 mod preset_converter;
@@ -83,6 +85,7 @@ mod qa_control;
 mod red_eye;
 mod series_match;
 mod session_bridge;
+mod session_move;
 mod snapshots;
 mod spot_removal;
 mod startup;
@@ -846,11 +849,20 @@ pub fn run() {
             file_management::plan_move_files,
             file_management::move_folder,
             file_management::plan_move_folder,
+            session_move::move_session,
             file_management::rename_folder,
             file_management::rename_files,
             file_management::preview_rename,
             file_management::duplicate_file,
             file_management::show_in_finder,
+            open_with::open_with_apps,
+            open_with::edit_with_apps,
+            open_with::open_with_open,
+            open_with::open_with_prefs,
+            open_with::edit_with_set_recipe,
+            open_with::edit_with_start,
+            open_with::edit_with_finish,
+            open_with::edit_with_interrupted,
             file_management::save_metadata_and_update_thumbnail,
             file_management::apply_adjustments_to_paths,
             file_management::load_metadata,
@@ -887,6 +899,7 @@ pub fn run() {
             culling::cull_images,
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,
+            camera_crop::get_camera_crops,
             upright::calculate_upright,
             auto_straighten::calculate_auto_straighten,
             image_loader::load_image_proxy,

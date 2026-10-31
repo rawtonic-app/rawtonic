@@ -221,6 +221,7 @@
       "copy_image_path": "Copy Path",
       "delete_selected": "Move to Trash",
       "find_duplicates": "Find Duplicates…",
+      "edit_with": "Edit With…",
       "flag_pick": "Pick",
       "flag_reject": "Reject",
       "flag_unflag": "Unflag",
@@ -231,6 +232,7 @@
       "new_session": "New Project or Catalog…",
       "open_session": "Open Project or Catalog…",
       "open_settings": "Preferences…",
+      "open_with": "Open With…",
       "paste_adjustments": "Paste Settings",
       "paste_from_previous": "Paste Settings from Previous",
       "rate_0": "No Stars",
@@ -434,10 +436,33 @@
       "tagging": "Tagging",
       "undo": "Undo"
     },
+    "editWith": {
+      "failed": "Edit With failed: {{error}}",
+      "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
+      "interrupted": "Edit With in {{app}} was interrupted when Rawtonic quit. Try again to render the photos again.",
+      "label": "Edit With",
+      "notLinked": "Rendered, but not added to the library: {{error}}",
+      "openIn": "Open in",
+      "recipe": "Recipe",
+      "rendering": "Rendering for {{app}}…",
+      "someFailed": "{{failed}} of {{total}} photographs could not be rendered.",
+      "tiffAdobe": "TIFF 16-bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Focus stacking",
       "hdrPanorama": "HDR panorama",
       "title": "Merge"
+    },
+    "openWith": {
+      "chooseTitle": "Choose a program",
+      "default": "Default",
+      "failed": "Could not open the files: {{error}}",
+      "label": "Open With",
+      "none": "No program opens these files",
+      "other": "Other…",
+      "reading": "Looking for programs…",
+      "unsupported": "Available on macOS only"
     },
     "tagging": {
       "addTagTooltip": "Add tag",
@@ -3146,6 +3171,7 @@
       "title": "Histogram"
     },
     "layers": {
+      "bandWidth": "Band width",
       "brush": {
         "autoMask": "Auto mask",
         "brushFlow": "Brush flow",
@@ -3163,6 +3189,7 @@
       "drawTitle": "Paint onto this layer's mask (keeps gradients editable)",
       "erase": "Erase",
       "eraseTitle": "Erase from this layer's mask (keeps gradients editable)",
+      "gradientBand": "Two-sided band",
       "invert": "Invert",
       "invertTitle": "Invert this layer's mask",
       "lumaRange": {
@@ -3329,6 +3356,7 @@
         "moveFolderTo": "Move “{{name}}” to",
         "nothingToRedo": "There is no file operation to redo.",
         "nothingToUndo": "There is no file operation to undo.",
+        "openExportQueue": "Open Export Queue",
         "otherDriveConfirm": "Copy and Move",
         "otherDriveFolderMessage_one": "The folder “{{name}}” with everything in it ({{count}} photo, {{files}} files, {{size}}) is copied to {{drive}}, which has {{free}} free, and checked byte for byte. Then the original folder goes to the Trash of {{sources}}; if anything in it changed meanwhile, or its drive has no Trash, it stays where it is. Undo copies it back.",
         "otherDriveFolderMessage_other": "The folder “{{name}}” with everything in it ({{count}} photos, {{files}} files, {{size}}) is copied to {{drive}}, which has {{free}} free, and checked byte for byte. Then the original folder goes to the Trash of {{sources}}; if anything in it changed meanwhile, or its drive has no Trash, it stays where it is. Undo copies it back.",
@@ -3342,6 +3370,15 @@
         "renameFolderFailed": "Could not rename the folder: {{error}}",
         "selectForSelects": "Select photos to move to Selects.",
         "selectsNeedSession": "Move to Selects works in projects.",
+        "sessionMoveConfirm": "Move the Whole Session to “{{folder}}”",
+        "sessionMoved": "Moved the session “{{name}}” to “{{folder}}”. {{hint}}",
+        "sessionMoveExportsPending": "Finish or cancel the exports of the session “{{name}}” first: they read its photos, which the move would take away. Nothing was moved.",
+        "sessionMoveFailed": "Could not move the session “{{name}}”: {{error}}",
+        "sessionMoveOtherDrive": "It is copied to {{drive}} ({{size}}, {{free}} free there) and checked byte for byte; only then does the original session folder go to the Trash. Undo moves it back.",
+        "sessionMoveRefused": "Photos stay inside their session “{{name}}”, and the whole session cannot go there: {{error}}",
+        "sessionMoveSameDrive": "It moves on its drive in one step; Undo moves it back.",
+        "sessionMoveTitle": "Move the Whole Session “{{name}}”?",
+        "sessionMoveWhy": "Photos stay inside their session “{{name}}”, so it remains one self-contained folder that moves as a whole; the whole session can go into “{{folder}}” instead.",
         "stopCopying": "Stop",
         "trashConfirm": "Move to Trash",
         "trashCopiesConfirm": "Move All",

@@ -214,6 +214,7 @@
       "copy_image_path": "拷贝路径",
       "delete_selected": "移到废纸篓",
       "find_duplicates": "查找重复项…",
+      "edit_with": "编辑方式…",
       "flag_pick": "留用",
       "flag_reject": "排除",
       "flag_unflag": "取消旗标",
@@ -224,6 +225,7 @@
       "new_session": "新建项目或图库…",
       "open_session": "打开项目或图库…",
       "open_settings": "偏好设置…",
+      "open_with": "打开方式…",
       "paste_adjustments": "粘贴设置",
       "paste_from_previous": "粘贴上一张照片的设置",
       "rate_0": "无星级",
@@ -427,10 +429,33 @@
       "tagging": "标签",
       "undo": "撤销"
     },
+    "editWith": {
+      "failed": "编辑失败：{{error}}",
+      "generatedAreas": "含有生成区域的照片暂不支持编辑方式：{{names}}",
+      "interrupted": "退出 Rawtonic 时，在 {{app}} 中的“用其他应用编辑”被中断。重试可再次渲染这些照片。",
+      "label": "编辑方式",
+      "notLinked": "已渲染，但未添加到图库：{{error}}",
+      "openIn": "打开于",
+      "recipe": "配方",
+      "rendering": "正在为 {{app}} 渲染…",
+      "someFailed": "{{total}} 张照片中有 {{failed}} 张无法渲染。",
+      "tiffAdobe": "TIFF 16 位 · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 位 · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "焦距合成",
       "hdrPanorama": "HDR 全景图",
       "title": "合并"
+    },
+    "openWith": {
+      "chooseTitle": "选择应用程序",
+      "default": "默认",
+      "failed": "无法打开文件：{{error}}",
+      "label": "打开方式",
+      "none": "没有可打开这些文件的应用程序",
+      "other": "其他…",
+      "reading": "正在查找应用程序…",
+      "unsupported": "仅在 macOS 上可用"
     },
     "tagging": {
       "addTagTooltip": "添加标签",
@@ -3082,6 +3107,7 @@
       "title": "直方图"
     },
     "layers": {
+      "bandWidth": "条带宽度",
       "brush": {
         "autoMask": "自动蒙版",
         "brushFlow": "画笔流量",
@@ -3099,6 +3125,7 @@
       "drawTitle": "在此图层的蒙版上绘制（渐变仍可编辑）",
       "erase": "擦除",
       "eraseTitle": "从此图层的蒙版中擦除（渐变仍可编辑）",
+      "gradientBand": "双侧带状渐变",
       "invert": "反转",
       "invertTitle": "反转此图层的蒙版",
       "lumaRange": {
@@ -3257,6 +3284,7 @@
         "moveFolderTo": "将“{{name}}”移动到",
         "nothingToRedo": "没有可重做的文件操作。",
         "nothingToUndo": "没有可撤销的文件操作。",
+        "openExportQueue": "打开导出队列",
         "otherDriveConfirm": "复制并移动",
         "otherDriveFolderMessage_other": "文件夹“{{name}}”及其中所有内容（{{count}} 张照片，{{files}} 个文件，{{size}}）将复制到 {{drive}}（可用 {{free}}），并逐字节校验。之后原文件夹移到 {{sources}} 的废纸篓；如果其中内容期间被更改，或所在驱动器没有废纸篓，则保留在原处。撤销会把它复制回来。",
         "otherDriveMessage_other": "{{count}} 张照片（{{files}} 个文件，{{size}}）将复制到 {{drive}}（可用 {{free}}），并逐字节校验。之后原件移到 {{sources}} 的废纸篓；期间被更改的原件，或所在驱动器没有废纸篓的原件，保留在原处。撤销会把它们复制回来。",
@@ -3268,6 +3296,15 @@
         "renameFolderFailed": "无法重命名文件夹：{{error}}",
         "selectForSelects": "请选择要移至 Selects 的照片。",
         "selectsNeedSession": "“移至 Selects”仅适用于会话。",
+        "sessionMoveConfirm": "将整个会话移到“{{folder}}”",
+        "sessionMoved": "已将会话“{{name}}”移到“{{folder}}”。{{hint}}",
+        "sessionMoveExportsPending": "请先完成或取消会话“{{name}}”的导出：导出会读取其中的照片，移动会让它们找不到这些照片。未移动任何内容。",
+        "sessionMoveFailed": "无法移动会话“{{name}}”：{{error}}",
+        "sessionMoveOtherDrive": "它会被复制到 {{drive}}（{{size}}，那里可用 {{free}}）并逐字节校验；之后原会话文件夹才会移到废纸篓。撤销即可移回。",
+        "sessionMoveRefused": "照片保留在其会话“{{name}}”中，而整个会话也无法移到那里：{{error}}",
+        "sessionMoveSameDrive": "它在所在驱动器上一步完成移动；撤销即可移回。",
+        "sessionMoveTitle": "移动整个会话“{{name}}”？",
+        "sessionMoveWhy": "照片保留在其会话“{{name}}”中，使它始终是一个可整体移动的独立文件夹；可以改为将整个会话移到“{{folder}}”。",
         "stopCopying": "停止",
         "trashConfirm": "移到废纸篓",
         "trashCopiesConfirm": "全部移动",

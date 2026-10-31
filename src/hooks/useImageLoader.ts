@@ -10,8 +10,11 @@ import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
 import {
+  isNewRecipe,
   type Adjustments,
 } from '../utils/adjustments';
+import { withNewEditFrame } from '../utils/sourceFrame';
+import { withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited } from '../utils/neverEdited';
 import { historyFor, keptSince } from '../utils/photoHistory';
@@ -34,7 +37,13 @@ function canShowCameraPreview(recipe: Partial<Adjustments> | null | undefined) {
 /** Event of the full decode's draft (image_loader.rs `DRAFT_EVENT`). */
 export const DEVELOP_DRAFT_EVENT = 'develop-draft-ready';
 
-type ProxyInfo = { width: number; height: number; isRaw: boolean };
+type ProxyInfo = {
+  width: number;
+  height: number;
+  isRaw: boolean;
+  /** image_loader.rs `ProxyInfo::new_edit_frame`. */
+  newEditFrame?: number | null;
+};
 
 /**
  * Listens for the draft the full decode of `path` hands over before it
@@ -166,25 +175,61 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           const cameraRequest = invoke<{ params: Adjustments['lensDistortionParams'] } | null>(
             Invokes.GetCameraLensProfile, { path: selectedImage.path },
           ).catch(() => null);
+          // The aspect ratio set in the camera, the crop new recipes start
+          // with (src/utils/cameraCrop.ts); kept for a Reset.
+          const cropsRequest = isRawPhoto(selectedImage.path)
+            ? invoke<CameraCrops>(Invokes.GetCameraCrops, { path: selectedImage.path }).catch(() => null)
+            : Promise.resolve(null);
+          let cameraCrops: CameraCrops = null;
           let batches: { order: number; recipe: Adjustments }[] = [];
           // The recipe to render: saved, or the defaults for a never-edited photo.
-          const recipeFor = async (metadata: ImageMetadata | null, isRaw: boolean, width: number, height: number) => {
+          const recipeFor = async (
+            metadata: ImageMetadata | null,
+            isRaw: boolean,
+            width: number,
+            height: number,
+            newEditFrame: number | null | undefined,
+          ) => {
             const savedAdjustments = unsavedAdjustments !== undefined ? unsavedAdjustments : metadata?.adjustments;
             // Profile corrections are on by default: a never-edited RAW (its
             // recipe has no lens mode at all) starts with the camera's own lens
             // data, the edge-fringe pass and the automatic lateral CA, as its
             // export does.
             const camera = isRaw && neverEdited(savedAdjustments) ? await cameraRequest : null;
+            cameraCrops = isRaw ? await cropsRequest : null;
             // Kept for a paste onto it while it is not edited (it pastes onto
-            // this saved recipe, as onto a closed photograph).
-            const shown = editorRecipe(savedAdjustments, isRaw, width, height, camera);
-            rememberOpenedRecipe(selectedImage.path, { saved: savedAdjustments ?? null, camera, width, height, shown });
+            // this saved recipe, as onto a closed photograph). A new recipe
+            // shown on previews of an older frame (offline: no decode follows)
+            // is edited in the frame it shows (src/utils/sourceFrame.ts).
+            const editor = editorRecipe(savedAdjustments, isRaw, width, height, camera, cameraCrops);
+            const saved = savedAdjustments as Partial<Adjustments> | null | undefined;
+            const isNew = !saved || Boolean((saved as { is_null?: boolean }).is_null) || isNewRecipe(saved);
+            // In the frame it shows, with that frame's camera crop.
+            const shown =
+              isNew && saved?.sourceFrameVersion == null && newEditFrame != null
+                ? withCameraCrop(withNewEditFrame(editor, newEditFrame), isRaw ? cameraCrops : null, width, height)
+                : editor;
+            rememberOpenedRecipe(selectedImage.path, {
+              saved: savedAdjustments ?? null,
+              camera,
+              crops: cameraCrops,
+              width,
+              height,
+              shown,
+            });
             // The batch edits written onto it while it was not open, each a
             // History entry of its own (photoHistory.ts).
             batches = await Promise.all(
               recipeStepsSince(selectedImage.path, keptSince(selectedImage.path)).map(async ({ order, after }) => ({
                 order,
-                recipe: editorRecipe(after, isRaw, width, height, isRaw && neverEdited(after) ? await cameraRequest : null),
+                recipe: editorRecipe(
+                  after,
+                  isRaw,
+                  width,
+                  height,
+                  isRaw && neverEdited(after) ? await cameraRequest : null,
+                  cameraCrops,
+                ),
               })),
             );
             return shown;
@@ -213,7 +258,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   width: Math.round(width * previewScale),
                   height: Math.round(height * previewScale),
                 },
-                selectedImage: { ...state.selectedImage, ...image, height, width },
+                selectedImage: { ...state.selectedImage, ...image, cameraCrops, height, width },
               };
             });
           };
@@ -244,7 +289,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             metadataRequest.finally(() => mark('loader_metadata_answer')),
           ]).then(async ([proxy, metadata]) => {
             if (!proxy || !stillCurrent() || useEditorStore.getState().selectedImage?.isDecoded) return;
-            const recipe = await recipeFor(metadata, proxy.isRaw, proxy.width, proxy.height);
+            const recipe = await recipeFor(metadata, proxy.isRaw, proxy.width, proxy.height, proxy.newEditFrame);
             mark('loader_proxy_recipe');
             if (!stillCurrent() || useEditorStore.getState().selectedImage?.isDecoded) return;
             published.proxy = { width: proxy.width, height: proxy.height };
@@ -331,7 +376,13 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               };
             });
           } else {
-            const initialAdjusts = await recipeFor(storedMetadata, loadImageResult.is_raw, width, height);
+            const initialAdjusts = await recipeFor(
+              storedMetadata,
+              loadImageResult.is_raw,
+              width,
+              height,
+              loadImageResult.new_edit_frame,
+            );
             if (!stillCurrent()) return;
             publishSource(initialAdjusts, width, height, fullSource);
           }

@@ -293,6 +293,15 @@ pub fn start_facts_pass(directory: PathBuf) {
     }
 }
 
+/// Stops the running pass, if any (its library is about to move).
+pub fn stop_facts_pass() {
+    if let Ok(running) = FACTS_PASS.lock()
+        && let Some((_, cancel)) = running.as_ref()
+    {
+        cancel.store(true, Ordering::Release);
+    }
+}
+
 /// Starts the pass when photographs of `lib` were added without their
 /// facts (by an edit, an import from another catalog, …) and none runs:
 /// asked by every search, value list and album read, so whatever registered

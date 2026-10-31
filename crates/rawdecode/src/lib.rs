@@ -3,6 +3,7 @@
 //! defaults need. Derived from RapidRAW (commit a82251f, AGPL-3.0); no Tauri,
 //! catalog or develop-model dependencies.
 
+pub mod camera_crop;
 pub mod camera_exposure;
 pub mod camera_matrices;
 pub mod capture_info;
@@ -21,6 +22,7 @@ pub mod multi_exposure;
 pub mod noise_level;
 pub mod orientation;
 pub mod raw_processing;
+pub mod source_frame;
 pub mod unit_calibration;
 pub mod unit_calibration_table;
 

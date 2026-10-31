@@ -214,6 +214,7 @@
       "copy_image_path": "拷貝路徑",
       "delete_selected": "丟到垃圾桶",
       "find_duplicates": "尋找重複項目…",
+      "edit_with": "編輯方式…",
       "flag_pick": "挑選",
       "flag_reject": "排除",
       "flag_unflag": "取消旗標",
@@ -224,6 +225,7 @@
       "new_session": "新增專案或目錄…",
       "open_session": "打開專案或目錄…",
       "open_settings": "偏好設定…",
+      "open_with": "打開方式…",
       "paste_adjustments": "貼上設定",
       "paste_from_previous": "貼上上一張照片的設定",
       "rate_0": "無星等",
@@ -427,10 +429,33 @@
       "tagging": "標籤",
       "undo": "復原"
     },
+    "editWith": {
+      "failed": "編輯失敗：{{error}}",
+      "generatedAreas": "含有生成區域的照片暫不支援編輯方式：{{names}}",
+      "interrupted": "結束 Rawtonic 時，在 {{app}} 中的「用其他應用程式編輯」被中斷。重試可再次算繪這些照片。",
+      "label": "編輯方式",
+      "notLinked": "已算圖，但未加入圖庫：{{error}}",
+      "openIn": "打開於",
+      "recipe": "配方",
+      "rendering": "正在為 {{app}} 算圖…",
+      "someFailed": "{{total}} 張照片中有 {{failed}} 張無法算圖。",
+      "tiffAdobe": "TIFF 16 位元 · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 位元 · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "焦距合成",
       "hdrPanorama": "HDR 全景圖",
       "title": "合併"
+    },
+    "openWith": {
+      "chooseTitle": "選擇應用程式",
+      "default": "預設",
+      "failed": "無法打開檔案：{{error}}",
+      "label": "打開方式",
+      "none": "沒有可打開這些檔案的應用程式",
+      "other": "其他…",
+      "reading": "正在尋找應用程式…",
+      "unsupported": "僅在 macOS 上可用"
     },
     "tagging": {
       "addTagTooltip": "新增標籤",
@@ -3082,6 +3107,7 @@
       "title": "色階分佈圖"
     },
     "layers": {
+      "bandWidth": "條帶寬度",
       "brush": {
         "autoMask": "自動遮色片",
         "brushFlow": "畫筆流量",
@@ -3099,6 +3125,7 @@
       "drawTitle": "在此圖層的遮色片上繪製（漸層仍可編輯）",
       "erase": "擦除",
       "eraseTitle": "從此圖層的遮色片擦除（漸層仍可編輯）",
+      "gradientBand": "雙側帶狀漸層",
       "invert": "反轉",
       "invertTitle": "反轉此圖層的遮色片",
       "lumaRange": {
@@ -3257,6 +3284,7 @@
         "moveFolderTo": "將「{{name}}」移動到",
         "nothingToRedo": "沒有可重做的檔案操作。",
         "nothingToUndo": "沒有可復原的檔案操作。",
+        "openExportQueue": "開啟匯出佇列",
         "otherDriveConfirm": "複製並移動",
         "otherDriveFolderMessage_other": "資料夾「{{name}}」及其中所有內容（{{count}} 張照片，{{files}} 個檔案，{{size}}）將複製到 {{drive}}（可用 {{free}}），並逐位元組驗證。之後原始資料夾移到 {{sources}} 的垃圾桶；若其中內容期間被變更，或所在磁碟沒有垃圾桶，會留在原處。還原會把它複製回來。",
         "otherDriveMessage_other": "{{count}} 張照片（{{files}} 個檔案，{{size}}）將複製到 {{drive}}（可用 {{free}}），並逐位元組驗證。之後原始檔移到 {{sources}} 的垃圾桶；期間被變更的原始檔，或所在磁碟沒有垃圾桶的原始檔，會留在原處。還原會把它們複製回來。",
@@ -3268,6 +3296,15 @@
         "renameFolderFailed": "無法重新命名資料夾：{{error}}",
         "selectForSelects": "請選擇要移至 Selects 的照片。",
         "selectsNeedSession": "「移至 Selects」僅適用於工作階段。",
+        "sessionMoveConfirm": "將整個工作階段移到「{{folder}}」",
+        "sessionMoved": "已將工作階段「{{name}}」移到「{{folder}}」。{{hint}}",
+        "sessionMoveExportsPending": "請先完成或取消工作階段「{{name}}」的匯出：匯出會讀取其中的相片，移動會讓它們找不到這些相片。未移動任何內容。",
+        "sessionMoveFailed": "無法移動工作階段「{{name}}」：{{error}}",
+        "sessionMoveOtherDrive": "它會被複製到 {{drive}}（{{size}}，那裡可用 {{free}}）並逐位元組驗證；之後原工作階段資料夾才會移到垃圾桶。還原即可移回。",
+        "sessionMoveRefused": "照片保留在其工作階段「{{name}}」中，而整個工作階段也無法移到那裡：{{error}}",
+        "sessionMoveSameDrive": "它會在所在磁碟上一步完成移動；還原即可移回。",
+        "sessionMoveTitle": "移動整個工作階段「{{name}}」？",
+        "sessionMoveWhy": "照片保留在其工作階段「{{name}}」中，讓它始終是可整體移動的獨立資料夾；可以改為將整個工作階段移到「{{folder}}」。",
         "stopCopying": "停止",
         "trashConfirm": "移到垃圾桶",
         "trashCopiesConfirm": "全部移動",

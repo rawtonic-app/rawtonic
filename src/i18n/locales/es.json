@@ -231,6 +231,7 @@
       "copy_image_path": "Copiar ruta",
       "delete_selected": "Mover a la papelera",
       "find_duplicates": "Buscar duplicados…",
+      "edit_with": "Editar con…",
       "flag_pick": "Elegir",
       "flag_reject": "Rechazar",
       "flag_unflag": "Sin marca",
@@ -241,6 +242,7 @@
       "new_session": "Nuevo proyecto o catálogo…",
       "open_session": "Abrir proyecto o catálogo…",
       "open_settings": "Preferencias…",
+      "open_with": "Abrir con…",
       "paste_adjustments": "Pegar ajustes",
       "paste_from_previous": "Pegar ajustes de la foto anterior",
       "rate_0": "Sin estrellas",
@@ -453,10 +455,33 @@
       "tagging": "Etiquetado",
       "undo": "Deshacer"
     },
+    "editWith": {
+      "failed": "Error en Editar con: {{error}}",
+      "generatedAreas": "Editar con aún no está disponible para fotos con zonas generadas: {{names}}",
+      "interrupted": "«Editar con» en {{app}} se interrumpió al cerrar Rawtonic. Vuelve a intentarlo para renderizar las fotos de nuevo.",
+      "label": "Editar con",
+      "notLinked": "Renderizado, pero no añadido a la biblioteca: {{error}}",
+      "openIn": "Abrir en",
+      "recipe": "Receta",
+      "rendering": "Renderizando para {{app}}…",
+      "someFailed": "No se pudieron renderizar {{failed}} de {{total}} fotos.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Apilamiento de enfoque",
       "hdrPanorama": "Panorámica HDR",
       "title": "Combinar"
+    },
+    "openWith": {
+      "chooseTitle": "Elegir una aplicación",
+      "default": "Predeterminada",
+      "failed": "No se pudieron abrir los archivos: {{error}}",
+      "label": "Abrir con",
+      "none": "Ninguna aplicación abre estos archivos",
+      "other": "Otra…",
+      "reading": "Buscando aplicaciones…",
+      "unsupported": "Solo disponible en macOS"
     },
     "tagging": {
       "addTagTooltip": "Añadir etiqueta",
@@ -3252,6 +3277,7 @@
       "title": "Histograma"
     },
     "layers": {
+      "bandWidth": "Anchura de banda",
       "brush": {
         "autoMask": "Máscara automática",
         "brushFlow": "Flujo del pincel",
@@ -3269,6 +3295,7 @@
       "drawTitle": "Pintar en la máscara de esta capa (los degradados siguen siendo editables)",
       "erase": "Borrar",
       "eraseTitle": "Borrar de la máscara de esta capa (los degradados siguen siendo editables)",
+      "gradientBand": "Banda de dos lados",
       "invert": "Invertir",
       "invertTitle": "Invertir la máscara de esta capa",
       "lumaRange": {
@@ -3443,6 +3470,7 @@
         "moveFolderTo": "Mover «{{name}}» a",
         "nothingToRedo": "No hay ninguna operación de archivos que rehacer.",
         "nothingToUndo": "No hay ninguna operación de archivos que deshacer.",
+        "openExportQueue": "Abrir la cola de exportación",
         "otherDriveConfirm": "Copiar y mover",
         "otherDriveFolderMessage_one": "La carpeta «{{name}}» con todo su contenido ({{count}} foto, {{files}} archivos, {{size}}) se copia a {{drive}}, que tiene {{free}} libres, y se comprueba byte a byte. Después, la carpeta original va a la papelera de {{sources}}; si algo en ella cambió mientras tanto, o su unidad no tiene papelera, se queda donde está. Deshacer la vuelve a copiar.",
         "otherDriveFolderMessage_many": "La carpeta «{{name}}» con todo su contenido ({{count}} fotos, {{files}} archivos, {{size}}) se copia a {{drive}}, que tiene {{free}} libres, y se comprueba byte a byte. Después, la carpeta original va a la papelera de {{sources}}; si algo en ella cambió mientras tanto, o su unidad no tiene papelera, se queda donde está. Deshacer la vuelve a copiar.",
@@ -3458,6 +3486,15 @@
         "renameFolderFailed": "No se pudo cambiar el nombre de la carpeta: {{error}}",
         "selectForSelects": "Selecciona fotos para moverlas a Selects.",
         "selectsNeedSession": "Mover a Selects funciona en las sesiones.",
+        "sessionMoveConfirm": "Mover toda la sesión a «{{folder}}»",
+        "sessionMoved": "Sesión «{{name}}» movida a «{{folder}}». {{hint}}",
+        "sessionMoveExportsPending": "Termina o cancela primero las exportaciones de la sesión «{{name}}»: leen sus fotos, que el traslado se llevaría. No se ha movido nada.",
+        "sessionMoveFailed": "No se pudo mover la sesión «{{name}}»: {{error}}",
+        "sessionMoveOtherDrive": "Se copia a {{drive}} ({{size}}, {{free}} libres allí) y se comprueba byte a byte; solo entonces la carpeta original de la sesión va a la Papelera. Deshacer la devuelve.",
+        "sessionMoveRefused": "Las fotos permanecen dentro de su sesión «{{name}}», y toda la sesión no puede ir allí: {{error}}",
+        "sessionMoveSameDrive": "Se mueve dentro de su unidad en un solo paso; Deshacer la devuelve.",
+        "sessionMoveTitle": "¿Mover toda la sesión «{{name}}»?",
+        "sessionMoveWhy": "Las fotos permanecen dentro de su sesión «{{name}}», para que siga siendo una carpeta autónoma que se mueve entera; en su lugar, puede mover toda la sesión a «{{folder}}».",
         "stopCopying": "Detener",
         "trashConfirm": "Mover a la papelera",
         "trashCopiesConfirm": "Mover todo",

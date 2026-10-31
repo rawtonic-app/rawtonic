@@ -702,6 +702,13 @@ export interface Adjustments {
    * variant specialized for the recipe's features; 1 or missing = before.
    * Per photo, never copied. */
   renderVersion?: number;
+  /** The frame of the RAW the recipe develops (crates/rawdecode/src/source_frame.rs,
+   * ADR 0020): 1 = a CR3's active area holds the crop the camera records
+   * (EOS R5 Mark II APS-C: 5088 × 3392 instead of 4970 × 3392); missing =
+   * 0, the frame earlier edits were made on. Per photo, never copied, and
+   * never changed once the photo is edited (Reset, paste and presets keep
+   * it): a photo keeps the size it was edited in (src/utils/sourceFrame.ts). */
+  sourceFrameVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1353,6 +1360,10 @@ export const LUMA_NOISE_VERSION = 2;
 /** The render pipeline fixes new edits start with (`renderVersion`). */
 export const RENDER_VERSION = 7;
 
+/** The frame new edits develop (`sourceFrameVersion`,
+ * crates/rawdecode/src/source_frame.rs `VERSION`). */
+export const SOURCE_FRAME_VERSION = 1;
+
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs
  * `DEAD_TEST_RENDER_VERSION`). */
@@ -1417,6 +1428,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        sourceFrameVersion: SOURCE_FRAME_VERSION,
         grainVersion: GRAIN_VERSION,
       }
     : {
@@ -1428,14 +1440,16 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        sourceFrameVersion: SOURCE_FRAME_VERSION,
         grainVersion: GRAIN_VERSION,
       };
 
-/** Whether a saved recipe is new: empty (Library Reset saves `{}`; loading
- * adds only `lensProfileFor`). It renders as a new edit, as the backend does
- * (`image_processing::is_new_recipe`, `embedded_lens::apply_default`). */
-const isNewRecipe = (loaded: Partial<Adjustments>): boolean =>
-  Object.keys(loaded).every((key) => key === 'lensProfileFor');
+/** Whether a saved recipe is new: empty (Library Reset saves `{}`, or only
+ * the photo's frame; loading adds only `lensProfileFor`). It renders as a
+ * new edit, as the backend does (`image_processing::is_new_recipe`,
+ * `embedded_lens::apply_default`). */
+export const isNewRecipe = (loaded: Partial<Adjustments>): boolean =>
+  Object.keys(loaded).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion');
 
 /** The render version of a saved recipe: its own; the current one for a new
  * recipe; else the first (missing key). */
@@ -1444,6 +1458,16 @@ const loadedRenderVersion = (loaded: Partial<Adjustments>): number | undefined =
     return loaded.renderVersion;
   }
   return isNewRecipe(loaded) ? RENDER_VERSION : undefined;
+};
+
+/** The frame a saved recipe develops: its own; the current one for a new
+ * recipe; else the first (missing key), as the backend reads it
+ * (`source_frame::requested`). */
+const loadedSourceFrameVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.sourceFrameVersion !== undefined && loaded.sourceFrameVersion !== null) {
+    return loaded.sourceFrameVersion;
+  }
+  return isNewRecipe(loaded) ? SOURCE_FRAME_VERSION : undefined;
 };
 
 /** The Defringe detector of a saved recipe: its own; else the current one
@@ -1864,6 +1888,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     cameraGeometryVersion: loadedAdjustments.cameraGeometryVersion,
     autoCaVersion: loadedAdjustments.autoCaVersion,
     renderVersion: loadedRenderVersion(loadedAdjustments),
+    sourceFrameVersion: loadedSourceFrameVersion(loadedAdjustments),
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -2121,9 +2146,10 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
 
 /** Adjustments that belong to one photograph or to the view and are never
  * copied: retouching, the depth-based lens blur, derived lens data, the
- * render pipeline version, tool visibility, the clipping display and the
- * style last applied (with this photograph's settings before it,
- * src/utils/appliedStyle.ts). Every other key must be copyable. */
+ * render pipeline version, the frame of the RAW developed, tool
+ * visibility, the clipping display and the style last applied (with this
+ * photograph's settings before it, src/utils/appliedStyle.ts). Every other
+ * key must be copyable. */
 export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'appliedStyle',
   'relightDepth',
@@ -2143,6 +2169,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensDistortionParams',
   'lensProfileFor',
   'renderVersion',
+  'sourceFrameVersion',
   'sectionVisibility',
   'showClipping',
 ];

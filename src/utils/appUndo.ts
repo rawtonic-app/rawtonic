@@ -1264,10 +1264,55 @@ onNewEdit(() => {
     fileRedoBlocked: true,
   });
 });
+/** The open library that moved (Move the whole session, or its undo/redo)
+ * and opens again at its new place: the same library, so its history stays
+ * when the open directory changes from it next. */
+let relocatedFrom: string | null = null;
+
+/** A session folder moved from `from` to `to` (Move the whole session, or
+ * its undo/redo): the undo history follows it — its photographs, the
+ * library a step names and the paths later work waits for are at the new
+ * place. Steps keep their identity (travels in flight hold them). When it
+ * is the open library, opening it there (`keep`) keeps the history; `keep`
+ * false (the reopening failed) lets a later switch clear it again. */
+export function followLibraryMove(from: string, to: string, keep = true) {
+  if (!keep) {
+    if (relocatedFrom === from) relocatedFrom = null;
+    return;
+  }
+  if (useLibraryStore.getState().sessionDirectory === from) relocatedFrom = from;
+  if (from === to) return;
+  const moves = new Map([[from, to]]);
+  const at = (path: string) => movedPath(path, moves);
+  const { past, future } = useCatalogUndoStore.getState();
+  for (const step of [...past, ...future]) {
+    if (step.directory) step.directory = at(step.directory);
+    for (const change of step.changes) {
+      change.path = at(change.path);
+      if (change.directory) change.directory = at(change.directory);
+    }
+    for (const change of step.recipes ?? []) change.path = at(change.path);
+    for (const item of step.snapshots ?? []) item.path = at(item.path);
+    if (step.captureTime) {
+      step.captureTime.library = at(step.captureTime.library);
+      for (const change of [...step.captureTime.undo, ...step.captureTime.redo]) change.path = at(change.path);
+    }
+    if (step.xmp) step.xmp.paths = step.xmp.paths.map(at);
+    const paths = currentTargets.get(step);
+    if (paths) currentTargets.set(step, paths.map(at));
+  }
+  for (const job of pendingWork) if (job.paths) job.paths = job.paths.map(at);
+  useCatalogUndoStore.setState((s) => ({ past: [...s.past], future: [...s.future] }));
+}
+
 // Histories belong to one open library. A stale response cannot add steps to
 // the next library; catalogAction retains the identity of its placeholder.
+// The open library reopened at its new place after it moved is the same one.
 useLibraryStore.subscribe((s, previous) => {
-  if (s.sessionDirectory !== previous.sessionDirectory)
+  if (s.sessionDirectory === previous.sessionDirectory) return;
+  const relocated = relocatedFrom !== null && previous.sessionDirectory === relocatedFrom;
+  relocatedFrom = null;
+  if (!relocated)
     useCatalogUndoStore.setState({
       past: [],
       future: [],

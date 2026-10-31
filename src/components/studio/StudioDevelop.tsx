@@ -1,3 +1,4 @@
+import { cropResetValues } from "../../utils/cameraCrop";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
@@ -1872,14 +1873,15 @@ export default function StudioDevelop() {
               title="Crop"
               label={t("studio.develop.groups.crop")}
               onReset={() =>
-                reset([
-                  "crop",
-                  "aspectRatio",
-                  "rotation",
-                  "orientationSteps",
-                  "flipHorizontal",
-                  "flipVertical",
-                ])
+                change({
+                  ...Object.fromEntries(
+                    ["rotation", "orientationSteps", "flipHorizontal", "flipVertical"].map(
+                      (key) => [key, structuredClone(defaults[key])],
+                    ),
+                  ),
+                  // The camera's crop, unturned (src/utils/cameraCrop.ts).
+                  ...cropResetValues(selectedImage, values.sourceFrameVersion as number | undefined, 0),
+                })
               }
             >
               <StudioCropControls />

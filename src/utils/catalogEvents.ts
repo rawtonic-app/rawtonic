@@ -18,3 +18,11 @@ export const XMP_METADATA_READ = 'rawtonic:xmp-metadata-read';
 export function xmpMetadataRead(directory: string) {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(XMP_METADATA_READ, { detail: directory }));
 }
+
+/** Opens the export queue beside the work (StudioWorkspace), e.g. from the
+ * refusal to move a session whose exports are not finished. */
+export const OPEN_EXPORT_QUEUE = 'rawtonic:open-export-queue';
+
+export function openExportQueue() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_EXPORT_QUEUE));
+}

@@ -231,6 +231,7 @@
       "copy_image_path": "Copia el camí",
       "delete_selected": "Mou a la paperera",
       "find_duplicates": "Cerca duplicats…",
+      "edit_with": "Edita amb…",
       "flag_pick": "Tria",
       "flag_reject": "Rebutja",
       "flag_unflag": "Sense marca",
@@ -241,6 +242,7 @@
       "new_session": "Projecte o catàleg nou…",
       "open_session": "Obre un projecte o catàleg…",
       "open_settings": "Preferències…",
+      "open_with": "Obre amb…",
       "paste_adjustments": "Enganxa els ajustos",
       "paste_from_previous": "Enganxa els ajustos de la foto anterior",
       "rate_0": "Sense estrelles",
@@ -453,10 +455,33 @@
       "tagging": "Etiquetatge",
       "undo": "Desfer"
     },
+    "editWith": {
+      "failed": "Edita amb ha fallat: {{error}}",
+      "generatedAreas": "Edita amb encara no està disponible per a fotos amb zones generades: {{names}}",
+      "interrupted": "«Edita amb» a {{app}} es va interrompre en sortir de Rawtonic. Torna-ho a provar per tornar a renderitzar les fotos.",
+      "label": "Edita amb",
+      "notLinked": "Renderitzat, però no afegit a la biblioteca: {{error}}",
+      "openIn": "Obre a",
+      "recipe": "Recepta",
+      "rendering": "S’està renderitzant per a {{app}}…",
+      "someFailed": "No s’han pogut renderitzar {{failed}} de {{total}} fotos.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Apilament d'enfocament",
       "hdrPanorama": "Panoràmica HDR",
       "title": "Fusionar"
+    },
+    "openWith": {
+      "chooseTitle": "Tria una aplicació",
+      "default": "Per defecte",
+      "failed": "No s’han pogut obrir els fitxers: {{error}}",
+      "label": "Obre amb",
+      "none": "Cap aplicació obre aquests fitxers",
+      "other": "Altra…",
+      "reading": "S’estan cercant aplicacions…",
+      "unsupported": "Només disponible a macOS"
     },
     "tagging": {
       "addTagTooltip": "Afegir etiqueta",
@@ -3252,6 +3277,7 @@
       "title": "Histograma"
     },
     "layers": {
+      "bandWidth": "Amplada de banda",
       "brush": {
         "autoMask": "Màscara automàtica",
         "brushFlow": "Flux del pinzell",
@@ -3269,6 +3295,7 @@
       "drawTitle": "Pinta a la màscara d'aquesta capa (els degradats continuen sent editables)",
       "erase": "Esborra",
       "eraseTitle": "Esborra de la màscara d'aquesta capa (els degradats continuen sent editables)",
+      "gradientBand": "Banda de dos costats",
       "invert": "Inverteix",
       "invertTitle": "Inverteix la màscara d'aquesta capa",
       "lumaRange": {
@@ -3443,6 +3470,7 @@
         "moveFolderTo": "Mou «{{name}}» a",
         "nothingToRedo": "No hi ha cap operació de fitxers per refer.",
         "nothingToUndo": "No hi ha cap operació de fitxers per desfer.",
+        "openExportQueue": "Obre la cua d'exportació",
         "otherDriveConfirm": "Copia i mou",
         "otherDriveFolderMessage_one": "La carpeta «{{name}}» amb tot el que conté ({{count}} foto, {{files}} fitxers, {{size}}) es copia a {{drive}}, que té {{free}} lliures, i es comprova byte a byte. Després, la carpeta original va a la paperera de {{sources}}; si alguna cosa hi ha canviat mentrestant, o la seva unitat no té paperera, es queda on és. Desfer la torna a copiar.",
         "otherDriveFolderMessage_many": "La carpeta «{{name}}» amb tot el que conté ({{count}} fotos, {{files}} fitxers, {{size}}) es copia a {{drive}}, que té {{free}} lliures, i es comprova byte a byte. Després, la carpeta original va a la paperera de {{sources}}; si alguna cosa hi ha canviat mentrestant, o la seva unitat no té paperera, es queda on és. Desfer la torna a copiar.",
@@ -3458,6 +3486,15 @@
         "renameFolderFailed": "No s’ha pogut canviar el nom de la carpeta: {{error}}",
         "selectForSelects": "Selecciona fotos per moure-les a Selects.",
         "selectsNeedSession": "Mou a Selects funciona a les sessions.",
+        "sessionMoveConfirm": "Mou tota la sessió a «{{folder}}»",
+        "sessionMoved": "S'ha mogut la sessió «{{name}}» a «{{folder}}». {{hint}}",
+        "sessionMoveExportsPending": "Acaba o cancel·la primer les exportacions de la sessió «{{name}}»: llegeixen les seves fotos, que el trasllat s'enduria. No s'ha mogut res.",
+        "sessionMoveFailed": "No s'ha pogut moure la sessió «{{name}}»: {{error}}",
+        "sessionMoveOtherDrive": "Es copia a {{drive}} ({{size}}, {{free}} lliures allà) i es comprova byte a byte; només aleshores la carpeta original de la sessió va a la Paperera. Desfés la torna al seu lloc.",
+        "sessionMoveRefused": "Les fotos es queden dins de la sessió «{{name}}», i tota la sessió no pot anar-hi: {{error}}",
+        "sessionMoveSameDrive": "Es mou dins de la seva unitat en un sol pas; Desfés la torna al seu lloc.",
+        "sessionMoveTitle": "Voleu moure tota la sessió «{{name}}»?",
+        "sessionMoveWhy": "Les fotos es queden dins de la sessió «{{name}}», perquè continuï sent una carpeta autònoma que es mou sencera; en canvi, podeu moure tota la sessió a «{{folder}}».",
         "stopCopying": "Atura",
         "trashConfirm": "Mou a la paperera",
         "trashCopiesConfirm": "Mou-ho tot",

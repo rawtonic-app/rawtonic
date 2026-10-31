@@ -919,3 +919,52 @@ describe('styles', () => {
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 });
+
+describe('the frame of the RAW (ADR 0020, "new photos only")', () => {
+  const frame = () => useEditorStore.getState().adjustments.sourceFrameVersion;
+  const open = (sourceFrameVersion: number | undefined) => {
+    const adjustments = { ...INITIAL_ADJUSTMENTS, exposure: -2, sourceFrameVersion };
+    useEditorStore.setState({ adjustments, history: [adjustments], historyIndex: 0 });
+  };
+
+  it.each([0, 1, undefined])('a Reset keeps the frame the photo was edited in (%s)', async (version) => {
+    open(version);
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/first.dng']));
+    await finish(Invokes.ResetAdjustmentsForPaths, { changes: [] });
+    expect(useEditorStore.getState().adjustments.exposure).not.toBe(-2);
+    expect(frame()).toBe(version);
+    // Undo goes back to the edit, in the same frame.
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
+    expect(frame()).toBe(version);
+  });
+
+  it.each([0, 1, undefined])('a paste and a preset keep it (%s)', async (version) => {
+    open(version);
+    const { result } = renderHook(useEditorActions);
+    act(() => useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, exposure: 3, sourceFrameVersion: 1 } }));
+    act(() => result.current.handlePasteAdjustments(['/first.dng']));
+    await act(async () => {});
+    expect(useEditorStore.getState().adjustments.exposure).toBe(3);
+    expect(frame()).toBe(version);
+    act(() => { void result.current.applyAdjustmentsToPaths({ exposure: 1, sourceFrameVersion: 1 }, ['/first.dng', '/second.dng']); });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+    expect(frame()).toBe(version);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+  });
+
+  it('a paste onto a never-edited photo shown on previews of an older frame edits it in that frame', async () => {
+    // The loader gave its first recipe the previews' frame (offline,
+    // image_loader.rs `new_edit_frame`); the paste starts the edit from
+    // the saved (empty) recipe, as onto a closed photograph.
+    const shown = { ...INITIAL_ADJUSTMENTS, sourceFrameVersion: 0 };
+    useEditorStore.setState({ adjustments: shown, history: [shown], historyIndex: 0 });
+    rememberOpenedRecipe('/first.dng', { saved: null, camera: null, width: 4000, height: 3000, shown });
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handlePasteAdjustments(['/first.dng']));
+    await act(async () => {});
+    expect(useEditorStore.getState().adjustments.exposure).toBe(3);
+    expect(frame()).toBe(0);
+  });
+});

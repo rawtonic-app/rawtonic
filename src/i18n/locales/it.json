@@ -231,6 +231,7 @@
       "copy_image_path": "Copia percorso",
       "delete_selected": "Sposta nel cestino",
       "find_duplicates": "Trova duplicati…",
+      "edit_with": "Modifica con…",
       "flag_pick": "Scegli",
       "flag_reject": "Scarta",
       "flag_unflag": "Senza contrassegno",
@@ -241,6 +242,7 @@
       "new_session": "Nuovo progetto o catalogo…",
       "open_session": "Apri progetto o catalogo…",
       "open_settings": "Preferenze…",
+      "open_with": "Apri con…",
       "paste_adjustments": "Incolla impostazioni",
       "paste_from_previous": "Incolla impostazioni della foto precedente",
       "rate_0": "Nessuna stella",
@@ -453,10 +455,33 @@
       "tagging": "Tagging",
       "undo": "Annulla"
     },
+    "editWith": {
+      "failed": "Modifica con non riuscito: {{error}}",
+      "generatedAreas": "Modifica con non è ancora disponibile per le foto con aree generate: {{names}}",
+      "interrupted": "«Modifica con» in {{app}} è stato interrotto alla chiusura di Rawtonic. Riprova per elaborare di nuovo le foto.",
+      "label": "Modifica con",
+      "notLinked": "Rendering eseguito, ma non aggiunto alla libreria: {{error}}",
+      "openIn": "Apri in",
+      "recipe": "Ricetta",
+      "rendering": "Rendering per {{app}}…",
+      "someFailed": "Impossibile eseguire il rendering di {{failed}} foto su {{total}}.",
+      "tiffAdobe": "TIFF 16 bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Focus Stacking",
       "hdrPanorama": "Panorama HDR",
       "title": "Unisci"
+    },
+    "openWith": {
+      "chooseTitle": "Scegli un’applicazione",
+      "default": "Predefinita",
+      "failed": "Impossibile aprire i file: {{error}}",
+      "label": "Apri con",
+      "none": "Nessuna applicazione apre questi file",
+      "other": "Altro…",
+      "reading": "Ricerca delle applicazioni…",
+      "unsupported": "Disponibile solo su macOS"
     },
     "tagging": {
       "addTagTooltip": "Aggiungi tag",
@@ -3252,6 +3277,7 @@
       "title": "Istogramma"
     },
     "layers": {
+      "bandWidth": "Larghezza banda",
       "brush": {
         "autoMask": "Maschera automatica",
         "brushFlow": "Flusso pennello",
@@ -3269,6 +3295,7 @@
       "drawTitle": "Dipingi sulla maschera di questo livello (i gradienti restano modificabili)",
       "erase": "Cancella",
       "eraseTitle": "Cancella dalla maschera di questo livello (i gradienti restano modificabili)",
+      "gradientBand": "Banda a due lati",
       "invert": "Inverti",
       "invertTitle": "Inverti la maschera di questo livello",
       "lumaRange": {
@@ -3443,6 +3470,7 @@
         "moveFolderTo": "Sposta «{{name}}» in",
         "nothingToRedo": "Nessuna operazione sui file da ripristinare.",
         "nothingToUndo": "Nessuna operazione sui file da annullare.",
+        "openExportQueue": "Apri la coda di esportazione",
         "otherDriveConfirm": "Copia e sposta",
         "otherDriveFolderMessage_one": "La cartella «{{name}}» con tutto il contenuto ({{count}} foto, {{files}} file, {{size}}) viene copiata su {{drive}}, che ha {{free}} liberi, e verificata byte per byte. Poi la cartella originale va nel Cestino di {{sources}}; se nel frattempo qualcosa al suo interno è cambiato, o la sua unità non ha un Cestino, resta dov'è. Annulla la ricopia indietro.",
         "otherDriveFolderMessage_many": "La cartella «{{name}}» con tutto il contenuto ({{count}} foto, {{files}} file, {{size}}) viene copiata su {{drive}}, che ha {{free}} liberi, e verificata byte per byte. Poi la cartella originale va nel Cestino di {{sources}}; se nel frattempo qualcosa al suo interno è cambiato, o la sua unità non ha un Cestino, resta dov'è. Annulla la ricopia indietro.",
@@ -3458,6 +3486,15 @@
         "renameFolderFailed": "Impossibile rinominare la cartella: {{error}}",
         "selectForSelects": "Seleziona le foto da spostare in Selects.",
         "selectsNeedSession": "Sposta in Selects funziona nelle sessioni.",
+        "sessionMoveConfirm": "Sposta l'intera sessione in «{{folder}}»",
+        "sessionMoved": "Sessione «{{name}}» spostata in «{{folder}}». {{hint}}",
+        "sessionMoveExportsPending": "Completa o annulla prima le esportazioni della sessione «{{name}}»: leggono le sue foto, che lo spostamento porterebbe via. Non è stato spostato nulla.",
+        "sessionMoveFailed": "Impossibile spostare la sessione «{{name}}»: {{error}}",
+        "sessionMoveOtherDrive": "Viene copiata su {{drive}} ({{size}}, {{free}} liberi lì) e verificata byte per byte; solo allora la cartella originale della sessione va nel Cestino. Annulla la riporta indietro.",
+        "sessionMoveRefused": "Le foto restano nella loro sessione «{{name}}», e l'intera sessione non può andare lì: {{error}}",
+        "sessionMoveSameDrive": "Viene spostata sul suo disco in un solo passaggio; Annulla la riporta indietro.",
+        "sessionMoveTitle": "Spostare l'intera sessione «{{name}}»?",
+        "sessionMoveWhy": "Le foto restano nella loro sessione «{{name}}», così rimane una cartella autonoma che si sposta per intero; al suo posto si può spostare l'intera sessione in «{{folder}}».",
         "stopCopying": "Interrompi",
         "trashConfirm": "Sposta nel cestino",
         "trashCopiesConfirm": "Sposta tutto",
