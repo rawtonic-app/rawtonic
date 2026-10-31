@@ -127,6 +127,24 @@ describe("stack commands", () => {
     expect(invoke).toHaveBeenCalledWith("stacks_restore", { library: "/job", change, undo: false });
   });
 
+  it("moves a selected member to its stack's top before the collapse hides it", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "stacks_set_collapsed") return { library: "/job", change: { before: [1], after: [2] } };
+      if (command === "stacks_list") return [stack("s", ["a", "b", "c"], true)];
+      return null;
+    });
+    setStacks("/job", [stack("s", ["a", "b", "c"], false)]);
+    useLibraryStore.setState({ multiSelectedPaths: [files[2].path], libraryActivePath: files[2].path });
+    // The grid drops selected photos it no longer shows when the stacks
+    // change: the selection must already be the top by then.
+    const seen: string[][] = [];
+    const stop = useStackStore.subscribe(() => seen.push(useLibraryStore.getState().multiSelectedPaths));
+    await toggleStacks();
+    stop();
+    expect(seen).toEqual([[files[0].path]]);
+    expect(useLibraryStore.getState().libraryActivePath).toBe(files[0].path);
+  });
+
   it("makes no undo step when nothing changed", async () => {
     vi.mocked(invoke).mockImplementation(async (command) =>
       command === "stacks_set_collapsed" ? { library: "/job", change: { before: [], after: [] } } : [],

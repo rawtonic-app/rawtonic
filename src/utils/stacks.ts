@@ -5,7 +5,7 @@ import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
-import { refreshStacks, stackKey, useStackStore, type StackChange } from '../store/useStackStore';
+import { keepSelectionShown, refreshStacks, stackKey, useStackStore, type StackChange } from '../store/useStackStore';
 import { registerAppCommands } from './appCommands';
 import { stackAction } from './appUndo';
 import { invokeInOrder } from './catalogWrites';
@@ -38,28 +38,8 @@ function selection(): string[] {
 
 const inStack = (path: string) => useStackStore.getState().byPath.has(stackKey(path));
 
-/**
- * Keeps the selection to photos the grid shows: a member hidden in a
- * collapsed stack leaves it (its stack's shown member takes its place), so
- * a rating, flag, export or move acts on the top only (Lightroom).
- */
-export function selectShownMembers() {
-  const { byPath } = useStackStore.getState();
-  const library = useLibraryStore.getState();
-  if (library.activeAlbumId !== null) return;
-  const listed = new Map(library.imageList.map((f) => [stackKey(f.path), f.path]));
-  const visible = (path: string) => {
-    const entry = byPath.get(stackKey(path));
-    if (!entry?.stack.collapsed) return path;
-    // The shown member of a collapsed stack: its first listed one.
-    const top = entry.stack.members.find((m) => listed.has(stackKey(m)));
-    return top ? listed.get(stackKey(top))! : path;
-  };
-  const next = [...new Set(library.multiSelectedPaths.map(visible))];
-  const active = library.libraryActivePath ? visible(library.libraryActivePath) : null;
-  if (next.join('\n') !== library.multiSelectedPaths.join('\n') || active !== library.libraryActivePath)
-    library.setLibrary({ multiSelectedPaths: next, libraryActivePath: active });
-}
+/** Keeps the selection to photos the grid shows (`keepSelectionShown`). */
+export const selectShownMembers = () => keepSelectionShown(useStackStore.getState().byPath);
 
 async function run(command: Invokes, args: Record<string, unknown>, paths: string[]) {
   if (!paths.length) return;
@@ -67,7 +47,6 @@ async function run(command: Invokes, args: Record<string, unknown>, paths: strin
     const result = await invokeInOrder<StackResult>(command, args);
     stackAction(result.library, result.change, paths);
     await refreshStacks(result.library);
-    selectShownMembers();
   } catch (error) {
     notify.error(i18n.t('stacks.failed', { error: String(error) }));
   }

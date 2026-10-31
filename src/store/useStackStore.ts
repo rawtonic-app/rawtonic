@@ -62,6 +62,28 @@ export function setStacks(library: string | null, stacks: WebStack[]) {
   useStackStore.setState({ library, stacks, byPath: indexStacks(stacks) });
 }
 
+/**
+ * Keeps the selection to photos the grid shows with `byPath`: a member
+ * hidden in a collapsed stack leaves it and its stack's shown member (the
+ * first listed) takes its place, so a rating, flag, export or move acts on
+ * the top only (Lightroom). Albums and other views list members singly.
+ */
+export function keepSelectionShown(byPath: Map<string, StackEntry>) {
+  const library = useLibraryStore.getState();
+  if (library.activeAlbumId !== null) return;
+  const listed = new Map(library.imageList.map((f) => [stackKey(f.path), f.path]));
+  const visible = (path: string) => {
+    const entry = byPath.get(stackKey(path));
+    if (!entry?.stack.collapsed) return path;
+    const top = entry.stack.members.find((m) => listed.has(stackKey(m)));
+    return top ? listed.get(stackKey(top))! : path;
+  };
+  const next = [...new Set(library.multiSelectedPaths.map(visible))];
+  const active = library.libraryActivePath ? visible(library.libraryActivePath) : null;
+  if (next.join('\n') !== library.multiSelectedPaths.join('\n') || active !== library.libraryActivePath)
+    library.setLibrary({ multiSelectedPaths: next, libraryActivePath: active });
+}
+
 let generation = 0;
 
 /** Reads the stacks of `library` (the open session or catalog) again. */
@@ -73,7 +95,13 @@ export async function refreshStacks(library = useLibraryStore.getState().session
   }
   try {
     const stacks = await invoke<WebStack[]>(Invokes.StacksList, { directory: library });
-    if (run === generation) setStacks(library, stacks);
+    if (run !== generation) return;
+    // First the selection, then the stacks, in one go: the grid drops
+    // selected photos that leave it, so a member a collapse hides gives its
+    // place to its stack's shown member before it is hidden.
+    const byPath = indexStacks(stacks);
+    keepSelectionShown(byPath);
+    useStackStore.setState({ library, stacks, byPath });
   } catch {
     if (run === generation) setStacks(library, []);
   }
