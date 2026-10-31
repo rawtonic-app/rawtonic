@@ -331,3 +331,19 @@ fn a_photo_without_a_label_never_gets_one() {
     assert!(written.contains("xmp:Label=\"\""), "{written}");
     assert!(!written.contains("LabelColor"));
 }
+
+#[test]
+fn capture_one_extra_colours_keep_their_exact_property_on_unrelated_edits() {
+    for label in ["Orange", "Pink"] {
+        let packet = C1_KEYWORDS.replace(
+            "<xmp:Label>Red</xmp:Label>",
+            &format!("<xmp:Label>{label}</xmp:Label>"),
+        );
+        let mut metadata = read(&packet);
+        assert_eq!(metadata.label, label);
+        metadata.rating = 4;
+        let written = merge_xmp(Some(&packet), &metadata, None).unwrap();
+        assert!(written.contains(&format!("<xmp:Label>{label}</xmp:Label>")));
+        assert_eq!(read(&written).label, label);
+    }
+}

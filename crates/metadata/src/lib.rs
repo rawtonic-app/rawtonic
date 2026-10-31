@@ -642,6 +642,11 @@ fn merge_xmp_with(
     } else {
         labels::for_sidecar(&metadata.label, &previous_label)
     };
+    // Unchanged custom labels keep their exact source property (including
+    // Capture One's Orange/Pink), rather than being rewritten in our form.
+    let keep_label = !previous_label.is_empty()
+        && labels::canonical(&previous_label).is_none()
+        && previous_label.eq_ignore_ascii_case(&metadata.label);
     // IPTC fields this model has a value for replace the sidecar's; the
     // others stay as they are, so IPTC written by Lightroom or Capture One
     // before Rawtonic knew the field is never dropped.
@@ -652,7 +657,7 @@ fn merge_xmp_with(
     // replacing without any, only its modelled fields go, so properties of
     // other applications inside it stay.
     let managed = |namespace: Option<&str>, name: &str| {
-        managed(namespace, name)
+        (managed(namespace, name) && !(keep_label && namespace == Some(XMP) && name == "Label"))
             || iptc_key(namespace, name)
                 .is_some_and(|k| replace_iptc || metadata.iptc.contains_key(k))
             || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
@@ -726,7 +731,12 @@ fn merge_xmp_with(
     if !photoshop.is_empty() && namespaces.is_empty() {
         shared.push_str(&format!(" xmlns:photoshop=\"{PHOTOSHOP}\""));
     }
-    out.push_str(&format!("\n<rdf:Description xmlns:rdf=\"{RDF}\" xmlns:xmp=\"{XMP}\" xmlns:dc=\"{DC}\" xmlns:lr=\"{LR}\" xmlns:rawtonic=\"{RT}\" xmlns:xmpDM=\"{XMP_DM}\"{namespaces} rdf:about=\"\" xmp:Rating=\"{}\" xmp:Label=\"{}\" rawtonic:Flag=\"{}\"{shared}{photoshop}>", metadata.rating, escape(&label), metadata.flag));
+    let label_attribute = if keep_label {
+        String::new()
+    } else {
+        format!(" xmp:Label=\"{}\"", escape(&label))
+    };
+    out.push_str(&format!("\n<rdf:Description xmlns:rdf=\"{RDF}\" xmlns:xmp=\"{XMP}\" xmlns:dc=\"{DC}\" xmlns:lr=\"{LR}\" xmlns:rawtonic=\"{RT}\" xmlns:xmpDM=\"{XMP_DM}\"{namespaces} rdf:about=\"\" xmp:Rating=\"{}\" {label_attribute} rawtonic:Flag=\"{}\"{shared}{photoshop}>", metadata.rating, metadata.flag));
     for (tag, val) in [
         ("title", &metadata.title),
         ("description", &metadata.description),

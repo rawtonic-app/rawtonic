@@ -393,6 +393,14 @@ describe("Metadata tool", () => {
     expect((screen.getByLabelText("Creator") as HTMLInputElement).value).toBe("A");
   });
 
+  it.each(["orange", "pink"])("shows an imported %s tag by name", (color) => {
+    mockInvoke.mockResolvedValue(undefined);
+    useLibraryStore.setState({ imageList: [file("/job/Capture/a.arw", [`color:${color}`])], multiSelectedPaths: ["/job/Capture/a.arw"] });
+    render(<StudioMetadataTool />);
+    expect(screen.getByText(color === "orange" ? "Orange" : "Pink")).toBeTruthy();
+    expect(screen.getByLabelText("No label").getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("sets the colour label of the selection and shows the shared one", async () => {
     mockInvoke.mockResolvedValue(undefined);
     useLibraryStore.setState({

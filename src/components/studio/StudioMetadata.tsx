@@ -499,6 +499,9 @@ function ColorLabelPicker({ paths }: { paths: string[] }) {
         >
           <X size={9} />
         </button>
+        {current && !COLOR_LABELS.some((label) => label.name === current) && (
+          <span>{current === "orange" ? "Orange" : current === "pink" ? "Pink" : current}</span>
+        )}
         {COLOR_LABELS.map((label) => {
           const key = COLOR_NAME_KEYS[label.name as keyof typeof COLOR_NAME_KEYS];
           const name = key ? t(key) : label.name[0].toUpperCase() + label.name.slice(1);
