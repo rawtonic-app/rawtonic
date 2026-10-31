@@ -3030,7 +3030,7 @@
         "autoTitle": "Auto white balance ({{shortcut}})",
         "picker": "White balance picker",
         "pickerOnBackground": "White balance picker is available on Background",
-        "pickNeutral": "Pick a neutral area",
+        "pickNeutral": "Pick a neutral area (Shift-click keeps picking)",
         "relative": "Relative correction",
         "relativeTemperature": "Relative temperature",
         "relativeTint": "Relative tint",

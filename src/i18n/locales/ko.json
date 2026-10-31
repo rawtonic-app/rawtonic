@@ -2958,7 +2958,7 @@
         "autoTitle": "자동 화이트 밸런스 ({{shortcut}})",
         "picker": "화이트 밸런스 선택 도구",
         "pickerOnBackground": "화이트 밸런스 선택 도구는 배경에서 사용할 수 있습니다",
-        "pickNeutral": "중립 영역 선택",
+        "pickNeutral": "중립 영역 선택 (Shift+클릭: 계속 선택)",
         "relative": "상대 보정",
         "relativeTemperature": "상대 색온도",
         "relativeTint": "상대 틴트",

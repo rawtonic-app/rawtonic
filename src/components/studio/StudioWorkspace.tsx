@@ -540,7 +540,10 @@ export default function StudioWorkspace(props: Props) {
   }, [files, develop]);
   const setLayout = useUIStore((s) => s.setStudioToolLayout);
   const [width, setWidth] = useState(() =>
-    Math.max(270, Math.min(390, Number(storedStudioLayout("width")) || 300)),
+    // 340 px by default: a 112 px Exposure track at 300 px moved 0.097 EV per
+    // pixel, coarser than both reference editors (notes:
+    // reference/ux-develop-core-2026-10-31). A width the user chose stays.
+    Math.max(270, Math.min(390, Number(storedStudioLayout("width")) || 340)),
   );
   // Each module keeps its own layout (Lightroom), saved with the settings.
   const panels = readModuleLayout(storedPanels, moduleOf(activeView));

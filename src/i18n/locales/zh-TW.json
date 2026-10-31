@@ -2958,7 +2958,7 @@
         "autoTitle": "自動白平衡（{{shortcut}}）",
         "picker": "白平衡滴管",
         "pickerOnBackground": "白平衡滴管僅在背景上可用",
-        "pickNeutral": "選取中性區域",
+        "pickNeutral": "選取中性區域（Shift+按一下可繼續選取）",
         "relative": "相對校正",
         "relativeTemperature": "相對色溫",
         "relativeTint": "相對色調",

@@ -3158,7 +3158,7 @@
         "autoTitle": "Balanç de blancs automàtic ({{shortcut}})",
         "picker": "Comptagotes de balanç de blancs",
         "pickerOnBackground": "El comptagotes de balanç de blancs està disponible al fons",
-        "pickNeutral": "Tria una zona neutra",
+        "pickNeutral": "Tria una zona neutra (Maj+clic: continua triant)",
         "relative": "Correcció relativa",
         "relativeTemperature": "Temperatura relativa",
         "relativeTint": "Matís relatiu",

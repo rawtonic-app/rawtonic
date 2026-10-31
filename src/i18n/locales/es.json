@@ -3158,7 +3158,7 @@
         "autoTitle": "Balance de blancos automático ({{shortcut}})",
         "picker": "Cuentagotas de balance de blancos",
         "pickerOnBackground": "El cuentagotas de balance de blancos está disponible en el fondo",
-        "pickNeutral": "Elige una zona neutra",
+        "pickNeutral": "Elige una zona neutra (Mayús+clic: seguir eligiendo)",
         "relative": "Corrección relativa",
         "relativeTemperature": "Temperatura relativa",
         "relativeTint": "Matiz relativo",
