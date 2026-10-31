@@ -53,7 +53,7 @@ function ClippingCorner({
       }}
     >
       <svg viewBox="0 0 12 12" aria-hidden="true">
-        <polygon className="studio-clip-corner-mark" points="6,0.5 11.5,10.5 0.5,10.5" />
+        <polygon className="studio-clip-corner-mark" points="6,1 11.5,11 0.5,11" />
       </svg>
     </button>
   );
