@@ -971,9 +971,11 @@ export function useEditorActions() {
       const toneMapper = current.toneMapper ?? null;
       // The curve choice (Base characteristics) is part of the rendering Auto predicts.
       const baseCurve = current.baseCurve ?? null;
+      // So is the edit's baseline, which depends on its render version.
+      const renderVersion = current.renderVersion ?? 1;
       const { autoBlackPoint, ...autoAdjustments }: Adjustments & { autoBlackPoint?: number } = await invoke(
         Invokes.CalculateAutoAdjustments,
-        { toneMapper, baseCurve },
+        { toneMapper, baseCurve, renderVersion },
       );
       if (!isCurrentEditorImage(selectedImage.path)) return;
       setAdjustments((prev: Adjustments) => ({

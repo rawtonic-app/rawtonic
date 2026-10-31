@@ -67,12 +67,19 @@ pub fn fingerprint_file(path: &Path, bytes: &[u8], develop: bool) -> Value {
         let look =
             std::panic::catch_unwind(|| rawtonic_engine::baseline_exposure::base_look(&name));
         value["base_look"] = match look {
-            Ok(look) => json!({
-                "baseline_ev": look.baseline_ev,
-                "profile_curve": look.profile_curve.is_some(),
-                "no_black_render": look.no_black_render,
-                "phone_defaults": look.phone_defaults,
-            }),
+            Ok(look) => {
+                let mut facts = json!({
+                    "baseline_ev": look.baseline_ev,
+                    "profile_curve": look.profile_curve.is_some(),
+                    "no_black_render": look.no_black_render,
+                    "phone_defaults": look.phone_defaults,
+                });
+                // Only where it applies, so older fingerprints still compare.
+                if look.capture_gain_ev != 0.0 {
+                    facts["capture_gain_ev"] = json!(look.capture_gain_ev);
+                }
+                facts
+            }
             Err(_) => json!("panic"),
         };
         let lens = std::panic::catch_unwind(|| rawtonic_engine::embedded_lens::read(path));

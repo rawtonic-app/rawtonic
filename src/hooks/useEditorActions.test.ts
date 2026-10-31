@@ -129,11 +129,21 @@ it('asks for the auto method of the edit\'s base look', async () => {
   const { result } = renderHook(useEditorActions);
   act(() => { void result.current.handleAutoAdjustments(); });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.5 });
-  expect(invoke).toHaveBeenCalledWith(Invokes.CalculateAutoAdjustments, { toneMapper: 'standard', baseCurve: 'standard' });
-  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, toneMapper: 'basic', baseCurve: 'linear' } });
+  expect(invoke).toHaveBeenCalledWith(Invokes.CalculateAutoAdjustments, {
+    toneMapper: 'standard',
+    baseCurve: 'standard',
+    renderVersion: INITIAL_ADJUSTMENTS.renderVersion ?? 1,
+  });
+  useEditorStore.setState({
+    adjustments: { ...INITIAL_ADJUSTMENTS, toneMapper: 'basic', baseCurve: 'linear', renderVersion: 8 },
+  });
   act(() => { void result.current.handleAutoAdjustments(); });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.5 });
-  expect(invoke).toHaveBeenLastCalledWith(Invokes.CalculateAutoAdjustments, { toneMapper: 'basic', baseCurve: 'linear' });
+  expect(invoke).toHaveBeenLastCalledWith(Invokes.CalculateAutoAdjustments, {
+    toneMapper: 'basic',
+    baseCurve: 'linear',
+    renderVersion: 8,
+  });
 });
 
 it('puts the auto black point into an untouched luma curve only', async () => {

@@ -41,6 +41,7 @@ pub async fn calculate_auto_adjustments(
     state: tauri::State<'_, AppState>,
     tone_mapper: Option<String>,
     base_curve: Option<String>,
+    render_version: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let (original_image, path, is_raw) = match crate::image_loader::original_image(&state).await {
         Ok(loaded) => (loaded.image, loaded.path, loaded.is_raw),
@@ -75,6 +76,10 @@ pub async fn calculate_auto_adjustments(
             is_raw,
             tone_mapper.as_deref(),
             base_curve.as_deref(),
+            // The edit's version (the editor writes it into new edits).
+            render_version
+                .unwrap_or(RENDER_VERSION)
+                .clamp(1, RENDER_VERSION),
         )
     })
     .await

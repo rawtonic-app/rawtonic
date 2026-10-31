@@ -194,7 +194,9 @@ fn measure_image(
 }
 
 /// The recipe's Exposure and white balance (As Shot resolved) of `path`.
-fn recipe_facts(path: &str) -> (f32, Option<WhiteBalance>) {
+/// The recipe's exposure, white balance and render version (which decides
+/// its baseline, `BaseLook::baseline_for`).
+fn recipe_facts(path: &str) -> (f32, Option<WhiteBalance>, u64) {
     let (source, sidecar) = parse_virtual_path(path);
     let recipe = crate::exif_processing::load_sidecar(&sidecar).adjustments;
     let exposure = recipe["exposure"].as_f64().unwrap_or(0.0) as f32;
@@ -202,7 +204,11 @@ fn recipe_facts(path: &str) -> (f32, Option<WhiteBalance>) {
     let white_balance = crate::image_processing::recipe_white_balance(&recipe)
         .or_else(|| rawtonic_engine::camera_profile::as_shot_white_balance(&source))
         .map(|(temperature, tint)| WhiteBalance { temperature, tint });
-    (exposure, white_balance)
+    (
+        exposure,
+        white_balance,
+        crate::image_processing::effective_render_version(&recipe),
+    )
 }
 
 /// Proposals for `paths` against `references` (a subset of them).
@@ -272,8 +278,9 @@ pub async fn analyze_series_match(
                 };
                 let n = done.fetch_add(1, Ordering::SeqCst) + 1;
                 let _ = app.emit("series-match-progress", Progress { done: n, total });
-                let (exposure, white_balance) = recipe_facts(path);
-                let baseline_ev = rawtonic_engine::baseline_exposure::base_look(&key).baseline_ev;
+                let (exposure, white_balance, render_version) = recipe_facts(path);
+                let baseline_ev = rawtonic_engine::baseline_exposure::base_look(&key)
+                    .baseline_for(render_version);
                 let reference = references.contains(path);
                 Some(match analysed {
                     Ok(a) => SeriesPhoto {
@@ -400,7 +407,7 @@ mod tests {
                             stats,
                             capture,
                             baseline_ev: rawtonic_engine::baseline_exposure::base_look(path)
-                                .baseline_ev,
+                                .baseline_for(crate::image_processing::RENDER_VERSION),
                             exposure: 0.0,
                             white_balance: wb,
                             reference: references.split(';').any(|r| r == *path),

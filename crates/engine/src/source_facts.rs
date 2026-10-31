@@ -115,6 +115,15 @@ pub struct StoredBaseLook {
     pub profile_curve: Option<Vec<f32>>,
     pub no_black_render: bool,
     pub phone_defaults: bool,
+    /// `BaseLook::capture_gain_ev`; absent in facts from before it (0: an
+    /// offline Sony photograph at an extended low ISO then develops without
+    /// its capture gain until its source is online again).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub capture_gain_ev: f32,
+}
+
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
 }
 
 impl From<BaseLook> for StoredBaseLook {
@@ -126,6 +135,7 @@ impl From<BaseLook> for StoredBaseLook {
             profile_curve: look.profile_curve.map(|curve| curve.to_vec()),
             no_black_render: look.no_black_render,
             phone_defaults: look.phone_defaults,
+            capture_gain_ev: look.capture_gain_ev,
         }
     }
 }
@@ -142,6 +152,7 @@ impl StoredBaseLook {
                 .and_then(|curve| <[f32; PROFILE_CURVE_SAMPLES]>::try_from(curve).ok()),
             no_black_render: self.no_black_render,
             phone_defaults: self.phone_defaults,
+            capture_gain_ev: self.capture_gain_ev,
         }
     }
 }
@@ -371,6 +382,7 @@ mod tests {
             profile_curve: Some(curve),
             no_black_render: true,
             phone_defaults: false,
+            capture_gain_ev: -1.0,
         };
         let colour = crate::raw_processing::ImageColor {
             camera_to_srgb: [[1.5, -0.4, -0.1], [-0.2, 1.4, -0.2], [0.0, -0.5, 1.5]],

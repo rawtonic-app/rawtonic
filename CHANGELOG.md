@@ -15,6 +15,7 @@
 ### Changes to existing edits
 
 - **Rebuilt highlights of RAWs (`renderVersion` 9, new edits and never-edited RAWs).** Clipped colours inside larger partly clipped areas are rebuilt from colour ratios (see *Truer colour in large over-exposed skies and walls*); small clipped spots and fully clipped areas render as before. The decode takes 60–110 ms longer on 24–47 MP photos with clipping (RTX 3080 host, CPU stage).
+- **Extended low ISOs open as dark as in Camera Raw (`renderVersion` 9, new edits and never-edited RAWs).** Sony bodies read the sensor at base ISO at their extended ISO 50 (or 64, 80) and record how much they over-expose (the capture gain); Rawtonic now pulls such photos down by it, as the camera's JPEG and Camera Raw do: an α7C at ISO 50 opened a stop brighter than the same scene at other ISOs. The Fujifilm X-T2 at L 100, the Nikon D800/D800E at Lo 0.3 and 0.7, the Sony SLT-A99 and ZV-1 below their base ISO get their missing extended-ISO step, and the Sony α7R IV at normal ISOs opens a stop brighter (it opened a stop darker than Camera Raw). On extended-ISO photos of 7 bodies the difference to Camera Raw's default is now at most 0.10 EV (mean brightness; up to 1.45 EV before). Clipped raw highlights at those ISOs render light grey instead of white, as in Camera Raw (a little darker: 0.86 of white against 0.90 on an α7C file); the clipping warnings follow the rendered image, as in Lightroom.
 
 ## 0.1.0-alpha.10 — 2026-10-31
 

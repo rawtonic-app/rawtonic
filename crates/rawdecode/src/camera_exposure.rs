@@ -23,6 +23,12 @@
 //! - Canon sRAW/mRAW: own tables on the older bodies.
 //! - Image shape: Phase One Sensor+ binning, Sony α1 II lossless
 //!   compressed Medium/Small (four-channel files).
+//! - Sony capture gain (raw directory tag 0x7316; renderVersion 9,
+//!   `adobe_baseline_with_capture_gain`): `log2(gain / 128)`, −1 EV at
+//!   extended ISO 50, on every Sony body whose rule has no EXIF ISO steps
+//!   (Adobe reads one or the other: patching the tag to 64 moved the value
+//!   by −1.00 EV on all 31 such bodies sampled and on none of the 8 with
+//!   ISO steps; notes: benchmark-results/sx-extended-low-iso-2026-10-31).
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -89,6 +95,9 @@ pub struct Capture {
     pub fujifilm_dynamic_range: Option<u32>,
     /// Lower-case file extension, zero-padded (for `Variant::Extension`).
     pub extension: [u8; 4],
+    /// Sony capture gain (raw directory tag 0x7316, 128 = nominal; 64 at
+    /// extended ISO 50), read by `adobe_baseline_with_capture_gain`.
+    pub sony_gain: Option<u16>,
 }
 
 /// A file extension in the form `Capture::extension` keeps it.
@@ -786,6 +795,30 @@ const ADOBE_BASELINE: &[Entry] = &[
 ];
 // END GENERATED
 
+/// Rows renderVersion 9 revises (checked before the other tables by
+/// `adobe_baseline_with_capture_gain` only, so older recipes keep their
+/// value). Adobe DNG Converter 18.7 on one raw.pixls.us sample per model,
+/// copies with the EXIF ISO patched to 25–400 (2026-10-31): the measured
+/// rows below had no ISO probe, and these are the ones whose extended low
+/// ISOs Adobe renders darker (X-T2 L 100; D800/D800E Lo 0.3/0.7; SLT-A99
+/// and ZV-1 below base; the A99V is the A99 with GPS); Camera Raw renders
+/// the X-T2, D800E and ZV-1 copies exactly so. Panasonic rows stay as they
+/// are: with only the EXIF ISO patched, Camera Raw and the converter
+/// disagree on them. The ILCE-7RM4's generated row came
+/// from ISO 50 samples only (capture gain 64): with the gain at 128 Adobe
+/// writes 0.35, like the ILCE-7RM4A
+/// (notes: benchmark-results/sx-extended-low-iso-2026-10-31).
+#[rustfmt::skip]
+const ADOBE_BASELINE_REVISED: &[Entry] = &[
+    ("Fujifilm", "X-T2", Variant::Any, Rule { base: 0.15, kind: Kind::Fixed, iso: &[(100, 100, -1.00)], white_reference: 0.0, highlight_tone_priority: &[] }),
+    ("Nikon", "D800", Variant::Any, Rule { base: 0.35, kind: Kind::Fixed, iso: &[(50, 50, -1.00), (64, 64, -0.67), (80, 80, -0.33)], white_reference: 0.0, highlight_tone_priority: &[] }),
+    ("Nikon", "D800E", Variant::Any, Rule { base: 0.35, kind: Kind::Fixed, iso: &[(50, 50, -1.00), (64, 64, -0.67), (80, 80, -0.33)], white_reference: 0.0, highlight_tone_priority: &[] }),
+    ("Sony", "ILCE-7RM4", Variant::Any, Rule { base: 0.35, kind: Kind::Fixed, iso: &[], white_reference: 0.0, highlight_tone_priority: &[] }),
+    ("Sony", "SLT-A99", Variant::Any, Rule { base: 0.40, kind: Kind::Fixed, iso: &[(25, 80, -0.65)], white_reference: 0.0, highlight_tone_priority: &[] }),
+    ("Sony", "SLT-A99V", Variant::Any, Rule { base: 0.40, kind: Kind::Fixed, iso: &[(25, 80, -0.65)], white_reference: 0.0, highlight_tone_priority: &[] }),
+    ("Sony", "ZV-1", Variant::Any, Rule { base: -0.20, kind: Kind::Fixed, iso: &[(25, 100, -0.65)], white_reference: 0.0, highlight_tone_priority: &[] }),
+];
+
 /// Models the generated table lacks (2026-10-05 broad run: one raw.pixls.us
 /// file per camera model converted with Adobe DNG Converter 18.7, value =
 /// the DNG's BaselineExposure; regional aliases also resolve through
@@ -1013,21 +1046,39 @@ pub fn has_white_correction(make: &str, model: &str) -> bool {
 }
 
 fn entries(make: &str, model: &str) -> impl Iterator<Item = &'static Entry> {
+    entries_of(make, model, false)
+}
+
+/// `revised`: with renderVersion 9's rows (`ADOBE_BASELINE_REVISED`).
+fn entries_of(make: &str, model: &str, revised: bool) -> impl Iterator<Item = &'static Entry> {
     let (make, model) = (make.to_ascii_lowercase(), model.to_ascii_lowercase());
     let matches = move |(m, n, _, _): &&'static Entry| {
         m.eq_ignore_ascii_case(&make) && n.eq_ignore_ascii_case(&model)
     };
-    let measured: Vec<&'static Entry> = ADOBE_BASELINE_MEASURED
-        .iter()
-        .filter(matches.clone())
-        .collect();
+    let corrected: Vec<&'static Entry> = if revised {
+        ADOBE_BASELINE_REVISED
+            .iter()
+            .filter(matches.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // A corrected row replaces the model's other rows.
+    let measured: Vec<&'static Entry> = if corrected.is_empty() {
+        ADOBE_BASELINE_MEASURED
+            .iter()
+            .filter(matches.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
     // A measured row replaces every generated row of the model.
-    let generated: Vec<&'static Entry> = if measured.is_empty() {
+    let generated: Vec<&'static Entry> = if corrected.is_empty() && measured.is_empty() {
         ADOBE_BASELINE.iter().filter(matches).collect()
     } else {
         Vec::new()
     };
-    measured.into_iter().chain(generated)
+    corrected.into_iter().chain(measured).chain(generated)
 }
 
 /// Whether the table has a rule for the camera.
@@ -1052,6 +1103,24 @@ fn run_delta(runs: &[IsoRun], iso: Option<u32>) -> Option<f32> {
 /// Adobe's baseline exposure for a camera and capture; `None` for unknown
 /// cameras (and for Fujifilm models whose file lacks the bias).
 pub fn adobe_baseline(make: &str, model: &str, capture: &Capture) -> Option<f32> {
+    baseline_of(make, model, capture, false)
+}
+
+/// renderVersion 9: `adobe_baseline` with the Sony capture gain and the
+/// corrected rows (`ADOBE_BASELINE_REVISED`).
+pub fn adobe_baseline_with_capture_gain(make: &str, model: &str, capture: &Capture) -> Option<f32> {
+    baseline_of(make, model, capture, true)
+}
+
+/// EV of a Sony capture gain: `log2(gain / 128)` (−1 at extended ISO 50),
+/// 0 without one. Also applied to Sony bodies Adobe's tables lack.
+pub fn capture_gain_ev(gain: Option<u16>) -> f32 {
+    gain.filter(|gain| *gain > 0)
+        .map_or(0.0, |gain| (gain as f32 / 128.0).log2())
+}
+
+fn baseline_of(make: &str, model: &str, capture: &Capture, revised: bool) -> Option<f32> {
+    let entries = |make, model| entries_of(make, model, revised);
     let sraw = capture.canon.is_some_and(|c| c.sraw_quality > 0);
     let specific = entries(make, model).find(|(_, _, variant, _)| match variant {
         Variant::Any => false,
@@ -1088,6 +1157,10 @@ pub fn adobe_baseline(make: &str, model: &str, capture: &Capture) -> Option<f32>
     } else {
         run_delta(rule.iso, capture.iso).unwrap_or(0.0)
     };
+    // Adobe follows Sony's capture gain where the rule has no ISO steps.
+    if revised && rule.iso.is_empty() && make.eq_ignore_ascii_case("sony") {
+        value += capture_gain_ev(capture.sony_gain);
+    }
     if rule.white_reference > 0.0
         && let Some(canon) = capture.canon
         && let (Some(black), Some(white)) = (canon.black, canon.specular_white)
@@ -1106,7 +1179,10 @@ pub fn adobe_baseline(make: &str, model: &str, capture: &Capture) -> Option<f32>
 
 #[cfg(test)]
 mod tests {
-    use super::{Capture, adobe_baseline, extension_key, has_entry, needs_image_shape};
+    use super::{
+        Capture, adobe_baseline, adobe_baseline_with_capture_gain, capture_gain_ev, extension_key,
+        has_entry, needs_image_shape,
+    };
     use crate::capture_info::CanonCapture;
 
     fn canon(iso: u32, black: f32, white: u32, htp: bool, sraw: u16) -> Capture {
@@ -1124,6 +1200,108 @@ mod tests {
 
     fn close(a: Option<f32>, b: f32) -> bool {
         a.is_some_and(|a| (a - b).abs() < 0.02)
+    }
+
+    #[test]
+    fn sony_capture_gain_counts_from_render_version_9_where_adobe_reads_it() {
+        let sony = |iso, gain| Capture {
+            iso: Some(iso),
+            sony_gain: gain,
+            ..Capture::default()
+        };
+        // α7C at extended ISO 50 (gain 64): Adobe −0.65, 0.35 at base.
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ILCE-7C", &sony(50, Some(64))),
+            -0.65
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ILCE-7C", &sony(100, Some(128))),
+            0.35
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ILCE-7C", &sony(50, None)),
+            0.35
+        ));
+        // Older render versions keep the old value.
+        assert!(close(
+            adobe_baseline("Sony", "ILCE-7C", &sony(50, Some(64))),
+            0.35
+        ));
+        // The α7 III's rule has ISO steps: Adobe ignores its gain tag.
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ILCE-7M3", &sony(50, Some(64))),
+            -0.65
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ILCE-7M3", &sony(100, Some(64))),
+            0.35
+        ));
+        // ILCE-7RM4: revised base, the old row was the ISO 50 value.
+        assert!(close(
+            adobe_baseline("Sony", "ILCE-7RM4", &sony(100, Some(128))),
+            -0.65
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ILCE-7RM4", &sony(100, Some(128))),
+            0.35
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ILCE-7RM4", &sony(50, Some(64))),
+            -0.65
+        ));
+        // Other makers ignore the field.
+        assert!(close(
+            adobe_baseline_with_capture_gain("Nikon", "Z 6", &sony(100, Some(64))),
+            0.2
+        ));
+        assert_eq!(capture_gain_ev(None), 0.0);
+        assert_eq!(capture_gain_ev(Some(64)), -1.0);
+    }
+
+    #[test]
+    fn revised_rows_add_the_missing_extended_low_isos() {
+        let at = |iso| Capture {
+            iso: Some(iso),
+            ..Capture::default()
+        };
+        assert!(close(adobe_baseline("Nikon", "D800E", &at(64)), 0.35));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Nikon", "D800E", &at(64)),
+            -0.32
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Nikon", "D800E", &at(80)),
+            0.02
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Nikon", "D800", &at(50)),
+            -0.65
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Fujifilm", "X-T2", &at(100)),
+            -0.85
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Fujifilm", "X-T2", &at(200)),
+            0.15
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ZV-1", &at(100)),
+            -0.85
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "ZV-1", &at(125)),
+            -0.2
+        ));
+        assert!(close(
+            adobe_baseline_with_capture_gain("Sony", "SLT-A99V", &at(50)),
+            -0.25
+        ));
+        // Models without a revised row are unchanged.
+        assert_eq!(
+            adobe_baseline_with_capture_gain("Nikon", "Z 6", &at(64)),
+            adobe_baseline("Nikon", "Z 6", &at(64))
+        );
     }
 
     #[test]
