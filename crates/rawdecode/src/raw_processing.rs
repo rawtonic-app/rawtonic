@@ -436,7 +436,13 @@ fn develop_internal(
         && !fast_demosaic
         && superccd.is_none()
         && cfa_opcodes.is_empty())
-    .then(|| shadow_means_of(&raw_image))
+    .then(|| {
+        // The mosaic's units (develop_rgb_mosaic: `apply_scaling` times
+        // `rescale_factor`), sensor white at 1.
+        let to_white = (u32::MAX as f32 - original_black_level)
+            / (original_white_level - original_black_level).max(1.0);
+        shadow_means_of(&raw_image, to_white)
+    })
     .flatten();
     let clip_levels = if is_rgb_mosaic {
         match (&raw_image.photometric, &raw_image.data) {
@@ -1793,9 +1799,12 @@ fn use_masked_black(raw_image: &mut RawImage) {
     }
 }
 
-/// `ShadowMeans` of the active area of an RGB mosaic, in the units of
-/// `apply_scaling` (black 0, the scaling's white 1), signed.
-fn shadow_means_of(raw_image: &RawImage) -> Option<crate::black_bias::ShadowMeans> {
+/// `ShadowMeans` of the active area of an RGB mosaic, signed, in the units
+/// of `apply_scaling` (black 0, the scaling's white 1) times `to_white`: the
+/// units the demosaic sees before white balance, sensor white at 1 (the
+/// noise model's brightness bands are fractions of it; the decoder's white
+/// was set to `u32::MAX` before, `develop_internal`).
+fn shadow_means_of(raw_image: &RawImage, to_white: f32) -> Option<crate::black_bias::ShadowMeans> {
     let RawPhotometricInterpretation::Cfa(config) = &raw_image.photometric else {
         return None;
     };
@@ -1807,7 +1816,7 @@ fn shadow_means_of(raw_image: &RawImage) -> Option<crate::black_bias::ShadowMean
     let whites = raw_image.whitelevel.as_bayer_array();
     // `apply_scaling` works on 2 × 2 positions from the buffer origin.
     let pos = |r: usize, c: usize| (r % 2) * 2 + c % 2;
-    let scale: [f32; 4] = std::array::from_fn(|i| 1.0 / (whites[i] - levels[i]).max(1.0));
+    let scale: [f32; 4] = std::array::from_fn(|i| to_white / (whites[i] - levels[i]).max(1.0));
     let cfa = &config.cfa;
     let color = |r: usize, c: usize| cfa.color_at(roi.p.y + r, roi.p.x + c).min(2);
     Some(match &raw_image.data {
@@ -1922,7 +1931,8 @@ fn develop_rgb_mosaic(
     let (out_w, out_h) = (roi_w / bin, roi_h / bin);
     drop(mosaic);
     if let Some(means) = shadow_means.filter(|_| bin == 1) {
-        let changed = means.restore(&mut rgb, roi_w, [0, 1, 2].map(|k| wb[k] * rescale_factor));
+        // The means are in the mosaic's units before white balance.
+        let changed = means.restore(&mut rgb, roi_w, [0, 1, 2].map(|k| wb[k]));
         log::info!("Shadow means restored on {changed} pixels");
     }
     // Tile buffers were freed on the worker threads, whose allocator heaps
@@ -2151,12 +2161,101 @@ pub fn get_fast_demosaic_scale_factor(
 #[cfg(test)]
 mod frame_tests {
     use super::*;
+    use crate::black_bias::BlackLevels;
     use image::GenericImageView;
     use rawler::imgop::{Dim2, Point, Rect};
     use rawler::pixarray::Color2D;
 
     fn rect(x: usize, y: usize, w: usize, h: usize) -> Rect {
         Rect::new(Point::new(x, y), Dim2::new(w, h))
+    }
+
+    /// A 12-bit RGGB DNG (black 256, white 4095) whose upper half is 3
+    /// levels above black and whose lower half is bright, with shot noise
+    /// and 10 levels of read noise (`noisy`) or without.
+    fn shadow_ramp_dng(noisy: bool) -> Vec<u8> {
+        let (w, h) = (192u32, 192u32);
+        let mut seed = 11u64;
+        let mut uniform = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as f32 / (1u64 << 31) as f32) - 0.5
+        };
+        let samples: Vec<u16> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .map(|(_, y)| {
+                let signal: f32 = if y < h / 2 { 3.0 } else { 2000.0 };
+                let sigma = (100.0 + 0.5 * signal).sqrt();
+                let n: f32 = (0..4).map(|_| uniform()).sum::<f32>() * 1.732;
+                let v = 256.0 + signal + if noisy { sigma * n } else { 0.0 };
+                v.round().clamp(0.0, 4095.0) as u16
+            })
+            .collect();
+        crate::fingerprint::synthetic::mosaic_dng(w, h, (2, 2), &[0, 1, 1, 2], &samples)
+    }
+
+    #[test]
+    fn unbiased_blacks_keep_the_dark_means_and_leave_bright_rows_alone() {
+        let develop = |bytes: &[u8], black| {
+            develop_raw_image_with_draft(
+                bytes,
+                false,
+                2.5,
+                "auto".into(),
+                None,
+                None,
+                None,
+                crate::hot_pixels::DeadTest::default(),
+                0,
+                black,
+            )
+            .unwrap()
+            .to_rgb32f()
+        };
+        let clean = develop(&shadow_ramp_dng(false), BlackLevels::Clipped);
+        let clipped = develop(&shadow_ramp_dng(true), BlackLevels::Clipped);
+        let unbiased = develop(&shadow_ramp_dng(true), BlackLevels::Unbiased);
+        // Orientation 6 turns the mosaic: its upper half is the right half.
+        let (w, h) = clean.dimensions();
+        let mean = |img: &image::Rgb32FImage, dark: bool, k: usize| {
+            let cols = if dark {
+                w / 2 + 8..w - 8
+            } else {
+                8..w / 2 - 24
+            };
+            let mut sum = 0.0f64;
+            let mut n = 0.0f64;
+            for y in 8..h - 8 {
+                for x in cols.clone() {
+                    sum += img.get_pixel(x, y)[k] as f64;
+                    n += 1.0;
+                }
+            }
+            sum / n
+        };
+        // The clip lifts the dark half by about the signal itself; the
+        // restored means are within sampling noise of the clean frame's.
+        let error = |img: &image::Rgb32FImage| -> f64 {
+            (0..3)
+                .map(|k| (mean(img, true, k) - mean(&clean, true, k)).abs())
+                .sum()
+        };
+        let signal: f64 = (0..3).map(|k| mean(&clean, true, k)).sum();
+        assert!(
+            error(&clipped) > 0.3 * signal,
+            "{} of {signal}",
+            error(&clipped)
+        );
+        assert!(
+            error(&unbiased) < 0.25 * error(&clipped),
+            "{} vs {}",
+            error(&unbiased),
+            error(&clipped)
+        );
+        for k in 0..3 {
+            assert_eq!(mean(&unbiased, false, k), mean(&clipped, false, k));
+        }
     }
 
     #[test]

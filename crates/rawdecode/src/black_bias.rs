@@ -399,6 +399,26 @@ mod tests {
     }
 
     #[test]
+    fn the_noise_model_separates_shot_and_read_noise_in_sensor_units() {
+        // Sensor white at 1: read noise variance 1e-6, shot noise 1e-4 per
+        // unit of signal, over black to a third of white.
+        let mut seed = 3u64;
+        let (w, h) = (240, 960);
+        let v: Vec<f32> = (0..w * h)
+            .map(|i| {
+                let x = 0.3 * ((i / w) as f32 / (h - 1) as f32).powi(3);
+                x + (1e-6 + 1e-4 * x).sqrt() * noise(&mut seed)
+            })
+            .collect();
+        let color = |r: usize, c: usize| (r % 2) + (c % 2);
+        let means = ShadowMeans::measure(w, h, |r, c| v[r * w + c], color);
+        let (slope, floor) = means.noise_model(1).unwrap();
+        // The lower quartile of the blocks' estimates sits below the mean.
+        assert!((0.6e-4..1.2e-4).contains(&slope), "slope {slope}");
+        assert!((0.4e-6..1.5e-6).contains(&floor), "floor {floor}");
+    }
+
+    #[test]
     fn masked_black_reads_the_border_outside_the_active_area() {
         let (w, h) = (40, 40);
         // Columns 0..10 masked at 2048 (+1 on odd rows), image from column 8.
