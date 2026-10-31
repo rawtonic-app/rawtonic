@@ -51,6 +51,7 @@ pub fn develop_raw_image_with(
         denoise,
         None,
         crate::hot_pixels::DeadTest::default(),
+        0,
     )
 }
 
@@ -73,7 +74,8 @@ impl std::fmt::Debug for DraftSink {
 /// with it for the cores and decoded the file twice. The full development
 /// is the same with or without a sink, and starts once the sink returns.
 /// `dead_test` picks the test for dead photosites (hot_pixels.rs; the
-/// recipe's `renderVersion` decides it).
+/// recipe's `renderVersion` decides it), `frame_version` the frame
+/// (source_frame.rs; the recipe's `sourceFrameVersion`).
 #[allow(clippy::too_many_arguments)]
 pub fn develop_raw_image_with_draft(
     file_bytes: &[u8],
@@ -84,6 +86,7 @@ pub fn develop_raw_image_with_draft(
     denoise: Option<&crate::mosaic_denoise::MosaicDenoise>,
     draft: Option<&DraftSink>,
     dead_test: crate::hot_pixels::DeadTest,
+    frame_version: u32,
 ) -> Result<DynamicImage> {
     let (developed_image, orientation) = develop_internal(
         file_bytes,
@@ -94,6 +97,7 @@ pub fn develop_raw_image_with_draft(
         denoise,
         draft,
         dead_test,
+        frame_version,
     )?;
     #[cfg(feature = "performance-profiling")]
     let _orientation_stage = crate::performance::PerformanceStage::new("raw_orientation");
@@ -187,6 +191,7 @@ fn develop_internal(
     denoise: Option<&crate::mosaic_denoise::MosaicDenoise>,
     draft: Option<&DraftSink>,
     dead_test: crate::hot_pixels::DeadTest,
+    frame_version: u32,
 ) -> Result<(DynamicImage, Orientation)> {
     let check_cancel = || -> Result<()> {
         if let Some((tracker, generation)) = &cancel_token
@@ -215,7 +220,13 @@ fn develop_internal(
         orientation,
         gain_table_map_bytes,
         ..
-    } = prepare_raw_image(decoder.as_ref(), &source, &mut raw_image, file_bytes)?;
+    } = prepare_raw_image(
+        decoder.as_ref(),
+        &source,
+        &mut raw_image,
+        file_bytes,
+        frame_version,
+    )?;
     let is_linear_format = is_linear_raw_format(&raw_image);
     let superccd = superccd_layout(&raw_image, file_bytes);
     let cfa_opcodes = read_dng_opcode_list(decoder.as_ref(), rawler::tags::DngTag::OpcodeList2);
@@ -789,14 +800,17 @@ pub(crate) struct Prepared {
 
 /// The decoded raw image as the development uses it: orientation, colour
 /// pattern fixes, linearisation, default crops, white balance and colour
-/// matrices, black levels. Shared by `develop_internal` and the decode
+/// matrices, black levels, and the areas of frame version `frame_version`
+/// (source_frame.rs). Shared by `develop_internal` and the decode
 /// fingerprint (fingerprint.rs), so both see the same facts.
 pub(crate) fn prepare_raw_image(
     decoder: &dyn rawler::decoders::Decoder,
     source: &RawSource,
     raw_image: &mut RawImage,
     file_bytes: &[u8],
+    frame_version: u32,
 ) -> Result<Prepared> {
+    crate::source_frame::apply(raw_image, decoder.format_hint(), frame_version);
     let metadata = decoder.raw_metadata(source, &RawDecodeParams::default())?;
     // Canon CRW files keep their orientation in the CIFF ImageSpec record,
     // which rawler does not read.
@@ -846,11 +860,12 @@ pub struct DevelopedFrame {
     pub orientation: u16,
 }
 
-/// The frame of the RAW in `source` as the development will give it. A
-/// still shown before the development (the camera's embedded preview)
-/// takes this placement so the developed frame replaces it in place.
-/// `None` for files rawler cannot read.
-pub fn developed_frame(source: &RawSource) -> Option<DevelopedFrame> {
+/// The frame of the RAW in `source` as the development of frame version
+/// `frame_version` (source_frame.rs) will give it. A still shown before the
+/// development (the camera's embedded preview) takes this placement so the
+/// developed frame replaces it in place. `None` for files rawler cannot
+/// read.
+pub fn developed_frame(source: &RawSource, frame_version: u32) -> Option<DevelopedFrame> {
     let file_bytes = source.buf();
     let decoder = rawler::get_decoder(source).ok()?;
     let params = RawDecodeParams::default();
@@ -866,7 +881,7 @@ pub fn developed_frame(source: &RawSource) -> Option<DevelopedFrame> {
             orientation,
         });
     }
-    let (_, frame) = developed_areas(&mut raw_image, file_bytes, decoder.as_ref());
+    let (_, frame) = developed_areas(&mut raw_image, file_bytes, decoder.as_ref(), frame_version);
     let (w, h) = (frame.d.w as u32, frame.d.h as u32);
     Some(DevelopedFrame {
         size: (w > 0 && h > 0).then_some(if (5..=8).contains(&orientation) {
@@ -880,19 +895,21 @@ pub fn developed_frame(source: &RawSource) -> Option<DevelopedFrame> {
 
 /// `developed_frame` of the file at `path`, memory-mapped (rawler's
 /// `RawSource::new_from_slice` copies the whole file).
-pub fn developed_frame_at(path: &std::path::Path) -> Option<DevelopedFrame> {
-    developed_frame(&RawSource::new(path).ok()?)
+pub fn developed_frame_at(path: &std::path::Path, frame_version: u32) -> Option<DevelopedFrame> {
+    developed_frame(&RawSource::new(path).ok()?, frame_version)
 }
 
 /// The active area (the sensor's pixels in the buffer) and the developed
 /// frame within it (default, aspect and DNG user crops) of an undecoded
-/// `raw_image`, in buffer coordinates.
-fn developed_areas(
+/// `raw_image` under frame version `frame_version`, in buffer coordinates.
+pub(crate) fn developed_areas(
     raw_image: &mut rawler::RawImage,
     file_bytes: &[u8],
     decoder: &dyn rawler::decoders::Decoder,
+    frame_version: u32,
 ) -> (rawler::imgop::Rect, rawler::imgop::Rect) {
     use rawler::imgop::{Point, Rect};
+    crate::source_frame::apply(raw_image, decoder.format_hint(), frame_version);
     apply_aspect_crop(raw_image, file_bytes, decoder.format_hint());
     if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
         apply_dng_user_crop(raw_image, decoder);
@@ -912,8 +929,10 @@ fn developed_areas(
 }
 
 /// The sizes (width, height; unrotated) of the active area and of the
-/// developed frame of the RAW in `source`. `None` for files rawler cannot
-/// read and Super CCD layouts.
+/// developed frame of the RAW in `source`, as frame version 0 develops it
+/// (the camera lens data read here, Sony, Fujifilm and Samsung, describe
+/// files no frame version changes). `None` for files rawler cannot read and
+/// Super CCD layouts.
 pub fn sensor_and_frame(source: &RawSource) -> Option<([usize; 2], [usize; 2])> {
     let decoder = rawler::get_decoder(source).ok()?;
     let mut raw_image = decoder
@@ -922,7 +941,7 @@ pub fn sensor_and_frame(source: &RawSource) -> Option<([usize; 2], [usize; 2])> 
     if superccd_layout(&raw_image, source.buf()).is_some() {
         return None;
     }
-    let (active, frame) = developed_areas(&mut raw_image, source.buf(), decoder.as_ref());
+    let (active, frame) = developed_areas(&mut raw_image, source.buf(), decoder.as_ref(), 0);
     Some(([active.d.w, active.d.h], [frame.d.w, frame.d.h]))
 }
 
@@ -1335,7 +1354,7 @@ fn reconcile_black_level_count(raw_image: &mut RawImage) {
 /// rotated by 45° and rawler keeps that layout (a diamond-shaped frame);
 /// `fuji_width` is the diamond's left vertex row, as in dcraw's `fuji_rotate`.
 #[derive(Debug, Clone, Copy)]
-struct SuperCcdLayout {
+pub(crate) struct SuperCcdLayout {
     fuji_width: usize,
     rotate_90cw: bool,
     /// Pixels to trim from every side of the upright frame.
@@ -1829,7 +1848,7 @@ fn develop_rgb_mosaic(
     Ok(Some(Intermediate::ThreeColor(pixels)))
 }
 
-fn superccd_layout(raw_image: &RawImage, file_bytes: &[u8]) -> Option<SuperCcdLayout> {
+pub(crate) fn superccd_layout(raw_image: &RawImage, file_bytes: &[u8]) -> Option<SuperCcdLayout> {
     let camera = &raw_image.camera;
     let alt = camera.find_hint("fuji_rotation_alt");
     if !(alt || camera.find_hint("fuji_rotation")) {
@@ -2022,13 +2041,13 @@ mod frame_tests {
     fn developed_frame_is_read_without_decoding_and_turned() {
         let dng = crate::fingerprint::synthetic::synthetic_dng();
         let developed = develop_raw_image(&dng, false, 2.5, "auto".into(), None).unwrap();
-        let frame = developed_frame(&RawSource::new_from_slice(&dng)).unwrap();
+        let frame = developed_frame(&RawSource::new_from_slice(&dng), 0).unwrap();
         // Orientation 6: the 64 × 48 mosaic develops 48 × 64.
         assert_eq!(frame.orientation, 6);
         assert_eq!(frame.size, Some((48, 64)));
         assert_eq!(frame.size, Some(developed.dimensions()));
         assert_eq!(
-            developed_frame(&RawSource::new_from_slice(b"not a raw")),
+            developed_frame(&RawSource::new_from_slice(b"not a raw"), 0),
             None
         );
     }
@@ -2049,7 +2068,7 @@ mod frame_tests {
             };
             checked += 1;
             let started = std::time::Instant::now();
-            let read = developed_frame_at(&path).and_then(|frame| frame.size);
+            let read = developed_frame_at(&path, 0).and_then(|frame| frame.size);
             slowest = slowest.max(started.elapsed().as_secs_f64() * 1000.0);
             if read.is_some_and(|size| size != developed.dimensions()) {
                 wrong.push((path, read, developed.dimensions()));
@@ -2271,6 +2290,7 @@ mod draft_tests {
                 None,
                 Some(&sink),
                 crate::hot_pixels::DeadTest::default(),
+                0,
             )
             .unwrap();
             let full_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -2337,6 +2357,7 @@ mod draft_tests {
                 None,
                 Some(&sink),
                 crate::hot_pixels::DeadTest::default(),
+                0,
             );
             let full = FULL_DEVELOPMENTS.with(std::cell::Cell::get) - before;
             let name = path.file_name().unwrap().to_string_lossy().into_owned();

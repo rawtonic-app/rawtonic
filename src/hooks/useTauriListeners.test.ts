@@ -3,9 +3,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useTauriListeners } from "./useTauriListeners";
 import { useProcessStore } from "../store/useProcessStore";
 import { useLibraryStore } from "../store/useLibraryStore";
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import type { ImageFile, SelectedImage } from '../components/ui/AppProperties';
+import { invoke } from "@tauri-apps/api/core";
 const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn((name, callback) => {
@@ -16,7 +17,13 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
   invoke: vi.fn((command: string) =>
-    Promise.resolve(command === "export_queue_jobs" ? { jobs: exportQueue, held: false } : exportQueue),
+    Promise.resolve(
+      command === "export_queue_jobs"
+        ? { jobs: exportQueue, held: false }
+        : command === "edit_with_interrupted"
+          ? []
+          : exportQueue,
+    ),
   ),
 }));
 let exportQueue: unknown[] = [];
@@ -389,6 +396,27 @@ it("reads the list again and recounts offline photographs when the catalog caugh
   useLibraryStore.setState({ sessionDirectory: null });
 });
 
+it("follows a moved session's photos in another open library and reopens the photo open in Develop there", async () => {
+  const { useEditorStore } = await import("../store/useEditorStore");
+  const { useUIStore } = await import("../store/useUIStore");
+  const refreshImageList = vi.fn();
+  const handleImageSelect = vi.fn();
+  useLibraryStore.setState({ sessionDirectory: "/catalog", currentFolderPath: "/jobs/S7/Capture" });
+  useEditorStore.setState({ selectedImage: { path: "/jobs/S7/Capture/A.RAF" } as never });
+  useUIStore.setState({ activeView: "editor" });
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList, markGenerated: vi.fn(), handleImageSelect,
+  }));
+  await vi.waitFor(() => expect(callbacks.has("session-moved")).toBe(true));
+  await act(async () => callbacks.get("session-moved")!({ payload: { from: "/jobs/S7", to: "/archive/S7" } }));
+  expect(useLibraryStore.getState().currentFolderPath).toBe("/archive/S7/Capture");
+  expect(refreshImageList).toHaveBeenCalled();
+  expect(handleImageSelect).toHaveBeenCalledWith("/archive/S7/Capture/A.RAF", true);
+  useEditorStore.setState({ selectedImage: null });
+  useLibraryStore.setState({ sessionDirectory: null, currentFolderPath: null });
+});
+
 it("tells Previous Import about each new hot folder capture", async () => {
   const imported = vi.fn();
   window.addEventListener("rawtonic:imports-changed", imported);
@@ -562,4 +590,86 @@ it("says tether failures app-wide, with no tether panel shown", async () => {
   expect(warning).toHaveBeenCalledTimes(1);
   error.mockRestore();
   warning.mockRestore();
+});
+
+it('decodes an Edit With render again when another program saved it while it is shown', () => {
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(), handleImageSelect: vi.fn(),
+  }));
+  const saved = (path: string) => act(() => callbacks.get('edit-with-saved')!({ payload: { path } }));
+  const shown = { path: '/s/A_edit.tiff', isReady: true, isDecoded: true, width: 10 } as SelectedImage;
+  useEditorStore.getState().setEditor({ selectedImage: shown });
+  saved('/s/B_edit.tiff');
+  expect(useEditorStore.getState().selectedImage).toBe(shown);
+  // During a slider drag the recipe is still a draft: nothing reloads yet.
+  useEditorStore.getState().setEditor({ isSliderDragging: true, adjustments: { exposure: 0.5 } as never });
+  saved('/s/A_edit.tiff');
+  expect(useEditorStore.getState().selectedImage).toBe(shown);
+  useEditorStore.getState().setEditor({ adjustments: { exposure: 0.7 } as never });
+  act(() => useEditorStore.getState().setEditor({ isSliderDragging: false }));
+  // The recipe in the editor (the drag's last value) is saved, then the
+  // render is decoded again. That save makes no thumbnail: the decode
+  // still loaded is the render before the other program's save.
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith('save_metadata_and_update_thumbnail', {
+    path: '/s/A_edit.tiff',
+    adjustments: { exposure: 0.7 },
+    updateThumbnail: false,
+  });
+  expect(useEditorStore.getState().selectedImage).toMatchObject({
+    path: '/s/A_edit.tiff', isDecoded: false, isReady: false, width: 10,
+  });
+});
+
+it('keeps the undo history of an Edit With render decoded again after a save', () => {
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  const steps = [{ exposure: 0 }, { exposure: 0.3 }, { exposure: 0.6 }] as never[];
+  useEditorStore.getState().setEditor({
+    isSliderDragging: false,
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+    adjustments: steps[1],
+    history: steps,
+    historyIndex: 1,
+  });
+  act(() => callbacks.get('edit-with-saved')!({ payload: { path: '/s/A_edit.tiff' } }));
+  // The loader starts a new history for the decoded source…
+  act(() => useEditorStore.getState().setEditor({ history: [steps[1]], historyIndex: 0 }));
+  act(() => useEditorStore.getState().setEditor({
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+  }));
+  // …and the kept one comes back: undo and redo still work.
+  expect(useEditorStore.getState().history).toBe(steps);
+  expect(useEditorStore.getState().historyIndex).toBe(1);
+});
+
+it('keeps an undo step still pending when an Edit With render is decoded again', () => {
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  const steps = [{ exposure: 0 }, { exposure: 0.3 }] as never[];
+  const edit = { exposure: 0.9 } as never;
+  useEditorStore.getState().setEditor({
+    isSliderDragging: false,
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+    adjustments: edit,
+    history: steps,
+    historyIndex: 1,
+  });
+  // The last edit's undo step waits for its debounce.
+  debouncedSetHistory(edit);
+  act(() => callbacks.get('edit-with-saved')!({ payload: { path: '/s/A_edit.tiff' } }));
+  // Its timer fires while the render decodes.
+  act(() => debouncedSetHistory.flush());
+  act(() => useEditorStore.getState().setEditor({ history: [edit], historyIndex: 0 }));
+  act(() => useEditorStore.getState().setEditor({
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+  }));
+  const { history, historyIndex, adjustments } = useEditorStore.getState();
+  expect(history.slice(0, 2)).toEqual(steps);
+  expect(history[historyIndex]).toEqual(adjustments);
+  expect(historyIndex).toBe(2);
 });

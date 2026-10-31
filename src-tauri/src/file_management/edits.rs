@@ -40,22 +40,29 @@ pub use rawtonic_engine::lens_recipe::{
 pub async fn save_metadata_and_update_thumbnail(
     path: String,
     adjustments: Value,
+    update_thumbnail: Option<bool>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // A caller whose loaded decode is stale (an Edit With render another
+        // program saved) asks for the recipe alone.
+        if update_thumbnail == Some(false) {
+            return save_metadata_blocking(&path, adjustments, &app_handle);
+        }
         save_metadata_and_update_thumbnail_blocking(path, adjustments, app_handle)
     })
     .await
     .map_err(|e| format!("Saving metadata failed: {e}"))?
 }
 
-pub(crate) fn save_metadata_and_update_thumbnail_blocking(
-    path: String,
+/// Writes `adjustments` as the recipe of `path` (sidecar or library, and its
+/// XMP when that is synchronised).
+fn save_metadata_blocking(
+    path: &str,
     adjustments: Value,
-    app_handle: AppHandle,
+    app_handle: &AppHandle,
 ) -> Result<(), String> {
-    let state = app_handle.state::<AppState>();
-    let (source_path, sidecar_path) = parse_virtual_path(&path);
+    let (source_path, sidecar_path) = parse_virtual_path(path);
 
     let turn = sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
@@ -87,6 +94,17 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
         let create_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
         sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
     }
+
+    Ok(())
+}
+
+pub(crate) fn save_metadata_and_update_thumbnail_blocking(
+    path: String,
+    adjustments: Value,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    save_metadata_blocking(&path, adjustments, &app_handle)?;
+    let state = app_handle.state::<AppState>();
 
     let loaded_image_lock = state.original_image.lock().unwrap();
     let preloaded_image_option = if let Some(loaded_image) = loaded_image_lock.as_ref() {
@@ -505,8 +523,9 @@ fn pasted_into(
     }
     let mut new_adjustments = base;
     let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
-    // A photo without an edit starts one: the current render
-    // version, as the editor's new edits.
+    // A photo without an edit starts one: the camera's crop and the current
+    // render version, as the editor's new edits (a pasted crop replaces it).
+    rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
     crate::image_processing::apply_render_default(&mut new_adjustments);
     // Its processing versions are a new edit's own.
     if new_edit
@@ -535,6 +554,10 @@ fn pasted_into(
         (new_adjustments.as_object_mut(), adjustments.as_object())
     {
         for (k, v) in pasted_map {
+            // The frame of the RAW stays the photograph's own (ADR 0020).
+            if k == rawtonic_engine::source_frame::KEY {
+                continue;
+            }
             // Copied or synced: a setting the source does not have is
             // removed here too (As Shot white balance over a custom one).
             if paste.is_some() && v.is_null() {
@@ -659,7 +682,9 @@ pub async fn reset_adjustments_for_paths(
     Ok(recorded_batch(app_handle, paths, |app_handle, paths| {
         edit_sidecars_recorded(paths, xmp_sync(app_handle), |_, _, sidecar_path| {
             let mut existing_metadata = crate::exif_processing::load_sidecar(sidecar_path);
-            existing_metadata.adjustments = serde_json::json!({});
+            // A new edit in the frame the photograph was edited in (ADR 0020).
+            existing_metadata.adjustments =
+                rawtonic_engine::source_frame::reset_recipe(&existing_metadata.adjustments);
             Ok(existing_metadata)
         })
     })
@@ -710,6 +735,10 @@ pub async fn apply_auto_lens_correction_to_paths(
                 let mut existing_metadata =
                     crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
+                rawtonic_engine::camera_crop::apply_default(
+                    &mut existing_metadata.adjustments,
+                    source_path,
+                );
                 crate::image_processing::apply_render_default(&mut existing_metadata.adjustments);
 
                 if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
@@ -768,17 +797,22 @@ pub async fn set_recipe_values(
     let before = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let written = before.clone();
     let result = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
-        edit_sidecars(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
-            let values = by_path.get(path).ok_or("no values")?;
-            let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-            crate::image_processing::apply_render_default(&mut metadata.adjustments);
-            let old = set_values(&mut metadata.adjustments, values)?;
-            written.lock().unwrap().push(RecipeValues {
-                path: path.to_string(),
-                values: old,
-            });
-            Ok(metadata)
-        })
+        edit_sidecars(
+            paths,
+            xmp_sync(app_handle),
+            |path, source_path, sidecar_path| {
+                let values = by_path.get(path).ok_or("no values")?;
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+                rawtonic_engine::camera_crop::apply_default(&mut metadata.adjustments, source_path);
+                crate::image_processing::apply_render_default(&mut metadata.adjustments);
+                let old = set_values(&mut metadata.adjustments, values)?;
+                written.lock().unwrap().push(RecipeValues {
+                    path: path.to_string(),
+                    values: old,
+                });
+                Ok(metadata)
+            },
+        )
     })
     .await;
     let mut before = std::mem::take(&mut *before.lock().unwrap());
@@ -929,6 +963,10 @@ pub async fn apply_auto_adjustments_to_paths(
                     // edited or tagged while it was decoded and measured.
                     let _turn = sidecar_field_edit();
                     let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                    rawtonic_engine::camera_crop::apply_default(
+                        &mut existing_metadata.adjustments,
+                        &source_path,
+                    );
                     crate::image_processing::apply_render_default(
                         &mut existing_metadata.adjustments,
                     );
@@ -1535,6 +1573,36 @@ mod tests {
     ) -> Vec<CullingWrite> {
         assert!(failures.is_empty(), "{failures:?}");
         values
+    }
+
+    /// A paste, preset or style onto a closed photograph never changes its
+    /// frame (ADR 0020, "new photos only"): an edit keeps its own, a
+    /// never-edited photograph starts its edit with the newest.
+    #[test]
+    fn a_paste_keeps_the_photographs_frame() {
+        use rawtonic_engine::source_frame::{KEY, VERSION};
+        let source = Path::new("/nowhere/photo.CR3");
+        let paste = |base: Value| {
+            pasted_into(
+                base,
+                &None,
+                "/nowhere/photo.CR3",
+                source,
+                &serde_json::json!({"exposure": 1.0, KEY: 1}),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let legacy = paste(serde_json::json!({"exposure": 0.2, "renderVersion": 4}));
+        assert_eq!(legacy["exposure"], 1.0);
+        assert_eq!(legacy.get(KEY), None);
+        assert_eq!(paste(serde_json::json!({"exposure": 0.2, KEY: 0}))[KEY], 0);
+        // A Reset's recipe keeps its frame through the paste after it.
+        assert_eq!(paste(serde_json::json!({KEY: 0}))[KEY], 0);
+        assert_eq!(paste(serde_json::json!({}))[KEY], VERSION);
     }
 
     /// A style replaces the photograph's last applied style with that

@@ -149,7 +149,10 @@ impl FileExporter {
 
         // The recipe's colour noise filter decides the decode-time chroma
         // clean-up (skipped for the multi-scale filter).
-        let mut base = job.base.clone().for_recipe(&js_adjustments, is_raw);
+        let mut base = job
+            .base
+            .clone()
+            .for_recipe(&js_adjustments, &source_path_str);
         if let Some(ai) = ai_denoise_settings(&js_adjustments).filter(|_| is_raw) {
             let denoiser = self.mosaic_denoisers[ai.model()].clone().ok_or_else(|| {
                 format!(

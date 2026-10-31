@@ -29,6 +29,17 @@
     "download": {
       "model": "Downloading {{name}}"
     },
+    "duplicates": {
+      "failed": "Finding duplicates failed",
+      "read_one": "Compared {{count}} photo for duplicates",
+      "read_other": "Compared {{count}} photos for duplicates",
+      "reading": "Comparing photos for duplicates",
+      "review": "Review duplicates",
+      "stopped_one": "Stopped comparing for duplicates after {{count}} photo",
+      "stopped_other": "Stopped comparing for duplicates after {{count}} photos",
+      "unreadable_one": "{{count}} photo could not be compared for duplicates",
+      "unreadable_other": "{{count}} photos could not be compared for duplicates"
+    },
     "empty": {
       "attention": "Nothing needs your attention.",
       "done": "No recent results.",
@@ -209,6 +220,8 @@
       "copy_adjustments": "Copy Settings",
       "copy_image_path": "Copy Path",
       "delete_selected": "Move to Trash",
+      "edit_with": "Edit With…",
+      "find_duplicates": "Find Duplicates…",
       "flag_pick": "Pick",
       "flag_reject": "Reject",
       "flag_unflag": "Unflag",
@@ -219,6 +232,7 @@
       "new_session": "New Project or Catalog…",
       "open_session": "Open Project or Catalog…",
       "open_settings": "Preferences…",
+      "open_with": "Open With…",
       "paste_adjustments": "Paste Settings",
       "paste_from_previous": "Paste Settings from Previous",
       "rate_0": "No Stars",
@@ -422,10 +436,33 @@
       "tagging": "Tagging",
       "undo": "Undo"
     },
+    "editWith": {
+      "failed": "Edit With failed: {{error}}",
+      "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
+      "interrupted": "Edit With in {{app}} was interrupted when Rawtonic quit. Try again to render the photos again.",
+      "label": "Edit With",
+      "notLinked": "Rendered, but not added to the library: {{error}}",
+      "openIn": "Open in",
+      "recipe": "Recipe",
+      "rendering": "Rendering for {{app}}…",
+      "someFailed": "{{failed}} of {{total}} photographs could not be rendered.",
+      "tiffAdobe": "TIFF 16-bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Focus stacking",
       "hdrPanorama": "HDR panorama",
       "title": "Merge"
+    },
+    "openWith": {
+      "chooseTitle": "Choose a program",
+      "default": "Default",
+      "failed": "Could not open the files: {{error}}",
+      "label": "Open With",
+      "none": "No program opens these files",
+      "other": "Other…",
+      "reading": "Looking for programs…",
+      "unsupported": "Available on macOS only"
     },
     "tagging": {
       "addTagTooltip": "Add tag",
@@ -622,6 +659,52 @@
         "transform": "Transform"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "Paired JPEG {{name}}",
+      "copies_one": "{{count}} virtual copy",
+      "copies_other": "{{count}} virtual copies",
+      "described": "Title, caption or IPTC",
+      "edited": "Edited",
+      "keywords_one": "{{count}} keyword",
+      "keywords_other": "{{count}} keywords",
+      "label": "Label: {{label}}",
+      "none": "No edits or metadata",
+      "picked": "Picked",
+      "rejected": "Rejected"
+    },
+    "captured": "Captured {{date}}",
+    "changed_one": "{{count}} photo changed since it was compared, so nothing was moved. Compared again.",
+    "changed_other": "{{count}} photos changed since they were compared, so nothing was moved. Compared again.",
+    "close": "Close",
+    "companionKept_one": "{{count}} photo stays: its paired JPEG has no identical copy that stays, so nothing was moved.",
+    "companionKept_other": "{{count}} photos stay: their paired JPEGs have no identical copy that stays, so nothing was moved.",
+    "comparedFile": "whole files compared",
+    "comparedImage": "image data compared",
+    "failed": "Finding duplicates failed: {{error}}",
+    "group_one": "{{count}} photo with identical image data",
+    "group_other": "{{count}} photos with identical image data",
+    "imported": "Imported {{date}}",
+    "intro": "Finds photos whose files hold identical image data, even with other names, folders, metadata or edits. Visually similar photos are not compared.",
+    "keepOne": "Keep at least one photo of this group.",
+    "markTrash": "Move to Trash",
+    "moveToTrash_one": "Move {{count}} Photo to Trash",
+    "moveToTrash_other": "Move {{count}} Photos to Trash",
+    "noLibrary": "Open a project or catalog to find duplicates.",
+    "none": "No duplicates: no two photos hold identical image data.",
+    "reading": "Comparing image data: {{done}} of {{total}} photos",
+    "readingStart": "Comparing image data…",
+    "stop": "Stop",
+    "stopped": "Stopped: only the photos compared so far are grouped.",
+    "suggestion": "Suggested for the Trash: photos without edits, rating, flag, label, keywords, title or caption, virtual copies or a paired JPEG of their own. Every photo with such work is kept; otherwise the oldest import is kept. Nothing is merged.",
+    "summary_one": "{{count}} group of duplicates ({{photos}} photos)",
+    "summary_other": "{{count}} groups of duplicates ({{photos}} photos)",
+    "title": "Find Duplicates",
+    "unknown": "unknown",
+    "unreadable_one": "{{count}} photo could not be read and is not grouped.",
+    "unreadable_other": "{{count}} photos could not be read and are not grouped.",
+    "workWarning": "A photo marked for the Trash has edits, metadata or virtual copies of its own. Undo brings it back with them."
   },
   "editor": {
     "adjustments": {
@@ -3088,6 +3171,7 @@
       "title": "Histogram"
     },
     "layers": {
+      "bandWidth": "Band width",
       "brush": {
         "autoMask": "Auto mask",
         "brushFlow": "Brush flow",
@@ -3105,6 +3189,7 @@
       "drawTitle": "Paint onto this layer's mask (keeps gradients editable)",
       "erase": "Erase",
       "eraseTitle": "Erase from this layer's mask (keeps gradients editable)",
+      "gradientBand": "Two-sided band",
       "invert": "Invert",
       "invertTitle": "Invert this layer's mask",
       "lumaRange": {
@@ -3271,6 +3356,7 @@
         "moveFolderTo": "Move “{{name}}” to",
         "nothingToRedo": "There is no file operation to redo.",
         "nothingToUndo": "There is no file operation to undo.",
+        "openExportQueue": "Open Export Queue",
         "otherDriveConfirm": "Copy and Move",
         "otherDriveFolderMessage_one": "The folder “{{name}}” with everything in it ({{count}} photo, {{files}} files, {{size}}) is copied to {{drive}}, which has {{free}} free, and checked byte for byte. Then the original folder goes to the Trash of {{sources}}; if anything in it changed meanwhile, or its drive has no Trash, it stays where it is. Undo copies it back.",
         "otherDriveFolderMessage_other": "The folder “{{name}}” with everything in it ({{count}} photos, {{files}} files, {{size}}) is copied to {{drive}}, which has {{free}} free, and checked byte for byte. Then the original folder goes to the Trash of {{sources}}; if anything in it changed meanwhile, or its drive has no Trash, it stays where it is. Undo copies it back.",
@@ -3284,6 +3370,15 @@
         "renameFolderFailed": "Could not rename the folder: {{error}}",
         "selectForSelects": "Select photos to move to Selects.",
         "selectsNeedSession": "Move to Selects works in projects.",
+        "sessionMoveConfirm": "Move the Whole Session to “{{folder}}”",
+        "sessionMoved": "Moved the session “{{name}}” to “{{folder}}”. {{hint}}",
+        "sessionMoveExportsPending": "Finish or cancel the exports of the session “{{name}}” first: they read its photos, which the move would take away. Nothing was moved.",
+        "sessionMoveFailed": "Could not move the session “{{name}}”: {{error}}",
+        "sessionMoveOtherDrive": "It is copied to {{drive}} ({{size}}, {{free}} free there) and checked byte for byte; only then does the original session folder go to the Trash. Undo moves it back.",
+        "sessionMoveRefused": "Photos stay inside their session “{{name}}”, and the whole session cannot go there: {{error}}",
+        "sessionMoveSameDrive": "It moves on its drive in one step; Undo moves it back.",
+        "sessionMoveTitle": "Move the Whole Session “{{name}}”?",
+        "sessionMoveWhy": "Photos stay inside their session “{{name}}”, so it remains one self-contained folder that moves as a whole; the whole session can go into “{{folder}}” instead.",
         "stopCopying": "Stop",
         "trashConfirm": "Move to Trash",
         "trashCopiesConfirm": "Move All",
@@ -3502,6 +3597,7 @@
           "camera": "Camera",
           "captureDate": "Capture date",
           "details": "Any text but keywords",
+          "duplicate": "Duplicate (identical image data)",
           "exposure": "Shutter speed (s)",
           "filename": "File name",
           "fileType": "File type",

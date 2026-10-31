@@ -27,6 +27,8 @@ libc = "0.2.189"
 same-file = "1.0.6"
 
 [dev-dependencies]
+# Whole-session moves run through the file operation journal (tests/session_move.rs).
+rawtonic-fileops = { path = "../fileops", version = "0.1.0" }
 # `Library::fail_when_marking`: a failing write inside mark_changed_elsewhere.
 rawtonic-catalog = { path = ".", features = ["test-support"] }
 tempfile.workspace = true

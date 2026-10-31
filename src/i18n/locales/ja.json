@@ -26,6 +26,17 @@
     "download": {
       "model": "ダウンロード中: {{name}}"
     },
+    "duplicates": {
+      "failed": "重複の検索に失敗しました",
+      "read_one": "{{count}} 枚の写真の重複を比較しました",
+      "read_other": "{{count}} 枚の写真の重複を比較しました",
+      "reading": "重複を探すために写真を比較中",
+      "review": "重複を確認",
+      "stopped_one": "{{count}} 枚で重複の比較を停止しました",
+      "stopped_other": "{{count}} 枚で重複の比較を停止しました",
+      "unreadable_one": "{{count}} 枚の写真を比較できませんでした",
+      "unreadable_other": "{{count}} 枚の写真を比較できませんでした"
+    },
     "empty": {
       "attention": "対応が必要な項目はありません。",
       "done": "最近の結果はありません。",
@@ -202,6 +213,8 @@
       "copy_adjustments": "設定をコピー",
       "copy_image_path": "パスをコピー",
       "delete_selected": "ゴミ箱に入れる",
+      "edit_with": "このアプリケーションで編集…",
+      "find_duplicates": "重複を検索…",
       "flag_pick": "採用",
       "flag_reject": "除外",
       "flag_unflag": "フラグなし",
@@ -212,6 +225,7 @@
       "new_session": "新規プロジェクトまたはカタログ…",
       "open_session": "プロジェクトまたはカタログを開く…",
       "open_settings": "環境設定…",
+      "open_with": "このアプリケーションで開く…",
       "paste_adjustments": "設定をペースト",
       "paste_from_previous": "前の写真の設定をペースト",
       "rate_0": "星なし",
@@ -415,10 +429,33 @@
       "tagging": "タグ付け",
       "undo": "元に戻す"
     },
+    "editWith": {
+      "failed": "編集を開始できませんでした: {{error}}",
+      "generatedAreas": "生成された領域を含む写真では、まだこのアプリケーションで編集できません: {{names}}",
+      "interrupted": "Rawtonic の終了により {{app}} での「他のアプリで編集」が中断されました。再試行すると写真をもう一度レンダリングします。",
+      "label": "このアプリケーションで編集",
+      "notLinked": "レンダリングしましたが、ライブラリに追加できませんでした: {{error}}",
+      "openIn": "開くアプリケーション",
+      "recipe": "レシピ",
+      "rendering": "{{app}} 用にレンダリング中…",
+      "someFailed": "{{total}} 枚中 {{failed}} 枚の写真をレンダリングできませんでした。",
+      "tiffAdobe": "TIFF 16 ビット · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 ビット · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "フォーカススタッキング",
       "hdrPanorama": "HDR パノラマ",
       "title": "結合"
+    },
+    "openWith": {
+      "chooseTitle": "アプリケーションを選択",
+      "default": "デフォルト",
+      "failed": "ファイルを開けませんでした: {{error}}",
+      "label": "このアプリケーションで開く",
+      "none": "これらのファイルを開けるアプリケーションがありません",
+      "other": "その他…",
+      "reading": "アプリケーションを検索中…",
+      "unsupported": "macOS でのみ利用できます"
     },
     "tagging": {
       "addTagTooltip": "タグを追加",
@@ -615,6 +652,52 @@
         "transform": "変形"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "ペアの JPEG {{name}}",
+      "copies_one": "仮想コピー {{count}} 件",
+      "copies_other": "仮想コピー {{count}} 件",
+      "described": "タイトル、キャプション、IPTC",
+      "edited": "編集済み",
+      "keywords_one": "キーワード {{count}} 件",
+      "keywords_other": "キーワード {{count}} 件",
+      "label": "ラベル：{{label}}",
+      "none": "編集やメタデータなし",
+      "picked": "採用",
+      "rejected": "不採用"
+    },
+    "captured": "撮影 {{date}}",
+    "changed_one": "{{count}} 枚の写真が比較後に変更されたため、何も移動していません。再度比較しました。",
+    "changed_other": "{{count}} 枚の写真が比較後に変更されたため、何も移動していません。再度比較しました。",
+    "close": "閉じる",
+    "companionKept_one": "{{count}} 枚の写真は残ります：ペアの JPEG と同一のコピーが残らないため、何も移動していません。",
+    "companionKept_other": "{{count}} 枚の写真は残ります：ペアの JPEG と同一のコピーが残らないため、何も移動していません。",
+    "comparedFile": "ファイル全体を比較",
+    "comparedImage": "画像データを比較",
+    "failed": "重複の検索に失敗しました：{{error}}",
+    "group_one": "同一の画像データを持つ写真 {{count}} 枚",
+    "group_other": "同一の画像データを持つ写真 {{count}} 枚",
+    "imported": "読み込み {{date}}",
+    "intro": "名前、フォルダー、メタデータ、編集が異なっていても、ファイルに同一の画像データを持つ写真を見つけます。見た目が似ているだけの写真は比較しません。",
+    "keepOne": "このグループの写真を少なくとも 1 枚残してください。",
+    "markTrash": "ゴミ箱に移動",
+    "moveToTrash_one": "{{count}} 枚の写真をゴミ箱に移動",
+    "moveToTrash_other": "{{count}} 枚の写真をゴミ箱に移動",
+    "noLibrary": "重複を検索するには、プロジェクトまたはカタログを開いてください。",
+    "none": "重複はありません：同一の画像データを持つ写真はありません。",
+    "reading": "画像データを比較中：{{total}} 枚中 {{done}} 枚",
+    "readingStart": "画像データを比較中…",
+    "stop": "停止",
+    "stopped": "停止しました：これまでに比較した写真のみをグループ化しています。",
+    "suggestion": "ゴミ箱への移動を提案：独自の編集、レーティング、フラグ、カラーラベル、キーワード、タイトルやキャプション、仮想コピー、ペアの JPEG がない写真。そうした作業のある写真はすべて残し、ない場合は最も古い読み込みを残します。何も統合しません。",
+    "summary_one": "重複グループ {{count}} 件（写真 {{photos}} 枚）",
+    "summary_other": "重複グループ {{count}} 件（写真 {{photos}} 枚）",
+    "title": "重複を検索",
+    "unknown": "不明",
+    "unreadable_one": "{{count}} 枚の写真を読み込めず、グループ化していません。",
+    "unreadable_other": "{{count}} 枚の写真を読み込めず、グループ化していません。",
+    "workWarning": "ゴミ箱に移動する写真に独自の編集、メタデータ、仮想コピーがあります。取り消すとそれらと一緒に戻ります。"
   },
   "editor": {
     "adjustments": {
@@ -3024,6 +3107,7 @@
       "title": "ヒストグラム"
     },
     "layers": {
+      "bandWidth": "帯の幅",
       "brush": {
         "autoMask": "自動マスク",
         "brushFlow": "ブラシの流量",
@@ -3041,6 +3125,7 @@
       "drawTitle": "このレイヤーのマスクに描画（グラデーションは編集可能なまま）",
       "erase": "消去",
       "eraseTitle": "このレイヤーのマスクから消去（グラデーションは編集可能なまま）",
+      "gradientBand": "両側グラデーション",
       "invert": "反転",
       "invertTitle": "このレイヤーのマスクを反転",
       "lumaRange": {
@@ -3199,6 +3284,7 @@
         "moveFolderTo": "「{{name}}」の移動先",
         "nothingToRedo": "やり直せるファイル操作はありません。",
         "nothingToUndo": "取り消せるファイル操作はありません。",
+        "openExportQueue": "書き出しキューを開く",
         "otherDriveConfirm": "コピーして移動",
         "otherDriveFolderMessage_other": "フォルダ「{{name}}」とその中身すべて（写真 {{count}} 枚、{{files}} ファイル、{{size}}）を {{drive}}（空き {{free}}）にコピーし、1 バイトずつ照合します。その後、元のフォルダは {{sources}} のゴミ箱に移ります。途中で中身が変更された場合や、ドライブにゴミ箱がない場合は、そのまま残ります。取り消すとコピーし戻します。",
         "otherDriveMessage_other": "写真 {{count}} 枚（{{files}} ファイル、{{size}}）を {{drive}}（空き {{free}}）にコピーし、1 バイトずつ照合します。その後、元のファイルは {{sources}} のゴミ箱に移ります。途中で変更された元ファイルや、ゴミ箱のないドライブ上の元ファイルはそのまま残ります。取り消すとコピーし戻します。",
@@ -3210,6 +3296,15 @@
         "renameFolderFailed": "フォルダ名を変更できませんでした: {{error}}",
         "selectForSelects": "Selects に移動する写真を選択してください。",
         "selectsNeedSession": "Selects への移動はセッションで使えます。",
+        "sessionMoveConfirm": "セッション全体を「{{folder}}」に移動",
+        "sessionMoved": "セッション「{{name}}」を「{{folder}}」に移動しました。{{hint}}",
+        "sessionMoveExportsPending": "先にセッション「{{name}}」の書き出しを完了するかキャンセルしてください。書き出しはその写真を読み込むため、移動すると写真が見つからなくなります。何も移動していません。",
+        "sessionMoveFailed": "セッション「{{name}}」を移動できませんでした: {{error}}",
+        "sessionMoveOtherDrive": "{{drive}} にコピーされ（{{size}}、空き {{free}}）、1 バイトずつ検証されます。その後で初めて元のセッションフォルダがゴミ箱に移されます。取り消すと元に戻ります。",
+        "sessionMoveRefused": "写真はセッション「{{name}}」の中に残ります。セッション全体もそこへは移動できません: {{error}}",
+        "sessionMoveSameDrive": "同じドライブ内で一度に移動します。取り消すと元に戻ります。",
+        "sessionMoveTitle": "セッション「{{name}}」全体を移動しますか？",
+        "sessionMoveWhy": "写真はセッション「{{name}}」の中に残り、セッションは丸ごと移動できる自己完結したフォルダのままです。代わりにセッション全体を「{{folder}}」に移動できます。",
         "stopCopying": "停止",
         "trashConfirm": "ゴミ箱に入れる",
         "trashCopiesConfirm": "すべて移動",
@@ -3419,6 +3514,7 @@
           "camera": "カメラ",
           "captureDate": "撮影日",
           "details": "キーワード以外の任意のテキスト",
+          "duplicate": "重複（同一の画像データ）",
           "exposure": "シャッタースピード（秒）",
           "filename": "ファイル名",
           "fileType": "ファイルの種類",

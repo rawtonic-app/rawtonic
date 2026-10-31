@@ -32,6 +32,20 @@
     "download": {
       "model": "Téléchargement : {{name}}"
     },
+    "duplicates": {
+      "failed": "La recherche de doublons a échoué",
+      "read_one": "{{count}} photo comparée pour les doublons",
+      "read_many": "{{count}} photos comparées pour les doublons",
+      "read_other": "{{count}} photos comparées pour les doublons",
+      "reading": "Comparaison des photos pour trouver les doublons",
+      "review": "Examiner les doublons",
+      "stopped_one": "Comparaison des doublons arrêtée après {{count}} photo",
+      "stopped_many": "Comparaison des doublons arrêtée après {{count}} photos",
+      "stopped_other": "Comparaison des doublons arrêtée après {{count}} photos",
+      "unreadable_one": "{{count}} photo n'a pas pu être comparée",
+      "unreadable_many": "{{count}} photos n'ont pas pu être comparées",
+      "unreadable_other": "{{count}} photos n'ont pas pu être comparées"
+    },
     "empty": {
       "attention": "Rien ne requiert votre attention.",
       "done": "Aucun résultat récent.",
@@ -216,6 +230,8 @@
       "copy_adjustments": "Copier les réglages",
       "copy_image_path": "Copier le chemin",
       "delete_selected": "Placer dans la corbeille",
+      "edit_with": "Modifier avec…",
+      "find_duplicates": "Rechercher les doublons…",
       "flag_pick": "Retenir",
       "flag_reject": "Rejeter",
       "flag_unflag": "Sans marquage",
@@ -226,6 +242,7 @@
       "new_session": "Nouveau projet ou catalogue…",
       "open_session": "Ouvrir un projet ou un catalogue…",
       "open_settings": "Préférences…",
+      "open_with": "Ouvrir avec…",
       "paste_adjustments": "Coller les réglages",
       "paste_from_previous": "Coller les réglages de la photo précédente",
       "rate_0": "Aucune étoile",
@@ -438,10 +455,33 @@
       "tagging": "Marquage",
       "undo": "Annuler"
     },
+    "editWith": {
+      "failed": "Échec de Modifier avec : {{error}}",
+      "generatedAreas": "Modifier avec n’est pas encore disponible pour les photos comportant des zones générées : {{names}}",
+      "interrupted": "« Modifier avec » dans {{app}} a été interrompu à la fermeture de Rawtonic. Réessayez pour rendre à nouveau les photos.",
+      "label": "Modifier avec",
+      "notLinked": "Rendu, mais non ajouté à la bibliothèque : {{error}}",
+      "openIn": "Ouvrir dans",
+      "recipe": "Recette",
+      "rendering": "Rendu pour {{app}}…",
+      "someFailed": "{{failed}} photos sur {{total}} n’ont pas pu être rendues.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Empilement de mise au point",
       "hdrPanorama": "Panorama HDR",
       "title": "Fusionner"
+    },
+    "openWith": {
+      "chooseTitle": "Choisir une application",
+      "default": "Par défaut",
+      "failed": "Impossible d’ouvrir les fichiers : {{error}}",
+      "label": "Ouvrir avec",
+      "none": "Aucune application n’ouvre ces fichiers",
+      "other": "Autre…",
+      "reading": "Recherche des applications…",
+      "unsupported": "Disponible uniquement sur macOS"
     },
     "tagging": {
       "addTagTooltip": "Ajouter une étiquette",
@@ -651,6 +691,60 @@
         "transform": "Transformation"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "JPEG associé {{name}}",
+      "copies_one": "{{count}} copie virtuelle",
+      "copies_many": "{{count}} copies virtuelles",
+      "copies_other": "{{count}} copies virtuelles",
+      "described": "Titre, légende ou IPTC",
+      "edited": "Retouchée",
+      "keywords_one": "{{count}} mot-clé",
+      "keywords_many": "{{count}} mots-clés",
+      "keywords_other": "{{count}} mots-clés",
+      "label": "Libellé : {{label}}",
+      "none": "Aucune retouche ni métadonnée",
+      "picked": "Retenue",
+      "rejected": "Rejetée"
+    },
+    "captured": "Prise le {{date}}",
+    "changed_one": "{{count}} photo a changé depuis la comparaison ; rien n'a été déplacé. Nouvelle comparaison effectuée.",
+    "changed_many": "{{count}} photos ont changé depuis la comparaison ; rien n'a été déplacé. Nouvelle comparaison effectuée.",
+    "changed_other": "{{count}} photos ont changé depuis la comparaison ; rien n'a été déplacé. Nouvelle comparaison effectuée.",
+    "close": "Fermer",
+    "companionKept_one": "{{count}} photo reste : aucune copie identique de son JPEG associé n'est conservée, donc rien n'a été déplacé.",
+    "companionKept_many": "{{count}} photos restent : aucune copie identique de leurs JPEG associés n'est conservée, donc rien n'a été déplacé.",
+    "companionKept_other": "{{count}} photos restent : aucune copie identique de leurs JPEG associés n'est conservée, donc rien n'a été déplacé.",
+    "comparedFile": "fichiers entiers comparés",
+    "comparedImage": "données d'image comparées",
+    "failed": "La recherche de doublons a échoué : {{error}}",
+    "group_one": "{{count}} photo aux données d'image identiques",
+    "group_many": "{{count}} photos aux données d'image identiques",
+    "group_other": "{{count}} photos aux données d'image identiques",
+    "imported": "Importée le {{date}}",
+    "intro": "Trouve les photos dont les fichiers contiennent des données d'image identiques, même avec d'autres noms, dossiers, métadonnées ou retouches. Les photos visuellement similaires ne sont pas comparées.",
+    "keepOne": "Conservez au moins une photo de ce groupe.",
+    "markTrash": "Mettre à la corbeille",
+    "moveToTrash_one": "Mettre {{count}} photo à la corbeille",
+    "moveToTrash_many": "Mettre {{count}} photos à la corbeille",
+    "moveToTrash_other": "Mettre {{count}} photos à la corbeille",
+    "noLibrary": "Ouvrez un projet ou un catalogue pour rechercher les doublons.",
+    "none": "Aucun doublon : aucune paire de photos ne contient de données d'image identiques.",
+    "reading": "Comparaison des données d'image : {{done}} sur {{total}} photos",
+    "readingStart": "Comparaison des données d'image…",
+    "stop": "Arrêter",
+    "stopped": "Arrêté : seules les photos comparées jusqu'ici sont regroupées.",
+    "suggestion": "Proposées pour la corbeille : les photos sans retouches, note, marqueur, libellé, mots-clés, titre ou légende, copies virtuelles ni JPEG associé propres. Toute photo comportant un tel travail est conservée ; sinon, l'import le plus ancien est conservé. Rien n'est fusionné.",
+    "summary_one": "{{count}} groupe de doublons ({{photos}} photos)",
+    "summary_many": "{{count}} groupes de doublons ({{photos}} photos)",
+    "summary_other": "{{count}} groupes de doublons ({{photos}} photos)",
+    "title": "Rechercher les doublons",
+    "unknown": "inconnue",
+    "unreadable_one": "{{count}} photo n'a pas pu être lue et n'est pas regroupée.",
+    "unreadable_many": "{{count}} photos n'ont pas pu être lues et ne sont pas regroupées.",
+    "unreadable_other": "{{count}} photos n'ont pas pu être lues et ne sont pas regroupées.",
+    "workWarning": "Une photo marquée pour la corbeille a ses propres retouches, métadonnées ou copies virtuelles. Annuler la restaure avec elles."
   },
   "editor": {
     "adjustments": {
@@ -3183,6 +3277,7 @@
       "title": "Histogramme"
     },
     "layers": {
+      "bandWidth": "Largeur de bande",
       "brush": {
         "autoMask": "Masquage automatique",
         "brushFlow": "Flux du pinceau",
@@ -3200,6 +3295,7 @@
       "drawTitle": "Peindre sur le masque de ce calque (les dégradés restent modifiables)",
       "erase": "Effacer",
       "eraseTitle": "Effacer du masque de ce calque (les dégradés restent modifiables)",
+      "gradientBand": "Bande à deux côtés",
       "invert": "Inverser",
       "invertTitle": "Inverser le masque de ce calque",
       "lumaRange": {
@@ -3374,6 +3470,7 @@
         "moveFolderTo": "Déplacer « {{name}} » vers",
         "nothingToRedo": "Aucune opération sur les fichiers à rétablir.",
         "nothingToUndo": "Aucune opération sur les fichiers à annuler.",
+        "openExportQueue": "Ouvrir la file d'exportation",
         "otherDriveConfirm": "Copier et déplacer",
         "otherDriveFolderMessage_one": "Le dossier « {{name}} » et tout son contenu ({{count}} photo, {{files}} fichiers, {{size}}) sont copiés sur {{drive}}, qui a {{free}} libres, et vérifiés octet par octet. Ensuite, le dossier d’origine va dans la corbeille de {{sources}} ; si quelque chose y a changé entre-temps, ou si son disque n’a pas de corbeille, il reste à sa place. Annuler le recopie.",
         "otherDriveFolderMessage_many": "Le dossier « {{name}} » et tout son contenu ({{count}} photos, {{files}} fichiers, {{size}}) sont copiés sur {{drive}}, qui a {{free}} libres, et vérifiés octet par octet. Ensuite, le dossier d’origine va dans la corbeille de {{sources}} ; si quelque chose y a changé entre-temps, ou si son disque n’a pas de corbeille, il reste à sa place. Annuler le recopie.",
@@ -3389,6 +3486,15 @@
         "renameFolderFailed": "Impossible de renommer le dossier : {{error}}",
         "selectForSelects": "Sélectionnez des photos à déplacer vers Selects.",
         "selectsNeedSession": "Déplacer vers Selects fonctionne dans les sessions.",
+        "sessionMoveConfirm": "Déplacer toute la session dans « {{folder}} »",
+        "sessionMoved": "Session « {{name}} » déplacée dans « {{folder}} ». {{hint}}",
+        "sessionMoveExportsPending": "Terminez ou annulez d'abord les exportations de la session « {{name}} » : elles lisent ses photos, que le déplacement emporterait. Rien n'a été déplacé.",
+        "sessionMoveFailed": "Impossible de déplacer la session « {{name}} » : {{error}}",
+        "sessionMoveOtherDrive": "Elle est copiée sur {{drive}} ({{size}}, {{free}} libres là-bas) et vérifiée octet par octet ; ensuite seulement, le dossier d'origine de la session va à la Corbeille. Annuler la remet en place.",
+        "sessionMoveRefused": "Les photos restent dans leur session « {{name}} », et la session entière ne peut pas y aller : {{error}}",
+        "sessionMoveSameDrive": "Elle est déplacée sur son disque en une seule étape ; Annuler la remet en place.",
+        "sessionMoveTitle": "Déplacer toute la session « {{name}} » ?",
+        "sessionMoveWhy": "Les photos restent dans leur session « {{name}} », pour qu'elle reste un dossier autonome qui se déplace d'un bloc ; vous pouvez plutôt déplacer toute la session dans « {{folder}} ».",
         "stopCopying": "Arrêter",
         "trashConfirm": "Placer dans la corbeille",
         "trashCopiesConfirm": "Tout déplacer",
@@ -3616,6 +3722,7 @@
           "camera": "Appareil",
           "captureDate": "Date de prise de vue",
           "details": "Tout texte sauf les mots-clés",
+          "duplicate": "Doublon (données d'image identiques)",
           "exposure": "Vitesse d’obturation (s)",
           "filename": "Nom de fichier",
           "fileType": "Type de fichier",

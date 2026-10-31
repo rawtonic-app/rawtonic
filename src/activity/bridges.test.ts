@@ -9,6 +9,7 @@ import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { submitPhotoWrite } from '../utils/photoWrites';
 import { followRenamedPaths } from '../utils/pathKeyedState';
+import { useDuplicatesDialog } from '../utils/duplicates';
 import '../i18n';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => undefined) }));
@@ -72,6 +73,16 @@ it('keeps an export failure under Needs attention with Try again and the photogr
   useActivityStore.getState().dismiss('export:j1');
   useProcessStore.getState().setExportQueue({ jobs: [job({ state: 'failed', done: 2, failed: 1, failures })], held: true });
   expect(entry('export:j1')).toBeUndefined();
+});
+
+it('offers no Try again for a failed Edit With render: it is never resumed', () => {
+  const failures = [{ path: '/s/A.NEF', error: 'disk full' }];
+  useProcessStore
+    .getState()
+    .setExportQueue({ jobs: [job({ state: 'failed', total: 1, failed: 1, failures })], held: false, editWith: ['j1'] });
+  expect(useProcessStore.getState().exportQueue[0].editWith).toBe(true);
+  expect(entry('export:j1')).toMatchObject({ status: 'failure', paths: ['/s/A.NEF'] });
+  expect(entry('export:j1')!.actions).toBeUndefined();
 });
 
 it('ends the task of an export that finished well (its files are reported once with Show in Finder)', () => {
@@ -169,4 +180,37 @@ it('shows a batch command photo by photo', async () => {
   await written;
   await act(async () => {});
   expect(useActivityStore.getState().entries.some((e) => e.source === 'batch')).toBe(false);
+});
+
+it('shows the duplicate comparison with Stop, then what it read with Review', async () => {
+  await act(async () => {});
+  handlers.get('duplicates-progress')!({ payload: { run: 4, directory: '/jobs/A', done: 10, total: 40 } });
+  expect(entry('duplicates:4')).toMatchObject({
+    status: 'running',
+    title: 'Comparing photos for duplicates',
+    progress: { done: 10, total: 40 },
+  });
+  await entry('duplicates:4')!.cancel!();
+  expect(invoke).toHaveBeenCalledWith(Invokes.DuplicatesCancel, { run: 4 });
+  handlers.get('duplicates-finished')!({
+    payload: { run: 4, directory: '/jobs/A', photos: 40, hashed: 39, unreadable: ['/jobs/A/x.NEF'], cancelled: false, error: null, seconds: 1 },
+  });
+  expect(entry('duplicates:4')).toMatchObject({ status: 'done', title: 'Compared 39 photos for duplicates' });
+  expect(entry('duplicates:4:unreadable')).toMatchObject({
+    status: 'warning',
+    title: '1 photo could not be compared for duplicates',
+    paths: ['/jobs/A/x.NEF'],
+  });
+  entry('duplicates:4')!.actions![0].run();
+  expect(useDuplicatesDialog.getState().open).toBe(true);
+  useDuplicatesDialog.getState().close();
+});
+
+it('reports a failed duplicate comparison until dismissed', async () => {
+  await act(async () => {});
+  handlers.get('duplicates-progress')!({ payload: { run: 5, directory: '/jobs/A', done: 0, total: 3 } });
+  handlers.get('duplicates-finished')!({
+    payload: { run: 5, directory: '/jobs/A', photos: 0, hashed: 0, unreadable: [], cancelled: false, error: 'disk gone', seconds: 0 },
+  });
+  expect(entry('duplicates:5')).toMatchObject({ status: 'failure', title: 'Finding duplicates failed', detail: 'disk gone' });
 });

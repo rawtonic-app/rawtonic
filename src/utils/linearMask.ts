@@ -1,7 +1,8 @@
-// Capture One-style editing of a linear gradient mask. The engine's central
+// Editing a linear gradient mask. Without a band, the engine's central
 // (50%) line runs through start → end; coverage is 100% at `range` on the
 // start side and 0% at `rangeEnd` (default `range`) on the other side. Capture
-// One calls these the start, central and end lines.
+// One calls these the start, central and end lines. A band instead covers
+// its full width around the central line and feathers outward on both sides.
 
 export interface LinearParams {
   startX: number;
@@ -10,10 +11,12 @@ export interface LinearParams {
   endY: number;
   range?: number;
   rangeEnd?: number;
+  /** Full-coverage width and outward feather, in image pixels. */
+  band?: { width: number; feather: number };
   [key: string]: unknown;
 }
 
-export type LinearLine = 'start' | 'end';
+export type LinearLine = 'start' | 'end' | 'featherStart' | 'featherEnd';
 export type LinearLineDrag = 'opposite' | 'independent' | 'symmetric';
 
 interface Point {
@@ -46,6 +49,7 @@ export function signedDistance(params: LinearParams, point: Point) {
 
 /** Offsets of the start and end lines from the central line along the normal. */
 export function linearLineOffsets(params: LinearParams) {
+  if (params.band) return { start: -Math.max(0, params.band.width) / 2, end: Math.max(0, params.band.width) / 2 };
   const { start, end } = rangesOf(params);
   return { start: -start, end };
 }
@@ -77,8 +81,16 @@ function withRanges(params: LinearParams, start: number, end: number): LinearPar
  * and gives both zones the dragged width.
  */
 export function dragLinearLine(params: LinearParams, line: LinearLine, point: Point, mode: LinearLineDrag = 'opposite') {
-  const { start, end } = rangesOf(params);
   const distance = signedDistance(params, point);
+  if (params.band) {
+    const reach = Math.abs(distance);
+    const featherLine = line === 'featherStart' || line === 'featherEnd';
+    return { ...params, band: featherLine
+      ? { ...params.band, feather: Math.max(0, reach - params.band.width / 2) }
+      : { ...params.band, width: reach * 2 } };
+  }
+  if (line === 'featherStart' || line === 'featherEnd') return params;
+  const { start, end } = rangesOf(params);
   // How far the dragged line lies from the central line, on its own side.
   const reach = Math.max(MIN_RANGE, line === 'start' ? -distance : distance);
   if (mode === 'independent') return line === 'start' ? withRanges(params, reach, end) : withRanges(params, start, reach);
@@ -146,5 +158,7 @@ export function linearFromDrag(params: LinearParams, from: Point, to: Point, han
     range: length / 2,
   };
   delete next.rangeEnd;
+  // A band covers the dragged span fully; its outward feather stays as set.
+  if (params.band) next.band = { ...params.band, width: length };
   return next;
 }

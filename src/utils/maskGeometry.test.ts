@@ -159,7 +159,7 @@ describe('drawn mask frames', () => {
     );
     const linear = shapeAsShown(
       'linear',
-      { startX: 5, startY: 8, endX: 30, endY: 50, range: 6, rangeEnd: 2, frame: drawn },
+      { startX: 5, startY: 8, endX: 30, endY: 50, range: 6, rangeEnd: 2, band: { width: 12, feather: 3 }, frame: drawn },
       now,
     );
     const stroke = shapeAsShown('brush', { lines: [{ brushSize: 10, points: [{ x: 12, y: 31 }], frame: drawn }] }, now);
@@ -175,6 +175,8 @@ describe('drawn mask frames', () => {
       [linear.endY, 44.302807],
       [linear.range, 7.970568],
       [linear.rangeEnd, 2.656856],
+      [linear.band.width, 15.941136],
+      [linear.band.feather, 3.985284],
       [stroke.lines[0].points[0].x, 41.257114],
       [stroke.lines[0].points[0].y, 33.856149],
       [stroke.lines[0].brushSize, 10 * Math.sqrt(1.875)],

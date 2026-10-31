@@ -1441,7 +1441,10 @@ fn export_photo(
                 // Developed for the decode variant exported.
                 .filter(|loaded| {
                     loaded.decode
-                        == Some(crate::image_loader::decode_variant(&js_adjustments, is_raw))
+                        == Some(crate::image_loader::decode_variant(
+                            &js_adjustments,
+                            &source_path_str,
+                        ))
                 })
                 .map(|loaded| (Arc::clone(&loaded.image), loaded.measures))
         } else {
@@ -1681,6 +1684,7 @@ pub async fn export_images(
             current_edit_adjustments,
             library,
             pinned: None,
+            edit_with: None,
         },
     )
     .await

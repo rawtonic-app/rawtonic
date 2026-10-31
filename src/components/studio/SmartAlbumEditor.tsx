@@ -49,6 +49,7 @@ const FIELDS: { field: Field; kind: Kind }[] = [
   { field: "folder", kind: "folder" },
   { field: "offline", kind: "bool" },
   { field: "previousImport", kind: "bool" },
+  { field: "duplicate", kind: "bool" },
   { field: "ai", kind: "choice" },
   { field: "sourceType", kind: "choice" },
 ];

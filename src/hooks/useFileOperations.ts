@@ -23,6 +23,7 @@ import {
   useCatalogUndoStore,
 } from "../utils/appUndo";
 import { isBelow } from '../utils/catalogFolders';
+import { openExportQueue } from '../utils/catalogEvents';
 import type { PlannedFile } from '../components/modals/RenameFileModal';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
@@ -52,6 +53,25 @@ export interface MovePlan {
   freeBytes: number;
   sourceDrives: string[];
   refusal?: string | null;
+  /** The move would take photos out of their session, which is not done:
+   * the whole session can be moved there instead. */
+  sessionMove?: SessionMoveOffer | null;
+}
+
+/** Mirrors `SessionMoveOffer` in src-tauri/src/session_move.rs. */
+export interface SessionMoveOffer {
+  session: string;
+  name: string;
+  destination: string;
+  crossVolume: boolean;
+  bytes: number;
+  drive: string;
+  freeBytes: number;
+  /** Why the session cannot go there either. */
+  refusal?: string | null;
+  /** An export of the session waits, runs or is paused: it is finished or
+   * cancelled first. */
+  exportsPending?: boolean;
 }
 
 /** Bytes in decimal units, as file browsers show them. */
@@ -92,6 +112,108 @@ export function describeCrossVolumeFolderMove(plan: MovePlan, name: string): str
     free: formatBytes(plan.freeBytes),
     sources: plan.sourceDrives.join(', '),
   });
+}
+
+/** The question instead of moving photos out of their session: why that is
+ * not done, in one sentence, and what moving the whole session involves. */
+export function describeSessionMove(offer: SessionMoveOffer): string {
+  const t = i18next.t.bind(i18next);
+  const folder = offer.destination.split(/[\\/]/).filter(Boolean).pop() ?? offer.destination;
+  const why = t('studio.library.fileOperations.sessionMoveWhy', { name: offer.name, folder });
+  const how = offer.crossVolume
+    ? t('studio.library.fileOperations.sessionMoveOtherDrive', {
+        size: formatBytes(offer.bytes),
+        drive: offer.drive,
+        free: formatBytes(offer.freeBytes),
+      })
+    : t('studio.library.fileOperations.sessionMoveSameDrive');
+  return `${why} ${how}`;
+}
+
+/** Offers to move the whole session instead of photos or a folder out of
+ * it (G40): a session stays one self-contained folder. Says why when the
+ * session cannot go there either; moves nothing until the user agreed. */
+function offerSessionMove(offer: SessionMoveOffer) {
+  const t = i18next.t.bind(i18next);
+  const folder = offer.destination.split(/[\\/]/).filter(Boolean).pop() ?? offer.destination;
+  if (offer.exportsPending) {
+    askToFinishExports(offer);
+    return;
+  }
+  if (offer.refusal) {
+    notify.error(t('studio.library.fileOperations.sessionMoveRefused', { name: offer.name, error: offer.refusal }));
+    return;
+  }
+  useUIStore.getState().setUI({
+    confirmModalState: {
+      isOpen: true,
+      title: t('studio.library.fileOperations.sessionMoveTitle', { name: offer.name }),
+      message: describeSessionMove(offer),
+      confirmText: t('studio.library.fileOperations.sessionMoveConfirm', { folder }),
+      confirmVariant: 'primary',
+      onConfirm: () => void moveSession(offer, folder),
+    },
+  });
+}
+
+/** The kind of a whole-session move's operation (`KIND` in
+ * src-tauri/src/session_move.rs). Its move, undo and redo are followed by
+ * the `session-moved` event (SessionWorkspace reopens the session at its
+ * new place, useTauriListeners refreshes another open library), not here:
+ * reading the list now would read the session where it no longer is. */
+const SESSION_MOVE = 'moveSession';
+
+/** `move_session`'s refusal while an export of the session waits, runs or
+ * is paused (`EXPORTS_PENDING` in src-tauri/src/session_move.rs). */
+const EXPORTS_PENDING = 'Finish or cancel the exports of this session first';
+
+/** A session with exports waiting, running or paused does not move (the
+ * jobs would find their photos gone): finish or cancel them first, with
+ * the export queue one click away. */
+function askToFinishExports(offer: SessionMoveOffer) {
+  const t = i18next.t.bind(i18next);
+  useUIStore.getState().setUI({
+    confirmModalState: {
+      isOpen: true,
+      title: t('studio.library.fileOperations.sessionMoveTitle', { name: offer.name }),
+      message: t('studio.library.fileOperations.sessionMoveExportsPending', { name: offer.name }),
+      confirmText: t('studio.library.fileOperations.openExportQueue'),
+      confirmVariant: 'primary',
+      onConfirm: openExportQueue,
+    },
+  });
+}
+
+/** Moves the whole session (one undoable operation); the open session is
+ * opened again at its new place when the backend says it moved
+ * (`session-moved`, SessionWorkspace). */
+async function moveSession(offer: SessionMoveOffer, folder: string) {
+  const t = i18next.t.bind(i18next);
+  try {
+    if (!(await saveEditsFirst([offer.session]))) return;
+    const summary = await fileAction(
+      () =>
+        withCopyProgress(() =>
+          invoke<FileOperationSummary>(Invokes.MoveSession, {
+            session: offer.session,
+            destination: offer.destination,
+          }),
+        ),
+      'move',
+      undefined,
+      undefined,
+      [offer.session, offer.destination],
+    );
+    if (summary)
+      notify.success(t('studio.library.fileOperations.sessionMoved', { name: offer.name, folder, hint: undoHint() }));
+    warnAboutNote(summary);
+  } catch (err) {
+    if (String(err).startsWith(EXPORTS_PENDING)) {
+      askToFinishExports(offer);
+      return;
+    }
+    notify.error(t('studio.library.fileOperations.sessionMoveFailed', { name: offer.name, error: String(err) }));
+  }
 }
 
 /** Mirrors `CopyProgress` in src-tauri/src/file_operations.rs. */
@@ -334,6 +456,10 @@ async function askBeforeOtherDrive(
     notify.error(ops(failed, { error: String(err) }));
     return;
   }
+  if (plan?.sessionMove) {
+    offerSessionMove(plan.sessionMove);
+    return;
+  }
   if (!plan?.crossVolume) {
     await move();
     return;
@@ -498,6 +624,10 @@ export function useFileOperations(
         return;
       }
       warnAboutNote(summary);
+      if (summary.kind === SESSION_MOVE) {
+        notify.success(i18next.t('studio.library.fileOperations.undone', { label: summary.label, key: redoKey() }));
+        return;
+      }
       // Renamed and moved photographs and folders are back at their old
       // places: the selection, the open photograph, picks and thumbnails
       // go with them, as after a rename.
@@ -532,6 +662,10 @@ export function useFileOperations(
         return;
       }
       warnAboutNote(summary);
+      if (summary.kind === SESSION_MOVE) {
+        notify.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
+        return;
+      }
       // As after the operation itself: path-keyed state follows the moves.
       const reopen = followMoves(summary.moves ?? []);
       notify.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
@@ -694,6 +828,10 @@ export function useFileOperations(
         plan = await invoke<MovePlan>(Invokes.PlanMoveFolder, { path, destinationFolder: picked });
       } catch (err) {
         notify.error(ops('moveFolderFailed', { error: String(err) }));
+        return;
+      }
+      if (plan?.sessionMove) {
+        offerSessionMove(plan.sessionMove);
         return;
       }
       if (!plan?.crossVolume) {

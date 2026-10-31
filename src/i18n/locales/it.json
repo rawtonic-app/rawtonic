@@ -32,6 +32,20 @@
     "download": {
       "model": "Download: {{name}}"
     },
+    "duplicates": {
+      "failed": "Ricerca dei duplicati non riuscita",
+      "read_one": "{{count}} foto confrontata per i duplicati",
+      "read_many": "{{count}} foto confrontate per i duplicati",
+      "read_other": "{{count}} foto confrontate per i duplicati",
+      "reading": "Confronto delle foto per i duplicati",
+      "review": "Rivedi duplicati",
+      "stopped_one": "Confronto dei duplicati interrotto dopo {{count}} foto",
+      "stopped_many": "Confronto dei duplicati interrotto dopo {{count}} foto",
+      "stopped_other": "Confronto dei duplicati interrotto dopo {{count}} foto",
+      "unreadable_one": "{{count}} foto non è stata confrontata",
+      "unreadable_many": "{{count}} foto non sono state confrontate",
+      "unreadable_other": "{{count}} foto non sono state confrontate"
+    },
     "empty": {
       "attention": "Niente richiede la tua attenzione.",
       "done": "Nessun risultato recente.",
@@ -216,6 +230,8 @@
       "copy_adjustments": "Copia impostazioni",
       "copy_image_path": "Copia percorso",
       "delete_selected": "Sposta nel cestino",
+      "edit_with": "Modifica con…",
+      "find_duplicates": "Trova duplicati…",
       "flag_pick": "Scegli",
       "flag_reject": "Scarta",
       "flag_unflag": "Senza contrassegno",
@@ -226,6 +242,7 @@
       "new_session": "Nuovo progetto o catalogo…",
       "open_session": "Apri progetto o catalogo…",
       "open_settings": "Preferenze…",
+      "open_with": "Apri con…",
       "paste_adjustments": "Incolla impostazioni",
       "paste_from_previous": "Incolla impostazioni della foto precedente",
       "rate_0": "Nessuna stella",
@@ -438,10 +455,33 @@
       "tagging": "Tagging",
       "undo": "Annulla"
     },
+    "editWith": {
+      "failed": "Modifica con non riuscito: {{error}}",
+      "generatedAreas": "Modifica con non è ancora disponibile per le foto con aree generate: {{names}}",
+      "interrupted": "«Modifica con» in {{app}} è stato interrotto alla chiusura di Rawtonic. Riprova per elaborare di nuovo le foto.",
+      "label": "Modifica con",
+      "notLinked": "Rendering eseguito, ma non aggiunto alla libreria: {{error}}",
+      "openIn": "Apri in",
+      "recipe": "Ricetta",
+      "rendering": "Rendering per {{app}}…",
+      "someFailed": "Impossibile eseguire il rendering di {{failed}} foto su {{total}}.",
+      "tiffAdobe": "TIFF 16 bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Focus Stacking",
       "hdrPanorama": "Panorama HDR",
       "title": "Unisci"
+    },
+    "openWith": {
+      "chooseTitle": "Scegli un’applicazione",
+      "default": "Predefinita",
+      "failed": "Impossibile aprire i file: {{error}}",
+      "label": "Apri con",
+      "none": "Nessuna applicazione apre questi file",
+      "other": "Altro…",
+      "reading": "Ricerca delle applicazioni…",
+      "unsupported": "Disponibile solo su macOS"
     },
     "tagging": {
       "addTagTooltip": "Aggiungi tag",
@@ -651,6 +691,60 @@
         "transform": "Trasforma"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "JPEG abbinato {{name}}",
+      "copies_one": "{{count}} copia virtuale",
+      "copies_many": "{{count}} copie virtuali",
+      "copies_other": "{{count}} copie virtuali",
+      "described": "Titolo, didascalia o IPTC",
+      "edited": "Modificata",
+      "keywords_one": "{{count}} parola chiave",
+      "keywords_many": "{{count}} parole chiave",
+      "keywords_other": "{{count}} parole chiave",
+      "label": "Etichetta: {{label}}",
+      "none": "Nessuna modifica né metadati",
+      "picked": "Scelta",
+      "rejected": "Scartata"
+    },
+    "captured": "Scattata {{date}}",
+    "changed_one": "{{count}} foto è cambiata dopo il confronto, quindi non è stato spostato nulla. Confronto ripetuto.",
+    "changed_many": "{{count}} foto sono cambiate dopo il confronto, quindi non è stato spostato nulla. Confronto ripetuto.",
+    "changed_other": "{{count}} foto sono cambiate dopo il confronto, quindi non è stato spostato nulla. Confronto ripetuto.",
+    "close": "Chiudi",
+    "companionKept_one": "{{count}} foto resta: non resta alcuna copia identica del suo JPEG abbinato, quindi non è stato spostato nulla.",
+    "companionKept_many": "{{count}} foto restano: non resta alcuna copia identica dei loro JPEG abbinati, quindi non è stato spostato nulla.",
+    "companionKept_other": "{{count}} foto restano: non resta alcuna copia identica dei loro JPEG abbinati, quindi non è stato spostato nulla.",
+    "comparedFile": "file interi confrontati",
+    "comparedImage": "dati immagine confrontati",
+    "failed": "Ricerca dei duplicati non riuscita: {{error}}",
+    "group_one": "{{count}} foto con dati immagine identici",
+    "group_many": "{{count}} foto con dati immagine identici",
+    "group_other": "{{count}} foto con dati immagine identici",
+    "imported": "Importata {{date}}",
+    "intro": "Trova le foto i cui file contengono dati immagine identici, anche con altri nomi, cartelle, metadati o modifiche. Le foto visivamente simili non vengono confrontate.",
+    "keepOne": "Mantieni almeno una foto di questo gruppo.",
+    "markTrash": "Sposta nel cestino",
+    "moveToTrash_one": "Sposta {{count}} foto nel cestino",
+    "moveToTrash_many": "Sposta {{count}} foto nel cestino",
+    "moveToTrash_other": "Sposta {{count}} foto nel cestino",
+    "noLibrary": "Apri un progetto o un catalogo per trovare i duplicati.",
+    "none": "Nessun duplicato: non ci sono due foto con dati immagine identici.",
+    "reading": "Confronto dei dati immagine: {{done}} di {{total}} foto",
+    "readingStart": "Confronto dei dati immagine…",
+    "stop": "Interrompi",
+    "stopped": "Interrotto: sono raggruppate solo le foto confrontate finora.",
+    "suggestion": "Proposte per il cestino: foto senza modifiche, valutazione, contrassegno, etichetta, parole chiave, titolo o didascalia, copie virtuali o JPEG abbinato propri. Ogni foto con questo lavoro viene mantenuta; altrimenti si mantiene l'importazione più vecchia. Nulla viene unito.",
+    "summary_one": "{{count}} gruppo di duplicati ({{photos}} foto)",
+    "summary_many": "{{count}} gruppi di duplicati ({{photos}} foto)",
+    "summary_other": "{{count}} gruppi di duplicati ({{photos}} foto)",
+    "title": "Trova duplicati",
+    "unknown": "sconosciuta",
+    "unreadable_one": "{{count}} foto non è leggibile e non è raggruppata.",
+    "unreadable_many": "{{count}} foto non sono leggibili e non sono raggruppate.",
+    "unreadable_other": "{{count}} foto non sono leggibili e non sono raggruppate.",
+    "workWarning": "Una foto contrassegnata per il cestino ha modifiche, metadati o copie virtuali proprie. Annulla la ripristina con essi."
   },
   "editor": {
     "adjustments": {
@@ -3183,6 +3277,7 @@
       "title": "Istogramma"
     },
     "layers": {
+      "bandWidth": "Larghezza banda",
       "brush": {
         "autoMask": "Maschera automatica",
         "brushFlow": "Flusso pennello",
@@ -3200,6 +3295,7 @@
       "drawTitle": "Dipingi sulla maschera di questo livello (i gradienti restano modificabili)",
       "erase": "Cancella",
       "eraseTitle": "Cancella dalla maschera di questo livello (i gradienti restano modificabili)",
+      "gradientBand": "Banda a due lati",
       "invert": "Inverti",
       "invertTitle": "Inverti la maschera di questo livello",
       "lumaRange": {
@@ -3374,6 +3470,7 @@
         "moveFolderTo": "Sposta «{{name}}» in",
         "nothingToRedo": "Nessuna operazione sui file da ripristinare.",
         "nothingToUndo": "Nessuna operazione sui file da annullare.",
+        "openExportQueue": "Apri la coda di esportazione",
         "otherDriveConfirm": "Copia e sposta",
         "otherDriveFolderMessage_one": "La cartella «{{name}}» con tutto il contenuto ({{count}} foto, {{files}} file, {{size}}) viene copiata su {{drive}}, che ha {{free}} liberi, e verificata byte per byte. Poi la cartella originale va nel Cestino di {{sources}}; se nel frattempo qualcosa al suo interno è cambiato, o la sua unità non ha un Cestino, resta dov'è. Annulla la ricopia indietro.",
         "otherDriveFolderMessage_many": "La cartella «{{name}}» con tutto il contenuto ({{count}} foto, {{files}} file, {{size}}) viene copiata su {{drive}}, che ha {{free}} liberi, e verificata byte per byte. Poi la cartella originale va nel Cestino di {{sources}}; se nel frattempo qualcosa al suo interno è cambiato, o la sua unità non ha un Cestino, resta dov'è. Annulla la ricopia indietro.",
@@ -3389,6 +3486,15 @@
         "renameFolderFailed": "Impossibile rinominare la cartella: {{error}}",
         "selectForSelects": "Seleziona le foto da spostare in Selects.",
         "selectsNeedSession": "Sposta in Selects funziona nelle sessioni.",
+        "sessionMoveConfirm": "Sposta l'intera sessione in «{{folder}}»",
+        "sessionMoved": "Sessione «{{name}}» spostata in «{{folder}}». {{hint}}",
+        "sessionMoveExportsPending": "Completa o annulla prima le esportazioni della sessione «{{name}}»: leggono le sue foto, che lo spostamento porterebbe via. Non è stato spostato nulla.",
+        "sessionMoveFailed": "Impossibile spostare la sessione «{{name}}»: {{error}}",
+        "sessionMoveOtherDrive": "Viene copiata su {{drive}} ({{size}}, {{free}} liberi lì) e verificata byte per byte; solo allora la cartella originale della sessione va nel Cestino. Annulla la riporta indietro.",
+        "sessionMoveRefused": "Le foto restano nella loro sessione «{{name}}», e l'intera sessione non può andare lì: {{error}}",
+        "sessionMoveSameDrive": "Viene spostata sul suo disco in un solo passaggio; Annulla la riporta indietro.",
+        "sessionMoveTitle": "Spostare l'intera sessione «{{name}}»?",
+        "sessionMoveWhy": "Le foto restano nella loro sessione «{{name}}», così rimane una cartella autonoma che si sposta per intero; al suo posto si può spostare l'intera sessione in «{{folder}}».",
         "stopCopying": "Interrompi",
         "trashConfirm": "Sposta nel cestino",
         "trashCopiesConfirm": "Sposta tutto",
@@ -3616,6 +3722,7 @@
           "camera": "Fotocamera",
           "captureDate": "Data di scatto",
           "details": "Qualsiasi testo tranne le parole chiave",
+          "duplicate": "Duplicato (dati immagine identici)",
           "exposure": "Tempo di posa (s)",
           "filename": "Nome file",
           "fileType": "Tipo di file",

@@ -509,6 +509,7 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(last) = with_journal(app, |journal| journal.last_undoable())? else {
         return Ok(None);
     };
+    let _resume = crate::session_move::before_reversal(&last, false)?;
     let progress = ProgressEvents::new(app, &last.label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -518,6 +519,7 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
         result
     })?;
     sync_pending(app, Some(&op.id));
+    crate::session_move::followed(app, &op);
     Ok(Some(op))
 }
 
@@ -528,6 +530,7 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(next) = with_journal(app, |journal| journal.last_redoable())? else {
         return Ok(None);
     };
+    let _resume = crate::session_move::before_reversal(&next, true)?;
     let progress = ProgressEvents::new(app, &next.label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -537,6 +540,7 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
         result
     })?;
     sync_pending(app, Some(&op.id));
+    crate::session_move::followed(app, &op);
     Ok(Some(op))
 }
 
@@ -920,6 +924,14 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
     }
     let mut changes: Vec<(PathBuf, Change)> = Vec::new();
     for (a, b, folder) in moved(op, forward) {
+        // A whole session moved keeps its own records (its paths are
+        // relative); an open catalog holding photos in it follows it.
+        if op.kind == crate::session_move::KIND {
+            if let Some(catalog) = crate::session_move::open_catalog_other_than(&a, &b) {
+                changes.push((catalog, Change::Relocate(a, b)));
+            }
+            continue;
+        }
         if !(folder || is_supported_image_file(&b)) {
             continue;
         }
@@ -1509,6 +1521,85 @@ mod tests {
         );
         assert!(dir.join("Trash").is_dir(), "the session keeps its Trash");
         assert_eq!(lib.asset_at(&photo).unwrap().unwrap().id, asset.id);
+    }
+
+    /// Find Duplicates' Move to Trash (`duplicates.rs`): only the marked
+    /// copy goes, its group goes with it, and undo brings both back without
+    /// reading the files again; the kept and unrelated photographs are not
+    /// touched.
+    #[test]
+    fn trashing_a_duplicate_and_undoing_it_restore_its_group() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let jpeg = |app: &str, scan: &[u8]| {
+            let mut out = vec![0xFF, 0xD8, 0xFF, 0xE1];
+            out.extend(((app.len() + 2) as u16).to_be_bytes());
+            out.extend(app.as_bytes());
+            out.extend([0xFF, 0xDA, 0, 3, 9]);
+            out.extend(scan);
+            out.extend([0xFF, 0xD9]);
+            out
+        };
+        let (a, b, c) = (
+            dir.join("Capture/A.jpg"),
+            dir.join("Capture/B.jpg"),
+            dir.join("Capture/C.jpg"),
+        );
+        fs::write(&a, jpeg("rating 0", b"scan")).unwrap();
+        fs::write(&b, jpeg("rating 5, keywords", b"scan")).unwrap();
+        fs::write(&c, jpeg("rating 0", b"another scan")).unwrap();
+        let lib = Library::open(&dir).unwrap();
+        for photo in [&a, &b, &c] {
+            lib.add_asset(photo).unwrap();
+        }
+        let untouched = |p: &PathBuf| fs::read(p).unwrap();
+        let (a_bytes, c_bytes) = (untouched(&a), untouched(&c));
+        let none = std::sync::atomic::AtomicBool::new(false);
+        lib.fill_image_hashes(2, &none, &mut |_, _| {}).unwrap();
+        let group = |lib: &Library| -> Vec<Vec<PathBuf>> {
+            lib.duplicate_groups()
+                .unwrap()
+                .into_iter()
+                .map(|g| g.into_iter().map(|m| m.path).collect())
+                .collect()
+        };
+        assert_eq!(group(&lib), [[a.clone(), b.clone()]]);
+        assert!(
+            lib.confirm_duplicates(std::slice::from_ref(&a), std::slice::from_ref(&b))
+                .unwrap()
+                .is_empty()
+        );
+
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let groups = vec![associated_files(std::slice::from_ref(&b)).unwrap()];
+        let op = journal
+            .execute(
+                "trash",
+                "Delete 1 photo",
+                plan_trash(&groups),
+                &rawtonic_fileops::NoSystemTrash,
+            )
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+        assert!(!b.exists() && dir.join("Trash/Capture/B.jpg").is_file());
+        assert!(group(&lib).is_empty());
+        assert_eq!(
+            (untouched(&a), untouched(&c)),
+            (a_bytes.clone(), c_bytes.clone())
+        );
+
+        let op = journal
+            .undo(&op.id, &rawtonic_fileops::NoSystemTrash)
+            .unwrap();
+        sync_catalog(&op, false).unwrap();
+        assert!(b.is_file());
+        assert_eq!(
+            lib.image_hash_backlog().unwrap(),
+            0,
+            "nothing to read again"
+        );
+        assert_eq!(group(&lib), [[a.clone(), b.clone()]]);
+        assert_eq!((untouched(&a), untouched(&c)), (a_bytes, c_bytes));
     }
 
     /// Delete into the session Trash, undo, redo: the files go back into

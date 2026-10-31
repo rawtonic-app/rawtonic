@@ -31,6 +31,7 @@ export type Field =
   | 'folder'
   | 'offline'
   | 'previousImport'
+  | 'duplicate'
   | 'ai'
   | 'sourceType';
 

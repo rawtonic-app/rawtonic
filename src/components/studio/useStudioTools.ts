@@ -351,6 +351,7 @@ export function useStudioTools() {
     brushActive,
     activeBrushDraws,
     radialMask,
+    linearMask: activeSubMask?.type === Mask.Linear ? activeSubMask : undefined,
     activeTool,
     ready,
     brushSettings,

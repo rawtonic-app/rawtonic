@@ -110,3 +110,37 @@ describe('rotating', () => {
     near(angle, 45, 4);
   });
 });
+
+
+describe('two-sided bands', () => {
+  const band = { ...base, rangeEnd: 30, band: { width: 40, feather: 10 } };
+  it('places the fully covered edges symmetrically and resizes from either side', () => {
+    expect(linearLineOffsets(band)).toEqual({ start: -20, end: 20 });
+    for (const [line, y] of [['start', 60], ['end', 140]] as const) {
+      const next = dragLinearLine(band, line, { x: 60, y });
+      expect(next.band).toEqual({ width: 80, feather: 10 });
+      expect(next.startY).toBe(100);
+      expect(next.rangeEnd).toBe(30);
+    }
+  });
+  it('edits outward feather independently of width, including hard edges', () => {
+    for (const [line, y] of [['featherStart', 50], ['featherEnd', 150]] as const) {
+      expect(dragLinearLine(band, line, { x: 80, y }).band).toEqual({ width: 40, feather: 30 });
+    }
+    expect(dragLinearLine(band, 'featherEnd', { x: 80, y: 110 }).band).toEqual({ width: 40, feather: 0 });
+  });
+  it('covers the whole dragged span when a band is drawn', () => {
+    const from = { x: 300, y: 100 };
+    const to = { x: 300, y: 1100 };
+    const drawn = linearFromDrag(band, from, to, 40);
+    expect(drawn.band).toEqual({ width: 1000, feather: 10 });
+    // Press and release lie on the band's fully covered edges.
+    expect(signedDistance(drawn, from)).toBeCloseTo(linearLineOffsets(drawn).start);
+    expect(signedDistance(drawn, to)).toBeCloseTo(linearLineOffsets(drawn).end);
+  });
+  it('keeps band dimensions when moved or rotated', () => {
+    const rotated = rotateLinear(band, { x: 100, y: 100 }, { x: 200, y: 100 }, { x: 100, y: 200 });
+    expect(rotated.band).toEqual(band.band);
+    expect(dragLinearLine(rotated, 'end', { x: 60, y: 100 }).band?.width).toBeCloseTo(80);
+  });
+});

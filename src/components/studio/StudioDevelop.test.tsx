@@ -595,6 +595,28 @@ describe("Capture One-style layer masks", () => {
   };
   const layer = () => useEditorStore.getState().adjustments.masks[0];
 
+  it("toggles a linear band and edits its dimensions without changing the old gradient", () => {
+    const linear = createSubMask(Mask.Linear, image);
+    const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
+    adjustments.masks = [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: "layer", name: "Layer 1", subMasks: [linear] }];
+    useEditorStore.setState({ adjustments, activeMaskContainerId: "layer", activeMaskId: linear.id });
+    useUIStore.setState({ activePanel: Panel.Masks });
+    mount();
+    const original = structuredClone(linear.parameters);
+    const toggle = screen.getByRole("checkbox", { name: "Two-sided band" });
+    fireEvent.click(toggle);
+    expect(layer().subMasks[0].parameters.band).toBeDefined();
+    for (const [name, value] of [["Band width value (px)", "120"], ["Feather value (px)", "30"]]) {
+      const input = screen.getByRole("textbox", { name });
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value } });
+      fireEvent.blur(input);
+    }
+    expect(layer().subMasks[0].parameters.band).toEqual({ width: 120, feather: 30 });
+    fireEvent.click(toggle);
+    expect(layer().subMasks[0].parameters).toEqual(original);
+  });
+
   it("sets a radial mask's feathering from the Layers panel", () => {
     const radial = withRadialLayer();
     mount();

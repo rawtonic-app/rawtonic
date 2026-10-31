@@ -45,7 +45,8 @@ import {
 } from '../utils/settingsClipboard';
 import { MAX_RENDERED_LAYERS } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
-import { editorRecipe, neverEdited, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import { editorRecipe, neverEdited, newSaved, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import { cameraCropFor, withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
@@ -64,6 +65,7 @@ import {
   type RecipeValues,
 } from '../utils/appUndo';
 import { editUndoOrder, historyOrders, nextUndoOrder, setHistoryOrders } from '../utils/undoOrder';
+import { withSourceFrameOf } from '../utils/sourceFrame';
 import {
   allPhotoWritesSettled,
   batchPhotosReported,
@@ -124,9 +126,16 @@ let libraryEpoch = 0;
 let switchingLibrary = false;
 
 /** Writes the editor's recipe of `path` in its photograph's write queue
- * (after every write given before it); resolves with the recipe when it
- * could not be written (kept in `unsavedRecipes`). */
-function saveEditorRecipe(path: string, adjustmentsToSave: Adjustments, epoch: number): Promise<Adjustments | undefined> {
+ * (after every write given before it) and makes its thumbnail again,
+ * unless `updateThumbnail` is false (the decode loaded for it is stale);
+ * resolves with the recipe when it could not be written (kept in
+ * `unsavedRecipes`). */
+function saveEditorRecipe(
+  path: string,
+  adjustmentsToSave: Adjustments,
+  epoch: number,
+  updateThumbnail: boolean,
+): Promise<Adjustments | undefined> {
   scheduledSave = null;
   if (epoch !== libraryEpoch || switchingLibrary) {
     // Made before or during a library switch: written now it would go to
@@ -138,7 +147,11 @@ function saveEditorRecipe(path: string, adjustmentsToSave: Adjustments, epoch: n
   return submitPhotoWrite(
     [path],
     () =>
-      invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave }).then(
+      invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, {
+        path,
+        adjustments: adjustmentsToSave,
+        ...(updateThumbnail ? {} : { updateThumbnail: false }),
+      }).then(
         () => {
           if (epoch === libraryEpoch) unsavedRecipes.delete(path);
           recipeWritten([path], null);
@@ -167,9 +180,9 @@ let scheduledSave: string | null = null;
 /** The open photograph's editor save into the library open now, written
  * 300 ms after its last change (`flush` writes it now, `cancel` drops it). */
 export const debouncedSave = Object.assign(
-  (path: string, adjustmentsToSave: Adjustments) => {
+  (path: string, adjustmentsToSave: Adjustments, updateThumbnail = true) => {
     scheduledSave = path;
-    return debouncedEditorSave(path, adjustmentsToSave, libraryEpoch);
+    return debouncedEditorSave(path, adjustmentsToSave, libraryEpoch, updateThumbnail);
   },
   {
     flush: () => debouncedEditorSave.flush(),
@@ -329,7 +342,15 @@ const currentEditOrder = () => {
  * lens data and size its editor recipe was made with, and that recipe,
  * `shown`): a paste onto it while it still shows that recipe pastes onto
  * this, as onto a closed photograph. */
-type OpenedRecipe = { saved: unknown; camera: CameraLens; width: number; height: number; shown: Adjustments };
+type OpenedRecipe = {
+  saved: unknown;
+  camera: CameraLens;
+  /** Its camera crops (src/utils/cameraCrop.ts). */
+  crops?: CameraCrops;
+  width: number;
+  height: number;
+  shown: Adjustments;
+};
 let openedRecipe: ({ path: string } & OpenedRecipe) | null = null;
 export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
@@ -359,27 +380,35 @@ function pastedOpen(
       : null;
   const saved = opened ? (opened.saved as Adjustments | null) : current;
   let base = saved && !(saved as { is_null?: boolean }).is_null ? saved : null;
+
   // A style replaces the last applied one (`appliedStyle`): onto the photo
   // with that one taken back, as the backend applies it to the others.
   const reverted = style && base ? revertStyle(base) : null;
   if (reverted) base = reverted.recipe;
-  const merged = style?.remove
+  let merged = style?.remove
     ? base
     : pasteInto(base, styleGroupsJoined(base, pasted, style), {
         samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
         replaceLayers: paste?.replaceLayers ?? true,
         keepNulls: !paste,
         newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
+        // A new recipe starts with the camera's crop of the frame it shows.
+        cameraCrop: opened && open.isRaw && newSaved(opened.saved)
+          ? cameraCropFor(opened.crops, current.sourceFrameVersion)
+          : null,
       });
   if (!merged) {
     notify.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
     return null;
   }
+  // The photo keeps the frame it is shown in (src/utils/sourceFrame.ts):
+  // the editor's, which is also a never-edited photo's first-edit frame.
+  merged = withSourceFrameOf(merged, current);
   // A setting the style added goes back to not being there: the editor's
   // recipe fills it in again as loading does (the version a recipe without
   // it renders with).
   const shown = opened
-    ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera)
+    ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera, opened.crops)
     : reverted?.removed
       ? normalizeLoadedAdjustments(merged, open.isRaw)
       : merged;
@@ -657,8 +686,9 @@ async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
           : await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path }).catch(() => null)
         : null;
     if (isCurrentEditorImage(path)) {
-      const normalized = editorRecipe(saved, !!isRaw, width, height, camera);
-      rememberOpenedRecipe(path, { saved, camera, width, height, shown: normalized });
+      const crops = useEditorStore.getState().selectedImage?.cameraCrops;
+      const normalized = editorRecipe(saved, !!isRaw, width, height, camera, crops);
+      rememberOpenedRecipe(path, { saved, camera, crops, width, height, shown: normalized });
       const { adjustments, pushHistory } = useEditorStore.getState();
       if (!sameAdjustmentValue(normalized, adjustments)) {
         debouncedSetHistory.flush();
@@ -1061,7 +1091,14 @@ export function useEditorActions() {
             && isCurrentEditorImage(selectedImage.path)) {
             const aspect =
               selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-            const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
+            const kept = withSourceFrameOf(
+              { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] },
+              useEditorStore.getState().adjustments,
+            );
+            // Back to the camera's crop of its frame (src/utils/cameraCrop.ts).
+            const resetData = selectedImage.isRaw
+              ? withCameraCrop(kept, selectedImage.cameraCrops, selectedImage.width, selectedImage.height)
+              : kept;
             // One undoable step, as in Capture One and Lightroom.
             debouncedSetHistory.flush();
             pushHistory(resetData, openOrder);
@@ -1180,7 +1217,9 @@ export function useEditorActions() {
       // versions values mean go along, unless the settings were chosen in the
       // picker (`asChosen`): those carry them only when chosen there, else
       // each photograph keeps its own (a never-edited one: a new edit's).
-      const grain = withGrainStructure(partial);
+      // The frame of the RAW is never applied (src/utils/sourceFrame.ts).
+      const { sourceFrameVersion: _frame, ...photoFree } = partial;
+      const grain = withGrainStructure(photoFree);
       let adjustmentsToApply = asChosen
         ? grain
         : withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))));

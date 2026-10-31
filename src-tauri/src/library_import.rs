@@ -227,6 +227,18 @@ fn has_ai_masks_on_open(adjustments: &Value) -> bool {
 /// (`has_ai_masks_on_open`).
 fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, bool, bool)> {
     let mut adjustments = translate(&photo.develop);
+    // The other editor's geometry (spots, masks, red eyes; Lightroom keeps it
+    // normalised in the camera's frame of the raw) is that of the newest
+    // frame of the RAW (`source_frame`): the edit is made on it, as a new
+    // edit would be.
+    if crate::formats::is_raw_file(&photo.path)
+        && let Some(map) = adjustments.as_mut().and_then(|a| a.as_object_mut())
+    {
+        map.insert(
+            rawtonic_engine::source_frame::KEY.to_string(),
+            json!(rawtonic_engine::source_frame::VERSION),
+        );
+    }
     // Lightroom's spots, red eye corrections and mask geometry render from
     // its own geometry once they know the photo's orientation, a fact of
     // the file (`rawtonic_engine::lightroom_retouch`, `lightroom_masks`):

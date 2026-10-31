@@ -59,6 +59,7 @@ import { type ImageFile, Invokes, Panel, SortDirection } from "../ui/AppProperti
 import Editor from "../panel/Editor";
 import StudioExport from "./StudioExport";
 import { ExportQueuePanel } from "./StudioExportQueue";
+import { OPEN_EXPORT_QUEUE } from "../../utils/catalogEvents";
 import PreviewBuildStatus from "./PreviewBuildStatus";
 import PreferencesDialog from "./PreferencesDialog";
 import { ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
@@ -559,6 +560,11 @@ export default function StudioWorkspace(props: Props) {
   const [drawer, setDrawer] = useState<Panel | null>(null);
   // The export queue stays beside the work (not modal): edit on while it runs.
   const [queueOpen, setQueueOpen] = useState(false);
+  useEffect(() => {
+    const show = () => setQueueOpen(true);
+    window.addEventListener(OPEN_EXPORT_QUEUE, show);
+    return () => window.removeEventListener(OPEN_EXPORT_QUEUE, show);
+  }, []);
   const dialog = useRef<HTMLDialogElement>(null);
   const beforeDrawerPanel = useRef<Panel | null>(Panel.Adjustments);
   useEffect(

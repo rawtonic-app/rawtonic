@@ -20,6 +20,8 @@ export interface ExportJob {
   failed: number;
   /** The photos that did not export and the reasons (export_queue.rs). */
   failures: ExportFailure[];
+  /** An Edit With render: never resumed (Edit With is chosen again). */
+  editWith?: boolean;
 }
 
 export interface ExportFailure {
@@ -78,6 +80,8 @@ export interface ExportQueueSnapshot {
   jobs: ExportJob[];
   /** Waiting exports do not start until Start queue, an export or a resume. */
   held: boolean;
+  /** The jobs that render for Edit With (`ExportJob.editWith`). */
+  editWith?: string[];
 }
 
 export interface AiTask {
@@ -243,8 +247,9 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
       return { exportItems: { ...state.exportItems, [job]: next } };
     }),
 
-  setExportQueue: ({ jobs, held }) =>
+  setExportQueue: ({ jobs: listed, held, editWith = [] }) =>
     set((state) => {
+      const jobs = listed.map((job) => (editWith.includes(job.id) ? { ...job, editWith: true } : job));
       const ids = new Set(jobs.map((job) => job.id));
       const running = new Set(jobs.filter((job) => job.state === 'running').map((job) => job.id));
       // Removed jobs drop their photos.

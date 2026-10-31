@@ -113,6 +113,12 @@
           "accelerator": "CmdOrCtrl+KeyK"
         },
         {
+          "kind": "item",
+          "id": "cmd:find_duplicates",
+          "label": "Find Duplicates…",
+          "enabled": false
+        },
+        {
           "kind": "separator"
         },
         {
@@ -398,6 +404,21 @@
           "label": "Auto White Balance",
           "enabled": false,
           "accelerator": "CmdOrCtrl+Shift+KeyU"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:open_with",
+          "label": "Open With…",
+          "enabled": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:edit_with",
+          "label": "Edit With…",
+          "enabled": false
         },
         {
           "kind": "separator"

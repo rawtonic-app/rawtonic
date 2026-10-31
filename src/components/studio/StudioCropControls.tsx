@@ -1,3 +1,4 @@
+import { cropResetValues } from "../../utils/cameraCrop";
 import {
   FlipHorizontal2,
   FlipVertical2,
@@ -348,10 +349,11 @@ export default function StudioCropControls({
             title={t("studio.crop.resetTitle")}
             disabled={!ready}
             onClick={() =>
+              // Back to the camera's crop where it set another aspect ratio
+              // (Lightroom's As Shot, src/utils/cameraCrop.ts), else none.
               setAdjustments((prev) => ({
                 ...prev,
-                crop: null,
-                aspectRatio: null,
+                ...cropResetValues(selectedImage, prev.sourceFrameVersion, prev.orientationSteps),
                 rotation: 0,
               }))
             }

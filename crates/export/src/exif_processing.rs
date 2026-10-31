@@ -1803,11 +1803,13 @@ pub fn resolve_unresolved_lens(recipe: &mut Value, source: &Path) -> Result<(), 
 /// photo could not be read resolved now (`resolve_unresolved_lens`; its
 /// error is returned after the defaults are filled in, for the callers that
 /// must not render without them), then the camera's defaults for a
-/// never-edited photo (`embedded_lens::apply_default`), and the photo's
+/// never-edited photo (`camera_crop::apply_default` for a new recipe,
+/// `embedded_lens::apply_default`), and the photo's
 /// orientation for Lightroom items imported before imports recorded it
 /// (`record_lightroom_orientation`).
 pub fn prepare_recipe_lens(recipe: &mut Value, source: &Path) -> Result<(), String> {
     let resolved = resolve_unresolved_lens(recipe, source);
+    rawtonic_engine::camera_crop::apply_default(recipe, source);
     rawtonic_engine::embedded_lens::apply_default(recipe, source);
     record_lightroom_orientation(recipe, source);
     resolved

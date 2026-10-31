@@ -523,6 +523,39 @@ fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())
 }
+/// Runs `f` holding the ingest gate (a session moving): no ingest, library
+/// copy or other session move starts meanwhile; `busy` when one runs.
+pub(crate) fn holding_import_gate<T>(
+    busy: &str,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
+        return Err(busy.into());
+    }
+    struct Release;
+    impl Drop for Release {
+        fn drop(&mut self) {
+            IMPORT_RUNNING.store(false, Ordering::Release);
+        }
+    }
+    let _release = Release;
+    f()
+}
+
+/// The session folder `from` is at `to` now (moved, or its move undone or
+/// redone). When it is the open library it is remembered at its new place
+/// (the next start opens it there); returns whether it was.
+pub(crate) fn session_moved(
+    app: &tauri::AppHandle,
+    from: &Path,
+    to: &Path,
+) -> Result<bool, String> {
+    if active_library_directory().as_deref() != Some(from) {
+        return Ok(false);
+    }
+    remember(app, to)?;
+    Ok(true)
+}
 #[tauri::command]
 pub async fn session_create(
     directory: String,
@@ -1280,6 +1313,17 @@ pub(crate) fn with_library<T: Send + 'static>(
     })
 }
 
+/// `with_library` for work already on a blocking thread: under the write
+/// lock, in the library at `directory`.
+pub(crate) fn with_library_blocking<T>(
+    directory: &Path,
+    work: impl FnOnce(&Library) -> Result<T, String>,
+) -> Result<T, String> {
+    let _lock = WRITE_LOCK.lock().map_err(|e| e.to_string())?;
+    let lib = Library::open(directory).map_err(|e| e.to_string())?;
+    work(&lib)
+}
+
 fn asset_ids(lib: &Library, paths: &[String]) -> Result<Vec<String>, String> {
     Ok(registered_assets(lib, paths)?
         .into_iter()
@@ -1405,6 +1449,7 @@ pub async fn session_album_remove(
 pub async fn session_album_paths(directory: String, id: String) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
         crate::library_search::start_facts_pass_if_needed(lib);
+        crate::duplicates::start_pass_if_needed(lib, &rawtonic_catalog::Rule::album(&id));
         lib.collection_paths(&id).map_err(|e| e.to_string())
     })
     .await

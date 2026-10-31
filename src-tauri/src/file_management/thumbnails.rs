@@ -251,6 +251,44 @@ pub fn generate_thumbnail_data(
     )
 }
 
+/// The stored Standard proxy of the RAW `source` when it stands for a
+/// photograph shown with `adjustments`: made for its decode variant
+/// (`preview_proxy::stands_for`) and, offline, of its frame (read through
+/// `preview_proxy::frame_fits`).
+fn stored_proxy(
+    source: &Path,
+    adjustments: &serde_json::Value,
+    settings: &crate::app_settings::AppSettings,
+) -> Option<crate::preview_proxy::Proxy> {
+    crate::preview_proxy::stands_for(source, adjustments)
+        .then(|| crate::preview_proxy::read(source, settings))
+        .flatten()
+}
+
+/// A never-edited RAW's plain decode cut to the camera's crop of the
+/// newest frame (`camera_crop`), as its export frames it. The crop is
+/// centred in the developed frame, so its share of each side carries over
+/// to a reduced decode.
+fn cut_to_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
+    let Some(crop) = rawtonic_engine::camera_crop::crops(source)
+        .get(rawtonic_engine::source_frame::VERSION as usize)
+        .copied()
+        .flatten()
+    else {
+        return image;
+    };
+    let share = |part: u32, margin: u32| part as f64 / (2 * margin + part) as f64;
+    let (width, height) = (image.width(), image.height());
+    let cut_width = ((width as f64 * share(crop.width, crop.x)).round() as u32).clamp(1, width);
+    let cut_height = ((height as f64 * share(crop.height, crop.y)).round() as u32).clamp(1, height);
+    image.crop_imm(
+        (width - cut_width) / 2,
+        (height - cut_height) / 2,
+        cut_width,
+        cut_height,
+    )
+}
+
 /// The thumbnail of `path_str` developed with `metadata`'s adjustments
 /// (none: as a photograph never edited), as the Library shows it. Its
 /// decoded base is cached under `cache_key` (a photograph's own thumbnails
@@ -279,15 +317,24 @@ pub(crate) fn develop_thumbnail(
     // A preview proxy (preview_proxy.rs) develops the thumbnail like the
     // editor does, also for never-edited RAWs (RAW defaults and the camera's
     // lens data), so the Library and the placeholder show the edited look.
-    let proxy = (is_raw
-        && preloaded_image.is_none()
-        && gpu_context.is_some()
-        && crate::preview_proxy::stands_for(&source_path, &adjustments))
-    .then(|| crate::preview_proxy::read(&source_path, &settings))
-    .flatten();
+    let proxy = (is_raw && preloaded_image.is_none() && gpu_context.is_some())
+        .then(|| stored_proxy(&source_path, &adjustments, &settings))
+        .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
-        (Some(_), metadata) if adjustments.is_null() => {
-            let mut recipe = serde_json::json!({});
+        // A new recipe renders as its export does: none (with a proxy to
+        // develop; without one the camera's JPEG or a plain decode below), or
+        // a Reset's.
+        (proxy, metadata)
+            if is_raw
+                && crate::image_processing::is_new_recipe(&adjustments)
+                && (proxy.is_some() || !adjustments.is_null()) =>
+        {
+            let mut recipe = if adjustments.is_null() {
+                serde_json::json!({})
+            } else {
+                adjustments.clone()
+            };
+            rawtonic_engine::camera_crop::apply_default(&mut recipe, &source_path);
             crate::embedded_lens::apply_default(&mut recipe, &source_path);
             let mut meta = metadata.unwrap_or_default();
             meta.adjustments = recipe.clone();
@@ -669,6 +716,9 @@ pub(crate) fn develop_thumbnail(
             crate::image_processing::apply_cpu_agx_tonemap(&mut final_image);
         } else if is_raw {
             apply_cpu_default_raw_processing(&mut final_image);
+        }
+        if is_raw {
+            final_image = cut_to_camera_crop(final_image, &source_path_str);
         }
     }
 
@@ -1781,6 +1831,22 @@ mod thumbnail_queue_tests {
         // A never-edited photograph's proxies stand for itself.
         fs::remove_file(directory.path().join("A.RAF.rrdata")).unwrap();
         assert!(stands_for(&source, &serde_json::Value::Null));
+    }
+
+    /// Thumbnails never develop an edit (ADR 0020) on offline previews of
+    /// another frame of the RAW.
+    #[test]
+    fn offline_thumbnails_use_previews_of_their_own_frame_only() {
+        use crate::preview_proxy::frame_fixture::{frame_one_edit, offline_cr3};
+        let settings = crate::app_settings::AppSettings::default();
+        for (frame, shown) in [(0, false), (1, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let photo = offline_cr3(directory.path(), frame_one_edit(), frame);
+            assert_eq!(
+                stored_proxy(&photo, &frame_one_edit(), &settings).is_some(),
+                shown
+            );
+        }
     }
 
     #[test]

@@ -32,6 +32,20 @@
     "download": {
       "model": "A transferir {{name}}"
     },
+    "duplicates": {
+      "failed": "A procura de duplicados falhou",
+      "read_one": "{{count}} foto comparada para duplicados",
+      "read_many": "{{count}} fotos comparadas para duplicados",
+      "read_other": "{{count}} fotos comparadas para duplicados",
+      "reading": "A comparar fotos para encontrar duplicados",
+      "review": "Rever duplicados",
+      "stopped_one": "Comparação de duplicados parada após {{count}} foto",
+      "stopped_many": "Comparação de duplicados parada após {{count}} fotos",
+      "stopped_other": "Comparação de duplicados parada após {{count}} fotos",
+      "unreadable_one": "Não foi possível comparar {{count}} foto",
+      "unreadable_many": "Não foi possível comparar {{count}} fotos",
+      "unreadable_other": "Não foi possível comparar {{count}} fotos"
+    },
     "empty": {
       "attention": "Nada requer a sua atenção.",
       "done": "Sem resultados recentes.",
@@ -216,6 +230,8 @@
       "copy_adjustments": "Copiar ajustes",
       "copy_image_path": "Copiar caminho",
       "delete_selected": "Mover para o Lixo",
+      "edit_with": "Editar com…",
+      "find_duplicates": "Encontrar duplicados…",
       "flag_pick": "Escolher",
       "flag_reject": "Rejeitar",
       "flag_unflag": "Sem marca",
@@ -226,6 +242,7 @@
       "new_session": "Novo projeto ou catálogo…",
       "open_session": "Abrir projeto ou catálogo…",
       "open_settings": "Preferências…",
+      "open_with": "Abrir com…",
       "paste_adjustments": "Colar ajustes",
       "paste_from_previous": "Colar ajustes da foto anterior",
       "rate_0": "Sem estrelas",
@@ -438,10 +455,33 @@
       "tagging": "Etiquetas",
       "undo": "Desfazer"
     },
+    "editWith": {
+      "failed": "Editar com falhou: {{error}}",
+      "generatedAreas": "Editar com ainda não está disponível para fotografias com áreas geradas: {{names}}",
+      "interrupted": "«Editar com» em {{app}} foi interrompido ao fechar o Rawtonic. Tente novamente para renderizar as fotos outra vez.",
+      "label": "Editar com",
+      "notLinked": "Renderizado, mas não adicionado à biblioteca: {{error}}",
+      "openIn": "Abrir em",
+      "recipe": "Receita",
+      "rendering": "A renderizar para {{app}}…",
+      "someFailed": "Não foi possível renderizar {{failed}} de {{total}} fotografias.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Empilhamento de Foco",
       "hdrPanorama": "Panorama HDR",
       "title": "Mesclar"
+    },
+    "openWith": {
+      "chooseTitle": "Escolher uma aplicação",
+      "default": "Predefinida",
+      "failed": "Não foi possível abrir os ficheiros: {{error}}",
+      "label": "Abrir com",
+      "none": "Nenhuma aplicação abre estes ficheiros",
+      "other": "Outra…",
+      "reading": "A procurar aplicações…",
+      "unsupported": "Disponível apenas no macOS"
     },
     "tagging": {
       "addTagTooltip": "Adicionar etiqueta",
@@ -651,6 +691,60 @@
         "transform": "Transformar"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "JPEG emparelhado {{name}}",
+      "copies_one": "{{count}} cópia virtual",
+      "copies_many": "{{count}} cópias virtuais",
+      "copies_other": "{{count}} cópias virtuais",
+      "described": "Título, legenda ou IPTC",
+      "edited": "Editada",
+      "keywords_one": "{{count}} palavra-chave",
+      "keywords_many": "{{count}} palavras-chave",
+      "keywords_other": "{{count}} palavras-chave",
+      "label": "Etiqueta: {{label}}",
+      "none": "Sem edições nem metadados",
+      "picked": "Escolhida",
+      "rejected": "Rejeitada"
+    },
+    "captured": "Captada {{date}}",
+    "changed_one": "{{count}} foto mudou desde a comparação, por isso nada foi movido. Comparado de novo.",
+    "changed_many": "{{count}} fotos mudaram desde a comparação, por isso nada foi movido. Comparado de novo.",
+    "changed_other": "{{count}} fotos mudaram desde a comparação, por isso nada foi movido. Comparado de novo.",
+    "close": "Fechar",
+    "companionKept_one": "{{count}} foto fica: não fica nenhuma cópia idêntica do seu JPEG emparelhado, por isso nada foi movido.",
+    "companionKept_many": "{{count}} fotos ficam: não fica nenhuma cópia idêntica dos seus JPEG emparelhados, por isso nada foi movido.",
+    "companionKept_other": "{{count}} fotos ficam: não fica nenhuma cópia idêntica dos seus JPEG emparelhados, por isso nada foi movido.",
+    "comparedFile": "ficheiros inteiros comparados",
+    "comparedImage": "dados de imagem comparados",
+    "failed": "A procura de duplicados falhou: {{error}}",
+    "group_one": "{{count}} foto com dados de imagem idênticos",
+    "group_many": "{{count}} fotos com dados de imagem idênticos",
+    "group_other": "{{count}} fotos com dados de imagem idênticos",
+    "imported": "Importada {{date}}",
+    "intro": "Encontra fotos cujos ficheiros contêm dados de imagem idênticos, mesmo com outros nomes, pastas, metadados ou edições. Fotos visualmente semelhantes não são comparadas.",
+    "keepOne": "Mantenha pelo menos uma foto deste grupo.",
+    "markTrash": "Mover para o lixo",
+    "moveToTrash_one": "Mover {{count}} foto para o lixo",
+    "moveToTrash_many": "Mover {{count}} fotos para o lixo",
+    "moveToTrash_other": "Mover {{count}} fotos para o lixo",
+    "noLibrary": "Abra um projeto ou catálogo para encontrar duplicados.",
+    "none": "Sem duplicados: não há duas fotos com dados de imagem idênticos.",
+    "reading": "A comparar dados de imagem: {{done}} de {{total}} fotos",
+    "readingStart": "A comparar dados de imagem…",
+    "stop": "Parar",
+    "stopped": "Parado: só as fotos comparadas até agora estão agrupadas.",
+    "suggestion": "Sugeridas para o lixo: fotos sem edições, classificação, sinalizador, etiqueta, palavras-chave, título ou legenda, cópias virtuais ou JPEG emparelhado próprios. Todas as fotos com esse trabalho são mantidas; caso contrário, mantém-se a importação mais antiga. Nada é fundido.",
+    "summary_one": "{{count}} grupo de duplicados ({{photos}} fotos)",
+    "summary_many": "{{count}} grupos de duplicados ({{photos}} fotos)",
+    "summary_other": "{{count}} grupos de duplicados ({{photos}} fotos)",
+    "title": "Encontrar duplicados",
+    "unknown": "desconhecida",
+    "unreadable_one": "Não foi possível ler {{count}} foto e não está agrupada.",
+    "unreadable_many": "Não foi possível ler {{count}} fotos e não estão agrupadas.",
+    "unreadable_other": "Não foi possível ler {{count}} fotos e não estão agrupadas.",
+    "workWarning": "Uma foto marcada para o lixo tem edições, metadados ou cópias virtuais próprias. Desfazer recupera-a com eles."
   },
   "editor": {
     "adjustments": {
@@ -3183,6 +3277,7 @@
       "title": "Histograma"
     },
     "layers": {
+      "bandWidth": "Largura da faixa",
       "brush": {
         "autoMask": "Máscara automática",
         "brushFlow": "Fluxo do pincel",
@@ -3200,6 +3295,7 @@
       "drawTitle": "Pintar na máscara desta camada (os gradientes continuam editáveis)",
       "erase": "Apagar",
       "eraseTitle": "Apagar da máscara desta camada (os gradientes continuam editáveis)",
+      "gradientBand": "Faixa de dois lados",
       "invert": "Inverter",
       "invertTitle": "Inverter a máscara desta camada",
       "lumaRange": {
@@ -3374,6 +3470,7 @@
         "moveFolderTo": "Mover «{{name}}» para",
         "nothingToRedo": "Não há nenhuma operação de arquivos para refazer.",
         "nothingToUndo": "Não há nenhuma operação de arquivos para desfazer.",
+        "openExportQueue": "Abrir a fila de exportação",
         "otherDriveConfirm": "Copiar e mover",
         "otherDriveFolderMessage_one": "A pasta «{{name}}» com tudo o que contém ({{count}} foto, {{files}} ficheiros, {{size}}) é copiada para {{drive}}, que tem {{free}} livres, e verificada byte a byte. Depois, a pasta original vai para o Lixo de {{sources}}; se algo nela tiver mudado entretanto, ou se a sua unidade não tiver Lixo, fica onde está. Desfazer copia-a de volta.",
         "otherDriveFolderMessage_many": "A pasta «{{name}}» com tudo o que contém ({{count}} fotos, {{files}} ficheiros, {{size}}) é copiada para {{drive}}, que tem {{free}} livres, e verificada byte a byte. Depois, a pasta original vai para o Lixo de {{sources}}; se algo nela tiver mudado entretanto, ou se a sua unidade não tiver Lixo, fica onde está. Desfazer copia-a de volta.",
@@ -3389,6 +3486,15 @@
         "renameFolderFailed": "Não foi possível renomear a pasta: {{error}}",
         "selectForSelects": "Selecione fotos para mover para Selects.",
         "selectsNeedSession": "Mover para Selects funciona em sessões.",
+        "sessionMoveConfirm": "Mover a sessão inteira para “{{folder}}”",
+        "sessionMoved": "Sessão “{{name}}” movida para “{{folder}}”. {{hint}}",
+        "sessionMoveExportsPending": "Conclua ou cancele primeiro as exportações da sessão “{{name}}”: elas leem as fotos dela, que a movimentação levaria embora. Nada foi movido.",
+        "sessionMoveFailed": "Não foi possível mover a sessão “{{name}}”: {{error}}",
+        "sessionMoveOtherDrive": "Ela é copiada para {{drive}} ({{size}}, {{free}} livres lá) e verificada byte a byte; só então a pasta original da sessão vai para a Lixeira. Desfazer a traz de volta.",
+        "sessionMoveRefused": "As fotos ficam dentro da sessão “{{name}}”, e a sessão inteira não pode ir para lá: {{error}}",
+        "sessionMoveSameDrive": "Ela é movida na própria unidade em um só passo; Desfazer a traz de volta.",
+        "sessionMoveTitle": "Mover a sessão inteira “{{name}}”?",
+        "sessionMoveWhy": "As fotos ficam dentro da sessão “{{name}}”, para que ela continue sendo uma pasta independente que se move por inteiro; em vez disso, a sessão inteira pode ir para “{{folder}}”.",
         "stopCopying": "Parar",
         "trashConfirm": "Mover para a lixeira",
         "trashCopiesConfirm": "Mover tudo",
@@ -3616,6 +3722,7 @@
           "camera": "Câmera",
           "captureDate": "Data de captura",
           "details": "Qualquer texto exceto palavras-chave",
+          "duplicate": "Duplicado (dados de imagem idênticos)",
           "exposure": "Velocidade do obturador (s)",
           "filename": "Nome do arquivo",
           "fileType": "Tipo de arquivo",

@@ -148,6 +148,16 @@ enum Command {
     /// Record the content hash (SHA-256) of every photograph that has none,
     /// so Synchronize Folder can verify moves. Reads the photographs only.
     Checksums { library: PathBuf },
+    /// Find Duplicates: read the image data hash of every photograph that
+    /// has none for its file as it is now, then list the groups of
+    /// photographs with identical image data, with the time each step took.
+    /// Reads the photographs only; nothing is moved or removed.
+    Duplicates {
+        library: PathBuf,
+        /// Files read at the same time.
+        #[arg(long, default_value_t = 4)]
+        workers: usize,
+    },
     /// Explicitly replace stored metadata with an external XMP sidecar. Keeps our recipe.
     AdoptXmp { library: PathBuf, asset: String },
     /// Sync sidecars, reporting conflicts without replacing external edits.
@@ -335,7 +345,7 @@ fn with_face_retouch(
         &bytes,
         source,
         false,
-        &rawtonic_engine::image_loader::BaseImageOptions::default().for_recipe(&recipe, is_raw),
+        &rawtonic_engine::image_loader::BaseImageOptions::default().for_recipe(&recipe, source),
         None,
     )?;
     // The geometry as the export renders it (the camera's lens correction
@@ -633,6 +643,22 @@ fn run() -> Result<()> {
             let l = Library::open(&library)?;
             let recorded = l.fill_all_checksums(&AtomicBool::new(false))?;
             print(serde_json::json!({ "recorded": recorded, "without": l.checksum_backlog()? }))
+        }
+        Command::Duplicates { library, workers } => {
+            let l = Library::open(&library)?;
+            let started = std::time::Instant::now();
+            let pass = l.fill_image_hashes(workers, &AtomicBool::new(false), &mut |_, _| {})?;
+            let hashed_in = started.elapsed();
+            let started = std::time::Instant::now();
+            let groups = l.duplicate_groups()?;
+            print(serde_json::json!({
+                "photos": pass.photos,
+                "hashed": pass.hashed,
+                "unreadable": pass.unreadable,
+                "hashSeconds": hashed_in.as_secs_f64(),
+                "groupSeconds": started.elapsed().as_secs_f64(),
+                "groups": groups,
+            }))
         }
         Command::AdoptXmp { library, asset } => print(Library::open(&library)?.adopt_xmp(&asset)?),
         Command::Sync { library } => {

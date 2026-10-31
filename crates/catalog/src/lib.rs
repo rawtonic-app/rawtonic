@@ -18,12 +18,16 @@ pub mod add;
 pub mod capture_time;
 pub mod checksum;
 pub mod companion;
+pub mod derived;
+pub mod duplicates;
 pub mod facts;
 pub mod folder_sync;
 pub mod folders;
 pub mod hot_folder;
+pub mod image_hash;
 pub mod ingest_jobs;
 pub mod query;
+pub mod session_move;
 pub mod snapshots;
 pub mod volume;
 pub mod xmp_review;
@@ -44,7 +48,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 19;
+pub const DB_SCHEMA_VERSION: u32 = 20;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -342,6 +346,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0017.sql"))?;
         conn.execute_batch(include_str!("../migrations/0018.sql"))?;
         conn.execute_batch(include_str!("../migrations/0019.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0020.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -481,6 +486,9 @@ impl Library {
         }
         if version < 19 {
             tx.execute_batch(include_str!("../migrations/0019.sql"))?;
+        }
+        if version < 20 {
+            tx.execute_batch(include_str!("../migrations/0020.sql"))?;
         }
         tx.commit()?;
         Ok(())
@@ -2582,7 +2590,7 @@ fn external_root_key(folder: &Path) -> String {
 
 /// The canonical form of a path that may no longer (or not yet) exist: its
 /// nearest existing ancestor canonicalized, the rest appended unchanged.
-fn resolve_moved(path: &Path) -> PathBuf {
+pub(crate) fn resolve_moved(path: &Path) -> PathBuf {
     if let Ok(canonical) = path.canonicalize() {
         return canonical;
     }
