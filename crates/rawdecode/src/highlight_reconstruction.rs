@@ -24,6 +24,19 @@
 //!
 //! Per-colour clipping levels are measured from the data, not assumed: the
 //! blue channel of Fujifilm sensors saturates visibly below the ADC limit.
+//!
+//! Inside large partly clipped areas (skies, lit walls) the chrominance
+//! beside the clip describes the area poorly: the samples just below the
+//! clip are the ones that happened to sit lower than their clipped
+//! neighbours, so the rebuilt colour came out too dark and tinted (a purple
+//! sunset sky, a redder table), and spreading the grid cell by cell drew
+//! blotches with edges. `HighlightRebuild::Ratios` (`renderVersion` 9) also
+//! measures, a few pixels away from the clip in locally uniform areas, the
+//! ratio of every colour to every other, relaxes both grids smoothly into
+//! the cells without samples, and rebuilds a clipped colour from each
+//! recorded colour and its ratio, taking over from the beside-the-clip
+//! estimate within about 20 pixels of the clip's edge (notes:
+//! benchmark-results/hl-partial-clip-2026-10-31/).
 
 use rawler::CFA;
 use rayon::prelude::*;
@@ -80,6 +93,31 @@ const LEVEL_ROW_STEP: usize = 4;
 /// Unclipped samples within this fraction below their clipping level count
 /// partly as clipped in that map.
 const NEAR_CLIP: f32 = 0.08;
+
+/// Ratio candidates (`HighlightRebuild::Ratios`) lie within this many
+/// pixels of a clipped sample but not next to one.
+const RATIO_REACH: usize = 8;
+/// A ratio candidate's colours may differ from their means one ring further
+/// out by at most this fraction (no edge or texture inside its window).
+const RATIO_UNIFORMITY: f32 = 0.08;
+/// The ratio estimate takes over where the clipped colour's blurred share
+/// (`ShareMap`) rises from this level over the next `RATIO_RAMP` (the clip's
+/// edge sits near 0.5), so it meets the recorded colours without a step.
+const RATIO_RAMP_START: f32 = 0.5;
+const RATIO_RAMP: f32 = 0.4;
+
+/// How clipped colours are rebuilt (the recipe's `renderVersion` decides it,
+/// image_loader.rs `decode_variant`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HighlightRebuild {
+    /// From chrominance offsets measured beside the clip (before
+    /// `renderVersion` 9).
+    #[default]
+    Offsets,
+    /// Inside larger clipped areas also from colour ratios measured a few
+    /// pixels away from the clip (see the module notes).
+    Ratios,
+}
 
 /// Active-area rectangle: left, top, width, height in mosaic pixels.
 pub type Area = (usize, usize, usize, usize);
@@ -395,6 +433,34 @@ impl Mosaic<'_> {
         w
     }
 
+    /// Whether nothing clips within two pixels and every colour's mean over
+    /// `near` (the candidate's own value for its colour) stays within
+    /// RATIO_UNIFORMITY of its mean one ring further out.
+    fn uniform_around(
+        &self,
+        row: usize,
+        col: usize,
+        color: usize,
+        value: f32,
+        near: &Window,
+    ) -> bool {
+        let wide = self.window(row, col, RADIUS, false);
+        if wide.clipped.iter().any(|c| *c != 0) {
+            return false;
+        }
+        (0..3).filter(|k| wide.count[*k] > 0).all(|k| {
+            let outer = wide.sum[k] / wide.count[k] as f32;
+            let inner = if k == color {
+                value
+            } else if near.count[k] > 0 {
+                near.sum[k] / near.count[k] as f32
+            } else {
+                outer
+            };
+            (inner / outer.max(1e-12) - 1.0).abs() <= RATIO_UNIFORMITY
+        })
+    }
+
     #[inline]
     fn any_clipped_near(&self, row: usize, col: usize) -> bool {
         let (left, top, aw, ah) = self.active;
@@ -477,6 +543,97 @@ fn fill_grid(sum: &mut [f32], count: &mut [u32], cols: usize, rows: usize, fallb
     }
     sum.copy_from_slice(&value);
     count.iter_mut().for_each(|c| *c = 1);
+}
+
+/// Lets the cells without enough samples (`known` false) relax to the mean
+/// of their four neighbours, the known ones fixed: smooth membranes instead
+/// of `fill_grid`'s plateaus, whose steps showed as blotches with edges in
+/// large clipped skies. Starts from `fill_grid`'s values.
+fn relax_grid(value: &mut [f32], known: &[bool], cols: usize, rows: usize) {
+    if known.iter().all(|k| *k) || !known.iter().any(|k| *k) {
+        return;
+    }
+    let mut next = value.to_vec();
+    for _ in 0..4 * (cols + rows) {
+        for y in 0..rows {
+            for x in 0..cols {
+                let i = y * cols + x;
+                if known[i] {
+                    continue;
+                }
+                let mut acc = 0.0;
+                let mut n = 0.0;
+                if x > 0 {
+                    acc += value[i - 1];
+                    n += 1.0;
+                }
+                if x + 1 < cols {
+                    acc += value[i + 1];
+                    n += 1.0;
+                }
+                if y > 0 {
+                    acc += value[i - cols];
+                    n += 1.0;
+                }
+                if y + 1 < rows {
+                    acc += value[i + cols];
+                    n += 1.0;
+                }
+                next[i] = acc / n;
+            }
+        }
+        value.copy_from_slice(&next);
+    }
+}
+
+/// Index of the colour pair (R-G, R-B, G-B) in the ratio grid, and the sign
+/// that turns its log ratio (lower index over higher) into `color` over
+/// `other`.
+fn pair_index(color: usize, other: usize) -> (usize, f32) {
+    let index = match (color.min(other), color.max(other)) {
+        (0, 1) => 0,
+        (0, 2) => 1,
+        _ => 2,
+    };
+    (index, if color < other { 1.0 } else { -1.0 })
+}
+
+/// For the rows `rows`: 1 where a clipped sample lies within RATIO_REACH
+/// pixels (in both directions), else 0; `rows.len()` lines of `width`.
+fn near_clip(mask: &[u8], width: usize, height: usize, rows: std::ops::Range<usize>) -> Vec<u8> {
+    let first = rows.start.saturating_sub(RATIO_REACH);
+    let last = (rows.end + RATIO_REACH).min(height);
+    // Clipped samples within reach along each row of the band.
+    let horizontal: Vec<u8> = (first..last)
+        .flat_map(|row| {
+            let line = &mask[row * width..(row + 1) * width];
+            let mut count = line[..RATIO_REACH.min(width)]
+                .iter()
+                .filter(|m| **m != 0)
+                .count();
+            (0..width).map(move |col| {
+                if col + RATIO_REACH < width && line[col + RATIO_REACH] != 0 {
+                    count += 1;
+                }
+                if col > RATIO_REACH && line[col - RATIO_REACH - 1] != 0 {
+                    count -= 1;
+                }
+                (count > 0) as u8
+            })
+        })
+        .collect();
+    let mut near = vec![0u8; rows.len() * width];
+    for (i, row) in rows.enumerate() {
+        let r0 = row.saturating_sub(RATIO_REACH).max(first) - first;
+        let r1 = (row + RATIO_REACH + 1).min(last) - first;
+        let out = &mut near[i * width..(i + 1) * width];
+        for r in r0..r1 {
+            for (o, h) in out.iter_mut().zip(&horizontal[r * width..(r + 1) * width]) {
+                *o |= *h;
+            }
+        }
+    }
+    near
 }
 
 /// Per block of SHARE_BLOCK pixels: samples and clipped samples per colour.
@@ -634,7 +791,9 @@ fn chroma_at(
 
 /// Reconstructs clipped samples in place. `data` is the mosaic in the units
 /// the thresholds were measured in; `wb` are the white-balance multipliers
-/// per colour index. Returns `None` when nothing clips.
+/// per colour index; `rebuild` picks the estimate inside larger clipped
+/// areas. Returns `None` when nothing clips.
+#[allow(clippy::too_many_arguments)]
 pub fn reconstruct_clipped_mosaic(
     data: &mut [f32],
     width: usize,
@@ -643,6 +802,7 @@ pub fn reconstruct_clipped_mosaic(
     cfa: &CFA,
     wb: [f32; 4],
     levels: &ClipLevels,
+    rebuild: HighlightRebuild,
 ) -> Option<Reconstruction> {
     let (left, top, aw, ah) = active;
     if width == 0 || aw == 0 || ah == 0 || left + aw > width || top + ah > height {
@@ -695,7 +855,10 @@ pub fn reconstruct_clipped_mosaic(
 
     // 2. Chrominance candidates on a coarse grid: unclipped, bright samples
     //    next to clipped ones, compared with the unclipped neighbours of the
-    //    other colours.
+    //    other colours. With `Ratios` also the log ratios of each colour
+    //    pair, from bright samples within RATIO_REACH of the clip but not
+    //    next to it, in uniform surroundings.
+    let ratios = rebuild == HighlightRebuild::Ratios;
     let grid_cols = width.div_ceil(CELL);
     let grid_rows = height.div_ceil(CELL);
     let mosaic = Mosaic {
@@ -706,13 +869,20 @@ pub fn reconstruct_clipped_mosaic(
         pattern: &pattern,
         wb,
     };
-    let accumulators: Vec<GridRow> = (0..grid_rows)
+    let accumulators: Vec<(GridRow, GridRow)> = (0..grid_rows)
         .into_par_iter()
         .map(|gy| {
             let mut sums = vec![[0.0f32; 3]; grid_cols];
             let mut counts = vec![[0u32; 3]; grid_cols];
+            let mut ratio_sums = vec![[0.0f32; 3]; grid_cols];
+            let mut ratio_counts = vec![[0u32; 3]; grid_cols];
             let row_start = (gy * CELL).max(top);
-            let row_end = ((gy + 1) * CELL).min(top + ah);
+            let row_end = ((gy + 1) * CELL).min(top + ah).max(row_start);
+            let near = if ratios {
+                near_clip(&mask, width, height, row_start..row_end)
+            } else {
+                Vec::new()
+            };
             for row in row_start..row_end {
                 for col in left..left + aw {
                     let index = row * width + col;
@@ -727,53 +897,91 @@ pub fn reconstruct_clipped_mosaic(
                     if value < clip_wb[color] * CANDIDATE_FRACTION {
                         continue;
                     }
-                    if !mosaic.any_clipped_near(row, col) {
+                    let adjacent = mosaic.any_clipped_near(row, col);
+                    let ratio_candidate =
+                        ratios && !adjacent && near[(row - row_start) * width + col] != 0;
+                    if !adjacent && !ratio_candidate {
                         continue;
                     }
-                    let Some(mean_others) = mosaic
-                        .window(row, col, CANDIDATE_RADIUS, true)
-                        .mean_others(color)
-                    else {
+                    let window = mosaic.window(row, col, CANDIDATE_RADIUS, true);
+                    let Some(mean_others) = window.mean_others(color) else {
                         continue;
                     };
                     if value < mean_others * CANDIDATE_MIN_RATIO {
                         continue;
                     }
                     let gx = col / CELL;
-                    sums[gx][color] += value - mean_others;
-                    counts[gx][color] += 1;
+                    if adjacent {
+                        sums[gx][color] += value - mean_others;
+                        counts[gx][color] += 1;
+                    } else if mosaic.uniform_around(row, col, color, value, &window) {
+                        for other in (0..3).filter(|o| *o != color) {
+                            let mean = window.sum[other] / window.count[other] as f32;
+                            if mean > 0.0 {
+                                let (pair, sign) = pair_index(color, other);
+                                ratio_sums[gx][pair] += sign * (value / mean).ln();
+                                ratio_counts[gx][pair] += 1;
+                            }
+                        }
+                    }
                 }
             }
-            (gy, sums, counts)
+            ((gy, sums, counts), (gy, ratio_sums, ratio_counts))
         })
         .collect();
     let mut grid_sum = vec![[0.0f32; 3]; grid_cols * grid_rows];
     let mut grid_count = vec![[0u32; 3]; grid_cols * grid_rows];
-    for (gy, sums, counts) in accumulators {
+    let mut ratio_sum = vec![[0.0f32; 3]; grid_cols * grid_rows];
+    let mut ratio_count = vec![[0u32; 3]; grid_cols * grid_rows];
+    for ((gy, sums, counts), (_, r_sums, r_counts)) in accumulators {
         for gx in 0..grid_cols {
             grid_sum[gy * grid_cols + gx] = sums[gx];
             grid_count[gy * grid_cols + gx] = counts[gx];
+            ratio_sum[gy * grid_cols + gx] = r_sums[gx];
+            ratio_count[gy * grid_cols + gx] = r_counts[gx];
         }
     }
-    let mut global_chrominance = [0.0f32; 3];
-    let mut chrominance = vec![[0.0f32; 3]; grid_cols * grid_rows];
-    for color in 0..3 {
-        let total: f32 = grid_sum.iter().map(|s| s[color]).sum();
-        let n: u32 = grid_count.iter().map(|c| c[color]).sum();
-        global_chrominance[color] = if n > 0 { total / n as f32 } else { 0.0 };
-        let mut sum: Vec<f32> = grid_sum.iter().map(|s| s[color]).collect();
-        let mut count: Vec<u32> = grid_count.iter().map(|c| c[color]).collect();
-        fill_grid(
-            &mut sum,
-            &mut count,
-            grid_cols,
-            grid_rows,
-            global_chrominance[color],
-        );
-        for (cell, value) in chrominance.iter_mut().zip(sum.iter()) {
-            cell[color] = *value;
+    // Each colour's chrominance grid and, with `Ratios`, each colour pair's
+    // log ratio grid (`pair_index`): the mean per cell with enough
+    // candidates, carried into the others; one grid per thread. Whether
+    // any cell had enough candidates comes along: a pair without is not
+    // measured, and its grid's fallback is no ratio to rebuild from.
+    let filled = |sums: &[[f32; 3]], counts: &[[u32; 3]], k: usize, relax: bool| {
+        let total: f32 = sums.iter().map(|s| s[k]).sum();
+        let n: u32 = counts.iter().map(|c| c[k]).sum();
+        let mean = if n > 0 { total / n as f32 } else { 0.0 };
+        let mut sum: Vec<f32> = sums.iter().map(|s| s[k]).collect();
+        let mut count: Vec<u32> = counts.iter().map(|c| c[k]).collect();
+        let known: Vec<bool> = count
+            .iter()
+            .map(|c| *c as usize >= MIN_CELL_SAMPLES)
+            .collect();
+        let measured = known.iter().any(|k| *k);
+        fill_grid(&mut sum, &mut count, grid_cols, grid_rows, mean);
+        if relax {
+            relax_grid(&mut sum, &known, grid_cols, grid_rows);
         }
-    }
+        (mean, sum, measured)
+    };
+    let grids: Vec<(f32, Vec<f32>, bool)> = (0..if ratios { 6 } else { 3 })
+        .into_par_iter()
+        .map(|k| {
+            if k < 3 {
+                filled(&grid_sum, &grid_count, k, ratios)
+            } else {
+                filled(&ratio_sum, &ratio_count, k - 3, true)
+            }
+        })
+        .collect();
+    let interleave = |grids: &[(f32, Vec<f32>, bool)]| -> Vec<[f32; 3]> {
+        (0..grid_cols * grid_rows)
+            .map(|i| [grids[0].1[i], grids[1].1[i], grids[2].1[i]])
+            .collect()
+    };
+    let global_chrominance = [grids[0].0, grids[1].0, grids[2].0];
+    let chrominance = interleave(&grids[..3]);
+    let ratio_grid: Option<Vec<[f32; 3]>> = ratios.then(|| interleave(&grids[3..]));
+    let ratio_measured: [bool; 3] = std::array::from_fn(|pair| ratios && grids[3 + pair].2);
 
     // 3. Per clipped sample: the mean of the other colours around it plus
     //    the local chrominance (the opposed estimate), and how far the
@@ -818,6 +1026,33 @@ pub fn reconstruct_clipped_mosaic(
             let level = w.sum[recorded] / w.count[recorded] as f32;
             let joint = level + (4.0 * chroma(color) + 2.0 * chroma(other_clipped)) / 3.0;
             opposed += (joint - opposed).max(0.0) * joint_weight;
+        }
+        // `Ratios`: the clipped colour from each recorded colour around it
+        // and their ratio (colours partly clipped here count less, their
+        // unclipped samples being the lower ones), taking over from the
+        // estimate above with the clipped share, so the two meet at the
+        // clip's edge.
+        if let Some(ratio_grid) = &ratio_grid {
+            let mut total = 0.0;
+            let mut weights = 0.0;
+            for other in [a, b] {
+                let (pair, sign) = pair_index(color, other);
+                let unclipped = w.count[other] - w.clipped[other];
+                if unclipped == 0 || !ratio_measured[pair] {
+                    continue;
+                }
+                let recorded = unclipped as f32 / w.count[other] as f32;
+                let weight = recorded * recorded * recorded * recorded;
+                let mean = w.sum_unclipped[other] / unclipped as f32;
+                let log_ratio = chroma_at(ratio_grid, grid_cols, grid_rows, row, col, pair);
+                total += weight * mean * (sign * log_ratio).exp();
+                weights += weight;
+            }
+            if weights > 0.0 {
+                let take =
+                    weights.min(1.0) * smooth((share[color] - RATIO_RAMP_START) / RATIO_RAMP);
+                opposed = (opposed + (total / weights - opposed) * take).max(floor);
+            }
         }
         // Where every colour is saturated nothing is known about the
         // colour; such areas become neutral (no warm or magenta cast
@@ -1039,6 +1274,7 @@ mod tests {
             &cfa,
             [wb[0], wb[1], wb[2], 0.0],
             &levels,
+            HighlightRebuild::Offsets,
         )
         .expect("reconstructed");
         assert!(result.raised > 0);
@@ -1080,6 +1316,7 @@ mod tests {
             &cfa,
             [wb[0], wb[1], wb[2], 0.0],
             &levels,
+            HighlightRebuild::Offsets,
         )
         .expect("reconstructed");
         assert_eq!(result.global_chrominance, [0.0; 3]);
@@ -1091,6 +1328,153 @@ mod tests {
             (green - red).abs() < 0.01 && (blue - red).abs() < 0.01,
             "{red} {green} {blue}"
         );
+    }
+
+    #[test]
+    fn ratios_rebuild_a_large_clipped_sky_at_its_own_colour() {
+        // A sky brightening from left to right at one colour (0.9 : 1.0 :
+        // 0.85 after white balance, scale 0.5 → 1.8): green clips over the
+        // right two thirds, red and blue stay recorded. Its brightest part
+        // is far from the clip's edge, where the offset beside the clip no
+        // longer fits (green − mean(red, blue) grows with the brightness).
+        let (w, h) = (512, 192);
+        let wb = [1.7, 1.0, 1.6];
+        let chroma = [0.9, 1.0, 0.85];
+        let cfa = rggb();
+        let scale = |col: usize| 0.5 + 1.3 * col as f32 / (w - 1) as f32;
+        let mut sky = vec![0.0; w * h];
+        for row in 0..h {
+            for col in 0..w {
+                let c = cfa.color_at(row, col);
+                sky[row * w + col] = (chroma[c] * scale(col) / wb[c]).min(1.0);
+            }
+        }
+        let levels = detect_clip_levels(&sky, w, (0, 0, w, h), &cfa, 1.0).expect("green clips");
+        assert!(levels.thresholds[0].is_none() && levels.thresholds[2].is_none());
+        // Mean error of the rebuilt green over the far half of the clipped
+        // area, as a fraction of the true green.
+        let green_error = |rebuild| {
+            let mut data = sky.clone();
+            reconstruct_clipped_mosaic(
+                &mut data,
+                w,
+                h,
+                (0, 0, w, h),
+                &cfa,
+                [wb[0], wb[1], wb[2], 0.0],
+                &levels,
+                rebuild,
+            )
+            .expect("reconstructed");
+            let (mut sum, mut n) = (0.0, 0.0);
+            for row in h / 4..3 * h / 4 {
+                for col in 2 * w / 3..w - 16 {
+                    if cfa.color_at(row, col) == 1 {
+                        sum += data[row * w + col] * wb[1] / (chroma[1] * scale(col)) - 1.0;
+                        n += 1.0;
+                    }
+                }
+            }
+            sum / n
+        };
+        let offsets = green_error(HighlightRebuild::Offsets);
+        let ratios = green_error(HighlightRebuild::Ratios);
+        assert!(ratios.abs() < 0.01, "ratios {ratios}");
+        assert!(offsets < -0.03, "offsets {offsets}");
+    }
+
+    #[test]
+    fn ratios_without_measured_ratios_keep_the_offset_estimate() {
+        // A broad area whose green clips, then a two-sample bright rim just
+        // below the clip and a sharp dark edge: the rim beside the clip
+        // gives offsets, but no sample 2-8 px from the clip is bright and
+        // uniform, so no ratio is measured. That must not read as a ratio
+        // of 1 (a darker, magenta rebuild).
+        let (w, h) = (256, 64);
+        let wb = [1.7, 1.0, 1.6];
+        let chroma: [f32; 3] = [0.8, 1.0, 0.7];
+        let cfa = rggb();
+        let mut sky = vec![0.0; w * h];
+        for row in 0..h {
+            for col in 0..w {
+                let level = match col {
+                    0..100 => 1.6,
+                    100..102 => 0.9,
+                    _ => 0.1,
+                };
+                let c = cfa.color_at(row, col);
+                sky[row * w + col] = (chroma[c] * level / wb[c]).min(1.0);
+            }
+        }
+        let levels = detect_clip_levels(&sky, w, (0, 0, w, h), &cfa, 1.0).expect("green clips");
+        let rebuilt_green = |rebuild| {
+            let mut data = sky.clone();
+            reconstruct_clipped_mosaic(
+                &mut data,
+                w,
+                h,
+                (0, 0, w, h),
+                &cfa,
+                [wb[0], wb[1], wb[2], 0.0],
+                &levels,
+                rebuild,
+            )
+            .expect("reconstructed");
+            let (mut sum, mut n) = (0.0, 0.0);
+            for row in 8..h - 8 {
+                for col in 8..90 {
+                    if cfa.color_at(row, col) == 1 {
+                        sum += data[row * w + col] * wb[1];
+                        n += 1.0;
+                    }
+                }
+            }
+            sum / n
+        };
+        let offsets = rebuilt_green(HighlightRebuild::Offsets);
+        let ratios = rebuilt_green(HighlightRebuild::Ratios);
+        assert!(offsets > 1.0, "offsets {offsets}");
+        assert!(
+            (ratios - offsets).abs() < 1e-4,
+            "ratios {ratios}, offsets {offsets}"
+        );
+    }
+
+    #[test]
+    fn ratios_leave_unclipped_samples_alone() {
+        let (w, h) = (128, 128);
+        let wb = [1.7, 1.0, 1.6];
+        let cfa = rggb();
+        // A bright disc whose green clips, on a darker recorded ground.
+        let mut data = vec![0.0; w * h];
+        for row in 0..h {
+            for col in 0..w {
+                let (dy, dx) = (row as f32 - 64.0, col as f32 - 64.0);
+                let level: f32 = if dy * dy + dx * dx < 900.0 { 1.6 } else { 0.4 };
+                let c = cfa.color_at(row, col);
+                data[row * w + col] = ([0.8, 1.0, 0.7][c] * level / wb[c]).min(1.0);
+            }
+        }
+        let before = data.clone();
+        let levels = detect_clip_levels(&data, w, (0, 0, w, h), &cfa, 1.0).expect("green clips");
+        reconstruct_clipped_mosaic(
+            &mut data,
+            w,
+            h,
+            (0, 0, w, h),
+            &cfa,
+            [wb[0], wb[1], wb[2], 0.0],
+            &levels,
+            HighlightRebuild::Ratios,
+        )
+        .expect("reconstructed");
+        for (i, (a, b)) in before.iter().zip(&data).enumerate() {
+            if *a < 1.0 {
+                assert_eq!(a, b, "sample {i}");
+            } else {
+                assert!(b >= a, "sample {i}");
+            }
+        }
     }
 
     #[test]
@@ -1130,6 +1514,7 @@ mod tests {
             &cfa,
             [wb[0], wb[1], wb[2], 0.0],
             &levels,
+            HighlightRebuild::Offsets,
         )
         .expect("reconstructed")
     }
@@ -1246,6 +1631,7 @@ mod tests {
             &cfa,
             [wb[0], wb[1], wb[2], 0.0],
             &levels,
+            HighlightRebuild::Offsets,
         )
         .expect("reconstructed");
         let [r, g, b] = cell_means(&data, w, wb, 8..h - 8, 8..w - 8);

@@ -51,6 +51,9 @@ pub struct LoadImageResult {
     /// The source was developed with `BlackLevels::Unbiased`
     /// (`renderVersion` 8); None for preview data.
     pub unbiased_black: Option<bool>,
+    /// The source's clipped colours were rebuilt with
+    /// `HighlightRebuild::Ratios` (`renderVersion` 9); None for preview data.
+    pub highlight_ratios: Option<bool>,
     /// The RAW data could not be developed and the camera's embedded preview
     /// is shown instead (an unsupported camera or RAW mode, a damaged file).
     pub developed_from_preview: bool,
@@ -640,6 +643,9 @@ pub fn decoded_cache_key(
     if variant.black == BlackLevels::Unbiased {
         key.push_str("\u{1}black-unbiased");
     }
+    if variant.highlights == HighlightRebuild::Ratios {
+        key.push_str("\u{1}highlights-ratios");
+    }
     key
 }
 
@@ -721,8 +727,9 @@ fn clear_derived_caches(state: &AppState) {
 /// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
 /// its stored recipe's) and for its dead-photosite test
 /// (`dead_pixel_adjacent`: `DeadTest::Adjacent`; None: its stored
-/// recipe's) and black handling (`unbiased_black`: `BlackLevels::Unbiased`;
-/// None: its stored recipe's), and makes
+/// recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`;
+/// None: its stored recipe's) and highlight rebuild (`highlight_ratios`:
+/// `HighlightRebuild::Ratios`; None: its stored recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
 /// The editor calls it when the recipe's AI Denoise amount or colour noise
 /// filter differs from the source's (src/utils/aiDenoise.ts). The frame
@@ -738,6 +745,7 @@ pub async fn apply_ai_denoise(
     multiscale: Option<bool>,
     dead_pixel_adjacent: Option<bool>,
     unbiased_black: Option<bool>,
+    highlight_ratios: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<f32, String> {
@@ -766,6 +774,11 @@ pub async fn apply_ai_denoise(
             Some(true) => BlackLevels::Unbiased,
             Some(false) => BlackLevels::Clipped,
             None => stored.black,
+        },
+        highlights: match highlight_ratios {
+            Some(true) => HighlightRebuild::Ratios,
+            Some(false) => HighlightRebuild::Offsets,
+            None => stored.highlights,
         },
     };
     let recipe =
@@ -1320,6 +1333,7 @@ pub async fn load_image(
             .then(|| new_edit_frame(&source_path_str, variant.frame))
             .flatten(),
         unbiased_black: Some(variant.black == BlackLevels::Unbiased),
+        highlight_ratios: Some(variant.highlights == HighlightRebuild::Ratios),
         developed_from_preview: preview_fallback.is_some(),
         camera_help: preview_fallback
             .as_deref()
@@ -1418,6 +1432,7 @@ async fn open_offline(
             dead_pixel_adjacent: None,
             new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
             unbiased_black: None,
+            highlight_ratios: None,
             developed_from_preview: false,
             camera_help: false,
         }));
@@ -1474,6 +1489,7 @@ async fn open_offline(
         dead_pixel_adjacent: None,
         new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
         unbiased_black: None,
+        highlight_ratios: None,
         developed_from_preview: false,
         camera_help: false,
     }))
@@ -1572,6 +1588,7 @@ mod activation_tests {
             dead_test,
             frame: 0,
             black: BlackLevels::Clipped,
+            highlights: HighlightRebuild::Offsets,
         };
         let plain = decoded_cache_key("/p/A.NEF", None, DecodeVariant::default());
         let multiscale = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::SameColour));
@@ -1608,6 +1625,14 @@ mod activation_tests {
             ..ms(true, DeadTest::Adjacent)
         };
         assert_ne!(decoded_cache_key("/p/A.NEF", None, unbiased), adjacent);
+        let ratios = DecodeVariant {
+            highlights: HighlightRebuild::Ratios,
+            ..unbiased
+        };
+        assert_ne!(
+            decoded_cache_key("/p/A.NEF", None, ratios),
+            decoded_cache_key("/p/A.NEF", None, unbiased)
+        );
     }
 
     #[test]
@@ -1625,6 +1650,7 @@ mod activation_tests {
                 dead_test: DeadTest::Adjacent,
                 frame: 0,
                 black: BlackLevels::Unbiased,
+                highlights: HighlightRebuild::Ratios,
             }
         );
         let settings = AppSettings::default();
@@ -1641,6 +1667,7 @@ mod activation_tests {
             dead_test: DeadTest::SameColour,
             frame: 0,
             black: BlackLevels::Clipped,
+            highlights: HighlightRebuild::Offsets,
         };
         assert_eq!(base_options(&settings, variant(true)).color_nr_amount, 0.0);
         assert_eq!(
@@ -1694,6 +1721,19 @@ mod activation_tests {
         assert_eq!(
             stored_decode_variant(&format!("{raw_str}?vc=c3")).black,
             BlackLevels::Unbiased
+        );
+        // ... and the offset highlight rebuild until it is 9.
+        assert_eq!(
+            stored_decode_variant(&format!("{raw_str}?vc=c3")).highlights,
+            HighlightRebuild::Offsets
+        );
+        write(
+            &dir.path().join("A.NEF.c4.rrdata"),
+            serde_json::json!({ "colorNoiseReduction": 25, "renderVersion": 9 }),
+        );
+        assert_eq!(
+            stored_decode_variant(&format!("{raw_str}?vc=c4")).highlights,
+            HighlightRebuild::Ratios
         );
     }
 

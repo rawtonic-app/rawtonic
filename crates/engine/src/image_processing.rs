@@ -5792,9 +5792,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// computes that warp on the GPU (`GPU_WARP_RENDER_VERSION`). 8 (2026-10-31)
 /// keeps the shadows' means through the black clip and the demosaic and
 /// reads a black level the decoder got wrong from the masked border
-/// (`image_loader::BLACK_RENDER_VERSION`, black_bias.rs).
+/// (`image_loader::BLACK_RENDER_VERSION`, black_bias.rs). 9 (2026-10-31)
+/// rebuilds clipped colours inside larger partly clipped areas from colour
+/// ratios measured away from the clip (`image_loader::HIGHLIGHT_RENDER_VERSION`,
+/// highlight_reconstruction.rs).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 8;
+pub const RENDER_VERSION: u64 = 9;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

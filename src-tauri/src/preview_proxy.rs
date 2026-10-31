@@ -44,7 +44,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app_settings::AppSettings;
-use crate::image_loader::{BlackLevels, DeadTest, DecodeMeasures, DecodeVariant};
+use crate::image_loader::{BlackLevels, DeadTest, DecodeMeasures, DecodeVariant, HighlightRebuild};
 use rawtonic_engine::proxy_codec::{self, Transfer};
 use rawtonic_engine::source_facts::{self, SourceFacts};
 use std::collections::HashMap;
@@ -398,8 +398,9 @@ pub fn current_key(
 /// variant (`image_loader::load_base_image_from_bytes_for`): the multi-scale
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
 /// when set so earlier proxies keep their key, the second dead-photosite
-/// test, a frame other than version 0's (`source_frame`) and the unbiased
-/// blacks (`BlackLevels::Unbiased`).
+/// test, a frame other than version 0's (`source_frame`), the unbiased
+/// blacks (`BlackLevels::Unbiased`) and the ratio highlight rebuild
+/// (`HighlightRebuild::Ratios`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
         "hl={:?};linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
@@ -421,8 +422,13 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     } else {
         key
     };
-    if variant.black == BlackLevels::Unbiased {
+    let key = if variant.black == BlackLevels::Unbiased {
         key + ";black=unbiased"
+    } else {
+        key
+    };
+    if variant.highlights == HighlightRebuild::Ratios {
+        key + ";highlights=ratios"
     } else {
         key
     }
@@ -448,10 +454,15 @@ pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
             .split_once(";frame=")
             .and_then(|(_, frame)| frame.split(';').next()?.parse().ok())
             .unwrap_or(0),
-        black: if decoder.ends_with(";black=unbiased") {
+        black: if decoder.contains(";black=unbiased") {
             BlackLevels::Unbiased
         } else {
             BlackLevels::Clipped
+        },
+        highlights: if decoder.ends_with(";highlights=ratios") {
+            HighlightRebuild::Ratios
+        } else {
+            HighlightRebuild::Offsets
         },
     }
 }
@@ -1497,6 +1508,7 @@ pub(crate) mod frame_fixture {
             dead_test: DeadTest::Adjacent,
             frame,
             black: BlackLevels::Unbiased,
+            highlights: HighlightRebuild::Ratios,
         };
         let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(80, 60, |x, y| {
             image::Rgb([x as f32 / 80.0, y as f32 / 60.0, 0.25])
@@ -1525,6 +1537,7 @@ mod tests {
         dead_test: DeadTest::Adjacent,
         frame: 0,
         black: BlackLevels::Unbiased,
+        highlights: HighlightRebuild::Ratios,
     };
     /// A decode for an edit with the old colour noise filter.
     const LEGACY: DecodeVariant = DecodeVariant {
@@ -1532,6 +1545,7 @@ mod tests {
         dead_test: DeadTest::SameColour,
         frame: 0,
         black: BlackLevels::Clipped,
+        highlights: HighlightRebuild::Offsets,
     };
 
     fn key() -> ProxyKey {
@@ -1880,13 +1894,16 @@ mod tests {
             for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
                 for frame in [0, 1] {
                     for black in [BlackLevels::Clipped, BlackLevels::Unbiased] {
-                        let variant = DecodeVariant {
-                            multiscale,
-                            dead_test,
-                            frame,
-                            black,
-                        };
-                        assert_eq!(variant_of_key(&decoder_key(&settings, variant)), variant);
+                        for highlights in [HighlightRebuild::Offsets, HighlightRebuild::Ratios] {
+                            let variant = DecodeVariant {
+                                multiscale,
+                                dead_test,
+                                frame,
+                                black,
+                                highlights,
+                            };
+                            assert_eq!(variant_of_key(&decoder_key(&settings, variant)), variant);
+                        }
                     }
                 }
             }
@@ -1905,6 +1922,7 @@ mod tests {
             dead_test: DeadTest::SameColour,
             frame: 0,
             black: BlackLevels::Clipped,
+            highlights: HighlightRebuild::Offsets,
         };
         let proxy = write(&photo, &gradient(80, 60), 40, &settings, old, None).unwrap();
         let mut memory = ProxyMemory::default();
@@ -2129,6 +2147,7 @@ mod tests {
             dead_test: DeadTest::SameColour,
             frame: 0,
             black: BlackLevels::Clipped,
+            highlights: HighlightRebuild::Offsets,
         };
         write(
             &photo,

@@ -9,6 +9,7 @@ use exif::{Reader as ExifReader, Tag};
 use image::{DynamicImage, GenericImageView, ImageReader, imageops};
 use rawler::Orientation;
 pub use rawtonic_rawdecode::black_bias::BlackLevels;
+pub use rawtonic_rawdecode::highlight_reconstruction::HighlightRebuild;
 pub use rawtonic_rawdecode::hot_pixels::DeadTest;
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -156,6 +157,8 @@ pub struct BaseImageOptions {
     pub frame: u32,
     /// The black handling (`DecodeVariant::black`).
     pub black: BlackLevels,
+    /// How clipped colours are rebuilt (`DecodeVariant::highlights`).
+    pub highlights: HighlightRebuild,
 }
 
 /// What a recipe asks of the RAW decode beyond the app's preferences. Bases
@@ -177,6 +180,10 @@ pub struct DecodeVariant {
     /// `renderVersion` 8, so lifted high-ISO shadows keep their level and
     /// colour.
     pub black: BlackLevels,
+    /// How clipped colours are rebuilt (highlight_reconstruction.rs):
+    /// `HighlightRebuild::Ratios` from `renderVersion` 9, so large partly
+    /// clipped areas keep their colour and brightness.
+    pub highlights: HighlightRebuild,
 }
 
 /// The render version from which dead photosites must also be darker than
@@ -189,6 +196,12 @@ pub const DEAD_TEST_RENDER_VERSION: u64 = 3;
 /// (`BlackLevels::Unbiased`; notes:
 /// benchmark-results/hc-highlight-clip-2026-10-30/).
 pub const BLACK_RENDER_VERSION: u64 = 8;
+
+/// The render version from which clipped colours inside larger partly
+/// clipped areas are rebuilt from colour ratios measured away from the clip
+/// (`HighlightRebuild::Ratios`; notes:
+/// benchmark-results/hl-partial-clip-2026-10-31/).
+pub const HIGHLIGHT_RENDER_VERSION: u64 = 9;
 
 /// The decode variant of the recipe rendered on the source file at
 /// `source` (a never-edited one renders as a new edit,
@@ -216,6 +229,11 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
             BlackLevels::Unbiased
         } else {
             BlackLevels::Clipped
+        },
+        highlights: if render_version >= HIGHLIGHT_RENDER_VERSION {
+            HighlightRebuild::Ratios
+        } else {
+            HighlightRebuild::Offsets
         },
     }
 }
@@ -252,6 +270,7 @@ impl BaseImageOptions {
             dead_test: DeadTest::SameColour,
             frame: 0,
             black: BlackLevels::Clipped,
+            highlights: HighlightRebuild::Offsets,
         }
     }
 
@@ -269,11 +288,12 @@ impl BaseImageOptions {
 
     /// The options for a photo whose recipe asks for `variant`: its colour
     /// noise filter (`for_color_noise`), its test for dead photosites, its
-    /// frame and its black handling.
+    /// frame, its black handling and its highlight rebuild.
     pub fn for_variant(mut self, variant: DecodeVariant) -> Self {
         self.dead_test = variant.dead_test;
         self.frame = variant.frame;
         self.black = variant.black;
+        self.highlights = variant.highlights;
         self.for_color_noise(variant.multiscale)
     }
 
@@ -371,6 +391,7 @@ pub fn load_base_image_measured(
         dead_test,
         frame,
         black,
+        highlights,
     } = options.clone();
     if is_raw_file(path_for_ext_check) {
         let cancelled = cancel_token
@@ -389,6 +410,7 @@ pub fn load_base_image_measured(
                 dead_test,
                 frame,
                 black,
+                highlights,
             )
         })) {
             Ok(Ok(mut image)) => {
@@ -2102,7 +2124,7 @@ mod color_noise_option_tests {
 
 #[cfg(test)]
 mod decode_variant_tests {
-    use super::{BlackLevels, DeadTest, decode_variant};
+    use super::{BlackLevels, DeadTest, HighlightRebuild, decode_variant};
     use serde_json::json;
 
     #[test]
@@ -2121,6 +2143,20 @@ mod decode_variant_tests {
         assert_eq!(black(json!({ "renderVersion": 7 })), BlackLevels::Clipped);
         assert_eq!(black(json!({ "renderVersion": 8 })), BlackLevels::Unbiased);
         assert_eq!(black(json!({})), BlackLevels::Unbiased);
+        let highlights = |recipe| decode_variant(&recipe, "/p/A.NEF").highlights;
+        assert_eq!(
+            highlights(json!({ "exposure": 1 })),
+            HighlightRebuild::Offsets
+        );
+        assert_eq!(
+            highlights(json!({ "renderVersion": 8 })),
+            HighlightRebuild::Offsets
+        );
+        assert_eq!(
+            highlights(json!({ "renderVersion": 9 })),
+            HighlightRebuild::Ratios
+        );
+        assert_eq!(highlights(json!({})), HighlightRebuild::Ratios);
         // The colour noise filter is decided as before.
         assert!(decode_variant(&json!({}), "/p/A.NEF").multiscale);
         assert!(!decode_variant(&json!({ "colorNoiseReduction": 25 }), "/p/A.NEF").multiscale);

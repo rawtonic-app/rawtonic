@@ -735,6 +735,9 @@ export interface LoadImageResult {
   /** The source was developed with unbiased blacks (`renderVersion` 8);
    * null for preview data. */
   unbiased_black?: boolean | null;
+  /** The source's clipped colours were rebuilt from colour ratios
+   * (`renderVersion` 9); null for preview data. */
+  highlight_ratios?: boolean | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;
@@ -800,6 +803,12 @@ export interface SelectedImage {
   unbiasedBlack?: boolean;
   /** A black handling the source failed to develop for (not retried). */
   unbiasedBlackFailed?: boolean;
+  /** The decoded source's clipped colours were rebuilt from colour ratios
+   * (`highlightRatios` in src/utils/adjustments.ts); unknown for preview
+   * data. */
+  highlightRatios?: boolean;
+  /** A highlight rebuild the source failed to develop for (not retried). */
+  highlightRatiosFailed?: boolean;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
   metadata?: ImageMetadata | null;

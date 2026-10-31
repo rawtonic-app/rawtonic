@@ -53,6 +53,7 @@ pub fn develop_raw_image_with(
         crate::hot_pixels::DeadTest::default(),
         0,
         crate::black_bias::BlackLevels::default(),
+        crate::highlight_reconstruction::HighlightRebuild::default(),
     )
 }
 
@@ -75,9 +76,10 @@ impl std::fmt::Debug for DraftSink {
 /// with it for the cores and decoded the file twice. The full development
 /// is the same with or without a sink, and starts once the sink returns.
 /// `dead_test` picks the test for dead photosites (hot_pixels.rs) and
-/// `black` the black handling (black_bias.rs; the recipe's `renderVersion`
-/// decides both), `frame_version` the frame (source_frame.rs; the recipe's
-/// `sourceFrameVersion`).
+/// `black` the black handling (black_bias.rs) and `highlights` how clipped
+/// colours are rebuilt (highlight_reconstruction.rs; the recipe's
+/// `renderVersion` decides all three), `frame_version` the frame
+/// (source_frame.rs; the recipe's `sourceFrameVersion`).
 #[allow(clippy::too_many_arguments)]
 pub fn develop_raw_image_with_draft(
     file_bytes: &[u8],
@@ -90,6 +92,7 @@ pub fn develop_raw_image_with_draft(
     dead_test: crate::hot_pixels::DeadTest,
     frame_version: u32,
     black: crate::black_bias::BlackLevels,
+    highlights: crate::highlight_reconstruction::HighlightRebuild,
 ) -> Result<DynamicImage> {
     let (developed_image, orientation) = develop_internal(
         file_bytes,
@@ -102,6 +105,7 @@ pub fn develop_raw_image_with_draft(
         dead_test,
         frame_version,
         black,
+        highlights,
     )?;
     #[cfg(feature = "performance-profiling")]
     let _orientation_stage = crate::performance::PerformanceStage::new("raw_orientation");
@@ -197,6 +201,7 @@ fn develop_internal(
     dead_test: crate::hot_pixels::DeadTest,
     frame_version: u32,
     black: crate::black_bias::BlackLevels,
+    highlights: crate::highlight_reconstruction::HighlightRebuild,
 ) -> Result<(DynamicImage, Orientation)> {
     let check_cancel = || -> Result<()> {
         if let Some((tracker, generation)) = &cancel_token
@@ -522,6 +527,7 @@ fn develop_internal(
                     &config.cfa,
                     wb_coeffs,
                     &scaled,
+                    highlights,
                 );
                 if let Some(result) = &reconstructed {
                     // Chrominance relative to the sensor white.
@@ -2209,6 +2215,7 @@ mod frame_tests {
                 crate::hot_pixels::DeadTest::default(),
                 0,
                 black,
+                crate::highlight_reconstruction::HighlightRebuild::default(),
             )
             .unwrap()
             .to_rgb32f()
@@ -2513,6 +2520,7 @@ mod draft_tests {
                 crate::hot_pixels::DeadTest::default(),
                 0,
                 crate::black_bias::BlackLevels::default(),
+                crate::highlight_reconstruction::HighlightRebuild::default(),
             )
             .unwrap();
             let full_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -2581,6 +2589,7 @@ mod draft_tests {
                 crate::hot_pixels::DeadTest::default(),
                 0,
                 crate::black_bias::BlackLevels::default(),
+                crate::highlight_reconstruction::HighlightRebuild::default(),
             );
             let full = FULL_DEVELOPMENTS.with(std::cell::Cell::get) - before;
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
