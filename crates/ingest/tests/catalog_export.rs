@@ -229,7 +229,7 @@ fn originals_are_copied_verified_and_relative_so_the_catalog_folder_moves() {
             .unwrap();
         ids.push(id);
     }
-    fs::write(session.directory.join("Capture/a.xmp"), b"a xmp").unwrap();
+    fs::write(session.directory.join("Capture/a.XMP"), b"a xmp").unwrap();
     let digests: Vec<String> = ids
         .iter()
         .map(|id| sha(&session.asset(id).unwrap().path))
@@ -276,7 +276,7 @@ fn originals_are_copied_verified_and_relative_so_the_catalog_folder_moves() {
         );
     }
     assert_eq!(
-        fs::read(moved.join("Photos/Capture/a.xmp")).unwrap(),
+        fs::read(moved.join("Photos/Capture/a.XMP")).unwrap(),
         b"a xmp"
     );
     // The originals in the (moved) session are untouched.

@@ -455,7 +455,7 @@ fn copy_originals(
             photo.path.display()
         );
         let mut sidecars = Vec::new();
-        let xmp = photo.path.with_extension("xmp");
+        let xmp = rawtonic_metadata::sidecar_path(&photo.path);
         if xmp.try_exists()? {
             sidecars.push(xmp);
         }

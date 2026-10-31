@@ -343,7 +343,7 @@ pub fn copy_library(
         // emitted from the snapshot below.
         if !from.starts_with(&source) {
             let mut sidecars = external_sidecars.remove(from).unwrap_or_default();
-            let xmp = from.with_extension("xmp");
+            let xmp = rawtonic_metadata::sidecar_path(from);
             if xmp.try_exists()? {
                 sidecars.push(xmp);
             }
