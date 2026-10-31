@@ -73,6 +73,40 @@ export function proofMarginPx(
   return Math.min(wanted, Math.floor(shorter / 4));
 }
 
+/** Screen pixels outside the crop frame where a drag rotates the photo. */
+export const CROP_ROTATE_BAND_PX = 36;
+
+/**
+ * Margin around the uncropped photograph in crop mode, in CSS pixels: room
+ * for the crop handles and the rotate band outside the frame (Lightroom,
+ * Capture One), or the proof margin when that is larger. Like the proof
+ * margin, never more than a quarter of the viewer's shorter side.
+ */
+export function cropModeMarginPx(containerWidth: number, containerHeight: number, proofMargin = 0): number {
+  const shorter = Math.min(containerWidth, containerHeight);
+  if (!(shorter > 0)) return 0;
+  const wanted = Math.max(CROP_ROTATE_BAND_PX, Number.isFinite(proofMargin) ? proofMargin : 0);
+  return Math.min(wanted, Math.floor(shorter / 4));
+}
+
+/**
+ * Size of the uncropped photograph in crop mode, centred in the viewer: the
+ * one box the crop overlay draws in and the native display places the photo
+ * in, so the two cannot drift apart.
+ */
+export function cropModeBox(
+  containerWidth: number,
+  containerHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+  proofMargin = 0,
+): { width: number; height: number } {
+  if (!(frameWidth > 0 && frameHeight > 0)) return { width: 0, height: 0 };
+  const margin = cropModeMarginPx(containerWidth, containerHeight, proofMargin);
+  const { width, height } = fitInViewer(containerWidth, containerHeight, frameWidth, frameHeight, margin);
+  return { width, height };
+}
+
 export interface FittedSize {
   width: number;
   height: number;

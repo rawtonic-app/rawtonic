@@ -41,6 +41,7 @@ import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay from './editor/SplitViewOverlay';
 import {
   MIN_VIEWER_ZOOM,
+  cropModeBox,
   isOutsidePhoto,
   photoScreenRect,
   resolveViewerBackground,
@@ -1612,9 +1613,13 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       if (state.cropBox && irs.width > 0 && irs.height > 0) {
         const viewportW = irs.width + 2 * irs.offsetX;
         const viewportH = irs.height + 2 * irs.offsetY;
-        const fit = Math.min(viewportW / state.cropBox.width, viewportH / state.cropBox.height);
-        const boxW = state.cropBox.width * fit;
-        const boxH = state.cropBox.height * fit;
+        const { width: boxW, height: boxH } = cropModeBox(
+          viewportW,
+          viewportH,
+          state.cropBox.width,
+          state.cropBox.height,
+          irs.margin ?? 0,
+        );
         cropRect = [
           (currentRect.left + posX + ((viewportW - boxW) / 2) * scale) * dpr,
           (currentRect.top + posY + ((viewportH - boxH) / 2) * scale) * dpr,
