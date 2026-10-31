@@ -216,6 +216,7 @@
       "copy_adjustments": "Copia els ajustos",
       "copy_image_path": "Copia el camí",
       "delete_selected": "Mou a la paperera",
+      "edit_with": "Edita amb…",
       "flag_pick": "Tria",
       "flag_reject": "Rebutja",
       "flag_unflag": "Sense marca",
@@ -226,6 +227,7 @@
       "new_session": "Projecte o catàleg nou…",
       "open_session": "Obre un projecte o catàleg…",
       "open_settings": "Preferències…",
+      "open_with": "Obre amb…",
       "paste_adjustments": "Enganxa els ajustos",
       "paste_from_previous": "Enganxa els ajustos de la foto anterior",
       "rate_0": "Sense estrelles",
@@ -438,10 +440,33 @@
       "tagging": "Etiquetatge",
       "undo": "Desfer"
     },
+    "editWith": {
+      "failed": "Edita amb ha fallat: {{error}}",
+      "generatedAreas": "Edita amb encara no està disponible per a fotos amb zones generades: {{names}}",
+      "interrupted": "«Edita amb» a {{app}} es va interrompre en sortir de Rawtonic. Torna-ho a provar per tornar a renderitzar les fotos.",
+      "label": "Edita amb",
+      "notLinked": "Renderitzat, però no afegit a la biblioteca: {{error}}",
+      "openIn": "Obre a",
+      "recipe": "Recepta",
+      "rendering": "S’està renderitzant per a {{app}}…",
+      "someFailed": "No s’han pogut renderitzar {{failed}} de {{total}} fotos.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Apilament d'enfocament",
       "hdrPanorama": "Panoràmica HDR",
       "title": "Fusionar"
+    },
+    "openWith": {
+      "chooseTitle": "Tria una aplicació",
+      "default": "Per defecte",
+      "failed": "No s’han pogut obrir els fitxers: {{error}}",
+      "label": "Obre amb",
+      "none": "Cap aplicació obre aquests fitxers",
+      "other": "Altra…",
+      "reading": "S’estan cercant aplicacions…",
+      "unsupported": "Només disponible a macOS"
     },
     "tagging": {
       "addTagTooltip": "Afegir etiqueta",

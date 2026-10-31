@@ -1684,6 +1684,7 @@ pub async fn export_images(
             current_edit_adjustments,
             library,
             pinned: None,
+            edit_with: None,
         },
     )
     .await

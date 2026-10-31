@@ -72,7 +72,10 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         title: i18n.t('activity.export.failed', { count: job.failed, label: job.label }),
         detail: failures.slice(0, 3).map((failure) => `${fileName(failure.path)}: ${failure.error}`).join('\n') || undefined,
         paths: failures.map((failure) => failure.path),
-        actions: [{ label: i18n.t('activity.tryAgain'), settles: true, run: () => act(Invokes.ExportQueueResume, { job: job.id }) }],
+        // An Edit With render is not resumed: nothing would hand it over.
+        actions: job.editWith
+          ? undefined
+          : [{ label: i18n.t('activity.tryAgain'), settles: true, run: () => act(Invokes.ExportQueueResume, { job: job.id }) }],
       });
     } else if (job.state === 'interrupted') {
       // The app quit during it: it waits for Resume.

@@ -124,7 +124,6 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   expect(useEditorStore.getState().history).toBe(history);
 });
 
-
 it('offers Match Light for the selection with the active photo as reference', async () => {
   const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
   const { useSeriesMatchDialog } = await import('../components/studio/SeriesMatchDialog');
@@ -150,4 +149,70 @@ it('offers selection-aware photo operations in the palette', async () => {
   useLibraryStore.setState({ multiSelectedPaths: [raw, copy] });
   expect(runAppCommand('merge_hdr')).toBe(true);
   expect(useUIStore.getState().mergeModalState).toMatchObject({ isOpen: true, kind: 'hdr', sourcePaths: [raw, copy] });
+});
+
+type Custom = { customComponent?: unknown; customProps?: { paths: string[] } };
+const pathsOf = (options: Option[], label: string) =>
+  (find(options, label)!.submenu![0] as Custom).customProps!.paths;
+
+it('opens or edits the whole selection with another program from the grid and the filmstrip', () => {
+  const second = '/s/Capture/DSCF0147.RAF';
+  useLibraryStore.setState({ multiSelectedPaths: [raw, second] });
+  for (const view of ['library', 'editor'] as const) {
+    useUIStore.setState({ activeView: view });
+    const options = openMenu(raw);
+    expect(pathsOf(options, 'contextMenus.openWith.label')).toEqual([raw, second]);
+    expect(pathsOf(options, 'contextMenus.editWith.label')).toEqual([raw, second]);
+  }
+  // A photograph outside the selection is the one opened.
+  expect(pathsOf(openMenu('/s/Capture/other.RAF'), 'contextMenus.openWith.label')).toEqual(['/s/Capture/other.RAF']);
+});
+
+it('opens or edits the photograph shown in the viewer with another program', () => {
+  useEditorStore.setState({ selectedImage: { path: copy } as never });
+  const { result } = renderHook(() => useAppContextMenus(props));
+  result.current.handleEditorContextMenu(event);
+  const options = showContextMenu.mock.lastCall![2];
+  expect(pathsOf(options, 'contextMenus.openWith.label')).toEqual([copy]);
+  expect(pathsOf(options, 'contextMenus.editWith.label')).toEqual([copy]);
+});
+
+it('offers Open With and Edit With in the menu bar for what the photo commands act on', async () => {
+  const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
+  const { invoke } = await import('@tauri-apps/api/core');
+  vi.mocked(invoke).mockImplementation(async (command: string) =>
+    command === 'open_with_apps' || command === 'edit_with_apps'
+      ? { supported: true, apps: [{ path: '/A/Preview.app', name: 'Preview', isDefault: true, isRecent: false, icon: null }] }
+      : command === 'open_with_prefs'
+        ? { recentApps: [], editRecipe: null }
+        : undefined,
+  );
+  const hook = renderHook(() => useAppContextMenus(props));
+  useLibraryStore.setState({ multiSelectedPaths: [] });
+  expect(appCommandEnabled('open_with')).toBe(false);
+  useLibraryStore.setState({ multiSelectedPaths: [raw, '/s/Capture/DSCF0147.RAF'] });
+  expect(appCommandEnabled('edit_with')).toBe(true);
+
+  expect(runAppCommand('open_with')).toBe(true);
+  await vi.waitFor(() => expect(showContextMenu).toHaveBeenCalled());
+  const options = showContextMenu.mock.lastCall![2];
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith('open_with_apps', { paths: [raw, '/s/Capture/DSCF0147.RAF'] });
+  find(options, 'Preview · contextMenus.openWith.default')!.onClick!();
+  await vi.waitFor(() =>
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith('open_with_open', {
+      program: '/A/Preview.app',
+      paths: [raw, '/s/Capture/DSCF0147.RAF'],
+    }),
+  );
+
+  // In Develop it is the photograph shown there.
+  useUIStore.setState({ activeView: 'editor' });
+  useEditorStore.setState({ selectedImage: { path: copy } as never });
+  showContextMenu.mockClear();
+  runAppCommand('edit_with');
+  await vi.waitFor(() => expect(showContextMenu).toHaveBeenCalled());
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith('edit_with_apps', { extension: 'tiff' });
+  expect(find(showContextMenu.mock.lastCall![2], 'Preview · contextMenus.openWith.default')).toBeTruthy();
+  hook.unmount();
+  expect(appCommandEnabled('open_with')).toBe(false);
 });

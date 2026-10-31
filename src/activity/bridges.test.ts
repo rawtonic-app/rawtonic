@@ -74,6 +74,16 @@ it('keeps an export failure under Needs attention with Try again and the photogr
   expect(entry('export:j1')).toBeUndefined();
 });
 
+it('offers no Try again for a failed Edit With render: it is never resumed', () => {
+  const failures = [{ path: '/s/A.NEF', error: 'disk full' }];
+  useProcessStore
+    .getState()
+    .setExportQueue({ jobs: [job({ state: 'failed', total: 1, failed: 1, failures })], held: false, editWith: ['j1'] });
+  expect(useProcessStore.getState().exportQueue[0].editWith).toBe(true);
+  expect(entry('export:j1')).toMatchObject({ status: 'failure', paths: ['/s/A.NEF'] });
+  expect(entry('export:j1')!.actions).toBeUndefined();
+});
+
 it('ends the task of an export that finished well (its files are reported once with Show in Finder)', () => {
   useProcessStore.getState().setExportQueue({ jobs: [job({})], held: false });
   useProcessStore.getState().setExportQueue({ jobs: [job({ state: 'done', done: 3 })], held: false });

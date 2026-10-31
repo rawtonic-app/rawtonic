@@ -216,6 +216,7 @@
       "copy_adjustments": "Copiar ajustes",
       "copy_image_path": "Copiar caminho",
       "delete_selected": "Mover para o Lixo",
+      "edit_with": "Editar com…",
       "flag_pick": "Escolher",
       "flag_reject": "Rejeitar",
       "flag_unflag": "Sem marca",
@@ -226,6 +227,7 @@
       "new_session": "Novo projeto ou catálogo…",
       "open_session": "Abrir projeto ou catálogo…",
       "open_settings": "Preferências…",
+      "open_with": "Abrir com…",
       "paste_adjustments": "Colar ajustes",
       "paste_from_previous": "Colar ajustes da foto anterior",
       "rate_0": "Sem estrelas",
@@ -438,10 +440,33 @@
       "tagging": "Etiquetas",
       "undo": "Desfazer"
     },
+    "editWith": {
+      "failed": "Editar com falhou: {{error}}",
+      "generatedAreas": "Editar com ainda não está disponível para fotografias com áreas geradas: {{names}}",
+      "interrupted": "«Editar com» em {{app}} foi interrompido ao fechar o Rawtonic. Tente novamente para renderizar as fotos outra vez.",
+      "label": "Editar com",
+      "notLinked": "Renderizado, mas não adicionado à biblioteca: {{error}}",
+      "openIn": "Abrir em",
+      "recipe": "Receita",
+      "rendering": "A renderizar para {{app}}…",
+      "someFailed": "Não foi possível renderizar {{failed}} de {{total}} fotografias.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Empilhamento de Foco",
       "hdrPanorama": "Panorama HDR",
       "title": "Mesclar"
+    },
+    "openWith": {
+      "chooseTitle": "Escolher uma aplicação",
+      "default": "Predefinida",
+      "failed": "Não foi possível abrir os ficheiros: {{error}}",
+      "label": "Abrir com",
+      "none": "Nenhuma aplicação abre estes ficheiros",
+      "other": "Outra…",
+      "reading": "A procurar aplicações…",
+      "unsupported": "Disponível apenas no macOS"
     },
     "tagging": {
       "addTagTooltip": "Adicionar etiqueta",

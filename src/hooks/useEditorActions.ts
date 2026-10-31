@@ -125,9 +125,16 @@ let libraryEpoch = 0;
 let switchingLibrary = false;
 
 /** Writes the editor's recipe of `path` in its photograph's write queue
- * (after every write given before it); resolves with the recipe when it
- * could not be written (kept in `unsavedRecipes`). */
-function saveEditorRecipe(path: string, adjustmentsToSave: Adjustments, epoch: number): Promise<Adjustments | undefined> {
+ * (after every write given before it) and makes its thumbnail again,
+ * unless `updateThumbnail` is false (the decode loaded for it is stale);
+ * resolves with the recipe when it could not be written (kept in
+ * `unsavedRecipes`). */
+function saveEditorRecipe(
+  path: string,
+  adjustmentsToSave: Adjustments,
+  epoch: number,
+  updateThumbnail: boolean,
+): Promise<Adjustments | undefined> {
   scheduledSave = null;
   if (epoch !== libraryEpoch || switchingLibrary) {
     // Made before or during a library switch: written now it would go to
@@ -139,7 +146,11 @@ function saveEditorRecipe(path: string, adjustmentsToSave: Adjustments, epoch: n
   return submitPhotoWrite(
     [path],
     () =>
-      invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave }).then(
+      invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, {
+        path,
+        adjustments: adjustmentsToSave,
+        ...(updateThumbnail ? {} : { updateThumbnail: false }),
+      }).then(
         () => {
           if (epoch === libraryEpoch) unsavedRecipes.delete(path);
           recipeWritten([path], null);
@@ -168,9 +179,9 @@ let scheduledSave: string | null = null;
 /** The open photograph's editor save into the library open now, written
  * 300 ms after its last change (`flush` writes it now, `cancel` drops it). */
 export const debouncedSave = Object.assign(
-  (path: string, adjustmentsToSave: Adjustments) => {
+  (path: string, adjustmentsToSave: Adjustments, updateThumbnail = true) => {
     scheduledSave = path;
-    return debouncedEditorSave(path, adjustmentsToSave, libraryEpoch);
+    return debouncedEditorSave(path, adjustmentsToSave, libraryEpoch, updateThumbnail);
   },
   {
     flush: () => debouncedEditorSave.flush(),

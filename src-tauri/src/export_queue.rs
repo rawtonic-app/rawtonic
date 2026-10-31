@@ -7,7 +7,8 @@
 //! resumes single jobs and follows each photo (`export-item-progress`).
 use crate::app_state::AppState;
 use crate::export_processing::{
-    ExportPhotos, ExportSettings, ExportTarget, denoise_models, export_images_impl, pin_photos,
+    ExportPhotos, ExportSettings, ExportTarget, PinnedPhoto, denoise_models, export_images_impl,
+    pin_photos,
 };
 use rawtonic_export::queue::{ExportQueue, Item, ItemState, Job, JobState, RunEnd};
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,8 @@ struct ItemProgress<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub jobs: Vec<Job>,
+    /// The jobs that render for Edit With: never resumed.
+    pub edit_with: Vec<String>,
     /// Waiting jobs do not start (after Cancel in the Export dialog or
     /// Hold queue) until an export, a resume or Start queue.
     pub held: bool,
@@ -84,6 +87,27 @@ pub struct ExportRequest {
     /// which are not run (`runnable`).
     #[serde(default)]
     pub pinned: Option<Pinned>,
+    /// Set on an Edit With render's job (`open_with.rs`). Such a job is
+    /// never resumed: its hand-off to the program lives only in the run
+    /// that queued it, so a resumed render would be a file nobody opens.
+    /// A quit ends it as cancelled and the next start offers Edit With
+    /// again (`take_interrupted_edits`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit_with: Option<EditWithRun>,
+}
+
+/// What an interrupted Edit With is tried again with: the program chosen
+/// and all photographs of that Edit With (a click's jobs share it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditWithRun {
+    pub program: String,
+    pub photos: Vec<String>,
+}
+
+/// The Edit With run of a stored request, if it is one.
+fn edit_with_of(stored: &Value) -> Option<EditWithRun> {
+    serde_json::from_value(stored.get("editWith")?.clone()).ok()
 }
 
 /// The library an export was submitted from, always stated by the
@@ -135,12 +159,15 @@ impl ExportRequest {
     /// keeps it with the photo in each of `jobs` (requests that read their
     /// photos alike). Returns what the snapshots amount to; their digest
     /// covers their JSON, which has a fixed order, so equal snapshots read
-    /// independently digest alike.
-    fn pin_into(
+    /// independently digest alike. `inspect` sees each photo's snapshot
+    /// as it is pinned; what it makes of them comes back in their order.
+    fn pin_into<T>(
         &self,
         queue: &Mutex<Option<ExportQueue>>,
         jobs: &[String],
-    ) -> Result<Pinned, String> {
+        inspect: &dyn Fn(&PinnedPhoto) -> T,
+    ) -> Result<(Pinned, Vec<T>), String> {
+        let mut seen = Vec::with_capacity(self.paths.len());
         let mut digest = blake3::Hasher::new();
         let mut models = BTreeSet::new();
         for (chunk, paths) in self.paths.chunks(PIN_CHUNK).enumerate() {
@@ -153,6 +180,7 @@ impl ExportRequest {
             models.extend(denoise_models(
                 photos.iter().map(|photo| &photo.adjustments),
             ));
+            seen.extend(photos.iter().map(inspect));
             let snapshots = photos
                 .into_iter()
                 .map(|photo| serde_json::to_string(&photo).map_err(|e| e.to_string()))
@@ -166,10 +194,13 @@ impl ExportRequest {
                 })?;
             }
         }
-        Ok(Pinned {
-            digest: digest.finalize().to_hex().to_string(),
-            denoise_models: models,
-        })
+        Ok((
+            Pinned {
+                digest: digest.finalize().to_hex().to_string(),
+                denoise_models: models,
+            },
+            seen,
+        ))
     }
 
     /// Whether `other` reads its photos as this one does (`pin_into`).
@@ -187,8 +218,24 @@ impl ExportRequest {
 /// are queued at once, or on an error none. Blocking.
 fn queue_pinned(
     queue: &Mutex<Option<ExportQueue>>,
-    mut requests: Vec<ExportRequest>,
+    requests: Vec<ExportRequest>,
 ) -> Result<Vec<String>, String> {
+    queue_inspected(queue, requests, &|_| (), &|_| Ok(())).map(|(ids, _)| ids)
+}
+
+/// Checks what `queue_inspected`'s `inspect` made of each request's photos.
+pub(crate) type CheckInspected<'a, T> = &'a dyn Fn(&[Vec<T>]) -> Result<(), String>;
+
+/// `queue_pinned`, showing each photo's snapshot to `inspect` as it is
+/// pinned: what it makes of each request's photos is returned in their
+/// order, and an error from `check` on all of it queues none of them.
+/// What is checked is exactly what the jobs render.
+pub(crate) fn queue_inspected<T: Clone>(
+    queue: &Mutex<Option<ExportQueue>>,
+    mut requests: Vec<ExportRequest>,
+    inspect: &dyn Fn(&PinnedPhoto) -> T,
+    check: CheckInspected<'_, T>,
+) -> Result<(Vec<String>, Vec<Vec<T>>), String> {
     let labels: Vec<String> = requests.iter().map(label_for).collect();
     let staged: Vec<(&str, &[String])> = labels
         .iter()
@@ -196,18 +243,23 @@ fn queue_pinned(
         .map(|(label, request)| (label.as_str(), request.paths.as_slice()))
         .collect();
     let ids = on_queue(queue, |q| q.stage_all(&staged))?;
+    let mut seen: Vec<Vec<T>> = Vec::with_capacity(requests.len());
     let queued = (|| {
         for i in 0..requests.len() {
             if let Some(earlier) = (0..i).find(|&j| requests[j].pins_like(&requests[i])) {
                 requests[i].pinned = requests[earlier].pinned.clone();
+                seen.push(seen[earlier].clone());
                 continue;
             }
             let alike: Vec<String> = (i..requests.len())
                 .filter(|&k| requests[i].pins_like(&requests[k]))
                 .map(|k| ids[k].clone())
                 .collect();
-            requests[i].pinned = Some(requests[i].pin_into(queue, &alike)?);
+            let (pinned, photos) = requests[i].pin_into(queue, &alike, inspect)?;
+            requests[i].pinned = Some(pinned);
+            seen.push(photos);
         }
+        check(&seen)?;
         let values = requests
             .iter()
             .map(serde_json::to_value)
@@ -220,7 +272,7 @@ fn queue_pinned(
         let _ = on_queue(queue, |q| q.discard_staged(&ids));
         return Err(e);
     }
-    Ok(ids)
+    Ok((ids, seen))
 }
 
 /// A queued job's request, if it can run: pinned when it was queued. One
@@ -494,6 +546,10 @@ pub fn open(app: &AppHandle) {
                 }
                 Err(e) => log::error!("Export queue recovery failed: {e:#}"),
             }
+            match end_interrupted_edits(&queue) {
+                Ok(runs) => *INTERRUPTED_EDITS.lock().unwrap_or_else(|e| e.into_inner()) = runs,
+                Err(e) => log::error!("Export queue: Edit With jobs not ended: {e:#}"),
+            }
             // Exports left waiting do not start by themselves after a
             // restart: the queue comes up held and offers Start.
             if queue
@@ -508,6 +564,39 @@ pub fn open(app: &AppHandle) {
         }
         Err(e) => log::error!("Export queue unavailable: {e:#}"),
     }
+}
+
+/// The Edit With runs the last quit or crash cut short, offered once.
+static INTERRUPTED_EDITS: Mutex<Vec<EditWithRun>> = Mutex::new(Vec::new());
+
+/// At start-up: the Edit With jobs a quit or crash left unfinished
+/// (interrupted, waiting or paused) end as cancelled, never resumed; the
+/// files they already rendered stay. Returns their Edit With runs, each
+/// once.
+fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<EditWithRun>> {
+    let mut runs = Vec::new();
+    for job in queue.jobs()? {
+        if !matches!(
+            job.state,
+            JobState::Interrupted | JobState::Queued | JobState::Paused
+        ) {
+            continue;
+        }
+        let Some(run) = edit_with_of(&job.request) else {
+            continue;
+        };
+        queue.cancel(&job.id)?;
+        if !runs.contains(&run) {
+            runs.push(run);
+        }
+    }
+    Ok(runs)
+}
+
+/// The Edit With runs the last quit cut short (each handed out once), for
+/// "Try again".
+pub(crate) fn take_interrupted_edits() -> Vec<EditWithRun> {
+    std::mem::take(&mut *INTERRUPTED_EDITS.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 fn label_for(request: &ExportRequest) -> String {
@@ -548,10 +637,21 @@ pub async fn enqueue_all(
     let ids = tauri::async_runtime::spawn_blocking(move || queue_pinned(&QUEUE, requests))
         .await
         .map_err(|e| e.to_string())??;
+    started(app);
+    Ok(ids)
+}
+
+/// The app's queue, for `queue_inspected` (`started` follows once it
+/// queued).
+pub(crate) fn app_queue() -> &'static Mutex<Option<ExportQueue>> {
+    &QUEUE
+}
+
+/// After jobs were queued: the queue starts if it is idle.
+pub(crate) fn started(app: &AppHandle) {
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
     kick(app);
-    Ok(ids)
 }
 
 /// Whether two queued exports render the same photos with the same recipes
@@ -572,7 +672,16 @@ fn same_photos(a: &Value, b: &Value) -> bool {
 /// paused job continues in its place. A waiting job held by a cancel just
 /// starts the queue again.
 pub fn resume(app: &AppHandle, job: &str) -> Result<usize, String> {
-    let state = with_queue(|q| q.job(job)).map(|j| j.state);
+    let current = with_queue(|q| q.job(job));
+    if current
+        .as_ref()
+        .is_some_and(|j| edit_with_of(&j.request).is_some())
+    {
+        return Err(
+            "An Edit With render is not resumed: choose Edit With for the photos again.".into(),
+        );
+    }
+    let state = current.map(|j| j.state);
     let count = match state {
         Some(JobState::Queued) => 0,
         Some(JobState::Paused) => {
@@ -596,6 +705,11 @@ pub fn remove(app: &AppHandle, job: &str) -> Result<(), String> {
 /// Pauses a job: a running one after its photos in progress (the queue
 /// then goes on), a waiting one at once.
 pub fn pause(app: &AppHandle, job: &str) -> Result<(), String> {
+    // A paused Edit With render could never be resumed (`resume`), and its
+    // Edit With waits for every render: it is cancelled instead.
+    if with_queue(|q| q.job(job)).is_some_and(|j| edit_with_of(&j.request).is_some()) {
+        return Err("An Edit With render is not paused: cancel it instead.".into());
+    }
     // Told under the lock: the job's last queue snapshot cannot come first.
     let pausing = with_running(&CURRENT, job, |running, _| {
         running.paused.store(true, Ordering::SeqCst);
@@ -705,8 +819,14 @@ fn request_uses(request: &Value, dir: &Path) -> bool {
 }
 
 pub fn snapshot() -> Snapshot {
+    let jobs = with_queue(|q| q.jobs()).unwrap_or_default();
     Snapshot {
-        jobs: with_queue(|q| q.jobs()).unwrap_or_default(),
+        edit_with: jobs
+            .iter()
+            .filter(|job| edit_with_of(&job.request).is_some())
+            .map(|job| job.id.clone())
+            .collect(),
+        jobs,
         held: HOLD.load(Ordering::SeqCst),
     }
 }
@@ -1036,6 +1156,48 @@ mod tests {
                 .map(|i| (photos.read)(i).unwrap())
                 .collect()
         }
+    }
+
+    #[test]
+    fn a_quit_ends_edit_with_jobs_as_cancelled_and_offers_their_run_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let photo = |name: &str| {
+            let path = tmp.path().join(name);
+            std::fs::write(&path, b"raw").unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        let (a, b, c) = (photo("A.NEF"), photo("B.NEF"), photo("C.NEF"));
+        let run = EditWithRun {
+            program: "/Applications/Editor.app".into(),
+            photos: vec![a.clone(), b.clone()],
+        };
+        // One Edit With click (a job per photo) and a plain export.
+        let edit = |path: &String| ExportRequest {
+            edit_with: Some(run.clone()),
+            ..request(std::slice::from_ref(path), None)
+        };
+        let (_dir, queue) = test_queue();
+        let ids = queue_pinned(
+            &queue,
+            vec![edit(&a), edit(&b), request(std::slice::from_ref(&c), None)],
+        )
+        .unwrap();
+        // The quit comes while the first render runs.
+        on_queue(&queue, |q| {
+            q.start_next()?;
+            q.recover()
+        })
+        .unwrap();
+        let runs = on_queue(&queue, end_interrupted_edits).unwrap();
+        assert_eq!(runs, [run]);
+        let state = |id: &str| on_queue(&queue, |q| q.job(id)).unwrap().state;
+        // Neither render is resumed (nothing would hand it over)…
+        assert_eq!(state(&ids[0]), JobState::Cancelled);
+        assert_eq!(state(&ids[1]), JobState::Cancelled);
+        // …while the plain export waits for Start as before.
+        assert_eq!(state(&ids[2]), JobState::Queued);
+        // Offered once: the next start finds nothing more to end.
+        assert!(on_queue(&queue, end_interrupted_edits).unwrap().is_empty());
     }
 
     #[test]

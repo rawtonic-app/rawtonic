@@ -89,6 +89,45 @@ struct Memory {
     /// regions from them at once, until they are developed from the
     /// photographs at full resolution.
     interims: HashMap<String, Interim>,
+    /// The file each cell's photograph was when they were kept
+    /// ([`file_stamp`]).
+    stamps: HashMap<String, u64>,
+}
+
+impl Memory {
+    /// Forgets what was kept of the photographs of `paths` whose file
+    /// changed since (another program saved it: an Edit With render), so
+    /// they are developed again from the new file. True if one did.
+    fn forget_changed(&mut self, paths: &[&str]) -> bool {
+        let mut changed = false;
+        for &path in paths {
+            let now = file_stamp(path);
+            if self
+                .stamps
+                .insert(path.to_string(), now)
+                .is_some_and(|was| was != now)
+            {
+                self.facts.remove(path);
+                self.bases.remove(path);
+                self.interims.remove(path);
+                changed = true;
+            }
+        }
+        changed
+    }
+}
+
+/// What the file of `path` is now (size and modification time): part of
+/// the keys of its cell's textures, so a save by another program develops
+/// it again.
+fn file_stamp(path: &str) -> u64 {
+    let (source, _) = parse_virtual_path(path);
+    let mut hash = DefaultHasher::new();
+    if let Ok(meta) = std::fs::metadata(&source) {
+        meta.len().hash(&mut hash);
+        meta.modified().ok().hash(&mut hash);
+    }
+    hash.finish()
 }
 
 /// A cell's reduced source: the image, its pixels per full-resolution
@@ -239,13 +278,7 @@ fn show_cells(
         crate::multi_view_prefetch::plan(app_handle, Vec::new(), None);
         return true;
     }
-    // Zoomed in: regions of new cells, or of recipes that changed.
-    if zoomed {
-        let regions = region_worker(app_handle);
-        let generation = regions.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        regions.sender.send(RegionJob { generation });
-    }
-    {
+    let file_changed = {
         let mut memory = worker.memory.lock().unwrap_or_else(|e| e.into_inner());
         memory
             .bases
@@ -256,9 +289,18 @@ fn show_cells(
         memory
             .interims
             .retain(|path, _| cells.iter().any(|cell| &cell.path == path));
+        memory
+            .stamps
+            .retain(|path, _| cells.iter().any(|cell| &cell.path == path));
         if interim_budget() == 0 {
             memory.interims.clear();
         }
+        let paths: Vec<&str> = cells.iter().map(|cell| cell.path.as_str()).collect();
+        memory.forget_changed(&paths)
+    };
+    // Zoomed in: regions of new cells, or of recipes or files that changed.
+    if file_changed || zoomed {
+        refresh_regions(&region_worker(app_handle), file_changed, zoomed);
     }
     worker.sender.send(Job {
         generation,
@@ -326,7 +368,7 @@ pub(crate) async fn render_browser_view(
         }
         let recipe = js_adjustments.unwrap_or_else(|| recipe_of(&path));
         let dim = target_resolution.clamp(64, 4096);
-        let key = render_key(&recipe, dim, &context);
+        let key = render_key(&path, &recipe, dim, &context);
         let prepared = prepare(
             &app_handle,
             &worker,
@@ -390,8 +432,9 @@ fn cell_dim(area: [f32; 4], shown: (f32, f32)) -> u32 {
     ((long / SIZE_STEP).ceil() * SIZE_STEP) as u32
 }
 
-fn render_key(recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64 {
+fn render_key(path: &str, recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64 {
     let mut hash = DefaultHasher::new();
+    file_stamp(path).hash(&mut hash);
     recipe.to_string().hash(&mut hash);
     dim.hash(&mut hash);
     context.display_space.shader_code().hash(&mut hash);
@@ -761,7 +804,7 @@ fn prepare(
     };
     let (key, dim) = todo.planned.unwrap_or_else(|| {
         let dim = cell_dim(todo.area, shown_size(&todo.recipe, facts));
-        (render_key(&todo.recipe, dim, context), dim)
+        (render_key(&todo.path, &todo.recipe, dim, context), dim)
     });
     if current_key(context, &todo.path) == Some(key) {
         return Ok(None);
@@ -1073,7 +1116,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
             let shown = shown_size(&recipe, facts);
             sizes.push(CellSize::new(&cell.path, shown));
             let dim = cell_dim(cell.area, shown);
-            (render_key(&recipe, dim, &context), dim)
+            (render_key(&cell.path, &recipe, dim, &context), dim)
         });
         if planned.is_some_and(|(key, _)| current_key(&context, &cell.path) == Some(key)) {
             continue;
@@ -1266,13 +1309,33 @@ fn snapped_scale(scale: f32) -> f32 {
 /// Stops region work and releases the kept region bases (back to fit, or
 /// the multi view ended).
 fn forget_regions(app_handle: &tauri::AppHandle) {
-    let worker = region_worker(app_handle);
-    worker.generation.fetch_add(1, Ordering::SeqCst);
-    worker
-        .bases
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    region_worker(app_handle).forget();
+}
+
+impl RegionWorker {
+    /// Cancels the region job under way and drops the kept region bases.
+    fn forget(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.bases.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    /// Develops the visible regions again (cancelling the job under way).
+    fn schedule(&self) {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.sender.send(RegionJob { generation });
+    }
+}
+
+/// After the cells were shown again: what was kept of a file that changed
+/// is dropped *before* the regions are scheduled, so forgetting never
+/// cancels the job that replaces the old file's region.
+fn refresh_regions(regions: &RegionWorker, file_changed: bool, zoomed: bool) {
+    if file_changed {
+        regions.forget();
+    }
+    if zoomed {
+        regions.schedule();
+    }
 }
 
 /// A zoom from the webview as the display keeps it: `scale` quantized so a
@@ -1336,8 +1399,7 @@ pub(crate) async fn set_multi_view_zoom(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|path, base| zooms.get(path).is_some_and(|z| z.scale == base.zoom_scale));
-        let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        worker.sender.send(RegionJob { generation });
+        worker.schedule();
     })
     .await
     .map_err(|e| format!("Multi view zoom task failed: {e}"))
@@ -1442,8 +1504,9 @@ fn load_full_source(
     Ok((image, 1.0, facts, kind, None))
 }
 
-fn region_key(recipe: &serde_json::Value, zoom: CellZoom, context: &GpuContext) -> u64 {
+fn region_key(path: &str, recipe: &serde_json::Value, zoom: CellZoom, context: &GpuContext) -> u64 {
     let mut hash = DefaultHasher::new();
+    file_stamp(path).hash(&mut hash);
     recipe.to_string().hash(&mut hash);
     zoom.scale.to_bits().hash(&mut hash);
     context.display_space.shader_code().hash(&mut hash);
@@ -1980,7 +2043,8 @@ fn still_wanted(context: &GpuContext, path: &str, key: u64, scale: f32) -> bool 
         })
     };
     zoom.is_some_and(|zoom| {
-        zoom.scale == scale && region_key(&with_live_patch(recipe_of(path)), zoom, context) == key
+        zoom.scale == scale
+            && region_key(path, &with_live_patch(recipe_of(path)), zoom, context) == key
     })
 }
 
@@ -2204,7 +2268,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             .filter_map(|cell| {
                 let zoom = multi.zoom_of(&cell.path)?;
                 let recipe = with_live_patch(recipe_of(&cell.path));
-                let key = region_key(&recipe, zoom, &context);
+                let key = region_key(&cell.path, &recipe, zoom, &context);
                 let shown = facts
                     .as_ref()
                     .and_then(|f| f.get(&cell.path))
@@ -2539,7 +2603,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
         if preparation_key != base_key(app_handle, &path, &recipe) {
             continue;
         }
-        let key = render_key(&recipe, dim, &context);
+        let key = render_key(&path, &recipe, dim, &context);
         if current_key(&context, &path) == Some(key) {
             continue;
         }
@@ -2605,7 +2669,7 @@ fn live_region(
     let Some(regions) = REGIONS.get() else {
         return LiveRegion::Unavailable;
     };
-    let key = region_key(recipe, zoom, context);
+    let key = region_key(path, recipe, zoom, context);
     let shown_key = context
         .display
         .lock()
@@ -2663,6 +2727,47 @@ mod tests {
         let photo = session.join("Capture").join("A.RAF");
         std::fs::write(&photo, content).unwrap();
         (dir, photo)
+    }
+
+    #[test]
+    fn a_cells_file_saved_by_another_program_is_developed_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let render = tmp.path().join("A_edit.tiff");
+        std::fs::write(&render, b"before").unwrap();
+        let path = render.to_string_lossy().into_owned();
+        let other = tmp.path().join("B.tiff").to_string_lossy().into_owned();
+        let facts = Facts {
+            full_width: 30,
+            full_height: 20,
+            is_raw: false,
+            measures: None,
+        };
+        let interim = Interim {
+            image: Arc::new(DynamicImage::new_rgb8(3, 2)),
+            scale: 0.1,
+            facts,
+        };
+        let mut memory = Memory::default();
+        let kept = |memory: &mut Memory| {
+            for p in [&path, &other] {
+                memory.facts.insert(p.clone(), facts);
+                memory.interims.insert(p.clone(), interim.clone());
+            }
+        };
+        kept(&mut memory);
+        assert!(!memory.forget_changed(&[path.as_str(), other.as_str()]));
+        let before = file_stamp(&path);
+        assert!(!memory.forget_changed(&[path.as_str(), other.as_str()]));
+        assert_eq!(memory.facts.len(), 2);
+
+        // Another program saves the render (turned: another size).
+        std::fs::write(&render, b"after, turned").unwrap();
+        // Its texture's key changes, so the cell is developed again…
+        assert_ne!(file_stamp(&path), before);
+        // …from its new file, not from what was kept of the old one.
+        assert!(memory.forget_changed(&[path.as_str(), other.as_str()]));
+        assert!(!memory.facts.contains_key(&path) && !memory.interims.contains_key(&path));
+        assert!(memory.facts.contains_key(&other) && memory.interims.contains_key(&other));
     }
 
     #[test]
@@ -3045,6 +3150,52 @@ mod tests {
         // No budget (short of memory): nothing more.
         keep_interim(&mut kept, "d", interim(), 0);
         assert!(!kept.contains_key("d"));
+    }
+
+    #[test]
+    fn a_changed_file_while_zoomed_still_gets_its_region_developed() {
+        let (sent, received) = std::sync::mpsc::channel();
+        let worker = Arc::new(RegionWorker {
+            generation: AtomicUsize::new(0),
+            sender: gpu_processing::start_latest_job_worker(move |job: RegionJob| {
+                sent.send(job.generation).unwrap();
+            }),
+            bases: Mutex::new(HashMap::new()),
+        });
+        // An Edit With save of a zoomed cell: its old region base goes…
+        worker.bases.lock().unwrap().insert(
+            "a".into(),
+            RegionBase {
+                preparation_key: 1,
+                zoom_scale: 1.0,
+                region: [0.0, 0.0, 10.0, 10.0],
+                image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
+                scale: 1.0,
+                crop_offset: (0.0, 0.0),
+                facts: Facts {
+                    full_width: 10,
+                    full_height: 10,
+                    is_raw: false,
+                    measures: None,
+                },
+                mask_source: None,
+            },
+        );
+        refresh_regions(&worker, true, true);
+        assert!(worker.bases.lock().unwrap().is_empty());
+        // …and the job that develops its region again is still current, not
+        // cancelled by the forgetting (it used to run first and be dropped).
+        let job = received
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(job, worker.generation.load(Ordering::SeqCst));
+        // Not zoomed: nothing to develop.
+        refresh_regions(&worker, true, false);
+        assert!(
+            received
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err()
+        );
     }
 
     #[test]

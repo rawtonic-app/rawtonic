@@ -541,12 +541,16 @@ impl ExportQueue {
         self.set_state(job, JobState::Queued)
     }
 
-    /// Cancels a job that is not running; its photos stay for a resume.
+    /// Cancels a waiting, paused or interrupted job (one a quit cut short
+    /// that is not to be resumed); its photos stay for a resume.
     pub fn cancel(&self, job: &str) -> Result<()> {
         let current = self.job(job)?;
         ensure!(
-            matches!(current.state, JobState::Queued | JobState::Paused),
-            "Only a waiting or paused export is cancelled here"
+            matches!(
+                current.state,
+                JobState::Queued | JobState::Paused | JobState::Interrupted
+            ),
+            "Only a waiting, paused or interrupted export is cancelled here"
         );
         self.set_state(job, JobState::Cancelled)
     }
