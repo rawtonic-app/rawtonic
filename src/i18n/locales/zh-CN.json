@@ -1433,7 +1433,6 @@
         "metadata": "元数据",
         "snapshots": "快照"
       },
-      "changedHereOnly": "仅在此目录中更改",
       "changedPhotos_other": "已更改的照片（{{count}}）",
       "choice": {
         "keep": "保留当前",
@@ -1447,7 +1446,7 @@
       "copyTo": "复制原始文件的文件夹",
       "done": "已从目录“{{name}}”导入",
       "failed": "无法从目录“{{name}}”导入；未做任何更改",
-      "forChanged": "对于已更改的照片",
+      "forChangedThere": "仅在另一个目录中更改的照片",
       "hint": "带回在另一个 Rawtonic 目录中完成的工作，例如用“导出为目录”创建的目录。照片按其标识或原始文件内容匹配，绝不按文件名匹配。",
       "import": "导入",
       "includeNew": "导入新照片",
@@ -1459,6 +1458,11 @@
       "otherUnchanged": "另一个目录保持不变。被替换的编辑会保留为照片的快照。",
       "replaced_other": "已更新 {{count}} 张照片",
       "running": "正在从目录“{{name}}”导入",
+      "side": {
+        "both": "在两个目录中都已更改",
+        "here": "在此目录中更改",
+        "there": "在另一个目录中更改"
+      },
       "source": "要导入的目录",
       "summary": "“{{name}}”：新增 {{new}}，已更改 {{changed}}，未更改 {{unchanged}}（跳过）",
       "title": "从目录导入",
@@ -4798,6 +4802,7 @@
   "undoHistory": {
     "apply": "应用设置",
     "captureTime": "调整拍摄时间",
+    "catalogImport": "从目录导入",
     "color": "设置颜色标签",
     "edit": "编辑",
     "file": "文件更改",

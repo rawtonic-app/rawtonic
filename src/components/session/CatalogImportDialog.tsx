@@ -8,9 +8,12 @@
  * Photographs are matched by their asset id, else the SHA-256 of their
  * original, never by name. The review lists new photographs (added where
  * they are, or copied to a chosen folder) and changed ones, with one choice
- * for the run and one per photo: Replace edits and metadata (the default;
- * the replaced edit is kept as a snapshot of the photo), Keep current (the
- * default for photos only this catalog changed) or Import as virtual copy.
+ * for the run and one per photo: Replace edits and metadata (the default
+ * for photos only the other catalog changed since their last common state;
+ * the replaced edit is kept as a snapshot and a history step of the photo,
+ * the replaced metadata comes back with Undo), Keep current (the default
+ * for photos this catalog changed, alone or as well) or Import as virtual
+ * copy. Each changed photo says which catalog changed it.
  * Unchanged photos are skipped and counted. The import runs in the
  * background with progress and Cancel in the activity centre.
  */
@@ -26,6 +29,7 @@ import { flushBeforeQuit, registerQuitFlush } from "../../utils/quit";
 import { openDialog } from "../../utils/fileDialog";
 import { useActivityStore } from "../../store/useActivityStore";
 import { notify } from "../../activity/notify";
+import { catalogImportAction, type XmpReceipt } from "../../utils/appUndo";
 
 export type ImportChoice = "replace" | "keep" | "virtualCopy";
 /** What differs between the two catalogs for a changed photo. */
@@ -36,7 +40,9 @@ export interface IncomingPhoto {
   matchedBy: "id" | "sha256" | null;
   status: "new" | "changed";
   changes: ImportChange[];
-  changedHereOnly: boolean;
+  /** Which catalog changed it since their last common state (the export or
+   * the last import): `both` also when nothing records that state. */
+  side: "there" | "here" | "both" | null;
   path: string;
   available: boolean;
 }
@@ -52,6 +58,8 @@ export interface CatalogImportOptions {
 interface Receipt {
   added: number; replaced: number; virtualCopies: number; kept: number; albumsCreated: number;
   unchanged: number; originalsCopied: number; offline: number; missingResources: number; leftOut: number;
+  /** What puts back the metadata Replace replaced (one undo step). */
+  undo: XmpReceipt[];
 }
 interface Progress { phase: "originals" | "applying"; done: number; total: number }
 
@@ -86,6 +94,7 @@ export async function runCatalogImport(target: string, other: string, name: stri
   try {
     const receipt = await run;
     useActivityStore.getState().resolve(id);
+    catalogImportAction(target, receipt.undo ?? []);
     const detail = [
       t("session.catalogImport.added", { count: receipt.added }),
       t("session.catalogImport.replaced", { count: receipt.replaced }),
@@ -110,6 +119,12 @@ export async function runCatalogImport(target: string, other: string, name: stri
 }
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+/** The safe defaults: newer work here is never replaced unasked, so a photo
+ * this catalog changed (alone or as well) is kept; the run's choice is for
+ * those only the other catalog changed. */
+const keepDefaults = (photos: IncomingPhoto[]): Record<string, ImportChoice> =>
+  Object.fromEntries(photos.filter((p) => p.status === "changed" && p.side !== "there").map((p) => [p.id, "keep" as const]));
 
 interface Props {
   /** The open catalog. */
@@ -148,8 +163,7 @@ export default function CatalogImportDialog({ directory, onClose, onDone }: Prop
       setOther(chosen);
       const found = await invoke<CatalogReview>(Invokes.LibraryImportCatalogReview, { target: directory, other: chosen });
       setReview(found);
-      // Photos only this catalog changed since: keep what is here.
-      setOverrides(Object.fromEntries(found.photos.filter((p) => p.changedHereOnly).map((p) => [p.id, "keep" as const])));
+      setOverrides(keepDefaults(found.photos));
     } catch (e) {
       setReview(null);
       setError(String(e));
@@ -243,10 +257,10 @@ export default function CatalogImportDialog({ directory, onClose, onDone }: Prop
             {changed.length > 0 && (
               <fieldset className="session-field">
                 <legend>{t("session.catalogImport.changedPhotos", { count: changed.length })}</legend>
-                <label className="session-field">{t("session.catalogImport.forChanged")}
+                <label className="session-field">{t("session.catalogImport.forChangedThere")}
                   <select value={runChoice} disabled={busy} onChange={(e) => {
                     setRunChoice(e.target.value as ImportChoice);
-                    setOverrides({});
+                    setOverrides(keepDefaults(changed));
                   }}>
                     {CHOICES.map((choice) => <option key={choice} value={choice}>{t(`session.catalogImport.choice.${choice}`)}</option>)}
                   </select>
@@ -255,7 +269,7 @@ export default function CatalogImportDialog({ directory, onClose, onDone }: Prop
                   {changed.map((photo) => (
                     <li key={photo.id}>
                       <span title={photo.path}>{fileName(photo.path)}</span>
-                      <small>{changeNames(photo)}{photo.changedHereOnly ? ` · ${t("session.catalogImport.changedHereOnly")}` : ""}</small>
+                      <small>{changeNames(photo)}{photo.side ? ` · ${t(`session.catalogImport.side.${photo.side}`)}` : ""}</small>
                       <select aria-label={t("session.catalogImport.choiceFor", { name: fileName(photo.path) })}
                         value={overrides[photo.id] ?? runChoice} disabled={busy}
                         onChange={(e) => setOverrides({ ...overrides, [photo.id]: e.target.value as ImportChoice })}>

@@ -1433,7 +1433,6 @@
         "metadata": "메타데이터",
         "snapshots": "스냅숏"
       },
-      "changedHereOnly": "이 카탈로그에서만 변경됨",
       "changedPhotos_other": "변경된 사진 ({{count}})",
       "choice": {
         "keep": "현재 것 유지",
@@ -1447,7 +1446,7 @@
       "copyTo": "복사한 원본 폴더",
       "done": "카탈로그 “{{name}}”에서 가져왔습니다",
       "failed": "카탈로그 “{{name}}”에서 가져올 수 없습니다. 바뀐 것이 없습니다",
-      "forChanged": "변경된 사진",
+      "forChangedThere": "다른 카탈로그에서만 변경된 사진",
       "hint": "'카탈로그로 내보내기'로 만든 것 등 다른 Rawtonic 카탈로그에서 한 작업을 되돌려 옵니다. 사진은 ID나 원본 내용으로 맞추며 파일 이름으로는 맞추지 않습니다.",
       "import": "가져오기",
       "includeNew": "새 사진 가져오기",
@@ -1459,6 +1458,11 @@
       "otherUnchanged": "다른 카탈로그는 바뀌지 않습니다. 바뀐 편집은 사진의 스냅숏으로 남습니다.",
       "replaced_other": "사진 {{count}}장 업데이트",
       "running": "카탈로그 “{{name}}”에서 가져오는 중",
+      "side": {
+        "both": "두 카탈로그 모두에서 변경",
+        "here": "이 카탈로그에서 변경",
+        "there": "다른 카탈로그에서 변경"
+      },
       "source": "가져올 카탈로그",
       "summary": "“{{name}}”: 새 사진 {{new}}, 변경 {{changed}}, 변경 없음 {{unchanged}}(건너뜀)",
       "title": "카탈로그에서 가져오기",
@@ -4798,6 +4802,7 @@
   "undoHistory": {
     "apply": "설정 적용",
     "captureTime": "촬영 시간 이동",
+    "catalogImport": "카탈로그에서 가져오기",
     "color": "색상 레이블 설정",
     "edit": "편집",
     "file": "파일 변경",

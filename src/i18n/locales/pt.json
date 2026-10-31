@@ -1549,7 +1549,6 @@
         "metadata": "metadados",
         "snapshots": "instantâneos"
       },
-      "changedHereOnly": "alterada só neste catálogo",
       "changedPhotos_one": "Foto alterada ({{count}})",
       "changedPhotos_many": "Fotos alteradas ({{count}})",
       "changedPhotos_other": "Fotos alteradas ({{count}})",
@@ -1565,7 +1564,7 @@
       "copyTo": "Pasta para os originais copiados",
       "done": "Importado do catálogo “{{name}}”",
       "failed": "Não foi possível importar do catálogo “{{name}}”; nada foi alterado",
-      "forChanged": "Para as fotos alteradas",
+      "forChangedThere": "Para fotos alteradas só no outro catálogo",
       "hint": "Traz de volta o trabalho feito em outro catálogo Rawtonic, por exemplo um criado com Exportar como catálogo. As fotos são reconhecidas pela identidade ou pelo conteúdo do original, nunca pelo nome do arquivo.",
       "import": "Importar",
       "includeNew": "Importar as fotos novas",
@@ -1583,6 +1582,11 @@
       "replaced_many": "{{count}} fotos atualizadas",
       "replaced_other": "{{count}} fotos atualizadas",
       "running": "Importando do catálogo “{{name}}”",
+      "side": {
+        "both": "alterada nos dois catálogos",
+        "here": "alterada neste catálogo",
+        "there": "alterada no outro catálogo"
+      },
       "source": "Catálogo de origem",
       "summary": "“{{name}}”: {{new}} novas, {{changed}} alteradas, {{unchanged}} inalteradas (ignoradas)",
       "title": "Importar de catálogo",
@@ -5116,6 +5120,7 @@
   "undoHistory": {
     "apply": "Aplicar ajustes",
     "captureTime": "Deslocar hora de captura",
+    "catalogImport": "Importar de catálogo",
     "color": "Definir etiqueta de cor",
     "edit": "Edição",
     "file": "Alteração de ficheiro",

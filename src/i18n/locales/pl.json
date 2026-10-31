@@ -1627,7 +1627,6 @@
         "metadata": "metadane",
         "snapshots": "migawki"
       },
-      "changedHereOnly": "zmienione tylko w tym katalogu",
       "changedPhotos_one": "Zmienione zdjęcie ({{count}})",
       "changedPhotos_few": "Zmienione zdjęcia ({{count}})",
       "changedPhotos_many": "Zmienione zdjęcia ({{count}})",
@@ -1644,7 +1643,7 @@
       "copyTo": "Folder na skopiowane oryginały",
       "done": "Zaimportowano z katalogu „{{name}}”",
       "failed": "Nie udało się zaimportować z katalogu „{{name}}”; nic nie zmieniono",
-      "forChanged": "Dla zmienionych zdjęć",
+      "forChangedThere": "Dla zdjęć zmienionych tylko w drugim katalogu",
       "hint": "Przywraca pracę wykonaną w innym katalogu Rawtonic, np. utworzonym poleceniem Eksportuj jako katalog. Zdjęcia są rozpoznawane po tożsamości lub zawartości oryginału, nigdy po nazwie pliku.",
       "import": "Importuj",
       "includeNew": "Importuj nowe zdjęcia",
@@ -1665,6 +1664,11 @@
       "replaced_many": "Zaktualizowano zdjęcia: {{count}}",
       "replaced_other": "Zaktualizowano zdjęcia: {{count}}",
       "running": "Import z katalogu „{{name}}”",
+      "side": {
+        "both": "zmienione w obu katalogach",
+        "here": "zmienione w tym katalogu",
+        "there": "zmienione w drugim katalogu"
+      },
       "source": "Katalog źródłowy",
       "summary": "„{{name}}”: nowe {{new}}, zmienione {{changed}}, bez zmian {{unchanged}} (pominięte)",
       "title": "Importuj z katalogu",
@@ -5305,6 +5309,7 @@
   "undoHistory": {
     "apply": "Zastosuj ustawienia",
     "captureTime": "Przesuń czas wykonania",
+    "catalogImport": "Importuj z katalogu",
     "color": "Ustaw etykietę koloru",
     "edit": "Edycja",
     "file": "Zmiana pliku",

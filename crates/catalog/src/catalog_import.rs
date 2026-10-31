@@ -50,6 +50,45 @@ pub enum Choice {
     VirtualCopy,
 }
 
+/// Which catalog changed a photograph since they last held the same state
+/// (the export, or this catalog's last import of it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Side {
+    /// Only the other catalog: Replace brings its work.
+    There,
+    /// Only this catalog: Keep current keeps the newer work.
+    Here,
+    /// Both, or nothing records their common state: the photographer
+    /// chooses; Keep current is the default.
+    Both,
+}
+
+/// The file in an exported catalog's folder that records each photograph's
+/// state at the export (`Baseline`), written by Export as Catalog.
+pub const EXPORT_BASELINE: &str = "export-baseline.json";
+/// This catalog's folder of the states an import left in common with each
+/// other catalog (`<its id>.json`).
+const IMPORT_BASELINES: &str = "import-baselines";
+
+/// The file of this catalog's record for the other catalog `id`, when the
+/// id is a plain name (a catalog id is a UUID; anything else, such as a
+/// path, is not used as a file name).
+fn import_record(directory: &Path, id: &str) -> Option<PathBuf> {
+    (!id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+        .then(|| directory.join(IMPORT_BASELINES).join(format!("{id}.json")))
+}
+
+/// What two catalogs last held in common: per photograph (by its id in the
+/// other catalog), a digest of each part an import compares.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Baseline {
+    /// The catalog the states were in common with (Export as Catalog: the
+    /// catalog exported from).
+    pub origin: String,
+    pub photos: BTreeMap<String, BTreeMap<String, String>>,
+}
+
 /// One photograph of the other catalog.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,10 +103,9 @@ pub struct Incoming {
     /// For a changed photograph, what differs: "edit", "copies",
     /// "metadata", "captureTime", "eyes", "snapshots", "albums".
     pub changes: Vec<&'static str>,
-    /// Only this catalog changed since the other was made from it: the
-    /// other's edit is an earlier step of this photograph's history and the
-    /// rest is the same. Keep current is the safe default for those.
-    pub changed_here_only: bool,
+    /// For a changed photograph, which catalog changed it since their last
+    /// common state: the default is Replace only when the other alone did.
+    pub side: Option<Side>,
     /// Where the other catalog has the original.
     pub path: PathBuf,
     /// Whether that file is there now.
@@ -111,6 +149,9 @@ pub struct Report {
     /// The photographs here whose edits or copies changed (their derived
     /// editor sidecars are to be written again).
     pub touched: Vec<String>,
+    /// What puts back the metadata Replace replaced (`travel_import`); the
+    /// replaced edit is a step of the photograph's history.
+    pub undo: Vec<crate::xmp_review::XmpUndo>,
 }
 
 /// What a photograph carries that an import compares, with resources
@@ -231,6 +272,199 @@ impl Library {
             eyes,
             snapshots,
         })
+    }
+
+    /// A digest of each part of `asset` an import compares (`Facts` and its
+    /// albums by name), resources by content.
+    fn import_digests(
+        &self,
+        asset: &str,
+        root: &Path,
+        digests: &mut Digests,
+    ) -> Result<BTreeMap<String, String>> {
+        use sha2::{Digest, Sha256};
+        let facts = self.import_facts(asset, root, digests)?;
+        let hash = |value: String| -> String {
+            Sha256::digest(value.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        let mut out = BTreeMap::new();
+        out.insert("edit".into(), hash(serde_json::to_string(&facts.edit)?));
+        out.insert("copies".into(), hash(serde_json::to_string(&facts.copies)?));
+        out.insert(
+            "metadata".into(),
+            hash(serde_json::to_string(&facts.metadata)?),
+        );
+        out.insert(
+            "captureTime".into(),
+            hash(serde_json::to_string(&facts.capture)?),
+        );
+        out.insert("eyes".into(), hash(serde_json::to_string(&facts.eyes)?));
+        out.insert(
+            "snapshots".into(),
+            hash(serde_json::to_string(&facts.snapshots)?),
+        );
+        // Each snapshot by its id, so a change of one that was there in
+        // common (renamed, settings updated, deleted) is told from one added.
+        for (key, name, adjustments) in &facts.snapshots {
+            out.insert(
+                format!("snapshot/{key}"),
+                hash(serde_json::to_string(&(name, adjustments))?),
+            );
+        }
+        out.insert(
+            "albums".into(),
+            hash(serde_json::to_string(&self.album_paths(asset)?)?),
+        );
+        Ok(out)
+    }
+
+    /// The albums holding `asset` by their name and the names of the groups
+    /// above them ("Weddings/Smith"): the same in both catalogs.
+    fn album_paths(&self, asset: &str) -> Result<BTreeSet<String>> {
+        let mut out = BTreeSet::new();
+        for id in self.album_memberships(asset)? {
+            let mut names = Vec::new();
+            let mut next = Some(id);
+            while let Some(id) = next {
+                let (name, parent): (String, Option<String>) = self.conn.query_row(
+                    "SELECT name,parent FROM collections WHERE id=?",
+                    [&id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
+                names.push(name);
+                next = parent;
+            }
+            names.reverse();
+            out.insert(names.join("/"));
+        }
+        Ok(out)
+    }
+
+    /// Every photograph's state now, as the record of an Export as Catalog
+    /// of this (new) catalog from the catalog `origin`.
+    pub fn export_baseline(&self, origin: &str) -> Result<Baseline> {
+        let mut digests = Digests {
+            cache: HashMap::new(),
+        };
+        let mut photos = BTreeMap::new();
+        for asset in self.assets(None)? {
+            photos.insert(
+                asset.id.clone(),
+                self.import_digests(&asset.id, &self.directory, &mut digests)?,
+            );
+        }
+        Ok(Baseline {
+            origin: origin.to_string(),
+            photos,
+        })
+    }
+
+    /// The common states recorded for photographs of `other` (at
+    /// `other_dir`): this catalog's last import of it, else its own record
+    /// of being exported from this catalog. A record of an export from
+    /// another catalog says nothing about this one.
+    fn baselines(&self, other: &Library, other_dir: &Path) -> (Option<Baseline>, Option<Baseline>) {
+        let read = |path: PathBuf| -> Option<Baseline> {
+            serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+        };
+        let imported = import_record(&self.directory, &other.manifest.id).and_then(read);
+        let exported = read(other_dir.join(EXPORT_BASELINE))
+            .filter(|baseline| baseline.origin == self.manifest.id);
+        (imported, exported)
+    }
+
+    /// Records, after an import from `other`, the photographs whose state
+    /// is now the same in both catalogs (`pairs`: their id there and here),
+    /// so a later import tells which side changed them since.
+    pub fn record_import(
+        &self,
+        other: &Library,
+        other_dir: &Path,
+        pairs: &[(String, String)],
+    ) -> Result<()> {
+        let mut digests = Digests {
+            cache: HashMap::new(),
+        };
+        // Another catalog's id that is no plain name: nothing recorded (a
+        // later import only asks more).
+        let Some(file) = import_record(&self.directory, &other.manifest.id) else {
+            return Ok(());
+        };
+        let folder = self.directory.join(IMPORT_BASELINES);
+        let mut record: Baseline = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        record.origin = other.manifest.id.clone();
+        let (_, exported) = self.baselines(other, other_dir);
+        for (incoming, target) in pairs {
+            let theirs = other.import_digests(incoming, other_dir, &mut digests)?;
+            let ours = self.import_digests(target, &self.directory, &mut digests)?;
+            // Part by part: a part the same in both now is their new common
+            // state; one that differs (an album or virtual copy only here, a
+            // replaced edit kept as a snapshot here) keeps the state recorded
+            // before, else none (a later import counts it as both sides).
+            let mut common = record
+                .photos
+                .get(incoming)
+                .or_else(|| exported.as_ref().and_then(|b| b.photos.get(incoming)))
+                .cloned()
+                .unwrap_or_default();
+            for (part, digest) in &theirs {
+                if ours.get(part) == Some(digest) {
+                    common.insert(part.clone(), digest.clone());
+                }
+            }
+            record.photos.insert(incoming.clone(), common);
+        }
+        std::fs::create_dir_all(&folder)?;
+        rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
+        Ok(())
+    }
+
+    /// Puts back (`back`) or applies again the metadata an import replaced,
+    /// all of them or none: a photograph whose metadata changed since is
+    /// left as it is and the step refused.
+    pub fn travel_import(&self, steps: &[crate::xmp_review::XmpUndo], back: bool) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for step in steps {
+            let (to, from) = if back {
+                (&step.before, &step.after)
+            } else {
+                (&step.after, &step.before)
+            };
+            let metadata: Metadata = serde_json::from_str(to)?;
+            metadata.validate()?;
+            let written = tx.execute(
+                // The XMP beside it is written from the restored metadata
+                // (pending): its checksum stays the one of the file as it
+                // is now, so the next sync tells no outside change.
+                "UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_status='pending',from_camera=?
+                 WHERE asset_id=? AND data=?",
+                params![
+                    metadata.rating,
+                    metadata.label,
+                    metadata.flag,
+                    to,
+                    back && step.from_camera,
+                    step.asset,
+                    from
+                ],
+            )?;
+            ensure!(
+                written == 1,
+                "A photograph's metadata was changed since the import; nothing was put back"
+            );
+            tx.execute(
+                "UPDATE assets SET search_text=? WHERE id=?",
+                params![crate::search_text(&metadata), step.asset],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// The albums holding `asset`, by id, with their name and parent.
@@ -366,6 +600,7 @@ impl Library {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
+        let (imported, exported) = self.baselines(other, other_dir);
         let mut out = Vec::new();
         // In the order the other library registered them, so that of two
         // copies of one file there the earlier keeps its match here, import
@@ -418,7 +653,7 @@ impl Library {
                     matched_by: None,
                     status: Status::New,
                     changes: vec![],
-                    changed_here_only: false,
+                    side: None,
                     path,
                     available,
                 });
@@ -459,13 +694,61 @@ impl Library {
                     }
                 }
             }
-            // Edited here since: theirs is an earlier step of our history,
-            // or they never edited it and we did.
-            let changed_here_only = changes == ["edit"]
-                && match &theirs.edit {
-                    Some(edit) => self.earlier_edits(&target, &mut digests)?.contains(edit),
-                    None => true,
-                };
+            let side = if changes.is_empty() {
+                None
+            } else {
+                let baseline = imported
+                    .as_ref()
+                    .and_then(|b| b.photos.get(&asset.id))
+                    .or_else(|| exported.as_ref().and_then(|b| b.photos.get(&asset.id)));
+                Some(match baseline {
+                    None => Side::Both,
+                    Some(baseline) => {
+                        let theirs_now =
+                            other.import_digests(&asset.id, other_dir, &mut digests)?;
+                        let ours_now =
+                            self.import_digests(&target, &self.directory, &mut digests)?;
+                        // Their edit is an earlier step of our history: we
+                        // had it and went on.
+                        let theirs_seen = match &theirs.edit {
+                            Some(edit) if changes.contains(&"edit") => {
+                                self.earlier_edits(&target, &mut digests)?.contains(edit)
+                            }
+                            _ => false,
+                        };
+                        let (mut there, mut here) = (false, false);
+                        for part in &changes {
+                            let then = baseline.get(*part);
+                            let there_part =
+                                theirs_now.get(*part) != then && !(*part == "edit" && theirs_seen);
+                            // Snapshots: Replace adds theirs and updates
+                            // those with the same id, never takes one here
+                            // away. Ours added since are no conflict; one
+                            // in common changed or deleted here is.
+                            let here_part = if *part == "snapshots" {
+                                baseline.iter().any(|(key, digest)| {
+                                    key.starts_with("snapshot/")
+                                        && ours_now.get(key) != Some(digest)
+                                })
+                            } else {
+                                ours_now.get(*part) != then || (*part == "edit" && theirs_seen)
+                            };
+                            if !there_part && !here_part {
+                                // Unclear which: the photographer decides.
+                                there = true;
+                                here = true;
+                            }
+                            there |= there_part;
+                            here |= here_part;
+                        }
+                        match (there, here) {
+                            (true, false) => Side::There,
+                            (false, true) => Side::Here,
+                            _ => Side::Both,
+                        }
+                    }
+                })
+            };
             out.push(Incoming {
                 id: asset.id,
                 target: Some(target),
@@ -476,7 +759,7 @@ impl Library {
                     Status::Changed
                 },
                 changes,
-                changed_here_only,
+                side,
                 path,
                 available,
             });
@@ -554,7 +837,7 @@ impl Library {
             match changed.choice {
                 Choice::Keep => report.kept += 1,
                 Choice::Replace => {
-                    replace(
+                    report.undo.extend(replace(
                         &tx,
                         self,
                         other,
@@ -562,7 +845,7 @@ impl Library {
                         target,
                         &changed.changes,
                         &plan.before,
-                    )?;
+                    )?);
                     here.push((incoming.clone(), target.clone()));
                     report.touched.push(target.clone());
                     report.replaced += 1;
@@ -742,7 +1025,8 @@ const UNEDITED: &str = r#"{"schema_version":1,"process_version":"rapidraw-1.6.4"
 /// correction, eye calls and snapshots replace the photograph's here (only
 /// what differs). The edit is a new step of its history, and the edit it
 /// replaces is kept as a snapshot named `before` (the app's Snapshots
-/// panel brings it back); copies only here stay.
+/// panel brings it back); copies only here stay. Returns what puts the
+/// replaced metadata back, when it replaced any.
 fn replace(
     tx: &Connection,
     lib: &Library,
@@ -751,7 +1035,8 @@ fn replace(
     target: &str,
     changes: &[&str],
     before: &str,
-) -> Result<()> {
+) -> Result<Option<crate::xmp_review::XmpUndo>> {
+    let mut undo = None;
     let version: String = tx.query_row(
         "SELECT id FROM versions WHERE asset_id=? AND is_primary=1",
         [target],
@@ -778,7 +1063,23 @@ fn replace(
         write_recipe(tx, &version, &payload)?;
     }
     if changes.contains(&"metadata") {
-        write_metadata(tx, target, &other.metadata(incoming)?)?;
+        let (before, xmp_hash, xmp_status, from_camera): (String, Option<String>, String, bool) =
+            tx.query_row(
+                "SELECT data,xmp_hash,xmp_status,from_camera FROM metadata WHERE asset_id=?",
+                [target],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+        let theirs = other.metadata(incoming)?;
+        write_metadata(tx, target, &theirs)?;
+        // `write_metadata` stores exactly this serialization.
+        undo = Some(crate::xmp_review::XmpUndo {
+            asset: target.to_string(),
+            before,
+            after: serde_json::to_string(&theirs)?,
+            xmp_hash,
+            xmp_status,
+            from_camera,
+        });
     }
     // Their virtual copies (state and snapshots); copies only here stay.
     let copies: Vec<(String, String, Option<String>)> = other
@@ -837,7 +1138,7 @@ fn replace(
         copy_rows(tx, "eye_reads", &theirs_only, &[("asset_id", &set_target)])?;
         copy_rows(tx, "face_eyes", &theirs_only, &[("asset_id", &set_target)])?;
     }
-    Ok(())
+    Ok(undo)
 }
 
 /// The incoming photograph's edit as a new virtual copy here; the

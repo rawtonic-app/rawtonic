@@ -1433,7 +1433,6 @@
         "metadata": "中繼資料",
         "snapshots": "快照"
       },
-      "changedHereOnly": "僅在此目錄中變更",
       "changedPhotos_other": "已變更的照片（{{count}}）",
       "choice": {
         "keep": "保留目前",
@@ -1447,7 +1446,7 @@
       "copyTo": "複製原始檔案的資料夾",
       "done": "已從目錄「{{name}}」匯入",
       "failed": "無法從目錄「{{name}}」匯入；未做任何變更",
-      "forChanged": "對於已變更的照片",
+      "forChangedThere": "僅在另一個目錄中變更的照片",
       "hint": "帶回在另一個 Rawtonic 目錄中完成的工作，例如用「匯出為目錄」建立的目錄。照片依其識別或原始檔案內容比對，絕不依檔名比對。",
       "import": "匯入",
       "includeNew": "匯入新照片",
@@ -1459,6 +1458,11 @@
       "otherUnchanged": "另一個目錄保持不變。被取代的編輯會保留為照片的快照。",
       "replaced_other": "已更新 {{count}} 張照片",
       "running": "正在從目錄「{{name}}」匯入",
+      "side": {
+        "both": "在兩個目錄中都已變更",
+        "here": "在此目錄中變更",
+        "there": "在另一個目錄中變更"
+      },
       "source": "要匯入的目錄",
       "summary": "「{{name}}」：新增 {{new}}，已變更 {{changed}}，未變更 {{unchanged}}（略過）",
       "title": "從目錄匯入",
@@ -4798,6 +4802,7 @@
   "undoHistory": {
     "apply": "套用設定",
     "captureTime": "調整拍攝時間",
+    "catalogImport": "從目錄匯入",
     "color": "設定色彩標籤",
     "edit": "編輯",
     "file": "檔案變更",

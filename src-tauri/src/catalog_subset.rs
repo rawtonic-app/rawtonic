@@ -178,6 +178,29 @@ pub fn library_import_catalog_cancel() {
     CANCEL_IMPORT.store(true, Ordering::Release);
 }
 
+/// Undo (`undo`) or Redo of an import's metadata replacements in the
+/// catalog at `target`: all of them or none (a photograph changed since
+/// refuses the step). The replaced edits travel in each photograph's
+/// history.
+#[tauri::command]
+pub async fn library_import_catalog_travel(
+    target: String,
+    steps: Vec<rawtonic_catalog::XmpUndo>,
+    undo: bool,
+) -> Result<(), String> {
+    crate::session_bridge::with_library(target, true, move |lib| {
+        lib.travel_import(&steps, undo)
+            .map_err(|e| format!("{e:#}"))?;
+        // The derived editor sidecars and the XMP follow the metadata.
+        for step in &steps {
+            crate::session_bridge::rederive(lib, &step.asset);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The Standard previews of the exported photographs, into the staged
 /// catalog: of a copied original where the catalog keeps its previews, of
 /// one left where it is among the catalog's carried previews.

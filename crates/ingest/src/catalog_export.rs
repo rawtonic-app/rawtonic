@@ -349,6 +349,14 @@ pub fn export_catalog(
         done: assets.len(),
         total: assets.len(),
     });
+    // Each photograph's state now, which this catalog and the source have
+    // in common: Import from Catalog tells by it which side changed a
+    // photograph since (and so what it may replace).
+    let origin = rawtonic_catalog::subset::read_manifest(&source)?.id;
+    rawtonic_metadata::atomic_write(
+        &stage_root.join(rawtonic_catalog::catalog_import::EXPORT_BASELINE),
+        serde_json::to_vec_pretty(&catalog.export_baseline(&origin)?)?,
+    )?;
     catalog.check_integrity()?;
     catalog.compact()?;
     catalog.checkpoint()?;

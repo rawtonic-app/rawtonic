@@ -1471,7 +1471,6 @@
         "metadata": "Metadaten",
         "snapshots": "Schnappschüsse"
       },
-      "changedHereOnly": "nur in diesem Katalog geändert",
       "changedPhotos_one": "Geändertes Foto ({{count}})",
       "changedPhotos_other": "Geänderte Fotos ({{count}})",
       "choice": {
@@ -1486,7 +1485,7 @@
       "copyTo": "Ordner für die kopierten Originale",
       "done": "Aus Katalog „{{name}}“ importiert",
       "failed": "Import aus Katalog „{{name}}“ nicht möglich; nichts wurde geändert",
-      "forChanged": "Für geänderte Fotos",
+      "forChangedThere": "Für Fotos, die nur im anderen Katalog geändert wurden",
       "hint": "Holt die Arbeit aus einem anderen Rawtonic-Katalog zurück, etwa aus einem mit „Als Katalog exportieren“ erstellten. Fotos werden über ihre Identität oder den Inhalt ihres Originals zugeordnet, nie über den Dateinamen.",
       "import": "Importieren",
       "includeNew": "Neue Fotos importieren",
@@ -1501,6 +1500,11 @@
       "replaced_one": "{{count}} Foto aktualisiert",
       "replaced_other": "{{count}} Fotos aktualisiert",
       "running": "Import aus Katalog „{{name}}“",
+      "side": {
+        "both": "in beiden Katalogen geändert",
+        "here": "in diesem Katalog geändert",
+        "there": "im anderen Katalog geändert"
+      },
       "source": "Katalog, aus dem importiert wird",
       "summary": "„{{name}}“: {{new}} neu, {{changed}} geändert, {{unchanged}} unverändert (übersprungen)",
       "title": "Aus Katalog importieren",
@@ -4927,6 +4931,7 @@
   "undoHistory": {
     "apply": "Einstellungen anwenden",
     "captureTime": "Aufnahmezeit verschieben",
+    "catalogImport": "Aus Katalog importieren",
     "color": "Farbmarkierung festlegen",
     "edit": "Bearbeitung",
     "file": "Dateiänderung",

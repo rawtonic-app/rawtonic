@@ -1471,7 +1471,6 @@
         "metadata": "metadata",
         "snapshots": "snapshots"
       },
-      "changedHereOnly": "changed only in this catalog",
       "changedPhotos_one": "Changed photo ({{count}})",
       "changedPhotos_other": "Changed photos ({{count}})",
       "choice": {
@@ -1486,7 +1485,7 @@
       "copyTo": "Folder for the copied originals",
       "done": "Imported from catalog “{{name}}”",
       "failed": "Could not import from catalog “{{name}}”; nothing was changed",
-      "forChanged": "For changed photos",
+      "forChangedThere": "For photos changed only in the other catalog",
       "hint": "Bring back the work done in another Rawtonic catalog, such as one made with Export as Catalog. Photos are matched by their identity or the content of their original, never by file name.",
       "import": "Import",
       "includeNew": "Import new photos",
@@ -1501,6 +1500,11 @@
       "replaced_one": "{{count}} photo updated",
       "replaced_other": "{{count}} photos updated",
       "running": "Importing from catalog “{{name}}”",
+      "side": {
+        "both": "changed in both catalogs",
+        "here": "changed in this catalog",
+        "there": "changed in the other catalog"
+      },
       "source": "Catalog to import from",
       "summary": "“{{name}}”: {{new}} new, {{changed}} changed, {{unchanged}} unchanged (skipped)",
       "title": "Import from Catalog",
@@ -4927,6 +4931,7 @@
   "undoHistory": {
     "apply": "Apply Settings",
     "captureTime": "Shift Capture Time",
+    "catalogImport": "Import from Catalog",
     "color": "Set Color Label",
     "edit": "Edit",
     "file": "File Change",
