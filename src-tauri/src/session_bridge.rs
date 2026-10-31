@@ -1405,6 +1405,7 @@ pub async fn session_album_remove(
 pub async fn session_album_paths(directory: String, id: String) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
         crate::library_search::start_facts_pass_if_needed(lib);
+        crate::duplicates::start_pass_if_needed(lib, &rawtonic_catalog::Rule::album(&id));
         lib.collection_paths(&id).map_err(|e| e.to_string())
     })
     .await

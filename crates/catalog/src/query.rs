@@ -104,6 +104,10 @@ pub enum Field {
     /// The IPTC Digital Source Type the file states (its IPTC code,
     /// `trainedAlgorithmicMedia`; `none` for none).
     SourceType,
+    /// Another present photograph holds identical image data (Find
+    /// Duplicates' hashes as recorded, `duplicates.rs`; photographs not
+    /// hashed yet are not duplicates).
+    Duplicate,
 }
 
 /// How a condition compares.
@@ -282,6 +286,8 @@ struct Compiler<'a> {
     /// The condition reads `metadata m` / `roots r`.
     metadata: bool,
     roots: bool,
+    /// The condition compares image data (`Field::Duplicate`).
+    duplicates: bool,
     /// The separator of the stored paths (`rel_path`, `roots.path`): the
     /// platform's, as `Path` gives them when photographs are registered.
     sep: char,
@@ -421,6 +427,7 @@ impl<'a> Compiler<'a> {
             today: chrono::Local::now().date_naive(),
             metadata: false,
             roots: false,
+            duplicates: false,
             sep: std::path::MAIN_SEPARATOR,
         }
     }
@@ -971,6 +978,25 @@ impl<'a> Compiler<'a> {
                     _ => bail!("Use is / is not for previous import"),
                 }
             }
+            Field::Duplicate => {
+                self.duplicates = true;
+                let wanted = value.as_bool().context("Duplicate is true or false")?;
+                let others = self
+                    .library
+                    .map_or("a.trashed=0", |library| library.visible_assets())
+                    .replace("a.", "d.");
+                let test = format!(
+                    "(a.missing=0 AND EXISTS (SELECT 1 FROM image_hashes h \
+                      JOIN image_hashes o ON o.hash=h.hash AND o.asset_id!=h.asset_id \
+                      JOIN assets d ON d.id=o.asset_id \
+                      WHERE h.asset_id=a.id AND d.missing=0 AND {others}))"
+                );
+                match (op, wanted) {
+                    (Op::Is, true) | (Op::IsNot, false) => Ok(test),
+                    (Op::Is, false) | (Op::IsNot, true) => Ok(format!("NOT {test}")),
+                    _ => bail!("Use is / is not for duplicate"),
+                }
+            }
             Field::Ai => {
                 let test = match op {
                     Op::Is | Op::IsNot => {
@@ -1403,6 +1429,15 @@ impl Tally {
 impl Library {
     fn compile(&self, rule: &Rule) -> Result<Compiled> {
         self.compile_visible(rule, self.visible_assets())
+    }
+
+    /// Whether `rule`, with the smart albums it names, compares image data
+    /// (`Field::Duplicate`): its answer needs current image hashes.
+    pub fn rule_compares_images(&self, rule: &Rule) -> Result<bool> {
+        rule.validate()?;
+        let mut compiler = Compiler::new(&self.directory, Some(self));
+        compiler.rule(rule)?;
+        Ok(compiler.duplicates)
     }
 
     fn compile_visible(&self, rule: &Rule, visible: &str) -> Result<Compiled> {

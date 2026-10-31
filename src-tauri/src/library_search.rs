@@ -28,6 +28,7 @@ pub async fn session_search(
 ) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
         start_facts_pass_if_needed(lib);
+        crate::duplicates::start_pass_if_needed(lib, &rule);
         let paths = lib
             .search_for_listing(&rule, listed.as_deref().map(Path::new))
             .map_err(|e| e.to_string())?;
@@ -174,6 +175,11 @@ pub(crate) fn announcing_ai_facts<T>(
         let _ = app.emit(AI_FACTS_CHANGED, &lib.directory);
     }
     Ok(saved)
+}
+
+/// The app, once it is there: background passes announce through it.
+pub(crate) fn announcer() -> Option<&'static tauri::AppHandle> {
+    FACTS_ANNOUNCED.get()
 }
 
 /// The app hears of facts the background pass records from now on.

@@ -34,6 +34,7 @@ mod collage;
 mod contribute;
 mod costyle;
 mod culling;
+mod duplicates;
 mod editor_preview;
 mod embedded_lens;
 mod embedded_still;
@@ -805,6 +806,10 @@ pub fn run() {
             capture_time::capture_time_preview,
             capture_time::capture_time_plan,
             capture_time::capture_time_apply,
+            duplicates::duplicates_start,
+            duplicates::duplicates_cancel,
+            duplicates::duplicates_groups,
+            duplicates::duplicates_confirm,
             file_management::file_size,
             file_management::get_supported_file_types,
             file_management::read_exif_for_paths,

@@ -29,6 +29,17 @@
     "download": {
       "model": "Downloading {{name}}"
     },
+    "duplicates": {
+      "failed": "Finding duplicates failed",
+      "read_one": "Compared {{count}} photo for duplicates",
+      "read_other": "Compared {{count}} photos for duplicates",
+      "reading": "Comparing photos for duplicates",
+      "review": "Review duplicates",
+      "stopped_one": "Stopped comparing for duplicates after {{count}} photo",
+      "stopped_other": "Stopped comparing for duplicates after {{count}} photos",
+      "unreadable_one": "{{count}} photo could not be compared for duplicates",
+      "unreadable_other": "{{count}} photos could not be compared for duplicates"
+    },
     "empty": {
       "attention": "Nothing needs your attention.",
       "done": "No recent results.",
@@ -209,6 +220,7 @@
       "copy_adjustments": "Copy Settings",
       "copy_image_path": "Copy Path",
       "delete_selected": "Move to Trash",
+      "find_duplicates": "Find Duplicates…",
       "flag_pick": "Pick",
       "flag_reject": "Reject",
       "flag_unflag": "Unflag",
@@ -622,6 +634,48 @@
         "transform": "Transform"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "copies_one": "{{count}} virtual copy",
+      "copies_other": "{{count}} virtual copies",
+      "edited": "Edited",
+      "keywords_one": "{{count}} keyword",
+      "keywords_other": "{{count}} keywords",
+      "label": "Label: {{label}}",
+      "none": "No edits or metadata",
+      "picked": "Picked",
+      "rejected": "Rejected"
+    },
+    "captured": "Captured {{date}}",
+    "changed_one": "{{count}} photo changed since it was compared, so nothing was moved. Compared again.",
+    "changed_other": "{{count}} photos changed since they were compared, so nothing was moved. Compared again.",
+    "close": "Close",
+    "comparedFile": "whole files compared",
+    "comparedImage": "image data compared",
+    "failed": "Finding duplicates failed: {{error}}",
+    "group_one": "{{count}} photo with identical image data",
+    "group_other": "{{count}} photos with identical image data",
+    "imported": "Imported {{date}}",
+    "intro": "Finds photos whose files hold identical image data, even with other names, folders, metadata or edits. Visually similar photos are not compared.",
+    "keepOne": "Keep at least one photo of this group.",
+    "markTrash": "Move to Trash",
+    "moveToTrash_one": "Move {{count}} Photo to Trash",
+    "moveToTrash_other": "Move {{count}} Photos to Trash",
+    "noLibrary": "Open a project or catalog to find duplicates.",
+    "none": "No duplicates: no two photos hold identical image data.",
+    "reading": "Comparing image data: {{done}} of {{total}} photos",
+    "readingStart": "Comparing image data…",
+    "stop": "Stop",
+    "stopped": "Stopped: only the photos compared so far are grouped.",
+    "suggestion": "Suggested for the Trash: photos without edits, rating, flag, label, keywords or virtual copies of their own. Every photo with such work is kept; otherwise the oldest import is kept. Nothing is merged.",
+    "summary_one": "{{count}} group of duplicates ({{photos}} photos)",
+    "summary_other": "{{count}} groups of duplicates ({{photos}} photos)",
+    "title": "Find Duplicates",
+    "unknown": "unknown",
+    "unreadable_one": "{{count}} photo could not be read and is not grouped.",
+    "unreadable_other": "{{count}} photos could not be read and are not grouped.",
+    "workWarning": "A photo marked for the Trash has edits, metadata or virtual copies of its own. Undo brings it back with them."
   },
   "editor": {
     "adjustments": {
@@ -3502,6 +3556,7 @@
           "camera": "Camera",
           "captureDate": "Capture date",
           "details": "Any text but keywords",
+          "duplicate": "Duplicate (identical image data)",
           "exposure": "Shutter speed (s)",
           "filename": "File name",
           "fileType": "File type",

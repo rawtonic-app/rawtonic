@@ -5953,3 +5953,72 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 @keyframes library-switch-shield-in {
   to { opacity: 1; }
 }
+
+/* Find Duplicates' review (DuplicatesDialog). */
+.studio-duplicates {
+  width: min(760px, 100%);
+}
+.studio-duplicates-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-duplicates-groups h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.studio-duplicates-groups ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-duplicates-groups ul li {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  background: #222325;
+  border-radius: 4px;
+}
+.studio-duplicates-groups ul li.is-trashed {
+  opacity: 0.6;
+}
+.studio-duplicates-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 64px;
+  background: #1b1c1d;
+}
+.studio-duplicates-thumb img {
+  max-width: 96px;
+  max-height: 64px;
+  object-fit: contain;
+}
+.studio-duplicates-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.studio-duplicates-facts small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #a7abb0;
+}
+.studio-duplicates-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}

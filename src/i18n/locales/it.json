@@ -32,6 +32,20 @@
     "download": {
       "model": "Download: {{name}}"
     },
+    "duplicates": {
+      "failed": "Ricerca dei duplicati non riuscita",
+      "read_one": "{{count}} foto confrontata per i duplicati",
+      "read_many": "{{count}} foto confrontate per i duplicati",
+      "read_other": "{{count}} foto confrontate per i duplicati",
+      "reading": "Confronto delle foto per i duplicati",
+      "review": "Rivedi duplicati",
+      "stopped_one": "Confronto dei duplicati interrotto dopo {{count}} foto",
+      "stopped_many": "Confronto dei duplicati interrotto dopo {{count}} foto",
+      "stopped_other": "Confronto dei duplicati interrotto dopo {{count}} foto",
+      "unreadable_one": "{{count}} foto non è stata confrontata",
+      "unreadable_many": "{{count}} foto non sono state confrontate",
+      "unreadable_other": "{{count}} foto non sono state confrontate"
+    },
     "empty": {
       "attention": "Niente richiede la tua attenzione.",
       "done": "Nessun risultato recente.",
@@ -216,6 +230,7 @@
       "copy_adjustments": "Copia impostazioni",
       "copy_image_path": "Copia percorso",
       "delete_selected": "Sposta nel cestino",
+      "find_duplicates": "Trova duplicati…",
       "flag_pick": "Scegli",
       "flag_reject": "Scarta",
       "flag_unflag": "Senza contrassegno",
@@ -651,6 +666,55 @@
         "transform": "Trasforma"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "copies_one": "{{count}} copia virtuale",
+      "copies_many": "{{count}} copie virtuali",
+      "copies_other": "{{count}} copie virtuali",
+      "edited": "Modificata",
+      "keywords_one": "{{count}} parola chiave",
+      "keywords_many": "{{count}} parole chiave",
+      "keywords_other": "{{count}} parole chiave",
+      "label": "Etichetta: {{label}}",
+      "none": "Nessuna modifica né metadati",
+      "picked": "Scelta",
+      "rejected": "Scartata"
+    },
+    "captured": "Scattata {{date}}",
+    "changed_one": "{{count}} foto è cambiata dopo il confronto, quindi non è stato spostato nulla. Confronto ripetuto.",
+    "changed_many": "{{count}} foto sono cambiate dopo il confronto, quindi non è stato spostato nulla. Confronto ripetuto.",
+    "changed_other": "{{count}} foto sono cambiate dopo il confronto, quindi non è stato spostato nulla. Confronto ripetuto.",
+    "close": "Chiudi",
+    "comparedFile": "file interi confrontati",
+    "comparedImage": "dati immagine confrontati",
+    "failed": "Ricerca dei duplicati non riuscita: {{error}}",
+    "group_one": "{{count}} foto con dati immagine identici",
+    "group_many": "{{count}} foto con dati immagine identici",
+    "group_other": "{{count}} foto con dati immagine identici",
+    "imported": "Importata {{date}}",
+    "intro": "Trova le foto i cui file contengono dati immagine identici, anche con altri nomi, cartelle, metadati o modifiche. Le foto visivamente simili non vengono confrontate.",
+    "keepOne": "Mantieni almeno una foto di questo gruppo.",
+    "markTrash": "Sposta nel cestino",
+    "moveToTrash_one": "Sposta {{count}} foto nel cestino",
+    "moveToTrash_many": "Sposta {{count}} foto nel cestino",
+    "moveToTrash_other": "Sposta {{count}} foto nel cestino",
+    "noLibrary": "Apri un progetto o un catalogo per trovare i duplicati.",
+    "none": "Nessun duplicato: non ci sono due foto con dati immagine identici.",
+    "reading": "Confronto dei dati immagine: {{done}} di {{total}} foto",
+    "readingStart": "Confronto dei dati immagine…",
+    "stop": "Interrompi",
+    "stopped": "Interrotto: sono raggruppate solo le foto confrontate finora.",
+    "suggestion": "Proposte per il cestino: foto senza modifiche, valutazione, contrassegno, etichetta, parole chiave o copie virtuali proprie. Ogni foto con questo lavoro viene mantenuta; altrimenti si mantiene l'importazione più vecchia. Nulla viene unito.",
+    "summary_one": "{{count}} gruppo di duplicati ({{photos}} foto)",
+    "summary_many": "{{count}} gruppi di duplicati ({{photos}} foto)",
+    "summary_other": "{{count}} gruppi di duplicati ({{photos}} foto)",
+    "title": "Trova duplicati",
+    "unknown": "sconosciuta",
+    "unreadable_one": "{{count}} foto non è leggibile e non è raggruppata.",
+    "unreadable_many": "{{count}} foto non sono leggibili e non sono raggruppate.",
+    "unreadable_other": "{{count}} foto non sono leggibili e non sono raggruppate.",
+    "workWarning": "Una foto contrassegnata per il cestino ha modifiche, metadati o copie virtuali proprie. Annulla la ripristina con essi."
   },
   "editor": {
     "adjustments": {
@@ -3616,6 +3680,7 @@
           "camera": "Fotocamera",
           "captureDate": "Data di scatto",
           "details": "Qualsiasi testo tranne le parole chiave",
+          "duplicate": "Duplicato (dati immagine identici)",
           "exposure": "Tempo di posa (s)",
           "filename": "Nome file",
           "fileType": "Tipo di file",

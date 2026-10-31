@@ -32,6 +32,20 @@
     "download": {
       "model": "Descargando {{name}}"
     },
+    "duplicates": {
+      "failed": "La búsqueda de duplicados ha fallado",
+      "read_one": "{{count}} foto comparada para buscar duplicados",
+      "read_many": "{{count}} fotos comparadas para buscar duplicados",
+      "read_other": "{{count}} fotos comparadas para buscar duplicados",
+      "reading": "Comparando fotos para buscar duplicados",
+      "review": "Revisar duplicados",
+      "stopped_one": "Comparación de duplicados detenida tras {{count}} foto",
+      "stopped_many": "Comparación de duplicados detenida tras {{count}} fotos",
+      "stopped_other": "Comparación de duplicados detenida tras {{count}} fotos",
+      "unreadable_one": "No se pudo comparar {{count}} foto",
+      "unreadable_many": "No se pudieron comparar {{count}} fotos",
+      "unreadable_other": "No se pudieron comparar {{count}} fotos"
+    },
     "empty": {
       "attention": "Nada requiere tu atención.",
       "done": "No hay resultados recientes.",
@@ -216,6 +230,7 @@
       "copy_adjustments": "Copiar ajustes",
       "copy_image_path": "Copiar ruta",
       "delete_selected": "Mover a la papelera",
+      "find_duplicates": "Buscar duplicados…",
       "flag_pick": "Elegir",
       "flag_reject": "Rechazar",
       "flag_unflag": "Sin marca",
@@ -651,6 +666,55 @@
         "transform": "Transformar"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "copies_one": "{{count}} copia virtual",
+      "copies_many": "{{count}} copias virtuales",
+      "copies_other": "{{count}} copias virtuales",
+      "edited": "Editada",
+      "keywords_one": "{{count}} palabra clave",
+      "keywords_many": "{{count}} palabras clave",
+      "keywords_other": "{{count}} palabras clave",
+      "label": "Etiqueta: {{label}}",
+      "none": "Sin ediciones ni metadatos",
+      "picked": "Seleccionada",
+      "rejected": "Rechazada"
+    },
+    "captured": "Tomada {{date}}",
+    "changed_one": "{{count}} foto cambió desde la comparación, así que no se movió nada. Se ha comparado de nuevo.",
+    "changed_many": "{{count}} fotos cambiaron desde la comparación, así que no se movió nada. Se ha comparado de nuevo.",
+    "changed_other": "{{count}} fotos cambiaron desde la comparación, así que no se movió nada. Se ha comparado de nuevo.",
+    "close": "Cerrar",
+    "comparedFile": "archivos completos comparados",
+    "comparedImage": "datos de imagen comparados",
+    "failed": "La búsqueda de duplicados ha fallado: {{error}}",
+    "group_one": "{{count}} foto con datos de imagen idénticos",
+    "group_many": "{{count}} fotos con datos de imagen idénticos",
+    "group_other": "{{count}} fotos con datos de imagen idénticos",
+    "imported": "Importada {{date}}",
+    "intro": "Busca fotos cuyos archivos contienen datos de imagen idénticos, aunque tengan otros nombres, carpetas, metadatos o ediciones. Las fotos visualmente parecidas no se comparan.",
+    "keepOne": "Conserva al menos una foto de este grupo.",
+    "markTrash": "Mover a la papelera",
+    "moveToTrash_one": "Mover {{count}} foto a la papelera",
+    "moveToTrash_many": "Mover {{count}} fotos a la papelera",
+    "moveToTrash_other": "Mover {{count}} fotos a la papelera",
+    "noLibrary": "Abre un proyecto o un catálogo para buscar duplicados.",
+    "none": "Sin duplicados: no hay dos fotos con datos de imagen idénticos.",
+    "reading": "Comparando datos de imagen: {{done}} de {{total}} fotos",
+    "readingStart": "Comparando datos de imagen…",
+    "stop": "Detener",
+    "stopped": "Detenido: solo se agrupan las fotos comparadas hasta ahora.",
+    "suggestion": "Propuestas para la papelera: fotos sin ediciones, valoración, marca, etiqueta de color, palabras clave ni copias virtuales propias. Toda foto con ese trabajo se conserva; si no, se conserva la importación más antigua. No se fusiona nada.",
+    "summary_one": "{{count}} grupo de duplicados ({{photos}} fotos)",
+    "summary_many": "{{count}} grupos de duplicados ({{photos}} fotos)",
+    "summary_other": "{{count}} grupos de duplicados ({{photos}} fotos)",
+    "title": "Buscar duplicados",
+    "unknown": "desconocida",
+    "unreadable_one": "No se pudo leer {{count}} foto y no está agrupada.",
+    "unreadable_many": "No se pudieron leer {{count}} fotos y no están agrupadas.",
+    "unreadable_other": "No se pudieron leer {{count}} fotos y no están agrupadas.",
+    "workWarning": "Una foto marcada para la papelera tiene ediciones, metadatos o copias virtuales propias. Deshacer la recupera con ellos."
   },
   "editor": {
     "adjustments": {
@@ -3616,6 +3680,7 @@
           "camera": "Cámara",
           "captureDate": "Fecha de captura",
           "details": "Cualquier texto salvo palabras clave",
+          "duplicate": "Duplicado (datos de imagen idénticos)",
           "exposure": "Velocidad de obturación (s)",
           "filename": "Nombre de archivo",
           "fileType": "Tipo de archivo",
