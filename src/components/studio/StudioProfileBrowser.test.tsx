@@ -77,6 +77,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   debouncedSave.cancel();
   debouncedSetHistory.cancel();
 });
@@ -111,6 +112,24 @@ describe("profile browser", () => {
     expect(variants).toContainEqual(expect.objectContaining({ lutPath: "/res/Warm 200.cube", lutIntensity: 100, lutIsSceneReferred: true }));
     expect(variants).toContainEqual(expect.objectContaining({ blackAndWhite: true }));
     expect(invoke).toHaveBeenCalledWith("profile_thumbnails", expect.objectContaining({ path: "/s/Capture/a.CR3", adjustments: expect.objectContaining({ exposure: 0.5 }) }));
+  });
+
+  it("observes every displayed tile again after filtering and clearing search", async () => {
+    const observed = new Set<Element>();
+    vi.stubGlobal("IntersectionObserver", class {
+      own = new Set<Element>();
+      observe(node: Element) { this.own.add(node); observed.add(node); }
+      disconnect() { this.own.forEach((node) => observed.delete(node)); }
+    });
+    const browser = await openBrowser();
+    const cells = () => [...browser.querySelectorAll("[data-tile]")];
+    await waitFor(() => expect(cells().every((cell) => observed.has(cell))).toBe(true));
+    const search = within(browser).getByRole("searchbox", { name: "Search profiles" });
+    fireEvent.change(search, { target: { value: "warm" } });
+    expect(cells()).toHaveLength(1);
+    fireEvent.change(search, { target: { value: "" } });
+    expect(cells()).toHaveLength(7);
+    await waitFor(() => expect(cells().every((cell) => observed.has(cell))).toBe(true));
   });
 
   it("previews on hover and focus without a history step, and restores on leaving or Esc", async () => {

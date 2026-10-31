@@ -313,7 +313,7 @@ export default function StudioProfileBrowser({
     }
   };
 
-  const urls = useTileThumbnails(opened, tiles, imagePath);
+  const urls = useTileThumbnails(opened, tiles, imagePath, shown);
   const grid = useRef<HTMLDivElement>(null);
 
   // Arrow keys move between tiles (and preview them; Down from the search
@@ -527,7 +527,9 @@ function recordTiming(stage: string, ms: number) {
  * (the old tiles stay until the new ones arrive), never during a drag.
  * Closing cancels what is still rendering and frees the tiles.
  */
-function useTileThumbnails(opened: boolean, tiles: ProfileTile[], imagePath: string | undefined) {
+function useTileThumbnails(
+  opened: boolean, tiles: ProfileTile[], imagePath: string | undefined, displayed: [string, ProfileTile[]][],
+) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const urls = useRef(new Map<string, string>());
   const renderedFor = useRef(new Map<string, unknown>());
@@ -586,7 +588,7 @@ function useTileThumbnails(opened: boolean, tiles: ProfileTile[], imagePath: str
       cancelAnimationFrame(raf);
       observer?.disconnect();
     };
-  }, [opened, tiles]);
+  }, [opened, displayed]);
 
   useEffect(() => {
     if (!opened || !imagePath) return;
