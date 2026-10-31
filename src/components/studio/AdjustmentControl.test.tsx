@@ -40,6 +40,8 @@ describe("professional adjustment control", () => {
     fireEvent.pointerMove(slider, { clientX: 70, altKey: true, pointerId: 2 });
     fireEvent.pointerUp(slider, { pointerId: 2 });
     expect(change).toHaveBeenLastCalledWith(0.2);
+    // Codex r1: the suppressed native press must still move keyboard focus.
+    expect(document.activeElement).toBe(slider);
     expect(slider.closest(".adjustment-control")!.classList.contains("is-active")).toBe(false);
   });
   it("marks its row while the slider or its label is dragged, and only then", () => {

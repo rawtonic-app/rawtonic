@@ -241,6 +241,8 @@ export default memo(function AdjustmentControl({
             // Fine control (Option, as on the label): the thumb does not jump
             // to the pointer and moves a tenth of a plain drag per pixel.
             e.preventDefault();
+            // preventDefault also stops the native focus move: keys go here next.
+            e.currentTarget.focus();
             e.currentTarget.setPointerCapture(e.pointerId);
             const width = e.currentTarget.getBoundingClientRect().width;
             fine.current = {
