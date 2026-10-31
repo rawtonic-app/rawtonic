@@ -31,7 +31,7 @@ afterEach(() => {
 
 it('starts for the open library, again for photographs added later, and stops only its own pass', async () => {
   const { unmount } = renderHook(() => useEyeCheck());
-  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StartEyeCheck, { directory: '/A', download: false });
+  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StartEyeCheck, { directory: '/A', download: false, resume: true });
   expect(starts()).toBe(1);
   // An import adds photographs after the pass finished: it is asked again.
   act(() => useLibraryStore.setState({ imageList: [photo('/A/1.arw'), photo('/A/2.arw')] }));
@@ -41,11 +41,13 @@ it('starts for the open library, again for photographs added later, and stops on
   // or a hot folder: the library is asked again within BACKLOG_CHECK_MS.
   await act(async () => vi.advanceTimersByTimeAsync(BACKLOG_CHECK_MS));
   expect(starts()).toBe(3);
+  // The looks for new photographs never lift a Cancel (`resume`).
+  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StartEyeCheck, { directory: '/A', download: false, resume: false });
   expect(mockInvoke).not.toHaveBeenCalledWith(Invokes.StopEyeCheck, expect.anything());
   // Another library: A's pass is stopped by name, B's started.
   act(() => useLibraryStore.setState({ sessionDirectory: '/B' }));
   expect(mockInvoke).toHaveBeenCalledWith(Invokes.StopEyeCheck, { directory: '/A' });
-  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StartEyeCheck, { directory: '/B', download: false });
+  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StartEyeCheck, { directory: '/B', download: false, resume: true });
   unmount();
   expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StopEyeCheck, { directory: '/B' });
 });

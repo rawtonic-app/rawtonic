@@ -26,7 +26,7 @@ export async function checkEyes(directory: string) {
   const { appSettings, handleSettingsChange } = useSettingsStore.getState();
   if (appSettings && !appSettings.eyeCheck) await handleSettingsChange({ ...appSettings, eyeCheck: true });
   try {
-    await invoke(Invokes.StartEyeCheck, { directory, download: true });
+    await invoke(Invokes.StartEyeCheck, { directory, download: true, resume: true });
   } catch (error) {
     notify.error(i18n.t('studio.eyes.startFailed', { error: String(error) }));
   }
@@ -50,7 +50,7 @@ export function useEyeCheck() {
   // the check is turned off.
   useEffect(() => {
     if (!directory || !enabled) return;
-    invoke(Invokes.StartEyeCheck, { directory, download: false }).catch((error) => {
+    invoke(Invokes.StartEyeCheck, { directory, download: false, resume: true }).catch((error) => {
       if (String(error) === MODELS_MISSING)
         notify.warn(i18n.t('studio.eyes.modelsMissing'), {
           actions: [{ label: i18n.t('studio.eyes.download'), run: () => checkEyes(directory), settles: true }],
@@ -67,10 +67,11 @@ export function useEyeCheck() {
   // import into another folder, tethering, a hot folder, a sync): the
   // catalog is asked for unread ones every BACKLOG_CHECK_MS (one count; a
   // running pass takes them anyway), and at once when the list changes.
+  // Neither undoes a Cancel: that library waits until it is opened again.
   useEffect(() => {
     if (!directory || !enabled) return;
     const timer = setInterval(() => {
-      invoke(Invokes.StartEyeCheck, { directory, download: false }).catch(() => {});
+      invoke(Invokes.StartEyeCheck, { directory, download: false, resume: false }).catch(() => {});
     }, BACKLOG_CHECK_MS);
     return () => clearInterval(timer);
   }, [directory, enabled]);
@@ -82,7 +83,7 @@ export function useEyeCheck() {
     }
     if (!directory || !enabled) return;
     const timer = setTimeout(() => {
-      invoke(Invokes.StartEyeCheck, { directory, download: false }).catch(() => {});
+      invoke(Invokes.StartEyeCheck, { directory, download: false, resume: false }).catch(() => {});
     }, RESTART_DELAY_MS);
     return () => clearTimeout(timer);
     // `directory` and `enabled` start it above; only a new list asks here.

@@ -84,7 +84,7 @@ it("offers Check eyes until it is on, then filters closed eyes and those to chec
   expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["All eyes", "Check eyes…"]);
   await user.selectOptions(select, "start");
   await waitFor(() =>
-    expect(mockInvoke).toHaveBeenCalledWith(Invokes.StartEyeCheck, { directory: "/job", download: true }),
+    expect(mockInvoke).toHaveBeenCalledWith(Invokes.StartEyeCheck, { directory: "/job", download: true, resume: true }),
   );
   expect(useSettingsStore.getState().handleSettingsChange).toHaveBeenCalledWith({ eyeCheck: true });
   settings(true);

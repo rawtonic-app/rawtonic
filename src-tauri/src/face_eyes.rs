@@ -244,11 +244,15 @@ fn start_pass(directory: PathBuf, models: Arc<FaceModels>) {
 /// anything to read). `download`: the photographer asked for it (Check
 /// Eyes), so missing face models are downloaded and the setting is turned
 /// on; otherwise it runs only with the setting on and the models
-/// installed, and says `face-models-missing` without them.
+/// installed, and says `face-models-missing` without them. `resume`: the
+/// library was opened or the check turned on; without it (the periodic
+/// look for new photographs) a library whose pass was stopped stays
+/// stopped. The models are loaded only when there is something to read.
 #[tauri::command]
 pub async fn start_eye_check(
     directory: String,
     download: bool,
+    resume: bool,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     if !download {
@@ -259,17 +263,38 @@ pub async fn start_eye_check(
         }
     }
     stop_other_pass(Path::new(&directory));
-    let models = crate::ai_faces::models(&app_handle, download).await?;
+    if !may_start(Path::new(&directory), download || resume) {
+        return Ok(());
+    }
     let backlog = with_library(directory.clone(), false, |lib| {
         lib.eye_backlog_count(eyes::VERSION)
             .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
-    if backlog > 0 {
-        start_pass(PathBuf::from(directory), models);
+    if backlog == 0 {
+        return Ok(());
     }
+    let models = crate::ai_faces::models(&app_handle, download).await?;
+    start_pass(PathBuf::from(directory), models);
     Ok(())
+}
+
+/// The library whose pass was stopped (Cancel, the library closing): the
+/// periodic look for new photographs leaves it alone until it is opened
+/// again or the photographer asks (`resume`).
+static STOPPED: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Whether a pass may start for `directory`; `resume` lifts a stop.
+fn may_start(directory: &Path, resume: bool) -> bool {
+    let Ok(mut stopped) = STOPPED.lock() else {
+        return false;
+    };
+    if resume {
+        *stopped = None;
+        return true;
+    }
+    stopped.as_deref() != Some(directory)
 }
 
 /// Stops a running pass of another library than `directory`: a library
@@ -294,6 +319,9 @@ pub fn stop_eye_check(directory: Option<String>) {
         && directory.is_none_or(|d| Path::new(&d) == library)
     {
         cancel.store(true, Ordering::Release);
+        if let Ok(mut stopped) = STOPPED.lock() {
+            *stopped = Some(library.clone());
+        }
     }
 }
 
@@ -525,6 +553,12 @@ mod tests {
         stop_eye_check(None);
         assert!(cancel.load(Ordering::Acquire));
         *PASS.lock().unwrap() = None;
+        // A stopped library stays stopped for the periodic look; opening it
+        // again (or Check eyes) resumes it. Other libraries are not held.
+        assert!(!may_start(Path::new("/A"), false));
+        assert!(may_start(Path::new("/B"), false));
+        assert!(may_start(Path::new("/A"), true));
+        assert!(may_start(Path::new("/A"), false));
     }
 
     /// Reads the eyes of every photograph in `FACE_PHOTOS` (one level of
