@@ -173,6 +173,25 @@ skin shine is reduced with the original light. `subjectDepth` is the subject's
 median inverse depth. Outside the matte the scene is lit evenly (no normal
 response). Recipes of versions 2–4 render as before (byte-identical exports).
 
+Optional light field `rangeVersion` (2026-10-31, new lights `2`; absent = 1)
+names the ranges the light's values mean (engine `relight::intensity_gain`,
+shader `range2`). Range 1: Intensity 0–100 % is a linear gain 0–3; Softness
+only blurs pattern and cast-shadow edges, Diffusion lifts pattern shadows and
+widens the terminator of objects (people keep a fixed one), Face reflections
+are a bare dielectric lobe. Range 2: gain `4 · (intensity/100)^1.5`; on
+surfaces Softness wraps the light around them (`wrap = 1.2 · softness`,
+response `(N·L + wrap)/(1 + wrap)`, at least 0.15 on people), Diffusion mixes
+the response towards 0.5 (light reaching surfaces turned away), and the
+light's face reflections are 12 times stronger. Ranges were measured on four
+portraits and three scenes (notes: benchmark-results/rl-relight-ux-2026-10-31).
+Lights of range 1 render as before; the editor's *Use the current ranges*
+moves one to range 2 at the same gain.
+
+Analyses since 2026-10-31 may store `relightDepth.subjectCenter` (`[x, y]`,
+normalized): the centre of the subject matte's opaque part, where the
+editor's lighting presets go when no face was found. The renderer does not
+read it.
+
 Since 2026-10-13: absent light fields render with a new light's values
 (intensity 25, rotation 135, shadows 100, colour `#fff1db`; engine
 `relight::DEFAULT_*`, parity-tested against `createRelightLight`). Earlier

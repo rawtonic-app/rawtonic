@@ -14,6 +14,10 @@ import {
   debouncedSetHistory,
 } from "../../../hooks/useEditorActions";
 import {
+  matchesRelightGeometry,
+  relightBallPatch,
+  relightBallPoint,
+  relightFaceAnchor,
   relightSource,
   relightDragPatch,
   relightPatternRotation,
@@ -35,6 +39,13 @@ export default function RelightOverlay({
   const arrowId = useId();
   const root = useRef<HTMLDivElement>(null);
   const lights = useEditorStore((s) => s.adjustments.relightLights) ?? [];
+  // The direction ring sits on the face when the analysis found one.
+  const face = useEditorStore((s) =>
+    s.adjustments.relightDepth &&
+    matchesRelightGeometry(s.adjustments, s.adjustments.relightDepth.geometry)
+      ? s.adjustments.relightDepth
+      : undefined,
+  );
   const selected = useRelightStore((s) => s.selected);
   const active = lights.find((l) => l.id === selected) ?? lights[0];
   const drag = useRef<{
@@ -45,6 +56,7 @@ export default function RelightOverlay({
     path: string;
     frame: number | null;
     moved: boolean;
+    ring?: { x: number; y: number; radius: number };
   } | null>(null);
   const patch = (id: string, values: Partial<RelightLight>) =>
     updateAdjustments((prev) => ({
@@ -66,6 +78,7 @@ export default function RelightOverlay({
         d.now,
         rect.width,
         rect.height,
+        d.ring,
       ),
     );
     // One history step for a whole gesture, even if the pointer pauses.
@@ -110,6 +123,15 @@ export default function RelightOverlay({
     },
     [],
   );
+  /** The direction ball on the photo: centre (percent) and radius (pixels). */
+  const ring = (light: RelightLight) => {
+    const anchor = relightFaceAnchor(face);
+    return {
+      x: anchor?.x ?? light.x,
+      y: anchor?.y ?? light.y,
+      radius: 64 / zoom,
+    };
+  };
   const point = (e: PointerEvent): RelightPoint => {
     const box = root.current!.getBoundingClientRect();
     return {
@@ -141,6 +163,7 @@ export default function RelightOverlay({
       path: useEditorStore.getState().selectedImage!.path,
       frame: null,
       moved: false,
+      ring: handle === "direction" ? ring(light) : undefined,
     };
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -164,6 +187,15 @@ export default function RelightOverlay({
     const dx = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     const dy = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
     if (!dx && !dy) return;
+    if (handle === "direction") {
+      if (e.altKey) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const step = e.shiftKey ? 0.1 : 0.02;
+      const p = relightBallPoint(light);
+      patch(light.id, relightBallPatch(light, { x: p.x + dx * step, y: p.y + dy * step }));
+      return;
+    }
     const elevation = e.altKey && handle === "source" && light.type === "sun";
     if (e.altKey && !elevation) return;
     e.stopPropagation();
@@ -235,9 +267,17 @@ export default function RelightOverlay({
       style={{
         left: x,
         top: y,
-        zIndex: handle === "source" ? (light.id === active?.id ? 3 : 2) : 1,
+        zIndex:
+          handle === "direction"
+            ? 4
+            : handle === "source"
+              ? light.id === active?.id
+                ? 3
+                : 2
+              : 1,
         transform: `translate(-50%, -50%) scale(${1 / zoom})`,
-        color: handle === "source" ? light.color : undefined,
+        color:
+          handle === "source" || handle === "direction" ? light.color : undefined,
         opacity: light.enabled ? 1 : 0.5,
       }}
       onPointerDown={(e) => begin(e, light, handle)}
@@ -287,6 +327,21 @@ export default function RelightOverlay({
     x: cx + Math.cos(a) * x - Math.sin(a) * y,
     y: cy + Math.sin(a) * x + Math.cos(a) * y,
   });
+  // Suns get the direction ball on the photo (spots aim from where they sit).
+  const direction = (() => {
+    if (active.type !== "sun") return null;
+    const r = ring(active);
+    const p = relightBallPoint(active);
+    const dcx = (r.x / 100) * rect.width,
+      dcy = (r.y / 100) * rect.height;
+    return {
+      cx: dcx,
+      cy: dcy,
+      radius: r.radius,
+      px: dcx + p.x * r.radius,
+      py: dcy + p.y * r.radius,
+    };
+  })();
   const corner = at(w / 2, h / 2),
     rotate = at(0, -h / 2 - 30 / zoom),
     top = at(0, -h / 2);
@@ -341,6 +396,23 @@ export default function RelightOverlay({
         {active.type === "spot" && (
           <circle cx={sx} cy={sy} r={(short * active.size) / 100} />
         )}
+        {direction && (
+          <>
+            <circle
+              className="relight-direction-ring"
+              cx={direction.cx}
+              cy={direction.cy}
+              r={direction.radius}
+            />
+            <line
+              className="relight-direction-ring"
+              x1={direction.cx}
+              y1={direction.cy}
+              x2={direction.px}
+              y2={direction.py}
+            />
+          </>
+        )}
         {lights
           .filter((l) => l.id !== active.id && l.pattern !== "none")
           .map((l) => {
@@ -380,6 +452,8 @@ export default function RelightOverlay({
           light.type === "sun" ? <Sun size={22} /> : <Lightbulb size={22} />,
         );
       })}
+      {direction &&
+        button(active, "direction", direction.px, direction.py, <Sun size={13} />)}
       {active.pattern !== "none" &&
         button(active, "move", cx, cy, <Move size={15} />)}
       {active.pattern !== "none" && (

@@ -75,10 +75,7 @@ it("stores depth once and preserves it through a recipe reload", async () => {
   vi.mocked(invoke).mockResolvedValue(depth);
   mount();
   fireEvent.click(screen.getByRole("button", { name: "Analyze depth" }));
-  await screen.findByText(
-    "Estimated depth ready. Reduce surface strength if edges look unnatural.",
-  );
-  expect(screen.getByText("Faces refined: 1")).toBeTruthy();
+  await screen.findByText("Faces refined: 1");
   const reloaded = normalizeLoadedAdjustments(
     JSON.parse(JSON.stringify(useEditorStore.getState().adjustments)),
   );
@@ -214,7 +211,7 @@ it("applies a preset, a color temperature and a mask limit", () => {
     },
   }));
   mount();
-  fireEvent.change(screen.getByRole("combobox", { name: "Lighting preset" }), { target: { value: "butterfly" } });
+  fireEvent.click(screen.getByRole("button", { name: "Butterfly light" }));
   const [light] = useEditorStore.getState().adjustments.relightLights!;
   expect(light).toMatchObject({ rotation: 180, number: 1 });
   fireEvent.click(screen.getByRole("button", { name: "2700 K" }));
@@ -227,7 +224,7 @@ it("applies a preset, a color temperature and a mask limit", () => {
 
 it("places a new light in a corner no existing source is near", () => {
   mount();
-  fireEvent.change(screen.getByRole("combobox", { name: "Lighting preset" }), { target: { value: "rembrandt" } });
+  fireEvent.click(screen.getByRole("button", { name: "Loop light" }));
   fireEvent.click(screen.getByRole("button", { name: "Add light" }));
   const [preset, added] = useEditorStore.getState().adjustments.relightLights!;
   // The preset's source sits near the top-left corner; the new light avoids it.
@@ -276,9 +273,13 @@ it("defaults face reflections only for new analyses, edits and reloads without i
     },
   });
   mount();
-  expect(screen.queryByText("Face reflections")).toBeNull();
+  const reflections = () => screen.getByRole("slider", { name: "Face reflections" }) as HTMLInputElement;
+  // Greyed out with the reason, not hidden.
+  expect(reflections().disabled).toBe(true);
+  expect(screen.getAllByText("Needs the surface analysis, which runs when a light is added.").length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("button", { name: "Analyze depth" }));
   await screen.findByText("Faces refined: 1");
+  expect(reflections().disabled).toBe(false);
   fireEvent.click(screen.getByText("Advanced"));
   const input = screen.getByRole("textbox", { name: "Face reflections value" });
   expect((input as HTMLInputElement).value).toBe("25");
@@ -295,7 +296,7 @@ it("defaults face reflections only for new analyses, edits and reloads without i
   expect(loaded.relightSkinReflections).toBe(65);
   expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "Remove depth" }));
-  expect(screen.queryByText("Face reflections")).toBeNull();
+  expect(reflections().disabled).toBe(true);
 });
 it("double-click resets every slider to the value a new light starts with", () => {
   const fresh = createRelightLight();
@@ -318,7 +319,7 @@ it("double-click resets every slider to the value a new light starts with", () =
     ["Original light", 60],
     ["Surface strength", 100],
     ["Face reflections", 25],
-    ["Intensity", fresh.intensity],
+    ["Strength", fresh.intensity],
     ["Softness", fresh.softness],
     ["Diffusion", fresh.diffusion],
     ["Direction / rotation", fresh.rotation],
@@ -337,7 +338,7 @@ it("double-click resets every slider to the value a new light starts with", () =
     "Original light": after.relightOriginalLight,
     "Surface strength": after.relightDepthAmount,
     "Face reflections": after.relightSkinReflections,
-    Intensity: light.intensity,
+    Strength: light.intensity,
     Softness: light.softness,
     Diffusion: light.diffusion,
     "Direction / rotation": light.rotation,
@@ -354,4 +355,141 @@ it("double-click resets every slider to the value a new light starts with", () =
   fireEvent.doubleClick(screen.getByRole("slider", { name: "Light distance" }));
   const spot = useEditorStore.getState().adjustments.relightLights![0];
   expect([spot.size, spot.distance]).toEqual([fresh.size, fresh.distance]);
+});
+
+const withFaceDepth = (faces = [[[0.6, 0.3, 0, 1], [0.66, 0.4, 0, 1], [0.7, 0.5, 0, 1]]]) =>
+  useEditorStore.setState((s) => ({
+    adjustments: {
+      ...s.adjustments,
+      relightDepth: { data: "d", geometry: {}, version: 5, faces },
+    },
+  }));
+
+it("moves the light with the direction ball: drag, arrow keys, Esc cancels a drag", () => {
+  withFaceDepth();
+  mount();
+  const ball = screen.getByRole("slider", { name: "Light direction" });
+  ball.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 112, height: 112, right: 112, bottom: 112, x: 0, y: 0 }) as DOMRect;
+  const light = () => useEditorStore.getState().adjustments.relightLights![0];
+  const history = useEditorStore.getState().history.length;
+  // Left rim: grazing light from the frame's left.
+  fireEvent.pointerDown(ball, { button: 0, clientX: 6, clientY: 56, pointerId: 1 });
+  fireEvent.pointerMove(ball, { clientX: 6, clientY: 56, pointerId: 1 });
+  fireEvent.pointerUp(ball, { clientX: 6, clientY: 56, pointerId: 1 });
+  expect(light()).toMatchObject({ rotation: 90, elevation: 5 });
+  expect(useEditorStore.getState().history.length).toBe(history + 1);
+  // Arrow right moves towards the centre: more frontal.
+  fireEvent.keyDown(ball, { key: "ArrowRight", shiftKey: true });
+  expect(light().rotation).toBeCloseTo(90);
+  expect(light().elevation).toBeGreaterThan(20);
+  const before = light();
+  // A drag to the top cancelled with Esc leaves the light as it was, no step.
+  debouncedSetHistory.flush();
+  const steps = useEditorStore.getState().history.length;
+  fireEvent.pointerDown(ball, { button: 0, clientX: 56, clientY: 10, pointerId: 1 });
+  fireEvent.pointerMove(ball, { clientX: 56, clientY: 10, pointerId: 1 });
+  expect(light().rotation).toBe(180);
+  fireEvent.keyDown(ball, { key: "Escape" });
+  expect(light()).toEqual(before);
+  debouncedSetHistory.flush();
+  expect(useEditorStore.getState().history.length).toBe(steps);
+  expect(useEditorStore.getState().isSliderDragging).toBe(false);
+});
+
+it("greys the direction ball out with a reason a spot or a missing analysis", () => {
+  mount();
+  const ball = screen.getByRole("slider", { name: "Light direction" });
+  expect(ball.getAttribute("aria-disabled")).toBe("true");
+  expect(ball.getAttribute("title")).toBe("Needs the surface analysis, which runs when a light is added.");
+  fireEvent.keyDown(ball, { key: "ArrowLeft" });
+  expect(useEditorStore.getState().adjustments.relightLights![0].rotation).toBe(135);
+  cleanup();
+  withFaceDepth();
+  useEditorStore.setState((s) => ({
+    adjustments: { ...s.adjustments, relightLights: [{ ...s.adjustments.relightLights![0], type: "spot" }] },
+  }));
+  mount();
+  expect(screen.getByRole("slider", { name: "Light direction" }).getAttribute("title")).toBe(
+    "A spot shines from where it sits: drag it on the photo.",
+  );
+});
+
+it("applies a preset on the face in one click, sets the original light, and Undo returns", () => {
+  withFaceDepth();
+  useEditorStore.getState().resetHistory(useEditorStore.getState().adjustments);
+  const before = useEditorStore.getState().adjustments;
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Warm evening light" }));
+  const after = useEditorStore.getState().adjustments;
+  const [light] = after.relightLights!;
+  expect(after.relightLights).toHaveLength(1);
+  expect(light).toMatchObject({ temperature: 2700, rangeVersion: 2 });
+  // On the face (centre 65 %, 40 %), keyed from the side it turns to (right).
+  expect([light.x, light.y]).toEqual([65, 40]);
+  expect(light.rotation).toBeLessThan(0);
+  expect(after.relightOriginalLight).toBe(50);
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments.relightLights).toEqual(before.relightLights);
+  expect(useEditorStore.getState().adjustments.relightOriginalLight).toBe(before.relightOriginalLight);
+});
+
+it("places a preset applied before the analysis on the face the analysis finds", async () => {
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, relightLights: [] } }));
+  vi.mocked(invoke).mockResolvedValue({
+    data: "depth",
+    geometry: {},
+    version: 5,
+    faces: [[[0.2, 0.2, 0, 1], [0.24, 0.3, 0, 1], [0.3, 0.4, 0, 1]]],
+  });
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Side light" }));
+  expect(useEditorStore.getState().adjustments.relightLights![0].x).toBe(50);
+  await screen.findByText("Faces refined: 1");
+  const [light] = useEditorStore.getState().adjustments.relightLights!;
+  expect([light.x, light.y]).toEqual([25, 30]);
+  expect(light.number).toBe(1);
+});
+
+it("keeps a preset light the user changed during the analysis where the user put it", async () => {
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, relightLights: [] } }));
+  let resolve!: (v: RelightDepth) => void;
+  vi.mocked(invoke).mockReturnValue(new Promise<RelightDepth>((r) => { resolve = r; }));
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Side light" }));
+  fireEvent.click(screen.getByRole("button", { name: "4500 K" }));
+  await act(async () =>
+    resolve({ data: "depth", geometry: {}, version: 5, faces: [[[0.2, 0.2, 0, 1], [0.3, 0.4, 0, 1]]] }),
+  );
+  const [light] = useEditorStore.getState().adjustments.relightLights!;
+  expect([light.x, light.temperature]).toEqual([50, 4500]);
+  expect(useEditorStore.getState().adjustments.relightDepth).toBeTruthy();
+});
+
+it("greys diffusion out for a frontal light and says why", () => {
+  withFaceDepth();
+  useEditorStore.setState((s) => ({
+    adjustments: { ...s.adjustments, relightLights: [{ ...s.adjustments.relightLights![0], elevation: 85 }] },
+  }));
+  mount();
+  expect((screen.getByRole("slider", { name: "Diffusion" }) as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByText("Acts mainly with side light: move the light towards the edge of the ball.")).toBeTruthy();
+  // Scene without faces: face reflections say a face is missing.
+  cleanup();
+  withFaceDepth([]);
+  mount();
+  expect((screen.getByRole("slider", { name: "Face reflections" }) as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByText("Needs a detected face; this photo has none.")).toBeTruthy();
+});
+
+it("offers an old light the current ranges, as one undoable step", () => {
+  const old = { ...createRelightLight(), intensity: 50 };
+  delete old.rangeVersion;
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, relightLights: [old] } }));
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Use the current ranges" }));
+  const [light] = useEditorStore.getState().adjustments.relightLights!;
+  expect(light.rangeVersion).toBe(2);
+  expect(light.intensity).toBeCloseTo(52, 0);
+  expect(screen.queryByRole("button", { name: "Use the current ranges" })).toBeNull();
 });

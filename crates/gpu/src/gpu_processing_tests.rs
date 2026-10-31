@@ -364,6 +364,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & REFINED_NR_PREVIEW_FEATURE != 0 && expected & 16 == 0 {
             continue;
         }
+        // Range 2 is a property of a light.
+        if expected & RELIGHT_RANGE2_FEATURE != 0 && expected & RELIGHT_PREVIEW_FEATURE == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -389,6 +393,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_PREVIEW_FEATURE != 0 {
             profile["relightLights"] = json!([{"intensity":65}]);
         }
+        if expected & RELIGHT_RANGE2_FEATURE != 0 {
+            profile["relightLights"][0]["rangeVersion"] = json!(2);
+        }
         if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
             profile["lumaNoiseDetail"] = json!(70);
         }
@@ -399,7 +406,7 @@ fn preview_features_preserve_global_and_local_effects() {
             adjustments.mask_count = 0;
             assert_eq!(
                 preview_features(&adjustments),
-                expected & RELIGHT_PREVIEW_FEATURE
+                expected & (RELIGHT_PREVIEW_FEATURE | RELIGHT_RANGE2_FEATURE)
             );
             continue;
         }
@@ -7185,9 +7192,10 @@ fn pipeline_compilation_probe() {
         json!({"probe":"compilation","stage":"detail_pipeline","ms":start.elapsed().as_secs_f64()*1000.0})
     );
     // Every preview variant, compiled one after another on this thread.
-    for features in
-        (1..PREVIEW_PIPELINE_COUNT).filter(|f| f & REFINED_NR_PREVIEW_FEATURE == 0 || f & 16 != 0)
-    {
+    for features in (1..PREVIEW_PIPELINE_COUNT).filter(|f| {
+        (f & REFINED_NR_PREVIEW_FEATURE == 0 || f & 16 != 0)
+            && (f & RELIGHT_RANGE2_FEATURE == 0 || f & RELIGHT_PREVIEW_FEATURE != 0)
+    }) {
         let start = Instant::now();
         create_preview_pipeline(
             &context.device,
@@ -9878,6 +9886,40 @@ fn relight_surface_transport_case(version: u64) {
         "overhead light must cast a nose shadow: {} vs {}",
         top_open[philtrum],
         top_shadow[philtrum]
+    );
+
+    // Range version 2: Softness and Diffusion reach the cheek turned away,
+    // without dimming the lit one; preview and export agree.
+    let mut ranged = recipe.clone();
+    ranged["relightLights"][0] = json!({"type":"sun","intensity":40,"color":"#ffffff","pattern":"none","rotation":90,"elevation":20,"softness":0,"diffusion":0,"shadows":0,"rangeVersion":2});
+    let hard = render(&ranged, false);
+    assert_eq!(
+        hard,
+        render(&ranged, true),
+        "range 2 preview/export divergence"
+    );
+    ranged["relightLights"][0]["softness"] = json!(100);
+    let soft = render(&ranged, false);
+    assert_eq!(
+        soft,
+        render(&ranged, true),
+        "range 2 preview/export divergence"
+    );
+    assert!(
+        average(&soft, 85) > average(&hard, 85) + 3.
+            && average(&soft, 43) + 3. >= average(&hard, 43),
+        "softness must reach the far cheek: hard {},{} soft {},{}",
+        average(&hard, 43),
+        average(&hard, 85),
+        average(&soft, 43),
+        average(&soft, 85)
+    );
+    ranged["relightLights"][0]["softness"] = json!(0);
+    ranged["relightLights"][0]["diffusion"] = json!(100);
+    let diffused = render(&ranged, false);
+    assert!(
+        average(&diffused, 85) > average(&hard, 85) + 3.,
+        "diffusion must lift the far cheek"
     );
 
     // Equal screen distances, different scene depth: the foreground receives

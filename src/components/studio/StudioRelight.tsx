@@ -23,11 +23,15 @@ import {
   RELIGHT_FIRST_LIGHT_SCENE,
   RELIGHT_PATTERNS,
   RELIGHT_PRESETS,
+  RELIGHT_RANGE_VERSION,
   RELIGHT_SCENE_DEFAULTS,
   RELIGHT_TEMPERATURES,
+  relightControlReason,
+  relightPresetAnchor,
   relightPatternRotation,
   relightPresetLight,
   relightSource,
+  relightWithCurrentRanges,
   type RelightLight,
   type RelightDepth,
   type RelightPreset,
@@ -36,6 +40,7 @@ import type { Adjustments } from "../../utils/adjustments";
 import { openDialog } from "../../utils/fileDialog";
 import { useRelightStore } from "../../store/useRelightStore";
 import RelightPatternPreview from "./RelightPatternPreview";
+import RelightDirectionBall from "./RelightDirectionBall";
 import AdjustmentControl from "./AdjustmentControl";
 import { Invokes } from "../ui/AppProperties";
 
@@ -81,6 +86,9 @@ export default function StudioRelight({
   const [error, setError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const request = useRef(0);
+  // A preset applied before the analysis knew the face: placed on it when
+  // the analysis arrives, unless the light was changed meanwhile.
+  const pendingPreset = useRef<{ preset: RelightPreset; light: RelightLight } | null>(null);
   useEffect(() => {
     return () => {
       request.current += 1;
@@ -121,10 +129,21 @@ export default function StudioRelight({
       )
         return;
       if (!matchesRelightGeometry(current.adjustments, result.geometry)) return;
-      setAdjustments((prev) => ({
-        ...prev,
-        relightDepth: { ...result, cacheKey: crypto.randomUUID() },
-      }));
+      const pending = pendingPreset.current;
+      pendingPreset.current = null;
+      setAdjustments((prev) => {
+        const relightDepth = { ...result, cacheKey: crypto.randomUUID() };
+        const anchor = relightPresetAnchor(relightDepth);
+        const lights = prev.relightLights ?? [];
+        if (!pending || !anchor || lights.length !== 1 || lights[0] !== pending.light)
+          return { ...prev, relightDepth };
+        const { light: placed } = relightPresetLight(pending.preset, anchor);
+        return {
+          ...prev,
+          relightDepth,
+          relightLights: [{ ...placed, id: pending.light.id, number: pending.light.number }],
+        };
+      });
     } catch (e) {
       if (id === request.current) setError(errorText(e));
     } finally {
@@ -174,9 +193,16 @@ export default function StudioRelight({
     );
     afterAdding(next.id);
   };
+  // One click replaces the lights with the setup; Undo returns.
   const applyPreset = (preset: RelightPreset) => {
-    const next = { ...relightPresetLight(preset), number: 1 };
-    setAdjustments((prev) => withLights(prev, [next]));
+    const anchor = depthValid ? relightPresetAnchor(depth) : null;
+    const { light: made, originalLight } = relightPresetLight(preset, anchor);
+    const next = { ...made, number: 1 };
+    pendingPreset.current = anchor ? null : { preset, light: next };
+    setAdjustments((prev) => ({
+      ...withLights(prev, [next]),
+      relightOriginalLight: originalLight,
+    }));
     useRelightStore.setState({ solo: null });
     afterAdding(next.id);
   };
@@ -216,6 +242,24 @@ export default function StudioRelight({
       setImportError(errorText(e));
     }
   };
+  const faces = depthValid ? (depth.faces?.length ?? 0) : 0;
+  const reasonFor = (control: Parameters<typeof relightControlReason>[0]) => {
+    const reason = relightControlReason(control, light, {
+      valid: depthValid,
+      faces,
+      subject: depthValid && !!depth.subject,
+    });
+    // While the analysis runs it is on its way, not missing.
+    if (reason === "needsAnalysis" && busy) return t("studio.relight.analyzing");
+    return reason ? t(`studio.relight.reasons.${reason}`) : null;
+  };
+  // A control that cannot act now stays in its place, greyed out, with why.
+  const withReason = (reason: string | null, control: React.ReactNode) => (
+    <div className="studio-relight-control" data-unavailable={reason ? "" : undefined}>
+      {control}
+      {reason && <p className="studio-relight-help studio-relight-reason">{reason}</p>}
+    </div>
+  );
   const slider = (
     key:
       | "intensity"
@@ -232,8 +276,11 @@ export default function StudioRelight({
       | "patternRotation",
     min = 0,
     max = 100,
+    reason: string | null = null,
   ) =>
-    light && (
+    light &&
+    withReason(
+      reason,
       <AdjustmentControl
         key={key}
         label={t(`studio.relight.${key}`)}
@@ -247,15 +294,17 @@ export default function StudioRelight({
         min={min}
         max={max}
         defaultValue={NEW_LIGHT[key]}
-        disabled={disabled}
+        disabled={disabled || !!reason}
         onChange={(value) => update({ [key]: value })}
         onInteraction={onInteraction}
-      />
+      />,
     );
   const patterned = light?.pattern !== "none";
   const lightName = light
     ? t("studio.relight.light", { number: number(light) })
     : "";
+  const skinReason = reasonFor("skinReflections");
+  const depthAmountReason = reasonFor("depthAmount");
   return (
     <div className="studio-relight">
       <label className="studio-relight-edit">
@@ -270,24 +319,24 @@ export default function StudioRelight({
         <span>{t("studio.relight.showGuides")}</span>
       </label>
       <p className="studio-relight-help">{t("studio.relight.dragHint")}</p>
-      <label className="studio-inline">
-        <span>{t("studio.relight.preset")}</span>
-        <select
-          value=""
-          disabled={disabled}
-          onChange={(e) => {
-            if (e.target.value)
-              applyPreset(e.target.value as RelightPreset);
-          }}
-        >
-          <option value="">{t("studio.relight.presetChoose")}</option>
-          {RELIGHT_PRESETS.map((p) => (
-            <option key={p} value={p}>
-              {t(`studio.relight.presets.${p}`)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div
+        className="studio-relight-presets"
+        role="group"
+        aria-label={t("studio.relight.presetHelp")}
+      >
+        {RELIGHT_PRESETS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            disabled={disabled}
+            title={t(`studio.relight.presetHints.${p}`)}
+            onClick={() => applyPreset(p)}
+          >
+            {t(`studio.relight.presets.${p}`)}
+          </button>
+        ))}
+      </div>
+      <p className="studio-relight-help">{t("studio.relight.presetHelp")}</p>
       <div className="studio-relight-lights">
         {lights.map((l) => (
           <button
@@ -314,107 +363,6 @@ export default function StudioRelight({
           {t("studio.relight.add")}
         </button>
       </div>
-      {lights.length > 0 && (
-        <section
-          className="studio-relight-section"
-          aria-label={t("studio.relight.scene")}
-        >
-          <div className="studio-subheading">{t("studio.relight.scene")}</div>
-          <AdjustmentControl
-            label={t("studio.relight.originalLight")}
-            value={
-              adjustments.relightOriginalLight ??
-              RELIGHT_SCENE_DEFAULTS.originalLight
-            }
-            min={0}
-            max={100}
-            defaultValue={RELIGHT_FIRST_LIGHT_SCENE.originalLight}
-            disabled={disabled}
-            onChange={(value) =>
-              setAdjustments({ relightOriginalLight: value })
-            }
-            onInteraction={onInteraction}
-          />
-          <p className="studio-relight-help" role="status">
-            {busy
-              ? t("studio.relight.analyzing")
-              : depthValid
-                ? t("studio.relight.depthReady")
-                : depth
-                  ? t("studio.relight.depthStale")
-                  : t("studio.relight.depthHint")}
-          </p>
-          <button
-            className="studio-relight-analyze"
-            type="button"
-            disabled={disabled || busy}
-            onClick={() => void analyze()}
-          >
-            {t(
-              depthValid
-                ? "studio.relight.reanalyze"
-                : "studio.relight.analyze",
-            )}
-          </button>
-          {error !== null && (
-            <p role="alert" className="studio-relight-help">
-              {t("studio.relight.error")}
-              {error && (
-                <>
-                  <br />
-                  <span className="studio-relight-error-detail">{error}</span>
-                </>
-              )}
-            </p>
-          )}
-          {depthValid && !!depth.faces?.length && (
-            <p className="studio-relight-help">
-              {t("studio.relight.faceDetail", { faces: depth.faces.length })}
-            </p>
-          )}
-          {depthValid && (
-            <>
-              <AdjustmentControl
-                label={t("studio.relight.depthAmount")}
-                value={
-                  adjustments.relightDepthAmount ??
-                  RELIGHT_SCENE_DEFAULTS.depthAmount
-                }
-                min={0}
-                max={100}
-                defaultValue={RELIGHT_FIRST_LIGHT_SCENE.depthAmount}
-                disabled={disabled}
-                onChange={(value) =>
-                  setAdjustments({ relightDepthAmount: value })
-                }
-                onInteraction={onInteraction}
-              />
-              {!!depth.faces?.length && (
-                <AdjustmentControl
-                  label={t("studio.relight.skinReflections")}
-                  value={adjustments.relightSkinReflections ?? skinDefault}
-                  min={0}
-                  max={100}
-                  defaultValue={skinDefault}
-                  disabled={disabled}
-                  onChange={(value) =>
-                    setAdjustments({ relightSkinReflections: value })
-                  }
-                  onInteraction={onInteraction}
-                />
-              )}
-              <button
-                type="button"
-                className="studio-relight-analyze"
-                disabled={disabled}
-                onClick={() => setAdjustments({ relightDepth: undefined })}
-              >
-                {t("studio.relight.removeDepth")}
-              </button>
-            </>
-          )}
-        </section>
-      )}
       {light && (
         <section className="studio-relight-section" aria-label={lightName}>
           <div className="studio-relight-light-header">
@@ -479,46 +427,39 @@ export default function StudioRelight({
               </button>
             </div>
           </div>
-          <label className="studio-inline">
-            <span>{t("studio.relight.type")}</span>
-            <select
-              value={light.type}
-              disabled={disabled}
-              onChange={(e) =>
-                update({ type: e.target.value as RelightLight["type"] })
-              }
-            >
-              <option value="sun">{t("studio.relight.sun")}</option>
-              <option value="spot">{t("studio.relight.spot")}</option>
-            </select>
-          </label>
-          <label className="studio-inline">
-            <span>{t("studio.relight.maskLayer")}</span>
-            <select
-              value={light.maskId ?? ""}
-              disabled={disabled}
-              onChange={(e) =>
-                update({ maskId: e.target.value || undefined })
-              }
-            >
-              <option value="">{t("studio.relight.wholePhoto")}</option>
-              {masks.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name || m.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          {light.maskId &&
-            masks.some(
-              (m) =>
-                m.id === light.maskId && (!m.visible || !m.subMasks?.length),
-            ) && (
-              <p className="studio-relight-help">
-                {t("studio.relight.maskHidden")}
-              </p>
-            )}
+          {(light.rangeVersion ?? 1) < RELIGHT_RANGE_VERSION && (
+            <p className="studio-relight-help studio-relight-reason">
+              {t("studio.relight.olderRanges")}{" "}
+              <button
+                type="button"
+                className="studio-relight-link"
+                disabled={disabled}
+                onClick={() => update(relightWithCurrentRanges(light))}
+              >
+                {t("studio.relight.updateRanges")}
+              </button>
+            </p>
+          )}
+          <RelightDirectionBall
+            light={light}
+            disabled={disabled}
+            reason={reasonFor("direction")}
+          />
           {slider("intensity")}
+          {slider("softness")}
+          <AdjustmentControl
+            label={t("studio.relight.warmth")}
+            value={light.temperature ?? 5500}
+            min={1900}
+            max={10000}
+            step={100}
+            unit="K"
+            track="temperature"
+            defaultValue={5500}
+            disabled={disabled}
+            onChange={(k) => update({ temperature: k, color: kelvinToHex(k) })}
+            onInteraction={onInteraction}
+          />
           <div
             className="studio-relight-temperatures"
             role="group"
@@ -549,142 +490,269 @@ export default function StudioRelight({
             />
           </div>
           <AdjustmentControl
-            label={t("studio.relight.temperature")}
-            value={light.temperature ?? 5500}
-            min={1900}
-            max={10000}
-            step={100}
-            unit="K"
-            defaultValue={5500}
+            label={t("studio.relight.originalLight")}
+            value={
+              adjustments.relightOriginalLight ??
+              RELIGHT_SCENE_DEFAULTS.originalLight
+            }
+            min={0}
+            max={100}
+            defaultValue={RELIGHT_FIRST_LIGHT_SCENE.originalLight}
             disabled={disabled}
-            onChange={(k) => update({ temperature: k, color: kelvinToHex(k) })}
+            onChange={(value) =>
+              setAdjustments({ relightOriginalLight: value })
+            }
             onInteraction={onInteraction}
           />
-          {slider("softness")}
-          {slider("diffusion")}
-          <button
-            ref={patternToggle}
-            type="button"
-            className="studio-relight-pattern-toggle"
-            disabled={disabled}
-            aria-expanded={patternsOpen}
-            aria-label={t("studio.relight.pattern")}
-            onClick={() => setPatternsOpen(!patternsOpen)}
-          >
-            <RelightPatternPreview
-              pattern={light.pattern}
-              image={light.customPattern?.data}
-            />
-            <span>
-              {light.pattern === "custom"
-                ? (light.customPattern?.name ??
-                  t("studio.relight.patterns.custom"))
-                : t(`studio.relight.patterns.${light.pattern}`)}
-            </span>
-            <ChevronDown size={14} />
-          </button>
-          {patternsOpen && (
-            <div
-              className="studio-relight-patterns"
-              role="group"
-              aria-label={t("studio.relight.pattern")}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.stopPropagation();
-                  setPatternsOpen(false);
-                  patternToggle.current?.focus();
-                }
-              }}
+          <p className="studio-relight-help" role="status">
+            {busy
+              ? t("studio.relight.analyzing")
+              : depthValid
+                ? faces
+                  ? t("studio.relight.faceDetail", { faces })
+                  : t("studio.relight.depthReady")
+                : depth
+                  ? t("studio.relight.depthStale")
+                  : t("studio.relight.depthHint")}
+          </p>
+          {!depthValid && (
+            <button
+              className="studio-relight-analyze"
+              type="button"
+              disabled={disabled || busy}
+              onClick={() => void analyze()}
             >
-              {RELIGHT_PATTERNS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  disabled={disabled}
-                  aria-label={t(`studio.relight.patterns.${p}`)}
-                  aria-pressed={light.pattern === p}
-                  onClick={() => {
-                    update({ pattern: p });
-                    setPatternsOpen(false);
-                    patternToggle.current?.focus();
-                  }}
-                >
-                  <RelightPatternPreview pattern={p} />
-                  <span>{t(`studio.relight.patterns.${p}`)}</span>
-                </button>
-              ))}
-              {light.customPattern && (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  aria-label={t("studio.relight.patterns.custom")}
-                  aria-pressed={light.pattern === "custom"}
-                  onClick={() => {
-                    update({ pattern: "custom" });
-                    setPatternsOpen(false);
-                    patternToggle.current?.focus();
-                  }}
-                >
-                  <RelightPatternPreview
-                    pattern="custom"
-                    image={light.customPattern.data}
-                  />
-                  <span>{t("studio.relight.patterns.custom")}</span>
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={disabled}
-                aria-label={t("studio.relight.importPattern")}
-                onClick={() => void importPattern()}
-              >
-                <ImagePlus size={20} />
-                <span>{t("studio.relight.importPattern")}</span>
-              </button>
-            </div>
+              {t("studio.relight.analyze")}
+            </button>
           )}
-          {importError !== null && (
+          {error !== null && (
             <p role="alert" className="studio-relight-help">
-              {t("studio.relight.importError")}
-              {importError && (
+              {t("studio.relight.error")}
+              {error && (
                 <>
                   <br />
-                  <span className="studio-relight-error-detail">
-                    {importError}
-                  </span>
+                  <span className="studio-relight-error-detail">{error}</span>
                 </>
               )}
             </p>
           )}
-          {patterned && (
-            <>
-              {slider("scale", 5, 300)}
-              {slider("patternRotation", -180, 180)}
-              <label className="studio-inline">
-                <span>{t("studio.relight.invert")}</span>
-                <input
-                  type="checkbox"
-                  checked={light.invert}
-                  disabled={disabled}
-                  onChange={(e) => update({ invert: e.target.checked })}
-                />
-              </label>
-            </>
-          )}
           <details className="studio-relight-advanced">
             <summary>{t("studio.relight.advanced")}</summary>
-            {/* Only controls that change this light's result are shown. */}
-            {patterned && slider("x", -100, 200)}
-            {patterned && slider("y", -100, 200)}
-            {light.type === "spot" && slider("size", 5, 200)}
-            {(light.type === "sun" || (patterned && depthValid)) &&
-              slider("rotation", -180, 180)}
-            {depthValid &&
-              (light.type === "sun"
-                ? slider("elevation", 5, 90)
-                : slider("distance", 10, 300))}
-            {(patterned || (depthValid && !!depth.faces?.length)) &&
-              slider("shadows")}
+            <label className="studio-inline">
+              <span>{t("studio.relight.type")}</span>
+              <select
+                value={light.type}
+                disabled={disabled}
+                onChange={(e) =>
+                  update({ type: e.target.value as RelightLight["type"] })
+                }
+              >
+                <option value="sun">{t("studio.relight.sun")}</option>
+                <option value="spot">{t("studio.relight.spot")}</option>
+              </select>
+            </label>
+            <label className="studio-inline">
+              <span>{t("studio.relight.maskLayer")}</span>
+              <select
+                value={light.maskId ?? ""}
+                disabled={disabled}
+                onChange={(e) =>
+                  update({ maskId: e.target.value || undefined })
+                }
+              >
+                <option value="">{t("studio.relight.wholePhoto")}</option>
+                {masks.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name || m.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {light.maskId &&
+              masks.some(
+                (m) =>
+                  m.id === light.maskId && (!m.visible || !m.subMasks?.length),
+              ) && (
+                <p className="studio-relight-help">
+                  {t("studio.relight.maskHidden")}
+                </p>
+              )}
+            {slider("diffusion", 0, 100, reasonFor("diffusion"))}
+            {light.type === "sun"
+              ? <>
+                  {slider("rotation", -180, 180)}
+                  {slider("elevation", 5, 90, reasonFor("elevation"))}
+                </>
+              : <>
+                  {slider("size", 5, 200)}
+                  {slider("distance", 10, 300, reasonFor("elevation"))}
+                </>}
+            {slider("shadows", 0, 100, reasonFor("shadows"))}
+            <button
+              ref={patternToggle}
+              type="button"
+              className="studio-relight-pattern-toggle"
+              disabled={disabled}
+              aria-expanded={patternsOpen}
+              aria-label={t("studio.relight.pattern")}
+              onClick={() => setPatternsOpen(!patternsOpen)}
+            >
+              <RelightPatternPreview
+                pattern={light.pattern}
+                image={light.customPattern?.data}
+              />
+              <span>
+                {light.pattern === "custom"
+                  ? (light.customPattern?.name ??
+                    t("studio.relight.patterns.custom"))
+                  : t(`studio.relight.patterns.${light.pattern}`)}
+              </span>
+              <ChevronDown size={14} />
+            </button>
+            {patternsOpen && (
+              <div
+                className="studio-relight-patterns"
+                role="group"
+                aria-label={t("studio.relight.pattern")}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setPatternsOpen(false);
+                    patternToggle.current?.focus();
+                  }
+                }}
+              >
+                {RELIGHT_PATTERNS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    disabled={disabled}
+                    aria-label={t(`studio.relight.patterns.${p}`)}
+                    aria-pressed={light.pattern === p}
+                    onClick={() => {
+                      update({ pattern: p });
+                      setPatternsOpen(false);
+                      patternToggle.current?.focus();
+                    }}
+                  >
+                    <RelightPatternPreview pattern={p} />
+                    <span>{t(`studio.relight.patterns.${p}`)}</span>
+                  </button>
+                ))}
+                {light.customPattern && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    aria-label={t("studio.relight.patterns.custom")}
+                    aria-pressed={light.pattern === "custom"}
+                    onClick={() => {
+                      update({ pattern: "custom" });
+                      setPatternsOpen(false);
+                      patternToggle.current?.focus();
+                    }}
+                  >
+                    <RelightPatternPreview
+                      pattern="custom"
+                      image={light.customPattern.data}
+                    />
+                    <span>{t("studio.relight.patterns.custom")}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-label={t("studio.relight.importPattern")}
+                  onClick={() => void importPattern()}
+                >
+                  <ImagePlus size={20} />
+                  <span>{t("studio.relight.importPattern")}</span>
+                </button>
+              </div>
+            )}
+            {importError !== null && (
+              <p role="alert" className="studio-relight-help">
+                {t("studio.relight.importError")}
+                {importError && (
+                  <>
+                    <br />
+                    <span className="studio-relight-error-detail">
+                      {importError}
+                    </span>
+                  </>
+                )}
+              </p>
+            )}
+            {patterned && (
+              <>
+                {slider("scale", 5, 300)}
+                {slider("patternRotation", -180, 180)}
+                {slider("x", -100, 200)}
+                {slider("y", -100, 200)}
+                <label className="studio-inline">
+                  <span>{t("studio.relight.invert")}</span>
+                  <input
+                    type="checkbox"
+                    checked={light.invert}
+                    disabled={disabled}
+                    onChange={(e) => update({ invert: e.target.checked })}
+                  />
+                </label>
+              </>
+            )}
+            <div className="studio-subheading">{t("studio.relight.scene")}</div>
+            {withReason(
+              depthAmountReason,
+              <AdjustmentControl
+                label={t("studio.relight.depthAmount")}
+                value={
+                  adjustments.relightDepthAmount ??
+                  RELIGHT_SCENE_DEFAULTS.depthAmount
+                }
+                min={0}
+                max={100}
+                defaultValue={RELIGHT_FIRST_LIGHT_SCENE.depthAmount}
+                disabled={disabled || !!depthAmountReason}
+                onChange={(value) =>
+                  setAdjustments({ relightDepthAmount: value })
+                }
+                onInteraction={onInteraction}
+              />,
+            )}
+            {withReason(
+              skinReason,
+              <AdjustmentControl
+                label={t("studio.relight.skinReflections")}
+                value={adjustments.relightSkinReflections ?? skinDefault}
+                min={0}
+                max={100}
+                defaultValue={skinDefault}
+                disabled={disabled || !!skinReason}
+                onChange={(value) =>
+                  setAdjustments({ relightSkinReflections: value })
+                }
+                onInteraction={onInteraction}
+              />,
+            )}
+            {depthValid && (
+              <div className="studio-relight-depth-actions">
+                <button
+                  type="button"
+                  className="studio-relight-analyze"
+                  disabled={disabled || busy}
+                  onClick={() => void analyze()}
+                >
+                  {t("studio.relight.reanalyze")}
+                </button>
+                <button
+                  type="button"
+                  className="studio-relight-analyze"
+                  disabled={disabled}
+                  onClick={() => setAdjustments({ relightDepth: undefined })}
+                >
+                  {t("studio.relight.removeDepth")}
+                </button>
+              </div>
+            )}
           </details>
         </section>
       )}

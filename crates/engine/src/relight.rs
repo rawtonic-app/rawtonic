@@ -77,6 +77,32 @@ fn custom_pattern(light: &Value) -> Option<&str> {
         .flatten()
 }
 
+/// Range version 2 (lights since 2026-10-31, `rangeVersion`): Intensity 100 %
+/// is a clearly visible key light and the low end moves finely; measured on
+/// portraits and scenes (notes: benchmark-results/rl-relight-ux-2026-10-31).
+const RANGE_2_MAX_GAIN: f32 = 4.;
+const RANGE_2_EXPONENT: f32 = 1.5;
+
+/// Bit of a light's GPU flags: Softness and Diffusion act on surfaces as
+/// range version 2 defines (shader `range2`).
+const RANGE_2_FLAG: u32 = 128;
+
+/// The ranges a light's values mean; absent = 1 (lights before 2026-10-31).
+fn range_version(light: &Value) -> u64 {
+    light["rangeVersion"].as_u64().unwrap_or(1)
+}
+
+/// The light's gain for its Intensity (0–100). Lights without
+/// `rangeVersion` keep the first range, linear up to 3.
+fn intensity_gain(light: &Value, intensity: f32) -> f32 {
+    let t = intensity / 100.;
+    if range_version(light) >= 2 {
+        RANGE_2_MAX_GAIN * t.powf(RANGE_2_EXPONENT)
+    } else {
+        t * 3.
+    }
+}
+
 pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
     let mut out = [[0.; 4]; 20];
     if recipe["sectionVisibility"]["relight"].as_bool() == Some(false) {
@@ -127,7 +153,7 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
             linear(hex >> 16),
             linear(hex >> 8),
             linear(hex),
-            n("intensity", DEFAULT_INTENSITY, 0., 100.) / 100. * 3.,
+            intensity_gain(light, n("intensity", DEFAULT_INTENSITY, 0., 100.)),
         ];
         out[j + 1] = [
             n("x", DEFAULT_X, -100., 200.) / 100.,
@@ -142,8 +168,15 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
             n("softness", DEFAULT_SOFTNESS, 0., 100.) / 100.,
             n("diffusion", DEFAULT_DIFFUSION, 0., 100.) / 100.,
         ];
-        // Flags: bit 0 inverts the pattern, the bits above hold the mask slot.
-        let flags = u32::from(light["invert"].as_bool() == Some(true)) | (mask << 1);
+        // Flags: bit 0 inverts the pattern, bits 1–6 hold the mask slot, bit 7
+        // marks range version 2.
+        let flags = u32::from(light["invert"].as_bool() == Some(true))
+            | (mask << 1)
+            | if range_version(light) >= 2 {
+                RANGE_2_FLAG
+            } else {
+                0
+            };
         out[j + 3] = [
             pattern as f32,
             flags as f32,
@@ -936,6 +969,27 @@ mod tests {
         recipe["relightDepth"]["data"] = Value::Null;
         assert_eq!(register_depth(&recipe), key);
         assert!(depth(key).is_some());
+    }
+
+    #[test]
+    fn range_version_two_changes_only_lights_that_carry_it() {
+        let old = json!({"intensity": 50, "softness": 40, "diffusion": 10, "invert": true});
+        let mut new = old.clone();
+        new["rangeVersion"] = json!(2);
+        let [a, b] = [old, new].map(|light| gpu_lights(&json!({"relightLights": [light]})));
+        // The first range: linear up to 3, flags as before.
+        assert_eq!(a[0][3], 1.5);
+        assert_eq!(a[3][1], 1.);
+        assert_eq!(b[3][1], 1. + RANGE_2_FLAG as f32);
+        assert_eq!(b[0][3], RANGE_2_MAX_GAIN * 0.5f32.powf(RANGE_2_EXPONENT));
+        // Everything else is the same uniform.
+        assert_eq!([a[1], a[2], a[4]], [b[1], b[2], b[4]]);
+        let gain = |intensity: f32| intensity_gain(&json!({"rangeVersion": 2}), intensity);
+        assert_eq!(gain(100.), RANGE_2_MAX_GAIN);
+        assert_eq!(gain(0.), 0.);
+        assert!(gain(25.) < 25. / 100. * 3.);
+        // The mask slot keeps its bits below the flag.
+        assert!(crate::image_processing::MAX_MASKS << 1 < RANGE_2_FLAG as usize);
     }
 
     #[test]

@@ -7,7 +7,14 @@ import {
   normalizeRelight,
   RELIGHT_PATTERN_IDS,
   RELIGHT_PRESETS,
+  RELIGHT_RANGE_VERSION,
+  relightBallPatch,
+  relightBallPoint,
+  relightControlReason,
   relightDragPatch,
+  relightFaceAnchor,
+  relightPresetAnchor,
+  relightWithCurrentRanges,
   relightPresetLight,
   relightSource,
   stripSentRelightData,
@@ -104,11 +111,82 @@ it("presets and temperatures produce valid lights", () => {
   expect(kelvinToHex(6600)).toBe("#ffffff");
   expect(kelvinToHex(2700)).toMatch(/^#ff[0-9a-f]{4}$/);
   for (const preset of RELIGHT_PRESETS) {
-    const light = relightPresetLight(preset);
+    const { light, originalLight } = relightPresetLight(preset);
     expect(light.color).toBe(kelvinToHex(light.temperature!));
     expect(light.sourceX).toBeGreaterThanOrEqual(-100);
     expect(light.sourceY).toBeLessThanOrEqual(200);
+    expect(light.rangeVersion).toBe(RELIGHT_RANGE_VERSION);
+    expect(originalLight).toBeGreaterThanOrEqual(0);
+    expect(originalLight).toBeLessThanOrEqual(100);
   }
   // Light from the top: its source handle sits above the subject.
-  expect(relightPresetLight("butterfly").sourceY).toBeLessThan(50);
+  expect(relightPresetLight("butterfly").light.sourceY).toBeLessThan(50);
+});
+
+it("places presets on the largest face and keys from the side it turns to", () => {
+  // Two faces; the larger one (right) looks to the frame's right (nose right of centre).
+  const small = [[0.1, 0.1, 0, 1], [0.12, 0.12, 0, 1], [0.14, 0.14, 0, 1]];
+  const large = [[0.5, 0.3, 0, 1], [0.78, 0.45, 0, 1], [0.8, 0.6, 0, 1]];
+  const depth = { data: "d", geometry: {}, faces: [small, large] };
+  const anchor = relightFaceAnchor(depth)!;
+  expect(anchor.x).toBeCloseTo(65);
+  expect(anchor.y).toBeCloseTo(45);
+  expect(anchor.turn).toBe(1);
+  const left = relightPresetLight("loop").light;
+  const right = relightPresetLight("loop", anchor).light;
+  // Mirrored to the right, pattern centre on the face.
+  expect(right.rotation).toBe(-left.rotation);
+  expect([right.x, right.y]).toEqual([anchor.x, anchor.y]);
+  expect(right.sourceX!).toBeGreaterThan(anchor.x);
+  // No face: the subject's centre, else nothing (the frame's centre).
+  expect(relightPresetAnchor({ data: "d", geometry: {}, subjectCenter: [0.3, 0.6] })).toEqual({ x: 30, y: 60, turn: 0 });
+  expect(relightPresetAnchor({ data: "d", geometry: {} })).toBeNull();
+  expect([left.x, left.y]).toEqual([50, 50]);
+});
+
+it("maps the direction ball to rotation and elevation and back", () => {
+  const light = createRelightLight();
+  for (const [rotation, elevation] of [[90, 10], [-135, 45], [180, 70], [0, 30]]) {
+    const back = relightBallPatch(light, relightBallPoint({ ...light, rotation, elevation }));
+    expect(back.rotation).toBeCloseTo(rotation, 0);
+    expect(back.elevation).toBeCloseTo(elevation, 0);
+  }
+  // Left of centre: light from the frame's left (rotation 90); the rim grazes.
+  expect(relightBallPatch(light, { x: -1, y: 0 })).toEqual({ rotation: 90, elevation: 5 });
+  // The centre lights from the camera and keeps the direction.
+  expect(relightBallPatch(light, { x: 0, y: 0 })).toEqual({ rotation: light.rotation, elevation: 90 });
+  // Beyond the rim is clamped to it.
+  expect(relightBallPatch(light, { x: 0, y: -3 })).toEqual({ rotation: 180, elevation: 5 });
+});
+
+it("says why a control cannot act on a light", () => {
+  const sun = createRelightLight();
+  const none = { valid: false, faces: 0 };
+  const scene = { valid: true, faces: 0 };
+  const portrait = { valid: true, faces: 1 };
+  expect(relightControlReason("direction", sun, none)).toBe("needsAnalysis");
+  expect(relightControlReason("direction", sun, scene)).toBeNull();
+  expect(relightControlReason("direction", { ...sun, type: "spot" }, portrait)).toBe("spotDirection");
+  expect(relightControlReason("skinReflections", sun, scene)).toBe("needsFace");
+  expect(relightControlReason("skinReflections", sun, portrait)).toBeNull();
+  expect(relightControlReason("diffusion", { ...sun, elevation: 80 }, portrait)).toBe("frontalLight");
+  expect(relightControlReason("diffusion", { ...sun, elevation: 20 }, portrait)).toBeNull();
+  // A pattern's shadows are lifted by diffusion at any height.
+  expect(relightControlReason("diffusion", { ...sun, elevation: 80, pattern: "blinds" }, portrait)).toBeNull();
+  expect(relightControlReason("shadows", sun, scene)).toBe("needsPatternOrSubject");
+  expect(relightControlReason("elevation", sun, none)).toBe("needsAnalysis");
+});
+
+it("moves an old light to the current ranges as bright as it was", () => {
+  const old = { ...createRelightLight(), intensity: 50 };
+  delete old.rangeVersion;
+  const moved = relightWithCurrentRanges(old);
+  expect(moved.rangeVersion).toBe(RELIGHT_RANGE_VERSION);
+  // Range 1: 3 × 50 %; range 2: 4 × (intensity / 100)^1.5 (relight.rs).
+  expect(4 * (moved.intensity / 100) ** 1.5).toBeCloseTo(1.5, 2);
+  expect(relightWithCurrentRanges({ ...old, intensity: 100 }).intensity).toBeLessThanOrEqual(100);
+  expect(relightWithCurrentRanges(moved)).toBe(moved);
+  // Range 2's constants are the renderer's.
+  expect(relightRs).toMatch(/const RANGE_2_MAX_GAIN: f32 = 4\.;/);
+  expect(relightRs).toMatch(/const RANGE_2_EXPONENT: f32 = 1\.5;/);
 });
