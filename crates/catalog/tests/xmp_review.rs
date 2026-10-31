@@ -407,3 +407,55 @@ fn every_metadata_write_adopts_an_edit_only_beside_the_photo_first() {
     assert_eq!(fs::read(&rrdata).unwrap(), b"{not json");
     assert_eq!(fs::read(&broken.photo).unwrap(), b"synthetic original");
 }
+
+#[test]
+fn uppercase_sidecar_is_discovered_adopted_checked_and_updated_in_place() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = Library::create(tmp.path(), "Uppercase", Mode::Session).unwrap();
+    let photo = tmp.path().join("Capture/upper.arw");
+    let upper = photo.with_extension("XMP");
+    let lower = photo.with_extension("xmp");
+    fs::write(&photo, b"synthetic original").unwrap();
+    fs::write(&upper, external_packet(3)).unwrap();
+    // This regression exercises case-sensitive filesystems specifically.
+    if lower.exists() {
+        return;
+    }
+    let contents = rawtonic_catalog::add::Contents::read_sidecars(&photo).unwrap();
+    assert_eq!(contents.metadata.unwrap().rating, 3);
+    let id = lib.add_asset(&photo).unwrap().id;
+    assert_eq!(lib.adopt_xmp(&id).unwrap().rating, 3);
+    let mut meta = lib.metadata(&id).unwrap();
+    meta.rating = 5;
+    lib.set_metadata(&id, &meta).unwrap();
+    lib.sync_xmp(&id).unwrap();
+    assert!(!lower.exists());
+    assert_eq!(
+        rawtonic_metadata::read_xmp(&fs::read_to_string(&upper).unwrap())
+            .unwrap()
+            .0
+            .rating,
+        5
+    );
+    let mut stamps = rawtonic_catalog::SidecarStamps::default();
+    assert!(
+        lib.check_xmp_sidecars(None, &mut stamps)
+            .unwrap()
+            .changed
+            .is_empty()
+    );
+    fs::write(&upper, external_packet(2)).unwrap();
+    let checked = lib.check_xmp_sidecars(None, &mut stamps).unwrap();
+    assert_eq!(checked.changed.as_slice(), std::slice::from_ref(&id));
+    lib.mark_changed_elsewhere(&checked.changed).unwrap();
+    lib.use_xmp(&id).unwrap();
+    assert_eq!(lib.metadata(&id).unwrap().rating, 2);
+    // A RAW/JPEG pair still cannot own a single stem sidecar.
+    let jpeg = photo.with_extension("jpg");
+    fs::write(&jpeg, b"synthetic jpeg").unwrap();
+    lib.add_asset(&jpeg).unwrap();
+    let before = fs::read(&upper).unwrap();
+    assert!(lib.sync_xmp(&id).is_err());
+    assert_eq!(fs::read(&upper).unwrap(), before);
+    assert!(!lower.exists());
+}

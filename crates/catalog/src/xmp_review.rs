@@ -205,7 +205,7 @@ impl Library {
             self.xmp_owners(&a.path)? == 1,
             "RAW/JPEG sidecar ownership needs pair resolution"
         );
-        Ok(a.path.with_extension("xmp"))
+        Ok(rawtonic_metadata::sidecar_path(&a.path))
     }
 
     /// Writes the library's metadata and recipe over a sidecar whose digest

@@ -108,7 +108,7 @@ impl Contents {
                 ..Self::default()
             });
         }
-        let xmp = photo.with_extension("xmp");
+        let xmp = rawtonic_metadata::sidecar_path(photo);
         if xmp.is_file() {
             let text = fs::read_to_string(&xmp)
                 .with_context(|| format!("Cannot read {}", xmp.display()))?;

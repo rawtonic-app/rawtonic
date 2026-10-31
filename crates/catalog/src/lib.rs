@@ -1364,7 +1364,7 @@ impl Library {
     /// Adopt an existing sidecar only as an explicit initialization/sync action.
     pub fn adopt_xmp(&self, asset: &str) -> Result<Metadata> {
         self.adopt_editor_sidecar(asset)?;
-        let path = self.asset(asset)?.path.with_extension("xmp");
+        let path = rawtonic_metadata::sidecar_path(&self.asset(asset)?.path);
         let text = fs::read_to_string(path)?;
         let (metadata, _) = rawtonic_metadata::read_xmp(&text)?;
         self.set_metadata(asset, &metadata)?;
@@ -2281,7 +2281,7 @@ fn forget_xmp_left_behind(tx: &Connection, id: &str, path: &Path) -> Result<()> 
         .optional()?
         .flatten();
     let Some(hash) = hash else { return Ok(()) };
-    let here = fs::read(path.with_extension("xmp"))
+    let here = fs::read(rawtonic_metadata::sidecar_path(path))
         .ok()
         .map(|bytes| rawtonic_metadata::digest(&bytes));
     if here.as_deref() != Some(hash.as_str()) {

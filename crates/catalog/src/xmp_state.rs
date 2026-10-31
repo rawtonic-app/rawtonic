@@ -130,7 +130,7 @@ impl Library {
     /// (or something else that is not a file has its name), or the one it
     /// wrote or read is gone: `sync_xmp` replaces neither (Keep library does).
     fn sidecar_changed_elsewhere(&self, id: &str, path: &Path) -> Result<bool> {
-        let sidecar = path.with_extension("xmp");
+        let sidecar = rawtonic_metadata::sidecar_path(path);
         if sidecar.exists() && !sidecar.is_file() {
             return Ok(true);
         }
@@ -209,7 +209,7 @@ impl Library {
                 continue;
             }
             check.checked += 1;
-            let sidecar = path.with_extension("xmp");
+            let sidecar = rawtonic_metadata::sidecar_path(&path);
             let changed = match fs::metadata(&sidecar) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => hash.is_some(),
                 // Unreadable (permissions, a drive going away): not a change.

@@ -172,6 +172,18 @@ impl Metadata {
     }
 }
 
+/// The existing stem sidecar, preserving its extension's case. New sidecars
+/// use `.xmp`; an existing `.XMP` must be read and updated in place on Linux.
+pub fn sidecar_path(photo: &Path) -> std::path::PathBuf {
+    let lower = photo.with_extension("xmp");
+    let upper = photo.with_extension("XMP");
+    if !lower.exists() && upper.exists() {
+        upper
+    } else {
+        lower
+    }
+}
+
 pub fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
