@@ -44,6 +44,23 @@ describe("professional adjustment control", () => {
     expect(document.activeElement).toBe(slider);
     expect(slider.closest(".adjustment-control")!.classList.contains("is-active")).toBe(false);
   });
+  it("starts an Option-drag from the value just typed, not the old one", () => {
+    const change = vi.fn();
+    render(
+      <AdjustmentControl label="Exposure" value={0} min={-5} max={5} step={0.01} onChange={change} />,
+    );
+    const slider = screen.getByRole("slider", { name: "Exposure" }) as HTMLInputElement;
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue({ width: 100 } as DOMRect);
+    slider.setPointerCapture = vi.fn();
+    const field = screen.getByRole("textbox");
+    field.focus();
+    fireEvent.change(field, { target: { value: "2" } });
+    // The press moves focus off the field, which commits the typed 2.
+    fireEvent.pointerDown(slider, { button: 0, clientX: 50, altKey: true, pointerId: 3 });
+    fireEvent.pointerMove(slider, { clientX: 70, altKey: true, pointerId: 3 });
+    fireEvent.pointerUp(slider, { pointerId: 3 });
+    expect(change).toHaveBeenLastCalledWith(2.2);
+  });
   it("marks its row while the slider or its label is dragged, and only then", () => {
     // The pressed state must read without the tooltip (state-legibility rule):
     // the stylesheet lights the label and enlarges the thumb on `is-active`.

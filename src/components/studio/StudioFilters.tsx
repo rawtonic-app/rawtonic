@@ -166,9 +166,9 @@ export default function StudioFilters({
       )}
       {sessionDirectory && (
         <button
-          className="studio-clear-filters"
+          className={`studio-clear-filters${active ? "" : " is-idle"}`}
           aria-label={t("studio.library.smartAlbums.fromFilter")}
-          hidden={!active}
+          tabIndex={active ? undefined : -1}
           disabled={!asSmartAlbum}
           title={
             asSmartAlbum
@@ -189,10 +189,10 @@ export default function StudioFilters({
         </button>
       )}
       <button
-        className="studio-clear-filters"
+        className={`studio-clear-filters${active ? "" : " is-idle"}`}
         aria-label={t("studio.library.filters.clearFilters")}
         title={t("studio.library.filters.clearFilters")}
-        hidden={!active}
+        tabIndex={active ? undefined : -1}
         onClick={() => {
           setFilter({
             flag: "all",

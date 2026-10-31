@@ -228,6 +228,54 @@ describe("region curve split handles under the curve (UXR1 D4)", () => {
     vi.unstubAllGlobals();
   });
 
+  describe("a drag against a committed value that lags", () => {
+    const setup = () => {
+      vi.stubGlobal("PointerEvent", MouseEvent);
+      const onInteraction = vi.fn();
+      // The parent never updates `region`: the 250 ms draft has not committed.
+      const view = render(
+        <PointCurve
+          curves={INITIAL_ADJUSTMENTS.curves}
+          region={region}
+          onRegionChange={() => {}}
+          onChange={() => {}}
+          disabled={false}
+          onInteraction={onInteraction}
+        />,
+      );
+      Object.assign(view.container.querySelector("svg")!, {
+        getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+      });
+      const midtone = handle("Region curve midtone split");
+      Object.assign(midtone, { setPointerCapture: () => {}, hasPointerCapture: () => false });
+      fireEvent.pointerDown(midtone, { button: 0, clientX: 127.5, clientY: 265 });
+      fireEvent.pointerMove(midtone, { buttons: 1, clientX: 102, clientY: 265 });
+      return { ...view, midtone, onInteraction };
+    };
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("draws the handle at the pointer, not at the committed value", () => {
+      const { midtone } = setup();
+      expect(midtone.getAttribute("aria-valuenow")).toBe("40");
+      expect(midtone.textContent).toContain("40");
+    });
+
+    it("gives the interaction back on pointercancel", () => {
+      const { midtone, onInteraction } = setup();
+      fireEvent.pointerCancel(midtone);
+      expect(onInteraction).toHaveBeenLastCalledWith(false);
+      expect(onInteraction).toHaveBeenCalledTimes(2);
+      expect(midtone.getAttribute("aria-valuenow")).toBe("50");
+    });
+
+    it("gives the interaction back when the curve unmounts mid-drag", () => {
+      const { unmount, onInteraction } = setup();
+      unmount();
+      expect(onInteraction).toHaveBeenLastCalledWith(false);
+      expect(onInteraction).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("takes an exact value after a double-click", () => {
     const { onRegionChange } = mount();
     fireEvent.doubleClick(handle("Region curve highlight split"));

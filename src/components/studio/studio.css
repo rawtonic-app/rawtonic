@@ -2233,8 +2233,11 @@
 .studio-clear-filters {
   color: var(--studio-accent);
 }
-.studio-clear-filters[hidden] {
-  display: none !important;
+/* Idle (nothing filters): the slot keeps its width, so turning a filter on
+   does not move the sort control or the grid below. visibility also removes
+   the buttons from the tab order and the accessibility tree. */
+.studio-clear-filters.is-idle {
+  visibility: hidden;
 }
 .studio-library-footer label {
   display: flex;
@@ -6509,5 +6512,70 @@ button.studio-button.is-destructive:hover:not(:disabled) {
     border-radius: 3px;
     background: #1c1d1fe6;
     color: #e6e7e9;
+  }
+}
+
+/* The footer never lets its groups run over each other: as the viewer
+   narrows, the lower-priority items go first (previous settings and sync,
+   then paste and the counter, then the filename and the divider), the
+   rating, flags, Copy, the step arrows and the filmstrip toggle stay. */
+.studio-viewer-footer .studio-rating,
+.studio-viewer-footer .studio-flags {
+  flex-shrink: 0;
+}
+/* The right group keeps what its controls need; the left one (the filename
+   shrinks with an ellipsis) gives way. */
+.studio-viewer-footer .studio-viewer-side.is-end {
+  min-width: max-content;
+}
+.studio-viewer-footer .studio-viewer-side:first-child {
+  overflow: hidden;
+}
+/* Words beside the footer icons go before anything is clipped, whatever the
+   language (the German labels are the longest). */
+@container viewer-footer (max-width: 1000px) {
+  .studio-viewer-footer .optional-label {
+    display: none;
+  }
+}
+@container viewer-footer (max-width: 700px) {
+  .studio-viewer-footer .footer-low {
+    display: none;
+  }
+}
+@container viewer-footer (max-width: 560px) {
+  .studio-viewer-footer .footer-mid {
+    display: none;
+  }
+  .studio-viewer-footer .studio-rating {
+    margin-left: 4px;
+  }
+  .studio-viewer-footer .studio-flags {
+    margin-right: 2px;
+  }
+}
+@container viewer-footer (max-width: 440px) {
+  .studio-viewer-footer .studio-viewer-filename,
+  .studio-viewer-footer .studio-toolbar-divider {
+    display: none;
+  }
+}
+@container viewer-footer (max-width: 340px) {
+  .studio-viewer-footer > .studio-viewer-side:first-child {
+    display: none;
+  }
+}
+@container viewer-footer (max-width: 290px) {
+  .studio-viewer-footer .studio-viewer-side.is-end .optional-label,
+  .studio-viewer-footer .studio-viewer-side.is-end .studio-pointer-readout {
+    display: none;
+  }
+  .studio-viewer-footer .studio-rating button {
+    padding: 3px 1px !important;
+  }
+}
+@container viewer-footer (max-width: 270px) {
+  .studio-viewer-footer .footer-copy {
+    display: none;
   }
 }

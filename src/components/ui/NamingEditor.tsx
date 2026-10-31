@@ -18,6 +18,7 @@ import {
   counterDigits,
   formatToken,
   insertToken,
+  keepCounterSeparator,
   MAX_SEQUENCE_START,
   moveToken,
   namingExample,
@@ -299,9 +300,15 @@ export default function NamingEditor({
                 autoCorrect="off"
                 onChange={(e) => {
                   const next = [...text];
-                  next[slot] = e.target.value;
+                  const typed = e.target.value;
+                  // Replacing the separator before the counter with plain text
+                  // ("Wedding" over "_") keeps it: Wedding_0001, not Wedding0001.
+                  // Deleting the kept separator afterwards is the user's choice.
+                  const kept = keepCounterSeparator(part, typed, tokens[slot]);
+                  next[slot] = kept;
                   onChange(joinSegments(next, tokens));
                   remember(slot, e.target);
+                  if (kept !== typed) focusText(slot, typed.length);
                 }}
                 onSelect={(e) => remember(slot, e.currentTarget)}
                 onFocus={(e) => remember(slot, e.currentTarget)}

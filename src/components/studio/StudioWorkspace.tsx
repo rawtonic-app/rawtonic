@@ -1406,7 +1406,7 @@ export default function StudioWorkspace(props: Props) {
                   >
                     <ArrowLeft size={14} />
                   </button>
-                  <span className="studio-counter">
+                  <span className="studio-counter footer-mid">
                     {currentIndex >= 0
                       ? `${currentIndex + 1} / ${files.length}`
                       : t("studio.workspace.footer.photographs", { count: 0, n: "0" })}
@@ -1462,6 +1462,7 @@ export default function StudioWorkspace(props: Props) {
                   <PointerReadout />
                   <ViewerCaptureInfo />
                   <button
+                    className="footer-copy"
                     title={withShortcut(t("studio.workspace.footer.copyAdjustments"), "⇧⌘C")}
                     aria-label={t("studio.workspace.footer.copyAdjustments")}
                     onClick={(e) => readyNow() && onCopy(undefined, { quick: e.altKey })}
@@ -1471,6 +1472,7 @@ export default function StudioWorkspace(props: Props) {
                     <span className="optional-label">{t("studio.workspace.footer.copy")}</span>
                   </button>
                   <button
+                    className="footer-mid"
                     title={withShortcut(t("studio.workspace.footer.pasteAdjustments"), "⇧⌘V")}
                     aria-label={t("studio.workspace.footer.pasteAdjustments")}
                     disabled={!panelsReady}
@@ -1482,6 +1484,7 @@ export default function StudioWorkspace(props: Props) {
                     <span className="optional-label">{t("studio.workspace.footer.paste")}</span>
                   </button>
                   <button
+                    className="footer-low"
                     title={withShortcut(t("studio.workspace.footer.pasteFromPrevious"), "⌥⌘V")}
                     aria-label={t("studio.workspace.footer.pasteFromPrevious")}
                     disabled={!panelsReady || !previousPhoto}
@@ -1494,6 +1497,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   {syncTargets > 0 && (
                     <button
+                      className="footer-low"
                       title={withShortcut(t("studio.workspace.footer.syncSettings"), "⇧⌘S")}
                       aria-label={t("studio.workspace.footer.syncSettings")}
                       disabled={!panelsReady}
