@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+### Highlights
+
 - **Export as Catalog.** The project or catalog menu › *Export as Catalog…* makes a new catalog of the selected photos (or all photos the folder or album shows) to take a job to another computer: their edits with history, virtual copies, snapshots, ratings, labels, flags, keywords, IPTC, capture-time corrections, eye checks, masks, the albums holding them and the LUTs and profiles their edits use. *Include original files* copies and verifies the originals into the new catalog's folder (stored relative, so the folder can move); without it the catalog refers to the originals where they are, and photos whose drive is not connected edit on their previews (*Include previews*, on by default). Photos inside the project or catalog's own folder (all of a project's) belong to it and are always copied; photos that another project owns (added to a catalog where they are) have their latest edits there and are left out, after you confirm, or the export is refused. Progress and Cancel are in the activity centre; a cancelled or failed export leaves no catalog behind, an existing folder with anything in it is never used, and the library you export from is never changed. 1,000 photos by reference took 2.8 s on a ThinkPad X13 laptop.
+- **Truer colour in large over-exposed skies and walls.** Where one or two colour channels of a RAW clip over a large area, the rebuilt colour now follows the colour ratios measured a few pixels away from the clip instead of the samples right at its edge, and spreads smoothly instead of cell by cell. On 30 photographs clipped 1.5–3 stops below their original exposure (the unclipped original as the truth), the median colour error of the rebuilt areas fell by a fifth (Oklab ΔE×100 0.93 → 0.74) and the hue error from 3.7° to 2.9°: a sunset sky no longer turns purple (2.96 → 0.73), a tungsten-lit table no longer redder (4.43 → 1.60), and a dusk sky loses its brighter blotch with a hard edge. Skies where green and blue clip over faint red get somewhat worse (four frames, 0.93–1.91 → 1.63–2.50). Saved edits look exactly as before (`renderVersion` 9).
+
+### Changes to existing edits
+
+- **Rebuilt highlights of RAWs (`renderVersion` 9, new edits and never-edited RAWs).** Clipped colours inside larger partly clipped areas are rebuilt from colour ratios (see *Truer colour in large over-exposed skies and walls*); small clipped spots and fully clipped areas render as before. The decode takes 60–110 ms longer on 24–47 MP photos with clipping (RTX 3080 host, CPU stage).
 
 ## 0.1.0-alpha.10 — 2026-10-31
 

@@ -155,4 +155,33 @@ describe('sourceDevelopToApply', () => {
       sourceDevelopToApply({ ...clipped, unbiasedBlackFailed: true }, { ...v2, renderVersion: 8 }, false),
     ).toBeNull();
   });
+
+  it('develops again when the highlight rebuild flips with the render version', () => {
+    const base = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: true };
+    const offsets = { ...base, highlightRatios: false };
+    const ratios = { ...base, highlightRatios: true };
+    // Saved edits before render version 9 keep the offset rebuild.
+    expect(sourceDevelopToApply(offsets, { ...v2, renderVersion: 8 }, false)).toBeNull();
+    expect(sourceDevelopToApply(ratios, { ...v2, renderVersion: 9 }, false)).toBeNull();
+    // Reset of an older edit (render version 9), and undo back.
+    expect(sourceDevelopToApply(offsets, { ...v2, renderVersion: 9 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      highlightRatios: true,
+    });
+    expect(sourceDevelopToApply(ratios, { ...v2, renderVersion: 8 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      highlightRatios: false,
+    });
+    // Failed before: not retried; unknown (preview data) waits.
+    expect(
+      sourceDevelopToApply({ ...offsets, highlightRatiosFailed: true }, { ...v2, renderVersion: 9 }, false),
+    ).toBeNull();
+    expect(sourceDevelopToApply(base, { ...v2, renderVersion: 9 }, false)).toBeNull();
+  });
 });

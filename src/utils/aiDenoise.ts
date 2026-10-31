@@ -1,5 +1,11 @@
 import type { SelectedImage } from '../components/ui/AppProperties';
-import { colorNoiseMultiscale, deadPixelAdjacent, unbiasedBlack, type Adjustments } from './adjustments';
+import {
+  colorNoiseMultiscale,
+  deadPixelAdjacent,
+  highlightRatios,
+  unbiasedBlack,
+  type Adjustments,
+} from './adjustments';
 
 /** A recipe's AI Denoise amount (0 … 100) as the backend reads it
  * (`ai_denoise_amount`): off with Detail or its Noise reduction tool
@@ -55,6 +61,9 @@ export interface SourceDevelop {
   /** With unbiased blacks (`renderVersion` 8; undefined: the stored
    * recipe's). */
   unbiasedBlack?: boolean;
+  /** With the ratio highlight rebuild (`renderVersion` 9; undefined: the
+   * stored recipe's). */
+  highlightRatios?: boolean;
 }
 
 /**
@@ -62,8 +71,9 @@ export interface SourceDevelop {
  * recipe, or null when it does: its AI Denoise amount (`aiDenoiseToApply`)
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
- * dead-photosite test (`deadPixelAdjacent`) or its black handling
- * (`unbiasedBlack`) differs from the source's. Only decoded RAWs on their file; never during a slider drag.
+ * dead-photosite test (`deadPixelAdjacent`), its black handling
+ * (`unbiasedBlack`) or its highlight rebuild (`highlightRatios`) differs
+ * from the source's. Only decoded RAWs on their file; never during a slider drag.
  */
 export function sourceDevelopToApply(
   image: Pick<
@@ -80,6 +90,8 @@ export function sourceDevelopToApply(
     | 'deadPixelAdjacentFailed'
     | 'unbiasedBlack'
     | 'unbiasedBlackFailed'
+    | 'highlightRatios'
+    | 'highlightRatiosFailed'
     | 'offline'
   > | null,
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
@@ -104,7 +116,18 @@ export function sourceDevelopToApply(
   const haveBlack = image.unbiasedBlack;
   const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
   const black = wantedBlack === image.unbiasedBlackFailed ? haveBlack : wantedBlack;
-  if (aiDenoise === null && multiscale === have && dead === haveDead && black === haveBlack) return null;
+  // And for the highlight rebuild (`renderVersion` 9).
+  const haveRatios = image.highlightRatios;
+  const wantedRatios = image.offline || haveRatios === undefined ? haveRatios : highlightRatios(adjustments);
+  const ratios = wantedRatios === image.highlightRatiosFailed ? haveRatios : wantedRatios;
+  if (
+    aiDenoise === null &&
+    multiscale === have &&
+    dead === haveDead &&
+    black === haveBlack &&
+    ratios === haveRatios
+  )
+    return null;
   const version = aiDenoise === null ? image.aiDenoiseVersion : adjustments.aiDenoiseVersion;
   return {
     aiDenoise: aiDenoise ?? Math.round(image.aiDenoise ?? 0),
@@ -112,6 +135,7 @@ export function sourceDevelopToApply(
     multiscale,
     deadPixelAdjacent: dead,
     unbiasedBlack: black,
+    highlightRatios: ratios,
   };
 }
 

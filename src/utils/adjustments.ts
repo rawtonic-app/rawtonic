@@ -1358,7 +1358,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 8;
+export const RENDER_VERSION = 9;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1384,6 +1384,16 @@ export const UNBIASED_BLACK_RENDER_VERSION = 8;
  * decides (`image_loader::decode_variant`). */
 export const unbiasedBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= UNBIASED_BLACK_RENDER_VERSION;
+
+/** The render version from which clipped colours inside larger partly
+ * clipped areas are rebuilt from colour ratios (crates/engine/src/image_loader.rs
+ * `HIGHLIGHT_RENDER_VERSION`). */
+export const HIGHLIGHT_RATIOS_RENDER_VERSION = 9;
+
+/** Whether a recipe's RAW is developed with the ratio highlight rebuild, as
+ * the backend decides (`image_loader::decode_variant`). */
+export const highlightRatios = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= HIGHLIGHT_RATIOS_RENDER_VERSION;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */
