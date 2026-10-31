@@ -4,6 +4,7 @@
 //! (G41); the card is only read.
 //!
 //! `cargo run --release -p rawtonic-ingest --example ingest_card -- CARD SESSION [BACKUP] [TEMPLATE] [METADATA_JSON]`
+//! (an empty BACKUP: none)
 use rawtonic_catalog::{Library, Mode};
 use rawtonic_ingest::batch::{BatchOptions, import_batch};
 use std::{
@@ -50,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     let mut sources = Vec::new();
     files(Path::new(&args[0]), &mut sources);
     let session = PathBuf::from(&args[1]);
-    let backup = args.get(2).map(PathBuf::from);
+    let backup = args.get(2).filter(|a| !a.is_empty()).map(PathBuf::from);
     let template = args.get(3).map_or("{orig}", String::as_str);
     let metadata: Option<rawtonic_ingest::metadata::ImportMetadata> = args
         .get(4)

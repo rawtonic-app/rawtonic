@@ -3,9 +3,12 @@
 use anyhow::{Result, ensure};
 use chrono::Datelike;
 use rawtonic_catalog::Library;
-use rawtonic_metadata::{IptcKind, Metadata, iptc_field};
+use rawtonic_metadata::{IptcKind, MAX_KEYWORDS, Metadata, iptc_field};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -92,20 +95,41 @@ impl ImportMetadata {
             }
         }
     }
-    pub(crate) fn prepare(
-        &self,
-        photo: &std::path::Path,
-        source: &std::path::Path,
-        metadata: &mut Metadata,
-        initialized: bool,
-    ) -> Result<()> {
-        let (embedded, embedded_year) = crate::capture::import_metadata(photo)?;
+
+    /// What the photograph `photo` (copied from `source`) brings itself: its
+    /// embedded metadata and the year `{year}` stands for. Reads the file
+    /// only; `header` is its header as registration read it.
+    pub(crate) fn embedded(
+        photo: &Path,
+        source: &Path,
+        header: Option<rawtonic_naming::Capture>,
+    ) -> Result<Embedded> {
+        let (metadata, embedded_year) = crate::capture::import_metadata(photo, header)?;
         let year = embedded_year.unwrap_or_else(|| {
             std::fs::metadata(source)
                 .and_then(|m| m.modified())
                 .map(|time| chrono::DateTime::<chrono::Local>::from(time).year())
                 .unwrap_or_else(|_| chrono::Local::now().year())
         });
+        Ok(Embedded { metadata, year })
+    }
+
+    /// Merges `embedded` and this preset into the photograph's `metadata`.
+    /// Returns a note for the import result when the keywords could not be
+    /// added: the photograph would hold more than `MAX_KEYWORDS`. Its own
+    /// keywords are then kept as they were and the rest of the preset is
+    /// applied: a deterministic per-photo result, never an error, so the
+    /// photograph is imported and a resumed job does not stop at it again.
+    pub(crate) fn merge(
+        &self,
+        embedded: Embedded,
+        metadata: &mut Metadata,
+        initialized: bool,
+    ) -> Option<String> {
+        let Embedded {
+            metadata: embedded,
+            year,
+        } = embedded;
         // Sidecar/catalog values take precedence; bring in embedded values only
         // where absent, so a fill-empty preset cannot replace embedded rights.
         for (target, value) in [
@@ -130,49 +154,81 @@ impl ImportMetadata {
                 metadata.set_iptc(&key, &value);
             }
         }
+        let own_keywords = metadata.keywords.clone();
         for keyword in embedded.keywords {
             if !metadata.keywords.contains(&keyword) {
                 metadata.keywords.push(keyword);
             }
         }
         self.apply(metadata, year);
-        Ok(())
+        (metadata.keywords.len() > MAX_KEYWORDS).then(|| {
+            metadata.keywords = own_keywords;
+            format!(
+                "Import keywords not applied: the photograph would have more than {MAX_KEYWORDS} keywords"
+            )
+        })
     }
+}
+
+/// What a photograph brings to an import preset (`ImportMetadata::embedded`).
+pub(crate) struct Embedded {
+    metadata: Metadata,
+    year: i32,
+}
+
+/// The turn of the app's metadata writers (its rating, label, keyword and
+/// text edits): taken around the preset's read, change and write of a
+/// photograph's metadata, so neither writes back metadata read before the
+/// other's write. The guard is held until it is dropped.
+pub type WriteTurn<'a> = &'a dyn Fn() -> Box<dyn std::any::Any>;
+
+/// For a library no other writer uses (tests, the CLI).
+pub fn no_turn() -> Box<dyn std::any::Any> {
+    Box::new(())
+}
+
+/// Adds `note` to `result`'s warnings.
+pub(crate) fn warn(result: &mut crate::ImportResult, note: String) {
+    result.warning = Some(match result.warning.take() {
+        Some(earlier) => format!("{earlier}; {note}"),
+        None => note,
+    });
 }
 
 /// Only called for this job's successfully published photographs, never a
 /// duplicate already in the library. The catalog's writer and conflict-aware
 /// atomic XMP writer keep both sides recoverable if sidecar sync fails.
+/// Catalog errors are returned (the job stops and is resumed later); what
+/// the preset cannot add to this photograph is a warning on its result.
 pub(crate) fn apply_to_copy(
     library: &Library,
     result: &mut crate::ImportResult,
     preset: &ImportMetadata,
+    turn: WriteTurn<'_>,
 ) -> Result<()> {
     if result.error.is_some() || result.skipped || result.companion_of.is_some() {
         return Ok(());
     }
-    let Some(id) = &result.asset_id else {
+    let Some(id) = result.asset_id.clone() else {
         return Ok(());
     };
+    let id = id.as_str();
     let asset = library.asset(id)?;
+    // The file is read before the turn, which is held only for the catalog.
+    let embedded = ImportMetadata::embedded(&asset.path, &result.source, result.header.take())?;
+    let _turn = turn();
     let mut metadata = library.metadata(id)?;
-    preset.prepare(
-        &asset.path,
-        &result.source,
-        &mut metadata,
-        library.metadata_initialized(id)?,
-    )?;
+    let note = preset.merge(embedded, &mut metadata, library.metadata_initialized(id)?);
     library.set_metadata(id, &metadata)?;
+    if let Some(note) = note {
+        warn(result, note);
+    }
     match library.sync_xmp(id) {
         Ok(()) => result.sidecar = Some(asset.path.with_extension("xmp")),
-        Err(error) => {
-            let warning =
-                format!("Import metadata is saved in the catalog; XMP was not synced: {error}");
-            result.warning = Some(match result.warning.take() {
-                Some(earlier) => format!("{earlier}; {warning}"),
-                None => warning,
-            });
-        }
+        Err(error) => warn(
+            result,
+            format!("Import metadata is saved in the catalog; XMP was not synced: {error}"),
+        ),
     }
     Ok(())
 }

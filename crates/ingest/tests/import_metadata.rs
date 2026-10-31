@@ -641,3 +641,235 @@ fn invalid_optional_exif_creator_does_not_block_import_or_resume() {
             .is_empty()
     );
 }
+
+fn preset_options(preset: &ImportMetadata) -> BatchOptions<'_> {
+    BatchOptions {
+        template: "{orig}",
+        sequence_start: 1,
+        backup: None,
+        folder: None,
+        roots: &[],
+        pair_raw: None,
+        album: None,
+        metadata: Some(preset),
+    }
+}
+
+/// A rating, label and keyword edit as the app makes it: in the turn, it
+/// reads the photograph's metadata, changes it and writes it back.
+fn rate(lib: &Library, id: &str) {
+    let mut metadata = lib.metadata(id).unwrap();
+    metadata.rating = 4;
+    metadata.label = "Red".into();
+    metadata.keywords.push("picked".into());
+    lib.set_metadata(id, &metadata).unwrap();
+}
+
+#[test]
+fn an_edit_that_has_the_turn_before_the_preset_is_kept() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("source.NEF");
+    fs::write(&source, b"original raw bytes").unwrap();
+    let hash = rawtonic_ingest::sha256(&source).unwrap();
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    let preset = ImportMetadata {
+        creator: "Preset creator".into(),
+        keywords: vec!["preset".into()],
+        ..ImportMetadata::default()
+    };
+    // The app's turn as a lock both writers take. The import asks for it
+    // while the user's rating edit of the registered photograph holds it:
+    // the edit is written while the import waits, then the turn is the
+    // import's.
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let edits = std::cell::Cell::new(0);
+    let directory = lib.directory.clone();
+    let in_turn = || -> Box<dyn std::any::Any> {
+        let edit = TURN.lock().unwrap();
+        let other = Library::open(&directory).unwrap();
+        let asset = other.assets(None).unwrap().pop().unwrap();
+        rate(&other, &asset.id);
+        edits.set(edits.get() + 1);
+        drop(edit);
+        Box::new(TURN.lock().unwrap())
+    };
+    let results = rawtonic_ingest::batch::import_batch_in_turn(
+        &lib,
+        std::slice::from_ref(&source),
+        &preset_options(&preset),
+        &AtomicBool::new(false),
+        &in_turn,
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(edits.get(), 1, "the preset is written in the turn, once");
+    let r = &results[0];
+    assert!(r.error.is_none() && r.warning.is_none(), "{r:?}");
+    let metadata = lib.metadata(r.asset_id.as_ref().unwrap()).unwrap();
+    assert_eq!((metadata.rating, metadata.label.as_str()), (4, "Red"));
+    assert_eq!(metadata.creator, "Preset creator");
+    assert_eq!(metadata.keywords, ["picked", "preset"]);
+    let xmp = fs::read_to_string(r.destination.as_ref().unwrap().with_extension("xmp")).unwrap();
+    assert_eq!(rawtonic_metadata::read_xmp(&xmp).unwrap().0, metadata);
+    assert_eq!(rawtonic_ingest::sha256(&source).unwrap(), hash);
+}
+
+#[test]
+fn a_resumed_unfinished_photo_reapplies_explicit_overwrites_and_keeps_other_edits() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("source.NEF");
+    fs::write(&source, b"original raw bytes").unwrap();
+    let hash = rawtonic_ingest::sha256(&source).unwrap();
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    let mut preset = ImportMetadata {
+        creator: "Preset creator".into(),
+        copyright: "Preset rights".into(),
+        ..ImportMetadata::default()
+    };
+    preset.overwrite.insert("creator".into());
+    let job = rawtonic_ingest::queue::create_job(
+        &lib,
+        std::slice::from_ref(&source),
+        &preset_options(&preset),
+    )
+    .unwrap();
+    let first =
+        rawtonic_ingest::queue::run_job(&lib, &job, &AtomicBool::new(false), |_| {}).unwrap();
+    let id = first[0].asset_id.clone().unwrap();
+    // Cut off after the copy was registered, before the job knew it was
+    // done; meanwhile the user edits the photograph.
+    let item = &lib.ingest_job(&job).unwrap().items[0];
+    lib.set_ingest_item(
+        &job,
+        item.position,
+        rawtonic_catalog::ingest_jobs::ItemState::Copying,
+        first[0].destination.as_deref(),
+        None,
+        None,
+    )
+    .unwrap();
+    lib.set_ingest_job_state(&job, rawtonic_catalog::ingest_jobs::JobState::Interrupted)
+        .unwrap();
+    let mut edited = lib.metadata(&id).unwrap();
+    edited.creator = "User creator".into();
+    edited.copyright = "User rights".into();
+    edited.rating = 3;
+    lib.set_metadata(&id, &edited).unwrap();
+    let resumed =
+        rawtonic_ingest::queue::run_job(&lib, &job, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(resumed[0].asset_id.as_deref(), Some(id.as_str()));
+    let metadata = lib.metadata(&id).unwrap();
+    // By design: the unfinished photograph gets the import's explicit
+    // overwrite again; fill-empty fields and other edits stay.
+    assert_eq!(metadata.creator, "Preset creator");
+    assert_eq!(metadata.copyright, "User rights");
+    assert_eq!(metadata.rating, 3);
+    assert!(lib.unfinished_ingest_jobs().unwrap().is_empty());
+    assert_eq!(rawtonic_ingest::sha256(&source).unwrap(), hash);
+}
+
+fn full_of_keywords(path: &std::path::Path) -> rawtonic_metadata::Metadata {
+    let metadata = Metadata {
+        keywords: (0..rawtonic_metadata::MAX_KEYWORDS)
+            .map(|i| format!("k{i}"))
+            .collect(),
+        ..Metadata::default()
+    };
+    rawtonic_metadata::write_xmp(path, &metadata, None, None).unwrap();
+    metadata
+}
+
+#[test]
+fn keywords_beyond_the_limit_are_a_warning_and_the_photo_is_imported_once() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("full.NEF");
+    fs::write(&source, b"original raw bytes").unwrap();
+    let card = full_of_keywords(&source.with_extension("xmp"));
+    let next = d.path().join("next.NEF");
+    fs::write(&next, b"next raw").unwrap();
+    let hashes = [&source, &next].map(|p| rawtonic_ingest::sha256(p).unwrap());
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    let preset = ImportMetadata {
+        creator: "Preset creator".into(),
+        keywords: vec!["preset".into()],
+        ..ImportMetadata::default()
+    };
+    let job = rawtonic_ingest::queue::create_job(
+        &lib,
+        &[source.clone(), next.clone()],
+        &preset_options(&preset),
+    )
+    .unwrap();
+    let results =
+        rawtonic_ingest::queue::run_job(&lib, &job, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+    let full = lib.metadata(results[0].asset_id.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        full.keywords, card.keywords,
+        "its own keywords stay as they were"
+    );
+    assert_eq!(
+        full.creator, "Preset creator",
+        "the rest of the preset applies"
+    );
+    assert_eq!(
+        results[0].warning.as_deref(),
+        Some("Import keywords not applied: the photograph would have more than 10000 keywords")
+    );
+    let other = lib.metadata(results[1].asset_id.as_ref().unwrap()).unwrap();
+    assert_eq!(other.keywords, ["preset"]);
+    assert!(results[1].warning.is_none());
+    // Done: nothing is left for a resume to stop at.
+    assert!(lib.unfinished_ingest_jobs().unwrap().is_empty());
+    assert!(
+        rawtonic_ingest::queue::run_job(&lib, &job, &AtomicBool::new(false), |_| {})
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        [&source, &next].map(|p| rawtonic_ingest::sha256(p).unwrap()),
+        hashes
+    );
+}
+
+#[test]
+fn add_reports_keywords_beyond_the_limit_and_adds_the_photo() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("full.jpg");
+    fs::write(&source, b"photo").unwrap();
+    let sidecar = source.with_extension("xmp");
+    let card = full_of_keywords(&sidecar);
+    let hashes = [&source, &sidecar].map(|p| rawtonic_ingest::sha256(p).unwrap());
+    let lib = Library::create(&d.path().join("Catalog"), "Catalog", Mode::Catalog).unwrap();
+    let preset = ImportMetadata {
+        creator: "Preset creator".into(),
+        keywords: vec!["preset".into()],
+        ..ImportMetadata::default()
+    };
+    let results = rawtonic_ingest::batch::add_batch_with_metadata(
+        &lib,
+        std::slice::from_ref(&source),
+        None,
+        |_| rawtonic_ingest::batch::Medium::Disk,
+        &AtomicBool::new(false),
+        Some(&preset),
+        |_| {},
+    )
+    .unwrap();
+    let r = &results[0];
+    assert!(r.error.is_none(), "{r:?}");
+    assert!(
+        r.warning
+            .as_deref()
+            .unwrap()
+            .contains("more than 10000 keywords")
+    );
+    let metadata = lib.metadata(r.asset_id.as_ref().unwrap()).unwrap();
+    assert_eq!(metadata.keywords, card.keywords);
+    assert_eq!(metadata.creator, "Preset creator");
+    assert_eq!(
+        [&source, &sidecar].map(|p| rawtonic_ingest::sha256(p).unwrap()),
+        hashes
+    );
+}

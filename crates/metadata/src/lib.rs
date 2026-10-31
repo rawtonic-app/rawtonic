@@ -106,6 +106,9 @@ fn contact_key(namespace: Option<&str>, name: &str) -> Option<&'static str> {
         .map(|(k, ..)| *k)
 }
 
+/// The most keywords one photograph holds (`Metadata::validate`).
+pub const MAX_KEYWORDS: usize = 10_000;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Metadata {
@@ -126,7 +129,7 @@ impl Metadata {
     pub fn validate(&self) -> Result<()> {
         ensure!(self.rating <= 5, "Rating must be 0–5");
         ensure!((-1..=1).contains(&self.flag), "Flag must be -1, 0 or 1");
-        ensure!(self.keywords.len() <= 10_000, "Too many keywords");
+        ensure!(self.keywords.len() <= MAX_KEYWORDS, "Too many keywords");
         for value in [
             &self.label,
             &self.title,

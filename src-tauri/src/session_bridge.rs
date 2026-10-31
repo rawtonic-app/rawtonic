@@ -928,11 +928,12 @@ pub async fn session_ingest(
         };
         let report = ingest_reporter(&app);
         match mode.unwrap_or_default() {
-            IngestMode::Copy => rawtonic_ingest::batch::import_batch(
+            IngestMode::Copy => rawtonic_ingest::batch::import_batch_in_turn(
                 &lib,
                 &sources,
                 &options,
                 &CANCEL_IMPORT,
+                &ingest_turn,
                 report,
             ),
             IngestMode::Add => rawtonic_ingest::batch::add_batch_with_metadata(
@@ -958,6 +959,13 @@ pub async fn session_ingest(
     }
     result?
 }
+/// The turn an import preset changes a photograph's metadata in: the one
+/// of the app's rating, label, keyword and text edits
+/// (`library_search::metadata_turn`).
+fn ingest_turn() -> Box<dyn std::any::Any> {
+    Box::new(crate::library_search::metadata_turn())
+}
+
 /// Announces each photograph of an ingest (`session-ingest-imported`) and
 /// the count and speed (`session-ingest-progress`).
 fn ingest_reporter(app: &tauri::AppHandle) -> impl FnMut(rawtonic_ingest::batch::FileDone<'_>) {
@@ -1028,10 +1036,11 @@ pub async fn session_ingest_resume(
             if rawtonic_ingest::queue::JobSummary::of(&job).available == 0 {
                 continue;
             }
-            let done = rawtonic_ingest::queue::run_job(
+            let done = rawtonic_ingest::queue::run_job_in_turn(
                 &lib,
                 &job.id,
                 &CANCEL_IMPORT,
+                &ingest_turn,
                 ingest_reporter(&app),
             )
             .map_err(|e| e.to_string())?;

@@ -175,7 +175,7 @@ function reportIngest(
     );
   if (warnings.length)
     notify.warning(
-      i18n.t("session.toasts.sidecarWarnings", { count: warnings.length, error: warnings[0].warning }),
+      i18n.t("session.toasts.importWarnings", { count: warnings.length, error: warnings[0].warning }),
       { autoClose: false },
     );
   if (albumError)
