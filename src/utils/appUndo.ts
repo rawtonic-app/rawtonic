@@ -83,7 +83,7 @@ export type BatchLabel =
   | "apply";
 interface Step {
   order: number;
-  action: CullingValue["kind"] | "recipes" | "xmp" | "captureTime" | "stacks";
+  action: CullingValue["kind"] | "recipes" | "xmp" | "captureTime" | "stacks" | "catalogImport";
   changes: CullingChange[];
   /** A batch recipe change (series match): one step for all its photos. */
   recipes?: RecipeChange[];
@@ -95,6 +95,10 @@ interface Step {
   stacks?: { library: string; change: StackChange };
   /** A batch edit of whole recipes (paste, sync, reset, …). */
   snapshots?: RecipeSnapshot[];
+  /** Import from Catalog: the metadata it replaced, put back by
+   * `library_import_catalog_travel` (the replaced edits travel in each
+   * photograph's history). */
+  catalogImport?: { library: string; receipts: XmpReceipt[] };
   label?: BatchLabel;
   /** Use XMP: the photos it was asked for and what undoes each reading. */
   xmp?: { paths: string[]; receipts: XmpReceipt[] };
@@ -429,6 +433,35 @@ export function stackAction(library: string, change: StackChange, paths: string[
     directory: useLibraryStore.getState().sessionDirectory,
   };
   currentTargets.set(step, paths);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true,
+  }));
+}
+
+/** Records an Import from Catalog already written to `library` as one
+ * undoable step for the metadata it replaced (nothing when it replaced
+ * none): Undo puts every photograph's rating, label, flag, keywords and
+ * text back, Redo applies the imported ones again. */
+export function catalogImportAction(library: string, receipts: XmpReceipt[]) {
+  if (!receipts.length) return;
+  debouncedSetHistory.flush();
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1),
+  });
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: "catalogImport",
+    changes: [],
+    catalogImport: { library, receipts },
+    directory: library,
+  };
+  // No targets: its travel waits for every earlier write (receipts name
+  // photographs by id, not path).
   useCatalogUndoStore.setState((s) => ({
     past: [...s.past, step].slice(-100),
     future: [],
@@ -864,6 +897,7 @@ function actionLabel(direction: "undo" | "redo") {
     if (action === "xmp") return i18n.t("undoHistory.useXmp");
     if (action === "captureTime") return i18n.t("undoHistory.captureTime");
     if (action === "stacks") return i18n.t("undoHistory.stacks");
+    if (action === "catalogImport") return i18n.t("undoHistory.catalogImport");
     return null;
   }
   return null;
@@ -1073,6 +1107,14 @@ async function travel(
   if (step.xmp) {
     try {
       await travelXmp(step, direction, startedOnBranch);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
+    return;
+  }
+  if (step.catalogImport) {
+    try {
+      await travelCatalogImport(step, direction, startedOnBranch);
     } finally {
       useCatalogUndoStore.setState({ busy: false });
     }
@@ -1288,6 +1330,40 @@ async function travelStacks(
   }
 }
 
+/** Undo/redo of an import's metadata: all its photos or none (a photo
+ * changed since refuses it and the step stays to look at again). */
+async function travelCatalogImport(
+  step: Step,
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  const { library, receipts } = step.catalogImport!;
+  try {
+    await enqueue(async () => {
+      if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+      try {
+        await invokeInOrder(Invokes.LibraryImportCatalogTravel, { target: library, steps: receipts, undo: direction === "undo" });
+      } finally {
+        xmpMetadataRead(library);
+      }
+      if (useCatalogUndoStore.getState()[from].includes(step))
+        useCatalogUndoStore.setState((s) => ({
+          [from]: s[from].filter((item) => item !== step),
+          [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
+        }));
+    }, "catalog", currentTargets.get(step));
+  } catch (error) {
+    const detail = String((error as { message?: string })?.message ?? error);
+    notify.error(
+      direction === "undo"
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
+    );
+  }
+}
+
 /** Undo/redo of a capture-time correction: all its photos or none (a
  * photo corrected since conflicts and the step stays to look at again). */
 async function travelCaptureTime(
@@ -1369,6 +1445,7 @@ export function followLibraryMove(from: string, to: string, keep = true) {
     }
     if (step.xmp) step.xmp.paths = step.xmp.paths.map(at);
     if (step.stacks) step.stacks.library = at(step.stacks.library);
+    if (step.catalogImport) step.catalogImport.library = at(step.catalogImport.library);
     const paths = currentTargets.get(step);
     if (paths) currentTargets.set(step, paths.map(at));
   }

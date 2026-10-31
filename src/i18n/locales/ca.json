@@ -1497,7 +1497,6 @@
         "metadata": "metadades",
         "snapshots": "instantànies"
       },
-      "changedHereOnly": "canviada només en aquest catàleg",
       "changedPhotos_one": "Foto canviada ({{count}})",
       "changedPhotos_many": "Fotos canviades ({{count}})",
       "changedPhotos_other": "Fotos canviades ({{count}})",
@@ -1513,7 +1512,7 @@
       "copyTo": "Carpeta per als originals copiats",
       "done": "Importat del catàleg «{{name}}»",
       "failed": "No s'ha pogut importar del catàleg «{{name}}»; no s'ha canviat res",
-      "forChanged": "Per a les fotos canviades",
+      "forChangedThere": "Per a les fotos canviades només a l’altre catàleg",
       "hint": "Recupera la feina feta en un altre catàleg de Rawtonic, per exemple un creat amb Exporta com a catàleg. Les fotos es reconeixen per la seva identitat o el contingut de l'original, mai pel nom del fitxer.",
       "import": "Importa",
       "includeNew": "Importa les fotos noves",
@@ -1531,6 +1530,11 @@
       "replaced_many": "{{count}} fotos actualitzades",
       "replaced_other": "{{count}} fotos actualitzades",
       "running": "S'està important del catàleg «{{name}}»",
+      "side": {
+        "both": "canviada als dos catàlegs",
+        "here": "canviada en aquest catàleg",
+        "there": "canviada a l’altre catàleg"
+      },
       "source": "Catàleg d'on importar",
       "summary": "«{{name}}»: {{new}} noves, {{changed}} canviades, {{unchanged}} sense canvis (omeses)",
       "title": "Importa des d'un catàleg",
@@ -5058,6 +5062,7 @@
   "undoHistory": {
     "apply": "Aplica els ajustos",
     "captureTime": "Desplaça l'hora de captura",
+    "catalogImport": "Importa des d’un catàleg",
     "color": "Estableix l’etiqueta de color",
     "edit": "Edició",
     "file": "Canvi de fitxer",

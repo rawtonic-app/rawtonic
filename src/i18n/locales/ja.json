@@ -1399,7 +1399,6 @@
         "metadata": "メタデータ",
         "snapshots": "スナップショット"
       },
-      "changedHereOnly": "このカタログでだけ変更",
       "changedPhotos_other": "変更された写真（{{count}}）",
       "choice": {
         "keep": "現在のものを残す",
@@ -1413,7 +1412,7 @@
       "copyTo": "コピーした元ファイルのフォルダー",
       "done": "カタログ「{{name}}」から読み込みました",
       "failed": "カタログ「{{name}}」から読み込めませんでした。何も変更されていません",
-      "forChanged": "変更された写真",
+      "forChangedThere": "もう一方のカタログでだけ変更された写真",
       "hint": "「カタログとして書き出し」で作ったものなど、別の Rawtonic カタログで行った作業を戻します。写真は ID か元ファイルの内容で照合し、ファイル名では照合しません。",
       "import": "読み込む",
       "includeNew": "新しい写真を読み込む",
@@ -1425,6 +1424,11 @@
       "otherUnchanged": "相手のカタログは変更されません。置き換えた編集は写真のスナップショットとして残ります。",
       "replaced_other": "{{count}} 枚を更新",
       "running": "カタログ「{{name}}」から読み込み中",
+      "side": {
+        "both": "両方のカタログで変更",
+        "here": "このカタログで変更",
+        "there": "もう一方のカタログで変更"
+      },
       "source": "読み込むカタログ",
       "summary": "「{{name}}」: 新規 {{new}}、変更 {{changed}}、変更なし {{unchanged}}（スキップ）",
       "title": "カタログから読み込み",
@@ -4758,6 +4762,7 @@
   "undoHistory": {
     "apply": "設定を適用",
     "captureTime": "撮影日時をずらす",
+    "catalogImport": "カタログから読み込み",
     "color": "カラーラベルの設定",
     "edit": "編集",
     "file": "ファイルの変更",

@@ -1497,7 +1497,6 @@
         "metadata": "metadati",
         "snapshots": "istantanee"
       },
-      "changedHereOnly": "modificata solo in questo catalogo",
       "changedPhotos_one": "Foto modificata ({{count}})",
       "changedPhotos_many": "Foto modificate ({{count}})",
       "changedPhotos_other": "Foto modificate ({{count}})",
@@ -1513,7 +1512,7 @@
       "copyTo": "Cartella per gli originali copiati",
       "done": "Importato dal catalogo «{{name}}»",
       "failed": "Impossibile importare dal catalogo «{{name}}»; non è cambiato nulla",
-      "forChanged": "Per le foto modificate",
+      "forChangedThere": "Per le foto modificate solo nell’altro catalogo",
       "hint": "Riporta il lavoro fatto in un altro catalogo Rawtonic, per esempio creato con Esporta come catalogo. Le foto sono riconosciute dalla loro identità o dal contenuto dell’originale, mai dal nome del file.",
       "import": "Importa",
       "includeNew": "Importa le nuove foto",
@@ -1531,6 +1530,11 @@
       "replaced_many": "{{count}} foto aggiornate",
       "replaced_other": "{{count}} foto aggiornate",
       "running": "Importazione dal catalogo «{{name}}»",
+      "side": {
+        "both": "modificata in entrambi i cataloghi",
+        "here": "modificata in questo catalogo",
+        "there": "modificata nell’altro catalogo"
+      },
       "source": "Catalogo da cui importare",
       "summary": "«{{name}}»: {{new}} nuove, {{changed}} modificate, {{unchanged}} invariate (saltate)",
       "title": "Importa da catalogo",
@@ -5058,6 +5062,7 @@
   "undoHistory": {
     "apply": "Applica impostazioni",
     "captureTime": "Sposta ora di scatto",
+    "catalogImport": "Importa da catalogo",
     "color": "Imposta etichetta colore",
     "edit": "Modifica",
     "file": "Modifica file",

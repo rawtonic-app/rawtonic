@@ -17,7 +17,7 @@ use crate::transfer::{ResourceCopier, check, copy_file};
 use anyhow::{Context, Result, ensure};
 use rawtonic_catalog::{
     Library, Mode,
-    catalog_import::{Changed, Choice, Incoming, Plan, Report, Status},
+    catalog_import::{Changed, Choice, Incoming, Plan, Report, Side, Status},
     portable::ResourceUse,
     subset::{read_manifest, snapshot_database},
 };
@@ -163,12 +163,15 @@ fn yes() -> bool {
     true
 }
 
-/// The default for a changed photograph.
+/// The default for a changed photograph: Replace only when the other
+/// catalog alone changed it since their last common state; Keep current
+/// when this catalog did (alone or as well), so newer work here is never
+/// replaced unasked.
 pub fn default_choice(photo: &Incoming) -> Choice {
-    if photo.changed_here_only {
-        Choice::Keep
-    } else {
+    if photo.side == Some(Side::There) {
         Choice::Replace
+    } else {
+        Choice::Keep
     }
 }
 
@@ -241,6 +244,17 @@ pub fn import(
                 .map(|c| c.incoming.clone()),
         )
         .collect();
+    // Photographs the same in both: their common state now (before the
+    // snapshot keeps only what comes in). A record that cannot be written
+    // only makes a later import ask more (changed on both sides).
+    let same: Vec<(String, String)> = photos
+        .iter()
+        .filter(|p| p.status == Status::Unchanged)
+        .filter_map(|p| Some((p.id.clone(), p.target.clone()?)))
+        .collect();
+    if let Err(error) = target.record_import(&source.snapshot, &source.directory, &same) {
+        log::warn!("Import from Catalog: common states not recorded: {error:#}");
+    }
     if used.is_empty() {
         receipt.report.kept = changed.len();
         return Ok(receipt);
@@ -315,6 +329,21 @@ pub fn import(
     match check(cancel).and_then(|_| target.apply_import(&source.snapshot, &plan)) {
         Ok(report) => {
             placed.keep();
+            // What came in is now the same here: the new common state.
+            let pairs: Vec<(String, String)> = plan
+                .new
+                .iter()
+                .map(|(id, _)| (id.clone(), id.clone()))
+                .chain(
+                    plan.changed
+                        .iter()
+                        .filter(|c| c.choice == Choice::Replace)
+                        .map(|c| (c.incoming.clone(), c.target.clone())),
+                )
+                .collect();
+            if let Err(error) = target.record_import(&source.snapshot, &source.directory, &pairs) {
+                log::warn!("Import from Catalog: common states not recorded: {error:#}");
+            }
             receipt.report = report;
             Ok(receipt)
         }

@@ -4,7 +4,7 @@
 //! and every original are never changed.
 use rawtonic_catalog::{
     Library, Mode,
-    catalog_import::{Choice, Status},
+    catalog_import::{Choice, Side, Status},
 };
 use rawtonic_ingest::{
     catalog_export::{self, export_catalog},
@@ -136,7 +136,7 @@ fn work_done_in_the_exported_catalog_comes_back() {
     assert_eq!(a.status, Status::Changed);
     assert_eq!(a.matched_by, Some("id"));
     assert_eq!(a.changes, ["edit", "metadata", "albums"]);
-    assert!(!a.changed_here_only);
+    assert_eq!(a.side, Some(Side::There));
 
     let receipt = import(
         &w.main,
@@ -236,9 +236,9 @@ fn conflict_choices_keep_virtual_copy_and_changed_here_only() {
     let seen = review(&w.main, &source).unwrap();
     drop(source);
     let b = seen.photos.iter().find(|p| p.id == w.ids[1]).unwrap();
-    assert!(b.changed_here_only, "{b:?}");
+    assert_eq!(b.side, Some(Side::Here), "{b:?}");
     let a = seen.photos.iter().find(|p| p.id == w.ids[0]).unwrap();
-    assert!(!a.changed_here_only);
+    assert_eq!(a.side, Some(Side::Both));
 
     // One choice for the run: Keep current.
     let mut keep = options(NewPhotos::Reference);
@@ -247,7 +247,8 @@ fn conflict_choices_keep_virtual_copy_and_changed_here_only() {
     assert_eq!(receipt.report.kept, 2);
     assert_eq!(exposure(&w.main, &w.ids[0]), json!(-1.0));
 
-    // Default: a is replaced, b (changed only here) kept.
+    // Default: a (changed on both sides) and b (changed only here) are
+    // kept; Replace is the photographer's choice for a.
     let receipt = import(
         &w.main,
         &w.laptop.directory,
@@ -256,6 +257,12 @@ fn conflict_choices_keep_virtual_copy_and_changed_here_only() {
         |_| {},
     )
     .unwrap();
+    assert_eq!((receipt.report.replaced, receipt.report.kept), (0, 2));
+    let mut replace_a = options(NewPhotos::Reference);
+    replace_a
+        .overrides
+        .insert(w.ids[0].clone(), Choice::Replace);
+    let receipt = import(&w.main, &w.laptop.directory, &replace_a, &go(), |_| {}).unwrap();
     assert_eq!((receipt.report.replaced, receipt.report.kept), (1, 1));
     assert_eq!(exposure(&w.main, &w.ids[0]), json!(2.0));
     assert_eq!(exposure(&w.main, &w.ids[1]), json!(3.0));
@@ -381,14 +388,12 @@ fn photographs_are_matched_by_sha256_never_by_name() {
     assert_eq!(same.status, Status::Changed);
     let y = seen.photos.iter().find(|p| p.id == y_there).unwrap();
     assert_eq!(y.status, Status::New, "same name, other content");
-    import(
-        &main,
-        &other.directory,
-        &options(NewPhotos::Reference),
-        &go(),
-        |_| {},
-    )
-    .unwrap();
+    // Made independently: nothing records a common state, so the change
+    // counts as on both sides and Keep current is the default.
+    assert_eq!(same.side, Some(Side::Both));
+    let mut replace = options(NewPhotos::Reference);
+    replace.changed = Some(Choice::Replace);
+    import(&main, &other.directory, &replace, &go(), |_| {}).unwrap();
     assert_eq!(exposure(&main, &x), json!(0.4));
     assert_eq!(main.assets(None).unwrap().len(), 3);
 
@@ -657,4 +662,122 @@ fn copies_never_go_into_another_library() {
             .count(),
         0
     );
+}
+
+/// UXR3 (notes reference/ux-local-tools-2026-10-31, D2): a rating changed
+/// here after Export as Catalog was offered as "changed", Replace by
+/// default, which would have put the older rating back. Each photograph is
+/// compared with its state at the export: changed there → Replace, changed
+/// here → Keep current, changed on both sides → Keep current (the
+/// photographer chooses); the replaced metadata can be put back.
+#[test]
+fn the_side_that_changed_since_the_export_decides_the_default() {
+    let (_tmp, w) = world();
+    // Here: a's rating. There: b's rating. Both: c is not exported; a's
+    // keyword there as well as a's rating here make a "both" for photo 0
+    // in the second round below.
+    let mut here = w.main.metadata(&w.ids[0]).unwrap();
+    here.rating = 4;
+    w.main.set_metadata(&w.ids[0], &here).unwrap();
+    let mut there = w.laptop.metadata(&w.ids[1]).unwrap();
+    there.rating = 2;
+    w.laptop.set_metadata(&w.ids[1], &there).unwrap();
+
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    drop(source);
+    let a = seen.photos.iter().find(|p| p.id == w.ids[0]).unwrap();
+    assert_eq!(
+        (a.changes.clone(), a.side),
+        (vec!["metadata"], Some(Side::Here))
+    );
+    let b = seen.photos.iter().find(|p| p.id == w.ids[1]).unwrap();
+    assert_eq!(
+        (b.changes.clone(), b.side),
+        (vec!["metadata"], Some(Side::There))
+    );
+
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.replaced, receipt.report.kept), (1, 1));
+    assert_eq!(
+        w.main.metadata(&w.ids[0]).unwrap().rating,
+        4,
+        "the newer rating here stays"
+    );
+    assert_eq!(
+        w.main.metadata(&w.ids[1]).unwrap().rating,
+        2,
+        "the newer rating there comes"
+    );
+    // What Replace replaced can be put back (Undo), and done again (Redo).
+    assert_eq!(receipt.report.undo.len(), 1);
+    w.main.travel_import(&receipt.report.undo, true).unwrap();
+    assert_eq!(w.main.metadata(&w.ids[1]).unwrap().rating, 0);
+    w.main.travel_import(&receipt.report.undo, false).unwrap();
+    assert_eq!(w.main.metadata(&w.ids[1]).unwrap().rating, 2);
+
+    // After the import, its state is the new common ground: a later change
+    // there alone is "there" again, not "both".
+    let mut there = w.laptop.metadata(&w.ids[1]).unwrap();
+    there.rating = 3;
+    w.laptop.set_metadata(&w.ids[1], &there).unwrap();
+    // And a changed on both sides now.
+    let mut there_a = w.laptop.metadata(&w.ids[0]).unwrap();
+    there_a.keywords.push("Bride".into());
+    w.laptop.set_metadata(&w.ids[0], &there_a).unwrap();
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    drop(source);
+    let b = seen.photos.iter().find(|p| p.id == w.ids[1]).unwrap();
+    assert_eq!(b.side, Some(Side::There));
+    let a = seen.photos.iter().find(|p| p.id == w.ids[0]).unwrap();
+    assert_eq!(a.side, Some(Side::Both));
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.replaced, receipt.report.kept), (1, 1));
+    assert_eq!(w.main.metadata(&w.ids[0]).unwrap().rating, 4);
+}
+
+/// A catalog exported before the export recorded its state (or from
+/// another catalog) has nothing to compare with: every changed photograph
+/// counts as changed on both sides, and Keep current is the default.
+#[test]
+fn without_a_record_of_the_export_every_change_is_on_both_sides() {
+    let (_tmp, w) = world();
+    fs::remove_file(
+        w.laptop
+            .directory
+            .join(rawtonic_catalog::catalog_import::EXPORT_BASELINE),
+    )
+    .unwrap();
+    let mut there = w.laptop.metadata(&w.ids[1]).unwrap();
+    there.rating = 2;
+    w.laptop.set_metadata(&w.ids[1], &there).unwrap();
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    drop(source);
+    let b = seen.photos.iter().find(|p| p.id == w.ids[1]).unwrap();
+    assert_eq!(b.side, Some(Side::Both));
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.replaced, receipt.report.kept), (0, 1));
 }

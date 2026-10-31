@@ -1497,7 +1497,6 @@
         "metadata": "métadonnées",
         "snapshots": "instantanés"
       },
-      "changedHereOnly": "modifiée seulement dans ce catalogue",
       "changedPhotos_one": "Photo modifiée ({{count}})",
       "changedPhotos_many": "Photos modifiées ({{count}})",
       "changedPhotos_other": "Photos modifiées ({{count}})",
@@ -1513,7 +1512,7 @@
       "copyTo": "Dossier des originaux copiés",
       "done": "Importé depuis le catalogue « {{name}} »",
       "failed": "Impossible d’importer depuis le catalogue « {{name}} » ; rien n’a été modifié",
-      "forChanged": "Pour les photos modifiées",
+      "forChangedThere": "Pour les photos modifiées seulement dans l’autre catalogue",
       "hint": "Rapporte le travail fait dans un autre catalogue Rawtonic, par exemple créé avec Exporter comme catalogue. Les photos sont reconnues par leur identité ou le contenu de leur original, jamais par le nom de fichier.",
       "import": "Importer",
       "includeNew": "Importer les nouvelles photos",
@@ -1531,6 +1530,11 @@
       "replaced_many": "{{count}} photos mises à jour",
       "replaced_other": "{{count}} photos mises à jour",
       "running": "Import depuis le catalogue « {{name}} »",
+      "side": {
+        "both": "modifiée dans les deux catalogues",
+        "here": "modifiée dans ce catalogue",
+        "there": "modifiée dans l’autre catalogue"
+      },
       "source": "Catalogue à importer",
       "summary": "« {{name}} » : {{new}} nouvelles, {{changed}} modifiées, {{unchanged}} inchangées (ignorées)",
       "title": "Importer depuis un catalogue",
@@ -5058,6 +5062,7 @@
   "undoHistory": {
     "apply": "Appliquer les réglages",
     "captureTime": "Décaler l'heure de prise de vue",
+    "catalogImport": "Importer depuis un catalogue",
     "color": "Définir la couleur",
     "edit": "Modification",
     "file": "Modification de fichier",

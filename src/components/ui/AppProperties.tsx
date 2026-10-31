@@ -60,6 +60,7 @@ export enum Invokes {
   LibraryImportCatalog = 'library_import_catalog',
   LibraryImportCatalogCancel = 'library_import_catalog_cancel',
   LibraryImportCatalogReview = 'library_import_catalog_review',
+  LibraryImportCatalogTravel = 'library_import_catalog_travel',
   SessionCancelIngest = 'session_cancel_ingest',
   SessionLastDirectory = 'session_last_directory',
   SessionLast = 'session_last',

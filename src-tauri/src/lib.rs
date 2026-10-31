@@ -876,6 +876,7 @@ pub fn run() {
             catalog_subset::library_import_catalog_review,
             catalog_subset::library_import_catalog,
             catalog_subset::library_import_catalog_cancel,
+            catalog_subset::library_import_catalog_travel,
             file_management::rename_folder,
             file_management::rename_files,
             file_management::preview_rename,
