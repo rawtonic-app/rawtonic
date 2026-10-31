@@ -113,6 +113,7 @@ windows = { version = "=0.56.0", features = ["Win32_Foundation", "Win32_Storage_
 objc = "0.2"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3.2", features = [
+    "NSBundle",
     "NSData",
     "NSError",
     "NSFileManager",
@@ -121,6 +122,15 @@ objc2-foundation = { version = "0.3.2", features = [
     "NSURL",
     "NSValue",
     "NSArray",
+] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSBitmapImageRep",
+    "NSGraphicsContext",
+    "NSImage",
+    "NSImageRep",
+    "NSWorkspace",
+    "objc2-core-graphics",
 ] }
 objc2-core-foundation = { version = "0.3.2", features = ["CFCGTypes"] }
 objc2-core-graphics = { version = "0.3.2", features = ["CGColorSpace"] }

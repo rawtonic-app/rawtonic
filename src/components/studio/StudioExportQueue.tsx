@@ -188,8 +188,12 @@ function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full
         ? t("studio.export.queue.start")
         : t("studio.export.queue.resume");
   // A waiting job starts by itself unless the queue is held.
-  const canResume = job.state !== "running" && job.state !== "done" && (job.state !== "queued" || held);
-  const canPause = (job.state === "running" && !pausing) || job.state === "queued";
+  // An Edit With render is never resumed: nothing would hand it over.
+  const canResume =
+    !job.editWith && job.state !== "running" && job.state !== "done" && (job.state !== "queued" || held);
+  // Nor paused: a paused Edit With render would wait for a resume it never gets
+  // (its Edit With waits for every render before it hands them over).
+  const canPause = !job.editWith && ((job.state === "running" && !pausing) || job.state === "queued");
   const canCancel = job.state === "running" || job.state === "queued" || job.state === "paused";
   return (
     <li className={`studio-export-job is-${job.state}`}>
