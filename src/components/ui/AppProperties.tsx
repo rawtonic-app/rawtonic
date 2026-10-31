@@ -131,6 +131,12 @@ export enum Invokes {
   GenerateAiSkyMask = 'generate_ai_sky_mask',
   GenerateAiPeopleMask = 'generate_ai_people_mask',
   DetectPeople = 'detect_people',
+  StartEyeCheck = 'start_eye_check',
+  StopEyeCheck = 'stop_eye_check',
+  PhotoEyes = 'photo_eyes',
+  PhotoEyeSummaries = 'photo_eye_summaries',
+  SetFaceEyes = 'set_face_eyes',
+  FaceEyeCrops = 'face_eye_crops',
   AnalyzeFaceRetouch = 'analyze_face_retouch',
   ApplyFaceRetouchToPaths = 'apply_face_retouch_to_paths',
   GenerateAiSubjectMask = 'generate_ai_subject_mask',
@@ -451,6 +457,9 @@ export interface AppSettings {
   /** The brush's last size, hardness, opacity and flow. */
   brushDefaults?: Partial<Pick<BrushSettings, "size" | "hardness" | "opacity" | "flow">>;
   enableAiTagging?: boolean;
+  /** Read every face's eyes in the background for culling (turned on by
+   * the first Check Eyes; `face_eyes`). */
+  eyeCheck?: boolean;
   aiTagCount?: number;
   customAiTags?: string[];
   filterCriteria?: FilterCriteria;
@@ -570,6 +579,9 @@ export interface FilterCriteria {
   rawStatus: RawStatus;
   editedStatus?: EditedStatus;
   flag?: 'all' | 'picked' | 'unflagged' | 'rejected';
+  /** Faces' eyes: closed (or partly, never counting uncertain ones) or
+   * needing a check (`face_eyes`). */
+  eyes?: 'all' | 'closed' | 'check';
   /** Values chosen in the Library's metadata lists (camera, lens, …); the
    * library's catalog finds the photographs that have them. */
   metadata?: MetadataSelection;

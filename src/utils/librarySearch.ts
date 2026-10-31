@@ -33,7 +33,8 @@ export type Field =
   | 'previousImport'
   | 'duplicate'
   | 'ai'
-  | 'sourceType';
+  | 'sourceType'
+  | 'eyes';
 
 export type Op =
   | 'contains'
@@ -165,10 +166,19 @@ export function selectionRules(selection: MetadataSelection | undefined, except?
 export const textRules = (text: string): Rule[] =>
   text.trim() ? [{ field: 'text', op: 'contains', value: text.trim() }] : [];
 
-/** The Library's culling filters (rating, label, flag) as rules: what the
- * filter bar shows, for a smart album made from it. */
+/** The Library's eye filter as a rule: a face whose eyes are closed (or
+ * partly; uncertain ones never count), or one that needs a check, by the
+ * photographer's call where made. */
+export function eyesRules(eyes: FilterCriteria['eyes']): Rule[] {
+  if (eyes === 'closed') return [{ field: 'eyes', op: 'is', value: 'closed' }];
+  if (eyes === 'check') return [{ field: 'eyes', op: 'is', value: 'uncertain' }];
+  return [];
+}
+
+/** The Library's culling filters (rating, label, flag, eyes) as rules: what
+ * the filter bar shows, for a smart album made from it. */
 export function cullingRules(filter: FilterCriteria): Rule[] {
-  const rules: Rule[] = [];
+  const rules: Rule[] = [...eyesRules(filter.eyes)];
   if (filter.rating === -1) rules.push({ field: 'rating', op: 'empty' });
   else if (filter.rating === 5) rules.push({ field: 'rating', op: 'is', value: 5 });
   else if (filter.rating > 0) rules.push({ field: 'rating', op: 'ge', value: filter.rating });
@@ -193,9 +203,14 @@ export function scopeRule(
   return { field: 'folder', op: viewMode === LibraryViewMode.Recursive ? 'contains' : 'is', value: folder };
 }
 
-/** The search box and the chosen values as one rule (null: nothing to search). */
-export function searchRule(text: string, selection: MetadataSelection | undefined): Rule | null {
-  const rules = [...textRules(text), ...selectionRules(selection)];
+/** The search box, the chosen values and the eye filter as one rule (null:
+ * nothing to search). */
+export function searchRule(
+  text: string,
+  selection: MetadataSelection | undefined,
+  eyes?: FilterCriteria['eyes'],
+): Rule | null {
+  const rules = [...textRules(text), ...selectionRules(selection), ...eyesRules(eyes)];
   return rules.length ? all(rules) : null;
 }
 

@@ -45,6 +45,7 @@ mod exif_processing;
 mod export_cpus;
 mod export_processing;
 mod export_queue;
+mod face_eyes;
 mod file_management;
 mod file_operations;
 mod folder_sync;
@@ -259,6 +260,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
 
             library_search::announce_facts_to(app_handle.clone());
+            face_eyes::announce_to(app_handle.clone());
             if let Err(error) = storage::remove_models_on_start(&app_handle) {
                 log::error!("Pending model removal failed: {error}");
             }
@@ -789,6 +791,12 @@ pub fn run() {
             ai_commands::load_relight_pattern,
             ai_commands::cancel_ai_task,
             ai_faces::detect_people,
+            face_eyes::start_eye_check,
+            face_eyes::stop_eye_check,
+            face_eyes::photo_eyes,
+            face_eyes::photo_eye_summaries,
+            face_eyes::set_face_eyes,
+            face_eyes::face_eye_crops,
             ai_faces::generate_ai_people_mask,
             ai_faces::analyze_face_retouch,
             ai_faces::apply_face_retouch_to_paths,

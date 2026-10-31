@@ -59,6 +59,12 @@
       "running": "A exportar {{label}}",
       "waiting": "A aguardar exportação: {{label}}"
     },
+    "eyes": {
+      "done": "Olhos verificados ({{n}})",
+      "failed": "Ilegíveis: {{n}}",
+      "running": "A verificar olhos",
+      "stopped": "Verificação de olhos parada ({{n}} lidas)"
+    },
     "import": {
       "starting": "A iniciar a importação…"
     },
@@ -1994,6 +2000,11 @@
       },
       "title": "Gerenciamento de Dados"
     },
+    "eyeCheck": {
+      "desc": "Lê os olhos de cada rosto da biblioteca (abertos, fechados, não visíveis, incertos) para o filtro de olhos da biblioteca e a lupa. Apenas uma sugestão: nada é rejeitado nem removido. Usa os modelos de rosto, transferidos uma vez a seu pedido.",
+      "title": "Verificação de olhos",
+      "toggle": "Verificar olhos em segundo plano"
+    },
     "general": {
       "autoAdvance": "Avanço automático",
       "autoAdvanceDesc": "Ao classificar ou marcar, avança a partir da fotografia mostrada ou de uma seleção única na grelha. Ative com Caps Lock ou no menu Fotografia.",
@@ -3202,6 +3213,37 @@
         "width": "Largura (% do lado menor)"
       }
     },
+    "eyes": {
+      "asRead": "{{state}} (sugestão; clique para corrigir)",
+      "callFailed": "Não foi possível guardar a sua indicação: {{error}}",
+      "callMenu": "A sua indicação para este rosto",
+      "download": "Transferir modelos de rosto",
+      "faceLabel": "Rosto {{n}}: {{state}}",
+      "faces": "Rostos e os seus olhos",
+      "filter": "Filtrar por olhos",
+      "filterAll": "Todos os olhos",
+      "filterCheck": "Olhos: a verificar",
+      "filterClosed": "Olhos fechados",
+      "modelsMissing": "A verificação de olhos precisa dos modelos de rosto.",
+      "noFaces": "Sem rostos",
+      "start": "Verificar olhos…",
+      "startFailed": "Não foi possível verificar os olhos: {{error}}",
+      "state": {
+        "closed": "Olhos fechados ou semicerrados",
+        "notVisible": "Olhos não visíveis",
+        "open": "Olhos abertos",
+        "uncertain": "Incerto: verifique"
+      },
+      "suggestion": "Uma sugestão da análise de rostos; nada é rejeitado nem removido.",
+      "summary": {
+        "check": "a verificar: {{n}}",
+        "closed": "olhos fechados: {{n}}",
+        "faces": "Rostos: {{n}}",
+        "notVisible": "olhos não visíveis: {{n}}"
+      },
+      "useReading": "Usar a sugestão ({{state}})",
+      "yourCall": "{{state}} (a sua indicação; sugestão: {{read}})"
+    },
     "faceRetouch": {
       "allFaces": "Todos os rostos",
       "applied": "Aplicado a {{done}} de {{total}}",
@@ -3682,6 +3724,12 @@
         "and": "e",
         "cancel": "Cancelar",
         "choices": {
+          "eyes": {
+            "closed": "Fechados ou semicerrados",
+            "notVisible": "Não visíveis",
+            "open": "Abertos",
+            "uncertain": "A verificar"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3724,6 +3772,7 @@
           "details": "Qualquer texto exceto palavras-chave",
           "duplicate": "Duplicado (dados de imagem idênticos)",
           "exposure": "Velocidade do obturador (s)",
+          "eyes": "Olhos",
           "filename": "Nome do arquivo",
           "fileType": "Tipo de arquivo",
           "flag": "Marcação",

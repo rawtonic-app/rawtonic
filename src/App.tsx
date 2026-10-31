@@ -60,6 +60,7 @@ import { useFileOperations } from './hooks/useFileOperations';
 import { useAppContextMenus } from './hooks/useAppContextMenus';
 import { useSortedLibrary } from './hooks/useSortedLibrary';
 import { useCatalogSearch } from './hooks/useCatalogSearch';
+import { useEyeCheck } from './hooks/useEyeCheck';
 import { useAppNavigation } from './hooks/useAppNavigation';
 import { useExternalEditSession } from './hooks/useExternalEditSession';
 import ExternalEditBar from './components/ui/ExternalEditBar';
@@ -236,6 +237,7 @@ function App() {
   } = useLibraryActions(handleImageSelect);
 
   useCatalogSearch();
+  useEyeCheck();
   const { displayList: sortedImageList, flagCounts } = useSortedLibrary();
 
   const handleLibraryRefresh = useCallback(async () => {

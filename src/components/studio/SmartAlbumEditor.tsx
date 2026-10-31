@@ -52,6 +52,7 @@ const FIELDS: { field: Field; kind: Kind }[] = [
   { field: "duplicate", kind: "bool" },
   { field: "ai", kind: "choice" },
   { field: "sourceType", kind: "choice" },
+  { field: "eyes", kind: "choice" },
 ];
 const kindOf = (field: Field): Kind => FIELDS.find((f) => f.field === field)?.kind ?? "text";
 
@@ -72,6 +73,7 @@ export const CHOICES: Partial<Record<Field, string[]>> = {
   fileType: ["raw", "dng", "jpeg", "heif", "tiff", "png", "other"],
   ai: [...AI_FACTS, "none"],
   sourceType: [...SOURCE_TYPES, "none"],
+  eyes: ["closed", "uncertain", "notVisible", "open"],
 };
 
 /** Choices that stand for "no value" (`empty`): "No AI edits" is the Library's

@@ -59,6 +59,12 @@
       "running": "Exportando {{label}}",
       "waiting": "Esperando para exportar {{label}}"
     },
+    "eyes": {
+      "done": "Ojos comprobados ({{n}})",
+      "failed": "Ilegibles: {{n}}",
+      "running": "Comprobando ojos",
+      "stopped": "Comprobación de ojos detenida ({{n}} leídas)"
+    },
     "import": {
       "starting": "Iniciando la importación…"
     },
@@ -1994,6 +2000,11 @@
       },
       "title": "Gestión de datos"
     },
+    "eyeCheck": {
+      "desc": "Lee los ojos de cada cara de la biblioteca (abiertos, cerrados, no visibles, inciertos) para el filtro de ojos de la biblioteca y la lupa. Solo una sugerencia: nada se rechaza ni se elimina. Usa los modelos de caras, descargados una vez cuando lo pidas.",
+      "title": "Comprobación de ojos",
+      "toggle": "Comprobar ojos en segundo plano"
+    },
     "general": {
       "autoAdvance": "Avance automático",
       "autoAdvanceDesc": "Al valorar o marcar, avanza desde la foto mostrada o una selección individual de la cuadrícula. Actívalo con Bloq Mayús o en el menú Foto.",
@@ -3202,6 +3213,37 @@
         "width": "Ancho (% del lado corto)"
       }
     },
+    "eyes": {
+      "asRead": "{{state}} (sugerencia; haz clic para corregir)",
+      "callFailed": "No se pudo guardar tu indicación: {{error}}",
+      "callMenu": "Tu indicación para esta cara",
+      "download": "Descargar modelos de caras",
+      "faceLabel": "Cara {{n}}: {{state}}",
+      "faces": "Caras y sus ojos",
+      "filter": "Filtrar por ojos",
+      "filterAll": "Todos los ojos",
+      "filterCheck": "Ojos: por comprobar",
+      "filterClosed": "Ojos cerrados",
+      "modelsMissing": "Comprobar los ojos necesita los modelos de caras.",
+      "noFaces": "Sin caras",
+      "start": "Comprobar ojos…",
+      "startFailed": "No se pudieron comprobar los ojos: {{error}}",
+      "state": {
+        "closed": "Ojos cerrados o entrecerrados",
+        "notVisible": "Ojos no visibles",
+        "open": "Ojos abiertos",
+        "uncertain": "Incierto: compruébalo"
+      },
+      "suggestion": "Una sugerencia del análisis de caras; nada se rechaza ni se elimina.",
+      "summary": {
+        "check": "por comprobar: {{n}}",
+        "closed": "ojos cerrados: {{n}}",
+        "faces": "Caras: {{n}}",
+        "notVisible": "ojos no visibles: {{n}}"
+      },
+      "useReading": "Usar la sugerencia ({{state}})",
+      "yourCall": "{{state}} (tu indicación; sugerencia: {{read}})"
+    },
     "faceRetouch": {
       "allFaces": "Todas las caras",
       "applied": "Aplicado a {{done}} de {{total}}",
@@ -3682,6 +3724,12 @@
         "and": "y",
         "cancel": "Cancelar",
         "choices": {
+          "eyes": {
+            "closed": "Cerrados o entrecerrados",
+            "notVisible": "No visibles",
+            "open": "Abiertos",
+            "uncertain": "Por comprobar"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3724,6 +3772,7 @@
           "details": "Cualquier texto salvo palabras clave",
           "duplicate": "Duplicado (datos de imagen idénticos)",
           "exposure": "Velocidad de obturación (s)",
+          "eyes": "Ojos",
           "filename": "Nombre de archivo",
           "fileType": "Tipo de archivo",
           "flag": "Marca",

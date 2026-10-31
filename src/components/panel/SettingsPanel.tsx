@@ -1036,6 +1036,18 @@ export default function SettingsPanel({
                           />
                         </SettingItem>
 
+                        <SettingItem description={t('settings.eyeCheck.desc')} label={t('settings.eyeCheck.title')}>
+                          <Switch
+                            checked={appSettings?.eyeCheck ?? false}
+                            id="eye-check-toggle"
+                            label={t('settings.eyeCheck.toggle')}
+                            onChange={(checked) => {
+                              if (!checked) invoke(Invokes.StopEyeCheck).catch(() => {});
+                              onSettingsChange({ ...appSettings, eyeCheck: checked });
+                            }}
+                          />
+                        </SettingItem>
+
                         <AnimatePresence>
                           {(appSettings?.enableAiTagging ?? false) && (
                             <motion.div

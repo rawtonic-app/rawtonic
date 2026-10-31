@@ -66,6 +66,12 @@
       "running": "Eksportowanie: {{label}}",
       "waiting": "Czeka na eksport: {{label}}"
     },
+    "eyes": {
+      "done": "Oczy sprawdzone ({{n}})",
+      "failed": "Nieczytelne: {{n}}",
+      "running": "Sprawdzanie oczu",
+      "stopped": "Sprawdzanie oczu zatrzymane (odczytano: {{n}})"
+    },
     "import": {
       "starting": "Rozpoczynanie importu…"
     },
@@ -2090,6 +2096,11 @@
       },
       "title": "Zarządzanie danymi"
     },
+    "eyeCheck": {
+      "desc": "Odczytuje oczy każdej twarzy w bibliotece (otwarte, zamknięte, niewidoczne, niepewne) dla filtra oczu biblioteki i lupy. Tylko sugestia: nic nie jest odrzucane ani usuwane. Używa modeli twarzy, pobieranych raz na Twoje żądanie.",
+      "title": "Sprawdzanie oczu",
+      "toggle": "Sprawdzaj oczy w tle"
+    },
     "general": {
       "autoAdvance": "Automatyczne przejście",
       "autoAdvanceDesc": "Po ocenie lub oznaczeniu przechodzi do następnego zdjęcia od wyświetlanego albo pojedynczo wybranego w siatce. Przełącz klawiszem Caps Lock lub w menu Zdjęcie.",
@@ -3305,6 +3316,37 @@
         "width": "Szerokość (% krótszego boku)"
       }
     },
+    "eyes": {
+      "asRead": "{{state}} (sugestia; kliknij, aby poprawić)",
+      "callFailed": "Nie udało się zapisać Twojej oceny: {{error}}",
+      "callMenu": "Twoja ocena tej twarzy",
+      "download": "Pobierz modele twarzy",
+      "faceLabel": "Twarz {{n}}: {{state}}",
+      "faces": "Twarze i ich oczy",
+      "filter": "Filtruj według oczu",
+      "filterAll": "Wszystkie oczy",
+      "filterCheck": "Oczy: do sprawdzenia",
+      "filterClosed": "Oczy zamknięte",
+      "modelsMissing": "Sprawdzanie oczu wymaga modeli twarzy.",
+      "noFaces": "Brak twarzy",
+      "start": "Sprawdź oczy…",
+      "startFailed": "Nie udało się sprawdzić oczu: {{error}}",
+      "state": {
+        "closed": "Oczy zamknięte lub przymknięte",
+        "notVisible": "Oczy niewidoczne",
+        "open": "Oczy otwarte",
+        "uncertain": "Niepewne: sprawdź"
+      },
+      "suggestion": "Sugestia analizy twarzy; nic nie jest odrzucane ani usuwane.",
+      "summary": {
+        "check": "do sprawdzenia: {{n}}",
+        "closed": "oczy zamknięte: {{n}}",
+        "faces": "Twarze: {{n}}",
+        "notVisible": "oczy niewidoczne: {{n}}"
+      },
+      "useReading": "Użyj sugestii ({{state}})",
+      "yourCall": "{{state}} (Twoja ocena; sugestia: {{read}})"
+    },
     "faceRetouch": {
       "allFaces": "Wszystkie twarze",
       "applied": "Zastosowano do {{done}} z {{total}}",
@@ -3807,6 +3849,12 @@
         "and": "i",
         "cancel": "Anuluj",
         "choices": {
+          "eyes": {
+            "closed": "Zamknięte lub przymknięte",
+            "notVisible": "Niewidoczne",
+            "open": "Otwarte",
+            "uncertain": "Do sprawdzenia"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3849,6 +3897,7 @@
           "details": "Dowolny tekst poza słowami kluczowymi",
           "duplicate": "Duplikat (identyczne dane obrazu)",
           "exposure": "Czas naświetlania (s)",
+          "eyes": "Oczy",
           "filename": "Nazwa pliku",
           "fileType": "Typ pliku",
           "flag": "Flaga",

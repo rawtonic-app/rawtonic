@@ -59,6 +59,12 @@
       "running": "Esportazione di {{label}}",
       "waiting": "In attesa di esportazione: {{label}}"
     },
+    "eyes": {
+      "done": "Occhi controllati ({{n}})",
+      "failed": "Non leggibili: {{n}}",
+      "running": "Controllo degli occhi",
+      "stopped": "Controllo degli occhi interrotto ({{n}} lette)"
+    },
     "import": {
       "starting": "Avvio dell’importazione…"
     },
@@ -1994,6 +2000,11 @@
       },
       "title": "Gestione Dati"
     },
+    "eyeCheck": {
+      "desc": "Legge gli occhi di ogni volto della libreria (aperti, chiusi, non visibili, incerti) per il filtro degli occhi della libreria e la lente. Solo un suggerimento: nulla viene rifiutato o rimosso. Usa i modelli dei volti, scaricati una volta su richiesta.",
+      "title": "Controllo degli occhi",
+      "toggle": "Controlla gli occhi in background"
+    },
     "general": {
       "autoAdvance": "Avanzamento automatico",
       "autoAdvanceDesc": "Dopo una valutazione o un contrassegno, passa alla foto successiva da quella visualizzata o da una singola selezione nella griglia. Attiva con Bloc Maiusc o dal menu Foto.",
@@ -3202,6 +3213,37 @@
         "width": "Larghezza (% del lato corto)"
       }
     },
+    "eyes": {
+      "asRead": "{{state}} (suggerimento; clic per correggere)",
+      "callFailed": "Impossibile salvare la tua scelta: {{error}}",
+      "callMenu": "La tua scelta per questo volto",
+      "download": "Scarica i modelli dei volti",
+      "faceLabel": "Volto {{n}}: {{state}}",
+      "faces": "Volti e loro occhi",
+      "filter": "Filtra per occhi",
+      "filterAll": "Tutti gli occhi",
+      "filterCheck": "Occhi: da controllare",
+      "filterClosed": "Occhi chiusi",
+      "modelsMissing": "Il controllo degli occhi richiede i modelli dei volti.",
+      "noFaces": "Nessun volto",
+      "start": "Controlla gli occhi…",
+      "startFailed": "Impossibile controllare gli occhi: {{error}}",
+      "state": {
+        "closed": "Occhi chiusi o socchiusi",
+        "notVisible": "Occhi non visibili",
+        "open": "Occhi aperti",
+        "uncertain": "Incerto: da controllare"
+      },
+      "suggestion": "Un suggerimento dell'analisi dei volti; nulla viene rifiutato o rimosso.",
+      "summary": {
+        "check": "da controllare: {{n}}",
+        "closed": "occhi chiusi: {{n}}",
+        "faces": "Volti: {{n}}",
+        "notVisible": "occhi non visibili: {{n}}"
+      },
+      "useReading": "Usa il suggerimento ({{state}})",
+      "yourCall": "{{state}} (tua scelta; suggerito: {{read}})"
+    },
     "faceRetouch": {
       "allFaces": "Tutti i volti",
       "applied": "Applicato a {{done}} di {{total}}",
@@ -3682,6 +3724,12 @@
         "and": "e",
         "cancel": "Annulla",
         "choices": {
+          "eyes": {
+            "closed": "Chiusi o socchiusi",
+            "notVisible": "Non visibili",
+            "open": "Aperti",
+            "uncertain": "Da controllare"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3724,6 +3772,7 @@
           "details": "Qualsiasi testo tranne le parole chiave",
           "duplicate": "Duplicato (dati immagine identici)",
           "exposure": "Tempo di posa (s)",
+          "eyes": "Occhi",
           "filename": "Nome file",
           "fileType": "Tipo di file",
           "flag": "Contrassegno",

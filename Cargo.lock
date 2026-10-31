@@ -5511,6 +5511,7 @@ dependencies = [
  "ort",
  "rawtonic-onnx",
  "rayon",
+ "serde",
  "serde_json",
 ]
 

@@ -111,6 +111,7 @@ import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 import { registerAppCommands, runAppCommand } from "../../utils/appCommands";
 import ViewerInfoOverlay from "./ViewerInfoOverlay";
+import { LoupeFaces } from "./StudioEyes";
 import { useIdleCursor } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 
@@ -1606,6 +1607,7 @@ export default function StudioWorkspace(props: Props) {
                 </div>
               </div>
               {viewer}
+              <LoupeFaces path={selectedImage?.path} />
             </>
           ) : (
             <>

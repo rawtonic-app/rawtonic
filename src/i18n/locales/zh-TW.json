@@ -48,6 +48,12 @@
       "running": "正在輸出 {{label}}",
       "waiting": "等待輸出：{{label}}"
     },
+    "eyes": {
+      "done": "眼睛已檢查（{{n}}）",
+      "failed": "無法讀取：{{n}}",
+      "running": "正在檢查眼睛",
+      "stopped": "眼睛檢查已停止（已讀取 {{n}}）"
+    },
     "import": {
       "starting": "正在開始匯入…"
     },
@@ -1843,6 +1849,11 @@
       },
       "title": "資料管理"
     },
+    "eyeCheck": {
+      "desc": "讀取圖庫中每張人臉的眼睛（睜開、閉上、看不見、不確定），用於圖庫的眼睛篩選與放大檢視。僅為建議：不會拒絕或刪除任何內容。使用人臉模型（應你的要求下載一次）。",
+      "title": "眼睛檢查",
+      "toggle": "在背景檢查眼睛"
+    },
     "general": {
       "autoAdvance": "自動前進",
       "autoAdvanceDesc": "評分或標記後，從目前顯示的相片或格狀檢視中單獨選取的相片前進。使用 Caps Lock 或相片選單切換。",
@@ -3038,6 +3049,37 @@
         "width": "寬度（短邊的 %）"
       }
     },
+    "eyes": {
+      "asRead": "{{state}}（建議；按一下更正）",
+      "callFailed": "無法儲存你的判斷：{{error}}",
+      "callMenu": "你對這張人臉的判斷",
+      "download": "下載人臉模型",
+      "faceLabel": "人臉 {{n}}：{{state}}",
+      "faces": "人臉與眼睛",
+      "filter": "依眼睛篩選",
+      "filterAll": "所有眼睛",
+      "filterCheck": "眼睛：需檢查",
+      "filterClosed": "閉眼",
+      "modelsMissing": "檢查眼睛需要人臉模型。",
+      "noFaces": "沒有人臉",
+      "start": "檢查眼睛…",
+      "startFailed": "無法檢查眼睛：{{error}}",
+      "state": {
+        "closed": "閉眼或半閉",
+        "notVisible": "看不見眼睛",
+        "open": "睜眼",
+        "uncertain": "不確定：請檢查"
+      },
+      "suggestion": "人臉分析提供的建議；不會拒絕或刪除任何內容。",
+      "summary": {
+        "check": "需檢查：{{n}}",
+        "closed": "閉眼：{{n}}",
+        "faces": "人臉：{{n}}",
+        "notVisible": "看不見眼睛：{{n}}"
+      },
+      "useReading": "使用建議（{{state}}）",
+      "yourCall": "{{state}}（你的判斷；建議：{{read}}）"
+    },
     "faceRetouch": {
       "allFaces": "所有臉孔",
       "applied": "已套用到 {{done}}/{{total}} 張",
@@ -3474,6 +3516,12 @@
         "and": "和",
         "cancel": "取消",
         "choices": {
+          "eyes": {
+            "closed": "閉眼或半閉",
+            "notVisible": "看不見",
+            "open": "睜眼",
+            "uncertain": "需檢查"
+          },
           "fileType": {
             "dng": "DNG",
             "heif": "HEIF",
@@ -3516,6 +3564,7 @@
           "details": "關鍵字以外的任意文字",
           "duplicate": "重複項目（影像資料相同）",
           "exposure": "快門速度（秒）",
+          "eyes": "眼睛",
           "filename": "檔案名稱",
           "fileType": "檔案類型",
           "flag": "旗標",
