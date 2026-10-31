@@ -373,7 +373,7 @@ fn copy_resources(
 /// A folder name under `Photos/` for each folder originals come from: its
 /// own name, numbered when two different folders share one ("Day 1",
 /// "Day 1 (2)").
-fn folder_names(originals: &[PathBuf]) -> BTreeMap<PathBuf, String> {
+pub(crate) fn folder_names(originals: &[PathBuf]) -> BTreeMap<PathBuf, String> {
     let mut names = BTreeMap::new();
     let mut taken = HashSet::new();
     let parents: std::collections::BTreeSet<&Path> =

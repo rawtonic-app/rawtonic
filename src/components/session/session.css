@@ -731,3 +731,10 @@
 .session-xmp-failed { margin: 0 0 8px; color: #e5bc72; font-size: 11px; }
 .session-xmp-failed li { overflow-wrap: anywhere; }
 .session-xmp-panel button:focus-visible { box-shadow: 0 0 0 2px #292a2c, 0 0 0 4px #b4c8d3; }
+
+/* Import from Catalog: the photographs of the review (G39). */
+.catalog-import-list { max-height: 180px; overflow: auto; margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; }
+.catalog-import-list li { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.catalog-import-list li > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-import-list small { color: #9aa4ab; white-space: nowrap; }
+.catalog-import-list select { flex: 0 0 auto; max-width: 45%; }

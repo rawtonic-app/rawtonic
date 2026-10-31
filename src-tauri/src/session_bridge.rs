@@ -1812,11 +1812,16 @@ pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkRepor
     }
 }
 
-/// A photograph is back (relinked, found again, its drive reconnected): the
-/// derived editor sidecar beside it is brought up to the library's state
-/// (edits made while it was offline; written only when it differs) and its
-/// XMP follows, as after an edit. The original is not touched.
+/// A photograph is back (relinked, found again, its drive reconnected) or
+/// the library changed it itself (Import from Catalog): the derived editor
+/// sidecars beside it, its own and its virtual copies', are brought up to
+/// the library's state (edits made while it was offline; written only when
+/// they differ) and its XMP follows, as after an edit. The original is not
+/// touched.
 pub(crate) fn rederive(lib: &Library, id: &str) {
+    // The copies' sidecars whether or not the photograph has an edit of
+    // its own (an untouched photograph can have edited copies).
+    rederive_copies(lib, id);
     let Ok(asset) = lib.asset(id) else { return };
     let Ok(Some(state)) = lib.editor_state(id) else {
         return;
@@ -1838,6 +1843,40 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     }
     if let Err(e) = lib.sync_xmp(id) {
         log::warn!("XMP pending for {}: {e}", asset.path.display());
+    }
+}
+
+/// The derived sidecars of the photograph's virtual copies
+/// (`<file>.<copy>.rrdata`), which listings find copies by and which the
+/// editor reads for a photograph that is online, brought up to the
+/// library's state (written only when they differ): after the library
+/// changed them while the photograph was offline, or itself (Import from
+/// Catalog).
+fn rederive_copies(lib: &Library, id: &str) {
+    let (Ok(asset), Ok(copies)) = (lib.asset(id), lib.copies(id)) else {
+        return;
+    };
+    let Some(name) = asset
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+    else {
+        return;
+    };
+    for copy in copies {
+        let Ok(Some(state)) = lib.copy_state(id, &copy) else {
+            continue;
+        };
+        let sidecar = asset.path.with_file_name(format!("{name}.{copy}.rrdata"));
+        let current: Option<Value> = fs::read(&sidecar)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        if current.as_ref() != Some(&state)
+            && let Ok(bytes) = serde_json::to_vec_pretty(&state)
+            && let Err(e) = rawtonic_metadata::atomic_write(&sidecar, bytes)
+        {
+            log::warn!("Editor sidecar pending for {}: {e}", sidecar.display());
+        }
     }
 }
 

@@ -1,5 +1,5 @@
-//! Export as Catalog (G39): the app glue over
-//! `rawtonic_ingest::catalog_export`. Photographs chosen in the open
+//! Export as Catalog and Import from Catalog (G39): the app glue over
+//! `rawtonic_ingest::catalog_export` and `catalog_import`. Photographs chosen in the open
 //! library (a session or a catalog) become a new catalog; with "Include
 //! previews" their Standard previews go along, so they edit offline where
 //! their originals are not.
@@ -107,6 +107,72 @@ pub async fn library_export_catalog_owned(
 #[tauri::command]
 pub fn library_export_catalog_cancel() {
     CANCEL_EXPORT.store(true, Ordering::Release);
+}
+
+static CANCEL_IMPORT: AtomicBool = AtomicBool::new(false);
+
+pub const IMPORT_PROGRESS: &str = "catalog-import-progress";
+
+/// What the catalog at `other` would bring into the open catalog at
+/// `target`: new, changed and (counted) unchanged photographs. Reads only.
+#[tauri::command]
+pub async fn library_import_catalog_review(
+    target: String,
+    other: String,
+) -> Result<rawtonic_ingest::catalog_import::Review, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = rawtonic_catalog::Library::open(Path::new(&target)).map_err(|e| e.to_string())?;
+        let source = rawtonic_ingest::catalog_import::open_source(&lib, Path::new(&other))
+            .map_err(|e| format!("{e:#}"))?;
+        rawtonic_ingest::catalog_import::review(&lib, &source).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Imports the catalog at `other` into the open catalog at `target` as
+/// `options` says, in one transaction (copies of originals first). Holds
+/// the ingest gate.
+#[tauri::command]
+pub async fn library_import_catalog(
+    target: String,
+    other: String,
+    options: rawtonic_ingest::catalog_import::Options,
+    app: tauri::AppHandle,
+) -> Result<rawtonic_ingest::catalog_import::Receipt, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::session_bridge::holding_import_gate(
+            "Wait for the current import or library copy to finish",
+            || {
+                CANCEL_IMPORT.store(false, Ordering::Release);
+                let lib = rawtonic_catalog::Library::open(Path::new(&target))
+                    .map_err(|e| e.to_string())?;
+                let receipt = rawtonic_ingest::catalog_import::import(
+                    &lib,
+                    Path::new(&other),
+                    &options,
+                    &CANCEL_IMPORT,
+                    |progress| {
+                        let _ = app.emit(IMPORT_PROGRESS, progress);
+                    },
+                )
+                .map_err(|e| format!("{e:#}"))?;
+                // The editor and listings read an online photograph's
+                // edits and virtual copies from the sidecars beside it.
+                for id in &receipt.report.touched {
+                    crate::session_bridge::rederive(&lib, id);
+                }
+                Ok(receipt)
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn library_import_catalog_cancel() {
+    CANCEL_IMPORT.store(true, Ordering::Release);
 }
 
 /// The Standard previews of the exported photographs, into the staged
@@ -239,5 +305,48 @@ mod tests {
                 "the source's preview is unchanged"
             );
         }
+    }
+
+    /// After an import the editor and listings find a photograph's new
+    /// edit and virtual copies in the sidecars beside it.
+    #[test]
+    fn imported_edits_and_copies_reach_the_sidecars() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let lib = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
+        let photo = root.join("Shoot/a.arw");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, b"raw").unwrap();
+        let id = lib.add_asset(&photo).unwrap().id;
+        lib.save_editor_state(&id, &serde_json::json!({"adjustments": {"exposure": 1}}))
+            .unwrap();
+        lib.save_copy_state(
+            &id,
+            "c0ffee",
+            &serde_json::json!({"adjustments": {"exposure": 2}}),
+        )
+        .unwrap();
+        // An untouched photograph whose only edit is a virtual copy.
+        let untouched = root.join("Shoot/b.arw");
+        fs::write(&untouched, b"raw b").unwrap();
+        let b = lib.add_asset(&untouched).unwrap().id;
+        lib.save_copy_state(
+            &b,
+            "b0b0b0",
+            &serde_json::json!({"adjustments": {"exposure": 3}}),
+        )
+        .unwrap();
+        assert!(lib.editor_state(&b).unwrap().is_none());
+        crate::session_bridge::rederive(&lib, &id);
+        crate::session_bridge::rederive(&lib, &b);
+        let read = |name: &str| -> serde_json::Value {
+            serde_json::from_slice(&fs::read(photo.with_file_name(name)).unwrap()).unwrap()
+        };
+        assert_eq!(read("a.arw.rrdata")["adjustments"]["exposure"], 1);
+        assert_eq!(read("a.arw.c0ffee.rrdata")["adjustments"]["exposure"], 2);
+        assert_eq!(read("b.arw.b0b0b0.rrdata")["adjustments"]["exposure"], 3);
+        assert!(!untouched.with_file_name("b.arw.rrdata").exists());
+        assert_eq!(fs::read(&photo).unwrap(), b"raw");
+        assert_eq!(fs::read(&untouched).unwrap(), b"raw b");
     }
 }
