@@ -371,7 +371,9 @@ export function namingExample(
   // Mirrors `render_or_original`: a name its tokens leave empty is the original's.
   const name = rendered.trim() ? rendered : stem;
   if (mode === "export") return `${name}.${extension}`;
-  if (mode === "rename") return ext ? `${name}.${ext}` : name;
+  // Mirrors `without_extension` in the rename plan.
+  if (mode === "rename")
+    return !ext || name.toLowerCase().endsWith(`.${ext.toLowerCase()}`) ? name : `${name}.${ext}`;
   // Mirrors `rawtonic_ingest::render_name`: a copy keeps its photograph's
   // extension when the template leaves it out.
   const kept = !ext || name.toLowerCase().endsWith(`.${ext.toLowerCase()}`);
@@ -387,8 +389,9 @@ function validText(part: string, kind: NamingKind): boolean {
 function validTokenPart(part: string, mode: NamingMode): boolean {
   if (!isToken(part)) return false;
   const { name, option, transforms } = parseToken(part);
-  const names = new Set(namingTokens(mode).map((t) => t.name));
-  if (!names.has(name)) return false;
+  // Every token the backend fills for the mode, also those the lists do not
+  // offer (`{seq_start}`, `{session}` of older import presets).
+  if (!(INGEST_TOKEN_NAMES as readonly string[]).includes(name) || !MODE_TOKENS[mode](name)) return false;
   if (option !== undefined) {
     const ok =
       (name === "seq" && (option === "auto" || width(option))) ||

@@ -74,6 +74,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         exportSettings: { ...settings, jobName },
         outputFormat: extension,
         total: 1,
+        library: submittedFrom(session),
       }).catch(() => undefined);
       const file = await save({
         title: t("studio.export.dialogs.exportFile", { name }),

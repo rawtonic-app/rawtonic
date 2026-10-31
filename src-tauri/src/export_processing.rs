@@ -1290,14 +1290,15 @@ fn plan_output_path(
     Ok(output_path)
 }
 
-/// What the naming tokens read about `original` for its export names: its
-/// header's facts (`read_capture`), with the rating, label, title, creator
-/// and copyright the library holds (`metadata`) over the file's.
+/// What the naming tokens read about `original` for its export and rename
+/// names: its header's facts and its XMP sidecar's (`source_facts`, as an
+/// import reads them), with the rating, label, title, creator and copyright
+/// the library holds (`metadata`) over the file's.
 pub(crate) fn naming_capture(
     original: &Path,
     metadata: Option<&rawtonic_metadata::Metadata>,
 ) -> rawtonic_naming::Capture {
-    let mut capture = rawtonic_ingest::capture::read_capture(original);
+    let mut capture = rawtonic_ingest::source_facts(original).capture;
     if let Some(metadata) = metadata {
         let text = |value: &str| Some(value.to_string()).filter(|v| !v.trim().is_empty());
         capture.rating = Some(metadata.rating);
@@ -1717,8 +1718,10 @@ pub async fn export_images(
 }
 
 /// What a recipe's name and subfolder templates give `path` (the first of
-/// `total` photos): the Export dialog's live example. Reads the photo's
-/// header; the export itself takes its date and metadata from the library.
+/// `total` photos): the Export dialog's live example and a single photo's
+/// file name. The photo is read as its export reads it (`pin_photos`
+/// through `library`): its corrected capture date and the library's
+/// rating, label, title, creator and copyright.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportNamePreview {
@@ -1733,13 +1736,16 @@ pub async fn export_naming_preview(
     export_settings: ExportSettings,
     output_format: String,
     total: usize,
+    library: crate::export_queue::SubmittedFrom,
 ) -> Result<ExportNamePreview, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (source, _) = parse_virtual_path(&path);
-        let date = exif_processing::capture_date_with(&source, &|| None);
+        let pinned =
+            pin_photos(std::slice::from_ref(&path), None, None, library.directory())?.remove(0);
+        let date = pinned.naming_date(&source);
         let capture = export_settings
             .naming_needs_capture()
-            .then(|| naming_capture(&source, None));
+            .then(|| naming_capture(&source, pinned.metadata.as_ref()));
         let (sequence, last) = export_settings.filename_counter(0, total.max(1));
         let naming = export_settings.naming_context(
             &source,

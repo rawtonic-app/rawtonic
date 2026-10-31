@@ -176,7 +176,8 @@ fn effective_template(template: &str, names: usize) -> String {
 
 /// What the plan reads about photos, each once: a verified companion
 /// (its whole content hashed), the capture date and, for templates with
-/// camera or metadata tokens, the header's facts. The rename dialog
+/// camera or metadata tokens, its facts with the library's metadata
+/// (`naming_capture`). The rename dialog
 /// keeps them while it is open (`preview_rename`); the rename itself
 /// reads them again.
 #[derive(Default)]
@@ -202,9 +203,29 @@ impl PhotoFacts {
     }
 
     fn capture(&mut self, photo: &Path) -> &rawtonic_naming::Capture {
-        self.captures
-            .entry(photo.to_path_buf())
-            .or_insert_with(|| rawtonic_ingest::capture::read_capture(photo))
+        self.captures.entry(photo.to_path_buf()).or_insert_with(|| {
+            crate::export_processing::naming_capture(
+                photo,
+                crate::session_bridge::catalog_metadata(photo).as_ref(),
+            )
+        })
+    }
+}
+
+/// `name` without `photo`'s extension when it ends in it (any case), as a
+/// template with `{orig}` or `.{ext}` gives it: each file of the photo keeps
+/// its own extension, appended to the stem (as an import keeps it,
+/// `rawtonic_ingest::render_name`).
+fn without_extension(name: String, photo: &Path) -> String {
+    let Some(ext) = photo.extension().and_then(|e| e.to_str()) else {
+        return name;
+    };
+    let cut = name.len().saturating_sub(ext.len() + 1);
+    match name.get(cut..) {
+        Some(tail) if cut > 0 && tail.starts_with('.') && tail[1..].eq_ignore_ascii_case(ext) => {
+            name[..cut].to_string()
+        }
+        _ => name,
     }
 }
 
@@ -288,7 +309,9 @@ pub fn plan_rename_with(
         }
         let rendered = rawtonic_naming::render(&template, &naming);
         let invalid = rendered.is_err();
-        let new_stem = rendered.unwrap_or_else(|_| template.clone());
+        let new_stem = rendered
+            .map(|name| without_extension(name, lead_path))
+            .unwrap_or_else(|_| template.clone());
         let folder = lead_path.parent().unwrap_or(Path::new("")).to_path_buf();
         let entries = folder_entries(&folder);
         for &i in members {
@@ -710,6 +733,58 @@ mod tests {
     }
 
     /// No refusals by a case-only change of the same file.
+    /// Metadata tokens read what the photographer set in the library, not
+    /// only what the camera wrote.
+    #[test]
+    fn metadata_tokens_come_from_the_library() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, capture) = session(tmp.path());
+        write(&capture, &["A.NEF", "B.NEF"]);
+        lib.add_files(&[capture.join("A.NEF"), capture.join("B.NEF")])
+            .unwrap();
+        let id = lib.asset_at(&capture.join("A.NEF")).unwrap().unwrap().id;
+        let metadata = rawtonic_metadata::Metadata {
+            title: "Harbour".into(),
+            label: "Red".into(),
+            rating: 4,
+            ..lib.metadata(&id).unwrap()
+        };
+        lib.set_metadata(&id, &metadata).unwrap();
+        let paths = ["A.NEF", "B.NEF"].map(|n| arg(&capture.join(n)));
+        let plan = plan_rename(&paths, "{title}{color}{rating}_{seq:auto}");
+        assert_eq!(plan.photos[0].to, capture.join("HarbourRed4_1.NEF"));
+        assert_eq!(plan.photos[1].to, capture.join("0_2.NEF"));
+    }
+
+    #[test]
+    fn a_template_with_the_extension_gives_it_once() {
+        assert_eq!(
+            without_extension("x_DSC.NEF".into(), Path::new("/a/DSC.NEF")),
+            "x_DSC"
+        );
+        assert_eq!(
+            without_extension("x.nef".into(), Path::new("/a/DSC.NEF")),
+            "x"
+        );
+        assert_eq!(
+            without_extension(".NEF".into(), Path::new("/a/DSC.NEF")),
+            ".NEF"
+        );
+        assert_eq!(
+            without_extension("xNEF".into(), Path::new("/a/DSC.NEF")),
+            "xNEF"
+        );
+        assert_eq!(
+            without_extension("x.jpg".into(), Path::new("/a/DSC.NEF")),
+            "x.jpg"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), &["A.NEF", "A.JPG"]);
+        let paths = [arg(&dir.path().join("A.NEF"))];
+        let plan = plan_rename(&paths, "Job_{orig}");
+        assert_eq!(plan.photos[0].to, dir.path().join("Job_A.NEF"));
+    }
+
     #[test]
     fn a_case_only_rename_is_not_a_conflict() {
         let tmp = tempfile::tempdir().unwrap();

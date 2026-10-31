@@ -96,8 +96,13 @@ it("offers only the tokens a mode fills", () => {
   for (const mode of ["ingest", "rename", "export"] as const)
     for (const token of namingTokens(mode))
       expect(validNamingTemplate(`${token.value}.x`, mode), `${mode} ${token.value}`).toBe(true);
-  for (const name of INGEST_TOKEN_NAMES.filter((n) => names("export").includes(n)))
-    expect(validNamingTemplate(`{${name}}`, "export"), name).toBe(true);
+  // Every token the backend fills stays valid, offered in the lists or not.
+  for (const name of INGEST_TOKEN_NAMES.filter((n) => n !== "format" && n !== "recipe"))
+    expect(validNamingTemplate(`{${name}}`, "ingest"), name).toBe(true);
+  for (const name of INGEST_TOKEN_NAMES) expect(validNamingTemplate(`{${name}}`, "export"), name).toBe(true);
+  expect(validNamingTemplate("{seq_start}_{seq:4}.{ext}", "ingest")).toBe(true);
+  expect(validNamingTemplate("{session}_{seq:4}.{ext}", "ingest")).toBe(true);
+  expect(namingExample("{date:yyyymmdd}_{orig}", "rename", "/a/DSC.NEF")).toBe("20261011_DSC.NEF");
 });
 
 it("rejects malformed or unsupported templates before writing files", () => {

@@ -1,4 +1,4 @@
-import { runExportJobs } from "../../utils/runExportJobs";
+import { runExportJobs, submittedFrom } from "../../utils/runExportJobs";
 import { validNamingTemplate, validSequenceStart, type NamingPreview } from "../../utils/namingTemplates";
 import { readJobName, writeJobName } from "../../utils/exportJob";
 import NamingEditor from "../ui/NamingEditor";
@@ -241,6 +241,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     exportSettings: { ...exportSettingsFromDraft(form).settings, jobName, recipeName: editedRecipe?.name ?? "" },
     outputFormat: form.format,
     total: paths.length,
+    library: submittedFrom(session),
   });
   const namingValid = validNamingTemplate(draft.template, "export") && !subfolderError;
   useEffect(() => {
