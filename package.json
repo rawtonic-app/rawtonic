@@ -75,6 +75,6 @@
     "@swc/core@1.16.1": true,
     "esbuild@0.28.2": true
   },
-  "version": "0.1.0-alpha.9.1",
+  "version": "0.1.0-alpha.10",
   "license": "AGPL-3.0-or-later"
 }
