@@ -20,6 +20,7 @@ import { noteBackgroundAiError } from '../utils/aiErrors';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 import { isBelow } from '../utils/catalogFolders';
 import { viewerShown } from '../utils/viewerMode';
+import { requestAddFolder } from '../components/session/addFolder';
 
 /** The folder of `roots` that `path` is in (or is), the innermost one: a
  * name prefix is not a parent (`/photos/2024-old` is not in `/photos/2024`). */
@@ -528,48 +529,49 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     }
   }, [handleSelectSubfolder, handleSelectAlbum]);
 
-  const handleOpenFolder = useCallback(async () => {
+  /** Lists `selectedPath` in the Folders panel (a browse root) and shows it. */
+  const showFolder = useCallback(async (selectedPath: string) => {
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
     const { rootPaths, folderTrees, setLibrary } = useLibraryStore.getState();
+    if (!rootPaths.includes(selectedPath)) {
+      const newRootPaths = [...rootPaths, selectedPath];
+      setLibrary({ rootPaths: newRootPaths });
 
+      if (appSettings) {
+        handleSettingsChange({ ...appSettings, rootFolders: newRootPaths });
+      }
+
+      setLibrary({ isTreeLoading: true });
+      try {
+        const newTree = await invoke<FolderTree>(Invokes.GetFolderTree, {
+          path: selectedPath,
+          expandedFolders: [selectedPath],
+          showImageCounts:
+            appSettings?.enableFolderImageCounts || appSettings?.folderTreeSort?.key === 'imageCount',
+        });
+        setLibrary({ folderTrees: [...folderTrees, newTree] });
+      } catch (e) {
+        notify.error(`Failed to load folder tree: ${e}`);
+      } finally {
+        setLibrary({ isTreeLoading: false });
+      }
+    }
+    await handleSelectSubfolder(selectedPath, true);
+  }, [handleSelectSubfolder]);
+
+  /** Folders › "Add Folder…": with a library open its dialog decides what
+   * the folder becomes (a catalog adds its photographs where they are, a
+   * session only shows it; addFolder.ts); else the folder is shown. */
+  const handleOpenFolder = useCallback(async () => {
     try {
-      let selectedPath = '';
       const selected = await openDialog({ directory: true, multiple: false, defaultPath: await homeDir() });
-      if (typeof selected === 'string') {
-        selectedPath = selected;
-      }
-
-      if (selectedPath) {
-        if (!rootPaths.includes(selectedPath)) {
-          const newRootPaths = [...rootPaths, selectedPath];
-          setLibrary({ rootPaths: newRootPaths });
-
-          if (appSettings) {
-            handleSettingsChange({ ...appSettings, rootFolders: newRootPaths });
-          }
-
-          setLibrary({ isTreeLoading: true });
-          try {
-            const newTree = await invoke<FolderTree>(Invokes.GetFolderTree, {
-              path: selectedPath,
-              expandedFolders: [selectedPath],
-              showImageCounts:
-                appSettings?.enableFolderImageCounts || appSettings?.folderTreeSort?.key === 'imageCount',
-            });
-            setLibrary({ folderTrees: [...folderTrees, newTree] });
-          } catch (e) {
-            notify.error(`Failed to load folder tree: ${e}`);
-          } finally {
-            setLibrary({ isTreeLoading: false });
-          }
-        }
-        await handleSelectSubfolder(selectedPath, true);
-      }
+      if (typeof selected !== 'string' || !selected) return;
+      if (!requestAddFolder({ folder: selected, show: () => showFolder(selected) })) await showFolder(selected);
     } catch (err) {
       console.error('Failed to open directory dialog:', err);
       notify.error('Failed to open folder selection dialog.');
     }
-  }, [handleSelectSubfolder]);
+  }, [showFolder]);
 
   return {
     handleGoHome,

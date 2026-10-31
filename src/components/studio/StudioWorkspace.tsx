@@ -111,6 +111,7 @@ import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { SeriesMatchDialogHost } from "./SeriesMatchDialog";
 import { CaptureTimeDialogHost } from "./CaptureTimeDialog";
 import { AutoStackDialogHost } from "./AutoStackDialog";
+import UnaddedFolderBanner from "../session/UnaddedFolderBanner";
 import type { StackMark } from "../../store/useStackStore";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
@@ -1662,6 +1663,7 @@ export default function StudioWorkspace(props: Props) {
             <>
               {libraryToolbar}
               {metadataOpen && <StudioMetadataFilter />}
+              <UnaddedFolderBanner />
               <StudioBrowser
                 {...browserProps}
                 // A double-click opens the photograph in Develop (user

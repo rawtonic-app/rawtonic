@@ -23,6 +23,8 @@ struct Expansion<'a> {
     found: Vec<PathBuf>,
     seen: HashSet<PathBuf>,
     limit: usize,
+    /// Folders (or entries) that could not be read: left out.
+    unreadable: Vec<PathBuf>,
 }
 
 impl Expansion<'_> {
@@ -40,10 +42,17 @@ impl Expansion<'_> {
     }
 
     fn walk(&mut self, folder: &Path) -> bool {
-        let Ok(entries) = fs::read_dir(folder) else {
+        let Ok(listing) = fs::read_dir(folder) else {
+            self.unreadable.push(folder.to_path_buf());
             return true;
         };
-        let mut entries: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        let mut entries = Vec::new();
+        for entry in entries_of(listing) {
+            match entry {
+                Ok(path) => entries.push(path),
+                Err(()) => self.unreadable.push(folder.to_path_buf()),
+            }
+        }
         entries.sort();
         for entry in entries {
             if hidden(&entry) {
@@ -78,11 +87,23 @@ pub fn expand_sources(
     accept: impl Fn(&Path) -> bool,
     limit: usize,
 ) -> (Vec<PathBuf>, bool) {
+    let (found, truncated, _) = expand_sources_checked(paths, accept, limit);
+    (found, truncated)
+}
+
+/// `expand_sources`, also naming the folders that could not be read (in
+/// whole or in part), whose photographs were therefore left out.
+pub fn expand_sources_checked(
+    paths: &[PathBuf],
+    accept: impl Fn(&Path) -> bool,
+    limit: usize,
+) -> (Vec<PathBuf>, bool, Vec<PathBuf>) {
     let mut expansion = Expansion {
         accept: &accept,
         found: Vec::new(),
         seen: HashSet::new(),
         limit,
+        unreadable: Vec::new(),
     };
     for path in paths {
         let more = if path.is_dir() {
@@ -93,10 +114,15 @@ pub fn expand_sources(
             true
         };
         if !more {
-            return (expansion.found, true);
+            return (expansion.found, true, expansion.unreadable);
         }
     }
-    (expansion.found, false)
+    expansion.unreadable.dedup();
+    (expansion.found, false, expansion.unreadable)
+}
+
+fn entries_of(entries: fs::ReadDir) -> impl Iterator<Item = std::result::Result<PathBuf, ()>> {
+    entries.map(|entry| entry.map(|e| e.path()).map_err(|_| ()))
 }
 
 /// For each source, whether the library already holds a file with its
@@ -121,7 +147,7 @@ pub fn known_in_library(library: &Library, sources: &[PathBuf]) -> Result<Vec<bo
 
 /// Formats a camera writes beside a RAW of the same name (RAW+JPEG,
 /// RAW+HEIF): such a file comes in as the RAW's companion.
-const COMPANION_EXTENSIONS: &[&str] = &["jpg", "jpeg", "heic", "heif", "hif"];
+pub(crate) const COMPANION_EXTENSIONS: &[&str] = &["jpg", "jpeg", "heic", "heif", "hif"];
 
 /// A photograph to import and the file that comes in with it as its
 /// companion (`pair_sources`).

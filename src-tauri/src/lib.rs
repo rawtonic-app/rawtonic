@@ -667,6 +667,7 @@ pub fn run() {
             session_bridge::session_ingest,
             session_bridge::session_naming_preview,
             session_bridge::session_ingest_scan,
+            session_bridge::catalog_add_folder_scan,
             session_bridge::session_ingest_thumbnail,
             session_bridge::session_ingest_preview,
             session_bridge::session_ingest_capture_info,
