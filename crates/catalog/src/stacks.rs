@@ -271,9 +271,9 @@ impl Library {
     }
 
     /// Group into Stack: `members` become one stack, the first given its
-    /// top (the active photograph). A member already in a stack brings its
-    /// whole stack along, in its order, at its place (Lightroom merges
-    /// stacks so). The new stack is collapsed. Fewer than two members:
+    /// top (the active photograph, also when it was in a stack). A member
+    /// already in a stack brings its whole stack along, in its order, at its
+    /// place (Lightroom merges stacks so). The new stack is collapsed. Fewer than two members:
     /// nothing changes.
     pub fn group_stack(&self, members: &[Member]) -> Result<StackChange> {
         self.stack_command(members, |conn, touched| {
@@ -296,6 +296,14 @@ impl Library {
                         order.push(m);
                     }
                 }
+            }
+            // The active photo (given first) is the top, also when it comes
+            // with the stack it was in.
+            if let Some(active) = members.first()
+                && let Some(at) = order.iter().position(|m| m == active)
+            {
+                let active = order.remove(at);
+                order.insert(0, active);
             }
             if order.len() < 2 {
                 return Ok(Vec::new());

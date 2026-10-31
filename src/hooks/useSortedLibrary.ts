@@ -9,7 +9,7 @@ import { buildImageGroups, GroupBadgeInfo, GroupId } from '../utils/imageGroupin
 import { flagName, imageFlag, type FlagCounts } from '../utils/culling';
 import { photographPath, selectionCount } from '../utils/librarySearch';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
-import { arrangeStacks, useStackStore, type StackEntry, type StackMark } from '../store/useStackStore';
+import { arrangeStacks, listingFiltered, useStackStore, type StackEntry, type StackMark } from '../store/useStackStore';
 
 // Extract each basename once per immutable file record, not twice per comparison.
 // Weak keys release old folders; the locale comparison keeps the existing order.
@@ -359,11 +359,7 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
   // search; filtered results, albums and smart albums list every matching
   // member on its own (Lightroom's collections), so a filter never hides a
   // matching photo inside a collapsed stack.
-  const filtering = isSearchActive || flagFilter !== 'all' || filterCriteria.rating !== 0
-    || (filterCriteria.colors?.length ?? 0) > 0
-    || (filterCriteria.rawStatus ?? RawStatus.All) !== RawStatus.All
-    || (filterCriteria.editedStatus ?? EditedStatus.All) !== EditedStatus.All
-    || (filterCriteria.eyes ?? 'all') !== 'all' || selectionCount(filterCriteria.metadata) > 0;
+  const filtering = listingFiltered(filterCriteria, searchCriteria, catalogMatches);
   if (stackView && stacks && stacks.size && !filtering) {
     const { list: displayList, marks } = arrangeStacks(sorted, stacks);
     return { displayList, badges, flagCounts, stackMarks: marks };

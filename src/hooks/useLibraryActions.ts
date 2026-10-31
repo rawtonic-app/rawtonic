@@ -9,6 +9,7 @@ import { Invokes, ImageFile } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { computeSortedLibrary } from './useSortedLibrary';
+import { useStackStore } from '../store/useStackStore';
 import { expandGroupedPaths } from '../utils/imageGrouping';
 import { invokeInOrder } from '../utils/catalogWrites';
 import { submitPhotoWrite } from '../utils/photoWrites';
@@ -318,7 +319,12 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       const isAlreadySelected = multiSelectedPaths.includes(path);
 
       if (shiftKey && shiftAnchor) {
-        const sortedImageList = computeSortedLibrary(libraryState, useSettingsStore.getState());
+        // The range the grid shows: a collapsed stack's hidden members are
+        // not in it.
+        const sortedImageList = computeSortedLibrary(
+          { ...libraryState, stacks: useStackStore.getState().byPath, stackView: libraryState.activeAlbumId === null },
+          useSettingsStore.getState(),
+        );
         const anchorIndex = sortedImageList.findIndex((f) => f.path === shiftAnchor);
         const currentIndex = sortedImageList.findIndex((f) => f.path === path);
 

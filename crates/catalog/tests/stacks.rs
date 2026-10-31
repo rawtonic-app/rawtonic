@@ -140,6 +140,13 @@ fn grouping_members_of_stacks_merges_them_and_a_photo_is_in_one_stack() {
     assert_eq!(stack(&lib, &ids, 4).unwrap().0, [4, 2, 3]);
     assert_eq!(stack(&lib, &ids, 0).unwrap().0, [0, 1]);
     assert_eq!(merged.before.len(), 1);
+    // An active member of a stack is the new top: [C, D] + E with D active.
+    lib.restore_stacks(&merged, true).unwrap();
+    lib.group_stack(&photos(&ids, &[3, 4])).unwrap();
+    assert_eq!(stack(&lib, &ids, 4).unwrap().0, [3, 2, 4]);
+    lib.unstack(&photos(&ids, &[4])).unwrap();
+    lib.group_stack(&photos(&ids, &[2, 3])).unwrap();
+    lib.group_stack(&photos(&ids, &[4, 3])).unwrap();
     lib.restore_stacks(&merged, true).unwrap();
     assert_eq!(stack(&lib, &ids, 2).unwrap().0, [2, 3]);
     assert_eq!(stack(&lib, &ids, 4), None);

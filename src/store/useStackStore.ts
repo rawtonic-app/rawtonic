@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import { Invokes, type ImageFile } from '../components/ui/AppProperties';
+import { EditedStatus, Invokes, RawStatus, type FilterCriteria, type ImageFile } from '../components/ui/AppProperties';
+import { selectionCount } from '../utils/librarySearch';
 import { useLibraryStore } from './useLibraryStore';
 
 /** A stack as `stacks_list` lists it: member paths (a virtual copy as
@@ -64,6 +65,29 @@ export function setStacks(library: string | null, stacks: WebStack[]) {
   useStackStore.setState({ library, stacks, byPath: indexStacks(stacks) });
 }
 
+/** Whether a filter or search narrows the listing: then stack members are
+ * listed singly, so a filter never hides a matching photo inside a
+ * collapsed stack. */
+export function listingFiltered(
+  filter: FilterCriteria,
+  search: { text: string; tags: string[] },
+  catalogMatches: Set<string> | null = null,
+): boolean {
+  return search.text.trim() !== '' || search.tags.length > 0 || catalogMatches !== null
+    || (filter.flag ?? 'all') !== 'all' || filter.rating !== 0 || (filter.colors?.length ?? 0) > 0
+    || (filter.rawStatus ?? RawStatus.All) !== RawStatus.All
+    || (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All
+    || (filter.eyes ?? 'all') !== 'all' || selectionCount(filter.metadata) > 0;
+}
+
+/** Whether the shown listing collapses stacks: a folder or the whole
+ * session/catalog (not an album, smart album or other view) without a
+ * filter or search. */
+export function stacksCollapse(state = useLibraryStore.getState()): boolean {
+  return state.activeAlbumId === null
+    && !listingFiltered(state.filterCriteria, state.searchCriteria, state.catalogMatches);
+}
+
 /**
  * Keeps the selection to photos the grid shows with `byPath`: a member
  * hidden in a collapsed stack leaves it and its stack's shown member (the
@@ -72,7 +96,8 @@ export function setStacks(library: string | null, stacks: WebStack[]) {
  */
 export function keepSelectionShown(byPath: Map<string, StackEntry>) {
   const library = useLibraryStore.getState();
-  if (library.activeAlbumId !== null) return;
+  // Views listing members singly show every member: nothing to move.
+  if (!stacksCollapse(library)) return;
   const listed = new Map(library.imageList.map((f) => [stackKey(f.path), f.path]));
   const visible = (path: string) => {
     const entry = byPath.get(stackKey(path));

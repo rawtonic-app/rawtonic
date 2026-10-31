@@ -41,7 +41,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   setStacks(null, []);
   useLibraryStore.setState({
-    sessionDirectory: "/job", imageList: files, activeAlbumId: null,
+    sessionDirectory: "/job", imageList: files, activeAlbumId: null, catalogMatches: null,
+    filterCriteria: { flag: "all", rating: 0, colors: [], rawStatus: RawStatus.All },
+    searchCriteria: { text: "", tags: [], mode: "OR" },
     multiSelectedPaths: [], libraryActivePath: null, imageRatings: {}, imageFlags: {},
   });
   useUIStore.setState({ activeView: "library" });
@@ -158,6 +160,19 @@ describe("stack commands", () => {
     stop();
     expect(seen).toEqual([[files[0].path]]);
     expect(useLibraryStore.getState().libraryActivePath).toBe(files[0].path);
+  });
+
+  it("leaves the selection alone where members are listed singly (a filter)", () => {
+    setStacks("/job", [stack("s", ["a", "b"])]);
+    useLibraryStore.setState({
+      multiSelectedPaths: [files[1].path], libraryActivePath: files[1].path,
+      filterCriteria: { flag: "all", rating: 1, colors: [], rawStatus: RawStatus.All },
+    });
+    selectShownMembers();
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual([files[1].path]);
+    useLibraryStore.setState({ filterCriteria: { flag: "all", rating: 0, colors: [], rawStatus: RawStatus.All } });
+    selectShownMembers();
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual([files[0].path]);
   });
 
   it("binds ⇧S to Move to Top in the Library and keeps it for soft proofing in Develop", () => {
