@@ -285,10 +285,49 @@ fn the_urgency_is_never_changed() {
         assert!(written.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
         assert!(!written.contains("photoshop:Urgency=\""));
     }
-    // A sidecar without an urgency (Lightroom's) gets an empty label:
-    // Lightroom would show `None` as a label of its own.
+    // A photographer's own urgency stays through label changes too.
+    let own = C1_IPTC.replace(
+        "<photoshop:Urgency>2</photoshop:Urgency>",
+        "<photoshop:Urgency>8</photoshop:Urgency>",
+    );
+    for label in ["Blue", ""] {
+        meta.label = label.into();
+        let written = merge_xmp(Some(&own), &meta, None).unwrap();
+        assert!(written.contains("<photoshop:Urgency>8</photoshop:Urgency>"));
+    }
+}
+
+#[test]
+fn lightroom_labels_are_cleared_to_no_label_even_beside_an_urgency() {
+    // Lightroom shows `None` as a label of its own; its sidecars carry
+    // `photoshop:LabelColor` beside the label.
+    let mut meta = read(LIGHTROOM);
     meta.label.clear();
-    let lightroom = merge_xmp(Some(LIGHTROOM), &meta, None).unwrap();
-    assert!(lightroom.contains("xmp:Label=\"\""));
-    assert!(!lightroom.contains("Urgency"));
+    let plain = merge_xmp(Some(LIGHTROOM), &meta, None).unwrap();
+    assert!(plain.contains("xmp:Label=\"\""));
+    let with_urgency = LIGHTROOM.replace(
+        "   xmp:Label=\"Gelb\"\n",
+        "   xmp:Label=\"Gelb\"\n   photoshop:Urgency=\"8\"\n",
+    );
+    assert!(with_urgency.contains("photoshop:Urgency=\"8\""));
+    let written = merge_xmp(Some(&with_urgency), &meta, None).unwrap();
+    assert!(written.contains("xmp:Label=\"\""), "{written}");
+    assert!(written.contains("photoshop:Urgency=\"8\""));
+}
+
+#[test]
+fn a_photo_without_a_label_never_gets_one() {
+    // Only a rating changes on an unlabelled photo with an urgency.
+    let unlabelled = C1_IPTC
+        .replace("   <xmp:Label>Green</xmp:Label>\n", "")
+        .replace(
+            "<photoshop:Urgency>2</photoshop:Urgency>",
+            "<photoshop:Urgency>8</photoshop:Urgency>",
+        );
+    let mut meta = read(&unlabelled);
+    assert_eq!(meta.label, "");
+    meta.rating = 5;
+    let written = merge_xmp(Some(&unlabelled), &meta, None).unwrap();
+    assert!(written.contains("xmp:Label=\"\""), "{written}");
+    assert!(!written.contains("LabelColor"));
 }

@@ -624,13 +624,20 @@ fn merge_xmp_with(
     let mut removals: Vec<std::ops::Range<usize>> = Vec::new();
     // The label in the sidecar's own words (`labels::for_sidecar`).
     let previous_label = property(root, XMP, "Label").unwrap_or_default();
+    // Lightroom writes `photoshop:LabelColor` beside every label it sets;
+    // Capture One never does. Rawtonic keeps that pair only where it is.
+    let lightroom_label = property(root, PHOTOSHOP, "LabelColor").is_some();
     // Capture One reads an empty label as "unchanged" and brings its colour
     // back from the urgency it keeps beside the label; its own `None` clears
-    // the tag. So a cleared label is written as `None` in every sidecar that
-    // holds an urgency, on every save. The urgency itself is never changed:
-    // it may be the photographer's own.
-    let has_urgency = property(root, PHOTOSHOP, "Urgency").is_some();
-    let label = if metadata.label.is_empty() && has_urgency {
+    // the tag. So a label cleared in a sidecar that holds an urgency and no
+    // Lightroom label colour is written as `None` (on every later save too:
+    // the previous label is then `None`). A photo that had no label keeps
+    // none, and the urgency itself is never changed: it may be the
+    // photographer's own.
+    let cleared = !previous_label.trim().is_empty();
+    let capture_one_none =
+        cleared && !lightroom_label && property(root, PHOTOSHOP, "Urgency").is_some();
+    let label = if metadata.label.is_empty() && capture_one_none {
         labels::NONE.to_string()
     } else {
         labels::for_sidecar(&metadata.label, &previous_label)
@@ -709,7 +716,7 @@ fn merge_xmp_with(
         shared.push_str(&format!(" xmpDM:good=\"{}\"", metadata.flag > 0));
     }
     let mut photoshop = String::new();
-    if let Some(colour) = labels::canonical(&metadata.label) {
+    if let Some(colour) = labels::canonical(&metadata.label).filter(|_| lightroom_label) {
         photoshop.push_str(&format!(
             " photoshop:LabelColor=\"{}\"",
             colour.to_lowercase()
