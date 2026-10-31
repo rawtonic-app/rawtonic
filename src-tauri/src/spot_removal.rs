@@ -450,6 +450,37 @@ mod tests {
     }
 
     #[test]
+    fn dust_frame_uses_stored_size_for_both_landscape_and_portrait_exif() {
+        let dir = tempfile::tempdir().unwrap();
+        let recipe = serde_json::json!({});
+        let mut frames = Vec::new();
+        for orientation in [1, 6] {
+            let path = dir.path().join(format!("orientation-{orientation}.jpg"));
+            let mut jpeg = Vec::new();
+            image::DynamicImage::new_rgb8(60, 40)
+                .write_to(
+                    &mut std::io::Cursor::new(&mut jpeg),
+                    image::ImageFormat::Jpeg,
+                )
+                .unwrap();
+            let mut metadata = little_exif::metadata::Metadata::new();
+            metadata.set_tag(little_exif::exif_tag::ExifTag::Orientation(vec![
+                orientation,
+            ]));
+            metadata
+                .write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
+                .unwrap();
+            assert_eq!(
+                crate::image_loader::source_orientation(&jpeg, "photo.jpg"),
+                orientation
+            );
+            std::fs::write(&path, jpeg).unwrap();
+            frames.push(frame_of(&path.to_string_lossy(), &recipe));
+        }
+        assert_eq!(frames, [Some((60, 40)), Some((60, 40))]);
+    }
+
+    #[test]
     fn photos_with_another_frame_do_not_match() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b, c) = (

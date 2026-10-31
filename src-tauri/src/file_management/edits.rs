@@ -1235,6 +1235,16 @@ fn resolve_culling_targets(
     values: Vec<CullingWrite>,
     directory: Option<&str>,
 ) -> (Vec<CullingWrite>, Vec<(String, String)>) {
+    resolve_culling_targets_with(values, directory, |owner| {
+        rawtonic_catalog::Library::open(owner).map_err(|e| e.to_string())
+    })
+}
+
+fn resolve_culling_targets_with(
+    values: Vec<CullingWrite>,
+    directory: Option<&str>,
+    mut open: impl FnMut(&Path) -> Result<rawtonic_catalog::Library, String>,
+) -> (Vec<CullingWrite>, Vec<(String, String)>) {
     let mut libraries = HashMap::new();
     partition_culling_targets(values, |write| {
         if let Some(id) = &write.asset_id {
@@ -1243,13 +1253,11 @@ fn resolve_culling_targets(
                 .as_deref()
                 .or(directory)
                 .ok_or_else(|| "Undo needs its original library".to_string())?;
-            if !libraries.contains_key(owner) {
-                libraries.insert(
-                    owner.to_string(),
-                    rawtonic_catalog::Library::open(Path::new(owner)).map_err(|e| e.to_string())?,
-                );
-            }
-            let lib = &libraries[owner];
+            let lib = libraries
+                .entry(owner.to_string())
+                .or_insert_with(|| open(Path::new(owner)))
+                .as_ref()
+                .map_err(Clone::clone)?;
             let asset = lib.asset(id).map_err(|e| e.to_string())?;
             let copy = write.path.rsplit_once("?vc=").map(|(_, copy)| copy);
             if let Some(copy) = copy {
@@ -1276,6 +1284,16 @@ fn prepare_culling_targets(
     values: Vec<CullingWrite>,
     selected: Option<&str>,
 ) -> (Vec<CullingWrite>, Vec<(String, String)>) {
+    prepare_culling_targets_with(values, selected, |owner| {
+        rawtonic_catalog::Library::open(owner).map_err(|e| e.to_string())
+    })
+}
+
+fn prepare_culling_targets_with(
+    values: Vec<CullingWrite>,
+    selected: Option<&str>,
+    mut open: impl FnMut(&Path) -> Result<rawtonic_catalog::Library, String>,
+) -> (Vec<CullingWrite>, Vec<(String, String)>) {
     let mut libraries = HashMap::new();
     partition_culling_targets(values, |write| {
         if write.asset_id.is_some() {
@@ -1286,13 +1304,12 @@ fn prepare_culling_targets(
         let owner = crate::session_bridge::culling_library_for(&source, selected.map(Path::new));
         write.directory = owner.as_ref().map(|dir| dir.to_string_lossy().into_owned());
         if let Some(owner) = owner {
-            if !libraries.contains_key(&owner) {
-                libraries.insert(
-                    owner.clone(),
-                    rawtonic_catalog::Library::open(&owner).map_err(|e| e.to_string())?,
-                );
-            }
-            write.asset_id = libraries[&owner]
+            let lib = libraries
+                .entry(owner.clone())
+                .or_insert_with(|| open(&owner))
+                .as_ref()
+                .map_err(Clone::clone)?;
+            write.asset_id = lib
                 .asset_at(&source)
                 .map_err(|e| e.to_string())?
                 .map(|asset| asset.id);
@@ -1494,6 +1511,58 @@ pub(crate) fn load_metadata_blocking(
 mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
+
+    #[test]
+    fn culling_batches_open_each_unavailable_owner_only_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = rawtonic_catalog::Library::create(
+            temp.path(),
+            "Owner",
+            rawtonic_catalog::Mode::Session,
+        )
+        .unwrap();
+        let owner = library.directory.to_string_lossy().into_owned();
+        let paths: Vec<_> = (0..3)
+            .map(|i| {
+                library
+                    .directory
+                    .join(format!("Capture/{i}.jpg"))
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        drop(library);
+        for resolving in [false, true] {
+            let mut calls = 0;
+            let open = |_: &Path| {
+                calls += 1;
+                Err("owner unavailable".to_string())
+            };
+            let values = paths
+                .iter()
+                .map(|path| CullingWrite {
+                    path: path.clone(),
+                    value: CullingValue::Rating(3),
+                    asset_id: resolving.then(|| "asset-id".into()),
+                    directory: Some(owner.clone()),
+                })
+                .collect();
+            let (ready, failures) = if resolving {
+                resolve_culling_targets_with(values, Some(&owner), open)
+            } else {
+                prepare_culling_targets_with(values, Some(&owner), open)
+            };
+            assert!(ready.is_empty());
+            assert_eq!(
+                failures,
+                paths
+                    .iter()
+                    .map(|path| (path.clone(), "owner unavailable".into()))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(calls, 1, "resolving={resolving}");
+        }
+    }
 
     #[test]
     fn set_values_returns_what_it_replaced_and_null_removes() {
