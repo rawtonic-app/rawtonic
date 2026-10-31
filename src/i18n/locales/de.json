@@ -3030,7 +3030,7 @@
         "autoTitle": "Automatischer Weißabgleich ({{shortcut}})",
         "picker": "Weißabgleich-Pipette",
         "pickerOnBackground": "Die Weißabgleich-Pipette ist auf dem Hintergrund verfügbar",
-        "pickNeutral": "Neutralen Bereich wählen",
+        "pickNeutral": "Neutralen Bereich wählen (Umschalt-Klick: weiter wählen)",
         "relative": "Relative Korrektur",
         "relativeTemperature": "Relative Temperatur",
         "relativeTint": "Relative Tönung",

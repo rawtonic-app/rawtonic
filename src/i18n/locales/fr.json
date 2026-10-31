@@ -3158,7 +3158,7 @@
         "autoTitle": "Balance des blancs automatique ({{shortcut}})",
         "picker": "Pipette de balance des blancs",
         "pickerOnBackground": "La pipette de balance des blancs est disponible sur l'arrière-plan",
-        "pickNeutral": "Choisir une zone neutre",
+        "pickNeutral": "Choisir une zone neutre (Maj+clic : continuer)",
         "relative": "Correction relative",
         "relativeTemperature": "Température relative",
         "relativeTint": "Teinte relative",

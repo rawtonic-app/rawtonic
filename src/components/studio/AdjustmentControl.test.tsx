@@ -22,6 +22,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("professional adjustment control", () => {
+  it("moves a tenth as far per pixel when the track is dragged with Option", () => {
+    const change = vi.fn();
+    render(
+      <AdjustmentControl label="Exposure" value={0} min={-5} max={5} step={0.01} onChange={change} />,
+    );
+    const slider = screen.getByRole("slider", { name: "Exposure" }) as HTMLInputElement;
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue({ width: 100 } as DOMRect);
+    slider.setPointerCapture = vi.fn();
+    // A plain press keeps the native behaviour (jump to the pointer).
+    const plain = fireEvent.pointerDown(slider, { button: 0, clientX: 50, pointerId: 1 });
+    expect(plain).toBe(true);
+    fireEvent.pointerUp(slider, { pointerId: 1 });
+    // With Option the press does not jump; 20 px = a tenth of 20 % of the range.
+    const fine = fireEvent.pointerDown(slider, { button: 0, clientX: 50, altKey: true, pointerId: 2 });
+    expect(fine).toBe(false);
+    fireEvent.pointerMove(slider, { clientX: 70, altKey: true, pointerId: 2 });
+    fireEvent.pointerUp(slider, { pointerId: 2 });
+    expect(change).toHaveBeenLastCalledWith(0.2);
+    expect(slider.closest(".adjustment-control")!.classList.contains("is-active")).toBe(false);
+  });
   it("marks its row while the slider or its label is dragged, and only then", () => {
     // The pressed state must read without the tooltip (state-legibility rule):
     // the stylesheet lights the label and enlarges the thumb on `is-active`.

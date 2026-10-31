@@ -3286,7 +3286,7 @@
         "autoTitle": "Automatyczny balans bieli ({{shortcut}})",
         "picker": "Próbnik balansu bieli",
         "pickerOnBackground": "Próbnik balansu bieli jest dostępny na tle",
-        "pickNeutral": "Wybierz neutralny obszar",
+        "pickNeutral": "Wybierz neutralny obszar (Shift+klik: wybieraj dalej)",
         "relative": "Korekta względna",
         "relativeTemperature": "Temperatura względna",
         "relativeTint": "Zabarwienie względne",

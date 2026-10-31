@@ -2958,7 +2958,7 @@
         "autoTitle": "自動ホワイトバランス ({{shortcut}})",
         "picker": "ホワイトバランスピッカー",
         "pickerOnBackground": "ホワイトバランスピッカーは背景で使用できます",
-        "pickNeutral": "ニュートラルな部分を選択",
+        "pickNeutral": "ニュートラルな部分を選択（Shift+クリックで続けて選択）",
         "relative": "相対補正",
         "relativeTemperature": "相対色温度",
         "relativeTint": "相対色かぶり補正",

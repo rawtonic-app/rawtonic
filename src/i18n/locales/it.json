@@ -3158,7 +3158,7 @@
         "autoTitle": "Bilanciamento del bianco automatico ({{shortcut}})",
         "picker": "Contagocce bilanciamento del bianco",
         "pickerOnBackground": "Il contagocce del bilanciamento del bianco è disponibile sullo sfondo",
-        "pickNeutral": "Scegli un'area neutra",
+        "pickNeutral": "Scegli un'area neutra (Maiusc+clic: continua a scegliere)",
         "relative": "Correzione relativa",
         "relativeTemperature": "Temperatura relativa",
         "relativeTint": "Tinta relativa",

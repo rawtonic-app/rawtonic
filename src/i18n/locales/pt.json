@@ -3158,7 +3158,7 @@
         "autoTitle": "Balanço de brancos automático ({{shortcut}})",
         "picker": "Conta-gotas de balanço de branco",
         "pickerOnBackground": "O conta-gotas de balanço de branco está disponível no fundo",
-        "pickNeutral": "Escolha uma área neutra",
+        "pickNeutral": "Escolha uma área neutra (Shift+clique: continuar a escolher)",
         "relative": "Correção relativa",
         "relativeTemperature": "Temperatura relativa",
         "relativeTint": "Tonalidade relativa",
