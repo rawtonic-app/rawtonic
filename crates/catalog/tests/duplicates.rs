@@ -308,6 +308,7 @@ fn member(name: &str, own_folder: bool) -> DuplicateMember {
         copies: 0,
         described: false,
         companion: None,
+        companion_image: None,
         compared: "jpeg".into(),
         owner: None,
         own_folder,
@@ -485,6 +486,9 @@ fn the_suggestion_passes_the_check_with_raw_jpeg_pairs() {
     rate(&ids[1]);
     lib.set_metadata(&a, &Default::default()).unwrap();
     assert_eq!(accept(&lib), ["A.RAF", "C.RAF"]);
+    // C's JPEG is another image (reprocessed): C stays with it.
+    fs::write(capture.join("C.JPG"), jpeg("exif", b"reprocessed jpeg")).unwrap();
+    assert_eq!(accept(&lib), ["A.RAF"]);
 }
 
 #[test]

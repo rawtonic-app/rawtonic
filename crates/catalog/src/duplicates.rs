@@ -86,6 +86,9 @@ pub struct DuplicateMember {
     pub described: bool,
     /// Its RAW+JPEG companion, which goes to the Trash with it.
     pub companion: Option<PathBuf>,
+    /// The companion's image hash (None: no companion, or not readable).
+    #[serde(skip)]
+    pub companion_image: Option<String>,
     /// What part of the file was compared (`image_hash::Container` name):
     /// `file` means the whole file.
     pub compared: String,
@@ -119,8 +122,9 @@ pub enum Refusal {
 /// virtual copies, then one with a paired JPEG (it goes with its RAW), then
 /// the oldest import. The others are marked only inside this library's own
 /// folder; files it refers to where they are stay unmarked unless the user
-/// marks them. One with a paired JPEG is marked only when the kept copy has
-/// one too, else confirming would refuse it (and so the whole step).
+/// marks them. One with a paired JPEG is marked only when the kept copy's
+/// paired JPEG holds the same image data, else confirming would refuse it
+/// (and so the whole step).
 pub fn suggested_trash(group: &[DuplicateMember], edited: &[bool]) -> Vec<bool> {
     let worth = |i: usize| {
         let m = &group[i];
@@ -154,9 +158,12 @@ pub fn suggested_trash(group: &[DuplicateMember], edited: &[bool]) -> Vec<bool> 
         .enumerate()
         .map(|(i, m)| {
             keep.is_some_and(|k| {
-                // A RAW+JPEG pair goes as one: only while the kept copy has a
-                // JPEG of its own (`confirm_duplicates` compares the two).
-                k != i && (m.companion.is_none() || group[k].companion.is_some())
+                // A RAW+JPEG pair goes as one: only while the kept copy's
+                // JPEG holds the same image data (`confirm_duplicates`).
+                k != i
+                    && (m.companion.is_none()
+                        || (m.companion_image.is_some()
+                            && m.companion_image == group[k].companion_image))
             }) && m.owner.is_none()
                 && m.own_folder
         })
@@ -352,6 +359,7 @@ impl Library {
                     albums: r.get::<_, i64>(16)? as usize,
                     copies: r.get::<_, i64>(11)? as usize,
                     described,
+                    companion_image: None,
                     companion,
                     compared: hash.split(':').nth(1).unwrap_or_default().to_string(),
                     owner: self.owner_elsewhere(&path),
@@ -378,6 +386,13 @@ impl Library {
         let mut groups: Vec<Vec<DuplicateMember>> = groups
             .into_iter()
             .map(|(_, mut members)| {
+                for member in &mut members {
+                    member.companion_image = member.companion.as_deref().and_then(|companion| {
+                        image_hash(companion, &AtomicBool::new(false))
+                            .ok()
+                            .flatten()
+                    });
+                }
                 members.sort_by(|a, b| {
                     (a.imported.is_none(), &a.imported, &a.path).cmp(&(
                         b.imported.is_none(),
