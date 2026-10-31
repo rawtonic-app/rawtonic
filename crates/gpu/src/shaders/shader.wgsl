@@ -10,6 +10,9 @@ override ENABLE_CURVES: bool = true;
 // NVIDIA driver cache (gpu_processing.rs `TONE_PREVIEW_FEATURE`).
 override ENABLE_TONE: bool = true;
 override ENABLE_RELIGHT: bool = true;
+// Range-2 lights (relight.rs RANGE_2_FLAG): compiled only into pipelines for
+// recipes that have one, so other recipes' exports keep their bits.
+override RELIGHT_RANGE2: bool = false;
 // The luminance noise reduction's edge-preserving pass (LUMA_NR_EDGE_NOISE);
 // exports of quieter photos use pipelines without it (gpu_processing.rs
 // `LUMA_NR_EDGE_NOISE_START`).
@@ -6732,6 +6735,14 @@ fn relight_source_shading(n: vec3<f32>) -> f32 {
 
 // relight_source.rs MIN_SHADING: deeper shadows are not lifted further.
 const RELIGHT_MIN_SHADING: f32 = 0.2;
+// Range version 2: the terminator wrap at Softness 100 % and the share of
+// the light every surface gets at Diffusion 100 % (notes:
+// benchmark-results/rl-relight-ux-2026-10-31).
+const RELIGHT_RANGE2_WRAP: f32 = 1.2;
+const RELIGHT_RANGE2_FILL: f32 = 0.5;
+// Range version 2: Face reflections 100 % is a visible sheen (a dielectric
+// skin lobe alone stays below one L* step).
+const RELIGHT_RANGE2_SHINE: f32 = 12.0;
 
 
 fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool, people: vec4<f32>, reach_map: f32) -> RelightEnergy {
@@ -6838,7 +6849,11 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
         }
         // A light limited to a mask layer acts only where that layer does;
         // a layer missing from this render (one-layer previews) excludes it.
-        let mask_slot = flags >> 1u;
+        let mask_slot = (flags >> 1u) & 63u;
+        // Range version 2 (relight.rs RANGE_2_FLAG): Softness sets how
+        // softly the light turns away over a surface, Diffusion how much of
+        // it reaches the side turned away.
+        let range2 = (flags & 128u) != 0u;
         if (mask_slot > 0u) {
             if (ENABLE_MASKS && mask_slot <= adjustments.mask_count) {
                 footprint *= get_mask_influence(mask_slot - 1u, coord);
@@ -6877,11 +6892,21 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
                 }
                 // Skin scatters light under its surface: people (version
                 // five) get a soft terminator instead of a cut-out edge.
-                let wrap = max(shape.w * 0.2, 0.4 * people.w);
-                response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
-                let material = relight_skin(normal, direction, view, shape.z, skin);
-                response *= material.x;
-                specular = material.y;
+                if (RELIGHT_RANGE2 && range2) {
+                    // A softer (larger) source reaches further around the
+                    // surface without dimming the side facing it.
+                    let soft = max(shape.z * RELIGHT_RANGE2_WRAP, 0.15 * people.w);
+                    response = mix(max(dot(normal, direction) + soft, 0.0) / (1.0 + soft), RELIGHT_RANGE2_FILL, shape.w);
+                    let material = relight_skin(normal, direction, view, shape.z, skin);
+                    response *= material.x;
+                    specular = material.y * RELIGHT_RANGE2_SHINE;
+                } else {
+                    let wrap = max(shape.w * 0.2, 0.4 * people.w);
+                    response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
+                    let material = relight_skin(normal, direction, view, shape.z, skin);
+                    response *= material.x;
+                    specular = material.y;
+                }
                 // Facial cast shadows march the coarse face mesh; against the
                 // finer people normals (version five) they cut hard-edged
                 // patches (under the nose). People keep their normal shading.

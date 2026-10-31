@@ -4793,6 +4793,25 @@ img.relight-pattern-preview { object-fit: cover; }
 
 .relight-overlay > svg > .relight-direction { stroke-dasharray: none; }
 .studio-workspace .relight-handle:hover, .studio-workspace .relight-handle[aria-pressed="true"] { background: #242424ed; }
+.relight-overlay > svg > .relight-direction-ring { stroke-dasharray: 2 3; opacity: 0.8; }
+.studio-workspace .relight-handle-direction { width: 26px; height: 26px; }
+
+/* Presets first, then the direction ball and the few sliders most edits need. */
+.studio-relight-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+.studio-relight-presets button { min-height: 28px; padding: 3px 4px; font-size: 10.5px; line-height: 1.2; border: 1px solid var(--studio-line); border-radius: 4px; background: var(--studio-raised); color: var(--studio-text); cursor: pointer; }
+.studio-relight-presets button:hover { border-color: var(--studio-accent); }
+.studio-relight-direction { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; }
+.studio-relight-direction .studio-relight-help { flex: 1; margin: 0; }
+.studio-relight-ball { flex-shrink: 0; border-radius: 50%; cursor: crosshair; touch-action: none; }
+.studio-relight-ball:focus-visible { outline: 2px solid var(--studio-accent); outline-offset: 2px; }
+.studio-relight-ball[data-disabled] { cursor: not-allowed; opacity: 0.4; filter: grayscale(1); }
+.studio-relight-ball-ring { fill: none; stroke: #ffffff40; stroke-width: 1; }
+.studio-relight-ball-dot { fill: white; stroke: #111; stroke-width: 1.5; }
+.studio-relight-control[data-unavailable] > :first-child { opacity: 0.45; }
+.studio-relight-reason { margin: -2px 0 8px; font-style: italic; }
+.studio-relight-depth-actions { display: flex; gap: 5px; }
+.studio-relight-link { padding: 0; border: 0; background: none; color: var(--studio-accent); font: inherit; font-style: normal; text-decoration: underline; cursor: pointer; }
+.studio-relight-depth-actions .studio-relight-analyze { flex: 1; }
 
 /* The Library's metadata lists (StudioMetadataFilter): one column per field
    below the filter bar, each value with its count; chosen values pressed. */
