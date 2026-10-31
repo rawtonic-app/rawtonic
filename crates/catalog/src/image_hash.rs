@@ -219,13 +219,29 @@ const EXIF_IFD: u16 = 0x8769;
 /// Panasonic RW2: where the raw data starts.
 const RW2_RAW_OFFSET: u16 = 0x118;
 
-/// Tags that say how an IFD's strips or tiles decode: dimensions, sample
-/// layout, compression, photometric interpretation, strip/tile geometry,
-/// predictor, sample format, CFA pattern.
-const DECODING_TAGS: &[u16] = &[
-    0x100, 0x101, 0x102, 0x103, 0x106, 0x115, 0x116, 0x11C, 0x13D, 0x142, 0x143, 0x153, 0x828D,
-    0x828E,
+/// Tags of the image IFD left out of its identity: where its data and the
+/// other IFDs are (they move when metadata is rewritten), and descriptive
+/// metadata (names, dates, software, resolution, orientation, rating,
+/// XMP/IPTC, maker and DNG private data, profile names). Every other tag
+/// of that IFD (dimensions, sample layout, compression, photometric,
+/// palette, CFA, levels, vendor decoding tags) is hashed with the data, so
+/// an unknown tag can only make two copies look different, never two
+/// images alike.
+const NOT_IMAGE_TAGS: &[u16] = &[
+    // Positions and pointers.
+    0x111, 0x117, 0x144, 0x145, 0x14A, 0x201, 0x202, 0x7200, 0x8769, 0x8825, 0xA005, 0xC634,
+    // Descriptive metadata.
+    0x10D, 0x10E, 0x10F, 0x110, 0x112, 0x11A, 0x11B, 0x11D, 0x128, 0x131, 0x132, 0x13B, 0x13C,
+    0x2BC, 0x4746, 0x4749, 0x8298, 0x83BB, 0x927C, 0x9C9B, 0x9C9C, 0x9C9D, 0x9C9E, 0x9C9F, 0xC4A5,
+    0xC612, 0xC613, 0xC614, 0xC615, 0xC62F, 0xC630, 0xC68B, 0xC68C, 0xC6F3, 0xC6F4, 0xC6F8,
 ];
+
+/// EXIF fields some writers put in an image IFD (dates, exposure, lens).
+fn exif_field(tag: u16) -> bool {
+    (0x8822..=0x8832).contains(&tag)
+        || (0x9000..=0x9FFF).contains(&tag)
+        || (0xA000..=0xAFFF).contains(&tag)
+}
 
 /// The decoding tags and the strips or tiles of the IFD with the most image
 /// bytes in a TIFF layout.
@@ -253,6 +269,7 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
     let mut seen = std::collections::HashSet::new();
     let mut best: Layout = (Vec::new(), Vec::new());
     let mut best_total = 0u64;
+    let mut best_unreadable = false;
     while let Some(ifd) = queue.pop() {
         if ifd == 0 || seen.len() >= 64 || !seen.insert(ifd) || ifd + 2 > len {
             continue;
@@ -270,7 +287,7 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
                 1 | 2 | 6 | 7 => (1, 1),
                 3 | 8 => (2, 1),
                 4 | 9 | 11 | 13 => (4, 1),
-                5 | 10 => (4, 2),
+                5 | 10 | 12 => (4, 2),
                 _ => bail!("values of type {kind}"),
             };
             let bytes = n * size * parts;
@@ -290,8 +307,10 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
         let mut offsets = Vec::new();
         let mut counts = Vec::new();
         let mut raw_offset = None;
-        // By tag, whatever order a writer put them in.
+        // By tag, whatever order a writer put them in; a field that cannot
+        // be read makes the IFD unusable as an identity.
         let mut decoding = std::collections::BTreeMap::new();
+        let mut unreadable = false;
         for i in 0..count {
             let at = i * 12;
             match u16_at(&entries, at) {
@@ -299,10 +318,13 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
                 STRIP_BYTE_COUNTS | TILE_BYTE_COUNTS => counts = values(at)?,
                 RW2_RAW_OFFSET if rw2 => raw_offset = values(at)?.first().copied(),
                 SUB_IFDS | EXIF_IFD => queue.extend(values(at)?),
-                tag if DECODING_TAGS.contains(&tag) => {
-                    decoding.insert(tag, values(at)?);
-                }
-                _ => {}
+                tag if NOT_IMAGE_TAGS.contains(&tag) || exif_field(tag) => {}
+                tag => match values(at) {
+                    Ok(found) => {
+                        decoding.insert(tag, found);
+                    }
+                    Err(_) => unreadable = true,
+                },
             }
         }
         // RW2 (magic 0x55) gives the raw data's start in tag 0x118
@@ -320,7 +342,9 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
             let total: u64 = counts.iter().sum();
             if total > best_total {
                 best_total = total;
-                let mut how = Vec::new();
+                // The byte order says how samples wider than a byte read.
+                best_unreadable = unreadable;
+                let mut how = vec![head[0]];
                 for (tag, found) in decoding {
                     how.extend(tag.to_be_bytes());
                     how.extend((found.len() as u32).to_be_bytes());
@@ -333,6 +357,7 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
         }
         queue.push(u64::from(u32_at(&entries, count * 12)));
     }
+    ensure!(!best_unreadable, "image IFD with unreadable fields");
     Ok(best)
 }
 
@@ -763,6 +788,110 @@ mod tests {
         assert_ne!(hash(&original), hash(&inverted));
         let reordered = write(dir.path(), "f.dng", &tiff_as(&[a, b], b"x", 5, 1, true));
         assert_eq!(hash(&original), hash(&reordered));
+    }
+
+    /// A one-IFD TIFF in either byte order: one strip of `data` and `extra`
+    /// fields (tag, type, values as bytes in the file's order), sorted by
+    /// tag as written.
+    fn plain_tiff(big: bool, extra: &[(u16, u16, Vec<u8>)], data: &[u8]) -> Vec<u8> {
+        let n16 = |v: u16| {
+            if big {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            }
+        };
+        let n32 = |v: u32| {
+            if big {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            }
+        };
+        let mut fields: Vec<(u16, u16, u32, Vec<u8>)> = vec![
+            (0x100, 3, 1, n16(2).to_vec()),
+            (0x101, 3, 1, n16(1).to_vec()),
+            (0x102, 3, 1, n16(16).to_vec()),
+            (STRIP_OFFSETS, 4, 1, Vec::new()),
+            (STRIP_BYTE_COUNTS, 4, 1, n32(data.len() as u32).to_vec()),
+        ];
+        for (tag, kind, bytes) in extra {
+            let size = if *kind == 3 { 2 } else { 1 };
+            fields.push((*tag, *kind, (bytes.len() / size) as u32, bytes.clone()));
+        }
+        fields.sort_by_key(|f| f.0);
+        let mut out = if big {
+            b"MM\0*".to_vec()
+        } else {
+            b"II*\0".to_vec()
+        };
+        out.extend(n32(8));
+        let ifd_len = 2 + fields.len() * 12 + 4;
+        let mut tail_at = 8 + ifd_len;
+        let mut tail: Vec<u8> = Vec::new();
+        let data_at = tail_at
+            + fields
+                .iter()
+                .filter(|f| f.3.len() > 4)
+                .map(|f| f.3.len())
+                .sum::<usize>();
+        out.extend(n16(fields.len() as u16));
+        for (tag, kind, count, bytes) in &fields {
+            out.extend(n16(*tag));
+            out.extend(n16(*kind));
+            out.extend(n32(*count));
+            if *tag == STRIP_OFFSETS {
+                out.extend(n32(data_at as u32));
+            } else if bytes.len() > 4 {
+                out.extend(n32(tail_at as u32));
+                tail_at += bytes.len();
+                tail.extend(bytes);
+            } else {
+                let mut inline = bytes.clone();
+                inline.resize(4, 0);
+                out.extend(inline);
+            }
+        }
+        out.extend(n32(0));
+        out.extend(tail);
+        out.extend(data);
+        out
+    }
+
+    #[test]
+    fn tiff_identity_includes_byte_order_and_palette_but_not_descriptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = [1u8, 2, 2, 1];
+        let little = write(dir.path(), "le.tif", &plain_tiff(false, &[], &data));
+        let big = write(dir.path(), "be.tif", &plain_tiff(true, &[], &data));
+        // Same bytes, 16-bit samples read the other way round.
+        assert_ne!(hash(&little), hash(&big));
+        let palette = |colour: u8| (0x140u16, 3u16, [colour, 0].repeat(6));
+        let red = write(
+            dir.path(),
+            "red.tif",
+            &plain_tiff(false, &[palette(9)], &data),
+        );
+        let blue = write(
+            dir.path(),
+            "blue.tif",
+            &plain_tiff(false, &[palette(7)], &data),
+        );
+        assert_ne!(hash(&red), hash(&blue));
+        let artist = |name: &str| (0x13Bu16, 2u16, format!("{name}\0").into_bytes());
+        let one = write(
+            dir.path(),
+            "a.tif",
+            &plain_tiff(false, &[artist("Ann")], &data),
+        );
+        let other = write(
+            dir.path(),
+            "b.tif",
+            &plain_tiff(false, &[artist("Someone else")], &data),
+        );
+        assert!(hash(&one).starts_with("1:tiff:"));
+        assert_eq!(hash(&one), hash(&other));
+        assert_eq!(hash(&one), hash(&little));
     }
 
     fn jpeg_file(app: &[u8], scan: &[u8], trailer: &[u8]) -> Vec<u8> {
