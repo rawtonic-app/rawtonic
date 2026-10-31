@@ -296,6 +296,30 @@ export function PointCurve({
   const [dragged, setDragged] = useState<Coord[] | null>(null);
   // The split point being dragged, and the one whose exact value is typed.
   const [splitDrag, setSplitDrag] = useState<SplitKey | null>(null);
+  // Its value while it moves: the handle draws from this, not from the
+  // committed draft that lags up to COMMIT_INTERVAL_MS behind.
+  const [splitLive, setSplitLive] = useState<number | null>(null);
+  // A split drag still running when the curve unmounts (another photo or tool)
+  // must give the interaction back.
+  const splitActive = useRef(false);
+  const interactionRef = useRef(onInteraction);
+  interactionRef.current = onInteraction;
+  useEffect(
+    () => () => {
+      if (splitActive.current) {
+        splitActive.current = false;
+        interactionRef.current(false);
+      }
+    },
+    [],
+  );
+  const endSplit = () => {
+    if (!splitActive.current) return;
+    splitActive.current = false;
+    setSplitDrag(null);
+    setSplitLive(null);
+    onInteraction(false);
+  };
   const [splitEdit, setSplitEdit] = useState<SplitKey | null>(null);
   const histogram = useEditorStore((s) => s.histogram);
   // Curves without a Luminance curve start it neutral.
@@ -361,6 +385,7 @@ export function PointCurve({
     if (!region || !onRegionChange) return;
     const [min, max] = SPLIT_RANGES[key];
     const next = Math.max(min, Math.min(max, Math.round(value)));
+    if (splitActive.current) setSplitLive(next);
     if (next !== region[key]) onRegionChange({ ...region, [key]: next });
   };
   const position = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -506,7 +531,7 @@ export function PointCurve({
             <rect className="curve-split-track" x="0" y={258} width="255" height={SPLIT_STRIP - 3} />
             {SPLIT_KEYS.map((key) => {
               const [min, max] = SPLIT_RANGES[key];
-              const value = splits[key];
+              const value = splitDrag === key && splitLive !== null ? splitLive : splits[key];
               const name = t(SPLIT_LABELS[key]);
               return (
                 <g
@@ -524,7 +549,9 @@ export function PointCurve({
                     if (disabled || e.button !== 0) return;
                     e.stopPropagation();
                     e.currentTarget.setPointerCapture(e.pointerId);
+                    splitActive.current = true;
                     setSplitDrag(key);
+                    setSplitLive(splits[key]);
                     onInteraction(true);
                   }}
                   onPointerMove={(e) => {
@@ -539,9 +566,10 @@ export function PointCurve({
                     e.stopPropagation();
                     if (e.currentTarget.hasPointerCapture(e.pointerId))
                       e.currentTarget.releasePointerCapture(e.pointerId);
-                    setSplitDrag(null);
-                    onInteraction(false);
+                    endSplit();
                   }}
+                  onPointerCancel={() => splitDrag === key && endSplit()}
+                  onLostPointerCapture={() => splitDrag === key && endSplit()}
                   onKeyDown={(e) => {
                     if (disabled) return;
                     const step = e.shiftKey ? 10 : 1;

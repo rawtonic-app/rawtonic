@@ -149,3 +149,14 @@ it("edits a folder template with folder levels and no presets", () => {
   fireEvent.doubleClick(screen.getByRole("button", { name: "Folder level (/)" }));
   expect(current).toBe("{job}/{date}/{format}/");
 });
+
+it("keeps the separator before the counter when custom text replaces the project name", () => {
+  render(<Editor initial="_{seq:4}" mode="ingest" />);
+  fireEvent.change(texts()[0], { target: { value: "W" } });
+  expect(current).toBe("W_{seq:4}");
+  fireEvent.change(texts()[0], { target: { value: "Wedding_" } });
+  expect(current).toBe("Wedding_{seq:4}");
+  // the user can still remove it
+  fireEvent.change(texts()[0], { target: { value: "Wedding" } });
+  expect(current).toBe("Wedding{seq:4}");
+});

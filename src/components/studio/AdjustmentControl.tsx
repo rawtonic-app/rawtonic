@@ -247,7 +247,9 @@ export default memo(function AdjustmentControl({
             const width = e.currentTarget.getBoundingClientRect().width;
             fine.current = {
               x: e.clientX,
-              value: toTrack(local),
+              // pending, not local: focusing the track just committed a typed value
+              // whose state has not rendered yet.
+              value: toTrack(pending.current),
               perPixel: width > 0 ? (trackMax - trackMin) / width / 10 : 0,
             };
           }

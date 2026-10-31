@@ -541,3 +541,14 @@ export function swapTokens(template: string, index: number, direction: -1 | 1): 
   [tokens[index], tokens[other]] = [tokens[other], tokens[index]];
   return joinSegments(text, tokens);
 }
+
+/** The text before a counter token after an edit: when the user replaced a
+ * separator-only text ("_") by words that do not end in a separator, the
+ * separator stays behind them, so a custom name does not run into the counter
+ * ("Wedding_0001", not "Wedding0001"). It stays editable: once the text holds
+ * more than separators, nothing is added again. */
+export function keepCounterSeparator(previous: string, typed: string, following: string | undefined): string {
+  if (!following || parseToken(following).name !== "seq") return typed;
+  if (!/^[_\-. ]+$/.test(previous) || typed === "" || /[_\-. ]$/.test(typed)) return typed;
+  return typed + previous.slice(-1);
+}
