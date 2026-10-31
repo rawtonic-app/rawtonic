@@ -1307,7 +1307,8 @@ pub async fn load_image(
         "[PERF] {}",
         serde_json::json!({
             "stage": "load_image", "ms": performance_start.elapsed().as_secs_f64() * 1000.0,
-            "cached": was_cached, "width": orig_width, "height": orig_height
+            "cached": was_cached, "width": orig_width, "height": orig_height,
+            "epoch_ms": crate::performance::epoch_ms()
         })
     );
     // The decode keeps the file's EXIF (also in its cache): the capture
