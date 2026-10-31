@@ -79,6 +79,7 @@ async function openReview() {
   });
   await waitFor(() => expect(calls("duplicates_start")).toHaveLength(1));
   expect(calls("duplicates_start")[0][1]).toEqual({ directory: LIBRARY });
+  await act(async () => {});
   act(() =>
     handlers.get("duplicates-progress")!({ payload: { run: 1, directory: LIBRARY, done: 2, total: 5 } }),
   );
@@ -152,6 +153,22 @@ it("says when nothing is duplicated, and Stop stops the reading", async () => {
   await finish(7);
   await screen.findByText("No duplicates: no two photos hold identical image data.");
   expect(screen.queryByRole("button", { name: /to Trash/ })).toBeNull();
+});
+
+it("takes a pass that ended before its number came back", async () => {
+  let release!: (run: number) => void;
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === "duplicates_start") return new Promise<number>((resolve) => (release = resolve));
+    if (name === "duplicates_groups") return [];
+    return undefined;
+  });
+  render(<DuplicatesDialogHost trash={trash} />);
+  act(() => useDuplicatesDialog.getState().show());
+  await waitFor(() => expect(calls("duplicates_start")).toHaveLength(1));
+  await finish(3);
+  await finish(9);
+  await act(async () => release(9));
+  await screen.findByText("No duplicates: no two photos hold identical image data.");
 });
 
 it("needs a library", async () => {

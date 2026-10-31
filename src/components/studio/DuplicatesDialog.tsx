@@ -107,21 +107,27 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
     [directory],
   );
 
-  // Read what is not compared yet, then show the groups.
+  // Read what is not compared yet, then show the groups. Events are
+  // matched by the pass's number (the backend names the library by its
+  // real path); one that ends before its number is known waits for it.
   useEffect(() => {
     if (!directory) return;
     let current = true;
     let run: number | null = null;
+    const early = new Map<number, DuplicatesFinished>();
+    const finished = (payload: DuplicatesFinished) => {
+      if (payload.error) setPhase({ kind: "failed", error: payload.error });
+      else load(payload);
+    };
     const stops = [
       listen<DuplicatesProgress>(DUPLICATES_PROGRESS, ({ payload }) => {
-        if (!current || payload.directory !== directory) return;
-        run = payload.run;
-        setPhase({ kind: "reading", run: payload.run, done: payload.done, total: payload.total });
+        if (current && payload.run === run)
+          setPhase({ kind: "reading", run: payload.run, done: payload.done, total: payload.total });
       }),
       listen<DuplicatesFinished>(DUPLICATES_FINISHED, ({ payload }) => {
-        if (!current || payload.directory !== directory || (run !== null && payload.run !== run)) return;
-        if (payload.error) setPhase({ kind: "failed", error: payload.error });
-        else load(payload);
+        if (!current) return;
+        if (run === null) early.set(payload.run, payload);
+        else if (payload.run === run) finished(payload);
       }),
     ];
     Promise.all(stops)
@@ -129,7 +135,9 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
       .then((started) => {
         if (!current) return;
         run = started;
-        setPhase((phase) => (phase.kind === "reading" ? { ...phase, run: started } : phase));
+        const ended = early.get(started);
+        if (ended) finished(ended);
+        else setPhase((phase) => (phase.kind === "reading" ? { ...phase, run: started } : phase));
       })
       .catch((error) => current && setPhase({ kind: "failed", error: String(error) }));
     return () => {
