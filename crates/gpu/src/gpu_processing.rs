@@ -3940,8 +3940,9 @@ fn send_analytics(
     }
 }
 
-/// The clipping sides marked in the alpha of `analytics_output` pixels: every
-/// pixel, not only the ones the histogram samples.
+/// The clipping sides and channels marked in the alpha of `analytics_output`
+/// pixels (`ClippedSides::from_marks`): every pixel, not only the ones the
+/// histogram samples.
 fn clipped_sides(rgba: &[u8]) -> ClippedSides {
     let marks = rgba
         .par_chunks(4 * 65_536)
@@ -3953,10 +3954,7 @@ fn clipped_sides(rgba: &[u8]) -> ClippedSides {
                 .fold(0u8, |marks, &a| marks | a)
         })
         .reduce(|| 0, |a, b| a | b);
-    ClippedSides {
-        shadows: marks & 1 != 0,
-        highlights: marks & 2 != 0,
-    }
+    ClippedSides::from_marks(marks)
 }
 
 /// Strong references keep mask pixels immutable while their uploaded layers are

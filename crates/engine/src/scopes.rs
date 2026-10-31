@@ -30,13 +30,31 @@ pub const VECTORSCOPE_SCALE: f32 = 200.0;
 /// +Cb (where the light and dark skin patches of the usual test charts fall).
 const SKIN_LINE_REC709_DEGREES: f64 = 123.0;
 
-/// Whether some pixel clips each side of the tone range: the clipping
-/// warnings' own tests (`shader.wgsl`: a channel below 0.002 or above 0.998
-/// before the output encoding), whether a warning is on or not.
+/// Whether some pixel clips each side of the tone range, and in which of
+/// red, green and blue: the clipping warnings' own tests (`shader.wgsl`
+/// `clipping_channels`: a channel below 0.002 or above 0.998 before the
+/// output encoding, in the output or proofed space), whether a warning is on
+/// or not.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ClippedSides {
     pub shadows: bool,
     pub highlights: bool,
+    pub shadow_channels: [bool; 3],
+    pub highlight_channels: [bool; 3],
+}
+
+impl ClippedSides {
+    /// From the OR of every pixel's `analytics_output` alpha: bit 0
+    /// shadows, bit 1 highlights, bits 2–4 the highlight channels, bits 5–7
+    /// the shadow channels.
+    pub fn from_marks(marks: u8) -> Self {
+        Self {
+            shadows: marks & 1 != 0,
+            highlights: marks & 2 != 0,
+            highlight_channels: std::array::from_fn(|c| marks & (4 << c) != 0),
+            shadow_channels: std::array::from_fn(|c| marks & (32 << c) != 0),
+        }
+    }
 }
 
 /// Luma and colour-difference weights of the space the scopes read.
@@ -209,8 +227,9 @@ pub struct HistogramData {
     luma: Vec<f32>,
     clipped_shadows: bool,
     clipped_highlights: bool,
-    /// Which of red, green and blue reach code 0 / code 255 somewhere: the
-    /// colour of a lit clipping triangle (Lightroom's channel colours).
+    /// Which of red, green and blue clip at each side (the renderer's
+    /// tests): the colour of a lit clipping triangle (Lightroom's channel
+    /// colours).
     shadow_channels: [bool; 3],
     highlight_channels: [bool; 3],
 }
@@ -225,9 +244,6 @@ pub fn calculate_histogram_from_image(
     clipped: ClippedSides,
 ) -> Result<HistogramData, String> {
     let counts = histogram_counts(image, space);
-    let channels = [&counts.red, &counts.green, &counts.blue];
-    let shadow_channels = channels.map(|bins| bins[0] > 0);
-    let highlight_channels = channels.map(|bins| bins[255] > 0);
     let display = |bins: [u32; 256]| {
         let mut bins: Vec<f32> = bins.into_iter().map(|c| c as f32).collect();
         smooth_inner(&mut bins, 2.0);
@@ -241,8 +257,8 @@ pub fn calculate_histogram_from_image(
         luma: display(counts.luma),
         clipped_shadows: clipped.shadows,
         clipped_highlights: clipped.highlights,
-        shadow_channels,
-        highlight_channels,
+        shadow_channels: clipped.shadow_channels,
+        highlight_channels: clipped.highlight_channels,
     })
 }
 
@@ -276,7 +292,16 @@ fn normalize_histogram_range(histogram: &mut [f32], percentile_clip: f32) {
     let mut sorted_data = histogram.to_owned();
     sorted_data.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let clip_index = ((sorted_data.len() - 1) as f32 * percentile_clip).round() as usize;
-    let max_val = sorted_data[clip_index.min(sorted_data.len() - 1)];
+    // A tall bin or two (a clipped end) saturate at the top. When the
+    // percentile is empty (only an end or a few codes filled, as when a
+    // channel is blown out) the tallest bin sets the scale instead, so a
+    // spike never disappears.
+    let percentile = sorted_data[clip_index.min(sorted_data.len() - 1)];
+    let max_val = if percentile > 1e-6 {
+        percentile
+    } else {
+        sorted_data[sorted_data.len() - 1]
+    };
     let scale = if max_val > 1e-6 { 1.0 / max_val } else { 0.0 };
     for value in histogram.iter_mut() {
         *value = (*value * scale).min(1.0);
@@ -732,34 +757,51 @@ mod tests {
     }
 
     #[test]
-    fn clipping_channels_name_the_channels_at_each_end() {
-        // Red clips in one column, blue is 0 in another, the rest mid grey.
-        let frame = RgbImage::from_fn(64, 8, |x, _| match x {
-            3 => Rgb([255, 200, 128]),
-            9 => Rgb([128, 90, 0]),
-            _ => Rgb([128; 3]),
-        });
+    fn clipping_marks_carry_the_renderers_channels() {
+        // Shadows in blue, highlights in red and green.
+        let clipped = ClippedSides::from_marks(1 | 2 | (0b011 << 2) | (0b100 << 5));
+        assert!(clipped.shadows && clipped.highlights);
+        assert_eq!(clipped.highlight_channels, [true, true, false]);
+        assert_eq!(clipped.shadow_channels, [false, false, true]);
+        assert_eq!(ClippedSides::from_marks(0), ClippedSides::default());
         let data = serde_json::to_value(
             calculate_histogram_from_image(
-                &DynamicImage::ImageRgb8(frame),
+                &DynamicImage::ImageRgb8(test_frame(64)),
                 ScopeSpace::of(OutputColorSpace::Srgb),
-                ClippedSides {
-                    shadows: true,
-                    highlights: true,
-                },
+                clipped,
             )
             .unwrap(),
         )
         .unwrap();
         assert_eq!(
             data["highlightChannels"],
-            serde_json::json!([true, false, false])
+            serde_json::json!([true, true, false])
         );
         assert_eq!(
             data["shadowChannels"],
             serde_json::json!([false, false, true])
         );
-        assert_eq!(data["clippedHighlights"], true);
+    }
+
+    #[test]
+    fn a_blown_out_channel_keeps_its_spike() {
+        // Red entirely at 255, green at both ends, blue in a few codes.
+        let frame = RgbImage::from_fn(300, 200, |x, _| {
+            Rgb([255, if x % 2 == 0 { 0 } else { 255 }, 100 + (x % 3) as u8])
+        });
+        let data = serde_json::to_value(
+            calculate_histogram_from_image(
+                &DynamicImage::ImageRgb8(frame),
+                ScopeSpace::of(OutputColorSpace::Srgb),
+                ClippedSides::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let bins = |c: &str| -> Vec<f64> { serde_json::from_value(data[c].clone()).unwrap() };
+        assert_eq!(bins("red")[255], 1.0);
+        assert_eq!((bins("green")[0], bins("green")[255]), (1.0, 1.0));
+        assert!(bins("blue")[100..103].iter().all(|v| *v > 0.0));
     }
 
     #[test]
