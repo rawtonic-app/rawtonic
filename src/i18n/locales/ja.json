@@ -2818,6 +2818,7 @@
         "expandAll": "すべてのツールを展開",
         "moveDown": "下へ移動",
         "moveUp": "上へ移動",
+        "oneOpen": "一度に1つのツールだけを開く",
         "restoreOrder": "既定の順序に戻す",
         "restoreOrderMenu": "ツールの順序を初期設定に戻す",
         "restoreOrderTitle": "ツールを元の順序に戻します"
@@ -2955,7 +2956,6 @@
       "whiteBalance": {
         "auto": "自動ホワイトバランス",
         "autoTitle": "自動ホワイトバランス ({{shortcut}})",
-        "camera": "カメラのホワイトバランス",
         "picker": "ホワイトバランスピッカー",
         "pickerOnBackground": "ホワイトバランスピッカーは背景で使用できます",
         "pickNeutral": "ニュートラルな部分を選択",

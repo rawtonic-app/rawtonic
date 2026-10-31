@@ -71,6 +71,8 @@ export default memo(function AdjustmentControl({
   const id = useId();
   const [local, setLocal] = useState(value);
   const [text, setText] = useState(shownValue(value, step));
+  // A slider or label drag in progress: the row shows its pressed state.
+  const [dragging, setDragging] = useState(false);
   const active = useRef(false);
   const frame = useRef<number | null>(null);
   const pending = useRef(value);
@@ -130,12 +132,14 @@ export default memo(function AdjustmentControl({
   };
   const begin = () => {
     active.current = true;
+    setDragging(true);
     onInteraction?.(true);
   };
   const end = () => {
     flush();
     active.current = false;
     scrub.current = null;
+    setDragging(false);
     onInteraction?.(false);
   };
   const reset = () => {
@@ -194,7 +198,9 @@ export default memo(function AdjustmentControl({
     end();
   };
   return (
-    <div className={`adjustment-control ${disabled ? "is-disabled" : ""}`}>
+    <div
+      className={`adjustment-control ${disabled ? "is-disabled" : ""} ${dragging ? "is-active" : ""}`}
+    >
       <label
         htmlFor={id}
         title={t("studio.adjustment.scrubHint")}

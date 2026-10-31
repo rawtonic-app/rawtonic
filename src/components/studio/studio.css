@@ -777,6 +777,26 @@
 .adjustment-track:hover::-webkit-slider-thumb {
   background: #e2e9ef;
 }
+/* Hover and press read without the tooltip (notes:
+   reference/ux-develop-core-2026-10-31): the label, a drag handle itself,
+   lights up under the pointer; while the slider or label is dragged the
+   thumb grows, turns white and gets a ring, and the value brightens. */
+.adjustment-control:not(.is-disabled):hover > label {
+  color: #eef0f2;
+}
+.adjustment-control.is-active > label,
+.adjustment-control.is-active input.adjustment-value {
+  color: #ffffff;
+}
+.adjustment-control.is-active .adjustment-track::-webkit-slider-thumb {
+  width: 11px;
+  height: 11px;
+  margin-top: -4px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 2px #829daf99,
+    0 1px 2px #0009;
+}
 .adjustment-track.temperature::-webkit-slider-runnable-track {
   background: linear-gradient(90deg, #6b99c7, #d0b263);
 }

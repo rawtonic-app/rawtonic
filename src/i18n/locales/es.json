@@ -3018,6 +3018,7 @@
         "expandAll": "Expandir todas las herramientas",
         "moveDown": "Bajar",
         "moveUp": "Subir",
+        "oneOpen": "Una herramienta abierta a la vez",
         "restoreOrder": "Restaurar orden predeterminado",
         "restoreOrderMenu": "Restaurar el orden predeterminado de herramientas",
         "restoreOrderTitle": "Devolver las herramientas a su orden original"
@@ -3155,7 +3156,6 @@
       "whiteBalance": {
         "auto": "Balance de blancos automático",
         "autoTitle": "Balance de blancos automático ({{shortcut}})",
-        "camera": "Balance de blancos de la cámara",
         "picker": "Cuentagotas de balance de blancos",
         "pickerOnBackground": "El cuentagotas de balance de blancos está disponible en el fondo",
         "pickNeutral": "Elige una zona neutra",

@@ -26,6 +26,10 @@ import { createDragGhost } from "./dragGhost";
 const ToolColumnContext = createContext<{
   scope: string;
   menu?(e: React.MouseEvent): void;
+  /** One tool open at a time in this column. */
+  solo?: boolean;
+  /** Opens `title` and closes the column's other tools. */
+  openOnly?(title: string): void;
 }>({ scope: "tools" });
 
 /** The tool slot (`scope/id`) a press went down in, until it is released. */
@@ -74,17 +78,26 @@ function saveLayout(update: (layout: ToolLayout) => ToolLayout) {
 /** Whether a tool is open: the remembered state of this column, else
  * `defaultOpen`. Remembered across Library/Develop switches and restarts. */
 export function useToolOpen(title: string, defaultOpen: boolean) {
-  const { scope } = useContext(ToolColumnContext);
+  const { scope, solo, openOnly } = useContext(ToolColumnContext);
   const key = `${scope}/${title}`;
   const stored = useSettingsStore((s) => s.appSettings?.toolLayout?.open?.[key]);
   // Without settings (not loaded yet) the choice still holds for this view.
   const [local, setLocal] = useState<boolean | null>(null);
-  const open = stored ?? local ?? defaultOpen;
+  // With one tool open at a time, a tool never opened or closed starts closed
+  // (it may mount later, e.g. after switching photos).
+  const open = stored ?? local ?? (solo ? false : defaultOpen);
   const setOpen = (next: boolean) => {
     setLocal(next);
-    saveLayout((layout) => ({ ...layout, open: { ...layout.open, [key]: next } }));
+    if (next && solo && openOnly) openOnly(title);
+    else saveLayout((layout) => ({ ...layout, open: { ...layout.open, [key]: next } }));
   };
   return [open, setOpen] as const;
+}
+
+/** Opens one tool of the column and closes the others (Option-click on a
+ * tool header); undefined outside a tool column. */
+export function useToolOpenOnly() {
+  return useContext(ToolColumnContext).openOnly;
 }
 
 /** Context menu for a tool header in a column (move, open/close all). */
@@ -172,15 +185,28 @@ export function ToolColumn({
     next.splice(Math.max(0, Math.min(to, next.length)), 0, id);
     saveOrder(next);
   };
-  const setAllOpen = (open: boolean) =>
+  const solo = useSettingsStore((s) => !!s.appSettings?.toolLayout?.solo?.[scope]);
+  const columnTitles = () =>
+    [...(ref.current?.querySelectorAll<HTMLElement>("[data-tool-title]") ?? [])]
+      .filter((el) => el.closest("[data-tool-column]") === ref.current)
+      .map((el) => el.dataset.toolTitle!);
+  /** Every tool of the column open or closed, or only `only` open. */
+  const setAllOpen = (open: boolean, only?: string) =>
     saveLayout((layout) => {
-      const titles = [...(ref.current?.querySelectorAll<HTMLElement>("[data-tool-title]") ?? [])]
-        .filter((el) => el.closest("[data-tool-column]") === ref.current)
-        .map((el) => el.dataset.toolTitle!);
       const next = { ...layout.open };
-      for (const title of titles) next[`${scope}/${title}`] = open;
+      // Opening one alone also closes the column's remembered tools that are
+      // not shown right now (they may come back after a photo switch).
+      if (only !== undefined)
+        for (const key of Object.keys(next)) if (key.startsWith(`${scope}/`)) next[key] = false;
+      for (const title of columnTitles())
+        next[`${scope}/${title}`] = only === undefined ? open : title === only;
       return { ...layout, open: next };
     });
+  const setSolo = (on: boolean, title: string | undefined) => {
+    saveLayout((layout) => ({ ...layout, solo: { ...layout.solo, [scope]: on } }));
+    // Turning it on leaves the tool whose header was clicked open alone.
+    if (on && title) setAllOpen(true, title);
+  };
 
   const slotOf = (el: Element | null) => {
     const slot = el?.closest<HTMLElement>("[data-tool-slot]");
@@ -191,6 +217,8 @@ export function ToolColumn({
     if (!id) return;
     e.preventDefault();
     const at = order.indexOf(id);
+    const title = (e.currentTarget as Element).closest<HTMLElement>("[data-tool-title]")?.dataset
+      .toolTitle;
     showContextMenu(e.clientX, e.clientY, [
       {
         label: t("studio.develop.layout.moveUp"),
@@ -214,6 +242,11 @@ export function ToolColumn({
         label: t("studio.develop.layout.collapseAll"),
         icon: ChevronsDownUp,
         onClick: () => setAllOpen(false),
+      },
+      {
+        label: t("studio.develop.layout.oneOpen"),
+        checked: solo,
+        onClick: () => setSolo(!solo, title),
       },
       { type: OPTION_SEPARATOR },
       {
@@ -292,9 +325,16 @@ export function ToolColumn({
   // frozen ones included.
   const menuRef = useRef(menu);
   menuRef.current = menu;
+  const openOnlyRef = useRef((title: string) => setAllOpen(true, title));
+  openOnlyRef.current = (title: string) => setAllOpen(true, title);
   const context = useMemo(
-    () => ({ scope, menu: (e: React.MouseEvent) => menuRef.current(e) }),
-    [scope],
+    () => ({
+      scope,
+      menu: (e: React.MouseEvent) => menuRef.current(e),
+      solo,
+      openOnly: (title: string) => openOnlyRef.current(title),
+    }),
+    [scope, solo],
   );
   return (
     <ToolColumnContext.Provider value={context}>

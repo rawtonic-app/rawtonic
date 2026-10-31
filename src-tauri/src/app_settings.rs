@@ -579,6 +579,8 @@ pub struct BrushDefaults {
 pub struct ToolLayout {
     pub open: BTreeMap<String, bool>,
     pub order: BTreeMap<String, Vec<String>>,
+    /// Columns that keep one tool open at a time.
+    pub solo: BTreeMap<String, bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

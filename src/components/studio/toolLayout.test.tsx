@@ -89,6 +89,63 @@ describe("open tools", () => {
   });
 });
 
+describe("one tool open at a time", () => {
+  const isOpen = (name: string) => screen.getByText(name).closest("details")!.open;
+  const toggle = (name: string, open: boolean) => {
+    const details = screen.getByText(name).closest("details")!;
+    details.open = open;
+    fireEvent(details, new Event("toggle"));
+  };
+
+  it("is a column setting in the header menu: opening a tool then closes the others", () => {
+    render(<Column />);
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    fireEvent.click(screen.getByText("One Tool Open at a Time"));
+    expect(useSettingsStore.getState().appSettings?.toolLayout?.solo).toEqual({ "develop:all": true });
+    toggle("Beta", true);
+    expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([false, true, false]);
+    // Closing the open tool leaves all closed.
+    toggle("Beta", false);
+    expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([false, false, false]);
+    // A second choice turns it off (the closing menu may still be mounted).
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    fireEvent.click(screen.getAllByText("One Tool Open at a Time").at(-1)!);
+    expect(useSettingsStore.getState().appSettings?.toolLayout?.solo).toEqual({ "develop:all": false });
+    toggle("Alpha", true);
+    toggle("Gamma", true);
+    expect([isOpen("Alpha"), isOpen("Gamma")]).toEqual([true, true]);
+  });
+
+  it("keeps tools that appear later closed while the setting is on", () => {
+    // Codex r1: a tool mounted after switching photos (Base characteristics
+    // for a RAW) opened by default beside the one open tool.
+    useSettingsStore.setState({
+      appSettings: { toolLayout: { solo: { "develop:all": true }, open: { "develop:all/Beta": true } } } as unknown as AppSettings,
+    });
+    render(<Column />);
+    expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([false, true, false]);
+  });
+
+  it("also closes remembered tools that are not shown right now", () => {
+    // Codex r2: a tool open before a photo switch hid it came back open
+    // beside the one opened meanwhile.
+    useSettingsStore.setState({
+      appSettings: { toolLayout: { solo: { "develop:all": true }, open: { "develop:all/Delta": true } } } as unknown as AppSettings,
+    });
+    render(<Column />);
+    toggle("Beta", true);
+    expect(useSettingsStore.getState().appSettings?.toolLayout?.open?.["develop:all/Delta"]).toBe(false);
+  });
+
+  it("opens only the Option-clicked tool without the setting", () => {
+    render(<Column />);
+    expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([true, false, true]);
+    fireEvent.click(screen.getByText("Beta"), { altKey: true });
+    expect([isOpen("Alpha"), isOpen("Beta"), isOpen("Gamma")]).toEqual([false, true, false]);
+    expect(useSettingsStore.getState().appSettings?.toolLayout?.solo).toBeUndefined();
+  });
+});
+
 describe("dragging tools", () => {
   it("shows the new order while dragging and offers the default order back", async () => {
     vi.stubGlobal("PointerEvent", MouseEvent);

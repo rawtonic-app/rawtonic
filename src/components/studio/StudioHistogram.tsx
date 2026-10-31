@@ -3,6 +3,13 @@ import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { COLOR_SPACES, COLOR_SPACE_NAMES } from "../../utils/exportRecipes";
 import { histogramClipping } from "../../utils/clippingWarnings";
+import {
+  formatAperture,
+  formatFocalLength,
+  formatIso,
+  formatShutter,
+  parseExposureTime,
+} from "../../utils/captureInfo";
 import type { OutputColorSpace } from "../ui/ExportImportProperties";
 
 export function histogramBins(channel: unknown): number[] {
@@ -197,16 +204,14 @@ export default memo(function StudioHistogram() {
         {image ? (
           <>
             <span>
-              {image.exif?.ISO || image.exif?.PhotographicSensitivity
-                ? `ISO ${image.exif.ISO || image.exif.PhotographicSensitivity}`
-                : image.isRaw
-                  ? "RAW"
-                  : "RGB"}
+              {formatIso(image.exif?.ISO || image.exif?.PhotographicSensitivity) ??
+                (image.isRaw ? "RAW" : "RGB")}
             </span>
-            <span>{image.exif?.FNumber || "—"}</span>
-            <span>{image.exif?.ExposureTime || "—"}</span>
+            <span>{formatAperture(image.exif?.FNumber) ?? "—"}</span>
+            <span>{formatShutter(parseExposureTime(image.exif?.ExposureTime)) ?? "—"}</span>
             <span>
-              {image.exif?.FocalLength || `${image.width} × ${image.height}`}
+              {formatFocalLength(image.exif?.FocalLength) ??
+                `${image.width} × ${image.height}`}
             </span>
           </>
         ) : (

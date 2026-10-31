@@ -22,6 +22,31 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("professional adjustment control", () => {
+  it("marks its row while the slider or its label is dragged, and only then", () => {
+    // The pressed state must read without the tooltip (state-legibility rule):
+    // the stylesheet lights the label and enlarges the thumb on `is-active`.
+    render(
+      <AdjustmentControl label="Exposure" value={0} min={-5} max={5} step={0.01} onChange={vi.fn()} />,
+    );
+    const slider = screen.getByRole("slider", { name: "Exposure" });
+    const row = slider.closest(".adjustment-control")!;
+    expect(row.classList.contains("is-active")).toBe(false);
+    fireEvent.pointerDown(slider, { button: 0 });
+    expect(row.classList.contains("is-active")).toBe(true);
+    fireEvent.pointerUp(slider);
+    expect(row.classList.contains("is-active")).toBe(false);
+    const label = screen.getByText("Exposure");
+    // jsdom has no pointer capture.
+    label.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(label, { button: 0, clientX: 10, pointerId: 1 });
+    expect(row.classList.contains("is-active")).toBe(true);
+    fireEvent.pointerUp(label, { pointerId: 1 });
+    expect(row.classList.contains("is-active")).toBe(false);
+    // Typing a value is no drag.
+    const field = screen.getByRole("textbox");
+    fireEvent.focus(field);
+    expect(row.classList.contains("is-active")).toBe(false);
+  });
   it("clamps typed input, rejects invalid input and cancels on Escape", () => {
     const change = vi.fn();
     render(

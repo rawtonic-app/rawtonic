@@ -3018,6 +3018,7 @@
         "expandAll": "Desplega totes les eines",
         "moveDown": "Baixa",
         "moveUp": "Puja",
+        "oneOpen": "Una eina oberta alhora",
         "restoreOrder": "Restaura l'ordre predeterminat",
         "restoreOrderMenu": "Restaura l'ordre predeterminat de les eines",
         "restoreOrderTitle": "Torna les eines a l'ordre original"
@@ -3155,7 +3156,6 @@
       "whiteBalance": {
         "auto": "Balanç de blancs automàtic",
         "autoTitle": "Balanç de blancs automàtic ({{shortcut}})",
-        "camera": "Balanç de blancs de la càmera",
         "picker": "Comptagotes de balanç de blancs",
         "pickerOnBackground": "El comptagotes de balanç de blancs està disponible al fons",
         "pickNeutral": "Tria una zona neutra",

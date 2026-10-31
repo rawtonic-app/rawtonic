@@ -82,7 +82,7 @@ import { StudioSpotPanel, resetSpotSettings } from "./StudioSpotControls";
 import StudioToolCopy, { type ToolParams } from "./StudioToolCopy";
 import StudioToolPresets from "./StudioToolPresets";
 import { PRESET_TOOLS } from "./toolPresets";
-import { ToolColumn, useToolMenu, useToolOpen } from "./toolLayout";
+import { ToolColumn, useToolMenu, useToolOpen, useToolOpenOnly } from "./toolLayout";
 import StudioHistory from "./StudioHistory";
 import StudioSnapshots from "./StudioSnapshots";
 import {
@@ -145,6 +145,7 @@ export function ToolGroup({
     return () => onOpenChange?.(false);
   }, [isOpen, onOpenChange]);
   const menu = useToolMenu();
+  const openOnly = useToolOpenOnly();
   return (
     <details
       className={`studio-tool-group ${toggle && !toggle.enabled ? "is-off" : ""}`}
@@ -155,7 +156,15 @@ export function ToolGroup({
         if (e.currentTarget.open !== isOpen) setOpen(e.currentTarget.open);
       }}
     >
-      <summary onContextMenu={menu}>
+      <summary
+        onContextMenu={menu}
+        onClick={(e) => {
+          // Option-click opens this tool alone (Lightroom's panel headers).
+          if (!e.altKey || !openOnly) return;
+          e.preventDefault();
+          openOnly(title);
+        }}
+      >
         {toggle && (
           <button
             type="button"
@@ -789,6 +798,31 @@ export default function StudioDevelop() {
   );
   // Relative Temperature/Tint: JPEGs, layers and RAW edits made before the
   // Kelvin white balance (shown while they hold a correction).
+  // The picker sits in the WB row beside the presets (Lightroom and Capture
+  // One); without absolute white balance (layers, files without camera
+  // calibration) it heads the relative sliders.
+  const wbPicker = (
+    <button
+      type="button"
+      aria-label={t("studio.develop.whiteBalance.picker")}
+      aria-pressed={isWbPickerActive}
+      disabled={!panelsReady || !!layer}
+      title={
+        layer
+          ? t("studio.develop.whiteBalance.pickerOnBackground")
+          : t("studio.develop.whiteBalance.pickNeutral")
+      }
+      onClick={() => setEditor({ isWbPickerActive: !isWbPickerActive })}
+    >
+      <Pipette size={15} />
+    </button>
+  );
+  const relativePickerRow = (
+    <div className="studio-inline">
+      <span>{t("studio.develop.whiteBalance.relative")}</span>
+      {wbPicker}
+    </div>
+  );
   const relativeWhiteBalance = (
     <>
       {control(
@@ -1207,28 +1241,6 @@ export default function StudioDevelop() {
                 )
               }
             >
-              <div className="studio-inline">
-                <span>
-                  {selectedImage?.isRaw && !layer
-                    ? t("studio.develop.whiteBalance.camera")
-                    : t("studio.develop.whiteBalance.relative")}
-                </span>
-                <button
-                  aria-label={t("studio.develop.whiteBalance.picker")}
-                  aria-pressed={isWbPickerActive}
-                  disabled={!panelsReady || !!layer}
-                  title={
-                    layer
-                      ? t("studio.develop.whiteBalance.pickerOnBackground")
-                      : t("studio.develop.whiteBalance.pickNeutral")
-                  }
-                  onClick={() =>
-                    setEditor({ isWbPickerActive: !isWbPickerActive })
-                  }
-                >
-                  <Pipette size={15} />
-                </button>
-              </div>
               {selectedImage?.isRaw && !layer ? (
                 <StudioWhiteBalance
                   values={adjustments}
@@ -1237,10 +1249,19 @@ export default function StudioDevelop() {
                   onChange={change}
                   onAuto={() => void handleAutoWhiteBalance()}
                   onInteraction={onInteraction}
-                  fallback={relativeWhiteBalance}
+                  picker={wbPicker}
+                  fallback={
+                    <>
+                      {relativePickerRow}
+                      {relativeWhiteBalance}
+                    </>
+                  }
                 />
               ) : (
-                relativeWhiteBalance
+                <>
+                  {relativePickerRow}
+                  {relativeWhiteBalance}
+                </>
               )}
               {selectedImage?.isRaw &&
                 !layer &&

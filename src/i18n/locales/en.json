@@ -2890,6 +2890,7 @@
         "expandAll": "Expand All Tools",
         "moveDown": "Move Down",
         "moveUp": "Move Up",
+        "oneOpen": "One Tool Open at a Time",
         "restoreOrder": "Restore default tool order",
         "restoreOrderMenu": "Restore Default Tool Order",
         "restoreOrderTitle": "Put the tools back in their original order"
@@ -3027,7 +3028,6 @@
       "whiteBalance": {
         "auto": "Auto white balance",
         "autoTitle": "Auto white balance ({{shortcut}})",
-        "camera": "Camera white balance",
         "picker": "White balance picker",
         "pickerOnBackground": "White balance picker is available on Background",
         "pickNeutral": "Pick a neutral area",

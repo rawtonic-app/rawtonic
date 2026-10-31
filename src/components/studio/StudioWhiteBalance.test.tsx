@@ -50,6 +50,27 @@ describe("white balance", () => {
     ).toBe("asShot");
   });
 
+  it("puts the picker in the WB row beside the presets, as both reference editors do", async () => {
+    invoke.mockResolvedValue({ temperature: 6150, tint: 7 });
+    render(
+      <StudioWhiteBalance
+        values={{}}
+        imagePath="/s/a.NEF"
+        disabled={false}
+        onAuto={vi.fn()}
+        onChange={vi.fn()}
+        picker={<button type="button" aria-label="White balance picker" />}
+        fallback={<span>relative</span>}
+      />,
+    );
+    const mode = await screen.findByLabelText("White balance mode");
+    const picker = screen.getByRole("button", { name: "White balance picker" });
+    // One row: the picker is no separate row above the presets.
+    expect(mode.closest(".studio-inline")).toBe(picker.closest(".studio-inline"));
+    // A press on the picker does not open the presets (not inside their label).
+    expect(picker.closest("label")).toBeNull();
+  });
+
   it("switches to presets and to Custom when a slider moves", async () => {
     invoke.mockResolvedValue({ temperature: 6150, tint: 7 });
     const onChange = vi.fn();
