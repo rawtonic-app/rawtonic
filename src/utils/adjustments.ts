@@ -1362,7 +1362,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 10;
+export const RENDER_VERSION = 11;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1393,7 +1393,7 @@ export const unbiasedBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVer
  * a decoder's that spreads over the 2 × 2 positions more than 3 levels
  * beyond the border's (crates/engine/src/image_loader.rs
  * `BORDER_BLACK_RENDER_VERSION`). */
-export const BORDER_BLACK_RENDER_VERSION = 10;
+export const BORDER_BLACK_RENDER_VERSION = 11;
 
 /** Whether a recipe's RAW is developed with that border black, as the
  * backend decides (`image_loader::decode_variant`). */

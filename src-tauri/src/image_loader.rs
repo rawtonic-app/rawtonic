@@ -51,7 +51,7 @@ pub struct LoadImageResult {
     /// The source was developed with `BlackLevels::Unbiased` or
     /// `UnbiasedBorder` (`renderVersion` 8); None for preview data.
     pub unbiased_black: Option<bool>,
-    /// ... with `BlackLevels::UnbiasedBorder` (`renderVersion` 10); None for
+    /// ... with `BlackLevels::UnbiasedBorder` (`renderVersion` 11); None for
     /// preview data.
     pub border_black: Option<bool>,
     /// The source's clipped colours were rebuilt with
@@ -1757,14 +1757,14 @@ mod activation_tests {
             HighlightRebuild::Ratios
         );
         // ... and the border's black only beyond 8 extra levels until it
-        // is 10.
+        // is 11.
         assert_eq!(
             stored_decode_variant(&format!("{raw_str}?vc=c4")).black,
             BlackLevels::Unbiased
         );
         write(
             &dir.path().join("A.NEF.c5.rrdata"),
-            serde_json::json!({ "colorNoiseReduction": 25, "renderVersion": 10 }),
+            serde_json::json!({ "colorNoiseReduction": 25, "renderVersion": 11 }),
         );
         assert_eq!(
             stored_decode_variant(&format!("{raw_str}?vc=c5")).black,

@@ -189,11 +189,11 @@ describe('sourceDevelopToApply', () => {
     const base = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: true, highlightRatios: true };
     const decoder = { ...base, borderBlack: false };
     const border = { ...base, borderBlack: true };
-    // Saved edits before render version 10 keep the 8-level margin.
-    expect(sourceDevelopToApply(decoder, { ...v2, renderVersion: 9 }, false)).toBeNull();
-    expect(sourceDevelopToApply(border, { ...v2, renderVersion: 10 }, false)).toBeNull();
-    // Reset of an older edit (render version 10), and undo back.
-    expect(sourceDevelopToApply(decoder, { ...v2, renderVersion: 10 }, false)).toEqual({
+    // Saved edits before render version 11 keep the 8-level margin.
+    expect(sourceDevelopToApply(decoder, { ...v2, renderVersion: 10 }, false)).toBeNull();
+    expect(sourceDevelopToApply(border, { ...v2, renderVersion: 11 }, false)).toBeNull();
+    // Reset of an older edit (render version 11), and undo back.
+    expect(sourceDevelopToApply(decoder, { ...v2, renderVersion: 11 }, false)).toEqual({
       aiDenoise: 0,
       multiscale: true,
       deadPixelAdjacent: true,
@@ -201,7 +201,7 @@ describe('sourceDevelopToApply', () => {
       borderBlack: true,
       highlightRatios: true,
     });
-    expect(sourceDevelopToApply(border, { ...v2, renderVersion: 9 }, false)).toEqual({
+    expect(sourceDevelopToApply(border, { ...v2, renderVersion: 10 }, false)).toEqual({
       aiDenoise: 0,
       multiscale: true,
       deadPixelAdjacent: true,
@@ -211,8 +211,8 @@ describe('sourceDevelopToApply', () => {
     });
     // Failed before: not retried; unknown (preview data) waits.
     expect(
-      sourceDevelopToApply({ ...decoder, borderBlackFailed: true }, { ...v2, renderVersion: 10 }, false),
+      sourceDevelopToApply({ ...decoder, borderBlackFailed: true }, { ...v2, renderVersion: 11 }, false),
     ).toBeNull();
-    expect(sourceDevelopToApply(base, { ...v2, renderVersion: 10 }, false)).toBeNull();
+    expect(sourceDevelopToApply(base, { ...v2, renderVersion: 11 }, false)).toBeNull();
   });
 });

@@ -769,7 +769,7 @@ export interface LoadImageResult {
    * null for preview data. */
   unbiased_black?: boolean | null;
   /** ... and with the masked border's black beyond 3 extra levels
-   * (`renderVersion` 10); null for preview data. */
+   * (`renderVersion` 11); null for preview data. */
   border_black?: boolean | null;
   /** The source's clipped colours were rebuilt from colour ratios
    * (`renderVersion` 9); null for preview data. */

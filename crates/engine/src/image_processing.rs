@@ -5812,9 +5812,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// 10 (2026-11-01) keeps the neutral look's black point at a scene level
 /// that Exposure and the baseline move only a quarter as fast, under a soft
 /// toe (`baseline_exposure::SCENE_BLACK_RENDER_VERSION`): Exposure and
-/// extended low ISOs keep Camera Raw's deepest shadows.
+/// extended low ISOs keep Camera Raw's deepest shadows. 11 (2026-11-01)
+/// takes the masked sensor border's black levels when the decoder's spread
+/// over the 2 × 2 positions exceeds the border's by more than 3 levels
+/// (`image_loader::BORDER_BLACK_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 10;
+pub const RENDER_VERSION: u64 = 11;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

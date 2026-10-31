@@ -1796,10 +1796,7 @@ fn use_masked_black(raw_image: &mut RawImage, max_extra_spread: f32) {
         return;
     };
     let decoder = raw_image.blacklevel.as_bayer_array();
-    let spread = |v: &[f32]| {
-        v.iter().copied().fold(f32::MIN, f32::max) - v.iter().copied().fold(f32::MAX, f32::min)
-    };
-    if spread(&decoder) > spread(&masked) + max_extra_spread {
+    if crate::black_bias::border_replaces(&decoder, &masked, max_extra_spread) {
         log::info!("Black level from the masked border: {masked:?} (decoder {decoder:?})");
         raw_image.blacklevel = rawler::rawimage::BlackLevel::new(&masked, 2, 2, 1);
     }

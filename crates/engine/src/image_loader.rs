@@ -178,7 +178,7 @@ pub struct DecodeVariant {
     pub frame: u32,
     /// The black handling (black_bias.rs): `BlackLevels::Unbiased` from
     /// `renderVersion` 8, so lifted high-ISO shadows keep their level and
-    /// colour, `BlackLevels::UnbiasedBorder` from 10.
+    /// colour, `BlackLevels::UnbiasedBorder` from 11.
     pub black: BlackLevels,
     /// How clipped colours are rebuilt (highlight_reconstruction.rs):
     /// `HighlightRebuild::Ratios` from `renderVersion` 9, so large partly
@@ -202,7 +202,7 @@ pub const BLACK_RENDER_VERSION: u64 = 8;
 /// `black_bias::BORDER_NOISE` levels beyond the border's
 /// (`BlackLevels::UnbiasedBorder`; notes:
 /// benchmark-results/cb-channel-black-2026-11-01/).
-pub const BORDER_BLACK_RENDER_VERSION: u64 = 10;
+pub const BORDER_BLACK_RENDER_VERSION: u64 = 11;
 
 /// The render version from which clipped colours inside larger partly
 /// clipped areas are rebuilt from colour ratios measured away from the clip
@@ -2151,9 +2151,9 @@ mod decode_variant_tests {
         assert_eq!(black(json!({ "exposure": 1 })), BlackLevels::Clipped);
         assert_eq!(black(json!({ "renderVersion": 7 })), BlackLevels::Clipped);
         assert_eq!(black(json!({ "renderVersion": 8 })), BlackLevels::Unbiased);
-        assert_eq!(black(json!({ "renderVersion": 9 })), BlackLevels::Unbiased);
+        assert_eq!(black(json!({ "renderVersion": 10 })), BlackLevels::Unbiased);
         assert_eq!(
-            black(json!({ "renderVersion": 10 })),
+            black(json!({ "renderVersion": 11 })),
             BlackLevels::UnbiasedBorder
         );
         assert_eq!(black(json!({})), BlackLevels::UnbiasedBorder);

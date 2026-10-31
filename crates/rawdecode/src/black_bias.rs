@@ -40,7 +40,7 @@ pub enum BlackLevels {
     /// As `Unbiased`, with the border's black taken already when the
     /// decoder's levels spread over the 2 × 2 positions more than
     /// `BORDER_NOISE` levels beyond the border's own spread (`renderVersion`
-    /// 10).
+    /// 11).
     UnbiasedBorder,
 }
 
@@ -331,6 +331,17 @@ fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Whether the masked border's levels per position (`masked`) replace the
+/// decoder's (`decoder`): when the decoder's spread over the positions
+/// exceeds the border's own by more than `margin` levels
+/// (`BlackLevels::border_margin`).
+pub fn border_replaces(decoder: &[f32], masked: &[f32], margin: f32) -> bool {
+    let spread = |v: &[f32]| {
+        v.iter().copied().fold(f32::MIN, f32::max) - v.iter().copied().fold(f32::MAX, f32::min)
+    };
+    spread(decoder) > spread(masked) + margin
+}
+
 /// The black level per position of a `period_w` × `period_h` repeat, read
 /// from the masked `areas` of a mosaic (`width` wide, `sample(index)`), the
 /// part of each area outside `active` only. None without enough masked
@@ -454,6 +465,44 @@ mod tests {
         // The lower quartile of the blocks' estimates sits below the mean.
         assert!((0.6e-4..1.2e-4).contains(&slope), "slope {slope}");
         assert!((0.4e-6..1.5e-6).contains(&floor), "floor {floor}");
+    }
+
+    #[test]
+    fn the_border_replaces_a_decoder_spread_beyond_its_margin_only() {
+        let border = [1024.5, 1024.5, 1023.7, 1024.8];
+        // The EOS 500D at ISO 3200: maker notes 7 levels apart, the border's
+        // own spread 1.1 (5.9 beyond).
+        let maker = [1021.0, 1020.0, 1027.0, 1026.0];
+        let margin = |black: BlackLevels| black.border_margin();
+        assert_eq!(margin(BlackLevels::Clipped), None);
+        assert!(!border_replaces(
+            &maker,
+            &border,
+            margin(BlackLevels::Unbiased).unwrap()
+        ));
+        assert!(border_replaces(
+            &maker,
+            &border,
+            margin(BlackLevels::UnbiasedBorder).unwrap()
+        ));
+        // Exactly the margin beyond keeps the decoder's levels.
+        let at_margin = [1020.0, 1020.0, 1020.0 + 1.1 + BORDER_NOISE, 1021.0];
+        assert!(!border_replaces(&at_margin, &border, BORDER_NOISE));
+        // Beyond 8 levels both margins take the border (EOS 7D at ISO 12800).
+        let seven_d = [2036.0, 2032.0, 2061.0, 2057.0];
+        let seven_d_border = [2047.2, 2047.7, 2043.9, 2044.1];
+        for black in [BlackLevels::Unbiased, BlackLevels::UnbiasedBorder] {
+            assert!(border_replaces(
+                &seven_d,
+                &seven_d_border,
+                margin(black).unwrap()
+            ));
+        }
+        // A border that spreads more than the decoder never replaces it
+        // (EOS 50D at ISO 100).
+        let fifty_d = [1023.0, 1023.0, 1024.0, 1024.0];
+        let fifty_d_border = [1024.1, 1030.6, 1018.0, 1020.9];
+        assert!(!border_replaces(&fifty_d, &fifty_d_border, BORDER_NOISE));
     }
 
     #[test]

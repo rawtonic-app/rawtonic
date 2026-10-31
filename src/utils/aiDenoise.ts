@@ -63,7 +63,7 @@ export interface SourceDevelop {
    * recipe's). */
   unbiasedBlack?: boolean;
   /** With the masked border's black beyond 3 extra levels (`renderVersion`
-   * 10; undefined: the stored recipe's). */
+   * 11; undefined: the stored recipe's). */
   borderBlack?: boolean;
   /** With the ratio highlight rebuild (`renderVersion` 9; undefined: the
    * stored recipe's). */
@@ -122,7 +122,7 @@ export function sourceDevelopToApply(
   const haveBlack = image.unbiasedBlack;
   const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
   const black = wantedBlack === image.unbiasedBlackFailed ? haveBlack : wantedBlack;
-  // And for the border's black (`renderVersion` 10).
+  // And for the border's black (`renderVersion` 11).
   const haveBorder = image.borderBlack;
   const wantedBorder = image.offline || haveBorder === undefined ? haveBorder : borderBlack(adjustments);
   const border = wantedBorder === image.borderBlackFailed ? haveBorder : wantedBorder;
