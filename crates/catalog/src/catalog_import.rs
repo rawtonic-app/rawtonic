@@ -399,19 +399,26 @@ impl Library {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
         record.origin = other.manifest.id.clone();
+        let (_, exported) = self.baselines(other, other_dir);
         for (incoming, target) in pairs {
             let theirs = other.import_digests(incoming, other_dir, &mut digests)?;
             let ours = self.import_digests(target, &self.directory, &mut digests)?;
-            // Each of their snapshots is here as it is there; snapshots only
-            // here (a replaced edit kept as "Before import") do not count, so
-            // the all-snapshots digest is left out.
-            let same = theirs
-                .iter()
-                .filter(|(part, _)| part.as_str() != "snapshots")
-                .all(|(part, digest)| ours.get(part) == Some(digest));
-            if same {
-                record.photos.insert(incoming.clone(), theirs);
+            // Part by part: a part the same in both now is their new common
+            // state; one that differs (an album or virtual copy only here, a
+            // replaced edit kept as a snapshot here) keeps the state recorded
+            // before, else none (a later import counts it as both sides).
+            let mut common = record
+                .photos
+                .get(incoming)
+                .or_else(|| exported.as_ref().and_then(|b| b.photos.get(incoming)))
+                .cloned()
+                .unwrap_or_default();
+            for (part, digest) in &theirs {
+                if ours.get(part) == Some(digest) {
+                    common.insert(part.clone(), digest.clone());
+                }
             }
+            record.photos.insert(incoming.clone(), common);
         }
         std::fs::create_dir_all(&folder)?;
         rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;

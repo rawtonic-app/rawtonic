@@ -913,6 +913,13 @@ fn travel_marks_the_xmp_pending_and_keeps_its_checksum() {
 fn the_common_state_advances_past_a_replaced_edit() {
     let (_tmp, w) = world();
     let a = &w.ids[0];
+    // Review round 3: an album and a virtual copy only here (an import
+    // keeps them) do not stop the common state from advancing.
+    let local = w.main.create_collection("Only here", None).unwrap();
+    w.main
+        .add_to_collection(&local.id, std::slice::from_ref(a))
+        .unwrap();
+    w.main.save_copy_state(a, "c0ffee", &edit(0.9)).unwrap();
     let there = w.laptop.primary_version(a).unwrap();
     w.laptop.save_editor_state(a, &edit(1.2)).unwrap();
     let snap = w
