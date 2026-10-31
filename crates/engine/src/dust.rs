@@ -7,15 +7,20 @@
 //! a reduced copy of the base image (the photo as decoded, so positions are
 //! sensor positions): square root of the linear luminance, where photon
 //! noise is about even across brightness. At several sizes it compares the
-//! mean of a box with the ring around it (a centre-surround filter that a
-//! smooth gradient does not answer); the strongest size per pixel and the
-//! local maxima over the photo are the candidates. A candidate is kept only
-//! where the wider surroundings are flat: what is left of their variance
-//! after a plane fit (a sky gradient) is at most photon noise plus a small
-//! share of the spot's own contrast, so edges, lines, text and fine texture
-//! are left out; very dark or bright surroundings (dust invisible there,
-//! clipped values) and strong contrast (objects, not dust) too, and every
-//! face box the caller gives.
+//! mean of a box with the two middle sides of the ring around it (a smooth
+//! gradient cancels, and the edge of a cloud or a branch on one side does
+//! not answer); the strongest size per pixel and the local maxima over the
+//! photo are the candidates. Each is judged against a plane fitted robustly
+//! to its wider surroundings (other dust, a cloud's edge or a branch in a
+//! part of them are left out of the fit): the surroundings must be flat
+//! (their robust spread at most a share of the darkening), the spot round
+//! (darker in each quarter), its rim even (no line or edge crossing it) and
+//! its shadow soft. Specks around it that are not dust (darker ones that
+//! fail these tests, lighter ones: grain and mottled surfaces have both)
+//! may be few, while dust among other dust is kept. Very dark or bright
+//! surroundings (dust invisible there, clipped values), strong contrast
+//! (objects, not dust) and every face box the caller gives are left out.
+//! The heal circle reaches as far as the shadow's soft rim, measured.
 //!
 //! The analysis is independent of the sensitivity: it keeps every candidate
 //! down to the most sensitive setting with its contrast, so the sensitivity
@@ -63,10 +68,10 @@ struct Gates {
     texture_per_contrast: f32,
     /// … and at most this share of their brightness.
     max_texture: f32,
-    /// The spot's own rim (the ring just outside it, in eight sectors) may
-    /// differ from the plane by at most this share of the darkening between
-    /// its lightest and darkest sector: a line or an edge crossing the spot
-    /// makes one side darker or lighter, a dust shadow does not.
+    /// The lightest and the darkest of the rim's eight sectors (the ring
+    /// just outside the spot, against the plane) may differ by at most this
+    /// share of the darkening: a line or an edge crossing the spot makes
+    /// one side darker or lighter, a dust shadow does not.
     rim_spread: f32,
     /// Each quarter of the spot is at least this share of its darkening
     /// darker than the plane: a dust shadow is round, the end of a branch
@@ -900,8 +905,8 @@ fn distance_to(path: &[(f64, f64)], p: (f64, f64)) -> f64 {
 /// centre, radius as a share of the unrotated width), which `sync_items`
 /// and a later run use to recognise the same dust. A source stays clear
 /// of `analysis`'s candidates (other dust, down to the most sensitive
-/// setting) and prefers an even inside. Spots without a source are left
-/// out.
+/// setting) where it can and prefers an even inside. Spots without a
+/// source (no room in the photo) are left out.
 pub fn heal_spots(
     base: &DynamicImage,
     adjustments: &Value,
@@ -923,13 +928,18 @@ pub fn heal_spots(
                 .filter(|o| o.centre != c.centre)
                 .map(|o| (o.centre, o.radius))
                 .collect();
+            // Among very dense dust no source may stay clear: then the
+            // nearest dust is allowed rather than leaving the spot out.
             let source = crate::spot_removal::best_source_with(
                 &image,
                 c.centre,
                 c.radius,
                 &avoid,
                 SOURCE_UNEVEN,
-            )?;
+            )
+            .or_else(|| {
+                crate::spot_removal::best_source_with(&image, c.centre, c.radius, &[], SOURCE_UNEVEN)
+            })?;
             let (sx, sy) = crate::spot_removal::to_mask_point(
                 adjustments,
                 frame,
