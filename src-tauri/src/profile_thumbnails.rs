@@ -63,7 +63,18 @@ pub(crate) fn frame_tiles(tiles: &[Option<Vec<u8>>]) -> Vec<u8> {
 /// asks for other tiles).
 #[tauri::command]
 pub fn cancel_profile_thumbnails(generation: u64) {
-    LATEST.fetch_max(generation, Ordering::SeqCst);
+    cancel(&LATEST, generation);
+}
+
+/// Marks batches up to `generation` cancelled; the browser's next batch
+/// (`generation + 1`) still runs.
+fn cancel(latest: &AtomicU64, generation: u64) {
+    latest.fetch_max(generation.saturating_add(1), Ordering::SeqCst);
+}
+
+/// Whether the batch `generation` was cancelled or overtaken.
+fn cancelled(latest: &AtomicU64, generation: u64) -> bool {
+    latest.load(Ordering::SeqCst) > generation
 }
 
 /// Tiles of `path` (the open photograph) developed with `adjustments` and
@@ -138,7 +149,7 @@ fn render_tiles(
     let tm_override = resolve_tonemapper_override_from_handle(app_handle, loaded_image.is_raw);
     let mut tiles = Vec::with_capacity(variants.len());
     for variant in variants {
-        if LATEST.load(Ordering::SeqCst) > generation {
+        if cancelled(&LATEST, generation) {
             tiles.push(None);
             continue;
         }
@@ -214,6 +225,23 @@ mod tests {
             calculate_transform_hash(&look),
             calculate_transform_hash(&recipe)
         );
+    }
+
+    #[test]
+    fn closing_cancels_the_running_batch_but_not_the_next() {
+        let latest = AtomicU64::new(0);
+        // Batch 3 starts (the command stores its generation).
+        latest.fetch_max(3, Ordering::SeqCst);
+        assert!(!cancelled(&latest, 3));
+        cancel(&latest, 3);
+        assert!(cancelled(&latest, 3));
+        // The browser's next batch runs; an older one stays cancelled.
+        latest.fetch_max(4, Ordering::SeqCst);
+        assert!(!cancelled(&latest, 4));
+        assert!(cancelled(&latest, 2));
+        // A newer batch overtakes an older one still rendering.
+        latest.fetch_max(5, Ordering::SeqCst);
+        assert!(cancelled(&latest, 4));
     }
 
     #[test]

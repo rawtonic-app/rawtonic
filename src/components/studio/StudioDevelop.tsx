@@ -1426,10 +1426,15 @@ export default function StudioDevelop() {
                   : []),
                 ["lutPath", "LUT"],
                 ["lutIntensity", t("studio.develop.params.lutAmount")],
+                // The browser's black-and-white mixes.
+                ["blackAndWhite", t("studio.develop.params.blackAndWhite")],
+                ["grayMixer", t("studio.develop.params.bwMix")],
               ])}
               onReset={() =>
                 change({
                   cameraProfile: undefined,
+                  blackAndWhite: false,
+                  grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer! },
                   lutPath: null,
                   lutName: null,
                   lutData: null,

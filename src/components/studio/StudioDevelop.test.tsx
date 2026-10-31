@@ -282,6 +282,26 @@ describe("Develop tool contracts", () => {
     ).toBe(0);
   });
 
+  it("resets the profile: camera profile, look and the browser's black-and-white mix", () => {
+    useEditorStore.setState((state) => ({
+      adjustments: {
+        ...state.adjustments,
+        lutPath: "/res/Warm 200.cube",
+        lutIntensity: 150,
+        blackAndWhite: true,
+        grayMixer: { ...state.adjustments.grayMixer!, blue: -40 },
+      },
+    }));
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole("button", { name: "Reset Profile" }));
+    const after = useEditorStore.getState().adjustments;
+    expect(after.lutPath ?? null).toBeNull();
+    expect(after.lutIntensity).toBe(100);
+    expect(after.blackAndWhite).toBe(false);
+    expect(after.grayMixer?.blue).toBe(0);
+  });
+
   it("resets vignette and grain independently in their own tabs", () => {
     mount();
     openGroups();
