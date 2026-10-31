@@ -759,6 +759,32 @@ pub async fn session_ingest_scan(
     .map_err(|e| e.to_string())?
 }
 
+/// What Folders › "Add Folder…" would register of `folder` (with its
+/// subfolders when `subfolders`) in the catalog at `directory`, where the
+/// files are (`ingest::folder_add::plan_folder_add`): the files go to
+/// `session_ingest` with mode `add`, the one registration path. Reads only.
+#[tauri::command]
+pub async fn catalog_add_folder_scan(
+    directory: String,
+    folder: String,
+    subfolders: bool,
+) -> Result<rawtonic_ingest::folder_add::FolderPlan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        rawtonic_ingest::folder_add::plan_folder_add(
+            &lib,
+            Path::new(&folder),
+            subfolders,
+            |path| crate::formats::is_supported_image_file(path),
+            pair_raw(None),
+            SCAN_LIMIT,
+        )
+        .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// A small JPEG preview of a photograph to import (the import dialog's
 /// grid), from its embedded camera preview; empty when there is none quickly.
 #[tauri::command]

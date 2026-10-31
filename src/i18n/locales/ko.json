@@ -1329,6 +1329,27 @@
     }
   },
   "session": {
+    "addFolder": {
+      "add_other": "사진 {{count}}장 추가",
+      "banner_other": "“{{name}}”의 사진 {{count}}장이 여기 표시되지만 카탈로그에는 없습니다. 개수, 검색, 내보내기에서 빠집니다.",
+      "bannerAdd": "이 사진들을 카탈로그에 추가",
+      "bannerLater": "나중에",
+      "cancel": "취소",
+      "copy": "이 프로젝트에 복사…",
+      "failed": "폴더를 읽을 수 없습니다: {{error}}",
+      "intro": "사진은 있는 자리에서 추가됩니다. 복사, 이동하거나 옆에 쓰는 것은 없습니다. RAW+JPEG 쌍은 사진 한 장이 되고, XMP 파일의 별점, 레이블, 키워드를 읽습니다.",
+      "nothing": "새 사진이 없습니다. 여기 있는 것은 모두 이미 카탈로그에 있습니다.",
+      "owned_other": "파일 {{count}}개는 “{{name}}”의 것이라 추가되지 않습니다. 작업하려면 그 라이브러리를 여세요.",
+      "reading": "폴더 읽는 중…",
+      "registered_other": "이미 카탈로그에 있는 파일 {{count}}개는 건너뜁니다.",
+      "sessionNote": "여기에 표시만 되고 추가되지 않습니다. 프로젝트는 자체 파일을 보관합니다. 이 프로젝트에서 이 사진으로 작업하려면 복사해 넣으세요.",
+      "sessionTitle": "“{{name}}” 보기",
+      "show": "폴더 보기",
+      "subfolders": "하위 폴더 포함",
+      "title": "“{{name}}”을(를) 카탈로그에 추가",
+      "toAdd_other": "추가할 사진 {{count}}장",
+      "truncated": "이번에는 처음 {{n}}개 파일만 추가됩니다. 나머지는 폴더를 다시 추가하세요."
+    },
     "bar": {
       "hotFolder": "감시 폴더",
       "hotFolderCount": "감시 폴더 · {{imported}}",

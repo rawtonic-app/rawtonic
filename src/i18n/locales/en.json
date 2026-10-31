@@ -1344,6 +1344,32 @@
     }
   },
   "session": {
+    "addFolder": {
+      "add_one": "Add {{count}} photo",
+      "add_other": "Add {{count}} photos",
+      "banner_one": "{{count}} photo in “{{name}}” is shown here but not in the catalog: it is not counted, searched or exported.",
+      "banner_other": "{{count}} photos in “{{name}}” are shown here but not in the catalog: they are not counted, searched or exported.",
+      "bannerAdd": "Add these photos to the catalog",
+      "bannerLater": "Not now",
+      "cancel": "Cancel",
+      "copy": "Copy into this project…",
+      "failed": "The folder could not be read: {{error}}",
+      "intro": "Its photos are added where they are: nothing is copied, moved or written beside them. RAW+JPEG pairs come in as one photo; ratings, labels and keywords in XMP sidecars are read.",
+      "nothing": "No new photos: everything here is in the catalog already.",
+      "owned_one": "{{count}} file belongs to “{{name}}” and is not added: open that library to work on it.",
+      "owned_other": "{{count}} files belong to “{{name}}” and are not added: open that library to work on them.",
+      "reading": "Reading the folder…",
+      "registered_one": "{{count}} file already in the catalog is skipped.",
+      "registered_other": "{{count}} files already in the catalog are skipped.",
+      "sessionNote": "Shown here, not added — projects keep their own files. To work on these photos in this project, copy them in.",
+      "sessionTitle": "Show “{{name}}”",
+      "show": "Show folder",
+      "subfolders": "Include subfolders",
+      "title": "Add “{{name}}” to the catalog",
+      "toAdd_one": "{{count}} photo to add",
+      "toAdd_other": "{{count}} photos to add",
+      "truncated": "Only the first {{n}} files are added this time; add the folder again for the rest."
+    },
     "bar": {
       "hotFolder": "Hot folder",
       "hotFolderCount": "Hot folder · {{imported}}",

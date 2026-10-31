@@ -1329,6 +1329,27 @@
     }
   },
   "session": {
+    "addFolder": {
+      "add_other": "加入 {{count}} 張照片",
+      "banner_other": "「{{name}}」中的 {{count}} 張照片顯示在這裡，但不在目錄中：不會被計數、搜尋或匯出。",
+      "bannerAdd": "將這些照片加入目錄",
+      "bannerLater": "以後再說",
+      "cancel": "取消",
+      "copy": "複製到此專案…",
+      "failed": "無法讀取資料夾：{{error}}",
+      "intro": "照片在原位置加入：不會複製、移動或在其旁邊寫入任何內容。RAW+JPEG 成對的檔案作為一張照片加入；會讀取 XMP 檔案中的評等、標籤和關鍵字。",
+      "nothing": "沒有新照片：這裡的一切都已在目錄中。",
+      "owned_other": "{{count}} 個檔案屬於「{{name}}」，不會加入：請開啟該資料庫來處理它們。",
+      "reading": "正在讀取資料夾…",
+      "registered_other": "已略過目錄中已有的 {{count}} 個檔案。",
+      "sessionNote": "僅在此顯示，不會加入——專案保存自己的檔案。要在此專案中處理這些照片，請將其複製進來。",
+      "sessionTitle": "顯示「{{name}}」",
+      "show": "顯示資料夾",
+      "subfolders": "包括子資料夾",
+      "title": "將「{{name}}」加入目錄",
+      "toAdd_other": "要加入 {{count}} 張照片",
+      "truncated": "這次只加入前 {{n}} 個檔案；再次加入該資料夾以加入其餘檔案。"
+    },
     "bar": {
       "hotFolder": "監看資料夾",
       "hotFolderCount": "監看資料夾 · {{imported}}",

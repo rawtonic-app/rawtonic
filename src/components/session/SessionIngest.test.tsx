@@ -11,6 +11,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import type { AppSettings } from "../ui/AppProperties";
 import { requestFolderSync } from "../../utils/folderSync";
+import { requestAddFolder } from "./addFolder";
 
 type DragDropPayload =
   | { type: "enter"; paths: string[]; position: { x: number; y: number } }
@@ -589,5 +590,83 @@ describe("Copy or add where they are (catalogs)", () => {
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Copy 2 photos" })).toBeTruthy();
+  });
+});
+
+describe("Folders › Add Folder… (G39 AF)", () => {
+  const catalog: SessionSummary = {
+    ...summary,
+    directory: "/Users/me/Main.catalog",
+    manifest: { ...summary.manifest, name: "Main", mode: "catalog" },
+  };
+  const files = ["/Volumes/Archive/2026/B.CR3", "/Volumes/Archive/2026/day2/C.CR3"];
+  const respond = (library: SessionSummary) =>
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_last" || command === "session_summary") return library;
+      if (command === "session_flags") return {};
+      if (command === "catalog_add_folder_scan")
+        return { files, photographs: 2, registered: 1, owned: [], truncated: false };
+      if (command === "session_ingest_scan")
+        return {
+          files: files.map((path) => ({ path, size: 1, duplicate: false, medium: "disk" })),
+          truncated: false,
+        };
+      if (command === "session_ingest")
+        return (args as { sources: string[] }).sources.map((source) => ({
+          source,
+          destination: source,
+          skipped: false,
+          error: null,
+        }));
+      return { path: library.directory, children: [] };
+    });
+
+  it("in a catalog, shows the folder and registers its photographs where they are, as one ingest", async () => {
+    const user = userEvent.setup();
+    lastSession = catalog;
+    respond(catalog);
+    const navigate = vi.fn(async () => {});
+    render(
+      <ContextMenuProvider>
+        <SessionWorkspace onNavigate={navigate} />
+      </ContextMenuProvider>,
+    );
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    const show = vi.fn(async () => {});
+    act(() => {
+      expect(requestAddFolder({ folder: "/Volumes/Archive/2026", show })).toBe(true);
+    });
+    await screen.findByText("2 photos to add");
+    expect(screen.getByText("1 file already in the catalog is skipped.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add 2 photos" }));
+    await waitFor(() => expect(ingestCall()).toBeTruthy());
+    expect(show).toHaveBeenCalled();
+    expect(ingestCall()![1]).toMatchObject({
+      directory: "/Users/me/Main.catalog",
+      mode: "add",
+      sources: files,
+      folder: null,
+      separateJpeg: false,
+      metadata: null,
+      album: null,
+    });
+    expect(navigate).toHaveBeenLastCalledWith("/Volumes/Archive/2026");
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("2 photos added"));
+  });
+
+  it("in a project, the folder is only shown; Copy into this project… opens the verified copy import", async () => {
+    const user = userEvent.setup();
+    respond(summary);
+    await open();
+    const show = vi.fn(async () => {});
+    act(() => {
+      requestAddFolder({ folder: "/Volumes/Archive/2026", show });
+    });
+    await screen.findByText(/projects keep their own files/);
+    await user.click(screen.getByRole("button", { name: "Copy into this project…" }));
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
+    expect(screen.getByRole("button", { name: "Copy 2 photos" })).toBeTruthy();
+    expect(show).not.toHaveBeenCalled();
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === "catalog_add_folder_scan")).toBe(false);
   });
 });

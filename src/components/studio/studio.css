@@ -5531,6 +5531,30 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   justify-content: flex-end;
   gap: 8px;
 }
+/* Add Folder… (G39 AF): the chosen folder in full, and the banner over the
+   grid of a listed folder whose photographs are not in the catalog yet. */
+.studio-add-folder-path {
+  overflow-wrap: anywhere;
+}
+.studio-unadded-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #2a2b2e;
+  border-bottom: 1px solid var(--studio-line, #333);
+  color: var(--studio-text);
+  font-size: 12px;
+}
+.studio-unadded-banner p {
+  flex: 1;
+  margin: 0;
+}
+.studio-unadded-banner button {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
 .studio-metadata-action {
   margin-top: 6px;
   align-self: flex-start;

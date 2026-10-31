@@ -4,6 +4,7 @@ pub mod capture;
 pub mod catalog_export;
 pub mod catalog_import;
 mod copy;
+pub mod folder_add;
 pub mod hot_folder;
 pub mod metadata;
 pub mod queue;

@@ -90,6 +90,8 @@ import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
 import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
 import { switchLibraryAfterSaves } from "../../utils/quit";
+import AddFolderDialog from "./AddFolderDialog";
+import { listenForAddFolder, type AddFolderDetail } from "./addFolder";
 
 export interface SessionSummary {
   directory: string;
@@ -1294,6 +1296,19 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     return () => window.removeEventListener(OPEN_INGEST_EVENT, open);
   }, []);
 
+  // Folders › "Add Folder…" (useAppNavigation): its dialog, for the folder chosen.
+  const [addFolder, setAddFolder] = useState<AddFolderDetail | null>(null);
+  const openAddFolder = useRef<(detail: AddFolderDetail) => void>(() => {});
+  openAddFolder.current = (detail) => {
+    if (!session) return void detail.show();
+    if (importing) {
+      notify.info(t("session.drop.importing"));
+      return;
+    }
+    setAddFolder(detail);
+  };
+  useEffect(() => listenForAddFolder((detail) => openAddFolder.current(detail)), []);
+
   // Recomputed whenever the sources or the target change, never kept from
   // the last import (ingestMode.ts has the rules).
   const modeChoice = preselectIngestMode({
@@ -1321,19 +1336,52 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     const files = sources.filter((file) => chosen.has(file.path)).map((file) => file.path);
     if (!files.length) return;
     const adding = ingestMode === "add";
-    const folder = adding ? null : target.folder;
-    const album = addToAlbum ? target.album : null;
+    setForm(null);
+    await runIngest(files, {
+      adding,
+      folder: adding ? null : target.folder,
+      album: addToAlbum ? target.album : null,
+      separateJpeg,
+      metadata: importMetadata,
+    });
+  };
+
+  /** Runs an ingest of `files` (the import dialog's, or Folders › Add
+   * Folder… in a catalog, which adds where they are): one task of the
+   * activity centre with Cancel, the photographs appearing as each comes
+   * in, the result reported, the library's counts refreshed. */
+  const runIngest = async (
+    files: string[],
+    {
+      adding,
+      folder,
+      album,
+      separateJpeg,
+      metadata,
+      destination: shown,
+    }: {
+      adding: boolean;
+      folder: string | null;
+      album: { id: string; name: string } | null;
+      separateJpeg: boolean;
+      metadata: ImportMetadata | null;
+      /** The folder the grid shows meanwhile (else the first one's). */
+      destination?: string;
+    },
+  ) => {
+    if (!session) return;
     cancelRequested.current = false;
     setImporting(true);
     setProgress({ current: 0, total: files.length, mbps: 0 });
-    setForm(null);
     try {
       // The grid shows where the photographs go, and they appear in it as
       // each is copied (useTauriListeners, `session-ingest-imported`).
       // Added photographs appear in their own folders: the first one's is shown.
-      const destination = adding
-        ? files[0].slice(0, Math.max(files[0].lastIndexOf("/"), files[0].lastIndexOf("\\")))
-        : (folder ?? (await join(session.directory, session.manifest.capture)));
+      const destination =
+        shown ??
+        (adding
+          ? files[0].slice(0, Math.max(files[0].lastIndexOf("/"), files[0].lastIndexOf("\\")))
+          : (folder ?? (await join(session.directory, session.manifest.capture))));
       setImportMode(adding ? "add" : "copy");
       if (useUIStore.getState().activeView !== "editor") await onNavigate(destination);
       // Cancel pressed before the ingest started (the backend clears its
@@ -1349,7 +1397,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         backup,
         folder,
         separateJpeg,
-        metadata: importMetadata,
+        metadata,
         // Kept with the ingest job, so a resumed import fills the album too.
         album: album?.id ?? null,
       });
@@ -1663,6 +1711,38 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           await switchLibraryAfterSaves(async () =>
             navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
         }} />}
+      {addFolder && session && (
+        <AddFolderDialog
+          folder={addFolder.folder}
+          directory={session.directory}
+          catalog={session.manifest.mode === "catalog"}
+          onClose={() => setAddFolder(null)}
+          onShow={() => {
+            setAddFolder(null);
+            void addFolder.show();
+          }}
+          onCopy={() => {
+            // The verified copy import with the folder's photographs (G39 AF).
+            setAddFolder(null);
+            openIngest([addFolder.folder]);
+          }}
+          onAdd={(files) => {
+            setAddFolder(null);
+            void (async () => {
+              // Listed in Folders and shown while its photographs come in.
+              await addFolder.show();
+              await runIngest(files, {
+                adding: true,
+                folder: null,
+                album: null,
+                separateJpeg: false,
+                metadata: null,
+                destination: addFolder.folder,
+              });
+            })();
+          }}
+        />
+      )}
       {catalogImport && session && <CatalogImportDialog directory={session.directory}
         onClose={() => setCatalogImport(false)} onDone={async () => {
           const directory = session.directory;

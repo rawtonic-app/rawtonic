@@ -78,6 +78,7 @@ export enum Invokes {
   SessionOpen = 'session_open',
   SessionCreate = 'session_create',
   SessionIngestScan = 'session_ingest_scan',
+  CatalogAddFolderScan = 'catalog_add_folder_scan',
   SessionIngest = 'session_ingest',
   SessionIngestJobs = 'session_ingest_jobs',
   SessionIngestResume = 'session_ingest_resume',
