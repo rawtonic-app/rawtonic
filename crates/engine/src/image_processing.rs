@@ -4286,7 +4286,10 @@ pub struct GlobalAdjustments {
     /// 1 = `BaseLook::apply` adds the capture gain to `baseline_exposure`.
     /// Read on the CPU only (the shader's struct ends before it).
     pub capture_gain: u32,
-    pub gamut_mapping_padding: u32,
+    /// renderVersion 10 (`baseline_exposure::SCENE_BLACK_RENDER_VERSION`):
+    /// 1 = `BaseLook::apply` flags the scene-referred black point and soft
+    /// toe for the shader. Read on the CPU only, like `capture_gain`.
+    pub scene_black: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -5353,7 +5356,9 @@ fn get_global_adjustments_from_json(
         capture_gain: u32::from(
             render_version(js_adjustments) >= crate::baseline_exposure::CAPTURE_GAIN_RENDER_VERSION,
         ),
-        gamut_mapping_padding: 0,
+        scene_black: u32::from(
+            render_version(js_adjustments) >= crate::baseline_exposure::SCENE_BLACK_RENDER_VERSION,
+        ),
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -5804,8 +5809,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// ratios measured away from the clip (`image_loader::HIGHLIGHT_RENDER_VERSION`,
 /// highlight_reconstruction.rs), and gives RAWs at extended low ISOs Camera
 /// Raw's default exposure (`baseline_exposure::CAPTURE_GAIN_RENDER_VERSION`).
+/// 10 (2026-11-01) keeps the neutral look's black point at a scene level
+/// that Exposure and the baseline move only a quarter as fast, under a soft
+/// toe (`baseline_exposure::SCENE_BLACK_RENDER_VERSION`): Exposure and
+/// extended low ISOs keep Camera Raw's deepest shadows.
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 9;
+pub const RENDER_VERSION: u64 = 10;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -7616,7 +7625,7 @@ pub fn auto_adjustments_json(
         crate::auto_adjust::standard_auto_to_json(&crate::auto_adjust::standard_auto_adjustments(
             image,
             look.baseline_for(render_version),
-            crate::auto_adjust::DisplayCurve::for_look(&look),
+            crate::auto_adjust::DisplayCurve::for_look(&look, render_version),
             base_curve_index(base_curve),
         ))
     } else {

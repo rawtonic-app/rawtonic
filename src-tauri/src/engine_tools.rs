@@ -45,7 +45,10 @@ fn private_raw_auto_recipes() {
             crate::auto_adjust::predicted_display_percentiles(
                 &image,
                 look.baseline_for(crate::image_processing::RENDER_VERSION),
-                crate::auto_adjust::DisplayCurve::for_look(&look),
+                crate::auto_adjust::DisplayCurve::for_look(
+                    &look,
+                    crate::image_processing::RENDER_VERSION
+                ),
                 0.0
             )
         );
