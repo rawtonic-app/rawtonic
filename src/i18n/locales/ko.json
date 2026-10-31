@@ -4424,6 +4424,7 @@
           "shadowSplit": "섀도우"
         },
         "region": "영역",
+        "splitHint": "{{name}}: {{value}}. 드래그하거나 화살표 키 사용, 더블클릭하여 값 입력",
         "splits": "경계"
       }
     },

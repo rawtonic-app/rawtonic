@@ -4424,6 +4424,7 @@
           "shadowSplit": "シャドウ"
         },
         "region": "領域",
+        "splitHint": "{{name}}: {{value}}。ドラッグまたは矢印キー、ダブルクリックで値を入力",
         "splits": "境界"
       }
     },

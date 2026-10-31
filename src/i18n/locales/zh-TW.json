@@ -4424,6 +4424,7 @@
           "shadowSplit": "陰影"
         },
         "region": "區域",
+        "splitHint": "{{name}}：{{value}}。拖曳或使用方向鍵；按兩下輸入數值",
         "splits": "分界"
       }
     },
