@@ -200,6 +200,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const visualize = useEditorStore((s) => s.spotVisualize);
   const [view, setView] = useState<string | null>(null);
   const [draft, setDraft] = useState<Spot | null>(null);
+  // The spot under the pointer while no button is down (Lightroom marks it
+  // and shows its source, so you see what a click will select).
+  const [hoverId, setHoverId] = useState<string | null>(null);
   const [stroke, setStroke] = useState<Point[] | null>(null);
   const [pending, setPending] = useState<{ x: number; y: number; radius: number; points?: Point[] } | null>(null);
   // An object being drawn around (box) or being selected and removed.
@@ -580,8 +583,12 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
-    if (!d) return;
     const [x, y] = toImage(e.clientX, e.clientY);
+    if (!d) {
+      const id = itemAt(x, y) ?? null;
+      if (id !== hoverId) setHoverId(id);
+      return;
+    }
     if (d.kind === 'box') {
       d.end = { x, y };
       setBox({ start: d.start, end: d.end });
@@ -793,18 +800,20 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   }, []);
 
   const line = 1.5 * pixel * scale;
-  const circle = (key: string, x: number, y: number, r: number, cls: string, dashed = false) => {
+  const circle = (key: string, x: number, y: number, r: number, cls: string, dashed = false, bold = false) => {
     const [bx, by] = toBox(x, y);
+    // A hovered ring is drawn heavier, so the state reads without colour.
+    const width = bold ? line * 2 : line;
     return (
       <g key={key} className={cls}>
-        <circle cx={bx} cy={by} r={r * scale} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={line * 2.4} />
+        <circle cx={bx} cy={by} r={r * scale} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={width * 2.4} />
         <circle
           cx={bx}
           cy={by}
           r={r * scale}
           fill="none"
           stroke="currentColor"
-          strokeWidth={line}
+          strokeWidth={width}
           strokeDasharray={dashed ? `${4 * line} ${3 * line}` : undefined}
         />
       </g>
@@ -892,6 +901,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={() => setHoverId(null)}
     >
       {view && (
         <img
@@ -909,15 +919,19 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       >
         {shown.map((spot) => {
           const active = spot.id === activeSpotId;
+          // Hovered: drawn with its source like the selected one, in white.
+          const hovered = !active && spot.id === hoverId && !drag.current;
+          const withSource = active || hovered;
           const style = { color: active ? 'var(--studio-accent, #9cc2e0)' : '#fff' };
           const opacity = spot.visible === false ? HIDDEN_OPACITY : undefined;
+          const marks = { 'data-spot': spot.id, 'data-hovered': hovered ? 'true' : undefined };
           if (isStroke(spot)) {
             const dx = spot.sourceX - spot.x;
             const dy = spot.sourceY - spot.y;
             return (
-              <g key={spot.id} style={style} opacity={opacity}>
+              <g key={spot.id} style={style} opacity={opacity} {...marks}>
                 {strokeArea(`${spot.id}-t`, spot.points, spot.radius, 'spot-target')}
-                {active && strokeArea(`${spot.id}-s`, spot.points, spot.radius, 'spot-source', dx, dy, true)}
+                {withSource && strokeArea(`${spot.id}-s`, spot.points, spot.radius, 'spot-source', dx, dy, true)}
               </g>
             );
           }
@@ -929,8 +943,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           const ux = length > 0 ? (sx - tx) / length : 0;
           const uy = length > 0 ? (sy - ty) / length : 0;
           return (
-            <g key={spot.id} style={style} opacity={opacity}>
-              {active && length > 2 * r && (
+            <g key={spot.id} style={style} opacity={opacity} {...marks}>
+              {withSource && length > 2 * r && (
                 <line
                   x1={tx + ux * r}
                   y1={ty + uy * r}
@@ -940,8 +954,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
                   strokeWidth={line}
                 />
               )}
-              {circle(`${spot.id}-t`, spot.x, spot.y, spot.radius, 'spot-target')}
-              {active && circle(`${spot.id}-s`, spot.sourceX, spot.sourceY, spot.radius, 'spot-source', true)}
+              {circle(`${spot.id}-t`, spot.x, spot.y, spot.radius, 'spot-target', false, hovered)}
+              {withSource && circle(`${spot.id}-s`, spot.sourceX, spot.sourceY, spot.radius, 'spot-source', true)}
             </g>
           );
         })}

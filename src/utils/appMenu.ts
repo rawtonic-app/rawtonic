@@ -159,6 +159,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('open_with'),
       c('edit_with'),
       'separator',
+      c('virtual_copy'),
       c('move_to_selects'),
       c('show_in_finder'),
       'separator',

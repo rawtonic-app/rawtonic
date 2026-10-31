@@ -487,6 +487,13 @@
         },
         {
           "kind": "item",
+          "id": "cmd:virtual_copy",
+          "label": "New Virtual Copy",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Quote"
+        },
+        {
+          "kind": "item",
           "id": "cmd:move_to_selects",
           "label": "Move to Selects",
           "enabled": false,

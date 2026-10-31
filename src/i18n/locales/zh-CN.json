@@ -278,6 +278,7 @@
       "view_develop": "修片",
       "view_grid": "图库网格",
       "view_loupe": "放大视图",
+      "virtual_copy": "新建虚拟副本",
       "website": "GitHub 上的 {{app}}",
       "zoom_100": "缩放至 100 %",
       "zoom_fit": "适合窗口",
@@ -2747,7 +2748,6 @@
       "layers": {
         "background": "背景",
         "copyName": "{{name}} 副本",
-        "defaultName": "图层 {{number}}",
         "delete": "删除{{name}}",
         "dragOrder": "拖动以更改图层顺序",
         "drawMaskInside": "在内部绘制蒙版",
@@ -2772,6 +2772,7 @@
           "sky": "天空",
           "subject": "主体"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "最多应用 {{limit}} 个可见图层。请先隐藏或删除一个图层。",
         "listAria": "图层",
         "menu": {
@@ -4091,6 +4092,8 @@
     },
     "presets": {
       "amount": "预设强度",
+      "amountIdle": "强度",
+      "amountIdleHint": "仅对打开的照片应用预设后即可调整其强度",
       "appliedStyle": "已应用的样式：点击即可撤除",
       "appliesAll": "应用存储时的全部设置",
       "appliesBuiltin": "Rawtonic 自有预设：应用其包含的设置",

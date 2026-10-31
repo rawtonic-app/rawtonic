@@ -257,8 +257,9 @@ export default function StudioLayerControls({
           />
           {/* Lightroom's and Capture One's Auto Mask, measured in Camera Raw
               (notes: reference/auto-mask.md): new strokes keep to colours
-              like the one under the brush centre. */}
-          <label className="studio-check">
+              like the one under the brush centre. A row like the panel's
+              other checkboxes (Two-sided band, Visualize spots). */}
+          <label className="studio-inline studio-check">
             <input
               type="checkbox"
               checked={!!brushSettings?.autoMask}

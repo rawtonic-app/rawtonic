@@ -70,6 +70,7 @@ import { Status } from './components/ui/ExportImportProperties';
 import { useEditorActions } from './hooks/useEditorActions';
 import { useLibraryActions } from './hooks/useLibraryActions';
 import { useProductivityActions } from './hooks/useProductivityActions';
+import { useVirtualCopyCommand } from './hooks/useVirtualCopyCommand';
 
 import { useAppInitialization } from './hooks/useAppInitialization';
 import './i18n';
@@ -434,6 +435,7 @@ function App() {
     handleSaveMerge,
     handleSaveCollage,
   } = useProductivityActions(handleLibraryRefresh);
+  useVirtualCopyCommand(handleLibraryRefresh);
 
   const {
     handleEditorContextMenu,

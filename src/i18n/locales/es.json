@@ -295,6 +295,7 @@
       "view_develop": "Revelar",
       "view_grid": "Cuadrícula de la biblioteca",
       "view_loupe": "Lupa",
+      "virtual_copy": "Nueva copia virtual",
       "website": "{{app}} en GitHub",
       "zoom_100": "Zoom al 100 %",
       "zoom_fit": "Ajustar a la ventana",
@@ -2947,7 +2948,6 @@
       "layers": {
         "background": "Fondo",
         "copyName": "{{name}} copia",
-        "defaultName": "Capa {{number}}",
         "delete": "Eliminar {{name}}",
         "dragOrder": "Arrastra para cambiar el orden de las capas",
         "drawMaskInside": "Dibujar máscara dentro",
@@ -2972,6 +2972,7 @@
           "sky": "Cielo",
           "subject": "Sujeto"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "Se aplican como máximo {{limit}} capas visibles. Oculta o elimina primero una capa.",
         "listAria": "Capas",
         "menu": {
@@ -4370,6 +4371,8 @@
     },
     "presets": {
       "amount": "Cantidad del ajuste preestablecido",
+      "amountIdle": "Cantidad",
+      "amountIdleHint": "Aplica un ajuste preestablecido solo a la foto abierta para ajustar su cantidad",
       "appliedStyle": "Estilo aplicado: haz clic para quitarlo",
       "appliesAll": "Aplica todos los ajustes con los que se guardó",
       "appliesBuiltin": "Ajuste propio de Rawtonic: aplica los ajustes que contiene",

@@ -272,7 +272,9 @@ describe('the macOS menu bar', () => {
       'view_grid', 'view_loupe', 'view_develop', 'match_light', 'shift_capture_time', 'show_activity', 'open_with', 'edit_with', 'find_duplicates',
       // utils/stacks (useStackCommands).
       'stack_group', 'stack_unstack', 'stack_remove', 'stack_move_top', 'stack_toggle', 'stack_collapse_all', 'stack_expand_all',
-      'auto_stack']);
+      'auto_stack',
+      // hooks/useVirtualCopyCommand.
+      'virtual_copy']);
     const missing = menuCommands().filter((command) => !owners.has(command) && !appCommand(command));
     expect(missing).toEqual([]);
   });

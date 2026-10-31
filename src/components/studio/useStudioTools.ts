@@ -120,6 +120,18 @@ export function useStudioTools() {
     tool: ToolType.Brush,
   });
 
+  /** Capture One's naming: a new layer is called after its kind ("Brush 1",
+   * "Sky 2"), one past the highest number of that kind's names, so the
+   * layer list and the viewer bar's layer menu say what each one holds. */
+  const kindLayerName = (names: (string | undefined)[], kind: MaskKind) => {
+    const label = i18n.t(`studio.masks.kinds.${kind}`);
+    const taken = names.map((name) => {
+      const rest = name?.startsWith(`${label} `) ? name.slice(label.length + 1) : "";
+      return /^\d+$/.test(rest) ? Number(rest) : 0;
+    });
+    return i18n.t("studio.develop.layers.kindName", { kind: label, number: Math.max(0, ...taken) + 1 });
+  };
+
   /** A new layer of `kind` (a drawn shape, an automatic selection or a
    * range), selected with its first component active. */
   const addLayer = (kind: Mask | MaskKind) => {
@@ -140,9 +152,7 @@ export function useStudioTools() {
           ...structuredClone(INITIAL_MASK_CONTAINER),
           maskVersion: MASK_VERSION,
           id,
-          name: i18n.t("studio.develop.layers.defaultName", {
-            number: prev.masks.length + 1,
-          }),
+          name: kindLayerName(prev.masks.map((m) => m.name), maskKind),
           subMasks: components,
         },
       ],

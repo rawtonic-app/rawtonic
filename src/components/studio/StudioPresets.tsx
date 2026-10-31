@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { ArrowDownAZ, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles } from "lucide-react";
+import { ArrowDownAZ, Check, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles } from "lucide-react";
 import { notify } from "../../activity/notify";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
@@ -579,10 +579,30 @@ export default function StudioPresets() {
           {t("studio.presets.appliesToSelection", { count: selectionSize })}
         </p>
       )}
+      {/* One Amount row, always in its place (Lightroom): greyed out until a
+          preset is applied to the open photo, so applying one never moves
+          the list under the pointer. */}
+      {!(amount && amount.path === selectedImage?.path) && !(appliedStyle && stylePreset) && (
+        <label className="studio-preset-amount is-idle" title={t("studio.presets.amountIdleHint")}>
+          <span>{t("studio.presets.amountIdle")}</span>
+          <input
+            className="adjustment-track"
+            type="range"
+            min={0}
+            max={100}
+            aria-label={t("studio.presets.amount")}
+            value={100}
+            disabled
+            readOnly
+          />
+          <output>–</output>
+        </label>
+      )}
       {!(amount && amount.path === selectedImage?.path) && appliedStyle && stylePreset && (
         <label className="studio-preset-amount">
           <span>{presetName(t, stylePreset)}</span>
           <input
+            className="adjustment-track"
             type="range"
             min={0}
             max={100}
@@ -600,6 +620,7 @@ export default function StudioPresets() {
         <label className="studio-preset-amount">
           <span>{presetName(t, amount.preset)}</span>
           <input
+            className="adjustment-track"
             type="range"
             min={0}
             max={100}
@@ -694,6 +715,9 @@ export default function StudioPresets() {
                     >
                       {preset.presetType !== "tool" && <Sparkles size={10} aria-label={t("studio.presets.style")} />}
                       <span>{presetName(t, preset)}</span>
+                      {isStyle(preset) && appliedStyle?.id === preset.id && (
+                        <Check size={11} className="studio-preset-applied-mark" data-applied-mark aria-hidden />
+                      )}
                     </button>
                   ),
                 )}

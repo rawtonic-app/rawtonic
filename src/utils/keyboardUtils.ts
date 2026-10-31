@@ -37,6 +37,8 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   // ⇧S: soft proofing in Develop.
   { action: 'stack_move_top', description: 'appMenu.items.stack_move_top', defaultCombo: ['shift', 'KeyS'], section: 'library' },
   { action: 'view_develop', description: 'appMenu.items.view_develop', defaultCombo: ['KeyD'], section: 'view' },
+  // Lightroom's Create Virtual Copy key (hooks/useVirtualCopyCommand).
+  { action: 'virtual_copy', description: 'appMenu.items.virtual_copy', defaultCombo: ['ctrl', 'Quote'], section: 'library' },
   { action: 'toggle_auto_advance', description: 'settings.general.autoAdvance', defaultCombo: ['CapsLock'], section: 'rating' },
   { action: 'flag_pick', description: 'appMenu.items.flag_pick', defaultCombo: ['KeyP'], section: 'rating' },
   { action: 'flag_unflag', description: 'appMenu.items.flag_unflag', defaultCombo: ['KeyU'], section: 'rating' },

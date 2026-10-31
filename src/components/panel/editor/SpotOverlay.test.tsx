@@ -339,6 +339,34 @@ describe("spot removal overlay", () => {
     expect(useEditorStore.getState().activeSpotId).toBe("s1");
   });
 
+  it("marks the spot under the pointer and shows its source before a click (Lightroom)", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150), circle("s2", 400, 250)],
+      },
+    });
+    const el = overlay();
+    const group = (id: string) => el.querySelector(`[data-spot="${id}"]`)!;
+    expect(group("s1").getAttribute("data-hovered")).toBeNull();
+    expect(group("s1").querySelector(".spot-source")).toBeNull();
+    // Over s1 (mask 200, 150 = box 50, 50), no button pressed.
+    fireEvent.pointerMove(el, { clientX: 52, clientY: 50, pointerId: 1 });
+    expect(group("s1").getAttribute("data-hovered")).toBe("true");
+    expect(group("s1").querySelector(".spot-source")).not.toBeNull();
+    expect(group("s2").getAttribute("data-hovered")).toBeNull();
+    // Away from both, then out of the photo: nothing is marked.
+    fireEvent.pointerMove(el, { clientX: 150, clientY: 20, pointerId: 1 });
+    expect(group("s1").getAttribute("data-hovered")).toBeNull();
+    // Over s2 (mask 400, 250 = box 150, 100).
+    fireEvent.pointerMove(el, { clientX: 150, clientY: 100, pointerId: 1 });
+    expect(group("s2").getAttribute("data-hovered")).toBe("true");
+    fireEvent.pointerLeave(el, { pointerId: 1 });
+    expect(group("s2").getAttribute("data-hovered")).toBeNull();
+    // Hovering changes nothing in the recipe or the selection.
+    expect(useEditorStore.getState().activeSpotId).toBeNull();
+  });
+
   it("removes an area with the local inpainting model as an AI patch, and deletes it again", async () => {
     const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
     invoke.mockResolvedValue(JSON.stringify(patchData));

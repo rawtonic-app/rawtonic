@@ -305,6 +305,7 @@
       "view_develop": "Wywoływanie",
       "view_grid": "Siatka biblioteki",
       "view_loupe": "Lupa",
+      "virtual_copy": "Nowa kopia wirtualna",
       "website": "{{app}} w serwisie GitHub",
       "zoom_100": "Powiększenie 100 %",
       "zoom_fit": "Dopasuj do okna",
@@ -3075,7 +3076,6 @@
       "layers": {
         "background": "Tło",
         "copyName": "{{name}} kopia",
-        "defaultName": "Warstwa {{number}}",
         "delete": "Usuń: {{name}}",
         "dragOrder": "Przeciągnij, aby zmienić kolejność warstw",
         "drawMaskInside": "Rysuj maskę wewnątrz",
@@ -3100,6 +3100,7 @@
           "sky": "Niebo",
           "subject": "Obiekt główny"
         },
+        "kindName": "{{kind}} {{number}}",
         "limitReached": "Stosowanych jest najwyżej {{limit}} widocznych warstw. Najpierw ukryj lub usuń warstwę.",
         "listAria": "Warstwy",
         "menu": {
@@ -4538,6 +4539,8 @@
     },
     "presets": {
       "amount": "Siła presetu",
+      "amountIdle": "Siła",
+      "amountIdleHint": "Zastosuj preset tylko do otwartego zdjęcia, aby ustawić jego siłę",
       "appliedStyle": "Zastosowany styl: kliknij, aby go cofnąć",
       "appliesAll": "Stosuje wszystkie ustawienia, z którymi został zapisany",
       "appliesBuiltin": "Własne ustawienie Rawtonic: stosuje zawarte w nim ustawienia",

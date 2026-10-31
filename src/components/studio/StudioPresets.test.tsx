@@ -293,7 +293,25 @@ describe("preset amount", () => {
     await renderTool();
     fireEvent.click(screen.getByRole("button", { name: /Warm evening/ }));
     expect(apply).toHaveBeenCalledWith({ temperature: 12 }, ["/job/a.arw", "/job/b.arw"]);
-    expect(screen.queryByLabelText("Preset amount")).toBeNull();
+    expect((screen.getByLabelText("Preset amount") as HTMLInputElement).disabled).toBe(true);
+  });
+
+  // UXR3 (notes reference/ux-local-tools-2026-10-31): the Amount row appeared
+  // above the list on the first click and pushed every preset down under the
+  // pointer, so the next click hit the neighbour. Lightroom keeps its Amount
+  // in place, greyed out until a preset is applied.
+  it("keeps the Amount row in place, greyed out until a preset is applied, so the list never moves", async () => {
+    await renderTool();
+    const slider = () => screen.getByLabelText("Preset amount") as HTMLInputElement;
+    const list = () => document.querySelector(".studio-presets")!;
+    const before = (el: Element) => [...list().parentElement!.children].indexOf(el);
+    expect(slider().disabled).toBe(true);
+    const listIndex = before(list());
+    fireEvent.click(screen.getByRole("button", { name: /Warm evening/ }));
+    expect(slider().disabled).toBe(false);
+    expect(before(list())).toBe(listIndex);
+    // The same slider as every other tool's.
+    expect(slider().className).toContain("adjustment-track");
   });
 });
 
@@ -458,12 +476,15 @@ describe("applied style (Capture One with Stack Styles off)", () => {
     act(() => useEditorStore.setState({ selectedImage: { path: "/job/b.arw", isReady: true } as never, adjustments: styled() }));
     expect(style().getAttribute("aria-pressed")).toBe("true");
     expect(style().className).toContain("is-applied");
+    // On reads without colour or tooltip: a check mark at the row's end.
+    expect(style().querySelector("[data-applied-mark]")).not.toBeNull();
     expect(style().title).toBe("Applied style: click to take it back");
     // Tool presets add up and are never marked.
     expect(screen.getByRole("button", { name: /Warm evening/ }).getAttribute("aria-pressed")).toBeNull();
     act(() => useEditorStore.setState({ selectedImage: { path: "/job/a.arw", isReady: true } as never, adjustments: { ...INITIAL_ADJUSTMENTS } }));
     expect(style().getAttribute("aria-pressed")).toBe("false");
-    expect(screen.queryByLabelText("Preset amount")).toBeNull();
+    expect(style().querySelector("[data-applied-mark]")).toBeNull();
+    expect((screen.getByLabelText("Preset amount") as HTMLInputElement).disabled).toBe(true);
   });
 
   it("takes the applied style back when it is clicked again, on every selected photo", async () => {
