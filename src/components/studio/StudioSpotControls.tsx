@@ -188,9 +188,24 @@ export function StudioFindDust() {
   return (
     <div className="studio-find-dust" data-testid="find-dust">
       {!on ? (
-        <button type="button" className="studio-text-button" disabled={!ready} title={t("spotRemoval.dust.hint")} onClick={start}>
-          {t("spotRemoval.dust.find")}
-        </button>
+        // One wrapping row: Find dust and Sync dust stay two buttons with a
+        // gap, also in a narrow panel (they ran together as one label).
+        <div className="studio-inline studio-inline-wrap">
+          <button type="button" className="studio-text-button" disabled={!ready} title={t("spotRemoval.dust.hint")} onClick={start}>
+            {t("spotRemoval.dust.find")}
+          </button>
+          {dustSpots > 0 && others.length > 0 && (
+            <button
+              type="button"
+              className="studio-text-button"
+              disabled={syncing}
+              title={t("spotRemoval.dust.syncHint")}
+              onClick={() => void sync()}
+            >
+              {t("spotRemoval.dust.sync", { number: others.length })}
+            </button>
+          )}
+        </div>
       ) : (
         <>
           <AdjustmentControl
@@ -220,17 +235,6 @@ export function StudioFindDust() {
             </button>
           </div>
         </>
-      )}
-      {!on && dustSpots > 0 && others.length > 0 && (
-        <button
-          type="button"
-          className="studio-text-button"
-          disabled={syncing}
-          title={t("spotRemoval.dust.syncHint")}
-          onClick={() => void sync()}
-        >
-          {t("spotRemoval.dust.sync", { number: others.length })}
-        </button>
       )}
       {message && <p className="studio-hint" role="status">{message}</p>}
     </div>
