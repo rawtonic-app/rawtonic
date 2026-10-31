@@ -263,7 +263,7 @@ pub struct DustSync {
 
 /// The unrotated size of the frame a photo develops with `adjustments`
 /// (its frame version): the RAW's developed frame read without decoding
-/// it, or another format's image size. Photos of one camera with another
+/// it, or another format's stored image size. Photos of one camera with another
 /// frame (a crop mode, an in-camera aspect ratio) put the same sensor spot
 /// elsewhere, so dust is synced only between equal frames.
 fn frame_of(path: &str, adjustments: &Value) -> Option<(u32, u32)> {
@@ -284,11 +284,8 @@ fn frame_of(path: &str, adjustments: &Value) -> Option<(u32, u32)> {
         .flatten()?;
         Some(unrotated(frame.size?, frame.orientation))
     } else {
-        let size = image::image_dimensions(&source_path).ok()?;
-        let bytes = std::fs::read(&source_path).ok()?;
-        let orientation =
-            crate::image_loader::source_orientation(&bytes, &source_path.to_string_lossy());
-        Some(unrotated(size, orientation))
+        // The stored size, before the EXIF orientation: already unrotated.
+        image::image_dimensions(&source_path).ok()
     }
 }
 
