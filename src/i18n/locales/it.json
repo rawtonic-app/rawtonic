@@ -223,6 +223,7 @@
     "items": {
       "about": "Informazioni su {{app}}",
       "auto_adjust": "Regolazione automatica",
+      "auto_stack": "Raggruppa automaticamente per ora di scatto…",
       "auto_white_balance": "Bilanciamento del bianco automatico",
       "check_updates": "Controlla aggiornamenti…",
       "clear_recent": "Cancella menu",
@@ -266,6 +267,13 @@
       "shift_capture_time": "Sposta ora di scatto…",
       "show_activity": "Attività…",
       "show_in_finder": "Mostra nel Finder",
+      "stack_collapse_all": "Comprimi tutte le pile",
+      "stack_expand_all": "Espandi tutte le pile",
+      "stack_group": "Raggruppa in pila",
+      "stack_move_top": "Sposta in cima alla pila",
+      "stack_remove": "Rimuovi dalla pila",
+      "stack_toggle": "Comprimi/espandi pila",
+      "stack_unstack": "Separa pila",
       "sync_settings": "Sincronizza impostazioni",
       "tether_capture": "Scatta (fotocamera collegata)",
       "toggle_all_panels": "Tutti i pannelli e le barre",
@@ -323,7 +331,8 @@
       "panels": "Pannelli",
       "rating": "Valutazione",
       "recent": "Apri recenti",
-      "recipes": "Esporta con ricetta"
+      "recipes": "Esporta con ricetta",
+      "stacking": "Pile"
     }
   },
   "captureTime": {
@@ -2506,6 +2515,59 @@
     "size": "Dimensione",
     "sizeAria": "Dimensione della macchia",
     "visualize": "Visualizza macchie"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "Crea {{count}} pila",
+      "apply_many": "Crea {{count}} pile",
+      "apply_other": "Crea {{count}} pile",
+      "cancel": "Annulla",
+      "done_one": "{{count}} pila creata",
+      "done_many": "{{count}} pile create",
+      "done_other": "{{count}} pile create",
+      "interval": "Tempo tra le foto",
+      "intro": "Le foto scattate al massimo entro questo tempo dalla precedente formano una pila. Le foto già in una pila restano come sono.",
+      "kind": {
+        "bracket_one": "{{count}} bracketing",
+        "bracket_many": "{{count}} bracketing",
+        "bracket_other": "{{count}} bracketing",
+        "burst_one": "{{count}} raffica",
+        "burst_many": "{{count}} raffiche",
+        "burst_other": "{{count}} raffiche"
+      },
+      "leftOut_one": "{{count}} foto senza ora di scatto o già in una pila è esclusa",
+      "leftOut_many": "{{count}} foto senza ora di scatto o già in una pila sono escluse",
+      "leftOut_other": "{{count}} foto senza ora di scatto o già in una pila sono escluse",
+      "minutes_one": "{{count}} minuto",
+      "minutes_many": "{{count}} minuti",
+      "minutes_other": "{{count}} minuti",
+      "minutesSeconds": "{{minutes}} min {{seconds}} s",
+      "preview_one": "{{count}} pila da {{photos}} foto",
+      "preview_many": "{{count}} pile da {{photos}} foto",
+      "preview_other": "{{count}} pile da {{photos}} foto",
+      "reading": "Conteggio…",
+      "seconds_one": "{{count}} secondo",
+      "seconds_many": "{{count}} secondi",
+      "seconds_other": "{{count}} secondi",
+      "single_one": "{{count}} foto resta singola",
+      "single_many": "{{count}} foto restano singole",
+      "single_other": "{{count}} foto restano singole",
+      "title": "Raggruppa automaticamente per ora di scatto",
+      "useCameraData": "Usa i dati di raffica e bracketing della fotocamera se disponibili"
+    },
+    "badge": {
+      "collapse_one": "Pila di {{count}} foto – comprimi",
+      "collapse_many": "Pila di {{count}} foto – comprimi",
+      "collapse_other": "Pila di {{count}} foto – comprimi",
+      "expand_one": "Pila di {{count}} foto – espandi",
+      "expand_many": "Pila di {{count}} foto – espandi",
+      "expand_other": "Pila di {{count}} foto – espandi",
+      "place": "{{index}} di {{total}} nella pila"
+    },
+    "failed": "Raggruppamento non riuscito: {{error}}",
+    "trashTop_one": "Viene spostata solo la foto in cima alla pila; la successiva va in cima.",
+    "trashTop_many": "Vengono spostate solo le foto in cima a {{count}} pile; la successiva di ognuna va in cima.",
+    "trashTop_other": "Vengono spostate solo le foto in cima a {{count}} pile; la successiva di ognuna va in cima."
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -5008,6 +5070,7 @@
     "rename": "Rinomina",
     "reset": "Ripristina",
     "skipFailed": "Salta elementi non riusciti",
+    "stacks": "Pile",
     "style": "Applica stile",
     "sync": "Sincronizza impostazioni",
     "trash": "Sposta nel cestino",

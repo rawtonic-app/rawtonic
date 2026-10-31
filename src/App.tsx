@@ -59,6 +59,7 @@ import { useTauriListeners } from './hooks/useTauriListeners';
 import { useFileOperations } from './hooks/useFileOperations';
 import { useAppContextMenus } from './hooks/useAppContextMenus';
 import { useSortedLibrary } from './hooks/useSortedLibrary';
+import { useStackCommands } from './utils/stacks';
 import { useCatalogSearch } from './hooks/useCatalogSearch';
 import { useEyeCheck } from './hooks/useEyeCheck';
 import { useAppNavigation } from './hooks/useAppNavigation';
@@ -238,7 +239,8 @@ function App() {
 
   useCatalogSearch();
   useEyeCheck();
-  const { displayList: sortedImageList, flagCounts } = useSortedLibrary();
+  useStackCommands();
+  const { displayList: sortedImageList, flagCounts, stackMarks } = useSortedLibrary();
 
   const handleLibraryRefresh = useCallback(async () => {
     // Renames, moves, trash and undo change paths; picks are keyed by them.
@@ -589,6 +591,7 @@ function App() {
         <StudioWorkspace
           files={sortedImageList}
           flagCounts={flagCounts}
+          stackMarks={stackMarks}
           transformWrapperRef={transformWrapperRef}
           onSelect={handleLibraryImageSingleClick}
           onFilmSelect={handleImageClick}

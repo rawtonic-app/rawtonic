@@ -362,6 +362,68 @@
           ]
         },
         {
+          "kind": "submenu",
+          "label": "Stacking",
+          "items": [
+            {
+              "kind": "item",
+              "id": "cmd:stack_group",
+              "label": "Group into Stack",
+              "enabled": false,
+              "accelerator": "CmdOrCtrl+KeyG"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_unstack",
+              "label": "Unstack",
+              "enabled": false,
+              "accelerator": "CmdOrCtrl+Shift+KeyG"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_remove",
+              "label": "Remove from Stack",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_move_top",
+              "label": "Move to Top of Stack",
+              "enabled": false
+            },
+            {
+              "kind": "separator"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_toggle",
+              "label": "Collapse/Expand Stack",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_collapse_all",
+              "label": "Collapse All Stacks",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_expand_all",
+              "label": "Expand All Stacks",
+              "enabled": false
+            },
+            {
+              "kind": "separator"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:auto_stack",
+              "label": "Auto-Stack by Capture Time…",
+              "enabled": false
+            }
+          ]
+        },
+        {
           "kind": "separator"
         },
         {

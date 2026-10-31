@@ -44,6 +44,7 @@ fn facts(
         exposure: Some(exposure),
         source_type: None,
         camera_rating: None,
+        ..CaptureFacts::default()
     }
 }
 
@@ -1278,13 +1279,14 @@ fn a_schema_12_library_reads_undated_and_unrated_facts_again() {
     .unwrap();
     drop(db);
     let lib = Library::open(&d.path().join("Job")).unwrap();
-    // The empty one, the one nobody rated and the rated undated one; not
-    // the rated one with its date.
-    assert_eq!(lib.facts_backlog().unwrap(), 3);
+    // The empty one, the one nobody rated and the rated undated one
+    // (schemas 13, 14); the rated one with its date too since schema 22
+    // reads every dated photograph again for its bracket and burst facts.
+    assert_eq!(lib.facts_backlog().unwrap(), 4);
     let read = |i: usize| lib.facts(&ids[i]).unwrap().unwrap().1;
     assert_eq!(
         [read(0), read(1), read(2), read(3)],
-        [false, false, true, false]
+        [false, false, false, false]
     );
     // Read again, the rated one keeps its rating.
     lib.fill_all_facts(&AtomicBool::new(false), &|_: &Path| {

@@ -90,6 +90,7 @@ mod session_bridge;
 mod session_move;
 mod snapshots;
 mod spot_removal;
+mod stacks;
 mod startup;
 mod storage;
 mod storage_fs;
@@ -819,6 +820,15 @@ pub fn run() {
             capture_time::capture_time_preview,
             capture_time::capture_time_plan,
             capture_time::capture_time_apply,
+            stacks::stacks_list,
+            stacks::stacks_group,
+            stacks::stacks_unstack,
+            stacks::stacks_remove,
+            stacks::stacks_move_to_top,
+            stacks::stacks_set_collapsed,
+            stacks::stacks_restore,
+            stacks::stacks_auto_plan,
+            stacks::stacks_auto_apply,
             duplicates::duplicates_start,
             duplicates::duplicates_cancel,
             duplicates::duplicates_groups,

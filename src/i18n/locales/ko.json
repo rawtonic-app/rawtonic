@@ -206,6 +206,7 @@
     "items": {
       "about": "{{app}}에 관하여",
       "auto_adjust": "자동 조정",
+      "auto_stack": "촬영 시간으로 자동 스택…",
       "auto_white_balance": "자동 화이트 밸런스",
       "check_updates": "업데이트 확인…",
       "clear_recent": "메뉴 지우기",
@@ -249,6 +250,13 @@
       "shift_capture_time": "촬영 시간 이동…",
       "show_activity": "활동…",
       "show_in_finder": "Finder에서 보기",
+      "stack_collapse_all": "모든 스택 접기",
+      "stack_expand_all": "모든 스택 펼치기",
+      "stack_group": "스택으로 그룹화",
+      "stack_move_top": "스택 맨 위로 이동",
+      "stack_remove": "스택에서 제거",
+      "stack_toggle": "스택 접기/펼치기",
+      "stack_unstack": "스택 해제",
       "sync_settings": "설정 동기화",
       "tether_capture": "촬영(테더링 카메라)",
       "toggle_all_panels": "모든 패널과 막대",
@@ -306,7 +314,8 @@
       "panels": "패널",
       "rating": "등급",
       "recent": "최근 항목 열기",
-      "recipes": "레시피로 내보내기"
+      "recipes": "레시피로 내보내기",
+      "stacking": "스택"
     }
   },
   "captureTime": {
@@ -2319,6 +2328,47 @@
     "size": "크기",
     "sizeAria": "스팟 크기",
     "visualize": "스팟 시각화"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "스택 {{count}}개 만들기",
+      "apply_other": "스택 {{count}}개 만들기",
+      "cancel": "취소",
+      "done_one": "스택 {{count}}개를 만들었습니다",
+      "done_other": "스택 {{count}}개를 만들었습니다",
+      "interval": "사진 사이 시간",
+      "intro": "이전 사진 후 이 시간 안에 촬영한 사진을 한 스택으로 묶습니다. 이미 스택에 있는 사진은 그대로 둡니다.",
+      "kind": {
+        "bracket_one": "브라케팅 {{count}}개",
+        "bracket_other": "브라케팅 {{count}}개",
+        "burst_one": "연속 촬영 {{count}}개",
+        "burst_other": "연속 촬영 {{count}}개"
+      },
+      "leftOut_one": "촬영 시간이 없거나 이미 스택에 있는 사진 {{count}}장은 제외됩니다",
+      "leftOut_other": "촬영 시간이 없거나 이미 스택에 있는 사진 {{count}}장은 제외됩니다",
+      "minutes_one": "{{count}}분",
+      "minutes_other": "{{count}}분",
+      "minutesSeconds": "{{minutes}}분 {{seconds}}초",
+      "preview_one": "사진 {{photos}}장에서 스택 {{count}}개",
+      "preview_other": "사진 {{photos}}장에서 스택 {{count}}개",
+      "reading": "세는 중…",
+      "seconds_one": "{{count}}초",
+      "seconds_other": "{{count}}초",
+      "single_one": "사진 {{count}}장은 그대로 남습니다",
+      "single_other": "사진 {{count}}장은 그대로 남습니다",
+      "title": "촬영 시간으로 자동 스택",
+      "useCameraData": "카메라의 연속 촬영 및 브라케팅 정보가 있으면 사용"
+    },
+    "badge": {
+      "collapse_one": "사진 {{count}}장 스택 – 접기",
+      "collapse_other": "사진 {{count}}장 스택 – 접기",
+      "expand_one": "사진 {{count}}장 스택 – 펼치기",
+      "expand_other": "사진 {{count}}장 스택 – 펼치기",
+      "place": "스택에서 {{index}} / {{total}}"
+    },
+    "failed": "스택하지 못했습니다: {{error}}",
+    "trashTop_one": "스택의 맨 위 사진만 이동하며 다음 사진이 맨 위가 됩니다.",
+    "trashTop_other": "스택 {{count}}개의 맨 위 사진만 이동하며 각각 다음 사진이 맨 위가 됩니다."
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -4720,6 +4770,7 @@
     "rename": "이름 변경",
     "reset": "재설정",
     "skipFailed": "실패한 항목 건너뛰기",
+    "stacks": "스택",
     "style": "스타일 적용",
     "sync": "설정 동기화",
     "trash": "휴지통으로 이동",

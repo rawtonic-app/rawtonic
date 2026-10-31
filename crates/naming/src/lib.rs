@@ -200,6 +200,12 @@ pub struct Capture {
     /// The IPTC Digital Source Type of the file's own XMP packet (the
     /// library's search; no naming token).
     pub source_type: Option<String>,
+    /// EXIF ExposureMode (0 auto, 1 manual, 2 auto bracket) and
+    /// ExposureBiasValue (EV), and the maker's frame number within a
+    /// continuous-drive burst: the library's Auto-Stack; no naming token.
+    pub exposure_mode: Option<u8>,
+    pub exposure_bias: Option<f64>,
+    pub sequence: Option<u32>,
 }
 
 fn trim_number(value: f64) -> String {
@@ -608,6 +614,7 @@ mod tests {
             rating: Some(4),
             label: Some("Red".into()),
             source_type: None,
+            ..Capture::default()
         }
     }
 

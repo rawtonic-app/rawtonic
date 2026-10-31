@@ -213,6 +213,7 @@
     "items": {
       "about": "Über {{app}}",
       "auto_adjust": "Automatisch anpassen",
+      "auto_stack": "Automatisch nach Aufnahmezeit stapeln…",
       "auto_white_balance": "Automatischer Weißabgleich",
       "check_updates": "Nach Updates suchen …",
       "clear_recent": "Menü löschen",
@@ -256,6 +257,13 @@
       "shift_capture_time": "Aufnahmezeit verschieben…",
       "show_activity": "Aktivität …",
       "show_in_finder": "Im Finder zeigen",
+      "stack_collapse_all": "Alle Stapel zuklappen",
+      "stack_expand_all": "Alle Stapel aufklappen",
+      "stack_group": "Zu Stapel gruppieren",
+      "stack_move_top": "An Stapelanfang verschieben",
+      "stack_remove": "Aus Stapel entfernen",
+      "stack_toggle": "Stapel ein-/ausblenden",
+      "stack_unstack": "Stapel aufheben",
       "sync_settings": "Einstellungen synchronisieren",
       "tether_capture": "Auslösen (Tethering-Kamera)",
       "toggle_all_panels": "Alle Leisten und Bedienfelder",
@@ -313,7 +321,8 @@
       "panels": "Leisten",
       "rating": "Bewertung",
       "recent": "Benutzte Dokumente",
-      "recipes": "Mit Rezept exportieren"
+      "recipes": "Mit Rezept exportieren",
+      "stacking": "Stapeln"
     }
   },
   "captureTime": {
@@ -2391,6 +2400,47 @@
     "size": "Größe",
     "sizeAria": "Bereichsgröße",
     "visualize": "Bereiche visualisieren"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "{{count}} Stapel bilden",
+      "apply_other": "{{count}} Stapel bilden",
+      "cancel": "Abbrechen",
+      "done_one": "{{count}} Stapel gebildet",
+      "done_other": "{{count}} Stapel gebildet",
+      "interval": "Zeit zwischen Fotos",
+      "intro": "Fotos, die höchstens so lange nach dem vorigen aufgenommen wurden, kommen in einen Stapel. Fotos in einem Stapel bleiben, wie sie sind.",
+      "kind": {
+        "bracket_one": "{{count}} Belichtungsreihe",
+        "bracket_other": "{{count}} Belichtungsreihen",
+        "burst_one": "{{count}} Serie",
+        "burst_other": "{{count}} Serien"
+      },
+      "leftOut_one": "{{count}} Foto ohne Aufnahmezeit oder schon in einem Stapel bleibt außen vor",
+      "leftOut_other": "{{count}} Fotos ohne Aufnahmezeit oder schon in einem Stapel bleiben außen vor",
+      "minutes_one": "{{count}} Minute",
+      "minutes_other": "{{count}} Minuten",
+      "minutesSeconds": "{{minutes}} min {{seconds}} s",
+      "preview_one": "{{count}} Stapel aus {{photos}} Fotos",
+      "preview_other": "{{count}} Stapel aus {{photos}} Fotos",
+      "reading": "Wird gezählt…",
+      "seconds_one": "{{count}} Sekunde",
+      "seconds_other": "{{count}} Sekunden",
+      "single_one": "{{count}} Foto bleibt einzeln",
+      "single_other": "{{count}} Fotos bleiben einzeln",
+      "title": "Automatisch nach Aufnahmezeit stapeln",
+      "useCameraData": "Serien- und Belichtungsreihen-Daten der Kamera nutzen, wenn vorhanden"
+    },
+    "badge": {
+      "collapse_one": "Stapel mit {{count}} Foto – zuklappen",
+      "collapse_other": "Stapel mit {{count}} Fotos – zuklappen",
+      "expand_one": "Stapel mit {{count}} Foto – aufklappen",
+      "expand_other": "Stapel mit {{count}} Fotos – aufklappen",
+      "place": "{{index}} von {{total}} im Stapel"
+    },
+    "failed": "Stapeln fehlgeschlagen: {{error}}",
+    "trashTop_one": "Nur das oberste Foto des Stapels wird verschoben; das nächste wird oberstes.",
+    "trashTop_other": "Nur die obersten Fotos von {{count}} Stapeln werden verschoben; jeweils das nächste wird oberstes."
   },
   "storage": {
     "aiLimit": "Limit für KI-Ergebnisse",
@@ -4840,6 +4890,7 @@
     "rename": "Umbenennen",
     "reset": "Zurücksetzen",
     "skipFailed": "Fehlgeschlagene überspringen",
+    "stacks": "Stapeln",
     "style": "Stil anwenden",
     "sync": "Einstellungen synchronisieren",
     "trash": "In den Papierkorb verschieben",

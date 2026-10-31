@@ -223,6 +223,7 @@
     "items": {
       "about": "Sobre o {{app}}",
       "auto_adjust": "Ajuste automático",
+      "auto_stack": "Empilhar automaticamente por hora de captura…",
       "auto_white_balance": "Equilíbrio de brancos automático",
       "check_updates": "Procurar atualizações…",
       "clear_recent": "Limpar menu",
@@ -266,6 +267,13 @@
       "shift_capture_time": "Deslocar hora de captura…",
       "show_activity": "Atividade…",
       "show_in_finder": "Mostrar no Finder",
+      "stack_collapse_all": "Recolher todas as pilhas",
+      "stack_expand_all": "Expandir todas as pilhas",
+      "stack_group": "Agrupar em pilha",
+      "stack_move_top": "Mover para o topo da pilha",
+      "stack_remove": "Remover da pilha",
+      "stack_toggle": "Recolher/expandir pilha",
+      "stack_unstack": "Desempilhar",
       "sync_settings": "Sincronizar ajustes",
       "tether_capture": "Disparar (câmera conectada)",
       "toggle_all_panels": "Todos os painéis e barras",
@@ -323,7 +331,8 @@
       "panels": "Painéis",
       "rating": "Classificação",
       "recent": "Abrir recentes",
-      "recipes": "Exportar com receita"
+      "recipes": "Exportar com receita",
+      "stacking": "Empilhamento"
     }
   },
   "captureTime": {
@@ -2506,6 +2515,59 @@
     "size": "Tamanho",
     "sizeAria": "Tamanho da mancha",
     "visualize": "Visualizar manchas"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "Criar {{count}} pilha",
+      "apply_many": "Criar {{count}} pilhas",
+      "apply_other": "Criar {{count}} pilhas",
+      "cancel": "Cancelar",
+      "done_one": "{{count}} pilha criada",
+      "done_many": "{{count}} pilhas criadas",
+      "done_other": "{{count}} pilhas criadas",
+      "interval": "Tempo entre fotos",
+      "intro": "Fotos tiradas no máximo este tempo após a anterior ficam na mesma pilha. Fotos que já estão numa pilha ficam como estão.",
+      "kind": {
+        "bracket_one": "{{count}} bracketing",
+        "bracket_many": "{{count}} bracketings",
+        "bracket_other": "{{count}} bracketings",
+        "burst_one": "{{count}} sequência",
+        "burst_many": "{{count}} sequências",
+        "burst_other": "{{count}} sequências"
+      },
+      "leftOut_one": "{{count}} foto sem hora de captura ou já empilhada fica de fora",
+      "leftOut_many": "{{count}} fotos sem hora de captura ou já empilhadas ficam de fora",
+      "leftOut_other": "{{count}} fotos sem hora de captura ou já empilhadas ficam de fora",
+      "minutes_one": "{{count}} minuto",
+      "minutes_many": "{{count}} minutos",
+      "minutes_other": "{{count}} minutos",
+      "minutesSeconds": "{{minutes}} min {{seconds}} s",
+      "preview_one": "{{count}} pilha de {{photos}} fotos",
+      "preview_many": "{{count}} pilhas de {{photos}} fotos",
+      "preview_other": "{{count}} pilhas de {{photos}} fotos",
+      "reading": "A contar…",
+      "seconds_one": "{{count}} segundo",
+      "seconds_many": "{{count}} segundos",
+      "seconds_other": "{{count}} segundos",
+      "single_one": "{{count}} foto fica sozinha",
+      "single_many": "{{count}} fotos ficam sozinhas",
+      "single_other": "{{count}} fotos ficam sozinhas",
+      "title": "Empilhar automaticamente por hora de captura",
+      "useCameraData": "Usar dados de sequência e bracketing da câmara quando existirem"
+    },
+    "badge": {
+      "collapse_one": "Pilha de {{count}} foto – recolher",
+      "collapse_many": "Pilha de {{count}} fotos – recolher",
+      "collapse_other": "Pilha de {{count}} fotos – recolher",
+      "expand_one": "Pilha de {{count}} foto – expandir",
+      "expand_many": "Pilha de {{count}} fotos – expandir",
+      "expand_other": "Pilha de {{count}} fotos – expandir",
+      "place": "{{index}} de {{total}} na pilha"
+    },
+    "failed": "Falha ao empilhar: {{error}}",
+    "trashTop_one": "Só a foto do topo da pilha é movida; a seguinte passa a ser o topo.",
+    "trashTop_many": "Só as fotos do topo de {{count}} pilhas são movidas; a seguinte de cada uma passa a ser o topo.",
+    "trashTop_other": "Só as fotos do topo de {{count}} pilhas são movidas; a seguinte de cada uma passa a ser o topo."
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -5008,6 +5070,7 @@
     "rename": "Renomear",
     "reset": "Repor",
     "skipFailed": "Ignorar itens com falha",
+    "stacks": "Empilhamento",
     "style": "Aplicar estilo",
     "sync": "Sincronizar ajustes",
     "trash": "Mover para o lixo",

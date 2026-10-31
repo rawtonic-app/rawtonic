@@ -9,6 +9,7 @@ import { buildImageGroups, GroupBadgeInfo, GroupId } from '../utils/imageGroupin
 import { flagName, imageFlag, type FlagCounts } from '../utils/culling';
 import { photographPath, selectionCount } from '../utils/librarySearch';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
+import { arrangeStacks, listingFiltered, useStackStore, type StackEntry, type StackMark } from '../store/useStackStore';
 
 // Extract each basename once per immutable file record, not twice per comparison.
 // Weak keys release old folders; the locale comparison keeps the existing order.
@@ -69,6 +70,8 @@ export interface GroupedLibrary {
   displayList: ImageFile[];
   badges: Map<GroupId, GroupBadgeInfo> | null;
   flagCounts: FlagCounts;
+  /** Photos shown as part of a stack (folder and session views only). */
+  stackMarks?: Map<string, StackMark>;
 }
 
 export type LibraryQueryState = Pick<ReturnType<typeof useLibraryStore.getState>,
@@ -76,6 +79,11 @@ export type LibraryQueryState = Pick<ReturnType<typeof useLibraryStore.getState>
     imageFlags?: Record<string, number>;
     catalogMatches?: Set<string> | null;
     catalogKnown?: Set<string> | null;
+    /** Stack members by path; with `stackView`, stacks collapse. */
+    stacks?: Map<string, StackEntry> | null;
+    /** A folder or the whole session/catalog is shown (not an album, a
+     * smart album or another view, which list stack members singly). */
+    stackView?: boolean;
   };
 interface QuerySettings {
   appSettings?: { grouping?: GroupingMode; groupEditedFiles?: boolean } | null;
@@ -157,7 +165,7 @@ function orderedImages(images: ImageFile[], imageRatings: Record<string, number>
 export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsState: QuerySettings): GroupedLibrary {
   const {
     imageList, imageRatings, imageFlags = {}, filterCriteria, searchCriteria, sortCriteria, catalogMatches = null,
-    catalogKnown = null,
+    catalogKnown = null, stacks = null, stackView = false,
   } = libraryState;
   const { appSettings } = settingsState;
 
@@ -344,10 +352,19 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
 
   // A first query with restrictive filters only sorts its matches. Once the full
   // folder has been ordered, later filters consume that ordering directly.
-  const displayList = cached
+  const sorted = cached
     ? list
     : orderedImages(list.length === imageList.length ? imageList : list, imageRatings, sortCriteria);
-  return { displayList, badges, flagCounts };
+  // Stacks collapse in folder and session views without a filter or
+  // search; filtered results, albums and smart albums list every matching
+  // member on its own (Lightroom's collections), so a filter never hides a
+  // matching photo inside a collapsed stack.
+  const filtering = listingFiltered(filterCriteria, searchCriteria, catalogMatches);
+  if (stackView && stacks && stacks.size && !filtering) {
+    const { list: displayList, marks } = arrangeStacks(sorted, stacks);
+    return { displayList, badges, flagCounts, stackMarks: marks };
+  }
+  return { displayList: sorted, badges, flagCounts };
 }
 
 export function computeSortedLibrary(libraryState: LibraryQueryState, settingsState: QuerySettings): ImageFile[] {
@@ -363,6 +380,8 @@ export function useSortedLibrary() {
   const sortCriteria = useLibraryStore((state) => state.sortCriteria);
   const catalogMatches = useLibraryStore((state) => state.catalogMatches);
   const catalogKnown = useLibraryStore((state) => state.catalogKnown);
+  const stackView = useLibraryStore((state) => state.activeAlbumId === null);
+  const stacks = useStackStore((state) => state.byPath);
 
   const appSettings = useSettingsStore((state) => state.appSettings);
   const grouping = appSettings?.grouping;
@@ -376,7 +395,7 @@ export function useSortedLibrary() {
     const started = performanceDiagnosticsEnabled ? performance.now() : 0;
     const result = computeGroupedLibrary(
       { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria, catalogMatches,
-        catalogKnown },
+        catalogKnown, stacks, stackView },
       { appSettings: { grouping, groupEditedFiles } },
     );
     if (performanceDiagnosticsEnabled) {
@@ -389,7 +408,7 @@ export function useSortedLibrary() {
     return result;
   }, [
     imageList, sortCriteria, imageRatings, imageFlags, filterCriteria, searchCriteria, catalogMatches,
-    catalogKnown, grouping, groupEditedFiles,
+    catalogKnown, grouping, groupEditedFiles, stacks, stackView,
   ]);
 
   return result;

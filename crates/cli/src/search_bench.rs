@@ -188,6 +188,7 @@ fn photograph(i: u32, numbers: &mut Numbers, words: &[String]) -> (String, Captu
             "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia".into()
         }),
         camera_rating: None,
+        ..CaptureFacts::default()
     };
     let metadata = Metadata {
         rating: [0, 0, 0, 1, 2, 3, 3, 4, 5][numbers.below(9)],

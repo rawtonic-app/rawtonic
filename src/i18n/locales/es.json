@@ -223,6 +223,7 @@
     "items": {
       "about": "Acerca de {{app}}",
       "auto_adjust": "Ajuste automático",
+      "auto_stack": "Apilar automáticamente por hora de captura…",
       "auto_white_balance": "Balance de blancos automático",
       "check_updates": "Buscar actualizaciones…",
       "clear_recent": "Vaciar menú",
@@ -266,6 +267,13 @@
       "shift_capture_time": "Desplazar hora de captura…",
       "show_activity": "Actividad…",
       "show_in_finder": "Mostrar en el Finder",
+      "stack_collapse_all": "Contraer todas las pilas",
+      "stack_expand_all": "Expandir todas las pilas",
+      "stack_group": "Agrupar en pila",
+      "stack_move_top": "Mover arriba de la pila",
+      "stack_remove": "Quitar de la pila",
+      "stack_toggle": "Contraer/expandir pila",
+      "stack_unstack": "Desapilar",
       "sync_settings": "Sincronizar ajustes",
       "tether_capture": "Disparar (cámara conectada)",
       "toggle_all_panels": "Todos los paneles y barras",
@@ -323,7 +331,8 @@
       "panels": "Paneles",
       "rating": "Valoración",
       "recent": "Abrir recientes",
-      "recipes": "Exportar con receta"
+      "recipes": "Exportar con receta",
+      "stacking": "Apilamiento"
     }
   },
   "captureTime": {
@@ -2506,6 +2515,59 @@
     "size": "Tamaño",
     "sizeAria": "Tamaño de la mancha",
     "visualize": "Visualizar manchas"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "Crear {{count}} pila",
+      "apply_many": "Crear {{count}} pilas",
+      "apply_other": "Crear {{count}} pilas",
+      "cancel": "Cancelar",
+      "done_one": "{{count}} pila creada",
+      "done_many": "{{count}} pilas creadas",
+      "done_other": "{{count}} pilas creadas",
+      "interval": "Tiempo entre fotos",
+      "intro": "Las fotos tomadas como mucho este tiempo después de la anterior comparten pila. Las fotos que ya están en una pila no cambian.",
+      "kind": {
+        "bracket_one": "{{count}} horquillado",
+        "bracket_many": "{{count}} horquillados",
+        "bracket_other": "{{count}} horquillados",
+        "burst_one": "{{count}} ráfaga",
+        "burst_many": "{{count}} ráfagas",
+        "burst_other": "{{count}} ráfagas"
+      },
+      "leftOut_one": "Se omite {{count}} foto sin hora de captura o ya apilada",
+      "leftOut_many": "Se omiten {{count}} fotos sin hora de captura o ya apiladas",
+      "leftOut_other": "Se omiten {{count}} fotos sin hora de captura o ya apiladas",
+      "minutes_one": "{{count}} minuto",
+      "minutes_many": "{{count}} minutos",
+      "minutes_other": "{{count}} minutos",
+      "minutesSeconds": "{{minutes}} min {{seconds}} s",
+      "preview_one": "{{count}} pila de {{photos}} fotos",
+      "preview_many": "{{count}} pilas de {{photos}} fotos",
+      "preview_other": "{{count}} pilas de {{photos}} fotos",
+      "reading": "Contando…",
+      "seconds_one": "{{count}} segundo",
+      "seconds_many": "{{count}} segundos",
+      "seconds_other": "{{count}} segundos",
+      "single_one": "{{count}} foto queda sola",
+      "single_many": "{{count}} fotos quedan solas",
+      "single_other": "{{count}} fotos quedan solas",
+      "title": "Apilar automáticamente por hora de captura",
+      "useCameraData": "Usar los datos de ráfaga y horquillado de la cámara cuando existan"
+    },
+    "badge": {
+      "collapse_one": "Pila de {{count}} foto – contraer",
+      "collapse_many": "Pila de {{count}} fotos – contraer",
+      "collapse_other": "Pila de {{count}} fotos – contraer",
+      "expand_one": "Pila de {{count}} foto – expandir",
+      "expand_many": "Pila de {{count}} fotos – expandir",
+      "expand_other": "Pila de {{count}} fotos – expandir",
+      "place": "{{index}} de {{total}} en la pila"
+    },
+    "failed": "Error al apilar: {{error}}",
+    "trashTop_one": "Solo se mueve la foto superior de la pila; la siguiente pasa a ser la superior.",
+    "trashTop_many": "Solo se mueven las fotos superiores de {{count}} pilas; la siguiente de cada una pasa a ser la superior.",
+    "trashTop_other": "Solo se mueven las fotos superiores de {{count}} pilas; la siguiente de cada una pasa a ser la superior."
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -5008,6 +5070,7 @@
     "rename": "Renombrar",
     "reset": "Restablecer",
     "skipFailed": "Omitir elementos fallidos",
+    "stacks": "Apilamiento",
     "style": "Aplicar estilo",
     "sync": "Sincronizar ajustes",
     "trash": "Mover a la papelera",

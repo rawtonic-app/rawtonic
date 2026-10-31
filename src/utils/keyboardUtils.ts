@@ -28,6 +28,14 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   { action: 'show_activity', description: 'appMenu.items.show_activity', defaultCombo: ['ctrl', 'alt', 'KeyA'], section: 'view' },
   { action: 'view_grid', description: 'appMenu.items.view_grid', defaultCombo: ['KeyG'], section: 'view' },
   { action: 'view_loupe', description: 'appMenu.items.view_loupe', defaultCombo: ['KeyE'], section: 'library' },
+  // Stacks (Lightroom's keys): ⌘G groups, ⇧⌘G unstacks, S collapses or
+  // expands the selected stack (S is the crop tool in Develop), ⇧S moves
+  // the selected member to the top.
+  { action: 'stack_group', description: 'appMenu.items.stack_group', defaultCombo: ['ctrl', 'KeyG'], section: 'library' },
+  { action: 'stack_unstack', description: 'appMenu.items.stack_unstack', defaultCombo: ['ctrl', 'shift', 'KeyG'], section: 'library' },
+  { action: 'stack_toggle', description: 'appMenu.items.stack_toggle', defaultCombo: ['KeyS'], section: 'library' },
+  // ⇧S: soft proofing in Develop.
+  { action: 'stack_move_top', description: 'appMenu.items.stack_move_top', defaultCombo: ['shift', 'KeyS'], section: 'library' },
   { action: 'view_develop', description: 'appMenu.items.view_develop', defaultCombo: ['KeyD'], section: 'view' },
   { action: 'toggle_auto_advance', description: 'settings.general.autoAdvance', defaultCombo: ['CapsLock'], section: 'rating' },
   { action: 'flag_pick', description: 'appMenu.items.flag_pick', defaultCombo: ['KeyP'], section: 'rating' },
@@ -636,10 +644,24 @@ export function buildComboMap(keybinds?: Record<string, string[]> | null): Map<s
 }
 
 /** Actions that share a key with another action; the shortcut editor marks them. */
+/** Default keys a Library-only and a Develop-only action share (E: loupe /
+ * eraser; S: collapse or expand a stack / crop; ⇧S: move to the stack's
+ * top / soft proofing). */
+const VIEW_SPLIT_KEYS = [
+  ['view_loupe', 'tool_erase'],
+  ['stack_toggle', 'toggle_crop'],
+  ['stack_move_top', 'toggle_soft_proof'],
+];
+
+/** Whether `actions`, bound to one key, belong to different views. */
+export function splitByView(actions: string[]): boolean {
+  return actions.length === 2 && VIEW_SPLIT_KEYS.some((pair) => pair.every((a) => actions.includes(a)));
+}
+
 export function conflictingActions(keybinds?: Record<string, string[]> | null): Set<string> {
   const actions = new Set<string>();
   for (const bound of buildComboMap(keybinds).values()) {
-    if (bound.length > 1 && !(bound.length === 2 && bound.includes('view_loupe') && bound.includes('tool_erase'))) {
+    if (bound.length > 1 && !splitByView(bound)) {
       bound.forEach((action) => actions.add(action));
     }
   }

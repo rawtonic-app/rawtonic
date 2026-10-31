@@ -213,6 +213,7 @@
     "items": {
       "about": "About {{app}}",
       "auto_adjust": "Auto Adjust",
+      "auto_stack": "Auto-Stack by Capture Time…",
       "auto_white_balance": "Auto White Balance",
       "check_updates": "Check for Updates…",
       "clear_recent": "Clear Menu",
@@ -256,6 +257,13 @@
       "shift_capture_time": "Shift Capture Time…",
       "show_activity": "Activity…",
       "show_in_finder": "Show in Finder",
+      "stack_collapse_all": "Collapse All Stacks",
+      "stack_expand_all": "Expand All Stacks",
+      "stack_group": "Group into Stack",
+      "stack_move_top": "Move to Top of Stack",
+      "stack_remove": "Remove from Stack",
+      "stack_toggle": "Collapse/Expand Stack",
+      "stack_unstack": "Unstack",
       "sync_settings": "Sync Settings",
       "tether_capture": "Capture (Tethered Camera)",
       "toggle_all_panels": "All Panels and Bars",
@@ -313,7 +321,8 @@
       "panels": "Panels",
       "rating": "Rating",
       "recent": "Open Recent",
-      "recipes": "Export with Recipe"
+      "recipes": "Export with Recipe",
+      "stacking": "Stacking"
     }
   },
   "captureTime": {
@@ -2391,6 +2400,47 @@
     "size": "Size",
     "sizeAria": "Spot size",
     "visualize": "Visualize spots"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "Make {{count}} stack",
+      "apply_other": "Make {{count}} stacks",
+      "cancel": "Cancel",
+      "done_one": "{{count}} stack made",
+      "done_other": "{{count}} stacks made",
+      "interval": "Time between photos",
+      "intro": "Photos taken at most this long after the one before share a stack. Photos already in a stack stay as they are.",
+      "kind": {
+        "bracket_one": "{{count}} bracket",
+        "bracket_other": "{{count}} brackets",
+        "burst_one": "{{count}} burst",
+        "burst_other": "{{count}} bursts"
+      },
+      "leftOut_one": "{{count}} photo without a capture time or already in a stack is left out",
+      "leftOut_other": "{{count}} photos without a capture time or already in a stack are left out",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "minutesSeconds": "{{minutes}} min {{seconds}} s",
+      "preview_one": "{{count}} stack from {{photos}} photos",
+      "preview_other": "{{count}} stacks from {{photos}} photos",
+      "reading": "Counting…",
+      "seconds_one": "{{count}} second",
+      "seconds_other": "{{count}} seconds",
+      "single_one": "{{count}} photo stays single",
+      "single_other": "{{count}} photos stay single",
+      "title": "Auto-Stack by Capture Time",
+      "useCameraData": "Use camera burst and bracket data when available"
+    },
+    "badge": {
+      "collapse_one": "Stack of {{count}} photo – collapse",
+      "collapse_other": "Stack of {{count}} photos – collapse",
+      "expand_one": "Stack of {{count}} photo – expand",
+      "expand_other": "Stack of {{count}} photos – expand",
+      "place": "{{index}} of {{total}} in the stack"
+    },
+    "failed": "Stacking failed: {{error}}",
+    "trashTop_one": "Only the stack's top photo goes; the next photo in the stack becomes its top.",
+    "trashTop_other": "Only the top photos of {{count}} stacks go; the next photo in each becomes its top."
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -4840,6 +4890,7 @@
     "rename": "Rename",
     "reset": "Reset",
     "skipFailed": "Skip failed items",
+    "stacks": "Stacking",
     "style": "Apply Style",
     "sync": "Sync Settings",
     "trash": "Move to Trash",

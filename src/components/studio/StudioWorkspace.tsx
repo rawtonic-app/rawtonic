@@ -107,6 +107,8 @@ import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { SeriesMatchDialogHost } from "./SeriesMatchDialog";
 import { CaptureTimeDialogHost } from "./CaptureTimeDialog";
+import { AutoStackDialogHost } from "./AutoStackDialog";
+import type { StackMark } from "../../store/useStackStore";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 import { registerAppCommands, runAppCommand } from "../../utils/appCommands";
@@ -118,6 +120,8 @@ import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 interface Props {
   files: ImageFile[];
   flagCounts: FlagCounts;
+  /** Photos shown as part of a stack (`useSortedLibrary`). */
+  stackMarks?: Map<string, StackMark>;
   /** Forwarded unchanged to the Editor's zoom/pan handle. */
   transformWrapperRef: ComponentProps<typeof Editor>["transformWrapperRef"];
   onSelect(path: string, event: MouseEvent): void;
@@ -792,6 +796,7 @@ export default function StudioWorkspace(props: Props) {
   const rating = selectedImage ? imageRatings[selectedImage.path] || 0 : 0;
   const browserProps = {
     files,
+    stackMarks: props.stackMarks,
     onSelect: onSelect,
     onOpen,
     onRate,
@@ -1153,6 +1158,7 @@ export default function StudioWorkspace(props: Props) {
       <CopySettingsDialogHost />
       <SeriesMatchDialogHost />
       <CaptureTimeDialogHost />
+      <AutoStackDialogHost />
       {sessionBar.center && sessionBar.end ? (
         <>
           {createPortal(modules, sessionBar.center)}

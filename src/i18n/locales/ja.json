@@ -206,6 +206,7 @@
     "items": {
       "about": "{{app}}について",
       "auto_adjust": "自動補正",
+      "auto_stack": "撮影時間で自動スタック…",
       "auto_white_balance": "自動ホワイトバランス",
       "check_updates": "アップデートを確認…",
       "clear_recent": "メニューを消去",
@@ -249,6 +250,13 @@
       "shift_capture_time": "撮影日時をずらす…",
       "show_activity": "アクティビティ…",
       "show_in_finder": "Finderに表示",
+      "stack_collapse_all": "すべてのスタックを折りたたむ",
+      "stack_expand_all": "すべてのスタックを展開",
+      "stack_group": "スタックにグループ化",
+      "stack_move_top": "スタックの先頭に移動",
+      "stack_remove": "スタックから削除",
+      "stack_toggle": "スタックを折りたたむ/展開",
+      "stack_unstack": "スタックを解除",
       "sync_settings": "設定を同期",
       "tether_capture": "撮影（テザーカメラ）",
       "toggle_all_panels": "すべてのパネルとバー",
@@ -306,7 +314,8 @@
       "panels": "パネル",
       "rating": "レーティング",
       "recent": "最近使ったライブラリ",
-      "recipes": "レシピで書き出し"
+      "recipes": "レシピで書き出し",
+      "stacking": "スタック"
     }
   },
   "captureTime": {
@@ -2319,6 +2328,47 @@
     "size": "サイズ",
     "sizeAria": "スポットのサイズ",
     "visualize": "スポットを視覚化"
+  },
+  "stacks": {
+    "auto": {
+      "apply_one": "{{count}} 個のスタックを作成",
+      "apply_other": "{{count}} 個のスタックを作成",
+      "cancel": "キャンセル",
+      "done_one": "{{count}} 個のスタックを作成しました",
+      "done_other": "{{count}} 個のスタックを作成しました",
+      "interval": "写真の間隔",
+      "intro": "前の写真からこの時間内に撮影された写真を同じスタックにまとめます。すでにスタックにある写真はそのままです。",
+      "kind": {
+        "bracket_one": "ブラケット {{count}} 組",
+        "bracket_other": "ブラケット {{count}} 組",
+        "burst_one": "連写 {{count}} 組",
+        "burst_other": "連写 {{count}} 組"
+      },
+      "leftOut_one": "撮影時間がないかすでにスタックにある {{count}} 枚は対象外です",
+      "leftOut_other": "撮影時間がないかすでにスタックにある {{count}} 枚は対象外です",
+      "minutes_one": "{{count}} 分",
+      "minutes_other": "{{count}} 分",
+      "minutesSeconds": "{{minutes}} 分 {{seconds}} 秒",
+      "preview_one": "{{photos}} 枚から {{count}} 個のスタック",
+      "preview_other": "{{photos}} 枚から {{count}} 個のスタック",
+      "reading": "計算中…",
+      "seconds_one": "{{count}} 秒",
+      "seconds_other": "{{count}} 秒",
+      "single_one": "{{count}} 枚は単独のまま",
+      "single_other": "{{count}} 枚は単独のまま",
+      "title": "撮影時間で自動スタック",
+      "useCameraData": "カメラの連写・ブラケット情報があれば使用する"
+    },
+    "badge": {
+      "collapse_one": "{{count}} 枚のスタック – 折りたたむ",
+      "collapse_other": "{{count}} 枚のスタック – 折りたたむ",
+      "expand_one": "{{count}} 枚のスタック – 展開",
+      "expand_other": "{{count}} 枚のスタック – 展開",
+      "place": "スタック内 {{index}} / {{total}}"
+    },
+    "failed": "スタックできませんでした: {{error}}",
+    "trashTop_one": "スタックの先頭の写真だけが移動され、次の写真が先頭になります。",
+    "trashTop_other": "{{count}} 個のスタックの先頭の写真だけが移動され、それぞれ次の写真が先頭になります。"
   },
   "storage": {
     "aiLimit": "AI result limit",
@@ -4720,6 +4770,7 @@
     "rename": "名前の変更",
     "reset": "リセット",
     "skipFailed": "失敗した項目をスキップ",
+    "stacks": "スタック",
     "style": "スタイルを適用",
     "sync": "設定を同期",
     "trash": "ゴミ箱に移動",
