@@ -23,7 +23,7 @@ export interface AppModalsProps {
   refreshImageList: () => Promise<void>;
   handleCreateFolder: (folderName: string) => Promise<void>;
   handleRenameFolder: (newName: string) => Promise<void>;
-  handleSaveRename: (nameTemplate: string, expected: PlannedFile[]) => Promise<void>;
+  handleSaveRename: (nameTemplate: string, expected: PlannedFile[], sequenceStart?: number) => Promise<void>;
   handleSetColorLabel: (color: string | null, paths?: string[]) => Promise<void>;
   handleRate: (rating: number, paths?: string[]) => void;
   executeDelete: (paths: string[], options: { includeAssociated: boolean }) => Promise<void>;

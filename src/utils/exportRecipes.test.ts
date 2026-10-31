@@ -26,7 +26,7 @@ const draft: RecipeDraft = {
   resizeValue: 2048,
   metadata: false,
   stripGps: true,
-  template: "{original_filename}_web",
+  template: "{orig_base}_web",
   where: "output",
 };
 
@@ -122,6 +122,15 @@ it("gives recipes saved before these settings the form defaults", () => {
     destinationType: "customFolder",
   } as unknown as ExportPreset;
   const d = draftFromPreset(old);
+  // Its name template is read in the naming tokens, naming as before.
+  expect(d.template).toBe("{orig_base}");
+  expect(draftFromPreset({ ...old, filenameTemplate: "{YYYY}{MM}{DD}-{hh}{mm}_{sequence}" }).template).toBe(
+    "{yyyy}{mm}{dd}-{hh}{MM}_{seq:auto}",
+  );
+  // Saved again, it holds the naming tokens; one saved since keeps them.
+  const again = presetFromDraft(d, "old", "Old", old);
+  expect(again).toMatchObject({ filenameTemplate: "", nameTemplate: "{orig_base}" });
+  expect(draftFromPreset({ ...again, nameTemplate: "{job}/{mm}" }).template).toBe("{job}/{mm}");
   expect(d).toMatchObject({
     colorSpace: "srgb",
     dontEnlarge: true,
@@ -156,7 +165,8 @@ it("builds the export_images settings from the form", () => {
   const { settings, outputFormat } = exportSettingsFromDraft(everything);
   expect(outputFormat).toBe("webp");
   expect(settings).toEqual({
-    filenameTemplate: "{original_filename}_web",
+    filenameTemplate: null,
+    nameTemplate: "{orig_base}_web",
     sequenceStart: 1,
     jpegQuality: 80,
     tiffBitDepth: 8,

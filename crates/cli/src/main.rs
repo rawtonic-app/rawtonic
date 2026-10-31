@@ -1007,6 +1007,9 @@ fn export(args: ExportArgs) -> Result<()> {
         strip_gps,
         keep_creator_contact,
         filename_template: None,
+        name_template: None,
+        job_name: None,
+        recipe_name: None,
         sequence_start: None,
         watermark: None,
         export_masks: false,
@@ -1047,15 +1050,15 @@ fn export(args: ExportArgs) -> Result<()> {
                     let (path, _) = parse_virtual_path(&photo);
                     let capture =
                         rawtonic_export::exif_processing::capture_date_with(&path, &|| None);
+                    let naming =
+                        settings.naming_context(&path, index + 1, total, &capture, &format, None);
                     let stem = export_stem(
-                        "{original_filename}_edited",
-                        &path,
-                        index + 1,
-                        total,
-                        &capture,
+                        &settings.naming_template(),
+                        &naming,
                         appearance,
                         explicit_vc,
-                    );
+                    )
+                    .map_err(anyhow::Error::msg)?;
                     let dir = relative_export_dir_for_preserved_folders(&path, &origin)
                         .map_or_else(|| output.clone(), |rel| output.join(rel));
                     std::fs::create_dir_all(&dir)

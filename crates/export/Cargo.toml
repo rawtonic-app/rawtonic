@@ -20,6 +20,7 @@ rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawtonic-gpu = { path = "../gpu", version = "0.1.0" }
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+rawtonic-naming = { path = "../naming", version = "0.1.0" }
 rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
 kamadak-exif = "0.6.1"
 little_exif = "0.6.23"

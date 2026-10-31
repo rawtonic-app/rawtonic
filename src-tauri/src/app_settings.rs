@@ -302,7 +302,13 @@ pub struct ExportPreset {
     pub strip_gps: bool,
     #[serde(default)]
     pub keep_creator_contact: bool,
+    /// The name template in the first export tokens (recipes saved before
+    /// `name_template`); the Studio translates it when it loads the recipe.
+    #[serde(default)]
     pub filename_template: String,
+    /// The name template in the naming tokens (`rawtonic_naming`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_template: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence_start: Option<u32>,
     pub enable_watermark: bool,
@@ -348,6 +354,8 @@ pub struct ExportPreset {
     pub last_export_path: Option<String>,
     #[serde(default)]
     pub destination_type: Option<String>,
+    /// A folder template below the destination (`{job}/{date}/{format}`),
+    /// in the naming tokens.
     #[serde(default)]
     pub subfolder: Option<String>,
     /// 8 or 16; the Studio's recipes keep it (it was dropped on save before).
@@ -379,7 +387,8 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             keep_metadata: true,
             strip_gps: false,
             keep_creator_contact: false,
-            filename_template: "{original_filename}".to_string(),
+            filename_template: String::new(),
+            name_template: Some("{orig_base}".to_string()),
             sequence_start: None,
             enable_watermark: false,
             watermark_path: None,
@@ -424,7 +433,8 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             keep_metadata: false,
             strip_gps: true,
             keep_creator_contact: false,
-            filename_template: "{original_filename}_web".to_string(),
+            filename_template: String::new(),
+            name_template: Some("{orig_base}_web".to_string()),
             sequence_start: None,
             enable_watermark: false,
             watermark_path: None,

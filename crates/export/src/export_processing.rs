@@ -142,7 +142,20 @@ pub struct ExportSettings {
     /// With metadata stripped, explicitly include creator contact details.
     #[serde(default)]
     pub keep_creator_contact: bool,
+    /// The name template of recipes saved before `name_template`, in the
+    /// first export tokens (`{original_filename}`, `{MM}` the month);
+    /// read through `rawtonic_naming::translate_legacy_export`.
     pub filename_template: Option<String>,
+    /// The name template in the naming tokens of ingest and rename
+    /// (`rawtonic_naming`); outranks `filename_template`.
+    #[serde(default)]
+    pub name_template: Option<String>,
+    /// The job name `{job}` fills, set once per export.
+    #[serde(default)]
+    pub job_name: Option<String>,
+    /// The recipe's name, for `{recipe}`.
+    #[serde(default)]
+    pub recipe_name: Option<String>,
     /// Initial counter for this job. Absent in old recipes and queued jobs.
     #[serde(default)]
     pub sequence_start: Option<u32>,
@@ -158,6 +171,81 @@ pub struct ExportSettings {
     /// Sharpening of the finished output, after the resize.
     #[serde(default)]
     pub output_sharpening: Option<crate::output_sharpening::OutputSharpening>,
+}
+
+impl ExportSettings {
+    /// The name template in the naming tokens: `name_template`, else the
+    /// saved `filename_template` translated, else the original name with
+    /// `_edited`.
+    pub fn naming_template(&self) -> std::borrow::Cow<'_, str> {
+        match (&self.name_template, &self.filename_template) {
+            (Some(template), _) => template.as_str().into(),
+            (None, Some(legacy)) => rawtonic_naming::translate_legacy_export(legacy).into(),
+            (None, None) => "{orig_base}_edited".into(),
+        }
+    }
+
+    /// Whether the name or the folder template uses a token the
+    /// photograph's metadata fills (`rawtonic_naming::Capture`).
+    pub fn naming_needs_capture(&self) -> bool {
+        rawtonic_naming::needs_capture(&self.naming_template())
+            || self
+                .subfolder
+                .as_deref()
+                .is_some_and(rawtonic_naming::needs_capture)
+    }
+
+    /// What the name and folder templates of `original_path`'s export
+    /// (counter `sequence` of a batch ending at `last_sequence`) are filled
+    /// with: its file, its capture date `file_date` (as the library
+    /// corrected it; it outranks `capture`'s), its metadata `capture`, the
+    /// job, recipe and `output_format`.
+    pub fn naming_context(
+        &self,
+        original_path: &Path,
+        sequence: usize,
+        last_sequence: usize,
+        file_date: &chrono::DateTime<chrono::Utc>,
+        output_format: &str,
+        capture: Option<&rawtonic_naming::Capture>,
+    ) -> rawtonic_naming::Context {
+        let name = original_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("image");
+        let mut context = rawtonic_naming::Context::new(name, sequence as u64);
+        context.sequence_start = self.sequence_start.unwrap_or(1).into();
+        context.sequence_last = Some(last_sequence as u64);
+        if let Some(capture) = capture {
+            context.apply_capture(capture);
+        }
+        context.captured = file_date.with_timezone(&chrono::Local).naive_local();
+        let mut set = |token: &str, value: Option<&str>| {
+            if let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) {
+                context.values.insert(token.into(), value.into());
+            }
+        };
+        set(
+            "folder",
+            original_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str()),
+        );
+        set("job", self.job_name.as_deref());
+        set("recipe", self.recipe_name.as_deref());
+        set("format", Some(&format_name(output_format)));
+        context
+    }
+}
+
+/// The name `{format}` gives an output format: `JPEG`, `TIFF`, `PNG`, …
+pub fn format_name(output_format: &str) -> String {
+    match output_format.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => "JPEG".into(),
+        "tif" | "tiff" => "TIFF".into(),
+        other => other.to_ascii_uppercase(),
+    }
 }
 
 impl ExportSettings {
@@ -845,11 +933,16 @@ pub fn relative_export_dir_for_preserved_folders(
 /// sub folder), then, in a chosen folder, the photograph's folders below its
 /// library root when `preserve_folders` is set. A subfolder that would leave
 /// the destination is refused.
+/// The folder `source_path`'s export goes to: the destination (or the
+/// original's folder), the recipe's subfolder template filled from
+/// `naming` (`rawtonic_naming::render_folder`: never outside it), then the
+/// kept folder structure.
 pub fn export_directory(
     source_path: &Path,
     output_folder: &Path,
     settings: &ExportSettings,
     base_origin_folders: &[String],
+    naming: &rawtonic_naming::Context,
 ) -> Result<PathBuf, String> {
     let beside_original = settings.destination_type.as_deref() == Some("originalFolder");
     let mut dir = if beside_original {
@@ -861,17 +954,13 @@ pub fn export_directory(
         output_folder.to_path_buf()
     };
     if let Some(sub) = settings.subfolder.as_deref() {
-        let sub = sub.trim().trim_start_matches(['/', '\\']);
-        if !sub.is_empty() {
-            let sub = Path::new(sub);
-            if !relative_dir_is_safe(sub) {
-                return Err(format!(
-                    "The export subfolder '{}' must stay inside the destination folder.",
-                    sub.display()
-                ));
-            }
-            dir.push(sub);
-        }
+        let folder = rawtonic_naming::render_folder(sub.trim(), naming).map_err(|e| {
+            format!(
+                "The export subfolder '{}' must stay inside the destination folder: {e}",
+                sub.trim()
+            )
+        })?;
+        dir.push(folder);
     }
     if !beside_original
         && settings.preserve_folders
@@ -1734,36 +1823,6 @@ pub fn set_capture_file_times(dst: &Path, capture_dt: chrono::DateTime<chrono::U
 
 /// An export file name from a template: {original_filename}, {sequence}
 /// (zero-padded to the batch size), {YYYY} {MM} {DD} {hh} {mm} in local time.
-pub fn generate_filename_from_template(
-    template: &str,
-    original_path: &std::path::Path,
-    sequence: usize,
-    total: usize,
-    file_date: &chrono::DateTime<chrono::Utc>,
-) -> String {
-    let stem = original_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("image");
-    let sequence_str = format!(
-        "{:0width$}",
-        sequence,
-        width = total.to_string().len().max(1)
-    );
-    let local_date = file_date.with_timezone(&chrono::Local);
-
-    let mut result = template.to_string();
-    result = result.replace("{original_filename}", stem);
-    result = result.replace("{sequence}", &sequence_str);
-    result = result.replace("{YYYY}", &local_date.format("%Y").to_string());
-    result = result.replace("{MM}", &local_date.format("%m").to_string());
-    result = result.replace("{DD}", &local_date.format("%d").to_string());
-    result = result.replace("{hh}", &local_date.format("%H").to_string());
-    result = result.replace("{mm}", &local_date.format("%M").to_string());
-
-    result
-}
-
 pub fn render_output_precision(
     output_format: &str,
     export_settings: &ExportSettings,
@@ -2209,7 +2268,8 @@ mod directory_tests {
         let source = Path::new("/lib/2026/day/a.raf");
         let out = Path::new("/out");
         let roots = ["/lib".to_string()];
-        let dir = |s: ExportSettings| export_directory(source, out, &s, &roots).unwrap();
+        let naming = rawtonic_naming::Context::new("a.raf", 1);
+        let dir = |s: ExportSettings| export_directory(source, out, &s, &roots, &naming).unwrap();
         assert_eq!(dir(settings(None, None, false)), Path::new("/out"));
         assert_eq!(
             dir(settings(None, Some(" Web "), false)),
@@ -2244,6 +2304,7 @@ mod directory_tests {
                 Path::new("/out"),
                 &settings(None, Some(sub), false),
                 &roots,
+                &rawtonic_naming::Context::new("a.raf", 1),
             );
             assert!(result.is_err(), "{sub}");
         }
@@ -2897,6 +2958,98 @@ mod encoding_input_tests {
 mod naming_counter_tests {
     use super::*;
 
+    /// The first export naming, kept as the reference the translated
+    /// templates are checked against.
+    fn generate_filename_from_template(
+        template: &str,
+        original_path: &std::path::Path,
+        sequence: usize,
+        total: usize,
+        file_date: &chrono::DateTime<chrono::Utc>,
+    ) -> String {
+        let stem = original_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("image");
+        let sequence_str = format!(
+            "{:0width$}",
+            sequence,
+            width = total.to_string().len().max(1)
+        );
+        let local_date = file_date.with_timezone(&chrono::Local);
+
+        let mut result = template.to_string();
+        result = result.replace("{original_filename}", stem);
+        result = result.replace("{sequence}", &sequence_str);
+        result = result.replace("{YYYY}", &local_date.format("%Y").to_string());
+        result = result.replace("{MM}", &local_date.format("%m").to_string());
+        result = result.replace("{DD}", &local_date.format("%d").to_string());
+        result = result.replace("{hh}", &local_date.format("%H").to_string());
+        result = result.replace("{mm}", &local_date.format("%M").to_string());
+
+        result
+    }
+
+    /// Recipes saved with the first export tokens name their files as they
+    /// did (`ExportSettings::naming_template` translates them).
+    #[test]
+    fn saved_legacy_templates_name_files_as_before() {
+        let date = chrono::DateTime::parse_from_rfc3339("2026-03-07T21:05:02Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let source = std::path::Path::new("/shoot/100ND750/DSC_0042.NEF");
+        for template in [
+            "{original_filename}",
+            "{original_filename}_edited",
+            "{original_filename}-edited",
+            "{YYYY}{MM}{DD}_{original_filename}",
+            "{original_filename}_{sequence}",
+            "{hh}{mm}_{DD}.{MM}.{YYYY} Zürich {sequence}",
+            "Hochzeit_{sequence}",
+        ] {
+            let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+                "filenameTemplate": template, "sequenceStart": 7,
+            }))
+            .unwrap();
+            for (index, total) in [(0, 1), (2, 3), (4, 120), (99, 2000)] {
+                let (sequence, last) = settings.filename_counter(index, total);
+                let naming = settings.naming_context(source, sequence, last, &date, "tiff", None);
+                assert_eq!(
+                    crate::sidecars::export_stem(&settings.naming_template(), &naming, 1, None),
+                    Ok(generate_filename_from_template(
+                        template, source, sequence, last, &date
+                    )),
+                    "{template} {index}/{total}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn name_template_outranks_the_saved_one() {
+        let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+            "filenameTemplate": "{original_filename}", "nameTemplate": "{job}_{format}_{seq:3}",
+            "jobName": " Acme ", "recipeName": "Web",
+        }))
+        .unwrap();
+        let date = chrono::Utc::now();
+        let naming =
+            settings.naming_context(std::path::Path::new("a.raf"), 4, 9, &date, "jpg", None);
+        assert_eq!(
+            crate::sidecars::export_stem(&settings.naming_template(), &naming, 1, None).unwrap(),
+            "Acme_JPEG_004"
+        );
+        assert_eq!(rawtonic_naming::render("{recipe}", &naming).unwrap(), "Web");
+        let unnamed: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+        }))
+        .unwrap();
+        assert_eq!(unnamed.naming_template(), "{orig_base}_edited");
+        assert!(!unnamed.naming_needs_capture());
+    }
+
     #[test]
     fn counter_survives_queue_serialization_and_resume() {
         let old = serde_json::json!({"jpegQuality":90, "keepMetadata":true, "stripGps":false});
@@ -2906,6 +3059,19 @@ mod naming_counter_tests {
         let saved = serde_json::to_value(&settings).unwrap();
         let restored: ExportSettings = serde_json::from_value(saved).unwrap();
         let date = chrono::Utc::now();
+        let stem = |sequence, last| {
+            let naming = restored.naming_context(
+                std::path::Path::new("a.raf"),
+                sequence,
+                last,
+                &date,
+                "jpg",
+                None,
+            );
+            rawtonic_naming::render("{seq:auto}", &naming).unwrap()
+        };
+        let (first, last) = restored.filename_counter(0, 4);
+        assert_eq!(stem(first, last), "098");
         let (first, last) = restored.filename_counter(0, 4);
         assert_eq!(
             generate_filename_from_template(

@@ -5486,6 +5486,7 @@ dependencies = [
  "rawtonic-engine",
  "rawtonic-gpu",
  "rawtonic-metadata",
+ "rawtonic-naming",
  "rawtonic-rawdecode",
  "rawtonic-runtime",
  "rayon",
