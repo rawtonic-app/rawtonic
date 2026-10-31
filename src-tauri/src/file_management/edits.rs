@@ -535,6 +535,10 @@ fn pasted_into(
         (new_adjustments.as_object_mut(), adjustments.as_object())
     {
         for (k, v) in pasted_map {
+            // The frame of the RAW stays the photograph's own (ADR 0020).
+            if k == rawtonic_engine::source_frame::KEY {
+                continue;
+            }
             // Copied or synced: a setting the source does not have is
             // removed here too (As Shot white balance over a custom one).
             if paste.is_some() && v.is_null() {
@@ -659,7 +663,9 @@ pub async fn reset_adjustments_for_paths(
     Ok(recorded_batch(app_handle, paths, |app_handle, paths| {
         edit_sidecars_recorded(paths, xmp_sync(app_handle), |_, _, sidecar_path| {
             let mut existing_metadata = crate::exif_processing::load_sidecar(sidecar_path);
-            existing_metadata.adjustments = serde_json::json!({});
+            // A new edit in the frame the photograph was edited in (ADR 0020).
+            existing_metadata.adjustments =
+                rawtonic_engine::source_frame::reset_recipe(&existing_metadata.adjustments);
             Ok(existing_metadata)
         })
     })
@@ -1535,6 +1541,36 @@ mod tests {
     ) -> Vec<CullingWrite> {
         assert!(failures.is_empty(), "{failures:?}");
         values
+    }
+
+    /// A paste, preset or style onto a closed photograph never changes its
+    /// frame (ADR 0020, "new photos only"): an edit keeps its own, a
+    /// never-edited photograph starts its edit with the newest.
+    #[test]
+    fn a_paste_keeps_the_photographs_frame() {
+        use rawtonic_engine::source_frame::{KEY, VERSION};
+        let source = Path::new("/nowhere/photo.CR3");
+        let paste = |base: Value| {
+            pasted_into(
+                base,
+                &None,
+                "/nowhere/photo.CR3",
+                source,
+                &serde_json::json!({"exposure": 1.0, KEY: 1}),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let legacy = paste(serde_json::json!({"exposure": 0.2, "renderVersion": 4}));
+        assert_eq!(legacy["exposure"], 1.0);
+        assert_eq!(legacy.get(KEY), None);
+        assert_eq!(paste(serde_json::json!({"exposure": 0.2, KEY: 0}))[KEY], 0);
+        // A Reset's recipe keeps its frame through the paste after it.
+        assert_eq!(paste(serde_json::json!({KEY: 0}))[KEY], 0);
+        assert_eq!(paste(serde_json::json!({}))[KEY], VERSION);
     }
 
     /// A style replaces the photograph's last applied style with that

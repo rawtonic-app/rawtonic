@@ -354,11 +354,12 @@ pub(crate) fn still_for(
     Some(still)
 }
 
-/// `developed_frame_at` of `source`; nothing when the decoder fails or
-/// panics on it (the still then keeps its own shape and the container's
-/// orientation).
+/// `developed_frame_at` of `source` for a new edit's frame (stills stand
+/// in for never-edited photographs only, which develop as new edits:
+/// `source_frame::requested`); nothing when the decoder fails or panics on
+/// it (the still then keeps its own shape and the container's orientation).
 pub(crate) fn frame_of(source: &Path) -> Option<DevelopedFrame> {
-    std::panic::catch_unwind(|| developed_frame_at(source))
+    std::panic::catch_unwind(|| developed_frame_at(source, rawtonic_engine::source_frame::VERSION))
         .ok()
         .flatten()
 }
@@ -561,6 +562,7 @@ mod tests {
             "synthetic.dng",
             rawtonic_rawdecode::raw_processing::developed_frame(
                 &rawler::rawsource::RawSource::new_from_slice(&dng),
+                rawtonic_engine::source_frame::VERSION,
             ),
             (300, 200),
             OutputColorSpace::Srgb,

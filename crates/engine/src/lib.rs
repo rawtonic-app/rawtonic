@@ -48,6 +48,7 @@ pub mod relight;
 pub mod series_match;
 pub mod session_layout;
 pub mod source_facts;
+pub mod source_frame;
 pub mod spot_removal;
 pub mod upright;
 pub mod warp_gpu;

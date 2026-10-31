@@ -64,6 +64,7 @@ import {
   type RecipeValues,
 } from '../utils/appUndo';
 import { editUndoOrder, historyOrders, nextUndoOrder, setHistoryOrders } from '../utils/undoOrder';
+import { withSourceFrameOf } from '../utils/sourceFrame';
 import {
   allPhotoWritesSettled,
   batchPhotosReported,
@@ -363,7 +364,7 @@ function pastedOpen(
   // with that one taken back, as the backend applies it to the others.
   const reverted = style && base ? revertStyle(base) : null;
   if (reverted) base = reverted.recipe;
-  const merged = style?.remove
+  let merged = style?.remove
     ? base
     : pasteInto(base, styleGroupsJoined(base, pasted, style), {
         samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
@@ -375,6 +376,9 @@ function pastedOpen(
     notify.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
     return null;
   }
+  // The photo keeps the frame it is shown in (src/utils/sourceFrame.ts):
+  // the editor's, which is also a never-edited photo's first-edit frame.
+  merged = withSourceFrameOf(merged, current);
   // A setting the style added goes back to not being there: the editor's
   // recipe fills it in again as loading does (the version a recipe without
   // it renders with).
@@ -1061,7 +1065,10 @@ export function useEditorActions() {
             && isCurrentEditorImage(selectedImage.path)) {
             const aspect =
               selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-            const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
+            const resetData = withSourceFrameOf(
+              { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] },
+              useEditorStore.getState().adjustments,
+            );
             // One undoable step, as in Capture One and Lightroom.
             debouncedSetHistory.flush();
             pushHistory(resetData, openOrder);
@@ -1180,7 +1187,9 @@ export function useEditorActions() {
       // versions values mean go along, unless the settings were chosen in the
       // picker (`asChosen`): those carry them only when chosen there, else
       // each photograph keeps its own (a never-edited one: a new edit's).
-      const grain = withGrainStructure(partial);
+      // The frame of the RAW is never applied (src/utils/sourceFrame.ts).
+      const { sourceFrameVersion: _frame, ...photoFree } = partial;
+      const grain = withGrainStructure(photoFree);
       let adjustmentsToApply = asChosen
         ? grain
         : withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))));
