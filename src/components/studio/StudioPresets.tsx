@@ -217,6 +217,9 @@ export default function StudioPresets() {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
+  // The group whose entry of a preset is renamed: a favourite shows twice
+  // (Favorites and its own group), and only the entry clicked is edited.
+  const [renamingIn, setRenamingIn] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Preset | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The open photo's last applied style (`appliedStyle` in its recipe).
@@ -326,13 +329,19 @@ export default function StudioPresets() {
       notify.error(t("studio.presets.toasts.exportFailed", { error: String(error) }));
     }
   };
-  const menu = (e: MouseEvent, preset: Preset) => {
+  const menu = (e: MouseEvent, preset: Preset, groupKey: string) => {
     e.preventDefault();
     endPreview();
     // Built-ins are read-only.
     if (preset.builtin) return;
     showContextMenu(e.clientX, e.clientY, [
-      { label: t("studio.presets.menu.rename"), onClick: () => setRenaming(preset.id) },
+      {
+        label: t("studio.presets.menu.rename"),
+        onClick: () => {
+          setRenamingIn(groupKey);
+          setRenaming(preset.id);
+        },
+      },
       {
         label: t("studio.presets.menu.update"),
         disabled: !ready,
@@ -706,7 +715,7 @@ export default function StudioPresets() {
               )}
               {open &&
                 group.presets.map((preset) =>
-                  renaming === preset.id ? (
+                  renaming === preset.id && renamingIn === key ? (
                     <input
                       key={preset.id}
                       className="studio-metadata-input"
@@ -732,7 +741,7 @@ export default function StudioPresets() {
                               : t("studio.presets.appliesAll")
                       }
                       onClick={() => apply(preset)}
-                      onContextMenu={(e) => menu(e, preset)}
+                      onContextMenu={(e) => menu(e, preset, key)}
                       onMouseEnter={() => startPreview(preset)}
                       onMouseLeave={endPreview}
                     >

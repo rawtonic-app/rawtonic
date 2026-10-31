@@ -347,6 +347,21 @@ describe("favourite presets", () => {
     expect(useSettingsStore.getState().appSettings?.favoritePresets).toEqual(["bw-high-contrast"]);
   });
 
+  // Review round 1: a favourite shows twice; Rename edits only the entry
+  // whose menu was used, so the field stays open for typing.
+  it("renames a favourite in the entry it was asked from", async () => {
+    for (const index of [0, 1]) {
+      cleanup();
+      useSettingsStore.setState({ appSettings: { favoritePresets: ["warm"] } as AppSettings });
+      await renderTool();
+      fireEvent.contextMenu(screen.getAllByRole("button", { name: /^Warm evening$/ })[index]);
+      fireEvent.click(screen.getByText("Rename"));
+      const fields = screen.getAllByRole("textbox", { name: "Rename Warm evening" });
+      expect(fields).toHaveLength(1);
+      expect(document.activeElement).toBe(fields[0]);
+    }
+  });
+
   it("finds favourites by name and leaves out a favourite that is gone", async () => {
     useSettingsStore.setState({ appSettings: { favoritePresets: ["gone", "warm"] } as AppSettings });
     await renderTool();
