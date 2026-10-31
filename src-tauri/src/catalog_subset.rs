@@ -187,7 +187,12 @@ pub async fn library_import_catalog_travel(
 ) -> Result<(), String> {
     crate::session_bridge::with_library(target, true, move |lib| {
         lib.travel_import(&steps, undo)
-            .map_err(|e| format!("{e:#}"))
+            .map_err(|e| format!("{e:#}"))?;
+        // The derived editor sidecars and the XMP follow the metadata.
+        for step in &steps {
+            crate::session_bridge::rederive(lib, &step.asset);
+        }
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?

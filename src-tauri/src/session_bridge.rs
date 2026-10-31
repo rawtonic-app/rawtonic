@@ -1832,9 +1832,6 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     // its own (an untouched photograph can have edited copies).
     rederive_copies(lib, id);
     let Ok(asset) = lib.asset(id) else { return };
-    let Ok(Some(state)) = lib.editor_state(id) else {
-        return;
-    };
     let Some(name) = asset.path.file_name() else {
         return;
     };
@@ -1844,6 +1841,16 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     let current: Option<Value> = fs::read(&sidecar)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let state = match lib.editor_state(id) {
+        Ok(Some(state)) => state,
+        // Back to no edit and default metadata (an Undo of an import): a
+        // sidecar written before would still show the old rating in
+        // listings, so it is brought to the empty state.
+        Ok(None) if current.is_some() => {
+            serde_json::json!({"version": 1, "rating": 0, "tags": [], "adjustments": null})
+        }
+        _ => return,
+    };
     if current.as_ref() != Some(&state)
         && let Ok(bytes) = serde_json::to_vec_pretty(&state)
         && let Err(e) = rawtonic_metadata::atomic_write(&sidecar, bytes)
@@ -2665,6 +2672,33 @@ mod tests {
         assert_eq!(output_folder(Path::new("out.jpg")), Some(Path::new(".")));
         assert_eq!(output_folder(Path::new("a/out.jpg")), Some(Path::new("a")));
         assert_eq!(output_folder(Path::new("/")), None);
+    }
+
+    /// UXR3 D2 review round 1: Undo of an import puts a photograph back to
+    /// no edit and default metadata; its derived sidecar must not keep
+    /// showing the imported rating in listings.
+    #[test]
+    fn rederive_brings_a_sidecar_back_to_no_edit() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Undo", Mode::Catalog).unwrap();
+        let source = temp.path().join("Shoot/a.arw");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, b"original").unwrap();
+        let asset = lib.add_asset(&source).unwrap();
+        let mut rated = lib.metadata(&asset.id).unwrap();
+        rated.rating = 4;
+        lib.set_metadata(&asset.id, &rated).unwrap();
+        rederive(&lib, &asset.id);
+        let sidecar = source.with_file_name("a.arw.rrdata");
+        let read = || -> Value { serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap() };
+        assert_eq!(read()["rating"], 4);
+        let mut cleared = rated.clone();
+        cleared.rating = 0;
+        lib.set_metadata(&asset.id, &cleared).unwrap();
+        rederive(&lib, &asset.id);
+        assert_eq!(read()["rating"], 0);
+        assert!(read()["adjustments"].is_null());
+        assert_eq!(fs::read(&source).unwrap(), b"original");
     }
 
     #[test]

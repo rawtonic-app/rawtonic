@@ -71,6 +71,19 @@ pub const EXPORT_BASELINE: &str = "export-baseline.json";
 /// other catalog (`<its id>.json`).
 const IMPORT_BASELINES: &str = "import-baselines";
 
+/// One snapshot's digest in a `Baseline` (`snapshot/<key>`).
+fn is_snapshot_part(part: &str) -> bool {
+    part.starts_with("snapshot/")
+}
+
+/// The file of this catalog's record for the other catalog `id`, when the
+/// id is a plain name (a catalog id is a UUID; anything else, such as a
+/// path, is not used as a file name).
+fn import_record(directory: &Path, id: &str) -> Option<PathBuf> {
+    (!id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+        .then(|| directory.join(IMPORT_BASELINES).join(format!("{id}.json")))
+}
+
 /// What two catalogs last held in common: per photograph (by its id in the
 /// other catalog), a digest of each part an import compares.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -298,6 +311,14 @@ impl Library {
             "snapshots".into(),
             hash(serde_json::to_string(&facts.snapshots)?),
         );
+        // Each snapshot by its id, so a change of one that was there in
+        // common (renamed, settings updated, deleted) is told from one added.
+        for (key, name, adjustments) in &facts.snapshots {
+            out.insert(
+                format!("snapshot/{key}"),
+                hash(serde_json::to_string(&(name, adjustments))?),
+            );
+        }
         out.insert(
             "albums".into(),
             hash(serde_json::to_string(&self.album_paths(asset)?)?),
@@ -354,11 +375,7 @@ impl Library {
         let read = |path: PathBuf| -> Option<Baseline> {
             serde_json::from_slice(&std::fs::read(path).ok()?).ok()
         };
-        let imported = read(
-            self.directory
-                .join(IMPORT_BASELINES)
-                .join(format!("{}.json", other.manifest.id)),
-        );
+        let imported = import_record(&self.directory, &other.manifest.id).and_then(read);
         let exported = read(other_dir.join(EXPORT_BASELINE))
             .filter(|baseline| baseline.origin == self.manifest.id);
         (imported, exported)
@@ -376,8 +393,12 @@ impl Library {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
+        // Another catalog's id that is no plain name: nothing recorded (a
+        // later import only asks more).
+        let Some(file) = import_record(&self.directory, &other.manifest.id) else {
+            return Ok(());
+        };
         let folder = self.directory.join(IMPORT_BASELINES);
-        let file = folder.join(format!("{}.json", other.manifest.id));
         let mut record: Baseline = std::fs::read(&file)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
@@ -389,7 +410,8 @@ impl Library {
             // Snapshots only add up (a replaced edit is kept as one here).
             let same = theirs
                 .iter()
-                .all(|(part, digest)| part == "snapshots" || ours.get(part) == Some(digest));
+                .filter(|(part, _)| !is_snapshot_part(part))
+                .all(|(part, digest)| ours.get(part) == Some(digest));
             if same {
                 record.photos.insert(incoming.clone(), theirs);
             }
@@ -405,23 +427,24 @@ impl Library {
     pub fn travel_import(&self, steps: &[crate::xmp_review::XmpUndo], back: bool) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         for step in steps {
-            let (to, from, status) = if back {
-                (&step.before, &step.after, step.xmp_status.as_str())
+            let (to, from) = if back {
+                (&step.before, &step.after)
             } else {
-                (&step.after, &step.before, "pending")
+                (&step.after, &step.before)
             };
             let metadata: Metadata = serde_json::from_str(to)?;
             metadata.validate()?;
             let written = tx.execute(
-                "UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_hash=?,xmp_status=?,from_camera=?
+                // The XMP beside it is written from the restored metadata
+                // (pending): its checksum stays the one of the file as it
+                // is now, so the next sync tells no outside change.
+                "UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_status='pending',from_camera=?
                  WHERE asset_id=? AND data=?",
                 params![
                     metadata.rating,
                     metadata.label,
                     metadata.flag,
                     to,
-                    step.xmp_hash,
-                    status,
                     back && step.from_camera,
                     step.asset,
                     from
@@ -694,12 +717,18 @@ impl Library {
                             let then = baseline.get(*part);
                             let there_part =
                                 theirs_now.get(*part) != then && !(*part == "edit" && theirs_seen);
-                            // Snapshots only add up: Replace never takes
-                            // one here away, so ours added since are no
-                            // conflict.
-                            let here_part = *part != "snapshots"
-                                && (ours_now.get(*part) != then
-                                    || (*part == "edit" && theirs_seen));
+                            // Snapshots: Replace adds theirs and updates
+                            // those with the same id, never takes one here
+                            // away. Ours added since are no conflict; one
+                            // in common changed or deleted here is.
+                            let here_part = if *part == "snapshots" {
+                                baseline.iter().any(|(key, digest)| {
+                                    key.starts_with("snapshot/")
+                                        && ours_now.get(key) != Some(digest)
+                                })
+                            } else {
+                                ours_now.get(*part) != then || (*part == "edit" && theirs_seen)
+                            };
                             if !there_part && !here_part {
                                 // Unclear which: the photographer decides.
                                 there = true;

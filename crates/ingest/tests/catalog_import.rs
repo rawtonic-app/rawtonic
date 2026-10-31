@@ -781,3 +781,127 @@ fn without_a_record_of_the_export_every_change_is_on_both_sides() {
     .unwrap();
     assert_eq!((receipt.report.replaced, receipt.report.kept), (0, 1));
 }
+
+/// Review round 1: a snapshot the two catalogs had in common, renamed
+/// differently on each side, is a change on both sides (Replace would
+/// overwrite the name here).
+#[test]
+fn a_common_snapshot_changed_on_both_sides_is_a_conflict() {
+    let (_tmp, w) = world();
+    let a = &w.ids[0];
+    let there = w.laptop.primary_version(a).unwrap();
+    let snap = w
+        .laptop
+        .add_snapshot(&there, "Warm", json!({"exposure": 0.0}))
+        .unwrap();
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    let here = w.main.primary_version(a).unwrap();
+    assert!(
+        w.main
+            .snapshots(&here)
+            .unwrap()
+            .iter()
+            .any(|s| s.name == "Warm")
+    );
+    w.main
+        .rename_snapshot(&here, &snap.id, "Warm (mine)")
+        .unwrap();
+    w.laptop
+        .rename_snapshot(&there, &snap.id, "Warm (client)")
+        .unwrap();
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    drop(source);
+    let photo = seen.photos.iter().find(|p| p.id == *a).unwrap();
+    assert_eq!(
+        (photo.changes.clone(), photo.side),
+        (vec!["snapshots"], Some(Side::Both))
+    );
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(
+        w.main
+            .snapshots(&here)
+            .unwrap()
+            .iter()
+            .any(|s| s.name == "Warm (mine)")
+    );
+}
+
+/// Review round 1: another catalog's id is never used as a path.
+#[test]
+fn an_id_that_is_a_path_is_never_written_to() {
+    let (_tmp, w) = world();
+    let manifest = w.laptop.directory.join("catalog.json");
+    let mut json: Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    json["id"] = json!("../catalog");
+    fs::write(&manifest, serde_json::to_vec_pretty(&json).unwrap()).unwrap();
+    let ours = fs::read(w.main.directory.join("catalog.json")).unwrap();
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(w.main.directory.join("catalog.json")).unwrap(),
+        ours
+    );
+    Library::open(&w.main.directory).unwrap();
+}
+
+/// Review round 1: Undo and Redo write the XMP again (pending) and keep
+/// the checksum of the sidecar as it is now, so no outside change is told.
+#[test]
+fn travel_marks_the_xmp_pending_and_keeps_its_checksum() {
+    let (_tmp, w) = world();
+    let mut there = w.laptop.metadata(&w.ids[1]).unwrap();
+    there.rating = 2;
+    w.laptop.set_metadata(&w.ids[1], &there).unwrap();
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(w.main.directory.join("catalog.sqlite")).unwrap();
+    let row = || -> (Option<String>, String) {
+        db.query_row(
+            "SELECT xmp_hash,xmp_status FROM metadata WHERE asset_id=?",
+            [&w.ids[1]],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    };
+    db.execute(
+        "UPDATE metadata SET xmp_hash='now',xmp_status='synced' WHERE asset_id=?",
+        [&w.ids[1]],
+    )
+    .unwrap();
+    w.main.travel_import(&receipt.report.undo, true).unwrap();
+    assert_eq!(row(), (Some("now".into()), "pending".into()));
+    db.execute(
+        "UPDATE metadata SET xmp_status='synced' WHERE asset_id=?",
+        [&w.ids[1]],
+    )
+    .unwrap();
+    w.main.travel_import(&receipt.report.undo, false).unwrap();
+    assert_eq!(row(), (Some("now".into()), "pending".into()));
+}
