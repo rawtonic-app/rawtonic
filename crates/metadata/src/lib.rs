@@ -637,7 +637,8 @@ fn merge_xmp_with(
     let label = labels::for_sidecar(&metadata.label, &previous_label);
     // Capture One keeps its colour tag's number in `photoshop:Urgency` and
     // reads it back when the label is empty: a number it wrote for the old
-    // label follows the new one; any other urgency is the photographer's.
+    // label follows the new one (0 for none, which clears its tag); any
+    // other urgency is the photographer's.
     let urgency_follows = property(root, PHOTOSHOP, "Urgency")
         .is_some_and(|u| Some(u.trim()) == labels::urgency(&previous_label));
     // IPTC fields this model has a value for replace the sidecar's; the
@@ -721,7 +722,8 @@ fn merge_xmp_with(
             colour.to_lowercase()
         ));
     }
-    if let Some(code) = labels::urgency(&metadata.label).filter(|_| urgency_follows) {
+    if urgency_follows {
+        let code = labels::urgency(&metadata.label).unwrap_or(labels::NO_URGENCY);
         photoshop.push_str(&format!(" photoshop:Urgency=\"{code}\""));
     }
     let namespaces = iptc_namespaces(metadata);

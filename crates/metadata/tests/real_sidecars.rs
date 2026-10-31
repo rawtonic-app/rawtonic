@@ -192,13 +192,35 @@ fn capture_one_creators_and_iptc_survive_a_rewrite() {
 }
 
 #[test]
+fn capture_one_none_is_no_label() {
+    // What Capture One writes when its colour tag is set to none.
+    let none = C1_IPTC
+        .replace(
+            "<xmp:Label>Green</xmp:Label>",
+            "<xmp:Label>None</xmp:Label>",
+        )
+        .replace(
+            "<photoshop:Urgency>2</photoshop:Urgency>",
+            "<photoshop:Urgency>0</photoshop:Urgency>",
+        );
+    let meta = read(&none);
+    assert_eq!(meta.label, "");
+    // Writing it back leaves Capture One's own urgency as it was.
+    let written = merge_xmp(Some(&none), &meta, None).unwrap();
+    assert!(written.contains("<photoshop:Urgency>0</photoshop:Urgency>"));
+    assert!(!written.contains("photoshop:Urgency=\""));
+}
+
+#[test]
 fn capture_one_urgency_follows_the_label_it_was_written_for() {
     // Capture One reads its colour tag back from the urgency when the label
-    // is empty: a cleared label must take the urgency with it.
+    // is empty; urgency 0 is its "no tag".
     let mut meta = read(C1_IPTC);
     meta.label.clear();
     let cleared = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
-    assert!(!cleared.contains("Urgency"), "{cleared}");
+    assert!(cleared.contains("xmp:Label=\"\""), "{cleared}");
+    assert!(cleared.contains("photoshop:Urgency=\"0\""), "{cleared}");
+    assert!(!cleared.contains("<photoshop:Urgency>2</photoshop:Urgency>"));
     meta.label = "Blue".into();
     let blue = merge_xmp(Some(C1_IPTC), &meta, None).unwrap();
     assert!(blue.contains("photoshop:Urgency=\"3\""));

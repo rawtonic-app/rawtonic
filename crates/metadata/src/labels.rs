@@ -5,8 +5,10 @@
 //! `Lila`) and matches the names it reads against its own label set only: an
 //! English `Blue` shows as a white custom label there. Capture One writes the
 //! English names, two more colours (`Orange`, `Pink`) and, by default, the
-//! colour's number in `photoshop:Urgency`, which it reads back when the label
-//! is empty. Observed on scratch sidecars (notes:
+//! colour's number in `photoshop:Urgency`; for no tag it writes the label
+//! `None` with urgency 0. It ignores an empty label and then reads the colour
+//! back from the urgency, so a label cleared elsewhere stays cleared only
+//! with urgency 0. Observed on scratch sidecars (notes:
 //! benchmark-results/xi-xmp-interop-2026-11-01/REPORT.md).
 
 /// Rawtonic's colour labels (Lightroom's default set), as stored.
@@ -65,10 +67,18 @@ pub fn canonical(name: &str) -> Option<&'static str> {
 }
 
 /// The label as Rawtonic stores it: one of [`LABELS`] for a name in any
-/// listed language, otherwise the name as written (Capture One's `Orange`).
+/// listed language, nothing for Capture One's `None`, otherwise the name as
+/// written (Capture One's `Orange`).
 pub fn stored(name: &str) -> String {
-    canonical(name).map_or_else(|| name.trim().to_string(), str::to_string)
+    let name = name.trim();
+    if name.eq_ignore_ascii_case("none") {
+        return String::new();
+    }
+    canonical(name).map_or_else(|| name.to_string(), str::to_string)
 }
+
+/// Capture One's `photoshop:Urgency` for no colour tag.
+pub const NO_URGENCY: &str = "0";
 
 /// The text to write for `label` into a sidecar that holds `previous`: the
 /// sidecar's own text while it names the same colour, else the label's name
@@ -110,6 +120,7 @@ mod tests {
         assert_eq!(canonical("Orange"), None);
         assert_eq!(stored("Lila"), "Purple");
         assert_eq!(stored("Pink"), "Pink");
+        assert_eq!(stored("None"), "");
     }
 
     #[test]
