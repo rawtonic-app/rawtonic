@@ -327,6 +327,8 @@ export enum Invokes {
   EditWithStart = 'edit_with_start',
   EditWithFinish = 'edit_with_finish',
   EditWithInterrupted = 'edit_with_interrupted',
+  InterruptedBatches = 'interrupted_batches',
+  DismissInterruptedBatch = 'dismiss_interrupted_batch',
   StartBackgroundIndexing = 'start_background_indexing',
   MergePhotos = 'merge_photos',
   SaveMerge = 'save_merge',

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { notify } from "../../activity/notify";
 import { useActivityStore } from "../../store/useActivityStore";
 import { Invokes } from "../ui/AppProperties";
@@ -48,6 +49,60 @@ export async function openPendingXmpView(
   // Another library opened meanwhile: not its photographs.
   if (useLibraryStore.getState().sessionDirectory !== asked) return;
   select(PENDING_XMP_VIEW_ID, name, paths, preserveEditor);
+}
+
+/** The activity centre's entry while the XMP left from the last session are written. */
+const XMP_CATCH_UP_ACTIVITY = "xmp:catch-up";
+/** Photographs per write of that catch-up (each waits for the earlier
+ * writes of its photographs, and progress moves part by part). */
+export const XMP_CATCH_UP_PART = 25;
+
+/**
+ * Writes, once when a library opens, the XMP sidecars a quit or crash left
+ * behind (written in the library, not yet in its sidecar): in the
+ * background, part by part through the photographs' write queues, with
+ * progress in the activity centre. Only those Try again would write are
+ * tried (not a sidecar another program changed, an offline photograph or
+ * a shared name). One attempt: those that fail stay under Needs attention
+ * with Try again; nothing is retried on its own.
+ */
+export async function writeLeftoverXmp(
+  directory: string,
+  stillOpen: () => boolean,
+  onChanged: () => Promise<void> | void,
+) {
+  const listed = await invoke<XmpReviewEntry[]>(Invokes.SessionXmpReview, { directory });
+  const paths = (Array.isArray(listed) ? listed : []).filter((entry) => !entry.problem).map((entry) => entry.path);
+  if (!paths.length || !stillOpen()) return;
+  const activity = useActivityStore.getState();
+  const id = activity.start({
+    id: XMP_CATCH_UP_ACTIVITY,
+    source: "xmp",
+    title: i18next.t("session.xmp.catchUp"),
+    progress: { done: 0, total: paths.length },
+  });
+  let written = 0;
+  try {
+    for (let at = 0; at < paths.length && stillOpen(); at += XMP_CATCH_UP_PART) {
+      const part = paths.slice(at, at + XMP_CATCH_UP_PART);
+      const done = await invokeInOrder<XmpRetry>(
+        Invokes.SessionWritePendingXmp,
+        { directory, paths: part },
+        "pendingXmp",
+      );
+      written += done.written;
+      useActivityStore.getState().update(id, { progress: { done: at + part.length, total: paths.length } });
+    }
+  } catch (error) {
+    // The count stays and says so under Needs attention, with Try again.
+    console.warn("Writing the XMP left from the last session failed:", error);
+  } finally {
+    useActivityStore.getState().finish(
+      id,
+      written > 0 ? { title: i18next.t("session.xmp.written", { count: written }) } : undefined,
+    );
+  }
+  if (stillOpen()) await onChanged();
 }
 
 /** The reasons in the order they are listed, with how many photographs
@@ -201,6 +256,19 @@ export default function SessionXmpStatus({
   }, [count, t]);
 
   const current = useCallback(() => useLibraryStore.getState().sessionDirectory === directory, [directory]);
+  // The XMP a quit or crash left behind are written once, as the library
+  // opens (the count it opened with; a write failing later in the session
+  // waits for Try again).
+  const pendingAtOpen = useRef(count);
+  const changed = useRef(onChanged);
+  changed.current = onChanged;
+  useEffect(() => {
+    if (pendingAtOpen.current <= 0) return;
+    pendingAtOpen.current = 0;
+    writeLeftoverXmp(directory, current, () => changed.current()).catch((error) =>
+      console.warn("Listing the XMP left from the last session failed:", error),
+    );
+  }, [directory, current]);
   const load = useCallback(async () => {
     const listed = await invoke<XmpReviewEntry[]>(Invokes.SessionXmpReview, { directory });
     if (current()) setEntries(Array.isArray(listed) ? listed : []);

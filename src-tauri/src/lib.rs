@@ -22,6 +22,7 @@ mod app_state;
 mod apple_raw;
 mod auto_straighten;
 mod auto_white_balance;
+mod batch_journal;
 #[cfg(any(target_os = "linux", test))]
 mod browser_preview_transport;
 mod bw_auto;
@@ -665,6 +666,8 @@ pub fn run() {
             session_bridge::session_summary,
             session_bridge::session_pending_xmp,
             session_bridge::session_write_pending_xmp,
+            batch_journal::interrupted_batches,
+            batch_journal::dismiss_interrupted_batch,
             session_bridge::session_ingest,
             session_bridge::session_naming_preview,
             session_bridge::session_ingest_scan,

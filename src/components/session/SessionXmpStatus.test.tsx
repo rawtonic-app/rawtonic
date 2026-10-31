@@ -13,7 +13,9 @@ import SessionXmpStatus, {
   SHOW_PENDING_XMP_EVENT,
   type XmpReviewEntry,
   type XmpRetry,
+  XMP_CATCH_UP_PART,
 } from "./SessionXmpStatus";
+import { useActivityStore } from "../../store/useActivityStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
@@ -37,6 +39,61 @@ function reasonTexts() {
 beforeEach(() => {
   vi.clearAllMocks();
   useLibraryStore.setState({ sessionDirectory: "/job" });
+});
+
+describe("XMP left from the last session", () => {
+  beforeEach(() => useActivityStore.setState({ entries: [] }));
+  const pending = (path: string): XmpReviewEntry => ({ path, problem: null, volume: null });
+
+  it("writes them once as the library opens, part by part through the write queue, with progress", async () => {
+    const paths = Array.from({ length: XMP_CATCH_UP_PART + 3 }, (_, i) => `/job/Capture/${i}.ARW`);
+    const parts: string[][] = [];
+    const onChanged = vi.fn();
+    answer({
+      session_xmp_review: [...paths.map(pending), changed("/job/Capture/other.ARW")],
+      session_write_pending_xmp: (args: { paths: string[] }) => {
+        parts.push(args.paths);
+        return { written: args.paths.length, unsaved: [] };
+      },
+    });
+    const view = render(<SessionXmpStatus directory="/job" count={paths.length + 1} onChanged={onChanged} />);
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    // Only those Try again would write; a sidecar changed elsewhere is not touched.
+    expect(parts).toEqual([paths.slice(0, XMP_CATCH_UP_PART), paths.slice(XMP_CATCH_UP_PART)]);
+    const done = useActivityStore.getState().entries.find((entry) => entry.id === "xmp:catch-up");
+    expect(done?.status).toBe("done");
+    expect(done?.title).toBe(`XMP files updated for ${paths.length} photos`);
+    // Not again for the same open library, whatever the count does.
+    view.rerender(<SessionXmpStatus directory="/job" count={1} onChanged={onChanged} />);
+    view.rerender(<SessionXmpStatus directory="/job" count={2} onChanged={onChanged} />);
+    await act(async () => {});
+    expect(parts).toHaveLength(2);
+  });
+
+  it("leaves those that fail under Needs attention, without trying again on its own", async () => {
+    let writes = 0;
+    answer({
+      session_xmp_review: [pending("/job/Capture/a.ARW")],
+      session_write_pending_xmp: () => {
+        writes++;
+        throw new Error("disk full");
+      },
+    });
+    const onChanged = vi.fn();
+    render(<SessionXmpStatus directory="/job" count={1} onChanged={onChanged} />);
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(writes).toBe(1);
+    const entries = useActivityStore.getState().entries;
+    expect(entries.find((entry) => entry.id === "xmp:catch-up")).toBeUndefined();
+    expect(entries.find((entry) => entry.id === "xmp:pending")?.status).toBe("warning");
+  });
+
+  it("writes nothing when the library opened with every XMP up to date", async () => {
+    answer({ session_xmp_review: [pending("/job/Capture/a.ARW")] });
+    render(<SessionXmpStatus directory="/job" count={0} onChanged={vi.fn()} />);
+    await act(async () => {});
+    expect(invoke).not.toHaveBeenCalled();
+  });
 });
 
 describe("SessionXmpStatus", () => {

@@ -7,6 +7,7 @@ import { noteWriteError } from '../activity/bridges';
 import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
+import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -607,6 +608,8 @@ type RecipeWrite<T> = {
   /** A long batch command (Auto, face retouch) that reports each photograph
    * it writes, given its tag (`countedForQuit`). */
   batch?: boolean;
+  /** One more write to wait for, submitted before (`PhotoWrite.after`). */
+  after?: Promise<unknown>;
 };
 
 /**
@@ -622,7 +625,7 @@ type RecipeWrite<T> = {
 export function recipeWrite<T>(
   paths: string[],
   mutation: (tag: string) => Promise<T>,
-  { kind, failedOf, preserveUnsaved = true, step, batch = false }: RecipeWrite<T>,
+  { kind, failedOf, preserveUnsaved = true, step, batch = false, after }: RecipeWrite<T>,
 ): Promise<T> {
   // An edit of one of them made before this write is saved before it.
   if (scheduledSave !== null && paths.some((path) => photoWriteKey(path) === photoWriteKey(scheduledSave!)))
@@ -650,7 +653,7 @@ export function recipeWrite<T>(
         return run();
       });
     },
-    { kind, failedOf, step, batch },
+    { kind, failedOf, step, batch, after },
   );
 }
 
@@ -810,6 +813,48 @@ async function replaceRecipes(recipes: { path: string; adjustments: unknown }[],
   await showWrittenRecipes(written, shown);
   return written;
 }
+/** A recipe batch run outside the editor (the repair of a batch a crash cut
+ * short, utils/interruptedBatches), on the photos' write queues after their
+ * pending saves. A photograph of it open in Develop is closed first (its
+ * edits written), as a file operation closes one it moves: no editor holds
+ * an old recipe of it while the repair is written, and one opened meanwhile
+ * reads its recipe after the repair. `whole`: the command writes whole
+ * recipes (Undo the applied part), so an earlier failed save is not
+ * written first; otherwise it is, and the command applies onto it. The
+ * Library's active photograph then shows what was written. Resolves with
+ * the photos not written. */
+export async function writeRecipeRepair(
+  paths: string[],
+  command: string,
+  args: Record<string, unknown>,
+  { whole }: { whole: boolean },
+): Promise<string[]> {
+  const { selectedImage } = useEditorStore.getState();
+  const keys = new Set(paths.map(photoWriteKey));
+  if (selectedImage && keys.has(photoWriteKey(selectedImage.path))) {
+    flushSliderDraft();
+    scheduleUnsavedEditorRecipe();
+    debouncedSave.flush();
+    debouncedSetHistory.flush();
+    if (useUIStore.getState().activeView === 'editor') {
+      useLibraryStore.getState().setLibrary({ libraryActivePath: selectedImage.path });
+      useUIStore.getState().setUI({ activeView: 'library', slideDirection: 1 });
+    }
+    useEditorStore.getState().setEditor({ selectedImage: null, zoom: 1, showOriginal: false, previewOverride: null });
+  }
+  paths.forEach((path) => globalImageCache.delete(path));
+  const { changes, failed } = await recipeWrite(
+    paths,
+    () => recordedBatch(invoke<RecipeBatch>(command, args), paths, 'repair an interrupted batch', true),
+    { kind: 'repair', failedOf: recordedFailed, preserveUnsaved: !whole },
+  );
+  const written = changes.map((change) => change.path);
+  written.forEach((path) => unsavedRecipes.delete(path));
+  recipeWritten(written, null);
+  await showWrittenRecipes(written);
+  return failed;
+}
+
 registerRecipeWriter(writeRecipeValues, replaceRecipes);
 
 // A drag's last moves commit as it ends, before the final render.
@@ -1292,6 +1337,8 @@ export function useEditorActions() {
       // A style is taken back from the open photo by its editor's recipe
       // (the saved one may be behind it).
       const pastedOntoOpen = Boolean(open && (paste || presetWithAiMasks || style));
+      /** The open photograph's writes before the paste (the batch waits for them). */
+      let openSaved: Promise<unknown> | undefined;
       // The open photograph's History entry for this edit (its own step,
       // made at once) is its part of the batch's undo step.
       debouncedSetHistory.flush();
@@ -1299,6 +1346,11 @@ export function useEditorActions() {
       flushSliderDraft();
       const openBefore = useEditorStore.getState().adjustments;
       if (open && pastedOntoOpen) {
+        // Its save still waiting (the recipe it opened with, edits before)
+        // goes ahead of the batch: the batch's record of how it was before
+        // must not take that save for its own paste (crate batch_journal).
+        debouncedSave.flush();
+        openSaved = photoWritesSettled(open.path)?.catch(() => undefined);
         // At once, as one step: a drag's moves since the last commit are
         // part of the edit it is pasted onto.
         flushSliderDraft();
@@ -1350,12 +1402,15 @@ export function useEditorActions() {
               adjustments: adjustmentsToApply,
               ...(paste ? { paste } : {}),
               ...(style ? { style } : {}),
+              // Recorded with the batch a crash may cut short (the editor
+              // writes its own part).
+              ...(pastedOntoOpen ? { open: open!.path } : {}),
             }),
             others,
             'paste adjustments',
               quiet,
             ),
-          { kind: style ? 'style' : paste ? 'paste' : 'preset', failedOf: recordedFailed, step },
+          { kind: style ? 'style' : paste ? 'paste' : 'preset', failedOf: recordedFailed, step, after: openSaved },
         );
       const written = undoStep
         ? recipeBatchAction(

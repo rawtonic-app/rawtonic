@@ -15,6 +15,7 @@ import {
   updateAdjustments,
   useEditorActions,
   waitForPendingMetadataSave,
+  writeRecipeRepair,
 } from './useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -271,6 +272,34 @@ it.each([
   stop();
   expect(useEditorStore.getState().adjustments.exposure).toBe(exposure);
   errorLog.mockRestore();
+});
+
+it('names the open photograph to a paste batch it is part of (offered whole after a crash)', async () => {
+  useEditorStore.setState({ copiedFrom: '/source.dng' });
+  const { result } = renderHook(useEditorActions);
+  act(() => {
+    result.current.handlePasteAdjustments(['/first.dng', '/second.dng']);
+  });
+  await act(async () => {});
+  const call = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
+  expect(call?.[1]).toMatchObject({ paths: ['/second.dng'], open: '/first.dng' });
+});
+
+it('writes the open photograph\'s waiting save before a paste batch that includes it', async () => {
+  useEditorStore.setState({ copiedFrom: '/source.dng' });
+  debouncedSave('/first.dng', { ...INITIAL_ADJUSTMENTS, exposure: -2 });
+  const { result } = renderHook(useEditorActions);
+  act(() => {
+    result.current.handlePasteAdjustments(['/first.dng', '/second.dng']);
+  });
+  await act(async () => {});
+  const commands = vi.mocked(invoke).mock.calls.map(([command]) => command);
+  const saved = commands.indexOf(Invokes.SaveMetadataAndUpdateThumbnail);
+  expect(saved).toBeGreaterThanOrEqual(0);
+  // The batch waits in the photograph's queue for that save.
+  expect(commands.indexOf(Invokes.ApplyAdjustmentsToPaths)).toBe(-1);
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+  expect(pending.some((request) => request.command === Invokes.ApplyAdjustmentsToPaths)).toBe(true);
 });
 
 it('writes two pastes onto the same photograph queued one after the other, neither waiting for the later', async () => {
@@ -977,4 +1006,37 @@ describe('the frame of the RAW (ADR 0020, "new photos only")', () => {
     expect(useEditorStore.getState().adjustments.exposure).toBe(3);
     expect(frame()).toBe(0);
   });
+});
+
+it('closes a photograph a recipe repair writes, so no editor holds its old recipe, and shows the result', async () => {
+  const { useUIStore } = await import('../store/useUIStore');
+  useUIStore.setState({ activeView: 'editor' });
+  renderHook(useEditorActions);
+  const repaired = writeRecipeRepair(
+    ['/first.dng'],
+    Invokes.ReplaceRecipes,
+    { changes: [{ path: '/first.dng', adjustments: { exposure: 1.5 } }] },
+    { whole: true },
+  );
+  expect(useEditorStore.getState().selectedImage).toBeNull();
+  expect(useUIStore.getState().activeView).toBe('library');
+  await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: {}, after: { exposure: 1.5 } }] });
+  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1.5 } });
+  await expect(repaired).resolves.toEqual([]);
+  expect(useLibraryStore.getState().libraryActiveAdjustments.exposure).toBe(1.5);
+});
+
+it('writes a failed earlier save before a partial repair applies onto it', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
+  debouncedSave('/kept.dng', { ...INITIAL_ADJUSTMENTS, temperature: 42 });
+  await act(async () => { await debouncedSave.flush(); });
+  const repaired = writeRecipeRepair(['/kept.dng'], Invokes.ApplyAdjustmentsToPaths, { paths: ['/kept.dng'], adjustments: { exposure: 1 } }, { whole: false });
+  await act(async () => {});
+  expect(pending.at(-1)?.command).toBe(Invokes.SaveMetadataAndUpdateThumbnail);
+  expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ adjustments: { temperature: 42 } });
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [{ path: '/kept.dng', before: {}, after: {} }] });
+  await expect(repaired).resolves.toEqual([]);
+  errorLog.mockRestore();
 });

@@ -69,6 +69,25 @@
       "starting": "Avvio dell’importazione…"
     },
     "indexing": "Indicizzazione della libreria",
+    "interrupted": {
+      "applyRest": "Applica alle restanti",
+      "color": "Etichetta colore",
+      "detail": "Una chiusura o un arresto anomalo ha interrotto questo gruppo prima che tutte le foto fossero scritte. Applicalo alle restanti, annulla la parte applicata o lascia le foto come sono. Le foto stesse non vengono mai modificate.",
+      "failed": "Impossibile completare {{batch}}: {{error}}",
+      "keywordAdd": "Parola chiave «{{tag}}»",
+      "keywordRemove": "Rimozione della parola chiave «{{tag}}»",
+      "notWritten_one": "Impossibile scrivere {{count}} foto",
+      "notWritten_many": "Impossibile scrivere {{count}} foto",
+      "notWritten_other": "Impossibile scrivere {{count}} foto",
+      "paste": "Incolla impostazioni",
+      "preset": "Preset",
+      "rating": "Valutazione {{rating}}",
+      "style": "Stile",
+      "title_one": "Interrotto: {{batch}} applicato a {{applied}} foto su {{count}}",
+      "title_many": "Interrotto: {{batch}} applicato a {{applied}} foto su {{count}}",
+      "title_other": "Interrotto: {{batch}} applicato a {{applied}} foto su {{count}}",
+      "undoApplied": "Annulla la parte applicata"
+    },
     "leftovers": {
       "kept_one": "{{count}} cartella incompleta di un’attività interrotta è stata lasciata al suo posto",
       "kept_many": "{{count}} cartelle incomplete di un’attività interrotta sono state lasciate al loro posto",
@@ -2039,6 +2058,7 @@
     },
     "xmp": {
       "buttonTitle": "Alcuni file XMP non sono allineati con la libreria. Fai clic per i dettagli e per riscriverli.",
+      "catchUp": "Scrittura dei file XMP rimasti dalla sessione precedente",
       "conflictHeading_one": "{{count}} file XMP modificato da un altro programma",
       "conflictHeading_many": "{{count}} file XMP modificati da un altro programma",
       "conflictHeading_other": "{{count}} file XMP modificati da un altro programma",
