@@ -216,6 +216,8 @@ const TILE_OFFSETS: u16 = 0x144;
 const TILE_BYTE_COUNTS: u16 = 0x145;
 const SUB_IFDS: u16 = 0x14A;
 const EXIF_IFD: u16 = 0x8769;
+/// NewSubfileType: bit 0 marks a reduced-resolution image (a preview).
+const NEW_SUBFILE_TYPE: u16 = 0xFE;
 /// Panasonic RW2: where the raw data starts.
 const RW2_RAW_OFFSET: u16 = 0x118;
 
@@ -243,8 +245,21 @@ fn exif_field(tag: u16) -> bool {
         || (0xA000..=0xAFFF).contains(&tag)
 }
 
-/// The decoding tags and the strips or tiles of the IFD with the most image
-/// bytes in a TIFF layout.
+/// An IFD with image data.
+struct ImageIfd {
+    /// NewSubfileType says reduced resolution (a preview).
+    reduced: bool,
+    /// Byte order and its tags but positions and descriptions.
+    how: Vec<u8>,
+    ranges: Vec<(u64, u64)>,
+    total: u64,
+    /// A field could not be read.
+    unreadable: bool,
+}
+
+/// The image IFDs of a TIFF layout (the one with the most image bytes and
+/// the other full-resolution ones): their tags but positions and
+/// descriptions, and their strips or tiles.
 fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
     let head = read_at(file, 0, 8)?;
     let little = head[0] == b'I';
@@ -267,9 +282,7 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
     let rw2 = u16_at(&head, 2) == 0x55;
     let mut queue = vec![u64::from(u32_at(&head, 4))];
     let mut seen = std::collections::HashSet::new();
-    let mut best: Layout = (Vec::new(), Vec::new());
-    let mut best_total = 0u64;
-    let mut best_unreadable = false;
+    let mut images: Vec<ImageIfd> = Vec::new();
     while let Some(ifd) = queue.pop() {
         if ifd == 0 || seen.len() >= 64 || !seen.insert(ifd) || ifd + 2 > len {
             continue;
@@ -340,25 +353,57 @@ fn tiff_layout(file: &mut File, len: u64) -> Result<Layout> {
         }
         if !offsets.is_empty() && offsets.len() == counts.len() {
             let total: u64 = counts.iter().sum();
-            if total > best_total {
-                best_total = total;
-                // The byte order says how samples wider than a byte read.
-                best_unreadable = unreadable;
-                let mut how = vec![head[0]];
-                for (tag, found) in decoding {
-                    how.extend(tag.to_be_bytes());
-                    how.extend((found.len() as u32).to_be_bytes());
-                    for value in found {
-                        how.extend(value.to_be_bytes());
-                    }
+            let reduced = decoding
+                .get(&NEW_SUBFILE_TYPE)
+                .and_then(|v| v.first())
+                .is_some_and(|kind| kind & 1 == 1);
+            // The byte order says how samples wider than a byte read.
+            let mut how = vec![head[0]];
+            for (tag, found) in decoding {
+                how.extend(tag.to_be_bytes());
+                how.extend((found.len() as u32).to_be_bytes());
+                for value in found {
+                    how.extend(value.to_be_bytes());
                 }
-                best = (how, offsets.into_iter().zip(counts).collect());
             }
+            images.push(ImageIfd {
+                reduced,
+                how,
+                ranges: offsets.into_iter().zip(counts).collect(),
+                total,
+                unreadable,
+            });
         }
         queue.push(u64::from(u32_at(&entries, count * 12)));
     }
-    ensure!(!best_unreadable, "image IFD with unreadable fields");
-    Ok(best)
+    // The IFD with the most image bytes (the sensor data), then every other
+    // full-resolution one (a DNG's transparency mask, depth map or other
+    // planes the decoder combines with it), not reduced-resolution
+    // previews; ordered by their descriptor and size, not their place.
+    let main = (0..images.len())
+        .max_by_key(|&i| images[i].total)
+        .context("no image data")?;
+    let mut rest: Vec<usize> = (0..images.len())
+        .filter(|&i| i != main && !images[i].reduced)
+        .collect();
+    rest.sort_by(|&a, &b| {
+        (&images[a].how, images[a].total).cmp(&(&images[b].how, images[b].total))
+    });
+    let mut layout: Layout = (Vec::new(), Vec::new());
+    for i in std::iter::once(main).chain(rest) {
+        let ImageIfd {
+            how,
+            ranges,
+            unreadable,
+            ..
+        } = &images[i];
+        ensure!(!unreadable, "image IFD with unreadable fields");
+        layout.0.extend((how.len() as u64).to_be_bytes());
+        layout.0.extend(how);
+        layout.0.extend((ranges.len() as u64).to_be_bytes());
+        layout.1.extend(ranges);
+    }
+    Ok(layout)
 }
 
 /// The sample description and samples of the track with the most bytes in
@@ -856,6 +901,59 @@ mod tests {
         out.extend(tail);
         out.extend(data);
         out
+    }
+
+    /// A little-endian TIFF with a main image IFD (16-bit, `main` as its
+    /// strip) chained to a second one of NewSubfileType `kind` (4: a DNG
+    /// transparency mask, 1: a preview) holding `extra`.
+    fn two_images(main: &[u8], kind: u32, extra: &[u8]) -> Vec<u8> {
+        let ifd = |out: &mut Vec<u8>, kind: u32, data_at: usize, len: usize, next: usize| {
+            out.extend(5u16.to_le_bytes());
+            for (tag, typ, value) in [
+                (NEW_SUBFILE_TYPE, 4u16, kind),
+                (0x100, 3, 2),
+                (0x101, 3, 1),
+                (STRIP_OFFSETS, 4, data_at as u32),
+                (STRIP_BYTE_COUNTS, 4, len as u32),
+            ] {
+                out.extend(tag.to_le_bytes());
+                out.extend(typ.to_le_bytes());
+                out.extend(1u32.to_le_bytes());
+                out.extend(value.to_le_bytes());
+            }
+            out.extend((next as u32).to_le_bytes());
+        };
+        let ifd_len = 2 + 5 * 12 + 4;
+        let (first, second) = (8, 8 + ifd_len);
+        let main_at = second + ifd_len;
+        let extra_at = main_at + main.len();
+        let mut out = b"II*\0".to_vec();
+        out.extend((first as u32).to_le_bytes());
+        ifd(&mut out, 0, main_at, main.len(), second);
+        ifd(&mut out, kind, extra_at, extra.len(), 0);
+        out.extend(main);
+        out.extend(extra);
+        out
+    }
+
+    #[test]
+    fn full_resolution_planes_count_and_previews_do_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = [10u8; 64];
+        let masked = write(
+            dir.path(),
+            "a.dng",
+            &two_images(&main, 4, &[255, 255, 0, 0]),
+        );
+        let unmasked = write(
+            dir.path(),
+            "b.dng",
+            &two_images(&main, 4, &[255, 255, 255, 255]),
+        );
+        assert_ne!(hash(&masked), hash(&unmasked));
+        let preview = write(dir.path(), "c.dng", &two_images(&main, 1, &[1, 2, 3, 4]));
+        let new_preview = write(dir.path(), "d.dng", &two_images(&main, 1, &[4, 3, 2, 1]));
+        assert_eq!(hash(&preview), hash(&new_preview));
     }
 
     #[test]
