@@ -2982,6 +2982,7 @@
         "moire": "Moiré",
         "noiseReduction": "Redução de ruído",
         "presence": "Presença",
+        "profile": "Perfil",
         "toneCurve": "Curva de tons",
         "whiteBalance": "Balanço de branco"
       },
@@ -4557,6 +4558,26 @@
       "forCamera": "Para {{camera}}",
       "importDcp": "Importar DCP…",
       "label": "Perfil"
+    },
+    "profileBrowser": {
+      "amount": "Intensidade do look",
+      "colour": "Cor",
+      "favourite": "Adicionar {{name}} aos favoritos",
+      "grid": "Mostrar em grelha",
+      "groups": {
+        "bw": "Preto e branco",
+        "camera": "Câmara",
+        "favourites": "Favoritos",
+        "imported": "Looks importados",
+        "looks": "Looks"
+      },
+      "list": "Mostrar em lista",
+      "noMatch": "Nenhum perfil corresponde",
+      "open": "Explorar perfis",
+      "openTitle": "Mostrar cada perfil de câmara, look e mistura de preto e branco nesta foto",
+      "search": "Procurar perfis",
+      "title": "Navegador de perfis",
+      "unfavourite": "Remover {{name}} dos favoritos"
     },
     "relight": {
       "add": "Adicionar luz",

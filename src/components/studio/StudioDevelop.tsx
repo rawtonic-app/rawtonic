@@ -56,7 +56,7 @@ import {
   maskOpacityOf,
 } from "../../utils/maskDisplay";
 import AdjustmentControl from "./AdjustmentControl";
-import StudioCameraProfile from "./StudioCameraProfile";
+import StudioProfileBrowser from "./StudioProfileBrowser";
 import StudioWhiteBalance from "./StudioWhiteBalance";
 import type {
   CurveChannel,
@@ -1415,6 +1415,33 @@ export default function StudioDevelop() {
             </ToolGroup>
           )}
           {tab === "all" && selectedImage && <StudioPresets key="presets" />}
+          {inTab("all") && selectedImage && !layer && (
+            <ToolGroup
+              key="profile"
+              title="Profile"
+              label={t("studio.develop.groups.profile")}
+              copy={photoOnly([
+                ...(selectedImage.isRaw
+                  ? ([["cameraProfile", t("studio.develop.baseCurve.profile")]] as ToolParams)
+                  : []),
+                ["lutPath", "LUT"],
+                ["lutIntensity", t("studio.develop.params.lutAmount")],
+              ])}
+              onReset={() =>
+                change({
+                  cameraProfile: undefined,
+                  lutPath: null,
+                  lutName: null,
+                  lutData: null,
+                  lutSize: 0,
+                  lutIntensity: 100,
+                  lutIsSceneReferred: false,
+                })
+              }
+            >
+              <StudioProfileBrowser disabled={!panelsReady} onInteraction={onInteraction} />
+            </ToolGroup>
+          )}
           {inTab("all") && selectedImage?.isRaw && !layer && (
             <ToolGroup
               key="baseCharacteristics"
@@ -1422,18 +1449,9 @@ export default function StudioDevelop() {
               label={t("studio.develop.groups.baseCharacteristics")}
               copy={photoOnly([
                 ["baseCurve", t("studio.develop.baseCurve.curve")],
-                ["cameraProfile", t("studio.develop.baseCurve.profile")],
               ])}
-              onReset={() =>
-                change({ baseCurve: "standard", cameraProfile: undefined })
-              }
+              onReset={() => change({ baseCurve: "standard" })}
             >
-              <StudioCameraProfile
-                value={adjustments.cameraProfile}
-                imagePath={selectedImage?.path}
-                disabled={!panelsReady}
-                onChange={(cameraProfile) => change({ cameraProfile })}
-              />
               <label className="studio-inline">
                 <span>{t("studio.develop.baseCurve.curve")}</span>
                 <select

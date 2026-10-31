@@ -2764,6 +2764,7 @@
         "moire": "摩爾紋",
         "noiseReduction": "降噪",
         "presence": "質感",
+        "profile": "設定檔",
         "toneCurve": "色調曲線",
         "whiteBalance": "白平衡"
       },
@@ -4254,6 +4255,26 @@
       "forCamera": "適用於 {{camera}}",
       "importDcp": "匯入 DCP…",
       "label": "描述檔"
+    },
+    "profileBrowser": {
+      "amount": "風格數量",
+      "colour": "彩色",
+      "favourite": "將 {{name}} 加入我的最愛",
+      "grid": "以格狀顯示",
+      "groups": {
+        "bw": "黑白",
+        "camera": "相機",
+        "favourites": "我的最愛",
+        "imported": "匯入的風格",
+        "looks": "風格"
+      },
+      "list": "以清單顯示",
+      "noMatch": "沒有符合的設定檔",
+      "open": "瀏覽設定檔",
+      "openTitle": "在此相片上顯示每個相機設定檔、風格和黑白混合",
+      "search": "搜尋設定檔",
+      "title": "設定檔瀏覽器",
+      "unfavourite": "從我的最愛移除 {{name}}"
     },
     "relight": {
       "add": "新增光源",

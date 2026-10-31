@@ -1347,7 +1347,7 @@ fn render_probe(
 /// `scale` whose crop starts at `unscaled_crop_offset`, from the photograph
 /// (`source`: image, proxy pixels per full-resolution pixel, full size), as
 /// the preview frame draws them.
-fn preview_mask_bitmaps(
+pub(crate) fn preview_mask_bitmaps(
     state: &AppState,
     recipe: &serde_json::Value,
     masks: &[MaskDefinition],

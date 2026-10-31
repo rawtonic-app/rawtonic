@@ -2764,6 +2764,7 @@
         "moire": "モアレ",
         "noiseReduction": "ノイズ低減",
         "presence": "外観",
+        "profile": "プロファイル",
         "toneCurve": "トーンカーブ",
         "whiteBalance": "ホワイトバランス"
       },
@@ -4254,6 +4255,26 @@
       "forCamera": "{{camera}} 用",
       "importDcp": "DCP を取り込み…",
       "label": "プロファイル"
+    },
+    "profileBrowser": {
+      "amount": "ルックの適用量",
+      "colour": "カラー",
+      "favourite": "{{name}} をお気に入りに追加",
+      "grid": "グリッドで表示",
+      "groups": {
+        "bw": "白黒",
+        "camera": "カメラ",
+        "favourites": "お気に入り",
+        "imported": "読み込んだルック",
+        "looks": "ルック"
+      },
+      "list": "リストで表示",
+      "noMatch": "一致するプロファイルはありません",
+      "open": "プロファイルを表示",
+      "openTitle": "この写真ですべてのカメラプロファイル、ルック、白黒ミックスを表示",
+      "search": "プロファイルを検索",
+      "title": "プロファイルブラウザー",
+      "unfavourite": "{{name}} をお気に入りから削除"
     },
     "relight": {
       "add": "ライトを追加",

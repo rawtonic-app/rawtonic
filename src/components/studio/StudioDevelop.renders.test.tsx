@@ -104,7 +104,7 @@ describe("Develop renders during a slider drag", () => {
     for (const other of [
       "StudioLayers",
       "StudioPresets",
-      "StudioCameraProfile",
+      "StudioProfileBrowser",
       "StudioWhiteBalance",
       "PointCurve",
       "RegionCurveControls",

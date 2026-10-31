@@ -880,6 +880,129 @@ fn lut_amount_mixes_to_100_percent_and_extrapolates_above() {
     }
 }
 
+/// The profile browser renders each tile on the preview base downscaled to
+/// the tile (`profile_thumbnails`), not the full base downscaled after the
+/// render: a look on the small base must show what it does at full size.
+/// Smooth input (a photo at tile size has no single-pixel detail left);
+/// prints the per-tile render time (a probe, not a budget).
+#[test]
+#[ignore = "requires a native GPU; profile browser tiles"]
+fn a_profile_tile_on_the_small_base_matches_the_full_render_downscaled() {
+    let context = context();
+    let (width, height, factor) = (960u32, 640u32, 4u32);
+    let (small_w, small_h) = (width / factor, height / factor);
+    let colour = |x: f32, y: f32| {
+        [
+            0.05 + 0.9 * x,
+            0.05 + 0.9 * (0.5 + 0.45 * (6.0 * x + 3.0 * y).sin()),
+            0.05 + 0.9 * y,
+        ]
+    };
+    let full: Vec<[f32; 3]> = (0..width * height)
+        .map(|i| {
+            colour(
+                (i % width) as f32 / width as f32,
+                (i / width) as f32 / height as f32,
+            )
+        })
+        .collect();
+    let average = |data: &[[f32; 3]], w: u32, f: u32| -> Vec<[f32; 3]> {
+        let (sw, sh) = (w / f, data.len() as u32 / w / f);
+        (0..sw * sh)
+            .map(|i| {
+                let (x, y) = (i % sw, i / sw);
+                let mut sum = [0.0f32; 3];
+                for dy in 0..f {
+                    for dx in 0..f {
+                        let p = data[((y * f + dy) * w + x * f + dx) as usize];
+                        (0..3).for_each(|c| sum[c] += p[c]);
+                    }
+                }
+                sum.map(|v| v / (f * f) as f32)
+            })
+            .collect()
+    };
+    let small = average(&full, width, factor);
+    let texture = |data: &[[f32; 3]], w: u32, h: u32| {
+        let pixels: Vec<f16> = data
+            .iter()
+            .flat_map(|p| [p[0], p[1], p[2], 1.0].map(f16::from_f32))
+            .collect();
+        input_from(&context, w, h, &pixels)
+    };
+    let size = 9u32;
+    let mut data = Vec::new();
+    for b in 0..size {
+        for g in 0..size {
+            for r in 0..size {
+                let [r, g, b] = [r, g, b].map(|v| v as f32 / (size - 1) as f32);
+                // A warm, contrasty look.
+                let s = |x: f32| x * x * (3.0 - 2.0 * x);
+                data.extend([s(r) * 0.95 + 0.05, s(g), s(b) * 0.9]);
+            }
+        }
+    }
+    let lut = Arc::new(Lut {
+        size,
+        data,
+        shaper: None,
+    });
+    let recipe = json!({"exposure": 0.3, "lutPath": "/look.cube", "lutIntensity": 100});
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let render = |view: &wgpu::TextureView, w: u32, h: u32| {
+        let run = || {
+            let (pixels, ..) = processor
+                .run(
+                    view,
+                    w,
+                    h,
+                    RenderRequest {
+                        adjustments: get_all_adjustments_from_json(&recipe, true, Some(3)),
+                        mask_bitmaps: &[],
+                        lut: Some(lut.clone()),
+                        roi: None,
+                    },
+                    false,
+                    RenderOutputPrecision::SixteenBit,
+                )
+                .unwrap();
+            let RenderedPixels::U16(pixels) = pixels else {
+                unreachable!()
+            };
+            let channels = pixels.len() / (w * h) as usize;
+            pixels
+                .chunks(channels)
+                .map(|p| [0, 1, 2].map(|c| p[c] as f32 / 65535.0))
+                .collect::<Vec<[f32; 3]>>()
+        };
+        run();
+        let started = Instant::now();
+        let out = run();
+        (out, started.elapsed())
+    };
+    let (full_out, _) = render(&texture(&full, width, height), width, height);
+    let (tile, took) = render(&texture(&small, small_w, small_h), small_w, small_h);
+    let reference = average(&full_out, width, factor);
+    let mut sum = 0.0f32;
+    let mut worst = 0.0f32;
+    for (a, b) in tile.iter().zip(&reference) {
+        for c in 0..3 {
+            let d = (a[c] - b[c]).abs();
+            sum += d;
+            worst = worst.max(d);
+        }
+    }
+    let mean = sum / (tile.len() * 3) as f32;
+    eprintln!(
+        "profile tile {small_w}x{small_h}: render+readback {:.2} ms; mean diff {:.2}/255, worst {:.2}/255",
+        took.as_secs_f64() * 1000.0,
+        mean * 255.0,
+        worst * 255.0
+    );
+    assert!(mean < 1.0 / 255.0, "mean {mean}");
+    assert!(worst < 4.0 / 255.0, "worst {worst}");
+}
+
 #[test]
 #[ignore = "requires a native GPU; LUT shaper stage"]
 fn a_lut_shaper_reads_on_the_gpu_as_the_engine_reads_it() {

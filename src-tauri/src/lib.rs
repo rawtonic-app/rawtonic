@@ -81,6 +81,7 @@ mod preview_cache;
 mod preview_jpeg;
 mod preview_proxy;
 mod preview_slot;
+mod profile_thumbnails;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
@@ -710,6 +711,8 @@ pub fn run() {
             gpu_processing::sample_preview_patch,
             editor_preview::sample_curve_input,
             editor_preview::levels_input_histogram,
+            profile_thumbnails::profile_thumbnails,
+            profile_thumbnails::cancel_profile_thumbnails,
             gpu_processing::sample_preview_white_balance,
             gpu_processing::sample_preview_grey_world,
             editor_preview::generate_preview_for_path,

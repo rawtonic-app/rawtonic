@@ -3119,6 +3119,7 @@
         "moire": "Mora",
         "noiseReduction": "Redukcja szumu",
         "presence": "Prezencja",
+        "profile": "Profil",
         "toneCurve": "Krzywa tonalna",
         "whiteBalance": "Balans bieli"
       },
@@ -4737,6 +4738,26 @@
       "forCamera": "Dla {{camera}}",
       "importDcp": "Importuj DCP…",
       "label": "Profil"
+    },
+    "profileBrowser": {
+      "amount": "Siła looku",
+      "colour": "Kolor",
+      "favourite": "Dodaj {{name}} do ulubionych",
+      "grid": "Pokaż jako siatkę",
+      "groups": {
+        "bw": "Czarno-białe",
+        "camera": "Aparat",
+        "favourites": "Ulubione",
+        "imported": "Zaimportowane looki",
+        "looks": "Looki"
+      },
+      "list": "Pokaż jako listę",
+      "noMatch": "Żaden profil nie pasuje",
+      "open": "Przeglądaj profile",
+      "openTitle": "Pokaż każdy profil aparatu, look i miks czarno-biały na tym zdjęciu",
+      "search": "Szukaj profili",
+      "title": "Przeglądarka profili",
+      "unfavourite": "Usuń {{name}} z ulubionych"
     },
     "relight": {
       "add": "Dodaj światło",

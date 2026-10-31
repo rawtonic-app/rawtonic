@@ -2845,6 +2845,7 @@
         "moire": "Moiré",
         "noiseReduction": "Noise reduction",
         "presence": "Presence",
+        "profile": "Profile",
         "toneCurve": "Tone curve",
         "whiteBalance": "White balance"
       },
@@ -4377,6 +4378,26 @@
       "forCamera": "For {{camera}}",
       "importDcp": "Import DCP…",
       "label": "Profile"
+    },
+    "profileBrowser": {
+      "amount": "Look amount",
+      "colour": "Colour",
+      "favourite": "Add {{name}} to favourites",
+      "grid": "Show as grid",
+      "groups": {
+        "bw": "Black & white",
+        "camera": "Camera",
+        "favourites": "Favourites",
+        "imported": "Imported looks",
+        "looks": "Looks"
+      },
+      "list": "Show as list",
+      "noMatch": "No profile matches",
+      "open": "Browse profiles",
+      "openTitle": "Show every camera profile, look and black-and-white mix on this photo",
+      "search": "Search profiles",
+      "title": "Profile browser",
+      "unfavourite": "Remove {{name}} from favourites"
     },
     "relight": {
       "add": "Add light",
