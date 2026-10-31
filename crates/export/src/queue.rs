@@ -463,7 +463,9 @@ impl ExportQueue {
     }
 
     /// After a restart: running jobs become interrupted; photos whose
-    /// planned output exists are finished. Returns the interrupted jobs.
+    /// planned output exists are finished; the temporary files of the photos
+    /// that were being written are removed (`rawtonic_metadata::temp`; the
+    /// resumed job writes them anew). Returns the interrupted jobs.
     pub fn recover(&self) -> Result<Vec<Job>> {
         // Jobs a quit or crash cut short while they were being queued.
         self.conn
@@ -474,6 +476,9 @@ impl ExportQueue {
             for item in self.items(id)? {
                 if item.state != ItemState::Running {
                     continue;
+                }
+                if let Some(output) = item.output.as_deref() {
+                    rawtonic_metadata::temp::remove_leftovers_of(output);
                 }
                 let finished = item.output.as_deref().is_some_and(Path::is_file);
                 self.conn.execute(
@@ -850,6 +855,37 @@ mod tests {
         );
         assert!(q.recover().unwrap().is_empty(), "recovery runs once");
         assert_eq!(q.retry(&job).unwrap(), 2);
+    }
+
+    #[test]
+    fn recovery_removes_the_temporary_file_of_a_photo_cut_off_mid_write() {
+        let (dir, q) = queue();
+        let out = dir.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        let job = q.enqueue("Export 1", &json!({}), &paths(1)).unwrap();
+        q.start_next().unwrap();
+        q.item_started(&job, 0, &out.join("0.jpg")).unwrap();
+        // What `write_new_output` leaves when the app is killed before publishing.
+        let left = rawtonic_metadata::temp::file_for(&out.join("0.jpg"))
+            .unwrap()
+            .keep()
+            .unwrap()
+            .1;
+        let other = out.join("someone-else.jpg");
+        std::fs::write(&other, "jpeg").unwrap();
+        let others_temp = rawtonic_metadata::temp::file_for(&other)
+            .unwrap()
+            .keep()
+            .unwrap()
+            .1;
+        drop(q);
+        let q = ExportQueue::open(&dir.path().join("export-queue.sqlite")).unwrap();
+        q.recover().unwrap();
+        assert!(!left.exists(), "the leftover is gone");
+        assert!(
+            other.exists() && others_temp.exists(),
+            "nothing else in the folder is touched"
+        );
     }
 
     #[test]

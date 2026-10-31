@@ -58,6 +58,11 @@
       "starting": "正在开始导入…"
     },
     "indexing": "正在为图库建立索引",
+    "leftovers": {
+      "kept_other": "保留了中断任务的 {{count}} 个未完成文件夹",
+      "removed_other": "已移除中断任务留下的 {{size}} 未完成副本",
+      "removedDetail": "只移除了中断任务创建的副本；原件和已完成的文件未被改动。"
+    },
     "notice": "有项目需要处理",
     "progress": "已完成 {{percent}} %",
     "resume": "继续",

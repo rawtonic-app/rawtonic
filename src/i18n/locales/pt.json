@@ -69,6 +69,15 @@
       "starting": "A iniciar a importação…"
     },
     "indexing": "A indexar a biblioteca",
+    "leftovers": {
+      "kept_one": "{{count}} pasta inacabada de uma tarefa interrompida foi deixada no lugar",
+      "kept_many": "{{count}} pastas inacabadas de uma tarefa interrompida foram deixadas no lugar",
+      "kept_other": "{{count}} pastas inacabadas de uma tarefa interrompida foram deixadas no lugar",
+      "removed_one": "Removidos {{size}} de cópias inacabadas de uma tarefa interrompida",
+      "removed_many": "Removidos {{size}} de cópias inacabadas de tarefas interrompidas",
+      "removed_other": "Removidos {{size}} de cópias inacabadas de tarefas interrompidas",
+      "removedDetail": "Só foram removidas cópias feitas pela tarefa interrompida; os originais e os ficheiros terminados não foram tocados."
+    },
     "notice": "Algo requer a sua atenção",
     "progress": "{{percent}} % concluído",
     "resume": "Retomar",

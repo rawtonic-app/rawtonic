@@ -58,6 +58,11 @@
       "starting": "가져오기 시작 중…"
     },
     "indexing": "라이브러리 색인 중",
+    "leftovers": {
+      "kept_other": "중단된 작업의 미완성 폴더 {{count}}개를 그대로 두었습니다",
+      "removed_other": "중단된 작업의 미완성 사본 {{size}}을(를) 제거했습니다",
+      "removedDetail": "중단된 작업이 만든 사본만 제거했습니다. 원본과 완성된 파일은 건드리지 않았습니다."
+    },
     "notice": "확인이 필요한 항목이 있습니다",
     "progress": "{{percent}} % 완료",
     "resume": "재개",

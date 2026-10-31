@@ -149,6 +149,69 @@ pub fn stop_checksum_pass() {
     }
 }
 
+/// Event: what an interrupted job left was removed or found
+/// ([`LeftoversReport`]); the activity centre says so once.
+pub const LEFTOVERS_REMOVED: &str = "leftovers-removed";
+
+/// What [`report_leftovers`] tells the webview.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeftoversReport {
+    pub temp_files: usize,
+    pub folders: usize,
+    pub bytes: u64,
+    /// Staging folders left in place (unmarked, in use or not plain).
+    pub kept: Vec<PathBuf>,
+}
+
+/// Logs what a sweep removed and, when it removed or kept anything, tells
+/// the webview.
+pub fn report_leftovers(
+    app: &tauri::AppHandle,
+    temp_files: usize,
+    staging: &rawtonic_metadata::staging::Removed,
+) {
+    use tauri::Emitter;
+    if temp_files == 0 && staging.folders == 0 && staging.kept.is_empty() {
+        return;
+    }
+    log::info!(
+        "Interrupted jobs' leftovers: removed {temp_files} temporary files and {} staging folders ({} bytes); left {:?}",
+        staging.folders,
+        staging.bytes,
+        staging.kept
+    );
+    let _ = app.emit(
+        LEFTOVERS_REMOVED,
+        LeftoversReport {
+            temp_files,
+            folders: staging.folders,
+            bytes: staging.bytes,
+            kept: staging.kept.clone(),
+        },
+    );
+}
+
+/// Removes, in the background, what a killed app left in the library at
+/// `directory` (`Library::sweep_leftovers`, G66): stale temporary files of
+/// ours and abandoned Import from Catalog staging folders.
+pub fn start_leftover_sweep(app: tauri::AppHandle, directory: PathBuf) {
+    let spawned = std::thread::Builder::new()
+        .name("leftovers".into())
+        .spawn(move || {
+            let Ok(lib) = Library::open(&directory) else {
+                return;
+            };
+            match lib.sweep_leftovers(std::time::SystemTime::now(), &AtomicBool::new(false)) {
+                Ok(swept) => report_leftovers(&app, swept.temp_files, &swept.staging),
+                Err(e) => log::warn!("Leftovers of interrupted jobs not swept: {e:#}"),
+            }
+        });
+    if let Err(e) = spawned {
+        log::warn!("Leftovers of interrupted jobs not swept: {e}");
+    }
+}
+
 /// Starts recording the content hash (SHA-256) of every photograph of the
 /// library at `directory` that has none yet, in the background: one file
 /// at a time, with pauses, after a delay; it stops when it is done, when

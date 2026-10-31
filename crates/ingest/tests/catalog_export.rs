@@ -416,6 +416,53 @@ fn cancel_or_failure_leaves_no_catalog_and_existing_folders_are_refused() {
     );
 }
 
+/// Killed while building (G66 app kill test): the stage it left beside the
+/// destination holds copies only; the next export into that folder removes
+/// it and says so, while a folder of that prefix without the marker, or one
+/// a running export holds, stays.
+#[test]
+fn the_next_export_removes_what_a_killed_export_left() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let src = source(&root);
+    let killed = root.join(".rawtonic-export-KiLLed");
+    fs::create_dir_all(killed.join("Photos/Shoot")).unwrap();
+    fs::write(
+        killed.join(rawtonic_metadata::staging::MARKER),
+        b"Export as Catalog",
+    )
+    .unwrap();
+    fs::write(killed.join("Photos/Shoot/wedding-a.arw"), b"original 0").unwrap();
+    let unmarked = root.join(".rawtonic-export-0ldVer");
+    fs::create_dir_all(&unmarked).unwrap();
+    let receipt = export_catalog(
+        &src.lib.directory,
+        &src.ids,
+        &root.join("Job"),
+        &options(true),
+        &go(),
+        |_| {},
+        no_stage,
+    )
+    .unwrap();
+    assert!(!killed.exists());
+    assert_eq!(receipt.abandoned.folders, 1);
+    assert_eq!(
+        receipt.abandoned.bytes,
+        10 + "Export as Catalog".len() as u64
+    );
+    assert_eq!(receipt.abandoned.kept, vec![unmarked.clone()]);
+    assert!(unmarked.exists());
+    assert!(root.join("Job/catalog.sqlite").exists());
+    assert!(
+        !root
+            .join("Job")
+            .join(rawtonic_metadata::staging::MARKER)
+            .exists(),
+        "the published catalog carries no marker"
+    );
+}
+
 #[test]
 fn an_offline_original_is_exported_by_reference_but_not_copied() {
     let tmp = tempfile::tempdir().unwrap();

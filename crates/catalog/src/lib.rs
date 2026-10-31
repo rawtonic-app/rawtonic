@@ -33,6 +33,7 @@ pub mod session_move;
 pub mod snapshots;
 pub mod stacks;
 pub mod subset;
+pub mod temp_sweep;
 pub mod volume;
 pub mod xmp_review;
 pub mod xmp_state;

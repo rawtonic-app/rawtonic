@@ -2,6 +2,8 @@
 pub mod no_clobber;
 pub mod provenance;
 pub mod resources;
+pub mod staging;
+pub mod temp;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -184,7 +186,7 @@ pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
             "Refusing to replace a symlink or non-file"
         );
     }
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    let mut file = temp::file_for(path)?;
     file.write_all(bytes.as_ref())?;
     file.as_file().sync_all()?;
     if let Some(meta) = &replaced {

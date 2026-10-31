@@ -69,6 +69,15 @@
       "starting": "Iniciando la importación…"
     },
     "indexing": "Indexando la biblioteca",
+    "leftovers": {
+      "kept_one": "Se dejó en su sitio {{count}} carpeta sin terminar de una tarea interrumpida",
+      "kept_many": "Se dejaron en su sitio {{count}} carpetas sin terminar de una tarea interrumpida",
+      "kept_other": "Se dejaron en su sitio {{count}} carpetas sin terminar de una tarea interrumpida",
+      "removed_one": "Se eliminaron {{size}} de copias sin terminar de una tarea interrumpida",
+      "removed_many": "Se eliminaron {{size}} de copias sin terminar de tareas interrumpidas",
+      "removed_other": "Se eliminaron {{size}} de copias sin terminar de tareas interrumpidas",
+      "removedDetail": "Solo se eliminaron copias hechas por la tarea interrumpida; los originales y los archivos terminados no se tocaron."
+    },
     "notice": "Algo requiere tu atención",
     "progress": "{{percent}} % hecho",
     "resume": "Reanudar",

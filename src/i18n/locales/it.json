@@ -69,6 +69,15 @@
       "starting": "Avvio dell’importazione…"
     },
     "indexing": "Indicizzazione della libreria",
+    "leftovers": {
+      "kept_one": "{{count}} cartella incompleta di un’attività interrotta è stata lasciata al suo posto",
+      "kept_many": "{{count}} cartelle incomplete di un’attività interrotta sono state lasciate al loro posto",
+      "kept_other": "{{count}} cartelle incomplete di un’attività interrotta sono state lasciate al loro posto",
+      "removed_one": "Rimossi {{size}} di copie incomplete di un’attività interrotta",
+      "removed_many": "Rimossi {{size}} di copie incomplete di attività interrotte",
+      "removed_other": "Rimossi {{size}} di copie incomplete di attività interrotte",
+      "removedDetail": "Sono state rimosse solo le copie fatte dall’attività interrotta; originali e file completati non sono stati toccati."
+    },
     "notice": "Qualcosa richiede la tua attenzione",
     "progress": "{{percent}} % completato",
     "resume": "Riprendi",

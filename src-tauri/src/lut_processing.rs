@@ -359,7 +359,7 @@ fn write_copy(dir: &Path, item: &ImportItem, extension: &str, bytes: &[u8]) -> a
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("LUT");
-    let mut temp = tempfile::NamedTempFile::new_in(&folder)?;
+    let mut temp = rawtonic_metadata::temp::file_for(&folder.join(format!("{stem}.{extension}")))?;
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
     for suffix in 0..1000 {
@@ -380,7 +380,7 @@ fn write_copy(dir: &Path, item: &ImportItem, extension: &str, bytes: &[u8]) -> a
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 // Taken meanwhile; `persist` has used up the temporary file.
-                temp = tempfile::NamedTempFile::new_in(&folder)?;
+                temp = rawtonic_metadata::temp::file_for(&path)?;
                 temp.write_all(bytes)?;
                 temp.as_file().sync_all()?;
             }

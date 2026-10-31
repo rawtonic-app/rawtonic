@@ -69,6 +69,15 @@
       "starting": "S’està iniciant la importació…"
     },
     "indexing": "S’està indexant la biblioteca",
+    "leftovers": {
+      "kept_one": "S’ha deixat al seu lloc {{count}} carpeta sense acabar d’una tasca interrompuda",
+      "kept_many": "S’han deixat al seu lloc {{count}} carpetes sense acabar d’una tasca interrompuda",
+      "kept_other": "S’han deixat al seu lloc {{count}} carpetes sense acabar d’una tasca interrompuda",
+      "removed_one": "S’han eliminat {{size}} de còpies sense acabar d’una tasca interrompuda",
+      "removed_many": "S’han eliminat {{size}} de còpies sense acabar de tasques interrompudes",
+      "removed_other": "S’han eliminat {{size}} de còpies sense acabar de tasques interrompudes",
+      "removedDetail": "Només s’han eliminat còpies fetes per la tasca interrompuda; els originals i els fitxers acabats no s’han tocat."
+    },
     "notice": "Alguna cosa requereix la teva atenció",
     "progress": "{{percent}} % fet",
     "resume": "Reprèn",

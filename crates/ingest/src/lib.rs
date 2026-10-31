@@ -1065,6 +1065,14 @@ pub(crate) fn import_pair(
     // name: record that copy instead of making another (and keep the
     // backup that import made).
     let unrecorded = |candidate: &Path| Ok(library.asset_at(candidate)?.is_none());
+    // The temporary copies a cut-off run of this photograph left (G66): this
+    // job alone writes these files, so whatever their age they are its own.
+    if let Some(planned) = options.earlier {
+        rawtonic_metadata::temp::remove_leftovers_of(planned);
+        if let (Some(backup_folder), Some(file)) = (options.backup, planned.file_name()) {
+            rawtonic_metadata::temp::remove_leftovers_of(&backup_folder.join(file));
+        }
+    }
     let earlier = match options.earlier {
         Some(planned)
             if fs::symlink_metadata(planned).is_ok_and(|m| m.is_file())

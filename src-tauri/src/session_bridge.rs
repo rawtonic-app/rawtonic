@@ -621,6 +621,7 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
             remember(&app, &lib.directory)?;
         }
         crate::folder_sync::start_checksum_pass(lib.directory.clone());
+        crate::folder_sync::start_leftover_sweep(app.clone(), lib.directory.clone());
         crate::library_search::start_facts_pass(lib.directory.clone());
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("session_summary");
@@ -1953,7 +1954,7 @@ pub async fn session_relink_folder(
 /// Encode generated images into a temporary file without ever replacing a source.
 pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Result<()> {
     let parent = output_folder(path).ok_or_else(|| anyhow::anyhow!("No output folder"))?;
-    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    let mut temp = rawtonic_metadata::temp::file_for(path)?;
     image.write_to(temp.as_file_mut(), image::ImageFormat::from_path(path)?)?;
     temp.as_file().sync_all()?;
     rawtonic_metadata::no_clobber::persist(temp, path)?;

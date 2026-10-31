@@ -32,7 +32,7 @@ use std::{
 /// The other library, read through a snapshot of its database.
 pub struct Source {
     /// Holds the snapshot; removed when dropped.
-    _temp: tempfile::TempDir,
+    _temp: rawtonic_metadata::staging::Staging,
     pub snapshot: Library,
     /// The other library's folder.
     pub directory: PathBuf,
@@ -54,9 +54,11 @@ pub fn open_source(target: &Library, other: &Path) -> Result<Source> {
     let mut manifest = read_manifest(&other)?;
     let cache = target.directory.join(".cache");
     fs::create_dir_all(&cache)?;
-    let temp = tempfile::Builder::new()
-        .prefix("import-")
-        .tempdir_in(&cache)?;
+    let temp = rawtonic_metadata::staging::Staging::new_in(
+        &cache,
+        rawtonic_metadata::staging::CATALOG_SNAPSHOT,
+        &format!("Import from Catalog of {}", other.display()),
+    )?;
     snapshot_database(&other, &manifest, temp.path())?;
     manifest.mode = Mode::Catalog;
     rawtonic_metadata::atomic_write(
@@ -330,7 +332,7 @@ pub fn import(
 /// unless the import is kept.
 #[derive(Default)]
 struct Placed {
-    stage: Option<tempfile::TempDir>,
+    stage: Option<rawtonic_metadata::staging::Staging>,
     moves: Vec<(PathBuf, PathBuf)>,
 }
 
@@ -399,9 +401,11 @@ fn copy_originals(
         missing.len(),
         missing.join("\n")
     );
-    let stage = tempfile::Builder::new()
-        .prefix(".rawtonic-import-")
-        .tempdir_in(&folder)?;
+    let stage = rawtonic_metadata::staging::Staging::new_in(
+        &folder,
+        rawtonic_metadata::staging::CATALOG_IMPORT,
+        &format!("Import from Catalog into {}", target.directory.display()),
+    )?;
     let stage_root = stage.path().to_path_buf();
     placed.stage = Some(stage);
     let originals: Vec<PathBuf> = new.iter().map(|p| p.path.clone()).collect();
