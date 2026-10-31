@@ -26,6 +26,17 @@
     "download": {
       "model": "正在下載 {{name}}"
     },
+    "duplicates": {
+      "failed": "尋找重複項目失敗",
+      "read_one": "已比較 {{count}} 張照片",
+      "read_other": "已比較 {{count}} 張照片",
+      "reading": "正在比較照片以尋找重複項目",
+      "review": "檢視重複項目",
+      "stopped_one": "比較 {{count}} 張照片後已停止",
+      "stopped_other": "比較 {{count}} 張照片後已停止",
+      "unreadable_one": "{{count}} 張照片無法比較",
+      "unreadable_other": "{{count}} 張照片無法比較"
+    },
     "empty": {
       "attention": "沒有需要處理的項目。",
       "done": "沒有最近的結果。",
@@ -203,6 +214,7 @@
       "copy_image_path": "拷貝路徑",
       "delete_selected": "丟到垃圾桶",
       "edit_with": "編輯方式…",
+      "find_duplicates": "尋找重複項目…",
       "flag_pick": "挑選",
       "flag_reject": "排除",
       "flag_unflag": "取消旗標",
@@ -640,6 +652,52 @@
         "transform": "變形"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "配對的 JPEG {{name}}",
+      "copies_one": "{{count}} 個虛擬複本",
+      "copies_other": "{{count}} 個虛擬複本",
+      "described": "標題、說明或 IPTC",
+      "edited": "已編輯",
+      "keywords_one": "{{count}} 個關鍵字",
+      "keywords_other": "{{count}} 個關鍵字",
+      "label": "標籤：{{label}}",
+      "none": "無編輯或中繼資料",
+      "picked": "已挑選",
+      "rejected": "已拒絕"
+    },
+    "captured": "拍攝於 {{date}}",
+    "changed_one": "{{count}} 張照片在比較後已變更，因此未移動任何內容。已重新比較。",
+    "changed_other": "{{count}} 張照片在比較後已變更，因此未移動任何內容。已重新比較。",
+    "close": "關閉",
+    "companionKept_one": "{{count}} 張照片保留：其配對的 JPEG 沒有保留相同的複本，因此未移動任何內容。",
+    "companionKept_other": "{{count}} 張照片保留：其配對的 JPEG 沒有保留相同的複本，因此未移動任何內容。",
+    "comparedFile": "已比較整個檔案",
+    "comparedImage": "已比較影像資料",
+    "failed": "尋找重複項目失敗：{{error}}",
+    "group_one": "{{count}} 張影像資料相同的照片",
+    "group_other": "{{count}} 張影像資料相同的照片",
+    "imported": "匯入於 {{date}}",
+    "intro": "尋找檔案中影像資料相同的照片，即使名稱、資料夾、中繼資料或編輯不同。僅外觀相似的照片不會比較。",
+    "keepOne": "請至少保留此組中的一張照片。",
+    "markTrash": "移到垃圾桶",
+    "moveToTrash_one": "將 {{count}} 張照片移到垃圾桶",
+    "moveToTrash_other": "將 {{count}} 張照片移到垃圾桶",
+    "noLibrary": "請開啟專案或目錄以尋找重複項目。",
+    "none": "沒有重複項目：沒有兩張照片的影像資料相同。",
+    "reading": "正在比較影像資料：{{done}} / {{total}} 張照片",
+    "readingStart": "正在比較影像資料…",
+    "stop": "停止",
+    "stopped": "已停止：僅將已比較的照片分組。",
+    "suggestion": "建議移到垃圾桶：沒有自己的編輯、星等、旗標、色彩標籤、關鍵字、標題或說明、虛擬複本或配對 JPEG 的照片。凡有此類工作的照片都會保留；否則保留最早匯入的照片。不會合併任何內容。",
+    "summary_one": "{{count}} 組重複項目（{{photos}} 張照片）",
+    "summary_other": "{{count}} 組重複項目（{{photos}} 張照片）",
+    "title": "尋找重複項目",
+    "unknown": "未知",
+    "unreadable_one": "{{count}} 張照片無法讀取，未分組。",
+    "unreadable_other": "{{count}} 張照片無法讀取，未分組。",
+    "workWarning": "標記為移到垃圾桶的照片有自己的編輯、中繼資料或虛擬複本。還原會將其連同這些一併復原。"
   },
   "editor": {
     "adjustments": {
@@ -3456,6 +3514,7 @@
           "camera": "相機",
           "captureDate": "拍攝日期",
           "details": "關鍵字以外的任意文字",
+          "duplicate": "重複項目（影像資料相同）",
           "exposure": "快門速度（秒）",
           "filename": "檔案名稱",
           "fileType": "檔案類型",

@@ -26,6 +26,17 @@
     "download": {
       "model": "ダウンロード中: {{name}}"
     },
+    "duplicates": {
+      "failed": "重複の検索に失敗しました",
+      "read_one": "{{count}} 枚の写真の重複を比較しました",
+      "read_other": "{{count}} 枚の写真の重複を比較しました",
+      "reading": "重複を探すために写真を比較中",
+      "review": "重複を確認",
+      "stopped_one": "{{count}} 枚で重複の比較を停止しました",
+      "stopped_other": "{{count}} 枚で重複の比較を停止しました",
+      "unreadable_one": "{{count}} 枚の写真を比較できませんでした",
+      "unreadable_other": "{{count}} 枚の写真を比較できませんでした"
+    },
     "empty": {
       "attention": "対応が必要な項目はありません。",
       "done": "最近の結果はありません。",
@@ -203,6 +214,7 @@
       "copy_image_path": "パスをコピー",
       "delete_selected": "ゴミ箱に入れる",
       "edit_with": "このアプリケーションで編集…",
+      "find_duplicates": "重複を検索…",
       "flag_pick": "採用",
       "flag_reject": "除外",
       "flag_unflag": "フラグなし",
@@ -640,6 +652,52 @@
         "transform": "変形"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "ペアの JPEG {{name}}",
+      "copies_one": "仮想コピー {{count}} 件",
+      "copies_other": "仮想コピー {{count}} 件",
+      "described": "タイトル、キャプション、IPTC",
+      "edited": "編集済み",
+      "keywords_one": "キーワード {{count}} 件",
+      "keywords_other": "キーワード {{count}} 件",
+      "label": "ラベル：{{label}}",
+      "none": "編集やメタデータなし",
+      "picked": "採用",
+      "rejected": "不採用"
+    },
+    "captured": "撮影 {{date}}",
+    "changed_one": "{{count}} 枚の写真が比較後に変更されたため、何も移動していません。再度比較しました。",
+    "changed_other": "{{count}} 枚の写真が比較後に変更されたため、何も移動していません。再度比較しました。",
+    "close": "閉じる",
+    "companionKept_one": "{{count}} 枚の写真は残ります：ペアの JPEG と同一のコピーが残らないため、何も移動していません。",
+    "companionKept_other": "{{count}} 枚の写真は残ります：ペアの JPEG と同一のコピーが残らないため、何も移動していません。",
+    "comparedFile": "ファイル全体を比較",
+    "comparedImage": "画像データを比較",
+    "failed": "重複の検索に失敗しました：{{error}}",
+    "group_one": "同一の画像データを持つ写真 {{count}} 枚",
+    "group_other": "同一の画像データを持つ写真 {{count}} 枚",
+    "imported": "読み込み {{date}}",
+    "intro": "名前、フォルダー、メタデータ、編集が異なっていても、ファイルに同一の画像データを持つ写真を見つけます。見た目が似ているだけの写真は比較しません。",
+    "keepOne": "このグループの写真を少なくとも 1 枚残してください。",
+    "markTrash": "ゴミ箱に移動",
+    "moveToTrash_one": "{{count}} 枚の写真をゴミ箱に移動",
+    "moveToTrash_other": "{{count}} 枚の写真をゴミ箱に移動",
+    "noLibrary": "重複を検索するには、プロジェクトまたはカタログを開いてください。",
+    "none": "重複はありません：同一の画像データを持つ写真はありません。",
+    "reading": "画像データを比較中：{{total}} 枚中 {{done}} 枚",
+    "readingStart": "画像データを比較中…",
+    "stop": "停止",
+    "stopped": "停止しました：これまでに比較した写真のみをグループ化しています。",
+    "suggestion": "ゴミ箱への移動を提案：独自の編集、レーティング、フラグ、カラーラベル、キーワード、タイトルやキャプション、仮想コピー、ペアの JPEG がない写真。そうした作業のある写真はすべて残し、ない場合は最も古い読み込みを残します。何も統合しません。",
+    "summary_one": "重複グループ {{count}} 件（写真 {{photos}} 枚）",
+    "summary_other": "重複グループ {{count}} 件（写真 {{photos}} 枚）",
+    "title": "重複を検索",
+    "unknown": "不明",
+    "unreadable_one": "{{count}} 枚の写真を読み込めず、グループ化していません。",
+    "unreadable_other": "{{count}} 枚の写真を読み込めず、グループ化していません。",
+    "workWarning": "ゴミ箱に移動する写真に独自の編集、メタデータ、仮想コピーがあります。取り消すとそれらと一緒に戻ります。"
   },
   "editor": {
     "adjustments": {
@@ -3456,6 +3514,7 @@
           "camera": "カメラ",
           "captureDate": "撮影日",
           "details": "キーワード以外の任意のテキスト",
+          "duplicate": "重複（同一の画像データ）",
           "exposure": "シャッタースピード（秒）",
           "filename": "ファイル名",
           "fileType": "ファイルの種類",

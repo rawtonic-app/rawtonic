@@ -26,6 +26,17 @@
     "download": {
       "model": "正在下载 {{name}}"
     },
+    "duplicates": {
+      "failed": "查找重复项失败",
+      "read_one": "已比较 {{count}} 张照片",
+      "read_other": "已比较 {{count}} 张照片",
+      "reading": "正在比较照片以查找重复项",
+      "review": "查看重复项",
+      "stopped_one": "比较 {{count}} 张照片后已停止",
+      "stopped_other": "比较 {{count}} 张照片后已停止",
+      "unreadable_one": "{{count}} 张照片无法比较",
+      "unreadable_other": "{{count}} 张照片无法比较"
+    },
     "empty": {
       "attention": "没有需要处理的项目。",
       "done": "没有最近的结果。",
@@ -203,6 +214,7 @@
       "copy_image_path": "拷贝路径",
       "delete_selected": "移到废纸篓",
       "edit_with": "编辑方式…",
+      "find_duplicates": "查找重复项…",
       "flag_pick": "留用",
       "flag_reject": "排除",
       "flag_unflag": "取消旗标",
@@ -640,6 +652,52 @@
         "transform": "变换"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "配对的 JPEG {{name}}",
+      "copies_one": "{{count}} 个虚拟副本",
+      "copies_other": "{{count}} 个虚拟副本",
+      "described": "标题、说明或 IPTC",
+      "edited": "已编辑",
+      "keywords_one": "{{count}} 个关键词",
+      "keywords_other": "{{count}} 个关键词",
+      "label": "标签：{{label}}",
+      "none": "无编辑或元数据",
+      "picked": "已选取",
+      "rejected": "已拒绝"
+    },
+    "captured": "拍摄于 {{date}}",
+    "changed_one": "{{count}} 张照片在比较后已更改，因此未移动任何内容。已重新比较。",
+    "changed_other": "{{count}} 张照片在比较后已更改，因此未移动任何内容。已重新比较。",
+    "close": "关闭",
+    "companionKept_one": "{{count}} 张照片保留：其配对的 JPEG 没有保留相同的副本，因此未移动任何内容。",
+    "companionKept_other": "{{count}} 张照片保留：其配对的 JPEG 没有保留相同的副本，因此未移动任何内容。",
+    "comparedFile": "已比较整个文件",
+    "comparedImage": "已比较图像数据",
+    "failed": "查找重复项失败：{{error}}",
+    "group_one": "{{count}} 张图像数据相同的照片",
+    "group_other": "{{count}} 张图像数据相同的照片",
+    "imported": "导入于 {{date}}",
+    "intro": "查找文件中图像数据相同的照片，即使名称、文件夹、元数据或编辑不同。仅外观相似的照片不做比较。",
+    "keepOne": "请至少保留此组中的一张照片。",
+    "markTrash": "移到废纸篓",
+    "moveToTrash_one": "将 {{count}} 张照片移到废纸篓",
+    "moveToTrash_other": "将 {{count}} 张照片移到废纸篓",
+    "noLibrary": "请打开项目或图库以查找重复项。",
+    "none": "没有重复项：没有两张照片的图像数据相同。",
+    "reading": "正在比较图像数据：{{done}} / {{total}} 张照片",
+    "readingStart": "正在比较图像数据…",
+    "stop": "停止",
+    "stopped": "已停止：仅对已比较的照片分组。",
+    "suggestion": "建议移到废纸篓：没有自己的编辑、星级、旗标、颜色标签、关键词、标题或说明、虚拟副本或配对 JPEG 的照片。凡有此类工作的照片都会保留；否则保留最早导入的照片。不会合并任何内容。",
+    "summary_one": "{{count}} 组重复项（{{photos}} 张照片）",
+    "summary_other": "{{count}} 组重复项（{{photos}} 张照片）",
+    "title": "查找重复项",
+    "unknown": "未知",
+    "unreadable_one": "{{count}} 张照片无法读取，未分组。",
+    "unreadable_other": "{{count}} 张照片无法读取，未分组。",
+    "workWarning": "标记为移到废纸篓的照片有自己的编辑、元数据或虚拟副本。撤销会将其连同这些一起恢复。"
   },
   "editor": {
     "adjustments": {
@@ -3456,6 +3514,7 @@
           "camera": "相机",
           "captureDate": "拍摄日期",
           "details": "除关键词外的任意文本",
+          "duplicate": "重复项（图像数据相同）",
           "exposure": "快门速度（秒）",
           "filename": "文件名",
           "fileType": "文件类型",

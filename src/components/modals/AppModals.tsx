@@ -13,6 +13,7 @@ import ConfirmModal from './ConfirmModal';
 import LibrarySwitchShield from './LibrarySwitchShield';
 import CullingModal from './CullingModal';
 import CollageModal, { type CollageSpec } from './CollageModal';
+import { DuplicatesDialogHost } from '../studio/DuplicatesDialog';
 
 export interface AppModalsProps {
   handleImageSelect: (path: string) => void;
@@ -120,6 +121,7 @@ export default function AppModals(props: AppModalsProps) {
       />
       <ConfirmModal {...confirmModalState} onClose={closeConfirmModal} />
       <LibrarySwitchShield />
+      <DuplicatesDialogHost trash={props.executeDelete} />
       <CullingModal
         isOpen={cullingModalState.isOpen}
         onClose={() =>

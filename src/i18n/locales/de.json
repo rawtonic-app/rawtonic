@@ -29,6 +29,17 @@
     "download": {
       "model": "{{name}} wird geladen"
     },
+    "duplicates": {
+      "failed": "Duplikatsuche fehlgeschlagen",
+      "read_one": "{{count}} Foto auf Duplikate verglichen",
+      "read_other": "{{count}} Fotos auf Duplikate verglichen",
+      "reading": "Fotos werden auf Duplikate verglichen",
+      "review": "Duplikate prüfen",
+      "stopped_one": "Duplikatvergleich nach {{count}} Foto gestoppt",
+      "stopped_other": "Duplikatvergleich nach {{count}} Fotos gestoppt",
+      "unreadable_one": "{{count}} Foto konnte nicht auf Duplikate verglichen werden",
+      "unreadable_other": "{{count}} Fotos konnten nicht auf Duplikate verglichen werden"
+    },
     "empty": {
       "attention": "Nichts braucht deine Aufmerksamkeit.",
       "done": "Keine neuen Ergebnisse.",
@@ -210,6 +221,7 @@
       "copy_image_path": "Pfad kopieren",
       "delete_selected": "In den Papierkorb legen",
       "edit_with": "Bearbeiten mit…",
+      "find_duplicates": "Duplikate suchen…",
       "flag_pick": "Markieren",
       "flag_reject": "Ablehnen",
       "flag_unflag": "Markierung aufheben",
@@ -647,6 +659,52 @@
         "transform": "Transformieren"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "Gepaartes JPEG {{name}}",
+      "copies_one": "{{count}} virtuelle Kopie",
+      "copies_other": "{{count}} virtuelle Kopien",
+      "described": "Titel, Beschreibung oder IPTC",
+      "edited": "Bearbeitet",
+      "keywords_one": "{{count}} Stichwort",
+      "keywords_other": "{{count}} Stichwörter",
+      "label": "Farbe: {{label}}",
+      "none": "Keine Bearbeitungen oder Metadaten",
+      "picked": "Ausgewählt",
+      "rejected": "Abgelehnt"
+    },
+    "captured": "Aufgenommen {{date}}",
+    "changed_one": "{{count}} Foto hat sich seit dem Vergleich geändert, daher wurde nichts verschoben. Erneut verglichen.",
+    "changed_other": "{{count}} Fotos haben sich seit dem Vergleich geändert, daher wurde nichts verschoben. Erneut verglichen.",
+    "close": "Schließen",
+    "companionKept_one": "{{count}} Foto bleibt: Zu seinem gepaarten JPEG bleibt keine identische Kopie, daher wurde nichts verschoben.",
+    "companionKept_other": "{{count}} Fotos bleiben: Zu ihren gepaarten JPEGs bleibt keine identische Kopie, daher wurde nichts verschoben.",
+    "comparedFile": "ganze Dateien verglichen",
+    "comparedImage": "Bilddaten verglichen",
+    "failed": "Duplikatsuche fehlgeschlagen: {{error}}",
+    "group_one": "{{count}} Foto mit identischen Bilddaten",
+    "group_other": "{{count}} Fotos mit identischen Bilddaten",
+    "imported": "Importiert {{date}}",
+    "intro": "Findet Fotos, deren Dateien identische Bilddaten enthalten, auch bei anderen Namen, Ordnern, Metadaten oder Bearbeitungen. Visuell ähnliche Fotos werden nicht verglichen.",
+    "keepOne": "Behalte mindestens ein Foto dieser Gruppe.",
+    "markTrash": "In den Papierkorb",
+    "moveToTrash_one": "{{count}} Foto in den Papierkorb",
+    "moveToTrash_other": "{{count}} Fotos in den Papierkorb",
+    "noLibrary": "Öffne ein Projekt oder einen Katalog, um Duplikate zu suchen.",
+    "none": "Keine Duplikate: Keine zwei Fotos enthalten identische Bilddaten.",
+    "reading": "Bilddaten werden verglichen: {{done}} von {{total}} Fotos",
+    "readingStart": "Bilddaten werden verglichen…",
+    "stop": "Stoppen",
+    "stopped": "Gestoppt: Nur die bisher verglichenen Fotos sind gruppiert.",
+    "suggestion": "Für den Papierkorb vorgeschlagen: Fotos ohne eigene Bearbeitungen, Bewertung, Markierung, Farbe, Stichwörter, Titel oder Beschreibung, virtuelle Kopien oder gepaartes JPEG. Jedes Foto mit solcher Arbeit bleibt; sonst bleibt der älteste Import. Nichts wird zusammengeführt.",
+    "summary_one": "{{count}} Duplikatgruppe ({{photos}} Fotos)",
+    "summary_other": "{{count}} Duplikatgruppen ({{photos}} Fotos)",
+    "title": "Duplikate suchen",
+    "unknown": "unbekannt",
+    "unreadable_one": "{{count}} Foto konnte nicht gelesen werden und ist nicht gruppiert.",
+    "unreadable_other": "{{count}} Fotos konnten nicht gelesen werden und sind nicht gruppiert.",
+    "workWarning": "Ein für den Papierkorb markiertes Foto hat eigene Bearbeitungen, Metadaten oder virtuelle Kopien. Rückgängig holt es mit ihnen zurück."
   },
   "editor": {
     "adjustments": {
@@ -3539,6 +3597,7 @@
           "camera": "Kamera",
           "captureDate": "Aufnahmedatum",
           "details": "Beliebiger Text außer Stichwörtern",
+          "duplicate": "Duplikat (identische Bilddaten)",
           "exposure": "Belichtungszeit (s)",
           "filename": "Dateiname",
           "fileType": "Dateityp",

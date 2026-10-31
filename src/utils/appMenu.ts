@@ -81,6 +81,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       'separator',
       c('import_photos'),
       c('tether_capture'),
+      c('find_duplicates'),
       'separator',
       c('toggle_export'),
       { dynamic: 'recipes' },

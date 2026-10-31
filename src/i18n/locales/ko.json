@@ -26,6 +26,17 @@
     "download": {
       "model": "다운로드 중: {{name}}"
     },
+    "duplicates": {
+      "failed": "중복 찾기 실패",
+      "read_one": "사진 {{count}}장의 중복을 비교했습니다",
+      "read_other": "사진 {{count}}장의 중복을 비교했습니다",
+      "reading": "중복을 찾기 위해 사진 비교 중",
+      "review": "중복 검토",
+      "stopped_one": "사진 {{count}}장에서 중복 비교를 중지했습니다",
+      "stopped_other": "사진 {{count}}장에서 중복 비교를 중지했습니다",
+      "unreadable_one": "사진 {{count}}장을 비교할 수 없습니다",
+      "unreadable_other": "사진 {{count}}장을 비교할 수 없습니다"
+    },
     "empty": {
       "attention": "확인이 필요한 항목이 없습니다.",
       "done": "최근 결과가 없습니다.",
@@ -203,6 +214,7 @@
       "copy_image_path": "경로 복사",
       "delete_selected": "휴지통으로 이동",
       "edit_with": "다음으로 편집…",
+      "find_duplicates": "중복 찾기…",
       "flag_pick": "선택",
       "flag_reject": "거부",
       "flag_unflag": "플래그 해제",
@@ -640,6 +652,52 @@
         "transform": "변형"
       }
     }
+  },
+  "duplicates": {
+    "badges": {
+      "companion": "짝 JPEG {{name}}",
+      "copies_one": "가상 복사본 {{count}}개",
+      "copies_other": "가상 복사본 {{count}}개",
+      "described": "제목, 캡션 또는 IPTC",
+      "edited": "편집됨",
+      "keywords_one": "키워드 {{count}}개",
+      "keywords_other": "키워드 {{count}}개",
+      "label": "레이블: {{label}}",
+      "none": "편집이나 메타데이터 없음",
+      "picked": "선택됨",
+      "rejected": "거부됨"
+    },
+    "captured": "촬영 {{date}}",
+    "changed_one": "사진 {{count}}장이 비교 후 변경되어 아무것도 이동하지 않았습니다. 다시 비교했습니다.",
+    "changed_other": "사진 {{count}}장이 비교 후 변경되어 아무것도 이동하지 않았습니다. 다시 비교했습니다.",
+    "close": "닫기",
+    "companionKept_one": "사진 {{count}}장은 남습니다: 짝 JPEG와 동일한 사본이 남지 않아 아무것도 이동하지 않았습니다.",
+    "companionKept_other": "사진 {{count}}장은 남습니다: 짝 JPEG와 동일한 사본이 남지 않아 아무것도 이동하지 않았습니다.",
+    "comparedFile": "파일 전체 비교",
+    "comparedImage": "이미지 데이터 비교",
+    "failed": "중복 찾기 실패: {{error}}",
+    "group_one": "동일한 이미지 데이터의 사진 {{count}}장",
+    "group_other": "동일한 이미지 데이터의 사진 {{count}}장",
+    "imported": "가져옴 {{date}}",
+    "intro": "이름, 폴더, 메타데이터, 편집이 달라도 파일에 동일한 이미지 데이터가 있는 사진을 찾습니다. 시각적으로 비슷한 사진은 비교하지 않습니다.",
+    "keepOne": "이 그룹에서 사진을 하나 이상 유지하세요.",
+    "markTrash": "휴지통으로 이동",
+    "moveToTrash_one": "사진 {{count}}장을 휴지통으로 이동",
+    "moveToTrash_other": "사진 {{count}}장을 휴지통으로 이동",
+    "noLibrary": "중복을 찾으려면 프로젝트나 카탈로그를 여세요.",
+    "none": "중복 없음: 동일한 이미지 데이터를 가진 사진이 없습니다.",
+    "reading": "이미지 데이터 비교 중: {{total}}장 중 {{done}}장",
+    "readingStart": "이미지 데이터 비교 중…",
+    "stop": "중지",
+    "stopped": "중지됨: 지금까지 비교한 사진만 그룹으로 묶었습니다.",
+    "suggestion": "휴지통으로 제안: 자체 편집, 별점, 플래그, 색상 레이블, 키워드, 제목이나 캡션, 가상 복사본, 짝 JPEG가 없는 사진. 그런 작업이 있는 사진은 모두 유지하며, 없으면 가장 오래된 가져오기를 유지합니다. 아무것도 병합하지 않습니다.",
+    "summary_one": "중복 그룹 {{count}}개(사진 {{photos}}장)",
+    "summary_other": "중복 그룹 {{count}}개(사진 {{photos}}장)",
+    "title": "중복 찾기",
+    "unknown": "알 수 없음",
+    "unreadable_one": "사진 {{count}}장을 읽을 수 없어 그룹에 넣지 않았습니다.",
+    "unreadable_other": "사진 {{count}}장을 읽을 수 없어 그룹에 넣지 않았습니다.",
+    "workWarning": "휴지통으로 표시한 사진에 자체 편집, 메타데이터 또는 가상 복사본이 있습니다. 실행 취소하면 함께 복원됩니다."
   },
   "editor": {
     "adjustments": {
@@ -3456,6 +3514,7 @@
           "camera": "카메라",
           "captureDate": "촬영 날짜",
           "details": "키워드를 제외한 모든 텍스트",
+          "duplicate": "중복(동일한 이미지 데이터)",
           "exposure": "셔터 속도 (초)",
           "filename": "파일 이름",
           "fileType": "파일 형식",

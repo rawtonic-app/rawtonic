@@ -18,6 +18,14 @@ import {
   onPhotoWritesSettled,
   type PhotoBatch,
 } from '../utils/photoWrites';
+import {
+  DUPLICATES_FINISHED,
+  DUPLICATES_PROGRESS,
+  cancelDuplicatesPass,
+  useDuplicatesDialog,
+  type DuplicatesFinished,
+  type DuplicatesProgress,
+} from '../utils/duplicates';
 
 const fileName = (path: string) => {
   const file = path.split('?vc=')[0];
@@ -235,6 +243,57 @@ function syncBatch(batch: PhotoBatch, finished: boolean) {
   else activity.start({ id, source: 'batch', title, progress: { done, total } });
 }
 
+/** Find Duplicates' pass over a library (`utils/duplicates`): progress
+ * with Stop while it reads, then what it read, with Review. */
+export function syncDuplicatesProgress({ run, done, total }: DuplicatesProgress) {
+  const activity = useActivityStore.getState();
+  const id = `duplicates:${run}`;
+  const fields = {
+    source: 'app' as const,
+    title: i18n.t('activity.duplicates.reading'),
+    progress: total > 0 ? { done, total } : undefined,
+    cancel: () => void cancelDuplicatesPass(run).catch(() => {}),
+  };
+  if (activity.entries.some((entry) => entry.id === id && entry.status === 'running')) activity.update(id, fields);
+  else activity.start({ id, ...fields });
+}
+
+export function syncDuplicatesFinished(finished: DuplicatesFinished) {
+  const activity = useActivityStore.getState();
+  const id = `duplicates:${finished.run}`;
+  if (finished.error) {
+    activity.finish(id);
+    activity.report('failure', {
+      id,
+      source: 'app',
+      title: i18n.t('activity.duplicates.failed'),
+      detail: finished.error,
+    });
+    return;
+  }
+  const review = { label: i18n.t('activity.duplicates.review'), run: () => useDuplicatesDialog.getState().show() };
+  if (finished.unreadable.length) {
+    activity.finish(id);
+    activity.report('warning', {
+      id: `${id}:unreadable`,
+      source: 'app',
+      title: i18n.t('activity.duplicates.unreadable', { count: finished.unreadable.length }),
+      detail: names(finished.unreadable),
+      paths: finished.unreadable,
+    });
+  }
+  if (finished.hashed === 0 && !finished.cancelled) {
+    activity.finish(id);
+    return;
+  }
+  activity.finish(id, {
+    title: i18n.t(finished.cancelled ? 'activity.duplicates.stopped' : 'activity.duplicates.read', {
+      count: finished.hashed,
+    }),
+    actions: [review],
+  });
+}
+
 /** Tauri's `listen`, quiet without the native side (tests, `npm run dev`). */
 function listenSafely<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   return Promise.resolve()
@@ -293,6 +352,8 @@ export function startActivityBridges(): () => void {
       if (total > 0) useActivityStore.getState().update('download:ai-model', { progress: { done, total } });
     }),
     listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
+    listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
+    listenSafely<DuplicatesFinished>(DUPLICATES_FINISHED, syncDuplicatesFinished),
     listenSafely<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ taskId, done, total }) => {
       if (taskId && total > 0) useActivityStore.getState().update(`ai:task:${taskId}`, { progress: { done, total } });
     }),
