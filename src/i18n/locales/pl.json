@@ -296,6 +296,7 @@
       "toggle_left_panel": "Lewy panel",
       "toggle_metadata": "Informacje o zdjęciu",
       "toggle_multi_view": "Widok wielu zdjęć",
+      "toggle_pointer_readout": "Odczyt RGB pod wskaźnikiem",
       "toggle_proof_margin": "Margines próby",
       "toggle_right_panel": "Prawy panel",
       "toggle_side_panels": "Panele boczne",
@@ -960,6 +961,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "Lupa pipety"
     }
   },
   "errors": {
@@ -2377,6 +2381,7 @@
         "toggle_masks": "Przełącz panel Maski",
         "toggle_metadata": "Narzędzie Metadane (Biblioteka) lub informacje o zdjęciu (Wywoływanie, pełny ekran)",
         "toggle_multi_view": "Widok wielu zdjęć: zaznaczone zdjęcia obok siebie",
+        "toggle_pointer_readout": "Przełącz odczyt RGB pod wskaźnikiem",
         "toggle_proof_margin": "Przełącz margines podglądu",
         "toggle_right_panel": "Przełącz prawy panel",
         "toggle_side_panels": "Ukryj lub pokaż panele boczne",
@@ -5189,6 +5194,8 @@
         "fitTitle": "Dopasuj do okna",
         "hidePanels": "Ukryj panele",
         "imageViewer": "Podgląd zdjęcia",
+        "pointerReadout": "R, G, B pod wskaźnikiem",
+        "pointerReadoutTitle": "R, G, B zdjęcia pod wskaźnikiem (sRGB, średnia 11 × 11 pipet). Kliknij, aby przełączyć między 0–255 a %.",
         "proofMargin": "Margines podglądu",
         "proofMarginTitle": "Margines podglądu wokół zdjęcia",
         "redo": "Ponów",

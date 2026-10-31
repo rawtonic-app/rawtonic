@@ -286,6 +286,7 @@
       "toggle_left_panel": "Painel esquerdo",
       "toggle_metadata": "Informações da foto",
       "toggle_multi_view": "Vista múltipla",
+      "toggle_pointer_readout": "Leitura RGB do ponteiro",
       "toggle_proof_margin": "Margem de prova",
       "toggle_right_panel": "Painel direito",
       "toggle_side_panels": "Painéis laterais",
@@ -917,6 +918,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "Lupa do conta-gotas"
     }
   },
   "errors": {
@@ -2262,6 +2266,7 @@
         "toggle_masks": "Alternar painel de Máscaras",
         "toggle_metadata": "Ferramenta Metadados (Biblioteca) ou informações da foto (Revelação, ecrã inteiro)",
         "toggle_multi_view": "Vista múltipla: fotos selecionadas lado a lado",
+        "toggle_pointer_readout": "Alternar leitura RGB do ponteiro",
         "toggle_proof_margin": "Alternar margem de prova",
         "toggle_right_panel": "Alternar painel direito",
         "toggle_side_panels": "Ocultar ou mostrar os painéis laterais",
@@ -5009,6 +5014,8 @@
         "fitTitle": "Ajustar à janela",
         "hidePanels": "Ocultar painéis",
         "imageViewer": "Visualizador de imagens",
+        "pointerReadout": "R, G, B sob o ponteiro",
+        "pointerReadoutTitle": "R, G, B da foto sob o ponteiro (sRGB, a média 11 × 11 dos conta-gotas). Clique para alternar entre 0–255 e %.",
         "proofMargin": "Margem de prova",
         "proofMarginTitle": "Margem de prova em volta da foto",
         "redo": "Refazer",

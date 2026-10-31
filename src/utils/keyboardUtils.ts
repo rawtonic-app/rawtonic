@@ -144,6 +144,14 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // Capture One's R, G, B under the pointer in the viewer bar; no key
+    // by default (every free letter is taken), assignable.
+    action: 'toggle_pointer_readout',
+    description: 'settings.keybinds.actions.toggle_pointer_readout',
+    defaultCombo: [],
+    section: 'view',
+  },
+  {
     // Fit leaves a margin around the photograph.
     action: 'toggle_proof_margin',
     description: 'settings.keybinds.actions.toggle_proof_margin',

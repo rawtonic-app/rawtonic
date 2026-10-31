@@ -300,6 +300,7 @@ export enum Invokes {
   SaveSettings = 'save_settings',
   SampleLumaRange = 'sample_luma_range',
   SamplePreviewColor = 'sample_preview_color',
+  SamplePreviewPatch = 'sample_preview_patch',
   SampleCurveInput = 'sample_curve_input',
   LevelsInputHistogram = 'levels_input_histogram',
   SamplePreviewWhiteBalance = 'sample_preview_white_balance',
@@ -527,6 +528,10 @@ export interface AppSettings {
   viewerProofMargin?: boolean;
   /** Proof margin size in % of the viewer's shorter side. */
   viewerProofMarginPercent?: number;
+  /** Develop viewer bar: R, G, B under the pointer (View menu). */
+  pointerReadout?: boolean;
+  /** The pointer readout's and picker loupe's unit; unset: 0–255. */
+  pointerReadoutUnit?: 'rgb255' | 'percent';
   canvasInputMode?: 'mouse' | 'trackpad';
   zoomSpeedMultiplier?: number;
   zoomPhotoToPixelClick?: boolean;

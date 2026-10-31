@@ -683,6 +683,50 @@ pub async fn sample_preview_grey_world(
     .map_err(|error| format!("Auto white balance sampling task failed: {error}"))?
 }
 
+/// `sample` on the GPU processor for the shown frame of `path`, or `None`
+/// when the photograph, its load or its render changed meanwhile.
+fn sample_current_frame<T>(
+    state: &AppState,
+    path: &str,
+    sample: impl FnOnce(&GpuProcessor, &Arc<DynamicImage>, usize, usize) -> Result<Option<T>, String>,
+) -> Result<Option<T>, String> {
+    use std::sync::atomic::Ordering;
+    let load = state.load_image_generation.load(Ordering::SeqCst);
+    let render = state.preview_generation.load(Ordering::SeqCst);
+    let source = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        .filter(|image| image.path == path)
+        .map(|image| Arc::clone(&image.image));
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    let sampled = {
+        let processor = state
+            .gpu_processor
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(processor) = processor.as_ref() else {
+            return Ok(None);
+        };
+        sample(&processor.processor, &source, load, render)?
+    };
+    if load != state.load_image_generation.load(Ordering::SeqCst)
+        || render != state.preview_generation.load(Ordering::SeqCst)
+    {
+        return Ok(None);
+    }
+    let still_current = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        .is_some_and(|image| image.path == path && Arc::ptr_eq(&image.image, &source));
+    Ok(if still_current { sampled } else { None })
+}
+
 #[tauri::command]
 pub async fn sample_preview_color(
     path: String,
@@ -691,50 +735,69 @@ pub async fn sample_preview_color(
     app_handle: tauri::AppHandle,
 ) -> Result<Option<[f64; 3]>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        use std::sync::atomic::Ordering;
         let state = app_handle.state::<AppState>();
-        let load = state.load_image_generation.load(Ordering::SeqCst);
-        let render = state.preview_generation.load(Ordering::SeqCst);
-        let source = state
-            .original_image
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-            .filter(|image| image.path == path)
-            .map(|image| Arc::clone(&image.image));
-        let Some(source) = source else {
-            return Ok(None);
-        };
-        let processor = state
-            .gpu_processor
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(processor) = processor.as_ref() else {
-            return Ok(None);
-        };
-        let sample = processor.processor.sample_display_color(
-            &path,
-            &source,
-            load,
-            render,
-            normalized_x,
-            normalized_y,
-        )?;
-        if load != state.load_image_generation.load(Ordering::SeqCst)
-            || render != state.preview_generation.load(Ordering::SeqCst)
-        {
-            return Ok(None);
-        }
-        let still_current = state
-            .original_image
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-            .is_some_and(|image| image.path == path && Arc::ptr_eq(&image.image, &source));
-        Ok(if still_current { sample } else { None })
+        sample_current_frame(&state, &path, |processor, source, load, render| {
+            processor.sample_display_color(&path, source, load, render, normalized_x, normalized_y)
+        })
     })
     .await
     .map_err(|error| format!("Preview color sampling task failed: {error}"))?
+}
+
+/// [`DisplayPatch`] for the webview.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewPatch {
+    column: u32,
+    row: u32,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+    center: [u32; 2],
+    mean: Option<[f64; 3]>,
+    frame: [u32; 2],
+}
+
+/// The picker loupe's and the pointer readout's sample: the shown frame's
+/// 11 × 11 display pixels around a point ([`GpuProcessor::sample_display_patch`]);
+/// `mean` is exactly what [`sample_preview_color`] returns there.
+#[tauri::command]
+pub async fn sample_preview_patch(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<PreviewPatch>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "performance-profiling")]
+        let started = std::time::Instant::now();
+        let state = app_handle.state::<AppState>();
+        let patch = sample_current_frame(&state, &path, |processor, source, load, render| {
+            processor.sample_display_patch(&path, source, load, render, normalized_x, normalized_y)
+        })?;
+        #[cfg(feature = "performance-profiling")]
+        log::info!(
+            "[PERF] {}",
+            serde_json::json!({
+                "stage": "preview_patch_sample",
+                "micros": started.elapsed().as_micros() as u64,
+                "sampled": patch.is_some(),
+                "frame": patch.as_ref().map(|patch| patch.frame),
+            })
+        );
+        Ok(patch.map(|patch| PreviewPatch {
+            column: patch.column,
+            row: patch.row,
+            width: patch.width,
+            height: patch.height,
+            pixels: patch.pixels,
+            center: patch.center,
+            mean: patch.mean,
+            frame: patch.frame,
+        }))
+    })
+    .await
+    .map_err(|error| format!("Preview patch sampling task failed: {error}"))?
 }
 
 /// Display frames are encoded in Display P3 (D65 primaries, sRGB curve), so

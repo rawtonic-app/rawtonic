@@ -754,6 +754,13 @@ pub struct AppSettings {
     /// Proof margin size in % of the viewer's shorter side; None: 6.
     #[serde(default)]
     pub viewer_proof_margin_percent: Option<f32>,
+    /// The Develop viewer bar shows R, G, B under the pointer; None: off.
+    #[serde(default)]
+    pub pointer_readout: Option<bool>,
+    /// Unit of the pointer readout and the picker loupe: rgb255 or
+    /// percent; None: rgb255.
+    #[serde(default)]
+    pub pointer_readout_unit: Option<String>,
     #[serde(default)]
     pub canvas_input_mode: Option<String>,
     #[serde(default)]
@@ -914,6 +921,8 @@ impl Default for AppSettings {
             viewer_background: None,
             viewer_proof_margin: Some(false),
             viewer_proof_margin_percent: None,
+            pointer_readout: None,
+            pointer_readout_unit: None,
             canvas_input_mode: Some("mouse".to_string()),
             zoom_speed_multiplier: Some(1.0),
             zoom_photo_to_pixel_click: Some(false),
@@ -1396,13 +1405,16 @@ mod tests {
     #[test]
     fn viewer_settings_survive_a_save() {
         let settings: AppSettings = serde_json::from_value(serde_json::json!({
-            "viewerBackground": "veryDark", "viewerProofMargin": true, "viewerProofMarginPercent": 10.0
+            "viewerBackground": "veryDark", "viewerProofMargin": true, "viewerProofMarginPercent": 10.0,
+            "pointerReadout": true, "pointerReadoutUnit": "percent"
         }))
         .unwrap();
         let saved = serde_json::to_value(&settings).unwrap();
         assert_eq!(saved["viewerBackground"], "veryDark");
         assert_eq!(saved["viewerProofMargin"], true);
         assert_eq!(saved["viewerProofMarginPercent"], 10.0);
+        assert_eq!(saved["pointerReadout"], true);
+        assert_eq!(saved["pointerReadoutUnit"], "percent");
     }
 
     #[test]

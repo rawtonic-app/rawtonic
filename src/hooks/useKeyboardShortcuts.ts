@@ -109,6 +109,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_camera_preview: () => cameraPreviewShown(),
   toggle_auto_advance: (s) => !!s.settings.appSettings?.autoAdvance,
   toggle_proof_margin: (s) => !!s.settings.appSettings?.viewerProofMargin,
+  toggle_pointer_readout: (s) => !!s.settings.appSettings?.pointerReadout,
 };
 
 interface KeyboardShortcutsProps {
@@ -724,6 +725,15 @@ export const useKeyboardShortcuts = ({
           e.preventDefault();
           const appSettings = s.settings.appSettings!;
           void s.settings.handleSettingsChange({ ...appSettings, viewerProofMargin: !appSettings.viewerProofMargin });
+        },
+      },
+      toggle_pointer_readout: {
+        shouldFire: (s) => !!s.settings.appSettings,
+        execute: (e, s) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          const appSettings = s.settings.appSettings!;
+          void s.settings.handleSettingsChange({ ...appSettings, pointerReadout: !appSettings.pointerReadout });
         },
       },
       toggle_soft_proof: {

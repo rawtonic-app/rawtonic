@@ -286,6 +286,7 @@
       "toggle_left_panel": "Pannello sinistro",
       "toggle_metadata": "Info foto",
       "toggle_multi_view": "Vista multipla",
+      "toggle_pointer_readout": "Lettura RGB del puntatore",
       "toggle_proof_margin": "Margine di prova",
       "toggle_right_panel": "Pannello destro",
       "toggle_side_panels": "Pannelli laterali",
@@ -917,6 +918,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} px"
       }
+    },
+    "pickerLoupe": {
+      "label": "Lente del contagocce"
     }
   },
   "errors": {
@@ -2262,6 +2266,7 @@
         "toggle_masks": "Attiva/Disattiva pannello Maschere",
         "toggle_metadata": "Strumento Metadati (Libreria) o informazioni sulla foto (Sviluppo, schermo intero)",
         "toggle_multi_view": "Vista multipla: foto selezionate affiancate",
+        "toggle_pointer_readout": "Attiva/disattiva lettura RGB del puntatore",
         "toggle_proof_margin": "Attiva/disattiva margine di prova",
         "toggle_right_panel": "Mostra/Nascondi pannello destro",
         "toggle_side_panels": "Nascondi o mostra i pannelli laterali",
@@ -5009,6 +5014,8 @@
         "fitTitle": "Adatta alla finestra",
         "hidePanels": "Nascondi i pannelli",
         "imageViewer": "Visualizzatore immagini",
+        "pointerReadout": "R, G, B sotto il puntatore",
+        "pointerReadoutTitle": "R, G, B della foto sotto il puntatore (sRGB, la media 11 × 11 dei contagocce). Fai clic per passare tra 0–255 e %.",
         "proofMargin": "Margine di prova",
         "proofMarginTitle": "Margine di prova intorno alla foto",
         "redo": "Ripeti",

@@ -296,6 +296,7 @@
       "toggle_left_panel": "Левая панель",
       "toggle_metadata": "Сведения о фото",
       "toggle_multi_view": "Несколько фото",
+      "toggle_pointer_readout": "RGB под указателем",
       "toggle_proof_margin": "Поле цветопробы",
       "toggle_right_panel": "Правая панель",
       "toggle_side_panels": "Боковые панели",
@@ -960,6 +961,9 @@
       "fileInfo": {
         "dimensionsNoMp": "{{width}} × {{height}} пикс"
       }
+    },
+    "pickerLoupe": {
+      "label": "Лупа пипетки"
     }
   },
   "errors": {
@@ -2377,6 +2381,7 @@
         "toggle_masks": "Панель масок",
         "toggle_metadata": "Инструмент «Метаданные» (Библиотека) или сведения о фото (Проявка, полный экран)",
         "toggle_multi_view": "Мультипросмотр: выбранные фотографии рядом",
+        "toggle_pointer_readout": "Показать/скрыть RGB под указателем",
         "toggle_proof_margin": "Переключить поля для оценки",
         "toggle_right_panel": "Показать/скрыть правую панель",
         "toggle_side_panels": "Скрыть/показать боковые панели",
@@ -5189,6 +5194,8 @@
         "fitTitle": "Вписать в окно",
         "hidePanels": "Скрыть панели",
         "imageViewer": "Просмотр изображения",
+        "pointerReadout": "R, G, B под указателем",
+        "pointerReadoutTitle": "R, G, B фото под указателем (sRGB, среднее 11 × 11 пипеток). Щёлкните, чтобы переключить 0–255 и %.",
         "proofMargin": "Поля для оценки",
         "proofMarginTitle": "Поля для оценки вокруг фотографии",
         "redo": "Повторить",
