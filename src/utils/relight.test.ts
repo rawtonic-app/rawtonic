@@ -121,6 +121,35 @@ it("presets and temperatures produce valid lights", () => {
   }
   // Light from the top: its source handle sits above the subject.
   expect(relightPresetLight("butterfly").light.sourceY).toBeLessThan(50);
+  // Keys have the photo's white balance unless the setup is warm by nature.
+  expect(relightPresetLight("loop").light.color).toBe(kelvinToHex(6500));
+  expect(relightPresetLight("evening").light.temperature).toBe(2700);
+});
+
+it("sizes a preset's pattern to the face and puts the face in a window pane", () => {
+  // A face a fifth of the short side wide in a 4:5 portrait frame.
+  const anchor = { x: 50, y: 40, turn: 0, size: 0.2, aspect: 0.8 };
+  const blinds = relightPresetLight("blinds", anchor).light;
+  expect(blinds.scale).toBe(5); // slats a quarter of the face wide (at least 5)
+  const window = relightPresetLight("window", anchor).light;
+  expect(window.scale).toBe(50); // two and a half faces wide
+  // The cross is moved off the face by a pane's offset, in the pattern's frame.
+  const q = 0.235 * 0.5;
+  const a = (window.patternRotation! * Math.PI) / 180;
+  expect(window.x).toBeCloseTo(50 - 100 * q * (Math.cos(a) - Math.sin(a)), 5);
+  expect(window.y).toBeCloseTo(40 - 100 * 0.8 * q * (Math.sin(a) + Math.cos(a)), 5);
+  // Without a face the preset keeps its own scale and centre.
+  expect(relightPresetLight("window").light).toMatchObject({ scale: 120 });
+});
+
+it("measures a face's size in the frame's short side", () => {
+  const face = [[0.4, 0.3, 0, 1], [0.5, 0.4, 0, 1], [0.6, 0.5, 0, 1]];
+  const camera = { fx: 1, fy: 2, cx: 0.5, cy: 0.5, inverseMin: 1, inverseMax: 2, reference: 1 };
+  // Twice as wide as high: 20 % of the width is 40 % of the height.
+  const wide = relightFaceAnchor({ data: "d", geometry: {}, faces: [face], camera })!;
+  expect(wide.size).toBeCloseTo(0.4);
+  expect(wide.aspect).toBe(2);
+  expect(relightFaceAnchor({ data: "d", geometry: {}, faces: [face] })!.size).toBeCloseTo(0.2);
 });
 
 it("places presets on the largest face and keys from the side it turns to", () => {
@@ -188,6 +217,9 @@ it("moves an old light to the current ranges as bright as it was", () => {
   // Range 1: 3 × 50 %; range 2: 4 × (intensity / 100)^1.5 (relight.rs).
   expect(4 * (moved.intensity / 100) ** 1.5).toBeCloseTo(1.5, 2);
   expect(relightWithCurrentRanges({ ...old, intensity: 100 }).intensity).toBeLessThanOrEqual(100);
+  // Range 2 has range 3's gain: only the version moves.
+  const second = { ...old, rangeVersion: 2 };
+  expect(relightWithCurrentRanges(second)).toEqual({ ...second, rangeVersion: RELIGHT_RANGE_VERSION });
   expect(relightWithCurrentRanges(moved)).toBe(moved);
   // Range 2's constants are the renderer's.
   expect(relightRs).toMatch(/const RANGE_2_MAX_GAIN: f32 = 4\.;/);

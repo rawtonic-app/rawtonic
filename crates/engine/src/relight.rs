@@ -86,6 +86,11 @@ const RANGE_2_EXPONENT: f32 = 1.5;
 /// Bit of a light's GPU flags: Softness and Diffusion act on surfaces as
 /// range version 2 defines (shader `range2`).
 const RANGE_2_FLAG: u32 = 128;
+/// Bit of a light's GPU flags: range version 3 (lights since 2026-11-01,
+/// shader `RELIGHT_RANGE3`): no sheen on the eyes, a bounded division by
+/// the photo's own light, softened silhouettes and a flat background for
+/// patterns (notes: benchmark-results/rr-relight-realism-2026-11-01).
+pub const RANGE_3_FLAG: u32 = 256;
 
 /// The ranges a light's values mean; absent = 1 (lights before 2026-10-31).
 fn range_version(light: &Value) -> u64 {
@@ -169,11 +174,16 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
             n("diffusion", DEFAULT_DIFFUSION, 0., 100.) / 100.,
         ];
         // Flags: bit 0 inverts the pattern, bits 1–6 hold the mask slot, bit 7
-        // marks range version 2.
+        // marks range version 2, bit 8 range version 3 (with bit 7).
         let flags = u32::from(light["invert"].as_bool() == Some(true))
             | (mask << 1)
             | if range_version(light) >= 2 {
                 RANGE_2_FLAG
+            } else {
+                0
+            }
+            | if range_version(light) >= 3 {
+                RANGE_3_FLAG
             } else {
                 0
             };
@@ -306,6 +316,19 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
     prepare_depth(recipe).0
 }
 
+/// Whether an analysis's stored frame (`geometry`) is the recipe's: a key
+/// absent from one side is null there. A geometry key added after the
+/// analysis (2026-11-01: manual lens vignetting) must not invalidate it
+/// while its value stays unset, as the editor already treats it.
+fn geometry_matches(stored: &Value, current: &Value) -> bool {
+    let (Some(stored), Some(current)) = (stored.as_object(), current.as_object()) else {
+        return false;
+    };
+    stored.keys().chain(current.keys()).all(|key| {
+        stored.get(key).unwrap_or(&Value::Null) == current.get(key).unwrap_or(&Value::Null)
+    })
+}
+
 /// Keep a render's geometry alive independently of the bounded reuse cache.
 pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
     if recipe["sectionVisibility"]["relight"].as_bool() == Some(false)
@@ -314,7 +337,7 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
                 l["enabled"].as_bool() != Some(false) && l["intensity"].as_f64().unwrap_or(50.) > 0.
             })
         })
-        || recipe["relightDepth"]["geometry"] != geometry(recipe)
+        || !geometry_matches(&recipe["relightDepth"]["geometry"], &geometry(recipe))
     {
         return ([0; 4], None);
     }
@@ -370,7 +393,7 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
         };
         let faces: Vec<Vec<[f32; 4]>> =
             serde_json::from_value(recipe["relightDepth"]["faces"].clone()).unwrap_or_default();
-        let faces = faces
+        let faces: Vec<Vec<[f32; 4]>> = faces
             .into_iter()
             .take(8)
             .filter(|points| {
@@ -384,6 +407,12 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
                     })
             })
             .collect();
+        // The eyes go into the atlas's free channel (range-3 lights keep
+        // the skin sheen off them; older lights never read it).
+        let subject = subject_image(recipe).map(|mut subject| {
+            source::mark_eyes(&mut subject, &faces);
+            subject
+        });
         cache.push_front((
             key,
             Arc::new(DepthSurface {
@@ -391,7 +420,7 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
                 image: depth,
                 faces,
                 refined: recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 2,
-                subject: subject_image(recipe),
+                subject,
                 smooth_scene: recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 5,
             }),
         ));
@@ -745,6 +774,25 @@ mod tests {
         recipe["relightDepth"]["version"] = serde_json::json!(3);
         assert!(prepare_depth(&recipe).1.unwrap().camera.is_none());
         assert_eq!(Camera::uniforms(&recipe), ([0.; 4], [0.; 4]));
+    }
+
+    #[test]
+    fn analyses_from_before_a_new_geometry_key_stay_valid() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageLuma16(DepthImage::from_pixel(8, 8, image::Luma([20000])))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let mut recipe = json!({"relightLights":[{"intensity":50}],"relightDepth":{"version":3,"data":STANDARD.encode(bytes.into_inner())}});
+        let mut stored = geometry(&recipe);
+        stored
+            .as_object_mut()
+            .unwrap()
+            .remove("lensManualVignetteAmount");
+        recipe["relightDepth"]["geometry"] = stored;
+        assert_ne!(prepare_depth(&recipe).0, [0; 4]);
+        // A value set for that key is a different frame.
+        recipe["lensManualVignetteAmount"] = json!(30);
+        assert_eq!(prepare_depth(&recipe).0, [0; 4]);
     }
 
     #[test]

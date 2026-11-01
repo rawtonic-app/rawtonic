@@ -3497,7 +3497,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 512;
+const PREVIEW_PIPELINE_COUNT: usize = 1024;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3507,7 +3507,8 @@ const PREVIEW_PIPELINE_COUNT: usize = 512;
 const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Display variant bits (see `create_preview_pipeline`): sharpen 1,
 /// highlights 2, curves 4, masks 8, noise reduction 16, tone sliders 32,
-/// relight 64, refined noise reduction 128, range-2 relight lights 256.
+/// relight 64, refined noise reduction 128, range-2 relight lights 256,
+/// range-3 relight lights 512 (always with 256).
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3526,6 +3527,20 @@ const REFINED_NR_PREVIEW_FEATURE: usize = 128;
 /// relight stage differently and changed older lights' exports by one
 /// 16-bit step in a few pixels.
 const RELIGHT_RANGE2_FEATURE: usize = 256;
+/// A light of Relight's range version 3 (`RELIGHT_RANGE3`), compiled only
+/// for recipes with one for the same reason.
+const RELIGHT_RANGE3_FEATURE: usize = 512;
+
+/// One slot per display variant, on the heap: the processor holds several
+/// such tables, together too large for a render thread's stack.
+type VariantTable<T> = Box<[T; PREVIEW_PIPELINE_COUNT]>;
+
+fn variant_table<T: Default>() -> VariantTable<T> {
+    let slots: Box<[T]> = (0..PREVIEW_PIPELINE_COUNT).map(|_| T::default()).collect();
+    slots
+        .try_into()
+        .unwrap_or_else(|_| unreachable!("one slot per display variant"))
+}
 /// A RAW with the default detail settings (Sharpening 40, Color 25).
 const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16;
 
@@ -3727,18 +3742,18 @@ pub struct GpuProcessor {
     detail_pipeline: Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     detail_compilation: std::sync::OnceLock<()>,
     preview_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
-    preview_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
+    preview_compilation: VariantTable<std::sync::OnceLock<()>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
     preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]>,
     /// Display variants that read the layer sums (`LAYER_SUMS`), by features.
     layer_sum_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
-    layer_sum_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
+    layer_sum_compilation: VariantTable<std::sync::OnceLock<()>>,
     preview_shader: wgpu::ShaderModule,
     preview_layout: wgpu::PipelineLayout,
     /// `None` records a variant that failed validation; exports use the general pipeline.
-    export_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
+    export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     high_precision_export_pipelines:
-        [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
+        VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     high_precision_shader: wgpu::ShaderModule,
     high_precision_layout: wgpu::PipelineLayout,
     high_precision_bgl: wgpu::BindGroupLayout,
@@ -3746,8 +3761,7 @@ pub struct GpuProcessor {
     high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// [`MainOutput::Deferred`]: specialized variants by features, the
     /// general pipeline, and the tile the main pass writes.
-    deferred_export_pipelines:
-        [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
+    deferred_export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     deferred_pipeline: BackgroundPipeline,
     deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// `encode_deferred` into an 8-bit and a high-precision output tile.
@@ -3811,10 +3825,9 @@ pub struct GpuProcessor {
     #[cfg(test)]
     force_unprepared_layers: std::sync::atomic::AtomicBool,
     #[cfg(test)]
-    unprepared_layer_pipelines:
-        [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
+    unprepared_layer_pipelines: VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>,
     #[cfg(test)]
-    legacy_curve_pipelines: [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
+    legacy_curve_pipelines: VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>,
     dummy_lut_view: wgpu::TextureView,
     dummy_lut_sampler: wgpu::Sampler,
     /// The shaper stage's buffer for LUTs without one (no curve).
@@ -4773,6 +4786,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let relight =
         g.relight.chunks(5).any(|light| light[0][3] > 0.0) || g.relight_depth[..2] != [0, 0];
     let relight_range2 = relight_range2(adjustments);
+    let relight_range3 = relight_range3(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -4798,6 +4812,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if tone { TONE_PREVIEW_FEATURE } else { 0 }
         | if relight { RELIGHT_PREVIEW_FEATURE } else { 0 }
         | if relight_range2 { RELIGHT_RANGE2_FEATURE } else { 0 }
+        | if relight_range3 { RELIGHT_RANGE3_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -4817,6 +4832,14 @@ fn relight_range2(adjustments: &AllAdjustments) -> bool {
         .any(|light| light[0][3] > 0.0 && (light[3][1] as u32) & 128 != 0)
 }
 
+/// Whether a lit light of the recipe has Relight's range version 3
+/// (`relight::gpu_lights` flag bit 8; such a light has bit 7 too).
+fn relight_range3(adjustments: &AllAdjustments) -> bool {
+    adjustments.global.relight.chunks(5).any(|light| {
+        light[0][3] > 0.0 && (light[3][1] as u32) & rawtonic_engine::relight::RANGE_3_FLAG != 0
+    })
+}
+
 /// The noise refinements with which the shader takes its default noise
 /// reduction (`apply_noise_reduction`).
 const DEFAULT_NOISE_DETAIL: [f32; 4] = [0.5, 0.0, 0.5, 0.5];
@@ -4834,7 +4857,7 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 
 /// `GpuProcessor::range2_pipelines`.
 type Range2Pipelines =
-    [[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; MAIN_OUTPUTS];
+    [[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 2]; MAIN_OUTPUTS];
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -5190,6 +5213,7 @@ fn create_preview_pipeline(
         ("ENABLE_RELIGHT", ((features >> 6) & 1) as f64),
         ("NR_REFINED", ((features >> 7) & 1) as f64),
         ("RELIGHT_RANGE2", ((features >> 8) & 1) as f64),
+        ("RELIGHT_RANGE3", ((features >> 9) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -5627,11 +5651,10 @@ impl GpuProcessor {
         // common ones start with the processor (see the end of `new`).
         let preview_pipelines: Arc<
             [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
-        > = Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new()));
+        > = Arc::from(variant_table());
         let preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]> =
-            Arc::new(std::array::from_fn(|_| Default::default()));
-        let preview_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT] =
-            std::array::from_fn(|_| std::sync::OnceLock::new());
+            Arc::from(variant_table());
+        let preview_compilation: VariantTable<std::sync::OnceLock<()>> = variant_table();
         if display_variants {
             preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES].get_or_init(|| {
                 spawn_preview_compile(
@@ -6172,18 +6195,18 @@ impl GpuProcessor {
             preview_pipelines,
             preview_compilation,
             preview_failed,
-            layer_sum_pipelines: Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new())),
-            layer_sum_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            layer_sum_pipelines: Arc::from(variant_table()),
+            layer_sum_compilation: variant_table(),
             preview_shader: shader_module,
             preview_layout: pipeline_layout,
-            export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
-            high_precision_export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            export_pipelines: variant_table(),
+            high_precision_export_pipelines: variant_table(),
             high_precision_shader,
             high_precision_layout: high_precision_pipeline_layout,
             high_precision_bgl,
             high_precision_pipeline: std::sync::OnceLock::new(),
             high_precision_tile: std::sync::OnceLock::new(),
-            deferred_export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            deferred_export_pipelines: variant_table(),
             deferred_pipeline,
             deferred_tile: std::sync::OnceLock::new(),
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
@@ -6235,9 +6258,9 @@ impl GpuProcessor {
             #[cfg(test)]
             force_unprepared_layers: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
-            unprepared_layer_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            unprepared_layer_pipelines: variant_table(),
             #[cfg(test)]
-            legacy_curve_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            legacy_curve_pipelines: variant_table(),
             dummy_lut_view,
             dummy_lut_sampler,
             no_lut_shaper,
@@ -7288,8 +7311,8 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         if relight_range2(adjustments) {
             let long = adjustments.global.region_curve_active[1] != 0;
-            return match self.range2_pipelines[0][usize::from(long)][usize::from(profile)]
-                [usize::from(edge)]
+            return match self.range2_pipelines[0][usize::from(relight_range3(adjustments))]
+                [usize::from(long)][usize::from(profile)][usize::from(edge)]
             .get()
             {
                 Some(Some(pipeline)) => Some(Ok(pipeline)),
@@ -7639,9 +7662,10 @@ impl GpuProcessor {
         let edge = edge_noise_reduction(adjustments);
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         let long = adjustments.global.region_curve_active[1] != 0;
+        let range3 = relight_range3(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        match self.range2_pipelines[output.index()][usize::from(long)][usize::from(profile)]
-            [usize::from(edge)]
+        match self.range2_pipelines[output.index()][usize::from(range3)][usize::from(long)]
+            [usize::from(profile)][usize::from(edge)]
         .get_or_init(|| {
             self.compile_general(
                 "Compute Pipeline (relight range 2)",
@@ -7651,6 +7675,7 @@ impl GpuProcessor {
                     ("LUMA_PROFILE", on(profile)),
                     ("LONG_CURVES", on(long)),
                     ("RELIGHT_RANGE2", 1.0),
+                    ("RELIGHT_RANGE3", on(range3)),
                 ],
             )
             .inspect_err(|error| log::error!("Relight range 2 pipeline unavailable: {error}"))

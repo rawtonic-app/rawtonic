@@ -368,6 +368,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE2_FEATURE != 0 && expected & RELIGHT_PREVIEW_FEATURE == 0 {
             continue;
         }
+        // A range-3 light is a range-2 light too.
+        if expected & RELIGHT_RANGE3_FEATURE != 0 && expected & RELIGHT_RANGE2_FEATURE == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -396,6 +400,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE2_FEATURE != 0 {
             profile["relightLights"][0]["rangeVersion"] = json!(2);
         }
+        if expected & RELIGHT_RANGE3_FEATURE != 0 {
+            profile["relightLights"][0]["rangeVersion"] = json!(3);
+        }
         if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
             profile["lumaNoiseDetail"] = json!(70);
         }
@@ -406,7 +413,8 @@ fn preview_features_preserve_global_and_local_effects() {
             adjustments.mask_count = 0;
             assert_eq!(
                 preview_features(&adjustments),
-                expected & (RELIGHT_PREVIEW_FEATURE | RELIGHT_RANGE2_FEATURE)
+                expected
+                    & (RELIGHT_PREVIEW_FEATURE | RELIGHT_RANGE2_FEATURE | RELIGHT_RANGE3_FEATURE)
             );
             continue;
         }
@@ -7487,6 +7495,7 @@ fn pipeline_compilation_probe() {
     for features in (1..PREVIEW_PIPELINE_COUNT).filter(|f| {
         (f & REFINED_NR_PREVIEW_FEATURE == 0 || f & 16 != 0)
             && (f & RELIGHT_RANGE2_FEATURE == 0 || f & RELIGHT_PREVIEW_FEATURE != 0)
+            && (f & RELIGHT_RANGE3_FEATURE == 0 || f & RELIGHT_RANGE2_FEATURE != 0)
     }) {
         let start = Instant::now();
         create_preview_pipeline(
@@ -7617,6 +7626,11 @@ fn fallback_variant_matches_specialized_display() {
         json!({"sharpness":53,"vibrance":72,"saturation":27,"brightness":0.25,
             "masks":(0..4).map(|i| local_mask(&format!("m{i}"), json!({"curves":custom_curve(),"highlights":30})))
                 .collect::<Vec<_>>()}),
+        // A version-five portrait with range-2 and range-3 lights: the
+        // all-features fallback compiles the range-3 code, which must leave
+        // the older light's backdrop, shading and edges as they are.
+        relight_portrait_profile(2),
+        relight_portrait_profile(3),
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         prepare_preview_pipeline(&processor, preview_features(&adjustments));
@@ -7666,10 +7680,66 @@ fn fallback_variant_matches_specialized_display() {
             .max()
             .unwrap();
         // The same tolerance as between display variants and the general shader.
-        assert!(max_delta <= 1, "{profile}: fallback delta {max_delta}");
+        assert!(
+            max_delta <= 1,
+            "{}: fallback delta {max_delta}",
+            profile.to_string().chars().take(200).collect::<String>()
+        );
         checked += 1;
     }
-    assert_eq!(checked, 6);
+    assert_eq!(checked, 8);
+}
+
+/// A version-five Relight recipe (subject matte with people normals, the
+/// photo's own light, a backdrop behind) with one sun of `range_version`
+/// and Original light below 100.
+fn relight_portrait_profile(range_version: u32) -> serde_json::Value {
+    use base64::Engine as _;
+    let (w, h) = (64u32, 32u32);
+    let png = |image: DynamicImage| {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+    };
+    let depth = png(DynamicImage::ImageLuma16(image::ImageBuffer::from_fn(
+        w,
+        h,
+        |x, _| image::Luma([if (16..48).contains(&x) { 40000 } else { 24000 }]),
+    )));
+    let code = |v: f32| ((v * 0.5 + 0.5) * 65535.).round() as u16;
+    // A round subject in the middle: matte with a soft edge, normals
+    // turning outwards; the background half reached by a third.
+    let subject = png(DynamicImage::ImageRgba16(image::ImageBuffer::from_fn(
+        w * 2,
+        h,
+        |x, y| {
+            let (px, py) = ((x % w) as f32 + 0.5 - 32., y as f32 + 0.5 - 16.);
+            let r = (px * px + py * py).sqrt() / 14.;
+            let matte = (((1.15 - r) / 0.3).clamp(0., 1.) * 65535.) as u16;
+            if x < w {
+                image::Rgba([code(px / 14. * 0.9), code(py / 14. * 0.9), matte, matte])
+            } else {
+                image::Rgba([0, 22000, 0, 65535])
+            }
+        },
+    )));
+    let mut recipe = json!({
+        "relightLights":[{"intensity":40,"rotation":120,"elevation":30,"softness":40,
+            "diffusion":20,"pattern":"window","scale":60,"rangeVersion":range_version}],
+        "relightOriginalLight":40,
+        "relightDepthAmount":100,
+    });
+    recipe["relightDepth"] = json!({
+        "data": depth,
+        "geometry": rawtonic_engine::relight::geometry(&recipe),
+        "version": 5,
+        "faces": [],
+        "camera": {"fx":1.0,"fy":2.0,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0},
+        "subject": format!("data:image/png;base64,{subject}"),
+        "sourceLight": [0.0, 1.0, 0.6, -0.3, 0.74, 0., 0., 0., 0.],
+        "subjectDepth": 1.2,
+    });
+    recipe
 }
 
 #[test]
