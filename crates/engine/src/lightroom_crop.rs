@@ -142,30 +142,39 @@ pub fn place(
         // Olympus aspect ratio): the crop keeps its centre and aspect ratio
         // (the format the photographer chose) and shrinks until all of it
         // shows the photo, never an empty corner. A centre off the photo
-        // moves towards the frame's centre first.
-        let mut c = centre;
-        if !on_photo(c) {
+        // cannot be kept: it moves towards the frame's centre to where the
+        // crop can be largest.
+        let largest = |c: (f64, f64)| {
+            if !on_photo(c) {
+                return 0.0;
+            }
             let (mut lo, mut hi) = (0.0, 1.0);
             for _ in 0..40 {
                 let mid = (lo + hi) / 2.0;
-                if on_photo((c.0 + mid * (cx - c.0), c.1 + mid * (cy - c.1))) {
-                    hi = mid;
-                } else {
+                if fits(c, (half.0 * mid, half.1 * mid)) {
                     lo = mid;
+                } else {
+                    hi = mid;
                 }
             }
-            c = (c.0 + hi * (cx - c.0), c.1 + hi * (cy - c.1));
-        }
-        let (mut lo, mut hi) = (0.0, 1.0);
-        for _ in 0..40 {
-            let mid = (lo + hi) / 2.0;
-            if fits(c, (half.0 * mid, half.1 * mid)) {
-                lo = mid;
-            } else {
-                hi = mid;
+            lo
+        };
+        let mut best = (centre, largest(centre));
+        if !on_photo(centre) {
+            for step in 1..=32 {
+                let t = f64::from(step) / 32.0;
+                let c = (
+                    centre.0 + t * (cx - centre.0),
+                    centre.1 + t * (cy - centre.1),
+                );
+                let scale = largest(c);
+                if scale > best.1 {
+                    best = (c, scale);
+                }
             }
         }
-        (c, (half.0 * lo, half.1 * lo))
+        let (c, scale) = best;
+        (c, (half.0 * scale, half.1 * scale))
     } else {
         (centre, half)
     };
@@ -353,6 +362,34 @@ mod tests {
                 "{ux} {uy}"
             );
         }
+    }
+
+    /// A crop whose centre lies outside the developed frame (above the
+    /// 16:9 frame of a 4:3 sensor) still arrives, trimmed, with its aspect
+    /// ratio: never dropped as if there were no crop.
+    #[test]
+    fn a_crop_centred_outside_the_frame_is_kept() {
+        let crop = LightroomCrop {
+            left: 0.1,
+            top: 0.0,
+            right: 0.3,
+            bottom: 0.1,
+            angle: 0.0,
+        };
+        let placed = place(
+            &crop,
+            [0.0, 0.0, 5184.0, 3888.0],
+            [0.0, 484.0, 5184.0, 2920.0],
+            1,
+        )
+        .unwrap();
+        assert!(placed.clipped);
+        let [x, y, w, h] = crop_of(&placed);
+        assert!((w / h - 1036.8 / 388.8).abs() < 1e-3, "{w} {h}");
+        assert!(
+            w > 100.0 && y >= 0.0 && y + h <= 2920.01 && x >= 0.0,
+            "{x} {y} {w} {h}"
+        );
     }
 
     #[test]

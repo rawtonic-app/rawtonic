@@ -313,7 +313,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             report.copies_skipped += 1;
             continue;
         };
-        match import_copy(catalog, asset, photo) {
+        match import_copy(catalog, asset, &source.name, photo) {
             Ok(imported) => {
                 report.copies += 1;
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
@@ -501,12 +501,14 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
 /// Lightroom's lens profile corrections on Rawtonic's own lens data
 /// (Adobe's profiles are not used: notes agent-knowledge/adobe-lens-profiles).
 /// On: the correction a new edit gets (left to the default every render
-/// applies to a recipe without a lens mode), with Lightroom's Distortion
-/// and Vignetting amounts (both 0–200 %, 100 = the profile's, as
-/// Rawtonic's). Off: no profile correction — except the camera's own
-/// distortion data (Olympus/OM, Panasonic, Fujifilm, Nikon Z, Sony
-/// compacts), which Lightroom applies to those files whether the switch is
-/// on or not; their vignetting is a profile correction there (off).
+/// applies to a recipe without a lens mode) or, where that has none (DSLR
+/// lenses), the lens's lensfun profile found from the photo's EXIF as the
+/// Lens tool's auto-detect finds it; with Lightroom's Distortion and
+/// Vignetting amounts (both 0–200 %, 100 = the profile's, as Rawtonic's).
+/// Off: no profile correction — except the camera's own distortion data
+/// (Olympus/OM, Panasonic, Fujifilm, Nikon Z, Sony compacts), which
+/// Lightroom applies to those files whether the switch is on or not; their
+/// vignetting is a profile correction there (off).
 fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mut Value) {
     let Some(map) = adjustments.as_object_mut() else {
         return;
@@ -534,11 +536,23 @@ fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
                 map.insert(key.into(), json!(value));
             }
         }
-        return;
     }
-    // Off: which correction would the default be?
+    // Which correction would the default be?
     let mut default = json!({});
     rawtonic_engine::embedded_lens::apply_default(&mut default, path);
+    if on {
+        if default.get("lensCorrectionMode").is_none()
+            && let Some((maker, model, params)) =
+                rawtonic_engine::embedded_lens::lensfun_for_photo(path)
+            && let Ok(params) = serde_json::to_value(params)
+        {
+            map.insert("lensCorrectionMode".into(), json!("auto"));
+            map.insert("lensMaker".into(), json!(maker));
+            map.insert("lensModel".into(), json!(model));
+            map.insert("lensDistortionParams".into(), params);
+        }
+        return;
+    }
     match default["lensCorrectionMode"].as_str() {
         Some(rawtonic_engine::embedded_lens::CAMERA_MODE) => {
             if let Some(default) = default.as_object() {
@@ -681,22 +695,39 @@ fn import_snapshots(
     Ok(clipped)
 }
 
-/// The id a Lightroom virtual copy `key` of the asset `asset` gets: derived
-/// from both, so a repeated import of the catalog finds the copy it made
-/// (`attempt` > 0 when that name is taken by a file the catalog does not
-/// know).
-fn copy_id(asset: &str, key: &str, attempt: u32) -> String {
+/// The id the virtual copy with the source identity `origin` (the other
+/// editor's global id for it: Lightroom's image UUID, else the library's
+/// name and the copy's key there) of the asset `asset` gets: derived from
+/// both, so a repeated import of that library (or of a copy of it) finds
+/// the copy it made, and another library's copy of the same photo gets
+/// another id (`attempt` > 0 when that name is taken by a file the catalog
+/// does not know).
+fn copy_id(asset: &str, origin: &str, attempt: u32) -> String {
     use sha2::Digest;
-    let digest = sha2::Sha256::digest(format!("lightroom-copy\0{asset}\0{key}\0{attempt}"));
+    let digest = sha2::Sha256::digest(format!("imported-copy\0{asset}\0{origin}\0{attempt}"));
     digest.iter().take(3).map(|b| format!("{b:02x}")).collect()
+}
+
+/// A copy's source identity for [`copy_id`].
+fn copy_origin(source_name: &str, photo: &Photo) -> String {
+    match &photo.uid {
+        Some(uid) => format!("uid\0{uid}"),
+        None => format!("key\0{source_name}\0{}", photo.key),
+    }
 }
 
 /// Registers a virtual copy of the asset `asset` with its own edit,
 /// metadata and snapshots, and publishes its derived editor sidecar beside
 /// the photograph when that is there (never over a file). A copy an earlier
 /// import made is kept as it is (it may have been edited since).
-fn import_copy(catalog: &Library, asset: &str, photo: &Photo) -> anyhow::Result<Imported> {
+fn import_copy(
+    catalog: &Library,
+    asset: &str,
+    source_name: &str,
+    photo: &Photo,
+) -> anyhow::Result<Imported> {
     let known = catalog.copies(asset)?;
+    let origin = copy_origin(source_name, photo);
     let name = photo
         .path
         .file_name()
@@ -705,8 +736,18 @@ fn import_copy(catalog: &Library, asset: &str, photo: &Photo) -> anyhow::Result<
     let sidecar_of = |id: &str| photo.path.with_file_name(format!("{name}.{id}.rrdata"));
     let mut id = None;
     for attempt in 0..16 {
-        let candidate = copy_id(asset, &photo.key, attempt);
+        let candidate = copy_id(asset, &origin, attempt);
         if known.contains(&candidate) {
+            // Imported before: kept as it is. Its derived sidecar is
+            // published again if it is missing (an earlier import could not
+            // write beside the photograph), so listings find the copy.
+            let sidecar = sidecar_of(&candidate);
+            if photo.path.is_file()
+                && !sidecar.exists()
+                && let Some(state) = catalog.copy_state(asset, &candidate)?
+            {
+                publish_new(&sidecar, &serde_json::to_vec_pretty(&state)?)?;
+            }
             return Ok(Imported::default());
         }
         if !sidecar_of(&candidate).exists() {
@@ -818,6 +859,7 @@ mod tests {
             copy_of: copy_of.map(str::to_string),
             copy_name: None,
             snapshots: Vec::new(),
+            uid: None,
         }
     }
 
@@ -941,7 +983,10 @@ mod tests {
         // metadata; beside the photograph only its derived editor sidecar
         // was published (the photograph itself is untouched).
         let copies = catalog.copies(&asset.id).unwrap();
-        assert_eq!(copies, vec![copy_id(&asset.id, "3", 0)]);
+        assert_eq!(
+            copies,
+            vec![copy_id(&asset.id, &copy_origin("LR", &source.photos[2]), 0)]
+        );
         let copy = catalog.copy_state(&asset.id, &copies[0]).unwrap().unwrap();
         assert_eq!(copy["rating"], 4);
         assert!(copy["adjustments"].is_null());
@@ -1039,7 +1084,7 @@ mod tests {
         assert_eq!(snapshots[0].adjustments["whiteBalance"], "asShot");
         assert!(snapshots[0].adjustments.get("wbTemperature").is_none());
         // The copy has its own edit and rating; the photo's stays.
-        let id = copy_id(&asset.id, "2", 0);
+        let id = copy_id(&asset.id, &copy_origin("LR", &source.photos[1]), 0);
         let state = catalog.copy_state(&asset.id, &id).unwrap().unwrap();
         assert_eq!(state["adjustments"]["exposure"], -1.0);
         assert_eq!(state["rating"], 2);
@@ -1047,6 +1092,56 @@ mod tests {
         // Snapshots are not doubled by a repeated import.
         import_into(&catalog, &source).unwrap();
         assert_eq!(catalog.snapshots(&version).unwrap().len(), 1);
+    }
+
+    /// Copies of the same photo from two libraries stay two copies (their
+    /// identity is the source's global id); a copy whose sidecar could not
+    /// be written beside the photograph gets it on the next import.
+    #[cfg(unix)]
+    #[test]
+    fn copies_are_told_apart_by_their_source_and_completed_on_a_repeated_import() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        let path = photos.join("A.NEF");
+        fs::write(&path, b"a").unwrap();
+        let library = |uid: &str| {
+            let mut copy = photo("2", path.clone(), Develop::None, Some("1"));
+            copy.uid = Some(uid.into());
+            Source {
+                name: "Lightroom Catalog".into(),
+                photos: vec![photo("1", path.clone(), Develop::None, None), copy],
+                albums: vec![],
+                not_read: NotRead::default(),
+            }
+        };
+        let (first, second) = (library("UUID-A"), library("UUID-B"));
+        // The folder refuses new files: the copy is kept by the catalog, its
+        // sidecar is not there.
+        fs::set_permissions(&photos, fs::Permissions::from_mode(0o555)).unwrap();
+        let refused = import_into(&catalog, &first).unwrap();
+        fs::set_permissions(&photos, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(refused.errors.len(), 1, "{refused:?}");
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let id = copy_id(
+            &asset.id,
+            &copy_origin("Lightroom Catalog", &first.photos[1]),
+            0,
+        );
+        assert_eq!(catalog.copies(&asset.id).unwrap(), vec![id.clone()]);
+        let sidecar = photos.join(format!("A.NEF.{id}.rrdata"));
+        assert!(!sidecar.exists());
+        // Imported again: the same copy, now with its sidecar.
+        let again = import_into(&catalog, &first).unwrap();
+        assert!(again.errors.is_empty(), "{again:?}");
+        assert!(sidecar.exists());
+        assert_eq!(catalog.copies(&asset.id).unwrap().len(), 1);
+        // Another catalog's copy with the same local key is another copy.
+        import_into(&catalog, &second).unwrap();
+        assert_eq!(catalog.copies(&asset.id).unwrap().len(), 2);
+        assert_eq!(fs::read(&path).unwrap(), b"a");
     }
 
     fn condition(criteria: &str, operation: &str, value: SmartValue) -> SmartRule {
@@ -1304,6 +1399,13 @@ mod tests {
     #[ignore]
     fn import_a_real_library_into_a_scratch_catalog() {
         let source = std::env::var("RAWTONIC_IMPORT_SAMPLE").unwrap();
+        // The lens database the app loads at start (profile corrections of
+        // lenses without camera data).
+        if let Ok(db) = std::env::var("RAWTONIC_LENSFUN_DB") {
+            rawtonic_engine::lens_correction::set_global_lens_db(std::sync::Arc::new(
+                rawtonic_engine::lens_correction::load_lensfun_dir(Path::new(&db)),
+            ));
+        }
         let tmp = tempfile::tempdir().unwrap();
         let catalog =
             Library::create(&tmp.path().join("Scratch"), "Scratch", Mode::Catalog).unwrap();
@@ -1331,7 +1433,7 @@ mod tests {
             let copy = asset
                 .as_ref()
                 .filter(|_| photo.copy_of.is_some())
-                .map(|a| copy_id(&a.id, &photo.key, 0));
+                .map(|a| copy_id(&a.id, &copy_origin(&lib.name, photo), 0));
             let (metadata, state, snapshots) = match &asset {
                 Some(asset) => {
                     let state = match &copy {

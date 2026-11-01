@@ -89,7 +89,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
                 i.rating, i.colorLabels, i.pick, i.masterImage,
                 x.xmp, ip.caption, ip.copyright,
                 coalesce(d.hasDevelopAdjustmentsEx, d.hasDevelopAdjustments, 0), d.text,
-                i.copyName
+                i.copyName, i.id_global
          FROM Adobe_images i
          JOIN AgLibraryFile f ON f.id_local = i.rootFile
          JOIN AgLibraryFolder fo ON fo.id_local = f.folder
@@ -116,6 +116,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
             r.get::<_, Option<f64>>(12)?.unwrap_or(0.0) > 0.0,
             r.get::<_, Option<String>>(13)?,
             r.get::<_, Option<String>>(14)?,
+            r.get::<_, Option<String>>(15)?,
         ))
     })?;
     for row in rows {
@@ -135,6 +136,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
             adjusted,
             settings,
             copy_name,
+            uid,
         ) = row?;
         let file = if ext.is_empty() {
             base
@@ -186,6 +188,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
             develop,
             copy_of: master.filter(|m| *m != id).map(|m| m.to_string()),
             copy_name: copy_name.filter(|n| !n.trim().is_empty()),
+            uid: uid.filter(|u| !u.trim().is_empty()),
             snapshots: snapshots.remove(&id).unwrap_or_default(),
         });
     }

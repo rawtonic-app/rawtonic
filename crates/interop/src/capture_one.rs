@@ -229,6 +229,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
             copy_of,
             copy_name: None,
             snapshots: Vec::new(),
+            uid: None,
         });
     }
     drop(rows);
