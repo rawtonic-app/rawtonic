@@ -1567,12 +1567,20 @@
       "filenameTemplate": "Filename template"
     },
     "folders": {
+      "awayDrive": "Not available: the drive it is on is not connected.",
+      "awayRemoved": "Not available: the folder was removed. It is made again when work goes into it.",
+      "awayRenamed": "Not available: the folder is not there any more, or a folder above it was renamed or moved. Nothing is made at this path; choose the folder where it is now.",
       "change": "Change…",
       "choose": "Choose the {{folder}} folder",
       "chooseFor": "Change the {{folder}} folder",
       "done": "Done",
       "inside": "Inside the session",
       "intro": "Where this session puts captures and imports (Capture), photos you move to Selects (Selects) and exports (Output). A folder inside the session moves with it; a folder outside it, such as on another drive, stays where it is.",
+      "madeAgainUse": {
+        "capture": "The folder is made again when captures or imports go into it; nothing else is written.",
+        "output": "The folder is made again when an export goes into it; nothing else is written.",
+        "selects": "The folder is made again when a photo is moved to Selects; nothing else is written."
+      },
       "menu": "Session Folders…",
       "moveContents": "Move the contents to the new folder",
       "moveContentsHelp": "The files in the old folder move into the new one (copied and verified when it is on another drive). Edit ▸ Undo puts them back.",
@@ -1590,11 +1598,10 @@
       },
       "selectsUnavailable": "The Selects folder {{folder}} is not available (is its drive connected?). Nothing was moved; choose another Selects folder in Session Folders.",
       "title": "Session Folders",
-      "unavailable": "Not available: the folder is missing or its drive is not connected.",
       "unavailableUse": {
-        "capture": "Capturing and importing into it fail until it is back or another folder is chosen.",
-        "output": "Exports to the Output folder fail until it is back or another folder is chosen.",
-        "selects": "Move to Selects fails until it is back or another folder is chosen."
+        "capture": "Nothing is captured or imported until the folder is chosen again.",
+        "output": "Nothing is exported until the folder is chosen again.",
+        "selects": "Move to Selects is unavailable until the folder is chosen again."
       },
       "working": "Working…"
     },

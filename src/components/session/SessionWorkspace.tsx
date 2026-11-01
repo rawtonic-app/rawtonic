@@ -92,7 +92,7 @@ import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands,
 import { switchLibraryAfterSaves } from "../../utils/quit";
 import AddFolderDialog from "./AddFolderDialog";
 import SessionFoldersDialog from "./SessionFoldersDialog";
-import { outsideFolders, sessionFolderPath, type SessionFolder } from "../../utils/sessionFolders";
+import { openableFolderPath, outsideFolders, sessionFolderPath, type SessionFolder } from "../../utils/sessionFolders";
 import { listenForAddFolder, type AddFolderDetail } from "./addFolder";
 
 /** The folder trees of a session's folders outside it (G38). */
@@ -483,12 +483,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           ...settings.appSettings,
           rootFolders: [root],
         });
-      // The Capture folder; the session itself while it is not available.
-      const capture = summary.folders?.find((f) => f.role === "capture");
-      await onNavigate(
-        capture ? (capture.available ? capture.path : root) : await join(root, summary.manifest.capture),
-        true,
-      );
+      // The Capture folder; the session itself while it is not available,
+      // and while it is missing but not the app's own default to make again
+      // (a configured folder whose parent was renamed is never made at its
+      // old path: opening it would create exactly that folder again).
+      const capture = openableFolderPath(summary.folders, "capture", await join(root, summary.manifest.capture));
+      await onNavigate(capture ?? root, true);
       const current = useSettingsStore.getState();
       if (current.appSettings) void current.handleSettingsChange({
         ...current.appSettings,

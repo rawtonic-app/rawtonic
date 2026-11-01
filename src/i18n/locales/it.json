@@ -1653,12 +1653,20 @@
       "filenameTemplate": "Modello del nome file"
     },
     "folders": {
+      "awayDrive": "Non disponibile: il disco non è collegato.",
+      "awayRemoved": "Non disponibile: la cartella è stata rimossa. Viene ricreata quando vi arriva del lavoro.",
+      "awayRenamed": "Non disponibile: la cartella non c’è più, oppure una cartella superiore è stata rinominata o spostata. Non viene creato nulla in questo percorso; scegli la cartella dove si trova ora.",
       "change": "Cambia…",
       "choose": "Scegli la cartella {{folder}}",
       "chooseFor": "Cambia la cartella {{folder}}",
       "done": "Fine",
       "inside": "Nella sessione",
       "intro": "Dove questa sessione mette scatti e importazioni (Capture), le foto spostate in Selects (Selects) e le esportazioni (Output). Una cartella dentro la sessione si sposta con essa; una cartella fuori, ad esempio su un altro disco, resta dov’è.",
+      "madeAgainUse": {
+        "capture": "La cartella viene ricreata quando vi arrivano scatti o importazioni; nient’altro viene scritto.",
+        "output": "La cartella viene ricreata quando vi arriva un’esportazione; nient’altro viene scritto.",
+        "selects": "La cartella viene ricreata quando vi si sposta una foto in Selects; nient’altro viene scritto."
+      },
       "menu": "Cartelle della sessione…",
       "moveContents": "Sposta il contenuto nella nuova cartella",
       "moveContentsHelp": "I file della vecchia cartella vengono spostati nella nuova (copiati e verificati su un altro disco). Modifica ▸ Annulla li riporta indietro.",
@@ -1679,9 +1687,9 @@
       "title": "Cartelle della sessione",
       "unavailable": "Non disponibile: la cartella manca o il suo disco non è collegato.",
       "unavailableUse": {
-        "capture": "Scatti e importazioni in essa non riescono finché non torna o si sceglie un’altra cartella.",
-        "output": "Le esportazioni nella cartella Output non riescono finché non torna o si sceglie un’altra cartella.",
-        "selects": "«Sposta in Selects» non riesce finché non torna o si sceglie un’altra cartella."
+        "capture": "Finché la cartella non viene scelta di nuovo, non si scatta né si importa nulla.",
+        "output": "Finché la cartella non viene scelta di nuovo, non si esporta nulla.",
+        "selects": "Finché la cartella non viene scelta di nuovo, Sposta in Selects non è disponibile."
       },
       "working": "In corso…"
     },

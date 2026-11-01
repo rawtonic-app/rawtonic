@@ -90,6 +90,13 @@ pub struct Manifest {
     /// those an Undo of "Move contents" puts back there, stay its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub former_folders: Vec<String>,
+    /// Every folder the session had as its Output folder, the current one
+    /// included (relative inside the session, absolute outside): the
+    /// Capture One exports in them are no photographs, so no scan takes
+    /// them for any, wherever they lie (`session_folders`). A folder named
+    /// "Output" that never was the Output folder is not one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_folders: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Asset {
@@ -361,6 +368,11 @@ impl Library {
             output: "Output".into(),
             selects: session_folders::default_selects(),
             former_folders: Vec::new(),
+            output_folders: if mode == Mode::Session {
+                vec!["Output".into()]
+            } else {
+                Vec::new()
+            },
         };
         let conn = Connection::open(directory.join(db_name(mode)))?;
         Self::configure(&conn)?;

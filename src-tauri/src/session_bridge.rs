@@ -383,7 +383,8 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
         .into_iter()
         .filter_entry(|e| {
             e.depth() == 0
-                // The session's Output folder, whatever its name (G38).
+                // The session's Output folders, current and former, whatever
+                // their names, and its own-data folders (G38).
                 || !lib.in_output_folder(e.path())
                     && !e.file_name().to_string_lossy().starts_with('.')
                     && !matches!(
@@ -393,7 +394,6 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
                                 | "resources"
                                 | "profiles"
                                 | "Trash"
-                                | "Output"
                                 | "previews"
                                 | "smart-previews"
                         )
@@ -2062,6 +2062,46 @@ mod tests {
                 .rating,
             4
         );
+    }
+
+    /// A former Output folder inside another session folder still holds the
+    /// exports made there; the session's photographs leave it out (no scan,
+    /// no re-index), while a photograph folder beside it is listed (G38,
+    /// review r3).
+    fn manifest_output(lib: &Library) -> String {
+        let bytes = fs::read(lib.directory.join("session.json")).unwrap();
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["output"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn a_former_output_folder_holds_no_session_photographs() {
+        use rawtonic_catalog::session_folders::FolderRole;
+        let temp = tempfile::tempdir().unwrap();
+        let mut lib = Library::create(temp.path(), "Outputs", Mode::Session).unwrap();
+        let delivered = lib.directory.join("Delivered");
+        fs::create_dir(&delivered).unwrap();
+        lib.set_session_folder(FolderRole::Output, &delivered)
+            .unwrap();
+        fs::write(delivered.join("Export.jpg"), "an export").unwrap();
+        fs::write(lib.directory.join("Capture/A.ARW"), "fixture A").unwrap();
+        // Elsewhere on the same drive: the session folder shares its volume
+        // on macOS (`/var` is a link to `/private/var`).
+        let share = lib.directory.join("../Share/Output");
+        fs::create_dir_all(&share).unwrap();
+        lib.set_session_folder(FolderRole::Output, &share).unwrap();
+        assert_eq!(
+            manifest_output(&lib),
+            share.canonicalize().unwrap().to_str().unwrap()
+        );
+
+        let photos = session_photos(&lib).unwrap();
+        assert_eq!(photos, vec![lib.directory.join("Capture/A.ARW")]);
+        index_folder(&lib).unwrap();
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        assert!(delivered.join("Export.jpg").is_file());
     }
 
     /// macOS's `._` companions (exFAT, network drives) and other hidden

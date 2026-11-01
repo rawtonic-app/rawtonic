@@ -1653,12 +1653,20 @@
       "filenameTemplate": "Modèle de nom de fichier"
     },
     "folders": {
+      "awayDrive": "Indisponible : le disque n’est pas connecté.",
+      "awayRemoved": "Indisponible : le dossier a été supprimé. Il est recréé dès que du travail y est écrit.",
+      "awayRenamed": "Indisponible : le dossier n’existe plus, ou un dossier au-dessus a été renommé ou déplacé. Rien n’est créé à cet emplacement ; choisissez le dossier où il se trouve maintenant.",
       "change": "Modifier…",
       "choose": "Choisir le dossier {{folder}}",
       "chooseFor": "Modifier le dossier {{folder}}",
       "done": "Terminé",
       "inside": "Dans la session",
       "intro": "Où cette session place les prises de vue et les imports (Capture), les photos déplacées vers Selects (Selects) et les exports (Output). Un dossier dans la session la suit quand elle est déplacée ; un dossier hors de la session, par exemple sur un autre disque, reste où il est.",
+      "madeAgainUse": {
+        "capture": "Le dossier est recréé quand des prises de vue ou des imports y sont écrits ; rien d’autre n’est écrit.",
+        "output": "Le dossier est recréé quand un export y est écrit ; rien d’autre n’est écrit.",
+        "selects": "Le dossier est recréé quand une photo y est déplacée vers Selects ; rien d’autre n’est écrit."
+      },
       "menu": "Dossiers de la session…",
       "moveContents": "Déplacer le contenu vers le nouveau dossier",
       "moveContentsHelp": "Les fichiers de l’ancien dossier sont déplacés dans le nouveau (copiés et vérifiés vers un autre disque). Édition ▸ Annuler les remet en place.",
@@ -1679,9 +1687,9 @@
       "title": "Dossiers de la session",
       "unavailable": "Indisponible : le dossier manque ou son disque n’est pas connecté.",
       "unavailableUse": {
-        "capture": "Les prises de vue et imports vers ce dossier échouent jusqu’à son retour ou le choix d’un autre dossier.",
-        "output": "Les exports vers le dossier Output échouent jusqu’à son retour ou le choix d’un autre dossier.",
-        "selects": "« Déplacer vers Selects » échoue jusqu’à son retour ou le choix d’un autre dossier."
+        "capture": "Tant que le dossier n’est pas choisi à nouveau, rien n’est capturé ni importé.",
+        "output": "Tant que le dossier n’est pas choisi à nouveau, rien n’est exporté.",
+        "selects": "Tant que le dossier n’est pas choisi à nouveau, Déplacer vers Selects est indisponible."
       },
       "working": "En cours…"
     },

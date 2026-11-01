@@ -1739,12 +1739,20 @@
       "filenameTemplate": "Szablon nazwy pliku"
     },
     "folders": {
+      "awayDrive": "Niedostępny: dysk nie jest podłączony.",
+      "awayRemoved": "Niedostępny: folder został usunięty. Zostanie utworzony ponownie, gdy trafi do niego praca.",
+      "awayRenamed": "Niedostępny: folder już nie istnieje lub folder nadrzędny został zmieniony lub przeniesiony. Pod tą ścieżką nic nie zostanie utworzone; wybierz folder, w którym jest teraz.",
       "change": "Zmień…",
       "choose": "Wybierz folder {{folder}}",
       "chooseFor": "Zmień folder {{folder}}",
       "done": "Gotowe",
       "inside": "Wewnątrz sesji",
       "intro": "Gdzie ta sesja zapisuje zdjęcia z sesji i importy (Capture), zdjęcia przeniesione do Selects (Selects) oraz eksporty (Output). Folder wewnątrz sesji przenosi się razem z nią; folder poza nią, np. na innym dysku, zostaje na miejscu.",
+      "madeAgainUse": {
+        "capture": "Folder zostanie utworzony ponownie, gdy trafią do niego zdjęcia z sesji lub importy; nic innego nie jest zapisywane.",
+        "output": "Folder zostanie utworzony ponownie, gdy trafi do niego eksport; nic innego nie jest zapisywane.",
+        "selects": "Folder zostanie utworzony ponownie, gdy zdjęcie zostanie przeniesione do Selects; nic innego nie jest zapisywane."
+      },
       "menu": "Foldery sesji…",
       "moveContents": "Przenieś zawartość do nowego folderu",
       "moveContentsHelp": "Pliki ze starego folderu zostaną przeniesione do nowego (skopiowane i sprawdzone, gdy jest na innym dysku). Edycja ▸ Cofnij przywraca je.",
@@ -1766,9 +1774,9 @@
       "title": "Foldery sesji",
       "unavailable": "Niedostępny: folder nie istnieje lub jego dysk nie jest podłączony.",
       "unavailableUse": {
-        "capture": "Fotografowanie i import do niego kończą się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder.",
-        "output": "Eksporty do folderu Output kończą się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder.",
-        "selects": "„Przenieś do Selects” kończy się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder."
+        "capture": "Dopóki folder nie zostanie wybrany ponownie, nic nie jest przechwytywane ani importowane.",
+        "output": "Dopóki folder nie zostanie wybrany ponownie, nic nie jest eksportowane.",
+        "selects": "Dopóki folder nie zostanie wybrany ponownie, przenoszenie do Selects jest niedostępne."
       },
       "working": "Trwa…"
     },

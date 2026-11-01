@@ -12,6 +12,22 @@ fn session(dir: &Path) -> Library {
     Library::create(&dir.join("Job"), "Job", Mode::Session).unwrap()
 }
 
+fn scan(lib: &Library) -> Vec<std::path::PathBuf> {
+    use rawtonic_catalog::folder_sync::{SyncOptions, is_photo};
+    use std::sync::atomic::AtomicBool;
+    let options = SyncOptions {
+        accept: &is_photo,
+        cancel: &AtomicBool::new(false),
+        progress: &|_| {},
+    };
+    lib.scan_folder_sync(None, &options)
+        .unwrap()
+        .new_files
+        .iter()
+        .map(|f| f.path.clone())
+        .collect()
+}
+
 fn manifest(lib: &Library) -> serde_json::Value {
     serde_json::from_slice(&fs::read(lib.directory.join("session.json")).unwrap()).unwrap()
 }
@@ -374,4 +390,190 @@ fn an_output_folder_outside_is_never_scanned_now_or_after_it_changed() {
         "{:?}",
         plan.new_files.iter().map(|f| &f.path).collect::<Vec<_>>()
     );
+}
+
+/// A session's former Output folder that lies under a scan root (here an
+/// outside Capture folder, `Drive/Capture/Delivered`) is left alone after
+/// the Output changed: the exports made there never become photographs,
+/// while a photograph folder beside it is still scanned. Nothing is moved or
+/// deleted (review r3, G38).
+#[test]
+fn a_former_output_folder_under_a_scan_root_is_never_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let drive = tmp.path().join("Drive/Capture");
+    fs::create_dir_all(&drive).unwrap();
+    let drive = drive.canonicalize().unwrap();
+    lib.set_session_folder(FolderRole::Capture, &drive).unwrap();
+    let former = drive.join("Delivered");
+    fs::create_dir(&former).unwrap();
+    lib.set_session_folder(FolderRole::Output, &former).unwrap();
+    // A delivery subfolder of the Output folder is no photograph either.
+    fs::create_dir(former.join("Client")).unwrap();
+    fs::write(former.join("Client/Export.jpg"), b"an export").unwrap();
+    fs::write(former.join("Export.jpg"), b"an export").unwrap();
+    let beside = drive.join("Shoot");
+    fs::create_dir(&beside).unwrap();
+    fs::write(beside.join("A.ARW"), b"a capture").unwrap();
+
+    let elsewhere = tmp.path().join("Share/Output");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let elsewhere = elsewhere.canonicalize().unwrap();
+    lib.set_session_folder(FolderRole::Output, &elsewhere)
+        .unwrap();
+    assert_eq!(
+        manifest(&lib)["output_folders"],
+        json!(["Output", former.to_str().unwrap()])
+    );
+    assert!(manifest(&lib).get("former_folders").is_none());
+    // Synchronizing a former Output folder is refused like the current one.
+    assert!(lib.sync_scope(Some(&former)).is_err());
+    assert!(
+        lib.sync_scope(Some(former.join("Client").as_path()))
+            .is_err()
+    );
+
+    let new = scan(&lib);
+    assert!(new.contains(&beside.join("A.ARW")), "{new:?}");
+    assert!(
+        !new.iter()
+            .any(|p| p.starts_with(&former) || p.starts_with(&elsewhere)),
+        "{new:?}"
+    );
+    // The exports and the photograph files stay exactly where they are.
+    assert!(former.join("Export.jpg").is_file());
+    assert!(former.join("Client/Export.jpg").is_file());
+    assert!(beside.join("A.ARW").is_file());
+}
+
+/// The same for a former Output folder inside the session, under a session
+/// folder that the whole session's scan walks.
+#[test]
+fn a_former_output_folder_inside_under_a_scan_root_is_never_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let former = lib.directory.join("Delivered");
+    fs::create_dir(&former).unwrap();
+    lib.set_session_folder(FolderRole::Output, &former).unwrap();
+    fs::write(former.join("Export.jpg"), b"an export").unwrap();
+    let beside = lib.directory.join("Delivery");
+    fs::create_dir(&beside).unwrap();
+    fs::write(beside.join("B.ARW"), b"a photograph").unwrap();
+    let elsewhere = tmp.path().join("Share/Output");
+    fs::create_dir_all(&elsewhere).unwrap();
+    lib.set_session_folder(FolderRole::Output, &elsewhere)
+        .unwrap();
+
+    let new = scan(&lib);
+    assert!(new.contains(&beside.join("B.ARW")), "{new:?}");
+    assert!(!new.iter().any(|p| p.starts_with(&former)), "{new:?}");
+    assert!(former.join("Export.jpg").is_file());
+}
+
+/// A session written before its Output folders were recorded (before this
+/// field; older sessions from schema 23 on) still leaves its default Output
+/// folder alone.
+#[test]
+fn a_session_from_before_output_folders_were_recorded_still_skips_its_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = session(tmp.path());
+    let dir = lib.directory.clone();
+    drop(lib);
+    let mut stored = manifest(&Library::open(&dir).unwrap());
+    stored.as_object_mut().unwrap().remove("output_folders");
+    fs::write(
+        dir.join("session.json"),
+        serde_json::to_vec(&stored).unwrap(),
+    )
+    .unwrap();
+    let lib = Library::open(&dir).unwrap();
+    fs::write(dir.join("Output/Old.jpg"), b"an old export").unwrap();
+    let new = scan(&lib);
+    assert!(
+        !new.iter().any(|p| p.starts_with(dir.join("Output"))),
+        "{new:?}"
+    );
+}
+
+/// A configured folder inside the session whose parent folder was renamed
+/// is reported as unavailable on open, and nothing is made at its old path
+/// (which would take the work meant for the renamed one); changing the
+/// setting to the renamed folder works. G38, review r3.
+#[test]
+fn a_folder_inside_whose_parent_was_renamed_is_unavailable_and_never_made() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let day = lib.directory.join("Shoot/Day 1");
+    fs::create_dir_all(&day).unwrap();
+    lib.set_session_folder(FolderRole::Capture, &day).unwrap();
+    let picks = lib.directory.join("Shoot/Day 1/Picks");
+    fs::create_dir(&picks).unwrap();
+    lib.set_session_folder(FolderRole::Selects, &picks).unwrap();
+    let output = tmp.path().join("Share/Output");
+    fs::create_dir_all(&output).unwrap();
+    lib.set_session_folder(FolderRole::Output, &output).unwrap();
+    fs::write(day.join("A.ARW"), b"a capture").unwrap();
+
+    fs::rename(
+        lib.directory.join("Shoot"),
+        lib.directory.join("Shoot 2026"),
+    )
+    .unwrap();
+    let dir = lib.directory.clone();
+    drop(lib);
+    let mut lib = Library::open(&dir).unwrap();
+
+    for role in [FolderRole::Capture, FolderRole::Selects] {
+        let folder = lib.session_folder(role);
+        assert!(folder.inside, "{role:?} is not inside the session");
+        assert!(!folder.available, "{role:?} is reported as available");
+        assert!(!folder.recreated, "{role:?} would be made again");
+        let error = lib.usable_folder(role).unwrap_err().to_string();
+        assert!(error.contains("not available"), "{error}");
+        assert!(error.contains("renamed or moved"), "{error}");
+    }
+    // Nothing was made at the old paths.
+    assert!(!dir.join("Shoot").exists());
+
+    // The renamed folder is chosen as it is; the files in it are untouched.
+    let renamed = dir.join("Shoot 2026/Day 1");
+    let folder = lib
+        .set_session_folder(FolderRole::Capture, &renamed)
+        .unwrap();
+    assert!(folder.inside && folder.available);
+    assert_eq!(folder.stored, "Shoot 2026/Day 1");
+    assert_eq!(lib.usable_folder(FolderRole::Capture).unwrap(), renamed);
+    assert!(renamed.join("A.ARW").is_file());
+}
+
+/// A folder inside the session that the app made with the session (its
+/// default) is still made again when someone removed it, and so is the
+/// default Output of a session from before Output folders were recorded.
+#[test]
+fn the_folders_a_new_session_was_given_are_made_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = session(tmp.path());
+    let dir = lib.directory.clone();
+    assert!(lib.session_folders().iter().all(|f| f.recreated));
+    drop(lib);
+    fs::remove_dir(dir.join("Capture")).unwrap();
+    fs::remove_dir(dir.join("Output")).unwrap();
+    let mut stored = manifest(&Library::open(&dir).unwrap());
+    stored.as_object_mut().unwrap().remove("output_folders");
+    fs::write(
+        dir.join("session.json"),
+        serde_json::to_vec(&stored).unwrap(),
+    )
+    .unwrap();
+    let lib = Library::open(&dir).unwrap();
+    assert_eq!(
+        lib.usable_folder(FolderRole::Capture).unwrap(),
+        dir.join("Capture")
+    );
+    assert!(dir.join("Capture").is_dir());
+    assert_eq!(
+        lib.usable_folder(FolderRole::Output).unwrap(),
+        dir.join("Output")
+    );
+    assert!(dir.join("Output").is_dir());
 }
