@@ -29,6 +29,7 @@ pub mod hot_folder;
 pub mod image_hash;
 pub mod ingest_jobs;
 pub mod query;
+pub mod session_folders;
 pub mod session_move;
 pub mod snapshots;
 pub mod stacks;
@@ -76,8 +77,19 @@ pub struct Manifest {
     pub id: String,
     pub name: String,
     pub mode: Mode,
+    /// The session's Capture, Selects and Output folders: relative to the
+    /// library folder when inside it, absolute when outside
+    /// (`session_folders`). Catalogs keep `Photos` and `Output`.
     pub capture: String,
     pub output: String,
+    /// Absent in manifests written before configurable folders (schema 23).
+    #[serde(default = "session_folders::default_selects")]
+    pub selects: String,
+    /// Folders outside the session that were its Capture, Selects or Output
+    /// folder before (absolute): the photographs registered there, and
+    /// those an Undo of "Move contents" puts back there, stay its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former_folders: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Asset {
@@ -144,6 +156,10 @@ pub struct Summary {
     /// stay in the library with their edits until relinked.
     #[serde(default)]
     pub missing: usize,
+    /// The session's Capture, Selects and Output folders, where they are
+    /// and whether they are there (`session_folders`); none for a catalog.
+    #[serde(default)]
+    pub folders: Vec<session_folders::SessionFolder>,
 }
 
 /// What `check_files` found.
@@ -343,6 +359,8 @@ impl Library {
             }
             .into(),
             output: "Output".into(),
+            selects: session_folders::default_selects(),
+            former_folders: Vec::new(),
         };
         let conn = Connection::open(directory.join(db_name(mode)))?;
         Self::configure(&conn)?;
@@ -377,8 +395,8 @@ impl Library {
         )?;
         for sub in [
             manifest.capture.as_str(),
-            "Selects",
-            "Output",
+            manifest.selects.as_str(),
+            manifest.output.as_str(),
             "Trash",
             "masks",
             ".cache",
@@ -421,8 +439,7 @@ impl Library {
             "Unsupported manifest version {}",
             manifest.schema_version
         );
-        validate_relative(Path::new(&manifest.capture))?;
-        validate_relative(Path::new(&manifest.output))?;
+        session_folders::validate_manifest(&manifest)?;
         let db = directory.join(db_name(manifest.mode));
         ensure!(
             db.is_file(),
@@ -661,6 +678,11 @@ impl Library {
             rated,
             xmp_pending: pending,
             missing,
+            folders: if self.manifest.mode == Mode::Session {
+                self.session_folders()
+            } else {
+                Vec::new()
+            },
         })
     }
 
@@ -1649,8 +1671,9 @@ impl Library {
     }
 
     /// The root, path in the root and root folder for a file at `path`:
-    /// inside the library folder its session root; elsewhere (catalogs only)
-    /// an external root for its folder. None for a session file outside.
+    /// inside the library folder its session root; elsewhere (catalogs, and
+    /// a session's own folders outside it) an external root for its folder.
+    /// None for another file outside a session.
     fn place_for(&self, path: &Path) -> Result<Option<(String, PathBuf, String)>> {
         Ok(if let Ok(relative) = path.strip_prefix(&self.directory) {
             Some((
@@ -1658,7 +1681,7 @@ impl Library {
                 relative.to_path_buf(),
                 ".".to_string(),
             ))
-        } else if self.manifest.mode == Mode::Catalog {
+        } else if self.manifest.mode == Mode::Catalog || self.in_outside_folder(path) {
             let parent = path.parent().context("No parent")?;
             Some((
                 external_root_key(parent),

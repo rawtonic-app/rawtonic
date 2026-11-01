@@ -14,6 +14,7 @@ import { noteTool } from '../components/contribute/usageStats';
 import { flushRecipeSaves } from '../hooks/useEditorActions';
 import { photoWritesAndStepsSettled } from './photoWrites';
 import { readJobName } from './exportJob';
+import { usableSessionFolder } from './sessionFolders';
 
 /** The library an export is submitted from, as `export_images` takes it:
  * always stated, so an export from no library never takes one opened later. */
@@ -59,8 +60,16 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
     name: string,
     single: boolean,
   ): Promise<{ path: string; isFile: boolean } | null> => {
-    if (job.where === "output" && session)
-      return { path: `${session}/Output`, isFile: false };
+    if (job.where === "output" && session) {
+      // The session's Output folder, wherever it is set (G38); one outside
+      // the session whose drive is away stops the export, naming it.
+      const shown =
+        useLibraryStore.getState().sessionFolders.find((f) => f.role === "output")?.path ?? `${session}/Output`;
+      const path = await usableSessionFolder(session, "output").catch(() => {
+        throw new Error(t("session.folders.outputUnavailable", { folder: shown }));
+      });
+      return { path, isFile: false };
+    }
     if (job.where === "original")
       return { path: "originalFolderDummy", isFile: false };
     if (job.folder) return { path: job.folder, isFile: false };

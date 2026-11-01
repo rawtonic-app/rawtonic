@@ -1652,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Plantilla de nombre de archivo"
     },
+    "folders": {
+      "change": "Cambiar…",
+      "choose": "Elegir la carpeta {{folder}}",
+      "chooseFor": "Cambiar la carpeta {{folder}}",
+      "done": "Listo",
+      "inside": "Dentro de la sesión",
+      "intro": "Dónde guarda esta sesión las capturas e importaciones (Capture), las fotos movidas a Selects (Selects) y las exportaciones (Output). Una carpeta dentro de la sesión se mueve con ella; una carpeta fuera, por ejemplo en otro disco, se queda donde está.",
+      "menu": "Carpetas de la sesión…",
+      "moveContents": "Mover el contenido a la carpeta nueva",
+      "moveContentsHelp": "Los archivos de la carpeta anterior se mueven a la nueva (copiados y verificados si está en otro disco). Edición ▸ Deshacer los devuelve.",
+      "moved_one": "{{count}} elemento movido.",
+      "moved_many": "{{count}} elementos movidos.",
+      "moved_other": "{{count}} elementos movidos.",
+      "moveFailed": "La carpeta se cambió, pero su contenido no se movió por completo: {{error}}",
+      "nothingMoves": "Cambiar una carpeta no mueve archivos: lo que hay en la carpeta anterior se queda allí y en la sesión.",
+      "outputUnavailable": "La carpeta Output {{folder}} no está disponible (¿está conectado su disco?). No se exportó nada; elige otra carpeta Output en Carpetas de la sesión.",
+      "outside": "Fuera de la sesión",
+      "reading": "Leyendo…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "La carpeta Selects {{folder}} no está disponible (¿está conectado su disco?). No se movió nada; elige otra carpeta Selects en Carpetas de la sesión.",
+      "title": "Carpetas de la sesión",
+      "unavailable": "No disponible: falta la carpeta o su disco no está conectado.",
+      "unavailableUse": {
+        "capture": "Capturar e importar en ella falla hasta que vuelva o se elija otra carpeta.",
+        "output": "Las exportaciones a la carpeta Output fallan hasta que vuelva o se elija otra carpeta.",
+        "selects": "«Mover a Selects» falla hasta que vuelva o se elija otra carpeta."
+      },
+      "working": "Trabajando…"
+    },
     "hotFolder": {
       "chooseFolder": "Elegir la carpeta vigilada",
       "copyFromLast": "Copiar de la última captura",

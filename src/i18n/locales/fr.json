@@ -1652,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Modèle de nom de fichier"
     },
+    "folders": {
+      "change": "Modifier…",
+      "choose": "Choisir le dossier {{folder}}",
+      "chooseFor": "Modifier le dossier {{folder}}",
+      "done": "Terminé",
+      "inside": "Dans la session",
+      "intro": "Où cette session place les prises de vue et les imports (Capture), les photos déplacées vers Selects (Selects) et les exports (Output). Un dossier dans la session la suit quand elle est déplacée ; un dossier hors de la session, par exemple sur un autre disque, reste où il est.",
+      "menu": "Dossiers de la session…",
+      "moveContents": "Déplacer le contenu vers le nouveau dossier",
+      "moveContentsHelp": "Les fichiers de l’ancien dossier sont déplacés dans le nouveau (copiés et vérifiés vers un autre disque). Édition ▸ Annuler les remet en place.",
+      "moved_one": "{{count}} élément déplacé.",
+      "moved_many": "{{count}} éléments déplacés.",
+      "moved_other": "{{count}} éléments déplacés.",
+      "moveFailed": "Le dossier a été changé, mais son contenu n’a pas été entièrement déplacé : {{error}}",
+      "nothingMoves": "Changer de dossier ne déplace aucun fichier : le contenu de l’ancien dossier y reste et reste dans la session.",
+      "outputUnavailable": "Le dossier Output {{folder}} est indisponible (son disque est-il connecté ?). Rien n’a été exporté ; choisissez un autre dossier Output dans Dossiers de la session.",
+      "outside": "Hors de la session",
+      "reading": "Lecture…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Le dossier Selects {{folder}} est indisponible (son disque est-il connecté ?). Rien n’a été déplacé ; choisissez un autre dossier Selects dans Dossiers de la session.",
+      "title": "Dossiers de la session",
+      "unavailable": "Indisponible : le dossier manque ou son disque n’est pas connecté.",
+      "unavailableUse": {
+        "capture": "Les prises de vue et imports vers ce dossier échouent jusqu’à son retour ou le choix d’un autre dossier.",
+        "output": "Les exports vers le dossier Output échouent jusqu’à son retour ou le choix d’un autre dossier.",
+        "selects": "« Déplacer vers Selects » échoue jusqu’à son retour ou le choix d’un autre dossier."
+      },
+      "working": "En cours…"
+    },
     "hotFolder": {
       "chooseFolder": "Choisir le dossier surveillé",
       "copyFromLast": "Copier depuis la dernière prise",

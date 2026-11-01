@@ -1566,6 +1566,38 @@
     "fields": {
       "filenameTemplate": "Dateinamenvorlage"
     },
+    "folders": {
+      "change": "Ändern…",
+      "choose": "Ordner {{folder}} wählen",
+      "chooseFor": "Ordner {{folder}} ändern",
+      "done": "Fertig",
+      "inside": "In der Session",
+      "intro": "Wohin diese Session Aufnahmen und Importe (Capture), nach Selects verschobene Fotos (Selects) und Exporte (Output) legt. Ein Ordner in der Session zieht mit ihr um; ein Ordner außerhalb, etwa auf einem anderen Laufwerk, bleibt, wo er ist.",
+      "menu": "Session-Ordner…",
+      "moveContents": "Inhalt in den neuen Ordner verschieben",
+      "moveContentsHelp": "Die Dateien im alten Ordner werden in den neuen verschoben (auf ein anderes Laufwerk kopiert und geprüft). Bearbeiten ▸ Widerrufen holt sie zurück.",
+      "moved_one": "{{count}} Objekt verschoben.",
+      "moved_other": "{{count}} Objekte verschoben.",
+      "moveFailed": "Der Ordner wurde geändert, aber sein Inhalt wurde nicht vollständig verschoben: {{error}}",
+      "nothingMoves": "Das Ändern eines Ordners verschiebt keine Dateien: Was im alten Ordner liegt, bleibt dort und in der Session.",
+      "outputUnavailable": "Der Output-Ordner {{folder}} ist nicht verfügbar (ist sein Laufwerk angeschlossen?). Nichts wurde exportiert; wähle in „Session-Ordner“ einen anderen Output-Ordner.",
+      "outside": "Außerhalb der Session",
+      "reading": "Wird gelesen…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Der Selects-Ordner {{folder}} ist nicht verfügbar (ist sein Laufwerk angeschlossen?). Nichts wurde verschoben; wähle in „Session-Ordner“ einen anderen Selects-Ordner.",
+      "title": "Session-Ordner",
+      "unavailable": "Nicht verfügbar: Der Ordner fehlt oder sein Laufwerk ist nicht angeschlossen.",
+      "unavailableUse": {
+        "capture": "Aufnahmen und Importe in ihn schlagen fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird.",
+        "output": "Exporte in den Output-Ordner schlagen fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird.",
+        "selects": "„Nach Selects verschieben“ schlägt fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird."
+      },
+      "working": "Wird ausgeführt…"
+    },
     "hotFolder": {
       "chooseFolder": "Überwachten Ordner wählen",
       "copyFromLast": "Von der letzten Aufnahme kopieren",

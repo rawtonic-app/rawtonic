@@ -1738,6 +1738,40 @@
     "fields": {
       "filenameTemplate": "Szablon nazwy pliku"
     },
+    "folders": {
+      "change": "Zmień…",
+      "choose": "Wybierz folder {{folder}}",
+      "chooseFor": "Zmień folder {{folder}}",
+      "done": "Gotowe",
+      "inside": "Wewnątrz sesji",
+      "intro": "Gdzie ta sesja zapisuje zdjęcia z sesji i importy (Capture), zdjęcia przeniesione do Selects (Selects) oraz eksporty (Output). Folder wewnątrz sesji przenosi się razem z nią; folder poza nią, np. na innym dysku, zostaje na miejscu.",
+      "menu": "Foldery sesji…",
+      "moveContents": "Przenieś zawartość do nowego folderu",
+      "moveContentsHelp": "Pliki ze starego folderu zostaną przeniesione do nowego (skopiowane i sprawdzone, gdy jest na innym dysku). Edycja ▸ Cofnij przywraca je.",
+      "moved_one": "Przeniesiono {{count}} element.",
+      "moved_few": "Przeniesiono {{count}} elementy.",
+      "moved_many": "Przeniesiono {{count}} elementów.",
+      "moved_other": "Przeniesiono {{count}} elementu.",
+      "moveFailed": "Folder został zmieniony, ale jego zawartość nie została w całości przeniesiona: {{error}}",
+      "nothingMoves": "Zmiana folderu nie przenosi plików: zawartość starego folderu zostaje w nim i w sesji.",
+      "outputUnavailable": "Folder Output {{folder}} jest niedostępny (czy jego dysk jest podłączony?). Nic nie wyeksportowano; wybierz inny folder Output w Folderach sesji.",
+      "outside": "Poza sesją",
+      "reading": "Wczytywanie…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Folder Selects {{folder}} jest niedostępny (czy jego dysk jest podłączony?). Nic nie przeniesiono; wybierz inny folder Selects w Folderach sesji.",
+      "title": "Foldery sesji",
+      "unavailable": "Niedostępny: folder nie istnieje lub jego dysk nie jest podłączony.",
+      "unavailableUse": {
+        "capture": "Fotografowanie i import do niego kończą się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder.",
+        "output": "Eksporty do folderu Output kończą się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder.",
+        "selects": "„Przenieś do Selects” kończy się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder."
+      },
+      "working": "Trwa…"
+    },
     "hotFolder": {
       "chooseFolder": "Wybierz folder obserwowany",
       "copyFromLast": "Kopiuj z ostatniego zdjęcia",
