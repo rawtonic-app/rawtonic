@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import "../../i18n";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   act,
   cleanup,
@@ -1173,6 +1174,40 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
     expect((screen.getByRole("button", { name: "New layer" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(quick).getByRole("button", { name: "New subject layer" }));
     expect(useEditorStore.getState().adjustments.masks).toHaveLength(1);
+  });
+
+  it("keeps the selected layer's sliders outside the layer list, which scrolls on its own, with 25 layers", () => {
+    const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
+    adjustments.masks = Array.from({ length: 25 }, (_, i) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: `l${i}`,
+      name: `Layer ${i + 1}`,
+      subMasks: [createSubMask(Mask.Brush, image)],
+    }));
+    useEditorStore.setState({ adjustments, activeMaskContainerId: "l24", activeMaskId: null });
+    const scrolled = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrolled;
+    onTestFinished(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+    withMenu();
+    const list = screen.getByRole("list", { name: "Layers" });
+    expect(list.querySelector('[data-layer-row="l0"]')).toBeTruthy();
+    expect(list.querySelector('[data-layer-row="l24"]')).toBeTruthy();
+    // The sliders of the selected layer are not rows of the list, so the
+    // list can scroll without taking them away.
+    for (const name of ["Opacity", "Exposure"]) {
+      const slider = screen.getByRole("slider", { name });
+      expect(list.contains(slider)).toBe(false);
+    }
+    // The selected row is brought into view inside the list, and the list
+    // is a bounded area with its own scroll (studio.css).
+    expect(scrolled).toHaveBeenCalled();
+    const css = readFileSync("src/components/studio/studio.css", "utf8");
+    const rule = /\.studio-layer-list\s*\{[^}]*\}/.exec(css)?.[0] ?? "";
+    expect(rule).toMatch(/max-height:\s*min\(\d+px,\s*\d+vh\)/);
+    expect(rule).toMatch(/overflow-y:\s*auto/);
   });
 
   it("nests the selected layer's components under its row, marking busy ones", () => {
