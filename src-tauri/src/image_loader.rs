@@ -1377,8 +1377,14 @@ pub async fn load_image(
 /// whose decode the step prefetch keeps ahead (`proxy_worker::kept_decode`):
 /// the decode becomes the open photograph's source at once, so its
 /// developed frame can be rendered before the webview's load arrives. The
-/// decode is shared with the kept slot, not copied. None when no decode is
-/// kept for it or another photograph was asked for meanwhile.
+/// decode is shared with the kept slot, not copied. It is the decode the
+/// load makes itself (same function, settings and variant), so an export of
+/// the open photograph, which reuses this source, is unchanged: measured in
+/// two 80-step culling runs, each kept decode made the source here was
+/// byte-identical to a fresh decode as `load_image` makes it (159/159, 19 of
+/// photographs with saved edits; notes:
+/// benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md). None when no
+/// decode is kept for it or another photograph was asked for meanwhile.
 pub(crate) fn open_kept_decode(
     state: &AppState,
     path: &str,

@@ -248,9 +248,13 @@ fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &s
 /// size). That frame then only renders on the GPU instead of also building
 /// its base (downscale, lateral CA, warp: 25-60 ms on an M5 Pro, up to
 /// 150 ms while the next photograph decodes beside it). Built by the same
-/// function from the same decode and recipe, so frames and exports are what
-/// they were. Only where the fit view's base is built reduced (no
-/// full-resolution retouching or lens blur); none before the first frame.
+/// function from the same decode and recipe, so frames are what they were:
+/// measured in two 80-step culling runs, every reused base was
+/// byte-identical to one built fresh when the frame asked for it (156/156,
+/// 17 of them of photographs with saved edits incl. rotation; notes:
+/// benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md). Only where the
+/// fit view's base is built reduced (no full-resolution retouching or lens
+/// blur); none before the first frame.
 pub(crate) fn prepare_base_ahead(state: &AppState, source: &str, full: &Arc<DynamicImage>) {
     let preview_dim = state.last_preview_dim.load(Ordering::Relaxed);
     if preview_dim == 0 {
