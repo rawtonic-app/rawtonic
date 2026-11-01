@@ -1523,12 +1523,22 @@
       "filenameTemplate": "文件名模板"
     },
     "folders": {
+      "awayDrive": "不可用：所在磁盘驱动器未连接。",
+      "awayRemoved": "不可用：文件夹已被删除。有内容写入时会重新创建。",
+      "awayRenamed": "不可用：文件夹已不存在，或上一级文件夹被重命名或移动。不会在此路径创建任何内容；请选择它现在所在的文件夹。",
       "change": "更改…",
       "choose": "选择 {{folder}} 文件夹",
       "chooseFor": "更改 {{folder}} 文件夹",
       "done": "完成",
+      "inOutputFolder": "{{folder}} 就是 Output 文件夹 {{output}}，或位于其中；那里存放着导出的照片。请为 {{role}} 文件夹选择任何 Output 文件夹之外的文件夹。",
+      "inOutputFolderNotThere": "{{folder}} 是本会话以前的 Output 文件夹 {{output}} 或位于其中；那里存放过导出的照片。请为 {{role}} 文件夹选择任何 Output 文件夹之外的文件夹。",
       "inside": "在会话内",
       "intro": "此会话存放拍摄和导入 (Capture)、移到 Selects 的照片 (Selects) 以及导出 (Output) 的位置。会话内的文件夹随会话一起移动；会话外的文件夹（例如在另一个驱动器上）保持原位。",
+      "madeAgainUse": {
+        "capture": "有拍摄或导入写入时会重新创建该文件夹，除此之外不会写入其他内容。",
+        "output": "有导出写入时会重新创建该文件夹，除此之外不会写入其他内容。",
+        "selects": "有照片移动到 Selects 时会重新创建该文件夹，除此之外不会写入其他内容。"
+      },
       "menu": "会话文件夹…",
       "moveContents": "将内容移到新文件夹",
       "moveContentsHelp": "旧文件夹中的文件会移到新文件夹（移到其他驱动器时会复制并校验）。编辑 ▸ 撤销可将其移回。",
@@ -1547,9 +1557,9 @@
       "title": "会话文件夹",
       "unavailable": "不可用：文件夹不存在或其驱动器未连接。",
       "unavailableUse": {
-        "capture": "在它恢复或选择其他文件夹之前，拍摄和导入到其中都会失败。",
-        "output": "在它恢复或选择其他文件夹之前，导出到 Output 文件夹会失败。",
-        "selects": "在它恢复或选择其他文件夹之前，“移到 Selects”会失败。"
+        "capture": "在重新选择文件夹之前，不会拍摄或导入任何内容。",
+        "output": "在重新选择文件夹之前，不会导出任何内容。",
+        "selects": "在重新选择文件夹之前，无法移动到 Selects。"
       },
       "working": "处理中…"
     },

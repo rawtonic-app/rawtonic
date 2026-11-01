@@ -4,7 +4,25 @@ import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { Invokes } from "../ui/AppProperties";
 import { openDialog } from "../../utils/fileDialog";
-import { FOLDER_ROLES, moveFolderContents, type FolderRole, type SessionFolder } from "../../utils/sessionFolders";
+import {
+  FOLDER_ROLES,
+  folderRefusalMessage,
+  parseFolderRefusal,
+  openableFolderPath,
+  sessionFoldersOrDefault,
+  moveFolderContents,
+  type FolderRole,
+  type SessionFolder,
+} from "../../utils/sessionFolders";
+
+/** Why a folder that is not there is not (G38): one the app made with the
+ * session is made again when work goes into it; any other missing folder is
+ * never made at its old path — a folder inside the session whose parent was
+ * renamed, a removed folder, a drive that is away. */
+function awayReason(folder: SessionFolder): "renamed" | "removed" | "drive" {
+  if (!folder.inside) return "drive";
+  return folder.recreated ? "removed" : "renamed";
+}
 
 /** What `session_set_folder` returns. */
 export interface FolderChange {
@@ -45,6 +63,16 @@ export default function SessionFoldersDialog({
     selects: t("session.folders.unavailableUse.selects"),
     output: t("session.folders.unavailableUse.output"),
   };
+  const madeAgain: Record<FolderRole, string> = {
+    capture: t("session.folders.madeAgainUse.capture"),
+    selects: t("session.folders.madeAgainUse.selects"),
+    output: t("session.folders.madeAgainUse.output"),
+  };
+  const reason: Record<"renamed" | "removed" | "drive", string> = {
+    renamed: t("session.folders.awayRenamed"),
+    removed: t("session.folders.awayRemoved"),
+    drive: t("session.folders.awayDrive"),
+  };
   const dialog = useRef<HTMLDivElement>(null);
   const [folders, setFolders] = useState<SessionFolder[] | null>(null);
   const [moveContents, setMoveContents] = useState(false);
@@ -61,7 +89,7 @@ export default function SessionFoldersDialog({
   useEffect(() => {
     let live = true;
     invoke<SessionFolder[]>(Invokes.SessionFolders, { directory })
-      .then((next) => live && setFolders(next))
+      .then((next) => live && setFolders(sessionFoldersOrDefault(directory, next)))
       .catch((e) => live && setError(String(e)));
     return () => {
       live = false;
@@ -69,11 +97,13 @@ export default function SessionFoldersDialog({
   }, [directory]);
 
   const choose = async (role: FolderRole) => {
-    const current = folders?.find((f) => f.role === role);
+    // The picker opens at the folder when it is there, else at the place
+    // work may go (the session); it never opens at a missing folder's old
+    // path, and choosing a folder here never makes one.
     const picked = await openDialog({
       directory: true,
       multiple: false,
-      defaultPath: current?.available ? current.path : directory,
+      defaultPath: openableFolderPath(folders ?? undefined, role, directory) ?? directory,
       title: t("session.folders.choose", { folder: roleName[role] }),
     });
     if (typeof picked !== "string") return;
@@ -98,7 +128,16 @@ export default function SessionFoldersDialog({
         onChanged(change);
       }
     } catch (e) {
-      setError(String(e));
+      // A folder refused for being (in) an Output folder is said in the
+      // user's language, naming the folder that holds the exports (review
+      // r4, G38); any other error is shown as the backend words it.
+      const message = String(e);
+      // The Output folder named is the current one and there; otherwise it
+      // is a former one, which held the exports.
+      const named = parseFolderRefusal(message)?.output;
+      const output = (folders ?? []).find((f) => f.role === "output");
+      const refusal = folderRefusalMessage(t, message, !!output && output.path === named && output.available);
+      setError(refusal ?? message);
     } finally {
       setBusy(null);
     }
@@ -137,14 +176,14 @@ export default function SessionFoldersDialog({
                     </span>
                     <span className="studio-help">
                       {!folder.available
-                        ? t("session.folders.unavailable")
+                        ? reason[awayReason(folder)]
                         : folder.inside
                           ? t("session.folders.inside")
                           : t("session.folders.outside")}
                     </span>
                     {!folder.available && (
                       <span className="studio-capture-time-error" role="alert">
-                        {whenAway[role]}
+                        {folder.recreated ? madeAgain[role] : whenAway[role]}
                       </span>
                     )}
                     <button

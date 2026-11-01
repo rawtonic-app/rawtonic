@@ -1657,12 +1657,22 @@
       "filenameTemplate": "Plantilla de nom de fitxer"
     },
     "folders": {
+      "awayDrive": "No disponible: el disc no està connectat.",
+      "awayRemoved": "No disponible: la carpeta s’ha suprimit. Es torna a crear quan hi entra feina.",
+      "awayRenamed": "No disponible: la carpeta ja no hi és, o una carpeta de dalt s’ha reanomenat o mogut. No es crea res en aquest camí; tria la carpeta on és ara.",
       "change": "Canvia…",
       "choose": "Tria la carpeta {{folder}}",
       "chooseFor": "Canvia la carpeta {{folder}}",
       "done": "Fet",
+      "inOutputFolder": "{{folder}} és la carpeta Output {{output}} o hi és a dins, i aquesta conté les exportacions fetes allà. Tria una carpeta fora de qualsevol carpeta Output per a la carpeta {{role}}.",
+      "inOutputFolderNotThere": "{{folder}} és una carpeta Output d’aquesta sessió, {{output}}, o hi és a dins, i aquesta contenia les exportacions fetes allà. Tria una carpeta fora de qualsevol carpeta Output per a la carpeta {{role}}.",
       "inside": "Dins de la sessió",
       "intro": "On desa aquesta sessió les captures i importacions (Capture), les fotos mogudes a Selects (Selects) i les exportacions (Output). Una carpeta dins de la sessió es mou amb ella; una carpeta fora, per exemple en un altre disc, es queda on és.",
+      "madeAgainUse": {
+        "capture": "La carpeta es torna a crear quan hi entren captures o imports; no s’hi escriu res més.",
+        "output": "La carpeta es torna a crear quan hi entra una exportació; no s’hi escriu res més.",
+        "selects": "La carpeta es torna a crear quan s’hi mou una foto a Selects; no s’hi escriu res més."
+      },
       "menu": "Carpetes de la sessió…",
       "moveContents": "Mou el contingut a la carpeta nova",
       "moveContentsHelp": "Els fitxers de la carpeta anterior es mouen a la nova (copiats i verificats si és en un altre disc). Edita ▸ Desfés els torna.",
@@ -1683,9 +1693,9 @@
       "title": "Carpetes de la sessió",
       "unavailable": "No disponible: falta la carpeta o el seu disc no està connectat.",
       "unavailableUse": {
-        "capture": "Capturar i importar-hi falla fins que torni o se’n triï una altra.",
-        "output": "Les exportacions a la carpeta Output fallen fins que torni o se’n triï una altra.",
-        "selects": "«Mou a Selects» falla fins que torni o se’n triï una altra."
+        "capture": "Fins que no es torni a triar la carpeta, no es captura ni s’importa res.",
+        "output": "Fins que no es torni a triar la carpeta, no s’exporta res.",
+        "selects": "Fins que no es torni a triar la carpeta, Mou a Selects no està disponible."
       },
       "working": "Treballant…"
     },

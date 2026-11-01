@@ -40,6 +40,7 @@ const role = (name: string): SessionFolder => ({
   path: `/job/${name === "capture" ? "Capture" : name === "selects" ? "Selects" : "Output"}`,
   inside: true,
   available: true,
+  recreated: true,
 });
 
 const setRoleFolder = vi.fn();

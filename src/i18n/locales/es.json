@@ -1657,12 +1657,22 @@
       "filenameTemplate": "Plantilla de nombre de archivo"
     },
     "folders": {
+      "awayDrive": "No disponible: el disco no está conectado.",
+      "awayRemoved": "No disponible: la carpeta se ha eliminado. Se vuelve a crear cuando entra trabajo en ella.",
+      "awayRenamed": "No disponible: la carpeta ya no está, o una carpeta superior se ha renombrado o movido. No se crea nada en esta ruta; elige la carpeta donde está ahora.",
       "change": "Cambiar…",
       "choose": "Elegir la carpeta {{folder}}",
       "chooseFor": "Cambiar la carpeta {{folder}}",
       "done": "Listo",
+      "inOutputFolder": "{{folder}} es la carpeta Output {{output}} o está dentro de ella, y allí están las exportaciones hechas. Elige para la carpeta {{role}} una carpeta fuera de cualquier carpeta Output.",
+      "inOutputFolderNotThere": "{{folder}} es una antigua carpeta Output de esta sesión, {{output}}, o está dentro de ella, y allí estuvieron las exportaciones hechas. Elige para la carpeta {{role}} una carpeta fuera de cualquier carpeta Output.",
       "inside": "Dentro de la sesión",
       "intro": "Dónde guarda esta sesión las capturas e importaciones (Capture), las fotos movidas a Selects (Selects) y las exportaciones (Output). Una carpeta dentro de la sesión se mueve con ella; una carpeta fuera, por ejemplo en otro disco, se queda donde está.",
+      "madeAgainUse": {
+        "capture": "La carpeta se vuelve a crear cuando entran capturas o importaciones; no se escribe nada más.",
+        "output": "La carpeta se vuelve a crear cuando entra una exportación; no se escribe nada más.",
+        "selects": "La carpeta se vuelve a crear cuando se mueve una foto a Selects; no se escribe nada más."
+      },
       "menu": "Carpetas de la sesión…",
       "moveContents": "Mover el contenido a la carpeta nueva",
       "moveContentsHelp": "Los archivos de la carpeta anterior se mueven a la nueva (copiados y verificados si está en otro disco). Edición ▸ Deshacer los devuelve.",
@@ -1683,9 +1693,9 @@
       "title": "Carpetas de la sesión",
       "unavailable": "No disponible: falta la carpeta o su disco no está conectado.",
       "unavailableUse": {
-        "capture": "Capturar e importar en ella falla hasta que vuelva o se elija otra carpeta.",
-        "output": "Las exportaciones a la carpeta Output fallan hasta que vuelva o se elija otra carpeta.",
-        "selects": "«Mover a Selects» falla hasta que vuelva o se elija otra carpeta."
+        "capture": "Hasta que se vuelva a elegir la carpeta, no se captura ni se importa nada.",
+        "output": "Hasta que se vuelva a elegir la carpeta, no se exporta nada.",
+        "selects": "Hasta que se vuelva a elegir la carpeta, Mover a Selects no está disponible."
       },
       "working": "Trabajando…"
     },

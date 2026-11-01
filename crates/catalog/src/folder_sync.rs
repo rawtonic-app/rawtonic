@@ -52,7 +52,9 @@ use std::{
 };
 
 /// Folders of a library folder that hold no photographs of their own
-/// (caches, masks, Trash, outputs, previews). A scan does not go into them.
+/// (caches, masks, Trash, Output, previews). A scan does not go into them;
+/// beside them, a session's Output folders, current and former, are left out
+/// by their setting wherever they are (`Library::in_output_folder`).
 pub const INTERNAL_FOLDERS: &[&str] = &[
     ".cache",
     "masks",
@@ -547,6 +549,8 @@ impl Library {
                 };
                 let path = entry.path();
                 if kind.is_dir() {
+                    // Working folders by name, and the Output folders of a
+                    // session by their setting (current and former).
                     if (below(&path, &self.directory) && INTERNAL_FOLDERS.contains(&name.as_ref()))
                         || self.in_output_folder(&path)
                     {

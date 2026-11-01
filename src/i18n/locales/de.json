@@ -1570,12 +1570,22 @@
       "filenameTemplate": "Dateinamenvorlage"
     },
     "folders": {
+      "awayDrive": "Nicht verfügbar: Das Laufwerk ist nicht verbunden.",
+      "awayRemoved": "Nicht verfügbar: Der Ordner wurde gelöscht. Er wird wieder angelegt, sobald etwas hineingelegt wird.",
+      "awayRenamed": "Nicht verfügbar: Der Ordner ist nicht mehr da, oder ein Ordner darüber wurde umbenannt oder verschoben. An diesem Pfad wird nichts angelegt; wählen Sie den Ordner, wo er jetzt ist.",
       "change": "Ändern…",
       "choose": "Ordner {{folder}} wählen",
       "chooseFor": "Ordner {{folder}} ändern",
       "done": "Fertig",
+      "inOutputFolder": "{{folder}} ist der Output-Ordner {{output}} oder liegt darin; dort liegen die erstellten Exporte. Wähle für den Ordner {{role}} einen Ordner außerhalb jedes Output-Ordners.",
+      "inOutputFolderNotThere": "{{folder}} ist ein früherer Output-Ordner dieser Session, {{output}}, oder liegt darin; dort lagen die erstellten Exporte. Wähle für den Ordner {{role}} einen Ordner außerhalb jedes Output-Ordners.",
       "inside": "In der Session",
       "intro": "Wohin diese Session Aufnahmen und Importe (Capture), nach Selects verschobene Fotos (Selects) und Exporte (Output) legt. Ein Ordner in der Session zieht mit ihr um; ein Ordner außerhalb, etwa auf einem anderen Laufwerk, bleibt, wo er ist.",
+      "madeAgainUse": {
+        "capture": "Der Ordner wird wieder angelegt, sobald Aufnahmen oder Importe hineingehen; sonst wird nichts geschrieben.",
+        "output": "Der Ordner wird wieder angelegt, sobald ein Export hineingeht; sonst wird nichts geschrieben.",
+        "selects": "Der Ordner wird wieder angelegt, sobald ein Foto nach Selects verschoben wird; sonst wird nichts geschrieben."
+      },
       "menu": "Session-Ordner…",
       "moveContents": "Inhalt in den neuen Ordner verschieben",
       "moveContentsHelp": "Die Dateien im alten Ordner werden in den neuen verschoben (auf ein anderes Laufwerk kopiert und geprüft). Bearbeiten ▸ Widerrufen holt sie zurück.",
@@ -1593,11 +1603,10 @@
       },
       "selectsUnavailable": "Der Selects-Ordner {{folder}} ist nicht verfügbar (ist sein Laufwerk angeschlossen?). Nichts wurde verschoben; wähle in „Session-Ordner“ einen anderen Selects-Ordner.",
       "title": "Session-Ordner",
-      "unavailable": "Nicht verfügbar: Der Ordner fehlt oder sein Laufwerk ist nicht angeschlossen.",
       "unavailableUse": {
-        "capture": "Aufnahmen und Importe in ihn schlagen fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird.",
-        "output": "Exporte in den Output-Ordner schlagen fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird.",
-        "selects": "„Nach Selects verschieben“ schlägt fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird."
+        "capture": "Bis der Ordner erneut gewählt ist, werden keine Aufnahmen gemacht und nichts importiert.",
+        "output": "Bis der Ordner erneut gewählt ist, wird nichts exportiert.",
+        "selects": "Bis der Ordner erneut gewählt ist, ist Nach Selects verschieben nicht möglich."
       },
       "working": "Wird ausgeführt…"
     },
