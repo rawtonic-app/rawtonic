@@ -919,10 +919,26 @@ pub fn subject_input(image: &DynamicImage, linear: bool) -> Array<f32, ndarray::
     input_tensor
 }
 
+/// The Select Subject version of new selections (a component's
+/// `subjectVersion`): 1 (absent) = BiRefNet's whole foreground
+/// (`run_subject_model`), 2 = the subject in focus (`select_subject`).
+pub const SUBJECT_VERSION: u32 = 2;
+
+/// A component's Select Subject at its `subjectVersion` (`SUBJECT_VERSION`),
+/// so a selection saved before a version computes as it did.
+pub fn subject_selection(
+    image: &DynamicImage,
+    model: &SubjectModel,
+    linear: bool,
+    run_options: Option<&ort::session::RunOptions>,
+    version: u32,
+) -> Result<GrayImage> {
+    subject_mask(image, model, linear, run_options, version >= 2)
+}
+
 /// The subject of a photo (Lightroom's Select Subject) as a mask of its
 /// size: BiRefNet's foreground without the separate objects clearly out
-/// of focus (`keep_subject_in_focus`). The editor's Select Subject and the
-/// exports that compute it use this.
+/// of focus (`keep_subject_in_focus`); `subjectVersion` 2.
 pub fn select_subject(
     image: &DynamicImage,
     model: &SubjectModel,
@@ -934,7 +950,8 @@ pub fn select_subject(
 
 /// BiRefNet's foreground of a photo as a mask of its size: the
 /// probability at 1024 × 1024, resized back. A photo without a clear
-/// subject stays dark (no min-max stretching). Relight's subject matte.
+/// subject stays dark (no min-max stretching). Relight's subject matte and
+/// Select Subject's `subjectVersion` 1.
 pub fn run_subject_model(
     image: &DynamicImage,
     model: &SubjectModel,

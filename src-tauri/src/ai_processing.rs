@@ -35,7 +35,7 @@ use rawtonic_segment::{
     fast_guided_filter, file_has_sha256, run_single,
 };
 pub use rawtonic_segment::{
-    SkyModel, SubjectModel, run_sky_seg_model, run_subject_model, select_subject,
+    SkyModel, SubjectModel, run_sky_seg_model, run_subject_model, subject_selection,
 };
 
 /// Rawtonic's model pack: files rebuilt from their authors' releases, with
@@ -3262,7 +3262,7 @@ mod tool_tests {
                 ),
                 (
                     "subject",
-                    super::select_subject(&image, &subject, linear, None).unwrap(),
+                    rawtonic_segment::select_subject(&image, &subject, linear, None).unwrap(),
                 ),
             ] {
                 let (w, h) = mask.dimensions();

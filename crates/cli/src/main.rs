@@ -439,6 +439,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
     fn detect(
         &self,
         selection: rawtonic_engine::ai_selections::AutoSelection,
+        version: u32,
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
@@ -447,10 +448,9 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
             AutoSelection::Sky => self.0.sky().and_then(|model| {
                 rawtonic_segment::run_sky_seg_model(warped, &model, linear, None)
             }),
-            AutoSelection::Subject => self
-                .0
-                .subject()
-                .and_then(|model| rawtonic_segment::select_subject(warped, &model, linear, None)),
+            AutoSelection::Subject => self.0.subject().and_then(|model| {
+                rawtonic_segment::subject_selection(warped, &model, linear, None, version)
+            }),
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)

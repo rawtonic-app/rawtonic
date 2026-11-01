@@ -1416,7 +1416,8 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             let (kind, parameters) = match (mattr("What"), mattr("MaskSubType")) {
                 (Some("Mask/Image"), Some("1")) => (
                     "ai-foreground",
-                    json!({"maskDataBase64": null, "grow": 0, "feather": 0}),
+                    json!({"maskDataBase64": null, "grow": 0, "feather": 0,
+                        "subjectVersion": rawtonic_segment::SUBJECT_VERSION}),
                 ),
                 (Some("Mask/Image"), Some("2")) => (
                     "ai-sky",
@@ -2049,6 +2050,11 @@ mod tests {
         let background = &layers[1];
         assert_eq!(background["subMasks"][0]["type"], "ai-foreground");
         assert_eq!(background["subMasks"][0]["invert"], true);
+        // A new import computes the subject in focus.
+        assert_eq!(
+            background["subMasks"][0]["parameters"]["subjectVersion"],
+            rawtonic_segment::SUBJECT_VERSION
+        );
         let preset = convert_xmp_to_preset(xmp).unwrap();
         assert_eq!(preset.include_masks, Some(true));
         assert_eq!(preset.adjustments["masks"].as_array().unwrap().len(), 3);

@@ -366,6 +366,36 @@ mod tests {
     }
 
     #[test]
+    fn a_left_out_object_takes_its_soft_edge_and_the_kept_one_stays_as_it_was() {
+        // The network's soft edges (20 px ramps) of the two objects touch
+        // between them.
+        let (left, right) = ((75.0, 128.0), (180.0, 128.0));
+        let (_, photo) = scene(&[(left.0, left.1, 45.0, 0.0), (right.0, right.1, 45.0, 4.0)]);
+        let ramp = |x: u32, y: u32, (cx, cy): (f32, f32)| {
+            let d = (x as f32 - cx).hypot(y as f32 - cy);
+            ((55.0 - d) / 20.0).clamp(0.0, 1.0)
+        };
+        let mask = GrayImage::from_fn(N, N, |x, y| {
+            let v = ramp(x, y, left).max(ramp(x, y, right));
+            image::Luma([(v * 255.0).round() as u8])
+        });
+        let out = keep_subject_in_focus(mask.clone(), &photo, false);
+        assert_ne!(out, mask);
+        let dist = |x: u32, y: u32, (cx, cy): (f32, f32)| (x as f32 - cx).hypot(y as f32 - cy);
+        for y in 0..N {
+            for x in 0..N {
+                let (l, r) = (dist(x, y, left), dist(x, y, right));
+                let (before, after) = (mask.get_pixel(x, y)[0], out.get_pixel(x, y)[0]);
+                if l + 2.0 < r {
+                    assert_eq!(after, before, "kept object changed at {x},{y}");
+                } else if r + 2.0 < l {
+                    assert_eq!(after, 0, "left-out object remains at {x},{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn objects_about_as_sharp_all_stay() {
         let (mask, photo) = scene(&[(70.0, 128.0, 45.0, 0.0), (190.0, 128.0, 45.0, 0.6)]);
         let out = keep_subject_in_focus(mask.clone(), &photo, false);
