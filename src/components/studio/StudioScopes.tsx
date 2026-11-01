@@ -136,6 +136,11 @@ export default memo(function StudioScopes() {
               className="studio-clipping-toggle"
               aria-pressed={mode === m}
               onClick={() => choose(m)}
+              onKeyDown={(event) => {
+                // Space would otherwise reach the global zoom shortcut
+                // (window keydown): keep native activation for Space/Enter.
+                if (event.key === " " || event.key === "Enter") event.stopPropagation();
+              }}
             >
               {labels[m][0]}
             </button>

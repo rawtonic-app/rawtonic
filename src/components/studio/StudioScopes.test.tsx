@@ -62,3 +62,21 @@ it("switches modes and draws the backend's vectorscope targets and skin line", (
   );
   expect((angle * 180) / Math.PI).toBeCloseTo(125.5);
 });
+
+it("keeps Space and Enter on a mode button away from the global shortcuts", () => {
+  // useKeyboardShortcuts listens on window: Space there zooms the photo and
+  // prevents the button's own activation.
+  const reached: string[] = [];
+  const shortcuts = (event: KeyboardEvent) => reached.push(event.key);
+  window.addEventListener("keydown", shortcuts);
+  try {
+    render(<StudioScopes />);
+    const vector = screen.getByRole("button", { name: "Vector" });
+    for (const key of [" ", "Enter", "j"]) {
+      expect(fireEvent.keyDown(vector, { key })).toBe(true);
+    }
+    expect(reached).toEqual(["j"]);
+  } finally {
+    window.removeEventListener("keydown", shortcuts);
+  }
+});
