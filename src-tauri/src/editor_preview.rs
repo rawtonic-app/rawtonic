@@ -2442,12 +2442,15 @@ async fn develop_kept_decode(
         }
         true
     };
-    let Some(opened) =
-        crate::image_loader::open_kept_decode(&state, path, variant, &settings)
+    let Some(opened) = crate::image_loader::open_kept_decode(&state, path, variant, &settings)
     else {
         // Let go meanwhile, or another photograph was asked for: its load
         // decodes it; a still shown stays until that frame.
-        return Some(if still { Activation::Still } else { Activation::None });
+        return Some(if still {
+            Activation::Still
+        } else {
+            Activation::None
+        });
     };
     let recipe = activation_recipe(Some(saved), &source_path, &sidecar_path);
     submit_activation_frame(&state, recipe, opened.size(), viewport);
@@ -2461,7 +2464,11 @@ async fn develop_kept_decode(
         serde_json::json!({ "stage": "activate_photo_decode", "still": still,
             "queued_epoch_ms": crate::performance::epoch_ms() })
     );
-    Some(if still { Activation::Still } else { Activation::Developed })
+    Some(if still {
+        Activation::Still
+    } else {
+        Activation::Developed
+    })
 }
 
 /// How long a step onto a photograph whose decode is being finished ahead

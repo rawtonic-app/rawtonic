@@ -521,7 +521,13 @@ pub(crate) fn kept_decode(
 /// Whether the prefetch decode under way is the one of decoded-cache key
 /// `key`.
 pub(crate) fn decoding_ahead(key: &str) -> bool {
-    UNDER_WAY.0.lock().unwrap_or_else(|e| e.into_inner()).key.as_deref() == Some(key)
+    UNDER_WAY
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .key
+        .as_deref()
+        == Some(key)
 }
 
 /// Waits up to `wait` while the prefetch decode of decoded-cache key `key`
