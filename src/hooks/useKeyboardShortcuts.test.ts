@@ -862,3 +862,37 @@ describe("J switches the clipping warnings", () => {
     expect(useEditorStore.getState().clipShadows).toBe(false);
   });
 });
+
+describe("Select All and value fields", () => {
+  const list = [{ path: "/s/a.NEF" }, { path: "/s/b.NEF" }, { path: "/s/c.NEF" }] as never;
+  beforeEach(() => {
+    cleanup();
+    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: list }));
+  });
+
+  it.each(["text", "number"])("leaves ⌘A in a focused %s value field to the field", (type) => {
+    const field = document.createElement("input");
+    field.type = type;
+    document.body.appendChild(field);
+    field.focus();
+    const event = new KeyboardEvent("keydown", { code: "KeyA", key: "a", metaKey: true, bubbles: true, cancelable: true });
+    field.dispatchEvent(event);
+    // The browser's own select-all-text stays possible: nothing prevented it.
+    expect(event.defaultPrevented).toBe(false);
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual([]);
+  });
+
+  it("selects all photos with ⌘A when no field has the focus", () => {
+    press("KeyA", "a", { metaKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(["/s/a.NEF", "/s/b.NEF", "/s/c.NEF"]);
+  });
+
+  it("still selects all photos with ⌘A after a slider was dragged", () => {
+    const slider = document.createElement("input");
+    slider.type = "range";
+    document.body.appendChild(slider);
+    slider.focus();
+    slider.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyA", key: "a", metaKey: true, bubbles: true, cancelable: true }));
+    expect(useLibraryStore.getState().multiSelectedPaths).toHaveLength(3);
+  });
+});
