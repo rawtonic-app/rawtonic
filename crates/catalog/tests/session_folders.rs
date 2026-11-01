@@ -687,9 +687,9 @@ fn photograph_folders_inside_an_output_folder_are_refused() {
     assert!(error.contains("Output folder"), "{error}");
     assert!(
         error.contains(&format!(
-            "rawtonic:inOutputFolder:capture:{}:{}",
-            deliveries.display(),
-            deliveries.display()
+            r#"rawtonic-refusal:{{"code":"inOutputFolder","folder":{},"output":{},"role":"capture"}}"#,
+            serde_json::to_string(&deliveries.display().to_string()).unwrap(),
+            serde_json::to_string(&deliveries.display().to_string()).unwrap()
         )),
         "{error}"
     );
@@ -752,9 +752,9 @@ fn a_capture_folder_inside_an_output_folder_outside_is_refused() {
         .to_string();
     assert!(
         error.contains(&format!(
-            "rawtonic:inOutputFolder:capture:{}:{}",
-            client.display(),
-            share.display()
+            r#"rawtonic-refusal:{{"code":"inOutputFolder","folder":{},"output":{},"role":"capture"}}"#,
+            serde_json::to_string(&client.display().to_string()).unwrap(),
+            serde_json::to_string(&share.display().to_string()).unwrap()
         )),
         "{error}"
     );
@@ -767,4 +767,21 @@ fn a_capture_folder_inside_an_output_folder_outside_is_refused() {
         std::os::unix::fs::symlink(&share, &link).unwrap();
         assert!(lib.set_session_folder(FolderRole::Capture, &link).is_err());
     }
+}
+
+/// What the app parses (`src/utils/sessionFolders.test.ts` holds this very
+/// string): a path with colons, spaces and quotes survives as JSON after the
+/// marker.
+#[test]
+fn a_refusal_travels_as_json_after_its_marker() {
+    let refusal = rawtonic_catalog::session_folders::FolderRefusal {
+        code: "inOutputFolder",
+        role: FolderRole::Capture,
+        folder: "/Volumes/Job: 1/Deliveries \"A\"".into(),
+        output: "/Volumes/Job: 1/Deliveries".into(),
+    };
+    assert_eq!(
+        refusal.to_string(),
+        r#"rawtonic-refusal:{"code":"inOutputFolder","folder":"/Volumes/Job: 1/Deliveries \"A\"","output":"/Volumes/Job: 1/Deliveries","role":"capture"}"#
+    );
 }
