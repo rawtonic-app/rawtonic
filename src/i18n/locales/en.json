@@ -3548,6 +3548,8 @@
       "enable": "Enable profile corrections",
       "lookingUp": "Looking up the lens…",
       "make": "Make",
+      "manualVignetting": "Lens vignetting",
+      "manualVignettingMidpoint": "Vignetting midpoint",
       "model": "Model",
       "noFocalData": "The profile has no data for this focal length.",
       "none": "None",

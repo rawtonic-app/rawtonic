@@ -3698,6 +3698,8 @@
       "enable": "Activer les corrections de profil",
       "lookingUp": "Recherche de l'objectif…",
       "make": "Marque",
+      "manualVignetting": "Vignetage de l’objectif",
+      "manualVignettingMidpoint": "Point médian du vignetage",
       "model": "Modèle",
       "noFocalData": "Le profil n'a pas de données pour cette focale.",
       "none": "Aucun",

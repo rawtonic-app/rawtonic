@@ -494,6 +494,24 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         }
     }
 
+    // Lens Corrections ▸ Manual ▸ Lens Vignetting: the same scale (−100…+100,
+    // midpoint 0…100); the engine's response was fitted to Lightroom's
+    // (`rawtonic_engine::manual_vignette`).
+    if let Some(amount) = get_attr_as_f64(&attrs, "VignetteAmount").filter(|a| a.abs() > 1e-6) {
+        adjustments.insert(
+            rawtonic_engine::manual_vignette::AMOUNT_KEY.to_string(),
+            json!(amount),
+        );
+        if let Some(midpoint) =
+            get_attr_as_f64(&attrs, "VignetteMidpoint").filter(|m| (m - 50.0).abs() > 1e-6)
+        {
+            adjustments.insert(
+                rawtonic_engine::manual_vignette::MIDPOINT_KEY.to_string(),
+                json!(midpoint),
+            );
+        }
+    }
+
     // Lightroom's grain becomes film grain, the grain new edits get (user
     // decision 2026-10-27): monochrome like Lightroom's (Colour 0), Amount,
     // Size and Roughness 1:1 — film grain's scales were calibrated on
@@ -1886,6 +1904,26 @@ mod tests {
         let adjustments = convert_xmp_to_preset(none).unwrap().adjustments;
         assert!(adjustments.get("grainColor").is_none());
         assert!(adjustments.get("grainVersion").is_none());
+    }
+
+    #[test]
+    fn lightroom_manual_lens_vignetting_maps_one_to_one() {
+        let xmp = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:VignetteAmount="+20"
+            crs:VignetteMidpoint="35"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
+        assert_eq!(adjustments["lensManualVignetteAmount"], 20.0);
+        assert_eq!(adjustments["lensManualVignetteMidpoint"], 35.0);
+        // The default midpoint is left out; no amount, no keys.
+        let xmp = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:VignetteAmount="-40"
+            crs:VignetteMidpoint="50"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
+        assert_eq!(adjustments["lensManualVignetteAmount"], -40.0);
+        assert!(adjustments.get("lensManualVignetteMidpoint").is_none());
+        let xmp = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:VignetteAmount="0"
+            crs:VignetteMidpoint="20"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
+        assert!(adjustments.get("lensManualVignetteAmount").is_none());
+        assert!(adjustments.get("lensManualVignetteMidpoint").is_none());
     }
 
     #[test]

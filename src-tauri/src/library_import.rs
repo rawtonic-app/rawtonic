@@ -468,6 +468,22 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
     // benchmark-results/hl-highlights-2026-11-01).
     base[rawtonic_engine::image_processing::TONE_VERSION_KEY] =
         json!(rawtonic_engine::image_processing::TONE_VERSION);
+    // Every other tool's response a new edit gets (`initialAdjustmentsFor`
+    // in the editor): without the keys an import rendered Clarity, noise
+    // reduction, Defringe and grain with their first responses (notes:
+    // benchmark-results/lc3-lr-import-2026-11-01).
+    {
+        use rawtonic_engine::image_processing as ip;
+        base[ip::CLARITY_VERSION_KEY] = json!(ip::CLARITY_VERSION);
+        base[rawtonic_engine::color_noise::VERSION_KEY] =
+            json!(rawtonic_engine::color_noise::VERSION);
+        base[ip::LUMA_NOISE_VERSION_KEY] = json!(ip::LUMA_NOISE_VERSION);
+        base[ip::DEFRINGE_VERSION_KEY] = json!(ip::DEFRINGE_VERSION);
+        base[ip::GRAIN_VERSION_KEY] = json!(ip::GRAIN_VERSION);
+        if is_raw {
+            base["aiDenoiseVersion"] = json!(rawtonic_engine::image_loader::AI_DENOISE_VERSION);
+        }
+    }
     if let (Some(map), Some(base)) = (adjustments.as_object_mut(), base.as_object()) {
         for (key, value) in base {
             map.entry(key.clone()).or_insert_with(|| value.clone());
@@ -1081,6 +1097,33 @@ mod tests {
             a["toneVersion"].as_u64(),
             Some(rawtonic_engine::image_processing::TONE_VERSION)
         );
+        // Every tool's response a new edit gets.
+        for (key, version) in [
+            (
+                rawtonic_engine::image_processing::CLARITY_VERSION_KEY,
+                rawtonic_engine::image_processing::CLARITY_VERSION,
+            ),
+            (
+                rawtonic_engine::color_noise::VERSION_KEY,
+                rawtonic_engine::color_noise::VERSION,
+            ),
+            (
+                rawtonic_engine::image_processing::LUMA_NOISE_VERSION_KEY,
+                rawtonic_engine::image_processing::LUMA_NOISE_VERSION,
+            ),
+            (
+                rawtonic_engine::image_processing::DEFRINGE_VERSION_KEY,
+                rawtonic_engine::image_processing::DEFRINGE_VERSION,
+            ),
+            (
+                rawtonic_engine::image_processing::GRAIN_VERSION_KEY,
+                rawtonic_engine::image_processing::GRAIN_VERSION,
+            ),
+        ] {
+            assert_eq!(a[key].as_u64(), Some(version), "{key}");
+        }
+        // Not a RAW: no AI Denoise version.
+        assert!(a.get("aiDenoiseVersion").is_none());
         assert_eq!(
             a["crop"],
             json!({"unit": "px", "x": 10.0, "y": 16.0, "width": 80.0, "height": 48.0})

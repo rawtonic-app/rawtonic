@@ -3548,6 +3548,8 @@
       "enable": "Profilkorrekturen aktivieren",
       "lookingUp": "Objektiv wird gesucht…",
       "make": "Hersteller",
+      "manualVignetting": "Objektiv-Vignettierung",
+      "manualVignettingMidpoint": "Mittelpunkt der Vignettierung",
       "model": "Modell",
       "noFocalData": "Das Profil hat keine Daten für diese Brennweite.",
       "none": "Keiner",

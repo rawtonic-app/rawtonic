@@ -63,7 +63,10 @@ struct Params {
     lens_vig_amt: f32,
     table_step: f32,
     table_end_slope: f32,
-    _pad1: [f32; 3],
+    /// Manual lens vignetting (`WarpUniforms::manual_vignetting`).
+    mv_ev: f32,
+    mv_power: f32,
+    mv_per_hd: f32,
 }
 
 const LENS: u32 = 1;
@@ -77,6 +80,7 @@ const KEEP_NEGATIVE: u32 = 128;
 #[cfg(any(test, feature = "test-support"))]
 const POSITIONS: u32 = 256;
 const SRGB_BASE: u32 = 512;
+const MANUAL_VIGNETTING: u32 = 1024;
 
 /// Output pixels per submission: display frames queued meanwhile wait for
 /// one band, not the whole frame, and a band's buffers stay small.
@@ -247,6 +251,10 @@ fn params(u: &WarpUniforms, source: &SourceRows, out: OutputRows) -> (Params, Ve
         .vignetting
         .inspect(|_| flags |= VIGNETTING)
         .unwrap_or_default();
+    let [mv_ev, mv_power, mv_per_hd] = u
+        .manual_vignetting
+        .inspect(|_| flags |= MANUAL_VIGNETTING)
+        .unwrap_or_default();
     if u.keep_negative {
         flags |= KEEP_NEGATIVE;
     }
@@ -291,6 +299,9 @@ fn params(u: &WarpUniforms, source: &SourceRows, out: OutputRows) -> (Params, Ve
         lens_vig_amt,
         table_step,
         table_end_slope,
+        mv_ev,
+        mv_power,
+        mv_per_hd,
         ..Default::default()
     };
     (params, table_data)

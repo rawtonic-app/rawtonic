@@ -37,6 +37,7 @@ pub mod lightroom_masks;
 pub mod lightroom_retouch;
 pub mod luma_levels;
 pub mod lut;
+pub mod manual_vignette;
 pub mod mask_generation;
 pub mod mask_parameters;
 pub mod mask_thumbnail;

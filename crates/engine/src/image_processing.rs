@@ -177,6 +177,28 @@ pub struct GeometryParams {
     /// a recipe key: the caller's `is_raw` ([`geometry_params_for`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub srgb_base: bool,
+    /// Manual lens vignetting (`manual_vignette`): amount −100…+100, 0 =
+    /// none.
+    #[serde(default, skip_serializing_if = "is_no_manual_vignette")]
+    pub manual_vignette_amount: f32,
+    /// Its midpoint, 0…100.
+    #[serde(
+        default = "default_manual_vignette_midpoint",
+        skip_serializing_if = "is_default_manual_vignette_midpoint"
+    )]
+    pub manual_vignette_midpoint: f32,
+}
+
+fn default_manual_vignette_midpoint() -> f32 {
+    50.0
+}
+
+fn is_no_manual_vignette(amount: &f32) -> bool {
+    *amount == 0.0
+}
+
+fn is_default_manual_vignette_midpoint(midpoint: &f32) -> bool {
+    *midpoint == 50.0
 }
 
 impl Default for GeometryParams {
@@ -223,6 +245,8 @@ impl Default for GeometryParams {
             f32_warp: false,
             gpu_warp: false,
             srgb_base: false,
+            manual_vignette_amount: 0.0,
+            manual_vignette_midpoint: 50.0,
         }
     }
 }
@@ -342,6 +366,12 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         f32_warp: render_version(adjustments) >= F32_WARP_RENDER_VERSION,
         gpu_warp: render_version(adjustments) >= GPU_WARP_RENDER_VERSION,
         srgb_base: false,
+        manual_vignette_amount: adjustments[crate::manual_vignette::AMOUNT_KEY]
+            .as_f64()
+            .unwrap_or(0.0) as f32,
+        manual_vignette_midpoint: adjustments[crate::manual_vignette::MIDPOINT_KEY]
+            .as_f64()
+            .unwrap_or(50.0) as f32,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -1375,6 +1405,9 @@ struct WarpKernel {
     vk3: f64,
     lens_vig_amt: f64,
     has_vignetting: bool,
+    /// Manual lens vignetting: (EV at half the long side, power of the
+    /// radius, half-diagonals per half long side) (`manual_vignette`).
+    manual_vignette: Option<[f32; 3]>,
     keep_negative: bool,
     /// `GeometryParams::f32_warp`.
     f32_warp: bool,
@@ -1467,6 +1500,17 @@ impl WarpKernel {
         let vk3 = params.vig_k3 as f64;
         let lens_vig_amt = (params.lens_vignette_amount as f64) * lens_strength(params).1;
         let has_vignetting = shades_lens_vignetting(params);
+        let manual_vignette = crate::manual_vignette::shape(
+            params.manual_vignette_amount,
+            params.manual_vignette_midpoint,
+        )
+        .map(|(ev, power)| {
+            [
+                ev,
+                power,
+                (hd * 2.0) as f32 / width.max(height).max(1) as f32,
+            ]
+        });
 
         Self {
             step_vec_x,
@@ -1499,6 +1543,7 @@ impl WarpKernel {
             vk3,
             lens_vig_amt,
             has_vignetting,
+            manual_vignette,
             keep_negative: params.keep_negative,
             f32_warp: params.f32_warp,
             gpu_warp: params.gpu_warp,
@@ -1697,6 +1742,25 @@ impl WarpKernel {
     /// (`srgb_base`).
     #[inline(always)]
     fn shade(&self, src_x: f32, src_y: f32, pixel: &mut [f32]) {
+        self.shade_profile(src_x, src_y, pixel);
+        // Manual lens vignetting after the profile's, as the GPU warp.
+        if let Some([ev, power, per_hd]) = self.manual_vignette {
+            let (dx, dy) = (src_x - self.cx, src_y - self.cy);
+            let rho = (dx * dx + dy * dy).sqrt() / self.hd as f32 * per_hd;
+            let gain = crate::manual_vignette::gain(ev, power, rho);
+            for value in &mut pixel[..3] {
+                *value = if self.srgb_base {
+                    srgb_encode(srgb_decode(*value) * gain)
+                } else {
+                    *value * gain
+                };
+            }
+        }
+    }
+
+    /// The lens profile's vignetting of [`Self::shade`].
+    #[inline(always)]
+    fn shade_profile(&self, src_x: f32, src_y: f32, pixel: &mut [f32]) {
         if !self.has_vignetting {
             return;
         }
@@ -1926,6 +1990,9 @@ pub(crate) struct WarpUniforms {
     pub tca: Option<[f32; 5]>,
     /// (k1, k2, k3, amount) of the vignetting.
     pub vignetting: Option<[f32; 4]>,
+    /// Manual lens vignetting: (EV at half the long side, power of the
+    /// radius, half-diagonals per half long side) (`manual_vignette`).
+    pub manual_vignetting: Option<[f32; 3]>,
     pub keep_negative: bool,
     /// `GeometryParams::srgb_base`.
     pub srgb_base: bool,
@@ -1965,6 +2032,7 @@ impl WarpKernel {
                 self.vk3 as f32,
                 self.lens_vig_amt as f32,
             ]),
+            manual_vignetting: self.manual_vignette,
             keep_negative: self.keep_negative,
             srgb_base: self.srgb_base,
         }
@@ -3942,6 +4010,11 @@ pub fn is_geometry_identity(params: &GeometryParams) -> bool {
         && dist_identity
         && tca_identity
         && vig_identity
+        && crate::manual_vignette::shape(
+            params.manual_vignette_amount,
+            params.manual_vignette_midpoint,
+        )
+        .is_none()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

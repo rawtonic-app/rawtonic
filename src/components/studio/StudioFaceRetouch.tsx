@@ -21,6 +21,8 @@ import { frameGeometry as shownGeometry, reframePoint } from "../../utils/maskGe
  * `face_retouch::COLOUR_ONLY_KEYS`): faces stay valid when they change. */
 const COLOUR_ONLY_KEYS: ReadonlySet<string> = new Set([
   'lensVignetteAmount',
+  'lensManualVignetteAmount',
+  'lensManualVignetteMidpoint',
   'lensVignetteEnabled',
   'lensTcaAmount',
   'lensTcaEnabled',

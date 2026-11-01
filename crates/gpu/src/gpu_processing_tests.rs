@@ -15181,6 +15181,16 @@ fn gpu_warp_recipes() -> Vec<serde_json::Value> {
         json!({"renderVersion": 7, "lensDistortionParams": {"k1": -0.05, "model": 0,
             "vig_k1": -0.3}, "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
             (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        // Manual lens vignetting alone (no other warp), and after a profile's
+        // vignetting with a transform and a crop.
+        json!({"renderVersion": 7, (rawtonic_engine::manual_vignette::AMOUNT_KEY): 60.0,
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        json!({"renderVersion": 7, "lensDistortionParams": {"k1": -0.05, "model": 0,
+            "vig_k1": -0.3}, "transformRotate": 2.5,
+            (rawtonic_engine::manual_vignette::AMOUNT_KEY): -45.0,
+            (rawtonic_engine::manual_vignette::MIDPOINT_KEY): 20.0,
+            "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
     ]
 }
 

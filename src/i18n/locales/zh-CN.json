@@ -3454,6 +3454,8 @@
       "enable": "启用配置文件校正",
       "lookingUp": "正在查找镜头…",
       "make": "品牌",
+      "manualVignetting": "镜头暗角",
+      "manualVignettingMidpoint": "暗角中点",
       "model": "型号",
       "noFocalData": "该配置文件没有此焦距的数据。",
       "none": "无",

@@ -584,6 +584,12 @@ export interface Adjustments {
   lensDistortionEnabled: boolean;
   lensTcaEnabled: boolean;
   lensVignetteEnabled: boolean;
+  /** Manual lens vignetting (manual_vignette.rs): a radial exposure gain of
+   * the uncropped frame, −100…+100 (positive brightens the corners);
+   * missing = none. Lightroom's Lens Vignetting. */
+  lensManualVignetteAmount?: number;
+  /** Its midpoint, 0…100 (missing = 50): lower reaches further in. */
+  lensManualVignetteMidpoint?: number;
   /** Capture One's diffraction correction: sharpening by the f-number and
    * pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
@@ -2160,6 +2166,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         LensAdjustment.LensDistortionEnabled,
         LensAdjustment.LensTcaEnabled,
         LensAdjustment.LensVignetteEnabled,
+        'lensManualVignetteAmount',
+        'lensManualVignetteMidpoint',
         'diffractionCorrection',
         'diffractionVersion',
         'autoChromaticAberration',
