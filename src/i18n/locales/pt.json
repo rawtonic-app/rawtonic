@@ -1660,6 +1660,8 @@
       "choose": "Escolher a pasta {{folder}}",
       "chooseFor": "Alterar a pasta {{folder}}",
       "done": "Concluído",
+      "inOutputFolder": "{{folder}} é a pasta Output {{output}} ou está dentro dela; lá estão as exportações feitas. Para a pasta {{role}}, escolha uma pasta fora de qualquer pasta Output.",
+      "inOutputFolderNotThere": "{{folder}} é uma antiga pasta Output desta sessão, {{output}}, ou está dentro dela; lá estavam as exportações feitas. Para a pasta {{role}}, escolha uma pasta fora de qualquer pasta Output.",
       "inside": "Dentro da sessão",
       "intro": "Onde esta sessão guarda capturas e importações (Capture), as fotos movidas para Selects (Selects) e as exportações (Output). Uma pasta dentro da sessão move-se com ela; uma pasta fora, por exemplo noutro disco, fica onde está.",
       "madeAgainUse": {

@@ -1574,6 +1574,8 @@
       "choose": "Choose the {{folder}} folder",
       "chooseFor": "Change the {{folder}} folder",
       "done": "Done",
+      "inOutputFolder": "{{folder}} is or is inside the Output folder {{output}}, which holds the exports made there. Choose a folder outside every Output folder for the {{role}} folder.",
+      "inOutputFolderNotThere": "{{folder}} is or is inside an Output folder of this session, {{output}}, which held the exports made there. Choose a folder outside every Output folder for the {{role}} folder.",
       "inside": "Inside the session",
       "intro": "Where this session puts captures and imports (Capture), photos you move to Selects (Selects) and exports (Output). A folder inside the session moves with it; a folder outside it, such as on another drive, stays where it is.",
       "madeAgainUse": {

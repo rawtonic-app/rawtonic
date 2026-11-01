@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { isInternalSessionFolder, withoutInternalSessionFolders } from './sessionFolders';
+import { folderRefusalMessage, isInternalSessionFolder, parseFolderRefusal, withoutInternalSessionFolders } from './sessionFolders';
 
 type Folder = { path: string; name: string; children: Folder[] };
 const folder = (path: string, children: Folder[] = []): Folder => ({
@@ -25,4 +25,32 @@ it('hides a catalog’s preview folders too', () => {
   expect(isInternalSessionFolder('/c/Main', 'previews', '/c/Main')).toBe(true);
   expect(isInternalSessionFolder('/c/Main', 'smart-previews', '/c/Main')).toBe(true);
   expect(isInternalSessionFolder('/c/Main', 'Capture', '/c/Main')).toBe(false);
+});
+
+it('reads a folder refused for being (in) an Output folder, and says it in the user’s language', () => {
+  const refusal =
+    'rawtonic:inOutputFolder:capture:/job/Deliveries: Something is wrong in Deliveries';
+  expect(parseFolderRefusal(refusal)).toEqual({
+    code: 'inOutputFolder',
+    role: 'capture',
+    folder: '/job/Deliveries',
+    output: 'Something is wrong in Deliveries',
+  });
+  // Every other error, and none, is left to the caller as it is.
+  expect(parseFolderRefusal('/job/x is not a folder')).toBeNull();
+  expect(parseFolderRefusal('rawtonic:inOutputFolder:capture:only-one')).toBeNull();
+
+  const t = (key: string, options?: Record<string, unknown>) => {
+    const role = /^session\.folders\.role\.(\w+)$/.exec(key);
+    if (role) return role[1][0].toUpperCase() + role[1].slice(1);
+    return `${key}:${JSON.stringify(options)}`;
+  };
+  const message = folderRefusalMessage(t, 'rawtonic:inOutputFolder:selects:/job/Deliveries: /job/Output', true);
+  expect(message).toBe(
+    'session.folders.inOutputFolder:{"folder":"/job/Deliveries","output":"/job/Output","role":"Selects"}',
+  );
+  // A former Output folder that is gone held the exports.
+  const gone = folderRefusalMessage(t, 'rawtonic:inOutputFolder:capture:/job/Deliveries: /job/Deliveries', false);
+  expect(gone).toContain('session.folders.inOutputFolderNotThere:');
+  expect(folderRefusalMessage(t, 'something else', true)).toBeNull();
 });

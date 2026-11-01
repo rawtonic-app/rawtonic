@@ -1528,6 +1528,8 @@
       "choose": "选择 {{folder}} 文件夹",
       "chooseFor": "更改 {{folder}} 文件夹",
       "done": "完成",
+      "inOutputFolder": "{{folder}} 就是 Output 文件夹 {{output}}，或位于其中；那里存放着导出的照片。请为 {{role}} 文件夹选择任何 Output 文件夹之外的文件夹。",
+      "inOutputFolderNotThere": "{{folder}} 是本会话以前的 Output 文件夹 {{output}} 或位于其中；那里存放过导出的照片。请为 {{role}} 文件夹选择任何 Output 文件夹之外的文件夹。",
       "inside": "在会话内",
       "intro": "此会话存放拍摄和导入 (Capture)、移到 Selects 的照片 (Selects) 以及导出 (Output) 的位置。会话内的文件夹随会话一起移动；会话外的文件夹（例如在另一个驱动器上）保持原位。",
       "madeAgainUse": {

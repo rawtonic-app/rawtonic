@@ -1660,6 +1660,8 @@
       "choose": "Scegli la cartella {{folder}}",
       "chooseFor": "Cambia la cartella {{folder}}",
       "done": "Fine",
+      "inOutputFolder": "{{folder}} è la cartella Output {{output}} o si trova al suo interno: contiene le esportazioni create lì. Per la cartella {{role}} scegli una cartella fuori da ogni cartella Output.",
+      "inOutputFolderNotThere": "{{folder}} è una cartella Output passata di questa sessione, {{output}}, o si trova al suo interno: conteneva le esportazioni create lì. Per la cartella {{role}} scegli una cartella fuori da ogni cartella Output.",
       "inside": "Nella sessione",
       "intro": "Dove questa sessione mette scatti e importazioni (Capture), le foto spostate in Selects (Selects) e le esportazioni (Output). Una cartella dentro la sessione si sposta con essa; una cartella fuori, ad esempio su un altro disco, resta dov’è.",
       "madeAgainUse": {

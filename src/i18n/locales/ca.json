@@ -1660,6 +1660,8 @@
       "choose": "Tria la carpeta {{folder}}",
       "chooseFor": "Canvia la carpeta {{folder}}",
       "done": "Fet",
+      "inOutputFolder": "{{folder}} és la carpeta Output {{output}} o hi és a dins, i aquesta conté les exportacions fetes allà. Tria una carpeta fora de qualsevol carpeta Output per a la carpeta {{role}}.",
+      "inOutputFolderNotThere": "{{folder}} és una carpeta Output d’aquesta sessió, {{output}}, o hi és a dins, i aquesta contenia les exportacions fetes allà. Tria una carpeta fora de qualsevol carpeta Output per a la carpeta {{role}}.",
       "inside": "Dins de la sessió",
       "intro": "On desa aquesta sessió les captures i importacions (Capture), les fotos mogudes a Selects (Selects) i les exportacions (Output). Una carpeta dins de la sessió es mou amb ella; una carpeta fora, per exemple en un altre disc, es queda on és.",
       "madeAgainUse": {

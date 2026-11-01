@@ -1746,6 +1746,8 @@
       "choose": "Wybierz folder {{folder}}",
       "chooseFor": "Zmień folder {{folder}}",
       "done": "Gotowe",
+      "inOutputFolder": "{{folder}} to folder Output {{output}} lub znajduje się w nim; są w nim wyeksportowane zdjęcia. Dla folderu {{role}} wybierz folder poza każdym folderem Output.",
+      "inOutputFolderNotThere": "{{folder}} to dawny folder Output tej sesji, {{output}}, lub znajduje się w nim; były w nim wyeksportowane zdjęcia. Dla folderu {{role}} wybierz folder poza każdym folderem Output.",
       "inside": "Wewnątrz sesji",
       "intro": "Gdzie ta sesja zapisuje zdjęcia z sesji i importy (Capture), zdjęcia przeniesione do Selects (Selects) oraz eksporty (Output). Folder wewnątrz sesji przenosi się razem z nią; folder poza nią, np. na innym dysku, zostaje na miejscu.",
       "madeAgainUse": {

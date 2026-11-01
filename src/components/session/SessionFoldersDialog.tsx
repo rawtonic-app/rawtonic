@@ -6,6 +6,8 @@ import { Invokes } from "../ui/AppProperties";
 import { openDialog } from "../../utils/fileDialog";
 import {
   FOLDER_ROLES,
+  folderRefusalMessage,
+  parseFolderRefusal,
   openableFolderPath,
   sessionFoldersOrDefault,
   moveFolderContents,
@@ -126,7 +128,16 @@ export default function SessionFoldersDialog({
         onChanged(change);
       }
     } catch (e) {
-      setError(String(e));
+      // A folder refused for being (in) an Output folder is said in the
+      // user's language, naming the folder that holds the exports (review
+      // r4, G38); any other error is shown as the backend words it.
+      const message = String(e);
+      // The Output folder named is the current one and there; otherwise it
+      // is a former one, which held the exports.
+      const named = parseFolderRefusal(message)?.output;
+      const output = (folders ?? []).find((f) => f.role === "output");
+      const refusal = folderRefusalMessage(t, message, !!output && output.path === named && output.available);
+      setError(refusal ?? message);
     } finally {
       setBusy(null);
     }

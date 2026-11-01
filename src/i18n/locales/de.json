@@ -1574,6 +1574,8 @@
       "choose": "Ordner {{folder}} wählen",
       "chooseFor": "Ordner {{folder}} ändern",
       "done": "Fertig",
+      "inOutputFolder": "{{folder}} ist der Output-Ordner {{output}} oder liegt darin; dort liegen die erstellten Exporte. Wähle für den Ordner {{role}} einen Ordner außerhalb jedes Output-Ordners.",
+      "inOutputFolderNotThere": "{{folder}} ist ein früherer Output-Ordner dieser Session, {{output}}, oder liegt darin; dort lagen die erstellten Exporte. Wähle für den Ordner {{role}} einen Ordner außerhalb jedes Output-Ordners.",
       "inside": "In der Session",
       "intro": "Wohin diese Session Aufnahmen und Importe (Capture), nach Selects verschobene Fotos (Selects) und Exporte (Output) legt. Ein Ordner in der Session zieht mit ihr um; ein Ordner außerhalb, etwa auf einem anderen Laufwerk, bleibt, wo er ist.",
       "madeAgainUse": {

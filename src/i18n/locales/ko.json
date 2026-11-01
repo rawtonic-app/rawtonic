@@ -1528,6 +1528,8 @@
       "choose": "{{folder}} 폴더 선택",
       "chooseFor": "{{folder}} 폴더 변경",
       "done": "완료",
+      "inOutputFolder": "{{folder}}은(는) Output 폴더 {{output}}이거나 그 안에 있습니다. 그곳에는 내보낸 사진이 있습니다. {{role}} 폴더로는 모든 Output 폴더 밖에 있는 폴더를 선택하세요.",
+      "inOutputFolderNotThere": "{{folder}}은(는) 이 세션에서 예전에 쓴 Output 폴더 {{output}}이거나 그 안에 있습니다. 그곳에는 내보낸 사진이 있었습니다. {{role}} 폴더로는 모든 Output 폴더 밖에 있는 폴더를 선택하세요.",
       "inside": "세션 안",
       "intro": "이 세션이 촬영 및 가져오기(Capture), Selects로 옮긴 사진(Selects), 내보내기(Output)를 두는 위치입니다. 세션 안의 폴더는 세션과 함께 이동하고, 다른 드라이브 등 세션 밖의 폴더는 그 자리에 남습니다.",
       "madeAgainUse": {

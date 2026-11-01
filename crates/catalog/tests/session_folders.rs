@@ -577,3 +577,194 @@ fn the_folders_a_new_session_was_given_are_made_again() {
     );
     assert!(dir.join("Output").is_dir());
 }
+
+/// A session written before `output_folders` existed may still have a
+/// custom Output setting (origin/main supported it without that field).
+/// Such a folder that is missing or whose parent was renamed is reported
+/// unavailable and is never made again — a folder outside the session that
+/// held the exports is not made on its drive either. Review r4, G38.
+#[test]
+fn a_legacy_session_never_makes_a_custom_output_folder_again() {
+    // Custom Output inside the session whose parent was renamed.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let deliveries = lib.directory.join("Deliveries/2026");
+    fs::create_dir_all(&deliveries).unwrap();
+    lib.set_session_folder(FolderRole::Output, &deliveries)
+        .unwrap();
+    fs::write(deliveries.join("Export.jpg"), b"an export").unwrap();
+    fs::rename(
+        lib.directory.join("Deliveries"),
+        lib.directory.join("Deliveries 2026"),
+    )
+    .unwrap();
+    let dir = lib.directory.clone();
+    drop(lib);
+    let legacy = |dir: &Path| {
+        let mut stored = manifest(&Library::open(dir).unwrap());
+        stored.as_object_mut().unwrap().remove("output_folders");
+        fs::write(
+            dir.join("session.json"),
+            serde_json::to_vec(&stored).unwrap(),
+        )
+        .unwrap();
+    };
+    legacy(&dir);
+    let lib = Library::open(&dir).unwrap();
+    let output = lib.session_folder(FolderRole::Output);
+    assert!(output.inside && !output.available, "{output:?}");
+    assert!(!output.recreated, "{output:?}");
+    let error = lib
+        .usable_folder(FolderRole::Output)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not available"), "{error}");
+    assert!(error.contains("renamed or moved"), "{error}");
+    // Nothing was made at the old path; the exports stay where they are.
+    assert!(!dir.join("Deliveries").exists());
+    assert!(dir.join("Deliveries 2026/2026/Export.jpg").is_file());
+
+    // Custom Output outside the session, missing: reported, never made.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let share = tmp.path().join("Share/Exports");
+    fs::create_dir_all(&share).unwrap();
+    lib.set_session_folder(FolderRole::Output, &share).unwrap();
+    let dir = lib.directory.clone();
+    drop(lib);
+    legacy(&dir);
+    fs::remove_dir_all(tmp.path().join("Share")).unwrap();
+    let lib = Library::open(&dir).unwrap();
+    let output = lib.session_folder(FolderRole::Output);
+    assert!(!output.inside && !output.available && !output.recreated);
+    let error = lib
+        .usable_folder(FolderRole::Output)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not available"), "{error}");
+    assert!(!share.exists(), "the folder outside was made again");
+
+    // The default Output of such a session is still made again when removed.
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = session(tmp.path());
+    let dir = lib.directory.clone();
+    drop(lib);
+    legacy(&dir);
+    fs::remove_dir(dir.join("Output")).unwrap();
+    let lib = Library::open(&dir).unwrap();
+    assert!(lib.session_folder(FolderRole::Output).recreated);
+    assert_eq!(
+        lib.usable_folder(FolderRole::Output).unwrap(),
+        dir.join("Output")
+    );
+    assert!(dir.join("Output").is_dir());
+}
+
+/// A folder that was the Output folder holds exports, so Capture and
+/// Selects refuse it and any folder inside it, current or former: a scan of
+/// the Capture folder would otherwise take the exports for photographs
+/// again. Nothing is moved or deleted. Review r4, G38.
+#[test]
+fn photograph_folders_inside_an_output_folder_are_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let deliveries = lib.directory.join("Deliveries");
+    fs::create_dir(&deliveries).unwrap();
+    lib.set_session_folder(FolderRole::Output, &deliveries)
+        .unwrap();
+    fs::write(deliveries.join("Export.jpg"), b"an export").unwrap();
+    let elsewhere = tmp.path().join("Share/Output");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let elsewhere = elsewhere.canonicalize().unwrap();
+    lib.set_session_folder(FolderRole::Output, &elsewhere)
+        .unwrap();
+
+    // Deliveries is a former Output folder now: still no Capture folder.
+    let error = lib
+        .set_session_folder(FolderRole::Capture, &deliveries)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Output folder"), "{error}");
+    assert!(
+        error.contains(&format!(
+            "rawtonic:inOutputFolder:capture:{}:{}",
+            deliveries.display(),
+            deliveries.display()
+        )),
+        "{error}"
+    );
+    for role in [FolderRole::Capture, FolderRole::Selects] {
+        assert!(
+            lib.set_session_folder(role, &deliveries).is_err(),
+            "{role:?} took a former Output folder"
+        );
+        let inside = deliveries.join("Client");
+        fs::create_dir_all(&inside).unwrap();
+        assert!(
+            lib.set_session_folder(role, &inside).is_err(),
+            "{role:?} took a folder inside a former Output folder"
+        );
+        // The current Output folder and a folder inside it, too.
+        assert!(lib.set_session_folder(role, &elsewhere).is_err());
+        // Also reached by a path that steps into it and back.
+        assert!(
+            lib.set_session_folder(role, &elsewhere.join("../Output"))
+                .is_err()
+        );
+    }
+    let current = lib.directory.join("Output");
+    assert!(current.is_dir());
+    assert!(
+        lib.set_session_folder(FolderRole::Capture, &current)
+            .is_err()
+    );
+    assert_eq!(lib.manifest.capture, "Capture");
+    assert_eq!(manifest(&lib)["capture"], "Capture");
+    // Nothing was moved or deleted.
+    assert!(deliveries.join("Export.jpg").is_file());
+    assert!(deliveries.join("Client").is_dir());
+    // Output itself may still be set to any folder.
+    let output = lib.directory.join("Renders");
+    fs::create_dir(&output).unwrap();
+    lib.set_session_folder(FolderRole::Output, &output).unwrap();
+    // And a folder that never was an Output folder is a Capture folder.
+    let shoot = lib.directory.join("Shoot");
+    fs::create_dir(&shoot).unwrap();
+    lib.set_session_folder(FolderRole::Capture, &shoot).unwrap();
+    assert_eq!(lib.manifest.capture, "Shoot");
+}
+
+/// The same for an Output folder outside the session: a Capture folder in it
+/// would register its exports as photographs of the drive.
+#[test]
+fn a_capture_folder_inside_an_output_folder_outside_is_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let share = tmp.path().join("Share/Output");
+    fs::create_dir_all(&share).unwrap();
+    let share = share.canonicalize().unwrap();
+    lib.set_session_folder(FolderRole::Output, &share).unwrap();
+    let client = share.join("Client");
+    fs::create_dir(&client).unwrap();
+    let error = lib
+        .set_session_folder(FolderRole::Capture, &client)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains(&format!(
+            "rawtonic:inOutputFolder:capture:{}:{}",
+            client.display(),
+            share.display()
+        )),
+        "{error}"
+    );
+    assert!(error.contains("Output folder"), "{error}");
+    assert_eq!(lib.manifest.capture, "Capture");
+    // A link to the Output folder leads into it as well.
+    #[cfg(unix)]
+    {
+        let link = lib.directory.join("Link");
+        std::os::unix::fs::symlink(&share, &link).unwrap();
+        assert!(lib.set_session_folder(FolderRole::Capture, &link).is_err());
+    }
+}

@@ -1660,6 +1660,8 @@
       "choose": "Choisir le dossier {{folder}}",
       "chooseFor": "Modifier le dossier {{folder}}",
       "done": "Terminé",
+      "inOutputFolder": "{{folder}} est le dossier Output {{output}} ou se trouve dedans ; il contient les exports qui y ont été faits. Pour le dossier {{role}}, choisissez un dossier en dehors de tout dossier Output.",
+      "inOutputFolderNotThere": "{{folder}} est un ancien dossier Output de cette session, {{output}}, ou se trouve dedans ; il contenait les exports qui y ont été faits. Pour le dossier {{role}}, choisissez un dossier en dehors de tout dossier Output.",
       "inside": "Dans la session",
       "intro": "Où cette session place les prises de vue et les imports (Capture), les photos déplacées vers Selects (Selects) et les exports (Output). Un dossier dans la session la suit quand elle est déplacée ; un dossier hors de la session, par exemple sur un autre disque, reste où il est.",
       "madeAgainUse": {

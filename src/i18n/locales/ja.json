@@ -1528,6 +1528,8 @@
       "choose": "{{folder}} フォルダを選択",
       "chooseFor": "{{folder}} フォルダを変更",
       "done": "完了",
+      "inOutputFolder": "{{folder}} は Output フォルダ {{output}} そのもの、またはその中にあります。そこには書き出した写真があります。{{role}} フォルダには、どの Output フォルダの外にあるフォルダを選んでください。",
+      "inOutputFolderNotThere": "{{folder}} はこのセッションの以前の Output フォルダ {{output}} そのもの、またはその中にあります。そこには書き出した写真がありました。{{role}} フォルダには、どの Output フォルダの外にあるフォルダを選んでください。",
       "inside": "セッション内",
       "intro": "このセッションが撮影と読み込み (Capture)、Selects に移動した写真 (Selects)、書き出し (Output) を置く場所です。セッション内のフォルダはセッションと一緒に移動し、別のドライブなどセッション外のフォルダはその場所に残ります。",
       "madeAgainUse": {

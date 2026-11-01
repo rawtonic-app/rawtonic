@@ -1528,6 +1528,8 @@
       "choose": "選擇 {{folder}} 資料夾",
       "chooseFor": "變更 {{folder}} 資料夾",
       "done": "完成",
+      "inOutputFolder": "{{folder}} 就是 Output 資料夾 {{output}}，或位於其中；那裡存放著匯出的照片。請為 {{role}} 資料夾選擇任何 Output 資料夾之外的資料夾。",
+      "inOutputFolderNotThere": "{{folder}} 是本工作階段以前的 Output 資料夾 {{output}}，或位於其中；那裡存放過匯出的照片。請為 {{role}} 資料夾選擇任何 Output 資料夾之外的資料夾。",
       "inside": "在工作階段內",
       "intro": "此工作階段存放拍攝與匯入 (Capture)、移到 Selects 的照片 (Selects) 以及輸出 (Output) 的位置。工作階段內的資料夾會隨工作階段一起移動；工作階段外的資料夾（例如在另一部磁碟上）則留在原處。",
       "madeAgainUse": {

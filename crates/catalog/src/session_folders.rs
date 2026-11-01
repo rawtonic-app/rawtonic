@@ -44,7 +44,42 @@ impl FolderRole {
     fn name(self) -> &'static str {
         self.default_setting()
     }
+
+    /// This role as the app's settings and commands name it.
+    fn key(self) -> &'static str {
+        match self {
+            FolderRole::Capture => "capture",
+            FolderRole::Selects => "selects",
+            FolderRole::Output => "output",
+        }
+    }
 }
+
+/// A refusal of a folder setting the app names in the user's language
+/// (`SessionFolderError` in `src/utils/sessionFolders.ts`): the folder, and
+/// for a Capture or Selects folder inside an Output folder, where that is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderRefusal {
+    pub code: &'static str,
+    pub role: FolderRole,
+    pub folder: String,
+    pub output: String,
+}
+
+impl std::fmt::Display for FolderRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "rawtonic:{}:{}:{}:{}",
+            self.code,
+            self.role.key(),
+            self.folder,
+            self.output
+        )
+    }
+}
+
+impl std::error::Error for FolderRefusal {}
 
 pub(crate) fn default_selects() -> String {
     FolderRole::Selects.default_setting().into()
@@ -189,12 +224,18 @@ impl Library {
     pub fn session_folder(&self, role: FolderRole) -> SessionFolder {
         let stored = self.manifest.folder_setting(role).to_string();
         let path = self.folder_path(role);
+        let inside = !is_absolute_setting(&stored);
         SessionFolder {
             role,
-            inside: !is_absolute_setting(&stored),
+            // Only the setting the app gave the session itself (its default,
+            // a path inside the session) may be made again (`usable_folder`).
+            // A setting someone chose, also one this app did not write
+            // (`output_folders` absent), is never made at its old path, and
+            // no folder outside the session ever is: a missing drive is not
+            // a missing folder.
+            recreated: inside && stored == role.default_setting(),
+            inside,
             available: path.is_dir(),
-            recreated: stored == role.default_setting()
-                || (role == FolderRole::Output && self.manifest.output_folders.is_empty()),
             stored,
             path,
         }
@@ -206,7 +247,9 @@ impl Library {
     /// that is not there fails, naming it, and nothing is made in its
     /// place: a configured folder inside the session whose parent was
     /// renamed or which was removed is not quietly recreated at the old
-    /// path, where it would take the work meant for the renamed one.
+    /// path, where it would take the work meant for the renamed one. That
+    /// holds however the session was written: a session from before
+    /// `output_folders` exists may have any Output setting.
     pub fn usable_folder(&self, role: FolderRole) -> Result<PathBuf> {
         let folder = self.session_folder(role);
         if folder.available {
@@ -265,37 +308,35 @@ impl Library {
             .flatten();
         path.starts_with(&current)
             || walked.as_ref().is_some_and(|real| path.starts_with(real))
-            || self
-                .former_output_folders()
-                .iter()
-                .any(|folder| path.starts_with(folder))
+            || self.path_in_output_folder(path)
     }
 
-    /// Where every folder the session had as Output is now, the current one
-    /// left out.
-    fn former_output_folders(&self) -> Vec<PathBuf> {
-        let mut stored: Vec<&str> = self
-            .manifest
-            .output_folders
-            .iter()
-            .map(String::as_str)
-            .collect();
-        if stored.is_empty() {
-            // A session from before `output_folders`: its Output setting at
-            // that time was the default, written and not changed.
-            stored.push(FolderRole::Output.default_setting());
-        }
-        stored
+    /// `in_output_folder` for a path that is already canonical (as
+    /// `set_session_folder` reads the folder it is given): compared with
+    /// where the Output folders really are, so a link cannot lead past one.
+    /// Every folder the session had as Output counts, the current one too.
+    fn path_in_output_folder(&self, path: &Path) -> bool {
+        self.output_folder_holding(path).is_some()
+    }
+
+    /// The Output folder `path` is in or holds (as `path_in_output_folder`
+    /// compares them), where an Output folder exists: the one to name.
+    fn output_folder_holding(&self, path: &Path) -> Option<PathBuf> {
+        let current = self.manifest.folder_setting(FolderRole::Output);
+        let mut settings: Vec<&str> = vec![FolderRole::Output.default_setting(), current];
+        settings.extend(self.manifest.output_folders.iter().map(String::as_str));
+        settings.retain(|setting| !setting.is_empty());
+        settings
             .into_iter()
-            .filter(|setting| *setting != self.manifest.output)
             .map(|setting| {
-                if is_absolute_setting(setting) {
+                let folder = if is_absolute_setting(setting) {
                     PathBuf::from(setting)
                 } else {
                     self.directory.join(setting)
-                }
+                };
+                folder.canonicalize().unwrap_or(folder)
             })
-            .collect()
+            .find(|folder| path.starts_with(folder))
     }
 
     /// Whether `path` is in one of the session's folders outside the
@@ -371,6 +412,26 @@ impl Library {
                 "{} is already the session's {} folder",
                 real.display(),
                 other.name()
+            );
+        }
+        // Capture and Selects hold photographs; an Output folder, current or
+        // former, holds exports. A folder in one (or divided into one) would
+        // be listed by its scan the same day, and the exports would become
+        // photographs again as folders are deleted or Output moves (review
+        // r4, G38). Nothing is moved or deleted: the user chooses elsewhere.
+        if role != FolderRole::Output
+            && let Some(output) = self.output_folder_holding(&real)
+        {
+            let error = FolderRefusal {
+                code: "inOutputFolder",
+                role,
+                folder: real.display().to_string(),
+                output: output.display().to_string(),
+            };
+            bail!(
+                "{} is or is inside an Output folder of this session, which holds the exports made there; choose a folder outside every Output folder for the {} folder ({error})",
+                real.display(),
+                role.name()
             );
         }
         let mut manifest = self.manifest.clone();

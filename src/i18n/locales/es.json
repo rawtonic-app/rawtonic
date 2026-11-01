@@ -1660,6 +1660,8 @@
       "choose": "Elegir la carpeta {{folder}}",
       "chooseFor": "Cambiar la carpeta {{folder}}",
       "done": "Listo",
+      "inOutputFolder": "{{folder}} es la carpeta Output {{output}} o está dentro de ella, y allí están las exportaciones hechas. Elige para la carpeta {{role}} una carpeta fuera de cualquier carpeta Output.",
+      "inOutputFolderNotThere": "{{folder}} es una antigua carpeta Output de esta sesión, {{output}}, o está dentro de ella, y allí estuvieron las exportaciones hechas. Elige para la carpeta {{role}} una carpeta fuera de cualquier carpeta Output.",
       "inside": "Dentro de la sesión",
       "intro": "Dónde guarda esta sesión las capturas e importaciones (Capture), las fotos movidas a Selects (Selects) y las exportaciones (Output). Una carpeta dentro de la sesión se mueve con ella; una carpeta fuera, por ejemplo en otro disco, se queda donde está.",
       "madeAgainUse": {

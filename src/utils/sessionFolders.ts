@@ -104,6 +104,48 @@ export function usableSessionFolder(directory: string, role: FolderRole): Promis
   return invoke<string>(Invokes.SessionUsableFolder, { directory, role });
 }
 
+/** A refusal of a folder setting the backend words for the user
+ * (`FolderRefusal` in `crates/catalog/src/session_folders.rs`): the folder,
+ * and where an Output folder took it. */
+export interface RefusedFolder {
+  code: "inOutputFolder";
+  role: FolderRole;
+  folder: string;
+  /** The Output folder the folder is in or is. */
+  output: string;
+}
+
+/** Reads a refusal out of `message`, a backend error
+ * (`rawtonic:<code>:<role>:<folder>:<output>`, fields joined by ": " when
+ * they hold one); `null` for every other error. */
+export function parseFolderRefusal(message: string): RefusedFolder | null {
+  const match = /rawtonic:([A-Za-z]+):(capture|selects|output):([\s\S]*)$/.exec(message);
+  if (!match || match[1] !== "inOutputFolder") return null;
+  const [folder, output] = match[3].split(": ");
+  if (!folder || !output) return null;
+  return { code: "inOutputFolder", role: match[2] as FolderRole, folder, output };
+}
+
+/** The user's language for a refusal of `message`: why choosing `folder`
+ * for `role` was refused; `null` when `message` is not such a refusal (and
+ * the caller shows the error as it is). `outputThere`: the named Output
+ * folder is still there — a former one that is gone held the exports. */
+export function folderRefusalMessage(
+  // i18next's `t`, whose keys are typed to the English bundle.
+  t: (key: never, options?: Record<string, unknown>) => string,
+  message: string,
+  outputThere: boolean,
+): string | null {
+  const refusal = parseFolderRefusal(message);
+  if (!refusal) return null;
+  const key = outputThere ? "inOutputFolder" : "inOutputFolderNotThere";
+  return t(`session.folders.${key}` as never, {
+    folder: refusal.folder,
+    output: refusal.output,
+    role: t(`session.folders.role.${refusal.role}` as never),
+  });
+}
+
 /** What "Move contents" did: items moved (in one or more undoable
  * operations) and why it stopped, if it did. */
 export interface ContentsMoved {
