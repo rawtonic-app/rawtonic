@@ -256,6 +256,12 @@ pub(crate) fn prepare_base_ahead(state: &AppState, source: &str, full: &Arc<Dyna
     if preview_dim == 0 {
         return;
     }
+    // Profiling builds forcing the full-resolution path for paired runs
+    // (`generate_shared_transformed_preview`) get no reduced base ahead.
+    #[cfg(feature = "performance-profiling")]
+    if std::env::var_os("RAWTONIC_FULL_RES_PREVIEW").is_some() {
+        return;
+    }
     let (source_path, sidecar_path) = parse_virtual_path(source);
     let recipe = activation_recipe(None, &source_path, &sidecar_path);
     let (full_width, full_height) = full.dimensions();
