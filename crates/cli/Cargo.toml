@@ -19,6 +19,7 @@ rawtonic-export = { path = "../export", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawtonic-denoise = { path = "../denoise", version = "0.1.0" }
 rawtonic-faces = { path = "../faces", version = "0.1.0" }
+rawtonic-segment = { path = "../segment", version = "0.1.0" }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
 image = "0.25.10"
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }

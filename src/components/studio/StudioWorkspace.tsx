@@ -48,7 +48,15 @@ import {
   ChevronsRight,
   FolderTree,
 } from "lucide-react";
-import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo, useCatalogUndoStore } from '../../utils/appUndo';
+import {
+  canUndo,
+  canRedo,
+  getUndoLabel,
+  getRedoLabel,
+  undo,
+  redo,
+  useCatalogUndoStore,
+} from "../../utils/appUndo";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
@@ -57,14 +65,24 @@ import { useProcessStore } from "../../store/useProcessStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import CompareButton from "./CompareButton";
 import { useCompareSession } from "../../hooks/useCompareSession";
-import { type ImageFile, Invokes, Panel, SortDirection } from "../ui/AppProperties";
+import {
+  type ImageFile,
+  Invokes,
+  Panel,
+  SortDirection,
+} from "../ui/AppProperties";
 import Editor from "../panel/Editor";
 import StudioExport from "./StudioExport";
 import { ExportQueuePanel } from "./StudioExportQueue";
 import { OPEN_EXPORT_QUEUE } from "../../utils/catalogEvents";
 import PreviewBuildStatus from "./PreviewBuildStatus";
 import PreferencesDialog from "./PreferencesDialog";
-import { PointerReadout, ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
+import {
+  PointerReadout,
+  ProofMarginButton,
+  ViewerCaptureInfo,
+  ZoomPresetOptions,
+} from "./ViewerControls";
 import { CameraPreviewButton } from "./CameraPreview";
 import OfflineBadge, { OfflineCount } from "./OfflineBadge";
 import StillPreviewBadge from "./StillPreviewBadge";
@@ -78,7 +96,12 @@ import MultiViewStage from "./MultiViewStage";
 import MultiViewButtons from "./MultiViewButtons";
 import StudioLayerSelect from "./StudioLayerSelect";
 import StudioToolPopover, { toolPopoverApplies } from "./StudioToolPopover";
-import { stepBrushSize, toggleRemoveObjects, useStudioTools, type StudioTool } from "./useStudioTools";
+import {
+  stepBrushSize,
+  toggleRemoveObjects,
+  useStudioTools,
+  type StudioTool,
+} from "./useStudioTools";
 import { useBrushMemory } from "./useBrushMemory";
 import { useEdgePeek } from "./useEdgePeek";
 import { useQuickAdjust } from "./useQuickAdjust";
@@ -103,7 +126,10 @@ import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
 import type { FlagCounts } from "../../utils/culling";
 import { neighboursToPrepare, stepDirection } from "../../utils/photoStepping";
 import { useSessionBar } from "../session/sessionBar";
-import { openMaskingTools, useAiModelLifecycle } from "../../hooks/useAiMasking";
+import {
+  openMaskingTools,
+  useAiModelLifecycle,
+} from "../../hooks/useAiMasking";
 import "./studio.css";
 import StudioMetadataFilter from "./StudioMetadataFilter";
 import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
@@ -114,7 +140,11 @@ import { AutoStackDialogHost } from "./AutoStackDialog";
 import UnaddedFolderBanner from "../session/UnaddedFolderBanner";
 import type { StackMark } from "../../store/useStackStore";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
-import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
+import {
+  clearLibrarySelection,
+  focusWorkspaceControl,
+  reselectForDevelop,
+} from "./workspaceInteractions";
 import { registerAppCommands, runAppCommand } from "../../utils/appCommands";
 import ViewerInfoOverlay from "./ViewerInfoOverlay";
 import { LoupeFaces } from "./StudioEyes";
@@ -135,7 +165,12 @@ interface Props {
   onShow?(path: string): void;
   onNavigate(path: string): void;
   /** Shows a list of photographs as an album in the grid. */
-  onSelectAlbum?(id: string, name: string, paths: string[], preserveEditor?: boolean): void;
+  onSelectAlbum?(
+    id: string,
+    name: string,
+    paths: string[],
+    preserveEditor?: boolean,
+  ): void;
   onBack(): void;
   onRate(rating: number, paths?: string[]): void;
   onContextMenu(event: MouseEvent, path: string): void;
@@ -185,7 +220,11 @@ function EdgeStrip({
     >
       <button
         aria-label={label}
-        title={hint ? t("studio.workspace.withShortcut", { label, shortcut: hint }) : label}
+        title={
+          hint
+            ? t("studio.workspace.withShortcut", { label, shortcut: hint })
+            : label
+        }
         onClick={onShow}
       >
         <Arrow size={11} />
@@ -194,7 +233,8 @@ function EdgeStrip({
   );
 }
 
-const readyNow = () => Boolean(useEditorStore.getState().selectedImage?.isReady);
+const readyNow = () =>
+  Boolean(useEditorStore.getState().selectedImage?.isReady);
 
 export default function StudioWorkspace(props: Props) {
   const {
@@ -225,13 +265,18 @@ export default function StudioWorkspace(props: Props) {
       previousPhoto: s.previousPhoto,
     })),
   );
-  const { handleSyncSettings: syncSettings, handlePasteFromPrevious: pasteFromPrevious } = useEditorActions();
+  const {
+    handleSyncSettings: syncSettings,
+    handlePasteFromPrevious: pasteFromPrevious,
+  } = useEditorActions();
   const { hideContextMenu } = useContextMenu();
   const hideMenuRef = useRef(hideContextMenu);
   hideMenuRef.current = hideContextMenu;
   // Sync settings: the other selected photographs.
   const syncTargets = useLibraryStore(
-    (s) => s.multiSelectedPaths.filter((path) => path !== selectedImage?.path).length,
+    (s) =>
+      s.multiSelectedPaths.filter((path) => path !== selectedImage?.path)
+        .length,
   );
   const splitAvailable = useSettingsStore((s) =>
     splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
@@ -243,11 +288,18 @@ export default function StudioWorkspace(props: Props) {
   // before on \ (the peek works without the split too).
   const beforeAfterTitle = useSettingsStore((s) => {
     const noKey = t("studio.workspace.noKey");
-    const peek = shortcutHint("show_original", s.appSettings?.keybinds, s.osPlatform) ?? noKey;
+    const peek =
+      shortcutHint("show_original", s.appSettings?.keybinds, s.osPlatform) ??
+      noKey;
     if (!splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform)) {
       return t("studio.workspace.viewer.beforeAfterUnavailable", { peek });
     }
-    const split = shortcutHint("toggle_split_view", s.appSettings?.keybinds, s.osPlatform) ?? noKey;
+    const split =
+      shortcutHint(
+        "toggle_split_view",
+        s.appSettings?.keybinds,
+        s.osPlatform,
+      ) ?? noKey;
     return t("studio.workspace.viewer.beforeAfterTitle", { split, peek });
   });
   const tools = useStudioTools();
@@ -263,8 +315,10 @@ export default function StudioWorkspace(props: Props) {
     if (toolPopoverApplies(tools)) {
       event.preventDefault();
       const focused = document.activeElement;
-      const trigger = focused instanceof HTMLElement && event.currentTarget.contains(focused)
-        ? focused : event.currentTarget;
+      const trigger =
+        focused instanceof HTMLElement && event.currentTarget.contains(focused)
+          ? focused
+          : event.currentTarget;
       const rect = trigger.getBoundingClientRect();
       setToolPopover(
         event.clientX === 0 && event.clientY === 0
@@ -304,21 +358,33 @@ export default function StudioWorkspace(props: Props) {
   // takes what is left. The viewer itself is never scaled, so the native
   // display below the webview keeps its placement.
   const uiScale = useSettingsStore((s) => s.appSettings?.uiScale ?? 1);
-  const autoAdvance = useSettingsStore((s) => s.appSettings?.autoAdvance === true);
+  const autoAdvance = useSettingsStore(
+    (s) => s.appSettings?.autoAdvance === true,
+  );
   const toggleAutoAdvance = () => {
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
-    if (appSettings) void handleSettingsChange({ ...appSettings, autoAdvance: !appSettings.autoAdvance });
+    if (appSettings)
+      void handleSettingsChange({
+        ...appSettings,
+        autoAdvance: !appSettings.autoAdvance,
+      });
   };
   // Lightroom's Show Photos in Subfolders, remembered per folder (`subfolderView`).
-  const shownFolder = useLibraryStore((s) => (s.activeAlbumId ? null : s.currentFolderPath));
+  const shownFolder = useLibraryStore((s) =>
+    s.activeAlbumId ? null : s.currentFolderPath,
+  );
   const subfolderDefault = useLibraryStore((s) => s.subfolderDefaultRoot);
   const subfolders = useSettingsStore((s) =>
-    shownFolder ? showsSubfolders(shownFolder, s.appSettings, subfolderDefault) : false,
+    shownFolder
+      ? showsSubfolders(shownFolder, s.appSettings, subfolderDefault)
+      : false,
   );
   const toggleSubfolders = () => {
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
     if (!shownFolder || !appSettings) return;
-    void handleSettingsChange(withSubfolderView(appSettings, shownFolder, !subfolders)).then(() => onNavigate(shownFolder));
+    void handleSettingsChange(
+      withSubfolderView(appSettings, shownFolder, !subfolders),
+    ).then(() => onNavigate(shownFolder));
   };
   useEffect(() => {
     const root = document.documentElement;
@@ -338,7 +404,10 @@ export default function StudioWorkspace(props: Props) {
   const hint = (action: string) => shortcutHint(action, keybinds, osPlatform);
   /** A label with its keyboard shortcut ("no key" when none is assigned). */
   const withShortcut = (label: string, shortcut: string | null | undefined) =>
-    t("studio.workspace.withShortcut", { label, shortcut: shortcut ?? t("studio.workspace.noKey") });
+    t("studio.workspace.withShortcut", {
+      label,
+      shortcut: shortcut ?? t("studio.workspace.noKey"),
+    });
   const {
     currentFolderPath,
     activeAlbumId,
@@ -365,11 +434,13 @@ export default function StudioWorkspace(props: Props) {
   // The Library's loupe (one large photograph beside the Library tools) and
   // its full screen show the photograph in the same native viewer as Develop
   // (utils/viewerMode).
-  const libraryViewer = !develop && (libraryLoupe || isFullScreen) && !!selectedImage;
+  const libraryViewer =
+    !develop && (libraryLoupe || isFullScreen) && !!selectedImage;
   useEffect(() => {
     // Nothing to show any more (the photograph went away): back to the grid.
     if (develop || selectedImage) return;
-    if (libraryLoupe || isFullScreen) useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
+    if (libraryLoupe || isFullScreen)
+      useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
   }, [develop, selectedImage, libraryLoupe, isFullScreen]);
   // The loupe and the full screen are views of the photograph, without
   // edit tools: Develop's crop, mask and picker states must not draw over
@@ -392,7 +463,8 @@ export default function StudioWorkspace(props: Props) {
   const modifierHeld = useRef(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Control" || e.key === "Meta") modifierHeld.current = e.type === "keydown";
+      if (e.key === "Control" || e.key === "Meta")
+        modifierHeld.current = e.type === "keydown";
     };
     const release = () => {
       modifierHeld.current = false;
@@ -422,7 +494,8 @@ export default function StudioWorkspace(props: Props) {
         protection: editor.showFaceProtection,
         relightHandles: relight.showHandles,
       };
-      if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks) ui.setPanel(Panel.Adjustments);
+      if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks)
+        ui.setPanel(Panel.Adjustments);
       // Every tool that edits on a click or drag, or draws its handles.
       editor.setEditor({
         activeMaskContainerId: null,
@@ -452,7 +525,8 @@ export default function StudioWorkspace(props: Props) {
     if (!develop) return;
     suspended.current = null;
     if (saved.path !== editor.selectedImage?.path) return;
-    if (saved.panel === Panel.Crop || saved.panel === Panel.Masks) ui.setPanel(saved.panel);
+    if (saved.panel === Panel.Crop || saved.panel === Panel.Masks)
+      ui.setPanel(saved.panel);
     // The layer's component (its brush or gradient) too, while it is there.
     const component =
       saved.layer &&
@@ -483,9 +557,11 @@ export default function StudioWorkspace(props: Props) {
       shownIndex.current = index;
       return;
     }
-    const next = files[Math.min(Math.max(shownIndex.current, 0), files.length - 1)];
+    const next =
+      files[Math.min(Math.max(shownIndex.current, 0), files.length - 1)];
     if (next && onShowRef.current) onShowRef.current(next.path);
-    else useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
+    else
+      useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
   }, [libraryViewer, shownPath, files]);
   // The photograph alone covers the whole screen (photoFullScreen).
   const fullScreenSeen = useRef(isFullScreen);
@@ -507,8 +583,12 @@ export default function StudioWorkspace(props: Props) {
       e.preventDefault();
       e.stopPropagation();
     };
-    element.addEventListener("wheel", onWheel, { capture: true, passive: false });
-    return () => element.removeEventListener("wheel", onWheel, { capture: true });
+    element.addEventListener("wheel", onWheel, {
+      capture: true,
+      passive: false,
+    });
+    return () =>
+      element.removeEventListener("wheel", onWheel, { capture: true });
   }, [viewOnly, selectedImage?.path]);
   // The pointer hides over the full screen until it moves.
   const cursorIdle = useIdleCursor(isFullScreen);
@@ -645,7 +725,11 @@ export default function StudioWorkspace(props: Props) {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
       const menu = document.querySelector('[role="menu"]');
-      if (menu && !menu.contains(target) && target?.closest?.(".studio-viewer")) {
+      if (
+        menu &&
+        !menu.contains(target) &&
+        target?.closest?.(".studio-viewer")
+      ) {
         event.stopPropagation();
         swallowNextClick(["click", "dblclick"]);
       }
@@ -655,7 +739,11 @@ export default function StudioWorkspace(props: Props) {
   }, []);
   // G, E and D, also the View menu's Library Grid, Loupe and Develop
   // (useAppMenu): one handler for the key and the menu item.
-  const moduleKeysRef = useRef({ g: showGrid, e: () => openLoupe(), d: () => {} });
+  const moduleKeysRef = useRef({
+    g: showGrid,
+    e: () => openLoupe(),
+    d: () => {},
+  });
   moduleKeysRef.current = {
     g: showGrid,
     e: () => openLoupe(),
@@ -673,22 +761,33 @@ export default function StudioWorkspace(props: Props) {
           run: () => moduleKeysRef.current.g(),
           checked: () => {
             const ui = useUIStore.getState();
-            return ui.activeView === "library" && !ui.libraryLoupe && !ui.isFullScreen;
+            return (
+              ui.activeView === "library" &&
+              !ui.libraryLoupe &&
+              !ui.isFullScreen
+            );
           },
         },
         view_loupe: {
           // As E: from the Library (in Develop, E is the eraser).
           enabled: () =>
             useUIStore.getState().activeView === "library" &&
-            !!(useLibraryStore.getState().libraryActivePath || useEditorStore.getState().selectedImage),
+            !!(
+              useLibraryStore.getState().libraryActivePath ||
+              useEditorStore.getState().selectedImage
+            ),
           run: () => moduleKeysRef.current.e(),
           checked: () => {
             const ui = useUIStore.getState();
-            return ui.activeView === "library" && ui.libraryLoupe && !ui.isFullScreen;
+            return (
+              ui.activeView === "library" && ui.libraryLoupe && !ui.isFullScreen
+            );
           },
         },
         view_develop: {
-          enabled: () => !!useEditorStore.getState().selectedImage || filesRef.current.length > 0,
+          enabled: () =>
+            !!useEditorStore.getState().selectedImage ||
+            filesRef.current.length > 0,
           run: () => moduleKeysRef.current.d(),
           checked: () => useUIStore.getState().activeView === "editor",
         },
@@ -715,9 +814,12 @@ export default function StudioWorkspace(props: Props) {
       )
         return;
       const settings = useSettingsStore.getState();
-      const commands = buildComboMap(settings.appSettings?.keybinds).get(normalizeCombo(e, settings.osPlatform).join('+')) ?? [];
+      const commands =
+        buildComboMap(settings.appSettings?.keybinds).get(
+          normalizeCombo(e, settings.osPlatform).join("+"),
+        ) ?? [];
       for (const command of commands) {
-        if (command.startsWith('view_') && runAppCommand(command)) {
+        if (command.startsWith("view_") && runAppCommand(command)) {
           e.preventDefault();
           e.stopImmediatePropagation();
           return;
@@ -758,17 +860,27 @@ export default function StudioWorkspace(props: Props) {
       const { appSettings, osPlatform } = useSettingsStore.getState();
       const action = buildComboMap(appSettings?.keybinds)
         .get(normalizeCombo(e, osPlatform).join("+"))
-        ?.find((name) => name.startsWith("tool_") || name.startsWith("mask_") || name === "remove_objects");
+        ?.find(
+          (name) =>
+            name.startsWith("tool_") ||
+            name.startsWith("mask_") ||
+            name === "remove_objects",
+        );
       if (action && toolsRef.current.ready) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (action === "remove_objects") toggleRemoveObjects(toolsRef.current.selectTool);
+        if (action === "remove_objects")
+          toggleRemoveObjects(toolsRef.current.selectTool);
         else if (action === "mask_subject" || action === "mask_background") {
           // As the new-layer grid: the automatic selections start at once.
           openMaskingTools();
-          toolsRef.current.addLayer(action === "mask_subject" ? "subject" : "background");
-        }
-        else toolsRef.current.selectTool(action.slice("tool_".length) as StudioTool);
+          toolsRef.current.addLayer(
+            action === "mask_subject" ? "subject" : "background",
+          );
+        } else
+          toolsRef.current.selectTool(
+            action.slice("tool_".length) as StudioTool,
+          );
       }
     };
     // Document capture: after Quick Adjust (window capture), which defers
@@ -779,12 +891,19 @@ export default function StudioWorkspace(props: Props) {
   }, []);
   const currentIndex = files.findIndex((f) => f.path === selectedImage?.path);
   // The direction of the last step, for the neighbours prepared next.
-  const stepping = useRef<{ index: number; direction: 1 | -1 | null }>({ index: -1, direction: 1 });
+  const stepping = useRef<{ index: number; direction: 1 | -1 | null }>({
+    index: -1,
+    direction: 1,
+  });
   useEffect(() => {
     if (currentIndex < 0 || currentIndex === stepping.current.index) return;
     stepping.current = {
       index: currentIndex,
-      direction: stepDirection(stepping.current.index, currentIndex, files.length),
+      direction: stepDirection(
+        stepping.current.index,
+        currentIndex,
+        files.length,
+      ),
     };
   }, [currentIndex, files.length]);
   // Once the open photograph is decoded (not before, so its own decode keeps
@@ -802,7 +921,8 @@ export default function StudioWorkspace(props: Props) {
       currentIndex,
       stepping.current.direction,
     );
-    if (paths.length) void invoke(Invokes.PreparePreviewProxies, { paths }).catch(() => {});
+    if (paths.length)
+      void invoke(Invokes.PreparePreviewProxies, { paths }).catch(() => {});
   }, [photoShown, decoded, currentIndex, files]);
   // At each step, before any decode: the next photographs' camera JPEGs
   // (the stills shown until a developed frame, when stepping faster than
@@ -814,7 +934,8 @@ export default function StudioWorkspace(props: Props) {
       currentIndex,
       stepping.current.direction,
     );
-    if (paths.length) void invoke(Invokes.PrepareEmbeddedStills, { paths }).catch(() => {});
+    if (paths.length)
+      void invoke(Invokes.PrepareEmbeddedStills, { paths }).catch(() => {});
   }, [photoShown, currentIndex, files]);
   const rating = selectedImage ? imageRatings[selectedImage.path] || 0 : 0;
   const browserProps = {
@@ -848,7 +969,10 @@ export default function StudioWorkspace(props: Props) {
   );
   const queuedExports = activeExports > 0;
   const modules = (
-    <nav className="studio-modules" aria-label={t("studio.workspace.modules.workspace")}>
+    <nav
+      className="studio-modules"
+      aria-label={t("studio.workspace.modules.workspace")}
+    >
       <button
         aria-pressed={!develop}
         onClick={showLibrary}
@@ -892,7 +1016,12 @@ export default function StudioWorkspace(props: Props) {
       </button>
       <button
         className="studio-export-button"
-        disabled={!exporting && !multiSelectedPaths.length && !selectedImage && !queuedExports}
+        disabled={
+          !exporting &&
+          !multiSelectedPaths.length &&
+          !selectedImage &&
+          !queuedExports
+        }
         title={withShortcut(t("studio.workspace.export.title"), "⇧⌘E")}
         onClick={() => openTools(Panel.Export)}
       >
@@ -907,14 +1036,18 @@ export default function StudioWorkspace(props: Props) {
           ? t(
               exportState.denoising?.length
                 ? "studio.workspace.export.progressDenoising"
-                : "studio.workspace.export.progress",
+                : exportState.selecting?.length
+                  ? "studio.workspace.export.progressSelecting"
+                  : "studio.workspace.export.progress",
               {
                 current: exportState.progress.current,
                 total: exportState.progress.total,
               },
             )
           : multiSelectedPaths.length > 1
-            ? t("studio.workspace.export.buttonCount", { n: multiSelectedPaths.length })
+            ? t("studio.workspace.export.buttonCount", {
+                n: multiSelectedPaths.length,
+              })
             : t("studio.workspace.export.button")}
       </button>
       {/* The icon shows the side the Develop tools move to; also in the
@@ -935,7 +1068,11 @@ export default function StudioWorkspace(props: Props) {
           setLayout(layout === "split-tools" ? "tools-left" : "split-tools")
         }
       >
-        {layout === "split-tools" ? <PanelLeft size={15} /> : <PanelRight size={15} />}
+        {layout === "split-tools" ? (
+          <PanelLeft size={15} />
+        ) : (
+          <PanelRight size={15} />
+        )}
       </button>
       <button
         className="studio-bar-icon"
@@ -951,42 +1088,48 @@ export default function StudioWorkspace(props: Props) {
   // The open photograph's flag (`current`) or the selection's (none).
   const flagButtons = (current?: number) => {
     const one = current !== undefined;
-    const pick = one ? t("studio.workspace.flags.pickThis") : t("studio.workspace.flags.pickSelected");
+    const pick = one
+      ? t("studio.workspace.flags.pickThis")
+      : t("studio.workspace.flags.pickSelected");
     const reject = one
       ? t("studio.workspace.flags.rejectThis")
       : t("studio.workspace.flags.rejectSelected");
     const clear = t("studio.workspace.flags.clearSelected");
     return (
-    <div className="studio-flags" role="group" aria-label={t("studio.workspace.flags.group")}>
-      <button
-        aria-label={pick}
-        title={withShortcut(pick, hint("flag_pick"))}
-        aria-pressed={current === 1}
-        disabled={!sessionBar.mark}
-        onClick={() => void sessionBar.mark?.(current === 1 ? 0 : 1)}
+      <div
+        className="studio-flags"
+        role="group"
+        aria-label={t("studio.workspace.flags.group")}
       >
-        <Flag size={13} fill={current === 1 ? "currentColor" : "none"} />
-      </button>
-      <button
-        aria-label={reject}
-        title={withShortcut(reject, hint("flag_reject"))}
-        aria-pressed={current === -1}
-        disabled={!sessionBar.mark}
-        onClick={() => void sessionBar.mark?.(current === -1 ? 0 : -1)}
-      >
-        <X size={14} />
-      </button>
-      {current === undefined && (
         <button
-          aria-label={clear}
-          title={withShortcut(clear, hint("flag_unflag"))}
+          aria-label={pick}
+          title={withShortcut(pick, hint("flag_pick"))}
+          aria-pressed={current === 1}
           disabled={!sessionBar.mark}
-          onClick={() => void sessionBar.mark?.(0)}
+          onClick={() => void sessionBar.mark?.(current === 1 ? 0 : 1)}
         >
-          <FlagOff size={13} />
+          <Flag size={13} fill={current === 1 ? "currentColor" : "none"} />
         </button>
-      )}
-    </div>
+        <button
+          aria-label={reject}
+          title={withShortcut(reject, hint("flag_reject"))}
+          aria-pressed={current === -1}
+          disabled={!sessionBar.mark}
+          onClick={() => void sessionBar.mark?.(current === -1 ? 0 : -1)}
+        >
+          <X size={14} />
+        </button>
+        {current === undefined && (
+          <button
+            aria-label={clear}
+            title={withShortcut(clear, hint("flag_unflag"))}
+            disabled={!sessionBar.mark}
+            onClick={() => void sessionBar.mark?.(0)}
+          >
+            <FlagOff size={13} />
+          </button>
+        )}
+      </div>
     );
   };
   const libraryToolbar = (
@@ -1060,7 +1203,9 @@ export default function StudioWorkspace(props: Props) {
           }
         >
           <option value="name">{t("studio.workspace.grid.sortBy.name")}</option>
-          <option value="date_taken">{t("studio.workspace.grid.sortBy.captured")}</option>
+          <option value="date_taken">
+            {t("studio.workspace.grid.sortBy.captured")}
+          </option>
           <option value="date">{t("studio.workspace.grid.sortBy.date")}</option>
           <option value="rating">
             {t("studio.workspace.grid.sortBy.rating")}
@@ -1078,7 +1223,11 @@ export default function StudioWorkspace(props: Props) {
             })
           }
         >
-          {sortCriteria.order === SortDirection.Ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+          {sortCriteria.order === SortDirection.Ascending ? (
+            <ArrowUp size={12} />
+          ) : (
+            <ArrowDown size={12} />
+          )}
         </button>
       </label>
       {shownFolder && (
@@ -1175,9 +1324,7 @@ export default function StudioWorkspace(props: Props) {
           )}
         </>
       ) : (
-        <div className="studio-empty">
-          {t("studio.workspace.viewer.empty")}
-        </div>
+        <div className="studio-empty">{t("studio.workspace.viewer.empty")}</div>
       )}
     </div>
   );
@@ -1233,12 +1380,21 @@ export default function StudioWorkspace(props: Props) {
             className={`studio-primary-panel ${develop ? "is-develop" : "is-library"}${panels[toolsSide] ? "" : " is-peek"}`}
             {...panelProps(toolsSide)}
           >
-            <ErrorBoundary key={develop ? "develop" : "library"} name={
+            <ErrorBoundary
+              key={develop ? "develop" : "library"}
+              name={
                 develop
                   ? t("studio.workspace.errors.developTools")
                   : t("studio.workspace.errors.libraryTools")
-              }>
-              {develop ? <PerfProfiler id="develop"><StudioDevelop /></PerfProfiler> : navigation}
+              }
+            >
+              {develop ? (
+                <PerfProfiler id="develop">
+                  <StudioDevelop />
+                </PerfProfiler>
+              ) : (
+                navigation
+              )}
             </ErrorBoundary>
             <div
               className="studio-panel-resizer"
@@ -1257,8 +1413,9 @@ export default function StudioWorkspace(props: Props) {
                       270,
                       Math.min(
                         390,
-                        v + (e.key === "ArrowRight" ? 10 : -10) *
-                          (toolsSide === "right" ? -1 : 1),
+                        v +
+                          (e.key === "ArrowRight" ? 10 : -10) *
+                            (toolsSide === "right" ? -1 : 1),
                       ),
                     ),
                   );
@@ -1275,9 +1432,7 @@ export default function StudioWorkspace(props: Props) {
                     270,
                     Math.min(
                       390,
-                      v +
-                        e.movementX *
-                          (toolsSide === "right" ? -1 : 1),
+                      v + e.movementX * (toolsSide === "right" ? -1 : 1),
                     ),
                   ),
                 );
@@ -1293,7 +1448,9 @@ export default function StudioWorkspace(props: Props) {
             className={`studio-secondary-panel${panels.left ? "" : " is-peek"}`}
             {...panelProps("left")}
           >
-            <ErrorBoundary name={t("studio.workspace.errors.libraryTools")}>{navigation}</ErrorBoundary>
+            <ErrorBoundary name={t("studio.workspace.errors.libraryTools")}>
+              {navigation}
+            </ErrorBoundary>
           </aside>
         )}
         <main className="studio-center">
@@ -1340,7 +1497,10 @@ export default function StudioWorkspace(props: Props) {
                     <Redo2 size={15} />
                   </button>
                   <div className="studio-toolbar-divider" />
-                  <CompareButton disabled={!panelsReady || !splitAvailable} title={beforeAfterTitle} />
+                  <CompareButton
+                    disabled={!panelsReady || !splitAvailable}
+                    title={beforeAfterTitle}
+                  />
                   <MultiViewButtons />
                 </div>
                 <StudioToolBar />
@@ -1349,13 +1509,19 @@ export default function StudioWorkspace(props: Props) {
                   <CameraPreviewButton />
                   <ProofMarginButton />
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.fitTitle"), ",")}
+                    title={withShortcut(
+                      t("studio.workspace.viewer.fitTitle"),
+                      ",",
+                    )}
                     onClick={() => onZoom(1, true)}
                   >
                     {t("studio.workspace.viewer.fit")}
                   </button>
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.actualPixels"), ".")}
+                    title={withShortcut(
+                      t("studio.workspace.viewer.actualPixels"),
+                      ".",
+                    )}
                     onClick={() => onZoom(1)}
                   >
                     100%
@@ -1376,7 +1542,10 @@ export default function StudioWorkspace(props: Props) {
                   </select>
                   <button
                     aria-label={t("studio.workspace.loupe.fullScreen")}
-                    title={withShortcut(t("studio.workspace.loupe.fullScreen"), hint("toggle_fullscreen"))}
+                    title={withShortcut(
+                      t("studio.workspace.loupe.fullScreen"),
+                      hint("toggle_fullscreen"),
+                    )}
                     onClick={() => useUIStore.getState().toggleFullScreen()}
                   >
                     <Maximize size={13} />
@@ -1387,145 +1556,197 @@ export default function StudioWorkspace(props: Props) {
                     title={t("studio.workspace.viewer.resetAllTitle")}
                     aria-label={t("studio.workspace.viewer.resetAll")}
                     disabled={!panelsReady}
-                    onClick={() => readyNow() && onReset(selectedImage ? [selectedImage.path] : [])}
+                    onClick={() =>
+                      readyNow() &&
+                      onReset(selectedImage ? [selectedImage.path] : [])
+                    }
                   >
                     <RotateCcw size={13} />
-                    <span className="optional-label">{t("studio.workspace.viewer.reset")}</span>
+                    <span className="optional-label">
+                      {t("studio.workspace.viewer.reset")}
+                    </span>
                   </button>
                 </div>
               </div>
               {viewer}
               {panels.bars && (
-              <div className="studio-viewer-footer">
-                <div className="studio-viewer-side">
-                  <button
-                    aria-label={t("studio.workspace.footer.previous")}
-                    title={withShortcut(t("studio.workspace.footer.previous"), "←")}
-                    disabled={currentIndex <= 0}
-                    onClick={() => onOpen(files[currentIndex - 1].path)}
-                  >
-                    <ArrowLeft size={14} />
-                  </button>
-                  <span className="studio-counter footer-mid">
-                    {currentIndex >= 0
-                      ? `${currentIndex + 1} / ${files.length}`
-                      : t("studio.workspace.footer.photographs", { count: 0, n: "0" })}
-                  </span>
-                  <button
-                    aria-label={t("studio.workspace.footer.next")}
-                    title={withShortcut(t("studio.workspace.footer.next"), "→")}
-                    disabled={
-                      currentIndex < 0 || currentIndex >= files.length - 1
-                    }
-                    onClick={() => onOpen(files[currentIndex + 1].path)}
-                  >
-                    <ArrowRight size={14} />
-                  </button>
-                  <span
-                    className="studio-viewer-filename"
-                    title={selectedImage?.path}
-                  >
-                    {selectedImage?.path.split("?vc=")[0].split(/[\\/]/).pop() || t("studio.workspace.footer.noPhotograph")}
-                    {selectedImage?.width ? (
-                      <span className="studio-muted">
-                        {` · ${selectedImage.width} × ${selectedImage.height}`}
-                      </span>
-                    ) : null}
-                  </span>
-                  <OfflineBadge offline={selectedImage?.offline} />
-                  <StillPreviewBadge path={selectedImage?.path} />
-                </div>
-                {selectedImage && flagButtons(flag)}
-                <div className="studio-rating">
-                  {[1, 2, 3, 4, 5].map((n) => (
+                <div className="studio-viewer-footer">
+                  <div className="studio-viewer-side">
                     <button
-                      key={n}
-                      aria-label={t("studio.workspace.footer.rate", { count: n })}
-                      title={withShortcut(t("studio.workspace.footer.stars", { count: n }), String(n))}
-                      aria-pressed={rating >= n}
-                      disabled={!selectedImage}
+                      aria-label={t("studio.workspace.footer.previous")}
+                      title={withShortcut(
+                        t("studio.workspace.footer.previous"),
+                        "←",
+                      )}
+                      disabled={currentIndex <= 0}
+                      onClick={() => onOpen(files[currentIndex - 1].path)}
+                    >
+                      <ArrowLeft size={14} />
+                    </button>
+                    <span className="studio-counter footer-mid">
+                      {currentIndex >= 0
+                        ? `${currentIndex + 1} / ${files.length}`
+                        : t("studio.workspace.footer.photographs", {
+                            count: 0,
+                            n: "0",
+                          })}
+                    </span>
+                    <button
+                      aria-label={t("studio.workspace.footer.next")}
+                      title={withShortcut(
+                        t("studio.workspace.footer.next"),
+                        "→",
+                      )}
+                      disabled={
+                        currentIndex < 0 || currentIndex >= files.length - 1
+                      }
+                      onClick={() => onOpen(files[currentIndex + 1].path)}
+                    >
+                      <ArrowRight size={14} />
+                    </button>
+                    <span
+                      className="studio-viewer-filename"
+                      title={selectedImage?.path}
+                    >
+                      {selectedImage?.path
+                        .split("?vc=")[0]
+                        .split(/[\\/]/)
+                        .pop() || t("studio.workspace.footer.noPhotograph")}
+                      {selectedImage?.width ? (
+                        <span className="studio-muted">
+                          {` · ${selectedImage.width} × ${selectedImage.height}`}
+                        </span>
+                      ) : null}
+                    </span>
+                    <OfflineBadge offline={selectedImage?.offline} />
+                    <StillPreviewBadge path={selectedImage?.path} />
+                  </div>
+                  {selectedImage && flagButtons(flag)}
+                  <div className="studio-rating">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        aria-label={t("studio.workspace.footer.rate", {
+                          count: n,
+                        })}
+                        title={withShortcut(
+                          t("studio.workspace.footer.stars", { count: n }),
+                          String(n),
+                        )}
+                        aria-pressed={rating >= n}
+                        disabled={!selectedImage}
+                        onClick={() =>
+                          onRate(
+                            rating === n ? 0 : n,
+                            selectedImage ? [selectedImage.path] : [],
+                          )
+                        }
+                      >
+                        <Star
+                          size={13}
+                          fill={rating >= n ? "currentColor" : "none"}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="studio-viewer-side is-end">
+                    <PointerReadout />
+                    <ViewerCaptureInfo />
+                    <button
+                      className="footer-copy"
+                      title={withShortcut(
+                        t("studio.workspace.footer.copyAdjustments"),
+                        "⇧⌘C",
+                      )}
+                      aria-label={t("studio.workspace.footer.copyAdjustments")}
+                      onClick={(e) =>
+                        readyNow() && onCopy(undefined, { quick: e.altKey })
+                      }
+                      disabled={!panelsReady}
+                    >
+                      <Copy size={13} />
+                      <span className="optional-label">
+                        {t("studio.workspace.footer.copy")}
+                      </span>
+                    </button>
+                    <button
+                      className="footer-mid"
+                      title={withShortcut(
+                        t("studio.workspace.footer.pasteAdjustments"),
+                        "⇧⌘V",
+                      )}
+                      aria-label={t("studio.workspace.footer.pasteAdjustments")}
+                      disabled={!panelsReady}
                       onClick={() =>
-                        onRate(
-                          rating === n ? 0 : n,
+                        readyNow() &&
+                        onPaste(selectedImage ? [selectedImage.path] : [])
+                      }
+                    >
+                      <ClipboardPaste size={13} />
+                      <span className="optional-label">
+                        {t("studio.workspace.footer.paste")}
+                      </span>
+                    </button>
+                    <button
+                      className="footer-low"
+                      title={withShortcut(
+                        t("studio.workspace.footer.pasteFromPrevious"),
+                        "⌥⌘V",
+                      )}
+                      aria-label={t(
+                        "studio.workspace.footer.pasteFromPrevious",
+                      )}
+                      disabled={!panelsReady || !previousPhoto}
+                      onClick={() =>
+                        readyNow() &&
+                        void pasteFromPrevious(
                           selectedImage ? [selectedImage.path] : [],
                         )
                       }
                     >
-                      <Star
-                        size={13}
-                        fill={rating >= n ? "currentColor" : "none"}
+                      <History size={13} />
+                      <span className="optional-label">
+                        {t("studio.workspace.footer.previousSettings")}
+                      </span>
+                    </button>
+                    {syncTargets > 0 && (
+                      <button
+                        className="footer-low"
+                        title={withShortcut(
+                          t("studio.workspace.footer.syncSettings"),
+                          "⇧⌘S",
+                        )}
+                        aria-label={t("studio.workspace.footer.syncSettings")}
+                        disabled={!panelsReady}
+                        onClick={(e) =>
+                          readyNow() && void syncSettings({ quick: e.altKey })
+                        }
+                      >
+                        <RefreshCw size={13} />
+                        <span className="optional-label">
+                          {t("studio.workspace.footer.sync")}
+                        </span>
+                      </button>
+                    )}
+                    <div className="studio-toolbar-divider" />
+                    <button
+                      aria-expanded={film}
+                      aria-label={t("studio.workspace.footer.filmstrip")}
+                      title={withShortcut(
+                        film
+                          ? t("studio.workspace.footer.hideFilmstrip")
+                          : t("studio.workspace.footer.showFilmstrip"),
+                        hint("toggle_bottom_panel"),
+                      )}
+                      onClick={() => togglePanels("filmstrip")}
+                    >
+                      <ChevronDown
+                        size={15}
+                        style={{ transform: film ? "none" : "rotate(180deg)" }}
                       />
                     </button>
-                  ))}
+                  </div>
                 </div>
-                <div className="studio-viewer-side is-end">
-                  <PointerReadout />
-                  <ViewerCaptureInfo />
-                  <button
-                    className="footer-copy"
-                    title={withShortcut(t("studio.workspace.footer.copyAdjustments"), "⇧⌘C")}
-                    aria-label={t("studio.workspace.footer.copyAdjustments")}
-                    onClick={(e) => readyNow() && onCopy(undefined, { quick: e.altKey })}
-                    disabled={!panelsReady}
-                  >
-                    <Copy size={13} />
-                    <span className="optional-label">{t("studio.workspace.footer.copy")}</span>
-                  </button>
-                  <button
-                    className="footer-mid"
-                    title={withShortcut(t("studio.workspace.footer.pasteAdjustments"), "⇧⌘V")}
-                    aria-label={t("studio.workspace.footer.pasteAdjustments")}
-                    disabled={!panelsReady}
-                    onClick={() =>
-                      readyNow() && onPaste(selectedImage ? [selectedImage.path] : [])
-                    }
-                  >
-                    <ClipboardPaste size={13} />
-                    <span className="optional-label">{t("studio.workspace.footer.paste")}</span>
-                  </button>
-                  <button
-                    className="footer-low"
-                    title={withShortcut(t("studio.workspace.footer.pasteFromPrevious"), "⌥⌘V")}
-                    aria-label={t("studio.workspace.footer.pasteFromPrevious")}
-                    disabled={!panelsReady || !previousPhoto}
-                    onClick={() =>
-                      readyNow() && void pasteFromPrevious(selectedImage ? [selectedImage.path] : [])
-                    }
-                  >
-                    <History size={13} />
-                    <span className="optional-label">{t("studio.workspace.footer.previousSettings")}</span>
-                  </button>
-                  {syncTargets > 0 && (
-                    <button
-                      className="footer-low"
-                      title={withShortcut(t("studio.workspace.footer.syncSettings"), "⇧⌘S")}
-                      aria-label={t("studio.workspace.footer.syncSettings")}
-                      disabled={!panelsReady}
-                      onClick={(e) => readyNow() && void syncSettings({ quick: e.altKey })}
-                    >
-                      <RefreshCw size={13} />
-                      <span className="optional-label">{t("studio.workspace.footer.sync")}</span>
-                    </button>
-                  )}
-                  <div className="studio-toolbar-divider" />
-                  <button
-                    aria-expanded={film}
-                    aria-label={t("studio.workspace.footer.filmstrip")}
-                    title={withShortcut(
-                      film
-                        ? t("studio.workspace.footer.hideFilmstrip")
-                        : t("studio.workspace.footer.showFilmstrip"),
-                      hint("toggle_bottom_panel"),
-                    )}
-                    onClick={() => togglePanels("filmstrip")}
-                  >
-                    <ChevronDown
-                      size={15}
-                      style={{ transform: film ? "none" : "rotate(180deg)" }}
-                    />
-                  </button>
-                </div>
-              </div>
               )}
               {film && (
                 <div className="studio-filmstrip">
@@ -1554,37 +1775,57 @@ export default function StudioWorkspace(props: Props) {
                     )}
                     onClick={() => togglePanels("sides")}
                   >
-                    {sidesHidden ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+                    {sidesHidden ? (
+                      <PanelLeftOpen size={15} />
+                    ) : (
+                      <PanelLeftClose size={15} />
+                    )}
                   </button>
                   <div className="studio-toolbar-divider" />
                   <button
                     onClick={showGrid}
-                    title={withShortcut(t("studio.workspace.loupe.backToGrid"), "G")}
+                    title={withShortcut(
+                      t("studio.workspace.loupe.backToGrid"),
+                      "G",
+                    )}
                   >
                     <Grid2X2 size={14} />
-                    <span className="optional-label">{t("studio.workspace.loupe.grid")}</span>
+                    <span className="optional-label">
+                      {t("studio.workspace.loupe.grid")}
+                    </span>
                   </button>
                   <button
                     onClick={() => moduleKeysRef.current.d()}
-                    title={withShortcut(t("studio.workspace.modules.develop"), "D")}
+                    title={withShortcut(
+                      t("studio.workspace.modules.develop"),
+                      "D",
+                    )}
                   >
                     <SlidersHorizontal size={14} />
-                    <span className="optional-label">{t("studio.workspace.modules.develop")}</span>
+                    <span className="optional-label">
+                      {t("studio.workspace.modules.develop")}
+                    </span>
                   </button>
                   <button
                     aria-label={t("studio.workspace.footer.previous")}
-                    title={withShortcut(t("studio.workspace.footer.previous"), "←")}
+                    title={withShortcut(
+                      t("studio.workspace.footer.previous"),
+                      "←",
+                    )}
                     disabled={files.length < 2}
                     onClick={(e) => {
                       const index = Math.max(currentIndex, 0);
-                      const next = files[(index - 1 + files.length) % files.length];
+                      const next =
+                        files[(index - 1 + files.length) % files.length];
                       if (next) props.onSelect(next.path, e);
                     }}
                   >
                     <ArrowLeft size={14} />
                   </button>
                   <span className="studio-counter">
-                    {currentIndex >= 0 ? `${currentIndex + 1} / ${files.length}` : ""}
+                    {currentIndex >= 0
+                      ? `${currentIndex + 1} / ${files.length}`
+                      : ""}
                   </span>
                   <button
                     aria-label={t("studio.workspace.footer.next")}
@@ -1597,7 +1838,10 @@ export default function StudioWorkspace(props: Props) {
                   >
                     <ArrowRight size={14} />
                   </button>
-                  <span className="studio-viewer-filename" title={selectedImage?.path}>
+                  <span
+                    className="studio-viewer-filename"
+                    title={selectedImage?.path}
+                  >
                     {selectedImage?.path.split("?vc=")[0].split(/[\\/]/).pop()}
                     {selectedImage?.width ? (
                       <span className="studio-muted">{` · ${selectedImage.width} × ${selectedImage.height}`}</span>
@@ -1610,13 +1854,26 @@ export default function StudioWorkspace(props: Props) {
                   {[1, 2, 3, 4, 5].map((n) => (
                     <button
                       key={n}
-                      aria-label={t("studio.workspace.footer.rate", { count: n })}
-                      title={withShortcut(t("studio.workspace.footer.stars", { count: n }), String(n))}
+                      aria-label={t("studio.workspace.footer.rate", {
+                        count: n,
+                      })}
+                      title={withShortcut(
+                        t("studio.workspace.footer.stars", { count: n }),
+                        String(n),
+                      )}
                       aria-pressed={rating >= n}
                       disabled={!selectedImage}
-                      onClick={() => onRate(rating === n ? 0 : n, selectedImage ? [selectedImage.path] : [])}
+                      onClick={() =>
+                        onRate(
+                          rating === n ? 0 : n,
+                          selectedImage ? [selectedImage.path] : [],
+                        )
+                      }
                     >
-                      <Star size={13} fill={rating >= n ? "currentColor" : "none"} />
+                      <Star
+                        size={13}
+                        fill={rating >= n ? "currentColor" : "none"}
+                      />
                     </button>
                   ))}
                 </div>
@@ -1624,29 +1881,43 @@ export default function StudioWorkspace(props: Props) {
                 <button
                   className="studio-auto-advance"
                   aria-pressed={autoAdvance}
-                  title={withShortcut(t("settings.general.autoAdvanceDesc"), hint("toggle_auto_advance"))}
+                  title={withShortcut(
+                    t("settings.general.autoAdvanceDesc"),
+                    hint("toggle_auto_advance"),
+                  )}
                   onClick={toggleAutoAdvance}
                 >
                   <ChevronsRight size={14} />
-                  <span className="optional-label">{t("settings.general.autoAdvance")}</span>
+                  <span className="optional-label">
+                    {t("settings.general.autoAdvance")}
+                  </span>
                 </button>
                 <div className="studio-viewer-side is-end">
                   <ViewerCaptureInfo />
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.fitTitle"), ",")}
+                    title={withShortcut(
+                      t("studio.workspace.viewer.fitTitle"),
+                      ",",
+                    )}
                     onClick={() => onZoom(1, true)}
                   >
                     {t("studio.workspace.viewer.fit")}
                   </button>
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.actualPixels"), ".")}
+                    title={withShortcut(
+                      t("studio.workspace.viewer.actualPixels"),
+                      ".",
+                    )}
                     onClick={() => onZoom(1)}
                   >
                     100%
                   </button>
                   <button
                     aria-label={t("studio.workspace.loupe.fullScreen")}
-                    title={withShortcut(t("studio.workspace.loupe.fullScreen"), hint("toggle_fullscreen"))}
+                    title={withShortcut(
+                      t("studio.workspace.loupe.fullScreen"),
+                      hint("toggle_fullscreen"),
+                    )}
                     onClick={() => useUIStore.getState().toggleFullScreen()}
                   >
                     <Maximize size={13} />
@@ -1654,10 +1925,15 @@ export default function StudioWorkspace(props: Props) {
                   <div className="studio-toolbar-divider" />
                   <button
                     onClick={showDevelop}
-                    title={withShortcut(t("studio.workspace.loupe.adjustTitle"), "D")}
+                    title={withShortcut(
+                      t("studio.workspace.loupe.adjustTitle"),
+                      "D",
+                    )}
                   >
                     <SlidersHorizontal size={13} />
-                    <span className="optional-label">{t("studio.workspace.loupe.adjust")}</span>
+                    <span className="optional-label">
+                      {t("studio.workspace.loupe.adjust")}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -1677,36 +1953,42 @@ export default function StudioWorkspace(props: Props) {
                 size={size}
                 onClearSelection={clearLibrarySelection}
                 onImport={() => runAppCommand("import_photos")}
-                listing={JSON.stringify([currentFolderPath, activeAlbumId, searchCriteria, filterCriteria, sortCriteria])}
+                listing={JSON.stringify([
+                  currentFolderPath,
+                  activeAlbumId,
+                  searchCriteria,
+                  filterCriteria,
+                  sortCriteria,
+                ])}
               />
               {panels.bars && (
-              <div className="studio-library-footer">
-                <span>
-                  {t("studio.workspace.footer.photographs", {
-                    count: files.length,
-                    n: files.length.toLocaleString(),
-                  })}
-                  <OfflineCount files={files} />
-                  {multiSelectedPaths.length > 0 &&
-                    ` · ${t("studio.workspace.footer.selected", {
-                      count: multiSelectedPaths.length,
-                      n: multiSelectedPaths.length.toLocaleString(),
-                    })}`}
-                </span>
-                {multiSelectedPaths.length > 0 && flagButtons()}
-                <div className="studio-spacer" />
-                <label title={t("studio.workspace.grid.thumbnailSize")}>
-                  <Grid2X2 size={12} />
-                  <input
-                    type="range"
-                    aria-label={t("studio.workspace.grid.thumbnailSize")}
-                    min="150"
-                    max="320"
-                    value={size}
-                    onChange={(e) => setSize(Number(e.target.value))}
-                  />
-                </label>
-              </div>
+                <div className="studio-library-footer">
+                  <span>
+                    {t("studio.workspace.footer.photographs", {
+                      count: files.length,
+                      n: files.length.toLocaleString(),
+                    })}
+                    <OfflineCount files={files} />
+                    {multiSelectedPaths.length > 0 &&
+                      ` · ${t("studio.workspace.footer.selected", {
+                        count: multiSelectedPaths.length,
+                        n: multiSelectedPaths.length.toLocaleString(),
+                      })}`}
+                  </span>
+                  {multiSelectedPaths.length > 0 && flagButtons()}
+                  <div className="studio-spacer" />
+                  <label title={t("studio.workspace.grid.thumbnailSize")}>
+                    <Grid2X2 size={12} />
+                    <input
+                      type="range"
+                      aria-label={t("studio.workspace.grid.thumbnailSize")}
+                      min="150"
+                      max="320"
+                      value={size}
+                      onChange={(e) => setSize(Number(e.target.value))}
+                    />
+                  </label>
+                </div>
               )}
             </>
           )}
@@ -1750,13 +2032,21 @@ export default function StudioWorkspace(props: Props) {
         }}
       >
         <header>
-          <strong id="studio-export-title">{drawer ? t("studio.workspace.export.title") : ""}</strong>
-          <button aria-label={t("studio.workspace.export.close")} onClick={closeTools}>
+          <strong id="studio-export-title">
+            {drawer ? t("studio.workspace.export.title") : ""}
+          </strong>
+          <button
+            aria-label={t("studio.workspace.export.close")}
+            onClick={closeTools}
+          >
             <X size={17} />
           </button>
         </header>
         <div className="studio-tool-dialog-content">
-          <ErrorBoundary key={drawer ?? ""} name={t("studio.workspace.export.title")}>
+          <ErrorBoundary
+            key={drawer ?? ""}
+            name={t("studio.workspace.export.title")}
+          >
             {drawer === Panel.Export && <StudioExport onStarted={closeTools} />}
           </ErrorBoundary>
         </div>
@@ -1766,7 +2056,9 @@ export default function StudioWorkspace(props: Props) {
           <ExportQueuePanel onClose={() => setQueueOpen(false)} />
         </ErrorBoundary>
       )}
-      {isSettingsOpen && <PreferencesDialog>{props.settings}</PreferencesDialog>}
+      {isSettingsOpen && (
+        <PreferencesDialog>{props.settings}</PreferencesDialog>
+      )}
     </div>
   );
 }

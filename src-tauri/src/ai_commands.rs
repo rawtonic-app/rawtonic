@@ -1,10 +1,10 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::io::Cursor;
 use std::sync::Arc;
 
-use base64::{Engine as _, engine::general_purpose};
-use image::{GrayImage, ImageFormat};
+use base64::Engine as _;
+use image::GrayImage;
+use tauri::Manager;
 
 use crate::ai_lifecycle::LIFECYCLE;
 use crate::ai_processing::{
@@ -42,12 +42,7 @@ fn ensure_photo(loaded: &str, asked: &str) -> Result<(), String> {
 }
 
 fn encode_to_base64_png(image: &GrayImage) -> Result<String, String> {
-    let mut buf = Cursor::new(Vec::new());
-    image
-        .write_to(&mut buf, ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
-    let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
-    Ok(format!("data:image/png;base64,{}", base64_str))
+    rawtonic_segment::mask_data_url(image)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -915,6 +910,56 @@ async fn auto_mask(
     let data = Arc::new(data);
     store_mask(state, kind, key, data.clone());
     Ok(Some(data))
+}
+
+/// The Sky and Subject selections an export computes for a photo that was
+/// never opened (`ai_selections::detect_missing`), with the app's models as
+/// the editor runs them: an installed model only (an export downloads
+/// nothing; one that is not installed fails that photo, naming the way to
+/// get it), one run of each kind at a time, kept from an idle unload while
+/// it runs. Called from export workers, outside the async runtime.
+pub(crate) struct ExportSelections<'a> {
+    pub app_handle: &'a tauri::AppHandle,
+}
+
+impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> {
+    fn detect(
+        &self,
+        selection: rawtonic_engine::ai_selections::AutoSelection,
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<String, String> {
+        use rawtonic_engine::ai_selections::AutoSelection;
+        let kind = match selection {
+            AutoSelection::Sky => AutoMask::Sky,
+            AutoSelection::Subject => AutoMask::Subject,
+        };
+        let state = self.app_handle.state::<AppState>();
+        LIFECYCLE.touch();
+        let _running = LIFECYCLE.run();
+        let _run = kind.lock().blocking_lock();
+        let network = tauri::async_runtime::block_on(network(&state, self.app_handle, kind, false))?
+            .ok_or_else(|| {
+                format!(
+                    "the {} model is not installed (open the photo in Develop once to download it, then export again)",
+                    selection.name()
+                )
+            })?;
+        let started = std::time::Instant::now();
+        let mask = match &network {
+            Network::Subject(model) => run_subject_model(warped, model, linear, None),
+            Network::Sky(model) => run_sky_seg_model(warped, model, linear, None),
+        }
+        .map_err(|e| e.to_string())?;
+        log::info!(
+            "AI {} mask for an export: {}x{} in {} ms",
+            kind.name(),
+            warped.width(),
+            warped.height(),
+            started.elapsed().as_millis()
+        );
+        encode_to_base64_png(&mask)
+    }
 }
 
 async fn subject_mask(

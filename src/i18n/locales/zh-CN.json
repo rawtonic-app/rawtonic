@@ -1811,7 +1811,7 @@
       "flagsSavedRefreshFailed": "旗标已保存；无法刷新项目摘要：{{error}}",
       "hotFolderFailed": "监视文件夹：{{file}}：{{error}}",
       "hotFolderResumeFailed": "无法继续监视文件夹：{{error}}",
-      "importAiMasksOnOpen_other": "{{count}} 张照片的 AI 蒙版将在“显影”中打开时计算",
+      "importAiMasksOnOpen_other": "{{count}} 张照片的 AI 蒙版将在“显影”中打开或导出时计算",
       "importCopies_other": "已导入 {{count}} 个虚拟副本",
       "importCopiesSkipped_other": "{{count}} 个虚拟副本未导入",
       "importCropsClipped_other": "{{count}} 个裁剪超出相机画面，已收缩到画面内",
@@ -3182,6 +3182,7 @@
           "loading": "正在读取照片…",
           "masks": "正在写入蒙版…",
           "rendering": "正在渲染并写入…",
+          "selecting": "正在计算 AI 选区…",
           "waiting": "等待中"
         },
         "photos_other": "{{count}} 张照片",
@@ -4735,6 +4736,7 @@
         "close": "关闭工具",
         "progress": "正在导出 {{current}} / {{total}}",
         "progressDenoising": "正在导出 {{current}} / {{total}} · AI 降噪…",
+        "progressSelecting": "正在导出 {{current}} / {{total}} · AI 选区…",
         "title": "导出照片"
       },
       "flags": {

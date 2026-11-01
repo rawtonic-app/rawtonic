@@ -1973,9 +1973,9 @@
       "flagsSavedRefreshFailed": "Marcações salvas; não foi possível atualizar o resumo do projeto: {{error}}",
       "hotFolderFailed": "Pasta monitorada: {{file}}: {{error}}",
       "hotFolderResumeFailed": "Não foi possível retomar a pasta monitorada: {{error}}",
-      "importAiMasksOnOpen_one": "As máscaras de IA de {{count}} foto são calculadas ao abri-la em Revelação",
-      "importAiMasksOnOpen_many": "As máscaras de IA de {{count}} fotos são calculadas ao abrir cada uma em Revelação",
-      "importAiMasksOnOpen_other": "As máscaras de IA de {{count}} fotos são calculadas ao abrir cada uma em Revelação",
+      "importAiMasksOnOpen_one": "As máscaras de IA de {{count}} foto são calculadas ao abri-la em Revelação ou exportá-la",
+      "importAiMasksOnOpen_many": "As máscaras de IA de {{count}} fotos são calculadas ao abrir cada uma em Revelação ou ao exportá-las",
+      "importAiMasksOnOpen_other": "As máscaras de IA de {{count}} fotos são calculadas ao abrir cada uma em Revelação ou ao exportá-las",
       "importCopies_one": "{{count}} cópia virtual importada",
       "importCopies_many": "{{count}} cópias virtuais importadas",
       "importCopies_other": "{{count}} cópias virtuais importadas",
@@ -3414,6 +3414,7 @@
           "loading": "Lendo a foto…",
           "masks": "Gravando máscaras…",
           "rendering": "Renderizando e gravando…",
+          "selecting": "Calculando as seleções com IA…",
           "waiting": "Aguardando"
         },
         "photos_one": "{{count}} foto",
@@ -5051,6 +5052,7 @@
         "close": "Fechar ferramentas",
         "progress": "Exportando {{current}} / {{total}}",
         "progressDenoising": "Exportando {{current}} / {{total}} · redução de ruído com IA…",
+        "progressSelecting": "Exportando {{current}} / {{total}} · seleções com IA…",
         "title": "Exportar fotos"
       },
       "flags": {

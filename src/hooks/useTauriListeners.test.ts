@@ -309,6 +309,11 @@ it("names AI Denoise on the export progress while a photo waits for it", async (
   send("export-denoising", "/c.RAF");
   send("export-job-started", { current: 0, total: 1 });
   expect(useProcessStore.getState().exportState.denoising).toEqual([]);
+  // AI selections of a never-opened photo: named until the photo is done.
+  send("export-selecting", "/d.ORF");
+  expect(useProcessStore.getState().exportState.selecting).toEqual(["/d.ORF"]);
+  send("batch-export-progress", { current: 1, total: 1, path: "/d.ORF" });
+  expect(useProcessStore.getState().exportState.selecting).toEqual([]);
 });
 
 it("follows the running job's photos and the queue's hold for the queue panel", async () => {

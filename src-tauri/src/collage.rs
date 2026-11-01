@@ -140,8 +140,18 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             None,
         )
         .map_err(|e| format!("Failed to load {}: {e}", source))?;
-        let export_source =
-            prepare_export_source(&source, Arc::new(pristine), measures, &adjustments)?;
+        // Selections of a never-opened photo, as its own export computes
+        // them (the collage keeps no recipe of its cells).
+        let pristine = Arc::new(pristine);
+        rawtonic_engine::ai_selections::detect_missing(
+            &mut adjustments,
+            &pristine,
+            is_raw,
+            Some(&crate::ai_commands::ExportSelections { app_handle }),
+            &mut || {},
+        )
+        .map_err(|e| format!("{source}: not placed, {e}"))?;
+        let export_source = prepare_export_source(&source, pristine, measures, &adjustments)?;
         let tonemapper_override = |is_raw| {
             crate::image_processing::resolve_tonemapper_override_from_handle(app_handle, is_raw)
         };

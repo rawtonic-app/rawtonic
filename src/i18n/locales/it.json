@@ -1973,9 +1973,9 @@
       "flagsSavedRefreshFailed": "Contrassegni salvati; impossibile aggiornare il riepilogo del progetto: {{error}}",
       "hotFolderFailed": "Cartella monitorata: {{file}}: {{error}}",
       "hotFolderResumeFailed": "Impossibile riprendere il monitoraggio della cartella: {{error}}",
-      "importAiMasksOnOpen_one": "Le maschere IA di {{count}} foto vengono calcolate quando la si apre in Sviluppo",
-      "importAiMasksOnOpen_many": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo",
-      "importAiMasksOnOpen_other": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo",
+      "importAiMasksOnOpen_one": "Le maschere IA di {{count}} foto vengono calcolate quando la si apre in Sviluppo o all'esportazione",
+      "importAiMasksOnOpen_many": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo o all'esportazione",
+      "importAiMasksOnOpen_other": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo o all'esportazione",
       "importCopies_one": "{{count}} copia virtuale importata",
       "importCopies_many": "{{count}} copie virtuali importate",
       "importCopies_other": "{{count}} copie virtuali importate",
@@ -3414,6 +3414,7 @@
           "loading": "Lettura della foto…",
           "masks": "Scrittura delle maschere…",
           "rendering": "Rendering e scrittura…",
+          "selecting": "Calcolo delle selezioni IA…",
           "waiting": "In attesa"
         },
         "photos_one": "{{count}} foto",
@@ -5051,6 +5052,7 @@
         "close": "Chiudi strumenti",
         "progress": "Esportazione {{current}} / {{total}}",
         "progressDenoising": "Esportazione {{current}} / {{total}} · riduzione rumore IA…",
+        "progressSelecting": "Esportazione {{current}} / {{total}} · selezioni IA…",
         "title": "Esporta foto"
       },
       "flags": {

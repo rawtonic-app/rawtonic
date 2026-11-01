@@ -1973,9 +1973,9 @@
       "flagsSavedRefreshFailed": "Marques enregistrées ; impossible d’actualiser le résumé du projet : {{error}}",
       "hotFolderFailed": "Dossier surveillé : {{file}} : {{error}}",
       "hotFolderResumeFailed": "Impossible de reprendre la surveillance du dossier : {{error}}",
-      "importAiMasksOnOpen_one": "Les masques IA de {{count}} photo sont calculés à son ouverture dans Développement",
-      "importAiMasksOnOpen_many": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement",
-      "importAiMasksOnOpen_other": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement",
+      "importAiMasksOnOpen_one": "Les masques IA de {{count}} photo sont calculés à son ouverture dans Développement ou à l'export",
+      "importAiMasksOnOpen_many": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement ou à l'export",
+      "importAiMasksOnOpen_other": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement ou à l'export",
       "importCopies_one": "{{count}} copie virtuelle importée",
       "importCopies_many": "{{count}} copies virtuelles importées",
       "importCopies_other": "{{count}} copies virtuelles importées",
@@ -3414,6 +3414,7 @@
           "loading": "Lecture de la photo…",
           "masks": "Écriture des masques…",
           "rendering": "Rendu et écriture…",
+          "selecting": "Calcul des sélections IA…",
           "waiting": "En attente"
         },
         "photos_one": "{{count}} photo",
@@ -5051,6 +5052,7 @@
         "close": "Fermer les outils",
         "progress": "Export {{current}} / {{total}}",
         "progressDenoising": "Export {{current}} / {{total}} · débruitage IA…",
+        "progressSelecting": "Export {{current}} / {{total}} · sélections IA…",
         "title": "Exporter les photos"
       },
       "flags": {
