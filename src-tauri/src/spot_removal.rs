@@ -100,13 +100,19 @@ pub struct FoundDust {
     pub spots: Vec<Value>,
     /// Whether faces were left out (the face models are installed).
     pub faces_checked: bool,
+    /// How many other photos of the camera the spots were checked against
+    /// (the multi-photo cue, `rawtonic_engine::dust::SeriesTarget`).
+    pub series_photos: usize,
 }
 
+/// The open photo's analysis (with the series' evidence), whether faces
+/// were checked, and how many other photos gave evidence.
 type DustCache = std::sync::Mutex<
     Option<(
         u64,
         std::sync::Arc<rawtonic_engine::dust::DustAnalysis>,
         bool,
+        usize,
     )>,
 >;
 
@@ -162,11 +168,21 @@ pub async fn find_dust(
     sensitivity: f64,
     apply: bool,
     js_adjustments: Value,
+    series: Option<Vec<String>>,
     state: tauri::State<'_, crate::app_state::AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<FoundDust, String> {
     let loaded = crate::image_loader::original_image(&state).await?;
     let (source, is_raw, path) = (loaded.image, loaded.is_raw, loaded.path);
+    // The other selected photos of the same camera and frame that can
+    // witness the dust (`series_of`).
+    let series = {
+        let (open, adjustments) = (path.clone(), js_adjustments.clone());
+        let paths = series.unwrap_or_default();
+        tokio::task::spawn_blocking(move || series_of(&open, &adjustments, paths))
+            .await
+            .map_err(|e| e.to_string())?
+    };
     let key = {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -174,6 +190,7 @@ pub async fn find_dust(
         for retouch in ["aiPatches", "spots", "redEyes"] {
             js_adjustments[retouch].to_string().hash(&mut hasher);
         }
+        series.hash(&mut hasher);
         hasher.finish()
     };
     let cached = dust_cache()
@@ -181,7 +198,7 @@ pub async fn find_dust(
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .filter(|(k, ..)| *k == key)
-        .map(|(_, analysis, faces)| (analysis.clone(), *faces));
+        .map(|(_, analysis, faces, photos)| (analysis.clone(), *faces, *photos));
     // The photo with its patches and spots: what the analysis and the
     // sources look at (healed dust is not found again).
     let base = if cached.is_none() || apply {
@@ -197,26 +214,27 @@ pub async fn find_dust(
     } else {
         None
     };
-    let (analysis, faces_checked) = match (cached, &base) {
+    let (analysis, faces_checked, series_photos) = match (cached, &base) {
         (Some(found), _) => found,
         (None, None) => return Err("No photo analysis".into()),
         (None, Some(base)) => {
             // Faces as decoded: the patches do not move them.
             let faces = face_boxes(&app_handle, source.clone(), is_raw).await;
             let checked = faces.is_some();
-            let base = base.clone();
-            let analysis = tokio::task::spawn_blocking(move || {
-                std::sync::Arc::new(rawtonic_engine::dust::analyse(
-                    &base,
-                    !is_raw,
-                    faces.as_deref().unwrap_or_default(),
-                ))
+            let (base, open) = (base.clone(), path.clone());
+            let (analysis, photos) = tokio::task::spawn_blocking(move || {
+                let faces = faces.unwrap_or_default();
+                let work = rawtonic_engine::dust::work_copy(&base, !is_raw);
+                let size = (base.width(), base.height());
+                let analysis = rawtonic_engine::dust::analyse_work(&work, size, &faces);
+                let (analysis, photos) = with_series(&open, work, size, analysis, &series, &faces);
+                (std::sync::Arc::new(analysis), photos)
             })
             .await
             .map_err(|e| e.to_string())?;
             *dust_cache().lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((key, analysis.clone(), checked));
-            (analysis, checked)
+                Some((key, analysis.clone(), checked, photos));
+            (analysis, checked, photos)
         }
     };
     tokio::task::spawn_blocking(move || {
@@ -242,10 +260,197 @@ pub async fn find_dust(
         Ok(FoundDust {
             spots,
             faces_checked,
+            series_photos,
         })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// At most this many other photos witness the dust (the nearest to the
+/// open photo in the selection's order): enough evidence, and the time and
+/// memory stay bounded.
+const SERIES_MAX: usize = 8;
+
+/// What the multi-photo cue keeps of a photo of the series (its work copy
+/// and analysis, decoded once while the app runs).
+#[derive(Clone)]
+struct SeriesEntry {
+    stamp: (u64, u128),
+    work: std::sync::Arc<rawtonic_engine::dust::WorkCopy>,
+    analysis: std::sync::Arc<rawtonic_engine::dust::DustAnalysis>,
+    size: (u32, u32),
+    orientation: u16,
+    f_number: Option<f32>,
+}
+
+/// The series photos last used, by path (at most `SERIES_MAX`).
+static SERIES_CACHE: std::sync::Mutex<Vec<(String, SeriesEntry)>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn file_stamp(path: &std::path::Path) -> (u64, u128) {
+    let meta = std::fs::metadata(path).ok();
+    let modified = meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    (meta.map_or(0, |m| m.len()), modified)
+}
+
+/// A photo's f-number and body serial number from its metadata.
+fn aperture_and_body(path: &str) -> (Option<f32>, Option<String>) {
+    let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(path);
+    let meta = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    let Some(exif) = meta.exif else {
+        return (None, None);
+    };
+    let field = |k: &str| {
+        exif.get(k)
+            .map(|v| v.trim().trim_matches('"').trim().to_string())
+            .filter(|v| !v.is_empty() && v != "0")
+    };
+    let f_number = field("FNumber").and_then(|v| {
+        let v = v.trim_start_matches("f/");
+        match v.split_once('/') {
+            Some((n, d)) => Some(n.trim().parse::<f32>().ok()? / d.trim().parse::<f32>().ok()?),
+            None => v.parse::<f32>().ok(),
+        }
+        .filter(|f| f.is_finite() && *f > 0.0)
+    });
+    let body = field("BodySerialNumber").or_else(|| field("SerialNumber"));
+    (f_number, body)
+}
+
+/// The photos of `paths` that can witness the open photo's dust: the same
+/// camera body (make, model and, where both record it, serial number) and
+/// frame, at most `SERIES_MAX`, the nearest to the open photo in `paths`'
+/// order first.
+fn series_of(open: &str, adjustments: &Value, paths: Vec<String>) -> Vec<String> {
+    if paths.iter().all(|p| p == open) {
+        return Vec::new();
+    }
+    let at = paths.iter().position(|p| p == open).unwrap_or(0);
+    let mut ordered: Vec<(usize, String)> = paths
+        .into_iter()
+        .enumerate()
+        .filter(|(_, p)| p != open)
+        .map(|(k, p)| (k.abs_diff(at), p))
+        .collect();
+    ordered.sort_by_key(|(d, _)| *d);
+    let camera = camera_of(open);
+    let frame = frame_of(open, adjustments);
+    let body = aperture_and_body(open).1;
+    if camera.is_none() || frame.is_none() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    for (_, path) in ordered {
+        if found.len() >= SERIES_MAX {
+            break;
+        }
+        if camera_of(&path) != camera {
+            continue;
+        }
+        let other_body = aperture_and_body(&path).1;
+        if body.is_some() && other_body.is_some() && other_body != body {
+            continue;
+        }
+        let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(&path);
+        let mut recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+        started_recipe(&mut recipe, &source_path);
+        if frame_of(&path, &recipe) == frame {
+            found.push(path);
+        }
+    }
+    found
+}
+
+/// A series photo's work copy and analysis, from the cache or decoded.
+fn series_entry(path: &str) -> Option<SeriesEntry> {
+    let (source_path, _) = rawtonic_export::sidecars::parse_virtual_path(path);
+    let stamp = file_stamp(&source_path);
+    let cached = SERIES_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(p, e)| p == path && e.stamp == stamp)
+        .map(|(_, e)| e.clone());
+    if cached.is_some() {
+        return cached;
+    }
+    let bytes = crate::file_management::read_file_mapped(&source_path).ok()?;
+    let name = source_path.to_string_lossy().to_string();
+    let orientation = crate::image_loader::source_orientation(&bytes, &name);
+    let settings = crate::app_settings::AppSettings::default();
+    let image =
+        crate::image_loader::load_base_image_from_bytes(&bytes, &name, false, &settings, None)
+            .ok()?;
+    drop(bytes);
+    let encoded = !rawtonic_engine::formats::is_raw_file(&source_path);
+    let work = rawtonic_engine::dust::work_copy(&image, encoded);
+    let size = (image.width(), image.height());
+    drop(image);
+    let analysis = rawtonic_engine::dust::analyse_work(&work, size, &[]);
+    let entry = SeriesEntry {
+        stamp,
+        work: std::sync::Arc::new(work),
+        analysis: std::sync::Arc::new(analysis),
+        size,
+        orientation,
+        f_number: aperture_and_body(path).0,
+    };
+    let mut cache = SERIES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    cache.retain(|(p, _)| p != path);
+    cache.push((path.to_string(), entry.clone()));
+    if cache.len() > SERIES_MAX {
+        cache.remove(0);
+    }
+    Some(entry)
+}
+
+/// The open photo's `analysis` with the evidence of the `series` photos
+/// (`rawtonic_engine::dust::SeriesTarget`), and how many gave it.
+fn with_series(
+    open: &str,
+    work: rawtonic_engine::dust::WorkCopy,
+    size: (u32, u32),
+    analysis: rawtonic_engine::dust::DustAnalysis,
+    series: &[String],
+    faces: &[[f64; 4]],
+) -> (rawtonic_engine::dust::DustAnalysis, usize) {
+    let others: Vec<SeriesEntry> = series.iter().filter_map(|p| series_entry(p)).collect();
+    if others.is_empty() {
+        return (analysis, 0);
+    }
+    let (source_path, _) = rawtonic_export::sidecars::parse_virtual_path(open);
+    let orientation = std::fs::read(&source_path)
+        .map(|bytes| {
+            crate::image_loader::source_orientation(&bytes, &source_path.to_string_lossy())
+        })
+        .unwrap_or(1);
+    let photo = rawtonic_engine::dust::SeriesPhoto {
+        work: &work,
+        analysis: &analysis,
+        size,
+        orientation,
+        f_number: aperture_and_body(open).0,
+    };
+    let target = rawtonic_engine::dust::SeriesTarget::new(&photo);
+    let mut evidence = target.evidence();
+    for other in &others {
+        target.gather(
+            &rawtonic_engine::dust::SeriesPhoto {
+                work: &other.work,
+                analysis: &other.analysis,
+                size: other.size,
+                orientation: other.orientation,
+                f_number: other.f_number,
+            },
+            &mut evidence,
+        );
+    }
+    (target.apply(&evidence, faces), others.len())
 }
 
 /// A photo `sync_dust_spots` left alone, and why.

@@ -37,6 +37,9 @@ use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+mod series;
+pub use series::{SeriesEvidence, SeriesPhoto, SeriesTarget};
+
 /// Long edge of the copy the detector works on (about 2.5 sensor pixels
 /// per work pixel on 24 MP, 3.5 on 45 MP: the smallest dust a pro sees at
 /// 100 % spans several work pixels).
@@ -173,7 +176,19 @@ pub struct Candidate {
     /// How loose the tests had to be (`looseness`: 0 passes at the
     /// defaults, 1 only at sensitivity 100); the sensitivity gates this too.
     pub looseness: f32,
+    /// Half-size of the box the darkening was measured in (base pixels).
+    pub size: f64,
+    /// What other photos of the camera say (`series`): +1 seen at the same
+    /// sensor position, −1 clean there where they would show it, 0 no
+    /// evidence (a single photo). It moves the sensitivity the candidate is
+    /// judged at by `SERIES_STEP`.
+    pub evidence: i8,
 }
+
+/// How far the multi-photo evidence moves the sensitivity a candidate is
+/// judged at (`Candidate::evidence`): dust seen at the same sensor position
+/// in another photo is shown at 50 as single-photo dust at 100.
+pub const SERIES_STEP: f64 = 50.0;
 
 /// Every candidate of a base image down to sensitivity 100.
 #[derive(Debug, Clone, Default)]
@@ -191,11 +206,17 @@ pub fn min_contrast(sensitivity: f64) -> f32 {
 
 /// The candidates found at `sensitivity`.
 pub fn select(analysis: &DustAnalysis, sensitivity: f64) -> Vec<Candidate> {
-    let (needed, loose) = (min_contrast(sensitivity), looseness(sensitivity) + 1e-4);
     analysis
         .candidates
         .iter()
-        .filter(|c| c.contrast >= needed && c.looseness <= loose)
+        .filter(|c| {
+            // Beyond either end the evidence keeps moving it (a candidate
+            // other photos show clean stays hidden at 0).
+            let s = sensitivity + SERIES_STEP * f64::from(c.evidence);
+            (c.evidence >= 0 || s >= 0.0)
+                && c.contrast >= min_contrast(s)
+                && c.looseness <= looseness(s) + 1e-4
+        })
         .copied()
         .collect()
 }
@@ -581,14 +602,7 @@ fn analyse_with(
                 (x as f64 + 0.5) * factor as f64,
                 (y as f64 + 0.5) * factor as f64,
             );
-            let in_face = faces.iter().any(|f| {
-                let (mx, my) = ((f[2] - f[0]) * 0.25, (f[3] - f[1]) * 0.25);
-                centre.0 >= f[0] - mx
-                    && centre.0 <= f[2] + mx
-                    && centre.1 >= f[1] - my
-                    && centre.1 <= f[3] + my
-            });
-            if in_face {
+            if in_face(faces, centre) {
                 return None;
             }
             // The heal circle covers the disc and its soft rim: out to where
@@ -603,6 +617,8 @@ fn analyse_with(
                     radius,
                     contrast,
                     looseness: steps[level],
+                    size: (a * factor) as f64,
+                    evidence: 0,
                 },
                 darkening / sigma,
             ))
@@ -630,6 +646,18 @@ fn analyse_with(
     }
     analysis.candidates = kept;
     analysis
+}
+
+/// Whether `centre` (base pixels) lies in one of the face boxes or a
+/// quarter of its size around it.
+fn in_face(faces: &[[f64; 4]], centre: (f64, f64)) -> bool {
+    faces.iter().any(|f| {
+        let (mx, my) = ((f[2] - f[0]) * 0.25, (f[3] - f[1]) * 0.25);
+        centre.0 >= f[0] - mx
+            && centre.0 <= f[2] + mx
+            && centre.1 >= f[1] - my
+            && centre.1 <= f[3] + my
+    })
 }
 
 /// How far (work pixels) the shadow of a spot of size `a` at `at` reaches
@@ -762,6 +790,18 @@ fn measure(
     a: isize,
     sigma: f32,
 ) -> Option<Measures> {
+    measure_any(values, i, at, a, sigma).filter(|m| m.darkening > 0.0)
+}
+
+/// `measure`, also where the spot is not darker than its surroundings (the
+/// multi-photo cue asks whether another photo is clean there).
+fn measure_any(
+    values: &[f32],
+    i: &Integral,
+    at: (isize, isize),
+    a: isize,
+    sigma: f32,
+) -> Option<Measures> {
     let (x, y) = at;
     let (w, h) = (i.w as isize, i.h as isize);
     let value = |xx: isize, yy: isize| {
@@ -822,7 +862,7 @@ fn measure(
     let rough = (variance - sigma * sigma).max(0.0).sqrt();
     let level = fit.2 as f32;
     let darkening = level - mean(i.square(x, y, a)) as f32;
-    if darkening <= 0.0 || level <= 0.0 {
+    if level <= 0.0 {
         return None;
     }
     let texture = (s * s - sigma * sigma).max(0.0).sqrt();
@@ -1614,6 +1654,115 @@ mod tests {
         }
     }
 
+    /// Measurement harness (notes: benchmark-results/fd4-dust-series-2026-11-01):
+    /// the multi-photo cue on the work copies in `$DUST_WORK` (`work_copies`),
+    /// grouped by `$DUST_SERIES` (lines: group, stem, EXIF orientation,
+    /// f-number or -): each photo with the others of its group, written as
+    /// STEM.TAG.json like `work_copies`, with the seconds the evidence took.
+    #[test]
+    #[ignore = "measurement: needs DUST_WORK and DUST_SERIES"]
+    fn series_work_copies() {
+        let dir = std::path::PathBuf::from(std::env::var("DUST_WORK").unwrap());
+        let tag = std::env::var("DUST_TAG").unwrap_or_else(|_| "series".into());
+        let list = std::fs::read_to_string(std::env::var("DUST_SERIES").unwrap()).unwrap();
+        let mut groups: std::collections::BTreeMap<String, Vec<(String, u16, Option<f32>)>> =
+            Default::default();
+        for line in list.lines().filter(|l| !l.trim().is_empty()) {
+            let f: Vec<&str> = line.split('\t').collect();
+            groups.entry(f[0].to_string()).or_default().push((
+                f[1].to_string(),
+                f[2].parse().unwrap_or(1),
+                f[3].parse().ok(),
+            ));
+        }
+        let load = |stem: &str| -> Option<(WorkCopy, (u32, u32))> {
+            let bytes = std::fs::read(dir.join(format!("{stem}.work"))).ok()?;
+            let u = |i: usize| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
+            let (w, h, factor) = (u(0) as usize, u(1) as usize, u(2) as usize);
+            let values: Vec<f32> = bytes[20..]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f32::from_le_bytes(*c))
+                .collect();
+            Some((
+                WorkCopy {
+                    values,
+                    width: w,
+                    height: h,
+                    factor,
+                },
+                (u(3), u(4)),
+            ))
+        };
+        for (group, members) in groups {
+            let loaded: Vec<_> = members
+                .iter()
+                .filter_map(|(stem, o, f)| Some((stem.clone(), *o, *f, load(stem)?)))
+                .collect();
+            let analyses: Vec<DustAnalysis> = loaded
+                .iter()
+                .map(|(_, _, _, (work, size))| analyse_work(work, *size, &[]))
+                .collect();
+            let photos: Vec<SeriesPhoto> = loaded
+                .iter()
+                .zip(&analyses)
+                .map(|((_, o, f, (work, size)), analysis)| SeriesPhoto {
+                    work,
+                    analysis,
+                    size: *size,
+                    orientation: *o,
+                    f_number: *f,
+                })
+                .collect();
+            for (k, photo) in photos.iter().enumerate() {
+                let started = std::time::Instant::now();
+                let target = SeriesTarget::new(photo);
+                let mut evidence = target.evidence();
+                for (j, other) in photos.iter().enumerate() {
+                    if j != k {
+                        target.gather(other, &mut evidence);
+                    }
+                }
+                let analysis = target.apply(&evidence, &[]);
+                let seconds = started.elapsed().as_secs_f64();
+                let listed = |found: &[Candidate]| -> Vec<Value> {
+                    found
+                        .iter()
+                        .map(|c| {
+                            json!({"x": c.centre.0, "y": c.centre.1, "radius": c.radius,
+                                "contrast": c.contrast, "looseness": c.looseness,
+                                "evidence": c.evidence})
+                        })
+                        .collect()
+                };
+                let shown: serde_json::Map<String, Value> = [0, 25, 50, 75, 100]
+                    .iter()
+                    .map(|&s| {
+                        (
+                            s.to_string(),
+                            json!(listed(&select(&analysis, f64::from(s)))),
+                        )
+                    })
+                    .collect();
+                let stem = &loaded[k].0;
+                std::fs::write(
+                    dir.join(format!("{stem}.{tag}.json")),
+                    serde_json::to_string(&json!({"candidates": listed(&analysis.candidates),
+                        "shown": shown, "seconds": seconds, "photos": photos.len()}))
+                    .unwrap(),
+                )
+                .unwrap();
+                println!(
+                    "{group} {stem}: {} (≥50: {} single {}) {seconds:.2}s",
+                    analysis.candidates.len(),
+                    select(&analysis, 50.0).len(),
+                    select(photo.analysis, 50.0).len()
+                );
+            }
+        }
+    }
+
     /// Measurement harness (notes: benchmark-results/fd2-dust-recall-2026-11-01):
     /// finds and heals the dust of each STEM.base in `$DUST_HEAL` (written by
     /// the app's `print_dust` with `$DUST_BASE`) as Find dust's Apply does
@@ -1691,6 +1840,8 @@ mod tests {
                             radius,
                             contrast: 0.0,
                             looseness: 0.0,
+                            size: 0.0,
+                            evidence: 0,
                         };
                         FoundSpot {
                             x: base.centre.0,

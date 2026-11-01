@@ -316,8 +316,8 @@ fn print_upright_segments() {
 
 /// Tool for the Find Dust measurement (notes: benchmark-results/
 /// fd-find-dust-2026-10-31): for each RAW listed in `$DUST_FILES` (one
-/// path per line) writes into `$DUST_OUT` STEM.json (base size, flat share
-/// and every candidate down to sensitivity 100) and STEM_view.jpg, a local
+/// path per line) writes into `$DUST_OUT` STEM.json (base size, EXIF
+/// orientation, flat share and every candidate down to sensitivity 100) and STEM_view.jpg, a local
 /// contrast view (square-root luminance minus its wide blur, ×`$DUST_GAIN`,
 /// default 6), STEM.work (the detector's work copy) at most 1600 px long for marking dust by eye. With
 /// `$DUST_SYNTH` = N, N synthetic dust discs (seeded per file, 2–8 % deep,
@@ -494,6 +494,7 @@ fn print_dust() {
             out.join(format!("{stem}.json")),
             serde_json::to_string_pretty(&serde_json::json!({
                 "file": path, "width": w, "height": h, "viewFactor": factor, "flat": flat,
+                "orientation": crate::image_loader::source_orientation(&bytes, path),
                 "decodeSeconds": decoded, "analyseSeconds": analysed,
                 "candidates": candidates, "synthetic": synthetic,
             }))
