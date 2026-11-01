@@ -38,7 +38,9 @@ import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, mas
 import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
 import { isLevelsPicker } from '../../utils/targetedAdjustment';
-import SplitViewOverlay from './editor/SplitViewOverlay';
+import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
+import { anchoredAt, keepMagnification } from '../../utils/beforeAfter';
+import BrowserBeforePane from './editor/BrowserBeforePane';
 import {
   MIN_VIEWER_ZOOM,
   cropModeBox,
@@ -148,6 +150,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const uncroppedAdjustedPreviewUrl = useEditorStore((s) => s.uncroppedAdjustedPreviewUrl);
   const interactivePatch = useEditorStore((s) => s.interactivePatch);
   const showOriginal = useEditorStore((s) => s.showOriginal);
+  const splitView = useEditorStore((s) => s.splitView);
+  const splitOrientation = useEditorStore((s) => s.splitOrientation);
   const isSliderDragging = useEditorStore((s) => s.isSliderDragging);
   const targetZoom = useEditorStore((s) => s.zoom);
   const originalSize = useEditorStore((s) => s.originalSize);
@@ -202,6 +206,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const isStraightenDraggingRef = useRef(false);
 
   const imageContainerRef = useRef<HTMLDivElement>(null);
+  /** Side by side: the before pane left of the viewer (the after pane). */
+  const beforePaneRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const transformStateRef = useRef<TransformState>(transformState);
   transformStateRef.current = transformState;
@@ -434,6 +440,38 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   );
   const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions, proofMargin);
   const imageRenderSizeRef = useRef(imageRenderSize);
+  // The fit before the before pane opened or closed (side by side), until
+  // the viewer's new size arrives.
+  const paneChangeRef = useRef<RenderSize | null>(null);
+  const sideBySideLayout = useEditorStore((s) => s.splitView && s.splitOrientation === 'side-by-side') &&
+    !isCropping && canRenderSource(selectedImage);
+  useLayoutEffect(() => {
+    paneChangeRef.current = imageRenderSizeRef.current;
+  }, [sideBySideLayout]);
+  // Opening or closing the before pane halves or doubles the viewer: keep the
+  // magnification and the point of the photograph at the viewer's centre, so
+  // 100 % stays 100 % on the same detail (zoom is relative to the fit).
+  useLayoutEffect(() => {
+    const old = paneChangeRef.current;
+    // The viewer's size is what changes (a portrait fitted by height keeps
+    // its width and moves sideways).
+    if (!old || (imageRenderSize.containerWidth === old.containerWidth &&
+      imageRenderSize.containerHeight === old.containerHeight)) return;
+    paneChangeRef.current = null;
+    const { scale, positionX, positionY } = transformStateRef.current;
+    if (!(old.width > 0) || !(old.height > 0) || !(imageRenderSize.width > 0) || scale <= 1.01) return;
+    const a = ((old.containerWidth / 2 - positionX) / scale - old.offsetX) / old.width;
+    const b = ((old.containerHeight / 2 - positionY) / scale - old.offsetY) / old.height;
+    // The zoom limits of the new fit (the passive effect sets them later).
+    maxScaleRef.current = transformConfig.maxScale;
+    minScaleRef.current = transformConfig.minScale;
+    const wanted = keepMagnification(old, imageRenderSize, scale, a, b).scale;
+    const nextScale = Math.max(minScaleRef.current, Math.min(maxScaleRef.current, wanted));
+    const next = anchoredAt(imageRenderSize, nextScale, a, b);
+    const bounded = clampToBounds(next.x, next.y, next.scale);
+    applyTransform(bounded.x, bounded.y, bounded.scale);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new fit after a pane change acts
+  }, [imageRenderSize]);
   imageRenderSizeRef.current = imageRenderSize;
   /** Tells the preview the size the photograph is shown at with `scale`. */
   const reportDisplaySize = useCallback(
@@ -1536,10 +1574,16 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       const windowWidth = Math.max(window.innerWidth * dpr, 1);
       const windowHeight = Math.max(window.innerHeight * dpr, 1);
 
+      // Side by side the display draws the before pane too: the clip spans
+      // both panes and the before is placed like the after, `paneOffset`
+      // device pixels to its left (display.wgsl).
+      const beforePane = beforePaneRef.current?.getBoundingClientRect();
+      const paneOffset = beforePane && beforePane.width > 0 ? (currentRect.left - beforePane.left) * dpr : null;
+      const clipLeft = beforePane && paneOffset ? beforePane.left : currentRect.left;
       const OVERLAP = 2;
-      const clipX = (currentRect.left - OVERLAP) * dpr;
+      const clipX = (clipLeft - OVERLAP) * dpr;
       const clipY = (currentRect.top - OVERLAP) * dpr;
-      const clipW = Math.max((currentRect.width + OVERLAP * 2) * dpr, 1);
+      const clipW = Math.max((currentRect.right - clipLeft + OVERLAP * 2) * dpr, 1);
       const clipH = Math.max((currentRect.height + OVERLAP * 2) * dpr, 1);
       const irs = imageRenderSizeRef.current;
       // Switching photographs: the old frame stays where it is; the new
@@ -1637,7 +1681,13 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       // so it stays where it was put while panning and zooming.
       // A held before peek (showOriginal) covers both sides with the before.
       const { splitView, splitPosition, splitOrientation, showOriginal: peeking } = useEditorStore.getState();
-      const split = splitView && !state.isCropping && !peeking ? splitScreenX(splitOrientation === 'top-bottom' ? { left: currentRect.top, width: currentRect.height } : currentRect, splitPosition, dpr) : null;
+      // Side by side keeps its before pane through a held peek.
+      const sideBySide = splitOrientation === 'side-by-side' && paneOffset !== null;
+      const split = splitView && !state.isCropping && (sideBySide || !peeking)
+        ? sideBySide
+          ? currentRect.left * dpr
+          : splitScreenX(splitOrientation === 'top-bottom' ? { left: currentRect.top, width: currentRect.height } : currentRect, splitPosition, dpr)
+        : null;
 
       // The viewer's area at any zoom (the proof margin left out): where the
       // camera preview fits natively.
@@ -1649,7 +1699,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         Math.max(ch - 2 * margin, 1) * dpr,
       ];
 
-      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation},${viewerArea.join(',')}`;
+      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation},${paneOffset},${viewerArea.join(',')}`;
 
       if (lastWgpuTransformRef.current !== currentTransform && !isInvoking) {
         lastWgpuTransformRef.current = currentTransform;
@@ -1677,6 +1727,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             hold: holding,
             split,
             splitVertical: splitOrientation === 'top-bottom',
+            splitOffset: sideBySide && split !== null ? paneOffset : null,
             // At fit the display may place the next photograph itself
             // (native activation, contained and centred like irs).
             viewport:
@@ -2417,6 +2468,24 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isWgpuActive = appSettings?.useWgpuRenderer !== false && (hasRenderedFirstFrame || holdingNativeFrame);
+  // Cropping shows one photograph. A held or toggled whole before keeps the
+  // panes (its before then fills the after pane too), so nothing moves.
+  const sideBySideShown = splitView && splitOrientation === 'side-by-side' && !isCropping &&
+    canRenderSource(selectedImage);
+  // The before pane mirrors the after pane: a wheel over it zooms both
+  // about the same point of the photograph.
+  const forwardBeforePaneWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const pane = beforePaneRef.current?.getBoundingClientRect();
+    const viewer = imageContainerRef.current;
+    if (!pane || !viewer) return;
+    const dx = viewer.getBoundingClientRect().left - pane.left;
+    viewer.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true, cancelable: true,
+      clientX: event.clientX + dx, clientY: event.clientY, screenX: event.screenX + dx, screenY: event.screenY,
+      deltaX: event.deltaX, deltaY: event.deltaY, deltaZ: event.deltaZ, deltaMode: event.deltaMode,
+      ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, altKey: event.altKey, metaKey: event.metaKey,
+    }));
+  };
   const hasRenderedAnyPreview = hasRenderedFirstFrame || !!finalPreviewUrl;
 
   return (
@@ -2427,9 +2496,27 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     >
       {hasRenderedAnyPreview && <div className="hidden" data-bench-id="editor-first-frame" />}
 
+      <div className="flex-1 flex flex-row min-h-0">
+      {/* Side by side: the before pane, as large as the viewer (the after
+          pane) and placed alike; the native display draws into it, Linux
+          shows its browser before here. Wheel zoom here zooms both. */}
+      {sideBySideShown && (
+        <div
+          ref={beforePaneRef}
+          className="flex-1 min-w-0 relative overflow-hidden"
+          style={{ backgroundColor: isWgpuActive ? undefined : viewerBackgroundCss(viewerBackground) }}
+          data-testid="before-pane"
+          onWheel={forwardBeforePaneWheel}
+        >
+          {!isWgpuActive && selectedImage && (
+            <BrowserBeforePane path={selectedImage.path} adjustments={adjustments} size={imageRenderSize}
+              transform={transformState} enabled={canRenderSource(selectedImage)} decoded={selectedImage.isDecoded} />
+          )}
+        </div>
+      )}
       <div
         className={clsx(
-          'flex-1 relative overflow-hidden touch-none',
+          'flex-1 min-w-0 relative overflow-hidden touch-none',
           'rounded-none',
         )}
         style={{
@@ -2526,9 +2613,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           </svg>
         )}
       </div>
+      </div>
       {/* Beside the viewer, not in it: its pointer handlers (pan, tools)
           must not see drags of the divider. The viewer fills this box. */}
       {(isWgpuActive || osPlatform === 'linux') && !isCropping && canRenderSource(selectedImage) && <SplitViewOverlay />}
+      {canRenderSource(selectedImage) && <ViewerBeforeBadge />}
     </div>
   );
 }

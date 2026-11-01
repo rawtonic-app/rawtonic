@@ -49,6 +49,9 @@ interface EditorState {
   uncroppedAdjustedPreviewUrl: string | null;
   interactivePatch: InteractivePatch | null;
   showOriginal: boolean;
+  /** The tool whose per-tool before shows (its reset in `previewOverride`
+   * only, while its reset button is held); null: none. */
+  toolBefore: string | null;
   /** Before/after split view; it stays on from photograph to photograph. */
   splitView: boolean;
   splitOrientation: SplitOrientation;
@@ -271,6 +274,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   previewFrames: 0,
   uncroppedAdjustedPreviewUrl: null,
   showOriginal: false,
+  toolBefore: null,
   splitView: false,
   splitOrientation: 'left-right',
   splitPosition: DEFAULT_SPLIT_POSITION,

@@ -328,6 +328,7 @@
       "toggle_left_panel": "Левая панель",
       "toggle_metadata": "Сведения о фото",
       "toggle_multi_view": "Несколько фото",
+      "toggle_original": "До (всё фото)",
       "toggle_pointer_readout": "RGB под указателем",
       "toggle_proof_margin": "Поле цветопробы",
       "toggle_right_panel": "Правая панель",
@@ -2465,6 +2466,7 @@
         "toggle_masks": "Панель масок",
         "toggle_metadata": "Инструмент «Метаданные» (Библиотека) или сведения о фото (Проявка, полный экран)",
         "toggle_multi_view": "Мультипросмотр: выбранные фотографии рядом",
+        "toggle_original": "Переключить: всё фото до",
         "toggle_pointer_readout": "Показать/скрыть RGB под указателем",
         "toggle_proof_margin": "Переключить поля для оценки",
         "toggle_right_panel": "Показать/скрыть правую панель",
@@ -3384,6 +3386,7 @@
       "toolGroup": {
         "isOn": "{{tool}}: вкл.",
         "reset": "Сбросить: {{tool}}",
+        "resetOrHold": "Сбросить {{tool}} (удерживайте или нажмите с Alt/Option: показать фото без инструмента)",
         "turnOff": "Выключить: {{tool}}",
         "turnOn": "Включить: {{tool}}"
       },
@@ -5329,6 +5332,7 @@
         "compareMode": {
           "left-right": "Разделение слева/справа",
           "off": "Выкл.",
+          "side-by-side": "Рядом",
           "top-bottom": "Разделение сверху/снизу"
         },
         "compareModes": "Режим сравнения",
@@ -5352,6 +5356,7 @@
         "splitDivider": "Разделитель До/После",
         "togglePanels": "Показать/скрыть панели",
         "undo": "Отменить",
+        "withoutTool": "Без {{tool}}",
         "zoom": "Масштаб"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

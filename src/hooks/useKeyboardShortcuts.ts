@@ -16,7 +16,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { isAnyModalOpen, useUIStore } from '../store/useUIStore';
 import { useProcessStore } from '../store/useProcessStore';
-import { endBeforePeek, startBeforePeek, updateAdjustments, useEditorActions } from './useEditorActions';
+import { endBeforePeek, startBeforePeek, toggleBeforeView, updateAdjustments, useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
@@ -101,6 +101,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_fullscreen: (s) => s.ui.isFullScreen,
   toggle_metadata: (s) => s.ui.infoOverlay && (s.ui.activeView === 'editor' || s.ui.isFullScreen),
   toggle_split_view: (s) => !!s.editor.splitView,
+  toggle_original: (s) => !!s.editor.showOriginal,
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
@@ -685,6 +686,16 @@ export const useKeyboardShortcuts = ({
           e.preventDefault();
           if (e.repeat || peekKeyRef.current) return;
           if (startBeforePeek()) peekKeyRef.current = e.code;
+        },
+      },
+      toggle_original: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          // A held \ under way is no longer ended by its key's release.
+          peekKeyRef.current = null;
+          toggleBeforeView();
         },
       },
       toggle_split_view: {

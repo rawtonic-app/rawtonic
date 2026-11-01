@@ -289,6 +289,7 @@
       "toggle_left_panel": "왼쪽 패널",
       "toggle_metadata": "사진 정보",
       "toggle_multi_view": "다중 보기",
+      "toggle_original": "이전 (사진 전체)",
       "toggle_pointer_readout": "포인터 RGB 표시",
       "toggle_proof_margin": "교정 여백",
       "toggle_right_panel": "오른쪽 패널",
@@ -2130,6 +2131,7 @@
         "toggle_masks": "마스크 패널 전환",
         "toggle_metadata": "메타데이터 도구(라이브러리) 또는 사진 정보(현상, 전체 화면)",
         "toggle_multi_view": "다중 보기: 선택한 사진을 나란히 표시",
+        "toggle_original": "전환: 사진 전체 이전",
         "toggle_pointer_readout": "포인터 RGB 표시 전환",
         "toggle_proof_margin": "교정 여백 전환",
         "toggle_right_panel": "오른쪽 패널 토글",
@@ -3023,6 +3025,7 @@
       "toolGroup": {
         "isOn": "{{tool}} 켬",
         "reset": "{{tool}} 재설정",
+        "resetOrHold": "{{tool}} 재설정 (길게 누르거나 Alt/Option과 함께 누르기: 이 도구 없이 사진 보기)",
         "turnOff": "{{tool}} 끄기",
         "turnOn": "{{tool}} 켜기"
       },
@@ -4816,6 +4819,7 @@
         "compareMode": {
           "left-right": "좌우 분할",
           "off": "끄기",
+          "side-by-side": "나란히",
           "top-bottom": "상하 분할"
         },
         "compareModes": "비교 모드",
@@ -4839,6 +4843,7 @@
         "splitDivider": "전/후 구분선",
         "togglePanels": "패널 표시/숨기기",
         "undo": "실행 취소",
+        "withoutTool": "{{tool}} 없이",
         "zoom": "확대/축소"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

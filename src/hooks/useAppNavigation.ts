@@ -111,6 +111,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     useEditorStore.getState().setEditor({
       zoom: 1,
       showOriginal: false,
+      toolBefore: null,
       previewOverride: null,
     });
 
@@ -229,6 +230,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         colorRangeShow: null,
         layerSolo: null,
         activeColorRangeId: null,
+        toolBefore: null,
         previewOverride: null,
       });
 

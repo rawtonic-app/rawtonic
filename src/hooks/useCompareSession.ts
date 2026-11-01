@@ -3,7 +3,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { clampSplitPosition, DEFAULT_SPLIT_POSITION, splitViewAvailable } from '../utils/beforeAfter';
+import { clampSplitPosition, DEFAULT_SPLIT_POSITION, parseSplitOrientation, splitViewAvailable } from '../utils/beforeAfter';
 
 /** View preferences belong to the opened session, never its photographs or recipes. */
 export function useCompareSession() {
@@ -24,7 +24,7 @@ export function useCompareSession() {
       !useMultiViewStore.getState().active;
     useEditorStore.getState().setEditor({
       splitView: enabled,
-      splitOrientation: saved.orientation === 'top-bottom' ? 'top-bottom' : 'left-right',
+      splitOrientation: parseSplitOrientation(saved.orientation),
       splitPosition: typeof saved.position === 'number' ? clampSplitPosition(saved.position) : DEFAULT_SPLIT_POSITION,
     });
     return useEditorStore.subscribe((state, previous) => {

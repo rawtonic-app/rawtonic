@@ -300,6 +300,7 @@
       "toggle_left_panel": "Linke Leiste",
       "toggle_metadata": "Fotoinfo",
       "toggle_multi_view": "Mehrfachansicht",
+      "toggle_original": "Vorher (ganzes Foto)",
       "toggle_pointer_readout": "RGB-Anzeige am Zeiger",
       "toggle_proof_margin": "Proof-Rand",
       "toggle_right_panel": "Rechte Leiste",
@@ -2213,6 +2214,7 @@
         "toggle_masks": "Maskieren-Panel ein-/ausblenden",
         "toggle_metadata": "Metadaten-Werkzeug (Bibliothek) oder Foto-Informationen (Entwickeln, Vollbild)",
         "toggle_multi_view": "Mehrfachansicht: ausgewählte Fotos nebeneinander",
+        "toggle_original": "Umschalten: ganzes Foto vorher",
         "toggle_pointer_readout": "RGB-Anzeige am Zeiger ein/aus",
         "toggle_proof_margin": "Prüfrand ein/aus",
         "toggle_right_panel": "Rechtes Panel ein-/ausblenden",
@@ -3106,6 +3108,7 @@
       "toolGroup": {
         "isOn": "{{tool}} ein",
         "reset": "{{tool}} zurücksetzen",
+        "resetOrHold": "{{tool}} zurücksetzen (halten oder mit Alt/Wahltaste drücken: Foto ohne das Werkzeug zeigen)",
         "turnOff": "{{tool}} ausschalten",
         "turnOn": "{{tool}} einschalten"
       },
@@ -4947,6 +4950,7 @@
         "compareMode": {
           "left-right": "Links/rechts teilen",
           "off": "Aus",
+          "side-by-side": "Nebeneinander",
           "top-bottom": "Oben/unten teilen"
         },
         "compareModes": "Vergleichsansicht",
@@ -4970,6 +4974,7 @@
         "splitDivider": "Vorher/Nachher-Trennlinie",
         "togglePanels": "Bedienfelder ein-/ausblenden",
         "undo": "Rückgängig",
+        "withoutTool": "Ohne {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

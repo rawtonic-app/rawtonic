@@ -9740,6 +9740,56 @@ fn display_split_shows_the_before_left_of_the_divider() {
     let all_before = render([1.0, 500.0, 0.0, 0.0]);
     assert_eq!(pixel(&all_before, 17, 24), before_rgba);
     assert_eq!(pixel(&all_before, 78, 24), before_rgba);
+
+    // Side by side: the after pane starts at x 48, the before pane 48 px to
+    // its left shows the before placed like the after (16..80 → -32..32).
+    let side = super::split_uniform(true, Some(48.0), false, 48.0);
+    assert_eq!(side, [1.0, 48.0, 0.0, 48.0]);
+    let side_by_side = render(side);
+    for y in [9, 24, 38] {
+        assert_eq!(
+            pixel(&side_by_side, 1, y),
+            before_rgba,
+            "before pane, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 30, y),
+            before_rgba,
+            "before pane, row {y}"
+        );
+        // The before's right edge (screen 80 − 48) and the after's left part
+        // never show in the before pane.
+        assert_eq!(
+            pixel(&side_by_side, 33, y),
+            background,
+            "before pane past its photograph, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 47, y),
+            background,
+            "before pane, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 49, y),
+            after_rgba,
+            "after pane, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 78, y),
+            after_rgba,
+            "after pane, row {y}"
+        );
+    }
+    assert_eq!(pixel(&side_by_side, 1, 2), background);
+    assert_eq!(pixel(&side_by_side, 49, 2), background);
+    // While the before is on its way, its pane shows the background, not
+    // the after reaching into it.
+    let waiting = render(super::split_uniform(false, Some(48.0), false, 48.0));
+    assert_eq!(pixel(&waiting, 17, 24), background);
+    assert_eq!(pixel(&waiting, 30, 24), background);
+    assert_eq!(pixel(&waiting, 49, 24), after_rgba);
+    // Side by side is left/right only: a stale vertical flag is ignored.
+    assert_eq!(super::split_uniform(true, Some(48.0), true, 48.0), side);
 }
 
 #[test]
