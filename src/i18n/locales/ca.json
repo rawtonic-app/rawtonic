@@ -3698,6 +3698,8 @@
       "enable": "Activa les correccions de perfil",
       "lookingUp": "Cercant l'objectiu…",
       "make": "Marca",
+      "manualVignetting": "Vinyetatge de l’objectiu",
+      "manualVignettingMidpoint": "Punt mitjà del vinyetatge",
       "model": "Model",
       "noFocalData": "El perfil no té dades per a aquesta distància focal.",
       "none": "Cap",

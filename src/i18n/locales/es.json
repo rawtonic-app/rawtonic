@@ -3698,6 +3698,8 @@
       "enable": "Activar correcciones de perfil",
       "lookingUp": "Buscando la lente…",
       "make": "Marca",
+      "manualVignetting": "Viñeteo del objetivo",
+      "manualVignettingMidpoint": "Punto medio del viñeteo",
       "model": "Modelo",
       "noFocalData": "El perfil no tiene datos para esta distancia focal.",
       "none": "Ninguno",

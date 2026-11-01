@@ -3848,6 +3848,8 @@
       "enable": "Włącz korekcje profilu",
       "lookingUp": "Wyszukiwanie obiektywu…",
       "make": "Producent",
+      "manualVignetting": "Winietowanie obiektywu",
+      "manualVignettingMidpoint": "Punkt środkowy winietowania",
       "model": "Model",
       "noFocalData": "Profil nie ma danych dla tej ogniskowej.",
       "none": "Brak",

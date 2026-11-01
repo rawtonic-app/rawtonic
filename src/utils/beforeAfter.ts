@@ -25,6 +25,8 @@ export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
   'transformYOffset',
   'lensDistortionAmount',
   'lensVignetteAmount',
+  'lensManualVignetteAmount',
+  'lensManualVignetteMidpoint',
   'lensTcaAmount',
   'lensDistortionParams',
   'lensCorrectionMode',

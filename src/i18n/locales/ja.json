@@ -3454,6 +3454,8 @@
       "enable": "プロファイル補正を使用",
       "lookingUp": "レンズを検索しています…",
       "make": "メーカー",
+      "manualVignetting": "レンズ周辺光量",
+      "manualVignettingMidpoint": "周辺光量の中心点",
       "model": "モデル",
       "noFocalData": "このプロファイルにはこの焦点距離のデータがありません。",
       "none": "なし",

@@ -198,6 +198,8 @@ export default function StudioLensCorrection() {
         setAdjustments((prev) => ({
           ...prev,
           ...LENS_PROFILE_OFF,
+          lensManualVignetteAmount: undefined,
+          lensManualVignetteMidpoint: undefined,
           diffractionCorrection: undefined,
           diffractionVersion: undefined,
         }))
@@ -298,6 +300,35 @@ export default function StudioLensCorrection() {
         cameraMode && !camera?.vignetting,
       )}
       {amount(t("studio.lens.chromaticShort"), "lensTcaAmount", cameraMode)}
+      <AdjustmentControl
+        label={t("studio.lens.manualVignetting")}
+        value={adjustments.lensManualVignetteAmount ?? 0}
+        min={-100}
+        max={100}
+        step={1}
+        defaultValue={0}
+        disabled={!ready}
+        onChange={(value) =>
+          setAdjustments((prev) => ({ ...prev, lensManualVignetteAmount: value || undefined }))
+        }
+        onInteraction={(active) => setEditor({ isSliderDragging: active })}
+      />
+      <AdjustmentControl
+        label={t("studio.lens.manualVignettingMidpoint")}
+        value={adjustments.lensManualVignetteMidpoint ?? 50}
+        min={0}
+        max={100}
+        step={1}
+        defaultValue={50}
+        disabled={!ready || !adjustments.lensManualVignetteAmount}
+        onChange={(value) =>
+          setAdjustments((prev) => ({
+            ...prev,
+            lensManualVignetteMidpoint: value === 50 ? undefined : value,
+          }))
+        }
+        onInteraction={(active) => setEditor({ isSliderDragging: active })}
+      />
       <label
         className="studio-check studio-lens-enable"
         title={t("studio.lens.diffractionTitle")}

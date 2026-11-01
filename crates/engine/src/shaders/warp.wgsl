@@ -52,9 +52,11 @@ struct Params {
     lens_vig_amt: f32,
     table_step: f32,
     table_end_slope: f32,
-    _pad2: f32,
-    _pad3: f32,
-    _pad4: f32,
+    // Manual lens vignetting (manual_vignette.rs): EV at half the long
+    // side, power of the radius, half-diagonals per half long side.
+    mv_ev: f32,
+    mv_power: f32,
+    mv_per_hd: f32,
 }
 
 const LENS: u32 = 1u;
@@ -65,6 +67,7 @@ const MANUAL: u32 = 16u;
 const TCA: u32 = 32u;
 const VIGNETTING: u32 = 64u;
 const KEEP_NEGATIVE: u32 = 128u;
+const MANUAL_VIGNETTING: u32 = 1024u;
 // Write each pixel's source position (x, y, and z < 0 where it is left
 // black) instead of sampling (tests of the warp's precision).
 const POSITIONS: u32 = 256u;
@@ -335,6 +338,18 @@ fn warp(@builtin(global_invocation_id) id: vec3<u32>) {
                 } else {
                     out *= gain;
                 }
+            }
+        }
+        // Manual lens vignetting after the profile's (as image_processing.rs).
+        if (P.flags & MANUAL_VIGNETTING) != 0u {
+            let dx = sx - P.cx;
+            let dy = sy - P.cy;
+            let rho = sqrt(dx * dx + dy * dy) / P.hd * P.mv_per_hd;
+            let gain = exp2(P.mv_ev * pow(max(rho, 0.0), P.mv_power));
+            if (P.flags & SRGB_BASE) != 0u {
+                out = srgb_encode(srgb_decode(out) * gain);
+            } else {
+                out *= gain;
             }
         }
     }

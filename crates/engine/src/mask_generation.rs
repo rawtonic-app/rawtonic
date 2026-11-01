@@ -202,6 +202,8 @@ fn warp_geometry(params: GeometryParams) -> GeometryParams {
         auto_ca: defaults.auto_ca,
         auto_ca_version: defaults.auto_ca_version,
         auto_ca_versus_own: defaults.auto_ca_versus_own,
+        manual_vignette_amount: defaults.manual_vignette_amount,
+        manual_vignette_midpoint: defaults.manual_vignette_midpoint,
         ..params
     }
 }

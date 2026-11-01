@@ -1823,6 +1823,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       'transformYOffset',
       'lensDistortionAmount',
       'lensVignetteAmount',
+      'lensManualVignetteAmount',
+      'lensManualVignetteMidpoint',
       'lensTcaAmount',
       'lensDistortionParams',
       'lensMaker',

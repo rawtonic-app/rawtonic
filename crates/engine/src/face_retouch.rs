@@ -177,9 +177,11 @@ pub struct FaceRetouch {
 
 /// Geometry keys (cache_utils) that correct colour, not where a pixel is:
 /// vignetting, lateral CA and edge fringes.
-const COLOUR_ONLY_KEYS: [&str; 7] = [
+const COLOUR_ONLY_KEYS: [&str; 9] = [
     "lensVignetteAmount",
     "lensVignetteEnabled",
+    "lensManualVignetteAmount",
+    "lensManualVignetteMidpoint",
     "lensTcaAmount",
     "lensTcaEnabled",
     "autoChromaticAberration",

@@ -15,6 +15,8 @@ export const GEOMETRY_KEYS = [
   'transformYOffset',
   'lensDistortionAmount',
   'lensVignetteAmount',
+  'lensManualVignetteAmount',
+  'lensManualVignetteMidpoint',
   'lensTcaAmount',
   'lensDistortionParams',
   'lensCorrectionMode',

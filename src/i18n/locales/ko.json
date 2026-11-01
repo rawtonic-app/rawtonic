@@ -3454,6 +3454,8 @@
       "enable": "프로필 보정 사용",
       "lookingUp": "렌즈를 찾는 중…",
       "make": "제조사",
+      "manualVignetting": "렌즈 비네팅",
+      "manualVignettingMidpoint": "비네팅 중간점",
       "model": "모델",
       "noFocalData": "프로필에 이 초점 거리에 대한 데이터가 없습니다.",
       "none": "없음",

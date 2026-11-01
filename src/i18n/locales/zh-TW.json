@@ -3454,6 +3454,8 @@
       "enable": "啟用描述檔校正",
       "lookingUp": "正在尋找鏡頭…",
       "make": "品牌",
+      "manualVignetting": "鏡頭暗角",
+      "manualVignettingMidpoint": "暗角中點",
       "model": "型號",
       "noFocalData": "此描述檔沒有這個焦距的資料。",
       "none": "無",
