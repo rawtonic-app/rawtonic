@@ -5,8 +5,8 @@
 //! `.rawtonic-tmp-<final name>-XXXXXX` ([`file_for`]). What a killed app or a
 //! power cut leaves behind is therefore recognisable as ours and as whose:
 //! a job that resumes removes the leftovers of the files it was writing at
-//! once ([`remove_leftovers_of`]), and a later library open removes any of
-//! ours older than [`STALE_AGE`] ([`remove_stale`]). Names other programs
+//! once ([`remove_leftovers_matching`]), and a later library open removes any
+//! of ours older than [`STALE_AGE`] ([`sweep_folder`]). Names other programs
 //! might use (tempfile's default `.tmpXXXXXX`) are never touched.
 
 use std::{
@@ -52,25 +52,14 @@ pub fn file_for(dest: &Path) -> io::Result<tempfile::NamedTempFile> {
 
 /// Removes the temporary files of ours that were to become `dest` (plain
 /// files only), whatever their age: for a job that resumes the write of
-/// `dest`, which only it makes. Returns how many.
-pub fn remove_leftovers_of(dest: &Path) -> usize {
+/// `dest`, which only it makes. Returns how many and their bytes.
+pub fn remove_leftovers_of(dest: &Path) -> Removed {
     let (Some(parent), prefix) = (dest.parent(), prefix_for(dest)) else {
-        return 0;
+        return Removed::default();
     };
-    let Ok(entries) = fs::read_dir(parent) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|n| n.starts_with(&prefix))
-        })
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-        .filter(|entry| fs::remove_file(entry.path()).is_ok())
-        .count()
+    remove_leftovers_named(parent, |name| {
+        name.to_str().is_some_and(|name| name.starts_with(&prefix))
+    })
 }
 
 /// Whether a file name is one of our temporary files.
@@ -146,13 +135,18 @@ pub fn target_name(temp: &OsStr) -> Option<&str> {
 /// `ours` accepts (plain files only), whatever their age: for a job that
 /// resumes writes only it makes, under names it knows the pattern of.
 pub fn remove_leftovers_matching(dir: &Path, ours: impl Fn(&str) -> bool) -> Removed {
+    remove_leftovers_named(dir, |name| target_name(name).is_some_and(&ours))
+}
+
+/// Removes the plain files directly in `dir` whose name `wanted` accepts,
+/// and counts them like a sweep does.
+fn remove_leftovers_named(dir: &Path, wanted: impl Fn(&OsStr) -> bool) -> Removed {
     let Ok(entries) = fs::read_dir(dir) else {
         return Removed::default();
     };
     let mut removed = Removed::default();
     for entry in entries.flatten() {
-        let name = entry.file_name();
-        if !target_name(&name).is_some_and(&ours) {
+        if !wanted(&entry.file_name()) {
             continue;
         }
         let Ok(meta) = fs::symlink_metadata(entry.path()) else {
@@ -202,7 +196,7 @@ mod tests {
             .1;
         let foreign = dir.path().join(".tmpAbC123");
         fs::write(&foreign, b"x").unwrap();
-        assert_eq!(remove_leftovers_of(&dest), 1);
+        assert_eq!(remove_leftovers_of(&dest), Removed { files: 1, bytes: 0 });
         assert!(!mine.exists());
         assert!(other.exists() && foreign.exists());
     }

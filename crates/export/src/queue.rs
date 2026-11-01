@@ -478,7 +478,16 @@ impl ExportQueue {
                     continue;
                 }
                 if let Some(output) = item.output.as_deref() {
-                    rawtonic_metadata::temp::remove_leftovers_of(output);
+                    // Only this output's temporary files go (`prefix_for`),
+                    // never a file in the folder.
+                    let removed = rawtonic_metadata::temp::remove_leftovers_of(output);
+                    if removed.files > 0 {
+                        log::info!(
+                            "Export resume removed {} bytes of unfinished output for {}",
+                            removed.bytes,
+                            output.display()
+                        );
+                    }
                 }
                 let finished = item.output.as_deref().is_some_and(Path::is_file);
                 self.conn.execute(
