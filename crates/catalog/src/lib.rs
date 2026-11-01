@@ -53,7 +53,17 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 22;
+pub const DB_SCHEMA_VERSION: u32 = 23;
+
+/// Schema 22's burst and bracket fact columns of `assets` (`migrations/0022.sql`).
+const COLUMNS_22: &[(&str, &str)] = &[
+    ("exposure_mode", "INTEGER"),
+    ("exposure_bias", "REAL"),
+    ("sequence", "INTEGER"),
+];
+/// Schema 23's digest of the XMP sidecar being published, in `metadata`
+/// (`migrations/0023.sql`).
+const COLUMNS_23: &[(&str, &str)] = &[("xmp_publishing", "TEXT")];
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -189,6 +199,10 @@ pub struct Library {
     /// (`Library::fail_when_marking`): nothing, unless a test armed one.
     #[cfg(any(test, feature = "test-support"))]
     markings: std::sync::Mutex<Option<MarkStep>>,
+    /// Armed by `Library::crash_after_next_xmp_publish`: the next sidecar
+    /// write stops between its publish and the commit of its digest.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) crash_after_publish: std::sync::atomic::AtomicBool,
 }
 
 /// A test's step inside `mark_changed_elsewhere`'s transaction, after a mark
@@ -353,8 +367,10 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0019.sql"))?;
         conn.execute_batch(include_str!("../migrations/0020.sql"))?;
         conn.execute_batch(include_str!("../migrations/0021.sql"))?;
-        Self::add_columns_22(&conn)?;
+        Self::add_missing_columns(&conn, "assets", COLUMNS_22)?;
         conn.execute_batch(include_str!("../migrations/0022.sql"))?;
+        Self::add_missing_columns(&conn, "metadata", COLUMNS_23)?;
+        conn.execute_batch(include_str!("../migrations/0023.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -385,6 +401,8 @@ impl Library {
             import: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             markings: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            crash_after_publish: Default::default(),
         })
     }
 
@@ -424,6 +442,8 @@ impl Library {
             import: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             markings: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            crash_after_publish: Default::default(),
         })
     }
 
@@ -502,27 +522,29 @@ impl Library {
             tx.execute_batch(include_str!("../migrations/0021.sql"))?;
         }
         if version < 22 {
-            Self::add_columns_22(&tx)?;
+            Self::add_missing_columns(&tx, "assets", COLUMNS_22)?;
             tx.execute_batch(include_str!("../migrations/0022.sql"))?;
+        }
+        if version < 23 {
+            Self::add_missing_columns(&tx, "metadata", COLUMNS_23)?;
+            tx.execute_batch(include_str!("../migrations/0023.sql"))?;
         }
         tx.commit()?;
         Ok(())
     }
 
-    /// Schema 22's burst and bracket fact columns (`migrations/0022.sql`),
-    /// each only where it is missing.
-    fn add_columns_22(conn: &Connection) -> Result<()> {
+    /// A migration's new columns (schema 22's burst and bracket facts,
+    /// schema 23's XMP publishing digest), each only where it is missing, so
+    /// the script can run again on a library a test took back to an older
+    /// schema.
+    fn add_missing_columns(conn: &Connection, table: &str, add: &[(&str, &str)]) -> Result<()> {
         let columns: Vec<String> = conn
-            .prepare("SELECT name FROM pragma_table_info('assets')")?
+            .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))?
             .query_map([], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
-        for (name, kind) in [
-            ("exposure_mode", "INTEGER"),
-            ("exposure_bias", "REAL"),
-            ("sequence", "INTEGER"),
-        ] {
+        for (name, kind) in add {
             if !columns.iter().any(|c| c == name) {
-                conn.execute_batch(&format!("ALTER TABLE assets ADD COLUMN {name} {kind}"))?;
+                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {kind}"))?;
             }
         }
         Ok(())
@@ -1369,7 +1391,7 @@ impl Library {
         let (metadata, _) = rawtonic_metadata::read_xmp(&text)?;
         self.set_metadata(asset, &metadata)?;
         self.conn.execute(
-            "UPDATE metadata SET xmp_hash=?,xmp_status='synced' WHERE asset_id=?",
+            "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL,xmp_status='synced' WHERE asset_id=?",
             params![rawtonic_metadata::digest(text.as_bytes()), asset],
         )?;
         Ok(metadata)
@@ -1430,6 +1452,8 @@ impl Library {
     /// or one the library never adopted, is a conflict and is not replaced.
     pub fn sync_xmp(&self, asset: &str) -> Result<()> {
         let path = self.writable_sidecar(asset)?;
+        // A sidecar a crash left published but not committed is the library's.
+        self.settle_xmp_publishing(asset, &path)?;
         let hash: Option<String> = self.conn.query_row(
             "SELECT xmp_hash FROM metadata WHERE asset_id=?",
             [asset],
@@ -2272,21 +2296,31 @@ pub struct FolderRecord {
 /// one, and an unrelated XMP there stays a conflict to review, never
 /// replaced. A sidecar that moved with the photograph keeps its digest.
 fn forget_xmp_left_behind(tx: &Connection, id: &str, path: &Path) -> Result<()> {
-    let hash: Option<String> = tx
+    let digests: Option<(Option<String>, Option<String>)> = tx
         .query_row(
-            "SELECT xmp_hash FROM metadata WHERE asset_id=?",
+            "SELECT xmp_hash,xmp_publishing FROM metadata WHERE asset_id=?",
             [id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
-        .optional()?
-        .flatten();
-    let Some(hash) = hash else { return Ok(()) };
+        .optional()?;
+    let Some((hash, publishing)) = digests else {
+        return Ok(());
+    };
+    if hash.is_none() && publishing.is_none() {
+        return Ok(());
+    }
     let here = fs::read(rawtonic_metadata::sidecar_path(path))
         .ok()
         .map(|bytes| rawtonic_metadata::digest(&bytes));
-    if here.as_deref() != Some(hash.as_str()) {
+    if here.is_some() && here == publishing {
+        // A publish a crash cut off, moved along: the library's own.
         tx.execute(
-            "UPDATE metadata SET xmp_hash=NULL, xmp_status='pending' WHERE asset_id=?",
+            "UPDATE metadata SET xmp_hash=xmp_publishing, xmp_publishing=NULL WHERE asset_id=?",
+            [id],
+        )?;
+    } else if hash.is_some() && here != hash {
+        tx.execute(
+            "UPDATE metadata SET xmp_hash=NULL, xmp_publishing=NULL, xmp_status='pending' WHERE asset_id=?",
             [id],
         )?;
     }
@@ -2614,6 +2648,15 @@ impl Library {
     #[cfg(any(test, feature = "test-support"))]
     pub fn fail_when_marking(&self, step: MarkStep) {
         *self.markings.lock().unwrap_or_else(|e| e.into_inner()) = Some(step);
+    }
+
+    /// Makes the next XMP sidecar write stop right after the new sidecar is
+    /// published, before the library commits its digest, as a kill there
+    /// would (the write returns an error and commits nothing more).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn crash_after_next_xmp_publish(&self) {
+        self.crash_after_publish
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
