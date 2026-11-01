@@ -67,6 +67,12 @@ struct Params {
     mv_ev: f32,
     mv_power: f32,
     mv_per_hd: f32,
+    /// The centre the framing zoom and the lens distortion run about
+    /// (`WarpUniforms::lcx`, `lcy`).
+    lcx: f32,
+    lcy: f32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 const LENS: u32 = 1;
@@ -302,6 +308,8 @@ fn params(u: &WarpUniforms, source: &SourceRows, out: OutputRows) -> (Params, Ve
         mv_ev,
         mv_power,
         mv_per_hd,
+        lcx: u.lcx,
+        lcy: u.lcy,
         ..Default::default()
     };
     (params, table_data)
