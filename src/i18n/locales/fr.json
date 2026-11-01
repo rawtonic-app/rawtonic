@@ -3987,7 +3987,19 @@
         },
         "noMatch": "Aucun nom de dossier ne contient « {{filter}} ».",
         "reading": "Lecture des dossiers…",
+        "roleRefused": {
+          "catalog": "Un catalogue garde ses photos là où elles sont ; les dossiers de rôle appartiennent à une session.",
+          "sessionRoot": "C’est la session elle-même."
+        },
+        "roleSet": "Dossier {{name}} défini sur {{folder}}",
+        "roleSetFailed": "Impossible d’en faire le dossier {{name}} : {{error}}",
+        "roleSetMissing": "Dossier {{name}} défini sur {{folder}} — absent pour l’instant (le disque est-il connecté ?)",
         "session": "Projet",
+        "setRole": {
+          "capture": "Définir comme dossier Capture",
+          "output": "Définir comme dossier Output",
+          "selects": "Définir comme dossier Selects"
+        },
         "sort": {
           "ascending": "Croissant",
           "created": "Date de création",

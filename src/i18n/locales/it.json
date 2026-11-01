@@ -3987,7 +3987,19 @@
         },
         "noMatch": "Nessun nome di cartella contiene «{{filter}}».",
         "reading": "Lettura delle cartelle…",
+        "roleRefused": {
+          "catalog": "Un catalogo tiene le foto dove sono; le cartelle di ruolo sono di una sessione.",
+          "sessionRoot": "Questa è la sessione stessa."
+        },
+        "roleSet": "Cartella {{name}} impostata su {{folder}}",
+        "roleSetFailed": "Impossibile impostarla come cartella {{name}}: {{error}}",
+        "roleSetMissing": "Cartella {{name}} impostata su {{folder}} — al momento non c’è (il disco è collegato?)",
         "session": "Progetto",
+        "setRole": {
+          "capture": "Imposta come cartella Capture",
+          "output": "Imposta come cartella Output",
+          "selects": "Imposta come cartella Selects"
+        },
         "sort": {
           "ascending": "Crescente",
           "created": "Data di creazione",

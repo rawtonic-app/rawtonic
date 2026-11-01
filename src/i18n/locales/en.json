@@ -3815,7 +3815,19 @@
         },
         "noMatch": "No folder names contain “{{filter}}”.",
         "reading": "Reading folders…",
+        "roleRefused": {
+          "catalog": "A catalog keeps its photos where they are; role folders belong to a session.",
+          "sessionRoot": "This is the session itself."
+        },
+        "roleSet": "{{name}} folder set to {{folder}}",
+        "roleSetFailed": "Could not make it the {{name}} folder: {{error}}",
+        "roleSetMissing": "{{name}} folder set to {{folder}} — not there now (is its drive connected?)",
         "session": "Project",
+        "setRole": {
+          "capture": "Set as Capture Folder",
+          "output": "Set as Output Folder",
+          "selects": "Set as Selects Folder"
+        },
         "sort": {
           "ascending": "Ascending",
           "created": "Date created",

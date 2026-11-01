@@ -3700,7 +3700,19 @@
         },
         "noMatch": "没有文件夹名称包含“{{filter}}”。",
         "reading": "正在读取文件夹…",
+        "roleRefused": {
+          "catalog": "目录保留照片的原位置；角色文件夹属于会话。",
+          "sessionRoot": "这就是会话本身。"
+        },
+        "roleSet": "{{name}} 文件夹已设为 {{folder}}",
+        "roleSetFailed": "无法设为 {{name}} 文件夹：{{error}}",
+        "roleSetMissing": "{{name}} 文件夹已设为 {{folder}} — 目前不在那里（磁盘是否已连接？）",
         "session": "项目",
+        "setRole": {
+          "capture": "设为 Capture 文件夹",
+          "output": "设为 Output 文件夹",
+          "selects": "设为 Selects 文件夹"
+        },
         "sort": {
           "ascending": "升序",
           "created": "创建日期",

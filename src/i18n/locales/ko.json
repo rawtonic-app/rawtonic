@@ -3700,7 +3700,19 @@
         },
         "noMatch": "“{{filter}}”이(가) 포함된 폴더 이름이 없습니다.",
         "reading": "폴더를 읽는 중…",
+        "roleRefused": {
+          "catalog": "카탈로그는 사진을 있는 자리에 두며, 역할 폴더는 세션에 속합니다.",
+          "sessionRoot": "세션 폴더 자체입니다."
+        },
+        "roleSet": "{{name}} 폴더를 {{folder}}로 설정했습니다",
+        "roleSetFailed": "{{name}} 폴더로 설정할 수 없습니다: {{error}}",
+        "roleSetMissing": "{{name}} 폴더를 {{folder}}로 설정했습니다 — 지금 거기에 없습니다 (디스크가 연결되었나요?)",
         "session": "프로젝트",
+        "setRole": {
+          "capture": "Capture 폴더로 설정",
+          "output": "Output 폴더로 설정",
+          "selects": "Selects 폴더로 설정"
+        },
         "sort": {
           "ascending": "오름차순",
           "created": "만든 날짜",

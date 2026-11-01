@@ -3815,7 +3815,19 @@
         },
         "noMatch": "Kein Ordnername enthält „{{filter}}“.",
         "reading": "Ordner werden gelesen…",
+        "roleRefused": {
+          "catalog": "Ein Katalog behält seine Fotos, wo sie sind; Rollenordner gehören zu einer Session.",
+          "sessionRoot": "Das ist die Session selbst."
+        },
+        "roleSet": "{{name}}-Ordner ist jetzt {{folder}}",
+        "roleSetFailed": "Konnte nicht als {{name}}-Ordner festgelegt werden: {{error}}",
+        "roleSetMissing": "{{name}}-Ordner ist jetzt {{folder}} — gerade nicht da (ist das Laufwerk verbunden?)",
         "session": "Projekt",
+        "setRole": {
+          "capture": "Als Capture-Ordner festlegen",
+          "output": "Als Output-Ordner festlegen",
+          "selects": "Als Selects-Ordner festlegen"
+        },
         "sort": {
           "ascending": "Aufsteigend",
           "created": "Erstellungsdatum",

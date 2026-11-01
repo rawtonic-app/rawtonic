@@ -93,7 +93,15 @@ import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands,
 import { switchLibraryAfterSaves } from "../../utils/quit";
 import AddFolderDialog from "./AddFolderDialog";
 import SessionFoldersDialog from "./SessionFoldersDialog";
-import { outsideFolders, sessionFolderPath, type SessionFolder } from "../../utils/sessionFolders";
+import {
+  outsideFolders,
+  sessionFolderPath,
+  SET_ROLE_FOLDER_EVENT,
+  type FolderRole,
+  type SessionFolder,
+  type SetRoleFolderDetail,
+} from "../../utils/sessionFolders";
+import type { FolderChange } from "./SessionFoldersDialog";
 import { listenForAddFolder, type AddFolderDetail } from "./addFolder";
 
 /** The folder trees of a session's folders outside it (G38). */
@@ -303,6 +311,16 @@ interface Props {
 /** How long a session may take to open before the app says what it waits for. */
 export const SLOW_RESTORE_MS = 3000;
 
+/** The launch's "Last library could not open" notice. It needs attention
+ * until a library opens: then it is no longer so and goes (UT3 2026-11-01:
+ * it stayed after another library opened). */
+export const RESTORE_FAILED_NOTICE = "session-restore-failed";
+
+/** A library opened: the launch's restore failure, if any, is over. */
+export function openedLibrary() {
+  if (notify.isActive(RESTORE_FAILED_NOTICE)) notify.dismiss(RESTORE_FAILED_NOTICE);
+}
+
 /** The activity centre's entry of a running import. */
 const INGEST_ACTIVITY = "import:ingest";
 
@@ -343,7 +361,7 @@ export function restoreLastSession(
     })
     .catch((e) => {
       done();
-      notify.error(i18n.t("session.restore.failed", { error: String(e) }), { autoClose: false });
+      notify.error(i18n.t("session.restore.failed", { error: String(e) }), { toastId: RESTORE_FAILED_NOTICE, autoClose: false });
     });
 }
 
@@ -468,6 +486,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         ui.setStudioToolLayout(ui.studioToolLayout);
       }
       setSession(summary);
+      openedLibrary();
       // A catalog files its photographs in dated folders under Photos: that
       // folder's grid includes them (Lightroom's Show Photos in Subfolders).
       const subfolderDefaultRoot = summary.manifest.mode === "catalog" ? await join(root, summary.manifest.capture) : null;
@@ -951,6 +970,37 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       folderTrees: [...folderTrees.filter((tree) => tree.path === directory), ...trees],
     });
   }, []);
+  // A folder made the Capture, Selects or Output folder in the folder tree's
+  // menu (G38): the same command Session Folders calls, with the folder the
+  // user right-clicked instead of one picked in the dialog. Nothing moves,
+  // so there is nothing to offer here; a refusal says why as a failure.
+  const setRoleFolder = useCallback(
+    async (role: FolderRole, path: string) => {
+      const library = useLibraryStore.getState().sessionDirectory;
+      if (!library) return;
+      try {
+        const change = await invoke<FolderChange>(Invokes.SessionSetFolder, {
+          directory: library,
+          role,
+          path,
+          moveContents: false,
+        });
+        await refreshFolders(library);
+        const name = i18n.t(`session.folders.role.${role}`);
+        notify.success(
+          change.folder.available
+            ? i18n.t("studio.library.folders.roleSet", { folder: path, name })
+            : i18n.t("studio.library.folders.roleSetMissing", { folder: path, name }),
+        );
+      } catch (e) {
+        notify.error(
+          i18n.t("studio.library.folders.roleSetFailed", { name: i18n.t(`session.folders.role.${role}`), error: String(e) }),
+          { autoClose: false },
+        );
+      }
+    },
+    [refreshFolders],
+  );
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   // Undo/redo can restore flags without going through mark(): refresh the
@@ -1350,6 +1400,18 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     const open = (e: Event) => importInto.current((e as CustomEvent<OpenIngestDetail>).detail.folder);
     window.addEventListener(OPEN_INGEST_EVENT, open);
     return () => window.removeEventListener(OPEN_INGEST_EVENT, open);
+  }, []);
+  // The folder tree's "Set as Capture/Selects/Output Folder…" (G38), the
+  // latest closure of the handler that owns the session summary.
+  const setRoleFolderRef = useRef(setRoleFolder);
+  setRoleFolderRef.current = setRoleFolder;
+  useEffect(() => {
+    const set = (e: Event) => {
+      const { role, folder } = (e as CustomEvent<SetRoleFolderDetail>).detail;
+      void setRoleFolderRef.current(role, folder);
+    };
+    window.addEventListener(SET_ROLE_FOLDER_EVENT, set);
+    return () => window.removeEventListener(SET_ROLE_FOLDER_EVENT, set);
   }, []);
 
   // Folders › "Add Folder…" (useAppNavigation): its dialog, for the folder chosen.

@@ -4159,7 +4159,19 @@
         },
         "noMatch": "Żadna nazwa folderu nie zawiera „{{filter}}”.",
         "reading": "Wczytywanie folderów…",
+        "roleRefused": {
+          "catalog": "Katalog trzyma zdjęcia tam, gdzie są; foldery roli należą do sesji.",
+          "sessionRoot": "To sama sesja."
+        },
+        "roleSet": "Folder {{name}} ustawiony na {{folder}}",
+        "roleSetFailed": "Nie można ustawić jako folderu {{name}}: {{error}}",
+        "roleSetMissing": "Folder {{name}} ustawiony na {{folder}} — obecnie go tam nie ma (czy dysk jest podłączony?)",
         "session": "Projekt",
+        "setRole": {
+          "capture": "Ustaw jako folder Capture",
+          "output": "Ustaw jako folder Output",
+          "selects": "Ustaw jako folder Selects"
+        },
         "sort": {
           "ascending": "Rosnąco",
           "created": "Data utworzenia",

@@ -3700,7 +3700,19 @@
         },
         "noMatch": "「{{filter}}」を含むフォルダ名はありません。",
         "reading": "フォルダを読み込み中…",
+        "roleRefused": {
+          "catalog": "カタログは写真をその場所に保ちます。ロールフォルダーはセッションのものです。",
+          "sessionRoot": "これはセッション本体です。"
+        },
+        "roleSet": "{{name}} フォルダーを {{folder}} に設定しました",
+        "roleSetFailed": "{{name}} フォルダーに設定できませんでした: {{error}}",
+        "roleSetMissing": "{{name}} フォルダーを {{folder}} に設定しました — 現在見つかりません（ディスクは接続されていますか？）",
         "session": "プロジェクト",
+        "setRole": {
+          "capture": "Capture フォルダーに設定",
+          "output": "Output フォルダーに設定",
+          "selects": "Selects フォルダーに設定"
+        },
         "sort": {
           "ascending": "昇順",
           "created": "作成日",

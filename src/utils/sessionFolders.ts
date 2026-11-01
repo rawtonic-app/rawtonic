@@ -67,6 +67,15 @@ export function usableSessionFolder(directory: string, role: FolderRole): Promis
   return invoke<string>(Invokes.SessionUsableFolder, { directory, role });
 }
 
+/** Window event that makes a folder of the folder tree the session's
+ * Capture, Selects or Output folder (the folder tree's menu, G38): the
+ * session workspace runs it, as it owns the session and its summary. */
+export const SET_ROLE_FOLDER_EVENT = "rawtonic-set-role-folder";
+export type SetRoleFolderDetail = { role: FolderRole; folder: string };
+export function requestSetRoleFolder(detail: SetRoleFolderDetail) {
+  window.dispatchEvent(new CustomEvent<SetRoleFolderDetail>(SET_ROLE_FOLDER_EVENT, { detail }));
+}
+
 /** What "Move contents" did: items moved (in one or more undoable
  * operations) and why it stopped, if it did. */
 export interface ContentsMoved {
