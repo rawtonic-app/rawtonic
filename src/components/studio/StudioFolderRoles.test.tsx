@@ -107,6 +107,14 @@ describe("set a folder's role from the folder tree (G38)", () => {
     expect(item("Set as Output Folder")).toHaveProperty("disabled", false);
   });
 
+  it("offers no role folders while no library is open (an added folder is only browsed)", () => {
+    useLibraryStore.setState({ sessionDirectory: null, sessionFolders: [] });
+    renderTree({ setRoleFolder });
+    fireEvent.contextMenu(row("/job/Selects/Day 1"));
+    expect(screen.queryAllByRole("menuitem", { name: /^Set as .* Folder$/ })).toHaveLength(0);
+    expect(setRoleFolder).not.toHaveBeenCalled();
+  });
+
   it("refuses the session folder itself instead of offering it", () => {
     renderTree({ setRoleFolder });
     fireEvent.contextMenu(row("/job"));

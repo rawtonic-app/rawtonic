@@ -171,9 +171,11 @@ function FolderRow({
     // Session Folders calls; the check says which one it is now. Only a
     // session has role folders (a catalog keeps two different ones as its
     // own folders, G40), the session folder itself is none, and the backend
-    // (`set_session_folder`) refuses anything else, saying why.
+    // (`set_session_folder`) refuses anything else, saying why. Without an
+    // open library there is no session to give a role folder: no items.
     const roleRefused = catalog ? "catalog" : path === sessionRoot ? "sessionRoot" : null;
-    const roleItems: Option[] = actions?.setRoleFolder && !roleRefused
+    const roleActions = sessionRoot ? actions?.setRoleFolder : undefined;
+    const roleItems: Option[] = roleActions && !roleRefused
       ? ROLE_FOLDERS.map((role) => {
           const isRole = (useLibraryStore.getState().sessionFolders ?? []).some(
             (folder) => folder.role === role && folder.path === path,
@@ -185,7 +187,7 @@ function FolderRow({
             onClick: () => actions.setRoleFolder?.(role, path),
           };
         })
-      : actions?.setRoleFolder && roleRefused
+      : roleActions && roleRefused
         ? [{ label: t(`studio.library.folders.roleRefused.${roleRefused}` as const), disabled: true }]
         : [];
     if (roleItems.length) roleItems.push({ type: OPTION_SEPARATOR });
