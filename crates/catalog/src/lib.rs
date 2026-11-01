@@ -2508,7 +2508,10 @@ fn with_library_metadata(state: Option<Value>, meta: Metadata) -> Option<Value> 
     Some(state)
 }
 
-fn apply_editor_metadata(state: &mut Value, meta: Metadata) {
+/// Puts `meta`'s rating, keywords and colour label into the editor state
+/// `state` as the editor holds them (rating, `tags`, `colorLabel`): the
+/// form a virtual copy's own metadata takes (`copy_metadata` reads it back).
+pub fn apply_editor_metadata(state: &mut Value, meta: Metadata) {
     state["rating"] = json!(meta.rating);
     // Keywords the stored state has as automatic tags stay automatic; all
     // others, including keywords adopted from an XMP, are the user's.

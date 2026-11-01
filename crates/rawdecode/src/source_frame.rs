@@ -86,12 +86,22 @@ impl Frame {
 /// where its decoder panics on them: decode variants of every CR3 render
 /// ask for it) and Super CCD layouts (turned by the development).
 pub fn frame(source: &RawSource, version: u32) -> Option<Frame> {
+    frame_and_sensor(source, version).map(|(frame, _)| frame)
+}
+
+/// [`frame`] and the sensor area it lies in, in buffer coordinates
+/// (x, y, width, height): the developed area before the camera's aspect
+/// crop (Olympus 16:9 or 3:2, Panasonic, Sony) and a DNG's user crop. This
+/// is the whole image Lightroom's normalised crop refers to (an Olympus
+/// aspect ratio is a crop there; notes:
+/// benchmark-results/lc2-lr-render-match-2026-11-01).
+pub fn frame_and_sensor(source: &RawSource, version: u32) -> Option<(Frame, [usize; 4])> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read_frame(source, version)))
         .ok()
         .flatten()
 }
 
-fn read_frame(source: &RawSource, version: u32) -> Option<Frame> {
+fn read_frame(source: &RawSource, version: u32) -> Option<(Frame, [usize; 4])> {
     let decoder = rawler::get_decoder(source).ok()?;
     let params = RawDecodeParams::default();
     let mut raw_image = decoder.raw_image(source, &params, true).ok()?;
@@ -103,16 +113,34 @@ fn read_frame(source: &RawSource, version: u32) -> Option<Frame> {
     if crate::raw_processing::superccd_layout(&raw_image, source.buf()).is_some() {
         return None;
     }
+    let sensor = {
+        let mut sensor = raw_image.clone();
+        apply(&mut sensor, decoder.format_hint(), version);
+        let full = Rect::new(Point::new(0, 0), sensor.dim());
+        let active = sensor
+            .active_area
+            .map(|area| area.intersection(&full))
+            .filter(|area| !area.is_empty())
+            .unwrap_or(full);
+        sensor
+            .crop_area
+            .map(|crop| crop.intersection(&active))
+            .filter(|crop| !crop.is_empty())
+            .unwrap_or(active)
+    };
     let (_, frame) = crate::raw_processing::developed_areas(
         &mut raw_image,
         source.buf(),
         decoder.as_ref(),
         version,
     );
-    (frame.d.w > 0 && frame.d.h > 0).then_some(Frame {
-        rect: [frame.p.x, frame.p.y, frame.d.w, frame.d.h],
-        orientation,
-    })
+    (frame.d.w > 0 && frame.d.h > 0).then_some((
+        Frame {
+            rect: [frame.p.x, frame.p.y, frame.d.w, frame.d.h],
+            orientation,
+        },
+        [sensor.p.x, sensor.p.y, sensor.d.w, sensor.d.h],
+    ))
 }
 
 /// The oldest frame version that develops the RAW in `source` exactly as

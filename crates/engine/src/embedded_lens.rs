@@ -2319,9 +2319,32 @@ pub fn lensfun_default(source: &Path) -> Option<(String, String, LensDistortionP
     result
 }
 
+/// The lensfun profile of the lens the RAW at `source` was taken with, for
+/// any camera, at the shot's focal length, aperture and distance: only for
+/// an EXIF lens name that names one lensfun lens exactly
+/// (`lens_correction::find_lens_exact`), never a guess — generic names
+/// ("24-70mm") matched loosely picked another maker's lens and made
+/// Lightroom imports worse (notes:
+/// benchmark-results/lc2-lr-render-match-2026-11-01). For a correction the
+/// photographer asked for (a Lightroom import with profile corrections on)
+/// where the default (`lensfun_default`, camera data) has none. Not cached:
+/// read once per import.
+pub fn lensfun_for_photo(source: &Path) -> Option<(String, String, LensDistortionParams)> {
+    std::panic::catch_unwind(|| lensfun_uncached(source, true))
+        .ok()
+        .flatten()
+}
+
 fn lensfun_default_uncached(source: &Path) -> Option<(String, String, LensDistortionParams)> {
+    lensfun_uncached(source, false)
+}
+
+fn lensfun_uncached(
+    source: &Path,
+    any_lens: bool,
+) -> Option<(String, String, LensDistortionParams)> {
     let extension = source.extension()?.to_str()?.to_ascii_lowercase();
-    if !matches!(extension.as_str(), "cr3" | "cr2" | "dng") {
+    if !any_lens && !matches!(extension.as_str(), "cr3" | "cr2" | "dng") {
         return None;
     }
     let db = crate::lens_correction::global_lens_db()?;
@@ -2337,7 +2360,19 @@ fn lensfun_default_uncached(source: &Path) -> Option<(String, String, LensDistor
     let distance = exif.subject_distance.and_then(rational);
     // DNG conversions of EOS R files carry no lens data; Camera Raw renders
     // them like the CR3s.
-    let lens = if matches!(extension.as_str(), "cr3" | "dng")
+    let lens = if any_lens {
+        let lens_name = exif
+            .lens_model
+            .clone()
+            .or_else(|| exif_lens_model(source))
+            .unwrap_or_default();
+        let maker = exif
+            .lens_make
+            .clone()
+            .filter(|m| !m.trim().is_empty())
+            .unwrap_or_else(|| metadata.make.clone());
+        crate::lens_correction::find_lens_exact(&db, &maker, &lens_name)?
+    } else if matches!(extension.as_str(), "cr3" | "dng")
         && is_canon_eos_r(&metadata.make, &metadata.model)
     {
         // rawler leaves the lens name empty for DNGs; read it from EXIF.

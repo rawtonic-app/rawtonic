@@ -268,6 +268,10 @@ interface ImportReport {
   withSettings: number;
   missing: number;
   copiesSkipped: number;
+  /** Virtual copies imported as virtual copies of their photograph. */
+  copies?: number;
+  /** Crops trimmed to the camera's frame (they reached beyond it). */
+  cropsClipped?: number;
   albums: number;
   aiMasksOnOpen: number;
   errors: string[];
@@ -868,8 +872,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             albums: report.albums,
           }),
           report.missing ? t("session.toasts.importNotFound", { count: report.missing }) : null,
+          report.copies ? t("session.toasts.importCopies", { count: report.copies }) : null,
           report.copiesSkipped
             ? t("session.toasts.importCopiesSkipped", { count: report.copiesSkipped })
+            : null,
+          report.cropsClipped
+            ? t("session.toasts.importCropsClipped", { count: report.cropsClipped })
             : null,
           report.aiMasksOnOpen
             ? t("session.toasts.importAiMasksOnOpen", { count: report.aiMasksOnOpen })
@@ -1871,7 +1879,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                       t("session.import.edited", { count: importPreview.edited }),
                       t("session.import.albums", { count: importPreview.albums }),
                       importPreview.copies
-                        ? t("session.import.copiesNotImported", { count: importPreview.copies })
+                        ? t("session.import.copies", { count: importPreview.copies })
                         : null,
                       importPreview.notRead.smartAlbums
                         ? t("session.import.smartAlbumsNotImported", {
