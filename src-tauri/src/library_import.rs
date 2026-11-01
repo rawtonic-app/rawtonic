@@ -462,6 +462,12 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
     rawtonic_engine::image_processing::apply_render_default(&mut base);
     rawtonic_engine::edge_fringe::apply_default(&mut base, true, is_raw);
     rawtonic_engine::lateral_ca::apply_default(&mut base, true, is_raw);
+    // The tone sliders' response a new edit gets: without the key the
+    // recipe keeps the first response, whose lowered Highlights darkened
+    // bright areas several times further than the other editor (notes:
+    // benchmark-results/hl-highlights-2026-11-01).
+    base[rawtonic_engine::image_processing::TONE_VERSION_KEY] =
+        json!(rawtonic_engine::image_processing::TONE_VERSION);
     if let (Some(map), Some(base)) = (adjustments.as_object_mut(), base.as_object()) {
         for (key, value) in base {
             map.entry(key.clone()).or_insert_with(|| value.clone());
@@ -1070,6 +1076,10 @@ mod tests {
         assert_eq!(
             a["renderVersion"].as_u64(),
             Some(rawtonic_engine::image_processing::RENDER_VERSION)
+        );
+        assert_eq!(
+            a["toneVersion"].as_u64(),
+            Some(rawtonic_engine::image_processing::TONE_VERSION)
         );
         assert_eq!(
             a["crop"],
