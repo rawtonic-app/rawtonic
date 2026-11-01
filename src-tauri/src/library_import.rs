@@ -696,12 +696,13 @@ fn import_snapshots(
 }
 
 /// The id the virtual copy with the source identity `origin` (the other
-/// editor's global id for it: Lightroom's image UUID, else the library's
-/// name and the copy's key there) of the asset `asset` gets: derived from
-/// both, so a repeated import of that library (or of a copy of it) finds
-/// the copy it made, and another library's copy of the same photo gets
-/// another id (`attempt` > 0 when that name is taken by a file the catalog
-/// does not know).
+/// editor's global id for it: Lightroom's image UUID, Capture One's session
+/// file and variant id) of the asset `asset` gets: derived from both, so a
+/// repeated import of that library (or, for Lightroom, of a copy of it)
+/// finds the copy it made, and another library's copy of the same photo
+/// gets another id (two origins share one of the 2^24 ids of an asset
+/// only by a hash collision; `attempt` > 0 when that name is taken by a
+/// file the catalog does not know).
 fn copy_id(asset: &str, origin: &str, attempt: u32) -> String {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(format!("imported-copy\0{asset}\0{origin}\0{attempt}"));

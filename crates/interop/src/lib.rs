@@ -44,7 +44,8 @@ pub struct Photo {
     /// the key of the photograph it belongs to.
     pub copy_of: Option<String>,
     /// The editor's global id for the photograph or copy (Lightroom's
-    /// `id_global`, a UUID that a copied catalog keeps), when it has one.
+    /// `id_global`, a UUID that a copied catalog keeps; for Capture One,
+    /// which has none, the session file's path and the variant's id).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uid: Option<String>,
     /// A virtual copy's name in its editor (Lightroom's Copy Name).

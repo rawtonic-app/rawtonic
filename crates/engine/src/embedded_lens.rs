@@ -2327,16 +2327,9 @@ pub fn lensfun_default(source: &Path) -> Option<(String, String, LensDistortionP
 /// Lightroom imports worse (notes:
 /// benchmark-results/lc2-lr-render-match-2026-11-01). For a correction the
 /// photographer asked for (a Lightroom import with profile corrections on)
-/// where the default (`lensfun_default`, camera data) has none. Not for the
-/// formats whose cameras record their own lens correction (ORF, RW2, RAF:
-/// Lightroom's "Camera Settings"): a file of theirs without that record
-/// needs none, and lensfun's profiles made three such Olympus imports worse
-/// (same notes). Not cached: read once per import.
+/// where the default (`lensfun_default`, camera data) has none. Not cached:
+/// read once per import.
 pub fn lensfun_for_photo(source: &Path) -> Option<(String, String, LensDistortionParams)> {
-    let extension = source.extension()?.to_str()?.to_ascii_lowercase();
-    if matches!(extension.as_str(), "orf" | "rw2" | "raf") {
-        return None;
-    }
     std::panic::catch_unwind(|| lensfun_uncached(source, true))
         .ok()
         .flatten()
