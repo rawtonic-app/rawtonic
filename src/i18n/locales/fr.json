@@ -1567,7 +1567,8 @@
         "edit": "retouche",
         "eyes": "contrôles des yeux",
         "metadata": "métadonnées",
-        "snapshots": "instantanés"
+        "snapshots": "instantanés",
+        "stacks": "piles"
       },
       "changedPhotos_one": "Photo modifiée ({{count}})",
       "changedPhotos_many": "Photos modifiées ({{count}})",
@@ -1608,6 +1609,9 @@
         "there": "modifiée dans l’autre catalogue"
       },
       "source": "Catalogue à importer",
+      "stacks_one": "{{count}} pile importée",
+      "stacks_many": "{{count}} piles importées",
+      "stacks_other": "{{count}} piles importées",
       "summary": "« {{name}} » : {{new}} nouvelles, {{changed}} modifiées, {{unchanged}} inchangées (ignorées)",
       "title": "Importer depuis un catalogue",
       "unchangedSkipped_one": "{{count}} photo inchangée ignorée",
@@ -2034,6 +2038,9 @@
       "importNotFound_one": "{{count}} introuvable",
       "importNotFound_many": "{{count}} introuvables",
       "importNotFound_other": "{{count}} introuvables",
+      "importStacks_one": "{{count}} pile importée",
+      "importStacks_many": "{{count}} piles importées",
+      "importStacks_other": "{{count}} piles importées",
       "importWarnings_one": "{{count}} photo a été importée avec un avertissement. {{error}}",
       "importWarnings_many": "{{count}} photos ont été importées avec des avertissements. {{error}}",
       "importWarnings_other": "{{count}} photos ont été importées avec des avertissements. {{error}}",
@@ -2662,6 +2669,9 @@
     "visualize": "Visualiser les défauts"
   },
   "stacks": {
+    "albumNote_one": "{{count}} photo empilée. Les piles apparaissent dans les vues de dossier ; un album liste ses photos une à une.",
+    "albumNote_many": "{{count}} photos empilées. Les piles apparaissent dans les vues de dossier ; un album liste ses photos une à une.",
+    "albumNote_other": "{{count}} photos empilées. Les piles apparaissent dans les vues de dossier ; un album liste ses photos une à une.",
     "auto": {
       "apply_one": "Créer {{count}} pile",
       "apply_many": "Créer {{count}} piles",
@@ -3987,7 +3997,19 @@
         },
         "noMatch": "Aucun nom de dossier ne contient « {{filter}} ».",
         "reading": "Lecture des dossiers…",
+        "roleRefused": {
+          "catalog": "Un catalogue garde ses photos là où elles sont ; les dossiers de rôle appartiennent à une session.",
+          "sessionRoot": "C’est la session elle-même."
+        },
+        "roleSet": "Dossier {{name}} défini sur {{folder}}",
+        "roleSetFailed": "Impossible d’en faire le dossier {{name}} : {{error}}",
+        "roleSetMissing": "Dossier {{name}} défini sur {{folder}} — absent pour l’instant (le disque est-il connecté ?)",
         "session": "Projet",
+        "setRole": {
+          "capture": "Définir comme dossier Capture",
+          "output": "Définir comme dossier Output",
+          "selects": "Définir comme dossier Selects"
+        },
         "sort": {
           "ascending": "Croissant",
           "created": "Date de création",
@@ -4799,6 +4821,20 @@
       "wholePhoto": "Photo entière",
       "x": "Position X",
       "y": "Position Y"
+    },
+    "scopes": {
+      "aria": "Moniteurs de la photo",
+      "empty": "Moniteurs disponibles après l’ouverture d’une photo",
+      "luma": "Luma",
+      "lumaAria": "Forme d’onde luma de la photo affichée",
+      "mode": "Affichage",
+      "parade": "Parade",
+      "paradeAria": "Parade RVB de la photo affichée",
+      "rgb": "RVB",
+      "rgbAria": "Forme d’onde RVB de la photo affichée",
+      "title": "Moniteurs",
+      "vectorscope": "Vecteur",
+      "vectorscopeAria": "Vectorscope de la photo affichée"
     },
     "seriesMatch": {
       "after": "Harmonisé",

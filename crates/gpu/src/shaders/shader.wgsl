@@ -707,8 +707,12 @@ fn encode_output(d: vec3<f32>) -> vec3<f32> {
 // The wide spaces hold sRGB (their matrices from it are non-negative with
 // rows summing to one) and their thresholds are no tighter in linear, so a
 // colour sRGB does not clip clips in none of them.
-fn clipping_sides(d: vec3<f32>) -> vec2<bool> {
-    let srgb = vec2<bool>(any(d > vec3<f32>(0.998)), any(d < vec3<f32>(0.002)));
+/// The channels that clip, as the clipping warnings judge them: bits 0–2
+/// red, green, blue beyond the highlight limit, bits 3–5 below the shadow
+/// limit, in the output space (or the proofed one).
+fn clipping_channels(d: vec3<f32>) -> u32 {
+    let srgb_high = d > vec3<f32>(0.998);
+    let srgb_low = d < vec3<f32>(0.002);
     let proof = adjustments.global.output_space.y;
     var space = adjustments.global.output_space.x;
     var to_space = adjustments.global.output_matrix;
@@ -716,17 +720,22 @@ fn clipping_sides(d: vec3<f32>) -> vec2<bool> {
         space = proof - 1u;
         to_space = adjustments.global.proof_matrix;
     }
-    if (space == 0u || !any(srgb)) {
-        return srgb;
+    var high = srgb_high;
+    var low = srgb_low;
+    if (space != 0u && (any(srgb_high) || any(srgb_low))) {
+        let linear = to_space * decode_signed(d);
+        var limits = srgb_to_linear(vec3<f32>(0.998, 0.002, 0.0)).xy;
+        switch (space) {
+            case 2u: { limits = pow(vec2<f32>(0.998, 0.002), vec2<f32>(563.0 / 256.0)); }
+            case 3u: { limits = pow(vec2<f32>(0.998, 0.002), vec2<f32>(461.0 / 256.0)); }
+            default: {}
+        }
+        high = linear > vec3<f32>(limits.x);
+        low = linear < vec3<f32>(limits.y);
     }
-    let linear = to_space * decode_signed(d);
-    var limits = srgb_to_linear(vec3<f32>(0.998, 0.002, 0.0)).xy;
-    switch (space) {
-        case 2u: { limits = pow(vec2<f32>(0.998, 0.002), vec2<f32>(563.0 / 256.0)); }
-        case 3u: { limits = pow(vec2<f32>(0.998, 0.002), vec2<f32>(461.0 / 256.0)); }
-        default: {}
-    }
-    return vec2<bool>(any(linear > vec3<f32>(limits.x)), any(linear < vec3<f32>(limits.y)));
+    let bits = vec3<u32>(1u, 2u, 4u);
+    return dot(select(vec3<u32>(0u), bits, high), vec3<u32>(1u))
+        | (dot(select(vec3<u32>(0u), bits, low), vec3<u32>(1u)) << 3u);
 }
 
 fn linear_to_vlog(c: vec3<f32>) -> vec3<f32> {
@@ -7966,9 +7975,9 @@ fn main(
         || adjustments.global.show_clipping == 0x40000001u;
     let warn_shadows = adjustments.global.show_clipping == 1u
         || adjustments.global.show_clipping == 0x40000002u;
-    let clips = clipping_sides(final_rgb);
-    let clips_highlights = clips.x;
-    let clips_shadows = clips.y;
+    let clip_channels = clipping_channels(final_rgb);
+    let clips_highlights = (clip_channels & 7u) != 0u;
+    let clips_shadows = (clip_channels & 56u) != 0u;
     let unmarked_rgb = final_rgb;
     if (warn_highlights || warn_shadows) {
         let HIGHLIGHT_WARNING_COLOR = vec3<f32>(1.0, 0.0, 0.0);
@@ -8011,8 +8020,11 @@ fn main(
             }
             analytics_rgb = clamp(analytics_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
         }
-        let sides = select(0.0, 1.0, clips_shadows) + select(0.0, 2.0, clips_highlights);
-        textureStore(analytics_output, id.xy, vec4<f32>(analytics_rgb, sides / 255.0));
+        // Alpha: bit 0 shadows, bit 1 highlights clip; bits 2–4 the
+        // highlight channels (r, g, b), bits 5–7 the shadow channels.
+        let marks = select(0u, 1u, clips_shadows) | select(0u, 2u, clips_highlights)
+            | ((clip_channels & 7u) << 2u) | ((clip_channels >> 3u) << 5u);
+        textureStore(analytics_output, id.xy, vec4<f32>(analytics_rgb, f32(marks) / 255.0));
     }
 }
 

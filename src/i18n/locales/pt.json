@@ -1567,7 +1567,8 @@
         "edit": "edição",
         "eyes": "verificações de olhos",
         "metadata": "metadados",
-        "snapshots": "instantâneos"
+        "snapshots": "instantâneos",
+        "stacks": "pilhas"
       },
       "changedPhotos_one": "Foto alterada ({{count}})",
       "changedPhotos_many": "Fotos alteradas ({{count}})",
@@ -1608,6 +1609,9 @@
         "there": "alterada no outro catálogo"
       },
       "source": "Catálogo de origem",
+      "stacks_one": "{{count}} pilha importada",
+      "stacks_many": "{{count}} pilhas importadas",
+      "stacks_other": "{{count}} pilhas importadas",
       "summary": "“{{name}}”: {{new}} novas, {{changed}} alteradas, {{unchanged}} inalteradas (ignoradas)",
       "title": "Importar de catálogo",
       "unchangedSkipped_one": "{{count}} foto inalterada ignorada",
@@ -2034,6 +2038,9 @@
       "importNotFound_one": "{{count}} não encontrada",
       "importNotFound_many": "{{count}} não encontradas",
       "importNotFound_other": "{{count}} não encontradas",
+      "importStacks_one": "{{count}} pilha importada",
+      "importStacks_many": "{{count}} pilhas importadas",
+      "importStacks_other": "{{count}} pilhas importadas",
       "importWarnings_one": "{{count}} foto foi importada com um aviso. {{error}}",
       "importWarnings_many": "{{count}} fotos foram importadas com avisos. {{error}}",
       "importWarnings_other": "{{count}} fotos foram importadas com avisos. {{error}}",
@@ -2662,6 +2669,9 @@
     "visualize": "Visualizar manchas"
   },
   "stacks": {
+    "albumNote_one": "{{count}} foto empilhada. As pilhas aparecem nas vistas de pasta; um álbum lista as fotos individualmente.",
+    "albumNote_many": "{{count}} fotos empilhadas. As pilhas aparecem nas vistas de pasta; um álbum lista as fotos individualmente.",
+    "albumNote_other": "{{count}} fotos empilhadas. As pilhas aparecem nas vistas de pasta; um álbum lista as fotos individualmente.",
     "auto": {
       "apply_one": "Criar {{count}} pilha",
       "apply_many": "Criar {{count}} pilhas",
@@ -3987,7 +3997,19 @@
         },
         "noMatch": "Nenhum nome de pasta contém “{{filter}}”.",
         "reading": "Lendo pastas…",
+        "roleRefused": {
+          "catalog": "Um catálogo mantém as fotos onde estão; as pastas de função pertencem a uma sessão.",
+          "sessionRoot": "Esta é a própria sessão."
+        },
+        "roleSet": "Pasta {{name}} definida como {{folder}}",
+        "roleSetFailed": "Não foi possível defini-la como pasta {{name}}: {{error}}",
+        "roleSetMissing": "Pasta {{name}} definida como {{folder}} — de momento não está lá (o disco está ligado?)",
         "session": "Projeto",
+        "setRole": {
+          "capture": "Definir como pasta Capture",
+          "output": "Definir como pasta Output",
+          "selects": "Definir como pasta Selects"
+        },
         "sort": {
           "ascending": "Crescente",
           "created": "Data de criação",
@@ -4799,6 +4821,20 @@
       "wholePhoto": "Foto inteira",
       "x": "Posição X",
       "y": "Posição Y"
+    },
+    "scopes": {
+      "aria": "Monitores da foto",
+      "empty": "Monitores disponíveis após abrir uma foto",
+      "luma": "Luma",
+      "lumaAria": "Forma de onda de luma da foto exibida",
+      "mode": "Vista",
+      "parade": "Parade",
+      "paradeAria": "Parade RGB da foto exibida",
+      "rgb": "RGB",
+      "rgbAria": "Forma de onda RGB da foto exibida",
+      "title": "Monitores",
+      "vectorscope": "Vetor",
+      "vectorscopeAria": "Vetorscópio da foto exibida"
     },
     "seriesMatch": {
       "after": "Igualada",

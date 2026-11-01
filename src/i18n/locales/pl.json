@@ -1647,7 +1647,8 @@
         "edit": "edycja",
         "eyes": "kontrole oczu",
         "metadata": "metadane",
-        "snapshots": "migawki"
+        "snapshots": "migawki",
+        "stacks": "stosy"
       },
       "changedPhotos_one": "Zmienione zdjęcie ({{count}})",
       "changedPhotos_few": "Zmienione zdjęcia ({{count}})",
@@ -1692,6 +1693,10 @@
         "there": "zmienione w drugim katalogu"
       },
       "source": "Katalog źródłowy",
+      "stacks_one": "{{count}} stos zaimportowany",
+      "stacks_few": "{{count}} stosy zaimportowane",
+      "stacks_many": "{{count}} stosów zaimportowanych",
+      "stacks_other": "{{count}} stosu zaimportowanego",
       "summary": "„{{name}}”: nowe {{new}}, zmienione {{changed}}, bez zmian {{unchanged}} (pominięte)",
       "title": "Importuj z katalogu",
       "unchangedSkipped_one": "Pominięto {{count}} niezmienione zdjęcie",
@@ -2142,6 +2147,10 @@
       "importNotFound_few": "nie znaleziono: {{count}}",
       "importNotFound_many": "nie znaleziono: {{count}}",
       "importNotFound_other": "nie znaleziono: {{count}}",
+      "importStacks_one": "{{count}} stos zaimportowany",
+      "importStacks_few": "{{count}} stosy zaimportowane",
+      "importStacks_many": "{{count}} stosów zaimportowanych",
+      "importStacks_other": "{{count}} stosu zaimportowanego",
       "importWarnings_one": "{{count}} zdjęcie zaimportowano z ostrzeżeniem. {{error}}",
       "importWarnings_few": "{{count}} zdjęcia zaimportowano z ostrzeżeniami. {{error}}",
       "importWarnings_many": "{{count}} zdjęć zaimportowano z ostrzeżeniami. {{error}}",
@@ -2791,6 +2800,10 @@
     "visualize": "Pokaż plamy"
   },
   "stacks": {
+    "albumNote_one": "Ułożono w stos {{count}} zdjęcie. Stosy widać w widokach folderów; album wyświetla zdjęcia osobno.",
+    "albumNote_few": "Ułożono w stos {{count}} zdjęcia. Stosy widać w widokach folderów; album wyświetla zdjęcia osobno.",
+    "albumNote_many": "Ułożono w stos {{count}} zdjęć. Stosy widać w widokach folderów; album wyświetla zdjęcia osobno.",
+    "albumNote_other": "Ułożono w stos {{count}} zdjęcia. Stosy widać w widokach folderów; album wyświetla zdjęcia osobno.",
     "auto": {
       "apply_one": "Utwórz {{count}} stos",
       "apply_few": "Utwórz {{count}} stosy",
@@ -4156,7 +4169,19 @@
         },
         "noMatch": "Żadna nazwa folderu nie zawiera „{{filter}}”.",
         "reading": "Wczytywanie folderów…",
+        "roleRefused": {
+          "catalog": "Katalog trzyma zdjęcia tam, gdzie są; foldery roli należą do sesji.",
+          "sessionRoot": "To sama sesja."
+        },
+        "roleSet": "Folder {{name}} ustawiony na {{folder}}",
+        "roleSetFailed": "Nie można ustawić jako folderu {{name}}: {{error}}",
+        "roleSetMissing": "Folder {{name}} ustawiony na {{folder}} — obecnie go tam nie ma (czy dysk jest podłączony?)",
         "session": "Projekt",
+        "setRole": {
+          "capture": "Ustaw jako folder Capture",
+          "output": "Ustaw jako folder Output",
+          "selects": "Ustaw jako folder Selects"
+        },
         "sort": {
           "ascending": "Rosnąco",
           "created": "Data utworzenia",
@@ -4984,6 +5009,20 @@
       "wholePhoto": "Całe zdjęcie",
       "x": "Pozycja X",
       "y": "Pozycja Y"
+    },
+    "scopes": {
+      "aria": "Wykresy zdjęcia",
+      "empty": "Wykresy dostępne po otwarciu zdjęcia",
+      "luma": "Luma",
+      "lumaAria": "Przebieg luminancji wyświetlanego zdjęcia",
+      "mode": "Widok",
+      "parade": "Parada",
+      "paradeAria": "Parada RGB wyświetlanego zdjęcia",
+      "rgb": "RGB",
+      "rgbAria": "Przebieg RGB wyświetlanego zdjęcia",
+      "title": "Wykresy",
+      "vectorscope": "Wektor",
+      "vectorscopeAria": "Wektoroskop wyświetlanego zdjęcia"
     },
     "seriesMatch": {
       "after": "Wyrównane",

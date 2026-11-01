@@ -39,7 +39,16 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 vi.mock("@tauri-apps/api/path", () => ({ join: async (...parts: string[]) => parts.join("/") }));
 vi.mock("@tauri-apps/plugin-os", () => ({ platform: () => "macos" }));
 vi.mock("../../activity/notify", () => ({
-  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn(), warning: vi.fn(), warn: vi.fn() },
+  notify: {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
+    // Whether the launch's restore failure still shows (none in these tests).
+    isActive: vi.fn(() => false),
+    warning: vi.fn(),
+    warn: vi.fn(),
+  },
 }));
 
 const summary: SessionSummary = {

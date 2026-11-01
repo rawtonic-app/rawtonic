@@ -40,3 +40,19 @@ export function histogramClipping(histogram: unknown): { shadows: boolean; highl
     highlights: flags.clippedHighlights === true,
   };
 }
+
+/**
+ * The colour of a lit clipping triangle: the channels that reach that end
+ * (`shadowChannels` / `highlightChannels` in scopes.rs), as Lightroom colours
+ * it — red, green, blue or their mix (yellow, cyan, magenta). All three, or
+ * none known, leave the triangle neutral (null).
+ */
+export function clippingChannelColour(histogram: unknown, side: 'shadows' | 'highlights'): string | null {
+  const flags = (histogram ?? {}) as Record<string, unknown>;
+  const channels = flags[side === 'shadows' ? 'shadowChannels' : 'highlightChannels'];
+  if (!Array.isArray(channels) || channels.length !== 3) return null;
+  const [r, g, b] = channels.map((on) => on === true);
+  if ((r && g && b) || !(r || g || b)) return null;
+  const level = (on: boolean) => (on ? 235 : 40);
+  return `rgb(${level(r)}, ${level(g)}, ${level(b)})`;
+}

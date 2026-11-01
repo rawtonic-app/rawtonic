@@ -171,6 +171,8 @@ pub fn run_job_in_turn(
     );
     let mut bytes = 0u64;
     let mut left = false;
+    // The temporary copies of a cut-off run each photograph removes (G66).
+    let leftovers_taken = std::sync::Mutex::new(rawtonic_metadata::temp::Removed::default());
     for item in &items {
         if cancel.load(Ordering::Acquire) {
             break;
@@ -227,6 +229,7 @@ pub fn run_job_in_turn(
             earlier: item.destination.as_deref(),
             before_copy: Some(&record),
             read_ahead: Some(&read_ahead),
+            leftovers_taken: Some(&leftovers_taken),
         };
         // A JPEG gone or changed since (the RAW still there) does not hold
         // its RAW back: the RAW comes in alone.
@@ -351,6 +354,16 @@ pub fn run_job_in_turn(
         JobState::Done
     };
     library.set_ingest_job_state(id, state)?;
+    let taken = leftovers_taken
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner());
+    if taken.files > 0 {
+        log::info!(
+            "Ingest resume of job {id} removed {} bytes of {} temporary copies",
+            taken.bytes,
+            taken.files
+        );
+    }
     Ok(results)
 }
 
@@ -1008,6 +1021,70 @@ mod tests {
         for path in &others {
             assert!(path.exists(), "{}", path.display());
         }
+    }
+
+    /// What a kill left in the library and its backup folders, and its
+    /// bytes counted by a sweep at open (G66 item (4)): the leaves of the
+    /// planned copies and a backup collision name no job item has planned,
+    /// which a resumed job would never recognise; its finished files stay.
+    #[test]
+    fn a_sweep_counts_the_temp_bytes_of_library_and_backup_folders() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let backup = d.path().join("Backup");
+        fs::create_dir_all(&backup).unwrap();
+        let sources = card(d.path());
+        let mut opts = options("{orig}");
+        opts.backup = Some(&backup);
+        let id = create_job(&lib, &sources, &opts).unwrap();
+        let capture = lib.directory.join("Capture");
+        lib.set_ingest_item(
+            &id,
+            2,
+            ItemState::Copying,
+            Some(&capture.join("C2.ARW")),
+            None,
+            None,
+        )
+        .unwrap();
+        let partial = |path: PathBuf, bytes: usize| {
+            let (mut file, path) = rawtonic_metadata::temp::file_for(&path)
+                .unwrap()
+                .keep()
+                .unwrap();
+            std::io::Write::write_all(&mut file, &vec![7; bytes]).unwrap();
+            path
+        };
+        let left = [
+            partial(capture.join("C2.ARW"), 500),
+            partial(backup.join("C2_1.ARW"), 900),
+        ];
+        // A published copy at a collision name (the backup's names differ
+        // from the library's): no temporary file, so never removed.
+        let finished = backup.join("C1_1.ARW");
+        let bytes = b"a finished backup copy";
+        fs::write(&finished, bytes).unwrap();
+        let user = backup.join("Notes.txt");
+        fs::write(&user, b"mine").unwrap();
+        let swept = lib
+            .sweep_leftovers(
+                std::time::SystemTime::now()
+                    + rawtonic_metadata::temp::STALE_AGE
+                    + std::time::Duration::from_secs(1),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        assert_eq!((swept.temp_files, swept.temp_bytes), (2, 1400), "{swept:?}");
+        for path in &left {
+            assert!(!path.exists(), "{}", path.display());
+        }
+        assert_eq!(fs::read(&finished).unwrap(), bytes);
+        assert!(user.exists());
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+        assert_eq!(names(&capture).len(), 6);
+        // The finished backup copy and the user's file stay.
+        assert_eq!(names(&backup).len(), 8, "{:?}", names(&backup));
     }
 
     /// Cut off after its backup copy was published, before the library's:

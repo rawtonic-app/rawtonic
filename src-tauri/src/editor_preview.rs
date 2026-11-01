@@ -48,6 +48,7 @@ use imgref::ImgRef;
 use mozjpeg_rs::Encoder;
 use mozjpeg_rs::Preset;
 use rawtonic_engine::formats;
+use rawtonic_engine::scopes;
 #[cfg(not(target_os = "linux"))]
 use rgb::FromSlice;
 #[cfg(not(target_os = "linux"))]
@@ -237,6 +238,64 @@ fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &s
                 .auto_ca_versus_own
                 .then(|| crate::image_processing::own_tca_model(&params)),
         );
+    }
+}
+
+/// The first frame's preview base of the photograph whose decode `full` is
+/// kept ahead for the next step (`proxy_worker`), built before it is
+/// stepped onto: with the recipe that frame is rendered with
+/// (`activation_recipe`) at the fit view's size (`last_preview_dim`), into
+/// the reusable bases (`preview_base` finds it by the decode, recipe and
+/// size). That frame then only renders on the GPU instead of also building
+/// its base (downscale, lateral CA, warp: 25-60 ms on an M5 Pro, up to
+/// 150 ms while the next photograph decodes beside it). Built by the same
+/// function from the same decode and recipe, so frames are what they were:
+/// measured in two 80-step culling runs, every reused base was
+/// byte-identical to one built fresh when the frame asked for it (156/156,
+/// 17 of them of photographs with saved edits incl. rotation; notes:
+/// benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md). Only where the
+/// fit view's base is built reduced (no full-resolution retouching or lens
+/// blur); none before the first frame.
+pub(crate) fn prepare_base_ahead(state: &AppState, source: &str, full: &Arc<DynamicImage>) {
+    let preview_dim = state.last_preview_dim.load(Ordering::Relaxed);
+    if preview_dim == 0 {
+        return;
+    }
+    // Profiling builds forcing the full-resolution path for paired runs
+    // (`generate_shared_transformed_preview`) get no reduced base ahead.
+    #[cfg(feature = "performance-profiling")]
+    if std::env::var_os("RAWTONIC_FULL_RES_PREVIEW").is_some() {
+        return;
+    }
+    let (source_path, sidecar_path) = parse_virtual_path(source);
+    let recipe = activation_recipe(None, &source_path, &sidecar_path);
+    let (full_width, full_height) = full.dimensions();
+    let Some(scale) = reduced_preview_scale(full_width, full_height, &recipe, preview_dim) else {
+        return;
+    };
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("preview_base_ahead");
+    match reduced_preview_base(
+        full,
+        1.0,
+        full_width,
+        full_height,
+        &recipe,
+        true,
+        preview_dim,
+        scale,
+    ) {
+        Ok(base) => state
+            .reusable_previews
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                full,
+                preview_cache::preparation_key(&recipe),
+                preview_dim,
+                base,
+            ),
+        Err(e) => log::warn!("Preview base ahead for {source}: {e}"),
     }
 }
 
@@ -1174,8 +1233,8 @@ pub async fn sample_curve_input(
 }
 
 /// Levels' histogram (Capture One shows the tool's input): counts per 8-bit
-/// display level of red, green and blue (every second pixel, as the main
-/// histogram samples; the panel smooths them as the main one) of the shown
+/// display level of red, green and blue (every pixel, as the main histogram
+/// counts; the panel smooths them as the main one) of the shown
 /// preview base rendered up to Levels (the curves' probe,
 /// `point_curve::curve_input_probe`, without the levels, stopped where
 /// Levels act: `LEVELS_INPUT_PROBE`), the display values Levels receive. `adjustments` is the
@@ -1219,23 +1278,18 @@ fn levels_input_probe(adjustments: &serde_json::Value) -> serde_json::Value {
     recipe
 }
 
-/// Per-channel counts of 8-bit levels, every second pixel (as
-/// `calculate_histogram_from_image` samples).
+/// Per-channel counts of 8-bit levels over every pixel (as the main
+/// histogram counts them).
 fn level_counts(image: &image::DynamicImage) -> [Vec<u32>; 3] {
-    let mut counts = [vec![0u32; 256], vec![0u32; 256], vec![0u32; 256]];
-    for pixel in image
-        .to_rgba8()
-        .as_raw()
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .step_by(2)
-    {
-        for (c, count) in counts.iter_mut().enumerate() {
-            count[usize::from(pixel[c])] += 1;
-        }
-    }
-    counts
+    let counts = scopes::histogram_counts(
+        image,
+        scopes::ScopeSpace::of(rawtonic_engine::output_color_space::OutputColorSpace::Srgb),
+    );
+    [
+        counts.red.to_vec(),
+        counts.green.to_vec(),
+        counts.blue.to_vec(),
+    ]
 }
 
 /// What a probe render covers: the pixels around a point of the shown
@@ -1913,11 +1967,16 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("analytics_compute");
-        let histogram_data =
-            image_processing::calculate_histogram_from_image(&job.image, job.clipped).ok();
+        let histogram_data = scopes::calculate_histogram_from_image(
+            &job.image,
+            scopes::ScopeSpace::of(job.space),
+            job.clipped,
+        )
+        .ok();
         let waveform_data = if job.compute_waveform {
-            image_processing::calculate_waveform_from_image(
+            scopes::calculate_waveform_from_image(
                 &job.image,
+                job.space,
                 job.active_waveform_channel.as_deref(),
             )
             .ok()
@@ -1971,10 +2030,16 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let frame = crate::multi_view_prefetch::PreviewFrame::start(job.is_interactive);
             crate::proxy_worker::note_preview(job.is_interactive);
             #[cfg(feature = "performance-profiling")]
-            let (job_start_epoch, job_interactive, job_sequence) = (
+            let (job_start_epoch, job_interactive, job_sequence, job_full_source) = (
                 crate::performance::epoch_ms(),
                 job.is_interactive,
                 job.sequence,
+                // Rendered from the full decode (else a proxy or draft).
+                state
+                    .original_image
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_some(),
             );
             #[cfg(feature = "performance-profiling")]
             if let Some(delay) = crate::preview_slot::debug_render_delay() {
@@ -2000,7 +2065,8 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 serde_json::json!({
                     "stage": "preview_job", "start_epoch_ms": job_start_epoch,
                     "end_epoch_ms": crate::performance::epoch_ms(), "interactive": job_interactive,
-                    "sequence": job_sequence
+                    "sequence": job_sequence, "full_source": job_full_source,
+                    "ok": result.is_ok()
                 })
             );
             if let Err(e) = &result {
@@ -2163,6 +2229,12 @@ pub(crate) async fn activate_photo(
     }
     crate::image_loader::open_source(&state, &path);
     release_still_for(&state, &path);
+    // Its decode kept ahead: developed from it at once (not its proxy).
+    if let Some(shown) =
+        develop_kept_decode(&app_handle, &path, wanted, viewport, adjustments.clone()).await
+    {
+        return Ok(shown);
+    }
     let remembered = state
         .proxy_memory
         .lock()
@@ -2210,22 +2282,7 @@ pub(crate) async fn activate_photo(
     {
         return Ok(Activation::None);
     }
-    let mut recipe = adjustments
-        .filter(|a| a.is_object())
-        .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments);
-    if recipe.is_null() {
-        recipe = serde_json::json!({});
-    }
-    let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut recipe, &source_path);
-    // Shown size: the crop, else the photograph turned by its orientation.
-    let crop: Option<image_processing::Crop> = serde_json::from_value(recipe["crop"].clone()).ok();
-    let steps = recipe["orientationSteps"].as_u64().unwrap_or(0);
-    let (shown_w, shown_h) = match crop {
-        Some(c) if c.width > 0.0 && c.height > 0.0 => (c.width as f32, c.height as f32),
-        _ if steps % 2 == 1 => (proxy.full_height as f32, proxy.full_width as f32),
-        _ => (proxy.full_width as f32, proxy.full_height as f32),
-    };
-    let rect = gpu_processing::fit_placement(viewport, shown_w, shown_h);
+    let recipe = activation_recipe(adjustments, &source_path, &sidecar_path);
     // The preview job renders the proxy, not the previous photograph's decode.
     {
         let mut original = state
@@ -2236,7 +2293,69 @@ pub(crate) async fn activate_photo(
             *original = None;
         }
     }
+    let full_size = (proxy.full_width, proxy.full_height);
     *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(proxy);
+    submit_activation_frame(&state, recipe, full_size, viewport);
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({ "stage": "activate_photo", "received_epoch_ms": received,
+            "queued_epoch_ms": crate::performance::epoch_ms() })
+    );
+    Ok(Activation::Developed)
+}
+
+/// The recipe a step renders the photograph's first frame with natively:
+/// `adjustments` (the webview's, when it has them), else its sidecar's, with
+/// the lens data a never-edited RAW starts with (as its export). A new
+/// recipe also gets the luminance noise reduction the editor gives new
+/// edits (`LUMA_NOISE_VERSION`, src/utils/adjustments.ts), so the frame is
+/// the one the editor's own request renders next, not one that changes
+/// when it arrives: the render defaults of new recipes
+/// (`image_processing::apply_render_default`) leave it at version 1, and on
+/// 9 of 13 never-edited card RAWs that rendered other pixels (notes:
+/// benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md).
+fn activation_recipe(
+    adjustments: Option<serde_json::Value>,
+    source_path: &std::path::Path,
+    sidecar_path: &std::path::Path,
+) -> serde_json::Value {
+    let mut recipe = adjustments
+        .filter(|a| a.is_object())
+        .unwrap_or_else(|| crate::exif_processing::load_sidecar(sidecar_path).adjustments);
+    if recipe.is_null() {
+        recipe = serde_json::json!({});
+    }
+    let new = rawtonic_engine::image_processing::is_new_recipe(&recipe);
+    let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut recipe, source_path);
+    if new && let Some(map) = recipe.as_object_mut() {
+        map.entry(rawtonic_engine::image_processing::LUMA_NOISE_VERSION_KEY)
+            .or_insert(serde_json::json!(
+                rawtonic_engine::image_processing::LUMA_NOISE_VERSION
+            ));
+    }
+    recipe
+}
+
+/// Renders the first frame of the photograph just asked for from the
+/// source `preview_source` gives (its kept decode or its preview proxy, of
+/// full size `full_size`) with `recipe`, presented natively in the fit
+/// placement of `viewport`.
+fn submit_activation_frame(
+    state: &AppState,
+    recipe: serde_json::Value,
+    (full_width, full_height): (u32, u32),
+    viewport: [f32; 4],
+) {
+    // Shown size: the crop, else the photograph turned by its orientation.
+    let crop: Option<image_processing::Crop> = serde_json::from_value(recipe["crop"].clone()).ok();
+    let steps = recipe["orientationSteps"].as_u64().unwrap_or(0);
+    let (shown_w, shown_h) = match crop {
+        Some(c) if c.width > 0.0 && c.height > 0.0 => (c.width as f32, c.height as f32),
+        _ if steps % 2 == 1 => (full_height as f32, full_width as f32),
+        _ => (full_width as f32, full_height as f32),
+    };
+    let rect = gpu_processing::fit_placement(viewport, shown_w, shown_h);
     if let Some(context) = state
         .gpu_context
         .lock()
@@ -2259,33 +2378,136 @@ pub(crate) async fn activate_photo(
         dim => Some(dim),
     };
     let (tx, rx) = tokio::sync::oneshot::channel();
-    {
-        state.preview_jobs.submit(PreviewJob {
-            generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
-            sequence: None,
-            adjustments: recipe,
-            is_interactive: false,
-            target_resolution: preview_dim,
-            roi: None,
-            request_analytics: false,
-            compute_waveform: false,
-            active_waveform_channel: None,
-            mask_overlay: None,
-            crop_edit: false,
-            responder: tx,
-        });
-    }
-    #[cfg(feature = "performance-profiling")]
-    log::info!(
-        "[PERF] {}",
-        serde_json::json!({ "stage": "activate_photo", "received_epoch_ms": received,
-            "queued_epoch_ms": crate::performance::epoch_ms() })
-    );
+    state.preview_jobs.submit(PreviewJob {
+        generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
+        sequence: None,
+        adjustments: recipe,
+        is_interactive: false,
+        target_resolution: preview_dim,
+        roi: None,
+        request_analytics: false,
+        compute_waveform: false,
+        active_waveform_channel: None,
+        mask_overlay: None,
+        crop_edit: false,
+        responder: tx,
+    });
     // The job presents natively; its answer only matters for errors.
     tokio::spawn(async move {
         let _ = rx.await;
     });
-    Ok(Activation::Developed)
+}
+
+/// Stepping onto a photograph whose decode the step prefetch keeps ahead
+/// (`proxy_worker::kept_decode`): its camera JPEG at once when one was
+/// prepared for it (a never-edited RAW), then its developed frame rendered
+/// here from the decode, in the same placement, instead of after the
+/// webview's load round trip and never a stored preview first (which the
+/// decode's frame would replace a moment later). The still is the first
+/// pixels; the developed frame replaces it. None when no decode is kept for
+/// it or its recipe asks for AI Denoise (the kept decode has none).
+async fn develop_kept_decode(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    variant: crate::image_loader::DecodeVariant,
+    viewport: [f32; 4],
+    adjustments: Option<serde_json::Value>,
+) -> Option<Activation> {
+    let state = app_handle.state::<AppState>();
+    let (source_path, sidecar_path) = parse_virtual_path(path);
+    let source = source_path.to_string_lossy().to_string();
+    let saved = adjustments
+        .clone()
+        .filter(|a| a.is_object())
+        .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments);
+    if rawtonic_engine::image_loader::ai_denoise_amount(&saved) > 0.0 {
+        return None;
+    }
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let key = crate::image_loader::decoded_cache_key(&source, None, variant);
+    let now = crate::preview_proxy::current_key(&source_path, &settings, variant);
+    let never_edited = crate::embedded_still::never_edited(&saved);
+    let still = if crate::proxy_worker::keeps_decode_of(&key, &now) {
+        never_edited && present_kept_still(app_handle, path, viewport)
+    } else {
+        // Its decode is being finished ahead: its camera JPEG at once, then
+        // its developed frame when the decode is in (rather than a stored
+        // preview's frame first, which that would replace a moment later).
+        // An edited photograph, or one without a prepared camera JPEG,
+        // shows its stored preview meanwhile instead.
+        if !never_edited
+            || !crate::proxy_worker::decoding_ahead(&key)
+            || !present_kept_still(app_handle, path, viewport)
+        {
+            return None;
+        }
+        let waited = key.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::proxy_worker::wait_under_way(&waited, UNDER_WAY_WAIT);
+        })
+        .await;
+        if !crate::proxy_worker::keeps_decode_of(&key, &now) {
+            // Not kept for it (its load took it, or it is not in yet): the
+            // load's frame replaces the still.
+            return Some(Activation::Still);
+        }
+        true
+    };
+    let Some(opened) = crate::image_loader::open_kept_decode(&state, path, variant, &settings)
+    else {
+        // Let go meanwhile, or another photograph was asked for: its load
+        // decodes it; a still shown stays until that frame.
+        return Some(if still {
+            Activation::Still
+        } else {
+            Activation::None
+        });
+    };
+    let recipe = activation_recipe(Some(saved), &source_path, &sidecar_path);
+    submit_activation_frame(&state, recipe, opened.size(), viewport);
+    let (app, opened_path) = (app_handle.clone(), path.to_string());
+    tokio::task::spawn_blocking(move || {
+        opened.remember(&app.state::<AppState>(), &opened_path);
+    });
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({ "stage": "activate_photo_decode", "still": still,
+            "queued_epoch_ms": crate::performance::epoch_ms() })
+    );
+    Some(if still {
+        Activation::Still
+    } else {
+        Activation::Developed
+    })
+}
+
+/// How long a step onto a photograph whose decode is being finished ahead
+/// waits for it, its camera JPEG on screen meanwhile (a 36-46 MP decode
+/// takes 0.26-0.5 s on an M5 Pro; one under way at the step was mostly
+/// within 0.1-0.2 s of its end at 0.6 s per photograph).
+const UNDER_WAY_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// The camera JPEG prepared for `path` at the size shown
+/// (`embedded_still::kept`), presented natively in the fit placement of
+/// `viewport`; whether it was. Never waits for a decode of it.
+fn present_kept_still(app_handle: &tauri::AppHandle, path: &str, viewport: [f32; 4]) -> bool {
+    let state = app_handle.state::<AppState>();
+    let Some(context) = state
+        .gpu_context
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    else {
+        return false;
+    };
+    let (source, _) = parse_virtual_path(path);
+    let view = (viewport[2].max(1.0) as u32, viewport[3].max(1.0) as u32);
+    crate::embedded_still::kept(&source, view, context.display_space).is_some_and(|still| {
+        present_still_of(
+            app_handle, &context, path, viewport, &still, "embedded", false,
+        )
+    })
 }
 
 /// A real image of the photograph presented natively in the fit placement
@@ -3201,6 +3423,35 @@ mod split_view_tests {
 }
 
 #[cfg(test)]
+mod activation_recipe_tests {
+    use super::activation_recipe;
+    use rawtonic_engine::image_processing::{LUMA_NOISE_VERSION, LUMA_NOISE_VERSION_KEY};
+    use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn a_never_edited_photographs_first_frame_reduces_luminance_noise_as_the_editor_does() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raw = tmp.path().join("p.NEF");
+        let sidecar = tmp.path().join("p.NEF.rrdata");
+        // No sidecar, an empty recipe, the webview's empty one: new edits.
+        for given in [None, Some(json!({})), Some(serde_json::Value::Null)] {
+            let recipe = activation_recipe(given, &raw, &sidecar);
+            assert_eq!(recipe[LUMA_NOISE_VERSION_KEY], json!(LUMA_NOISE_VERSION));
+        }
+        // A saved recipe keeps the version it was made with (none: 1).
+        let saved = activation_recipe(Some(json!({"exposure": 0.5})), &raw, &sidecar);
+        assert!(saved.get(LUMA_NOISE_VERSION_KEY).is_none());
+        let saved = activation_recipe(
+            Some(json!({"exposure": 0.5, LUMA_NOISE_VERSION_KEY: 1})),
+            Path::new(&raw),
+            &sidecar,
+        );
+        assert_eq!(saved[LUMA_NOISE_VERSION_KEY], json!(1));
+    }
+}
+
+#[cfg(test)]
 mod fringe_draft_tests {
     use super::patched_warped_key;
     use serde_json::json;
@@ -3982,7 +4233,7 @@ mod levels_input_tests {
     }
 
     #[test]
-    fn counts_every_second_pixel_per_channel() {
+    fn counts_every_pixel_per_channel() {
         let mut image = image::RgbaImage::new(4, 1);
         for (x, value) in [10u8, 20, 30, 40].into_iter().enumerate() {
             image.put_pixel(x as u32, 0, image::Rgba([value, 255 - value, 7, 255]));
@@ -3990,15 +4241,15 @@ mod levels_input_tests {
         let counts = level_counts(&image::DynamicImage::ImageRgba8(image));
         assert_eq!(counts[0][10], 1);
         assert_eq!(counts[0][30], 1);
-        assert_eq!(counts[0][20], 0);
+        assert_eq!(counts[0][20], 1);
         assert_eq!(counts[1][245], 1);
-        assert_eq!(counts[2][7], 2);
+        assert_eq!(counts[2][7], 4);
         assert_eq!(
             counts
                 .iter()
                 .map(|c| c.iter().sum::<u32>())
                 .collect::<Vec<_>>(),
-            [2, 2, 2]
+            [4, 4, 4]
         );
     }
 }

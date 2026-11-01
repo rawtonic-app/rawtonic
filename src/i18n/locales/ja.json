@@ -1447,7 +1447,8 @@
         "edit": "編集",
         "eyes": "目のチェック",
         "metadata": "メタデータ",
-        "snapshots": "スナップショット"
+        "snapshots": "スナップショット",
+        "stacks": "スタック"
       },
       "changedPhotos_other": "変更された写真（{{count}}）",
       "choice": {
@@ -1480,6 +1481,7 @@
         "there": "もう一方のカタログで変更"
       },
       "source": "読み込むカタログ",
+      "stacks_other": "スタック {{count}} 件を読み込みました",
       "summary": "「{{name}}」: 新規 {{new}}、変更 {{changed}}、変更なし {{unchanged}}（スキップ）",
       "title": "カタログから読み込み",
       "unchangedSkipped_other": "変更のない写真 {{count}} 枚をスキップ",
@@ -1858,6 +1860,7 @@
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
       "importNotFound_other": "{{count}} 枚が見つかりません",
+      "importStacks_other": "スタック {{count}} 件を読み込みました",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
       "ingestCancelled": "取り込みをキャンセルしました",
       "ingested_other": "{{count}} 枚の写真をコピーして検証しました",
@@ -2447,6 +2450,8 @@
     "visualize": "スポットを視覚化"
   },
   "stacks": {
+    "albumNote_one": "{{count}} 枚の写真をスタックしました。スタックはフォルダー表示に表示されます。アルバムでは写真が 1 枚ずつ表示されます。",
+    "albumNote_other": "{{count}} 枚の写真をスタックしました。スタックはフォルダー表示に表示されます。アルバムでは写真が 1 枚ずつ表示されます。",
     "auto": {
       "apply_one": "{{count}} 個のスタックを作成",
       "apply_other": "{{count}} 個のスタックを作成",
@@ -3705,7 +3710,19 @@
         },
         "noMatch": "「{{filter}}」を含むフォルダ名はありません。",
         "reading": "フォルダを読み込み中…",
+        "roleRefused": {
+          "catalog": "カタログは写真をその場所に保ちます。ロールフォルダーはセッションのものです。",
+          "sessionRoot": "これはセッション本体です。"
+        },
+        "roleSet": "{{name}} フォルダーを {{folder}} に設定しました",
+        "roleSetFailed": "{{name}} フォルダーに設定できませんでした: {{error}}",
+        "roleSetMissing": "{{name}} フォルダーを {{folder}} に設定しました — 現在見つかりません（ディスクは接続されていますか？）",
         "session": "プロジェクト",
+        "setRole": {
+          "capture": "Capture フォルダーに設定",
+          "output": "Output フォルダーに設定",
+          "selects": "Selects フォルダーに設定"
+        },
         "sort": {
           "ascending": "昇順",
           "created": "作成日",
@@ -4486,6 +4503,20 @@
       "wholePhoto": "写真全体",
       "x": "X位置",
       "y": "Y位置"
+    },
+    "scopes": {
+      "aria": "写真のスコープ",
+      "empty": "写真を開くとスコープを表示できます",
+      "luma": "輝度",
+      "lumaAria": "表示中の写真の輝度波形",
+      "mode": "表示",
+      "parade": "パレード",
+      "paradeAria": "表示中の写真のRGBパレード",
+      "rgb": "RGB",
+      "rgbAria": "表示中の写真のRGB波形",
+      "title": "スコープ",
+      "vectorscope": "ベクトル",
+      "vectorscopeAria": "表示中の写真のベクトルスコープ"
     },
     "seriesMatch": {
       "after": "調整後",

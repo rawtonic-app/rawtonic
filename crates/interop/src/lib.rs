@@ -107,6 +107,19 @@ pub enum SmartValue {
     Text(String),
 }
 
+/// A stack of the other library (Lightroom's folder stacks).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stack {
+    /// The editor's global id for the stack (Lightroom's `id_global`, which
+    /// a copied catalog keeps), else its id within the source.
+    pub key: String,
+    pub collapsed: bool,
+    /// Its photographs and virtual copies (keys of `Library::photos`), the
+    /// top first.
+    pub photos: Vec<String>,
+}
+
 /// What a reader found but does not bring over.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,6 +136,8 @@ pub struct Library {
     pub name: String,
     pub photos: Vec<Photo>,
     pub albums: Vec<Album>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stacks: Vec<Stack>,
     pub not_read: NotRead,
 }
 

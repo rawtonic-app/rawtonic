@@ -924,7 +924,15 @@ export interface AdjustmentLayout {
   toolOrder?: Record<string, string[]>;
 }
 
-/** Scope images from `analytics-update` (`WaveformData` in image_processing.rs). */
+/** A vectorscope target: a primary or secondary at `percent` of full signal (`VectorscopeTarget` in scopes.rs). */
+export interface VectorscopeTarget {
+  name: string;
+  percent: number;
+  x: number;
+  y: number;
+}
+
+/** Scope images (RGBA, base64; empty when not computed) from `analytics-update` (`WaveformData` in scopes.rs). */
 export interface WaveformData {
   height: number;
   luma: string;
@@ -932,14 +940,21 @@ export interface WaveformData {
   parade: string;
   vectorscope: string;
   width: number;
+  vectorscopeTargets?: Array<VectorscopeTarget>;
+  skinLineDegrees?: number;
 }
 
-/** Per-channel 256-bin histogram of the rendered preview (`HistogramData` in image_processing.rs). */
+/** Per-channel 256-bin histogram of the rendered preview (`HistogramData` in scopes.rs). */
 export interface HistogramData {
   blue: Array<number>;
   green: Array<number>;
   luma: Array<number>;
   red: Array<number>;
+  clippedShadows?: boolean;
+  clippedHighlights?: boolean;
+  /** Which of red, green, blue reach code 0 / code 255. */
+  shadowChannels?: [boolean, boolean, boolean];
+  highlightChannels?: [boolean, boolean, boolean];
 }
 
 export interface CullingSettings {

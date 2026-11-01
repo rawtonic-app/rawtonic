@@ -3,7 +3,10 @@
 //! - temporary files of sidecar writes, exports into Output, ingest copies
 //!   and cached previews: only files with Rawtonic's temporary-file prefix
 //!   older than `rawtonic_metadata::temp::STALE_AGE`;
-//!   (also directly in the backup folders of unfinished ingest jobs);
+//! - those too directly in the backup folders of unfinished ingest jobs,
+//!   wherever they are: a backup copy is named after the photograph being
+//!   imported (`DSC_0001.ARW`, though the library's copy is `DSC_0001_1.ARW`),
+//!   so a resumed job never recognises the stale leaves of a backup it kept;
 //! - abandoned staging folders of Import from Catalog (its copied originals
 //!   and its snapshot of the other catalog): only marked ones no job holds
 //!   (`rawtonic_metadata::staging`).
@@ -31,8 +34,8 @@ pub struct Swept {
 
 impl Library {
     /// Sweeps the library folder (its caches too, not libraries nested
-    /// inside it) and the external folders it links. Symlinked folders are
-    /// not followed.
+    /// inside it), the external folders it links, and the backup folders of
+    /// its unfinished ingest jobs. Symlinked folders are not followed.
     pub fn sweep_leftovers(&self, now: SystemTime, cancel: &AtomicBool) -> Result<Swept> {
         let mut folders = vec![self.directory.clone()];
         let mut roots = self
@@ -50,31 +53,39 @@ impl Library {
             &self.directory.join(".cache"),
             staging::CATALOG_SNAPSHOT,
         ));
+        // The backup folders of unfinished ingest jobs, wherever they are
+        // (one may be on another drive): only our stale temporary files go,
+        // never what else they hold, and nothing in them is looked into. One
+        // inside the library's tree may also be reached by the tree sweep
+        // (not inside a nested library, which it skips); a file removed there
+        // is gone here, so nothing is counted twice.
+        let mut backups = Vec::new();
+        for job in self.unfinished_ingest_jobs()? {
+            let Some(backup) = job
+                .options
+                .get("backup")
+                .and_then(|b| b.as_str())
+                .map(PathBuf::from)
+                .filter(|folder| folder.is_absolute())
+            else {
+                continue;
+            };
+            if let Ok(backup) = backup.canonicalize()
+                && !backups.contains(&backup)
+            {
+                backups.push(backup);
+            }
+        }
         for folder in folders.iter().filter(|f| f.is_dir()) {
             sweep_tree(folder, &self.directory, now, cancel, &mut swept);
         }
-        // An interrupted ingest copies into its backup folder too: that
-        // folder only (it may hold anything; only our temporary files go).
-        for backup in self.ingest_backup_folders()? {
+        for backup in backups {
             if cancel.load(Ordering::Acquire) {
                 break;
             }
             swept.add_temp(temp::sweep_folder(&backup, now));
         }
         Ok(swept)
-    }
-
-    /// The backup folders of the ingest jobs not finished yet.
-    fn ingest_backup_folders(&self) -> Result<Vec<PathBuf>> {
-        let mut folders: Vec<PathBuf> = self
-            .unfinished_ingest_jobs()?
-            .into_iter()
-            .filter_map(|job| job.options.get("backup")?.as_str().map(PathBuf::from))
-            .filter(|folder| folder.is_absolute())
-            .collect();
-        folders.sort();
-        folders.dedup();
-        Ok(folders)
     }
 }
 
@@ -156,7 +167,8 @@ mod tests {
         let fresh = lib.sweep_leftovers(SystemTime::now(), &never).unwrap();
         assert_eq!(fresh.temp_files, 0, "fresh: may still be written");
         let later = SystemTime::now() + temp::STALE_AGE + Duration::from_secs(1);
-        assert_eq!(lib.sweep_leftovers(later, &never).unwrap().temp_files, 3);
+        let swept = lib.sweep_leftovers(later, &never).unwrap();
+        assert_eq!(swept.temp_files, 3);
         assert!(!sidecar.exists() && !export.exists() && !preview.exists());
         assert!(foreign.exists());
     }
@@ -197,6 +209,78 @@ mod tests {
         assert_eq!((swept.temp_files, swept.temp_bytes), (1, 2048));
         assert!(!left.exists());
         assert!(user_file.exists() && not_ours_to_sweep.exists());
+    }
+
+    /// G66 item (4): the leaves of a job that could not be recognised (a
+    /// backup copy whose name got a collision suffix, the leaves of a job
+    /// that never started) go at the first open after they are stale
+    /// (`temp::STALE_AGE`) — fresh ones stay, since a write may still be
+    /// running; the backup's finished files and anyone else's stay, and the
+    /// bytes of the temporary files alone are counted.
+    #[test]
+    fn the_sweep_removes_temp_files_of_a_collision_named_backup_copy_and_counts_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::create(&dir.path().join("Job"), "Job", Mode::Session).unwrap();
+        let card = dir.path().join("card");
+        let backup = dir.path().join("Backup");
+        for folder in [&card, &backup] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        fs::write(card.join("C1.ARW"), b"raw").unwrap();
+        let item = [(
+            crate::ingest_jobs::SourceFile::read(&card.join("C1.ARW")),
+            None,
+        )];
+        lib.create_ingest_job(&serde_json::json!({ "backup": backup }), &item)
+            .unwrap();
+        let partial = |target: PathBuf, bytes: usize| {
+            let mut file = temp::file_for(&target).unwrap();
+            std::io::Write::write_all(&mut file, &vec![7; bytes]).unwrap();
+            file.keep().unwrap().1
+        };
+        // What a kill left: the backup's copy at its collision name while
+        // it was written (named after the photograph), a companion's, and
+        // the leaves of a photograph no job item has planned yet.
+        let leftovers = [
+            partial(backup.join("C1_1.ARW"), 2048),
+            partial(backup.join("C1_1.JPG"), 1024),
+            partial(backup.join("C3_1.ARW"), 4096),
+        ];
+        let finished_bytes = b"a published backup copy";
+        fs::write(backup.join("C1.ARW"), finished_bytes).unwrap();
+        let finished = backup.join("C1.ARW");
+        let foreign = backup.join(".tmpAbC123");
+        fs::write(&foreign, b"another program's").unwrap();
+        // An open before they are stale leaves them: a write may still run.
+        let fresh = lib
+            .sweep_leftovers(SystemTime::now(), &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!((fresh.temp_files, fresh.temp_bytes), (0, 0), "{fresh:?}");
+        for path in &leftovers {
+            assert!(path.exists(), "{}", path.display());
+        }
+        // The first open after they are stale removes them.
+        let later = SystemTime::now() + temp::STALE_AGE + Duration::from_secs(1);
+        let swept = lib.sweep_leftovers(later, &AtomicBool::new(false)).unwrap();
+        // What a resumed job removes (its own planned names) and the open
+        // sweep leaves be, is not counted: the leaves here are an hour old.
+        assert_eq!((swept.temp_files, swept.temp_bytes), (3, 7168), "{swept:?}");
+        assert_eq!(swept.staging, staging::Removed::default());
+        for path in &leftovers {
+            assert!(!path.exists(), "{}", path.display());
+        }
+        assert_eq!(fs::read(&finished).unwrap(), finished_bytes);
+        assert!(foreign.exists());
+        // A job's backup folder inside the library is swept with the
+        // library, once.
+        let inside = lib.directory.join("Backup");
+        fs::create_dir_all(&inside).unwrap();
+        lib.create_ingest_job(&serde_json::json!({ "backup": inside }), &item)
+            .unwrap();
+        let once = partial(inside.join("C1_1.ARW"), 10);
+        let swept = lib.sweep_leftovers(later, &AtomicBool::new(false)).unwrap();
+        assert_eq!((swept.temp_files, swept.temp_bytes), (1, 10), "{swept:?}");
+        assert!(!once.exists());
     }
 
     #[test]

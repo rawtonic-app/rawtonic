@@ -60,6 +60,12 @@ struct World {
 }
 
 fn world() -> (tempfile::TempDir, World) {
+    world_with(|_, _| {})
+}
+
+/// `world`, with `before_export` run on the main catalog (and its photo ids)
+/// just before the export.
+fn world_with(before_export: impl FnOnce(&Library, &[String])) -> (tempfile::TempDir, World) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().canonicalize().unwrap();
     let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
@@ -77,6 +83,7 @@ fn world() -> (tempfile::TempDir, World) {
     }
     let album = main.create_collection("Wedding", None).unwrap();
     main.add_to_collection(&album.id, &ids).unwrap();
+    before_export(&main, &ids);
     export_catalog(
         &main.directory,
         &ids[..2],
@@ -223,6 +230,384 @@ fn work_done_in_the_exported_catalog_comes_back() {
             .count(),
         0
     );
+}
+
+#[test]
+fn stacks_come_with_the_photographs_and_once() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    // On the laptop: two new photographs, one with a virtual copy, stacked
+    // with the copy (expanded, e on top); a (edited there) stacked under b
+    // (the same in both).
+    let card = w.root.join("Card");
+    fs::create_dir_all(&card).unwrap();
+    let new: Vec<String> = ["d.arw", "e.arw"]
+        .iter()
+        .map(|name| {
+            fs::write(card.join(name), format!("laptop {name}")).unwrap();
+            w.laptop.add_asset(&card.join(name)).unwrap().id
+        })
+        .collect();
+    w.laptop
+        .save_copy_state(&new[0], "c0ffee", &edit(0.3))
+        .unwrap();
+    let copy = Member {
+        asset_id: new[0].clone(),
+        copy: "c0ffee".into(),
+    };
+    let first = vec![
+        Member::photo(new[1].clone()),
+        Member::photo(new[0].clone()),
+        copy.clone(),
+    ];
+    w.laptop.group_stack(&first).unwrap();
+    w.laptop
+        .set_stacks_collapsed(&first[..1], Some(false))
+        .unwrap();
+    w.laptop.save_editor_state(&w.ids[0], &edit(1.5)).unwrap();
+    let second = vec![
+        Member::photo(w.ids[1].clone()),
+        Member::photo(w.ids[0].clone()),
+    ];
+    w.laptop.group_stack(&second).unwrap();
+    let theirs = w.laptop.stacks().unwrap();
+
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.added, receipt.report.replaced), (2, 1));
+    assert_eq!(receipt.report.stacks, 2);
+    // The same stacks, ids, tops, order and collapsed state.
+    assert_eq!(w.main.stacks().unwrap(), theirs);
+    assert!(!w.main.stack_of(&copy).unwrap().unwrap().collapsed);
+
+    // Imported again (a changed there once more): no second stack, and the
+    // photographer's change here (b's stack dissolved) is not undone for a
+    // photo already in another stack.
+    w.main.unstack(&second[..1]).unwrap();
+    w.main
+        .group_stack(&[
+            Member::photo(w.ids[1].clone()),
+            Member::photo(w.ids[2].clone()),
+        ])
+        .unwrap();
+    w.laptop.save_editor_state(&w.ids[0], &edit(1.7)).unwrap();
+    let again = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(again.report.replaced, 1);
+    assert_eq!(again.report.stacks, 0);
+    let here = w.main.stacks().unwrap();
+    assert_eq!(here.len(), 2);
+    assert_eq!(here[0], theirs[0]);
+    assert!(
+        w.main.stack_of(&second[1]).unwrap().is_none(),
+        "a stays single"
+    );
+    assert_eq!(
+        w.main.stack_of(&second[0]).unwrap().unwrap().members[1],
+        Member::photo(w.ids[2].clone())
+    );
+}
+
+/// What the review offers: the photographs only their stack changed.
+fn stack_only(w: &World) -> Vec<String> {
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    seen.photos
+        .iter()
+        .inspect(|p| {
+            assert_eq!(p.changes, ["stacks"], "{p:?}");
+            assert_eq!(p.side, Some(Side::There));
+        })
+        .map(|p| p.id.clone())
+        .collect()
+}
+
+#[test]
+fn a_stack_changed_alone_there_comes_back_and_one_changed_here_stays() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    // The photographs are the same in both; the stack is made on the laptop.
+    assert!(stack_only(&w).is_empty());
+    w.laptop.group_stack(&[a.clone(), b.clone()]).unwrap();
+    let mut offered = stack_only(&w);
+    offered.sort();
+    let mut both = w.ids[..2].to_vec();
+    both.sort();
+    assert_eq!(offered, both);
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.added, receipt.report.replaced), (0, 0));
+    assert_eq!(receipt.report.stacks, 1);
+    assert_eq!(w.main.stacks().unwrap(), w.laptop.stacks().unwrap());
+    assert!(stack_only(&w).is_empty(), "nothing is offered twice");
+
+    // Only the top changes there: it comes back (the same stack, a new top).
+    w.laptop.move_to_stack_top(&b).unwrap();
+    assert_eq!(stack_only(&w).len(), 2);
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    let here = w.main.stack_of(&a).unwrap().unwrap();
+    assert_eq!(here.members, [b.clone(), a.clone()]);
+    assert_eq!(w.main.stacks().unwrap(), w.laptop.stacks().unwrap());
+
+    // One choice for a whole stack: Keep current for one photograph leaves
+    // it as it is, however the other is set.
+    w.laptop.move_to_stack_top(&a).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [b.clone(), a.clone()]
+    );
+    w.laptop.move_to_stack_top(&b).unwrap();
+
+    // Keep current leaves a change there alone.
+    w.laptop.move_to_stack_top(&a).unwrap();
+    let mut keep = options(NewPhotos::Reference);
+    keep.changed = Some(Choice::Keep);
+    let receipt = import(&w.main, &w.laptop.directory, &keep, &go(), |_| {}).unwrap();
+    assert_eq!((receipt.report.stacks, receipt.report.kept), (0, 2));
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [b.clone(), a.clone()]
+    );
+
+    // The photographer changed the stack here since (expanded it): a later
+    // change there does not take it back, and nothing is offered.
+    w.main
+        .set_stacks_collapsed(std::slice::from_ref(&a), Some(false))
+        .unwrap();
+    assert!(stack_only(&w).is_empty());
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(receipt.report.stacks, 0);
+    let here = w.main.stack_of(&a).unwrap().unwrap();
+    assert_eq!(
+        (here.collapsed, here.members),
+        (false, vec![b.clone(), a.clone()])
+    );
+}
+
+#[test]
+fn stacks_of_the_export_and_a_first_keep_are_remembered() {
+    use rawtonic_catalog::stacks::Member;
+    // Stacked before the export: a change of its top there comes back.
+    let (_tmp, w) = world_with(|main, ids| {
+        main.group_stack(&[Member::photo(ids[0].clone()), Member::photo(ids[1].clone())])
+            .unwrap();
+    });
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    assert_eq!(
+        w.laptop.stacks().unwrap().len(),
+        1,
+        "the export holds the stack"
+    );
+    assert!(stack_only(&w).is_empty());
+    w.laptop.move_to_stack_top(&b).unwrap();
+    assert_eq!(stack_only(&w).len(), 2);
+    // Keep current for both: nothing changes, and the offer stays.
+    let mut keep = options(NewPhotos::Reference);
+    keep.changed = Some(Choice::Keep);
+    let receipt = import(&w.main, &w.laptop.directory, &keep, &go(), |_| {}).unwrap();
+    assert_eq!((receipt.report.stacks, receipt.report.kept), (0, 2));
+    assert_eq!(stack_only(&w).len(), 2);
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [b.clone(), a.clone()]
+    );
+
+    // Unstacked here since: a change there does not stack them again.
+    w.main.unstack(std::slice::from_ref(&a)).unwrap();
+    w.laptop.move_to_stack_top(&a).unwrap();
+    assert!(stack_only(&w).is_empty());
+    assert!(w.main.stack_of(&a).unwrap().is_none());
+}
+
+#[test]
+fn a_stack_larger_here_than_exported_keeps_its_other_members() {
+    use rawtonic_catalog::stacks::Member;
+    // Three stacked, two exported.
+    let (_tmp, w) = world_with(|main, ids| {
+        let all: Vec<Member> = ids.iter().cloned().map(Member::photo).collect();
+        main.group_stack(&all).unwrap();
+    });
+    let m = |i: usize| Member::photo(w.ids[i].clone());
+    assert_eq!(w.laptop.stack_of(&m(0)).unwrap().unwrap().members.len(), 2);
+    assert!(stack_only(&w).is_empty());
+    w.laptop.move_to_stack_top(&m(1)).unwrap();
+    assert_eq!(stack_only(&w).len(), 2);
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    // The new top, the member only here after the others.
+    assert_eq!(
+        w.main.stack_of(&m(0)).unwrap().unwrap().members,
+        [m(1), m(0), m(2)]
+    );
+}
+
+#[test]
+fn a_stack_unstacked_here_stays_so_after_other_imports_and_with_edits_on_a_member() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world_with(|main, ids| {
+        main.group_stack(&[Member::photo(ids[0].clone()), Member::photo(ids[1].clone())])
+            .unwrap();
+    });
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    let again = || {
+        import(
+            &w.main,
+            &w.laptop.directory,
+            &options(NewPhotos::Reference),
+            &go(),
+            |_| {},
+        )
+        .unwrap()
+    };
+    // Keep current for one photograph decides for the stack, also when the
+    // other one comes in with an edit.
+    w.laptop.move_to_stack_top(&b).unwrap();
+    w.laptop.save_editor_state(&w.ids[1], &edit(2.5)).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(exposure(&w.main, &w.ids[1]), json!(2.5));
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [a.clone(), b.clone()]
+    );
+
+    // Unstacked here, then another import (a new photograph): the stack is
+    // not made again when its top changes there.
+    again();
+    w.main.unstack(std::slice::from_ref(&a)).unwrap();
+    let card = w.root.join("Card");
+    fs::create_dir_all(&card).unwrap();
+    fs::write(card.join("n.arw"), "laptop n").unwrap();
+    w.laptop.add_asset(&card.join("n.arw")).unwrap();
+    assert_eq!(again().report.added, 1);
+    w.laptop.move_to_stack_top(&a).unwrap();
+    assert!(stack_only(&w).is_empty());
+    assert!(w.main.stack_of(&a).unwrap().is_none());
+}
+
+#[test]
+fn keep_current_keeps_the_stack_of_a_photograph_changed_in_other_ways_too() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world_with(|main, ids| {
+        main.group_stack(&[Member::photo(ids[0].clone()), Member::photo(ids[1].clone())])
+            .unwrap();
+    });
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    // There: the top changed and both photographs were edited.
+    w.laptop.move_to_stack_top(&b).unwrap();
+    w.laptop.save_editor_state(&w.ids[0], &edit(1.5)).unwrap();
+    w.laptop.save_editor_state(&w.ids[1], &edit(2.5)).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    mixed.overrides.insert(w.ids[1].clone(), Choice::Replace);
+    import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(exposure(&w.main, &w.ids[1]), json!(2.5));
+    assert_ne!(exposure(&w.main, &w.ids[0]), json!(1.5));
+    assert_eq!(w.main.stack_of(&a).unwrap().unwrap().members, [a, b]);
+}
+
+#[test]
+fn a_new_stack_there_is_not_made_when_one_of_its_photographs_is_kept() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    w.laptop.group_stack(&[a.clone(), b.clone()]).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    let receipt = import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(receipt.report.stacks, 0);
+    assert!(w.main.stacks().unwrap().is_empty());
+    assert_eq!(stack_only(&w).len(), 2, "still offered");
+}
+
+#[test]
+fn a_stack_there_does_not_replace_one_the_photographer_made_here() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    let m = |i: usize| Member::photo(w.ids[i].clone());
+    // Here a, b and c are stacked (c is not on the laptop); there a and b,
+    // the other way round. Nothing was imported before: the stack here is
+    // the photographer's and stays.
+    w.main.group_stack(&[m(0), m(1), m(2)]).unwrap();
+    w.laptop.group_stack(&[m(1), m(0)]).unwrap();
+    let before = w.main.stacks().unwrap();
+    assert!(stack_only(&w).is_empty());
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(receipt.report.stacks, 0);
+    assert_eq!(w.main.stacks().unwrap(), before);
 }
 
 #[test]

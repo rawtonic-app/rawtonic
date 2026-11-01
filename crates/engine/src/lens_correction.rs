@@ -183,6 +183,15 @@ pub struct LensDistortionParams {
     /// Model 3 (`knot_table`): the radii of `table`'s knots.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     table_radii: Vec<f64>,
+    /// The distortion's centre, offset from the frame's centre (x right, y
+    /// down in the developed frame, relative to its half diagonal): the
+    /// distortion and the framing zoom run about it (Nikon Z's per-shot
+    /// optical centre, `cameraGeometryVersion` 8; notes: parity-gaps/G71).
+    /// Applied only with `exact_zoom`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    centre_x: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    centre_y: f64,
 }
 
 /// The warp's tabulated radial distortion (lens model 2): an output radius
@@ -418,6 +427,8 @@ impl LensDistortionParams {
             table: Vec::new(),
             table_end: 0.0,
             table_radii: Vec::new(),
+            centre_x: 0.0,
+            centre_y: 0.0,
         }
     }
 
@@ -509,6 +520,15 @@ impl LensDistortionParams {
     /// (`exact`) or as its minimum.
     pub fn with_exact_zoom(mut self, exact: bool) -> Self {
         self.exact_zoom = exact;
+        self
+    }
+
+    /// The same parameters with the distortion's centre at (`x`, `y`) from
+    /// the frame's centre, relative to its half diagonal (`centre_x`).
+    pub fn with_centre(mut self, [x, y]: [f64; 2]) -> Self {
+        let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
+        self.centre_x = finite(x);
+        self.centre_y = finite(y);
         self
     }
 }
@@ -897,6 +917,8 @@ impl Lens {
             table: Vec::new(),
             table_end: 0.0,
             table_radii: Vec::new(),
+            centre_x: 0.0,
+            centre_y: 0.0,
         })
     }
 }

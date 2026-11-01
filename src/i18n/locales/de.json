@@ -1487,7 +1487,8 @@
         "edit": "Bearbeitung",
         "eyes": "Augenprüfungen",
         "metadata": "Metadaten",
-        "snapshots": "Schnappschüsse"
+        "snapshots": "Schnappschüsse",
+        "stacks": "Stapel"
       },
       "changedPhotos_one": "Geändertes Foto ({{count}})",
       "changedPhotos_other": "Geänderte Fotos ({{count}})",
@@ -1524,6 +1525,8 @@
         "there": "im anderen Katalog geändert"
       },
       "source": "Katalog, aus dem importiert wird",
+      "stacks_one": "{{count}} Stapel importiert",
+      "stacks_other": "{{count}} Stapel importiert",
       "summary": "„{{name}}“: {{new}} neu, {{changed}} geändert, {{unchanged}} unverändert (übersprungen)",
       "title": "Aus Katalog importieren",
       "unchangedSkipped_one": "{{count}} unverändertes Foto übersprungen",
@@ -1925,6 +1928,8 @@
       "imported_other": "{{count}} Fotos importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "importNotFound_one": "{{count}} nicht gefunden",
       "importNotFound_other": "{{count}} nicht gefunden",
+      "importStacks_one": "{{count}} Stapel importiert",
+      "importStacks_other": "{{count}} Stapel importiert",
       "importWarnings_one": "{{count}} Foto wurde mit einer Warnung importiert. {{error}}",
       "importWarnings_other": "{{count}} Fotos wurden mit Warnungen importiert. {{error}}",
       "ingestCancelled": "Import abgebrochen",
@@ -2532,6 +2537,8 @@
     "visualize": "Bereiche visualisieren"
   },
   "stacks": {
+    "albumNote_one": "{{count}} Foto gestapelt. Stapel erscheinen in Ordneransichten; ein Album listet seine Fotos einzeln.",
+    "albumNote_other": "{{count}} Fotos gestapelt. Stapel erscheinen in Ordneransichten; ein Album listet seine Fotos einzeln.",
     "auto": {
       "apply_one": "{{count}} Stapel bilden",
       "apply_other": "{{count}} Stapel bilden",
@@ -3817,7 +3824,19 @@
         },
         "noMatch": "Kein Ordnername enthält „{{filter}}“.",
         "reading": "Ordner werden gelesen…",
+        "roleRefused": {
+          "catalog": "Ein Katalog behält seine Fotos, wo sie sind; Rollenordner gehören zu einer Session.",
+          "sessionRoot": "Das ist die Session selbst."
+        },
+        "roleSet": "{{name}}-Ordner ist jetzt {{folder}}",
+        "roleSetFailed": "Konnte nicht als {{name}}-Ordner festgelegt werden: {{error}}",
+        "roleSetMissing": "{{name}}-Ordner ist jetzt {{folder}} — gerade nicht da (ist das Laufwerk verbunden?)",
         "session": "Projekt",
+        "setRole": {
+          "capture": "Als Capture-Ordner festlegen",
+          "output": "Als Output-Ordner festlegen",
+          "selects": "Als Selects-Ordner festlegen"
+        },
         "sort": {
           "ascending": "Aufsteigend",
           "created": "Erstellungsdatum",
@@ -4613,6 +4632,20 @@
       "wholePhoto": "Ganzes Foto",
       "x": "Position X",
       "y": "Position Y"
+    },
+    "scopes": {
+      "aria": "Messinstrumente des Fotos",
+      "empty": "Messinstrumente nach dem Öffnen eines Fotos verfügbar",
+      "luma": "Luma",
+      "lumaAria": "Luma-Wellenform des angezeigten Fotos",
+      "mode": "Anzeige",
+      "parade": "Parade",
+      "paradeAria": "RGB-Parade des angezeigten Fotos",
+      "rgb": "RGB",
+      "rgbAria": "RGB-Wellenform des angezeigten Fotos",
+      "title": "Messinstrumente",
+      "vectorscope": "Vektor",
+      "vectorscopeAria": "Vektorskop des angezeigten Fotos"
     },
     "seriesMatch": {
       "after": "Angeglichen",

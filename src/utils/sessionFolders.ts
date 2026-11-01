@@ -104,12 +104,12 @@ export function usableSessionFolder(directory: string, role: FolderRole): Promis
   return invoke<string>(Invokes.SessionUsableFolder, { directory, role });
 }
 
-/** A refusal of a folder setting the backend words for the user
- * (`FolderRefusal` in `crates/catalog/src/session_folders.rs`): the folder,
- * and where an Output folder took it. */
 /** See `FOLDER_REFUSAL_MARKER` in `crates/catalog/src/session_folders.rs`. */
 const FOLDER_REFUSAL_MARKER = "rawtonic-refusal:";
 
+/** A refusal of a folder setting the backend words for the user
+ * (`FolderRefusal` in `crates/catalog/src/session_folders.rs`): the folder,
+ * and where an Output folder took it. */
 export interface RefusedFolder {
   code: "inOutputFolder";
   role: FolderRole;
@@ -166,6 +166,15 @@ export function folderRefusalMessage(
     output: refusal.output,
     role: t(`session.folders.role.${refusal.role}` as never),
   });
+}
+
+/** Window event that makes a folder of the folder tree the session's
+ * Capture, Selects or Output folder (the folder tree's menu, G38): the
+ * session workspace runs it, as it owns the session and its summary. */
+export const SET_ROLE_FOLDER_EVENT = "rawtonic-set-role-folder";
+export type SetRoleFolderDetail = { role: FolderRole; folder: string };
+export function requestSetRoleFolder(detail: SetRoleFolderDetail) {
+  window.dispatchEvent(new CustomEvent<SetRoleFolderDetail>(SET_ROLE_FOLDER_EVENT, { detail }));
 }
 
 /** What "Move contents" did: items moved (in one or more undoable

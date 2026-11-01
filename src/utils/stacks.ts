@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
+import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 import { keepSelectionShown, refreshStacks, stackKey, useStackStore, type StackChange } from '../store/useStackStore';
@@ -27,12 +28,17 @@ export const useAutoStackDialog = create<{
   close: () => set({ paths: null }),
 }));
 
-/** The selected photos, the active one first (Group into Stack makes it the top). */
+/** The selected photos, the active one first (Group into Stack makes it the
+ * top). The active photo is the one the Navigator and the outline show: the
+ * photo of the last plain click, which ⌘-click and ⇧-click leave in place (as
+ * in Lightroom: click the best frame first, then add the rest). The photo the
+ * last modifier click landed on (`libraryActivePath`) is the fallback. */
 function selection(): string[] {
   const { multiSelectedPaths, libraryActivePath } = useLibraryStore.getState();
+  const shown = useEditorStore.getState().selectedImage?.path;
   const paths = [...multiSelectedPaths];
-  if (libraryActivePath && paths.includes(libraryActivePath))
-    return [libraryActivePath, ...paths.filter((p) => p !== libraryActivePath)];
+  const active = [shown, libraryActivePath].find((path) => path && paths.includes(path));
+  if (active) return [active, ...paths.filter((p) => p !== active)];
   return paths;
 }
 
@@ -52,7 +58,12 @@ async function run(command: Invokes, args: Record<string, unknown>, paths: strin
   }
 }
 
-export const groupIntoStack = (paths = selection()) => run(Invokes.StacksGroup, { paths }, paths);
+export async function groupIntoStack(paths = selection()) {
+  await run(Invokes.StacksGroup, { paths }, paths);
+  // Albums list members singly, so nothing changes on screen there: say so.
+  if (paths.length > 1 && useLibraryStore.getState().activeAlbumId !== null)
+    notify.info(i18n.t('stacks.albumNote', { count: paths.length }), { autoClose: 5000 });
+}
 export const unstack = (paths = selection()) => run(Invokes.StacksUnstack, { paths }, paths);
 export const removeFromStack = (paths = selection()) => run(Invokes.StacksRemove, { paths }, paths);
 export const moveToTopOfStack = (path = selection()[0]) =>

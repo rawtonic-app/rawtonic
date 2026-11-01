@@ -1567,7 +1567,8 @@
         "edit": "modifica",
         "eyes": "controlli degli occhi",
         "metadata": "metadati",
-        "snapshots": "istantanee"
+        "snapshots": "istantanee",
+        "stacks": "pile"
       },
       "changedPhotos_one": "Foto modificata ({{count}})",
       "changedPhotos_many": "Foto modificate ({{count}})",
@@ -1608,6 +1609,9 @@
         "there": "modificata nell’altro catalogo"
       },
       "source": "Catalogo da cui importare",
+      "stacks_one": "{{count}} pila importata",
+      "stacks_many": "{{count}} pile importate",
+      "stacks_other": "{{count}} pile importate",
       "summary": "«{{name}}»: {{new}} nuove, {{changed}} modificate, {{unchanged}} invariate (saltate)",
       "title": "Importa da catalogo",
       "unchangedSkipped_one": "{{count}} foto invariata saltata",
@@ -2034,6 +2038,9 @@
       "importNotFound_one": "{{count}} non trovata",
       "importNotFound_many": "{{count}} non trovate",
       "importNotFound_other": "{{count}} non trovate",
+      "importStacks_one": "{{count}} pila importata",
+      "importStacks_many": "{{count}} pile importate",
+      "importStacks_other": "{{count}} pile importate",
       "importWarnings_one": "{{count}} foto è stata importata con un avviso. {{error}}",
       "importWarnings_many": "{{count}} foto sono state importate con avvisi. {{error}}",
       "importWarnings_other": "{{count}} foto sono state importate con avvisi. {{error}}",
@@ -2662,6 +2669,9 @@
     "visualize": "Visualizza macchie"
   },
   "stacks": {
+    "albumNote_one": "{{count}} foto impilata. Le pile compaiono nelle viste delle cartelle; un album elenca le foto singolarmente.",
+    "albumNote_many": "{{count}} foto impilate. Le pile compaiono nelle viste delle cartelle; un album elenca le foto singolarmente.",
+    "albumNote_other": "{{count}} foto impilate. Le pile compaiono nelle viste delle cartelle; un album elenca le foto singolarmente.",
     "auto": {
       "apply_one": "Crea {{count}} pila",
       "apply_many": "Crea {{count}} pile",
@@ -3987,7 +3997,19 @@
         },
         "noMatch": "Nessun nome di cartella contiene «{{filter}}».",
         "reading": "Lettura delle cartelle…",
+        "roleRefused": {
+          "catalog": "Un catalogo tiene le foto dove sono; le cartelle di ruolo sono di una sessione.",
+          "sessionRoot": "Questa è la sessione stessa."
+        },
+        "roleSet": "Cartella {{name}} impostata su {{folder}}",
+        "roleSetFailed": "Impossibile impostarla come cartella {{name}}: {{error}}",
+        "roleSetMissing": "Cartella {{name}} impostata su {{folder}} — al momento non c’è (il disco è collegato?)",
         "session": "Progetto",
+        "setRole": {
+          "capture": "Imposta come cartella Capture",
+          "output": "Imposta come cartella Output",
+          "selects": "Imposta come cartella Selects"
+        },
         "sort": {
           "ascending": "Crescente",
           "created": "Data di creazione",
@@ -4799,6 +4821,20 @@
       "wholePhoto": "Intera foto",
       "x": "Posizione X",
       "y": "Posizione Y"
+    },
+    "scopes": {
+      "aria": "Scope della foto",
+      "empty": "Scope disponibili dopo l'apertura di una foto",
+      "luma": "Luma",
+      "lumaAria": "Forma d'onda luma della foto mostrata",
+      "mode": "Vista",
+      "parade": "Parade",
+      "paradeAria": "Parade RGB della foto mostrata",
+      "rgb": "RGB",
+      "rgbAria": "Forma d'onda RGB della foto mostrata",
+      "title": "Scope",
+      "vectorscope": "Vettore",
+      "vectorscopeAria": "Vettorscopio della foto mostrata"
     },
     "seriesMatch": {
       "after": "Uniformata",

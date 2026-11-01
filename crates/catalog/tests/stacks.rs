@@ -348,6 +348,37 @@ fn a_library_of_schema_21_takes_stacks_and_reads_facts_again() {
     assert_eq!(left, 0);
 }
 
+#[test]
+fn a_library_of_schema_23_reads_sony_burst_numbers_again() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.RAF", "C.ARW"]);
+    let sony = CaptureFacts {
+        make: Some("SONY".into()),
+        ..facts("2026-10-30 10:00:00", None, None, None)
+    };
+    let fuji = CaptureFacts {
+        make: Some("FUJIFILM".into()),
+        ..facts("2026-10-30 10:00:00", None, None, Some(2))
+    };
+    let undated = CaptureFacts {
+        captured: None,
+        ..sony.clone()
+    };
+    lib.record_facts(&ids[0], &sony).unwrap();
+    lib.record_facts(&ids[1], &fuji).unwrap();
+    lib.record_facts(&ids[2], &undated).unwrap();
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0024.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    let read = |i: usize| lib.facts(&ids[i]).unwrap().unwrap().1;
+    // Dated Sony photographs are read again; others keep what was read.
+    assert!(!read(0));
+    assert!(read(1));
+    assert!(read(2));
+}
+
 /// Auto-Stack on 10,000 catalog rows: bursts of 5 frames 0–1 s apart every
 /// 30 s, every tenth burst a bracket. Prints plan and apply times
 /// (`cargo test -p rawtonic-catalog --release --test stacks -- --ignored
@@ -419,4 +450,47 @@ fn auto_stack_on_ten_thousand_rows() {
         "auto-stack 10000 rows: plan median {:.1} ms (min {:.1}, max {:.1}); apply 2000 stacks {:.1} ms; list {:.1} ms; undo {:.1} ms",
         plans[2], plans[0], plans[4], apply, list, undo
     );
+}
+
+#[test]
+fn a_stack_offered_by_another_catalog_replaces_only_untouched_ones() {
+    use rawtonic_catalog::stacks::Stack;
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(tmp.path(), &["a.arw", "b.arw", "c.arw", "d.arw"]);
+    let theirs = |which: &[usize]| Stack {
+        id: "theirs".into(),
+        collapsed: true,
+        members: photos(&ids, which),
+    };
+    lib.group_stack(&photos(&ids, &[0, 1, 2])).unwrap();
+    let here = lib
+        .stack_of(&Member::photo(ids[0].clone()))
+        .unwrap()
+        .unwrap();
+    let known: std::collections::HashSet<String> = ids.iter().cloned().collect();
+    let offered = |which: &[usize], common: &[Stack]| {
+        lib.stack_import_offered(&theirs(which), common, &known)
+            .unwrap()
+    };
+
+    // Nothing in common: what is stacked here is the photographer's.
+    assert!(!offered(&[1, 0, 2], &[]));
+    // The state both had: a change there is offered, the same state is not,
+    // and a state that was in common is not a change.
+    let common = [here.clone()];
+    assert!(offered(&[1, 0, 2], &common));
+    assert!(!offered(&[0, 1, 2], &common));
+    assert!(!offered(
+        &[0, 1, 2],
+        &[Stack {
+            members: photos(&ids, &[1, 0, 2]),
+            ..here.clone()
+        }]
+    ));
+    // One photograph here is no stack.
+    assert!(!offered(&[3], &common));
+    // Changed here since (expanded): kept.
+    lib.set_stacks_collapsed(&photos(&ids, &[0]), Some(false))
+        .unwrap();
+    assert!(!offered(&[1, 0, 2], &common));
 }

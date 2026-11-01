@@ -46,6 +46,10 @@ pub struct EmbeddedLensData {
     /// `distortion` is the warp's radial table itself, which `to_params`
     /// takes as it is (`Tabulated`).
     pub tabulated: Option<Tabulated>,
+    /// The distortion's centre, offset from the developed frame's centre
+    /// relative to its half diagonal (x right, y down; Nikon Z's per-shot
+    /// optical centre, `nikon_centre`): `LensDistortionParams::with_centre`.
+    pub centre: Option<[f64; 2]>,
 }
 
 /// The kinds of the warp's radial tables `EmbeddedLensData::distortion` can
@@ -133,6 +137,7 @@ pub fn fuji_curves_with_ca(
         exact_zoom: false,
         polynomial: None,
         tabulated: None,
+        centre: None,
         chromatic: chromatic
             .filter(|v| v.len() > 3 * n && v[1..=n] == *knots)
             .map(|v| {
@@ -234,6 +239,7 @@ pub fn fuji_tabulated(data: EmbeddedLensData, aspect: f64) -> Option<EmbeddedLen
         zoom,
         exact_zoom: true,
         tabulated: Some(Tabulated::Knots),
+        centre: None,
         ..data
     })
 }
@@ -294,6 +300,7 @@ pub fn sony_curves_with_ca(
         exact_zoom: false,
         polynomial: None,
         tabulated: None,
+        centre: None,
         chromatic: chromatic.and_then(sony_chromatic),
     })
 }
@@ -444,6 +451,7 @@ pub fn sony_lens(
             zoom,
             exact_zoom: true,
             tabulated: Some(Tabulated::Uniform),
+            centre: None,
             ..data
         });
     }
@@ -610,6 +618,7 @@ pub fn panasonic_curve(
         exact_zoom: framed,
         polynomial: None,
         tabulated: None,
+        centre: None,
         chromatic: None,
     })
 }
@@ -696,6 +705,7 @@ pub fn olympus_curve(d: &[f64], reach: f64) -> Option<EmbeddedLensData> {
         exact_zoom: false,
         polynomial: None,
         tabulated: None,
+        centre: None,
         chromatic: None,
     })
 }
@@ -715,6 +725,11 @@ pub struct NikonLensInfo {
     /// second one) and the strength factor at offset 0x60.
     pub vignetting: [f64; 4],
     pub vignetting_strength: f64,
+    /// NikonNEFInfo tag 8 (header "0100", two signed rationals at 4 and
+    /// 12): the shot's optical centre in pixels of the image as recorded,
+    /// from the frame's centre, x right and y down on the sensor (moves
+    /// with the in-body stabilisation; see `nikon_centre`).
+    pub centre: Option<[f64; 2]>,
 }
 
 /// Parses the NikonNEFInfo blob: "Nikon\0" + version, then a small TIFF whose
@@ -750,6 +765,7 @@ pub fn parse_nikon_nef_info(blob: &[u8]) -> Option<NikonLensInfo> {
     let entries = u16_at(tiff, ifd)? as usize;
     let mut distortion_info = None;
     let mut vignette_info = None;
+    let mut centre_info = None;
     for i in 0..entries.min(32) {
         let at = ifd + 2 + 12 * i;
         let (tag, count, offset) = (
@@ -761,9 +777,14 @@ pub fn parse_nikon_nef_info(blob: &[u8]) -> Option<NikonLensInfo> {
         match tag {
             5 => distortion_info = data,
             6 => vignette_info = data,
+            8 => centre_info = data,
             _ => {}
         }
     }
+    let centre = centre_info
+        .filter(|c| c.len() >= 20 && c.starts_with(b"0100"))
+        .and_then(|c| Some([srational(c, 4)?, srational(c, 12)?]))
+        .filter(|c| c.iter().all(|v| v.is_finite() && v.abs() < 1000.0));
     let distortion_info = distortion_info.filter(|d| d.len() >= 0x34 && d.starts_with(b"0100"))?;
     let vignette_info = vignette_info.filter(|v| v.len() >= 0x68 && v.starts_with(b"0100"));
     let distortion = [0x14, 0x1c, 0x24, 0x2c].map(|at| srational(distortion_info, at));
@@ -787,6 +808,7 @@ pub fn parse_nikon_nef_info(blob: &[u8]) -> Option<NikonLensInfo> {
             _ => [0.0; 4],
         },
         vignetting_strength: strength.unwrap_or(0.0),
+        centre,
     })
 }
 
@@ -891,6 +913,7 @@ pub fn nikon_compact_curve(values: &[f64]) -> Option<EmbeddedLensData> {
         exact_zoom: false,
         polynomial: None,
         tabulated: None,
+        centre: None,
         chromatic: None,
     })
 }
@@ -917,7 +940,15 @@ pub fn nikon_compact_curve(values: &[f64]) -> Option<EmbeddedLensData> {
 /// radius; Camera Raw frames as the JPEG; notes: parity-gaps/G71), as the
 /// exact zoom (`exact_zoom`). Unframed (and for data without that value),
 /// the corners stay on the sensor's corners.
-pub fn nikon_curve(info: &NikonLensInfo, framed: bool) -> Option<EmbeddedLensData> {
+///
+/// `centre` (camera geometry version 8, only with the framing) places the
+/// distortion and its framing zoom at the shot's optical centre
+/// ([`nikon_centre`]).
+pub fn nikon_curve(
+    info: &NikonLensInfo,
+    framed: bool,
+    centre: Option<[f64; 2]>,
+) -> Option<EmbeddedLensData> {
     let [d1, d2, d3, d4] = info.distortion;
     // The fourth term was zero in every file seen; its power is unknown.
     if !matches!(info.distortion_flag, 1 | 3) || d4 != 0.0 {
@@ -959,8 +990,49 @@ pub fn nikon_curve(info: &NikonLensInfo, framed: bool) -> Option<EmbeddedLensDat
         exact_zoom: framing.is_some(),
         polynomial: None,
         tabulated: None,
+        centre: centre.filter(|_| framing.is_some()),
         chromatic: None,
     })
+}
+
+/// The camera geometry version from which Nikon Z data correct about the
+/// shot's own optical centre (`nikon_centre`).
+const NIKON_CENTRE_GEOMETRY: u64 = 8;
+
+/// Nikon's recorded optical centre (`NikonLensInfo::centre`) as an offset
+/// from the centre of the developed `width` × `height` frame relative to
+/// its half diagonal, turned as the development turns the image (EXIF
+/// `orientation`). The camera writes it in pixels of the image as recorded
+/// (a Z 6 with the lens off-centre by the same amount stores 26.3, 22.5 and
+/// 19.6 px in its L, M and S RAW sizes, ×1, ×0.857, ×0.750), x right and y
+/// down on the sensor. Against the camera's full-size JPEG of 57 raw.pixls.us
+/// Z-mount files a centre fitted freely per file follows it with slope
+/// 0.99 (x) and 0.96 (y); with it the Z f + 35-150mm at 150 mm (−66 px)
+/// matches its JPEG to 0.21 px median instead of 2.4, the Z 6 + 24-70mm f/4
+/// (+26 px) to 0.30 instead of 1.27 (notes: parity-gaps/G71). None without
+/// an offset.
+pub fn nikon_centre(
+    info: &NikonLensInfo,
+    width: usize,
+    height: usize,
+    orientation: u16,
+) -> Option<[f64; 2]> {
+    let [x, y] = info.centre?;
+    let half_diagonal = (width as f64).hypot(height as f64) / 2.0;
+    if (x == 0.0 && y == 0.0) || half_diagonal < 1.0 {
+        return None;
+    }
+    let [x, y] = match orientation {
+        2 => [-x, y],
+        3 => [-x, -y],
+        4 => [x, -y],
+        5 => [y, x],
+        6 => [-y, x],
+        7 => [-y, -x],
+        8 => [y, -x],
+        _ => [x, y],
+    };
+    Some([x / half_diagonal, y / half_diagonal])
 }
 
 /// The camera geometry version from which Samsung's distortion data are
@@ -1041,6 +1113,7 @@ pub fn samsung_curve(values: &[f64], half_diagonal: f64) -> Option<EmbeddedLensD
         chromatic: None,
         polynomial: Some(k),
         tabulated: None,
+        centre: None,
     })
 }
 
@@ -1087,9 +1160,11 @@ pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// Samsung's (`samsung_curve`); 5 (2026-10-26) frames Panasonic's and
 /// Fujifilm's data as the cameras do (`panasonic_curve`, `fuji_framed`); 6
 /// (2026-10-26) warps Sony's knots themselves (`sony_lens`); 7
-/// (2026-10-26) Fujifilm's (`fuji_tabulated`). Recipes without the key
+/// (2026-10-26) Fujifilm's (`fuji_tabulated`); 8 (2026-11-01) corrects
+/// Nikon Z data about the shot's own optical centre (`nikon_centre`).
+/// Recipes without the key
 /// keep their parameters; saving them again fills in the same as before.
-pub const GEOMETRY_VERSION: u64 = 7;
+pub const GEOMETRY_VERSION: u64 = 8;
 
 /// The camera geometry version that warps Fujifilm's knot table itself.
 const FUJIFILM_TABLE_GEOMETRY: u64 = 7;
@@ -1263,6 +1338,7 @@ pub fn read_version(
                     exact_zoom: false,
                     polynomial: None,
                     tabulated: None,
+                    centre: None,
                     chromatic: Some(chromatic),
                 }),
             }
@@ -1277,7 +1353,16 @@ pub fn read_version(
                 _ => return None,
             };
             match parse_nikon_nef_info(&blob) {
-                Some(info) => nikon_curve(&info, geometry_version >= 2),
+                Some(info) => {
+                    let centre = (geometry_version >= NIKON_CENTRE_GEOMETRY)
+                        .then(|| {
+                            let frame = rawtonic_rawdecode::source_frame::frame(&source, 0)?;
+                            let [_, _, width, height] = frame.rect;
+                            nikon_centre(&info, width, height, frame.orientation)
+                        })
+                        .flatten();
+                    nikon_curve(&info, geometry_version >= 2, centre)
+                }
                 None => nikon_compact_curve(&parse_nikon_compact_distortion(&blob)?),
             }
         }
@@ -1519,6 +1604,9 @@ pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
         LensDistortionParams::ptlens(a, b, c, vignetting()).with_zoom(zoom)
     }
     .with_exact_zoom(data.exact_zoom);
+    if let Some(centre) = data.centre {
+        params = params.with_centre(centre);
+    }
     if let Some(chromatic) = data.chromatic.as_deref().filter(|c| !c.is_empty()) {
         let channel = |pick: fn(&(f64, f64, f64)) -> f64| {
             let curve: Vec<(f64, f64)> = chromatic.iter().map(|p| (p.0, pick(p))).collect();
@@ -1551,7 +1639,7 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 13];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 13, 17];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
@@ -1566,6 +1654,7 @@ const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["rw2", "rwl", "raf"],
     &["arw", "dng"],
     &["raf"],
+    &["nef", "nrw"],
 ];
 
 /// The camera geometry version facts of `facts_version` carry.
@@ -1969,6 +2058,7 @@ fn canon_curves(
         chromatic: None,
         polynomial: None,
         tabulated: None,
+        centre: None,
     })
 }
 
@@ -2212,6 +2302,7 @@ fn adobe_profile(source: &RawSource) -> Option<EmbeddedLensData> {
         exact_zoom: false,
         polynomial: None,
         tabulated: None,
+        centre: None,
         chromatic: None,
     })
 }
@@ -2432,6 +2523,15 @@ mod tests {
     }
 
     fn nikon_blob_framed(distortion_flag: u8, framing: Option<f64>) -> Vec<u8> {
+        nikon_blob_centred(distortion_flag, framing, None)
+    }
+
+    /// With NikonNEFInfo tag 8 holding the optical centre `centre` (px).
+    fn nikon_blob_centred(
+        distortion_flag: u8,
+        framing: Option<f64>,
+        centre: Option<[f64; 2]>,
+    ) -> Vec<u8> {
         let rational = |v: f64| {
             let mut b = ((v * 1048576.0).round() as i32).to_le_bytes().to_vec();
             b.extend_from_slice(&1048576u32.to_le_bytes());
@@ -2460,22 +2560,32 @@ mod tests {
         vig.extend_from_slice(&541u32.to_le_bytes());
         vig.extend_from_slice(&1024u32.to_le_bytes());
         vig.resize(116, 0);
+        let centre = centre.map(|[x, y]| {
+            let mut c = b"0100".to_vec();
+            for v in [x, y] {
+                c.extend_from_slice(&((v * 256.0).round() as i32).to_le_bytes());
+                c.extend_from_slice(&256u32.to_le_bytes());
+            }
+            c.extend_from_slice(&[0, 0, 0x4a, 0x7f]);
+            c
+        });
+        let mut entries = vec![(5u16, dist), (6u16, vig)];
+        entries.extend(centre.map(|c| (8u16, c)));
         let mut tiff = b"II*\0".to_vec();
         tiff.extend_from_slice(&8u32.to_le_bytes());
-        tiff.extend_from_slice(&2u16.to_le_bytes());
-        let data_start = 8 + 2 + 2 * 12 + 4;
-        for (tag, data, offset) in [
-            (5u16, &dist, data_start),
-            (6u16, &vig, data_start + dist.len()),
-        ] {
+        tiff.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        let mut offset = 8 + 2 + entries.len() * 12 + 4;
+        for (tag, data) in &entries {
             tiff.extend_from_slice(&tag.to_le_bytes());
             tiff.extend_from_slice(&7u16.to_le_bytes());
             tiff.extend_from_slice(&(data.len() as u32).to_le_bytes());
             tiff.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += data.len();
         }
         tiff.extend_from_slice(&0u32.to_le_bytes());
-        tiff.extend(&dist);
-        tiff.extend(&vig);
+        for (_, data) in &entries {
+            tiff.extend(data);
+        }
         let mut blob = b"Nikon\0\x01\x01\0\0".to_vec();
         blob.extend(tiff);
         blob
@@ -2486,7 +2596,7 @@ mod tests {
         let info = parse_nikon_nef_info(&nikon_blob(3)).unwrap();
         assert_eq!(info.distortion_flag, 3);
         assert!((info.vignetting_strength - 541.0 / 1024.0).abs() < 1e-12);
-        let data = nikon_curve(&info, false).unwrap();
+        let data = nikon_curve(&info, false, None).unwrap();
         // Adobe DNG Converter wrote FixVignetteRadial k = 0.227971,
         // 0.062092, −0.336579, 0.419177 for this file.
         let k = [0.227971, 0.062092, -0.336579, 0.419177];
@@ -2504,11 +2614,16 @@ mod tests {
         }
         // Corrections marked optional by the lens apply as well.
         let optional = parse_nikon_nef_info(&nikon_blob(1)).unwrap();
-        assert_eq!(nikon_curve(&optional, false), Some(data));
+        assert_eq!(nikon_curve(&optional, false, None), Some(data));
         // DSLR blocks (flag 0 or 2) are not used.
         for flag in [0, 2] {
             assert!(
-                nikon_curve(&parse_nikon_nef_info(&nikon_blob(flag)).unwrap(), false).is_none()
+                nikon_curve(
+                    &parse_nikon_nef_info(&nikon_blob(flag)).unwrap(),
+                    false,
+                    None
+                )
+                .is_none()
             );
         }
     }
@@ -2522,7 +2637,7 @@ mod tests {
         // The camera's JPEG (and Camera Raw): an output pixel at radius u
         // shows the sensor at u p(u) / (1 + framing), so its corners lie
         // inside the sensor's (Z 6 at 52 mm: 0.980 of the half-diagonal).
-        let data = nikon_curve(&info, true).unwrap();
+        let data = nikon_curve(&info, true, None).unwrap();
         assert!(data.exact_zoom);
         assert!((data.zoom - 1.01398).abs() < 1e-4, "zoom {}", data.zoom);
         for i in 1..=20 {
@@ -2535,9 +2650,55 @@ mod tests {
         // geometry version, the corners stay on the sensor's corners.
         let unframed = parse_nikon_nef_info(&nikon_blob_framed(3, None)).unwrap();
         assert_eq!(unframed.framing, None);
-        assert_eq!(nikon_curve(&unframed, true), nikon_curve(&info, false));
-        let old = nikon_curve(&info, false).unwrap();
+        assert_eq!(
+            nikon_curve(&unframed, true, None),
+            nikon_curve(&info, false, None)
+        );
+        let old = nikon_curve(&info, false, None).unwrap();
         assert_eq!((old.zoom, old.exact_zoom), (1.0, false));
+    }
+
+    #[test]
+    fn nikon_optical_centre_is_read_and_turned_with_the_image() {
+        // A Z 6 + 24-70mm f/4 S at 52 mm records (−7.52, +26.30) px.
+        let blob = nikon_blob_centred(3, Some(0.064596), Some([-7.52, 26.30]));
+        let info = parse_nikon_nef_info(&blob).unwrap();
+        let [x, y] = info.centre.unwrap();
+        assert!(
+            (x + 7.52).abs() < 0.01 && (y - 26.30).abs() < 0.01,
+            "{x} {y}"
+        );
+        assert_eq!(parse_nikon_nef_info(&nikon_blob(3)).unwrap().centre, None);
+        let (w, h) = (6048usize, 4024usize);
+        let hd = (w as f64).hypot(h as f64) / 2.0;
+        let at = |orientation| {
+            nikon_centre(&info, w, h, orientation)
+                .unwrap()
+                .map(|v| v * hd)
+        };
+        let close =
+            |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9;
+        assert!(close(at(1), [x, y]));
+        // Turned 90° clockwise for display (6): the sensor's right is down.
+        assert!(close(at(6), [-y, x]));
+        assert!(close(at(8), [y, -x]));
+        assert!(close(at(3), [-x, -y]));
+        // No offset, no centre.
+        let zero =
+            parse_nikon_nef_info(&nikon_blob_centred(3, Some(0.064596), Some([0.0, 0.0]))).unwrap();
+        assert_eq!(nikon_centre(&zero, w, h, 1), None);
+        // Only with the camera's framing, into the warp's parameters.
+        let centre = nikon_centre(&info, w, h, 1);
+        assert_eq!(nikon_curve(&info, false, centre).unwrap().centre, None);
+        let data = nikon_curve(&info, true, centre).unwrap();
+        assert_eq!(data.centre, centre);
+        let params = serde_json::to_value(to_params(&data).unwrap()).unwrap();
+        assert!((params["centre_x"].as_f64().unwrap() - x / hd).abs() < 1e-12);
+        assert!((params["centre_y"].as_f64().unwrap() - y / hd).abs() < 1e-12);
+        let centred =
+            serde_json::to_value(to_params(&nikon_curve(&info, true, None).unwrap()).unwrap())
+                .unwrap();
+        assert!(centred.get("centre_x").is_none() && centred.get("centre_y").is_none());
     }
 
     #[test]
@@ -2545,7 +2706,8 @@ mod tests {
         // Previews from before Sony's knots read neither; facts version 7
         // has Sony's (1), 8 also Nikon's framing (2), 9 Canon's
         // distortion (3), 10 Samsung's data (4), 11 Panasonic's and Fujifilm's
-        // framing (5), 12 Sony's knot table (6), 13 Fujifilm's (7).
+        // framing (5), 12 Sony's knot table (6), 13 Fujifilm's (7), 17
+        // Nikon's optical centre (8).
         assert_eq!(facts_geometry_version(6), 0);
         assert_eq!(facts_geometry_version(7), 1);
         assert_eq!(facts_geometry_version(8), 2);
@@ -2554,6 +2716,8 @@ mod tests {
         assert_eq!(facts_geometry_version(11), 5);
         assert_eq!(facts_geometry_version(12), 6);
         assert_eq!(facts_geometry_version(13), 7);
+        assert_eq!(facts_geometry_version(16), 7);
+        assert_eq!(facts_geometry_version(17), 8);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
@@ -2562,26 +2726,29 @@ mod tests {
         // 8 facts Canon's distortion, an SRW's version 9 facts Samsung's
         // data, an RW2's or RAF's version 10 facts their framing, an ARW's
         // or DNG's version 7 to 11 facts Sony's knot table, a RAF's version
-        // 11 and 12 facts Fujifilm's; an ORF's hold.
+        // 11 and 12 facts Fujifilm's, a NEF's version 8 to 16 facts Nikon's
+        // optical centre; an ORF's hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 5);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 11), 5);
         assert_eq!(known_geometry_version(Path::new("a.DNG"), 11), 5);
-        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 7);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 8);
         assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 7);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 16), 7);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 17), 8);
         assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
-        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 7);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 8);
         assert_eq!(known_geometry_version(Path::new("a.srw"), 9), 3);
-        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 7);
+        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 8);
         assert_eq!(known_geometry_version(Path::new("a.RW2"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.RAF"), 11), 6);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 12), 6);
-        assert_eq!(known_geometry_version(Path::new("a.raf"), 13), 7);
-        assert_eq!(known_geometry_version(Path::new("a.rw2"), 12), 7);
-        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 7);
-        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 7);
+        assert_eq!(known_geometry_version(Path::new("a.raf"), 13), 8);
+        assert_eq!(known_geometry_version(Path::new("a.rw2"), 12), 8);
+        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 8);
+        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 8);
     }
 
     #[test]
@@ -2729,6 +2896,7 @@ mod tests {
             exact_zoom: false,
             polynomial: None,
             tabulated: None,
+            centre: None,
             chromatic: Some(curve),
         })
         .unwrap();

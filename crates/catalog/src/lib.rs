@@ -54,7 +54,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 23;
+pub const DB_SCHEMA_VERSION: u32 = 24;
 
 /// Schema 22's burst and bracket fact columns of `assets` (`migrations/0022.sql`).
 const COLUMNS_22: &[(&str, &str)] = &[
@@ -401,6 +401,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0022.sql"))?;
         Self::add_missing_columns(&conn, "metadata", COLUMNS_23)?;
         conn.execute_batch(include_str!("../migrations/0023.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0024.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -557,6 +558,9 @@ impl Library {
         if version < 23 {
             Self::add_missing_columns(&tx, "metadata", COLUMNS_23)?;
             tx.execute_batch(include_str!("../migrations/0023.sql"))?;
+        }
+        if version < 24 {
+            tx.execute_batch(include_str!("../migrations/0024.sql"))?;
         }
         tx.commit()?;
         Ok(())

@@ -910,4 +910,80 @@ mod tests {
             Some(capture.join("A.JPG"))
         );
     }
+
+    /// The preview audit (G36): the counter the dialog previews is the one
+    /// the rename uses. It starts at the chosen number, is padded to the
+    /// width of the last one, counts a RAW and the JPEG sharing its name
+    /// once, and a batch without a counter or original name is numbered.
+    #[test]
+    fn the_previewed_counter_starts_where_asked_and_counts_a_pair_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonicalize().unwrap();
+        write(&dir, &["A.NEF", "A.JPG", "B.NEF", "C.NEF"]);
+        let paths = ["A.NEF", "A.JPG", "B.NEF", "C.NEF"].map(|n| arg(&dir.join(n)));
+        let finals = |plan: &RenamePlan| -> Vec<String> {
+            plan.photos.iter().map(|p| file_name(&p.to)).collect()
+        };
+        // Three names (the pair is one): 8, 9, 10 → two digits.
+        let plan = plan_rename_with(&paths, "Job", 8, &mut PhotoFacts::default());
+        assert_eq!(
+            finals(&plan),
+            ["Job_08.NEF", "Job_08.JPG", "Job_09.NEF", "Job_10.NEF"]
+        );
+        // The same names as `{seq:auto}` and `{seq}` give.
+        let explicit = plan_rename_with(&paths, "Job_{seq:auto}", 8, &mut PhotoFacts::default());
+        assert_eq!(finals(&explicit), finals(&plan));
+        // A literal counter width is kept as typed.
+        let plan = plan_rename_with(&paths, "Job_{seq:3}", 1, &mut PhotoFacts::default());
+        assert_eq!(
+            finals(&plan),
+            ["Job_001.NEF", "Job_001.JPG", "Job_002.NEF", "Job_003.NEF"]
+        );
+        // A name of the original is a name of its own: no counter is added.
+        let plan = plan_rename_with(&paths, "X_{orig_base}", 1, &mut PhotoFacts::default());
+        assert_eq!(finals(&plan), ["X_A.NEF", "X_A.JPG", "X_B.NEF", "X_C.NEF"]);
+    }
+
+    /// What the preview marks as taken is what the rename refuses: a file
+    /// outside the rename (a photo, a sidecar or the companion), and a name
+    /// another file of the same rename still holds (a renumbering of files
+    /// already numbered is blocked, nothing is overwritten).
+    #[test]
+    fn the_preview_marks_every_target_that_is_taken() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonicalize().unwrap();
+        // A has an editor sidecar; a file already sits where it would go.
+        write(
+            &dir,
+            &["A.NEF", "A.NEF.rrdata", "B.NEF", "Job_1.NEF.rrdata"],
+        );
+        let paths = ["A.NEF", "B.NEF"].map(|n| arg(&dir.join(n)));
+        let plan = plan_rename(&paths, "Job");
+        assert_eq!(
+            plan.photos[0].problems,
+            [Problem::Occupied {
+                path: dir.join("Job_1.NEF.rrdata")
+            }]
+        );
+        assert!(plan.photos[1].problems.is_empty());
+        assert!(plan.blocked());
+        // Renumbering files that are already numbered: the name of the next
+        // one is held by it.
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonicalize().unwrap();
+        write(&dir, &["Job_1.NEF", "Job_2.NEF"]);
+        let paths = ["Job_1.NEF", "Job_2.NEF"].map(|n| arg(&dir.join(n)));
+        let plan = plan_rename_with(&paths, "Job", 2, &mut PhotoFacts::default());
+        assert_eq!(
+            plan.photos[0].problems,
+            [Problem::Occupied {
+                path: dir.join("Job_2.NEF")
+            }]
+        );
+        assert!(plan.photos[1].problems.is_empty());
+        let error = crate::file_management::checked_rename_steps(&paths, "Job", 2, &plan.files())
+            .unwrap_err();
+        assert!(error.contains("cannot be done as planned"), "{error}");
+        assert_eq!(names_in(&dir), ["Job_1.NEF", "Job_2.NEF"]);
+    }
 }

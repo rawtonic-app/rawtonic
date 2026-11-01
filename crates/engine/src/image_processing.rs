@@ -13,7 +13,6 @@ use std::borrow::Cow;
 use std::f32::consts::PI;
 
 use crate::masks::MaskDefinition;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 pub trait IntoCowImage<'a> {
     fn into_cow(self) -> Cow<'a, DynamicImage>;
@@ -128,6 +127,11 @@ pub struct GeometryParams {
     /// `LensDistortionParams::exact_zoom`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub lens_zoom_exact: bool,
+    /// The lens distortion's centre (`LensDistortionParams::centre_x`,
+    /// `centre_y`): offset from the frame's centre relative to its half
+    /// diagonal, read only with `lens_zoom_exact` ([`lens_centre`]).
+    #[serde(default, skip_serializing_if = "is_no_lens_centre")]
+    pub lens_centre: [f32; 2],
     pub tca_vr: f32,
     pub tca_vb: f32,
     /// Growth of tca_vr / tca_vb with the squared relative radius.
@@ -189,6 +193,33 @@ pub struct GeometryParams {
     pub manual_vignette_midpoint: f32,
 }
 
+fn is_no_lens_centre(centre: &[f32; 2]) -> bool {
+    *centre == [0.0; 2]
+}
+
+/// Where the lens distortion and the framing zoom before it run about: the
+/// frame centre (`cx`, `cy`), or with a lens correction and the camera's
+/// exact framing the distortion's own centre (`GeometryParams::lens_centre`,
+/// Nikon Z's per-shot optical centre; notes: parity-gaps/G71). Without an
+/// offset it is (`cx`, `cy`) themselves, so the arithmetic is unchanged.
+fn lens_centre(
+    params: &GeometryParams,
+    has_lens_correction: bool,
+    cx: f32,
+    cy: f32,
+    hd: f64,
+) -> (f32, f32) {
+    let [ox, oy] = params.lens_centre;
+    if has_lens_correction && params.lens_zoom_exact && (ox != 0.0 || oy != 0.0) {
+        (
+            (f64::from(cx) + f64::from(ox) * hd) as f32,
+            (f64::from(cy) + f64::from(oy) * hd) as f32,
+        )
+    } else {
+        (cx, cy)
+    }
+}
+
 fn default_manual_vignette_midpoint() -> f32 {
     50.0
 }
@@ -228,6 +259,7 @@ impl Default for GeometryParams {
             lens_profile_exact: false,
             lens_zoom: 1.0,
             lens_zoom_exact: false,
+            lens_centre: [0.0; 2],
             tca_vr: 1.0,
             tca_vb: 1.0,
             tca_vr2: 0.0,
@@ -327,6 +359,12 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         lens_zoom_exact: lens_params
             .and_then(|p| p.get("exact_zoom").and_then(|k| k.as_bool()))
             .unwrap_or(false),
+        lens_centre: ["centre_x", "centre_y"].map(|key| {
+            lens_params
+                .and_then(|p| p.get(key).and_then(|k| k.as_f64()))
+                .filter(|v| v.is_finite())
+                .unwrap_or(0.0) as f32
+        }),
         tca_vr: lens_params
             .and_then(|p| p.get("tca_vr").and_then(|k| k.as_f64()))
             .unwrap_or(1.0) as f32,
@@ -1207,6 +1245,32 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
         (width as f64, height as f64),
     ];
 
+    // The lens profile's scale of a point (offset from the lens centre): its
+    // source radius over its own radius.
+    let lens_scale = |ru: f64| -> f64 {
+        let ru_norm = ru / half_diagonal;
+        let ru_norm2 = ru_norm * ru_norm;
+
+        let rd_norm = if let Some(table) = &table {
+            ru_norm * table.at(ru_norm)
+        } else if is_ptlens {
+            let a = lk1;
+            let b = lk2;
+            let c = lk3;
+            let d = 1.0 - a - b - c;
+            ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
+        } else {
+            ru_norm
+                * (1.0
+                    + lk1 * ru_norm2
+                    + lk2 * (ru_norm2 * ru_norm2)
+                    + lk3 * (ru_norm2 * ru_norm2 * ru_norm2))
+        };
+
+        let effective_r_norm = ru_norm + (rd_norm - ru_norm) * lens_dist_amt;
+        effective_r_norm / ru_norm
+    };
+
     // How far a point (offset from the centre) maps outwards: source radius
     // over its own radius, through the lens profile and the manual
     // distortion.
@@ -1220,27 +1284,7 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
         let mut mapped_dy = dy;
 
         if has_lens_correction {
-            let ru_norm = ru / half_diagonal;
-            let ru_norm2 = ru_norm * ru_norm;
-
-            let rd_norm = if let Some(table) = &table {
-                ru_norm * table.at(ru_norm)
-            } else if is_ptlens {
-                let a = lk1;
-                let b = lk2;
-                let c = lk3;
-                let d = 1.0 - a - b - c;
-                ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
-            } else {
-                ru_norm
-                    * (1.0
-                        + lk1 * ru_norm2
-                        + lk2 * (ru_norm2 * ru_norm2)
-                        + lk3 * (ru_norm2 * ru_norm2 * ru_norm2))
-            };
-
-            let effective_r_norm = ru_norm + (rd_norm - ru_norm) * lens_dist_amt;
-            let scale = effective_r_norm / ru_norm;
+            let scale = lens_scale(ru);
 
             mapped_dx *= scale;
             mapped_dy *= scale;
@@ -1266,9 +1310,39 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
         const INSIDE: f64 = 0.01;
         let zoom = (1.0 + (params.lens_zoom as f64 - 1.0) * lens_dist_amt.clamp(0.0, 1.0)).max(1.0);
         let (last_x, last_y) = (width as f64 - 1.0, height as f64 - 1.0);
+        let (lcx, lcy) = lens_centre(
+            params,
+            has_lens_correction,
+            cx as f32,
+            cy as f32,
+            half_diagonal,
+        );
+        let (lcx, lcy) = (f64::from(lcx), f64::from(lcy));
+        let centred = lcx == cx && lcy == cy;
+        // Frame point (cx + dx, cy + dy) zoomed by `s` about the lens centre,
+        // through the lens about it and the manual distortion about the frame
+        // centre (the warp's `source_point` with an off-centre lens).
+        let off_centre = |dx: f64, dy: f64, s: f64| {
+            let (ux, uy) = ((cx + dx - lcx) / s, (cy + dy - lcy) / s);
+            let ru = (ux * ux + uy * uy).sqrt();
+            let g = if ru < 1e-6 { 1.0 } else { lens_scale(ru) };
+            let (mx, my) = (lcx + ux * g - cx, lcy + uy * g - cy);
+            let f = if k_distortion.abs() > 1e-5 {
+                manual_distortion_factor((mx * mx + my * my) * max_radius_sq_inv, k_distortion)
+            } else {
+                1.0
+            };
+            (cx + mx * f, cy + my * f)
+        };
         // A pixel that samples its own position (no distortion at this
         // amount) is inside as it is.
         let inside = |dx: f64, dy: f64, s: f64| {
+            if !centred {
+                let (x, y) = off_centre(dx, dy, s);
+                return ((x - cx - dx).abs() < 1e-9 && (y - cy - dy).abs() < 1e-9)
+                    || ((INSIDE..=last_x - INSIDE).contains(&x)
+                        && (INSIDE..=last_y - INSIDE).contains(&y));
+            }
             let g = ratio(dx / s, dy / s) / s;
             let (x, y) = (cx + dx * g, cy + dy * g);
             (g - 1.0).abs() < 1e-12
@@ -1292,6 +1366,8 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
             params.distortion.to_bits(),
             params.lens_zoom.to_bits(),
             params.lens_table_end.to_bits(),
+            params.lens_centre[0].to_bits(),
+            params.lens_centre[1].to_bits(),
         ]
         .into_iter()
         .chain(params.lens_table.iter().map(|v| v.to_bits()))
@@ -1382,6 +1458,10 @@ struct WarpKernel {
     origin_vec: NaVector3<f32>,
     cx: f32,
     cy: f32,
+    /// The centre the framing zoom and the lens distortion run about
+    /// ([`lens_centre`]; (`cx`, `cy`) without an offset).
+    lcx: f32,
+    lcy: f32,
     hd: f64,
     max_radius_sq_inv: f64,
     k_distortion: f64,
@@ -1467,6 +1547,7 @@ impl WarpKernel {
         } else {
             1.0
         };
+        let (lcx, lcy) = lens_centre(params, has_lens_correction, cx, cy, hd);
 
         let measured = match estimate.filter(|_| params.auto_ca) {
             // Version 3 against the lens data's own TCA: the photo's own
@@ -1518,6 +1599,8 @@ impl WarpKernel {
             origin_vec,
             cx,
             cy,
+            lcx,
+            lcy,
             hd,
             max_radius_sq_inv,
             k_distortion,
@@ -1593,14 +1676,15 @@ impl WarpKernel {
         let mut src_x = current_vec.x * inv_z;
         let mut src_y = current_vec.y * inv_z;
 
+        let (lcx, lcy) = (self.lcx, self.lcy);
         if self.auto_crop_scale > 1.0 {
-            src_x = cx + (src_x - cx) / self.auto_crop_scale;
-            src_y = cy + (src_y - cy) / self.auto_crop_scale;
+            src_x = lcx + (src_x - lcx) / self.auto_crop_scale;
+            src_y = lcy + (src_y - lcy) / self.auto_crop_scale;
         }
 
         if self.has_lens_correction {
-            let dx = (src_x - cx) as f64;
-            let dy = (src_y - cy) as f64;
+            let dx = (src_x - lcx) as f64;
+            let dy = (src_y - lcy) as f64;
             let ru = (dx * dx + dy * dy).sqrt();
 
             if ru > 1e-6 {
@@ -1626,8 +1710,8 @@ impl WarpKernel {
                 let effective_r_norm = ru_norm + (rd_norm - ru_norm) * self.lens_dist_amt;
                 let scale = effective_r_norm / ru_norm;
 
-                src_x = cx + (dx * scale) as f32;
-                src_y = cy + (dy * scale) as f32;
+                src_x = lcx + (dx * scale) as f32;
+                src_y = lcy + (dy * scale) as f32;
             }
         }
 
@@ -1654,12 +1738,13 @@ impl WarpKernel {
         let inv_z = 1.0 / current_vec.z;
         let mut src_x = current_vec.x * inv_z;
         let mut src_y = current_vec.y * inv_z;
+        let (lcx, lcy) = (self.lcx, self.lcy);
         if self.auto_crop_scale > 1.0 {
-            src_x = cx + (src_x - cx) / self.auto_crop_scale;
-            src_y = cy + (src_y - cy) / self.auto_crop_scale;
+            src_x = lcx + (src_x - lcx) / self.auto_crop_scale;
+            src_y = lcy + (src_y - lcy) / self.auto_crop_scale;
         }
         if self.has_lens_correction {
-            let (dx, dy) = (src_x - cx, src_y - cy);
+            let (dx, dy) = (src_x - lcx, src_y - lcy);
             let ru = (dx * dx + dy * dy).sqrt();
             if ru > 1e-6 {
                 let ru_norm = ru / hd;
@@ -1679,8 +1764,8 @@ impl WarpKernel {
                 };
                 let effective = ru_norm + (rd_norm - ru_norm) * self.lens_dist_amt as f32;
                 let scale = effective / ru_norm;
-                src_x = cx + dx * scale;
-                src_y = cy + dy * scale;
+                src_x = lcx + dx * scale;
+                src_y = lcy + dy * scale;
             }
         }
         if self.k_distortion.abs() > 1e-5 {
@@ -1932,12 +2017,13 @@ impl WarpKernel {
         let (cx, cy) = (f64::from(self.cx), f64::from(self.cy));
         let (mut src_x, mut src_y) = (p[0] / p[2], p[1] / p[2]);
         let crop = f64::from(self.auto_crop_scale);
+        let (lcx, lcy) = (f64::from(self.lcx), f64::from(self.lcy));
         if crop > 1.0 {
-            src_x = cx + (src_x - cx) / crop;
-            src_y = cy + (src_y - cy) / crop;
+            src_x = lcx + (src_x - lcx) / crop;
+            src_y = lcy + (src_y - lcy) / crop;
         }
         if self.has_lens_correction {
-            let (dx, dy) = (src_x - cx, src_y - cy);
+            let (dx, dy) = (src_x - lcx, src_y - lcy);
             let ru = dx.hypot(dy);
             if ru > 1e-6 {
                 let r = ru / self.hd;
@@ -1951,8 +2037,8 @@ impl WarpKernel {
                     r * (1.0 + self.lk1 * r2 + self.lk2 * r2 * r2 + self.lk3 * r2 * r2 * r2)
                 };
                 let scale = (r + (rd - r) * self.lens_dist_amt) / r;
-                src_x = cx + dx * scale;
-                src_y = cy + dy * scale;
+                src_x = lcx + dx * scale;
+                src_y = lcy + dy * scale;
             }
         }
         if self.k_distortion.abs() > 1e-5 {
@@ -1976,6 +2062,9 @@ pub(crate) struct WarpUniforms {
     pub step_y: [f32; 3],
     pub cx: f32,
     pub cy: f32,
+    /// `WarpKernel::lcx`, `lcy`.
+    pub lcx: f32,
+    pub lcy: f32,
     pub hd: f32,
     pub max_radius_sq_inv: f32,
     pub auto_crop_scale: f32,
@@ -2007,6 +2096,8 @@ impl WarpKernel {
             step_y: v(self.step_vec_y),
             cx: self.cx,
             cy: self.cy,
+            lcx: self.lcx,
+            lcy: self.lcy,
             hd: self.hd as f32,
             max_radius_sq_inv: self.max_radius_sq_inv as f32,
             auto_crop_scale: self.auto_crop_scale,
@@ -2383,6 +2474,7 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
     } else {
         1.0
     };
+    let (lcx, lcy) = lens_centre(&params, has_lens_correction, cx, cy, hd);
 
     let src_raw = src_img.as_raw();
     let width_usize = width as usize;
@@ -2417,8 +2509,8 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
                 }
 
                 if has_lens_correction {
-                    let dx = (current_x - cx) as f64;
-                    let dy = (current_y - cy) as f64;
+                    let dx = (current_x - lcx) as f64;
+                    let dy = (current_y - lcy) as f64;
                     let rd = (dx * dx + dy * dy).sqrt();
 
                     if rd > 1e-6 {
@@ -2471,14 +2563,14 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
                         }
 
                         let scale = ru / rd;
-                        current_x = cx + (dx * scale) as f32;
-                        current_y = cy + (dy * scale) as f32;
+                        current_x = lcx + (dx * scale) as f32;
+                        current_y = lcy + (dy * scale) as f32;
                     }
                 }
 
                 if auto_crop_scale > 1.0 {
-                    current_x = cx + (current_x - cx) * auto_crop_scale;
-                    current_y = cy + (current_y - cy) * auto_crop_scale;
+                    current_x = lcx + (current_x - lcx) * auto_crop_scale;
+                    current_y = lcy + (current_y - lcy) * auto_crop_scale;
                 }
 
                 let target_vec = forward_transform * NaVector3::new(current_x, current_y, 1.0);
@@ -2517,6 +2609,9 @@ pub struct WarpPoints {
     inverse: NaMatrix3<f32>,
     cx: f32,
     cy: f32,
+    /// [`lens_centre`].
+    lcx: f32,
+    lcy: f32,
     half_diagonal: f64,
     max_radius_sq_inv: f64,
     k_distortion: f64,
@@ -2550,11 +2645,14 @@ impl WarpPoints {
         } else {
             1.0
         };
+        let (lcx, lcy) = lens_centre(params, has_lens_correction, cx, cy, half_diagonal);
         Self {
             forward,
             inverse,
             cx,
             cy,
+            lcx,
+            lcy,
             half_diagonal,
             max_radius_sq_inv: 1.0 / ((cx * cx + cy * cy) as f64),
             k_distortion,
@@ -2577,13 +2675,14 @@ impl WarpPoints {
         let inv_z = 1.0 / v.z;
         let mut src_x = v.x * inv_z;
         let mut src_y = v.y * inv_z;
+        let (lcx, lcy) = (self.lcx, self.lcy);
         if self.auto_crop_scale > 1.0 {
-            src_x = cx + (src_x - cx) / self.auto_crop_scale;
-            src_y = cy + (src_y - cy) / self.auto_crop_scale;
+            src_x = lcx + (src_x - lcx) / self.auto_crop_scale;
+            src_y = lcy + (src_y - lcy) / self.auto_crop_scale;
         }
         if self.has_lens_correction {
-            let dx = (src_x - cx) as f64;
-            let dy = (src_y - cy) as f64;
+            let dx = (src_x - lcx) as f64;
+            let dy = (src_y - lcy) as f64;
             let ru = (dx * dx + dy * dy).sqrt();
             if ru > 1e-6 {
                 let ru_norm = ru / self.half_diagonal;
@@ -2603,8 +2702,8 @@ impl WarpPoints {
                 };
                 let effective_r_norm = ru_norm + (rd_norm - ru_norm) * self.lens_dist_amt;
                 let scale = effective_r_norm / ru_norm;
-                src_x = cx + (dx * scale) as f32;
-                src_y = cy + (dy * scale) as f32;
+                src_x = lcx + (dx * scale) as f32;
+                src_y = lcy + (dy * scale) as f32;
             }
         }
         if self.k_distortion.abs() > 1e-5 {
@@ -2637,8 +2736,9 @@ impl WarpPoints {
             }
         }
         if self.has_lens_correction {
-            let dx = (current_x - cx) as f64;
-            let dy = (current_y - cy) as f64;
+            let (lcx, lcy) = (self.lcx, self.lcy);
+            let dx = (current_x - lcx) as f64;
+            let dy = (current_y - lcy) as f64;
             let rd = (dx * dx + dy * dy).sqrt();
             if rd > 1e-6 {
                 let hd = self.half_diagonal;
@@ -2680,13 +2780,14 @@ impl WarpPoints {
                     }
                 }
                 let scale = ru / rd;
-                current_x = cx + (dx * scale) as f32;
-                current_y = cy + (dy * scale) as f32;
+                current_x = lcx + (dx * scale) as f32;
+                current_y = lcy + (dy * scale) as f32;
             }
         }
         if self.auto_crop_scale > 1.0 {
-            current_x = cx + (current_x - cx) * self.auto_crop_scale;
-            current_y = cy + (current_y - cy) * self.auto_crop_scale;
+            let (lcx, lcy) = (self.lcx, self.lcy);
+            current_x = lcx + (current_x - lcx) * self.auto_crop_scale;
+            current_y = lcy + (current_y - lcy) * self.auto_crop_scale;
         }
         let v = self.forward * NaVector3::new(current_x, current_y, 1.0);
         (v.z.abs() > 1e-6).then(|| (v.x / v.z, v.y / v.z))
@@ -2817,14 +2918,16 @@ pub fn inverse_transform_point(
             1.0
         };
 
+        let (lcx, lcy) = lens_centre(&params, has_lens_correction, cx_f32, cy_f32, hd);
+        let (lcx, lcy) = (lcx as f64, lcy as f64);
         if auto_crop_scale > 1.0 {
-            src_x = cx + (src_x - cx) / auto_crop_scale;
-            src_y = cy + (src_y - cy) / auto_crop_scale;
+            src_x = lcx + (src_x - lcx) / auto_crop_scale;
+            src_y = lcy + (src_y - lcy) / auto_crop_scale;
         }
 
         if has_lens_correction {
-            let dx = src_x - cx;
-            let dy = src_y - cy;
+            let dx = src_x - lcx;
+            let dy = src_y - lcy;
             let ru = (dx * dx + dy * dy).sqrt();
 
             if ru > 1e-6 {
@@ -2850,8 +2953,8 @@ pub fn inverse_transform_point(
                 let effective_r_norm = ru_norm + (rd_norm - ru_norm) * lens_dist_amt;
                 let scale = effective_r_norm / ru_norm;
 
-                src_x = cx + (dx * scale);
-                src_y = cy + (dy * scale);
+                src_x = lcx + (dx * scale);
+                src_y = lcy + (dy * scale);
             }
         }
 
@@ -6867,483 +6970,6 @@ fn reference_gentle_detail_enhance(
         });
 }
 
-/// A histogram's bins (smoothed, normalised counts per channel) and whether
-/// each side of the tone range clips somewhere in the image.
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct HistogramData {
-    red: Vec<f32>,
-    green: Vec<f32>,
-    blue: Vec<f32>,
-    luma: Vec<f32>,
-    clipped_shadows: bool,
-    clipped_highlights: bool,
-}
-
-/// Whether some pixel clips each side of the tone range: the clipping
-/// warnings' own tests (`shader.wgsl`: a channel below 0.002 or above 0.998
-/// before the output encoding), whether a warning is on or not.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ClippedSides {
-    pub shadows: bool,
-    pub highlights: bool,
-}
-
-/// The histogram of `image` (every second pixel; alpha never counts) and the
-/// clipping sides the renderer found in it (`clipped`).
-pub fn calculate_histogram_from_image(
-    image: &DynamicImage,
-    clipped: ClippedSides,
-) -> Result<HistogramData, String> {
-    let init_hist = || ([0u32; 256], [0u32; 256], [0u32; 256], [0u32; 256]);
-
-    let reduce_hist = |mut a: ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
-                       b: ([u32; 256], [u32; 256], [u32; 256], [u32; 256])| {
-        for i in 0..256 {
-            a.0[i] += b.0[i];
-            a.1[i] += b.1[i];
-            a.2[i] += b.2[i];
-            a.3[i] += b.3[i];
-        }
-        a
-    };
-
-    // Chunk by the same 10,000 pixels and sample every second pixel as before,
-    // including at row/chunk boundaries. Alpha never contributes to analytics.
-    let histogram_u8 = |raw: &[u8], channels: usize| {
-        raw.par_chunks(10_000 * channels)
-            .fold(init_hist, |mut acc, chunk| {
-                for pixel in chunk.chunks_exact(channels).step_by(2) {
-                    let r = pixel[0] as usize;
-                    let g = pixel[1] as usize;
-                    let b = pixel[2] as usize;
-                    acc.0[r] += 1;
-                    acc.1[g] += 1;
-                    acc.2[b] += 1;
-                    let luma = (r * 218 + g * 732 + b * 74) >> 10;
-                    acc.3[luma.min(255)] += 1;
-                }
-                acc
-            })
-            .reduce(init_hist, reduce_hist)
-    };
-
-    let (r_c, g_c, b_c, l_c) = match image {
-        DynamicImage::ImageRgb32F(f32_img) => {
-            let raw = f32_img.as_raw();
-            raw.par_chunks(30_000)
-                .fold(init_hist, |mut acc, chunk| {
-                    for pixel in chunk.as_chunks::<3>().0.iter().step_by(2) {
-                        let r = (pixel[0].clamp(0.0, 1.0) * 255.0) as usize;
-                        let g = (pixel[1].clamp(0.0, 1.0) * 255.0) as usize;
-                        let b = (pixel[2].clamp(0.0, 1.0) * 255.0) as usize;
-
-                        acc.0[r] += 1;
-                        acc.1[g] += 1;
-                        acc.2[b] += 1;
-
-                        let luma = (r * 218 + g * 732 + b * 74) >> 10;
-                        acc.3[luma.min(255)] += 1;
-                    }
-                    acc
-                })
-                .reduce(init_hist, reduce_hist)
-        }
-        DynamicImage::ImageRgb8(rgb) => histogram_u8(rgb.as_raw(), 3),
-        DynamicImage::ImageRgba8(rgba) => histogram_u8(rgba.as_raw(), 4),
-        _ => histogram_u8(image.to_rgb8().as_raw(), 3),
-    };
-
-    let mut red: Vec<f32> = r_c.into_iter().map(|c| c as f32).collect();
-    let mut green: Vec<f32> = g_c.into_iter().map(|c| c as f32).collect();
-    let mut blue: Vec<f32> = b_c.into_iter().map(|c| c as f32).collect();
-    let mut luma: Vec<f32> = l_c.into_iter().map(|c| c as f32).collect();
-
-    let smoothing_sigma = 2.0;
-    apply_gaussian_smoothing(&mut red, smoothing_sigma);
-    apply_gaussian_smoothing(&mut green, smoothing_sigma);
-    apply_gaussian_smoothing(&mut blue, smoothing_sigma);
-    apply_gaussian_smoothing(&mut luma, smoothing_sigma);
-
-    normalize_histogram_range(&mut red, 0.99);
-    normalize_histogram_range(&mut green, 0.99);
-    normalize_histogram_range(&mut blue, 0.99);
-    normalize_histogram_range(&mut luma, 0.99);
-
-    Ok(HistogramData {
-        red,
-        green,
-        blue,
-        luma,
-        clipped_shadows: clipped.shadows,
-        clipped_highlights: clipped.highlights,
-    })
-}
-
-fn apply_gaussian_smoothing(histogram: &mut [f32], sigma: f32) {
-    if sigma <= 0.0 {
-        return;
-    }
-
-    let kernel_radius = (sigma * 3.0).ceil() as usize;
-    if kernel_radius == 0 || kernel_radius >= histogram.len() {
-        return;
-    }
-
-    let kernel_size = 2 * kernel_radius + 1;
-    let mut kernel = vec![0.0; kernel_size];
-    let mut kernel_sum = 0.0;
-
-    let two_sigma_sq = 2.0 * sigma * sigma;
-    for (i, kernel_val) in kernel.iter_mut().enumerate() {
-        let x = (i as i32 - kernel_radius as i32) as f32;
-        let val = (-x * x / two_sigma_sq).exp();
-        *kernel_val = val;
-        kernel_sum += val;
-    }
-
-    if kernel_sum > 0.0 {
-        for val in &mut kernel {
-            *val /= kernel_sum;
-        }
-    }
-
-    let original = histogram.to_owned();
-    let len = histogram.len();
-
-    for (i, hist_val) in histogram.iter_mut().enumerate() {
-        let mut smoothed_val = 0.0;
-        for (k, &kernel_val) in kernel.iter().enumerate() {
-            let offset = k as i32 - kernel_radius as i32;
-            let sample_index = i as i32 + offset;
-            let clamped_index = sample_index.clamp(0, len as i32 - 1) as usize;
-            smoothed_val += original[clamped_index] * kernel_val;
-        }
-        *hist_val = smoothed_val;
-    }
-}
-
-fn normalize_histogram_range(histogram: &mut [f32], percentile_clip: f32) {
-    if histogram.is_empty() {
-        return;
-    }
-
-    let mut sorted_data = histogram.to_owned();
-    sorted_data.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-    let clip_index = ((sorted_data.len() - 1) as f32 * percentile_clip).round() as usize;
-    let max_val = sorted_data[clip_index.min(sorted_data.len() - 1)];
-
-    if max_val > 1e-6 {
-        let scale_factor = 1.0 / max_val;
-        for value in histogram.iter_mut() {
-            *value = (*value * scale_factor).min(1.0);
-        }
-    } else {
-        for value in histogram.iter_mut() {
-            *value = 0.0;
-        }
-    }
-}
-
-#[derive(serde::Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct WaveformData {
-    pub rgb: String,
-    pub luma: String,
-    pub parade: String,
-    pub vectorscope: String,
-    pub width: u32,
-    pub height: u32,
-}
-
-pub fn calculate_waveform_from_image(
-    image: &DynamicImage,
-    active_channel: Option<&str>,
-) -> Result<WaveformData, String> {
-    const W: usize = 256;
-    const H: usize = 256;
-
-    let (orig_w, orig_h) = image.dimensions();
-    if orig_w == 0 || orig_h == 0 {
-        return Err("Image has zero dimensions.".to_string());
-    }
-
-    let do_rgb = active_channel.is_none() || active_channel == Some("rgb");
-    let do_luma =
-        active_channel.is_none() || active_channel == Some("luma") || active_channel == Some("rgb");
-    let do_parade = active_channel.is_none() || active_channel == Some("parade");
-    let do_vectorscope = active_channel.is_none() || active_channel == Some("vectorscope");
-
-    let mut red_bins = if do_rgb { vec![0u32; W * H] } else { vec![] };
-    let mut green_bins = if do_rgb { vec![0u32; W * H] } else { vec![] };
-    let mut blue_bins = if do_rgb { vec![0u32; W * H] } else { vec![] };
-    let mut luma_bins = if do_luma { vec![0u32; W * H] } else { vec![] };
-    let mut parade_bins = if do_parade { vec![0u32; W * H] } else { vec![] };
-    let mut vector_bins = if do_vectorscope {
-        vec![0u32; W * H]
-    } else {
-        vec![]
-    };
-
-    let x_scale = W as f32 / orig_w as f32;
-    let mut x_buckets = vec![0usize; orig_w as usize];
-
-    let mut x_buckets_parade_r = vec![0usize; orig_w as usize];
-    let mut x_buckets_parade_g = vec![0usize; orig_w as usize];
-    let mut x_buckets_parade_b = vec![0usize; orig_w as usize];
-
-    for x in 0..(orig_w as usize) {
-        x_buckets[x] = ((x as f32 * x_scale) as usize).min(W - 1);
-        if do_parade {
-            let relative_x = x as f32 / orig_w as f32;
-            x_buckets_parade_r[x] = (relative_x * 82.0) as usize % 82;
-            x_buckets_parade_g[x] = 87 + (relative_x * 82.0) as usize % 82;
-            x_buckets_parade_b[x] = 174 + (relative_x * 82.0) as usize % 82;
-        }
-    }
-
-    let mut process_pixel = |r: u8, g: u8, b: u8, out_x: usize, orig_x: usize| {
-        if do_rgb {
-            red_bins[(255 - r as usize) * W + out_x] += 1;
-            green_bins[(255 - g as usize) * W + out_x] += 1;
-            blue_bins[(255 - b as usize) * W + out_x] += 1;
-        }
-        if do_luma {
-            let l = ((r as u32 * 218 + g as u32 * 732 + b as u32 * 74) >> 10).min(255) as usize;
-            luma_bins[(255 - l) * W + out_x] += 1;
-        }
-        if do_parade {
-            parade_bins[(255 - r as usize) * W + x_buckets_parade_r[orig_x]] += 1;
-            parade_bins[(255 - g as usize) * W + x_buckets_parade_g[orig_x]] += 1;
-            parade_bins[(255 - b as usize) * W + x_buckets_parade_b[orig_x]] += 1;
-        }
-        if do_vectorscope {
-            let r_f = r as f32;
-            let g_f = g as f32;
-            let b_f = b as f32;
-
-            let mut cb = (-0.1146 * r_f - 0.3854 * g_f + 0.5 * b_f) * 0.836;
-            let mut cr = (0.5 * r_f - 0.4542 * g_f - 0.0458 * b_f) * 0.836;
-
-            let dist_sq = cb * cb + cr * cr;
-            if dist_sq > 16129.0 {
-                let scale = 127.0 / dist_sq.sqrt();
-                cb *= scale;
-                cr *= scale;
-            }
-
-            let vx = (cb + 128.0).clamp(0.0, 255.0) as usize;
-            let vy = (128.0 - cr).clamp(0.0, 255.0) as usize;
-            vector_bins[vy * W + vx] += 1;
-        }
-    };
-
-    match image {
-        DynamicImage::ImageRgb32F(f32_img) => {
-            let raw = f32_img.as_raw();
-            let stride = orig_w as usize * 3;
-            for y in 0..(orig_h as usize) {
-                let row = y * stride;
-                for (x, &x_bucket) in x_buckets.iter().enumerate() {
-                    let i = row + x * 3;
-                    process_pixel(
-                        (raw[i].clamp(0.0, 1.0) * 255.0) as u8,
-                        (raw[i + 1].clamp(0.0, 1.0) * 255.0) as u8,
-                        (raw[i + 2].clamp(0.0, 1.0) * 255.0) as u8,
-                        x_bucket,
-                        x,
-                    );
-                }
-            }
-        }
-        _ => {
-            let converted;
-            let (raw, channels) = match image {
-                DynamicImage::ImageRgb8(rgb) => (rgb.as_raw().as_slice(), 3),
-                DynamicImage::ImageRgba8(rgba) => (rgba.as_raw().as_slice(), 4),
-                _ => {
-                    converted = image.to_rgb8();
-                    (converted.as_raw().as_slice(), 3)
-                }
-            };
-            let stride = orig_w as usize * channels;
-            for y in 0..(orig_h as usize) {
-                let row = y * stride;
-                for (x, &x_bucket) in x_buckets.iter().enumerate() {
-                    let i = row + x * channels;
-                    process_pixel(raw[i], raw[i + 1], raw[i + 2], x_bucket, x);
-                }
-            }
-        }
-    }
-
-    let build_lut = |bins: &[u32], do_calc: bool| -> (Vec<u8>, u32) {
-        if !do_calc {
-            return (vec![0; 1], 0);
-        }
-        let max_val = *bins.iter().max().unwrap_or(&0);
-        if max_val == 0 {
-            return (vec![0; 1], 0);
-        }
-        let scale = 255.0 / (1.0 + max_val as f32).ln();
-        let lut = (0..=max_val)
-            .map(|v| {
-                if v == 0 {
-                    0
-                } else {
-                    ((1.0 + v as f32).ln() * scale) as u8
-                }
-            })
-            .collect();
-        (lut, max_val)
-    };
-
-    let (lut_r, max_r) = build_lut(&red_bins, do_rgb);
-    let (lut_g, max_g) = build_lut(&green_bins, do_rgb);
-    let (lut_b, max_b) = build_lut(&blue_bins, do_rgb);
-    let (lut_l, max_l) = build_lut(&luma_bins, do_luma);
-    let (lut_p, max_p) = build_lut(&parade_bins, do_parade);
-    let (lut_v, max_v) = build_lut(&vector_bins, do_vectorscope);
-
-    let pixel_count = W * H;
-    let byte_count = pixel_count * 4;
-
-    let mut rgba_rgb = if do_rgb {
-        vec![0u8; byte_count]
-    } else {
-        vec![]
-    };
-    let mut rgba_luma = if do_luma {
-        vec![0u8; byte_count]
-    } else {
-        vec![]
-    };
-    let mut rgba_parade = if do_parade {
-        vec![0u8; byte_count]
-    } else {
-        vec![]
-    };
-    let mut rgba_vector = if do_vectorscope {
-        vec![0u8; byte_count]
-    } else {
-        vec![]
-    };
-
-    for i in 0..pixel_count {
-        let x = i % W;
-        let y = i / W;
-        let off = i * 4;
-
-        if do_rgb {
-            let r = if red_bins[i] <= max_r {
-                lut_r[red_bins[i] as usize]
-            } else {
-                0
-            };
-            let g = if green_bins[i] <= max_g {
-                lut_g[green_bins[i] as usize]
-            } else {
-                0
-            };
-            let b = if blue_bins[i] <= max_b {
-                lut_b[blue_bins[i] as usize]
-            } else {
-                0
-            };
-            if r > 0 || g > 0 || b > 0 {
-                rgba_rgb[off] = r;
-                rgba_rgb[off + 1] = g;
-                rgba_rgb[off + 2] = b;
-                rgba_rgb[off + 3] = r.max(g).max(b);
-            }
-        }
-
-        if do_luma && luma_bins[i] > 0 && luma_bins[i] <= max_l {
-            let l = lut_l[luma_bins[i] as usize];
-            rgba_luma[off] = 255;
-            rgba_luma[off + 1] = 255;
-            rgba_luma[off + 2] = 255;
-            rgba_luma[off + 3] = l;
-        }
-
-        if do_parade && parade_bins[i] > 0 && parade_bins[i] <= max_p {
-            let bright = lut_p[parade_bins[i] as usize];
-            if x < 82 {
-                rgba_parade[off] = 255;
-                rgba_parade[off + 3] = bright;
-            } else if (87..169).contains(&x) {
-                rgba_parade[off + 1] = 255;
-                rgba_parade[off + 3] = bright;
-            } else if x >= 174 {
-                rgba_parade[off + 2] = 255;
-                rgba_parade[off + 3] = bright;
-            }
-        }
-
-        if do_vectorscope {
-            let val = vector_bins[i];
-
-            let dx = x as f32 - 128.0;
-            let dy = 128.0 - y as f32;
-            let min_d = dx.abs().min(dy.abs());
-            let dist = (dx * dx + dy * dy).sqrt();
-
-            if val > 0 && val <= max_v {
-                let bright = lut_v[val as usize];
-
-                let y_mid = 128.0;
-                rgba_vector[off] = (y_mid + 1.402 * (dy / 0.836)).clamp(0.0, 255.0) as u8;
-                rgba_vector[off + 1] = (y_mid - 0.344136 * (dx / 0.836) - 0.714136 * (dy / 0.836))
-                    .clamp(0.0, 255.0) as u8;
-                rgba_vector[off + 2] = (y_mid + 1.772 * (dx / 0.836)).clamp(0.0, 255.0) as u8;
-                rgba_vector[off + 3] = bright;
-            } else if min_d <= 1.0 {
-                let alpha = (40.0 - min_d * 30.0).clamp(0.0, 255.0) as u8;
-                rgba_vector[off] = 255;
-                rgba_vector[off + 1] = 255;
-                rgba_vector[off + 2] = 255;
-                rgba_vector[off + 3] = alpha;
-            } else if (dist - 127.0).abs() < 0.8 || (dist - 64.0).abs() < 0.8 {
-                rgba_vector[off] = 255;
-                rgba_vector[off + 1] = 255;
-                rgba_vector[off + 2] = 255;
-                rgba_vector[off + 3] = 15;
-            } else if dx < 0.0 && dy > 0.0 && (dy + 1.53 * dx).abs() < 1.0 {
-                rgba_vector[off] = 255;
-                rgba_vector[off + 1] = 200;
-                rgba_vector[off + 2] = 150;
-                rgba_vector[off + 3] = 120;
-            }
-        }
-    }
-
-    Ok(WaveformData {
-        rgb: if do_rgb {
-            BASE64.encode(&rgba_rgb)
-        } else {
-            String::new()
-        },
-        luma: if do_luma {
-            BASE64.encode(&rgba_luma)
-        } else {
-            String::new()
-        },
-        parade: if do_parade {
-            BASE64.encode(&rgba_parade)
-        } else {
-            String::new()
-        },
-        vectorscope: if do_vectorscope {
-            BASE64.encode(&rgba_vector)
-        } else {
-            String::new()
-        },
-        width: W as u32,
-        height: H as u32,
-    })
-}
-
 pub fn perform_auto_analysis(image: &DynamicImage) -> AutoAdjustmentResults {
     const ANALYSIS_MAX_DIM: u32 = 1024;
 
@@ -7912,62 +7538,6 @@ mod warp_quad_tests {
                 (a[0] - b[0]).abs() <= 4.0 * f32::EPSILON * a[0],
                 "{a:?} {b:?}"
             );
-        }
-    }
-}
-
-#[cfg(test)]
-mod analytics_borrow_tests {
-    use super::*;
-
-    #[test]
-    fn borrowed_rgb_and_rgba_analytics_match_converted_samples() {
-        for (width, height) in [(3, 7), (257, 49)] {
-            let rgba = image::RgbaImage::from_fn(width, height, |x, y| {
-                image::Rgba([
-                    ((x * 29 + y * 17) % 256) as u8,
-                    ((x * 11 + y * 7) % 256) as u8,
-                    ((x * 3 + y * 37) % 256) as u8,
-                    ((x * 7 + y * 19) % 256) as u8,
-                ])
-            });
-            let rgba = DynamicImage::ImageRgba8(rgba);
-            let rgb = DynamicImage::ImageRgb8(rgba.to_rgb8());
-            // 16-bit fallback still takes the prior to_rgb8 conversion path.
-            let reference = DynamicImage::ImageRgb16(rgb.to_rgb16());
-            let expected_hist = serde_json::to_value(
-                calculate_histogram_from_image(&reference, ClippedSides::default()).unwrap(),
-            )
-            .unwrap();
-            for image in [&rgb, &rgba] {
-                assert_eq!(
-                    serde_json::to_value(
-                        calculate_histogram_from_image(image, ClippedSides::default()).unwrap(),
-                    )
-                    .unwrap(),
-                    expected_hist
-                );
-                for channel in [
-                    None,
-                    Some("rgb"),
-                    Some("luma"),
-                    Some("parade"),
-                    Some("vectorscope"),
-                ] {
-                    let expected = serde_json::to_value(
-                        calculate_waveform_from_image(&reference, channel).unwrap(),
-                    )
-                    .unwrap();
-                    let actual = serde_json::to_value(
-                        calculate_waveform_from_image(image, channel).unwrap(),
-                    )
-                    .unwrap();
-                    assert!(
-                        actual == expected,
-                        "analytics changed for {width}x{height}, {channel:?}"
-                    );
-                }
-            }
         }
     }
 }
@@ -9155,6 +8725,112 @@ mod warp_points_tests {
                 cy + dy * k
             );
         }
+    }
+
+    /// A distortion centre off the frame's centre (Nikon Z's per-shot
+    /// optical centre, `centre_x`/`centre_y`): the zoom and the distortion
+    /// run about it, so an output pixel at q samples o + (q − o) T(|q − o|)
+    /// with o that centre, in the image warp, its inverse, the point
+    /// mappings and `inverse_transform_point`, with no black border; without
+    /// the camera's exact framing the offset is not read.
+    #[test]
+    fn an_off_centre_lens_distortion_runs_about_its_centre_everywhere() {
+        let (w, h) = (1200u32, 800u32);
+        let hd = (w as f64).hypot(h as f64) / 2.0;
+        let (ox, oy) = (-0.05f64, 0.02f64);
+        let lens = serde_json::json!({"k1": 0.012, "k2": -0.03, "k3": 0.01, "model": 1,
+            "zoom": 1.01, "exact_zoom": true, "centre_x": ox, "centre_y": oy});
+        let adjustments = serde_json::json!({
+            "lensCorrectionMode": "camera", "lensDistortionParams": lens,
+        });
+        let geometry = get_geometry_params_from_json(&adjustments);
+        assert_eq!(geometry.lens_centre, [ox as f32, oy as f32]);
+        let zoom = compute_lens_auto_crop_scale(&geometry, w as f32, h as f32);
+        assert!(zoom >= 1.01f32 as f64 && zoom < 1.03, "zoom {zoom}");
+        let (lx, ly) = (w as f64 / 2.0 + ox * hd, h as f64 / 2.0 + oy * hd);
+        let ptlens = |r: f64| {
+            let (a, b, c) = (0.012f32 as f64, -0.03f32 as f64, 0.01f32 as f64);
+            a * r * r * r + b * r * r + c * r + 1.0 - a - b - c
+        };
+        let expected = |x: f64, y: f64| {
+            let (dx, dy) = ((x - lx) / zoom, (y - ly) / zoom);
+            let k = ptlens(dx.hypot(dy) / hd);
+            (lx + dx * k, ly + dy * k)
+        };
+        let out = warp_image_geometry(&coordinates(w, h), geometry.clone())
+            .unwrap()
+            .into_rgb32f();
+        let points = WarpPoints::new(&geometry, w, h);
+        for (x, y) in [
+            (1100u32, 700u32),
+            (100, 100),
+            (600, 50),
+            (900, 400),
+            (lx as u32, ly as u32),
+        ] {
+            let (ex, ey) = expected(x as f64, y as f64);
+            let pixel = out.get_pixel(x, y);
+            let close = |a: f64, b: f64| (a - b).abs() < 0.02;
+            assert!(
+                close(pixel[0] as f64, ex) && close(pixel[1] as f64, ey),
+                "({x},{y}) samples ({},{}), expected ({ex},{ey})",
+                pixel[0],
+                pixel[1]
+            );
+            let (sx, sy) = points.to_source(x as f32, y as f32).unwrap();
+            assert!(
+                close(sx as f64, ex) && close(sy as f64, ey),
+                "to_source ({x},{y})"
+            );
+            let (bx, by) = points.to_output(sx, sy).unwrap();
+            assert!(
+                close(bx as f64, x as f64) && close(by as f64, y as f64),
+                "to_output ({x},{y})"
+            );
+            let (px, py) =
+                inverse_transform_point(x as f64, y as f64, w as f64, h as f64, &adjustments);
+            assert!(
+                close(px, ex) && close(py, ey),
+                "inverse_transform_point ({x},{y})"
+            );
+        }
+        // The unwarp brings the warped frame back.
+        let back = unwarp_image_geometry(&DynamicImage::ImageRgb32F(out.clone()), geometry.clone())
+            .into_rgb32f();
+        let pixel = back.get_pixel(300, 500);
+        assert!(
+            (pixel[0] - 300.0).abs() < 0.1 && (pixel[1] - 500.0).abs() < 0.1,
+            "{pixel:?}"
+        );
+        // No black border.
+        let grey = image::Rgb([0.5f32, 0.5, 0.5]);
+        let flat = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(w, h, grey));
+        let framed = warp_image_geometry(&flat, geometry.clone())
+            .unwrap()
+            .into_rgb32f();
+        let border = (0..w)
+            .flat_map(|x| [(x, 0), (x, h - 1)])
+            .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]));
+        for (x, y) in border {
+            assert!(framed.get_pixel(x, y)[0] > 0.4, "({x},{y})");
+        }
+        // The f32 warp (renderVersion 6) samples where the f64 warp does.
+        let p = warp_f32_displacement(&geometry, 8256, 5504, 13);
+        assert!(p.pixels > 200_000 && p.new.0 < 0.005, "{p:?}");
+        // Without the camera's exact framing the offset is not read, and
+        // without an offset the warp is the centred one.
+        let mut loose = adjustments.clone();
+        loose["lensDistortionParams"]["exact_zoom"] = serde_json::json!(false);
+        let mut centred = loose.clone();
+        centred["lensDistortionParams"]["centre_x"] = serde_json::json!(0.0);
+        centred["lensDistortionParams"]["centre_y"] = serde_json::json!(0.0);
+        let [a, b] = [loose, centred].map(|a| {
+            warp_image_geometry(&coordinates(w, h), get_geometry_params_from_json(&a))
+                .unwrap()
+                .into_rgb32f()
+                .into_raw()
+        });
+        assert!(a == b);
     }
 
     #[test]

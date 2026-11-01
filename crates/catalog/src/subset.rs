@@ -68,12 +68,16 @@ impl Library {
     /// their records, under a new catalog id and `name`. Their paths are
     /// still the source's (relative ones now relative to `folder`):
     /// `internalize_assets` / `reference_assets` place them.
+    ///
+    /// Returns also the stacks of the source that hold at least two of the
+    /// photographs kept, whole (the catalog keeps only their kept members):
+    /// the common state a later Import from Catalog compares stacks to.
     pub fn subset_from(
         source: &Path,
         folder: &Path,
         name: &str,
         keep: &[String],
-    ) -> Result<Library> {
+    ) -> Result<(Library, Vec<crate::stacks::Stack>)> {
         ensure!(
             !name.trim().is_empty() && name.len() <= 255,
             "Library name must be 1–255 bytes"
@@ -96,8 +100,20 @@ impl Library {
             serde_json::to_vec_pretty(&subset)?,
         )?;
         let library = Library::open(folder)?;
+        let kept: std::collections::HashSet<&String> = keep.iter().collect();
+        let stacks = library
+            .stacks()?
+            .into_iter()
+            .filter(|s| {
+                s.members
+                    .iter()
+                    .filter(|m| kept.contains(&m.asset_id))
+                    .count()
+                    >= 2
+            })
+            .collect();
         library.retain_only(keep)?;
-        Ok(library)
+        Ok((library, stacks))
     }
 
     /// Removes every photograph but `keep` with all its records, the albums

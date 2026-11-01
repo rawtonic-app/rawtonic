@@ -1447,7 +1447,8 @@
         "edit": "편집",
         "eyes": "눈 검사",
         "metadata": "메타데이터",
-        "snapshots": "스냅숏"
+        "snapshots": "스냅숏",
+        "stacks": "스택"
       },
       "changedPhotos_other": "변경된 사진 ({{count}})",
       "choice": {
@@ -1480,6 +1481,7 @@
         "there": "다른 카탈로그에서 변경"
       },
       "source": "가져올 카탈로그",
+      "stacks_other": "스택 {{count}}개를 가져왔습니다",
       "summary": "“{{name}}”: 새 사진 {{new}}, 변경 {{changed}}, 변경 없음 {{unchanged}}(건너뜀)",
       "title": "카탈로그에서 가져오기",
       "unchangedSkipped_other": "변경 없는 사진 {{count}}장 건너뜀",
@@ -1858,6 +1860,7 @@
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
       "importNotFound_other": "{{count}}장 찾을 수 없음",
+      "importStacks_other": "스택 {{count}}개를 가져왔습니다",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
       "ingestCancelled": "가져오기 취소됨",
       "ingested_other": "사진 {{count}}장을 복사하고 검증했습니다",
@@ -2447,6 +2450,8 @@
     "visualize": "스팟 시각화"
   },
   "stacks": {
+    "albumNote_one": "사진 {{count}}장을 스택으로 묶었습니다. 스택은 폴더 보기에 표시되며, 앨범에서는 사진이 하나씩 표시됩니다.",
+    "albumNote_other": "사진 {{count}}장을 스택으로 묶었습니다. 스택은 폴더 보기에 표시되며, 앨범에서는 사진이 하나씩 표시됩니다.",
     "auto": {
       "apply_one": "스택 {{count}}개 만들기",
       "apply_other": "스택 {{count}}개 만들기",
@@ -3705,7 +3710,19 @@
         },
         "noMatch": "“{{filter}}”이(가) 포함된 폴더 이름이 없습니다.",
         "reading": "폴더를 읽는 중…",
+        "roleRefused": {
+          "catalog": "카탈로그는 사진을 있는 자리에 두며, 역할 폴더는 세션에 속합니다.",
+          "sessionRoot": "세션 폴더 자체입니다."
+        },
+        "roleSet": "{{name}} 폴더를 {{folder}}로 설정했습니다",
+        "roleSetFailed": "{{name}} 폴더로 설정할 수 없습니다: {{error}}",
+        "roleSetMissing": "{{name}} 폴더를 {{folder}}로 설정했습니다 — 지금 거기에 없습니다 (디스크가 연결되었나요?)",
         "session": "프로젝트",
+        "setRole": {
+          "capture": "Capture 폴더로 설정",
+          "output": "Output 폴더로 설정",
+          "selects": "Selects 폴더로 설정"
+        },
         "sort": {
           "ascending": "오름차순",
           "created": "만든 날짜",
@@ -4486,6 +4503,20 @@
       "wholePhoto": "사진 전체",
       "x": "X 위치",
       "y": "Y 위치"
+    },
+    "scopes": {
+      "aria": "사진 스코프",
+      "empty": "사진을 열면 스코프를 볼 수 있습니다",
+      "luma": "휘도",
+      "lumaAria": "표시된 사진의 휘도 파형",
+      "mode": "보기",
+      "parade": "퍼레이드",
+      "paradeAria": "표시된 사진의 RGB 퍼레이드",
+      "rgb": "RGB",
+      "rgbAria": "표시된 사진의 RGB 파형",
+      "title": "스코프",
+      "vectorscope": "벡터",
+      "vectorscopeAria": "표시된 사진의 벡터스코프"
     },
     "seriesMatch": {
       "after": "맞춘 후",

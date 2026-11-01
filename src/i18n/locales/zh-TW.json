@@ -1447,7 +1447,8 @@
         "edit": "編輯",
         "eyes": "眼睛檢查",
         "metadata": "中繼資料",
-        "snapshots": "快照"
+        "snapshots": "快照",
+        "stacks": "堆疊"
       },
       "changedPhotos_other": "已變更的照片（{{count}}）",
       "choice": {
@@ -1480,6 +1481,7 @@
         "there": "在另一個目錄中變更"
       },
       "source": "要匯入的目錄",
+      "stacks_other": "已匯入 {{count}} 個堆疊",
       "summary": "「{{name}}」：新增 {{new}}，已變更 {{changed}}，未變更 {{unchanged}}（略過）",
       "title": "從目錄匯入",
       "unchangedSkipped_other": "已略過 {{count}} 張未變更的照片",
@@ -1858,6 +1860,7 @@
       "importCropsClipped_other": "{{count}} 個裁切超出相機畫面，已收縮到畫面內",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
       "importNotFound_other": "{{count}} 張找不到",
+      "importStacks_other": "已匯入 {{count}} 個堆疊",
       "importWarnings_other": "{{count}} 張照片已匯入，但有警告。{{error}}",
       "ingestCancelled": "匯入已取消",
       "ingested_other": "已拷貝並驗證 {{count}} 張照片",
@@ -2447,6 +2450,8 @@
     "visualize": "顯示污點"
   },
   "stacks": {
+    "albumNote_one": "已堆疊 {{count}} 張照片。堆疊會顯示在資料夾檢視中;相簿則逐張列出照片。",
+    "albumNote_other": "已堆疊 {{count}} 張照片。堆疊會顯示在資料夾檢視中;相簿則逐張列出照片。",
     "auto": {
       "apply_one": "建立 {{count}} 個堆疊",
       "apply_other": "建立 {{count}} 個堆疊",
@@ -3705,7 +3710,19 @@
         },
         "noMatch": "沒有資料夾名稱包含「{{filter}}」。",
         "reading": "正在讀取資料夾…",
+        "roleRefused": {
+          "catalog": "目錄保留相片的原位置；角色資料夾屬於會話。",
+          "sessionRoot": "這就是會話本身。"
+        },
+        "roleSet": "{{name}} 資料夾已設為 {{folder}}",
+        "roleSetFailed": "無法設為 {{name}} 資料夾：{{error}}",
+        "roleSetMissing": "{{name}} 資料夾已設為 {{folder}} — 目前不在那裡（磁碟是否已連接？）",
         "session": "專案",
+        "setRole": {
+          "capture": "設為 Capture 資料夾",
+          "output": "設為 Output 資料夾",
+          "selects": "設為 Selects 資料夾"
+        },
         "sort": {
           "ascending": "遞增",
           "created": "建立日期",
@@ -4486,6 +4503,20 @@
       "wholePhoto": "整張照片",
       "x": "X 位置",
       "y": "Y 位置"
+    },
+    "scopes": {
+      "aria": "照片示波器",
+      "empty": "開啟照片後可檢視示波器",
+      "luma": "亮度",
+      "lumaAria": "所顯示照片的亮度波形",
+      "mode": "檢視",
+      "parade": "分量",
+      "paradeAria": "所顯示照片的 RGB 分量圖",
+      "rgb": "RGB",
+      "rgbAria": "所顯示照片的 RGB 波形",
+      "title": "示波器",
+      "vectorscope": "向量",
+      "vectorscopeAria": "所顯示照片的向量示波器"
     },
     "seriesMatch": {
       "after": "統一後",

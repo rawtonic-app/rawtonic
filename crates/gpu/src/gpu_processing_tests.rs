@@ -15191,6 +15191,12 @@ fn gpu_warp_recipes() -> Vec<serde_json::Value> {
             (rawtonic_engine::manual_vignette::MIDPOINT_KEY): 20.0,
             "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
             (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        // A camera's exact framing about an off-centre distortion (Nikon Z's
+        // optical centre, cameraGeometryVersion 8).
+        json!({"renderVersion": 7, "lensCorrectionMode": "camera", "lensDistortionParams": {
+            "k1": 0.012, "k2": -0.03, "k3": 0.01, "model": 1, "zoom": 1.01, "exact_zoom": true,
+            "centre_x": -0.012, "centre_y": 0.004, "vig_k1": -0.3},
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
     ]
 }
 
@@ -15875,7 +15881,8 @@ fn clipping_marks_follow_the_limits_of_the_wide_spaces() {
         )
         .unwrap();
         let marks: Vec<u8> = analytics.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
-        // Marks: 1 shadows, 2 highlights. Pixels within 1 % of a limit
+        // Marks: 1 shadows, 2 highlights, then the channels (bits 2–4
+        // highlights, 5–7 shadows). Pixels within 1 % of a limit
         // (the 16-bit input, the matrix) may go either way.
         let mut checked = [0usize; 2];
         for (i, (&mark, value)) in marks.iter().zip(&judged_values).enumerate() {
@@ -15908,6 +15915,29 @@ fn clipping_marks_follow_the_limits_of_the_wide_spaces() {
             } else if inside(low, false) {
                 assert!(mark & 1 == 0, "{label}: shadow-marked inside the limit");
                 checked[1] += 1;
+            }
+            // Bits 2–4 / 5–7: which channels clip (the histogram's triangle
+            // colours), by the same tests per channel.
+            for (c, &v) in value.iter().enumerate() {
+                if v > high * 1.01 {
+                    assert!(
+                        mark & (4 << c) != 0,
+                        "{label}: channel {c} not highlight-marked"
+                    );
+                } else if v < high * 0.99 {
+                    assert!(
+                        mark & (4 << c) == 0,
+                        "{label}: channel {c} highlight-marked"
+                    );
+                }
+                if v < low * 0.99 || v < -1e-9 {
+                    assert!(
+                        mark & (32 << c) != 0,
+                        "{label}: channel {c} not shadow-marked"
+                    );
+                } else if v > low * 1.01 {
+                    assert!(mark & (32 << c) == 0, "{label}: channel {c} shadow-marked");
+                }
             }
         }
         assert!(
@@ -16065,7 +16095,7 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
         let marks: Vec<u8> = analytics.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
         let marked = |bit: u8| marks.iter().filter(|&&m| m & bit != 0).count();
         let (shadows, highlights) = (marked(1), marked(2));
-        let both = marks.iter().filter(|&&m| m == 3).count();
+        let both = marks.iter().filter(|&&m| m & 3 == 3).count();
         assert!(
             shadows > 0 && highlights > 0 && both > 0,
             "{space:?}: {shadows} {highlights} {both}"
@@ -16166,12 +16196,12 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
         ("P3 proofing sRGB", proofed, 1),
     ] {
         assert!(
-            rows[0].iter().all(|&m| m == inside_p3),
+            rows[0].iter().all(|&m| m & 3 == inside_p3),
             "{name}: P3 greens {:?}",
             rows[0]
         );
         assert!(
-            rows[1].iter().all(|&m| m == 1),
+            rows[1].iter().all(|&m| m & 3 == 1),
             "{name}: beyond P3 {:?}",
             rows[1]
         );

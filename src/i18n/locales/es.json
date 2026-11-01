@@ -1567,7 +1567,8 @@
         "edit": "edición",
         "eyes": "comprobaciones de ojos",
         "metadata": "metadatos",
-        "snapshots": "instantáneas"
+        "snapshots": "instantáneas",
+        "stacks": "pilas"
       },
       "changedPhotos_one": "Foto cambiada ({{count}})",
       "changedPhotos_many": "Fotos cambiadas ({{count}})",
@@ -1608,6 +1609,9 @@
         "there": "cambiada en el otro catálogo"
       },
       "source": "Catálogo del que importar",
+      "stacks_one": "{{count}} pila importada",
+      "stacks_many": "{{count}} pilas importadas",
+      "stacks_other": "{{count}} pilas importadas",
       "summary": "«{{name}}»: {{new}} nuevas, {{changed}} cambiadas, {{unchanged}} sin cambios (omitidas)",
       "title": "Importar desde catálogo",
       "unchangedSkipped_one": "{{count}} foto sin cambios omitida",
@@ -2034,6 +2038,9 @@
       "importNotFound_one": "{{count}} no encontrada",
       "importNotFound_many": "{{count}} no encontradas",
       "importNotFound_other": "{{count}} no encontradas",
+      "importStacks_one": "{{count}} pila importada",
+      "importStacks_many": "{{count}} pilas importadas",
+      "importStacks_other": "{{count}} pilas importadas",
       "importWarnings_one": "{{count}} foto se importó con una advertencia. {{error}}",
       "importWarnings_many": "{{count}} fotos se importaron con advertencias. {{error}}",
       "importWarnings_other": "{{count}} fotos se importaron con advertencias. {{error}}",
@@ -2662,6 +2669,9 @@
     "visualize": "Visualizar manchas"
   },
   "stacks": {
+    "albumNote_one": "{{count}} foto apilada. Las pilas se ven en las vistas de carpeta; un álbum muestra sus fotos por separado.",
+    "albumNote_many": "{{count}} fotos apiladas. Las pilas se ven en las vistas de carpeta; un álbum muestra sus fotos por separado.",
+    "albumNote_other": "{{count}} fotos apiladas. Las pilas se ven en las vistas de carpeta; un álbum muestra sus fotos por separado.",
     "auto": {
       "apply_one": "Crear {{count}} pila",
       "apply_many": "Crear {{count}} pilas",
@@ -3987,7 +3997,19 @@
         },
         "noMatch": "Ningún nombre de carpeta contiene «{{filter}}».",
         "reading": "Leyendo carpetas…",
+        "roleRefused": {
+          "catalog": "Un catálogo deja sus fotos donde están; las carpetas de rol son de una sesión.",
+          "sessionRoot": "Esta es la propia sesión."
+        },
+        "roleSet": "Carpeta {{name}} establecida en {{folder}}",
+        "roleSetFailed": "No se pudo establecer como carpeta {{name}}: {{error}}",
+        "roleSetMissing": "Carpeta {{name}} establecida en {{folder}} — ahora no está ahí (¿está conectado el disco?)",
         "session": "Proyecto",
+        "setRole": {
+          "capture": "Establecer como carpeta Capture",
+          "output": "Establecer como carpeta Output",
+          "selects": "Establecer como carpeta Selects"
+        },
         "sort": {
           "ascending": "Ascendente",
           "created": "Fecha de creación",
@@ -4799,6 +4821,20 @@
       "wholePhoto": "Toda la foto",
       "x": "Posición X",
       "y": "Posición Y"
+    },
+    "scopes": {
+      "aria": "Monitores de la foto",
+      "empty": "Monitores disponibles tras abrir una foto",
+      "luma": "Luma",
+      "lumaAria": "Forma de onda de luma de la foto mostrada",
+      "mode": "Vista",
+      "parade": "Desfile",
+      "paradeAria": "Desfile RGB de la foto mostrada",
+      "rgb": "RGB",
+      "rgbAria": "Forma de onda RGB de la foto mostrada",
+      "title": "Monitores",
+      "vectorscope": "Vector",
+      "vectorscopeAria": "Vectorscopio de la foto mostrada"
     },
     "seriesMatch": {
       "after": "Igualada",

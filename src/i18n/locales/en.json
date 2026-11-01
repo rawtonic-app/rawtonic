@@ -1487,7 +1487,8 @@
         "edit": "edit",
         "eyes": "eye checks",
         "metadata": "metadata",
-        "snapshots": "snapshots"
+        "snapshots": "snapshots",
+        "stacks": "stacks"
       },
       "changedPhotos_one": "Changed photo ({{count}})",
       "changedPhotos_other": "Changed photos ({{count}})",
@@ -1524,6 +1525,8 @@
         "there": "changed in the other catalog"
       },
       "source": "Catalog to import from",
+      "stacks_one": "{{count}} stack imported",
+      "stacks_other": "{{count}} stacks imported",
       "summary": "“{{name}}”: {{new}} new, {{changed}} changed, {{unchanged}} unchanged (skipped)",
       "title": "Import from Catalog",
       "unchangedSkipped_one": "{{count}} unchanged photo skipped",
@@ -1925,6 +1928,8 @@
       "imported_other": "{{count}} photos imported ({{withSettings}} with edits, {{albums}} albums)",
       "importNotFound_one": "{{count}} not found",
       "importNotFound_other": "{{count}} not found",
+      "importStacks_one": "{{count}} stack imported",
+      "importStacks_other": "{{count}} stacks imported",
       "importWarnings_one": "{{count}} photo was imported with a warning. {{error}}",
       "importWarnings_other": "{{count}} photos were imported with warnings. {{error}}",
       "ingestCancelled": "ingest cancelled",
@@ -2532,6 +2537,8 @@
     "visualize": "Visualize spots"
   },
   "stacks": {
+    "albumNote_one": "Stacked {{count}} photo. Stacks show in folder views; an album lists its photos singly.",
+    "albumNote_other": "Stacked {{count}} photos. Stacks show in folder views; an album lists its photos singly.",
     "auto": {
       "apply_one": "Make {{count}} stack",
       "apply_other": "Make {{count}} stacks",
@@ -3817,7 +3824,19 @@
         },
         "noMatch": "No folder names contain “{{filter}}”.",
         "reading": "Reading folders…",
+        "roleRefused": {
+          "catalog": "A catalog keeps its photos where they are; role folders belong to a session.",
+          "sessionRoot": "This is the session itself."
+        },
+        "roleSet": "{{name}} folder set to {{folder}}",
+        "roleSetFailed": "Could not make it the {{name}} folder: {{error}}",
+        "roleSetMissing": "{{name}} folder set to {{folder}} — not there now (is its drive connected?)",
         "session": "Project",
+        "setRole": {
+          "capture": "Set as Capture Folder",
+          "output": "Set as Output Folder",
+          "selects": "Set as Selects Folder"
+        },
         "sort": {
           "ascending": "Ascending",
           "created": "Date created",
@@ -4613,6 +4632,20 @@
       "wholePhoto": "Whole photo",
       "x": "Position X",
       "y": "Position Y"
+    },
+    "scopes": {
+      "aria": "Photo scopes",
+      "empty": "Scopes available after opening a photo",
+      "luma": "Luma",
+      "lumaAria": "Luma waveform of the shown photo",
+      "mode": "Scope",
+      "parade": "Parade",
+      "paradeAria": "RGB parade of the shown photo",
+      "rgb": "RGB",
+      "rgbAria": "RGB waveform of the shown photo",
+      "title": "Scopes",
+      "vectorscope": "Vector",
+      "vectorscopeAria": "Vectorscope of the shown photo"
     },
     "seriesMatch": {
       "after": "Matched",

@@ -247,6 +247,191 @@ fn write_stack(conn: &Connection, stack: &Stack) -> Result<()> {
     Ok(())
 }
 
+/// Brings in `stack`, a stack another library holds (a Lightroom
+/// catalog's, another Rawtonic catalog's), under its own id: the id is the
+/// source's, so importing the same library again finds the stack it made
+/// instead of making a second one. Never takes a photograph out of a stack
+/// it is in here (one the photographer made, or another import's): only
+/// members that are here and in no other stack join. A stack of that id
+/// here keeps its order, top and collapsed state (the photographer may have
+/// changed them since) and gains the members it lacks, after its own; a new
+/// one is made from at least two such members, in the source's order (top
+/// first) with the source's collapsed state. Returns the stack's id when it
+/// was made or changed.
+pub(crate) fn merge_stack(conn: &Connection, stack: &Stack) -> Result<Option<String>> {
+    let here = read_stack(conn, &stack.id)?;
+    let mut members = here.as_ref().map(|s| s.members.clone()).unwrap_or_default();
+    let before = members.len();
+    for member in &stack.members {
+        if members.contains(member) || !exists(conn, member)? {
+            continue;
+        }
+        if stack_of(conn, member)?.is_some_and(|id| id != stack.id) {
+            continue;
+        }
+        members.push(member.clone());
+    }
+    if members.len() == before || members.len() < 2 {
+        return Ok(None);
+    }
+    write_stack(
+        conn,
+        &Stack {
+            id: stack.id.clone(),
+            collapsed: here.map_or(stack.collapsed, |s| s.collapsed),
+            members,
+        },
+    )?;
+    Ok(Some(stack.id.clone()))
+}
+
+/// What an Import from Catalog does with a stack of the other catalog that
+/// changed there since the last import (`stack_offer`): the local stacks it
+/// replaces and the stack that takes their place.
+pub(crate) struct StackOffer {
+    replaces: Vec<String>,
+    stack: Stack,
+}
+
+/// Whether `a` and `b` are the same stack state (the id is not part of it).
+pub fn same_state(a: &Stack, b: &Stack) -> bool {
+    a.collapsed == b.collapsed && a.members == b.members
+}
+
+/// `stack` with only the members that are here.
+pub(crate) fn existing_members(conn: &Connection, stack: &Stack) -> Result<Stack> {
+    let mut members = Vec::new();
+    for member in &stack.members {
+        if exists(conn, member)? {
+            members.push(member.clone());
+        }
+    }
+    Ok(Stack {
+        id: stack.id.clone(),
+        collapsed: stack.collapsed,
+        members,
+    })
+}
+
+/// `stack` with only the members of photographs in `known`.
+fn restricted(stack: &Stack, known: &HashSet<String>) -> Stack {
+    Stack {
+        id: stack.id.clone(),
+        collapsed: stack.collapsed,
+        members: stack
+            .members
+            .iter()
+            .filter(|m| known.contains(&m.asset_id))
+            .cloned()
+            .collect(),
+    }
+}
+
+/// The change another library's stack `theirs` (its members named as here)
+/// brings, when it changed there since the last import and nothing here
+/// stands in its way. `common` holds the stack states both libraries had
+/// then (as stacks here); `known` the photographs here that the other
+/// library holds, the only ones its stacks can speak of. `None` when:
+/// - `theirs` is one of those states (it did not change there);
+/// - a stack here that holds one of its photographs, or carries its id, is
+///   not in a common state, or a common state that holds one of its
+///   photographs is no stack here any more (unstacked, regrouped,
+///   reordered): the photographer stacked differently here since, and that
+///   is kept;
+/// - fewer than two of its photographs are here, or nothing would change.
+///
+/// Otherwise the stacks here holding its photographs are replaced by it: its
+/// top, order, members and collapsed state; a member of a replaced stack
+/// that the other library does not hold stays, after the others.
+pub(crate) fn stack_offer(
+    conn: &Connection,
+    theirs: &Stack,
+    common: &[Stack],
+    known: &HashSet<String>,
+) -> Result<Option<StackOffer>> {
+    let mut stack = existing_members(conn, theirs)?;
+    if stack.members.len() < 2
+        || common.iter().any(|c| {
+            let c = restricted(c, known);
+            c.members.len() >= 2 && same_state(&c, &stack)
+        })
+    {
+        return Ok(None);
+    }
+    let mut replaces: Vec<String> = Vec::new();
+    for member in &stack.members {
+        if let Some(id) = stack_of(conn, member)?
+            && !replaces.contains(&id)
+        {
+            replaces.push(id);
+        }
+    }
+    if read_stack(conn, &stack.id)?.is_some() && !replaces.contains(&stack.id) {
+        replaces.push(stack.id.clone());
+    }
+    let mut here = Vec::new();
+    for id in &replaces {
+        let Some(local) = read_stack(conn, id)? else {
+            continue;
+        };
+        if !common.iter().any(|c| same_state(c, &local)) {
+            return Ok(None);
+        }
+        here.push(local);
+    }
+    // A state both had that holds one of its photographs must still be
+    // there as it was.
+    for c in common {
+        if c.members.iter().any(|m| stack.members.contains(m)) {
+            let Some(first) = c.members.first() else {
+                continue;
+            };
+            let kept = match stack_of(conn, first)? {
+                Some(id) => read_stack(conn, &id)?.is_some_and(|local| same_state(&local, c)),
+                None => false,
+            };
+            if !kept {
+                return Ok(None);
+            }
+        }
+    }
+    for member in here.iter().flat_map(|s| &s.members) {
+        if !known.contains(&member.asset_id) && !stack.members.contains(member) {
+            stack.members.push(member.clone());
+        }
+    }
+    if here.len() == 1 && same_state(&here[0], &stack) {
+        return Ok(None);
+    }
+    Ok(Some(StackOffer { replaces, stack }))
+}
+
+/// Puts `offer` in place of the stacks it replaces.
+pub(crate) fn apply_offer(conn: &Connection, offer: &StackOffer) -> Result<()> {
+    for id in &offer.replaces {
+        conn.execute("DELETE FROM stacks WHERE id=?", [id])?;
+    }
+    write_stack(conn, &offer.stack)
+}
+
+/// Brings in `theirs` as `stack_offer` says if it changed there alone,
+/// else as `merge_stack` does (completes, never rearranges). Returns the
+/// stack's id when it was made or changed.
+pub(crate) fn sync_stack(
+    conn: &Connection,
+    theirs: &Stack,
+    common: Option<&[Stack]>,
+    known: &HashSet<String>,
+) -> Result<Option<String>> {
+    if let Some(common) = common
+        && let Some(offer) = stack_offer(conn, theirs, common, known)?
+    {
+        apply_offer(conn, &offer)?;
+        return Ok(Some(offer.stack.id));
+    }
+    merge_stack(conn, theirs)
+}
+
 impl Library {
     /// Runs `change` on the stacks of `members` (and those it names by id
     /// afterwards) in one transaction; returns them before and after.
@@ -403,6 +588,82 @@ impl Library {
         Ok(())
     }
 
+    /// Whether Import from Catalog would change a stack here for `theirs`
+    /// (another catalog's stack, members named as here) that changed there
+    /// since the last import (`common`: the states both had then).
+    pub fn stack_import_offered(
+        &self,
+        theirs: &Stack,
+        common: &[Stack],
+        known: &HashSet<String>,
+    ) -> Result<bool> {
+        Ok(stack_offer(&self.conn, theirs, common, known)?.is_some())
+    }
+
+    /// The stack states both libraries hold after an import: the stack here
+    /// of each of `theirs` (members named as here, those not here left out;
+    /// `known`: the photographs the other library holds) that is the same
+    /// there, and each of `before` that no such stack replaces. A state of
+    /// `before` that is no stack here any more stays: it is what tells a
+    /// stack the photographer dissolved or changed here from one never
+    /// touched.
+    pub fn stack_import_common(
+        &self,
+        theirs: &[Stack],
+        before: &[Stack],
+        known: &HashSet<String>,
+    ) -> Result<Vec<Stack>> {
+        let mut out: Vec<Stack> = Vec::new();
+        for stack in theirs {
+            let stack = existing_members(&self.conn, stack)?;
+            if let Some(first) = stack.members.first()
+                && stack.members.len() >= 2
+                && let Some(here) = self.stack_of(first)?
+                && same_state(&restricted(&here, known), &stack)
+                && !out.iter().any(|c| same_state(c, &here))
+            {
+                out.push(here);
+            }
+        }
+        let fresh: HashSet<Member> = out.iter().flat_map(|s| s.members.clone()).collect();
+        for old in before {
+            if !old.members.iter().any(|m| fresh.contains(m))
+                && !out.iter().any(|c| same_state(c, old))
+            {
+                out.push(old.clone());
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every stack, its top first.
+    pub fn stacks(&self) -> Result<Vec<Stack>> {
+        let ids: Vec<String> = self
+            .conn
+            .prepare("SELECT id FROM stacks ORDER BY rowid")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        read_stacks(&self.conn, &ids)
+    }
+
+    /// Brings in the stacks of another library (`merge_stack`: under their
+    /// own ids, never taking a photograph out of a stack it is in here), in
+    /// one transaction. Returns the stacks made or extended, as they were
+    /// and are.
+    pub fn import_stacks(&self, stacks: &[Stack]) -> Result<StackChange> {
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let mut change = StackChange::default();
+        for stack in stacks {
+            let before = read_stack(&tx, &stack.id)?;
+            if merge_stack(&tx, stack)?.is_some() {
+                change.before.extend(before);
+                change.after.extend(read_stack(&tx, &stack.id)?);
+            }
+        }
+        tx.commit()?;
+        Ok(change)
+    }
+
     /// Every stack with its members' paths (a copy's path is its
     /// photograph's).
     pub fn listed_stacks(&self) -> Result<Vec<ListedStack>> {
@@ -470,9 +731,11 @@ impl Library {
     ///   bias already in the bracket starts the next bracket. Its top is the
     ///   frame nearest 0 EV (the earliest on a tie).
     /// - Burst: consecutive frames of one camera whose maker frame number
-    ///   (`sequence`, read where the facts reader knows the maker's field)
-    ///   counts up by one from the frame before, as close in time. Its top
-    ///   is its first frame.
+    ///   (`sequence`, read where the facts reader knows the maker's field:
+    ///   Fujifilm, Sony) rises from the frame before, as close in time; a
+    ///   number that does not rise starts the next burst (frames deleted in
+    ///   the camera or culled leave gaps, a new burst starts again at 1).
+    ///   Its top is its first frame.
     ///
     /// The rest are grouped by capture time: a photograph taken at most
     /// `interval_secs` after the one before joins its group (one camera or
@@ -656,8 +919,7 @@ fn auto_groups(frames: &[Frame], options: AutoStackOptions) -> Vec<AutoGroup> {
             let mut j = i + 1;
             while j < frames.len()
                 && !taken[j]
-                && frames[j].sequence.is_some()
-                && frames[j].sequence == frames[j - 1].sequence.map(|n| n + 1)
+                && frames[j].sequence > frames[j - 1].sequence
                 && camera_close(&frames[j - 1], &frames[j])
             {
                 run.push(j);
@@ -787,6 +1049,21 @@ mod tests {
                 (AutoKind::Time, vec!["x".to_string(), "y".into()]),
             ]
         );
+    }
+
+    #[test]
+    fn a_burst_with_frames_deleted_stays_one_and_a_restart_begins_the_next() {
+        let frames = [
+            frame("a1", 0, None, None, Some(1)),
+            frame("a3", 0, None, None, Some(3)),
+            frame("a7", 1, None, None, Some(7)),
+            frame("b1", 1, None, None, Some(1)),
+            frame("b2", 2, None, None, Some(2)),
+        ];
+        let groups = auto_groups(&frames, opts(1, true));
+        let runs: Vec<_> = groups.iter().map(|g| g.assets.clone()).collect();
+        assert_eq!(runs, [vec!["a1", "a3", "a7"], vec!["b1", "b2"]]);
+        assert!(groups.iter().all(|g| g.kind == AutoKind::Burst));
     }
 
     #[test]
