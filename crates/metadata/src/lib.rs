@@ -1013,6 +1013,22 @@ pub fn write_xmp(
     recipe: Option<&serde_json::Value>,
     expected_hash: Option<&str>,
 ) -> Result<String> {
+    write_xmp_announced(path, metadata, recipe, expected_hash, |_| Ok(()))
+}
+
+/// `write_xmp` that hands `announce` the digest of the sidecar it is about
+/// to publish, after every check and before the file is replaced: the
+/// caller records it durably, so a crash between the publish and the
+/// caller's commit of that digest is recognisable afterwards (the sidecar
+/// on disk then has the announced digest). An error from `announce` stops
+/// the write with the sidecar untouched.
+pub fn write_xmp_announced(
+    path: &Path,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
+    expected_hash: Option<&str>,
+    announce: impl FnOnce(&str) -> Result<()>,
+) -> Result<String> {
     let existing = match fs::read_to_string(path) {
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -1032,8 +1048,10 @@ pub fn write_xmp(
         );
     }
     let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
+    let hash = digest(merged.as_bytes());
+    announce(&hash)?;
     atomic_write(path, merged.as_bytes())?;
-    Ok(digest(merged.as_bytes()))
+    Ok(hash)
 }
 
 #[cfg(test)]

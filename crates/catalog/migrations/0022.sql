@@ -36,7 +36,7 @@ END;
 -- again for every dated photograph (only those can be auto-stacked) by the
 -- background pass, which replaces only
 -- capture facts, never a rating anyone gave (`facts::write_facts`). The
--- columns are added before this script runs (`Library::add_columns_22`:
+-- columns are added before this script runs (`Library::add_missing_columns`:
 -- only where missing, so the script can run again on a library a test
 -- took back to an older schema).
 UPDATE assets SET facts_read=0 WHERE facts_read=1 AND capture_time IS NOT NULL;
