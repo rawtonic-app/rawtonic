@@ -261,6 +261,44 @@ pub fn import(
         receipt.report.kept = changed.len();
         return Ok(receipt);
     }
+    // The other library's stacks holding a photograph that comes in, their
+    // members named as here (read before the snapshot keeps only what
+    // comes in). Photographs kept as they are here (unchanged, Keep
+    // current) are members too; one imported as a virtual copy is not.
+    let stacks = {
+        let here: HashMap<&str, &str> = photos
+            .iter()
+            .filter_map(|p| match (p.status, &p.target) {
+                (Status::New, _) if options.include_new => Some((p.id.as_str(), p.id.as_str())),
+                (Status::New, _) => None,
+                (_, Some(target)) => Some((p.id.as_str(), target.as_str())),
+                _ => None,
+            })
+            .filter(|(id, _)| {
+                !changed
+                    .iter()
+                    .any(|c| c.incoming == *id && c.choice == Choice::VirtualCopy)
+            })
+            .collect();
+        let used: HashSet<&str> = used.iter().map(String::as_str).collect();
+        source
+            .snapshot
+            .stacks()?
+            .into_iter()
+            .filter(|s| s.members.iter().any(|m| used.contains(m.asset_id.as_str())))
+            .map(|mut s| {
+                s.members
+                    .retain_mut(|m| match here.get(m.asset_id.as_str()) {
+                        Some(target) => {
+                            m.asset_id = target.to_string();
+                            true
+                        }
+                        None => false,
+                    });
+                s
+            })
+            .collect()
+    };
     // Only what comes in: no other photograph's resources are copied.
     source.snapshot.retain_only(&used)?;
     check(cancel)?;
@@ -285,6 +323,7 @@ pub fn import(
         changed,
         batch_kind: "add",
         before: options.before_snapshot.clone(),
+        stacks,
     };
     // A new photograph inside the other library's folder (its own copies)
     // belongs to it: referring to it would edit it in that library's name.

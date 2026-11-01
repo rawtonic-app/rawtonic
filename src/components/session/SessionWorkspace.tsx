@@ -44,6 +44,7 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorStore } from "../../store/useEditorStore";
 import { storedStudioLayout, useUIStore } from "../../store/useUIStore";
+import { refreshStacks } from "../../store/useStackStore";
 import { Invokes } from "../ui/AppProperties";
 import RawtonicMark from "../ui/RawtonicMark";
 import FirstStartToolsSide from "./FirstStartToolsSide";
@@ -287,6 +288,8 @@ interface ImportReport {
   /** Crops trimmed to the camera's frame (they reached beyond it). */
   cropsClipped?: number;
   albums: number;
+  /** Lightroom stacks made (or completed by a repeated import). */
+  stacks?: number;
   aiMasksOnOpen: number;
   errors: string[];
 }
@@ -900,6 +903,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           report.copiesSkipped
             ? t("session.toasts.importCopiesSkipped", { count: report.copiesSkipped })
             : null,
+          report.stacks ? t("session.toasts.importStacks", { count: report.stacks }) : null,
           report.cropsClipped
             ? t("session.toasts.importCropsClipped", { count: report.cropsClipped })
             : null,
@@ -915,6 +919,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
       setForm(null);
       await refresh();
+      void refreshStacks(session.directory);
     } catch (e) {
       setError(String(e));
     } finally {

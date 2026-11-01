@@ -331,6 +331,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
             .unwrap_or_default(),
         photos,
         albums,
+        stacks: Vec::new(),
         not_read,
     })
 }

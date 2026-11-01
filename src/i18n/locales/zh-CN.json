@@ -1480,6 +1480,7 @@
         "there": "在另一个目录中更改"
       },
       "source": "要导入的目录",
+      "stacks_other": "已导入 {{count}} 个堆叠",
       "summary": "“{{name}}”：新增 {{new}}，已更改 {{changed}}，未更改 {{unchanged}}（跳过）",
       "title": "从目录导入",
       "unchangedSkipped_other": "已跳过 {{count}} 张未更改的照片",
@@ -1848,6 +1849,7 @@
       "importCropsClipped_other": "{{count}} 个裁剪超出相机画面，已收缩到画面内",
       "imported_other": "已导入 {{count}} 张照片（{{withSettings}} 张有调整，{{albums}} 个相册）",
       "importNotFound_other": "{{count}} 张未找到",
+      "importStacks_other": "已导入 {{count}} 个堆叠",
       "importWarnings_other": "{{count}} 张照片已导入，但有警告。{{error}}",
       "ingestCancelled": "导入已取消",
       "ingested_other": "已复制并校验 {{count}} 张照片",

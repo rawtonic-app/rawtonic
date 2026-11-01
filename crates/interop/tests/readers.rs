@@ -125,6 +125,40 @@ fn lightroom_photos_metadata_settings_and_collections() {
     assert_eq!(lib.photos[1].path, moved.join("2026/B.NEF"));
 }
 
+/// Lightroom's folder stacks, with the tables of a Lightroom Classic 15
+/// catalog: members by `position` (a number; 1 the top), the collapsed
+/// state, a virtual copy among them; a one-member stack is none.
+#[test]
+fn lightroom_folder_stacks_keep_top_order_copies_and_collapse() {
+    let dir = tempfile::tempdir().unwrap();
+    let photos = dir.path().join("Photos");
+    let cat = lightroom_catalog(dir.path(), &photos);
+    Connection::open(&cat)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE AgLibraryFolderStack (id_local INTEGER PRIMARY KEY, id_global UNIQUE NOT NULL,
+               collapsed INTEGER NOT NULL DEFAULT 0, text NOT NULL DEFAULT '');
+             CREATE TABLE AgLibraryFolderStackImage (id_local INTEGER PRIMARY KEY,
+               collapsed INTEGER NOT NULL DEFAULT 0, image INTEGER NOT NULL DEFAULT 0,
+               position NOT NULL DEFAULT '', stack INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO AgLibraryFolderStack VALUES(20,'STACK-UUID',1,''),(21,'LONE',0,'');
+             INSERT INTO AgLibraryFolderStackImage VALUES(30,1,3,10.0,20),(31,1,2,1.0,20),
+               (32,1,1,2.0,20),(33,0,2,1.0,21);",
+        )
+        .unwrap();
+    let lib = lightroom::read(&cat).unwrap();
+    assert_eq!(lib.stacks.len(), 1);
+    let stack = &lib.stacks[0];
+    assert_eq!(stack.key, "STACK-UUID");
+    assert!(stack.collapsed);
+    // B on top, then A, then A's virtual copy (10 after 2, numerically).
+    assert_eq!(stack.photos, ["2", "1", "3"]);
+    // A catalog without the tables has no stacks.
+    let other = tempfile::tempdir().unwrap();
+    let plain = lightroom_catalog(other.path(), &photos);
+    assert!(lightroom::read(&plain).unwrap().stacks.is_empty());
+}
+
 /// Lightroom Classic 15 keeps develop settings only as a Lua table in
 /// `Adobe_imageDevelopSettings.text` (its XMP packet holds the metadata);
 /// `hasDevelopAdjustmentsEx = -1` marks a photo at its defaults.

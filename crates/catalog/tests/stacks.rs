@@ -348,6 +348,37 @@ fn a_library_of_schema_21_takes_stacks_and_reads_facts_again() {
     assert_eq!(left, 0);
 }
 
+#[test]
+fn a_library_of_schema_23_reads_sony_burst_numbers_again() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.RAF", "C.ARW"]);
+    let sony = CaptureFacts {
+        make: Some("SONY".into()),
+        ..facts("2026-10-30 10:00:00", None, None, None)
+    };
+    let fuji = CaptureFacts {
+        make: Some("FUJIFILM".into()),
+        ..facts("2026-10-30 10:00:00", None, None, Some(2))
+    };
+    let undated = CaptureFacts {
+        captured: None,
+        ..sony.clone()
+    };
+    lib.record_facts(&ids[0], &sony).unwrap();
+    lib.record_facts(&ids[1], &fuji).unwrap();
+    lib.record_facts(&ids[2], &undated).unwrap();
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0024.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    let read = |i: usize| lib.facts(&ids[i]).unwrap().unwrap().1;
+    // Dated Sony photographs are read again; others keep what was read.
+    assert!(!read(0));
+    assert!(read(1));
+    assert!(read(2));
+}
+
 /// Auto-Stack on 10,000 catalog rows: bursts of 5 frames 0–1 s apart every
 /// 30 s, every tenth burst a bracket. Prints plan and apply times
 /// (`cargo test -p rawtonic-catalog --release --test stacks -- --ignored

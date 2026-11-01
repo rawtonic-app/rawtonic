@@ -124,6 +124,9 @@ pub struct Plan {
     pub batch_kind: &'static str,
     /// The name of the snapshot that keeps an edit Replace replaces.
     pub before: String,
+    /// The other library's stacks that hold an imported photograph, their
+    /// members named as they are here (`stacks::merge_stack`).
+    pub stacks: Vec<crate::stacks::Stack>,
 }
 
 /// A changed photograph of a `Plan`.
@@ -146,6 +149,8 @@ pub struct Report {
     pub virtual_copies: usize,
     pub kept: usize,
     pub albums_created: usize,
+    /// Stacks made or extended here.
+    pub stacks: usize,
     /// The photographs here whose edits or copies changed (their derived
     /// editor sidecars are to be written again).
     pub touched: Vec<String>,
@@ -866,6 +871,11 @@ impl Library {
                     params![id, target],
                 )?;
             }
+        }
+        // Stacks after every photograph and copy is in; a photograph in a
+        // stack here stays in it.
+        for stack in &plan.stacks {
+            report.stacks += usize::from(crate::stacks::merge_stack(&tx, stack)?.is_some());
         }
         prune_blobs(&tx)?;
         tx.commit()?;

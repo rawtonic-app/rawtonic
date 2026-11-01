@@ -11,6 +11,9 @@
 //! (`<photo>.<id>.rrdata`) is published beside a photograph that is there,
 //! as for copies made in the app, with a fresh name and never over a file;
 //! no XMP is written for copies (Lightroom writes none for them either).
+//! Lightroom's folder stacks become stacks (library data only), with
+//! Lightroom's top, order and collapsed state, virtual copies included.
+use rawtonic_catalog::stacks::{Member, Stack};
 use rawtonic_catalog::{ALBUM, Combine, Field, GROUP, Library, Mode, Op, Rule, SMART};
 use rawtonic_interop::{
     Develop, Library as Source, NotRead, Photo, Root, SmartRule, SmartRules, SmartValue,
@@ -76,6 +79,8 @@ pub struct ImportReport {
     /// aspect ratio and is shrunk until all of it shows the photo.
     pub crops_clipped: usize,
     pub albums: usize,
+    /// Lightroom stacks made (or completed by a repeated import).
+    pub stacks: usize,
     /// Photographs with Lightroom AI masks (Select Subject, Select Sky):
     /// their model runs when the photo is opened in Develop, so exports
     /// before that leave those masks' layers without effect.
@@ -286,6 +291,8 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     }
     let mut report = ImportReport::default();
     let mut assets: HashMap<&str, String> = HashMap::new();
+    // Source keys → stack members here (photographs and virtual copies).
+    let mut members: HashMap<&str, Member> = HashMap::new();
     let _batch = catalog.import_batch(rawtonic_catalog::ImportKind::Add);
     for photo in source.photos.iter().filter(|p| p.copy_of.is_none()) {
         if !photo.path.is_file() {
@@ -298,6 +305,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 report.with_settings += usize::from(imported.translated);
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
+                members.insert(photo.key.as_str(), Member::photo(asset.clone()));
                 assets.insert(photo.key.as_str(), asset);
             }
             Err(e) => report.errors.push(format!("{}: {e}", photo.path.display())),
@@ -314,7 +322,14 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             continue;
         };
         match import_copy(catalog, asset, &source.name, photo) {
-            Ok(imported) => {
+            Ok((imported, copy)) => {
+                members.insert(
+                    photo.key.as_str(),
+                    Member {
+                        asset_id: asset.clone(),
+                        copy,
+                    },
+                );
                 report.copies += 1;
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
@@ -414,7 +429,55 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
         }
         pending = next;
     }
+    report.stacks = import_stacks(catalog, source, &members)?;
     Ok(report)
+}
+
+/// The source's stacks over the photographs and copies imported
+/// (`members`), in one transaction (`Library::import_stacks`): each under
+/// an id derived from the source's stack id, so a repeated import finds the
+/// stack it made (and adds what it lacks) instead of making another; a
+/// photograph in a stack here (the photographer's own, or another
+/// library's) stays where it is. Returns how many stacks were made or
+/// completed.
+fn import_stacks(
+    catalog: &Library,
+    source: &Source,
+    members: &HashMap<&str, Member>,
+) -> Result<usize, String> {
+    let stacks: Vec<Stack> = source
+        .stacks
+        .iter()
+        .map(|stack| Stack {
+            id: format!("imported-{}", stack_id(&source.name, &stack.key)),
+            collapsed: stack.collapsed,
+            members: stack
+                .photos
+                .iter()
+                .filter_map(|key| members.get(key.as_str()).cloned())
+                .collect(),
+        })
+        .filter(|stack| stack.members.len() >= 2)
+        .collect();
+    if stacks.is_empty() {
+        return Ok(0);
+    }
+    let change = catalog.import_stacks(&stacks).map_err(|e| e.to_string())?;
+    Ok(change.after.len())
+}
+
+/// A stable id for the source stack `key`: Lightroom's stack UUID (which a
+/// copied catalog keeps) alone; a key without one (its id within the
+/// catalog) together with the catalog's name.
+fn stack_id(source_name: &str, key: &str) -> String {
+    use sha2::Digest;
+    let origin = if uuid::Uuid::parse_str(key).is_ok() {
+        format!("uid\0{key}")
+    } else {
+        format!("key\0{source_name}\0{key}")
+    };
+    let digest = sha2::Sha256::digest(origin);
+    digest.iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
 /// Whether the translated edit holds AI masks whose data a model computes
@@ -749,7 +812,7 @@ fn import_copy(
     asset: &str,
     source_name: &str,
     photo: &Photo,
-) -> anyhow::Result<Imported> {
+) -> anyhow::Result<(Imported, String)> {
     let known = catalog.copies(asset)?;
     let origin = copy_origin(source_name, photo);
     let name = photo
@@ -772,7 +835,7 @@ fn import_copy(
             {
                 publish_new(&sidecar, &serde_json::to_vec_pretty(&state)?)?;
             }
-            return Ok(Imported::default());
+            return Ok((Imported::default(), candidate));
         }
         if !sidecar_of(&candidate).exists() {
             id = Some(candidate);
@@ -805,7 +868,7 @@ fn import_copy(
     {
         publish_new(&sidecar_of(&id), &serde_json::to_vec_pretty(&state)?)?;
     }
-    Ok(imported)
+    Ok((imported, id))
 }
 
 /// Writes `bytes` as the new file `path`: a synced temporary file published
@@ -968,6 +1031,7 @@ mod tests {
                     }),
                 },
             ],
+            stacks: vec![],
             not_read: NotRead::default(),
         };
         let shown = preview(&source, "lightroom");
@@ -1075,6 +1139,7 @@ mod tests {
             name: "LR".into(),
             photos: vec![lr, copy],
             albums: vec![],
+            stacks: vec![],
             not_read: NotRead::default(),
         };
         let report = import_into(&catalog, &source).unwrap();
@@ -1169,6 +1234,7 @@ mod tests {
                 name: "Lightroom Catalog".into(),
                 photos: vec![photo("1", path.clone(), Develop::None, None), copy],
                 albums: vec![],
+                stacks: vec![],
                 not_read: NotRead::default(),
             }
         };
@@ -1197,6 +1263,123 @@ mod tests {
         import_into(&catalog, &second).unwrap();
         assert_eq!(catalog.copies(&asset.id).unwrap().len(), 2);
         assert_eq!(fs::read(&path).unwrap(), b"a");
+    }
+
+    #[test]
+    fn lightroom_stacks_come_with_top_order_copies_and_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        for name in ["A.NEF", "B.NEF", "C.NEF", "D.NEF", "E.NEF"] {
+            fs::write(photos.join(name), name).unwrap();
+        }
+        let p = |key: &str, name: &str, copy_of: Option<&str>| {
+            let mut photo = photo(key, photos.join(name), Develop::None, copy_of);
+            photo.uid = Some(format!("UID-{key}"));
+            photo
+        };
+        let stack = |key: &str, collapsed: bool, photos: &[&str]| rawtonic_interop::Stack {
+            key: key.into(),
+            collapsed,
+            photos: photos.iter().map(|k| k.to_string()).collect(),
+        };
+        let source = Source {
+            name: "LR".into(),
+            photos: vec![
+                p("1", "A.NEF", None),
+                p("2", "B.NEF", None),
+                p("3", "C.NEF", None),
+                p("4", "A.NEF", Some("1")),
+                p("5", "D.NEF", None),
+                p("6", "E.NEF", None),
+                p("7", "Gone.NEF", None),
+            ],
+            albums: vec![],
+            stacks: vec![
+                // B on top, A, A's virtual copy, a photo not found.
+                stack(
+                    "507100D4-EDD0-42A1-9480-82D729286BA8",
+                    true,
+                    &["2", "1", "4", "7"],
+                ),
+                stack(
+                    "CAA5AF03-9393-4C52-8773-D9BC668743D8",
+                    false,
+                    &["3", "5", "6"],
+                ),
+            ],
+            not_read: NotRead::default(),
+        };
+        let id = |name: &str| catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
+        // The photographer stacked D and E here before the import.
+        catalog
+            .add_asset(&photos.join("D.NEF"))
+            .and_then(|_| catalog.add_asset(&photos.join("E.NEF")))
+            .unwrap();
+        catalog
+            .group_stack(&[Member::photo(id("E.NEF")), Member::photo(id("D.NEF"))])
+            .unwrap();
+        let report = import_into(&catalog, &source).unwrap();
+        assert!(report.errors.is_empty(), "{report:?}");
+        assert_eq!(report.stacks, 1, "{report:?}");
+        let copy = catalog.copies(&id("A.NEF")).unwrap().pop().unwrap();
+        let first = catalog
+            .stack_of(&Member::photo(id("B.NEF")))
+            .unwrap()
+            .unwrap();
+        assert!(first.collapsed);
+        assert_eq!(
+            first.members,
+            [
+                Member::photo(id("B.NEF")),
+                Member::photo(id("A.NEF")),
+                Member {
+                    asset_id: id("A.NEF"),
+                    copy: copy.clone()
+                },
+            ]
+        );
+        // C's stack would take D and E out of the photographer's stack:
+        // they stay, and C alone is no stack.
+        assert!(
+            catalog
+                .stack_of(&Member::photo(id("C.NEF")))
+                .unwrap()
+                .is_none()
+        );
+        let theirs = catalog
+            .stack_of(&Member::photo(id("D.NEF")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(theirs.members[0], Member::photo(id("E.NEF")));
+        assert_eq!(catalog.stacks().unwrap().len(), 2);
+        // The photographer moves A to the top and expands the stack; a
+        // repeated import changes nothing and makes no second stack.
+        catalog
+            .move_to_stack_top(&Member::photo(id("A.NEF")))
+            .unwrap();
+        catalog
+            .set_stacks_collapsed(&[Member::photo(id("A.NEF"))], Some(false))
+            .unwrap();
+        let before = catalog.stacks().unwrap();
+        let again = import_into(&catalog, &source).unwrap();
+        assert_eq!(again.stacks, 0, "{again:?}");
+        assert_eq!(catalog.stacks().unwrap(), before);
+        // The photo not found turns up (relinked): a repeated import adds it
+        // to its stack, after the members there.
+        fs::write(photos.join("Gone.NEF"), b"g").unwrap();
+        let found = import_into(&catalog, &source).unwrap();
+        assert_eq!(found.stacks, 1, "{found:?}");
+        let completed = catalog
+            .stack_of(&Member::photo(id("Gone.NEF")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.members.len(), 4);
+        assert_eq!(completed.members[0], Member::photo(id("A.NEF")));
+        assert!(!completed.collapsed);
+        // Stacks are library data: no photograph was written.
+        assert_eq!(fs::read(photos.join("A.NEF")).unwrap(), b"A.NEF");
     }
 
     fn condition(criteria: &str, operation: &str, value: SmartValue) -> SmartRule {
@@ -1304,6 +1487,7 @@ mod tests {
                 None,
             )],
             albums: vec![],
+            stacks: vec![],
             not_read: NotRead::default(),
         };
         assert_eq!(import_into(&catalog, &source).unwrap().imported, 1);
@@ -1363,6 +1547,7 @@ mod tests {
                 None,
             )],
             albums: vec![],
+            stacks: vec![],
             not_read: NotRead::default(),
         };
         let report = import_into(&catalog, &source).unwrap();
@@ -1403,6 +1588,7 @@ mod tests {
                 None,
             )],
             albums: vec![],
+            stacks: vec![],
             not_read: NotRead::default(),
         };
         assert_eq!(import_into(&catalog, &source).unwrap().imported, 1);
@@ -1440,6 +1626,7 @@ mod tests {
             name: "x".into(),
             photos: vec![],
             albums: vec![],
+            stacks: vec![],
             not_read: NotRead::default(),
         };
         assert!(import_into(&session, &source).is_err());
@@ -1542,5 +1729,17 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
+        fs::write(
+            out.join("stacks.json"),
+            serde_json::to_vec_pretty(&catalog.listed_stacks().unwrap()).unwrap(),
+        )
+        .unwrap();
+        // A repeated import makes no second stack.
+        let again = import_into(&catalog, &lib).unwrap();
+        println!(
+            "again: {} stacks made, {} in the catalog",
+            again.stacks,
+            catalog.stacks().unwrap().len()
+        );
     }
 }

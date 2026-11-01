@@ -28,6 +28,7 @@ import { Invokes } from "../ui/AppProperties";
 import { flushBeforeQuit, registerQuitFlush } from "../../utils/quit";
 import { openDialog } from "../../utils/fileDialog";
 import { useActivityStore } from "../../store/useActivityStore";
+import { refreshStacks } from "../../store/useStackStore";
 import { notify } from "../../activity/notify";
 import { catalogImportAction, type XmpReceipt } from "../../utils/appUndo";
 
@@ -56,7 +57,7 @@ export interface CatalogImportOptions {
   beforeSnapshot: string;
 }
 interface Receipt {
-  added: number; replaced: number; virtualCopies: number; kept: number; albumsCreated: number;
+  added: number; replaced: number; virtualCopies: number; kept: number; albumsCreated: number; stacks?: number;
   unchanged: number; originalsCopied: number; offline: number; missingResources: number; leftOut: number;
   /** What puts back the metadata Replace replaced (one undo step). */
   undo: XmpReceipt[];
@@ -99,6 +100,7 @@ export async function runCatalogImport(target: string, other: string, name: stri
       t("session.catalogImport.added", { count: receipt.added }),
       t("session.catalogImport.replaced", { count: receipt.replaced }),
       receipt.virtualCopies ? t("session.catalogImport.virtualCopies", { count: receipt.virtualCopies }) : "",
+      receipt.stacks ? t("session.catalogImport.stacks", { count: receipt.stacks }) : "",
       receipt.kept ? t("session.catalogImport.kept", { count: receipt.kept }) : "",
       t("session.catalogImport.unchangedSkipped", { count: receipt.unchanged }),
       receipt.originalsCopied ? t("session.catalogExport.originalsCopied", { count: receipt.originalsCopied }) : "",
@@ -107,6 +109,7 @@ export async function runCatalogImport(target: string, other: string, name: stri
     ].filter(Boolean).join("\n");
     notify.success(t("session.catalogImport.done", { name }), { source: "import", toastId: CATALOG_IMPORT_ACTIVITY, detail });
     await onDone();
+    void refreshStacks(target);
   } catch (e) {
     const message = String(e);
     useActivityStore.getState().resolve(id);

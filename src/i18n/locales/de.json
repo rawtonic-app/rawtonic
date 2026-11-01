@@ -1524,6 +1524,8 @@
         "there": "im anderen Katalog geändert"
       },
       "source": "Katalog, aus dem importiert wird",
+      "stacks_one": "{{count}} Stapel importiert",
+      "stacks_other": "{{count}} Stapel importiert",
       "summary": "„{{name}}“: {{new}} neu, {{changed}} geändert, {{unchanged}} unverändert (übersprungen)",
       "title": "Aus Katalog importieren",
       "unchangedSkipped_one": "{{count}} unverändertes Foto übersprungen",
@@ -1916,6 +1918,8 @@
       "imported_other": "{{count}} Fotos importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "importNotFound_one": "{{count}} nicht gefunden",
       "importNotFound_other": "{{count}} nicht gefunden",
+      "importStacks_one": "{{count}} Stapel importiert",
+      "importStacks_other": "{{count}} Stapel importiert",
       "importWarnings_one": "{{count}} Foto wurde mit einer Warnung importiert. {{error}}",
       "importWarnings_other": "{{count}} Fotos wurden mit Warnungen importiert. {{error}}",
       "ingestCancelled": "Import abgebrochen",

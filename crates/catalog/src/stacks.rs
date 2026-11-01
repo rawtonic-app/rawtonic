@@ -247,6 +247,44 @@ fn write_stack(conn: &Connection, stack: &Stack) -> Result<()> {
     Ok(())
 }
 
+/// Brings in `stack`, a stack another library holds (a Lightroom
+/// catalog's, another Rawtonic catalog's), under its own id: the id is the
+/// source's, so importing the same library again finds the stack it made
+/// instead of making a second one. Never takes a photograph out of a stack
+/// it is in here (one the photographer made, or another import's): only
+/// members that are here and in no other stack join. A stack of that id
+/// here keeps its order, top and collapsed state (the photographer may have
+/// changed them since) and gains the members it lacks, after its own; a new
+/// one is made from at least two such members, in the source's order (top
+/// first) with the source's collapsed state. Returns the stack's id when it
+/// was made or changed.
+pub(crate) fn merge_stack(conn: &Connection, stack: &Stack) -> Result<Option<String>> {
+    let here = read_stack(conn, &stack.id)?;
+    let mut members = here.as_ref().map(|s| s.members.clone()).unwrap_or_default();
+    let before = members.len();
+    for member in &stack.members {
+        if members.contains(member) || !exists(conn, member)? {
+            continue;
+        }
+        if stack_of(conn, member)?.is_some_and(|id| id != stack.id) {
+            continue;
+        }
+        members.push(member.clone());
+    }
+    if members.len() == before || members.len() < 2 {
+        return Ok(None);
+    }
+    write_stack(
+        conn,
+        &Stack {
+            id: stack.id.clone(),
+            collapsed: here.map_or(stack.collapsed, |s| s.collapsed),
+            members,
+        },
+    )?;
+    Ok(Some(stack.id.clone()))
+}
+
 impl Library {
     /// Runs `change` on the stacks of `members` (and those it names by id
     /// afterwards) in one transaction; returns them before and after.
@@ -403,6 +441,34 @@ impl Library {
         Ok(())
     }
 
+    /// Every stack, its top first.
+    pub fn stacks(&self) -> Result<Vec<Stack>> {
+        let ids: Vec<String> = self
+            .conn
+            .prepare("SELECT id FROM stacks ORDER BY rowid")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        read_stacks(&self.conn, &ids)
+    }
+
+    /// Brings in the stacks of another library (`merge_stack`: under their
+    /// own ids, never taking a photograph out of a stack it is in here), in
+    /// one transaction. Returns the stacks made or extended, as they were
+    /// and are.
+    pub fn import_stacks(&self, stacks: &[Stack]) -> Result<StackChange> {
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let mut change = StackChange::default();
+        for stack in stacks {
+            let before = read_stack(&tx, &stack.id)?;
+            if merge_stack(&tx, stack)?.is_some() {
+                change.before.extend(before);
+                change.after.extend(read_stack(&tx, &stack.id)?);
+            }
+        }
+        tx.commit()?;
+        Ok(change)
+    }
+
     /// Every stack with its members' paths (a copy's path is its
     /// photograph's).
     pub fn listed_stacks(&self) -> Result<Vec<ListedStack>> {
@@ -470,9 +536,11 @@ impl Library {
     ///   bias already in the bracket starts the next bracket. Its top is the
     ///   frame nearest 0 EV (the earliest on a tie).
     /// - Burst: consecutive frames of one camera whose maker frame number
-    ///   (`sequence`, read where the facts reader knows the maker's field)
-    ///   counts up by one from the frame before, as close in time. Its top
-    ///   is its first frame.
+    ///   (`sequence`, read where the facts reader knows the maker's field:
+    ///   Fujifilm, Sony) rises from the frame before, as close in time; a
+    ///   number that does not rise starts the next burst (frames deleted in
+    ///   the camera or culled leave gaps, a new burst starts again at 1).
+    ///   Its top is its first frame.
     ///
     /// The rest are grouped by capture time: a photograph taken at most
     /// `interval_secs` after the one before joins its group (one camera or
@@ -656,8 +724,7 @@ fn auto_groups(frames: &[Frame], options: AutoStackOptions) -> Vec<AutoGroup> {
             let mut j = i + 1;
             while j < frames.len()
                 && !taken[j]
-                && frames[j].sequence.is_some()
-                && frames[j].sequence == frames[j - 1].sequence.map(|n| n + 1)
+                && frames[j].sequence > frames[j - 1].sequence
                 && camera_close(&frames[j - 1], &frames[j])
             {
                 run.push(j);
@@ -787,6 +854,21 @@ mod tests {
                 (AutoKind::Time, vec!["x".to_string(), "y".into()]),
             ]
         );
+    }
+
+    #[test]
+    fn a_burst_with_frames_deleted_stays_one_and_a_restart_begins_the_next() {
+        let frames = [
+            frame("a1", 0, None, None, Some(1)),
+            frame("a3", 0, None, None, Some(3)),
+            frame("a7", 1, None, None, Some(7)),
+            frame("b1", 1, None, None, Some(1)),
+            frame("b2", 2, None, None, Some(2)),
+        ];
+        let groups = auto_groups(&frames, opts(1, true));
+        let runs: Vec<_> = groups.iter().map(|g| g.assets.clone()).collect();
+        assert_eq!(runs, [vec!["a1", "a3", "a7"], vec!["b1", "b2"]]);
+        assert!(groups.iter().all(|g| g.kind == AutoKind::Burst));
     }
 
     #[test]

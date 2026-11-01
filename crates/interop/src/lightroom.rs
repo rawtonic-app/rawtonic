@@ -12,9 +12,12 @@
 //! XMP packet carries the `crs:` settings instead are read from there.
 //! Collections and collection sets become albums and album groups; smart
 //! collections carry their rules (`AgLibraryCollectionContent`), which the
-//! app translates where it can.
+//! app translates where it can. Folder stacks (with the virtual copies
+//! Lightroom stacks with their photograph) come with their top, order and
+//! collapsed state.
 use crate::{
-    Album, Develop, Library, NotRead, Photo, SmartRule, SmartRules, SmartValue, label_from_name,
+    Album, Develop, Library, NotRead, Photo, SmartRule, SmartRules, SmartValue, Stack,
+    label_from_name,
     lightroom_settings::{self, Lua},
     open_copy,
 };
@@ -286,6 +289,8 @@ pub fn read(catalog: &Path) -> Result<Library> {
         }
     }
 
+    let stacks = folder_stacks(&conn)?;
+
     Ok(Library {
         name: catalog
             .file_stem()
@@ -293,8 +298,53 @@ pub fn read(catalog: &Path) -> Result<Library> {
             .unwrap_or_default(),
         photos,
         albums,
+        stacks,
         not_read,
     })
+}
+
+/// Lightroom's folder stacks (`AgLibraryFolderStack`, members in
+/// `AgLibraryFolderStackImage` by `position`, 1 being the top; Lightroom
+/// stacks a virtual copy with its photograph when it makes one). Stacks
+/// within a collection (`AgLibraryCollectionStack`) are the collection's
+/// own view and are not read. A catalog without the tables has none.
+fn folder_stacks(conn: &rusqlite::Connection) -> Result<Vec<Stack>> {
+    let Ok(mut q) = conn.prepare(
+        "SELECT s.id_local, s.id_global, s.collapsed, m.image
+         FROM AgLibraryFolderStack s JOIN AgLibraryFolderStackImage m ON m.stack = s.id_local
+         ORDER BY s.id_local, CAST(m.position AS REAL), m.id_local",
+    ) else {
+        return Ok(Vec::new());
+    };
+    let mut stacks: Vec<(i64, Stack)> = Vec::new();
+    for row in q.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, Option<String>>(1)?,
+            r.get::<_, Option<i64>>(2)?,
+            r.get::<_, i64>(3)?,
+        ))
+    })? {
+        let (id, uid, collapsed, image) = row?;
+        match stacks.last_mut() {
+            Some((last, stack)) if *last == id => stack.photos.push(image.to_string()),
+            _ => stacks.push((
+                id,
+                Stack {
+                    key: uid
+                        .filter(|u| !u.trim().is_empty())
+                        .unwrap_or_else(|| id.to_string()),
+                    collapsed: collapsed.unwrap_or(0) != 0,
+                    photos: vec![image.to_string()],
+                },
+            )),
+        }
+    }
+    Ok(stacks
+        .into_iter()
+        .map(|(_, s)| s)
+        .filter(|s| s.photos.len() >= 2)
+        .collect())
 }
 
 /// Every keyword's path from the top ("Places|Italy|Rome"); Lightroom's

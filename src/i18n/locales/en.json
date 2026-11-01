@@ -1524,6 +1524,8 @@
         "there": "changed in the other catalog"
       },
       "source": "Catalog to import from",
+      "stacks_one": "{{count}} stack imported",
+      "stacks_other": "{{count}} stacks imported",
       "summary": "“{{name}}”: {{new}} new, {{changed}} changed, {{unchanged}} unchanged (skipped)",
       "title": "Import from Catalog",
       "unchangedSkipped_one": "{{count}} unchanged photo skipped",
@@ -1916,6 +1918,8 @@
       "imported_other": "{{count}} photos imported ({{withSettings}} with edits, {{albums}} albums)",
       "importNotFound_one": "{{count}} not found",
       "importNotFound_other": "{{count}} not found",
+      "importStacks_one": "{{count}} stack imported",
+      "importStacks_other": "{{count}} stacks imported",
       "importWarnings_one": "{{count}} photo was imported with a warning. {{error}}",
       "importWarnings_other": "{{count}} photos were imported with warnings. {{error}}",
       "ingestCancelled": "ingest cancelled",
