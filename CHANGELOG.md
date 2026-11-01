@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.11.1 — 2026-11-02
+
+A small update. Relight's set-ups now relight a portrait instead of brightening and tinting it, artefacts at the eyes, ears and backdrop are gone, and photos whose Relight analysis was made before alpha.11 get their depth back. The Develop sliders are finer to drag. Saved edits export exactly as in alpha.11, except Relight edits whose analysis was made before alpha.11 (see *Changes to existing edits*).
+
+### Highlights
+
+- **Relight set-ups that look lit, not edited.** On 9 set-ups and 5 portraits, the set-ups of alpha.11 brightened the face by 11–21 L* (about one to one and a half stops), tinted it peach and dimmed the backdrop, so the subject looked cut out under a spotlight. Now:
+  - A key light has the photo's white balance; only *Warm evening light* and *Blinds at sunset* are warm.
+  - Strength is set so the face keeps its exposure: within −0.8 to +2.2 L*.
+  - *Original light* acts on the subject only; the backdrop keeps its own light and gets the new light by its distance.
+  - Window light puts a pane on the face instead of the window's cross, and blinds have slats a quarter of the face wide, with the sun higher.
+- **No milky eyes, frayed ears or wavy backdrops.** New lights (`rangeVersion` 3) fix three artefacts:
+  - **Eyes:** the light's skin sheen no longer lies over the eyes as a grey veil. It is narrower and sits on the forehead, nose and cheekbones.
+  - **Shadow side:** it is no longer lifted fivefold, which flattened the face into a smooth, modelled look.
+  - **Edges and patterns:** a pattern no longer leaves bright, jagged slivers along ears and hair, and stays straight on a plain backdrop instead of bending into waves.
+
+  Lights you already made keep their look. *Use the current ranges* moves one over at the same brightness.
+- **Finer sliders.**
+  - **Column width:** the wider tool column of alpha.11 (340 px, Exposure 0.070 EV per pixel as in Lightroom) now also reaches everyone who used Rawtonic before; the old default had stayed stored as if chosen. A width you set yourself stays.
+  - **Thumb:** pressing a slider's thumb no longer moves its value.
+  - **Precision drag:** moving the pointer away from the slider while dragging makes the drag finer, down to a tenth (0.007 EV per pixel for Exposure), without a key. The slider's tooltip says so.
+  - **Brightness:** the range is ±2 instead of ±5. 5 clipped half the photo and made the slider 2.5 times coarser; ±2 covers Capture One's whole Brightness range.
+
+### Changes to existing edits
+
+- **Relight edits whose depth analysis was made before alpha.11** render with their depth again. Lights on such photos looked flat in alpha.11 because the analysis was set aside unnoticed. All other saved edits render and export as in alpha.11, Relight lights included.
+
 ## 0.1.0-alpha.11 — 2026-11-01
 
 The eleventh alpha. Library work gains stacks with Auto-Stack, session folders anywhere (also set from the folder tree), *Add Folder…* that adds a folder's photos to a catalog where they are, and Export as Catalog / Import from Catalog to take a job to another computer and bring it back. Lightroom Classic 15 catalogs now come over with their edits, crop and straighten, virtual copies, snapshots and stacks, and Lightroom and Capture One sidecars are read and written the way those programs show them. In Develop: before/after side by side, Find Dust, a profile browser with tiles of the open photo, a picker loupe, measured scopes, Relight with a direction ball and set-ups, Highlights that keep bright skies bright, and faster stepping when culling. After a forced quit or crash Rawtonic now cleans up what was left behind and offers to finish an interrupted batch edit. Windows is still experimental and unsigned. Saved edits export exactly as before, except never-opened photos whose Sky or Subject selections had not been computed yet; new edits and never-edited photos change in a few cases (see *Changes to existing edits*).
