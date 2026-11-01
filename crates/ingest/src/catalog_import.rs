@@ -19,6 +19,7 @@ use rawtonic_catalog::{
     Library, Mode,
     catalog_import::{Changed, Choice, Incoming, Plan, Report, Side, Status},
     portable::ResourceUse,
+    stacks::Stack,
     subset::{read_manifest, snapshot_database},
 };
 use serde::{Deserialize, Serialize};
@@ -221,20 +222,46 @@ pub fn import(
         .iter()
         .filter(|p| p.status == Status::New && options.include_new)
         .collect();
+    let choice_of = |p: &Incoming| {
+        options
+            .overrides
+            .get(&p.id)
+            .copied()
+            .or(options.changed)
+            .unwrap_or_else(|| default_choice(p))
+    };
+    // A photograph the same in both, only its stack changed there: Replace
+    // brings the stack, any other choice leaves it (a stack is no virtual
+    // copy).
+    let is_stack_only = |p: &Incoming| p.changes == ["stacks"];
+    let stack_only: Vec<&Incoming> = photos
+        .iter()
+        .filter(|p| p.status == Status::Changed && is_stack_only(p))
+        .collect();
+    let (replaced, kept): (Vec<&Incoming>, Vec<&Incoming>) = stack_only
+        .iter()
+        .partition(|p| choice_of(p) == Choice::Replace);
+    let stack_replaced: HashSet<&str> = replaced.iter().map(|p| p.id.as_str()).collect();
     let changed: Vec<Changed> = photos
         .iter()
-        .filter(|p| p.status == Status::Changed)
+        .filter(|p| p.status == Status::Changed && !is_stack_only(p))
         .map(|p| Changed {
             incoming: p.id.clone(),
             target: p.target.clone().expect("a changed photograph has one here"),
-            choice: options
-                .overrides
-                .get(&p.id)
-                .copied()
-                .or(options.changed)
-                .unwrap_or_else(|| default_choice(p)),
+            choice: choice_of(p),
             changes: p.changes.clone(),
         })
+        .collect();
+    // Keep current keeps everything of the photograph here, its stack too.
+    let stack_left: HashSet<&str> = kept
+        .iter()
+        .map(|p| p.id.as_str())
+        .chain(
+            changed
+                .iter()
+                .filter(|c| c.choice == Choice::Keep)
+                .map(|c| c.incoming.as_str()),
+        )
         .collect();
     let used: Vec<String> = new
         .iter()
@@ -257,15 +284,17 @@ pub fn import(
     if let Err(error) = target.record_import(&source.snapshot, &source.directory, &same) {
         log::warn!("Import from Catalog: common states not recorded: {error:#}");
     }
-    if used.is_empty() {
-        receipt.report.kept = changed.len();
+    let stack_kept = stack_only.len() - stack_replaced.len();
+    if used.is_empty() && stack_replaced.is_empty() {
+        receipt.report.kept = changed.len() + stack_kept;
         return Ok(receipt);
     }
+    let common_stacks = target.common_stacks(&source.snapshot, &source.directory);
     // The other library's stacks holding a photograph that comes in, their
     // members named as here (read before the snapshot keeps only what
     // comes in). Photographs kept as they are here (unchanged, Keep
     // current) are members too; one imported as a virtual copy is not.
-    let stacks = {
+    let (stacks, theirs_as_here, known_here, stacks_left) = {
         let here: HashMap<&str, &str> = photos
             .iter()
             .filter_map(|p| match (p.status, &p.target) {
@@ -281,42 +310,59 @@ pub fn import(
             })
             .collect();
         let used: HashSet<&str> = used.iter().map(String::as_str).collect();
+        let all = Library::stacks_as_here(&source.snapshot, &here)?;
+        let named = source.snapshot.stacks()?;
+        // The ones to bring: those with an imported photograph or one whose
+        // stack is offered. One choice stands for the whole stack: with a
+        // photograph set to Keep current it is only completed, however the
+        // others are set.
+        let chosen: Vec<Stack> = named
+            .iter()
+            .zip(&all)
+            .filter(|(theirs, _)| {
+                let any = |set: &HashSet<&str>| {
+                    theirs
+                        .members
+                        .iter()
+                        .any(|m| set.contains(m.asset_id.as_str()))
+                };
+                any(&used) || (any(&stack_replaced) && !any(&stack_left))
+            })
+            .map(|(_, here)| here.clone())
+            .collect();
+        let known: HashSet<String> = here.values().map(|id| id.to_string()).collect();
+        let left: HashSet<String> = named
+            .iter()
+            .filter(|s| {
+                s.members
+                    .iter()
+                    .any(|m| stack_left.contains(m.asset_id.as_str()))
+            })
+            .map(|s| s.id.clone())
+            .collect();
+        (chosen, all, known, left)
+    };
+    // Only what comes in: no other photograph's resources are copied (a
+    // stack changed alone brings no photograph).
+    if !used.is_empty() {
+        source.snapshot.retain_only(&used)?;
+        check(cancel)?;
+        // The edit resources the imported photographs use, into this catalog's
+        // `resources/` (references in a database are its library's own).
+        let mut copier = ResourceCopier::new(&target.directory, &source.directory, cancel);
         source
             .snapshot
-            .stacks()?
-            .into_iter()
-            .filter(|s| s.members.iter().any(|m| used.contains(m.asset_id.as_str())))
-            .map(|mut s| {
-                s.members
-                    .retain_mut(|m| match here.get(m.asset_id.as_str()) {
-                        Some(target) => {
-                            m.asset_id = target.to_string();
-                            true
-                        }
-                        None => false,
-                    });
-                s
-            })
-            .collect()
-    };
-    // Only what comes in: no other photograph's resources are copied.
-    source.snapshot.retain_only(&used)?;
-    check(cancel)?;
-    // The edit resources the imported photographs use, into this catalog's
-    // `resources/` (references in a database are its library's own).
-    let mut copier = ResourceCopier::new(&target.directory, &source.directory, cancel);
-    source
-        .snapshot
-        .rewrite_resources(|value, used: ResourceUse<'_>| {
-            // The other library's presets, styles and export recipes are not
-            // imported: their files stay where they are.
-            if used.owner.is_none() && !used.current {
-                return Ok(value.to_string());
-            }
-            copier.rewrite(value, used)
-        })?;
-    receipt.missing_resources = copier.missing.len();
-    drop(copier);
+            .rewrite_resources(|value, used: ResourceUse<'_>| {
+                // The other library's presets, styles and export recipes are not
+                // imported: their files stay where they are.
+                if used.owner.is_none() && !used.current {
+                    return Ok(value.to_string());
+                }
+                copier.rewrite(value, used)
+            })?;
+        receipt.missing_resources = copier.missing.len();
+        drop(copier);
+    }
     let mut placed = Placed::default();
     let mut plan = Plan {
         new: Vec::new(),
@@ -324,6 +370,9 @@ pub fn import(
         batch_kind: "add",
         before: options.before_snapshot.clone(),
         stacks,
+        common_stacks: common_stacks.clone(),
+        known_here: known_here.clone(),
+        stacks_left,
     };
     // A new photograph inside the other library's folder (its own copies)
     // belongs to it: referring to it would edit it in that library's name.
@@ -385,7 +434,19 @@ pub fn import(
             if let Err(error) = target.record_import(&source.snapshot, &source.directory, &pairs) {
                 log::warn!("Import from Catalog: common states not recorded: {error:#}");
             }
+            // What both catalogs hold of stacks now.
+            let common = target
+                .stack_import_common(
+                    &theirs_as_here,
+                    &common_stacks.unwrap_or_default(),
+                    &known_here,
+                )
+                .and_then(|common| target.record_stacks(&source.snapshot, common));
+            if let Err(error) = common {
+                log::warn!("Import from Catalog: common stacks not recorded: {error:#}");
+            }
             receipt.report = report;
+            receipt.report.kept += stack_kept;
             Ok(receipt)
         }
         Err(error) => {

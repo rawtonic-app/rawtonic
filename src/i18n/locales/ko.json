@@ -1447,7 +1447,8 @@
         "edit": "편집",
         "eyes": "눈 검사",
         "metadata": "메타데이터",
-        "snapshots": "스냅숏"
+        "snapshots": "스냅숏",
+        "stacks": "스택"
       },
       "changedPhotos_other": "변경된 사진 ({{count}})",
       "choice": {

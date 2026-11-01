@@ -1447,7 +1447,8 @@
         "edit": "編輯",
         "eyes": "眼睛檢查",
         "metadata": "中繼資料",
-        "snapshots": "快照"
+        "snapshots": "快照",
+        "stacks": "堆疊"
       },
       "changedPhotos_other": "已變更的照片（{{count}}）",
       "choice": {

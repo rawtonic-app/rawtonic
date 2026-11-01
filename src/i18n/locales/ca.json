@@ -1567,7 +1567,8 @@
         "edit": "edició",
         "eyes": "comprovacions d'ulls",
         "metadata": "metadades",
-        "snapshots": "instantànies"
+        "snapshots": "instantànies",
+        "stacks": "piles"
       },
       "changedPhotos_one": "Foto canviada ({{count}})",
       "changedPhotos_many": "Fotos canviades ({{count}})",

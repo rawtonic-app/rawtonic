@@ -451,3 +451,46 @@ fn auto_stack_on_ten_thousand_rows() {
         plans[2], plans[0], plans[4], apply, list, undo
     );
 }
+
+#[test]
+fn a_stack_offered_by_another_catalog_replaces_only_untouched_ones() {
+    use rawtonic_catalog::stacks::Stack;
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(tmp.path(), &["a.arw", "b.arw", "c.arw", "d.arw"]);
+    let theirs = |which: &[usize]| Stack {
+        id: "theirs".into(),
+        collapsed: true,
+        members: photos(&ids, which),
+    };
+    lib.group_stack(&photos(&ids, &[0, 1, 2])).unwrap();
+    let here = lib
+        .stack_of(&Member::photo(ids[0].clone()))
+        .unwrap()
+        .unwrap();
+    let known: std::collections::HashSet<String> = ids.iter().cloned().collect();
+    let offered = |which: &[usize], common: &[Stack]| {
+        lib.stack_import_offered(&theirs(which), common, &known)
+            .unwrap()
+    };
+
+    // Nothing in common: what is stacked here is the photographer's.
+    assert!(!offered(&[1, 0, 2], &[]));
+    // The state both had: a change there is offered, the same state is not,
+    // and a state that was in common is not a change.
+    let common = [here.clone()];
+    assert!(offered(&[1, 0, 2], &common));
+    assert!(!offered(&[0, 1, 2], &common));
+    assert!(!offered(
+        &[0, 1, 2],
+        &[Stack {
+            members: photos(&ids, &[1, 0, 2]),
+            ..here.clone()
+        }]
+    ));
+    // One photograph here is no stack.
+    assert!(!offered(&[3], &common));
+    // Changed here since (expanded): kept.
+    lib.set_stacks_collapsed(&photos(&ids, &[0]), Some(false))
+        .unwrap();
+    assert!(!offered(&[1, 0, 2], &common));
+}

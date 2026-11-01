@@ -1487,7 +1487,8 @@
         "edit": "Bearbeitung",
         "eyes": "Augenprüfungen",
         "metadata": "Metadaten",
-        "snapshots": "Schnappschüsse"
+        "snapshots": "Schnappschüsse",
+        "stacks": "Stapel"
       },
       "changedPhotos_one": "Geändertes Foto ({{count}})",
       "changedPhotos_other": "Geänderte Fotos ({{count}})",
