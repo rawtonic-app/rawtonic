@@ -3986,7 +3986,19 @@
         },
         "noMatch": "Cap nom de carpeta conté «{{filter}}».",
         "reading": "S'estan llegint les carpetes…",
+        "roleRefused": {
+          "catalog": "Un catàleg manté les fotos on són; les carpetes de rol són d’una sessió.",
+          "sessionRoot": "Aquesta és la sessió mateixa."
+        },
+        "roleSet": "Carpeta {{name}} definida a {{folder}}",
+        "roleSetFailed": "No s’ha pogut definir com a carpeta {{name}}: {{error}}",
+        "roleSetMissing": "Carpeta {{name}} definida a {{folder}} — ara no hi és (el disc està connectat?)",
         "session": "Projecte",
+        "setRole": {
+          "capture": "Defineix com a carpeta Capture",
+          "output": "Defineix com a carpeta Output",
+          "selects": "Defineix com a carpeta Selects"
+        },
         "sort": {
           "ascending": "Ascendent",
           "created": "Data de creació",

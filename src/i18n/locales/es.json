@@ -3986,7 +3986,19 @@
         },
         "noMatch": "Ningún nombre de carpeta contiene «{{filter}}».",
         "reading": "Leyendo carpetas…",
+        "roleRefused": {
+          "catalog": "Un catálogo deja sus fotos donde están; las carpetas de rol son de una sesión.",
+          "sessionRoot": "Esta es la propia sesión."
+        },
+        "roleSet": "Carpeta {{name}} establecida en {{folder}}",
+        "roleSetFailed": "No se pudo establecer como carpeta {{name}}: {{error}}",
+        "roleSetMissing": "Carpeta {{name}} establecida en {{folder}} — ahora no está ahí (¿está conectado el disco?)",
         "session": "Proyecto",
+        "setRole": {
+          "capture": "Establecer como carpeta Capture",
+          "output": "Establecer como carpeta Output",
+          "selects": "Establecer como carpeta Selects"
+        },
         "sort": {
           "ascending": "Ascendente",
           "created": "Fecha de creación",

@@ -3699,7 +3699,19 @@
         },
         "noMatch": "沒有資料夾名稱包含「{{filter}}」。",
         "reading": "正在讀取資料夾…",
+        "roleRefused": {
+          "catalog": "目錄保留相片的原位置；角色資料夾屬於會話。",
+          "sessionRoot": "這就是會話本身。"
+        },
+        "roleSet": "{{name}} 資料夾已設為 {{folder}}",
+        "roleSetFailed": "無法設為 {{name}} 資料夾：{{error}}",
+        "roleSetMissing": "{{name}} 資料夾已設為 {{folder}} — 目前不在那裡（磁碟是否已連接？）",
         "session": "專案",
+        "setRole": {
+          "capture": "設為 Capture 資料夾",
+          "output": "設為 Output 資料夾",
+          "selects": "設為 Selects 資料夾"
+        },
         "sort": {
           "ascending": "遞增",
           "created": "建立日期",

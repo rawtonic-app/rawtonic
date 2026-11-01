@@ -59,7 +59,7 @@ import {
   toggleFolder,
   type FolderTree,
 } from "../../utils/folderTree";
-import { isInternalSessionFolder } from "../../utils/sessionFolders";
+import { FOLDER_ROLES as ROLE_FOLDERS, isInternalSessionFolder, type FolderRole } from "../../utils/sessionFolders";
 import { folderAcceptsDrop, requestIngestInto } from "../session/fileDrop";
 import {
   catalogTreePaths,
@@ -91,6 +91,9 @@ export interface FolderActions {
   /** Asks where a folder gone from disk is now and relinks its photographs
    * (Lightroom's Find Missing Folder). */
   locateFolder?(folder: string): void;
+  /** Makes the folder the session's Capture, Selects or Output folder, as
+   * Session Folders does (G38). */
+  setRoleFolder?(role: FolderRole, folder: string): void;
 }
 
 /** The session's own folders (Capture One's Capture, Selects, Output, Trash). */
@@ -163,12 +166,36 @@ function FolderRow({
     // A folder of the open library (a catalog reaches any folder) can be
     // synchronized with what happened to it on disk.
     const syncable = !!sessionRoot && (catalog || path === sessionRoot || isBelow(path, sessionRoot));
+    // Capture One's two actions (G38): a folder listed under the session
+    // becomes its Capture, Selects or Output folder through the same command
+    // Session Folders calls; the check says which one it is now. Only a
+    // session has role folders (a catalog keeps two different ones as its
+    // own folders, G40), the session folder itself is none, and the backend
+    // (`set_session_folder`) refuses anything else, saying why.
+    const roleRefused = catalog ? "catalog" : path === sessionRoot ? "sessionRoot" : null;
+    const roleItems: Option[] = actions?.setRoleFolder && !roleRefused
+      ? ROLE_FOLDERS.map((role) => {
+          const isRole = (useLibraryStore.getState().sessionFolders ?? []).some(
+            (folder) => folder.role === role && folder.path === path,
+          );
+          return {
+            label: t(`studio.library.folders.setRole.${role}` as const),
+            icon: isRole ? Check : undefined,
+            disabled: isRole,
+            onClick: () => actions.setRoleFolder?.(role, path),
+          };
+        })
+      : actions?.setRoleFolder && roleRefused
+        ? [{ label: t(`studio.library.folders.roleRefused.${roleRefused}` as const), disabled: true }]
+        : [];
+    if (roleItems.length) roleItems.push({ type: OPTION_SEPARATOR });
     if (missing) {
       // Nothing on disk to move, rename or show; it can be located. Its
       // synchronization lists the photographs of a disconnected drive as
       // not available (never moved or removed) and sends a folder gone from
       // disk to Locate Folder.
       showContextMenu(e.clientX, e.clientY, [
+        ...roleItems,
         ...(actions?.locateFolder
           ? [{ label: t("offline.menu.locateFolder"), icon: FolderSearch, onClick: () => actions.locateFolder?.(path) }]
           : []),
@@ -283,7 +310,8 @@ function FolderRow({
             },
           ]
         : []),
-      ...(importable || syncable ? [{ type: OPTION_SEPARATOR }] : []),
+      ...(importable || syncable || roleItems.length ? [{ type: OPTION_SEPARATOR }] : []),
+      ...roleItems,
       ...fileItems,
       {
         label: pinned

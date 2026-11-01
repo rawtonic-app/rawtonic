@@ -3986,7 +3986,19 @@
         },
         "noMatch": "Nenhum nome de pasta contém “{{filter}}”.",
         "reading": "Lendo pastas…",
+        "roleRefused": {
+          "catalog": "Um catálogo mantém as fotos onde estão; as pastas de função pertencem a uma sessão.",
+          "sessionRoot": "Esta é a própria sessão."
+        },
+        "roleSet": "Pasta {{name}} definida como {{folder}}",
+        "roleSetFailed": "Não foi possível defini-la como pasta {{name}}: {{error}}",
+        "roleSetMissing": "Pasta {{name}} definida como {{folder}} — de momento não está lá (o disco está ligado?)",
         "session": "Projeto",
+        "setRole": {
+          "capture": "Definir como pasta Capture",
+          "output": "Definir como pasta Output",
+          "selects": "Definir como pasta Selects"
+        },
         "sort": {
           "ascending": "Crescente",
           "created": "Data de criação",

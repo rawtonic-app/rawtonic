@@ -6,11 +6,11 @@ import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import SessionWorkspace, { countHotFolderCapture, leavesTetheredLibrary, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
+import SessionWorkspace, { countHotFolderCapture, leavesTetheredLibrary, restoreLastSession, RESTORE_FAILED_NOTICE, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
 import { flattenPresets, parseKeywords } from "./nextCapture";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { invoke } from "@tauri-apps/api/core";
-import { notify as toast } from "../../activity/notify";
+import { notify, notify as toast } from "../../activity/notify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
@@ -30,7 +30,14 @@ vi.mock("@tauri-apps/api/path", () => ({
 vi.mock("@tauri-apps/plugin-os", () => ({ platform: () => "macos" }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 vi.mock("../../activity/notify", () => ({
-  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn() },
+  notify: {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
+    // The launch's restore failure is over once a library opens.
+    isActive: vi.fn(() => false),
+  },
 }));
 
 const summary: SessionSummary = {
@@ -392,6 +399,32 @@ describe("restoring the last session", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("opens another library and takes the launch's failure notice away (UT3 2026-11-01)", async () => {
+    useSettingsStore.setState({ appSettings: { recentLibraries: ["/jobs/Old"] } as AppSettings });
+    const beta = { ...summary, directory: "/jobs/Beta", manifest: { ...summary.manifest, name: "Beta" } };
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_last"
+        ? summary
+        : command === "session_open"
+          ? beta
+          : command === "session_summary"
+            ? ((args as { directory: string }).directory === "/jobs/Beta" ? beta : summary)
+            : base(command, args),
+    );
+    // The last library failed at launch.
+    act(() => notify.error("Last library could not open: The drive is away", { toastId: RESTORE_FAILED_NOTICE }));
+    // Whether the notice still shows (the mocked notify has no entries).
+    vi.mocked(notify.isActive).mockReturnValue(true);
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    act(() => {
+      expect(runAppCommand("recent:/jobs/Old")).toBe(true);
+    });
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/jobs/Beta"));
+    // Opening another library made the launch's failure no longer so.
+    await waitFor(() => expect(notify.dismiss).toHaveBeenCalledWith(RESTORE_FAILED_NOTICE));
   });
 
   it("stays quiet when the session opens quickly", async () => {

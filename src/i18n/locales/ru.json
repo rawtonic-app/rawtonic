@@ -4158,7 +4158,19 @@
         },
         "noMatch": "Нет папок, в названии которых есть «{{filter}}».",
         "reading": "Чтение папок…",
+        "roleRefused": {
+          "catalog": "Каталог оставляет фотографии там, где они есть; ролевые папки есть у сессии.",
+          "sessionRoot": "Это сама сессия."
+        },
+        "roleSet": "Папка {{name}}: {{folder}}",
+        "roleSetFailed": "Не удалось сделать папкой {{name}}: {{error}}",
+        "roleSetMissing": "Папка {{name}}: {{folder}} — сейчас недоступна (диск подключён?)",
         "session": "Проект",
+        "setRole": {
+          "capture": "Сделать папкой Capture",
+          "output": "Сделать папкой Output",
+          "selects": "Сделать папкой Selects"
+        },
         "sort": {
           "ascending": "По возрастанию",
           "created": "Дата создания",

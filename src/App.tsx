@@ -94,6 +94,7 @@ import ImageLoaderManager from './components/managers/ImageLoaderManager';
 import type { TransformWrapperHandle } from './components/panel/Editor';
 import { viewerShown } from './utils/viewerMode';
 import { offerInterruptedBatches } from './utils/interruptedBatches';
+import { requestSetRoleFolder } from './utils/sessionFolders';
 
 type ImageCacheEntry = Parameters<typeof globalImageCache.set>[1];
 
@@ -641,6 +642,7 @@ function App() {
                 .then((report) => (report ? handleRelinked(report) : undefined))
                 .catch((err) => notify.error(i18n.t('offline.toasts.failed', { err: String(err) }), { autoClose: false }));
             },
+            setRoleFolder: (role, folder) => requestSetRoleFolder({ role, folder }),
           }}
           settings={
             appSettings && (
