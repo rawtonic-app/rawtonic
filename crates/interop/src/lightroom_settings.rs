@@ -11,7 +11,12 @@
 //!
 //! The creative profile (`Look`) is written by name and amount only: its
 //! parameters are Adobe's own look data, which Rawtonic neither uses nor
-//! keeps.
+//! keeps. One of them is the photo's treatment rather than look data:
+//! Lightroom applies the look's `ConvertToGrayscale` over the photo's own
+//! (a colour profile such as Adobe Color renders the photo in colour even
+//! when the photo's setting says black and white; measured on Lightroom
+//! Classic 15.6 exports, notes: benchmark-results/lc2-lr-render-match-2026-11-01),
+//! so that flag decides the photo's `ConvertToGrayscale`.
 use std::fmt::Write;
 
 /// A value of the settings table.
@@ -277,10 +282,17 @@ pub fn to_xmp(text: &str) -> Option<String> {
     out.push_str("\"><rdf:Description rdf:about=\"\" xmlns:crs=\"");
     out.push_str(CRS);
     out.push('"');
+    let treatment = entries
+        .iter()
+        .find_map(|(key, value)| match (key.as_deref(), value) {
+            (Some("Look"), Lua::Table(look)) => look_treatment(look),
+            _ => None,
+        });
     let entries: Vec<(Option<String>, Lua)> = entries
         .into_iter()
         .map(|(key, value)| match (key.as_deref(), value) {
             (Some("Look"), Lua::Table(look)) => (key, look_by_name(look)),
+            (Some("ConvertToGrayscale"), _) if let Some(gray) = treatment => (key, Lua::Bool(gray)),
             (_, value) => (key, value),
         })
         .collect();
@@ -290,6 +302,23 @@ pub fn to_xmp(text: &str) -> Option<String> {
     }
     out.push_str("</rdf:RDF></x:xmpmeta>");
     Some(out)
+}
+
+/// The black-and-white treatment a creative profile sets
+/// (`Parameters.ConvertToGrayscale`), if it sets one.
+fn look_treatment(look: &[(Option<String>, Lua)]) -> Option<bool> {
+    let (_, Lua::Table(parameters)) = look
+        .iter()
+        .find(|(k, _)| k.as_deref() == Some("Parameters"))?
+    else {
+        return None;
+    };
+    parameters
+        .iter()
+        .find_map(|(k, v)| match (k.as_deref(), v) {
+            (Some("ConvertToGrayscale"), Lua::Bool(gray)) => Some(*gray),
+            _ => None,
+        })
 }
 
 /// The creative profile without Adobe's look data: name and amount.
@@ -483,14 +512,16 @@ WhiteBalance = "As Shot",
         let xmp = to_xmp(SAMPLE).unwrap();
         roxmltree::Document::parse(&xmp).expect("well-formed");
         assert!(xmp.contains(r#"crs:Exposure2012="0.3""#));
-        assert!(xmp.contains(r#"crs:ConvertToGrayscale="true""#));
+        // The look's treatment wins, as in Lightroom: a colour look renders
+        // the photo in colour.
+        assert!(xmp.contains(r#"crs:ConvertToGrayscale="false""#));
         assert!(xmp.contains(r#"crs:HasCrop="true""#));
         assert!(xmp.contains("<crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>64, 56</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq></crs:ToneCurvePV2012>"));
         assert!(xmp.contains(
             r#"<crs:Look><rdf:Description crs:Amount="1" crs:Name="Some Look"/></crs:Look>"#
         ));
-        // Adobe's look data is not carried over (and cannot override the
-        // photo's own settings).
+        // Adobe's look data is not carried over (only the treatment it sets
+        // decides the photo's).
         assert!(!xmp.contains("Parameters"));
         assert_eq!(xmp.matches("ConvertToGrayscale").count(), 1);
         assert!(xmp.contains(r#"crs:MaskName="Brush &quot;1&quot;""#));
@@ -501,5 +532,7 @@ WhiteBalance = "As Shot",
         // Scalars only: the description closes itself.
         let scalars = to_xmp("s = { Exposure2012 = 0.3, ConvertToGrayscale = true }").unwrap();
         roxmltree::Document::parse(&scalars).expect("well-formed");
+        // Without a look, the photo's own treatment.
+        assert!(scalars.contains(r#"crs:ConvertToGrayscale="true""#));
     }
 }

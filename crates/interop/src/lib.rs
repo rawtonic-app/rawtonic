@@ -43,6 +43,13 @@ pub struct Photo {
     /// For a virtual copy (Lightroom) or a further variant (Capture One):
     /// the key of the photograph it belongs to.
     pub copy_of: Option<String>,
+    /// A virtual copy's name in its editor (Lightroom's Copy Name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copy_name: Option<String>,
+    /// The editor's snapshots of this photograph: name and settings, oldest
+    /// first (Lightroom's develop snapshots).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub snapshots: Vec<(String, Develop)>,
 }
 
 #[derive(Debug, Clone, Serialize)]

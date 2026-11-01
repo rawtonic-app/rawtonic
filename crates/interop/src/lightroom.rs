@@ -52,12 +52,44 @@ pub fn read(catalog: &Path) -> Result<Library> {
         }
     }
 
+    // Develop snapshots (Lua settings like the photo's own), oldest first; a
+    // catalog without the table has none.
+    let mut snapshots: HashMap<i64, Vec<(String, Develop)>> = HashMap::new();
+    if let Ok(mut q) = conn.prepare(
+        "SELECT image, name, text FROM Adobe_libraryImageDevelopSnapshot ORDER BY id_local",
+    ) {
+        let rows = q.query_map([], |r| {
+            Ok((
+                r.get::<_, Option<i64>>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (Some(image), name, Some(text)) = row? else {
+                continue;
+            };
+            let Some(xmp) = lightroom_settings::to_xmp(&text) else {
+                continue;
+            };
+            let name = name
+                .map(|n| n.trim().to_string())
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| "Lightroom".to_string());
+            snapshots
+                .entry(image)
+                .or_default()
+                .push((name, Develop::LightroomXmp(xmp)));
+        }
+    }
+
     let mut photos = Vec::new();
     let mut q = conn.prepare(
         "SELECT i.id_local, r.absolutePath, fo.pathFromRoot, f.baseName, f.extension,
                 i.rating, i.colorLabels, i.pick, i.masterImage,
                 x.xmp, ip.caption, ip.copyright,
-                coalesce(d.hasDevelopAdjustmentsEx, d.hasDevelopAdjustments, 0), d.text
+                coalesce(d.hasDevelopAdjustmentsEx, d.hasDevelopAdjustments, 0), d.text,
+                i.copyName
          FROM Adobe_images i
          JOIN AgLibraryFile f ON f.id_local = i.rootFile
          JOIN AgLibraryFolder fo ON fo.id_local = f.folder
@@ -83,6 +115,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
             r.get::<_, Option<String>>(11)?,
             r.get::<_, Option<f64>>(12)?.unwrap_or(0.0) > 0.0,
             r.get::<_, Option<String>>(13)?,
+            r.get::<_, Option<String>>(14)?,
         ))
     })?;
     for row in rows {
@@ -101,6 +134,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
             copyright,
             adjusted,
             settings,
+            copy_name,
         ) = row?;
         let file = if ext.is_empty() {
             base
@@ -151,6 +185,8 @@ pub fn read(catalog: &Path) -> Result<Library> {
             metadata,
             develop,
             copy_of: master.filter(|m| *m != id).map(|m| m.to_string()),
+            copy_name: copy_name.filter(|n| !n.trim().is_empty()),
+            snapshots: snapshots.remove(&id).unwrap_or_default(),
         });
     }
     drop(q);

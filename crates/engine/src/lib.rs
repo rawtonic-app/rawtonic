@@ -32,6 +32,7 @@ pub mod lateral_ca;
 pub mod lens_blur;
 pub mod lens_correction;
 pub mod lens_recipe;
+pub mod lightroom_crop;
 pub mod lightroom_masks;
 pub mod lightroom_retouch;
 pub mod luma_levels;

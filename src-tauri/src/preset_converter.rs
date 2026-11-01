@@ -361,14 +361,67 @@ fn point_color_ranges_from(swatches: &[String], variances: &[String], limit: usi
     ranges
 }
 
+/// Lightroom's white balance as Rawtonic's Kelvin white balance. Lightroom's
+/// Temperature and Tint are absolute: Kelvin and tint of the white point on
+/// the camera's own calibration (the DNG SDK's model), which is what
+/// `wbTemperature` / `wbTint` mean too (`color_calibration`, per-unit
+/// calibration included; notes: reference/white-balance.md). So Custom is
+/// taken 1:1, the light presets by name, Auto with the balance Lightroom
+/// found, and As Shot keeps the camera's — the Temperature Lightroom writes
+/// beside As Shot is only its readout of the camera's balance (it was taken
+/// as a shift from 5500 K before, which moved every As Shot photo).
+/// Without `WhiteBalance` a Temperature is Custom (older presets).
+fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, Value>) {
+    let mode = attrs
+        .get("WhiteBalance")
+        .map(|m| m.trim().to_ascii_lowercase());
+    let temperature = get_attr_as_f64(attrs, "Temperature").filter(|t| t.is_finite() && *t > 0.0);
+    let tint = get_attr_as_f64(attrs, "Tint").filter(|t| t.is_finite());
+    let preset = match mode.as_deref() {
+        Some("as shot") => Some("asShot"),
+        Some("daylight") => Some("daylight"),
+        Some("cloudy") => Some("cloudy"),
+        Some("shade") => Some("shade"),
+        Some("tungsten") => Some("tungsten"),
+        Some("fluorescent") => Some("fluorescent"),
+        Some("flash") => Some("flash"),
+        _ => None,
+    };
+    if let Some(preset) = preset {
+        adjustments.insert("whiteBalance".to_string(), json!(preset));
+        return;
+    }
+    let Some(temperature) = temperature else {
+        return;
+    };
+    let mode = if mode.as_deref() == Some("auto") {
+        "auto"
+    } else {
+        "custom"
+    };
+    adjustments.insert("whiteBalance".to_string(), json!(mode));
+    adjustments.insert(
+        "wbTemperature".to_string(),
+        json!(temperature.clamp(2000.0, 50_000.0)),
+    );
+    adjustments.insert(
+        "wbTint".to_string(),
+        json!(tint.unwrap_or(0.0).clamp(-150.0, 150.0)),
+    );
+}
+
+/// The `crs:` attributes of a Lightroom XMP packet (name → value).
+pub fn crs_attributes(xmp_content: &str) -> HashMap<String, String> {
+    let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
+    regex!(r#"crs:([A-Za-z0-9]+)="([^"]*)""#)
+        .captures_iter(&xmp_one_line)
+        .map(|cap| (cap[1].to_string(), cap[2].to_string()))
+        .collect()
+}
+
 pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
-
-    let attr_re = regex!(r#"crs:([A-Za-z0-9]+)="([^"]*)""#);
-    let mut attrs: HashMap<String, String> = HashMap::new();
-    for cap in attr_re.captures_iter(&xmp_one_line) {
-        attrs.insert(cap[1].to_string(), cap[2].to_string());
-    }
+    let attrs = crs_attributes(xmp_content);
 
     let mut adjustments = Map::new();
     let mut hsl_map = Map::new();
@@ -478,24 +531,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         );
     }
 
-    if let Some(adjusted_k) = get_attr_as_f64(&attrs, "Temperature") {
-        const AS_SHOT_DEFAULT: f64 = 5500.0;
-        const MAX_MIRED_SHIFT: f64 = 150.0;
-        let as_shot_k = get_attr_as_f64(&attrs, "AsShotTemperature").unwrap_or(AS_SHOT_DEFAULT);
-        let mired_adjusted = 1_000_000.0 / adjusted_k;
-        let mired_as_shot = 1_000_000.0 / as_shot_k;
-        let mired_delta = mired_adjusted - mired_as_shot;
-        let temp_value = (-mired_delta / MAX_MIRED_SHIFT) * 100.0;
-        adjustments.insert(
-            "temperature".to_string(),
-            json!(temp_value.clamp(-100.0, 100.0)),
-        );
-    }
-
-    if let Some(tint_val) = get_attr_as_f64(&attrs, "Tint") {
-        let scaled_tint = (tint_val / 150.0) * 100.0;
-        adjustments.insert("tint".to_string(), json!(scaled_tint.clamp(-100.0, 100.0)));
-    }
+    white_balance(&attrs, &mut adjustments);
 
     let colors = [
         ("Red", "reds"),

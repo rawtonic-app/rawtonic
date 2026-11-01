@@ -227,6 +227,8 @@ pub fn read(session_db: &Path) -> Result<Library> {
                 Develop::CaptureOne(settings)
             },
             copy_of,
+            copy_name: None,
+            snapshots: Vec::new(),
         });
     }
     drop(rows);
