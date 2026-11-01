@@ -546,6 +546,30 @@ fn a_stack_unstacked_here_stays_so_after_other_imports_and_with_edits_on_a_membe
 }
 
 #[test]
+fn keep_current_keeps_the_stack_of_a_photograph_changed_in_other_ways_too() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world_with(|main, ids| {
+        main.group_stack(&[Member::photo(ids[0].clone()), Member::photo(ids[1].clone())])
+            .unwrap();
+    });
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    // There: the top changed and both photographs were edited.
+    w.laptop.move_to_stack_top(&b).unwrap();
+    w.laptop.save_editor_state(&w.ids[0], &edit(1.5)).unwrap();
+    w.laptop.save_editor_state(&w.ids[1], &edit(2.5)).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    mixed.overrides.insert(w.ids[1].clone(), Choice::Replace);
+    import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(exposure(&w.main, &w.ids[1]), json!(2.5));
+    assert_ne!(exposure(&w.main, &w.ids[0]), json!(1.5));
+    assert_eq!(w.main.stack_of(&a).unwrap().unwrap().members, [a, b]);
+}
+
+#[test]
 fn a_new_stack_there_is_not_made_when_one_of_its_photographs_is_kept() {
     use rawtonic_catalog::stacks::Member;
     let (_tmp, w) = world();

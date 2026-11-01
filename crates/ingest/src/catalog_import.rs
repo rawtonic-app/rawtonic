@@ -242,7 +242,6 @@ pub fn import(
         .iter()
         .partition(|p| choice_of(p) == Choice::Replace);
     let stack_replaced: HashSet<&str> = replaced.iter().map(|p| p.id.as_str()).collect();
-    let stack_left: HashSet<&str> = kept.iter().map(|p| p.id.as_str()).collect();
     let changed: Vec<Changed> = photos
         .iter()
         .filter(|p| p.status == Status::Changed && !is_stack_only(p))
@@ -252,6 +251,17 @@ pub fn import(
             choice: choice_of(p),
             changes: p.changes.clone(),
         })
+        .collect();
+    // Keep current keeps everything of the photograph here, its stack too.
+    let stack_left: HashSet<&str> = kept
+        .iter()
+        .map(|p| p.id.as_str())
+        .chain(
+            changed
+                .iter()
+                .filter(|c| c.choice == Choice::Keep)
+                .map(|c| c.incoming.as_str()),
+        )
         .collect();
     let used: Vec<String> = new
         .iter()
