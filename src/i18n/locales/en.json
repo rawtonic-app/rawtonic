@@ -300,6 +300,7 @@
       "toggle_left_panel": "Left Panel",
       "toggle_metadata": "Photo Info",
       "toggle_multi_view": "Multi View",
+      "toggle_original": "Before (Whole Photo)",
       "toggle_pointer_readout": "Pointer RGB Readout",
       "toggle_proof_margin": "Proof Margin",
       "toggle_right_panel": "Right Panel",
@@ -1565,6 +1566,38 @@
     "fields": {
       "filenameTemplate": "Filename template"
     },
+    "folders": {
+      "change": "Change…",
+      "choose": "Choose the {{folder}} folder",
+      "chooseFor": "Change the {{folder}} folder",
+      "done": "Done",
+      "inside": "Inside the session",
+      "intro": "Where this session puts captures and imports (Capture), photos you move to Selects (Selects) and exports (Output). A folder inside the session moves with it; a folder outside it, such as on another drive, stays where it is.",
+      "menu": "Session Folders…",
+      "moveContents": "Move the contents to the new folder",
+      "moveContentsHelp": "The files in the old folder move into the new one (copied and verified when it is on another drive). Edit ▸ Undo puts them back.",
+      "moved_one": "Moved {{count}} item.",
+      "moved_other": "Moved {{count}} items.",
+      "moveFailed": "The folder was changed, but its contents were not all moved: {{error}}",
+      "nothingMoves": "Changing a folder moves no files: what is in the old folder stays there and stays in the session.",
+      "outputUnavailable": "The Output folder {{folder}} is not available (is its drive connected?). Nothing was exported; choose another Output folder in Session Folders.",
+      "outside": "Outside the session",
+      "reading": "Reading…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "The Selects folder {{folder}} is not available (is its drive connected?). Nothing was moved; choose another Selects folder in Session Folders.",
+      "title": "Session Folders",
+      "unavailable": "Not available: the folder is missing or its drive is not connected.",
+      "unavailableUse": {
+        "capture": "Capturing and importing into it fail until it is back or another folder is chosen.",
+        "output": "Exports to the Output folder fail until it is back or another folder is chosen.",
+        "selects": "Move to Selects fails until it is back or another folder is chosen."
+      },
+      "working": "Working…"
+    },
     "hotFolder": {
       "chooseFolder": "Choose the watched folder",
       "copyFromLast": "Copy from last capture",
@@ -1591,8 +1624,8 @@
       "albums_other": "{{count}} albums",
       "check": "Check",
       "chooseSource": "Choose the library to import",
-      "copiesNotImported_one": "{{count}} virtual copy (not imported)",
-      "copiesNotImported_other": "{{count}} virtual copies (not imported)",
+      "copies_one": "{{count}} virtual copy",
+      "copies_other": "{{count}} virtual copies",
       "edited_one": "{{count}} with edits",
       "edited_other": "{{count}} with edits",
       "filterName": "Catalogs and sessions",
@@ -1871,10 +1904,14 @@
       "flagsSavedRefreshFailed": "Flags saved; project summary could not refresh: {{error}}",
       "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
       "hotFolderResumeFailed": "The hot folder could not resume: {{error}}",
-      "importAiMasksOnOpen_one": "AI masks of {{count}} photo are computed when it is opened in Develop",
-      "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop",
+      "importAiMasksOnOpen_one": "AI masks of {{count}} photo are computed when it is opened in Develop or exported",
+      "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop or exported",
+      "importCopies_one": "{{count}} virtual copy imported",
+      "importCopies_other": "{{count}} virtual copies imported",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
       "importCopiesSkipped_other": "{{count}} virtual copies not imported",
+      "importCropsClipped_one": "{{count}} crop reached beyond the camera's frame and was trimmed to it",
+      "importCropsClipped_other": "{{count}} crops reached beyond the camera's frame and were trimmed to it",
       "imported_one": "{{count}} photo imported ({{withSettings}} with edits, {{albums}} albums)",
       "imported_other": "{{count}} photos imported ({{withSettings}} with edits, {{albums}} albums)",
       "importNotFound_one": "{{count}} not found",
@@ -2213,6 +2250,7 @@
         "toggle_masks": "Toggle Masks panel",
         "toggle_metadata": "Metadata tool (Library) or photo info (Develop, full screen)",
         "toggle_multi_view": "Multi view: selected photos side by side",
+        "toggle_original": "Toggle: whole photo before",
         "toggle_pointer_readout": "Toggle pointer RGB readout",
         "toggle_proof_margin": "Toggle proof margin",
         "toggle_right_panel": "Toggle Right Panel",
@@ -3106,6 +3144,7 @@
       "toolGroup": {
         "isOn": "{{tool}} on",
         "reset": "Reset {{tool}}",
+        "resetOrHold": "Reset {{tool}} (hold, or Alt/Option-press: show the photo without it)",
         "turnOff": "Turn {{tool}} off",
         "turnOn": "Turn {{tool}} on"
       },
@@ -3263,6 +3302,7 @@
           "loading": "Reading the photo…",
           "masks": "Writing masks…",
           "rendering": "Rendering and writing…",
+          "selecting": "Computing AI selections…",
           "waiting": "Waiting"
         },
         "photos_one": "{{count}} photo",
@@ -3541,6 +3581,8 @@
       "enable": "Enable profile corrections",
       "lookingUp": "Looking up the lens…",
       "make": "Make",
+      "manualVignetting": "Lens vignetting",
+      "manualVignettingMidpoint": "Vignetting midpoint",
       "model": "Model",
       "noFocalData": "The profile has no data for this focal length.",
       "none": "None",
@@ -4854,6 +4896,7 @@
         "close": "Close tools",
         "progress": "Exporting {{current}} / {{total}}",
         "progressDenoising": "Exporting {{current}} / {{total}} · AI Denoise…",
+        "progressSelecting": "Exporting {{current}} / {{total}} · AI selections…",
         "title": "Export photos"
       },
       "flags": {
@@ -4947,6 +4990,7 @@
         "compareMode": {
           "left-right": "Split left/right",
           "off": "Off",
+          "side-by-side": "Side by side",
           "top-bottom": "Split top/bottom"
         },
         "compareModes": "Compare mode",
@@ -4970,6 +5014,7 @@
         "splitDivider": "Before/after divider",
         "togglePanels": "Toggle panels",
         "undo": "Undo",
+        "withoutTool": "Without {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

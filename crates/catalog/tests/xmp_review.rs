@@ -513,7 +513,15 @@ fn keep_library_preserves_unheld_real_iptc_and_applies_explicit_core_and_extensi
             assert_eq!(read.iptc["event"], original.iptc["event"]);
             assert_eq!(read.iptc["dateCreated"], original.iptc["dateCreated"]);
             if extension == "XMP" {
-                assert!(!photo.with_extension("xmp").exists());
+                // By name: on a case-insensitive file system (macOS) the
+                // lower-case path finds the upper-case sidecar.
+                let lower = photo.with_extension("xmp");
+                let lower = lower.file_name().unwrap();
+                assert!(
+                    fs::read_dir(photo.parent().unwrap())
+                        .unwrap()
+                        .all(|entry| entry.unwrap().file_name() != lower)
+                );
             }
             assert_eq!(fs::read(&photo).unwrap(), b"synthetic original");
         }

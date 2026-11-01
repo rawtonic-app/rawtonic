@@ -82,15 +82,19 @@ fn registered_form(source: &Path) -> PathBuf {
         _ => source.to_path_buf(),
     }
 }
-/// Resolve by the original ownership rule: a photograph's own session first,
-/// otherwise the catalog selected when the command was submitted. An open
-/// session does not claim files in other folders.
+/// Resolve by the original ownership rule: a photograph's own session first
+/// (the session folder above it, or the open session's own Capture, Selects
+/// or Output folder outside it, G38), otherwise the catalog selected when
+/// the command was submitted. An open session does not claim files in other
+/// folders.
 pub(crate) fn culling_library_for(source: &Path, selected: Option<&Path>) -> Option<PathBuf> {
-    session_for(source).or_else(|| {
-        selected
-            .filter(|dir| dir.join("catalog.json").is_file())
-            .map(Path::to_path_buf)
-    })
+    session_for(source)
+        .or_else(|| rawtonic_engine::session_layout::outside_folder_owner(source))
+        .or_else(|| {
+            selected
+                .filter(|dir| dir.join("catalog.json").is_file())
+                .map(Path::to_path_buf)
+        })
 }
 
 pub(crate) fn active_library_directory() -> Option<PathBuf> {
@@ -379,7 +383,9 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
         .into_iter()
         .filter_entry(|e| {
             e.depth() == 0
-                || !e.file_name().to_string_lossy().starts_with('.')
+                // The session's Output folder, whatever its name (G38).
+                || !lib.in_output_folder(e.path())
+                    && !e.file_name().to_string_lossy().starts_with('.')
                     && !matches!(
                         e.file_name().to_str(),
                         Some(
@@ -513,8 +519,27 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
     Ok(taken)
 }
 
+/// Registers the folders the session at `dir` keeps outside it (none for a
+/// catalog), so its photographs there are its own (G38).
+pub(crate) fn register_outside_folders(dir: &Path) {
+    rawtonic_engine::session_layout::set_outside_folders(
+        dir,
+        rawtonic_catalog::session_folders::outside_folders_of(dir)
+            .into_iter()
+            .map(|folder| folder.canonicalize().unwrap_or(folder))
+            .collect(),
+    );
+}
+
 fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
-    *active().lock().map_err(|e| e.to_string())? = Some(dir.into());
+    let previous = active()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .replace(dir.into());
+    if let Some(previous) = previous.filter(|p| p != dir) {
+        rawtonic_engine::session_layout::set_outside_folders(&previous, Vec::new());
+    }
+    register_outside_folders(dir);
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(

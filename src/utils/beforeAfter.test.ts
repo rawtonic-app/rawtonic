@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { INITIAL_ADJUSTMENTS } from './adjustments';
 import {
   BEFORE_FRAMING_KEYS,
+  COMPARE_MODES,
+  anchoredAt,
+  keepMagnification,
   DEFAULT_SPLIT_POSITION,
+  nextCompareMode,
+  parseSplitOrientation,
   clampSplitPosition,
   nudgeSplitPosition,
   originalPreviewAdjustments,
@@ -110,5 +115,59 @@ describe('before/after', () => {
     expect(browserSplitWidth(0.5, size, { scale: 2, positionX: -200 })).toBe(250);
     expect(browserSplitWidth(0, size, { scale: 2, positionX: 0 })).toBe(0);
     expect(browserSplitWidth(1, size, { scale: 1, positionX: -100 })).toBe(800);
+  });
+});
+
+describe('side by side', () => {
+  it('is the cycle step after top-bottom and comes back to off', () => {
+    expect(COMPARE_MODES).toEqual(['off', 'left-right', 'top-bottom', 'side-by-side']);
+    expect(nextCompareMode('off')).toBe('left-right');
+    expect(nextCompareMode('left-right')).toBe('top-bottom');
+    expect(nextCompareMode('top-bottom')).toBe('side-by-side');
+    expect(nextCompareMode('side-by-side')).toBe('off');
+  });
+
+  it('restores a stored layout, anything else as left-right', () => {
+    expect(parseSplitOrientation('side-by-side')).toBe('side-by-side');
+    expect(parseSplitOrientation('top-bottom')).toBe('top-bottom');
+    expect(parseSplitOrientation('diagonal')).toBe('left-right');
+    expect(parseSplitOrientation(undefined)).toBe('left-right');
+  });
+
+  it('has no divider for the keys to move', () => {
+    expect(nudgeSplitPosition(0.5, 'ArrowLeft', false, 'side-by-side')).toBeNull();
+    expect(nudgeSplitPosition(0.5, 'Home', false, 'side-by-side')).toBeNull();
+  });
+});
+
+describe('keepMagnification', () => {
+  it('keeps 100 % on the same detail when the before pane halves the viewer', () => {
+    // 8000 px photo: fit 1000 px wide in a 1000 px viewer, zoomed to 100 % (×8),
+    // the photo point (0.25, 0.5) at the centre.
+    const wide = { width: 1000, height: 500, offsetX: 0, offsetY: 250, containerWidth: 1000, containerHeight: 1000 };
+    const half = { width: 500, height: 250, offsetX: 0, offsetY: 375, containerWidth: 500, containerHeight: 1000 };
+    const next = keepMagnification(wide, half, 8, 0.25, 0.5);
+    expect(next.scale).toBe(16);
+    // The centre of the narrower viewer shows the same photo point.
+    expect(((half.containerWidth / 2 - next.x) / next.scale - half.offsetX) / half.width).toBeCloseTo(0.25);
+    expect(((half.containerHeight / 2 - next.y) / next.scale - half.offsetY) / half.height).toBeCloseTo(0.5);
+    // Back again: the original transform.
+    const back = keepMagnification(half, wide, next.scale, 0.25, 0.5);
+    expect(back.scale).toBe(8);
+    expect(back.x).toBeCloseTo(500 - 8 * 250);
+  });
+});
+
+describe('keepMagnification for a portrait fitted by height', () => {
+  it('keeps the centred detail although the fitted width stays the same', () => {
+    // 4000×6000 portrait: fit 533×800 in a 1200×800 viewer and in a 600×800 pane.
+    const wide = { width: 533.33, height: 800, offsetX: 333.33, offsetY: 0, containerWidth: 1200, containerHeight: 800 };
+    const pane = { width: 533.33, height: 800, offsetX: 33.33, offsetY: 0, containerWidth: 600, containerHeight: 800 };
+    const next = keepMagnification(wide, pane, 7.5, 0.5, 0.5);
+    expect(next.scale).toBeCloseTo(7.5);
+    expect(((pane.containerWidth / 2 - next.x) / next.scale - pane.offsetX) / pane.width).toBeCloseTo(0.5);
+    // A scale held at the zoom limit keeps the same centre.
+    const limited = anchoredAt(pane, 5, 0.5, 0.5);
+    expect(((pane.containerWidth / 2 - limited.x) / 5 - pane.offsetX) / pane.width).toBeCloseTo(0.5);
   });
 });

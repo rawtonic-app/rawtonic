@@ -404,8 +404,13 @@ pub fn copy_library(
     }
     snapshot.internalize_assets(&places)?;
     snapshot.write_portable_sidecars()?;
+    // A complete copy holds its photographs itself: folders the source
+    // kept outside its folder are the copy's defaults inside it (G38).
+    let mut snapshot = snapshot;
+    snapshot.reset_outside_folders()?;
     for folder in [
         &snapshot.manifest.capture,
+        &snapshot.manifest.selects,
         &snapshot.manifest.output,
         "masks",
         "Trash",

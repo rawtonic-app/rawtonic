@@ -4,8 +4,13 @@
 //! never written); this module translates each photograph's develop
 //! settings with the existing converters (Lightroom XMP → presets,
 //! Capture One style entries → `costyle`), and registers photographs,
-//! metadata, edits and albums in the open Rawtonic catalog. Nothing is
-//! written next to the photographs: no sidecars, no XMP.
+//! metadata, edits, snapshots, virtual copies and albums in the open
+//! Rawtonic catalog. The photographs themselves are never written. A
+//! Lightroom virtual copy becomes a virtual copy of its photograph (a
+//! catalog version with its own edit): its derived editor sidecar
+//! (`<photo>.<id>.rrdata`) is published beside a photograph that is there,
+//! as for copies made in the app, with a fresh name and never over a file;
+//! no XMP is written for copies (Lightroom writes none for them either).
 use rawtonic_catalog::{ALBUM, Combine, Field, GROUP, Library, Mode, Op, Rule, SMART};
 use rawtonic_interop::{
     Develop, Library as Source, NotRead, Photo, Root, SmartRule, SmartRules, SmartValue,
@@ -62,6 +67,14 @@ pub struct ImportReport {
     pub with_settings: usize,
     pub missing: usize,
     pub copies_skipped: usize,
+    /// Virtual copies imported as virtual copies of their photograph (or
+    /// found from an earlier import of the same catalog and kept as they
+    /// are).
+    pub copies: usize,
+    /// Edits whose crop reaches beyond the frame Rawtonic develops (sensor
+    /// area outside a camera's aspect ratio): the crop keeps its centre and
+    /// aspect ratio and is shrunk until all of it shows the photo.
+    pub crops_clipped: usize,
     pub albums: usize,
     /// Photographs with Lightroom AI masks (Select Subject, Select Sky):
     /// their model runs when the photo is opened in Develop, so exports
@@ -274,23 +287,42 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     let mut report = ImportReport::default();
     let mut assets: HashMap<&str, String> = HashMap::new();
     let _batch = catalog.import_batch(rawtonic_catalog::ImportKind::Add);
-    for photo in &source.photos {
-        if photo.copy_of.is_some() {
-            report.copies_skipped += 1;
-            continue;
-        }
+    for photo in source.photos.iter().filter(|p| p.copy_of.is_none()) {
         if !photo.path.is_file() {
             report.missing += 1;
             continue;
         }
         match import_photo(catalog, photo) {
-            Ok((asset, translated, ai_masks)) => {
+            Ok((asset, imported)) => {
                 report.imported += 1;
-                report.with_settings += usize::from(translated);
-                report.ai_masks_on_open += usize::from(ai_masks);
+                report.with_settings += usize::from(imported.translated);
+                report.ai_masks_on_open += usize::from(imported.ai_masks);
+                report.crops_clipped += imported.crops_clipped;
                 assets.insert(photo.key.as_str(), asset);
             }
             Err(e) => report.errors.push(format!("{}: {e}", photo.path.display())),
+        }
+    }
+    // Virtual copies, once their photograph is in.
+    for photo in source.photos.iter().filter(|p| p.copy_of.is_some()) {
+        let Some(asset) = photo
+            .copy_of
+            .as_deref()
+            .and_then(|master| assets.get(master))
+        else {
+            report.copies_skipped += 1;
+            continue;
+        };
+        match import_copy(catalog, asset, &source.name, photo) {
+            Ok(imported) => {
+                report.copies += 1;
+                report.ai_masks_on_open += usize::from(imported.ai_masks);
+                report.crops_clipped += imported.crops_clipped;
+            }
+            Err(e) => {
+                report.copies_skipped += 1;
+                report.errors.push(format!("{}: {e}", photo.path.display()));
+            }
         }
     }
     // Albums and groups, parents first; existing ones (a repeated import)
@@ -386,7 +418,8 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
 }
 
 /// Whether the translated edit holds AI masks whose data a model computes
-/// when the photo is opened (`ai-foreground`, `ai-sky` without data).
+/// when the photo is opened or exported (`ai-foreground`, `ai-sky` without
+/// data; `ai_selections::detect_missing`).
 fn has_ai_masks_on_open(adjustments: &Value) -> bool {
     adjustments["masks"]
         .as_array()
@@ -400,37 +433,229 @@ fn has_ai_masks_on_open(adjustments: &Value) -> bool {
         })
 }
 
-/// Registers one photograph with its translated edit: its asset id, whether
-/// it has an edit, and whether that waits for a model when opened
-/// (`has_ai_masks_on_open`).
-fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, bool, bool)> {
-    let mut adjustments = translate(&photo.develop);
-    // The other editor's geometry (spots, masks, red eyes; Lightroom keeps it
-    // normalised in the camera's frame of the raw) is that of the newest
-    // frame of the RAW (`source_frame`): the edit is made on it, as a new
-    // edit would be.
-    if crate::formats::is_raw_file(&photo.path)
-        && let Some(map) = adjustments.as_mut().and_then(|a| a.as_object_mut())
+/// What the import made of one photograph's (or copy's) edits.
+#[derive(Debug, Default)]
+struct Imported {
+    translated: bool,
+    /// Its edit waits for a model when opened (`has_ai_masks_on_open`).
+    ai_masks: bool,
+    /// Edits (its own and its snapshots') whose crop was clipped.
+    crops_clipped: usize,
+}
+
+/// The Rawtonic recipe for one of the photo's edits in the other editor
+/// (its current settings, a virtual copy's or a snapshot's), and whether
+/// its crop was clipped to the developed frame.
+///
+/// It starts with the versions a new edit of that photo starts with in the
+/// editor (current render, sharpening and frame versions, the current
+/// fringe and lateral CA passes), so it develops with the engine a new
+/// edit gets (a recipe without `renderVersion` renders as version 1). Its
+/// lens correction is the default one (`embedded_lens::apply_default`,
+/// which every render and the editor apply to a recipe without a lens
+/// mode) as Lightroom's lens profile switch and amounts decide
+/// (`lightroom_lens`); its crop and straightening become `crop` and
+/// `rotation` in the photo's own frame (`rawtonic_engine::lightroom_crop`).
+fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
+    let mut adjustments = translate(develop)?;
+    let is_raw = crate::formats::is_raw_file(path);
+    let mut base = json!({});
+    rawtonic_engine::image_processing::apply_render_default(&mut base);
+    rawtonic_engine::edge_fringe::apply_default(&mut base, true, is_raw);
+    rawtonic_engine::lateral_ca::apply_default(&mut base, true, is_raw);
+    // The tone sliders' response a new edit gets: without the key the
+    // recipe keeps the first response, whose lowered Highlights darkened
+    // bright areas several times further than the other editor (notes:
+    // benchmark-results/hl-highlights-2026-11-01).
+    base[rawtonic_engine::image_processing::TONE_VERSION_KEY] =
+        json!(rawtonic_engine::image_processing::TONE_VERSION);
+    // Every other tool's response a new edit gets (`initialAdjustmentsFor`
+    // in the editor): without the keys an import rendered Clarity, noise
+    // reduction, Defringe and grain with their first responses (notes:
+    // benchmark-results/lc3-lr-import-2026-11-01).
     {
-        map.insert(
-            rawtonic_engine::source_frame::KEY.to_string(),
-            json!(rawtonic_engine::source_frame::VERSION),
-        );
+        use rawtonic_engine::image_processing as ip;
+        base[ip::CLARITY_VERSION_KEY] = json!(ip::CLARITY_VERSION);
+        base[rawtonic_engine::color_noise::VERSION_KEY] =
+            json!(rawtonic_engine::color_noise::VERSION);
+        base[ip::LUMA_NOISE_VERSION_KEY] = json!(ip::LUMA_NOISE_VERSION);
+        base[ip::DEFRINGE_VERSION_KEY] = json!(ip::DEFRINGE_VERSION);
+        base[ip::GRAIN_VERSION_KEY] = json!(ip::GRAIN_VERSION);
+        if is_raw {
+            base["aiDenoiseVersion"] = json!(rawtonic_engine::image_loader::AI_DENOISE_VERSION);
+        }
+    }
+    if let (Some(map), Some(base)) = (adjustments.as_object_mut(), base.as_object()) {
+        for (key, value) in base {
+            map.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+        // The other editor's geometry (spots, masks, red eyes; Lightroom keeps
+        // it normalised in the camera's frame of the raw) is that of the
+        // newest frame of the RAW (`source_frame`): the edit is made on it,
+        // as a new edit would be.
+        if is_raw {
+            map.insert(
+                rawtonic_engine::source_frame::KEY.to_string(),
+                json!(rawtonic_engine::source_frame::VERSION),
+            );
+        }
+    }
+    let mut clipped = false;
+    if let Develop::LightroomXmp(xmp) = develop {
+        let attrs = crate::preset_converter::crs_attributes(xmp);
+        lightroom_lens(&attrs, path, &mut adjustments);
+        clipped = lightroom_crop(&attrs, path, &mut adjustments);
     }
     // Lightroom's spots, red eye corrections and mask geometry render from
     // its own geometry once they know the photo's orientation, a fact of
     // the file (`rawtonic_engine::lightroom_retouch`, `lightroom_masks`):
     // exports of photos never opened keep them.
-    if let Some(adjustments) = adjustments.as_mut().filter(|a| {
-        rawtonic_engine::lightroom_retouch::needs_orientation(a)
-            || rawtonic_engine::lightroom_masks::needs_orientation(a)
-    }) && let Ok(bytes) = std::fs::read(&photo.path)
+    if (rawtonic_engine::lightroom_retouch::needs_orientation(&adjustments)
+        || rawtonic_engine::lightroom_masks::needs_orientation(&adjustments))
+        && let Ok(bytes) = std::fs::read(path)
     {
-        let orientation =
-            crate::image_loader::source_orientation(&bytes, &photo.path.to_string_lossy());
-        rawtonic_engine::lightroom_retouch::set_orientation(adjustments, orientation);
-        rawtonic_engine::lightroom_masks::set_orientation(adjustments, orientation);
+        let orientation = crate::image_loader::source_orientation(&bytes, &path.to_string_lossy());
+        rawtonic_engine::lightroom_retouch::set_orientation(&mut adjustments, orientation);
+        rawtonic_engine::lightroom_masks::set_orientation(&mut adjustments, orientation);
     }
+    Some((adjustments, clipped))
+}
+
+/// Lightroom's lens profile corrections on Rawtonic's own lens data
+/// (Adobe's profiles are not used: notes agent-knowledge/adobe-lens-profiles).
+/// On: the correction a new edit gets (left to the default every render
+/// applies to a recipe without a lens mode) or, where that has none (DSLR
+/// lenses), the lens's lensfun profile found from the photo's EXIF as the
+/// Lens tool's auto-detect finds it; with Lightroom's Distortion and
+/// Vignetting amounts (both 0–200 %, 100 = the profile's, as Rawtonic's).
+/// Off: no profile correction — except the camera's own distortion data
+/// (Olympus/OM, Panasonic, Fujifilm, Nikon Z, Sony compacts), which
+/// Lightroom applies to those files whether the switch is on or not; their
+/// vignetting is a profile correction there (off).
+fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mut Value) {
+    let Some(map) = adjustments.as_object_mut() else {
+        return;
+    };
+    if map.contains_key("lensCorrectionMode") {
+        return;
+    }
+    let on = attrs
+        .get("LensProfileEnable")
+        .is_some_and(|v| v.trim() == "1");
+    if on {
+        let amount = |key: &str| {
+            attrs
+                .get(key)
+                .and_then(|v| v.trim().trim_start_matches('+').parse::<f64>().ok())
+                .filter(|v| v.is_finite())
+                .map_or(100.0, |v| v.clamp(0.0, 200.0))
+        };
+        for (key, lr) in [
+            ("lensDistortionAmount", "LensProfileDistortionScale"),
+            ("lensVignetteAmount", "LensProfileVignettingScale"),
+        ] {
+            let value = amount(lr);
+            if value != 100.0 {
+                map.insert(key.into(), json!(value));
+            }
+        }
+    }
+    // Which correction would the default be?
+    let mut default = json!({});
+    rawtonic_engine::embedded_lens::apply_default(&mut default, path);
+    if on {
+        if default.get("lensCorrectionMode").is_none()
+            && let Some((maker, model, params)) =
+                rawtonic_engine::embedded_lens::lensfun_for_photo(path)
+            && let Ok(params) = serde_json::to_value(params)
+        {
+            map.insert("lensCorrectionMode".into(), json!("auto"));
+            map.insert("lensMaker".into(), json!(maker));
+            map.insert("lensModel".into(), json!(model));
+            map.insert("lensDistortionParams".into(), params);
+        }
+        return;
+    }
+    match default["lensCorrectionMode"].as_str() {
+        Some(rawtonic_engine::embedded_lens::CAMERA_MODE) => {
+            if let Some(default) = default.as_object() {
+                for (key, value) in default {
+                    if key.starts_with("lens") || key.starts_with("camera") {
+                        map.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            map.insert("lensVignetteEnabled".into(), json!(false));
+        }
+        Some(_) => {
+            map.insert("lensCorrectionMode".into(), json!("manual"));
+            map.insert("lensDistortionParams".into(), Value::Null);
+        }
+        None => {}
+    }
+}
+
+/// Lightroom's crop and straightening as `crop`, `rotation` and the crop's
+/// locked `aspectRatio` (`rawtonic_engine::lightroom_crop`). Returns
+/// whether the crop reached beyond the developed frame and was clipped.
+fn lightroom_crop(attrs: &HashMap<String, String>, path: &Path, adjustments: &mut Value) -> bool {
+    let number = |key: &str, default: f64| {
+        attrs
+            .get(key)
+            .and_then(|v| v.trim().trim_start_matches('+').parse::<f64>().ok())
+            .filter(|v| v.is_finite())
+            .unwrap_or(default)
+    };
+    if attrs
+        .get("HasCrop")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("false"))
+    {
+        return false;
+    }
+    let crop = rawtonic_engine::lightroom_crop::LightroomCrop {
+        left: number("CropLeft", 0.0),
+        top: number("CropTop", 0.0),
+        right: number("CropRight", 1.0),
+        bottom: number("CropBottom", 1.0),
+        angle: number("CropAngle", 0.0),
+    };
+    if crop.is_whole() {
+        return false;
+    }
+    let placed = if crate::formats::is_raw_file(path) {
+        rawtonic_engine::lightroom_crop::place_for_file(path, &crop)
+    } else {
+        // Other images: the whole stored image is the frame.
+        let orientation = std::fs::read(path)
+            .ok()
+            .map(|bytes| crate::image_loader::source_orientation(&bytes, &path.to_string_lossy()));
+        image::image_dimensions(path).ok().and_then(|(w, h)| {
+            let whole = [0.0, 0.0, f64::from(w), f64::from(h)];
+            rawtonic_engine::lightroom_crop::place(&crop, whole, whole, orientation.unwrap_or(1))
+        })
+    };
+    let (Some(placed), Some(map)) = (placed, adjustments.as_object_mut()) else {
+        return false;
+    };
+    map.insert("crop".into(), placed.crop);
+    map.insert("rotation".into(), json!(placed.rotation));
+    map.insert("aspectRatio".into(), json!(placed.aspect_ratio));
+    placed.clipped
+}
+
+/// Registers one photograph with its translated edit and snapshots.
+fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imported)> {
+    let recipe = recipe_for(&photo.develop, &photo.path);
+    let mut imported = Imported {
+        translated: recipe.is_some(),
+        ai_masks: recipe
+            .as_ref()
+            .is_some_and(|(adjustments, _)| has_ai_masks_on_open(adjustments)),
+        crops_clipped: recipe
+            .as_ref()
+            .map_or(0, |(_, clipped)| usize::from(*clipped)),
+    };
+    let adjustments = recipe.map(|(adjustments, _)| adjustments);
     // The photograph, its translated edit and its metadata are stored in one
     // transaction: a failure leaves none of them, a retry imports it whole.
     let contents = rawtonic_catalog::Contents {
@@ -461,11 +686,141 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, boo
             id
         }
     };
-    Ok((
-        id,
-        adjustments.is_some(),
-        adjustments.as_ref().is_some_and(has_ai_masks_on_open),
-    ))
+    let version = catalog.version_for(&id, None)?;
+    imported.crops_clipped += import_snapshots(catalog, version.as_deref(), photo)?;
+    Ok((id, imported))
+}
+
+/// Takes over the photograph's (or copy's) snapshots as the snapshots of
+/// `version`, each translated like its edit, oldest first — unless the
+/// version has snapshots already (its own, or a repeated import's).
+/// Returns how many had their crop clipped.
+fn import_snapshots(
+    catalog: &Library,
+    version: Option<&str>,
+    photo: &Photo,
+) -> anyhow::Result<usize> {
+    let Some(version) = version else {
+        return Ok(0);
+    };
+    if photo.snapshots.is_empty() || !catalog.snapshots(version)?.is_empty() {
+        return Ok(0);
+    }
+    let mut clipped = 0;
+    for (name, develop) in &photo.snapshots {
+        // A snapshot at Lightroom's defaults is the photo as it develops
+        // without an edit.
+        let (adjustments, was_clipped) =
+            recipe_for(develop, &photo.path).unwrap_or((json!({}), false));
+        clipped += usize::from(was_clipped);
+        catalog.add_snapshot(version, name, adjustments)?;
+    }
+    Ok(clipped)
+}
+
+/// The id the virtual copy with the source identity `origin` (the other
+/// editor's global id for it: Lightroom's image UUID, Capture One's session
+/// file and variant id) of the asset `asset` gets: derived from both, so a
+/// repeated import of that library (or, for Lightroom, of a copy of it)
+/// finds the copy it made, and another library's copy of the same photo
+/// gets another id (two origins share one of the 2^24 ids of an asset
+/// only by a hash collision; `attempt` > 0 when that name is taken by a
+/// file the catalog does not know).
+fn copy_id(asset: &str, origin: &str, attempt: u32) -> String {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(format!("imported-copy\0{asset}\0{origin}\0{attempt}"));
+    digest.iter().take(3).map(|b| format!("{b:02x}")).collect()
+}
+
+/// A copy's source identity for [`copy_id`].
+fn copy_origin(source_name: &str, photo: &Photo) -> String {
+    match &photo.uid {
+        Some(uid) => format!("uid\0{uid}"),
+        None => format!("key\0{source_name}\0{}", photo.key),
+    }
+}
+
+/// Registers a virtual copy of the asset `asset` with its own edit,
+/// metadata and snapshots, and publishes its derived editor sidecar beside
+/// the photograph when that is there (never over a file). A copy an earlier
+/// import made is kept as it is (it may have been edited since).
+fn import_copy(
+    catalog: &Library,
+    asset: &str,
+    source_name: &str,
+    photo: &Photo,
+) -> anyhow::Result<Imported> {
+    let known = catalog.copies(asset)?;
+    let origin = copy_origin(source_name, photo);
+    let name = photo
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .ok_or_else(|| anyhow::anyhow!("No file name"))?;
+    let sidecar_of = |id: &str| photo.path.with_file_name(format!("{name}.{id}.rrdata"));
+    let mut id = None;
+    for attempt in 0..16 {
+        let candidate = copy_id(asset, &origin, attempt);
+        if known.contains(&candidate) {
+            // Imported before: kept as it is. Its derived sidecar is
+            // published again if it is missing (an earlier import could not
+            // write beside the photograph), so listings find the copy.
+            let sidecar = sidecar_of(&candidate);
+            if photo.path.is_file()
+                && !sidecar.exists()
+                && let Some(state) = catalog.copy_state(asset, &candidate)?
+            {
+                publish_new(&sidecar, &serde_json::to_vec_pretty(&state)?)?;
+            }
+            return Ok(Imported::default());
+        }
+        if !sidecar_of(&candidate).exists() {
+            id = Some(candidate);
+            break;
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("No free name for the virtual copy"))?;
+    let recipe = recipe_for(&photo.develop, &photo.path);
+    let mut imported = Imported {
+        translated: recipe.is_some(),
+        ai_masks: recipe
+            .as_ref()
+            .is_some_and(|(adjustments, _)| has_ai_masks_on_open(adjustments)),
+        crops_clipped: recipe
+            .as_ref()
+            .map_or(0, |(_, clipped)| usize::from(*clipped)),
+    };
+    let mut state = json!({
+        "version": crate::image_processing::ImageMetadata::default().version,
+        "rating": photo.metadata.rating,
+        "tags": [],
+        "adjustments": recipe.map_or(Value::Null, |(adjustments, _)| adjustments),
+    });
+    rawtonic_catalog::apply_editor_metadata(&mut state, photo.metadata.clone());
+    catalog.save_copy_state(asset, &id, &state)?;
+    let version = catalog.version_for(asset, Some(&id))?;
+    imported.crops_clipped += import_snapshots(catalog, version.as_deref(), photo)?;
+    if photo.path.is_file()
+        && let Some(state) = catalog.copy_state(asset, &id)?
+    {
+        publish_new(&sidecar_of(&id), &serde_json::to_vec_pretty(&state)?)?;
+    }
+    Ok(imported)
+}
+
+/// Writes `bytes` as the new file `path`: a synced temporary file published
+/// under that name only if nothing is there.
+fn publish_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut file = rawtonic_metadata::temp::file_for(path)?;
+    file.write_all(bytes)?;
+    file.as_file().sync_all()?;
+    rawtonic_metadata::no_clobber::persist(file, path)?;
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -526,6 +881,9 @@ mod tests {
             },
             develop,
             copy_of: copy_of.map(str::to_string),
+            copy_name: None,
+            snapshots: Vec::new(),
+            uid: None,
         }
     }
 
@@ -621,9 +979,10 @@ mod tests {
                 report.with_settings,
                 report.missing,
                 report.copies_skipped,
+                report.copies,
                 report.albums
             ),
-            (1, 1, 1, 1, 2)
+            (1, 1, 1, 0, 1, 2)
         );
         let asset = catalog.asset_at(&photos.join("A.NEF")).unwrap().unwrap();
         let meta = catalog.metadata(&asset.id).unwrap();
@@ -644,10 +1003,27 @@ mod tests {
         let best_id = best.id.clone();
         assert_eq!(best.parent.as_deref(), Some(trips.id.as_str()));
         assert!(!collections.iter().any(|c| c.name == "Recently edited"));
-        // Nothing was written beside the photographs.
-        assert_eq!(fs::read_dir(&photos).unwrap().count(), before);
-        // A second import changes nothing.
-        import_into(&catalog, &source).unwrap();
+        // The virtual copy is a copy of the photograph with its own
+        // metadata; beside the photograph only its derived editor sidecar
+        // was published (the photograph itself is untouched).
+        let copies = catalog.copies(&asset.id).unwrap();
+        assert_eq!(
+            copies,
+            vec![copy_id(&asset.id, &copy_origin("LR", &source.photos[2]), 0)]
+        );
+        let copy = catalog.copy_state(&asset.id, &copies[0]).unwrap().unwrap();
+        assert_eq!(copy["rating"], 4);
+        assert!(copy["adjustments"].is_null());
+        assert_eq!(fs::read(photos.join("A.NEF")).unwrap(), b"a");
+        let sidecar = photos.join(format!("A.NEF.{}.rrdata", copies[0]));
+        assert_eq!(fs::read_dir(&photos).unwrap().count(), before + 1);
+        let derived: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+        assert_eq!(derived["rating"], 4);
+        // A second import changes nothing: the copy is found, not doubled.
+        let again = import_into(&catalog, &source).unwrap();
+        assert_eq!(again.copies, 1);
+        assert_eq!(catalog.copies(&asset.id).unwrap(), copies);
+        assert_eq!(fs::read_dir(&photos).unwrap().count(), before + 1);
         assert_eq!(catalog.collections().unwrap().len(), collections.len());
         assert_eq!(catalog.assets(None).unwrap().len(), 1);
         // Rules changed in Lightroom since: a new smart album beside the
@@ -663,6 +1039,164 @@ mod tests {
         assert_eq!(best.len(), 2);
         assert!(best.iter().any(|c| c.id == best_id && c.count == 1));
         assert!(best.iter().any(|c| c.id != best_id && c.count == 0));
+    }
+
+    /// A Lightroom edit arrives as a new edit of the photo would start
+    /// (current render version), with its Kelvin white balance taken as it
+    /// is, its crop in the photo's pixels, its snapshots as snapshots.
+    #[test]
+    fn lightroom_white_balance_crop_and_snapshots_are_imported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        let path = photos.join("A.png");
+        image::RgbImage::new(100, 80).save(&path).unwrap();
+        let xmp = |extra: &str| {
+            Develop::LightroomXmp(format!(
+                r#"crs:WhiteBalance="Custom" crs:Temperature="3200" crs:Tint="+5" crs:HasCrop="True" crs:CropLeft="0.1" crs:CropTop="0.2" crs:CropRight="0.9" crs:CropBottom="0.8" crs:CropAngle="0" {extra}"#
+            ))
+        };
+        let mut lr = photo("1", path.clone(), xmp(r#"crs:Exposure2012="+0.50""#), None);
+        lr.snapshots = vec![(
+            "Before".into(),
+            Develop::LightroomXmp(
+                r#"crs:WhiteBalance="As Shot" crs:Temperature="5150" crs:Tint="+9""#.into(),
+            ),
+        )];
+        let mut copy = photo(
+            "2",
+            path.clone(),
+            xmp(r#"crs:Exposure2012="-1.00""#),
+            Some("1"),
+        );
+        copy.metadata.rating = 2;
+        let source = Source {
+            name: "LR".into(),
+            photos: vec![lr, copy],
+            albums: vec![],
+            not_read: NotRead::default(),
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        assert_eq!(
+            (report.imported, report.copies, report.crops_clipped),
+            (1, 1, 0)
+        );
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let a = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+        assert_eq!(a["whiteBalance"], "custom");
+        assert_eq!(
+            (a["wbTemperature"].as_f64(), a["wbTint"].as_f64()),
+            (Some(3200.0), Some(5.0))
+        );
+        assert!(a.get("temperature").is_none());
+        assert_eq!(
+            a["renderVersion"].as_u64(),
+            Some(rawtonic_engine::image_processing::RENDER_VERSION)
+        );
+        assert_eq!(
+            a["toneVersion"].as_u64(),
+            Some(rawtonic_engine::image_processing::TONE_VERSION)
+        );
+        // Every tool's response a new edit gets.
+        for (key, version) in [
+            (
+                rawtonic_engine::image_processing::CLARITY_VERSION_KEY,
+                rawtonic_engine::image_processing::CLARITY_VERSION,
+            ),
+            (
+                rawtonic_engine::color_noise::VERSION_KEY,
+                rawtonic_engine::color_noise::VERSION,
+            ),
+            (
+                rawtonic_engine::image_processing::LUMA_NOISE_VERSION_KEY,
+                rawtonic_engine::image_processing::LUMA_NOISE_VERSION,
+            ),
+            (
+                rawtonic_engine::image_processing::DEFRINGE_VERSION_KEY,
+                rawtonic_engine::image_processing::DEFRINGE_VERSION,
+            ),
+            (
+                rawtonic_engine::image_processing::GRAIN_VERSION_KEY,
+                rawtonic_engine::image_processing::GRAIN_VERSION,
+            ),
+        ] {
+            assert_eq!(a[key].as_u64(), Some(version), "{key}");
+        }
+        // Not a RAW: no AI Denoise version.
+        assert!(a.get("aiDenoiseVersion").is_none());
+        assert_eq!(
+            a["crop"],
+            json!({"unit": "px", "x": 10.0, "y": 16.0, "width": 80.0, "height": 48.0})
+        );
+        assert_eq!(a["rotation"], 0.0);
+        let version = catalog.version_for(&asset.id, None).unwrap().unwrap();
+        let snapshots = catalog.snapshots(&version).unwrap();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].name, "Before");
+        // As Shot keeps the camera's balance: Lightroom's Temperature beside
+        // it is only its readout.
+        assert_eq!(snapshots[0].adjustments["whiteBalance"], "asShot");
+        assert!(snapshots[0].adjustments.get("wbTemperature").is_none());
+        // The copy has its own edit and rating; the photo's stays.
+        let id = copy_id(&asset.id, &copy_origin("LR", &source.photos[1]), 0);
+        let state = catalog.copy_state(&asset.id, &id).unwrap().unwrap();
+        assert_eq!(state["adjustments"]["exposure"], -1.0);
+        assert_eq!(state["rating"], 2);
+        assert_eq!(a["exposure"], 0.5);
+        // Snapshots are not doubled by a repeated import.
+        import_into(&catalog, &source).unwrap();
+        assert_eq!(catalog.snapshots(&version).unwrap().len(), 1);
+    }
+
+    /// Copies of the same photo from two libraries stay two copies (their
+    /// identity is the source's global id); a copy whose sidecar could not
+    /// be written beside the photograph gets it on the next import.
+    #[cfg(unix)]
+    #[test]
+    fn copies_are_told_apart_by_their_source_and_completed_on_a_repeated_import() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        let path = photos.join("A.NEF");
+        fs::write(&path, b"a").unwrap();
+        let library = |uid: &str| {
+            let mut copy = photo("2", path.clone(), Develop::None, Some("1"));
+            copy.uid = Some(uid.into());
+            Source {
+                name: "Lightroom Catalog".into(),
+                photos: vec![photo("1", path.clone(), Develop::None, None), copy],
+                albums: vec![],
+                not_read: NotRead::default(),
+            }
+        };
+        let (first, second) = (library("UUID-A"), library("UUID-B"));
+        // The folder refuses new files: the copy is kept by the catalog, its
+        // sidecar is not there.
+        fs::set_permissions(&photos, fs::Permissions::from_mode(0o555)).unwrap();
+        let refused = import_into(&catalog, &first).unwrap();
+        fs::set_permissions(&photos, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(refused.errors.len(), 1, "{refused:?}");
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let id = copy_id(
+            &asset.id,
+            &copy_origin("Lightroom Catalog", &first.photos[1]),
+            0,
+        );
+        assert_eq!(catalog.copies(&asset.id).unwrap(), vec![id.clone()]);
+        let sidecar = photos.join(format!("A.NEF.{id}.rrdata"));
+        assert!(!sidecar.exists());
+        // Imported again: the same copy, now with its sidecar.
+        let again = import_into(&catalog, &first).unwrap();
+        assert!(again.errors.is_empty(), "{again:?}");
+        assert!(sidecar.exists());
+        assert_eq!(catalog.copies(&asset.id).unwrap().len(), 1);
+        // Another catalog's copy with the same local key is another copy.
+        import_into(&catalog, &second).unwrap();
+        assert_eq!(catalog.copies(&asset.id).unwrap().len(), 2);
+        assert_eq!(fs::read(&path).unwrap(), b"a");
     }
 
     fn condition(criteria: &str, operation: &str, value: SmartValue) -> SmartRule {
@@ -920,11 +1454,24 @@ mod tests {
     #[ignore]
     fn import_a_real_library_into_a_scratch_catalog() {
         let source = std::env::var("RAWTONIC_IMPORT_SAMPLE").unwrap();
+        // The lens database the app loads at start (profile corrections of
+        // lenses without camera data).
+        if let Ok(db) = std::env::var("RAWTONIC_LENSFUN_DB") {
+            rawtonic_engine::lens_correction::set_global_lens_db(std::sync::Arc::new(
+                rawtonic_engine::lens_correction::load_lensfun_dir(Path::new(&db)),
+            ));
+        }
         let tmp = tempfile::tempdir().unwrap();
         let catalog =
             Library::create(&tmp.path().join("Scratch"), "Scratch", Mode::Catalog).unwrap();
         let started = std::time::Instant::now();
-        let (lib, kind) = read_source(Path::new(&source)).unwrap();
+        let (mut lib, kind) = read_source(Path::new(&source)).unwrap();
+        // `FROM|TO`: the photographs' folder moved (scratch clones).
+        if let Ok(relink) = std::env::var("RAWTONIC_IMPORT_RELINK")
+            && let Some((from, to)) = relink.split_once('|')
+        {
+            lib.relink(Path::new(from), Path::new(to));
+        }
         let read = started.elapsed().as_secs_f64();
         let report = import_into(&catalog, &lib).unwrap();
         println!(
@@ -938,19 +1485,38 @@ mod tests {
         fs::create_dir_all(out).unwrap();
         for photo in &lib.photos {
             let asset = catalog.asset_at(&photo.path).unwrap();
-            let (metadata, state) = match &asset {
-                Some(asset) => (
-                    serde_json::to_value(catalog.metadata(&asset.id).unwrap()).unwrap(),
-                    catalog.editor_state(&asset.id).unwrap(),
-                ),
-                None => (Value::Null, None),
+            let copy = asset
+                .as_ref()
+                .filter(|_| photo.copy_of.is_some())
+                .map(|a| copy_id(&a.id, &copy_origin(&lib.name, photo), 0));
+            let (metadata, state, snapshots) = match &asset {
+                Some(asset) => {
+                    let state = match &copy {
+                        Some(copy) => catalog.copy_state(&asset.id, copy).unwrap(),
+                        None => catalog.editor_state(&asset.id).unwrap(),
+                    };
+                    let version = catalog.version_for(&asset.id, copy.as_deref()).unwrap();
+                    let snapshots = version
+                        .map(|v| catalog.snapshots(&v).unwrap())
+                        .unwrap_or_default();
+                    (
+                        serde_json::to_value(catalog.metadata(&asset.id).unwrap()).unwrap(),
+                        state,
+                        snapshots,
+                    )
+                }
+                None => (Value::Null, None, Vec::new()),
             };
             let record = json!({
                 "path": photo.path,
                 "copyOf": photo.copy_of,
+                "copy": copy,
                 "asset": asset.as_ref().map(|a| a.id.clone()),
                 "metadata": metadata,
+                "copyRating": state.as_ref().map(|s| s["rating"].clone()),
+                "copyTags": state.as_ref().map(|s| s["tags"].clone()),
                 "adjustments": state.map(|s| s["adjustments"].clone()),
+                "snapshots": snapshots.iter().map(|s| json!({"name": s.name, "adjustments": s.adjustments})).collect::<Vec<_>>(),
             });
             fs::write(
                 out.join(format!("{}.json", photo.key)),

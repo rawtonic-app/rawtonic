@@ -5,7 +5,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { shortcutHint } from '../../utils/keyboardUtils';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
-import type { CompareMode } from '../../utils/beforeAfter';
+import { COMPARE_MODES } from '../../utils/beforeAfter';
 
 /** Toggle the remembered comparison; the adjacent chevron also works from the keyboard. */
 export default function CompareButton({ disabled, title }: { disabled: boolean; title: string }) {
@@ -16,8 +16,7 @@ export default function CompareButton({ disabled, title }: { disabled: boolean; 
   const { toggleSplitView, setCompareMode } = useEditorActions();
   const { showContextMenu } = useContextMenu();
   const open = (x: number, y: number) => {
-    const modes: CompareMode[] = ['off', 'left-right', 'top-bottom'];
-    showContextMenu(x, y, modes.map((mode) => ({
+    showContextMenu(x, y, COMPARE_MODES.map((mode) => ({
       label: t(`studio.workspace.viewer.compareMode.${mode}`),
       checked: mode === (enabled ? orientation : 'off'),
       onClick: () => setCompareMode(mode),

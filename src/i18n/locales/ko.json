@@ -289,6 +289,7 @@
       "toggle_left_panel": "왼쪽 패널",
       "toggle_metadata": "사진 정보",
       "toggle_multi_view": "다중 보기",
+      "toggle_original": "이전 (사진 전체)",
       "toggle_pointer_readout": "포인터 RGB 표시",
       "toggle_proof_margin": "교정 여백",
       "toggle_right_panel": "오른쪽 패널",
@@ -1519,6 +1520,37 @@
     "fields": {
       "filenameTemplate": "파일 이름 템플릿"
     },
+    "folders": {
+      "change": "변경…",
+      "choose": "{{folder}} 폴더 선택",
+      "chooseFor": "{{folder}} 폴더 변경",
+      "done": "완료",
+      "inside": "세션 안",
+      "intro": "이 세션이 촬영 및 가져오기(Capture), Selects로 옮긴 사진(Selects), 내보내기(Output)를 두는 위치입니다. 세션 안의 폴더는 세션과 함께 이동하고, 다른 드라이브 등 세션 밖의 폴더는 그 자리에 남습니다.",
+      "menu": "세션 폴더…",
+      "moveContents": "내용을 새 폴더로 이동",
+      "moveContentsHelp": "이전 폴더의 파일을 새 폴더로 옮깁니다(다른 드라이브로는 복사 후 검증). 편집 ▸ 실행 취소로 되돌릴 수 있습니다.",
+      "moved_other": "{{count}}개 항목을 옮겼습니다.",
+      "moveFailed": "폴더는 변경되었지만 내용이 모두 이동되지는 않았습니다: {{error}}",
+      "nothingMoves": "폴더를 바꿔도 파일은 이동하지 않습니다. 이전 폴더의 내용은 그대로 남고 세션에도 남습니다.",
+      "outputUnavailable": "Output 폴더 {{folder}}을(를) 사용할 수 없습니다(드라이브가 연결되어 있나요?). 아무것도 내보내지 않았습니다. 세션 폴더에서 다른 Output 폴더를 선택하세요.",
+      "outside": "세션 밖",
+      "reading": "읽는 중…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Selects 폴더 {{folder}}을(를) 사용할 수 없습니다(드라이브가 연결되어 있나요?). 아무것도 옮기지 않았습니다. 세션 폴더에서 다른 Selects 폴더를 선택하세요.",
+      "title": "세션 폴더",
+      "unavailable": "사용할 수 없음: 폴더가 없거나 드라이브가 연결되지 않았습니다.",
+      "unavailableUse": {
+        "capture": "폴더가 돌아오거나 다른 폴더를 선택할 때까지 이 폴더로의 촬영과 가져오기는 실패합니다.",
+        "output": "폴더가 돌아오거나 다른 폴더를 선택할 때까지 Output 폴더로의 내보내기는 실패합니다.",
+        "selects": "폴더가 돌아오거나 다른 폴더를 선택할 때까지 'Selects로 이동'은 실패합니다."
+      },
+      "working": "처리 중…"
+    },
     "hotFolder": {
       "chooseFolder": "감시할 폴더 선택",
       "copyFromLast": "마지막 촬영에서 복사",
@@ -1544,7 +1576,7 @@
       "albums_other": "앨범 {{count}}개",
       "check": "확인",
       "chooseSource": "가져올 라이브러리 선택",
-      "copiesNotImported_other": "가상 복사본 {{count}}개(가져오지 않음)",
+      "copies_other": "가상 복사본 {{count}}개",
       "edited_other": "조정됨 {{count}}장",
       "filterName": "카탈로그 및 세션",
       "photos_other": "사진 {{count}}장",
@@ -1810,8 +1842,10 @@
       "flagsSavedRefreshFailed": "플래그를 저장했지만 프로젝트 요약을 새로 고칠 수 없습니다: {{error}}",
       "hotFolderFailed": "감시 폴더: {{file}}: {{error}}",
       "hotFolderResumeFailed": "감시 폴더를 다시 시작할 수 없습니다: {{error}}",
-      "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열 때 계산됩니다",
+      "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열거나 내보낼 때 계산됩니다",
+      "importCopies_other": "가상 복사본 {{count}}개를 가져옴",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
+      "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
       "importNotFound_other": "{{count}}장 찾을 수 없음",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
@@ -2130,6 +2164,7 @@
         "toggle_masks": "마스크 패널 전환",
         "toggle_metadata": "메타데이터 도구(라이브러리) 또는 사진 정보(현상, 전체 화면)",
         "toggle_multi_view": "다중 보기: 선택한 사진을 나란히 표시",
+        "toggle_original": "전환: 사진 전체 이전",
         "toggle_pointer_readout": "포인터 RGB 표시 전환",
         "toggle_proof_margin": "교정 여백 전환",
         "toggle_right_panel": "오른쪽 패널 토글",
@@ -3023,6 +3058,7 @@
       "toolGroup": {
         "isOn": "{{tool}} 켬",
         "reset": "{{tool}} 재설정",
+        "resetOrHold": "{{tool}} 재설정 (길게 누르거나 Alt/Option과 함께 누르기: 이 도구 없이 사진 보기)",
         "turnOff": "{{tool}} 끄기",
         "turnOn": "{{tool}} 켜기"
       },
@@ -3177,6 +3213,7 @@
           "loading": "사진 읽는 중…",
           "masks": "마스크 쓰는 중…",
           "rendering": "렌더링 및 쓰는 중…",
+          "selecting": "AI 선택 영역 계산 중…",
           "waiting": "대기 중"
         },
         "photos_other": "사진 {{count}}장",
@@ -3449,6 +3486,8 @@
       "enable": "프로필 보정 사용",
       "lookingUp": "렌즈를 찾는 중…",
       "make": "제조사",
+      "manualVignetting": "렌즈 비네팅",
+      "manualVignettingMidpoint": "비네팅 중간점",
       "model": "모델",
       "noFocalData": "프로필에 이 초점 거리에 대한 데이터가 없습니다.",
       "none": "없음",
@@ -4728,6 +4767,7 @@
         "close": "도구 닫기",
         "progress": "내보내는 중 {{current}} / {{total}}",
         "progressDenoising": "내보내는 중 {{current}} / {{total}} · AI 노이즈 제거…",
+        "progressSelecting": "내보내는 중 {{current}} / {{total}} · AI 선택 영역…",
         "title": "사진 내보내기"
       },
       "flags": {
@@ -4816,6 +4856,7 @@
         "compareMode": {
           "left-right": "좌우 분할",
           "off": "끄기",
+          "side-by-side": "나란히",
           "top-bottom": "상하 분할"
         },
         "compareModes": "비교 모드",
@@ -4839,6 +4880,7 @@
         "splitDivider": "전/후 구분선",
         "togglePanels": "패널 표시/숨기기",
         "undo": "실행 취소",
+        "withoutTool": "{{tool}} 없이",
         "zoom": "확대/축소"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

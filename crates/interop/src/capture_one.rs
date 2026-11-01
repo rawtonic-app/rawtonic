@@ -101,6 +101,11 @@ pub fn read(session_db: &Path) -> Result<Library> {
         .to_path_buf();
     let scratch = tempfile::tempdir()?;
     let conn = open_copy(session_db, scratch.path())?;
+    // Capture One has no global id for a variant: the session file and the
+    // variant's id there stand in for one (`Photo::uid`).
+    let origin = session_db
+        .canonicalize()
+        .unwrap_or_else(|_| session_db.to_path_buf());
 
     let entities: HashMap<String, i64> = {
         let mut q = conn.prepare("SELECT ZNAME, Z_ENT FROM ZENTITIES")?;
@@ -227,6 +232,9 @@ pub fn read(session_db: &Path) -> Result<Library> {
                 Develop::CaptureOne(settings)
             },
             copy_of,
+            copy_name: None,
+            snapshots: Vec::new(),
+            uid: Some(format!("{}#{variant}", origin.display())),
         });
     }
     drop(rows);

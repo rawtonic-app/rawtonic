@@ -314,6 +314,7 @@
       "toggle_left_panel": "Panneau gauche",
       "toggle_metadata": "Infos de la photo",
       "toggle_multi_view": "Vue multiple",
+      "toggle_original": "Avant (photo entière)",
       "toggle_pointer_readout": "Valeurs RVB sous le pointeur",
       "toggle_proof_margin": "Marge d'épreuve",
       "toggle_right_panel": "Panneau droit",
@@ -1651,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Modèle de nom de fichier"
     },
+    "folders": {
+      "change": "Modifier…",
+      "choose": "Choisir le dossier {{folder}}",
+      "chooseFor": "Modifier le dossier {{folder}}",
+      "done": "Terminé",
+      "inside": "Dans la session",
+      "intro": "Où cette session place les prises de vue et les imports (Capture), les photos déplacées vers Selects (Selects) et les exports (Output). Un dossier dans la session la suit quand elle est déplacée ; un dossier hors de la session, par exemple sur un autre disque, reste où il est.",
+      "menu": "Dossiers de la session…",
+      "moveContents": "Déplacer le contenu vers le nouveau dossier",
+      "moveContentsHelp": "Les fichiers de l’ancien dossier sont déplacés dans le nouveau (copiés et vérifiés vers un autre disque). Édition ▸ Annuler les remet en place.",
+      "moved_one": "{{count}} élément déplacé.",
+      "moved_many": "{{count}} éléments déplacés.",
+      "moved_other": "{{count}} éléments déplacés.",
+      "moveFailed": "Le dossier a été changé, mais son contenu n’a pas été entièrement déplacé : {{error}}",
+      "nothingMoves": "Changer de dossier ne déplace aucun fichier : le contenu de l’ancien dossier y reste et reste dans la session.",
+      "outputUnavailable": "Le dossier Output {{folder}} est indisponible (son disque est-il connecté ?). Rien n’a été exporté ; choisissez un autre dossier Output dans Dossiers de la session.",
+      "outside": "Hors de la session",
+      "reading": "Lecture…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Le dossier Selects {{folder}} est indisponible (son disque est-il connecté ?). Rien n’a été déplacé ; choisissez un autre dossier Selects dans Dossiers de la session.",
+      "title": "Dossiers de la session",
+      "unavailable": "Indisponible : le dossier manque ou son disque n’est pas connecté.",
+      "unavailableUse": {
+        "capture": "Les prises de vue et imports vers ce dossier échouent jusqu’à son retour ou le choix d’un autre dossier.",
+        "output": "Les exports vers le dossier Output échouent jusqu’à son retour ou le choix d’un autre dossier.",
+        "selects": "« Déplacer vers Selects » échoue jusqu’à son retour ou le choix d’un autre dossier."
+      },
+      "working": "En cours…"
+    },
     "hotFolder": {
       "chooseFolder": "Choisir le dossier surveillé",
       "copyFromLast": "Copier depuis la dernière prise",
@@ -1678,9 +1712,9 @@
       "albums_other": "{{count}} albums",
       "check": "Vérifier",
       "chooseSource": "Choisir la bibliothèque à importer",
-      "copiesNotImported_one": "{{count}} copie virtuelle (non importée)",
-      "copiesNotImported_many": "{{count}} copies virtuelles (non importées)",
-      "copiesNotImported_other": "{{count}} copies virtuelles (non importées)",
+      "copies_one": "{{count}} copie virtuelle",
+      "copies_many": "{{count}} copies virtuelles",
+      "copies_other": "{{count}} copies virtuelles",
       "edited_one": "{{count}} retouchée",
       "edited_many": "{{count}} retouchées",
       "edited_other": "{{count}} retouchées",
@@ -1972,12 +2006,18 @@
       "flagsSavedRefreshFailed": "Marques enregistrées ; impossible d’actualiser le résumé du projet : {{error}}",
       "hotFolderFailed": "Dossier surveillé : {{file}} : {{error}}",
       "hotFolderResumeFailed": "Impossible de reprendre la surveillance du dossier : {{error}}",
-      "importAiMasksOnOpen_one": "Les masques IA de {{count}} photo sont calculés à son ouverture dans Développement",
-      "importAiMasksOnOpen_many": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement",
-      "importAiMasksOnOpen_other": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement",
+      "importAiMasksOnOpen_one": "Les masques IA de {{count}} photo sont calculés à son ouverture dans Développement ou à l'export",
+      "importAiMasksOnOpen_many": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement ou à l'export",
+      "importAiMasksOnOpen_other": "Les masques IA de {{count}} photos sont calculés à l'ouverture de chacune dans Développement ou à l'export",
+      "importCopies_one": "{{count}} copie virtuelle importée",
+      "importCopies_many": "{{count}} copies virtuelles importées",
+      "importCopies_other": "{{count}} copies virtuelles importées",
       "importCopiesSkipped_one": "{{count}} copie virtuelle non importée",
       "importCopiesSkipped_many": "{{count}} copies virtuelles non importées",
       "importCopiesSkipped_other": "{{count}} copies virtuelles non importées",
+      "importCropsClipped_one": "{{count}} recadrage dépassait le cadre de l’appareil et y a été réduit",
+      "importCropsClipped_many": "{{count}} recadrages dépassaient le cadre de l’appareil et y ont été réduits",
+      "importCropsClipped_other": "{{count}} recadrages dépassaient le cadre de l’appareil et y ont été réduits",
       "imported_one": "{{count}} photo importée ({{withSettings}} retouchées, albums : {{albums}})",
       "imported_many": "{{count}} photos importées ({{withSettings}} retouchées, albums : {{albums}})",
       "imported_other": "{{count}} photos importées ({{withSettings}} retouchées, albums : {{albums}})",
@@ -2339,6 +2379,7 @@
         "toggle_masks": "Basculer le panneau des masques",
         "toggle_metadata": "Outil Métadonnées (Bibliothèque) ou informations sur la photo (Développement, plein écran)",
         "toggle_multi_view": "Vue multiple : photos sélectionnées côte à côte",
+        "toggle_original": "Basculer : toute la photo avant",
         "toggle_pointer_readout": "Afficher/masquer les valeurs RVB sous le pointeur",
         "toggle_proof_margin": "Afficher/masquer la marge d'épreuve",
         "toggle_right_panel": "Afficher/Masquer le panneau droit",
@@ -3245,6 +3286,7 @@
       "toolGroup": {
         "isOn": "{{tool}} activé",
         "reset": "Réinitialiser {{tool}}",
+        "resetOrHold": "Réinitialiser {{tool}} (maintenir, ou appuyer avec Alt/Option : afficher la photo sans l’outil)",
         "turnOff": "Désactiver {{tool}}",
         "turnOn": "Activer {{tool}}"
       },
@@ -3405,6 +3447,7 @@
           "loading": "Lecture de la photo…",
           "masks": "Écriture des masques…",
           "rendering": "Rendu et écriture…",
+          "selecting": "Calcul des sélections IA…",
           "waiting": "En attente"
         },
         "photos_one": "{{count}} photo",
@@ -3689,6 +3732,8 @@
       "enable": "Activer les corrections de profil",
       "lookingUp": "Recherche de l'objectif…",
       "make": "Marque",
+      "manualVignetting": "Vignetage de l’objectif",
+      "manualVignettingMidpoint": "Point médian du vignetage",
       "model": "Modèle",
       "noFocalData": "Le profil n'a pas de données pour cette focale.",
       "none": "Aucun",
@@ -5040,6 +5085,7 @@
         "close": "Fermer les outils",
         "progress": "Export {{current}} / {{total}}",
         "progressDenoising": "Export {{current}} / {{total}} · débruitage IA…",
+        "progressSelecting": "Export {{current}} / {{total}} · sélections IA…",
         "title": "Exporter les photos"
       },
       "flags": {
@@ -5138,6 +5184,7 @@
         "compareMode": {
           "left-right": "Division gauche/droite",
           "off": "Désactivé",
+          "side-by-side": "Côte à côte",
           "top-bottom": "Division haut/bas"
         },
         "compareModes": "Mode de comparaison",
@@ -5161,6 +5208,7 @@
         "splitDivider": "Séparateur avant/après",
         "togglePanels": "Afficher/masquer les panneaux",
         "undo": "Annuler",
+        "withoutTool": "Sans {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

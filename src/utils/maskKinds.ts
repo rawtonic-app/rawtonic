@@ -1,6 +1,6 @@
 import { Mask, SubMask, SubMaskMode } from '../components/panel/right/Masks';
 import type { ImageDimensions } from '../hooks/useImageRenderSize';
-import { createSubMask } from './maskUtils';
+import { SUBJECT_VERSION, createSubMask } from './maskUtils';
 
 /**
  * What a layer or a component can be made from, after Lightroom's mask
@@ -75,9 +75,9 @@ export function createComponents(kind: MaskKind, image: ImageDimensions, mode = 
     case 'radial':
       return one(Mask.Radial);
     case 'subject':
-      return one(Mask.AiForeground, { maskDataBase64: null, grow: 0, feather: 0 });
+      return one(Mask.AiForeground, { maskDataBase64: null, grow: 0, feather: 0, subjectVersion: SUBJECT_VERSION });
     case 'background':
-      return one(Mask.AiForeground, { maskDataBase64: null, grow: 0, feather: 0 }, true);
+      return one(Mask.AiForeground, { maskDataBase64: null, grow: 0, feather: 0, subjectVersion: SUBJECT_VERSION }, true);
     case 'sky':
       return one(Mask.AiSky, { maskDataBase64: null, grow: 0, feather: 0 });
     case 'object':

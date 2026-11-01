@@ -25,6 +25,8 @@ export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
   'transformYOffset',
   'lensDistortionAmount',
   'lensVignetteAmount',
+  'lensManualVignetteAmount',
+  'lensManualVignetteMidpoint',
   'lensTcaAmount',
   'lensDistortionParams',
   'lensCorrectionMode',
@@ -75,8 +77,24 @@ export function originalPreviewAdjustments(adjustments: Adjustments, snapshot?: 
 
 /** Where the split divider starts: the middle, as in Capture One and Lightroom. */
 export const DEFAULT_SPLIT_POSITION = 0.5;
-export type SplitOrientation = 'left-right' | 'top-bottom';
+/** How before and after share the viewer: a divider over one photograph
+ * (left-right, top-bottom) or two panes beside each other, each the whole
+ * photograph at the same zoom and pan (side-by-side, Lightroom's Before/After
+ * Left/Right). */
+export type SplitOrientation = 'left-right' | 'top-bottom' | 'side-by-side';
 export type CompareMode = 'off' | SplitOrientation;
+/** The compare menu's entries and the cycle's order (Shift+Y). */
+export const COMPARE_MODES: CompareMode[] = ['off', 'left-right', 'top-bottom', 'side-by-side'];
+
+/** The mode after `mode` in the cycle: Off → left-right → top-bottom → side-by-side → Off. */
+export function nextCompareMode(mode: CompareMode): CompareMode {
+  return COMPARE_MODES[(COMPARE_MODES.indexOf(mode) + 1) % COMPARE_MODES.length];
+}
+
+/** A stored layout, or left-right for anything else. */
+export function parseSplitOrientation(value: unknown): SplitOrientation {
+  return value === 'top-bottom' || value === 'side-by-side' ? value : 'left-right';
+}
 
 /** A divider position as a share (0–1) of the viewer's width. */
 export function clampSplitPosition(position: number): number {
@@ -123,6 +141,8 @@ export function splitViewAvailable(
 
 /** Arrow keys move a focused divider by a small step, Shift by a larger one. */
 export function nudgeSplitPosition(position: number, key: string, shift: boolean, orientation: SplitOrientation = 'left-right'): number | null {
+  // Side by side has no divider to move.
+  if (orientation === 'side-by-side') return null;
   const step = shift ? 0.1 : 0.01;
   const backward = orientation === 'top-bottom' ? 'ArrowUp' : 'ArrowLeft';
   const forward = orientation === 'top-bottom' ? 'ArrowDown' : 'ArrowRight';
@@ -138,4 +158,26 @@ export function nudgeSplitPosition(position: number, key: string, shift: boolean
     default:
       return null;
   }
+}
+
+/** A fitted photograph in its viewer (useImageRenderSize's RenderSize). */
+type FitSize = { width: number; height: number; offsetX: number; offsetY: number; containerWidth: number; containerHeight: number };
+
+/**
+ * The transform that shows the photograph at the same magnification (CSS
+ * pixels per photo pixel) with the point `a`, `b` (shares of the photo) at
+ * the viewer's centre, after its fit changed from `old` to `next`.
+ */
+export function keepMagnification(old: FitSize, next: FitSize, scale: number, a: number, b: number) {
+  return anchoredAt(next, scale * (old.width / next.width), a, b);
+}
+
+/** The transform at `scale` with the photo point `a`, `b` (shares of the
+ * photo) at the centre of the viewer `fit`. */
+export function anchoredAt(fit: FitSize, scale: number, a: number, b: number) {
+  return {
+    scale,
+    x: fit.containerWidth / 2 - scale * (fit.offsetX + a * fit.width),
+    y: fit.containerHeight / 2 - scale * (fit.offsetY + b * fit.height),
+  };
 }

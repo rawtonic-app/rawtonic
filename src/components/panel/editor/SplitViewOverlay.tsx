@@ -20,6 +20,8 @@ export default function SplitViewOverlay() {
   const splitView = useEditorStore((state) => state.splitView);
   const orientation = useEditorStore((state) => state.splitOrientation);
   const vertical = orientation === 'top-bottom';
+  // Side by side: two panes, no divider to move; a hairline between them.
+  const sideBySide = orientation === 'side-by-side';
   const position = useEditorStore((state) => state.splitPosition);
   // While \ is held the whole photograph shows before: no divider, no labels.
   const peeking = useEditorStore((state) => state.showOriginal);
@@ -81,6 +83,9 @@ export default function SplitViewOverlay() {
           : t('studio.workspace.viewer.splitBefore')}
       </span>
       <span className={`${label} ${vertical ? 'bottom-2' : 'top-2'} right-2`}>{t('studio.workspace.viewer.splitAfter')}</span>
+      {sideBySide ? (
+        <div className="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-black/50" data-testid="side-by-side-seam" />
+      ) : (
       <div
         role="slider"
         tabIndex={0}
@@ -104,6 +109,26 @@ export default function SplitViewOverlay() {
           <ChevronRight size={12} strokeWidth={2.5} className="-ml-0.5" />
         </div>
       </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Names what the viewer shows instead of the edit: the whole photograph
+ * before (held \ or its toggle) or the photograph without one tool (its
+ * reset held, `useToolBeforeHold`). View only, like the split.
+ */
+export function ViewerBeforeBadge() {
+  const { t } = useTranslation();
+  const peeking = useEditorStore((state) => state.showOriginal);
+  const tool = useEditorStore((state) => state.toolBefore);
+  if (!peeking && !tool) return null;
+  return (
+    <div className="absolute inset-0 pointer-events-none z-[60]" data-testid="viewer-before-badge">
+      <span className="absolute top-2 left-2 rounded px-2 py-0.5 text-xs font-medium text-white bg-black/55 select-none">
+        {tool ? t('studio.workspace.viewer.withoutTool', { tool }) : t('studio.workspace.viewer.splitBefore')}
+      </span>
     </div>
   );
 }

@@ -455,3 +455,126 @@ fn time_marking_five_thousand_changed_sidecars() {
         );
     }
 }
+
+/// Rates a photograph 4 and has its sidecar write stop between the publish
+/// and the commit of its digest, as a kill there would; the library is
+/// opened again as after the relaunch.
+fn killed_after_publish(dir: &Path, rated_before: bool) -> (Library, String, PathBuf) {
+    let (lib, ids, paths) = session(dir, &["A.ARW"]);
+    if rated_before {
+        rated_and_written(&lib, &ids);
+    }
+    let mut meta = lib.metadata(&ids[0]).unwrap();
+    meta.rating = 4;
+    lib.set_metadata(&ids[0], &meta).unwrap();
+    lib.crash_after_next_xmp_publish();
+    assert!(lib.sync_xmp(&ids[0]).is_err());
+    let sidecar = paths[0].with_extension("xmp");
+    let xmp = fs::read_to_string(&sidecar).unwrap();
+    assert_eq!(rawtonic_metadata::read_xmp(&xmp).unwrap().0.rating, 4);
+    let directory = lib.directory.clone();
+    drop(lib);
+    (Library::open(&directory).unwrap(), ids[0].clone(), sidecar)
+}
+
+/// G66 "XMP digest window" (KT kill runs: 4/20 flagged): the sidecar the
+/// library published just before a kill is its own, not another program's.
+#[test]
+fn a_sidecar_published_just_before_a_kill_is_the_library_s_own() {
+    for rated_before in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let (lib, id, sidecar) = killed_after_publish(d.path(), rated_before);
+        assert_eq!(problems(&lib), [(sidecar.with_extension("ARW"), None)]);
+        let retry = lib.write_pending_xmp().unwrap();
+        assert_eq!(
+            (retry.written, retry.unsaved),
+            (1, vec![]),
+            "{rated_before}"
+        );
+        assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+        let check = lib
+            .check_xmp_sidecars(None, &mut SidecarStamps::default())
+            .unwrap();
+        assert!(check.changed.is_empty());
+        let xmp = fs::read_to_string(&sidecar).unwrap();
+        assert_eq!(rawtonic_metadata::read_xmp(&xmp).unwrap().0.rating, 4);
+        assert_eq!(lib.metadata(&id).unwrap().rating, 4);
+    }
+}
+
+/// The same kill, then another program edits the sidecar before the
+/// relaunch: matching neither digest, it stays a change elsewhere and is
+/// never replaced.
+#[test]
+fn a_sidecar_edited_elsewhere_after_that_kill_stays_flagged() {
+    for rated_before in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let (lib, id, sidecar) = killed_after_publish(d.path(), rated_before);
+        let other = fs::read_to_string(&sidecar)
+            .unwrap()
+            .replace("xmp:Rating=\"4\"", "xmp:Rating=\"1\"");
+        assert!(other.contains("xmp:Rating=\"1\""), "{other}");
+        fs::write(&sidecar, &other).unwrap();
+        let retry = lib.write_pending_xmp().unwrap();
+        assert_eq!(retry.written, 0);
+        assert_eq!(retry.unsaved.len(), 1);
+        assert_eq!(retry.unsaved[0].problem, XmpProblem::ChangedElsewhere);
+        assert!(lib.sync_xmp(&id).is_err());
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), other);
+        assert_eq!(lib.summary().unwrap().xmp_pending, 1);
+    }
+}
+
+/// The background check looks at photographs in sync. One whose sidecar
+/// another connection is writing at that moment (published, digest not yet
+/// committed; here a cut-off publish with the row put back in sync) is not
+/// taken for a change elsewhere; a real change still is.
+#[test]
+fn the_background_check_accepts_a_sidecar_being_published() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, id, sidecar) = killed_after_publish(d.path(), true);
+    let db = rusqlite::Connection::open(lib.directory.join("session.sqlite")).unwrap();
+    db.execute(
+        "UPDATE metadata SET xmp_status='synced' WHERE asset_id=?",
+        [&id],
+    )
+    .unwrap();
+    let mut seen = SidecarStamps::default();
+    assert!(
+        lib.check_xmp_sidecars(None, &mut seen)
+            .unwrap()
+            .changed
+            .is_empty()
+    );
+    let mut text = fs::read_to_string(&sidecar).unwrap();
+    text.push(' ');
+    fs::write(&sidecar, text).unwrap();
+    assert_eq!(
+        lib.check_xmp_sidecars(None, &mut seen).unwrap().changed,
+        [id]
+    );
+}
+
+/// Schema 23 adds the publishing digest to a library made before it.
+#[test]
+fn a_library_of_schema_22_takes_the_publishing_digest() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, _) = session(d.path(), &["A.ARW"]);
+    let directory = lib.directory.clone();
+    drop(lib);
+    let db = rusqlite::Connection::open(directory.join("session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0023.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&directory).unwrap();
+    rated_and_written(&lib, &ids);
+    let mut meta = lib.metadata(&ids[0]).unwrap();
+    meta.rating = 5;
+    lib.set_metadata(&ids[0], &meta).unwrap();
+    lib.crash_after_next_xmp_publish();
+    assert!(lib.sync_xmp(&ids[0]).is_err());
+    let sidecar = lib.asset(&ids[0]).unwrap().path.with_extension("xmp");
+    let retry = lib.write_pending_xmp().unwrap();
+    assert_eq!((retry.written, retry.unsaved), (1, vec![]));
+    let xmp = fs::read_to_string(&sidecar).unwrap();
+    assert_eq!(rawtonic_metadata::read_xmp(&xmp).unwrap().0.rating, 5);
+}

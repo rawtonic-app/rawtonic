@@ -314,6 +314,7 @@
       "toggle_left_panel": "Pannello sinistro",
       "toggle_metadata": "Info foto",
       "toggle_multi_view": "Vista multipla",
+      "toggle_original": "Prima (foto intera)",
       "toggle_pointer_readout": "Lettura RGB del puntatore",
       "toggle_proof_margin": "Margine di prova",
       "toggle_right_panel": "Pannello destro",
@@ -1651,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Modello del nome file"
     },
+    "folders": {
+      "change": "Cambia…",
+      "choose": "Scegli la cartella {{folder}}",
+      "chooseFor": "Cambia la cartella {{folder}}",
+      "done": "Fine",
+      "inside": "Nella sessione",
+      "intro": "Dove questa sessione mette scatti e importazioni (Capture), le foto spostate in Selects (Selects) e le esportazioni (Output). Una cartella dentro la sessione si sposta con essa; una cartella fuori, ad esempio su un altro disco, resta dov’è.",
+      "menu": "Cartelle della sessione…",
+      "moveContents": "Sposta il contenuto nella nuova cartella",
+      "moveContentsHelp": "I file della vecchia cartella vengono spostati nella nuova (copiati e verificati su un altro disco). Modifica ▸ Annulla li riporta indietro.",
+      "moved_one": "{{count}} elemento spostato.",
+      "moved_many": "{{count}} elementi spostati.",
+      "moved_other": "{{count}} elementi spostati.",
+      "moveFailed": "La cartella è stata cambiata, ma il suo contenuto non è stato spostato del tutto: {{error}}",
+      "nothingMoves": "Cambiare cartella non sposta file: ciò che è nella vecchia cartella resta lì e nella sessione.",
+      "outputUnavailable": "La cartella Output {{folder}} non è disponibile (il suo disco è collegato?). Non è stato esportato nulla; scegli un’altra cartella Output in Cartelle della sessione.",
+      "outside": "Fuori dalla sessione",
+      "reading": "Lettura…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "La cartella Selects {{folder}} non è disponibile (il suo disco è collegato?). Non è stato spostato nulla; scegli un’altra cartella Selects in Cartelle della sessione.",
+      "title": "Cartelle della sessione",
+      "unavailable": "Non disponibile: la cartella manca o il suo disco non è collegato.",
+      "unavailableUse": {
+        "capture": "Scatti e importazioni in essa non riescono finché non torna o si sceglie un’altra cartella.",
+        "output": "Le esportazioni nella cartella Output non riescono finché non torna o si sceglie un’altra cartella.",
+        "selects": "«Sposta in Selects» non riesce finché non torna o si sceglie un’altra cartella."
+      },
+      "working": "In corso…"
+    },
     "hotFolder": {
       "chooseFolder": "Scegli la cartella monitorata",
       "copyFromLast": "Copia dall’ultimo scatto",
@@ -1678,9 +1712,9 @@
       "albums_other": "{{count}} album",
       "check": "Controlla",
       "chooseSource": "Scegli la libreria da importare",
-      "copiesNotImported_one": "{{count}} copia virtuale (non importata)",
-      "copiesNotImported_many": "{{count}} copie virtuali (non importate)",
-      "copiesNotImported_other": "{{count}} copie virtuali (non importate)",
+      "copies_one": "{{count}} copia virtuale",
+      "copies_many": "{{count}} copie virtuali",
+      "copies_other": "{{count}} copie virtuali",
       "edited_one": "{{count}} con modifiche",
       "edited_many": "{{count}} con modifiche",
       "edited_other": "{{count}} con modifiche",
@@ -1972,12 +2006,18 @@
       "flagsSavedRefreshFailed": "Contrassegni salvati; impossibile aggiornare il riepilogo del progetto: {{error}}",
       "hotFolderFailed": "Cartella monitorata: {{file}}: {{error}}",
       "hotFolderResumeFailed": "Impossibile riprendere il monitoraggio della cartella: {{error}}",
-      "importAiMasksOnOpen_one": "Le maschere IA di {{count}} foto vengono calcolate quando la si apre in Sviluppo",
-      "importAiMasksOnOpen_many": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo",
-      "importAiMasksOnOpen_other": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo",
+      "importAiMasksOnOpen_one": "Le maschere IA di {{count}} foto vengono calcolate quando la si apre in Sviluppo o all'esportazione",
+      "importAiMasksOnOpen_many": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo o all'esportazione",
+      "importAiMasksOnOpen_other": "Le maschere IA di {{count}} foto vengono calcolate quando si apre ciascuna in Sviluppo o all'esportazione",
+      "importCopies_one": "{{count}} copia virtuale importata",
+      "importCopies_many": "{{count}} copie virtuali importate",
+      "importCopies_other": "{{count}} copie virtuali importate",
       "importCopiesSkipped_one": "{{count}} copia virtuale non importata",
       "importCopiesSkipped_many": "{{count}} copie virtuali non importate",
       "importCopiesSkipped_other": "{{count}} copie virtuali non importate",
+      "importCropsClipped_one": "{{count}} ritaglio superava l’inquadratura della fotocamera ed è stato ridotto ad essa",
+      "importCropsClipped_many": "{{count}} ritagli superavano l’inquadratura della fotocamera e sono stati ridotti ad essa",
+      "importCropsClipped_other": "{{count}} ritagli superavano l’inquadratura della fotocamera e sono stati ridotti ad essa",
       "imported_one": "{{count}} foto importata ({{withSettings}} con modifiche, album: {{albums}})",
       "imported_many": "{{count}} foto importate ({{withSettings}} con modifiche, album: {{albums}})",
       "imported_other": "{{count}} foto importate ({{withSettings}} con modifiche, album: {{albums}})",
@@ -2339,6 +2379,7 @@
         "toggle_masks": "Attiva/Disattiva pannello Maschere",
         "toggle_metadata": "Strumento Metadati (Libreria) o informazioni sulla foto (Sviluppo, schermo intero)",
         "toggle_multi_view": "Vista multipla: foto selezionate affiancate",
+        "toggle_original": "Attiva/disattiva: tutta la foto prima",
         "toggle_pointer_readout": "Attiva/disattiva lettura RGB del puntatore",
         "toggle_proof_margin": "Attiva/disattiva margine di prova",
         "toggle_right_panel": "Mostra/Nascondi pannello destro",
@@ -3245,6 +3286,7 @@
       "toolGroup": {
         "isOn": "{{tool}} attivo",
         "reset": "Ripristina {{tool}}",
+        "resetOrHold": "Reimposta {{tool}} (tieni premuto, o premi con Alt/Opzione: mostra la foto senza lo strumento)",
         "turnOff": "Disattiva {{tool}}",
         "turnOn": "Attiva {{tool}}"
       },
@@ -3405,6 +3447,7 @@
           "loading": "Lettura della foto…",
           "masks": "Scrittura delle maschere…",
           "rendering": "Rendering e scrittura…",
+          "selecting": "Calcolo delle selezioni IA…",
           "waiting": "In attesa"
         },
         "photos_one": "{{count}} foto",
@@ -3689,6 +3732,8 @@
       "enable": "Attiva correzioni del profilo",
       "lookingUp": "Ricerca dell'obiettivo…",
       "make": "Marca",
+      "manualVignetting": "Vignettatura dell’obiettivo",
+      "manualVignettingMidpoint": "Punto medio della vignettatura",
       "model": "Modello",
       "noFocalData": "Il profilo non ha dati per questa lunghezza focale.",
       "none": "Nessuno",
@@ -5040,6 +5085,7 @@
         "close": "Chiudi strumenti",
         "progress": "Esportazione {{current}} / {{total}}",
         "progressDenoising": "Esportazione {{current}} / {{total}} · riduzione rumore IA…",
+        "progressSelecting": "Esportazione {{current}} / {{total}} · selezioni IA…",
         "title": "Esporta foto"
       },
       "flags": {
@@ -5138,6 +5184,7 @@
         "compareMode": {
           "left-right": "Divisione sinistra/destra",
           "off": "Disattivato",
+          "side-by-side": "Affiancati",
           "top-bottom": "Divisione alto/basso"
         },
         "compareModes": "Modalità di confronto",
@@ -5161,6 +5208,7 @@
         "splitDivider": "Divisore prima/dopo",
         "togglePanels": "Mostra/nascondi i pannelli",
         "undo": "Annulla",
+        "withoutTool": "Senza {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

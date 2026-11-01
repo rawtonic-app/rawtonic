@@ -289,6 +289,7 @@
       "toggle_left_panel": "左パネル",
       "toggle_metadata": "写真情報",
       "toggle_multi_view": "マルチビュー",
+      "toggle_original": "補正前（写真全体）",
       "toggle_pointer_readout": "ポインターのRGB表示",
       "toggle_proof_margin": "校正マージン",
       "toggle_right_panel": "右パネル",
@@ -1519,6 +1520,37 @@
     "fields": {
       "filenameTemplate": "ファイル名テンプレート"
     },
+    "folders": {
+      "change": "変更…",
+      "choose": "{{folder}} フォルダを選択",
+      "chooseFor": "{{folder}} フォルダを変更",
+      "done": "完了",
+      "inside": "セッション内",
+      "intro": "このセッションが撮影と読み込み (Capture)、Selects に移動した写真 (Selects)、書き出し (Output) を置く場所です。セッション内のフォルダはセッションと一緒に移動し、別のドライブなどセッション外のフォルダはその場所に残ります。",
+      "menu": "セッションフォルダ…",
+      "moveContents": "内容を新しいフォルダに移動",
+      "moveContentsHelp": "古いフォルダのファイルを新しいフォルダに移動します (別のドライブへはコピーして検証)。編集 ▸ 取り消しで元に戻せます。",
+      "moved_other": "{{count}} 項目を移動しました。",
+      "moveFailed": "フォルダは変更されましたが、内容の一部が移動されていません: {{error}}",
+      "nothingMoves": "フォルダを変更してもファイルは移動しません。古いフォルダの内容はそのまま残り、セッションにも残ります。",
+      "outputUnavailable": "Output フォルダ {{folder}} を使用できません (ドライブは接続されていますか?)。何も書き出していません。「セッションフォルダ」で別の Output フォルダを選んでください。",
+      "outside": "セッション外",
+      "reading": "読み込み中…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Selects フォルダ {{folder}} を使用できません (ドライブは接続されていますか?)。何も移動していません。「セッションフォルダ」で別の Selects フォルダを選んでください。",
+      "title": "セッションフォルダ",
+      "unavailable": "使用できません: フォルダがないか、ドライブが接続されていません。",
+      "unavailableUse": {
+        "capture": "戻るか別のフォルダを選ぶまで、このフォルダへの撮影と読み込みは失敗します。",
+        "output": "戻るか別のフォルダを選ぶまで、Output フォルダへの書き出しは失敗します。",
+        "selects": "戻るか別のフォルダを選ぶまで、「Selects に移動」は失敗します。"
+      },
+      "working": "処理中…"
+    },
     "hotFolder": {
       "chooseFolder": "監視するフォルダを選択",
       "copyFromLast": "前回の撮影からコピー",
@@ -1544,7 +1576,7 @@
       "albums_other": "アルバム {{count}} 個",
       "check": "確認",
       "chooseSource": "読み込むライブラリを選択",
-      "copiesNotImported_other": "仮想コピー {{count}} 件（読み込みません）",
+      "copies_other": "仮想コピー {{count}} 件",
       "edited_other": "補正あり {{count}} 枚",
       "filterName": "カタログとセッション",
       "photos_other": "写真 {{count}} 枚",
@@ -1810,8 +1842,10 @@
       "flagsSavedRefreshFailed": "フラグを保存しましたが、プロジェクトの概要を更新できませんでした: {{error}}",
       "hotFolderFailed": "監視フォルダ: {{file}}: {{error}}",
       "hotFolderResumeFailed": "監視フォルダを再開できませんでした: {{error}}",
-      "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたときに計算されます",
+      "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたとき、または書き出すときに計算されます",
+      "importCopies_other": "仮想コピー {{count}} 件を読み込みました",
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
+      "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
       "importNotFound_other": "{{count}} 枚が見つかりません",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
@@ -2130,6 +2164,7 @@
         "toggle_masks": "マスクパネルの表示/非表示",
         "toggle_metadata": "メタデータツール（ライブラリ）または写真の情報（現像、フルスクリーン）",
         "toggle_multi_view": "マルチビュー：選択した写真を並べて表示",
+        "toggle_original": "切り替え: 写真全体を補正前で表示",
         "toggle_pointer_readout": "ポインターのRGB表示を切り替え",
         "toggle_proof_margin": "プルーフマージンの切り替え",
         "toggle_right_panel": "右パネルの表示/非表示",
@@ -3023,6 +3058,7 @@
       "toolGroup": {
         "isOn": "{{tool}} オン",
         "reset": "{{tool}}をリセット",
+        "resetOrHold": "{{tool}}をリセット（長押し、またはAlt/Optionを押しながら押す: このツールなしの写真を表示）",
         "turnOff": "{{tool}}をオフ",
         "turnOn": "{{tool}}をオン"
       },
@@ -3177,6 +3213,7 @@
           "loading": "写真を読み込み中…",
           "masks": "マスクを書き込み中…",
           "rendering": "レンダリングと書き込み中…",
+          "selecting": "AI 選択範囲を計算中…",
           "waiting": "待機中"
         },
         "photos_other": "{{count}} 枚の写真",
@@ -3449,6 +3486,8 @@
       "enable": "プロファイル補正を使用",
       "lookingUp": "レンズを検索しています…",
       "make": "メーカー",
+      "manualVignetting": "レンズ周辺光量",
+      "manualVignettingMidpoint": "周辺光量の中心点",
       "model": "モデル",
       "noFocalData": "このプロファイルにはこの焦点距離のデータがありません。",
       "none": "なし",
@@ -4728,6 +4767,7 @@
         "close": "ツールを閉じる",
         "progress": "書き出し中 {{current}} / {{total}}",
         "progressDenoising": "書き出し中 {{current}} / {{total}} · AI ノイズ除去…",
+        "progressSelecting": "書き出し中 {{current}} / {{total}} · AI 選択範囲…",
         "title": "写真を書き出し"
       },
       "flags": {
@@ -4816,6 +4856,7 @@
         "compareMode": {
           "left-right": "左右に分割",
           "off": "オフ",
+          "side-by-side": "横に並べる",
           "top-bottom": "上下に分割"
         },
         "compareModes": "比較モード",
@@ -4839,6 +4880,7 @@
         "splitDivider": "補正前/補正後の境界線",
         "togglePanels": "パネルの表示/非表示",
         "undo": "取り消し",
+        "withoutTool": "{{tool}}なし",
         "zoom": "ズーム"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

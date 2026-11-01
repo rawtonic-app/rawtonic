@@ -300,6 +300,7 @@
       "toggle_left_panel": "Linke Leiste",
       "toggle_metadata": "Fotoinfo",
       "toggle_multi_view": "Mehrfachansicht",
+      "toggle_original": "Vorher (ganzes Foto)",
       "toggle_pointer_readout": "RGB-Anzeige am Zeiger",
       "toggle_proof_margin": "Proof-Rand",
       "toggle_right_panel": "Rechte Leiste",
@@ -1565,6 +1566,38 @@
     "fields": {
       "filenameTemplate": "Dateinamenvorlage"
     },
+    "folders": {
+      "change": "Ändern…",
+      "choose": "Ordner {{folder}} wählen",
+      "chooseFor": "Ordner {{folder}} ändern",
+      "done": "Fertig",
+      "inside": "In der Session",
+      "intro": "Wohin diese Session Aufnahmen und Importe (Capture), nach Selects verschobene Fotos (Selects) und Exporte (Output) legt. Ein Ordner in der Session zieht mit ihr um; ein Ordner außerhalb, etwa auf einem anderen Laufwerk, bleibt, wo er ist.",
+      "menu": "Session-Ordner…",
+      "moveContents": "Inhalt in den neuen Ordner verschieben",
+      "moveContentsHelp": "Die Dateien im alten Ordner werden in den neuen verschoben (auf ein anderes Laufwerk kopiert und geprüft). Bearbeiten ▸ Widerrufen holt sie zurück.",
+      "moved_one": "{{count}} Objekt verschoben.",
+      "moved_other": "{{count}} Objekte verschoben.",
+      "moveFailed": "Der Ordner wurde geändert, aber sein Inhalt wurde nicht vollständig verschoben: {{error}}",
+      "nothingMoves": "Das Ändern eines Ordners verschiebt keine Dateien: Was im alten Ordner liegt, bleibt dort und in der Session.",
+      "outputUnavailable": "Der Output-Ordner {{folder}} ist nicht verfügbar (ist sein Laufwerk angeschlossen?). Nichts wurde exportiert; wähle in „Session-Ordner“ einen anderen Output-Ordner.",
+      "outside": "Außerhalb der Session",
+      "reading": "Wird gelesen…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Der Selects-Ordner {{folder}} ist nicht verfügbar (ist sein Laufwerk angeschlossen?). Nichts wurde verschoben; wähle in „Session-Ordner“ einen anderen Selects-Ordner.",
+      "title": "Session-Ordner",
+      "unavailable": "Nicht verfügbar: Der Ordner fehlt oder sein Laufwerk ist nicht angeschlossen.",
+      "unavailableUse": {
+        "capture": "Aufnahmen und Importe in ihn schlagen fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird.",
+        "output": "Exporte in den Output-Ordner schlagen fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird.",
+        "selects": "„Nach Selects verschieben“ schlägt fehl, bis er wieder da ist oder ein anderer Ordner gewählt wird."
+      },
+      "working": "Wird ausgeführt…"
+    },
     "hotFolder": {
       "chooseFolder": "Überwachten Ordner wählen",
       "copyFromLast": "Von der letzten Aufnahme kopieren",
@@ -1591,8 +1624,8 @@
       "albums_other": "{{count}} Alben",
       "check": "Prüfen",
       "chooseSource": "Zu importierende Bibliothek wählen",
-      "copiesNotImported_one": "{{count}} virtuelle Kopie (nicht importiert)",
-      "copiesNotImported_other": "{{count}} virtuelle Kopien (nicht importiert)",
+      "copies_one": "{{count}} virtuelle Kopie",
+      "copies_other": "{{count}} virtuelle Kopien",
       "edited_one": "{{count}} bearbeitet",
       "edited_other": "{{count}} bearbeitet",
       "filterName": "Kataloge und Sessions",
@@ -1871,10 +1904,14 @@
       "flagsSavedRefreshFailed": "Markierungen gespeichert; die Projekt-Übersicht konnte nicht aktualisiert werden: {{error}}",
       "hotFolderFailed": "Überwachter Ordner: {{file}}: {{error}}",
       "hotFolderResumeFailed": "Die Ordnerüberwachung konnte nicht fortgesetzt werden: {{error}}",
-      "importAiMasksOnOpen_one": "KI-Masken von {{count}} Foto werden berechnet, wenn es in Entwickeln geöffnet wird",
-      "importAiMasksOnOpen_other": "KI-Masken von {{count}} Fotos werden berechnet, wenn sie in Entwickeln geöffnet werden",
+      "importAiMasksOnOpen_one": "KI-Masken von {{count}} Foto werden berechnet, wenn es in Entwickeln geöffnet oder exportiert wird",
+      "importAiMasksOnOpen_other": "KI-Masken von {{count}} Fotos werden berechnet, wenn sie in Entwickeln geöffnet oder exportiert werden",
+      "importCopies_one": "{{count}} virtuelle Kopie importiert",
+      "importCopies_other": "{{count}} virtuelle Kopien importiert",
       "importCopiesSkipped_one": "{{count}} virtuelle Kopie nicht importiert",
       "importCopiesSkipped_other": "{{count}} virtuelle Kopien nicht importiert",
+      "importCropsClipped_one": "{{count}} Freistellung ragte über das Bildfeld der Kamera hinaus und wurde darauf beschnitten",
+      "importCropsClipped_other": "{{count}} Freistellungen ragten über das Bildfeld der Kamera hinaus und wurden darauf beschnitten",
       "imported_one": "{{count}} Foto importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "imported_other": "{{count}} Fotos importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "importNotFound_one": "{{count}} nicht gefunden",
@@ -2213,6 +2250,7 @@
         "toggle_masks": "Maskieren-Panel ein-/ausblenden",
         "toggle_metadata": "Metadaten-Werkzeug (Bibliothek) oder Foto-Informationen (Entwickeln, Vollbild)",
         "toggle_multi_view": "Mehrfachansicht: ausgewählte Fotos nebeneinander",
+        "toggle_original": "Umschalten: ganzes Foto vorher",
         "toggle_pointer_readout": "RGB-Anzeige am Zeiger ein/aus",
         "toggle_proof_margin": "Prüfrand ein/aus",
         "toggle_right_panel": "Rechtes Panel ein-/ausblenden",
@@ -3106,6 +3144,7 @@
       "toolGroup": {
         "isOn": "{{tool}} ein",
         "reset": "{{tool}} zurücksetzen",
+        "resetOrHold": "{{tool}} zurücksetzen (halten oder mit Alt/Wahltaste drücken: Foto ohne das Werkzeug zeigen)",
         "turnOff": "{{tool}} ausschalten",
         "turnOn": "{{tool}} einschalten"
       },
@@ -3263,6 +3302,7 @@
           "loading": "Foto wird gelesen…",
           "masks": "Masken werden geschrieben…",
           "rendering": "Wird gerendert und geschrieben…",
+          "selecting": "KI-Auswahlen werden berechnet …",
           "waiting": "Wartet"
         },
         "photos_one": "{{count}} Foto",
@@ -3541,6 +3581,8 @@
       "enable": "Profilkorrekturen aktivieren",
       "lookingUp": "Objektiv wird gesucht…",
       "make": "Hersteller",
+      "manualVignetting": "Objektiv-Vignettierung",
+      "manualVignettingMidpoint": "Mittelpunkt der Vignettierung",
       "model": "Modell",
       "noFocalData": "Das Profil hat keine Daten für diese Brennweite.",
       "none": "Keiner",
@@ -4854,6 +4896,7 @@
         "close": "Werkzeuge schließen",
         "progress": "Export {{current}} / {{total}}",
         "progressDenoising": "Export {{current}} / {{total}} · KI-Entrauschen …",
+        "progressSelecting": "Export {{current}} / {{total}} · KI-Auswahlen …",
         "title": "Fotos exportieren"
       },
       "flags": {
@@ -4947,6 +4990,7 @@
         "compareMode": {
           "left-right": "Links/rechts teilen",
           "off": "Aus",
+          "side-by-side": "Nebeneinander",
           "top-bottom": "Oben/unten teilen"
         },
         "compareModes": "Vergleichsansicht",
@@ -4970,6 +5014,7 @@
         "splitDivider": "Vorher/Nachher-Trennlinie",
         "togglePanels": "Bedienfelder ein-/ausblenden",
         "undo": "Rückgängig",
+        "withoutTool": "Ohne {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

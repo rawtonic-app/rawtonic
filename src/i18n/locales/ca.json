@@ -314,6 +314,7 @@
       "toggle_left_panel": "Tauler esquerre",
       "toggle_metadata": "Informació de la foto",
       "toggle_multi_view": "Vista múltiple",
+      "toggle_original": "Abans (foto sencera)",
       "toggle_pointer_readout": "Lectura RGB del punter",
       "toggle_proof_margin": "Marge de prova",
       "toggle_right_panel": "Tauler dret",
@@ -1651,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Plantilla de nom de fitxer"
     },
+    "folders": {
+      "change": "Canvia…",
+      "choose": "Tria la carpeta {{folder}}",
+      "chooseFor": "Canvia la carpeta {{folder}}",
+      "done": "Fet",
+      "inside": "Dins de la sessió",
+      "intro": "On desa aquesta sessió les captures i importacions (Capture), les fotos mogudes a Selects (Selects) i les exportacions (Output). Una carpeta dins de la sessió es mou amb ella; una carpeta fora, per exemple en un altre disc, es queda on és.",
+      "menu": "Carpetes de la sessió…",
+      "moveContents": "Mou el contingut a la carpeta nova",
+      "moveContentsHelp": "Els fitxers de la carpeta anterior es mouen a la nova (copiats i verificats si és en un altre disc). Edita ▸ Desfés els torna.",
+      "moved_one": "{{count}} element mogut.",
+      "moved_many": "{{count}} elements moguts.",
+      "moved_other": "{{count}} elements moguts.",
+      "moveFailed": "S’ha canviat la carpeta, però el seu contingut no s’ha mogut del tot: {{error}}",
+      "nothingMoves": "Canviar una carpeta no mou cap fitxer: el que hi ha a la carpeta anterior s’hi queda i continua a la sessió.",
+      "outputUnavailable": "La carpeta Output {{folder}} no està disponible (el disc està connectat?). No s’ha exportat res; tria una altra carpeta Output a Carpetes de la sessió.",
+      "outside": "Fora de la sessió",
+      "reading": "Llegint…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "La carpeta Selects {{folder}} no està disponible (el disc està connectat?). No s’ha mogut res; tria una altra carpeta Selects a Carpetes de la sessió.",
+      "title": "Carpetes de la sessió",
+      "unavailable": "No disponible: falta la carpeta o el seu disc no està connectat.",
+      "unavailableUse": {
+        "capture": "Capturar i importar-hi falla fins que torni o se’n triï una altra.",
+        "output": "Les exportacions a la carpeta Output fallen fins que torni o se’n triï una altra.",
+        "selects": "«Mou a Selects» falla fins que torni o se’n triï una altra."
+      },
+      "working": "Treballant…"
+    },
     "hotFolder": {
       "chooseFolder": "Tria la carpeta vigilada",
       "copyFromLast": "Copia de l’última captura",
@@ -1678,9 +1712,9 @@
       "albums_other": "{{count}} àlbums",
       "check": "Comprova",
       "chooseSource": "Tria la biblioteca que s’importarà",
-      "copiesNotImported_one": "{{count}} còpia virtual (no s’importa)",
-      "copiesNotImported_many": "{{count}} còpies virtuals (no s’importen)",
-      "copiesNotImported_other": "{{count}} còpies virtuals (no s’importen)",
+      "copies_one": "{{count}} còpia virtual",
+      "copies_many": "{{count}} còpies virtuals",
+      "copies_other": "{{count}} còpies virtuals",
       "edited_one": "{{count}} amb ajustaments",
       "edited_many": "{{count}} amb ajustaments",
       "edited_other": "{{count}} amb ajustaments",
@@ -1972,12 +2006,18 @@
       "flagsSavedRefreshFailed": "Marques desades; no s’ha pogut actualitzar el resum del projecte: {{error}}",
       "hotFolderFailed": "Carpeta vigilada: {{file}}: {{error}}",
       "hotFolderResumeFailed": "No s’ha pogut reprendre la carpeta vigilada: {{error}}",
-      "importAiMasksOnOpen_one": "Les màscares d'IA de {{count}} foto es calculen quan s'obre a Revelatge",
-      "importAiMasksOnOpen_many": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge",
-      "importAiMasksOnOpen_other": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge",
+      "importAiMasksOnOpen_one": "Les màscares d'IA de {{count}} foto es calculen quan s'obre a Revelatge o s'exporta",
+      "importAiMasksOnOpen_many": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge o s'exporten",
+      "importAiMasksOnOpen_other": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge o s'exporten",
+      "importCopies_one": "{{count}} còpia virtual importada",
+      "importCopies_many": "{{count}} còpies virtuals importades",
+      "importCopies_other": "{{count}} còpies virtuals importades",
       "importCopiesSkipped_one": "{{count}} còpia virtual no importada",
       "importCopiesSkipped_many": "{{count}} còpies virtuals no importades",
       "importCopiesSkipped_other": "{{count}} còpies virtuals no importades",
+      "importCropsClipped_one": "{{count}} retall sobrepassava l’enquadrament de la càmera i s’hi ha ajustat",
+      "importCropsClipped_many": "{{count}} retalls sobrepassaven l’enquadrament de la càmera i s’hi han ajustat",
+      "importCropsClipped_other": "{{count}} retalls sobrepassaven l’enquadrament de la càmera i s’hi han ajustat",
       "imported_one": "{{count}} foto importada ({{withSettings}} amb ajustaments, àlbums: {{albums}})",
       "imported_many": "{{count}} fotos importades ({{withSettings}} amb ajustaments, àlbums: {{albums}})",
       "imported_other": "{{count}} fotos importades ({{withSettings}} amb ajustaments, àlbums: {{albums}})",
@@ -2339,6 +2379,7 @@
         "toggle_masks": "Alternar tauler de Màscares",
         "toggle_metadata": "Eina Metadades (Biblioteca) o informació de la foto (Revelatge, pantalla completa)",
         "toggle_multi_view": "Vista múltiple: fotos seleccionades una al costat de l’altra",
+        "toggle_original": "Commuta: tota la foto abans",
         "toggle_pointer_readout": "Activa/desactiva la lectura RGB del punter",
         "toggle_proof_margin": "Activa/desactiva el marge de prova",
         "toggle_right_panel": "Commutar el panell dret",
@@ -3245,6 +3286,7 @@
       "toolGroup": {
         "isOn": "{{tool}} activat",
         "reset": "Restableix {{tool}}",
+        "resetOrHold": "Restableix {{tool}} (mantén premut, o prem amb Alt/Opció: mostra la foto sense l’eina)",
         "turnOff": "Desactiva {{tool}}",
         "turnOn": "Activa {{tool}}"
       },
@@ -3405,6 +3447,7 @@
           "loading": "S'està llegint la foto…",
           "masks": "S'estan escrivint les màscares…",
           "rendering": "S'està renderitzant i escrivint…",
+          "selecting": "Calculant les seleccions amb IA…",
           "waiting": "En espera"
         },
         "photos_one": "{{count}} foto",
@@ -3689,6 +3732,8 @@
       "enable": "Activa les correccions de perfil",
       "lookingUp": "Cercant l'objectiu…",
       "make": "Marca",
+      "manualVignetting": "Vinyetatge de l’objectiu",
+      "manualVignettingMidpoint": "Punt mitjà del vinyetatge",
       "model": "Model",
       "noFocalData": "El perfil no té dades per a aquesta distància focal.",
       "none": "Cap",
@@ -5040,6 +5085,7 @@
         "close": "Tanca les eines",
         "progress": "Exportant {{current}} / {{total}}",
         "progressDenoising": "Exportant {{current}} / {{total}} · reducció de soroll amb IA…",
+        "progressSelecting": "Exportant {{current}} / {{total}} · seleccions amb IA…",
         "title": "Exporta les fotos"
       },
       "flags": {
@@ -5138,6 +5184,7 @@
         "compareMode": {
           "left-right": "Divisió esquerra/dreta",
           "off": "Desactivat",
+          "side-by-side": "Costat a costat",
           "top-bottom": "Divisió superior/inferior"
         },
         "compareModes": "Mode de comparació",
@@ -5161,6 +5208,7 @@
         "splitDivider": "Divisor abans/després",
         "togglePanels": "Mostra o amaga els taulers",
         "undo": "Desfés",
+        "withoutTool": "Sense {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

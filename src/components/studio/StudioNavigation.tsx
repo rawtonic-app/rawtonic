@@ -181,7 +181,7 @@ function FolderRow({
       ]);
       return;
     }
-    const { multiSelectedPaths, rootPaths } = useLibraryStore.getState();
+    const { multiSelectedPaths, rootPaths, sessionFolders } = useLibraryStore.getState();
     const { copiedFilePaths } = useProcessStore.getState();
     const parentOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")));
     const toMove = multiSelectedPaths.filter((p) => parentOf(p.split("?vc=")[0]) !== path);
@@ -190,7 +190,9 @@ function FolderRow({
     const fixed =
       path === sessionRoot ||
       isRoot ||
-      (!!sessionRoot && parent === sessionRoot && SESSION_FOLDERS.has(node.name));
+      (!!sessionRoot && parent === sessionRoot && SESSION_FOLDERS.has(node.name)) ||
+      // The session's Capture, Selects and Output, wherever they are set (G38).
+      sessionFolders.some((folder) => folder.path === path);
     const copied = new Set(copiedFilePaths.map((p) => p.split("?vc=")[0])).size;
     const { setUI } = useUIStore.getState();
     const fileItems: Option[] = actions

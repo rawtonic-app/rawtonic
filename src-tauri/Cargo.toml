@@ -40,6 +40,7 @@ rawtonic-gpu = { path = "../crates/gpu", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../crates/rawdecode", version = "0.1.0" }
 rawtonic-denoise = { path = "../crates/denoise", version = "0.1.0" }
 rawtonic-faces = { path = "../crates/faces", version = "0.1.0" }
+rawtonic-segment = { path = "../crates/segment", version = "0.1.0" }
 rawtonic-onnx = { path = "../crates/onnx", version = "0.1.0" }
 rawtonic-runtime = { path = "../crates/runtime", version = "0.1.0" }
 rawtonic-fileops = { path = "../crates/fileops", version = "0.1.0" }

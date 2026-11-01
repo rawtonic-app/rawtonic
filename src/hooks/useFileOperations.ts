@@ -14,6 +14,7 @@ import { ImageFile, Invokes } from '../components/ui/AppProperties';
 import { followPathMoves, type PathMove } from '../utils/pathKeyedState';
 import { recountAfterFileOperation } from '../utils/offline';
 import { openDialog } from '../utils/fileDialog';
+import { registerContentsMover, usableSessionFolder, type ContentsMoved } from '../utils/sessionFolders';
 import { flushRecipeSaves } from './useEditorActions';
 import {
   fileAction,
@@ -790,6 +791,55 @@ export function useFileOperations(
     [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
   );
 
+  /** Session Folders' "Move contents" (G38): everything in `from` moves
+   * into `to`, each part one undoable operation (the files; each folder
+   * going to another drive), with the edits saved first and the shown
+   * folders, selection and open photograph following. */
+  const handleMoveFolderContents = useCallback(
+    async (from: string, to: string): Promise<ContentsMoved> => {
+      const moved: ContentsMoved = { items: 0, operations: 0 };
+      if (!(await saveEditsFirst([from]))) return { ...moved, error: ops('moveFailed', { error: from }) };
+      try {
+        // Each call moves the next part; none is left when it returns null.
+        for (let part = 0; part < 1000; part++) {
+          const summary = await fileAction(
+            () =>
+              withCopyProgress(() =>
+                invoke<FileOperationSummary | null>(Invokes.SessionMoveFolderContents, { from, to }),
+              ),
+            'move', undefined, undefined, [from, to],
+          );
+          // Only an empty folder ends it: a part may move files that are no
+          // photos (a .DS_Store) before the folders with the photos.
+          if (!summary) break;
+          moved.items += summary.items;
+          moved.operations++;
+          warnAboutNote(summary);
+          followMoves(summary.moves ?? [])();
+        }
+      } catch (err) {
+        moved.error = String(err);
+      }
+      const { selectedImage } = useEditorStore.getState();
+      if (selectedImage && isBelow(selectedImage.path.split('?vc=')[0], from)) {
+        if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
+        useEditorStore.getState().setEditor({ selectedImage: null });
+      }
+      if (moved.operations) {
+        useLibraryStore.getState().setLibrary({ multiSelectedPaths: [], libraryActivePath: null });
+        await refreshImageList();
+        await refreshAllFolderTrees();
+        void recountAfterFileOperation();
+      }
+      return moved;
+    },
+    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
+  );
+  useEffect(() => {
+    registerContentsMover(handleMoveFolderContents);
+    return () => registerContentsMover(null);
+  }, [handleMoveFolderContents]);
+
   /** Moves a folder with everything in it into a folder the user picks
    * (`destination` skips the picker): a rename on its drive; to another
    * drive the whole folder is copied and checked first, after the user
@@ -874,10 +924,22 @@ export function useFileOperations(
             ? [libraryActivePath]
             : [];
     const separator = sessionDirectory.includes('\\') ? '\\' : '/';
-    const selects = `${sessionDirectory}${separator}Selects`;
-    const outside = paths.filter((p) => getParentDir(p.split('?vc=')[0]) !== selects);
+    // The session's Selects folder, wherever it is set (G38).
+    const shown =
+      useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ??
+      `${sessionDirectory}${separator}Selects`;
+    const outside = paths.filter((p) => getParentDir(p.split('?vc=')[0]) !== shown);
     if (outside.length === 0) {
       notify.info(ops(paths.length ? 'alreadyInSelects' : 'selectForSelects'));
+      return;
+    }
+    let selects: string;
+    try {
+      // Made again inside the session when removed; a folder outside it
+      // whose drive is away is refused, and nothing moves elsewhere.
+      selects = await usableSessionFolder(sessionDirectory, 'selects');
+    } catch {
+      notify.error(i18next.t('session.folders.selectsUnavailable', { folder: shown }));
       return;
     }
     await handleMoveToFolder(outside, selects);

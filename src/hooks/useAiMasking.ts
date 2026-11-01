@@ -493,6 +493,12 @@ export function useAiMasking() {
     if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'foreground');
     noteMaskingToolsUsed();
+    // The component's Select Subject version: one saved before version 2
+    // (none set) computes as it did.
+    const component = adjustments.masks
+      ?.flatMap((c: MaskContainer) => c.subMasks)
+      .find((sm: SubMask) => sm.id === subMaskId);
+    const subjectVersion = (component?.parameters as { subjectVersion?: number } | undefined)?.subjectVersion ?? 1;
 
     try {
       const transformAdjustments = getTransformAdjustments(adjustments);
@@ -503,6 +509,7 @@ export function useAiMasking() {
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
         rotation: adjustments.rotation,
+        subjectVersion,
         taskId: subMaskId,
       });
 

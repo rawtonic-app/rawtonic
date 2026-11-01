@@ -23,9 +23,14 @@
 //! The heal circle reaches as far as the shadow's soft rim, measured.
 //!
 //! The analysis is independent of the sensitivity: it keeps every candidate
-//! down to the most sensitive setting with its contrast, so the sensitivity
-//! slider only filters (`select`), live. The slider is Visualize Spots'
-//! (`spot_removal::sensitivity_factor`): the same 0–100 scale and curve.
+//! down to the most sensitive setting with its contrast and how loose the
+//! tests had to be, so the sensitivity slider only filters (`select`),
+//! live. The slider is Visualize Spots' (`spot_removal::sensitivity_factor`):
+//! the same 0–100 scale and curve for the contrast needed; above 50 it also
+//! loosens the tests (`looseness`): rougher surroundings and more specks
+//! around, and an allowance for photon noise in the shape tests, so faint
+//! dust (a few noise steps deep) is found at the price of more spots that
+//! are not dust.
 
 use image::DynamicImage;
 use rayon::prelude::*;
@@ -91,6 +96,16 @@ struct Gates {
     /// A spot's darkest pixel may be at most this many times as dark as its
     /// box: dust shadows are soft.
     max_peak: f32,
+    /// At sensitivity 100 the texture and isolation gates are this much
+    /// looser than at 50; the shape gates loosen by its square root (a line,
+    /// an edge or a speck in focus is never dust).
+    loosest: f32,
+    /// At sensitivity 100 the rim spread and the darkest pixel may exceed
+    /// their gates by this many of their photon noise's spread (a sector
+    /// mean's, the expected darkest of the box's pixels'): faint dust is
+    /// judged by its shape beyond the noise. None at 50 and below.
+    rim_noise: f32,
+    peak_noise: f32,
 }
 
 impl Gates {
@@ -107,7 +122,39 @@ impl Gates {
         isolation_reach: 8,
         max_neighbours: 8,
         max_peak: 2.5,
+        loosest: 1.25,
+        rim_noise: 1.5,
+        peak_noise: 1.0,
     };
+
+    /// The gates at `looseness` (0: the defaults at sensitivity 50, 1: the
+    /// loosest at 100).
+    fn loosened(&self, looseness: f32) -> Gates {
+        let wider = 1.0 + (self.loosest - 1.0) * looseness;
+        let shape = wider.sqrt();
+        Gates {
+            texture_per_contrast: self.texture_per_contrast * wider,
+            max_texture: self.max_texture * wider,
+            max_neighbours: (self.max_neighbours as f32 * wider).round() as usize,
+            rim_spread: self.rim_spread * shape,
+            min_quarter: self.min_quarter / shape,
+            max_peak: self.max_peak * shape,
+            rim_noise: self.rim_noise * looseness,
+            peak_noise: self.peak_noise * looseness,
+            ..*self
+        }
+    }
+}
+
+/// Steps of the slider's upper half each candidate is judged at (0 = the
+/// defaults at 50 … 1 = the loosest at 100); a candidate keeps the first it
+/// passes.
+const STEPS: usize = 6;
+
+/// How far `sensitivity` (0–100) is up the slider's upper half: 0 up to 50
+/// (below, only the contrast needed rises), 1 at 100.
+pub fn looseness(sensitivity: f64) -> f32 {
+    (sensitivity.clamp(0.0, 100.0) as f32 - 50.0).max(0.0) / 50.0
 }
 
 impl Default for Gates {
@@ -123,6 +170,9 @@ pub struct Candidate {
     pub radius: f64,
     /// Relative darkening in square-root space (what the sensitivity gates).
     pub contrast: f32,
+    /// How loose the tests had to be (`looseness`: 0 passes at the
+    /// defaults, 1 only at sensitivity 100); the sensitivity gates this too.
+    pub looseness: f32,
 }
 
 /// Every candidate of a base image down to sensitivity 100.
@@ -141,11 +191,11 @@ pub fn min_contrast(sensitivity: f64) -> f32 {
 
 /// The candidates found at `sensitivity`.
 pub fn select(analysis: &DustAnalysis, sensitivity: f64) -> Vec<Candidate> {
-    let needed = min_contrast(sensitivity);
+    let (needed, loose) = (min_contrast(sensitivity), looseness(sensitivity) + 1e-4);
     analysis
         .candidates
         .iter()
-        .filter(|c| c.contrast >= needed)
+        .filter(|c| c.contrast >= needed && c.looseness <= loose)
         .copied()
         .collect()
 }
@@ -440,12 +490,20 @@ fn analyse_with(
             )
         })
         .collect();
-    let dusty: Vec<bool> = measured
+    // Judged at each step of the slider's upper half (`STEPS`).
+    let steps: Vec<f32> = (0..=STEPS).map(|k| k as f32 / STEPS as f32).collect();
+    let levels: Vec<Gates> = steps.iter().map(|&l| gates.loosened(l)).collect();
+    let dusty: Vec<Vec<bool>> = levels
         .iter()
-        .map(|m| {
-            m.is_some_and(|m| {
-                m.passes(gates) && (floor..=gates.max_contrast).contains(&m.contrast())
-            })
+        .map(|g| {
+            measured
+                .iter()
+                .map(|m| {
+                    m.is_some_and(|m| {
+                        m.passes(g) && (floor..=g.max_contrast).contains(&m.contrast())
+                    })
+                })
+                .collect()
         })
         .collect();
 
@@ -490,8 +548,8 @@ fn analyse_with(
                 neighbours
             };
             let all = |_: usize| true;
-            let not_dust = |j: usize| !dusty[j];
-            let small_dark = |j: usize| !dusty[j] && peaks[j].3 <= a;
+            let not_dust = |j: usize| !dusty[0][j];
+            let small_dark = |j: usize| !dusty[0][j] && peaks[j].3 <= a;
             let small_light = |j: usize| light[j].3 <= a;
             if let Some(dump) = dump {
                 let reaches = [4, 8, 12, 16, 24].map(|k| k * (a + 2));
@@ -509,12 +567,15 @@ fn analyse_with(
                     "nbs": n(&light, &light_grid, &small_light),
                 }));
             }
+            // The first step whose tests this speck and its isolation pass
+            // (darker neighbours judged at the same step).
             let reach = gates.isolation_reach * (a + 2);
-            let neighbours = count(&peaks, &grid, reach, &not_dust)
-                + count(&light, &light_grid, reach, &small_light);
-            if neighbours > gates.max_neighbours || !dusty[i] {
-                return None;
-            }
+            let lighter = count(&light, &light_grid, reach, &small_light);
+            let level = (0..levels.len()).find(|&k| {
+                dusty[k][i]
+                    && count(&peaks, &grid, reach, &|j| !dusty[k][j]) + lighter
+                        <= levels[k].max_neighbours
+            })?;
             let (contrast, darkening) = (measures.contrast(), measures.darkening);
             let centre = (
                 (x as f64 + 0.5) * factor as f64,
@@ -541,14 +602,20 @@ fn analyse_with(
                     centre,
                     radius,
                     contrast,
+                    looseness: steps[level],
                 },
                 darkening / sigma,
             ))
         })
         .collect();
 
-    // One candidate per spot: the most significant.
-    candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
+    // One candidate per spot: the one the strictest tests pass, then the
+    // most significant (a looser one never hides it at a lower setting).
+    candidates.sort_by(|a, b| {
+        a.0.looseness
+            .total_cmp(&b.0.looseness)
+            .then(b.1.total_cmp(&a.1))
+    });
     let mut kept: Vec<Candidate> = Vec::new();
     for (c, _) in candidates {
         let overlaps = kept.iter().any(|k| {
@@ -664,6 +731,11 @@ struct Measures {
     /// Standard deviation of the whole wider ring around the plane, photon
     /// noise out (what the robust spread ignores).
     rough: f32,
+    /// Photon noise of the smallest rim sector's mean, and the expected
+    /// darkest of the box's pixels from noise alone (`Gates::rim_noise`,
+    /// `Gates::peak_noise` scale them).
+    rim_noise: f32,
+    peak_noise: f32,
 }
 
 impl Measures {
@@ -677,9 +749,9 @@ impl Measures {
             && d > 0.0
             && self.texture <= gates.texture_per_contrast * d
             && self.texture <= gates.max_texture * self.level
-            && self.rim <= gates.rim_spread * d
+            && self.rim <= gates.rim_spread * d + gates.rim_noise * self.rim_noise
             && self.quarter >= gates.min_quarter * d
-            && self.peak <= gates.max_peak * d
+            && self.peak <= gates.max_peak * d + gates.peak_noise * self.peak_noise
     }
 }
 
@@ -798,6 +870,15 @@ fn measure(
     if rim.len() < 5 {
         return None;
     }
+    let fewest = sectors
+        .iter()
+        .map(|p| p.1)
+        .filter(|&n| n > 0)
+        .min()
+        .unwrap_or(1) as f32;
+    let rim_noise = sigma / fewest.sqrt();
+    // The darkest of n pixels of noise lies about √(2 ln n) below.
+    let peak_noise = sigma * (2.0 * (((2 * a + 1) * (2 * a + 1)) as f32).ln()).sqrt();
     // Quarters exist from a = 1 on (the centre row and column are left out).
     let quarter = means(&quarters)
         .iter()
@@ -811,6 +892,8 @@ fn measure(
         peak: -darkest,
         outliers,
         rough,
+        rim_noise,
+        peak_noise,
     })
 }
 
@@ -1188,6 +1271,46 @@ mod tests {
     }
 
     #[test]
+    fn upper_half_of_the_slider_finds_dust_the_noise_hides() {
+        // Faint small discs on a grainy sky: at 50 photon noise spoils the
+        // shape tests of some, above 50 the tests allow for it. Each step up
+        // keeps what the step below found, and the sky stays clean.
+        let spots: Vec<(f32, f32, f32, f32)> = (0..24)
+            .map(|k| {
+                let (col, row) = ((k % 6) as f32, (k / 6) as f32);
+                (300.0 + 450.0 * col, 250.0 + 450.0 * row, 7.0, 0.014)
+            })
+            .collect();
+        let image = photo(3000, 2000, &spots, |x, y, v| {
+            v * (1.0 + grain(x.wrapping_mul(7) ^ 13, y.wrapping_mul(5) ^ 29, 0.03))
+        });
+        let analysis = analyse(&image, false, &[]);
+        let shown: Vec<Vec<Candidate>> = [0.0, 50.0, 75.0, 100.0]
+            .iter()
+            .map(|&s| select(&analysis, s))
+            .collect();
+        for pair in shown.windows(2) {
+            for c in &pair[0] {
+                assert!(pair[1].contains(c), "{c:?} lost one step up");
+            }
+        }
+        assert!(
+            shown[3].len() > shown[1].len(),
+            "50: {}, 100: {}",
+            shown[1].len(),
+            shown[3].len()
+        );
+        for c in &shown[3] {
+            assert!(
+                spots
+                    .iter()
+                    .any(|s| (s.0 as f64 - c.centre.0).hypot(s.1 as f64 - c.centre.1) < 15.0),
+                "not dust: {c:?}"
+            );
+        }
+    }
+
+    #[test]
     fn leaves_out_edges_lines_and_fine_texture() {
         // A dark dot sitting on a horizon edge, one on a thin line (a wire),
         // one in fine texture (foliage-like): none is dust on a flat area.
@@ -1455,14 +1578,31 @@ mod tests {
                 )
                 .unwrap();
             }
-            let candidates: Vec<Value> = analysis
-                .candidates
+            let listed = |found: &[Candidate]| -> Vec<Value> {
+                found
+                    .iter()
+                    .map(|c| {
+                        json!({"x": c.centre.0, "y": c.centre.1, "radius": c.radius,
+                                    "contrast": c.contrast, "looseness": c.looseness})
+                    })
+                    .collect()
+            };
+            // What the panel shows at each sensitivity, beside every candidate.
+            let shown: serde_json::Map<String, Value> = [0, 25, 50, 75, 100]
                 .iter()
-                .map(|c| json!({"x": c.centre.0, "y": c.centre.1, "radius": c.radius, "contrast": c.contrast}))
+                .map(|&s| {
+                    (
+                        s.to_string(),
+                        json!(listed(&select(&analysis, f64::from(s)))),
+                    )
+                })
                 .collect();
             std::fs::write(
                 path.with_extension(format!("{tag}.json")),
-                serde_json::to_string(&json!({"candidates": candidates})).unwrap(),
+                serde_json::to_string(
+                    &json!({"candidates": listed(&analysis.candidates), "shown": shown}),
+                )
+                .unwrap(),
             )
             .unwrap();
             println!(
@@ -1550,6 +1690,7 @@ mod tests {
                             centre: near.map_or((x, y), |c| c.centre),
                             radius,
                             contrast: 0.0,
+                            looseness: 0.0,
                         };
                         FoundSpot {
                             x: base.centre.0,

@@ -4,6 +4,7 @@
 //! Derived from RapidRAW (commit a82251f, AGPL-3.0); no Tauri dependencies.
 
 pub mod adjustment_utils;
+pub mod ai_selections;
 pub mod applied_style;
 pub mod auto_adjust;
 pub mod auto_straighten;
@@ -32,10 +33,12 @@ pub mod lateral_ca;
 pub mod lens_blur;
 pub mod lens_correction;
 pub mod lens_recipe;
+pub mod lightroom_crop;
 pub mod lightroom_masks;
 pub mod lightroom_retouch;
 pub mod luma_levels;
 pub mod lut;
+pub mod manual_vignette;
 pub mod mask_generation;
 pub mod mask_parameters;
 pub mod mask_thumbnail;

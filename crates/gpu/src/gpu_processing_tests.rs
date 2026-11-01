@@ -8872,6 +8872,11 @@ fn set_test_image_key(adjustments: &mut AllAdjustments, recipe: &serde_json::Val
     adjustments.global.image_key_median = recipe["imageKeyMedian"].as_f64().unwrap_or(0.0) as f32;
 }
 
+/// A bright frame's image key (snow under an overcast sky): log2(p / 0.006)
+/// = 4.5, 7.5 and 7 (p10, p90, median), which tone version 4 compresses as
+/// if it were about 1.9 EV darker when lowering Highlights.
+const BRIGHT_KEY: [f64; 3] = [0.006 * 22.6, 0.006 * 181.0, 0.006 * 128.0];
+
 /// `recipe` on the measured image `key` (`NIGHT_KEY`'s form).
 fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Value {
     let mut recipe = recipe.clone();
@@ -8884,7 +8889,7 @@ fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Valu
 /// Adds, for every recipe with Shadows above +50 or Highlights lowered
 /// (where the tone-slider versions differ), the same recipe with
 /// `toneVersion` 2, and for lowered Highlights with `toneVersion` 3 on a
-/// night frame's key.
+/// night frame's key and `toneVersion` 4 on a bright frame's.
 fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
     let differs = |recipe: &&serde_json::Value| {
         recipe["shadows"].as_f64().unwrap_or(0.0) > 50.0
@@ -8899,6 +8904,9 @@ fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
             let mut third = with_image_key(recipe, NIGHT_KEY);
             third["toneVersion"] = json!(3);
             versioned.push(third);
+            let mut fourth = with_image_key(recipe, BRIGHT_KEY);
+            fourth["toneVersion"] = json!(4);
+            versioned.push(fourth);
         }
     }
     recipes.extend(versioned);
@@ -9262,6 +9270,89 @@ fn tone_version_3_lowers_highlights_further_in_dark_frames_only() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; lowered Highlights of tone version 4 against version 3 on a grey ramp"]
+fn tone_version_4_lowers_highlights_less_in_bright_frames_only() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let (low_ev, span_ev) = (-14.0f32, 16.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, look)
+    };
+    let with = |recipe: &serde_json::Value, version: u64, key: [f64; 3]| {
+        let mut recipe = with_image_key(recipe, key);
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // As version 3 without a measured key, on a night frame, on a frame of
+    // mid tones with a dark part, on a daylight frame whose darkest tenth
+    // is at the black point (median 3.6 EV over it), and without lowered
+    // Highlights.
+    let daylight = [0.006, 0.006 * 128.0, 0.006 * 12.0];
+    let mid_tones = [0.006, 0.006 * 32.0, 0.006 * 10.0];
+    for recipe in [
+        json!({ "highlights": -100 }),
+        json!({ "highlights": -40, "shadows": 80 }),
+        json!({ "highlights": 60, "shadows": 100 }),
+        json!({ "shadows": -100 }),
+    ] {
+        for key in [[0.0; 3], NIGHT_KEY, daylight, mid_tones, BRIGHT_KEY] {
+            if key == BRIGHT_KEY && recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0 {
+                continue;
+            }
+            assert!(
+                render(with(&recipe, 3, key)) == render(with(&recipe, 4, key)),
+                "{recipe} with key {key:?} differs"
+            );
+        }
+    }
+    // On a bright frame's key, −100 and −40 lower the upper tones (display
+    // −1.5 … −0.1 EV of the neutral render) less than version 3 and still
+    // lower them; the deep shadows stay.
+    let neutral = render(with(&json!({}), 4, BRIGHT_KEY));
+    let row = (height / 2 * width) as usize;
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    for amount in [-100, -40] {
+        let recipe = json!({ "highlights": amount });
+        let third = render(with(&recipe, 3, BRIGHT_KEY));
+        let fourth = render(with(&recipe, 4, BRIGHT_KEY));
+        let (mut lowered_3, mut lowered_4, mut deep) = (Vec::new(), Vec::new(), Vec::new());
+        for x in 64..(width - 64) as usize {
+            let base = luma(&neutral[row + x]).max(1e-12);
+            let display = base.max(1e-9).log2();
+            let ev = |p: &[u16; 3]| (base / luma(p).max(1e-12)).log2();
+            if (-1.5..-0.1).contains(&display) {
+                lowered_3.push(ev(&third[row + x]));
+                lowered_4.push(ev(&fourth[row + x]));
+            } else if (-9.0..-7.0).contains(&display) {
+                deep.push(ev(&fourth[row + x]) - ev(&third[row + x]));
+            }
+        }
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        let (three, four) = (mean(&lowered_3), mean(&lowered_4));
+        assert!(
+            four > 0.0 && four < 0.6 * three,
+            "{amount}: upper tones lowered {four:.3} EV against version 3's {three:.3}"
+        );
+        assert!(
+            mean(&deep).abs() < 0.01,
+            "{amount}: deep shadows {:.3} EV",
+            mean(&deep)
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; Highlights on a clipped bright disc with a soft rim on a dark background"]
 fn highlights_keep_a_clipped_plateau_above_its_rim() {
     let context = context();
@@ -9299,10 +9390,12 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         (-50, 2),
                         (-100, 3),
                         (-50, 3),
+                        (-100, 4),
+                        (-50, 4),
                     ] {
                         let recipe = with_image_key(
                             &json!({ "highlights": amount, "toneVersion": version }),
-                            NIGHT_KEY,
+                            if version == 4 { BRIGHT_KEY } else { NIGHT_KEY },
                         );
                         let pixels = render_raw_look(
                             &processor,
@@ -9740,6 +9833,56 @@ fn display_split_shows_the_before_left_of_the_divider() {
     let all_before = render([1.0, 500.0, 0.0, 0.0]);
     assert_eq!(pixel(&all_before, 17, 24), before_rgba);
     assert_eq!(pixel(&all_before, 78, 24), before_rgba);
+
+    // Side by side: the after pane starts at x 48, the before pane 48 px to
+    // its left shows the before placed like the after (16..80 → -32..32).
+    let side = super::split_uniform(true, Some(48.0), false, 48.0);
+    assert_eq!(side, [1.0, 48.0, 0.0, 48.0]);
+    let side_by_side = render(side);
+    for y in [9, 24, 38] {
+        assert_eq!(
+            pixel(&side_by_side, 1, y),
+            before_rgba,
+            "before pane, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 30, y),
+            before_rgba,
+            "before pane, row {y}"
+        );
+        // The before's right edge (screen 80 − 48) and the after's left part
+        // never show in the before pane.
+        assert_eq!(
+            pixel(&side_by_side, 33, y),
+            background,
+            "before pane past its photograph, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 47, y),
+            background,
+            "before pane, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 49, y),
+            after_rgba,
+            "after pane, row {y}"
+        );
+        assert_eq!(
+            pixel(&side_by_side, 78, y),
+            after_rgba,
+            "after pane, row {y}"
+        );
+    }
+    assert_eq!(pixel(&side_by_side, 1, 2), background);
+    assert_eq!(pixel(&side_by_side, 49, 2), background);
+    // While the before is on its way, its pane shows the background, not
+    // the after reaching into it.
+    let waiting = render(super::split_uniform(false, Some(48.0), false, 48.0));
+    assert_eq!(pixel(&waiting, 17, 24), background);
+    assert_eq!(pixel(&waiting, 30, 24), background);
+    assert_eq!(pixel(&waiting, 49, 24), after_rgba);
+    // Side by side is left/right only: a stale vertical flag is ignored.
+    assert_eq!(super::split_uniform(true, Some(48.0), true, 48.0), side);
 }
 
 #[test]
@@ -15037,6 +15180,16 @@ fn gpu_warp_recipes() -> Vec<serde_json::Value> {
             "transformRotate": 2.5, (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
         json!({"renderVersion": 7, "lensDistortionParams": {"k1": -0.05, "model": 0,
             "vig_k1": -0.3}, "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        // Manual lens vignetting alone (no other warp), and after a profile's
+        // vignetting with a transform and a crop.
+        json!({"renderVersion": 7, (rawtonic_engine::manual_vignette::AMOUNT_KEY): 60.0,
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        json!({"renderVersion": 7, "lensDistortionParams": {"k1": -0.05, "model": 0,
+            "vig_k1": -0.3}, "transformRotate": 2.5,
+            (rawtonic_engine::manual_vignette::AMOUNT_KEY): -45.0,
+            (rawtonic_engine::manual_vignette::MIDPOINT_KEY): 20.0,
+            "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
             (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
     ]
 }

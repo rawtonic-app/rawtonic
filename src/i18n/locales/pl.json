@@ -328,6 +328,7 @@
       "toggle_left_panel": "Lewy panel",
       "toggle_metadata": "Informacje o zdjęciu",
       "toggle_multi_view": "Widok wielu zdjęć",
+      "toggle_original": "Przed (całe zdjęcie)",
       "toggle_pointer_readout": "Odczyt RGB pod wskaźnikiem",
       "toggle_proof_margin": "Margines próby",
       "toggle_right_panel": "Prawy panel",
@@ -1737,6 +1738,40 @@
     "fields": {
       "filenameTemplate": "Szablon nazwy pliku"
     },
+    "folders": {
+      "change": "Zmień…",
+      "choose": "Wybierz folder {{folder}}",
+      "chooseFor": "Zmień folder {{folder}}",
+      "done": "Gotowe",
+      "inside": "Wewnątrz sesji",
+      "intro": "Gdzie ta sesja zapisuje zdjęcia z sesji i importy (Capture), zdjęcia przeniesione do Selects (Selects) oraz eksporty (Output). Folder wewnątrz sesji przenosi się razem z nią; folder poza nią, np. na innym dysku, zostaje na miejscu.",
+      "menu": "Foldery sesji…",
+      "moveContents": "Przenieś zawartość do nowego folderu",
+      "moveContentsHelp": "Pliki ze starego folderu zostaną przeniesione do nowego (skopiowane i sprawdzone, gdy jest na innym dysku). Edycja ▸ Cofnij przywraca je.",
+      "moved_one": "Przeniesiono {{count}} element.",
+      "moved_few": "Przeniesiono {{count}} elementy.",
+      "moved_many": "Przeniesiono {{count}} elementów.",
+      "moved_other": "Przeniesiono {{count}} elementu.",
+      "moveFailed": "Folder został zmieniony, ale jego zawartość nie została w całości przeniesiona: {{error}}",
+      "nothingMoves": "Zmiana folderu nie przenosi plików: zawartość starego folderu zostaje w nim i w sesji.",
+      "outputUnavailable": "Folder Output {{folder}} jest niedostępny (czy jego dysk jest podłączony?). Nic nie wyeksportowano; wybierz inny folder Output w Folderach sesji.",
+      "outside": "Poza sesją",
+      "reading": "Wczytywanie…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Folder Selects {{folder}} jest niedostępny (czy jego dysk jest podłączony?). Nic nie przeniesiono; wybierz inny folder Selects w Folderach sesji.",
+      "title": "Foldery sesji",
+      "unavailable": "Niedostępny: folder nie istnieje lub jego dysk nie jest podłączony.",
+      "unavailableUse": {
+        "capture": "Fotografowanie i import do niego kończą się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder.",
+        "output": "Eksporty do folderu Output kończą się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder.",
+        "selects": "„Przenieś do Selects” kończy się błędem, dopóki nie wróci lub nie zostanie wybrany inny folder."
+      },
+      "working": "Trwa…"
+    },
     "hotFolder": {
       "chooseFolder": "Wybierz folder obserwowany",
       "copyFromLast": "Kopiuj z ostatniego zdjęcia",
@@ -1765,10 +1800,10 @@
       "albums_other": "{{count}} albumu",
       "check": "Sprawdź",
       "chooseSource": "Wybierz bibliotekę do zaimportowania",
-      "copiesNotImported_one": "{{count}} kopia wirtualna (bez importu)",
-      "copiesNotImported_few": "{{count}} kopie wirtualne (bez importu)",
-      "copiesNotImported_many": "{{count}} kopii wirtualnych (bez importu)",
-      "copiesNotImported_other": "{{count}} kopii wirtualnej (bez importu)",
+      "copies_one": "{{count}} kopia wirtualna",
+      "copies_few": "{{count}} kopie wirtualne",
+      "copies_many": "{{count}} kopii wirtualnych",
+      "copies_other": "{{count}} kopii wirtualnej",
       "edited_one": "z edycją: {{count}}",
       "edited_few": "z edycją: {{count}}",
       "edited_many": "z edycją: {{count}}",
@@ -2073,14 +2108,22 @@
       "flagsSavedRefreshFailed": "Flagi zapisane; nie udało się odświeżyć podsumowania projektu: {{error}}",
       "hotFolderFailed": "Folder obserwowany: {{file}}: {{error}}",
       "hotFolderResumeFailed": "Nie udało się wznowić obserwowania folderu: {{error}}",
-      "importAiMasksOnOpen_one": "Maski AI {{count}} zdjęcia są obliczane po otwarciu go w module Wywoływanie",
-      "importAiMasksOnOpen_few": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie",
-      "importAiMasksOnOpen_many": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie",
-      "importAiMasksOnOpen_other": "Maski AI {{count}} zdjęcia są obliczane po otwarciu każdego w module Wywoływanie",
+      "importAiMasksOnOpen_one": "Maski AI {{count}} zdjęcia są obliczane po otwarciu go w module Wywoływanie lub przy eksporcie",
+      "importAiMasksOnOpen_few": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie lub przy eksporcie",
+      "importAiMasksOnOpen_many": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie lub przy eksporcie",
+      "importAiMasksOnOpen_other": "Maski AI {{count}} zdjęcia są obliczane po otwarciu każdego w module Wywoływanie lub przy eksporcie",
+      "importCopies_one": "{{count}} kopia wirtualna zaimportowana",
+      "importCopies_few": "{{count}} kopie wirtualne zaimportowane",
+      "importCopies_many": "{{count}} kopii wirtualnych zaimportowanych",
+      "importCopies_other": "{{count}} kopii wirtualnej zaimportowanej",
       "importCopiesSkipped_one": "{{count}} kopia wirtualna niezaimportowana",
       "importCopiesSkipped_few": "{{count}} kopie wirtualne niezaimportowane",
       "importCopiesSkipped_many": "{{count}} kopii wirtualnych niezaimportowanych",
       "importCopiesSkipped_other": "{{count}} kopii wirtualnej niezaimportowanej",
+      "importCropsClipped_one": "{{count}} kadrowanie wychodziło poza kadr aparatu i zostało do niego przycięte",
+      "importCropsClipped_few": "{{count}} kadrowania wychodziły poza kadr aparatu i zostały do niego przycięte",
+      "importCropsClipped_many": "{{count}} kadrowań wychodziło poza kadr aparatu i zostało do niego przyciętych",
+      "importCropsClipped_other": "{{count}} kadrowania wychodziło poza kadr aparatu i zostało do niego przycięte",
       "imported_one": "Zaimportowano {{count}} zdjęcie (z edycją: {{withSettings}}, albumy: {{albums}})",
       "imported_few": "Zaimportowano {{count}} zdjęcia (z edycją: {{withSettings}}, albumy: {{albums}})",
       "imported_many": "Zaimportowano {{count}} zdjęć (z edycją: {{withSettings}}, albumy: {{albums}})",
@@ -2465,6 +2508,7 @@
         "toggle_masks": "Przełącz panel Maski",
         "toggle_metadata": "Narzędzie Metadane (Biblioteka) lub informacje o zdjęciu (Wywoływanie, pełny ekran)",
         "toggle_multi_view": "Widok wielu zdjęć: zaznaczone zdjęcia obok siebie",
+        "toggle_original": "Przełącz: całe zdjęcie przed",
         "toggle_pointer_readout": "Przełącz odczyt RGB pod wskaźnikiem",
         "toggle_proof_margin": "Przełącz margines podglądu",
         "toggle_right_panel": "Przełącz prawy panel",
@@ -3384,6 +3428,7 @@
       "toolGroup": {
         "isOn": "{{tool}} włączone",
         "reset": "Resetuj: {{tool}}",
+        "resetOrHold": "Resetuj {{tool}} (przytrzymaj lub naciśnij z Alt/Option: pokaż zdjęcie bez narzędzia)",
         "turnOff": "Wyłącz: {{tool}}",
         "turnOn": "Włącz: {{tool}}"
       },
@@ -3547,6 +3592,7 @@
           "loading": "Odczyt zdjęcia…",
           "masks": "Zapis masek…",
           "rendering": "Renderowanie i zapis…",
+          "selecting": "Obliczanie zaznaczeń AI…",
           "waiting": "Oczekuje"
         },
         "photos_one": "{{count}} zdjęcie",
@@ -3837,6 +3883,8 @@
       "enable": "Włącz korekcje profilu",
       "lookingUp": "Wyszukiwanie obiektywu…",
       "make": "Producent",
+      "manualVignetting": "Winietowanie obiektywu",
+      "manualVignettingMidpoint": "Punkt środkowy winietowania",
       "model": "Model",
       "noFocalData": "Profil nie ma danych dla tej ogniskowej.",
       "none": "Brak",
@@ -5226,6 +5274,7 @@
         "close": "Zamknij narzędzia",
         "progress": "Eksport {{current}} / {{total}}",
         "progressDenoising": "Eksport {{current}} / {{total}} · odszumianie AI…",
+        "progressSelecting": "Eksport {{current}} / {{total}} · zaznaczenia AI…",
         "title": "Eksportuj zdjęcia"
       },
       "flags": {
@@ -5329,6 +5378,7 @@
         "compareMode": {
           "left-right": "Podział lewo/prawo",
           "off": "Wyłączony",
+          "side-by-side": "Obok siebie",
           "top-bottom": "Podział góra/dół"
         },
         "compareModes": "Tryb porównania",
@@ -5352,6 +5402,7 @@
         "splitDivider": "Linia podziału przed/po",
         "togglePanels": "Pokaż/ukryj panele",
         "undo": "Cofnij",
+        "withoutTool": "Bez {{tool}}",
         "zoom": "Powiększenie"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

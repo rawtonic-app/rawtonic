@@ -573,7 +573,14 @@ export function useTauriListeners({
         if (isEffectActive)
           useProcessStore.getState().setExportState((state) => ({
             denoising: state.denoising?.filter((path) => path !== event.payload.path),
+            selecting: state.selecting?.filter((path) => path !== event.payload.path),
             progress: event.payload,
+          }));
+      }),
+      listen<string>('export-selecting', (event) => {
+        if (isEffectActive)
+          useProcessStore.getState().setExportState((state) => ({
+            selecting: [...(state.selecting ?? []), event.payload],
           }));
       }),
       listen<string>('export-denoising', (event) => {
@@ -587,6 +594,7 @@ export function useTauriListeners({
         if (!isEffectActive) return;
         useProcessStore.getState().setExportState({
           denoising: [],
+          selecting: [],
           status: Status.Exporting,
           errorMessage: '',
           progress: { current: event.payload.current, total: event.payload.total },
@@ -616,7 +624,7 @@ export function useTauriListeners({
       }),
       listen('export-paused', () => {
         if (isEffectActive)
-          useProcessStore.getState().setExportState({ status: Status.Idle, denoising: [], progress: { current: 0, total: 0 } });
+          useProcessStore.getState().setExportState({ status: Status.Idle, denoising: [], selecting: [], progress: { current: 0, total: 0 } });
       }),
       listen<{ destination: string | null; skipped: boolean; error: string | null }>('hot-folder-imported', (event) => {
         if (isEffectActive) showCapture(event.payload, false);

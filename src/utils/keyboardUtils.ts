@@ -226,6 +226,15 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // Lightroom's \ as a toggle: the whole photograph before until pressed
+    // again (or an edit). ⌘\ / Ctrl+\ is free in Lightroom and Capture One;
+    // the held \ stays the quick look.
+    action: 'toggle_original',
+    description: 'settings.keybinds.actions.toggle_original',
+    defaultCombo: ['ctrl', 'Backslash'],
+    section: 'view',
+  },
+  {
     // Lightroom's J: highlight and shadow clipping warnings in the viewer.
     action: 'toggle_clipping',
     description: 'settings.keybinds.actions.toggle_clipping',

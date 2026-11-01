@@ -427,21 +427,31 @@ impl Library {
         if let Some(folder) = folder {
             let folder = resolve_moved(folder);
             ensure!(
-                self.manifest.mode == Mode::Catalog || below(&folder, &self.directory),
+                self.manifest.mode == Mode::Catalog
+                    || below(&folder, &self.directory)
+                    || self.in_outside_folder(&folder),
                 "{} is not a folder of this session",
+                folder.display()
+            );
+            ensure!(
+                !self.in_output_folder(&folder),
+                "{} is the session's Output folder: it holds exports, not photographs",
                 folder.display()
             );
             return Ok(vec![folder]);
         }
         let mut folders = vec![self.directory.clone()];
-        if self.manifest.mode == Mode::Catalog {
-            let roots: Vec<String> = self
-                .conn
-                .prepare("SELECT path FROM roots WHERE external=1 ORDER BY path")?
-                .query_map([], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?;
-            folders.extend(roots.into_iter().map(PathBuf::from));
-        }
+        // A catalog's folders outside it, and a session's (G38): where its
+        // photographs outside it are registered, and its Capture and Selects
+        // folders there (not its Output: exports are no photographs).
+        let roots: Vec<String> = self
+            .conn
+            .prepare("SELECT path FROM roots WHERE external=1 ORDER BY path")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        folders.extend(roots.into_iter().map(PathBuf::from));
+        folders.extend(self.manifest.outside_folders());
+        folders.retain(|folder| !self.in_output_folder(folder));
         folders.sort();
         let mut topmost: Vec<PathBuf> = Vec::new();
         for folder in folders {
@@ -537,7 +547,9 @@ impl Library {
                 };
                 let path = entry.path();
                 if kind.is_dir() {
-                    if below(&path, &self.directory) && INTERNAL_FOLDERS.contains(&name.as_ref()) {
+                    if (below(&path, &self.directory) && INTERNAL_FOLDERS.contains(&name.as_ref()))
+                        || self.in_output_folder(&path)
+                    {
                         continue;
                     }
                     subfolders.push(path);

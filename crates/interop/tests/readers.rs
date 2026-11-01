@@ -97,6 +97,9 @@ fn lightroom_photos_metadata_settings_and_collections() {
         "defaults in its XMP are not edits"
     );
     assert_eq!(lib.photos[2].copy_of.as_deref(), Some("1"), "virtual copy");
+    // Its identity across catalogs: Lightroom's global id.
+    assert!(lib.photos[2].uid.as_deref().is_some_and(|u| !u.is_empty()));
+    assert_ne!(lib.photos[2].uid, lib.photos[0].uid);
 
     // Trips ▸ Italy; the empty Quick Collection, smart collections and a
     // set holding only smart collections are left out.
@@ -385,6 +388,12 @@ fn capture_one_session_variants_settings_and_albums() {
     // The second variant is a copy with Capture One's defaults only (not
     // modified); orange has no Rawtonic label.
     assert_eq!(lib.photos[1].copy_of.as_deref(), Some("10"));
+    // Capture One has no global id: the session file and the variant stand in.
+    let uid = lib.photos[1].uid.as_deref().unwrap();
+    assert!(
+        uid.ends_with("#11") || uid.contains(".cosessiondb#"),
+        "{uid}"
+    );
     assert_eq!(lib.photos[1].develop, Develop::None);
     assert_eq!(lib.photos[1].metadata.label, "");
     assert_eq!(lib.photos[2].path, Path::new("/nowhere/else/DSCF0002.RAF"));

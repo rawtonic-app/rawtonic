@@ -5,6 +5,11 @@ import { ImageDimensions } from '../hooks/useImageRenderSize';
 /** Tones in percent of white; falloff in percent on either side. */
 export const DEFAULT_LUMA_RANGE = { rangeLow: 0, rangeHigh: 100, falloff: 20 };
 
+/** Select Subject version of new selections (`subjectVersion`; absent = 1,
+ * BiRefNet's whole foreground; 2 = the subject in focus, separate objects
+ * far out of focus left out: `rawtonic_segment::SUBJECT_VERSION`). */
+export const SUBJECT_VERSION = 2;
+
 export const createSubMask = (
   type: Mask,
   imageDimensions: ImageDimensions,
@@ -48,7 +53,7 @@ export const createSubMask = (
     case Mask.AiSubject:
       return { ...common, parameters: { maskDataBase64: null, grow: 0, feather: 0 } };
     case Mask.AiForeground:
-      return { ...common, parameters: { maskDataBase64: null, grow: 0, feather: 0 } };
+      return { ...common, parameters: { maskDataBase64: null, grow: 0, feather: 0, subjectVersion: SUBJECT_VERSION } };
     case Mask.QuickEraser:
       return { ...common, parameters: { maskDataBase64: null, grow: 50, feather: 50 } };
     default:

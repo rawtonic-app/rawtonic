@@ -1103,6 +1103,21 @@ pub fn prepare_export_source(
             rawtonic_engine::masks::pending_detections_message(&pending)
         ));
     }
+    // Sky and Subject selections are computed before (`ai_selections::
+    // detect_missing`); one still without its bitmap is never left out.
+    let undetected = rawtonic_engine::ai_selections::undetected(js_adjustments);
+    if !undetected.is_empty() {
+        let layers: Vec<String> = undetected
+            .iter()
+            .map(|&(layer, _, selection)| {
+                rawtonic_engine::ai_selections::undetected_message(js_adjustments, layer, selection)
+            })
+            .collect();
+        return Err(format!(
+            "{source_path_str}: not exported, an AI selection was not computed: {}",
+            layers.join("; ")
+        ));
+    }
     let patched = match rawtonic_engine::image_loader::composite_patches_for_render(
         &pristine_source,
         js_adjustments,
@@ -3124,7 +3139,21 @@ mod detection_tests {
         let detected =
             layer(json!({"maskDataBase64": "data:image/png;base64,AAAA", "detectPending": true}));
         assert!(prepare_export_source("/qa/a.jpg", image.clone(), None, &detected).is_ok());
-        assert!(prepare_export_source("/qa/a.jpg", image, None, &json!({"exposure": 1})).is_ok());
+        assert!(
+            prepare_export_source("/qa/a.jpg", image.clone(), None, &json!({"exposure": 1}))
+                .is_ok()
+        );
+        // Imported without its bitmap and not computed before: refused, not
+        // exported without the selection.
+        let imported = layer(json!({"maskDataBase64": null, "grow": 0, "feather": 0}));
+        let error = prepare_export_source("/qa/a.jpg", image.clone(), None, &imported)
+            .err()
+            .expect("refused");
+        assert!(error.contains("its Sky selection"), "{error}");
+        // A hidden layer needs none.
+        let mut hidden = imported;
+        hidden["masks"][0]["visible"] = json!(false);
+        assert!(prepare_export_source("/qa/a.jpg", image, None, &hidden).is_ok());
     }
 }
 
