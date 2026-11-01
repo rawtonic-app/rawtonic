@@ -582,6 +582,27 @@ describe("Develop tool contracts", () => {
     unregister();
   });
 
+  it("makes a press beside a slider's thumb and its drag one undo step", () => {
+    // Codex r1: the jump to the pointer went out before the drag began, so
+    // it became a history step of its own and Undo stopped at it.
+    mount();
+    const slider = screen.getByRole("slider", { name: "Exposure" }) as HTMLInputElement;
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, width: 109, height: 20 } as DOMRect);
+    slider.setPointerCapture = vi.fn();
+    const exposure = () => useEditorStore.getState().adjustments.exposure;
+    fireEvent.pointerDown(slider, { button: 0, clientX: 14.5, clientY: 10 });
+    // Long enough for the drag's drafts to be committed on the way.
+    for (const x of [19.5, 24.5]) {
+      act(() => vi.advanceTimersByTime(300));
+      fireEvent.pointerMove(slider, { clientX: x, clientY: 10 });
+    }
+    fireEvent.pointerUp(slider);
+    expect(exposure()).toBe(-3);
+    act(() => debouncedSetHistory.flush());
+    act(() => useEditorStore.getState().undo());
+    expect(exposure()).toBe(0);
+  });
+
   it("ends a curve drag on cancellation and unmount", () => {
     const view = mount();
     openGroups();

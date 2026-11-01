@@ -216,7 +216,11 @@ export default memo(function AdjustmentControl({
       active.current = false;
       return;
     }
-    if (text.trim() && Number.isFinite(Number(text))) update(Number(text));
+    // A field left as it was sends nothing: a stored value outside the
+    // slider's range (an older, wider range) must not be clamped by a focus.
+    if (text === shownValue(pending.current, step)) {
+      // untouched
+    } else if (text.trim() && Number.isFinite(Number(text))) update(Number(text));
     else {
       pending.current = value;
       setLocal(value);
@@ -272,6 +276,10 @@ export default memo(function AdjustmentControl({
             e.currentTarget.focus();
             e.currentTarget.setPointerCapture(e.pointerId);
             const left = (box.left || 0) + THUMB / 2;
+            // The interaction starts before any value is sent: a jump to the
+            // pointer is part of the drag (one history step), not a step of
+            // its own before it.
+            begin();
             // pending, not local: focusing the track just committed a typed value
             // whose state has not rendered yet.
             let start = toTrack(pending.current);
@@ -289,8 +297,7 @@ export default memo(function AdjustmentControl({
               value: start,
               perPixel: (trackMax - trackMin) / travel,
             };
-          }
-          begin();
+          } else begin();
         }}
         onPointerMove={(e) => {
           if (!fine.current) return;

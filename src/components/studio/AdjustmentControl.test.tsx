@@ -49,9 +49,27 @@ describe("professional adjustment control", () => {
     expect(slider.closest(".adjustment-control")!.classList.contains("is-active")).toBe(false);
   });
   it("moves the thumb to a press beside it, then drags from there", () => {
-    const { slider, change } = exposure();
+    const calls: string[] = [];
+    const change = vi.fn((v: number) => calls.push(`change ${v}`));
+    render(
+      <AdjustmentControl
+        label="Exposure"
+        value={0}
+        min={-5}
+        max={5}
+        step={0.01}
+        onChange={change}
+        onInteraction={(active) => calls.push(`interaction ${active}`)}
+      />,
+    );
+    const slider = screen.getByRole("slider", { name: "Exposure" }) as HTMLInputElement;
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue(box);
+    slider.setPointerCapture = vi.fn();
     fireEvent.pointerDown(slider, { button: 0, clientX: 14.5, clientY: 10, pointerId: 1 });
     expect(change).toHaveBeenLastCalledWith(-4);
+    // Codex r1: the jump belongs to the drag (one history step), so the
+    // interaction starts before its value is sent.
+    expect(calls.slice(0, 2)).toEqual(["interaction true", "change -4"]);
     fireEvent.pointerMove(slider, { clientX: 24.5, clientY: 10, pointerId: 1 });
     fireEvent.pointerUp(slider, { pointerId: 1 });
     expect(change).toHaveBeenLastCalledWith(-3);
@@ -124,6 +142,21 @@ describe("professional adjustment control", () => {
     const field = screen.getByRole("textbox");
     fireEvent.focus(field);
     expect(row.classList.contains("is-active")).toBe(false);
+  });
+  it("leaves a stored value outside its range alone when the field is only focused", () => {
+    // Codex r1: Brightness was ±5; a stored 3 must survive a focus and blur.
+    const change = vi.fn();
+    render(<AdjustmentControl label="Brightness" value={3} min={-2} max={2} step={0.01} onChange={change} />);
+    const field = screen.getByRole("textbox");
+    expect((field as HTMLInputElement).value).toBe("3");
+    fireEvent.focus(field);
+    fireEvent.blur(field);
+    expect(change).not.toHaveBeenCalled();
+    // Typing a value is clamped to the range as before.
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "3.5" } });
+    fireEvent.blur(field);
+    expect(change).toHaveBeenLastCalledWith(2);
   });
   it("clamps typed input, rejects invalid input and cancels on Escape", () => {
     const change = vi.fn();
