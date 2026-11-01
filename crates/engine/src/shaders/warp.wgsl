@@ -74,6 +74,9 @@ const TCA: u32 = 32u;
 const VIGNETTING: u32 = 64u;
 const KEEP_NEGATIVE: u32 = 128u;
 const MANUAL_VIGNETTING: u32 = 1024u;
+// The framing zoom and the lens distortion run about (`lcx`, `lcy`) instead
+// of the frame centre (`source_point_off_centre`).
+const LENS_CENTRE: u32 = 2048u;
 // Write each pixel's source position (x, y, and z < 0 where it is left
 // black) instead of sampling (tests of the warp's precision).
 const POSITIONS: u32 = 256u;
@@ -144,8 +147,61 @@ fn table_at(r_in: f32) -> f32 {
         + (t3 - t2) * m1;
 }
 
-// `source_point_f32`; z < 0 when the pixel is left black.
+// `source_point_f32`; z < 0 when the pixel is left black. About the frame
+// centre, as before camera geometry version 8; keep it unchanged so those
+// warps stay byte-identical.
 fn source_point(p: vec3<f32>) -> vec3<f32> {
+    if abs(p.z) <= 1e-6 {
+        return vec3<f32>(0.0, 0.0, -1.0);
+    }
+    let cx = P.cx;
+    let cy = P.cy;
+    let inv_z = 1.0 / p.z;
+    var sx = p.x * inv_z;
+    var sy = p.y * inv_z;
+    if P.auto_crop_scale > 1.0 {
+        sx = cx + (sx - cx) / P.auto_crop_scale;
+        sy = cy + (sy - cy) / P.auto_crop_scale;
+    }
+    if (P.flags & LENS) != 0u {
+        let dx = sx - cx;
+        let dy = sy - cy;
+        let ru = sqrt(dx * dx + dy * dy);
+        if ru > 1e-6 {
+            let ru_norm = ru / P.hd;
+            let ru_norm2 = ru_norm * ru_norm;
+            var rd_norm: f32;
+            if (P.flags & TABLE) != 0u {
+                rd_norm = ru_norm * table_at(ru_norm);
+            } else if (P.flags & PTLENS) != 0u {
+                let d = 1.0 - P.k1 - P.k2 - P.k3;
+                rd_norm = ru_norm * (P.k1 * ru_norm2 * ru_norm + P.k2 * ru_norm2 + P.k3 * ru_norm + d);
+            } else {
+                rd_norm = ru_norm * (1.0 + P.k1 * ru_norm2 + P.k2 * (ru_norm2 * ru_norm2)
+                    + P.k3 * (ru_norm2 * ru_norm2 * ru_norm2));
+            }
+            let effective = ru_norm + (rd_norm - ru_norm) * P.lens_dist_amt;
+            let scale = effective / ru_norm;
+            sx = cx + dx * scale;
+            sy = cy + dy * scale;
+        }
+    }
+    if (P.flags & MANUAL) != 0u {
+        let dx = sx - cx;
+        let dy = sy - cy;
+        let r2_norm = (dx * dx + dy * dy) * P.max_radius_sq_inv;
+        let f = 1.0 + P.k_distortion_c * (1.0 - r2_norm);
+        sx = cx + dx * f;
+        sy = cy + dy * f;
+    }
+    return vec3<f32>(sx, sy, 1.0);
+}
+
+// `source_point` with the framing zoom and the lens distortion about the
+// lens centre (`lcx`, `lcy`; LENS_CENTRE). A function of its own: under the
+// Metal compiler's fast math any change to `source_point` changes the bits
+// of warps about the frame centre (recipes before cameraGeometryVersion 8).
+fn source_point_off_centre(p: vec3<f32>) -> vec3<f32> {
     if abs(p.z) <= 1e-6 {
         return vec3<f32>(0.0, 0.0, -1.0);
     }
@@ -285,7 +341,12 @@ fn warp(@builtin(global_invocation_id) id: vec3<u32>) {
     let y = P.out_y0 + (P.band_row0 + id.y) * P.out_step;
     let o = ((P.dst_row0 + id.y) * P.out_width + id.x) * 3u;
     let p = P.origin.xyz + P.step_y.xyz * f32(y) + P.step_x.xyz * f32(x);
-    let s = source_point(p);
+    var s: vec3<f32>;
+    if (P.flags & LENS_CENTRE) != 0u {
+        s = source_point_off_centre(p);
+    } else {
+        s = source_point(p);
+    }
     if (P.flags & POSITIONS) != 0u {
         dst[o] = s.x;
         dst[o + 1u] = s.y;

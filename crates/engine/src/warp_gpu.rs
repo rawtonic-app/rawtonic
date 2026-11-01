@@ -87,6 +87,9 @@ const KEEP_NEGATIVE: u32 = 128;
 const POSITIONS: u32 = 256;
 const SRGB_BASE: u32 = 512;
 const MANUAL_VIGNETTING: u32 = 1024;
+/// The lens runs about (`lcx`, `lcy`), not the frame centre
+/// (shaders/warp.wgsl `source_point_off_centre`).
+const LENS_CENTRE: u32 = 2048;
 
 /// Output pixels per submission: display frames queued meanwhile wait for
 /// one band, not the whole frame, and a band's buffers stay small.
@@ -250,6 +253,12 @@ fn params(u: &WarpUniforms, source: &SourceRows, out: OutputRows) -> (Params, Ve
         } else if u.ptlens {
             flags |= PTLENS;
         }
+    }
+    // Only an off-centre lens takes the shader's other path: warps about the
+    // frame centre keep the function they had before cameraGeometryVersion 8,
+    // since fast math would change their bits otherwise.
+    if u.lcx != u.cx || u.lcy != u.cy {
+        flags |= LENS_CENTRE;
     }
     let manual = u.manual_c.inspect(|_| flags |= MANUAL).unwrap_or(0.0);
     let [vr, vb, vr2, vb2, inv_hd2] = u.tca.inspect(|_| flags |= TCA).unwrap_or_default();
@@ -732,4 +741,75 @@ struct Slot {
     output: wgpu::Buffer,
     readback: wgpu::Buffer,
     pending: Option<Pending>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `source_point` as it was before camera geometry version 8 (main
+    /// 1be216b9). Metal compiles the shader with fast math, so any edit of
+    /// this function changes the bits of saved recipes' exports by up to a
+    /// code (#528 did, for every camera with lens data); a new behaviour goes
+    /// into a function of its own behind a flag, as LENS_CENTRE does.
+    const CENTRED_SOURCE_POINT: &str = r#"fn source_point(p: vec3<f32>) -> vec3<f32> {
+    if abs(p.z) <= 1e-6 {
+        return vec3<f32>(0.0, 0.0, -1.0);
+    }
+    let cx = P.cx;
+    let cy = P.cy;
+    let inv_z = 1.0 / p.z;
+    var sx = p.x * inv_z;
+    var sy = p.y * inv_z;
+    if P.auto_crop_scale > 1.0 {
+        sx = cx + (sx - cx) / P.auto_crop_scale;
+        sy = cy + (sy - cy) / P.auto_crop_scale;
+    }
+    if (P.flags & LENS) != 0u {
+        let dx = sx - cx;
+        let dy = sy - cy;
+        let ru = sqrt(dx * dx + dy * dy);
+        if ru > 1e-6 {
+            let ru_norm = ru / P.hd;
+            let ru_norm2 = ru_norm * ru_norm;
+            var rd_norm: f32;
+            if (P.flags & TABLE) != 0u {
+                rd_norm = ru_norm * table_at(ru_norm);
+            } else if (P.flags & PTLENS) != 0u {
+                let d = 1.0 - P.k1 - P.k2 - P.k3;
+                rd_norm = ru_norm * (P.k1 * ru_norm2 * ru_norm + P.k2 * ru_norm2 + P.k3 * ru_norm + d);
+            } else {
+                rd_norm = ru_norm * (1.0 + P.k1 * ru_norm2 + P.k2 * (ru_norm2 * ru_norm2)
+                    + P.k3 * (ru_norm2 * ru_norm2 * ru_norm2));
+            }
+            let effective = ru_norm + (rd_norm - ru_norm) * P.lens_dist_amt;
+            let scale = effective / ru_norm;
+            sx = cx + dx * scale;
+            sy = cy + dy * scale;
+        }
+    }
+    if (P.flags & MANUAL) != 0u {
+        let dx = sx - cx;
+        let dy = sy - cy;
+        let r2_norm = (dx * dx + dy * dy) * P.max_radius_sq_inv;
+        let f = 1.0 + P.k_distortion_c * (1.0 - r2_norm);
+        sx = cx + dx * f;
+        sy = cy + dy * f;
+    }
+    return vec3<f32>(sx, sy, 1.0);
+}
+"#;
+
+    #[test]
+    fn warps_about_the_frame_centre_keep_their_shader_function() {
+        let shader = include_str!("shaders/warp.wgsl");
+        assert!(
+            shader.contains(CENTRED_SOURCE_POINT),
+            "shaders/warp.wgsl `source_point` changed: saved recipes would export differently"
+        );
+        assert!(shader.contains(
+            "    if (P.flags & LENS_CENTRE) != 0u {\n        s = source_point_off_centre(p);\n    } else {\n        s = source_point(p);\n    }\n"
+        ));
+        assert!(shader.contains(&format!("const LENS_CENTRE: u32 = {LENS_CENTRE}u;")));
+    }
 }
