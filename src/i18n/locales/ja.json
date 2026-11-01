@@ -1480,6 +1480,7 @@
         "there": "もう一方のカタログで変更"
       },
       "source": "読み込むカタログ",
+      "stacks_other": "スタック {{count}} 件を読み込みました",
       "summary": "「{{name}}」: 新規 {{new}}、変更 {{changed}}、変更なし {{unchanged}}（スキップ）",
       "title": "カタログから読み込み",
       "unchangedSkipped_other": "変更のない写真 {{count}} 枚をスキップ",
@@ -1848,6 +1849,7 @@
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
       "importNotFound_other": "{{count}} 枚が見つかりません",
+      "importStacks_other": "スタック {{count}} 件を読み込みました",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
       "ingestCancelled": "取り込みをキャンセルしました",
       "ingested_other": "{{count}} 枚の写真をコピーして検証しました",

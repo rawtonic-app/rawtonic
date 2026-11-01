@@ -226,6 +226,94 @@ fn work_done_in_the_exported_catalog_comes_back() {
 }
 
 #[test]
+fn stacks_come_with_the_photographs_and_once() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    // On the laptop: two new photographs, one with a virtual copy, stacked
+    // with the copy (expanded, e on top); a (edited there) stacked under b
+    // (the same in both).
+    let card = w.root.join("Card");
+    fs::create_dir_all(&card).unwrap();
+    let new: Vec<String> = ["d.arw", "e.arw"]
+        .iter()
+        .map(|name| {
+            fs::write(card.join(name), format!("laptop {name}")).unwrap();
+            w.laptop.add_asset(&card.join(name)).unwrap().id
+        })
+        .collect();
+    w.laptop
+        .save_copy_state(&new[0], "c0ffee", &edit(0.3))
+        .unwrap();
+    let copy = Member {
+        asset_id: new[0].clone(),
+        copy: "c0ffee".into(),
+    };
+    let first = vec![
+        Member::photo(new[1].clone()),
+        Member::photo(new[0].clone()),
+        copy.clone(),
+    ];
+    w.laptop.group_stack(&first).unwrap();
+    w.laptop
+        .set_stacks_collapsed(&first[..1], Some(false))
+        .unwrap();
+    w.laptop.save_editor_state(&w.ids[0], &edit(1.5)).unwrap();
+    let second = vec![
+        Member::photo(w.ids[1].clone()),
+        Member::photo(w.ids[0].clone()),
+    ];
+    w.laptop.group_stack(&second).unwrap();
+    let theirs = w.laptop.stacks().unwrap();
+
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.added, receipt.report.replaced), (2, 1));
+    assert_eq!(receipt.report.stacks, 2);
+    // The same stacks, ids, tops, order and collapsed state.
+    assert_eq!(w.main.stacks().unwrap(), theirs);
+    assert!(!w.main.stack_of(&copy).unwrap().unwrap().collapsed);
+
+    // Imported again (a changed there once more): no second stack, and the
+    // photographer's change here (b's stack dissolved) is not undone for a
+    // photo already in another stack.
+    w.main.unstack(&second[..1]).unwrap();
+    w.main
+        .group_stack(&[
+            Member::photo(w.ids[1].clone()),
+            Member::photo(w.ids[2].clone()),
+        ])
+        .unwrap();
+    w.laptop.save_editor_state(&w.ids[0], &edit(1.7)).unwrap();
+    let again = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(again.report.replaced, 1);
+    assert_eq!(again.report.stacks, 0);
+    let here = w.main.stacks().unwrap();
+    assert_eq!(here.len(), 2);
+    assert_eq!(here[0], theirs[0]);
+    assert!(
+        w.main.stack_of(&second[1]).unwrap().is_none(),
+        "a stays single"
+    );
+    assert_eq!(
+        w.main.stack_of(&second[0]).unwrap().unwrap().members[1],
+        Member::photo(w.ids[2].clone())
+    );
+}
+
+#[test]
 fn conflict_choices_keep_virtual_copy_and_changed_here_only() {
     let (_tmp, w) = world();
     // Both sides edited a; only here b.

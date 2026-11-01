@@ -1480,6 +1480,7 @@
         "there": "在另一個目錄中變更"
       },
       "source": "要匯入的目錄",
+      "stacks_other": "已匯入 {{count}} 個堆疊",
       "summary": "「{{name}}」：新增 {{new}}，已變更 {{changed}}，未變更 {{unchanged}}（略過）",
       "title": "從目錄匯入",
       "unchangedSkipped_other": "已略過 {{count}} 張未變更的照片",
@@ -1848,6 +1849,7 @@
       "importCropsClipped_other": "{{count}} 個裁切超出相機畫面，已收縮到畫面內",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
       "importNotFound_other": "{{count}} 張找不到",
+      "importStacks_other": "已匯入 {{count}} 個堆疊",
       "importWarnings_other": "{{count}} 張照片已匯入，但有警告。{{error}}",
       "ingestCancelled": "匯入已取消",
       "ingested_other": "已拷貝並驗證 {{count}} 張照片",

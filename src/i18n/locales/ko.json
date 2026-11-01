@@ -1480,6 +1480,7 @@
         "there": "다른 카탈로그에서 변경"
       },
       "source": "가져올 카탈로그",
+      "stacks_other": "스택 {{count}}개를 가져왔습니다",
       "summary": "“{{name}}”: 새 사진 {{new}}, 변경 {{changed}}, 변경 없음 {{unchanged}}(건너뜀)",
       "title": "카탈로그에서 가져오기",
       "unchangedSkipped_other": "변경 없는 사진 {{count}}장 건너뜀",
@@ -1848,6 +1849,7 @@
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
       "importNotFound_other": "{{count}}장 찾을 수 없음",
+      "importStacks_other": "스택 {{count}}개를 가져왔습니다",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
       "ingestCancelled": "가져오기 취소됨",
       "ingested_other": "사진 {{count}}장을 복사하고 검증했습니다",

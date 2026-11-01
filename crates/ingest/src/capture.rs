@@ -1046,7 +1046,9 @@ fn apply_exif(capture: &mut Capture, exif: &exif::Exif) {
     });
     capture.sequence = capture.sequence.or_else(|| {
         match &exif.get_field(Tag::MakerNote, exif::In::PRIMARY)?.value {
-            exif::Value::Undefined(note, _) => burst_frame(note),
+            exif::Value::Undefined(note, _) => {
+                burst_frame(note, capture.make.as_deref(), exif.little_endian())
+            }
             _ => None,
         }
     });
@@ -1054,30 +1056,45 @@ fn apply_exif(capture: &mut Capture, exif: &exif::Exif) {
 
 /// The frame number within a continuous-drive burst a maker note states (1
 /// for its first frame; `None` for a single shot or a maker note not
-/// known). Read: Fujifilm's SequenceNumber (tag 0x1101 of its maker note,
-/// 0 for a single shot). Other makers' notes give no frame number this
-/// reader knows; their bursts are grouped by capture time.
-fn burst_frame(note: &[u8]) -> Option<u32> {
-    if !note.starts_with(b"FUJIFILM") {
+/// known). Read where the field is plain and was measured on real bursts
+/// (notes: benchmark-results/stk2-stack-import-2026-11-01/REPORT.md):
+/// Fujifilm's SequenceNumber (tag 0x1101, 0 for a single shot; its note is
+/// always little-endian) and Sony's SequenceNumber (tag 0xb04a, in the
+/// EXIF byte order `little`; 0 for a single shot, 65535 where the body has
+/// none) of a note after the `SONY DSC `/`SONY CAM ` header, or of a
+/// note without one (newer bodies) when the EXIF `make` is Sony. Canon (ShotInfo
+/// SequenceNumber 0 in continuous drive), Nikon (a continuous flag, no
+/// frame number), OM System/Olympus and Panasonic (no burst on hand) are
+/// not read: their bursts are grouped by capture time.
+fn burst_frame(note: &[u8], make: Option<&str>, little: bool) -> Option<u32> {
+    let (ifd_at, little, tag) = if note.starts_with(b"FUJIFILM") {
+        let at = note.get(8..12)?;
+        let at = u32::from_le_bytes([at[0], at[1], at[2], at[3]]) as usize;
+        (at, true, 0x1101)
+    } else if note.starts_with(b"SONY DSC \0\0\0") || note.starts_with(b"SONY CAM \0\0\0") {
+        (12, little, 0xb04a)
+    } else if make.is_some_and(|m| m.trim().to_ascii_uppercase().starts_with("SONY")) {
+        (0, little, 0xb04a)
+    } else {
         return None;
-    }
-    let le16 = |at: usize| {
-        note.get(at..at + 2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
     };
-    let le32 = |at: usize| {
-        note.get(at..at + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    let u16_at = |at: usize| {
+        note.get(at..at + 2).map(|b| {
+            if little {
+                u16::from_le_bytes([b[0], b[1]])
+            } else {
+                u16::from_be_bytes([b[0], b[1]])
+            }
+        })
     };
-    let ifd = le32(8)? as usize;
-    let count = le16(ifd)? as usize;
+    let count = u16_at(ifd_at)? as usize;
     (0..count.min(512)).find_map(|i| {
-        let at = ifd + 2 + 12 * i;
-        (le16(at)? == 0x1101 && le16(at + 2)? == 3)
-            .then(|| le16(at + 8))
+        let at = ifd_at + 2 + 12 * i;
+        (u16_at(at)? == tag && u16_at(at + 2)? == 3)
+            .then(|| u16_at(at + 8))
             .flatten()
+            .filter(|n| (1..u16::MAX).contains(n))
             .map(u32::from)
-            .filter(|n| *n > 0)
     })
 }
 
@@ -1292,11 +1309,57 @@ pub(crate) mod tests {
             }
             n
         };
-        assert_eq!(burst_frame(&note(3)), Some(3));
+        // A Fujifilm note is little-endian whatever the EXIF around it.
+        assert_eq!(burst_frame(&note(3), None, false), Some(3));
         // 0: a single shot.
-        assert_eq!(burst_frame(&note(0)), None);
-        assert_eq!(burst_frame(b"Nikon\0\x02"), None);
-        assert_eq!(burst_frame(&note(3)[..20]), None);
+        assert_eq!(burst_frame(&note(0), None, true), None);
+        assert_eq!(
+            burst_frame(b"Nikon\0\x02", Some("NIKON CORPORATION"), true),
+            None
+        );
+        assert_eq!(burst_frame(&note(3)[..20], None, true), None);
+    }
+
+    #[test]
+    fn a_sony_maker_note_gives_the_burst_frame_number_in_the_exif_byte_order() {
+        let note = |value: u16, little: bool| {
+            let u16b = |v: u16| {
+                if little {
+                    v.to_le_bytes()
+                } else {
+                    v.to_be_bytes()
+                }
+            };
+            let u32b = |v: u32| {
+                if little {
+                    v.to_le_bytes()
+                } else {
+                    v.to_be_bytes()
+                }
+            };
+            let mut n = b"SONY DSC \0\0\0".to_vec();
+            n.extend_from_slice(&u16b(2));
+            // ReleaseMode 2 (continuous), SequenceNumber.
+            for (tag, value) in [(0xb049u16, 2u16), (0xb04a, value)] {
+                n.extend_from_slice(&u16b(tag));
+                n.extend_from_slice(&u16b(3));
+                n.extend_from_slice(&u32b(1));
+                n.extend_from_slice(&u16b(value));
+                n.extend_from_slice(&[0, 0]);
+            }
+            n
+        };
+        assert_eq!(burst_frame(&note(4, true), None, true), Some(4));
+        assert_eq!(burst_frame(&note(4, false), None, false), Some(4));
+        // 0: a single shot; 65535: the body has no number.
+        assert_eq!(burst_frame(&note(0, true), None, true), None);
+        assert_eq!(burst_frame(&note(u16::MAX, true), None, true), None);
+        // Newer bodies write the note without the header: read when the
+        // EXIF make is Sony, never for another maker.
+        let bare = &note(4, true)[12..];
+        assert_eq!(burst_frame(bare, Some("SONY"), true), Some(4));
+        assert_eq!(burst_frame(bare, Some("Canon"), true), None);
+        assert_eq!(burst_frame(bare, None, true), None);
     }
 
     #[test]
@@ -2084,6 +2147,28 @@ pub(crate) mod tests {
         }
         assert!(large > 0, "no fixture larger than {FACTS_LIMIT} bytes");
         println!("{large} files over {FACTS_LIMIT} bytes; at most {most} bytes read of one file");
+    }
+
+    /// The burst frame numbers read from real files equal a listing's
+    /// (`RAWTONIC_BURST_LIST`: lines `path<TAB>number`, 0 for none, e.g.
+    /// from exiftool's Sony/Fujifilm SequenceNumber). Files are only read.
+    #[test]
+    #[ignore = "needs RAWTONIC_BURST_LIST"]
+    fn burst_frames_of_real_files_match_a_listing() {
+        let list = std::env::var("RAWTONIC_BURST_LIST").expect("listing");
+        let (mut checked, mut numbered) = (0, 0);
+        for line in fs::read_to_string(list).unwrap().lines() {
+            let Some((path, number)) = line.rsplit_once('\t') else {
+                continue;
+            };
+            let expected: u32 = number.trim().parse().unwrap_or(0);
+            let read = capture_facts(Path::new(path)).and_then(|f| f.sequence);
+            assert_eq!(read.unwrap_or(0), expected, "{path}");
+            checked += 1;
+            numbered += usize::from(expected > 0);
+        }
+        assert!(checked > 0, "empty listing");
+        println!("{checked} files agree ({numbered} with a frame number)");
     }
 
     /// A CIFF heap with one TimeStamp record: the CRW's capture time.
