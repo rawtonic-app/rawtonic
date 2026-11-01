@@ -89,19 +89,19 @@ pub struct Baseline {
     pub origin: String,
     pub photos: BTreeMap<String, BTreeMap<String, String>>,
     /// The stacks both catalogs held after the last import, as stacks here
-    /// (`None`: not recorded yet, then a stack changed there is not brought
-    /// over on its own).
+    /// (`None`: not recorded, then a stack changed there is not brought over
+    /// on its own); in an Export as Catalog's record: the stacks of this
+    /// catalog when it was exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stacks: Option<Vec<Stack>>,
 }
 
 /// The common stack states of `imported` (the record of the last import) or,
-/// without one, of a catalog exported from this one (none).
+/// where it holds none, those of the catalog exported from this one.
 fn stack_baseline(imported: Option<Baseline>, exported: Option<Baseline>) -> Option<Vec<Stack>> {
-    match imported {
-        Some(record) => record.stacks,
-        None => exported.map(|_| Vec::new()),
-    }
+    imported
+        .and_then(|record| record.stacks)
+        .or_else(|| exported.and_then(|record| record.stacks))
 }
 
 /// One photograph of the other catalog.
@@ -146,6 +146,9 @@ pub struct Plan {
     /// The stack states both catalogs held at the last import (`None`: not
     /// recorded: stacks only complete, as `stacks::merge_stack`).
     pub common_stacks: Option<Vec<Stack>>,
+    /// The photographs here that the other library holds (by their id here):
+    /// the only ones its stacks can speak of.
+    pub known_here: HashSet<String>,
 }
 
 /// A changed photograph of a `Plan`.
@@ -382,7 +385,7 @@ impl Library {
         }
         Ok(Baseline {
             origin: origin.to_string(),
-            stacks: None,
+            stacks: Some(self.stacks()?),
             photos,
         })
     }
@@ -402,9 +405,8 @@ impl Library {
     }
 
     /// The stack states this catalog and `other` held after the last import
-    /// from it (`None`: not recorded, then a stack changed there is not
-    /// brought over on its own). Catalogs exported from this one held no
-    /// common stack state: a stack here that is not theirs is kept.
+    /// from it, or at the export of that catalog from this one (`None`: not
+    /// recorded, then a stack changed there is not brought over on its own).
     pub fn common_stacks(&self, other: &Library, other_dir: &Path) -> Option<Vec<Stack>> {
         let (imported, exported) = self.baselines(other, other_dir);
         stack_baseline(imported, exported)
@@ -847,8 +849,9 @@ impl Library {
                     .filter_map(|p| Some((p.id.as_str(), p.target.as_deref()?)))
                     .collect();
                 let theirs = other.stacks()?;
+                let known: HashSet<String> = here.values().map(|id| id.to_string()).collect();
                 for (stack, mapped) in theirs.iter().zip(Self::stacks_as_here(other, &here)?) {
-                    if self.stack_import_offered(&mapped, &common)? {
+                    if self.stack_import_offered(&mapped, &common, &known)? {
                         offered.extend(stack.members.iter().map(|m| m.asset_id.clone()));
                     }
                 }
@@ -968,7 +971,13 @@ impl Library {
         // stack here stays in it.
         for stack in &plan.stacks {
             report.stacks += usize::from(
-                crate::stacks::sync_stack(&tx, stack, plan.common_stacks.as_deref())?.is_some(),
+                crate::stacks::sync_stack(
+                    &tx,
+                    stack,
+                    plan.common_stacks.as_deref(),
+                    &plan.known_here,
+                )?
+                .is_some(),
             );
         }
         prune_blobs(&tx)?;

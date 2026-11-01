@@ -467,8 +467,10 @@ fn a_stack_offered_by_another_catalog_replaces_only_untouched_ones() {
         .stack_of(&Member::photo(ids[0].clone()))
         .unwrap()
         .unwrap();
+    let known: std::collections::HashSet<String> = ids.iter().cloned().collect();
     let offered = |which: &[usize], common: &[Stack]| {
-        lib.stack_import_offered(&theirs(which), common).unwrap()
+        lib.stack_import_offered(&theirs(which), common, &known)
+            .unwrap()
     };
 
     // Nothing in common: what is stacked here is the photographer's.

@@ -313,49 +313,93 @@ pub(crate) fn existing_members(conn: &Connection, stack: &Stack) -> Result<Stack
     })
 }
 
+/// `stack` with only the members of photographs in `known`.
+fn restricted(stack: &Stack, known: &HashSet<String>) -> Stack {
+    Stack {
+        id: stack.id.clone(),
+        collapsed: stack.collapsed,
+        members: stack
+            .members
+            .iter()
+            .filter(|m| known.contains(&m.asset_id))
+            .cloned()
+            .collect(),
+    }
+}
+
 /// The change another library's stack `theirs` (its members named as here)
 /// brings, when it changed there since the last import and nothing here
-/// stands in its way; `common` holds the stack states both libraries had at
-/// that import. `None` when:
+/// stands in its way. `common` holds the stack states both libraries had
+/// then (as stacks here); `known` the photographs here that the other
+/// library holds, the only ones its stacks can speak of. `None` when:
 /// - `theirs` is one of those states (it did not change there);
 /// - a stack here that holds one of its photographs, or carries its id, is
-///   not in a common state: the photographer stacked differently here since,
-///   and that is kept;
+///   not in a common state, or a common state that holds one of its
+///   photographs is no stack here any more (unstacked, regrouped,
+///   reordered): the photographer stacked differently here since, and that
+///   is kept;
 /// - fewer than two of its photographs are here, or nothing would change.
 ///
 /// Otherwise the stacks here holding its photographs are replaced by it: its
-/// top, order, members and collapsed state.
+/// top, order, members and collapsed state; a member of a replaced stack
+/// that the other library does not hold stays, after the others.
 pub(crate) fn stack_offer(
     conn: &Connection,
     theirs: &Stack,
     common: &[Stack],
+    known: &HashSet<String>,
 ) -> Result<Option<StackOffer>> {
-    let theirs = existing_members(conn, theirs)?;
-    if theirs.members.len() < 2 || common.iter().any(|c| same_state(c, &theirs)) {
+    let mut stack = existing_members(conn, theirs)?;
+    if stack.members.len() < 2
+        || common.iter().any(|c| {
+            let c = restricted(c, known);
+            c.members.len() >= 2 && same_state(&c, &stack)
+        })
+    {
         return Ok(None);
     }
     let mut replaces: Vec<String> = Vec::new();
-    for member in &theirs.members {
+    for member in &stack.members {
         if let Some(id) = stack_of(conn, member)?
             && !replaces.contains(&id)
         {
             replaces.push(id);
         }
     }
-    if read_stack(conn, &theirs.id)?.is_some() && !replaces.contains(&theirs.id) {
-        replaces.push(theirs.id.clone());
+    if read_stack(conn, &stack.id)?.is_some() && !replaces.contains(&stack.id) {
+        replaces.push(stack.id.clone());
     }
     let mut here = Vec::new();
     for id in &replaces {
-        let Some(stack) = read_stack(conn, id)? else {
+        let Some(local) = read_stack(conn, id)? else {
             continue;
         };
-        if !common.iter().any(|c| same_state(c, &stack)) {
+        if !common.iter().any(|c| same_state(c, &local)) {
             return Ok(None);
         }
-        here.push(stack);
+        here.push(local);
     }
-    let stack = theirs;
+    // A state both had that holds one of its photographs must still be
+    // there as it was.
+    for c in common {
+        if c.members.iter().any(|m| stack.members.contains(m)) {
+            let Some(first) = c.members.first() else {
+                continue;
+            };
+            let kept = match stack_of(conn, first)? {
+                Some(id) => read_stack(conn, &id)?.is_some_and(|local| same_state(&local, c)),
+                None => false,
+            };
+            if !kept {
+                return Ok(None);
+            }
+        }
+    }
+    for member in here.iter().flat_map(|s| &s.members) {
+        if !known.contains(&member.asset_id) && !stack.members.contains(member) {
+            stack.members.push(member.clone());
+        }
+    }
     if here.len() == 1 && same_state(&here[0], &stack) {
         return Ok(None);
     }
@@ -377,9 +421,10 @@ pub(crate) fn sync_stack(
     conn: &Connection,
     theirs: &Stack,
     common: Option<&[Stack]>,
+    known: &HashSet<String>,
 ) -> Result<Option<String>> {
     if let Some(common) = common
-        && let Some(offer) = stack_offer(conn, theirs, common)?
+        && let Some(offer) = stack_offer(conn, theirs, common, known)?
     {
         apply_offer(conn, &offer)?;
         return Ok(Some(offer.stack.id));
@@ -546,30 +591,47 @@ impl Library {
     /// Whether Import from Catalog would change a stack here for `theirs`
     /// (another catalog's stack, members named as here) that changed there
     /// since the last import (`common`: the states both had then).
-    pub fn stack_import_offered(&self, theirs: &Stack, common: &[Stack]) -> Result<bool> {
-        Ok(stack_offer(&self.conn, theirs, common)?.is_some())
+    pub fn stack_import_offered(
+        &self,
+        theirs: &Stack,
+        common: &[Stack],
+        known: &HashSet<String>,
+    ) -> Result<bool> {
+        Ok(stack_offer(&self.conn, theirs, common, known)?.is_some())
     }
 
-    /// The stack states both libraries hold after an import: each of `theirs`
-    /// (members named as here, those not here left out) that is now a stack
-    /// here exactly, and each of `before` that still is one.
-    pub fn stack_import_common(&self, theirs: &[Stack], before: &[Stack]) -> Result<Vec<Stack>> {
+    /// The stack states both libraries hold after an import: the stack here
+    /// of each of `theirs` (members named as here, those not here left out;
+    /// `known`: the photographs the other library holds) that is the same
+    /// there, and each of `before` that still is a stack here.
+    pub fn stack_import_common(
+        &self,
+        theirs: &[Stack],
+        before: &[Stack],
+        known: &HashSet<String>,
+    ) -> Result<Vec<Stack>> {
         let mut out: Vec<Stack> = Vec::new();
-        let candidates = theirs
-            .iter()
-            .map(|s| existing_members(&self.conn, s))
-            .chain(before.iter().cloned().map(Ok));
-        for candidate in candidates {
-            let candidate = candidate?;
-            let Some(first) = candidate.members.first() else {
-                continue;
-            };
-            if candidate.members.len() >= 2
+        let mut keep = |here: Stack| {
+            if !out.iter().any(|c| same_state(c, &here)) {
+                out.push(here);
+            }
+        };
+        for stack in theirs {
+            let stack = existing_members(&self.conn, stack)?;
+            if let Some(first) = stack.members.first()
+                && stack.members.len() >= 2
                 && let Some(here) = self.stack_of(first)?
-                && same_state(&here, &candidate)
-                && !out.iter().any(|c| same_state(c, &candidate))
+                && same_state(&restricted(&here, known), &stack)
             {
-                out.push(candidate);
+                keep(here);
+            }
+        }
+        for old in before {
+            if let Some(first) = old.members.first()
+                && let Some(here) = self.stack_of(first)?
+                && same_state(&here, old)
+            {
+                keep(here);
             }
         }
         Ok(out)

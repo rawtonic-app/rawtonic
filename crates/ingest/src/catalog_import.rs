@@ -238,11 +238,11 @@ pub fn import(
         .iter()
         .filter(|p| p.status == Status::Changed && is_stack_only(p))
         .collect();
-    let stack_replaced: HashSet<&str> = stack_only
+    let (replaced, kept): (Vec<&Incoming>, Vec<&Incoming>) = stack_only
         .iter()
-        .filter(|p| choice_of(p) == Choice::Replace)
-        .map(|p| p.id.as_str())
-        .collect();
+        .partition(|p| choice_of(p) == Choice::Replace);
+    let stack_replaced: HashSet<&str> = replaced.iter().map(|p| p.id.as_str()).collect();
+    let stack_left: HashSet<&str> = kept.iter().map(|p| p.id.as_str()).collect();
     let changed: Vec<Changed> = photos
         .iter()
         .filter(|p| p.status == Status::Changed && !is_stack_only(p))
@@ -284,7 +284,7 @@ pub fn import(
     // members named as here (read before the snapshot keeps only what
     // comes in). Photographs kept as they are here (unchanged, Keep
     // current) are members too; one imported as a virtual copy is not.
-    let (stacks, theirs_as_here) = {
+    let (stacks, theirs_as_here, known_here) = {
         let here: HashMap<&str, &str> = photos
             .iter()
             .filter_map(|p| match (p.status, &p.target) {
@@ -302,20 +302,25 @@ pub fn import(
         let used: HashSet<&str> = used.iter().map(String::as_str).collect();
         let all = Library::stacks_as_here(&source.snapshot, &here)?;
         let named = source.snapshot.stacks()?;
-        // The ones to bring: those with an imported photograph, or a
-        // photograph whose stack the photographer takes over.
+        // The ones to bring: those with an imported photograph, or with a
+        // photograph whose stack the photographer takes over and none
+        // whose stack is left as it is (one choice for the whole stack).
         let chosen: Vec<Stack> = named
             .iter()
             .zip(&all)
             .filter(|(theirs, _)| {
-                theirs.members.iter().any(|m| {
-                    used.contains(m.asset_id.as_str())
-                        || stack_replaced.contains(m.asset_id.as_str())
-                })
+                let any = |set: &HashSet<&str>| {
+                    theirs
+                        .members
+                        .iter()
+                        .any(|m| set.contains(m.asset_id.as_str()))
+                };
+                any(&used) || (any(&stack_replaced) && !any(&stack_left))
             })
             .map(|(_, here)| here.clone())
             .collect();
-        (chosen, all)
+        let known: HashSet<String> = here.values().map(|id| id.to_string()).collect();
+        (chosen, all, known)
     };
     // Only what comes in: no other photograph's resources are copied (a
     // stack changed alone brings no photograph).
@@ -346,6 +351,7 @@ pub fn import(
         before: options.before_snapshot.clone(),
         stacks,
         common_stacks: common_stacks.clone(),
+        known_here: known_here.clone(),
     };
     // A new photograph inside the other library's folder (its own copies)
     // belongs to it: referring to it would edit it in that library's name.
@@ -409,7 +415,11 @@ pub fn import(
             }
             // What both catalogs hold of stacks now.
             let common = target
-                .stack_import_common(&theirs_as_here, &common_stacks.unwrap_or_default())
+                .stack_import_common(
+                    &theirs_as_here,
+                    &common_stacks.unwrap_or_default(),
+                    &known_here,
+                )
                 .and_then(|common| target.record_stacks(&source.snapshot, common));
             if let Err(error) = common {
                 log::warn!("Import from Catalog: common stacks not recorded: {error:#}");

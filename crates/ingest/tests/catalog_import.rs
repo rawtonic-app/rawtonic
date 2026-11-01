@@ -60,6 +60,12 @@ struct World {
 }
 
 fn world() -> (tempfile::TempDir, World) {
+    world_with(|_, _| {})
+}
+
+/// `world`, with `before_export` run on the main catalog (and its photo ids)
+/// just before the export.
+fn world_with(before_export: impl FnOnce(&Library, &[String])) -> (tempfile::TempDir, World) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().canonicalize().unwrap();
     let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
@@ -77,6 +83,7 @@ fn world() -> (tempfile::TempDir, World) {
     }
     let album = main.create_collection("Wedding", None).unwrap();
     main.add_to_collection(&album.id, &ids).unwrap();
+    before_export(&main, &ids);
     export_catalog(
         &main.directory,
         &ids[..2],
@@ -371,6 +378,18 @@ fn a_stack_changed_alone_there_comes_back_and_one_changed_here_stays() {
     assert_eq!(here.members, [b.clone(), a.clone()]);
     assert_eq!(w.main.stacks().unwrap(), w.laptop.stacks().unwrap());
 
+    // One choice for a whole stack: Keep current for one photograph leaves
+    // it as it is, however the other is set.
+    w.laptop.move_to_stack_top(&a).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [b.clone(), a.clone()]
+    );
+    w.laptop.move_to_stack_top(&b).unwrap();
+
     // Keep current leaves a change there alone.
     w.laptop.move_to_stack_top(&a).unwrap();
     let mut keep = options(NewPhotos::Reference);
@@ -402,6 +421,52 @@ fn a_stack_changed_alone_there_comes_back_and_one_changed_here_stays() {
         (here.collapsed, here.members),
         (false, vec![b.clone(), a.clone()])
     );
+}
+
+#[test]
+fn stacks_of_the_export_and_a_first_keep_are_remembered() {
+    use rawtonic_catalog::stacks::Member;
+    // Stacked before the export: a change of its top there comes back.
+    let (_tmp, w) = world_with(|main, ids| {
+        main.group_stack(&[Member::photo(ids[0].clone()), Member::photo(ids[1].clone())])
+            .unwrap();
+    });
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    assert_eq!(
+        w.laptop.stacks().unwrap().len(),
+        1,
+        "the export holds the stack"
+    );
+    assert!(stack_only(&w).is_empty());
+    w.laptop.move_to_stack_top(&b).unwrap();
+    assert_eq!(stack_only(&w).len(), 2);
+    // Keep current for both: nothing changes, and the offer stays.
+    let mut keep = options(NewPhotos::Reference);
+    keep.changed = Some(Choice::Keep);
+    let receipt = import(&w.main, &w.laptop.directory, &keep, &go(), |_| {}).unwrap();
+    assert_eq!((receipt.report.stacks, receipt.report.kept), (0, 2));
+    assert_eq!(stack_only(&w).len(), 2);
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [b.clone(), a.clone()]
+    );
+
+    // Unstacked here since: a change there does not stack them again.
+    w.main.unstack(std::slice::from_ref(&a)).unwrap();
+    w.laptop.move_to_stack_top(&a).unwrap();
+    assert!(stack_only(&w).is_empty());
+    assert!(w.main.stack_of(&a).unwrap().is_none());
 }
 
 #[test]
