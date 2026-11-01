@@ -1,8 +1,8 @@
 import { runExportJobs, submittedFrom } from "../../utils/runExportJobs";
 import { validNamingTemplate, validSequenceStart, type NamingPreview } from "../../utils/namingTemplates";
-import { readJobName, writeJobName } from "../../utils/exportJob";
+import { readFormDraft, readJobName, writeFormDraft, writeJobName } from "../../utils/exportJob";
 import NamingEditor from "../ui/NamingEditor";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -109,10 +109,14 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const paths = selected.length ? selected : image ? [image.path] : [];
   const session = useLibraryStore((s) => s.sessionDirectory);
   // Capture One sessions export into their Output folder by default.
-  const [draft, setDraft] = useState<RecipeDraft>(() => ({
-    ...DEFAULT_RECIPE_DRAFT,
-    where: session ? "output" : "choose",
-  }));
+  // The last settings of this library come back when the dialog reopens.
+  const startDraft = (library: string | null): RecipeDraft =>
+    readFormDraft(library) ?? {
+      ...DEFAULT_RECIPE_DRAFT,
+      where: library ? "output" : "choose",
+    };
+  const [draft, setDraft] = useState<RecipeDraft>(() => startDraft(session));
+  const draftLibrary = useRef(session);
   const set = (patch: Partial<RecipeDraft>) =>
     setDraft((current) => ({ ...current, ...patch }));
   const [choosing, setChoosing] = useState(false);
@@ -262,6 +266,57 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   }, [namingRequest, namingValid]);
   const namePreview = named?.request === namingRequest ? named.preview : null;
 
+  // The footer's destinations: each planned export's subfolder rendered for
+  // the first photo by the export's own renderer (`export_naming_preview`).
+  const planFoldersRequest = JSON.stringify(
+    planned.map((job) => ({
+      path: paths[0] ?? null,
+      exportSettings: {
+        ...job.settings,
+        jobName,
+        recipeName: job.recipe?.name ?? "",
+      },
+      outputFormat: job.outputFormat,
+      total: paths.length,
+      library: submittedFrom(session),
+      subfolder: subfolderName(job.draft.subfolder),
+      valid:
+        !subfolderProblem(job.draft.subfolder) &&
+        validNamingTemplate(job.draft.subfolder, "export", "folder") &&
+        validNamingTemplate(job.draft.template, "export"),
+    })),
+  );
+  const [planFolders, setPlanFolders] = useState<{ request: string; folders: (string | undefined)[] } | null>(null);
+  useEffect(() => {
+    const jobs = JSON.parse(planFoldersRequest) as {
+      path: string | null;
+      subfolder: string;
+      valid: boolean;
+    }[];
+    if (!jobs.some((job) => job.path && job.subfolder && job.valid)) return;
+    let stale = false;
+    const timer = setTimeout(async () => {
+      try {
+        const folders = await Promise.all(
+          jobs.map(async ({ subfolder, valid, ...request }) => {
+            if (!request.path || !subfolder || !valid) return undefined;
+            const preview = await invoke<NamingPreview>(Invokes.ExportNamingPreview, request);
+            return preview?.folder;
+          }),
+        );
+        if (!stale) setPlanFolders({ request: planFoldersRequest, folders });
+      } catch {
+        // The template as typed stays.
+      }
+    }, 250);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [planFoldersRequest]);
+  const planFolderOf = (index: number) =>
+    planFolders?.request === planFoldersRequest ? planFolders.folders[index] : undefined;
+
   /** Changes the saved recipes as they are now in the settings, so several
    * changes in a row (a folder remembered per recipe while exporting) all stay. */
   const changeRecipes = (change: (current: ExportPreset[]) => ExportPreset[]) => {
@@ -286,6 +341,18 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     setDraft(draftFromPreset(preset));
     setEditing(preset.id);
   };
+  // Remember the unsaved settings (not a recipe's, which the recipe keeps).
+  useEffect(() => {
+    if (draftLibrary.current !== session) {
+      draftLibrary.current = session;
+      setDraft(startDraft(session));
+      setUnsaved(null);
+      setEditing(null);
+      return;
+    }
+    writeFormDraft(session, editing ? (unsaved ?? draft) : draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, unsaved, editing, session]);
   const editUnsaved = () => {
     if (!editing) return;
     if (unsaved) setDraft(unsaved);
@@ -366,10 +433,10 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const currentFormat = FORMATS.find((f) => f.extension === draft.format);
   const formatName = currentFormat ? formatLabel(currentFormat) : draft.format;
   /** One planned export in a line: format, quality, size, destination. */
-  const describeJob = (job: RecipeDraft) => {
+  const describeJob = (job: RecipeDraft, renderedFolder?: string) => {
     const format = FORMATS.find((f) => f.extension === job.format);
     const unit = RESIZE_UNITS[job.resizeMode];
-    const subfolder = subfolderName(job.subfolder);
+    const subfolder = renderedFolder ?? subfolderName(job.subfolder);
     const size =
       job.resizeMode === "dimensions"
         ? `${job.resizeValue}×${job.resizeValue2} ${unit}`
@@ -1251,12 +1318,12 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         >
           <h4>{t("studio.export.plan.legend")}</h4>
           <ul>
-            {planned.map((job) => (
+            {planned.map((job, index) => (
               <li key={job.recipe?.id ?? "current"}>
                 <strong>
                   {job.recipe?.name ?? t("studio.export.recipes.current")}
                 </strong>
-                <span>{describeJob(job.draft)}</span>
+                <span>{describeJob(job.draft, planFolderOf(index))}</span>
               </li>
             ))}
           </ul>
