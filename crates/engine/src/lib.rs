@@ -4,6 +4,7 @@
 //! Derived from RapidRAW (commit a82251f, AGPL-3.0); no Tauri dependencies.
 
 pub mod adjustment_utils;
+pub mod ai_selections;
 pub mod applied_style;
 pub mod auto_adjust;
 pub mod auto_straighten;

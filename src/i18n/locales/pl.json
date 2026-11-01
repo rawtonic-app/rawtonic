@@ -2074,10 +2074,10 @@
       "flagsSavedRefreshFailed": "Flagi zapisane; nie udało się odświeżyć podsumowania projektu: {{error}}",
       "hotFolderFailed": "Folder obserwowany: {{file}}: {{error}}",
       "hotFolderResumeFailed": "Nie udało się wznowić obserwowania folderu: {{error}}",
-      "importAiMasksOnOpen_one": "Maski AI {{count}} zdjęcia są obliczane po otwarciu go w module Wywoływanie",
-      "importAiMasksOnOpen_few": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie",
-      "importAiMasksOnOpen_many": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie",
-      "importAiMasksOnOpen_other": "Maski AI {{count}} zdjęcia są obliczane po otwarciu każdego w module Wywoływanie",
+      "importAiMasksOnOpen_one": "Maski AI {{count}} zdjęcia są obliczane po otwarciu go w module Wywoływanie lub przy eksporcie",
+      "importAiMasksOnOpen_few": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie lub przy eksporcie",
+      "importAiMasksOnOpen_many": "Maski AI {{count}} zdjęć są obliczane po otwarciu każdego w module Wywoływanie lub przy eksporcie",
+      "importAiMasksOnOpen_other": "Maski AI {{count}} zdjęcia są obliczane po otwarciu każdego w module Wywoływanie lub przy eksporcie",
       "importCopies_one": "{{count}} kopia wirtualna zaimportowana",
       "importCopies_few": "{{count}} kopie wirtualne zaimportowane",
       "importCopies_many": "{{count}} kopii wirtualnych zaimportowanych",
@@ -3558,6 +3558,7 @@
           "loading": "Odczyt zdjęcia…",
           "masks": "Zapis masek…",
           "rendering": "Renderowanie i zapis…",
+          "selecting": "Obliczanie zaznaczeń AI…",
           "waiting": "Oczekuje"
         },
         "photos_one": "{{count}} zdjęcie",
@@ -5239,6 +5240,7 @@
         "close": "Zamknij narzędzia",
         "progress": "Eksport {{current}} / {{total}}",
         "progressDenoising": "Eksport {{current}} / {{total}} · odszumianie AI…",
+        "progressSelecting": "Eksport {{current}} / {{total}} · zaznaczenia AI…",
         "title": "Eksportuj zdjęcia"
       },
       "flags": {

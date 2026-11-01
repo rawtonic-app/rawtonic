@@ -89,6 +89,20 @@ a minute and 6.4 GB of disk for at most 1-2 s per photo. Lightroom's speed
 needs a real Core ML conversion of the whole model (as for AI Denoise), not
 the provider.
 
+### Sky and Subject at export (2026-11-01)
+
+A photo exported without ever being opened (a Lightroom or Capture One
+import, settings pasted or synced onto it) may hold Sky or Subject
+selections without their bitmap. The export computes them as the editor does
+when the photo opens — on the same warped photo, with the same network and
+backend, the same parameters stored — so the photo exports the same pixels
+opened first or not, and keeps the result in its recipe. It uses an
+installed model only (an export downloads nothing): a model that is not
+installed fails that photo's export with the layer named. The export queue
+shows the step ("Computing AI selections…"). The CLI computes them with the
+models of `--models` (`rawtonic_segment::Models`). Measurements: notes
+`benchmark-results/am-ai-masks-export-2026-11-01/REPORT.md`.
+
 ### Subject masks: Core ML and computing ahead (2026-10-10)
 
 Two changes, on top of the ONNX model that stays the path on every

@@ -1811,7 +1811,7 @@
       "flagsSavedRefreshFailed": "플래그를 저장했지만 프로젝트 요약을 새로 고칠 수 없습니다: {{error}}",
       "hotFolderFailed": "감시 폴더: {{file}}: {{error}}",
       "hotFolderResumeFailed": "감시 폴더를 다시 시작할 수 없습니다: {{error}}",
-      "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열 때 계산됩니다",
+      "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열거나 내보낼 때 계산됩니다",
       "importCopies_other": "가상 복사본 {{count}}개를 가져옴",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
@@ -3182,6 +3182,7 @@
           "loading": "사진 읽는 중…",
           "masks": "마스크 쓰는 중…",
           "rendering": "렌더링 및 쓰는 중…",
+          "selecting": "AI 선택 영역 계산 중…",
           "waiting": "대기 중"
         },
         "photos_other": "사진 {{count}}장",
@@ -4735,6 +4736,7 @@
         "close": "도구 닫기",
         "progress": "내보내는 중 {{current}} / {{total}}",
         "progressDenoising": "내보내는 중 {{current}} / {{total}} · AI 노이즈 제거…",
+        "progressSelecting": "내보내는 중 {{current}} / {{total}} · AI 선택 영역…",
         "title": "사진 내보내기"
       },
       "flags": {

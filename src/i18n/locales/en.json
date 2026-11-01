@@ -1872,8 +1872,8 @@
       "flagsSavedRefreshFailed": "Flags saved; project summary could not refresh: {{error}}",
       "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
       "hotFolderResumeFailed": "The hot folder could not resume: {{error}}",
-      "importAiMasksOnOpen_one": "AI masks of {{count}} photo are computed when it is opened in Develop",
-      "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop",
+      "importAiMasksOnOpen_one": "AI masks of {{count}} photo are computed when it is opened in Develop or exported",
+      "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop or exported",
       "importCopies_one": "{{count}} virtual copy imported",
       "importCopies_other": "{{count}} virtual copies imported",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
@@ -3270,6 +3270,7 @@
           "loading": "Reading the photo…",
           "masks": "Writing masks…",
           "rendering": "Rendering and writing…",
+          "selecting": "Computing AI selections…",
           "waiting": "Waiting"
         },
         "photos_one": "{{count}} photo",
@@ -4863,6 +4864,7 @@
         "close": "Close tools",
         "progress": "Exporting {{current}} / {{total}}",
         "progressDenoising": "Exporting {{current}} / {{total}} · AI Denoise…",
+        "progressSelecting": "Exporting {{current}} / {{total}} · AI selections…",
         "title": "Export photos"
       },
       "flags": {

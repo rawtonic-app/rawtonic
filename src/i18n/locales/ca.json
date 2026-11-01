@@ -1973,9 +1973,9 @@
       "flagsSavedRefreshFailed": "Marques desades; no s’ha pogut actualitzar el resum del projecte: {{error}}",
       "hotFolderFailed": "Carpeta vigilada: {{file}}: {{error}}",
       "hotFolderResumeFailed": "No s’ha pogut reprendre la carpeta vigilada: {{error}}",
-      "importAiMasksOnOpen_one": "Les màscares d'IA de {{count}} foto es calculen quan s'obre a Revelatge",
-      "importAiMasksOnOpen_many": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge",
-      "importAiMasksOnOpen_other": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge",
+      "importAiMasksOnOpen_one": "Les màscares d'IA de {{count}} foto es calculen quan s'obre a Revelatge o s'exporta",
+      "importAiMasksOnOpen_many": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge o s'exporten",
+      "importAiMasksOnOpen_other": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge o s'exporten",
       "importCopies_one": "{{count}} còpia virtual importada",
       "importCopies_many": "{{count}} còpies virtuals importades",
       "importCopies_other": "{{count}} còpies virtuals importades",
@@ -3414,6 +3414,7 @@
           "loading": "S'està llegint la foto…",
           "masks": "S'estan escrivint les màscares…",
           "rendering": "S'està renderitzant i escrivint…",
+          "selecting": "Calculant les seleccions amb IA…",
           "waiting": "En espera"
         },
         "photos_one": "{{count}} foto",
@@ -5051,6 +5052,7 @@
         "close": "Tanca les eines",
         "progress": "Exportant {{current}} / {{total}}",
         "progressDenoising": "Exportant {{current}} / {{total}} · reducció de soroll amb IA…",
+        "progressSelecting": "Exportant {{current}} / {{total}} · seleccions amb IA…",
         "title": "Exporta les fotos"
       },
       "flags": {

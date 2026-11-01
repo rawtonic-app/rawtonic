@@ -418,7 +418,8 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
 }
 
 /// Whether the translated edit holds AI masks whose data a model computes
-/// when the photo is opened (`ai-foreground`, `ai-sky` without data).
+/// when the photo is opened or exported (`ai-foreground`, `ai-sky` without
+/// data; `ai_selections::detect_missing`).
 fn has_ai_masks_on_open(adjustments: &Value) -> bool {
     adjustments["masks"]
         .as_array()

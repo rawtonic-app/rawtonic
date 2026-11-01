@@ -43,7 +43,7 @@ export interface ExportItem {
 }
 
 /** What a photo in progress is doing (`export_queue::Stage`). */
-export type ExportStage = 'loading' | 'denoising' | 'rendering' | 'masks';
+export type ExportStage = 'loading' | 'denoising' | 'selecting' | 'rendering' | 'masks';
 
 /** A photo as the queue panel shows it, with its live stage. */
 export interface ExportItemLive extends ExportItem {
@@ -182,6 +182,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
             ...prev.exportState,
             status: Status.Idle,
             denoising: [],
+            selecting: [],
             errorMessage: '',
             progress: { current: 0, total: 0 },
           },

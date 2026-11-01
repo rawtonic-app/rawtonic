@@ -1291,6 +1291,30 @@ fn plan_output_path(
     Ok(output_path)
 }
 
+/// Keeps the selections an export computed in the photo's stored recipe,
+/// as opening it in Develop would (`ai_selections::keep_detected`), so the
+/// next export or the editor uses the same mask. Only components still as
+/// the export found them take it; a failure is logged, the export stands.
+/// The photo open in Develop is left to the editor, which computes and
+/// saves its own.
+fn keep_detected_selections(path: &str, detected: &[rawtonic_engine::ai_selections::Detected]) {
+    let (source_path, sidecar_path) = parse_virtual_path(path);
+    let _turn = crate::file_management::sidecar_field_edit();
+    let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    if !rawtonic_engine::ai_selections::keep_detected(&mut metadata.adjustments, detected) {
+        return;
+    }
+    let written = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| e.to_string())
+        .and_then(|json| {
+            crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
+                .map_err(|e| e.to_string())
+        });
+    if let Err(e) = written {
+        log::warn!("Export: keeping the AI selections of {path} failed: {e}");
+    }
+}
+
 /// What the naming tokens read about `original` for its export and rename
 /// names: its header's facts and its XMP sidecar's (`source_facts`, as an
 /// import reads them), with the rating, label, title, creator and copyright
@@ -1504,11 +1528,38 @@ fn export_photo(
         };
         #[cfg(feature = "performance-profiling")]
         drop(source_stage);
+        Ok((pristine_source, measures))
+    })();
+    // Sky and Subject selections the photo holds without their bitmap (it
+    // was never opened: an import, pasted settings) are computed as the
+    // editor computes them when it opens, and kept in its recipe.
+    let source = source.and_then(|(pristine_source, measures)| {
+        let detected = rawtonic_engine::ai_selections::detect_missing(
+            &mut js_adjustments,
+            &pristine_source,
+            is_raw,
+            Some(&crate::ai_commands::ExportSelections { app_handle }),
+            &mut || {
+                for tracking in &trackings {
+                    tracking.stage(
+                        item.global_index,
+                        crate::export_queue::Stage::Selecting,
+                        None,
+                    );
+                }
+                let _ = app_handle.emit("export-selecting", image_path_str);
+            },
+        )
+        .map_err(|e| format!("{source_path_str}: not exported, {e}"))?;
+        ensure_export_not_cancelled(cancellation_token)?;
+        if !detected.is_empty() && !is_current_edit {
+            keep_detected_selections(image_path_str, &detected);
+        }
         let source =
             prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?;
         ensure_export_not_cancelled(cancellation_token)?;
         Ok(source)
-    })();
+    });
     let source = match source {
         Ok(source) => source,
         Err(e) => {

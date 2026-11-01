@@ -1811,7 +1811,7 @@
       "flagsSavedRefreshFailed": "フラグを保存しましたが、プロジェクトの概要を更新できませんでした: {{error}}",
       "hotFolderFailed": "監視フォルダ: {{file}}: {{error}}",
       "hotFolderResumeFailed": "監視フォルダを再開できませんでした: {{error}}",
-      "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたときに計算されます",
+      "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたとき、または書き出すときに計算されます",
       "importCopies_other": "仮想コピー {{count}} 件を読み込みました",
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
@@ -3182,6 +3182,7 @@
           "loading": "写真を読み込み中…",
           "masks": "マスクを書き込み中…",
           "rendering": "レンダリングと書き込み中…",
+          "selecting": "AI 選択範囲を計算中…",
           "waiting": "待機中"
         },
         "photos_other": "{{count}} 枚の写真",
@@ -4735,6 +4736,7 @@
         "close": "ツールを閉じる",
         "progress": "書き出し中 {{current}} / {{total}}",
         "progressDenoising": "書き出し中 {{current}} / {{total}} · AI ノイズ除去…",
+        "progressSelecting": "書き出し中 {{current}} / {{total}} · AI 選択範囲…",
         "title": "写真を書き出し"
       },
       "flags": {

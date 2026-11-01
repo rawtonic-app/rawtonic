@@ -152,7 +152,9 @@ it("shows the export turning and naming AI Denoise while a photo waits for it", 
   );
   const button = screen.getByRole("button", { name: "Exporting 0 / 1 · AI Denoise…" });
   expect(button.querySelector(".animate-spin")).not.toBeNull();
-  act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, denoising: [], progress: { current: 1, total: 1 } } })));
+  act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, denoising: [], selecting: ["/qa/import.orf"] } })));
+  expect(screen.getByRole("button", { name: "Exporting 0 / 1 · AI selections…" })).toBe(button);
+  act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, selecting: [], progress: { current: 1, total: 1 } } })));
   expect(screen.getByRole("button", { name: "Exporting 1 / 1" })).toBe(button);
   act(() => useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } }));
 });
