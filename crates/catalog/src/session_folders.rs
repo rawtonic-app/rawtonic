@@ -294,7 +294,10 @@ impl Library {
         // A folder outside left behind keeps its photographs the session's
         // (and an Undo of "Move contents" can put them back there).
         manifest.former_folders.retain(|f| *f != stored);
-        if is_absolute_setting(&previous)
+        // Only Capture and Selects hold photographs: a former Output folder
+        // holds exports, which no scan may take for photographs.
+        if role != FolderRole::Output
+            && is_absolute_setting(&previous)
             && previous != stored
             && !manifest.former_folders.contains(&previous)
         {

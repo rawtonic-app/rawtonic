@@ -809,7 +809,9 @@ export function useFileOperations(
               ),
             'move', undefined, undefined, [from, to],
           );
-          if (!summary || !summary.items) break;
+          // Only an empty folder ends it: a part may move files that are no
+          // photos (a .DS_Store) before the folders with the photos.
+          if (!summary) break;
           moved.items += summary.items;
           moved.operations++;
           warnAboutNote(summary);

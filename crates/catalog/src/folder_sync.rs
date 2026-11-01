@@ -433,6 +433,11 @@ impl Library {
                 "{} is not a folder of this session",
                 folder.display()
             );
+            ensure!(
+                !self.in_output_folder(&folder),
+                "{} is the session's Output folder: it holds exports, not photographs",
+                folder.display()
+            );
             return Ok(vec![folder]);
         }
         let mut folders = vec![self.directory.clone()];
@@ -445,12 +450,8 @@ impl Library {
             .query_map([], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         folders.extend(roots.into_iter().map(PathBuf::from));
-        folders.extend(
-            self.manifest
-                .outside_folders()
-                .into_iter()
-                .filter(|folder| !self.in_output_folder(folder)),
-        );
+        folders.extend(self.manifest.outside_folders());
+        folders.retain(|folder| !self.in_output_folder(folder));
         folders.sort();
         let mut topmost: Vec<PathBuf> = Vec::new();
         for folder in folders {

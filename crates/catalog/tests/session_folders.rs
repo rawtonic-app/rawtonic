@@ -340,3 +340,38 @@ fn synchronize_folder_covers_folders_outside_and_leaves_the_output_folder_out() 
     );
     assert!(!new.iter().any(|p| p.starts_with(&delivered)), "{new:?}");
 }
+
+#[test]
+fn an_output_folder_outside_is_never_scanned_now_or_after_it_changed() {
+    use rawtonic_catalog::folder_sync::{SyncOptions, is_photo};
+    use std::sync::atomic::AtomicBool;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let a = tmp.path().join("Share/A");
+    let b = tmp.path().join("Share/B");
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let (a, b) = (a.canonicalize().unwrap(), b.canonicalize().unwrap());
+    lib.set_session_folder(FolderRole::Output, &a).unwrap();
+    fs::write(a.join("Render.jpg"), b"render a").unwrap();
+    // Synchronizing the Output folder itself is refused.
+    assert!(lib.sync_scope(Some(&a)).is_err());
+
+    lib.set_session_folder(FolderRole::Output, &b).unwrap();
+    fs::write(b.join("Render.jpg"), b"render b").unwrap();
+    assert!(manifest(&lib).get("former_folders").is_none());
+    let options = SyncOptions {
+        accept: &is_photo,
+        cancel: &AtomicBool::new(false),
+        progress: &|_| {},
+    };
+    let plan = lib.scan_folder_sync(None, &options).unwrap();
+    assert!(
+        !plan
+            .new_files
+            .iter()
+            .any(|f| f.path.starts_with(&a) || f.path.starts_with(&b)),
+        "{:?}",
+        plan.new_files.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
+}
