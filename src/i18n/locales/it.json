@@ -298,8 +298,11 @@
       "stack_collapse_all": "Comprimi tutte le pile",
       "stack_expand_all": "Espandi tutte le pile",
       "stack_group": "Raggruppa in pila",
+      "stack_move_down": "Sposta giù nella pila",
       "stack_move_top": "Sposta in cima alla pila",
+      "stack_move_up": "Sposta su nella pila",
       "stack_remove": "Rimuovi dalla pila",
+      "stack_split": "Dividi pila",
       "stack_toggle": "Comprimi/espandi pila",
       "stack_unstack": "Separa pila",
       "sync_settings": "Sincronizza impostazioni",
@@ -438,12 +441,14 @@
   "commandPalette": {
     "close": "Chiudi la tavolozza comandi",
     "empty": "Nessun comando corrispondente. Prova un’altra ricerca.",
+    "expandStackFirst": "Prima espandi la pila per dividerla",
     "keys": "↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
     "recent": "Prima i comandi recenti · ↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
     "search": "Cerca comandi…",
     "selectAtMostPhotos": "Seleziona al massimo {{max}} fotografie",
     "selectFourPhotos": "Seleziona almeno quattro fotografie",
     "selectPhotos": "Seleziona una o più foto",
+    "selectStackMember": "Seleziona una foto di una pila",
     "selectTwoPhotos": "Seleziona almeno due fotografie"
   },
   "contextMenus": {

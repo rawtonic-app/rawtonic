@@ -396,6 +396,27 @@
             },
             {
               "kind": "item",
+              "id": "cmd:stack_split",
+              "label": "Split Stack",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_move_up",
+              "label": "Move Up in Stack",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:stack_move_down",
+              "label": "Move Down in Stack",
+              "enabled": false
+            },
+            {
+              "kind": "separator"
+            },
+            {
+              "kind": "item",
               "id": "cmd:stack_toggle",
               "label": "Collapse/Expand Stack",
               "enabled": false

@@ -453,6 +453,151 @@ fn auto_stack_on_ten_thousand_rows() {
 }
 
 #[test]
+fn split_stack_divides_at_the_photo_and_undo_restores_the_whole_stack() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "D.ARW", "E.ARW"]);
+    use rawtonic_catalog::stacks::Stack;
+
+    // In the middle: A B | C D, as one step.
+    lib.group_stack(&photos(&ids, &[0, 1, 2, 3])).unwrap();
+    lib.set_stacks_collapsed(&photos(&ids, &[0]), Some(false))
+        .unwrap();
+    let grouped = lib
+        .stack_of(&Member::photo(ids[0].clone()))
+        .unwrap()
+        .unwrap();
+    assert!(lib.can_split_stack(&Member::photo(ids[2].clone())).unwrap());
+    let (split, done) = lib.split_stack(&Member::photo(ids[2].clone())).unwrap();
+    assert!(done);
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1], false)));
+    assert_eq!(stack(&lib, &ids, 2), Some((vec![2, 3], false)));
+    // The new stack's id differs from the old one's.
+    let made = lib
+        .stack_of(&Member::photo(ids[2].clone()))
+        .unwrap()
+        .unwrap();
+    assert_ne!(made.id, grouped.id);
+    assert_eq!(split.before, std::slice::from_ref(&grouped));
+    assert_eq!(split.after.len(), 2);
+    // One undo step puts the stack back exactly: members, order, expanded.
+    lib.restore_stacks(&split, true).unwrap();
+    assert_eq!(
+        lib.stack_of(&Member::photo(ids[0].clone())).unwrap(),
+        Some(Stack {
+            id: grouped.id.clone(),
+            collapsed: false,
+            members: photos(&ids, &[0, 1, 2, 3]),
+        })
+    );
+    assert_eq!(lib.listed_stacks().unwrap().len(), 1);
+    lib.restore_stacks(&split, false).unwrap();
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1], false)));
+    assert_eq!(stack(&lib, &ids, 3), Some((vec![2, 3], false)));
+
+    // At the second member: the first one is no stack; one undo restores it.
+    let (second, done) = lib.split_stack(&Member::photo(ids[1].clone())).unwrap();
+    assert!(done);
+    assert_eq!(stack(&lib, &ids, 0), None);
+    assert_eq!(lib.listed_stacks().unwrap().len(), 1);
+    lib.restore_stacks(&second, true).unwrap();
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1], false)));
+
+    // At the last member: the part before stays a stack.
+    lib.set_stacks_collapsed(&photos(&ids, &[0]), Some(true))
+        .unwrap();
+    let (last, done) = lib.split_stack(&Member::photo(ids[1].clone())).unwrap();
+    assert!(done);
+    assert_eq!(stack(&lib, &ids, 0), None);
+    assert_eq!(stack(&lib, &ids, 1), None);
+    assert_eq!(lib.listed_stacks().unwrap().len(), 1);
+    lib.restore_stacks(&last, true).unwrap();
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1], true)));
+
+    // The top is no split, nor is a photo outside a stack.
+    assert!(!lib.can_split_stack(&Member::photo(ids[0].clone())).unwrap());
+    let (top, done) = lib.split_stack(&Member::photo(ids[0].clone())).unwrap();
+    assert!(!done);
+    assert!(top.is_empty());
+    assert!(!lib.can_split_stack(&Member::photo(ids[4].clone())).unwrap());
+    assert!(!lib.split_stack(&Member::photo(ids[4].clone())).unwrap().1);
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1], true)));
+}
+
+#[test]
+fn a_virtual_copy_splits_the_stack_it_is_in() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.ARW"]);
+    lib.save_copy_state(&ids[0], "a1b2c3", &json!({"exposure": 1.0}))
+        .unwrap();
+    let copy = Member {
+        asset_id: ids[0].clone(),
+        copy: "a1b2c3".into(),
+    };
+    lib.group_stack(&[
+        Member::photo(ids[0].clone()),
+        copy.clone(),
+        Member::photo(ids[1].clone()),
+    ])
+    .unwrap();
+    // Expanded, the copy is a member below the top.
+    lib.set_stacks_collapsed(std::slice::from_ref(&copy), Some(false))
+        .unwrap();
+    let (change, done) = lib.split_stack(&copy).unwrap();
+    assert!(done);
+    let copy_stack = lib.stack_of(&copy).unwrap().unwrap();
+    assert_eq!(
+        copy_stack.members,
+        [copy.clone(), Member::photo(ids[1].clone())]
+    );
+    lib.restore_stacks(&change, true).unwrap();
+    assert_eq!(lib.stack_of(&copy).unwrap().unwrap().members.len(), 3);
+}
+
+#[test]
+fn moving_in_a_stack_swaps_with_the_neighbour_and_undo_restores_the_order() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "D.ARW"]);
+    lib.group_stack(&photos(&ids, &[0, 1, 2, 3])).unwrap();
+    let member = |i: usize| Member::photo(ids[i].clone());
+
+    // Up and down inside the stack, one undo step each.
+    let up = lib.move_in_stack(&member(2), true).unwrap();
+    assert_eq!(stack(&lib, &ids, 0).unwrap().0, [0, 2, 1, 3]);
+    undo_redo(
+        &lib,
+        &up,
+        || assert_eq!(stack(&lib, &ids, 0).unwrap().0, [0, 1, 2, 3]),
+        || assert_eq!(stack(&lib, &ids, 0).unwrap().0, [0, 2, 1, 3]),
+    );
+    let down = lib.move_in_stack(&member(0), false).unwrap();
+    // The top moved down: the next member is the top.
+    assert_eq!(stack(&lib, &ids, 0).unwrap().0, [2, 0, 1, 3]);
+    assert_eq!(stack(&lib, &ids, 2).unwrap().0, [2, 0, 1, 3]);
+    undo_redo(
+        &lib,
+        &down,
+        || assert_eq!(stack(&lib, &ids, 0).unwrap().0, [0, 2, 1, 3]),
+        || assert_eq!(stack(&lib, &ids, 3).unwrap().0, [2, 0, 1, 3]),
+    );
+
+    // The ends are no-ops and say so: the top cannot go up, the last cannot
+    // go down, and neither move changes anything.
+    assert!(!lib.can_move_in_stack(&member(2), true).unwrap());
+    assert!(lib.can_move_in_stack(&member(2), false).unwrap());
+    assert!(lib.can_move_in_stack(&member(3), true).unwrap());
+    assert!(!lib.can_move_in_stack(&member(3), false).unwrap());
+    assert!(lib.move_in_stack(&member(2), true).unwrap().is_empty());
+    assert!(lib.move_in_stack(&member(3), false).unwrap().is_empty());
+    assert_eq!(stack(&lib, &ids, 0).unwrap().0, [2, 0, 1, 3]);
+    // A photo outside the stack has no neighbour either.
+    let path = lib.directory.join("Capture").join("E.ARW");
+    fs::write(&path, "raw E.ARW").unwrap();
+    let outside = Member::photo(lib.add_asset(&path).unwrap().id);
+    assert!(!lib.can_move_in_stack(&outside, true).unwrap());
+    assert!(!lib.can_move_in_stack(&outside, false).unwrap());
+}
+
+#[test]
 fn a_stack_offered_by_another_catalog_replaces_only_untouched_ones() {
     use rawtonic_catalog::stacks::Stack;
     let tmp = tempfile::tempdir().unwrap();

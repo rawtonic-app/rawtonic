@@ -312,8 +312,11 @@
       "stack_collapse_all": "Zwiń wszystkie stosy",
       "stack_expand_all": "Rozwiń wszystkie stosy",
       "stack_group": "Grupuj w stos",
+      "stack_move_down": "W dół w stosie",
       "stack_move_top": "Przenieś na wierzch stosu",
+      "stack_move_up": "W górę w stosie",
       "stack_remove": "Usuń ze stosu",
+      "stack_split": "Podziel stos",
       "stack_toggle": "Zwiń/rozwiń stos",
       "stack_unstack": "Rozgrupuj stos",
       "sync_settings": "Synchronizuj ustawienia",
@@ -460,12 +463,14 @@
   "commandPalette": {
     "close": "Zamknij paletę poleceń",
     "empty": "Brak pasujących poleceń. Spróbuj innego wyszukiwania.",
+    "expandStackFirst": "Najpierw rozwiń stos, aby go podzielić",
     "keys": "↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
     "recent": "Ostatnie polecenia najpierw · ↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
     "search": "Szukaj poleceń…",
     "selectAtMostPhotos": "Wybierz najwyżej {{max}} zdjęć",
     "selectFourPhotos": "Wybierz co najmniej cztery zdjęcia",
     "selectPhotos": "Zaznacz jedno lub więcej zdjęć",
+    "selectStackMember": "Wybierz zdjęcie w stosie",
     "selectTwoPhotos": "Wybierz co najmniej dwa zdjęcia"
   },
   "contextMenus": {

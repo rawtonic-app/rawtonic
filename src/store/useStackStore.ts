@@ -54,6 +54,20 @@ export const useStackStore = create<StackState>(() => ({
 /** One key for a path whichever separator a listing used. */
 export const stackKey = (path: string) => path.replaceAll('\\', '/');
 
+/** Whether `path` is a member of an expanded stack below its top: what Split
+ * Stack needs (a collapsed stack shows no member to split at). */
+export function canSplitStack(path: string | undefined): boolean {
+  const entry = path ? useStackStore.getState().byPath.get(stackKey(path)) : undefined;
+  return !!entry && !entry.stack.collapsed && entry.index > 0;
+}
+
+/** Whether `path` has a neighbour above (`up`) or below it in its stack. */
+export function canMoveInStack(path: string | undefined, up: boolean): boolean {
+  const entry = path ? useStackStore.getState().byPath.get(stackKey(path)) : undefined;
+  if (!entry) return false;
+  return up ? entry.index > 0 : entry.index + 1 < entry.stack.members.length;
+}
+
 export function indexStacks(stacks: WebStack[]): Map<string, StackEntry> {
   const byPath = new Map<string, StackEntry>();
   for (const stack of stacks)

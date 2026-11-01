@@ -97,9 +97,10 @@ import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
 import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
 import { withSourceFrameOf } from '../utils/sourceFrame';
-import { useStackStore, stackKey } from '../store/useStackStore';
+import { useStackStore, stackKey, canMoveInStack, canSplitStack } from '../store/useStackStore';
 import {
-  autoStackScope, groupIntoStack, moveToTopOfStack, removeFromStack, setAllStacks, toggleStacks, unstack, useAutoStackDialog,
+  autoStackScope, groupIntoStack, moveInStack, moveToTopOfStack, removeFromStack, setAllStacks, splitStack, toggleStacks,
+  unstack, useAutoStackDialog,
 } from '../utils/stacks';
 
 const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
@@ -525,6 +526,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
     const ordered = [path, ...paths.filter((p) => p !== path)];
     const { byPath, stacks } = useStackStore.getState();
     const stacked = ordered.some((p) => byPath.has(stackKey(p)));
+    // Split Stack, Move Up/Down act on the first selected photo that applies
+    // (the right-clicked one first): Split below its stack's top in an
+    // expanded stack, a move where it has a neighbour on that side.
+    const splittable = ordered.some(canSplitStack);
+    const movable = (up: boolean) => ordered.some((p) => canMoveInStack(p, up));
     return {
       label: t('appMenu.submenus.stacking'),
       icon: Layers,
@@ -536,6 +542,18 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           label: t('appMenu.items.stack_move_top'),
           disabled: !byPath.has(stackKey(path)),
           onClick: () => void moveToTopOfStack(path),
+        },
+        { type: OPTION_SEPARATOR },
+        { label: t('appMenu.items.stack_split'), disabled: !splittable, onClick: () => void splitStack(ordered) },
+        {
+          label: t('appMenu.items.stack_move_up'),
+          disabled: !movable(true),
+          onClick: () => void moveInStack(true, ordered),
+        },
+        {
+          label: t('appMenu.items.stack_move_down'),
+          disabled: !movable(false),
+          onClick: () => void moveInStack(false, ordered),
         },
         { type: OPTION_SEPARATOR },
         { label: t('appMenu.items.stack_toggle'), disabled: !stacked, onClick: () => void toggleStacks(ordered) },

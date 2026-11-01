@@ -36,6 +36,9 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   { action: 'stack_toggle', description: 'appMenu.items.stack_toggle', defaultCombo: ['KeyS'], section: 'library' },
   // ⇧S: soft proofing in Develop.
   { action: 'stack_move_top', description: 'appMenu.items.stack_move_top', defaultCombo: ['shift', 'KeyS'], section: 'library' },
+  // ⇧[ and ⇧] move a member up or down in its stack; Split Stack is the menu.
+  { action: 'stack_move_up', description: 'appMenu.items.stack_move_up', defaultCombo: ['shift', 'BracketLeft'], section: 'library' },
+  { action: 'stack_move_down', description: 'appMenu.items.stack_move_down', defaultCombo: ['shift', 'BracketRight'], section: 'library' },
   { action: 'view_develop', description: 'appMenu.items.view_develop', defaultCombo: ['KeyD'], section: 'view' },
   // Lightroom's Create Virtual Copy key (hooks/useVirtualCopyCommand).
   { action: 'virtual_copy', description: 'appMenu.items.virtual_copy', defaultCombo: ['ctrl', 'Quote'], section: 'library' },

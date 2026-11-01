@@ -544,6 +544,113 @@ impl Library {
         })
     }
 
+    /// The position of `member` in its stack, 0 for the top, and how many
+    /// members the stack has.
+    fn place_in_stack(conn: &Connection, member: &Member) -> Result<Option<(usize, usize)>> {
+        let Some(id) = stack_of(conn, member)? else {
+            return Ok(None);
+        };
+        let Some(stack) = read_stack(conn, &id)? else {
+            return Ok(None);
+        };
+        Ok(stack
+            .members
+            .iter()
+            .position(|m| m == member)
+            .map(|at| (at, stack.members.len())))
+    }
+
+    /// Whether Split Stack applies to `member`: it is in an expanded stack
+    /// below its top.
+    pub fn can_split_stack(&self, member: &Member) -> Result<bool> {
+        let Some(stack) = self.stack_of(member)? else {
+            return Ok(false);
+        };
+        Ok(!stack.collapsed
+            && stack
+                .members
+                .iter()
+                .position(|m| m == member)
+                .is_some_and(|at| at > 0))
+    }
+
+    /// Whether Move Up in Stack (`up`) or Move Down in Stack applies to
+    /// `member`: it has a neighbour on that side.
+    pub fn can_move_in_stack(&self, member: &Member, up: bool) -> Result<bool> {
+        Ok(Self::place_in_stack(&self.conn, member)?
+            .is_some_and(|(at, len)| if up { at > 0 } else { at + 1 < len }))
+    }
+
+    /// Split Stack (Lightroom): the members of `member`'s stack from it to
+    /// the end become a stack of their own, `member` its top, in the same
+    /// order; the members before it stay in the old stack. A side left with
+    /// one member is no stack (a stack is dissolved then). The new stack
+    /// keeps the old stack's collapsed state (Lightroom splits a stack as it
+    /// shows it). Returns `ok(false)` and changes nothing when the photograph
+    /// is not a member or is the top: then Split Stack applies to nothing
+    /// (the active photos of a grid selection name it).
+    pub fn split_stack(&self, member: &Member) -> Result<(StackChange, bool)> {
+        let mut done = false;
+        let change = self.stack_command(std::slice::from_ref(member), |conn, touched| {
+            let Some(id) = touched.first() else {
+                return Ok(Vec::new());
+            };
+            let Some(stack) = read_stack(conn, id)? else {
+                return Ok(Vec::new());
+            };
+            let Some(at) = stack.members.iter().position(|m| m == member) else {
+                return Ok(Vec::new());
+            };
+            if at == 0 {
+                return Ok(Vec::new());
+            }
+            let rest = Stack {
+                members: stack.members[..at].to_vec(),
+                ..stack
+            };
+            let split = Stack {
+                id: Uuid::new_v4().to_string(),
+                collapsed: rest.collapsed,
+                members: stack.members[at..].to_vec(),
+            };
+            conn.execute("DELETE FROM stacks WHERE id=?", [id])?;
+            write_stack(conn, &rest)?;
+            write_stack(conn, &split)?;
+            done = true;
+            Ok(vec![split.id])
+        })?;
+        if done {
+            Ok((change, true))
+        } else {
+            Ok((StackChange::default(), false))
+        }
+    }
+
+    /// Move Up in Stack (`up`) or Move Down in Stack: `member` swaps places
+    /// with its neighbour. A top moved down gives the top to the next member
+    /// (`position` order, the top first). At either end nothing changes.
+    pub fn move_in_stack(&self, member: &Member, up: bool) -> Result<StackChange> {
+        self.stack_command(std::slice::from_ref(member), |conn, _| {
+            let Some(id) = stack_of(conn, member)? else {
+                return Ok(Vec::new());
+            };
+            let Some(stack) = read_stack(conn, &id)? else {
+                return Ok(Vec::new());
+            };
+            let Some(at) = stack.members.iter().position(|m| m == member) else {
+                return Ok(Vec::new());
+            };
+            let beside = if up { at.checked_sub(1) } else { Some(at + 1) };
+            let Some(beside) = beside.filter(|n| *n < stack.members.len()) else {
+                return Ok(Vec::new());
+            };
+            let mut members = stack.members;
+            members.swap(at, beside);
+            write_stack(conn, &Stack { members, ..stack })?;
+            Ok(Vec::new())
+        })
+    }
+
     /// Collapses (`Some(true)`), expands (`Some(false)`) or toggles
     /// (`None`, each stack on its own) the stacks `members` are in.
     pub fn set_stacks_collapsed(

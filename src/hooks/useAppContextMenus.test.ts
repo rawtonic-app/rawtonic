@@ -6,8 +6,9 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 import { ImageFile } from '../components/ui/AppProperties';
+import { setStacks, type WebStack } from '../store/useStackStore';
 
-type Option = { label?: string; submenu?: Option[]; onClick?(): void };
+type Option = { label?: string; submenu?: Option[]; disabled?: boolean; onClick?(): void };
 const showContextMenu = vi.fn<(x: number, y: number, options: Option[]) => void>();
 vi.mock('../context/ContextMenuContext', () => ({ useContextMenu: () => ({ showContextMenu }) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
@@ -215,4 +216,39 @@ it('offers Open With and Edit With in the menu bar for what the photo commands a
   expect(find(showContextMenu.mock.lastCall![2], 'Preview · contextMenus.openWith.default')).toBeTruthy();
   hook.unmount();
   expect(appCommandEnabled('open_with')).toBe(false);
+});
+
+it('offers Split Stack and the moves inside an expanded stack where they apply', async () => {
+  useLibraryStore.setState({ sessionDirectory: '/job' });
+  const stack = (members: string[], collapsed = false): WebStack => ({
+    id: 's', collapsed, members: members.map((name) => `/s/Capture/${name}.RAF`),
+  });
+  const stacking = (path: string) => {
+    const menu = find(openMenu(path), 'appMenu.submenus.stacking')!;
+    const state = (label: string) => menu.submenu!.find((option) => option.label === `appMenu.items.${label}`)!.disabled;
+    return ['stack_split', 'stack_move_up', 'stack_move_down'].map(state);
+  };
+  setStacks('/job', [stack(['a', 'b', 'c'])]);
+  // The top: no split (it is where a split would end), no move up, a move down.
+  expect(stacking('/s/Capture/a.RAF')).toEqual([true, true, false]);
+  // A middle member: all three.
+  expect(stacking('/s/Capture/b.RAF')).toEqual([false, false, false]);
+  // The last member: a split, no move down.
+  expect(stacking('/s/Capture/c.RAF')).toEqual([false, false, true]);
+  // A collapsed stack shows no member below its top to split at; b moves up.
+  setStacks('/job', [stack(['a', 'b'], true)]);
+  expect(stacking('/s/Capture/b.RAF')).toEqual([true, false, true]);
+  // Outside a stack: nothing.
+  setStacks('/job', []);
+  expect(stacking('/s/Capture/a.RAF')).toEqual([true, true, true]);
+
+  // The menu runs the command on the right-clicked photo first.
+  const { invoke } = await import('@tauri-apps/api/core');
+  vi.mocked(invoke).mockClear();
+  vi.mocked(invoke).mockResolvedValue({ library: '/job', change: {} });
+  setStacks('/job', [stack(['a', 'b', 'c'])]);
+  find(openMenu('/s/Capture/b.RAF'), 'appMenu.items.stack_split')!.onClick!();
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('stacks_split', { paths: ['/s/Capture/b.RAF'] }));
+  find(openMenu('/s/Capture/b.RAF'), 'appMenu.items.stack_move_down')!.onClick!();
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('stacks_move', { paths: ['/s/Capture/b.RAF'], up: false }));
 });

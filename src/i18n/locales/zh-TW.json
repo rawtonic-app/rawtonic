@@ -273,8 +273,11 @@
       "stack_collapse_all": "收合所有堆疊",
       "stack_expand_all": "展開所有堆疊",
       "stack_group": "群組為堆疊",
+      "stack_move_down": "在堆疊中下移",
       "stack_move_top": "移到堆疊頂端",
+      "stack_move_up": "在堆疊中上移",
       "stack_remove": "從堆疊移除",
+      "stack_split": "分割堆疊",
       "stack_toggle": "收合/展開堆疊",
       "stack_unstack": "取消堆疊",
       "sync_settings": "同步設定",
@@ -405,12 +408,14 @@
   "commandPalette": {
     "close": "關閉命令面板",
     "empty": "沒有符合的命令。請嘗試其他搜尋詞。",
+    "expandStackFirst": "請先展開堆疊再分割",
     "keys": "↑ ↓ 選取 · Enter 執行 · Esc 關閉",
     "recent": "最近使用的命令優先 · ↑ ↓ 選取 · Enter 執行 · Esc 關閉",
     "search": "搜尋命令…",
     "selectAtMostPhotos": "最多選取 {{max}} 張相片",
     "selectFourPhotos": "請至少選取四張照片",
     "selectPhotos": "請選擇一張或多張照片",
+    "selectStackMember": "請選擇堆疊中的一張相片",
     "selectTwoPhotos": "請至少選取兩張照片"
   },
   "contextMenus": {
