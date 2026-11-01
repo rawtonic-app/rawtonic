@@ -184,7 +184,7 @@ function FolderRow({
             label: t(`studio.library.folders.setRole.${role}` as const),
             icon: isRole ? Check : undefined,
             disabled: isRole,
-            onClick: () => actions.setRoleFolder?.(role, path),
+            onClick: () => roleActions(role, path),
           };
         })
       : roleActions && roleRefused
