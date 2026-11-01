@@ -6866,6 +6866,21 @@ const RELIGHT_RANGE3_RIM_FLATTEN: f32 = 0.65;
 // The share of the subject's relief a pattern follows.
 const RELIGHT_RANGE3_PATTERN_RELIEF: f32 = 0.6;
 
+// Whether a lit light of the recipe has range version 3 (relight.rs
+// RANGE_3_FLAG). The scene-wide range-3 changes follow the lights, not only
+// the pipeline: a display variant compiled with RELIGHT_RANGE3 also renders
+// older recipes while their own variant compiles.
+fn relight_range3_scene() -> bool {
+    if (!RELIGHT_RANGE3) { return false; }
+    for (var i = 0u; i < 4u; i++) {
+        if (adjustments.global.relight[i * 5u].w > 0.0
+            && (u32(adjustments.global.relight[i * 5u + 3u].y + 0.5) & 256u) != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // A people normal near the matte's edge, turned towards the camera by how
 // close the edge is (range version 3).
 fn relight_rim_normal(n: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
@@ -6919,14 +6934,14 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
             // depth's: they carry the light response where people are.
             if (people.w > 0.0) {
                 var people_normal = relight_people_normal(people);
-                if (RELIGHT_RANGE3) { people_normal = relight_rim_normal(people_normal, uv, dims); }
+                if (relight_range3_scene()) { people_normal = relight_rim_normal(people_normal, uv, dims); }
                 normal = normalize(mix(normal, people_normal, people.w));
             }
         }
     }
     // Range version 3: no skin sheen on the eyes (the atlas's eye mask).
     var eyes = 0.0;
-    if (RELIGHT_RANGE3 && people.z > 0.0) { eyes = relight_subject_sample(uv, 1.0).z; }
+    if (relight_range3_scene() && people.z > 0.0) { eyes = relight_subject_sample(uv, 1.0).z; }
     var light_gain = vec3<f32>(0.0);
     var reflected_light = vec3<f32>(0.0);
     var shadow_ev = 0.0;
@@ -7118,6 +7133,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     let strength = adjustments.global.relight_surface.x;
     let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && (strength > 0.0 || camera_mode);
     let surface_lighting = has_depth && adjustments.global.relight_surface.z > 0.5;
+    let range3_scene = relight_range3_scene();
     var surface = vec4<f32>(0.0);
     if (has_depth) {
         if (camera_mode) { surface = relight_camera_sample(uv); }
@@ -7141,7 +7157,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         // background it is (below), so the person keeps its own normal
         // there; the coarse scene depth's blurred bevel showed as a jagged
         // outline.
-        if (!RELIGHT_RANGE3) {
+        if (!range3_scene) {
             people.w *= smoothstep(0.5, 0.95, people.z);
         }
     }
@@ -7185,7 +7201,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // Range version 3: a pixel on the matte's edge is part subject, part
     // background; the subject's light alone lit its background share as a
     // bright, hard rim. Its own light is the coverage-weighted mix.
-    let mixed_edge = RELIGHT_RANGE3 && camera_mode && has_depth && energy.has_light
+    let mixed_edge = range3_scene && camera_mode && has_depth && energy.has_light
         && adjustments.global.relight_source[3].x > 0.0 && people.z > 0.0 && people.z < 1.0;
     var background_light = RelightEnergy(vec3<f32>(0.0), vec3<f32>(0.0), 0.0, false);
     if (mixed_edge) {
@@ -7206,7 +7222,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // A light set up for the subject reaches its background only near it:
     // a wall right behind it, not the sky or a distant backdrop (version
     // five, the analysis's reach map; Original light alone keeps those).
-    if (camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0 && !RELIGHT_RANGE3) {
+    if (camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0 && !range3_scene) {
         let reach = mix(1.0, background_reach, 1.0 - people.z);
         light_gain *= reach;
         reflected_light *= reach;
@@ -7215,10 +7231,10 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // the photo's own shading where it is known (I·L/S = A·L).
     if (people.w > 0.0 && adjustments.global.relight_source[2].z > 0.5) {
         var shading = relight_source_shading(relight_people_normal(people));
-        if (RELIGHT_RANGE3) { shading = max(shading, RELIGHT_RANGE3_MIN_SHADING); }
+        if (range3_scene) { shading = max(shading, RELIGHT_RANGE3_MIN_SHADING); }
         light_gain /= mix(1.0, shading, people.w);
     }
-    if (RELIGHT_RANGE3 && camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
+    if (range3_scene && camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
         // The subject's share takes the subject's light, the background's
         // its own, reduced by its reach.
         if (mixed_edge) {
@@ -7237,7 +7253,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // light replaces. The background keeps its light (a backdrop is lit by
     // its own lights and spill; dimming it cut the subject out as if under a
     // spot) and gets the new light by its reach.
-    if (RELIGHT_RANGE3 && camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
+    if (range3_scene && camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
         original = mix(1.0, original, people.z);
     }
     let gain = (vec3<f32>(original) + light_gain) * exp2(-shadow_ev);
