@@ -49,7 +49,8 @@ use crate::lens_correction::LensDistortionParams;
 /// with the camera's crop.
 /// 16: `base_look.capture_gain_ev` (renderVersion 9's extended-low-ISO
 /// pull), so that an offline Sony photograph at ISO 50 develops with it.
-pub const VERSION: u32 = 16;
+/// 17: `camera_lens` at camera geometry version 8 (Nikon Z optical centre).
+pub const VERSION: u32 = 17;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]

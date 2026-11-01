@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Nikon Z lens corrections from the camera's data now run about the shot's own optical centre** (recipe `cameraGeometryVersion` 8, new edits and never-edited RAWs): Z-mount NEFs record per shot where the lens axis falls on the sensor, which moves with the in-body stabilisation by up to tens of pixels; the distortion correction is now centred there instead of on the frame's centre. Against the cameras' own JPEGs of 57 raw.pixls.us Z NEFs the Z f + 35-150mm at 150 mm (axis 66 px off-centre) now matches to 0.2 px median instead of 2.4, the Z 6 + 24-70mm f/4 (26 px off) to 0.3 instead of 1.3. Saved edits keep their look.
 ### Highlights
 
 - **Before/after side by side, a before toggle and one tool's part of the edit.** The before/after menu and ⇧Y now also offer *Side by side*: before on the left, after on the right, each the whole photograph at the same zoom and pan (the wheel zooms both from either pane). ⌘\ / Ctrl+\ (View › Before (Whole Photo), rebindable) keeps the whole photograph before on screen until pressed again, beside the held \. Holding a tool's reset button with ⌥/Alt (or holding it for a moment) shows the photograph without that tool — on the active layer when one is selected — until you let go; nothing is reset and no history step is made. On a Linux test PC the toggle showed its frame after about 42 ms and the held reset after about 85 ms (24 and 45 MP, app-internal timing), and slider drags in side by side kept their preview rate.

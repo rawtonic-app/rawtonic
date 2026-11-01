@@ -15191,6 +15191,12 @@ fn gpu_warp_recipes() -> Vec<serde_json::Value> {
             (rawtonic_engine::manual_vignette::MIDPOINT_KEY): 20.0,
             "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
             (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        // A camera's exact framing about an off-centre distortion (Nikon Z's
+        // optical centre, cameraGeometryVersion 8).
+        json!({"renderVersion": 7, "lensCorrectionMode": "camera", "lensDistortionParams": {
+            "k1": 0.012, "k2": -0.03, "k3": 0.01, "model": 1, "zoom": 1.01, "exact_zoom": true,
+            "centre_x": -0.012, "centre_y": 0.004, "vig_k1": -0.3},
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
     ]
 }
 

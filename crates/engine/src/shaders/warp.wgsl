@@ -57,6 +57,12 @@ struct Params {
     mv_ev: f32,
     mv_power: f32,
     mv_per_hd: f32,
+    // The centre the framing zoom and the lens distortion run about (the
+    // frame centre unless the camera's data place it off-centre).
+    lcx: f32,
+    lcy: f32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 const LENS: u32 = 1u;
@@ -148,13 +154,15 @@ fn source_point(p: vec3<f32>) -> vec3<f32> {
     let inv_z = 1.0 / p.z;
     var sx = p.x * inv_z;
     var sy = p.y * inv_z;
+    let lcx = P.lcx;
+    let lcy = P.lcy;
     if P.auto_crop_scale > 1.0 {
-        sx = cx + (sx - cx) / P.auto_crop_scale;
-        sy = cy + (sy - cy) / P.auto_crop_scale;
+        sx = lcx + (sx - lcx) / P.auto_crop_scale;
+        sy = lcy + (sy - lcy) / P.auto_crop_scale;
     }
     if (P.flags & LENS) != 0u {
-        let dx = sx - cx;
-        let dy = sy - cy;
+        let dx = sx - lcx;
+        let dy = sy - lcy;
         let ru = sqrt(dx * dx + dy * dy);
         if ru > 1e-6 {
             let ru_norm = ru / P.hd;
@@ -171,8 +179,8 @@ fn source_point(p: vec3<f32>) -> vec3<f32> {
             }
             let effective = ru_norm + (rd_norm - ru_norm) * P.lens_dist_amt;
             let scale = effective / ru_norm;
-            sx = cx + dx * scale;
-            sy = cy + dy * scale;
+            sx = lcx + dx * scale;
+            sy = lcy + dy * scale;
         }
     }
     if (P.flags & MANUAL) != 0u {
