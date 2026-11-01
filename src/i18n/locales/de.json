@@ -2527,6 +2527,8 @@
     "visualize": "Bereiche visualisieren"
   },
   "stacks": {
+    "albumNote_one": "{{count}} Foto gestapelt. Stapel erscheinen in Ordneransichten; ein Album listet seine Fotos einzeln.",
+    "albumNote_other": "{{count}} Fotos gestapelt. Stapel erscheinen in Ordneransichten; ein Album listet seine Fotos einzeln.",
     "auto": {
       "apply_one": "{{count}} Stapel bilden",
       "apply_other": "{{count}} Stapel bilden",

@@ -2439,6 +2439,8 @@
     "visualize": "显示污点"
   },
   "stacks": {
+    "albumNote_one": "已堆叠 {{count}} 张照片。堆叠显示在文件夹视图中;相册则逐张列出照片。",
+    "albumNote_other": "已堆叠 {{count}} 张照片。堆叠显示在文件夹视图中;相册则逐张列出照片。",
     "auto": {
       "apply_one": "创建 {{count}} 个堆栈",
       "apply_other": "创建 {{count}} 个堆栈",

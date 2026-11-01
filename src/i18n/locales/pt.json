@@ -2658,6 +2658,9 @@
     "visualize": "Visualizar manchas"
   },
   "stacks": {
+    "albumNote_one": "{{count}} foto empilhada. As pilhas aparecem nas vistas de pasta; um álbum lista as fotos individualmente.",
+    "albumNote_many": "{{count}} fotos empilhadas. As pilhas aparecem nas vistas de pasta; um álbum lista as fotos individualmente.",
+    "albumNote_other": "{{count}} fotos empilhadas. As pilhas aparecem nas vistas de pasta; um álbum lista as fotos individualmente.",
     "auto": {
       "apply_one": "Criar {{count}} pilha",
       "apply_many": "Criar {{count}} pilhas",
