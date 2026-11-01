@@ -652,7 +652,8 @@ export interface Adjustments {
    * `TONE_VERSION`): 2 = Shadows above +50 reaches further into the
    * quarter-tones and lowered Highlights is refitted; 3 = lowered
    * Highlights also adapts to the image key (reaches further in dark
-   * frames); 1 or missing on
+   * frames); 4 = and lowers less on frames of bright key (snow, overcast
+   * skies, white rooms); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1343,7 +1344,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 3;
+export const TONE_VERSION = 4;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
@@ -1725,7 +1726,7 @@ const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => 
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
-  // Versions 2 and 3 change Shadows above +50 and lowered Highlights only.
+  // Versions 2 to 4 change Shadows above +50 and lowered Highlights only.
   const differs = (values: { shadows?: unknown; highlights?: unknown } | undefined) =>
     ((values?.shadows as number | undefined) ?? 0) > 50 || ((values?.highlights as number | undefined) ?? 0) < 0;
   const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));

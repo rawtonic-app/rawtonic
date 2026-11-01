@@ -7586,10 +7586,14 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// both editors, the same display levels on every camera, −100 at least
 /// Camera Raw's reach; notes: reference/highlight-recovery-gfx.md, G05);
 /// 3 (2026-10-25) lets lowered Highlights adapt to the image key, reaching
-/// further in dark frames (night scenes, lamps, candles; notes: G05).
+/// further in dark frames (night scenes, lamps, candles; notes: G05);
+/// 4 (2026-11-01) lets it lower less on frames of bright key (snow,
+/// overcast or bright skies, white rooms), where Camera Raw's lowers broad
+/// bright areas 0.2–0.7 times as far (notes: G05,
+/// benchmark-results/hl-highlights-2026-11-01).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 3;
+pub const TONE_VERSION: u64 = 4;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -8135,6 +8139,8 @@ mod tone_version_tests {
         assert_eq!(version(json!({"shadows": 80, "toneVersion": 2})), 2.0);
         // Version 3 (lowered Highlights adapted to the image key) is known.
         assert_eq!(version(json!({"highlights": -60, "toneVersion": 3})), 3.0);
+        // Version 4 (also adapted to bright frames) is known.
+        assert_eq!(version(json!({"highlights": -60, "toneVersion": 4})), 4.0);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(version(json!({"toneVersion": 9})), TONE_VERSION as f32);
     }
