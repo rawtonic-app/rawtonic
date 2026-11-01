@@ -42,14 +42,26 @@ impl AutoSelection {
     }
 }
 
+/// The `subjectVersion` of a Select Subject component's parameters: 1
+/// when absent (selections saved before version 2 compute as they did),
+/// `rawtonic_segment::SUBJECT_VERSION` for new ones.
+pub fn subject_version(parameters: &Value) -> u32 {
+    parameters
+        .get("subjectVersion")
+        .and_then(Value::as_u64)
+        .map_or(1, |v| v.min(u32::MAX as u64) as u32)
+}
+
 /// Runs the network of a selection.
 pub trait SelectionDetector: Send + Sync {
     /// The mask of `selection` on `warped` (the photo with its lens and
     /// transform geometry, linear light when `linear`), as the PNG data URL
-    /// a recipe stores, at `warped`'s size.
+    /// a recipe stores, at `warped`'s size. `version` is a Subject
+    /// component's `subjectVersion` (`subject_version`; 1 for Sky).
     fn detect(
         &self,
         selection: AutoSelection,
+        version: u32,
         warped: &DynamicImage,
         linear: bool,
     ) -> Result<String, String>;
@@ -171,15 +183,19 @@ pub fn detect_missing(
     let mut masks: Map<String, Value> = Map::new();
     let mut detected = Vec::new();
     for &(l, s, selection) in &wanted {
-        let key = selection.name().to_string();
+        let sub = &adjustments["masks"][l]["subMasks"][s];
+        let version = match selection {
+            AutoSelection::Subject => subject_version(&sub["parameters"]),
+            AutoSelection::Sky => 1,
+        };
+        let key = format!("{} {version}", selection.name());
         if !masks.contains_key(&key) {
             let data = detector
-                .detect(selection, &warped, is_raw)
+                .detect(selection, version, &warped, is_raw)
                 .map_err(|e| fail(&e))?;
             masks.insert(key.clone(), Value::String(data));
         }
         let data = masks[&key].as_str().unwrap_or_default().to_string();
-        let sub = &adjustments["masks"][l]["subMasks"][s];
         detected.push(Detected {
             layer_id: adjustments["masks"][l]["id"]
                 .as_str()
@@ -264,18 +280,24 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
 mod tests {
     use super::*;
 
-    struct Fixed(std::sync::Mutex<Vec<AutoSelection>>);
+    struct Fixed(std::sync::Mutex<Vec<(AutoSelection, u32)>>);
     impl SelectionDetector for Fixed {
         fn detect(
             &self,
             s: AutoSelection,
+            version: u32,
             warped: &DynamicImage,
             _: bool,
         ) -> Result<String, String> {
-            self.0.lock().unwrap().push(s);
+            self.0.lock().unwrap().push((s, version));
             Ok(format!(
-                "data:{}:{}x{}",
+                "data:{}{}:{}x{}",
                 s.name(),
+                if version > 1 {
+                    format!(" v{version}")
+                } else {
+                    String::new()
+                },
                 warped.width(),
                 warped.height()
             ))
@@ -312,7 +334,7 @@ mod tests {
         assert_eq!(calls, 1);
         assert_eq!(
             *detector.0.lock().unwrap(),
-            [AutoSelection::Sky, AutoSelection::Subject]
+            [(AutoSelection::Sky, 1), (AutoSelection::Subject, 1)]
         );
         assert_eq!(
             found.len(),
@@ -345,6 +367,42 @@ mod tests {
     }
 
     #[test]
+    fn each_subject_computes_at_its_own_version() {
+        // A selection saved before version 2 (no `subjectVersion`) keeps
+        // computing as it did; a new one uses its version.
+        let mut adjustments = json!({"masks": [
+            {"id": "a", "name": "Old", "visible": true, "subMasks": [
+                {"id": "o", "type": "ai-foreground", "visible": true, "parameters": {"maskDataBase64": null}}]},
+            {"id": "b", "name": "New", "visible": true, "subMasks": [
+                {"id": "n", "type": "ai-foreground", "visible": true, "parameters": {"maskDataBase64": null, "subjectVersion": 2}},
+                {"id": "m", "type": "ai-foreground", "visible": true, "invert": true, "parameters": {"maskDataBase64": null, "subjectVersion": 2}}]}]});
+        let source = Arc::new(DynamicImage::new_rgb8(6, 4));
+        let detector = Fixed(Default::default());
+        detect_missing(
+            &mut adjustments,
+            &source,
+            false,
+            Some(&detector),
+            &mut || {},
+        )
+        .unwrap();
+        assert_eq!(
+            *detector.0.lock().unwrap(),
+            [(AutoSelection::Subject, 1), (AutoSelection::Subject, 2)]
+        );
+        let data = |l: usize, s: usize| {
+            adjustments["masks"][l]["subMasks"][s]["parameters"]["maskDataBase64"].clone()
+        };
+        assert_eq!(data(0, 0), "data:Subject:6x4");
+        assert_eq!(data(1, 0), "data:Subject v2:6x4");
+        assert_eq!(data(1, 1), "data:Subject v2:6x4");
+        assert_eq!(
+            adjustments["masks"][1]["subMasks"][0]["parameters"]["subjectVersion"],
+            2
+        );
+    }
+
+    #[test]
     fn without_a_model_the_layers_are_named_and_nothing_changes() {
         let mut adjustments = recipe();
         let before = adjustments.clone();
@@ -362,6 +420,7 @@ mod tests {
             fn detect(
                 &self,
                 _: AutoSelection,
+                _: u32,
                 _: &DynamicImage,
                 _: bool,
             ) -> Result<String, String> {

@@ -19,7 +19,9 @@ use ndarray::{Array, IxDyn};
 use ort::value::Tensor;
 use rayon::prelude::*;
 
+mod focus;
 mod models;
+pub use focus::keep_subject_in_focus;
 pub use models::{Models, file_has_sha256};
 
 // BiRefNet (Peng Zheng et al., MIT weights; the general checkpoint with a
@@ -917,14 +919,54 @@ pub fn subject_input(image: &DynamicImage, linear: bool) -> Array<f32, ndarray::
     input_tensor
 }
 
+/// The Select Subject version of new selections (a component's
+/// `subjectVersion`): 1 (absent) = BiRefNet's whole foreground
+/// (`run_subject_model`), 2 = the subject in focus (`select_subject`).
+pub const SUBJECT_VERSION: u32 = 2;
+
+/// A component's Select Subject at its `subjectVersion` (`SUBJECT_VERSION`),
+/// so a selection saved before a version computes as it did.
+pub fn subject_selection(
+    image: &DynamicImage,
+    model: &SubjectModel,
+    linear: bool,
+    run_options: Option<&ort::session::RunOptions>,
+    version: u32,
+) -> Result<GrayImage> {
+    subject_mask(image, model, linear, run_options, version >= 2)
+}
+
 /// The subject of a photo (Lightroom's Select Subject) as a mask of its
-/// size: BiRefNet's probability at 1024 × 1024, resized back. A photo
-/// without a clear subject stays dark (no min-max stretching).
+/// size: BiRefNet's foreground without the separate objects clearly out
+/// of focus (`keep_subject_in_focus`); `subjectVersion` 2.
+pub fn select_subject(
+    image: &DynamicImage,
+    model: &SubjectModel,
+    linear: bool,
+    run_options: Option<&ort::session::RunOptions>,
+) -> Result<GrayImage> {
+    subject_mask(image, model, linear, run_options, true)
+}
+
+/// BiRefNet's foreground of a photo as a mask of its size: the
+/// probability at 1024 × 1024, resized back. A photo without a clear
+/// subject stays dark (no min-max stretching). Relight's subject matte and
+/// Select Subject's `subjectVersion` 1.
 pub fn run_subject_model(
     image: &DynamicImage,
     model: &SubjectModel,
     linear: bool,
     run_options: Option<&ort::session::RunOptions>,
+) -> Result<GrayImage> {
+    subject_mask(image, model, linear, run_options, false)
+}
+
+fn subject_mask(
+    image: &DynamicImage,
+    model: &SubjectModel,
+    linear: bool,
+    run_options: Option<&ort::session::RunOptions>,
+    in_focus: bool,
 ) -> Result<GrayImage> {
     let (orig_width, orig_height) = image.dimensions();
     let size = SUBJECT_INPUT_SIZE;
@@ -944,10 +986,17 @@ pub fn run_subject_model(
         .collect();
     let mask = GrayImage::from_raw(size, size, mask_data)
         .ok_or_else(|| anyhow::anyhow!("Failed to create mask from the subject model output"))?;
+    let focus = std::time::Instant::now();
+    let mask = if in_focus {
+        keep_subject_in_focus(mask, image, linear)
+    } else {
+        mask
+    };
+    let focus_ms = focus.elapsed().as_millis();
     let resize = std::time::Instant::now();
     let full = resize_gray_triangle(&mask, orig_width, orig_height);
     log::info!(
-        "AI subject mask: input {input_ms} ms, network {network_ms} ms, full-size mask {} ms",
+        "AI subject mask: input {input_ms} ms, network {network_ms} ms, focus {focus_ms} ms, full-size mask {} ms",
         resize.elapsed().as_millis()
     );
     Ok(full)

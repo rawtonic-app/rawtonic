@@ -29,6 +29,7 @@ impl SelectionDetector for Models {
     fn detect(
         &self,
         selection: AutoSelection,
+        version: u32,
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
@@ -37,10 +38,9 @@ impl SelectionDetector for Models {
                 .0
                 .sky()
                 .and_then(|m| rawtonic_segment::run_sky_seg_model(warped, &m, linear, None)),
-            AutoSelection::Subject => self
-                .0
-                .subject()
-                .and_then(|m| rawtonic_segment::run_subject_model(warped, &m, linear, None)),
+            AutoSelection::Subject => self.0.subject().and_then(|m| {
+                rawtonic_segment::subject_selection(warped, &m, linear, None, version)
+            }),
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
@@ -56,7 +56,7 @@ fn imported() -> Value {
                        "parameters": {"maskDataBase64": null, "grow": 0, "feather": 0}}]},
         {"id": "subject", "name": "Subject", "visible": true, "opacity": 100.0, "invert": false, "adjustments": {"exposure": 1.0},
          "subMasks": [{"id": "f", "type": "ai-foreground", "visible": true, "opacity": 100.0, "invert": false, "mode": "additive",
-                       "parameters": {"maskDataBase64": null, "grow": 0, "feather": 0}}]}]})
+                       "parameters": {"maskDataBase64": null, "grow": 0, "feather": 0, "subjectVersion": 2}}]}]})
 }
 
 fn settings() -> ExportSettings {
