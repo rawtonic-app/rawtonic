@@ -72,6 +72,8 @@ describe('library search rules', () => {
     // Eyes: closed (uncertain never counts) or needing a check.
     expect(cullingRules({ ...filter, eyes: 'closed' })).toEqual([{ field: 'eyes', op: 'is', value: 'closed' }]);
     expect(cullingRules({ ...filter, eyes: 'check' })).toEqual([{ field: 'eyes', op: 'is', value: 'uncertain' }]);
+    // Soft eyes: the eye-focus call, never an uncertain one.
+    expect(cullingRules({ ...filter, eyes: 'soft' })).toEqual([{ field: 'eyeFocus', op: 'is', value: 'soft' }]);
     expect(cullingRules({ ...filter, eyes: 'all' })).toEqual([]);
   });
 
@@ -105,6 +107,7 @@ describe('library search rules', () => {
     expect(searchRule('bride', undefined)).toEqual({ field: 'text', op: 'contains', value: 'bride' });
     // The eye filter alone is a search the catalog answers.
     expect(searchRule('', undefined, 'closed')).toEqual({ field: 'eyes', op: 'is', value: 'closed' });
+    expect(searchRule('', undefined, 'soft')).toEqual({ field: 'eyeFocus', op: 'is', value: 'soft' });
     expect(searchRule('', undefined, 'all')).toBeNull();
     const scope = scopeRule('/job/Capture', null, LibraryViewMode.Flat);
     expect(

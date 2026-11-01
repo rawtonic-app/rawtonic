@@ -145,6 +145,7 @@ export enum Invokes {
   PhotoEyes = 'photo_eyes',
   PhotoEyeSummaries = 'photo_eye_summaries',
   SetFaceEyes = 'set_face_eyes',
+  SetFaceFocus = 'set_face_focus',
   FaceEyeCrops = 'face_eye_crops',
   FaceBoxesShown = 'face_boxes_shown',
   AnalyzeFaceRetouch = 'analyze_face_retouch',
@@ -618,9 +619,9 @@ export interface FilterCriteria {
   rawStatus: RawStatus;
   editedStatus?: EditedStatus;
   flag?: 'all' | 'picked' | 'unflagged' | 'rejected';
-  /** Faces' eyes: closed (or partly, never counting uncertain ones) or
-   * needing a check (`face_eyes`). */
-  eyes?: 'all' | 'closed' | 'check';
+  /** Faces' eyes: closed (or partly, never counting uncertain ones), soft
+   * (never counting uncertain focus) or needing a check (`face_eyes`). */
+  eyes?: 'all' | 'closed' | 'soft' | 'check';
   /** Values chosen in the Library's metadata lists (camera, lens, …); the
    * library's catalog finds the photographs that have them. */
   metadata?: MetadataSelection;

@@ -3599,6 +3599,14 @@
       "filterAll": "Tutti gli occhi",
       "filterCheck": "Occhi incerti",
       "filterClosed": "Occhi chiusi",
+      "filterSoft": "Occhi sfocati",
+      "focus": {
+        "sharp": "Occhi nitidi",
+        "soft": "Occhi sfocati (controlla la messa a fuoco)",
+        "uncertain": "Messa a fuoco degli occhi non valutata (volto piccolo o incerto)"
+      },
+      "focusLabel": "Volto {{n}}, messa a fuoco degli occhi: {{state}}",
+      "focusMenu": "La tua valutazione della messa a fuoco per questo volto",
       "modelsMissing": "Il controllo degli occhi richiede i modelli dei volti.",
       "noFaces": "Nessun volto",
       "showFace": "Mostra il volto {{n}} sulla foto",
@@ -3615,7 +3623,8 @@
         "check": "da controllare: {{n}}",
         "closed": "occhi chiusi: {{n}}",
         "faces": "Volti: {{n}}",
-        "notVisible": "occhi non visibili: {{n}}"
+        "notVisible": "occhi non visibili: {{n}}",
+        "soft": "occhi sfocati: {{n}}"
       },
       "useReading": "Usa il suggerimento ({{state}})",
       "yourCall": "{{state}} (tua scelta; suggerito: {{read}})"
@@ -4114,6 +4123,11 @@
         "and": "e",
         "cancel": "Annulla",
         "choices": {
+          "eyeFocus": {
+            "sharp": "Nitidi",
+            "soft": "Sfocati",
+            "uncertain": "Non valutata"
+          },
           "eyes": {
             "closed": "Chiusi o socchiusi",
             "notVisible": "Non visibili",
@@ -4162,6 +4176,7 @@
           "details": "Qualsiasi testo tranne le parole chiave",
           "duplicate": "Duplicato (dati immagine identici)",
           "exposure": "Tempo di posa (s)",
+          "eyeFocus": "Messa a fuoco degli occhi",
           "eyes": "Occhi",
           "filename": "Nome file",
           "fileType": "Tipo di file",

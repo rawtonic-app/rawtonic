@@ -6443,6 +6443,10 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   background: #2a2419e6;
   color: #e6c47e;
 }
+.studio-eyes-badge.is-soft {
+  background: #1f2a33e6;
+  color: #9cc8eb;
+}
 .studio-eyes-badge.is-uncertain {
   background: #1c1d1fcc;
   color: var(--studio-text);
@@ -6501,6 +6505,9 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-loupe-face.is-uncertain {
   box-shadow: 0 0 0 1px var(--studio-muted);
 }
+.studio-loupe-face.is-soft:not(.is-closed) {
+  box-shadow: 0 0 0 2px #9cc8eb;
+}
 .studio-eye-call {
   position: absolute;
   right: 2px;
@@ -6525,6 +6532,30 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   box-shadow: inset 0 0 0 1px var(--studio-muted);
 }
 .studio-eye-call.is-own {
+  box-shadow: inset 0 0 0 1px var(--studio-accent);
+}
+/* Eye focus beside the eyes call: sharp white, soft light blue (dashed
+   circle), no call muted. */
+.studio-focus-call {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: #1c1d1fe6;
+  color: var(--studio-text);
+}
+.studio-focus-call.is-soft {
+  color: #9cc8eb;
+}
+.studio-focus-call.is-uncertain {
+  color: var(--studio-muted);
+}
+.studio-focus-call.is-own {
   box-shadow: inset 0 0 0 1px var(--studio-accent);
 }
 .studio-eye-menu {
@@ -6614,6 +6645,7 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 @media (forced-colors: active) {
   .studio-eyes-badge,
   .studio-eye-call,
+  .studio-focus-call,
   .face-box-label {
     border: 1px solid CanvasText;
   }

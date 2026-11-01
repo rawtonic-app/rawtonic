@@ -1,8 +1,9 @@
-//! Eyes per face for culling (schema 21): what the app's background pass
-//! read from each photograph (`rawtonic_faces::eyes`, kept here as text so
-//! the catalog does not depend on the face models) and the photographer's
-//! own call per face, which wins over the reading everywhere. Nothing here
-//! reads, rejects or removes a photograph.
+//! Eyes per face for culling (schema 21; eye focus since schema 25): what
+//! the app's background pass read from each photograph
+//! (`rawtonic_faces::eyes` and `::focus`, kept here as text so the catalog
+//! does not depend on the face models) and the photographer's own calls
+//! per face, which win over the reading everywhere. Nothing here reads,
+//! rejects or removes a photograph.
 use crate::Library;
 use anyhow::{Result, ensure};
 use rusqlite::{OptionalExtension, params};
@@ -14,6 +15,10 @@ use std::path::PathBuf;
 pub const STATES: [&str; 4] = ["open", "closed", "notVisible", "uncertain"];
 /// The calls a photographer can make (never "uncertain").
 pub const OVERRIDES: [&str; 3] = ["open", "closed", "notVisible"];
+/// A reader's eye-focus calls (`rawtonic_faces::focus::FocusState`).
+pub const FOCUS_STATES: [&str; 3] = ["sharp", "soft", "uncertain"];
+/// The eye-focus calls a photographer can make.
+pub const FOCUS_OVERRIDES: [&str; 2] = ["sharp", "soft"];
 
 /// One face's eyes as read.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -24,6 +29,12 @@ pub struct EyeFace {
     pub state: String,
     pub ear: Option<f32>,
     pub accessories: Option<f32>,
+    /// Eye focus as read; `None` from a reader before eye focus.
+    #[serde(default)]
+    pub focus: Option<String>,
+    /// Its measurement (edge sigma at a fixed eye distance, px).
+    #[serde(default)]
+    pub focus_sigma: Option<f32>,
 }
 
 /// One face's eyes in the catalog.
@@ -36,12 +47,22 @@ pub struct StoredEyeFace {
     pub read: EyeFace,
     /// The photographer's call, if any.
     pub override_state: Option<String>,
+    /// The photographer's eye-focus call, if any.
+    pub focus_override: Option<String>,
 }
 
 impl StoredEyeFace {
     /// The call that counts: the photographer's, else the reader's.
     pub fn effective(&self) -> &str {
         self.override_state.as_deref().unwrap_or(&self.read.state)
+    }
+
+    /// The eye-focus call that counts: the photographer's, else the
+    /// reader's (`None`: not read).
+    pub fn effective_focus(&self) -> Option<&str> {
+        self.focus_override
+            .as_deref()
+            .or(self.read.focus.as_deref())
     }
 }
 
@@ -82,6 +103,15 @@ pub(crate) fn has_face_sql(state: &str) -> String {
     format!(
         "EXISTS(SELECT 1 FROM face_eyes e WHERE e.asset_id=a.id \
          AND coalesce(e.override_state, e.state)='{state}')"
+    )
+}
+
+/// SQL test for an asset `a` with a face whose eye-focus call that counts
+/// is `state`.
+pub(crate) fn has_focus_sql(state: &str) -> String {
+    format!(
+        "EXISTS(SELECT 1 FROM face_eyes e WHERE e.asset_id=a.id \
+         AND coalesce(e.focus_override, e.focus)='{state}')"
     )
 }
 
@@ -126,9 +156,9 @@ impl Library {
 
     /// Records what reader `version` read from asset `id` when its file had
     /// `fingerprint`: its faces left to right, or why it failed. The
-    /// photographer's calls go to the same faces of the new reading (boxes
-    /// overlapping by half or more); a call whose face is not found again
-    /// is dropped with it. Ignored when the asset is gone.
+    /// photographer's calls (eyes and eye focus) go to the same faces of the
+    /// new reading (boxes overlapping by half or more); calls whose face is
+    /// not found again are dropped with it. Ignored when the asset is gone.
     pub fn record_eyes(
         &self,
         id: &str,
@@ -143,6 +173,12 @@ impl Library {
                     "Unknown eye state {}",
                     face.state
                 );
+                if let Some(focus) = &face.focus {
+                    ensure!(
+                        FOCUS_STATES.contains(&focus.as_str()),
+                        "Unknown eye focus {focus}"
+                    );
+                }
             }
         }
         let tx = self.conn.unchecked_transaction()?;
@@ -153,24 +189,29 @@ impl Library {
         if !present {
             return Ok(());
         }
-        let calls: Vec<([f32; 4], String)> = tx
+        type Calls = (Option<String>, Option<String>);
+        let calls: Vec<([f32; 4], Calls)> = tx
             .prepare(
-                "SELECT x,y,w,h,override_state FROM face_eyes
-                 WHERE asset_id=? AND override_state IS NOT NULL",
+                "SELECT x,y,w,h,override_state,focus_override FROM face_eyes
+                 WHERE asset_id=? AND (override_state IS NOT NULL OR focus_override IS NOT NULL)",
             )?
             .query_map([id], |r| {
-                Ok(([r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?], r.get(4)?))
+                Ok((
+                    [r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?],
+                    (r.get(4)?, r.get(5)?),
+                ))
             })?
             .collect::<rusqlite::Result<_>>()?;
         tx.execute("DELETE FROM face_eyes WHERE asset_id=?", [id])?;
         let error = read.err();
         if let Ok(faces) = read {
             let mut insert = tx.prepare(
-                "INSERT INTO face_eyes(asset_id,face,x,y,w,h,state,ear,accessories,override_state)
-                 VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO face_eyes(asset_id,face,x,y,w,h,state,ear,accessories,override_state,
+                 focus,focus_sigma,focus_override)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             )?;
             let mut taken = vec![false; faces.len()];
-            let mut carried: Vec<Option<&str>> = vec![None; faces.len()];
+            let mut carried: Vec<Option<&Calls>> = vec![None; faces.len()];
             for (bbox, call) in &calls {
                 let best = faces
                     .iter()
@@ -187,6 +228,10 @@ impl Library {
             }
             for (i, face) in faces.iter().enumerate() {
                 let [x, y, w, h] = face.bbox;
+                let (eyes_call, focus_call) = match carried[i] {
+                    Some((eyes, focus)) => (eyes.as_deref(), focus.as_deref()),
+                    None => (None, None),
+                };
                 insert.execute(params![
                     id,
                     i as i64,
@@ -197,7 +242,10 @@ impl Library {
                     face.state,
                     face.ear,
                     face.accessories,
-                    carried[i]
+                    eyes_call,
+                    face.focus,
+                    face.focus_sigma,
+                    focus_call
                 ])?;
             }
         }
@@ -230,7 +278,8 @@ impl Library {
              WHERE e.asset_id=? AND e.version>=? AND e.fingerprint=a.fingerprint",
         )?;
         let mut faces = self.conn.prepare(
-            "SELECT face,x,y,w,h,state,ear,accessories,override_state FROM face_eyes
+            "SELECT face,x,y,w,h,state,ear,accessories,override_state,focus,focus_sigma,
+             focus_override FROM face_eyes
              WHERE asset_id=? ORDER BY face",
         )?;
         let mut known = self.conn.prepare("SELECT 1 FROM assets WHERE id=?")?;
@@ -261,8 +310,11 @@ impl Library {
                                         state: r.get(5)?,
                                         ear: r.get(6)?,
                                         accessories: r.get(7)?,
+                                        focus: r.get(9)?,
+                                        focus_sigma: r.get(10)?,
                                     },
                                     override_state: r.get(8)?,
+                                    focus_override: r.get(11)?,
                                 })
                             })?
                             .collect::<rusqlite::Result<_>>()?,
@@ -283,6 +335,24 @@ impl Library {
         }
         let changed = self.conn.execute(
             "UPDATE face_eyes SET override_state=? WHERE asset_id=? AND face=?",
+            params![call, id, face],
+        )?;
+        ensure!(changed == 1, "This photograph has no face {face}");
+        Ok(())
+    }
+
+    /// Sets (or with `None` clears) the photographer's eye-focus call on
+    /// face `face` of asset `id`. Fails for a face the photograph does not
+    /// have.
+    pub fn set_focus_override(&self, id: &str, face: u32, call: Option<&str>) -> Result<()> {
+        if let Some(call) = call {
+            ensure!(
+                FOCUS_OVERRIDES.contains(&call),
+                "Unknown eye focus call {call}"
+            );
+        }
+        let changed = self.conn.execute(
+            "UPDATE face_eyes SET focus_override=? WHERE asset_id=? AND face=?",
             params![call, id, face],
         )?;
         ensure!(changed == 1, "This photograph has no face {face}");

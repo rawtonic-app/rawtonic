@@ -54,7 +54,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 24;
+pub const DB_SCHEMA_VERSION: u32 = 25;
 
 /// Schema 22's burst and bracket fact columns of `assets` (`migrations/0022.sql`).
 const COLUMNS_22: &[(&str, &str)] = &[
@@ -65,6 +65,14 @@ const COLUMNS_22: &[(&str, &str)] = &[
 /// Schema 23's digest of the XMP sidecar being published, in `metadata`
 /// (`migrations/0023.sql`).
 const COLUMNS_23: &[(&str, &str)] = &[("xmp_publishing", "TEXT")];
+const COLUMNS_25: &[(&str, &str)] = &[
+    ("focus", "TEXT CHECK(focus IN ('sharp','soft','uncertain'))"),
+    ("focus_sigma", "REAL"),
+    (
+        "focus_override",
+        "TEXT CHECK(focus_override IN ('sharp','soft'))",
+    ),
+];
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -402,6 +410,8 @@ impl Library {
         Self::add_missing_columns(&conn, "metadata", COLUMNS_23)?;
         conn.execute_batch(include_str!("../migrations/0023.sql"))?;
         conn.execute_batch(include_str!("../migrations/0024.sql"))?;
+        Self::add_missing_columns(&conn, "face_eyes", COLUMNS_25)?;
+        conn.execute_batch(include_str!("../migrations/0025.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -562,12 +572,16 @@ impl Library {
         if version < 24 {
             tx.execute_batch(include_str!("../migrations/0024.sql"))?;
         }
+        if version < 25 {
+            Self::add_missing_columns(&tx, "face_eyes", COLUMNS_25)?;
+            tx.execute_batch(include_str!("../migrations/0025.sql"))?;
+        }
         tx.commit()?;
         Ok(())
     }
 
     /// A migration's new columns (schema 22's burst and bracket facts,
-    /// schema 23's XMP publishing digest), each only where it is missing, so
+    /// schema 23's XMP publishing digest, schema 25's eye focus), each only where it is missing, so
     /// the script can run again on a library a test took back to an older
     /// schema.
     fn add_missing_columns(conn: &Connection, table: &str, add: &[(&str, &str)]) -> Result<()> {

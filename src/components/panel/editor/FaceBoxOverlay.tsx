@@ -3,10 +3,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../../store/useEditorStore';
-import { effectiveEyes, markedFace, useEyesStore } from '../../../store/useEyesStore';
+import { effectiveEyes, effectiveFocus, markedFace, useEyesStore } from '../../../store/useEyesStore';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../../utils/geometryKeys';
 import { labelPlace, outlineOnPhoto, svgPoints } from '../../../utils/faceBox';
-import { EYE_ICONS, stateLabel } from '../../studio/StudioEyes';
+import { EYE_ICONS, focusLabel, stateLabel } from '../../studio/StudioEyes';
 import { Invokes } from '../../ui/AppProperties';
 
 interface Props {
@@ -75,7 +75,11 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
   const Icon = EYE_ICONS[state];
   const points = outlineOnPhoto(outline, cropX, cropY, scale);
   const label = labelPlace(points, LABEL_HEIGHT / zoom);
-  const text = t('studio.eyes.faceLabel', { n: index + 1, state: stateLabel(t, state) });
+  // Soft eyes join the words (sharp or no call need none).
+  const focus = effectiveFocus(face);
+  const text =
+    t('studio.eyes.faceLabel', { n: index + 1, state: stateLabel(t, state) }) +
+    (focus === 'soft' ? ` · ${focusLabel(t, focus)}` : '');
   return (
     <div
       className={`face-box-overlay is-${state}`}

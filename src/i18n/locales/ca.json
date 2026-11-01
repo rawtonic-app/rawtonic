@@ -3599,6 +3599,14 @@
       "filterAll": "Tots els ulls",
       "filterCheck": "Ulls a revisar",
       "filterClosed": "Ulls tancats",
+      "filterSoft": "Ulls desenfocats",
+      "focus": {
+        "sharp": "Ulls nítids",
+        "soft": "Ulls desenfocats (comproveu l'enfocament)",
+        "uncertain": "Enfocament dels ulls no valorat (cara petita o dubtosa)"
+      },
+      "focusLabel": "Cara {{n}}, enfocament dels ulls: {{state}}",
+      "focusMenu": "La vostra valoració de l'enfocament per a aquesta cara",
       "modelsMissing": "Comprovar els ulls necessita els models de cares.",
       "noFaces": "Cap cara",
       "showFace": "Mostra la cara {{n}} a la foto",
@@ -3615,7 +3623,8 @@
         "check": "per comprovar: {{n}}",
         "closed": "ulls tancats: {{n}}",
         "faces": "Cares: {{n}}",
-        "notVisible": "ulls no visibles: {{n}}"
+        "notVisible": "ulls no visibles: {{n}}",
+        "soft": "ulls desenfocats: {{n}}"
       },
       "useReading": "Fes servir el suggeriment ({{state}})",
       "yourCall": "{{state}} (la teva indicació; suggeriment: {{read}})"
@@ -4114,6 +4123,11 @@
         "and": "i",
         "cancel": "Cancel·la",
         "choices": {
+          "eyeFocus": {
+            "sharp": "Nítids",
+            "soft": "Desenfocats",
+            "uncertain": "No valorat"
+          },
           "eyes": {
             "closed": "Tancats o mig tancats",
             "notVisible": "No visibles",
@@ -4162,6 +4176,7 @@
           "details": "Qualsevol text excepte paraules clau",
           "duplicate": "Duplicat (dades d'imatge idèntiques)",
           "exposure": "Velocitat d’obturació (s)",
+          "eyeFocus": "Enfocament dels ulls",
           "eyes": "Ulls",
           "filename": "Nom del fitxer",
           "fileType": "Tipus de fitxer",

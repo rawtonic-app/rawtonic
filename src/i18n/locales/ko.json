@@ -3354,6 +3354,14 @@
       "filterAll": "모든 눈",
       "filterCheck": "눈: 확인 필요",
       "filterClosed": "눈 감음",
+      "filterSoft": "눈 초점 흐림",
+      "focus": {
+        "sharp": "눈 초점 선명",
+        "soft": "눈 초점 흐림(초점 확인)",
+        "uncertain": "눈 초점 판단 안 함(얼굴이 작거나 불확실)"
+      },
+      "focusLabel": "얼굴 {{n}} 눈 초점: {{state}}",
+      "focusMenu": "이 얼굴의 눈 초점 판단",
       "modelsMissing": "눈 확인에는 얼굴 모델이 필요합니다.",
       "noFaces": "얼굴 없음",
       "showFace": "사진에서 얼굴 {{n}} 표시",
@@ -3370,7 +3378,8 @@
         "check": "확인 필요: {{n}}",
         "closed": "감은 눈: {{n}}",
         "faces": "얼굴: {{n}}",
-        "notVisible": "보이지 않는 눈: {{n}}"
+        "notVisible": "보이지 않는 눈: {{n}}",
+        "soft": "눈 초점 흐림: {{n}}"
       },
       "useReading": "제안 사용 ({{state}})",
       "yourCall": "{{state}} (내 지정, 제안: {{read}})"
@@ -3825,6 +3834,11 @@
         "and": "~",
         "cancel": "취소",
         "choices": {
+          "eyeFocus": {
+            "sharp": "선명",
+            "soft": "흐림",
+            "uncertain": "판단 안 함"
+          },
           "eyes": {
             "closed": "감았거나 반쯤 감음",
             "notVisible": "보이지 않음",
@@ -3873,6 +3887,7 @@
           "details": "키워드를 제외한 모든 텍스트",
           "duplicate": "중복(동일한 이미지 데이터)",
           "exposure": "셔터 속도 (초)",
+          "eyeFocus": "눈 초점",
           "eyes": "눈",
           "filename": "파일 이름",
           "fileType": "파일 형식",

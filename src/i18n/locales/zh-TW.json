@@ -3354,6 +3354,14 @@
       "filterAll": "所有眼睛",
       "filterCheck": "眼睛：需檢查",
       "filterClosed": "閉眼",
+      "filterSoft": "眼睛失焦",
+      "focus": {
+        "sharp": "眼睛清晰",
+        "soft": "眼睛失焦（請檢查對焦）",
+        "uncertain": "未判斷眼部對焦（臉太小或不確定）"
+      },
+      "focusLabel": "臉 {{n}} 眼部對焦：{{state}}",
+      "focusMenu": "你對這張臉眼部對焦的判斷",
       "modelsMissing": "檢查眼睛需要人臉模型。",
       "noFaces": "沒有人臉",
       "showFace": "在照片上顯示人臉 {{n}}",
@@ -3370,7 +3378,8 @@
         "check": "需檢查：{{n}}",
         "closed": "閉眼：{{n}}",
         "faces": "人臉：{{n}}",
-        "notVisible": "看不見眼睛：{{n}}"
+        "notVisible": "看不見眼睛：{{n}}",
+        "soft": "眼睛失焦：{{n}}"
       },
       "useReading": "使用建議（{{state}}）",
       "yourCall": "{{state}}（你的判斷；建議：{{read}}）"
@@ -3825,6 +3834,11 @@
         "and": "和",
         "cancel": "取消",
         "choices": {
+          "eyeFocus": {
+            "sharp": "清晰",
+            "soft": "失焦",
+            "uncertain": "未判斷"
+          },
           "eyes": {
             "closed": "閉眼或半閉",
             "notVisible": "看不見",
@@ -3873,6 +3887,7 @@
           "details": "關鍵字以外的任意文字",
           "duplicate": "重複項目（影像資料相同）",
           "exposure": "快門速度（秒）",
+          "eyeFocus": "眼部對焦",
           "eyes": "眼睛",
           "filename": "檔案名稱",
           "fileType": "檔案類型",

@@ -128,8 +128,8 @@ export default function StudioFilters({
       </select>
       {children}
       {sessionDirectory && (
-        // Faces' eyes (a suggestion, never a reject): closed or partly, or
-        // in need of a check. Until turned on, the one entry starts it.
+        // Faces' eyes (a suggestion, never a reject): closed or partly,
+        // soft, or in need of a check. Until turned on, the one entry starts it.
         <select
           className="studio-eyes-filter"
           aria-label={t("studio.eyes.filter")}
@@ -137,13 +137,14 @@ export default function StudioFilters({
           value={eyeCheck ? (filter.eyes ?? "all") : "all"}
           onChange={(e) => {
             if (e.target.value === "start") void checkEyes(sessionDirectory);
-            else setFilter({ eyes: e.target.value as "all" | "closed" | "check" });
+            else setFilter({ eyes: e.target.value as "all" | "closed" | "soft" | "check" });
           }}
         >
           <option value="all">{t("studio.eyes.filterAll")}</option>
           {eyeCheck ? (
             <>
               <option value="closed">{t("studio.eyes.filterClosed")}</option>
+              <option value="soft">{t("studio.eyes.filterSoft")}</option>
               <option value="check">{t("studio.eyes.filterCheck")}</option>
             </>
           ) : (

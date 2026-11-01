@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import FaceBoxOverlay from './FaceBoxOverlay';
 import { LoupeFaces } from '../../studio/StudioEyes';
 import { useEditorStore } from '../../../store/useEditorStore';
-import { useEyesStore, type PhotoEyes } from '../../../store/useEyesStore';
+import { useEyesStore, type EyeFace, type PhotoEyes } from '../../../store/useEyesStore';
 import { useLibraryStore } from '../../../store/useLibraryStore';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { Invokes, type AppSettings } from '../../ui/AppProperties';
@@ -15,13 +15,16 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
 
 const PATH = '/job/a.arw';
-const face = (index: number, state: 'open' | 'closed' | 'uncertain') => ({
+const face = (index: number, state: 'open' | 'closed' | 'uncertain', focus: 'sharp' | 'soft' = 'sharp'): EyeFace => ({
   face: index,
   bbox: [0.1 + 0.3 * index, 0.2, 0.1, 0.2] as [number, number, number, number],
   state,
   ear: 0.2,
   accessories: 0,
   overrideState: null,
+  focus,
+  focusSigma: focus === 'soft' ? 2.2 : 1.2,
+  focusOverride: null,
 });
 let eyes: PhotoEyes = { faces: [face(0, 'open'), face(1, 'closed'), face(2, 'uncertain')], error: null };
 let shownCalls: { path: string; jsAdjustments: Record<string, unknown>; width: number; height: number; boxes: number[][] }[];
@@ -96,6 +99,17 @@ it('shows a face box while its crop is hovered, through the geometry, never by c
 
   fireEvent.mouseLeave(crop(2));
   expect(overlay()).toBeNull();
+});
+
+it('adds soft eyes to the face box words', async () => {
+  eyes = { faces: [face(0, 'open', 'soft'), face(1, 'open')], error: null };
+  renderLoupe();
+  await waitFor(() => expect(shownCalls).toHaveLength(1));
+  fireEvent.mouseEnter(crop(1));
+  expect(await screen.findByRole('img', { name: 'Face 1: Eyes open · Eyes soft (check focus)' })).toBeTruthy();
+  fireEvent.mouseLeave(crop(1));
+  fireEvent.mouseEnter(crop(2));
+  expect(await screen.findByRole('img', { name: 'Face 2: Eyes open' })).toBeTruthy();
 });
 
 it('pins a face by a click; again, Esc or another face lets go', async () => {

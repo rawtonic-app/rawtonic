@@ -809,6 +809,7 @@ pub fn run() {
             face_eyes::photo_eyes,
             face_eyes::photo_eye_summaries,
             face_eyes::set_face_eyes,
+            face_eyes::set_face_focus,
             face_eyes::face_eye_crops,
             face_eyes::face_boxes_shown,
             ai_faces::generate_ai_people_mask,

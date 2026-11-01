@@ -3599,6 +3599,14 @@
       "filterAll": "Todos os olhos",
       "filterCheck": "Olhos a rever",
       "filterClosed": "Olhos fechados",
+      "filterSoft": "Olhos desfocados",
+      "focus": {
+        "sharp": "Olhos nítidos",
+        "soft": "Olhos desfocados (verifique o foco)",
+        "uncertain": "Foco dos olhos não avaliado (rosto pequeno ou incerto)"
+      },
+      "focusLabel": "Rosto {{n}}, foco dos olhos: {{state}}",
+      "focusMenu": "Sua avaliação do foco para este rosto",
       "modelsMissing": "A verificação de olhos precisa dos modelos de rosto.",
       "noFaces": "Sem rostos",
       "showFace": "Mostrar o rosto {{n}} na foto",
@@ -3615,7 +3623,8 @@
         "check": "a verificar: {{n}}",
         "closed": "olhos fechados: {{n}}",
         "faces": "Rostos: {{n}}",
-        "notVisible": "olhos não visíveis: {{n}}"
+        "notVisible": "olhos não visíveis: {{n}}",
+        "soft": "olhos desfocados: {{n}}"
       },
       "useReading": "Usar a sugestão ({{state}})",
       "yourCall": "{{state}} (a sua indicação; sugestão: {{read}})"
@@ -4114,6 +4123,11 @@
         "and": "e",
         "cancel": "Cancelar",
         "choices": {
+          "eyeFocus": {
+            "sharp": "Nítidos",
+            "soft": "Desfocados",
+            "uncertain": "Não avaliado"
+          },
           "eyes": {
             "closed": "Fechados ou semicerrados",
             "notVisible": "Não visíveis",
@@ -4162,6 +4176,7 @@
           "details": "Qualquer texto exceto palavras-chave",
           "duplicate": "Duplicado (dados de imagem idênticos)",
           "exposure": "Velocidade do obturador (s)",
+          "eyeFocus": "Foco dos olhos",
           "eyes": "Olhos",
           "filename": "Nome do arquivo",
           "fileType": "Tipo de arquivo",

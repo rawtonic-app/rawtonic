@@ -3750,6 +3750,14 @@
       "filterAll": "Wszystkie oczy",
       "filterCheck": "Oczy: sprawdź",
       "filterClosed": "Oczy zamknięte",
+      "filterSoft": "Oczy nieostre",
+      "focus": {
+        "sharp": "Oczy ostre",
+        "soft": "Oczy nieostre (sprawdź ostrość)",
+        "uncertain": "Ostrość oczu nieoceniona (twarz mała lub niepewna)"
+      },
+      "focusLabel": "Twarz {{n}}, ostrość oczu: {{state}}",
+      "focusMenu": "Twoja ocena ostrości oczu tej twarzy",
       "modelsMissing": "Sprawdzanie oczu wymaga modeli twarzy.",
       "noFaces": "Brak twarzy",
       "showFace": "Pokaż twarz {{n}} na zdjęciu",
@@ -3766,7 +3774,8 @@
         "check": "do sprawdzenia: {{n}}",
         "closed": "oczy zamknięte: {{n}}",
         "faces": "Twarze: {{n}}",
-        "notVisible": "oczy niewidoczne: {{n}}"
+        "notVisible": "oczy niewidoczne: {{n}}",
+        "soft": "oczy nieostre: {{n}}"
       },
       "useReading": "Użyj sugestii ({{state}})",
       "yourCall": "{{state}} (Twoja ocena; sugestia: {{read}})"
@@ -4287,6 +4296,11 @@
         "and": "i",
         "cancel": "Anuluj",
         "choices": {
+          "eyeFocus": {
+            "sharp": "Ostre",
+            "soft": "Nieostre",
+            "uncertain": "Nieoceniona"
+          },
           "eyes": {
             "closed": "Zamknięte lub przymknięte",
             "notVisible": "Niewidoczne",
@@ -4335,6 +4349,7 @@
           "details": "Dowolny tekst poza słowami kluczowymi",
           "duplicate": "Duplikat (identyczne dane obrazu)",
           "exposure": "Czas naświetlania (s)",
+          "eyeFocus": "Ostrość oczu",
           "eyes": "Oczy",
           "filename": "Nazwa pliku",
           "fileType": "Typ pliku",

@@ -194,6 +194,8 @@ struct Facts {
     metadata: Metadata,
     capture: Option<Value>,
     eyes: Vec<(i64, Option<String>)>,
+    /// The photographer's eye-focus calls (faces without one left out).
+    focus: Vec<(i64, String)>,
     snapshots: BTreeSet<(String, String, String)>,
 }
 
@@ -274,6 +276,14 @@ impl Library {
             .prepare("SELECT face,override_state FROM face_eyes WHERE asset_id=? ORDER BY face")?
             .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
+        let focus = self
+            .conn
+            .prepare(
+                "SELECT face,focus_override FROM face_eyes
+                 WHERE asset_id=? AND focus_override IS NOT NULL ORDER BY face",
+            )?
+            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         // Of the photograph and of its virtual copies (by the copy's id).
         let snapshots = self
             .conn
@@ -300,6 +310,7 @@ impl Library {
                 .map(serde_json::to_value)
                 .transpose()?,
             eyes,
+            focus,
             snapshots,
         })
     }
@@ -331,7 +342,14 @@ impl Library {
             "captureTime".into(),
             hash(serde_json::to_string(&facts.capture)?),
         );
-        out.insert("eyes".into(), hash(serde_json::to_string(&facts.eyes)?));
+        // Eye-focus calls join the eyes' hash only when there are any, so
+        // a photograph imported before them keeps its hash.
+        let eyes = if facts.focus.is_empty() {
+            serde_json::to_string(&facts.eyes)?
+        } else {
+            serde_json::to_string(&(&facts.eyes, &facts.focus))?
+        };
+        out.insert("eyes".into(), hash(eyes));
         out.insert(
             "snapshots".into(),
             hash(serde_json::to_string(&facts.snapshots)?),
@@ -757,7 +775,7 @@ impl Library {
             if theirs.capture != ours.capture {
                 changes.push("captureTime");
             }
-            if theirs.eyes != ours.eyes {
+            if theirs.eyes != ours.eyes || theirs.focus != ours.focus {
                 changes.push("eyes");
             }
             if !theirs.snapshots.is_subset(&ours.snapshots) {

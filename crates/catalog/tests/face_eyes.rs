@@ -1,6 +1,7 @@
-//! Eyes per face (schema 21): readings recorded per reader version and
-//! file, the photographer's call winning and surviving a new reading, the
-//! Library's eye filters, and an older library taking them.
+//! Eyes per face (schema 21) and eye focus (schema 25): readings recorded
+//! per reader version and file, the photographer's calls winning and
+//! surviving a new reading, the Library's eye filters, and older libraries
+//! taking them.
 
 use rawtonic_catalog::face_eyes::EyeFace;
 use rawtonic_catalog::query::Rule;
@@ -28,7 +29,21 @@ fn face(x: f32, state: &str) -> EyeFace {
         state: state.into(),
         ear: Some(0.2),
         accessories: Some(0.01),
+        focus: None,
+        focus_sigma: None,
     }
+}
+
+fn focused(x: f32, focus: &str, sigma: f32) -> EyeFace {
+    EyeFace {
+        focus: Some(focus.into()),
+        focus_sigma: Some(sigma),
+        ..face(x, "open")
+    }
+}
+
+fn focus(value: &str) -> Rule {
+    serde_json::from_value(json!({"field": "eyeFocus", "op": "is", "value": value})).unwrap()
 }
 
 fn eyes(value: &str) -> Rule {
@@ -184,4 +199,107 @@ fn a_library_of_schema_20_opens_unread_and_takes_readings() {
         .query_row("SELECT count(*) FROM face_eyes", [], |r| r.get(0))
         .unwrap();
     assert_eq!(left, 0);
+}
+
+#[test]
+fn eye_focus_calls_win_filter_and_follow_their_face() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW"]);
+    let fp: Vec<_> = ids.iter().map(|id| fingerprint(&lib, id)).collect();
+    lib.record_eyes(
+        &ids[0],
+        2,
+        &fp[0],
+        Ok(&[focused(0.1, "soft", 2.4), focused(0.5, "uncertain", 1.6)]),
+    )
+    .unwrap();
+    lib.record_eyes(&ids[1], 2, &fp[1], Ok(&[focused(0.3, "sharp", 1.1)]))
+        .unwrap();
+    // An older reader's rows have no focus: never soft, never sharp.
+    lib.record_eyes(&ids[2], 2, &fp[2], Ok(&[face(0.3, "open")]))
+        .unwrap();
+    assert_eq!(names(lib.search(&focus("soft")).unwrap()), ["A.ARW"]);
+    assert_eq!(names(lib.search(&focus("sharp")).unwrap()), ["B.ARW"]);
+    let faces = lib.photo_eyes(&ids[0], 2).unwrap().faces.unwrap();
+    assert_eq!(faces[0].read.focus_sigma, Some(2.4));
+    assert_eq!(faces[0].effective_focus(), Some("soft"));
+    assert_eq!(
+        lib.photo_eyes(&ids[2], 2).unwrap().faces.unwrap()[0].effective_focus(),
+        None
+    );
+
+    // The photographer's call wins: the soft face is sharp after all, the
+    // uncertain one soft. Eyes and focus calls are independent.
+    lib.set_focus_override(&ids[0], 0, Some("sharp")).unwrap();
+    lib.set_focus_override(&ids[0], 1, Some("soft")).unwrap();
+    lib.set_eye_override(&ids[0], 1, Some("closed")).unwrap();
+    assert_eq!(names(lib.search(&focus("soft")).unwrap()), ["A.ARW"]);
+    assert_eq!(
+        names(lib.search(&focus("sharp")).unwrap()),
+        ["A.ARW", "B.ARW"]
+    );
+    assert!(lib.search(&focus("uncertain")).unwrap().is_empty());
+    let faces = lib.photo_eyes(&ids[0], 2).unwrap().faces.unwrap();
+    assert_eq!(faces[0].read.focus.as_deref(), Some("soft"));
+    assert_eq!(faces[0].effective_focus(), Some("sharp"));
+    assert_eq!(faces[1].effective(), "closed");
+    // Never "uncertain" as a call, never a face that is not there.
+    assert!(
+        lib.set_focus_override(&ids[0], 0, Some("uncertain"))
+            .is_err()
+    );
+    assert!(lib.set_focus_override(&ids[0], 9, Some("soft")).is_err());
+    assert!(
+        lib.record_eyes(&ids[1], 2, &fp[1], Ok(&[focused(0.3, "blurry", 3.0)]))
+            .is_err()
+    );
+
+    // Read again: a face more on the left; both calls follow their faces.
+    let again = [
+        focused(0.0, "sharp", 1.0),
+        focused(0.11, "soft", 2.5),
+        focused(0.49, "sharp", 1.2),
+    ];
+    lib.record_eyes(&ids[0], 3, &fp[0], Ok(&again)).unwrap();
+    let faces = lib.photo_eyes(&ids[0], 3).unwrap().faces.unwrap();
+    let calls: Vec<_> = faces.iter().map(|f| f.focus_override.as_deref()).collect();
+    assert_eq!(calls, [None, Some("sharp"), Some("soft")]);
+    assert_eq!(faces[2].override_state.as_deref(), Some("closed"));
+    // Cleared: the reading counts again.
+    lib.set_focus_override(&ids[0], 1, None).unwrap();
+    assert_eq!(
+        lib.photo_eyes(&ids[0], 3).unwrap().faces.unwrap()[1].effective_focus(),
+        Some("soft")
+    );
+    let not_soft: Rule =
+        serde_json::from_value(json!({"field": "eyeFocus", "op": "isNot", "value": "soft"}))
+            .unwrap();
+    assert_eq!(names(lib.search(&not_soft).unwrap()), ["B.ARW", "C.ARW"]);
+}
+
+#[test]
+fn a_library_of_schema_24_keeps_its_eyes_and_takes_eye_focus() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW"]);
+    let fp = fingerprint(&lib, &ids[0]);
+    lib.record_eyes(&ids[0], 1, &fp, Ok(&[face(0.1, "closed")]))
+        .unwrap();
+    lib.set_eye_override(&ids[0], 0, Some("open")).unwrap();
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0025.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    // The eyes and the call are kept; focus is not read yet.
+    let faces = lib.photo_eyes(&ids[0], 1).unwrap().faces.unwrap();
+    assert_eq!(faces[0].effective(), "open");
+    assert_eq!(faces[0].effective_focus(), None);
+    assert!(lib.search(&focus("soft")).unwrap().is_empty());
+    // A newer reader reads it again; the eyes call survives, focus arrives.
+    assert_eq!(lib.eye_backlog_count(2).unwrap(), 1);
+    lib.record_eyes(&ids[0], 2, &fp, Ok(&[focused(0.1, "soft", 2.0)]))
+        .unwrap();
+    let faces = lib.photo_eyes(&ids[0], 2).unwrap().faces.unwrap();
+    assert_eq!(faces[0].override_state.as_deref(), Some("open"));
+    assert_eq!(names(lib.search(&focus("soft")).unwrap()), ["A.ARW"]);
 }

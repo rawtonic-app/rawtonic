@@ -12,6 +12,10 @@ import { Invokes } from '../components/ui/AppProperties';
 /** A reader's call, or the photographer's (never "uncertain"). */
 export type EyeState = 'open' | 'closed' | 'notVisible' | 'uncertain';
 export type EyeCall = Exclude<EyeState, 'uncertain'>;
+/** Eye focus as read (soft or missed are one call), or the photographer's
+ * (never "uncertain"). */
+export type FocusState = 'sharp' | 'soft' | 'uncertain';
+export type FocusCall = Exclude<FocusState, 'uncertain'>;
 
 export interface EyeFace {
   face: number;
@@ -21,6 +25,11 @@ export interface EyeFace {
   ear: number | null;
   accessories: number | null;
   overrideState: EyeCall | null;
+  /** Null when read before eye focus was. */
+  focus: FocusState | null;
+  /** The edge sigma behind it (px at a fixed eye distance). */
+  focusSigma: number | null;
+  focusOverride: FocusCall | null;
 }
 
 export interface PhotoEyes {
@@ -34,10 +43,14 @@ export interface EyeSummary {
   closed: number;
   notVisible: number;
   uncertain: number;
+  /** Faces whose eyes are soft. */
+  soft: number;
 }
 
 /** The call that counts: the photographer's, else the reader's. */
 export const effectiveEyes = (face: EyeFace): EyeState => face.overrideState ?? face.state;
+/** The eye-focus call that counts (null: not read). */
+export const effectiveFocus = (face: EyeFace): FocusState | null => face.focusOverride ?? face.focus;
 
 /** How many paths one summary request asks about. */
 const SUMMARY_BATCH = 2000;
@@ -116,5 +129,12 @@ export const useEyesStore = create<EyesState>((set, get) => ({
 /** Sets the photographer's call on one face (null: the reading counts again). */
 export async function setFaceEyes(directory: string, path: string, face: number, state: EyeCall | null) {
   await invoke(Invokes.SetFaceEyes, { directory, path, face, state });
+  useEyesStore.getState().changed();
+}
+
+/** Sets the photographer's eye-focus call on one face (null: the reading
+ * counts again). */
+export async function setFaceFocus(directory: string, path: string, face: number, focus: FocusCall | null) {
+  await invoke(Invokes.SetFaceFocus, { directory, path, face, focus });
   useEyesStore.getState().changed();
 }

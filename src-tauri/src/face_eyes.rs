@@ -25,6 +25,7 @@ use base64::{Engine as _, engine::general_purpose};
 use image::{ImageDecoder, ImageFormat, RgbImage};
 use rawtonic_catalog::Library;
 use rawtonic_catalog::face_eyes::{EyeFace, PhotoEyes};
+use rawtonic_faces::focus::{self, FocusReading};
 use rawtonic_faces::{FaceModels, eyes};
 use serde::Serialize;
 use tauri::Emitter;
@@ -94,24 +95,55 @@ fn upright_preview(path: &Path) -> Result<RgbImage, String> {
     Ok(image.into_rgb8())
 }
 
+/// The version of what the pass reads: the eyes' reader and the eye-focus
+/// measure together (one pass reads both).
+pub const READER_VERSION: u32 = eyes::VERSION + focus::VERSION;
+
 /// Each face's eyes in `image`, left to right, boxes as fractions of it.
 pub fn read_image(image: &RgbImage, models: &FaceModels) -> anyhow::Result<Vec<EyeFace>> {
+    Ok(read_faces(image, models)?
+        .0
+        .into_iter()
+        .map(|(face, _)| face)
+        .collect())
+}
+
+/// `read_image` with each face's eye-focus measurement and the time the
+/// measurements took. Eye focus is measured on `image` itself, which the
+/// pass reads at full size (`upright_preview`); hidden eyes get no call.
+fn read_faces(
+    image: &RgbImage,
+    models: &FaceModels,
+) -> anyhow::Result<(Vec<(EyeFace, FocusReading)>, Duration)> {
     let analysis = rawtonic_faces::analyze(image, models)?;
     let (w, h) = (analysis.width as f32, analysis.height as f32);
-    Ok(analysis
+    let mut measured = Duration::ZERO;
+    let faces = analysis
         .faces
         .iter()
         .map(|face| {
             let reading = eyes::read(face);
+            let start = Instant::now();
+            let sharpness = match (&face.landmarks, reading.state) {
+                (_, eyes::EyeState::NotVisible) | (None, _) => FocusReading::NONE,
+                (Some(landmarks), _) => focus::read(image, landmarks, 1.0),
+            };
+            measured += start.elapsed();
             let [x, y, fw, fh] = face.detection.bbox;
-            EyeFace {
-                bbox: [x / w, y / h, fw / w, fh / h],
-                state: reading.state.as_str().into(),
-                ear: reading.ear,
-                accessories: reading.accessories,
-            }
+            (
+                EyeFace {
+                    bbox: [x / w, y / h, fw / w, fh / h],
+                    state: reading.state.as_str().into(),
+                    ear: reading.ear,
+                    accessories: reading.accessories,
+                    focus: Some(sharpness.state.as_str().into()),
+                    focus_sigma: sharpness.sigma,
+                },
+                sharpness,
+            )
         })
-        .collect())
+        .collect();
+    Ok((faces, measured))
 }
 
 /// Reads every photograph of the library at `directory` the catalog has no
@@ -124,7 +156,7 @@ fn run_pass(
     cancel: &AtomicBool,
     counts: &mut (usize, usize),
 ) -> anyhow::Result<()> {
-    let total = Library::open(directory)?.eye_backlog_count(eyes::VERSION)?;
+    let total = Library::open(directory)?.eye_backlog_count(READER_VERSION)?;
     let (read, failed) = counts;
     // Photographs whose file is not there now (a drive going away while the
     // pass runs): left unread, not taken again in this pass.
@@ -140,7 +172,7 @@ fn run_pass(
     'pass: while !cancel.load(Ordering::Acquire) {
         let lib = Library::open(directory)?;
         let work: Vec<_> = lib
-            .eye_backlog(eyes::VERSION, PASS_BATCH + skipped.len())?
+            .eye_backlog(READER_VERSION, PASS_BATCH + skipped.len())?
             .into_iter()
             .filter(|w| !skipped.contains(&w.id))
             .take(PASS_BATCH)
@@ -164,12 +196,12 @@ fn run_pass(
             };
             match &reading {
                 Ok(faces) => {
-                    lib.record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Ok(faces))?;
+                    lib.record_eyes(&item.id, READER_VERSION, &item.fingerprint, Ok(faces))?;
                     *read += 1;
                 }
                 Err(error) => {
                     log::warn!("Eyes not read for {}: {error}", item.path.display());
-                    lib.record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Err(error))?;
+                    lib.record_eyes(&item.id, READER_VERSION, &item.fingerprint, Err(error))?;
                     *failed += 1;
                 }
             }
@@ -267,7 +299,7 @@ pub async fn start_eye_check(
         return Ok(());
     }
     let backlog = with_library(directory.clone(), false, |lib| {
-        lib.eye_backlog_count(eyes::VERSION)
+        lib.eye_backlog_count(READER_VERSION)
             .map_err(|e| e.to_string())
     })
     .await
@@ -340,7 +372,7 @@ fn asset_id(lib: &Library, path: &str) -> Result<String, String> {
 pub async fn photo_eyes(directory: String, path: String) -> Result<PhotoEyes, String> {
     with_library(directory, false, move |lib| {
         let id = asset_id(lib, &path)?;
-        lib.photo_eyes(&id, eyes::VERSION)
+        lib.photo_eyes(&id, READER_VERSION)
             .map_err(|e| e.to_string())
     })
     .await
@@ -348,8 +380,8 @@ pub async fn photo_eyes(directory: String, path: String) -> Result<PhotoEyes, St
 }
 
 /// What the Library shows on a photograph: its faces and how many of
-/// them have their eyes closed (or partly), hidden, or need a check, by
-/// the photographer's call where made.
+/// them have their eyes closed (or partly), hidden, or need a check, and
+/// how many have soft eyes, by the photographer's call where made.
 #[derive(Serialize, Debug, Default, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct EyeSummary {
@@ -357,6 +389,7 @@ pub struct EyeSummary {
     pub closed: usize,
     pub not_visible: usize,
     pub uncertain: usize,
+    pub soft: usize,
 }
 
 /// `EyeSummary` of each of `paths` that has a current reading (keyed by
@@ -376,7 +409,7 @@ pub async fn photo_eye_summaries(
         let read = lib
             .photos_eyes(
                 &ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
-                eyes::VERSION,
+                READER_VERSION,
             )
             .map_err(|e| e.to_string())?;
         let mut out = HashMap::new();
@@ -392,6 +425,10 @@ pub async fn photo_eye_summaries(
                     closed: count("closed"),
                     not_visible: count("notVisible"),
                     uncertain: count("uncertain"),
+                    soft: faces
+                        .iter()
+                        .filter(|f| f.effective_focus() == Some("soft"))
+                        .count(),
                 },
             );
         }
@@ -415,6 +452,28 @@ pub async fn set_face_eyes(
     with_library(directory, true, move |lib| {
         let id = asset_id(lib, &path)?;
         lib.set_eye_override(&id, face, state.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    emit(EYES_CHANGED, changed);
+    Ok(())
+}
+
+/// Sets the photographer's eye-focus call on face `face` of the
+/// photograph at `path` (`sharp`, `soft`), or with `None` gives the
+/// reading back. Announces the change, so filters follow it.
+#[tauri::command]
+pub async fn set_face_focus(
+    directory: String,
+    path: String,
+    face: u32,
+    focus: Option<String>,
+) -> Result<(), String> {
+    let changed = PathBuf::from(&directory);
+    with_library(directory, true, move |lib| {
+        let id = asset_id(lib, &path)?;
+        lib.set_focus_override(&id, face, focus.as_deref())
             .map_err(|e| e.to_string())
     })
     .await
@@ -527,10 +586,12 @@ mod tests {
             state: state.into(),
             ear: Some(0.1),
             accessories: Some(0.0),
+            focus: Some(if state == "open" { "soft" } else { "sharp" }.into()),
+            focus_sigma: Some(2.0),
         };
         lib.record_eyes(
             &asset.id,
-            eyes::VERSION,
+            READER_VERSION,
             &asset.fingerprint,
             Ok(&[face("closed"), face("uncertain"), face("open")]),
         )
@@ -544,6 +605,7 @@ mod tests {
             closed: 1,
             not_visible: 0,
             uncertain: 1,
+            soft: 1,
         };
         assert_eq!(summaries(vec![path.clone()])[&path], summary);
         // A virtual copy is its photograph; an unknown file has no summary.
@@ -568,11 +630,36 @@ mod tests {
             ))
             .is_err()
         );
-        let eyes = block_on(photo_eyes(directory, path)).unwrap();
-        assert_eq!(
-            eyes.faces.unwrap()[1].override_state.as_deref(),
-            Some("closed")
+        // Eye focus: the soft face called sharp, another called soft.
+        block_on(set_face_focus(
+            directory.clone(),
+            path.clone(),
+            2,
+            Some("sharp".into()),
+        ))
+        .unwrap();
+        block_on(set_face_focus(
+            directory.clone(),
+            path.clone(),
+            0,
+            Some("soft".into()),
+        ))
+        .unwrap();
+        assert_eq!(summaries(vec![path.clone()])[&path].soft, 1);
+        assert!(
+            block_on(set_face_focus(
+                directory.clone(),
+                path.clone(),
+                0,
+                Some("uncertain".into())
+            ))
+            .is_err()
         );
+        let eyes = block_on(photo_eyes(directory, path)).unwrap();
+        let faces = eyes.faces.unwrap();
+        assert_eq!(faces[1].override_state.as_deref(), Some("closed"));
+        assert_eq!(faces[0].effective_focus(), Some("soft"));
+        assert_eq!(faces[2].effective_focus(), Some("sharp"));
     }
 
     #[test]
@@ -599,10 +686,11 @@ mod tests {
         assert!(may_start(Path::new("/A"), false));
     }
 
-    /// Reads the eyes of every photograph in `FACE_PHOTOS` (one level of
-    /// subfolders) exactly as the pass does (preview, upright, analysis,
-    /// call), writing one JSON line per photograph to `FACE_OUT` (a new file) with the
-    /// time per step (notes: benchmark-results/fqb-eyes-2026-10-31/).
+    /// Reads the eyes and eye focus of every photograph in `FACE_PHOTOS`
+    /// (one level of subfolders) exactly as the pass does (preview,
+    /// upright, analysis, calls), writing one JSON line per photograph to
+    /// `FACE_OUT` (a new file) with the time per step (notes:
+    /// benchmark-results/fqb-eyes-2026-10-31/, foc-eye-focus-2026-11-01/).
     /// Needs `FACE_MODELS` and `ORT_DYLIB_PATH`.
     ///
     /// cargo test -p rawtonic-app --release --lib reads_eyes_of_real_photos -- --ignored --nocapture
@@ -648,8 +736,11 @@ mod tests {
             let image = upright_preview(&file).unwrap();
             let preview_ms = start.elapsed().as_secs_f64() * 1e3;
             let start = Instant::now();
-            let faces = read_image(&image, &models).unwrap();
+            let (read, measured) = read_faces(&image, &models).unwrap();
             let read_ms = start.elapsed().as_secs_f64() * 1e3;
+            let focus_ms = measured.as_secs_f64() * 1e3;
+            let focus: Vec<_> = read.iter().map(|(_, f)| *f).collect();
+            let faces: Vec<_> = read.into_iter().map(|(f, _)| f).collect();
             let name = file.strip_prefix(&photos).unwrap().to_string_lossy();
             println!(
                 "{name}: {} faces, preview {preview_ms:.0} ms, read {read_ms:.0} ms",
@@ -658,6 +749,7 @@ mod tests {
             let line = serde_json::json!({
                 "file": name, "width": image.width(), "height": image.height(),
                 "preview_ms": preview_ms, "read_ms": read_ms, "faces": faces,
+                "focus": focus, "focus_ms": focus_ms,
             });
             writeln!(lines, "{line}").unwrap();
         }

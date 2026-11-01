@@ -1,0 +1,11 @@
+-- Eye focus per face for culling (rawtonic_faces::focus), read by the same
+-- background pass as the eyes: `face_eyes.focus` the reader's call
+-- (`sharp`, `soft`, `uncertain`), `focus_sigma` its measurement (edge
+-- sigma of the sharper eye at a fixed eye distance, px), `focus_override`
+-- the photographer's own call, which wins everywhere and is carried to the
+-- same face when the photograph is read again, as `override_state` is.
+-- Rows of an older reader keep NULL here until the pass reads the
+-- photograph again (its reader version went up). The columns are added
+-- before this script runs (`Library::add_missing_columns`). No file is read
+-- or written here.
+PRAGMA user_version=25;

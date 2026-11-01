@@ -3599,6 +3599,14 @@
       "filterAll": "Tous les yeux",
       "filterCheck": "Yeux à vérifier",
       "filterClosed": "Yeux fermés",
+      "filterSoft": "Yeux flous",
+      "focus": {
+        "sharp": "Yeux nets",
+        "soft": "Yeux flous (vérifier la mise au point)",
+        "uncertain": "Netteté des yeux non évaluée (visage petit ou incertain)"
+      },
+      "focusLabel": "Visage {{n}}, netteté des yeux : {{state}}",
+      "focusMenu": "Votre avis sur la netteté des yeux de ce visage",
       "modelsMissing": "La vérification des yeux nécessite les modèles de visage.",
       "noFaces": "Aucun visage",
       "showFace": "Montrer le visage {{n}} sur la photo",
@@ -3615,7 +3623,8 @@
         "check": "à vérifier : {{n}}",
         "closed": "yeux fermés : {{n}}",
         "faces": "Visages : {{n}}",
-        "notVisible": "yeux non visibles : {{n}}"
+        "notVisible": "yeux non visibles : {{n}}",
+        "soft": "yeux flous : {{n}}"
       },
       "useReading": "Utiliser la suggestion ({{state}})",
       "yourCall": "{{state}} (votre choix ; suggestion : {{read}})"
@@ -4114,6 +4123,11 @@
         "and": "et",
         "cancel": "Annuler",
         "choices": {
+          "eyeFocus": {
+            "sharp": "Nets",
+            "soft": "Flous",
+            "uncertain": "Non évaluée"
+          },
           "eyes": {
             "closed": "Fermés ou mi-clos",
             "notVisible": "Non visibles",
@@ -4162,6 +4176,7 @@
           "details": "Tout texte sauf les mots-clés",
           "duplicate": "Doublon (données d'image identiques)",
           "exposure": "Vitesse d’obturation (s)",
+          "eyeFocus": "Netteté des yeux",
           "eyes": "Yeux",
           "filename": "Nom de fichier",
           "fileType": "Type de fichier",

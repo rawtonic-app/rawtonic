@@ -3,28 +3,33 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { CircleQuestionMark, Eye, EyeClosed, Glasses } from "lucide-react";
+import { CircleDashed, CircleQuestionMark, Eye, EyeClosed, Focus, Glasses } from "lucide-react";
 import { notify } from "../../activity/notify";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import {
   effectiveEyes,
+  effectiveFocus,
   markedFace,
   setFaceEyes,
+  setFaceFocus,
   useEyesStore,
   type EyeCall,
   type EyeState,
   type EyeSummary,
+  type FocusCall,
+  type FocusState,
   type PhotoEyes,
 } from "../../store/useEyesStore";
 import { Invokes } from "../ui/AppProperties";
 
 /**
  * Eyes per face for culling (`face_eyes`): a badge on each photograph with
- * a face whose eyes are closed or need a check, the Loupe's summary and its
- * faces with their eyes, each call open to the photographer's own. Closed or
- * partly closed is amber, not visible grey, uncertain an outlined "?"; open
- * eyes need no badge. A suggestion only: nothing is rejected or removed.
+ * a face whose eyes are closed, soft or need a check, the Loupe's summary
+ * and its faces with their eyes and eye focus, each call open to the
+ * photographer's own. Closed or partly closed is amber, not visible grey,
+ * uncertain an outlined "?", soft eyes a dashed circle; open, sharp eyes
+ * need no badge. A suggestion only: nothing is rejected or removed.
  */
 
 export const EYE_ICONS: Record<EyeState, typeof Eye> = {
@@ -33,6 +38,23 @@ export const EYE_ICONS: Record<EyeState, typeof Eye> = {
   notVisible: Glasses,
   uncertain: CircleQuestionMark,
 };
+
+export const FOCUS_ICONS: Record<FocusState, typeof Eye> = {
+  sharp: Focus,
+  soft: CircleDashed,
+  uncertain: Focus,
+};
+
+export function focusLabel(t: TFunction, focus: FocusState) {
+  switch (focus) {
+    case "sharp":
+      return t("studio.eyes.focus.sharp");
+    case "soft":
+      return t("studio.eyes.focus.soft");
+    default:
+      return t("studio.eyes.focus.uncertain");
+  }
+}
 
 export function stateLabel(t: TFunction, state: EyeState) {
   switch (state) {
@@ -47,35 +69,44 @@ export function stateLabel(t: TFunction, state: EyeState) {
   }
 }
 
-/** "Faces 14 · eyes closed 2 · check 3 · not visible 1", what applies. */
+/** "Faces 14 · eyes closed 2 · eyes soft 1 · check 3 · not visible 1", what
+ * applies. */
 export function eyeSummaryText(t: TFunction, summary: EyeSummary): string {
   if (summary.faces === 0) return t("studio.eyes.noFaces");
   const parts = [t("studio.eyes.summary.faces", { n: summary.faces.toLocaleString() })];
   if (summary.closed) parts.push(t("studio.eyes.summary.closed", { n: summary.closed.toLocaleString() }));
+  if (summary.soft) parts.push(t("studio.eyes.summary.soft", { n: summary.soft.toLocaleString() }));
   if (summary.uncertain) parts.push(t("studio.eyes.summary.check", { n: summary.uncertain.toLocaleString() }));
   if (summary.notVisible)
     parts.push(t("studio.eyes.summary.notVisible", { n: summary.notVisible.toLocaleString() }));
   return parts.join(" · ");
 }
 
-/** A grid tile's or compare cell's badge: closed eyes (amber, "2/14") or,
- * without any, faces that need a check ("?"). Nothing otherwise. */
+/** A grid tile's or compare cell's badge: closed eyes (amber, "2/14"),
+ * else soft eyes (dashed circle, "1/14"), else faces that need a check
+ * ("?"). Nothing otherwise. */
 export function PhotoEyesBadge({ path, compact }: { path: string; compact?: boolean }) {
   const { t } = useTranslation();
   const summary = useEyesStore((s) => s.summaries[path]);
-  if (!summary || (!summary.closed && !summary.uncertain)) return null;
-  const closed = summary.closed > 0;
-  const Icon = closed ? EyeClosed : CircleQuestionMark;
+  if (!summary || (!summary.closed && !summary.soft && !summary.uncertain)) return null;
+  const kind = summary.closed ? "closed" : summary.soft ? "soft" : "uncertain";
+  const Icon = kind === "closed" ? EyeClosed : kind === "soft" ? CircleDashed : CircleQuestionMark;
+  const count =
+    kind === "closed"
+      ? `${summary.closed}/${summary.faces}`
+      : kind === "soft"
+        ? `${summary.soft}/${summary.faces}`
+        : summary.uncertain;
   const text = eyeSummaryText(t, summary);
   return (
     <span
-      className={`studio-eyes-badge ${closed ? "is-closed" : "is-uncertain"}`}
+      className={`studio-eyes-badge is-${kind}`}
       role="img"
       aria-label={text}
       title={`${text}\n${t("studio.eyes.suggestion")}`}
     >
       <Icon size={11} />
-      {!compact && <span>{closed ? `${summary.closed}/${summary.faces}` : summary.uncertain}</span>}
+      {!compact && <span>{count}</span>}
     </span>
   );
 }
@@ -108,9 +139,14 @@ export function LoupeFaces({ path }: { path?: string }) {
   const read = usePhotoEyes(path);
   const faces = read?.eyes.faces;
   const [crops, setCrops] = useState<{ key: string; urls: string[] } | null>(null);
-  // The open call menu: its face and where it opens (above the button: the
-  // strip sits at the bottom of the Loupe).
-  const [menu, setMenu] = useState<{ index: number; left: number; bottom: number } | null>(null);
+  // The open call menu: its face, which call (eyes or eye focus) and where
+  // it opens (above the button: the strip sits at the bottom of the Loupe).
+  const [menu, setMenu] = useState<{
+    index: number;
+    kind: "eyes" | "focus";
+    left: number;
+    bottom: number;
+  } | null>(null);
   const strip = useRef<HTMLDivElement>(null);
   // Crops follow the boxes, not the calls: a call keeps its picture.
   const key = useMemo(
@@ -160,12 +196,28 @@ export function LoupeFaces({ path }: { path?: string }) {
     closed: faces.filter((f) => effectiveEyes(f) === "closed").length,
     notVisible: faces.filter((f) => effectiveEyes(f) === "notVisible").length,
     uncertain: faces.filter((f) => effectiveEyes(f) === "uncertain").length,
+    soft: faces.filter((f) => effectiveFocus(f) === "soft").length,
   };
   const urls = crops?.key === key ? crops.urls : [];
   const call = (face: number, state: EyeCall | null) => {
     setMenu(null);
     setFaceEyes(read.directory, path, face, state).catch((error) =>
       notify.error(t("studio.eyes.callFailed", { error: String(error) })),
+    );
+  };
+  const callFocus = (face: number, focus: FocusCall | null) => {
+    setMenu(null);
+    setFaceFocus(read.directory, path, face, focus).catch((error) =>
+      notify.error(t("studio.eyes.callFailed", { error: String(error) })),
+    );
+  };
+  /** Opens (or closes) face `index`'s menu for `kind` above its button. */
+  const toggleMenu = (index: number, kind: "eyes" | "focus", button: HTMLElement) => {
+    const rect = button.getBoundingClientRect();
+    setMenu(
+      menu?.index === index && menu.kind === kind
+        ? null
+        : { index, kind, left: rect.left, bottom: window.innerHeight - rect.top + 6 },
     );
   };
   return (
@@ -199,11 +251,19 @@ export function LoupeFaces({ path }: { path?: string }) {
           const title = face.overrideState
             ? t("studio.eyes.yourCall", { state: label, read: stateLabel(t, face.state) })
             : t("studio.eyes.asRead", { state: label });
+          const focus = effectiveFocus(face);
+          const FocusIcon = focus ? FOCUS_ICONS[focus] : null;
+          const focusText = focus ? focusLabel(t, focus) : "";
+          const focusTitle = !focus
+            ? ""
+            : face.focusOverride && face.focus
+              ? t("studio.eyes.yourCall", { state: focusText, read: focusLabel(t, face.focus) })
+              : t("studio.eyes.asRead", { state: focusText });
           return (
             <div
               key={face.face}
               role="listitem"
-              className={`studio-loupe-face is-${state}${marked === index ? " is-marked" : ""}${pinned === index ? " is-pinned" : ""}`}
+              className={`studio-loupe-face is-${state}${focus === "soft" ? " is-soft" : ""}${marked === index ? " is-marked" : ""}${pinned === index ? " is-pinned" : ""}`}
             >
               {/* Hover shows the face's box on the photograph, a click keeps
                   it shown (again, Esc or another face lets go); the arrow
@@ -232,20 +292,57 @@ export function LoupeFaces({ path }: { path?: string }) {
                 className={`studio-eye-call is-${state} ${face.overrideState ? "is-own" : ""}`}
                 aria-label={t("studio.eyes.faceLabel", { n: index + 1, state: label })}
                 aria-haspopup="menu"
-                aria-expanded={menu?.index === index}
+                aria-expanded={menu?.index === index && menu.kind === "eyes"}
                 title={title}
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setMenu(
-                    menu?.index === index
-                      ? null
-                      : { index, left: rect.left, bottom: window.innerHeight - rect.top + 6 },
-                  );
-                }}
+                onClick={(e) => toggleMenu(index, "eyes", e.currentTarget)}
               >
                 <Icon size={12} />
               </button>
-              {menu?.index === index && (
+              {focus && FocusIcon && (
+                // Eye focus beside the eyes call (read with them; none from
+                // a reading before eye focus).
+                <button
+                  className={`studio-focus-call is-${focus} ${face.focusOverride ? "is-own" : ""}`}
+                  aria-label={t("studio.eyes.focusLabel", { n: index + 1, state: focusText })}
+                  aria-haspopup="menu"
+                  aria-expanded={menu?.index === index && menu.kind === "focus"}
+                  title={focusTitle}
+                  onClick={(e) => toggleMenu(index, "focus", e.currentTarget)}
+                >
+                  <FocusIcon size={12} />
+                </button>
+              )}
+              {menu?.index === index && menu.kind === "focus" && face.focus && (
+                <div
+                  className="studio-eye-menu"
+                  role="menu"
+                  aria-label={t("studio.eyes.focusMenu")}
+                  style={{ left: menu.left, bottom: menu.bottom }}
+                >
+                  {(["sharp", "soft"] as const).map((option) => {
+                    const OptionIcon = FOCUS_ICONS[option];
+                    return (
+                      <button
+                        key={option}
+                        role="menuitemradio"
+                        aria-checked={face.focusOverride === option}
+                        onClick={() => callFocus(face.face, option)}
+                      >
+                        <OptionIcon size={12} />
+                        {focusLabel(t, option)}
+                      </button>
+                    );
+                  })}
+                  <button
+                    role="menuitemradio"
+                    aria-checked={face.focusOverride === null}
+                    onClick={() => callFocus(face.face, null)}
+                  >
+                    {t("studio.eyes.useReading", { state: focusLabel(t, face.focus) })}
+                  </button>
+                </div>
+              )}
+              {menu?.index === index && menu.kind === "eyes" && (
                 <div
                   className="studio-eye-menu"
                   role="menu"

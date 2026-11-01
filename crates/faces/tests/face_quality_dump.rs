@@ -2,9 +2,10 @@
 //! Writes what `analyze` finds per face (box, keypoints, the 478 landmarks
 //! or none) as one JSON line per photo, with the analysis time, for scoring
 //! eye openness and eye sharpness outside the app (notes:
-//! benchmark-results/fq-face-quality-2026-10-31/), and the app's own call
-//! per face (`eyes::read`, with its time) for measuring what ships
-//! (benchmark-results/fqb-eyes-2026-10-31/). Ignored: needs the
+//! benchmark-results/fq-face-quality-2026-10-31/), and the app's own calls
+//! per face (`eyes::read` and `focus::read` on the full-size photo, with
+//! their time) for measuring what ships (benchmark-results/
+//! fqb-eyes-2026-10-31/, foc-eye-focus-2026-11-01/). Ignored: needs the
 //! models (`FACE_MODELS`), ONNX Runtime (`ORT_DYLIB_PATH`), photos
 //! (`FACE_PHOTOS`, a folder of JPEG files, one level of subfolders per
 //! shoot) and the output file (`FACE_OUT`, which must not exist yet).
@@ -17,7 +18,7 @@ use std::time::Instant;
 
 use image::ImageDecoder;
 use rawtonic_faces::parse::Class;
-use rawtonic_faces::{FaceModels, analyze, eyes};
+use rawtonic_faces::{FaceModels, analyze, eyes, focus};
 use serde_json::json;
 
 fn env(name: &str) -> Option<PathBuf> {
@@ -112,9 +113,17 @@ fn dumps_faces_of_real_photos() {
                 let start = Instant::now();
                 let reading = eyes::read(f);
                 let read_us = start.elapsed().as_secs_f64() * 1e6;
+                let start = Instant::now();
+                let sharpness = f
+                    .landmarks
+                    .as_deref()
+                    .map(|lm| focus::read(&image, lm, 1.0));
+                let focus_us = start.elapsed().as_secs_f64() * 1e6;
                 json!({
                     "eyes": reading,
                     "eyes_us": read_us,
+                    "focus": sharpness,
+                    "focus_us": focus_us,
                     "eye_parse": eye_parse,
                     "score": f.detection.score,
                     "bbox": f.detection.bbox,

@@ -3354,6 +3354,14 @@
       "filterAll": "すべての目",
       "filterCheck": "目：要確認",
       "filterClosed": "目を閉じている",
+      "filterSoft": "目のピントが甘い",
+      "focus": {
+        "sharp": "目にピントが合っている",
+        "soft": "目のピントが甘い（ピントを確認）",
+        "uncertain": "目のピントは判定なし（顔が小さいか不確か）"
+      },
+      "focusLabel": "顔 {{n}} の目のピント: {{state}}",
+      "focusMenu": "この顔の目のピントの判定",
       "modelsMissing": "目の確認には顔モデルが必要です。",
       "noFaces": "顔なし",
       "showFace": "顔 {{n}} を写真上に表示",
@@ -3370,7 +3378,8 @@
         "check": "要確認：{{n}}",
         "closed": "閉じた目：{{n}}",
         "faces": "顔：{{n}}",
-        "notVisible": "見えない目：{{n}}"
+        "notVisible": "見えない目：{{n}}",
+        "soft": "目のピントが甘い: {{n}}"
       },
       "useReading": "提案を使う（{{state}}）",
       "yourCall": "{{state}}（あなたの指定。提案：{{read}}）"
@@ -3825,6 +3834,11 @@
         "and": "～",
         "cancel": "キャンセル",
         "choices": {
+          "eyeFocus": {
+            "sharp": "合っている",
+            "soft": "甘い",
+            "uncertain": "判定なし"
+          },
           "eyes": {
             "closed": "閉じている・半目",
             "notVisible": "見えない",
@@ -3873,6 +3887,7 @@
           "details": "キーワード以外の任意のテキスト",
           "duplicate": "重複（同一の画像データ）",
           "exposure": "シャッタースピード（秒）",
+          "eyeFocus": "目のピント",
           "eyes": "目",
           "filename": "ファイル名",
           "fileType": "ファイルの種類",

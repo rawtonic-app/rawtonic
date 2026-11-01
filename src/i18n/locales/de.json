@@ -3447,6 +3447,14 @@
       "filterAll": "Alle Augen",
       "filterCheck": "Augen: prüfen",
       "filterClosed": "Augen geschlossen",
+      "filterSoft": "Augen unscharf",
+      "focus": {
+        "sharp": "Augen scharf",
+        "soft": "Augen unscharf (Fokus prüfen)",
+        "uncertain": "Augenschärfe nicht beurteilt (Gesicht klein oder unsicher)"
+      },
+      "focusLabel": "Gesicht {{n}} Augenschärfe: {{state}}",
+      "focusMenu": "Ihre Einschätzung der Augenschärfe für dieses Gesicht",
       "modelsMissing": "Für die Augenprüfung werden die Gesichtsmodelle gebraucht.",
       "noFaces": "Keine Gesichter",
       "showFace": "Gesicht {{n}} auf dem Foto zeigen",
@@ -3463,7 +3471,8 @@
         "check": "zu prüfen: {{n}}",
         "closed": "Augen zu: {{n}}",
         "faces": "Gesichter: {{n}}",
-        "notVisible": "Augen nicht sichtbar: {{n}}"
+        "notVisible": "Augen nicht sichtbar: {{n}}",
+        "soft": "Augen unscharf: {{n}}"
       },
       "useReading": "Vorschlag verwenden ({{state}})",
       "yourCall": "{{state}} (deine Angabe; Vorschlag: {{read}})"
@@ -3940,6 +3949,11 @@
         "and": "und",
         "cancel": "Abbrechen",
         "choices": {
+          "eyeFocus": {
+            "sharp": "Scharf",
+            "soft": "Unscharf",
+            "uncertain": "Nicht beurteilt"
+          },
           "eyes": {
             "closed": "Geschlossen oder halb geschlossen",
             "notVisible": "Nicht sichtbar",
@@ -3988,6 +4002,7 @@
           "details": "Beliebiger Text außer Stichwörtern",
           "duplicate": "Duplikat (identische Bilddaten)",
           "exposure": "Belichtungszeit (s)",
+          "eyeFocus": "Augenschärfe",
           "eyes": "Augen",
           "filename": "Dateiname",
           "fileType": "Dateityp",

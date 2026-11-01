@@ -113,6 +113,10 @@ pub enum Field {
     /// check), `notVisible` or `open`; a photograph matches when one of its
     /// faces does.
     Eyes,
+    /// A face's eye focus as the photographer called it, else as read
+    /// (`face_eyes.focus`): `soft`, `sharp` or `uncertain` (no call); a
+    /// photograph matches when one of its faces does.
+    EyeFocus,
 }
 
 /// How a condition compares.
@@ -1065,6 +1069,24 @@ impl<'a> Compiler<'a> {
                     Op::Is => Ok(test),
                     Op::IsNot => Ok(format!("NOT {test}")),
                     _ => bail!("Use is / is not for eyes"),
+                }
+            }
+            Field::EyeFocus => {
+                let parts = names(value)?
+                    .iter()
+                    .map(|name| {
+                        let state = crate::face_eyes::FOCUS_STATES
+                            .iter()
+                            .find(|s| **s == name.as_str())
+                            .with_context(|| format!("Unknown eye focus {name}"))?;
+                        Ok(crate::face_eyes::has_focus_sql(state))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let test = format!("({})", parts.join(" OR "));
+                match op {
+                    Op::Is => Ok(test),
+                    Op::IsNot => Ok(format!("NOT {test}")),
+                    _ => bail!("Use is / is not for eye focus"),
                 }
             }
             Field::Album => {

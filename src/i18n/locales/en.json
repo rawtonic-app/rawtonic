@@ -3447,6 +3447,14 @@
       "filterAll": "All eyes",
       "filterCheck": "Eyes to check",
       "filterClosed": "Eyes closed",
+      "filterSoft": "Eyes soft",
+      "focus": {
+        "sharp": "Eyes sharp",
+        "soft": "Eyes soft (check focus)",
+        "uncertain": "Eye focus not judged (face small or uncertain)"
+      },
+      "focusLabel": "Face {{n}} eye focus: {{state}}",
+      "focusMenu": "Your eye-focus call for this face",
       "modelsMissing": "Checking eyes needs the face models.",
       "noFaces": "No faces",
       "showFace": "Show face {{n}} on the photo",
@@ -3463,7 +3471,8 @@
         "check": "to check: {{n}}",
         "closed": "eyes closed: {{n}}",
         "faces": "Faces: {{n}}",
-        "notVisible": "eyes not visible: {{n}}"
+        "notVisible": "eyes not visible: {{n}}",
+        "soft": "eyes soft: {{n}}"
       },
       "useReading": "Use the suggestion ({{state}})",
       "yourCall": "{{state}} (your call; suggested: {{read}})"
@@ -3940,6 +3949,11 @@
         "and": "and",
         "cancel": "Cancel",
         "choices": {
+          "eyeFocus": {
+            "sharp": "Sharp",
+            "soft": "Soft",
+            "uncertain": "Not judged"
+          },
           "eyes": {
             "closed": "Closed or partly closed",
             "notVisible": "Not visible",
@@ -3988,6 +4002,7 @@
           "details": "Any text but keywords",
           "duplicate": "Duplicate (identical image data)",
           "exposure": "Shutter speed (s)",
+          "eyeFocus": "Eye focus",
           "eyes": "Eyes",
           "filename": "File name",
           "fileType": "File type",

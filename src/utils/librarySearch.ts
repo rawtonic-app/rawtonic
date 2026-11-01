@@ -34,7 +34,8 @@ export type Field =
   | 'duplicate'
   | 'ai'
   | 'sourceType'
-  | 'eyes';
+  | 'eyes'
+  | 'eyeFocus';
 
 export type Op =
   | 'contains'
@@ -167,10 +168,12 @@ export const textRules = (text: string): Rule[] =>
   text.trim() ? [{ field: 'text', op: 'contains', value: text.trim() }] : [];
 
 /** The Library's eye filter as a rule: a face whose eyes are closed (or
- * partly; uncertain ones never count), or one that needs a check, by the
+ * partly; uncertain ones never count), a face whose eyes are soft (no
+ * uncertain focus call counts), or one that needs a check, by the
  * photographer's call where made. */
 export function eyesRules(eyes: FilterCriteria['eyes']): Rule[] {
   if (eyes === 'closed') return [{ field: 'eyes', op: 'is', value: 'closed' }];
+  if (eyes === 'soft') return [{ field: 'eyeFocus', op: 'is', value: 'soft' }];
   if (eyes === 'check') return [{ field: 'eyes', op: 'is', value: 'uncertain' }];
   return [];
 }
