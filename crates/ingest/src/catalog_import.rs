@@ -316,7 +316,7 @@ pub fn import(
                         .iter()
                         .any(|m| set.contains(m.asset_id.as_str()))
                 };
-                any(&used) || any(&stack_replaced)
+                any(&used) || (any(&stack_replaced) && !any(&stack_left))
             })
             .map(|(_, here)| here.clone())
             .collect();

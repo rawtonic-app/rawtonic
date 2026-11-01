@@ -546,6 +546,23 @@ fn a_stack_unstacked_here_stays_so_after_other_imports_and_with_edits_on_a_membe
 }
 
 #[test]
+fn a_new_stack_there_is_not_made_when_one_of_its_photographs_is_kept() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    w.laptop.group_stack(&[a.clone(), b.clone()]).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    let receipt = import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(receipt.report.stacks, 0);
+    assert!(w.main.stacks().unwrap().is_empty());
+    assert_eq!(stack_only(&w).len(), 2, "still offered");
+}
+
+#[test]
 fn a_stack_there_does_not_replace_one_the_photographer_made_here() {
     use rawtonic_catalog::stacks::Member;
     let (_tmp, w) = world();
