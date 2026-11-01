@@ -449,6 +449,51 @@ pub(crate) fn keeps_decode_of(key: &str, now: &Option<preview_proxy::ProxyKey>) 
         .is_some_and(|kept| kept.key == key && kept.made.is_some() && kept.made == *now)
 }
 
+/// The decode kept for the photograph of decoded-cache key `key` (made as a
+/// decode `now` would be), shared rather than taken: the step onto it shows
+/// its developed frame from it at once (`image_loader::open_kept_decode`),
+/// and the slot keeps answering for it (`keeps_decode_of`) until its load
+/// finds it in the decoded cache. No second copy is made.
+pub(crate) fn kept_decode(
+    key: &str,
+    now: &Option<preview_proxy::ProxyKey>,
+) -> Option<(
+    Arc<image::DynamicImage>,
+    Option<crate::image_loader::DecodeMeasures>,
+)> {
+    AHEAD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|kept| kept.key == key && kept.made.is_some() && kept.made == *now)
+        .map(|kept| (Arc::clone(&kept.image), kept.measures))
+}
+
+/// Whether the prefetch decode under way is the one of decoded-cache key
+/// `key`.
+pub(crate) fn decoding_ahead(key: &str) -> bool {
+    UNDER_WAY.0.lock().unwrap_or_else(|e| e.into_inner()).key.as_deref() == Some(key)
+}
+
+/// Waits up to `wait` while the prefetch decode of decoded-cache key `key`
+/// is under way (and its preview base built ahead, `decode`). Neither takes
+/// nor asks for it: kept ahead, it is then shared (`kept_decode`).
+pub(crate) fn wait_under_way(key: &str, wait: Duration) {
+    let (under_way, ended) = &UNDER_WAY;
+    let deadline = std::time::Instant::now() + wait;
+    let mut guard = under_way.lock().unwrap_or_else(|e| e.into_inner());
+    while guard.key.as_deref() == Some(key) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        guard = ended
+            .wait_timeout(guard, left)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+    }
+}
+
 /// Whether the decode kept ahead is of RAW `source`.
 fn kept_ahead(source: &str) -> bool {
     AHEAD
@@ -815,6 +860,7 @@ fn decode(
         // request made since asks for it first (stepped on meanwhile: the
         // decode started as the second photograph ahead), rather than
         // decoding it again as the new head.
+        let mut kept = None;
         if (keep || is_prefetch_head(&source_str))
             && made.is_some()
             && let Ok((image, measures)) = &decoded
@@ -827,8 +873,18 @@ fn decode(
                 measures: *measures,
                 made: made.clone(),
             });
+            kept = Some(Arc::clone(image));
         }
         let (under_way, ended) = &UNDER_WAY;
+        // Its first developed frame then finds its preview base built,
+        // before the decode is told ended (a step onto it waits for both,
+        // `wait_under_way`). Not for a decode the open photograph's load
+        // waits for: its frame is being made from the load, and the next
+        // decode starts sooner (before that frame holds it back).
+        let wanted = under_way.lock().unwrap_or_else(|e| e.into_inner()).wanted;
+        if !wanted && let Some(image) = kept {
+            crate::editor_preview::prepare_base_ahead(&state, &source_str, &image);
+        }
         under_way.lock().unwrap_or_else(|e| e.into_inner()).end(
             decoded
                 .as_ref()
