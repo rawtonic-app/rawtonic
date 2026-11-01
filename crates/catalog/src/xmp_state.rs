@@ -6,7 +6,7 @@ use crate::Library;
 use anyhow::Result;
 use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -65,8 +65,34 @@ impl Library {
     /// never replaced and an offline photograph is not tried. Only sidecars
     /// are written, never the photographs.
     pub fn write_pending_xmp(&self) -> Result<XmpRetry> {
+        self.write_pending_xmp_of(None)
+    }
+
+    /// `write_pending_xmp` for those of `only` still pending (all of them
+    /// with None): the open-time write of the XMP a quit or crash left
+    /// behind goes in parts, each after the photographs' earlier writes.
+    pub fn write_pending_xmp_of(&self, only: Option<&[PathBuf]>) -> Result<XmpRetry> {
+        let pending = self.pending_xmp()?;
+        // A part: its own photographs, looked up directly (not every pending
+        // one loaded for each part).
+        let ids = match only {
+            None => pending,
+            Some(paths) => {
+                let pending: HashSet<String> = pending.into_iter().collect();
+                let mut ids = Vec::new();
+                for path in paths {
+                    if let Some(asset) = self.asset_at(path)?
+                        && pending.contains(&asset.id)
+                        && !ids.contains(&asset.id)
+                    {
+                        ids.push(asset.id);
+                    }
+                }
+                ids
+            }
+        };
         let mut retry = XmpRetry::default();
-        for id in self.pending_xmp()? {
+        for id in ids {
             let path = self.asset(&id)?.path;
             let problem = match self.xmp_problem(&id, &path)? {
                 // `sync_xmp` refuses a changed sidecar too; it is not even read twice.
@@ -104,17 +130,22 @@ impl Library {
     /// (or something else that is not a file has its name), or the one it
     /// wrote or read is gone: `sync_xmp` replaces neither (Keep library does).
     fn sidecar_changed_elsewhere(&self, id: &str, path: &Path) -> Result<bool> {
-        let sidecar = path.with_extension("xmp");
+        let sidecar = rawtonic_metadata::sidecar_path(path);
         if sidecar.exists() && !sidecar.is_file() {
             return Ok(true);
         }
-        let hash: Option<String> = self.conn.query_row(
-            "SELECT xmp_hash FROM metadata WHERE asset_id=?",
+        let (hash, publishing): (Option<String>, Option<String>) = self.conn.query_row(
+            "SELECT xmp_hash,xmp_publishing FROM metadata WHERE asset_id=?",
             [id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         match std::fs::read(sidecar) {
-            Ok(bytes) => Ok(hash.as_deref() != Some(rawtonic_metadata::digest(&bytes).as_str())),
+            // The one it wrote last, or the one it was publishing when a
+            // crash cut the write short (taken over by `sync_xmp`).
+            Ok(bytes) => {
+                let here = Some(rawtonic_metadata::digest(&bytes));
+                Ok(here != hash && here != publishing)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(hash.is_some()),
             // Unreadable: writing it is tried and fails with why.
             Err(_) => Ok(false),
@@ -163,7 +194,7 @@ impl Library {
     ) -> Result<XmpCheck> {
         let folder = folder.map(|f| f.canonicalize().unwrap_or_else(|_| f.to_path_buf()));
         let mut query = self.conn.prepare(&format!(
-            "SELECT a.id,r.path,r.external,a.rel_path,m.xmp_hash
+            "SELECT a.id,r.path,r.external,a.rel_path,m.xmp_hash,m.xmp_publishing
              FROM assets a JOIN roots r ON r.id=a.root_id JOIN metadata m ON m.asset_id=a.id
              WHERE m.xmp_status='synced' AND {} ORDER BY a.rel_path",
             self.visible_assets()
@@ -174,16 +205,17 @@ impl Library {
                     row.get::<_, String>(0)?,
                     self.join_root(row.get(1)?, row.get(2)?, row.get(3)?),
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut check = XmpCheck::default();
-        for (id, path, hash) in rows {
+        for (id, path, hash, publishing) in rows {
             if folder.as_ref().is_some_and(|f| !path.starts_with(f)) {
                 continue;
             }
             check.checked += 1;
-            let sidecar = path.with_extension("xmp");
+            let sidecar = rawtonic_metadata::sidecar_path(&path);
             let changed = match fs::metadata(&sidecar) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => hash.is_some(),
                 // Unreadable (permissions, a drive going away): not a change.
@@ -207,7 +239,9 @@ impl Library {
                                     seen.0.insert(id.clone(), stamp(digest));
                                     false
                                 } else {
-                                    true
+                                    // A publish a crash cut off is the
+                                    // library's own write, not a change.
+                                    publishing.as_deref() != Some(digest.as_str())
                                 }
                             }
                             Err(_) => false,

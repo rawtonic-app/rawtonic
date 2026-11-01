@@ -84,6 +84,8 @@ keysOf("lensCorrection", [
   "lensModel",
   "lensDistortionAmount",
   "lensVignetteAmount",
+  "lensManualVignetteAmount",
+  "lensManualVignetteMidpoint",
   "lensTcaAmount",
   "lensDistortionEnabled",
   "lensTcaEnabled",

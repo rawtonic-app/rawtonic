@@ -58,6 +58,21 @@
       "starting": "読み込みを開始しています…"
     },
     "indexing": "ライブラリをインデックス中",
+    "interrupted": {
+      "applyRest": "残りに適用",
+      "color": "カラーラベル",
+      "detail": "終了またはクラッシュにより、すべての写真が書き込まれる前にこの一括処理が止まりました。残りに適用するか、適用済みの部分を取り消すか、そのままにしてください。写真そのものは変更されません。",
+      "failed": "{{batch}} を完了できませんでした: {{error}}",
+      "keywordAdd": "キーワード「{{tag}}」",
+      "keywordRemove": "キーワード「{{tag}}」の削除",
+      "notWritten_other": "{{count}} 枚の写真を書き込めませんでした",
+      "paste": "設定のペースト",
+      "preset": "プリセット",
+      "rating": "レーティング {{rating}}",
+      "style": "スタイル",
+      "title_other": "中断: {{batch}} は {{count}} 枚中 {{applied}} 枚に適用済み",
+      "undoApplied": "適用済みの部分を取り消す"
+    },
     "leftovers": {
       "kept_other": "中断したジョブの未完成のフォルダー {{count}} 個をそのまま残しました",
       "removed_other": "中断したジョブの未完成のコピー {{size}} を削除しました",
@@ -274,6 +289,7 @@
       "toggle_left_panel": "左パネル",
       "toggle_metadata": "写真情報",
       "toggle_multi_view": "マルチビュー",
+      "toggle_original": "補正前（写真全体）",
       "toggle_pointer_readout": "ポインターのRGB表示",
       "toggle_proof_margin": "校正マージン",
       "toggle_right_panel": "右パネル",
@@ -1529,7 +1545,7 @@
       "albums_other": "アルバム {{count}} 個",
       "check": "確認",
       "chooseSource": "読み込むライブラリを選択",
-      "copiesNotImported_other": "仮想コピー {{count}} 件（読み込みません）",
+      "copies_other": "仮想コピー {{count}} 件",
       "edited_other": "補正あり {{count}} 枚",
       "filterName": "カタログとセッション",
       "photos_other": "写真 {{count}} 枚",
@@ -1795,8 +1811,10 @@
       "flagsSavedRefreshFailed": "フラグを保存しましたが、プロジェクトの概要を更新できませんでした: {{error}}",
       "hotFolderFailed": "監視フォルダ: {{file}}: {{error}}",
       "hotFolderResumeFailed": "監視フォルダを再開できませんでした: {{error}}",
-      "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたときに計算されます",
+      "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたとき、または書き出すときに計算されます",
+      "importCopies_other": "仮想コピー {{count}} 件を読み込みました",
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
+      "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
       "importNotFound_other": "{{count}} 枚が見つかりません",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
@@ -1859,6 +1877,7 @@
     },
     "xmp": {
       "buttonTitle": "一部の XMP ファイルがライブラリの内容に追いついていません。クリックすると詳細を表示し、再書き込みできます。",
+      "catchUp": "前回のセッションで残った XMP ファイルを書き込み中",
       "conflictHeading_other": "{{count}} 件の XMP ファイルが別のプログラムで変更されました",
       "conflictHint": "どちらのメタデータを残すか選んでください。どちらでも編集内容はそのままです。",
       "count_other": "{{count}} 件の XMP が未更新",
@@ -2114,6 +2133,7 @@
         "toggle_masks": "マスクパネルの表示/非表示",
         "toggle_metadata": "メタデータツール（ライブラリ）または写真の情報（現像、フルスクリーン）",
         "toggle_multi_view": "マルチビュー：選択した写真を並べて表示",
+        "toggle_original": "切り替え: 写真全体を補正前で表示",
         "toggle_pointer_readout": "ポインターのRGB表示を切り替え",
         "toggle_proof_margin": "プルーフマージンの切り替え",
         "toggle_right_panel": "右パネルの表示/非表示",
@@ -3007,6 +3027,7 @@
       "toolGroup": {
         "isOn": "{{tool}} オン",
         "reset": "{{tool}}をリセット",
+        "resetOrHold": "{{tool}}をリセット（長押し、またはAlt/Optionを押しながら押す: このツールなしの写真を表示）",
         "turnOff": "{{tool}}をオフ",
         "turnOn": "{{tool}}をオン"
       },
@@ -3161,6 +3182,7 @@
           "loading": "写真を読み込み中…",
           "masks": "マスクを書き込み中…",
           "rendering": "レンダリングと書き込み中…",
+          "selecting": "AI 選択範囲を計算中…",
           "waiting": "待機中"
         },
         "photos_other": "{{count}} 枚の写真",
@@ -3433,6 +3455,8 @@
       "enable": "プロファイル補正を使用",
       "lookingUp": "レンズを検索しています…",
       "make": "メーカー",
+      "manualVignetting": "レンズ周辺光量",
+      "manualVignettingMidpoint": "周辺光量の中心点",
       "model": "モデル",
       "noFocalData": "このプロファイルにはこの焦点距離のデータがありません。",
       "none": "なし",
@@ -4050,6 +4074,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "モデルの追加情報",
+          "captionWriter": "キャプション作成者",
           "city": "市区町村",
           "country": "国",
           "countryCode": "ISO 国コード",
@@ -4063,17 +4089,31 @@
           "creatorRegion": "都道府県（連絡先）",
           "creatorUrl": "ウェブサイト",
           "credit": "クレジット",
+          "dateCreated": "作成日時",
+          "digitalSourceType": "デジタルソースの種類",
+          "event": "イベント",
           "headline": "見出し",
           "instructions": "指示",
+          "intellectualGenre": "知的ジャンル",
           "jobId": "ジョブ識別子",
           "location": "地域",
+          "maxAvailHeight": "利用可能な最大高さ",
+          "maxAvailWidth": "利用可能な最大幅",
+          "modelAge": "モデルの年齢（1行に1件）",
+          "organisationInImageCode": "組織コード（1行に1件）",
+          "organisationInImageName": "写っている組織（1行に1組織）",
+          "personInImage": "写っている人物（1行に1人）",
+          "rightsUrl": "権利情報URL",
+          "scene": "シーンコード（1行に1件）",
           "source": "ソース",
           "state": "都道府県",
+          "subjectCode": "被写体コード（1行に1件）",
           "usageTerms": "使用条件"
         },
         "sections": {
           "content": "コンテンツ",
           "creatorContact": "作成者の連絡先",
+          "extension": "IPTC拡張",
           "location": "場所",
           "status": "ステータス"
         }
@@ -4710,6 +4750,7 @@
         "close": "ツールを閉じる",
         "progress": "書き出し中 {{current}} / {{total}}",
         "progressDenoising": "書き出し中 {{current}} / {{total}} · AI ノイズ除去…",
+        "progressSelecting": "書き出し中 {{current}} / {{total}} · AI 選択範囲…",
         "title": "写真を書き出し"
       },
       "flags": {
@@ -4798,6 +4839,7 @@
         "compareMode": {
           "left-right": "左右に分割",
           "off": "オフ",
+          "side-by-side": "横に並べる",
           "top-bottom": "上下に分割"
         },
         "compareModes": "比較モード",
@@ -4821,6 +4863,7 @@
         "splitDivider": "補正前/補正後の境界線",
         "togglePanels": "パネルの表示/非表示",
         "undo": "取り消し",
+        "withoutTool": "{{tool}}なし",
         "zoom": "ズーム"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

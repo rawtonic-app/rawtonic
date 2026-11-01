@@ -108,7 +108,7 @@ impl Contents {
                 ..Self::default()
             });
         }
-        let xmp = photo.with_extension("xmp");
+        let xmp = rawtonic_metadata::sidecar_path(photo);
         if xmp.is_file() {
             let text = fs::read_to_string(&xmp)
                 .with_context(|| format!("Cannot read {}", xmp.display()))?;
@@ -655,7 +655,7 @@ impl Library {
             write_metadata(&tx, id, metadata)?;
             if let Some(digest) = &contents.xmp_digest {
                 tx.execute(
-                    "UPDATE metadata SET xmp_hash=?,xmp_status='synced' WHERE asset_id=?",
+                    "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL,xmp_status='synced' WHERE asset_id=?",
                     params![digest, id],
                 )?;
             }

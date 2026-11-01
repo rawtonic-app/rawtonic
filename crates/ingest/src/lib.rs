@@ -192,7 +192,7 @@ pub fn preview_name(
 /// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
 /// photograph) as `<photo stem>.xmp` (`copy_beside`).
 fn copy_sidecar(sidecar: &Path, photo: &Path, barrier: &mut Barrier) -> Result<PathBuf> {
-    let target = photo.with_extension("xmp");
+    let target = rawtonic_metadata::sidecar_path(photo);
     copy_beside_all(
         sidecar,
         &[target],
@@ -452,6 +452,32 @@ fn choose_destination_with(
 }
 
 const MAX_COLLISIONS: u32 = 100_000;
+
+/// Whether `target` is a name a copy of the photograph named `name` gets
+/// in a folder: `name` or one of its collision names (`collision_name`),
+/// with its own extension or its companion's.
+fn is_copy_name_of(name: &str, companion_extension: Option<&str>, target: &str) -> bool {
+    let parts = |name: &str| {
+        let path = Path::new(name);
+        (
+            path.file_stem().and_then(|s| s.to_str()).map(str::to_owned),
+            path.extension().and_then(|e| e.to_str()).map(str::to_owned),
+        )
+    };
+    let ((Some(stem), extension), (Some(target_stem), target_extension)) =
+        (parts(name), parts(target))
+    else {
+        return false;
+    };
+    let same_extension = target_extension == extension
+        || (target_extension.is_some() && target_extension.as_deref() == companion_extension);
+    let same_stem = target_stem == stem
+        || target_stem
+            .strip_prefix(stem.as_str())
+            .and_then(|rest| rest.strip_prefix('_'))
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    same_extension && same_stem
+}
 
 /// `name` with the `i`-th collision suffix (`DSC_0001_2.ARW`).
 fn collision_name(name: &str, i: u32) -> Result<String> {
@@ -1066,12 +1092,27 @@ pub(crate) fn import_pair(
     // name: record that copy instead of making another (and keep the
     // backup that import made).
     let unrecorded = |candidate: &Path| Ok(library.asset_at(candidate)?.is_none());
-    // The temporary copies a cut-off run of this photograph left (G66): this
-    // job alone writes these files, so whatever their age they are its own.
+    // The temporary copies a cut-off run of this photograph left (G66), of
+    // the photograph and its companion, under its name or a collision name
+    // (the backup's may differ from the library's): this job alone writes
+    // these names, one photograph at a time, so whatever their age they are
+    // its own.
     if let Some(planned) = options.earlier {
-        rawtonic_metadata::temp::remove_leftovers_of(planned);
-        if let (Some(backup_folder), Some(file)) = (options.backup, planned.file_name()) {
-            rawtonic_metadata::temp::remove_leftovers_of(&backup_folder.join(file));
+        let companion_extension = companion
+            .and_then(|path| path.extension())
+            .and_then(|ext| ext.to_str());
+        let planned_name = planned.file_name().and_then(|n| n.to_str());
+        let ours = |target: &str| {
+            [Some(name.as_str()), planned_name]
+                .into_iter()
+                .flatten()
+                .any(|base| is_copy_name_of(base, companion_extension, target))
+        };
+        if let Some(library_folder) = planned.parent() {
+            rawtonic_metadata::temp::remove_leftovers_matching(library_folder, ours);
+        }
+        if let Some(backup_folder) = options.backup {
+            rawtonic_metadata::temp::remove_leftovers_matching(backup_folder, ours);
         }
     }
     let earlier = match options.earlier {

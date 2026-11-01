@@ -93,6 +93,7 @@ import ImageLoaderManager from './components/managers/ImageLoaderManager';
 // Imperative zoom/pan handle that Editor exposes on transformWrapperRef via useImperativeHandle.
 import type { TransformWrapperHandle } from './components/panel/Editor';
 import { viewerShown } from './utils/viewerMode';
+import { offerInterruptedBatches } from './utils/interruptedBatches';
 
 type ImageCacheEntry = Parameters<typeof globalImageCache.set>[1];
 
@@ -313,6 +314,19 @@ function App() {
     const changed = () => void refreshRef.current().catch(() => {});
     window.addEventListener(DRIVES_CHANGED, changed);
     return () => window.removeEventListener(DRIVES_CHANGED, changed);
+  }, []);
+
+  // Batches a quit or crash cut short, offered as the app starts and each
+  // library opens (G66, src/utils/interruptedBatches.ts).
+  useEffect(() => {
+    let last: string | null | undefined;
+    const offer = (directory: string | null) => {
+      if (directory === last) return;
+      last = directory;
+      void offerInterruptedBatches(directory, () => refreshRef.current());
+    };
+    offer(useLibraryStore.getState().sessionDirectory);
+    return useLibraryStore.subscribe((state) => offer(state.sessionDirectory));
   }, []);
 
   // Use XMP or its undo changed ratings, labels, flags, keywords and text

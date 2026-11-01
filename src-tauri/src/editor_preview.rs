@@ -102,6 +102,10 @@ pub struct WgpuTransformPayload {
     pub split: Option<f32>,
     #[serde(default)]
     pub split_vertical: bool,
+    /// Side by side: device pixels from the before pane to the after pane
+    /// (`split` is then the after pane's left edge); `None` = overlaid split.
+    #[serde(default)]
+    pub split_offset: Option<f32>,
 }
 
 /// Recipe keys that place the photograph in the frame. The split's before
@@ -941,6 +945,7 @@ pub(crate) async fn update_wgpu_transform(
             display.viewer_area = payload.viewer_area.or(display.viewer_area);
             display.split_x = payload.split;
             display.split_vertical = payload.split_vertical;
+            display.split_offset = payload.split_offset.filter(|o| *o > 0.0).unwrap_or(0.0);
             if payload.split.is_none() {
                 display.clear_split_before();
             }

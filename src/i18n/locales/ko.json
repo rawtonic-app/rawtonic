@@ -58,6 +58,21 @@
       "starting": "가져오기 시작 중…"
     },
     "indexing": "라이브러리 색인 중",
+    "interrupted": {
+      "applyRest": "나머지에 적용",
+      "color": "색상 레이블",
+      "detail": "종료 또는 충돌로 모든 사진이 기록되기 전에 이 일괄 작업이 중단되었습니다. 나머지에 적용하거나, 적용된 부분을 실행 취소하거나, 그대로 두세요. 사진 자체는 절대 변경되지 않습니다.",
+      "failed": "{{batch}}을(를) 완료할 수 없습니다: {{error}}",
+      "keywordAdd": "키워드 “{{tag}}”",
+      "keywordRemove": "키워드 “{{tag}}” 제거",
+      "notWritten_other": "사진 {{count}}장을 기록할 수 없습니다",
+      "paste": "설정 붙여넣기",
+      "preset": "프리셋",
+      "rating": "별점 {{rating}}",
+      "style": "스타일",
+      "title_other": "중단됨: {{batch}}이(가) {{count}}장 중 {{applied}}장에 적용됨",
+      "undoApplied": "적용된 부분 실행 취소"
+    },
     "leftovers": {
       "kept_other": "중단된 작업의 미완성 폴더 {{count}}개를 그대로 두었습니다",
       "removed_other": "중단된 작업의 미완성 사본 {{size}}을(를) 제거했습니다",
@@ -274,6 +289,7 @@
       "toggle_left_panel": "왼쪽 패널",
       "toggle_metadata": "사진 정보",
       "toggle_multi_view": "다중 보기",
+      "toggle_original": "이전 (사진 전체)",
       "toggle_pointer_readout": "포인터 RGB 표시",
       "toggle_proof_margin": "교정 여백",
       "toggle_right_panel": "오른쪽 패널",
@@ -1529,7 +1545,7 @@
       "albums_other": "앨범 {{count}}개",
       "check": "확인",
       "chooseSource": "가져올 라이브러리 선택",
-      "copiesNotImported_other": "가상 복사본 {{count}}개(가져오지 않음)",
+      "copies_other": "가상 복사본 {{count}}개",
       "edited_other": "조정됨 {{count}}장",
       "filterName": "카탈로그 및 세션",
       "photos_other": "사진 {{count}}장",
@@ -1795,8 +1811,10 @@
       "flagsSavedRefreshFailed": "플래그를 저장했지만 프로젝트 요약을 새로 고칠 수 없습니다: {{error}}",
       "hotFolderFailed": "감시 폴더: {{file}}: {{error}}",
       "hotFolderResumeFailed": "감시 폴더를 다시 시작할 수 없습니다: {{error}}",
-      "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열 때 계산됩니다",
+      "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열거나 내보낼 때 계산됩니다",
+      "importCopies_other": "가상 복사본 {{count}}개를 가져옴",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
+      "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
       "importNotFound_other": "{{count}}장 찾을 수 없음",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
@@ -1859,6 +1877,7 @@
     },
     "xmp": {
       "buttonTitle": "일부 XMP 파일이 라이브러리보다 뒤처져 있습니다. 클릭하면 자세한 내용을 보고 다시 쓸 수 있습니다.",
+      "catchUp": "지난 세션에서 남은 XMP 파일을 쓰는 중",
       "conflictHeading_other": "XMP 파일 {{count}}개가 다른 프로그램에서 변경됨",
       "conflictHint": "어느 쪽 메타데이터를 유지할지 선택하세요. 어느 쪽이든 편집 내용은 그대로입니다.",
       "count_other": "XMP {{count}}개 업데이트 안 됨",
@@ -2114,6 +2133,7 @@
         "toggle_masks": "마스크 패널 전환",
         "toggle_metadata": "메타데이터 도구(라이브러리) 또는 사진 정보(현상, 전체 화면)",
         "toggle_multi_view": "다중 보기: 선택한 사진을 나란히 표시",
+        "toggle_original": "전환: 사진 전체 이전",
         "toggle_pointer_readout": "포인터 RGB 표시 전환",
         "toggle_proof_margin": "교정 여백 전환",
         "toggle_right_panel": "오른쪽 패널 토글",
@@ -3007,6 +3027,7 @@
       "toolGroup": {
         "isOn": "{{tool}} 켬",
         "reset": "{{tool}} 재설정",
+        "resetOrHold": "{{tool}} 재설정 (길게 누르거나 Alt/Option과 함께 누르기: 이 도구 없이 사진 보기)",
         "turnOff": "{{tool}} 끄기",
         "turnOn": "{{tool}} 켜기"
       },
@@ -3161,6 +3182,7 @@
           "loading": "사진 읽는 중…",
           "masks": "마스크 쓰는 중…",
           "rendering": "렌더링 및 쓰는 중…",
+          "selecting": "AI 선택 영역 계산 중…",
           "waiting": "대기 중"
         },
         "photos_other": "사진 {{count}}장",
@@ -3433,6 +3455,8 @@
       "enable": "프로필 보정 사용",
       "lookingUp": "렌즈를 찾는 중…",
       "make": "제조사",
+      "manualVignetting": "렌즈 비네팅",
+      "manualVignettingMidpoint": "비네팅 중간점",
       "model": "모델",
       "noFocalData": "프로필에 이 초점 거리에 대한 데이터가 없습니다.",
       "none": "없음",
@@ -4050,6 +4074,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "추가 모델 정보",
+          "captionWriter": "캡션 작성자",
           "city": "도시",
           "country": "국가",
           "countryCode": "ISO 국가 코드",
@@ -4063,17 +4089,31 @@
           "creatorRegion": "시/도(연락처)",
           "creatorUrl": "웹사이트",
           "credit": "크레딧",
+          "dateCreated": "생성 날짜",
+          "digitalSourceType": "디지털 소스 유형",
+          "event": "이벤트",
           "headline": "헤드라인",
           "instructions": "지침",
+          "intellectualGenre": "지적 장르",
           "jobId": "작업 식별자",
           "location": "세부 위치",
+          "maxAvailHeight": "사용 가능한 최대 높이",
+          "maxAvailWidth": "사용 가능한 최대 너비",
+          "modelAge": "모델 나이 (줄당 하나)",
+          "organisationInImageCode": "조직 코드 (줄당 하나)",
+          "organisationInImageName": "사진 속 조직 (줄당 하나)",
+          "personInImage": "사진 속 인물 (줄당 한 명)",
+          "rightsUrl": "권리 URL",
+          "scene": "장면 코드 (줄당 하나)",
           "source": "출처",
           "state": "시/도",
+          "subjectCode": "주제 코드 (줄당 하나)",
           "usageTerms": "사용 조건"
         },
         "sections": {
           "content": "콘텐츠",
           "creatorContact": "작성자 연락처",
+          "extension": "IPTC 확장",
           "location": "위치",
           "status": "상태"
         }
@@ -4710,6 +4750,7 @@
         "close": "도구 닫기",
         "progress": "내보내는 중 {{current}} / {{total}}",
         "progressDenoising": "내보내는 중 {{current}} / {{total}} · AI 노이즈 제거…",
+        "progressSelecting": "내보내는 중 {{current}} / {{total}} · AI 선택 영역…",
         "title": "사진 내보내기"
       },
       "flags": {
@@ -4798,6 +4839,7 @@
         "compareMode": {
           "left-right": "좌우 분할",
           "off": "끄기",
+          "side-by-side": "나란히",
           "top-bottom": "상하 분할"
         },
         "compareModes": "비교 모드",
@@ -4821,6 +4863,7 @@
         "splitDivider": "전/후 구분선",
         "togglePanels": "패널 표시/숨기기",
         "undo": "실행 취소",
+        "withoutTool": "{{tool}} 없이",
         "zoom": "확대/축소"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

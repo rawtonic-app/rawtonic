@@ -119,6 +119,9 @@ interface WatermarkSettings {
 export interface ExportState {
   /** Photos of the running export waiting for AI Denoise. */
   denoising?: string[];
+  /** Photos of the running export whose AI selections are being computed
+   * (never opened: imports, pasted settings). */
+  selecting?: string[];
   errorMessage: string;
   progress: Progress;
   status: Status;

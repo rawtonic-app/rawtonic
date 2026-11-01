@@ -29,17 +29,18 @@ export interface TextMetadata {
   description: string;
   creator: string;
   copyright: string;
-  /** IPTC Core fields (rawtonic_metadata::IPTC_FIELDS), absent when empty. */
+  /** IPTC fields (rawtonic_metadata::IPTC_FIELDS); explicit empty strings clear fields. */
   [iptc: string]: string | undefined;
 }
 type TextField = string;
 
-/** IPTC Core sections of the Metadata tool, as Capture One and Lightroom
+export const IPTC_LIST_FIELDS = new Set<string>(["personInImage", "organisationInImageName", "organisationInImageCode", "modelAge", "subjectCode", "scene"]);
+/** IPTC Core and Extension sections of the Metadata tool, as Capture One and Lightroom
  * group them: section ids and field ids (labels in `studio.metadata.iptc`). */
 export const IPTC_SECTIONS = [
-  ["content", ["headline"]],
+  ["content", ["headline", "subjectCode", "scene", "intellectualGenre", "captionWriter", "dateCreated"]],
   ["location", ["location", "city", "state", "country", "countryCode"]],
-  ["status", ["jobId", "instructions", "credit", "source", "usageTerms"]],
+  ["status", ["jobId", "instructions", "credit", "source", "usageTerms", "rightsUrl"]],
   [
     "creatorContact",
     [
@@ -54,6 +55,7 @@ export const IPTC_SECTIONS = [
       "creatorCountry",
     ],
   ],
+  ["extension", ["personInImage", "organisationInImageName", "organisationInImageCode", "event", "modelAge", "additionalModelInfo", "maxAvailHeight", "maxAvailWidth", "digitalSourceType"]],
 ] as const;
 const TEXT_FIELDS = ["title", "description", "creator", "copyright"] as const;
 
@@ -499,6 +501,9 @@ function ColorLabelPicker({ paths }: { paths: string[] }) {
         >
           <X size={9} />
         </button>
+        {current && !COLOR_LABELS.some((label) => label.name === current) && (
+          <span>{current === "orange" ? "Orange" : current === "pink" ? "Pink" : current}</span>
+        )}
         {COLOR_LABELS.map((label) => {
           const key = COLOR_NAME_KEYS[label.name as keyof typeof COLOR_NAME_KEYS];
           const name = key ? t(key) : label.name[0].toUpperCase() + label.name.slice(1);
@@ -668,7 +673,7 @@ export function StudioMetadataTool() {
                     key={field}
                     label={t(`studio.metadata.iptc.fields.${field}`)}
                     value={loaded ? sharedValue(values, field) : ""}
-                    multiline={field === "instructions" || field === "usageTerms"}
+                    multiline={IPTC_LIST_FIELDS.has(field) || field === "instructions" || field === "usageTerms"}
                     disabled={!sessionReady}
                     onCommit={(value) => void save(field, value)}
                   />

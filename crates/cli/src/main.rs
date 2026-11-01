@@ -282,7 +282,8 @@ struct ExportArgs {
     /// `lensfun_db` beside this binary or in a macOS app bundle's Resources.
     #[arg(long)]
     lensfun_db: Option<PathBuf>,
-    /// The app's AI model folder, for recipes with AI Denoise; default:
+    /// The app's AI model folder, for recipes with AI Denoise or with Sky and
+    /// Subject selections a never-opened photo still needs; default:
     /// $RAWTONIC_MODELS, then the installed app's (cc.rawtonic.editor).
     /// Denoised mosaics are cached beside it in `ai-denoise-cache`.
     #[arg(long)]
@@ -428,6 +429,32 @@ fn ai_denoiser(
         rawtonic_denoise::MatchFilter::onnx(&models.join(rawtonic_denoise::ONNX_MODEL), cache)?
     };
     Ok(std::sync::Arc::new(filter))
+}
+
+/// The Sky and Subject networks of the app's model folder, for selections
+/// an export computes (`ai_selections::detect_missing`).
+struct SelectionModels(rawtonic_segment::Models);
+
+impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
+    fn detect(
+        &self,
+        selection: rawtonic_engine::ai_selections::AutoSelection,
+        version: u32,
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<String, String> {
+        use rawtonic_engine::ai_selections::AutoSelection;
+        let mask = match selection {
+            AutoSelection::Sky => self.0.sky().and_then(|model| {
+                rawtonic_segment::run_sky_seg_model(warped, &model, linear, None)
+            }),
+            AutoSelection::Subject => self.0.subject().and_then(|model| {
+                rawtonic_segment::subject_selection(warped, &model, linear, None, version)
+            }),
+        }
+        .map_err(|e| format!("{e:#}"))?;
+        rawtonic_segment::mask_data_url(&mask)
+    }
 }
 
 pub(crate) fn print(value: impl serde::Serialize) -> Result<()> {
@@ -1139,6 +1166,24 @@ fn export(args: ExportArgs) -> Result<()> {
         match ai_denoiser(models.clone(), model) {
             Ok(denoiser) => exporter = exporter.with_mosaic_denoiser(model, denoiser),
             Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
+        }
+    }
+    // Sky and Subject selections a never-opened photo holds without their
+    // bitmap are computed with the app's models, as the app's export does;
+    // without the models those photos fail.
+    if recipes
+        .iter()
+        .flatten()
+        .any(|r| !rawtonic_engine::ai_selections::undetected(r).is_empty())
+    {
+        match models_dir(models.clone()) {
+            Ok(dir) => {
+                ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
+                exporter = exporter.with_selection_detector(std::sync::Arc::new(SelectionModels(
+                    rawtonic_segment::Models::new(dir),
+                )));
+            }
+            Err(e) => eprintln!("AI selections unavailable: {e:#}"),
         }
     }
     let mut written = Vec::new();

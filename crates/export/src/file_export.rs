@@ -18,6 +18,7 @@ use crate::export_processing::{
 };
 use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot};
 use crate::output::write_new_output;
+use rawtonic_engine::ai_selections::{SelectionDetector, detect_missing};
 use rawtonic_engine::file_io::read_file_mapped;
 use rawtonic_engine::formats::is_raw_file;
 use rawtonic_engine::image_loader::{
@@ -106,6 +107,9 @@ pub struct FileExporter {
     /// For recipes with AI Denoise; without it such exports fail.
     /// AI Denoise's denoisers by model (`AiDenoiseSettings::model`).
     mosaic_denoisers: [Option<Arc<dyn MosaicDenoiser>>; 2],
+    /// Computes the Sky and Subject selections a recipe holds without their
+    /// bitmap (a never-opened import); without it such exports fail.
+    selections: Option<Arc<dyn SelectionDetector>>,
 }
 
 impl FileExporter {
@@ -127,6 +131,7 @@ impl FileExporter {
             processor: GpuProcessorSlot::background(None),
             image_cache: Mutex::new(None),
             mosaic_denoisers: [None, None],
+            selections: None,
         })
     }
 
@@ -136,6 +141,12 @@ impl FileExporter {
         if let Some(slot) = self.mosaic_denoisers.get_mut(model) {
             *slot = Some(denoiser);
         }
+        self
+    }
+
+    /// The networks for Sky and Subject selections still to compute.
+    pub fn with_selection_detector(mut self, detector: Arc<dyn SelectionDetector>) -> Self {
+        self.selections = Some(detector);
         self
     }
 
@@ -172,12 +183,19 @@ impl FileExporter {
                     .map_err(|e| format!("Failed to load from bytes: {}", e))?
             }
         };
-        let source = prepare_export_source(
-            &source_path_str,
-            Arc::new(pristine_source),
-            measures,
-            &js_adjustments,
-        )?;
+        let pristine_source = Arc::new(pristine_source);
+        // As the editor computes them when the photo opens (nothing is
+        // written back: the CLI never changes a recipe).
+        detect_missing(
+            &mut js_adjustments,
+            &pristine_source,
+            is_raw,
+            self.selections.as_deref(),
+            &mut || {},
+        )
+        .map_err(|e| format!("{}: not exported, {e}", job.source.display()))?;
+        let source =
+            prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?;
 
         // The app's default preferences: no forced tone mapper.
         let tonemapper_override = |_is_raw: bool| None;

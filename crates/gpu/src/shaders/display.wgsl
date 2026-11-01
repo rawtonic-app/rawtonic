@@ -16,6 +16,8 @@ struct Transform {
     box_rect: vec4<f32>,
     // Before/after: x enabled, y screen divider, z 1 for top/bottom.
     // Before occupies the left or top side; both use the same photo UV.
+    // w > 0: side by side, the before pane left of the divider (y) shows the
+    // whole before placed like the after, moved left by w screen pixels.
     split: vec4<f32>,
 };
 
@@ -141,11 +143,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (transform.box_rect.z > 0.0) {
         uv = crop_edit_uv(in.screen);
     }
+    // Side by side: left of the divider is the before pane. It shows only
+    // the before (or the background while it is on its way), never the
+    // after reaching into it at a zoom.
+    if (transform.split.w > 0.0 && in.screen.x < transform.split.y) {
+        let screen = vec2<f32>(in.screen.x + transform.split.w, in.screen.y);
+        let before_uv = (screen - transform.rect.xy) / transform.rect.zw;
+        if (transform.split.x < 0.5 || before_uv.x < 0.0 || before_uv.x > 1.0 || before_uv.y < 0.0 || before_uv.y > 1.0) {
+            return transform.bg_secondary;
+        }
+        return sample_before(before_uv, screen);
+    }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         return transform.bg_secondary;
     }
     let split_axis = select(in.screen.x, in.screen.y, transform.split.z > 0.5);
-    if (transform.split.x > 0.5 && split_axis < transform.split.y) {
+    if (transform.split.x > 0.5 && transform.split.w <= 0.0 && split_axis < transform.split.y) {
         return sample_before(uv, in.screen);
     }
 

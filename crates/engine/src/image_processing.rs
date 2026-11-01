@@ -176,6 +176,28 @@ pub struct GeometryParams {
     /// a recipe key: the caller's `is_raw` ([`geometry_params_for`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub srgb_base: bool,
+    /// Manual lens vignetting (`manual_vignette`): amount −100…+100, 0 =
+    /// none.
+    #[serde(default, skip_serializing_if = "is_no_manual_vignette")]
+    pub manual_vignette_amount: f32,
+    /// Its midpoint, 0…100.
+    #[serde(
+        default = "default_manual_vignette_midpoint",
+        skip_serializing_if = "is_default_manual_vignette_midpoint"
+    )]
+    pub manual_vignette_midpoint: f32,
+}
+
+fn default_manual_vignette_midpoint() -> f32 {
+    50.0
+}
+
+fn is_no_manual_vignette(amount: &f32) -> bool {
+    *amount == 0.0
+}
+
+fn is_default_manual_vignette_midpoint(midpoint: &f32) -> bool {
+    *midpoint == 50.0
 }
 
 impl Default for GeometryParams {
@@ -222,6 +244,8 @@ impl Default for GeometryParams {
             f32_warp: false,
             gpu_warp: false,
             srgb_base: false,
+            manual_vignette_amount: 0.0,
+            manual_vignette_midpoint: 50.0,
         }
     }
 }
@@ -341,6 +365,12 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         f32_warp: render_version(adjustments) >= F32_WARP_RENDER_VERSION,
         gpu_warp: render_version(adjustments) >= GPU_WARP_RENDER_VERSION,
         srgb_base: false,
+        manual_vignette_amount: adjustments[crate::manual_vignette::AMOUNT_KEY]
+            .as_f64()
+            .unwrap_or(0.0) as f32,
+        manual_vignette_midpoint: adjustments[crate::manual_vignette::MIDPOINT_KEY]
+            .as_f64()
+            .unwrap_or(50.0) as f32,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -1374,6 +1404,9 @@ struct WarpKernel {
     vk3: f64,
     lens_vig_amt: f64,
     has_vignetting: bool,
+    /// Manual lens vignetting: (EV at half the long side, power of the
+    /// radius, half-diagonals per half long side) (`manual_vignette`).
+    manual_vignette: Option<[f32; 3]>,
     keep_negative: bool,
     /// `GeometryParams::f32_warp`.
     f32_warp: bool,
@@ -1466,6 +1499,17 @@ impl WarpKernel {
         let vk3 = params.vig_k3 as f64;
         let lens_vig_amt = (params.lens_vignette_amount as f64) * lens_strength(params).1;
         let has_vignetting = shades_lens_vignetting(params);
+        let manual_vignette = crate::manual_vignette::shape(
+            params.manual_vignette_amount,
+            params.manual_vignette_midpoint,
+        )
+        .map(|(ev, power)| {
+            [
+                ev,
+                power,
+                (hd * 2.0) as f32 / width.max(height).max(1) as f32,
+            ]
+        });
 
         Self {
             step_vec_x,
@@ -1498,6 +1542,7 @@ impl WarpKernel {
             vk3,
             lens_vig_amt,
             has_vignetting,
+            manual_vignette,
             keep_negative: params.keep_negative,
             f32_warp: params.f32_warp,
             gpu_warp: params.gpu_warp,
@@ -1696,6 +1741,25 @@ impl WarpKernel {
     /// (`srgb_base`).
     #[inline(always)]
     fn shade(&self, src_x: f32, src_y: f32, pixel: &mut [f32]) {
+        self.shade_profile(src_x, src_y, pixel);
+        // Manual lens vignetting after the profile's, as the GPU warp.
+        if let Some([ev, power, per_hd]) = self.manual_vignette {
+            let (dx, dy) = (src_x - self.cx, src_y - self.cy);
+            let rho = (dx * dx + dy * dy).sqrt() / self.hd as f32 * per_hd;
+            let gain = crate::manual_vignette::gain(ev, power, rho);
+            for value in &mut pixel[..3] {
+                *value = if self.srgb_base {
+                    srgb_encode(srgb_decode(*value) * gain)
+                } else {
+                    *value * gain
+                };
+            }
+        }
+    }
+
+    /// The lens profile's vignetting of [`Self::shade`].
+    #[inline(always)]
+    fn shade_profile(&self, src_x: f32, src_y: f32, pixel: &mut [f32]) {
         if !self.has_vignetting {
             return;
         }
@@ -1925,6 +1989,9 @@ pub(crate) struct WarpUniforms {
     pub tca: Option<[f32; 5]>,
     /// (k1, k2, k3, amount) of the vignetting.
     pub vignetting: Option<[f32; 4]>,
+    /// Manual lens vignetting: (EV at half the long side, power of the
+    /// radius, half-diagonals per half long side) (`manual_vignette`).
+    pub manual_vignetting: Option<[f32; 3]>,
     pub keep_negative: bool,
     /// `GeometryParams::srgb_base`.
     pub srgb_base: bool,
@@ -1964,6 +2031,7 @@ impl WarpKernel {
                 self.vk3 as f32,
                 self.lens_vig_amt as f32,
             ]),
+            manual_vignetting: self.manual_vignette,
             keep_negative: self.keep_negative,
             srgb_base: self.srgb_base,
         }
@@ -3941,6 +4009,11 @@ pub fn is_geometry_identity(params: &GeometryParams) -> bool {
         && dist_identity
         && tca_identity
         && vig_identity
+        && crate::manual_vignette::shape(
+            params.manual_vignette_amount,
+            params.manual_vignette_midpoint,
+        )
+        .is_none()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -4285,7 +4358,10 @@ pub struct GlobalAdjustments {
     /// 1 = `BaseLook::apply` adds the capture gain to `baseline_exposure`.
     /// Read on the CPU only (the shader's struct ends before it).
     pub capture_gain: u32,
-    pub gamut_mapping_padding: u32,
+    /// renderVersion 10 (`baseline_exposure::SCENE_BLACK_RENDER_VERSION`):
+    /// 1 = `BaseLook::apply` flags the scene-referred black point and soft
+    /// toe for the shader. Read on the CPU only, like `capture_gain`.
+    pub scene_black: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -5352,7 +5428,9 @@ fn get_global_adjustments_from_json(
         capture_gain: u32::from(
             render_version(js_adjustments) >= crate::baseline_exposure::CAPTURE_GAIN_RENDER_VERSION,
         ),
-        gamut_mapping_padding: 0,
+        scene_black: u32::from(
+            render_version(js_adjustments) >= crate::baseline_exposure::SCENE_BLACK_RENDER_VERSION,
+        ),
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -5803,8 +5881,15 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// ratios measured away from the clip (`image_loader::HIGHLIGHT_RENDER_VERSION`,
 /// highlight_reconstruction.rs), and gives RAWs at extended low ISOs Camera
 /// Raw's default exposure (`baseline_exposure::CAPTURE_GAIN_RENDER_VERSION`).
+/// 10 (2026-11-01) keeps the neutral look's black point at a scene level
+/// that Exposure and the baseline move only a quarter as fast, under a soft
+/// toe (`baseline_exposure::SCENE_BLACK_RENDER_VERSION`): Exposure and
+/// extended low ISOs keep Camera Raw's deepest shadows. 11 (2026-11-01)
+/// takes the masked sensor border's black levels when the decoder's spread
+/// over the 2 × 2 positions exceeds the border's by more than 3 levels
+/// (`image_loader::BORDER_BLACK_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 9;
+pub const RENDER_VERSION: u64 = 11;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -7096,10 +7181,14 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// both editors, the same display levels on every camera, −100 at least
 /// Camera Raw's reach; notes: reference/highlight-recovery-gfx.md, G05);
 /// 3 (2026-10-25) lets lowered Highlights adapt to the image key, reaching
-/// further in dark frames (night scenes, lamps, candles; notes: G05).
+/// further in dark frames (night scenes, lamps, candles; notes: G05);
+/// 4 (2026-11-01) lets it lower less on frames of bright key (snow,
+/// overcast or bright skies, white rooms), where Camera Raw's lowers broad
+/// bright areas 0.2–0.7 times as far (notes: G05,
+/// benchmark-results/hl-highlights-2026-11-01).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 3;
+pub const TONE_VERSION: u64 = 4;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -7138,7 +7227,7 @@ pub fn auto_adjustments_json(
         crate::auto_adjust::standard_auto_to_json(&crate::auto_adjust::standard_auto_adjustments(
             image,
             look.baseline_for(render_version),
-            crate::auto_adjust::DisplayCurve::for_look(&look),
+            crate::auto_adjust::DisplayCurve::for_look(&look, render_version),
             base_curve_index(base_curve),
         ))
     } else {
@@ -7589,6 +7678,8 @@ mod tone_version_tests {
         assert_eq!(version(json!({"shadows": 80, "toneVersion": 2})), 2.0);
         // Version 3 (lowered Highlights adapted to the image key) is known.
         assert_eq!(version(json!({"highlights": -60, "toneVersion": 3})), 3.0);
+        // Version 4 (also adapted to bright frames) is known.
+        assert_eq!(version(json!({"highlights": -60, "toneVersion": 4})), 4.0);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(version(json!({"toneVersion": 9})), TONE_VERSION as f32);
     }

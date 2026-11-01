@@ -351,7 +351,7 @@ fn album_key(path: &Path) -> Option<String> {
 
 /// The XMP sidecar of `image` (`name.xmp`, shared by RAW+JPEG pairs).
 fn xmp_for(image: &Path) -> PathBuf {
-    image.with_extension("xmp")
+    rawtonic_metadata::sidecar_path(image)
 }
 
 /// Every file that belongs to `images` and moves with them: editor sidecars,
@@ -1402,6 +1402,31 @@ mod tests {
             crate::session_bridge::companion_of(&capture.join("A.RAF")),
             Some(capture.join("A.JPG"))
         );
+    }
+
+    #[test]
+    fn uppercase_xmp_follows_its_photo_and_keeps_the_shared_stem_guard() {
+        let tmp = tempfile::tempdir().unwrap();
+        let photo = tmp.path().join("upper.arw");
+        let upper = photo.with_extension("XMP");
+        fs::write(&photo, b"synthetic original").unwrap();
+        fs::write(&upper, b"sidecar").unwrap();
+        if photo.with_extension("xmp").exists() {
+            return;
+        }
+        assert!(
+            associated_files(std::slice::from_ref(&photo))
+                .unwrap()
+                .contains(&upper)
+        );
+        let jpeg = photo.with_extension("jpg");
+        fs::write(&jpeg, b"companion").unwrap();
+        assert!(
+            !associated_files(std::slice::from_ref(&photo))
+                .unwrap()
+                .contains(&upper)
+        );
+        assert!(associated_files(&[photo, jpeg]).unwrap().contains(&upper));
     }
 
     #[test]

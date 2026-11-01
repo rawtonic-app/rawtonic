@@ -58,6 +58,21 @@
       "starting": "正在开始导入…"
     },
     "indexing": "正在为图库建立索引",
+    "interrupted": {
+      "applyRest": "应用到其余照片",
+      "color": "颜色标签",
+      "detail": "退出或崩溃使此批量操作在所有照片写入前停止。可将其应用到其余照片、撤销已应用的部分，或保持现状。照片本身从不会被更改。",
+      "failed": "无法完成{{batch}}：{{error}}",
+      "keywordAdd": "关键词“{{tag}}”",
+      "keywordRemove": "移除关键词“{{tag}}”",
+      "notWritten_other": "有 {{count}} 张照片无法写入",
+      "paste": "粘贴设置",
+      "preset": "预设",
+      "rating": "评级 {{rating}}",
+      "style": "风格",
+      "title_other": "已中断：{{batch}}已应用到 {{count}} 张中的 {{applied}} 张照片",
+      "undoApplied": "撤销已应用的部分"
+    },
     "leftovers": {
       "kept_other": "保留了中断任务的 {{count}} 个未完成文件夹",
       "removed_other": "已移除中断任务留下的 {{size}} 未完成副本",
@@ -274,6 +289,7 @@
       "toggle_left_panel": "左侧面板",
       "toggle_metadata": "照片信息",
       "toggle_multi_view": "多图视图",
+      "toggle_original": "之前（整张照片）",
       "toggle_pointer_readout": "指针 RGB 读数",
       "toggle_proof_margin": "打样边距",
       "toggle_right_panel": "右侧面板",
@@ -1529,7 +1545,7 @@
       "albums_other": "{{count}} 个相册",
       "check": "检查",
       "chooseSource": "选择要导入的图库",
-      "copiesNotImported_other": "{{count}} 个虚拟副本（不导入）",
+      "copies_other": "{{count}} 个虚拟副本",
       "edited_other": "{{count}} 张有调整",
       "filterName": "目录和会话",
       "photos_other": "{{count}} 张照片",
@@ -1795,8 +1811,10 @@
       "flagsSavedRefreshFailed": "旗标已保存；无法刷新项目摘要：{{error}}",
       "hotFolderFailed": "监视文件夹：{{file}}：{{error}}",
       "hotFolderResumeFailed": "无法继续监视文件夹：{{error}}",
-      "importAiMasksOnOpen_other": "{{count}} 张照片的 AI 蒙版将在“显影”中打开时计算",
+      "importAiMasksOnOpen_other": "{{count}} 张照片的 AI 蒙版将在“显影”中打开或导出时计算",
+      "importCopies_other": "已导入 {{count}} 个虚拟副本",
       "importCopiesSkipped_other": "{{count}} 个虚拟副本未导入",
+      "importCropsClipped_other": "{{count}} 个裁剪超出相机画面，已收缩到画面内",
       "imported_other": "已导入 {{count}} 张照片（{{withSettings}} 张有调整，{{albums}} 个相册）",
       "importNotFound_other": "{{count}} 张未找到",
       "importWarnings_other": "{{count}} 张照片已导入，但有警告。{{error}}",
@@ -1859,6 +1877,7 @@
     },
     "xmp": {
       "buttonTitle": "部分 XMP 文件未与图库同步。点击查看详情并重新写入。",
+      "catchUp": "正在写入上次会话遗留的 XMP 文件",
       "conflictHeading_other": "{{count}} 个 XMP 文件已被其他程序修改",
       "conflictHint": "选择保留哪一方的元数据。无论哪种选择,你的编辑都保持不变。",
       "count_other": "{{count}} 个 XMP 未更新",
@@ -2114,6 +2133,7 @@
         "toggle_masks": "切换蒙版面板",
         "toggle_metadata": "元数据工具（图库）或照片信息（显影、全屏）",
         "toggle_multi_view": "多图视图：选中的照片并排显示",
+        "toggle_original": "切换：整张照片之前",
         "toggle_pointer_readout": "切换指针 RGB 读数",
         "toggle_proof_margin": "切换校样边距",
         "toggle_right_panel": "切换右侧面板",
@@ -3007,6 +3027,7 @@
       "toolGroup": {
         "isOn": "{{tool}} 开启",
         "reset": "重置{{tool}}",
+        "resetOrHold": "重置{{tool}}（按住，或按住 Alt/Option 键按下：显示不含此工具的照片）",
         "turnOff": "关闭{{tool}}",
         "turnOn": "开启{{tool}}"
       },
@@ -3161,6 +3182,7 @@
           "loading": "正在读取照片…",
           "masks": "正在写入蒙版…",
           "rendering": "正在渲染并写入…",
+          "selecting": "正在计算 AI 选区…",
           "waiting": "等待中"
         },
         "photos_other": "{{count}} 张照片",
@@ -3433,6 +3455,8 @@
       "enable": "启用配置文件校正",
       "lookingUp": "正在查找镜头…",
       "make": "品牌",
+      "manualVignetting": "镜头暗角",
+      "manualVignettingMidpoint": "暗角中点",
       "model": "型号",
       "noFocalData": "该配置文件没有此焦距的数据。",
       "none": "无",
@@ -4050,6 +4074,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "模特附加信息",
+          "captionWriter": "说明撰写者",
           "city": "城市",
           "country": "国家",
           "countryCode": "ISO 国家代码",
@@ -4063,17 +4089,31 @@
           "creatorRegion": "省/州（联系方式）",
           "creatorUrl": "网站",
           "credit": "署名行",
+          "dateCreated": "创建日期",
+          "digitalSourceType": "数字来源类型",
+          "event": "事件",
           "headline": "大标题",
           "instructions": "说明",
+          "intellectualGenre": "内容体裁",
           "jobId": "作业标识符",
           "location": "子位置",
+          "maxAvailHeight": "可用的最大高度",
+          "maxAvailWidth": "可用的最大宽度",
+          "modelAge": "模特年龄（每行一个）",
+          "organisationInImageCode": "组织代码（每行一个）",
+          "organisationInImageName": "画面中的组织（每行一个）",
+          "personInImage": "画面中的人物（每行一人）",
+          "rightsUrl": "权利信息网址",
+          "scene": "场景代码（每行一个）",
           "source": "来源",
           "state": "省/州",
+          "subjectCode": "主题代码（每行一个）",
           "usageTerms": "使用条款"
         },
         "sections": {
           "content": "内容",
           "creatorContact": "创作者联系方式",
+          "extension": "IPTC 扩展",
           "location": "位置",
           "status": "状态"
         }
@@ -4710,6 +4750,7 @@
         "close": "关闭工具",
         "progress": "正在导出 {{current}} / {{total}}",
         "progressDenoising": "正在导出 {{current}} / {{total}} · AI 降噪…",
+        "progressSelecting": "正在导出 {{current}} / {{total}} · AI 选区…",
         "title": "导出照片"
       },
       "flags": {
@@ -4798,6 +4839,7 @@
         "compareMode": {
           "left-right": "左右分割",
           "off": "关闭",
+          "side-by-side": "并排",
           "top-bottom": "上下分割"
         },
         "compareModes": "对比模式",
@@ -4821,6 +4863,7 @@
         "splitDivider": "前后对比分割线",
         "togglePanels": "显示/隐藏面板",
         "undo": "撤销",
+        "withoutTool": "不含{{tool}}",
         "zoom": "缩放"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

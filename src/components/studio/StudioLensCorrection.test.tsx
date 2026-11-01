@@ -105,8 +105,20 @@ describe("Lens correction tool", () => {
   it("disables the amounts without a profile", async () => {
     await renderTool();
     const sliders = screen.getAllByRole("slider") as HTMLInputElement[];
-    expect(sliders.length).toBe(3);
-    expect(sliders.every((slider) => slider.disabled)).toBe(true);
+    expect(sliders.length).toBe(5);
+    // The profile's three; manual lens vignetting works without one (its
+    // midpoint once there is an amount).
+    expect(sliders.map((s) => s.disabled)).toEqual([true, true, true, false, true]);
+  });
+
+  it("sets manual lens vignetting without a profile, the default midpoint left out", async () => {
+    await renderTool();
+    const sliders = screen.getAllByRole("slider") as HTMLInputElement[];
+    await act(async () => {
+      fireEvent.change(sliders[3], { target: { value: "20" } });
+    });
+    expect(current.lensManualVignetteAmount).toBe(20);
+    expect(current.lensManualVignetteMidpoint).toBeUndefined();
   });
 
   it("turns on the measured chromatic aberration removal, with or without a profile", async () => {
@@ -211,7 +223,7 @@ describe("camera lens data", () => {
     expect(screen.getByText(/Camera data \(Fujifilm\)/)).toBeTruthy();
     // Without a TCA curve in the camera data, its amount is not offered.
     const sliders = screen.getAllByRole("slider") as HTMLInputElement[];
-    expect(sliders.map((s) => s.disabled)).toEqual([false, false, true]);
+    expect(sliders.map((s) => s.disabled)).toEqual([false, false, true, false, true]);
     await act(async () => {
       fireEvent.click(screen.getByText("Use lens database…"));
     });

@@ -46,6 +46,8 @@ function canonical(value: unknown): unknown {
  * move no content: prompts stay on their objects across them. */
 const CONTENT_STAYS: ReadonlySet<string> = new Set([
   'lensVignetteAmount',
+  'lensManualVignetteAmount',
+  'lensManualVignetteMidpoint',
   'lensVignetteEnabled',
   'lensTcaAmount',
   'lensTcaEnabled',

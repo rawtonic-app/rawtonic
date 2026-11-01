@@ -45,7 +45,10 @@ fn private_raw_auto_recipes() {
             crate::auto_adjust::predicted_display_percentiles(
                 &image,
                 look.baseline_for(crate::image_processing::RENDER_VERSION),
-                crate::auto_adjust::DisplayCurve::for_look(&look),
+                crate::auto_adjust::DisplayCurve::for_look(
+                    &look,
+                    crate::image_processing::RENDER_VERSION
+                ),
                 0.0
             )
         );
@@ -319,7 +322,10 @@ fn print_upright_segments() {
 /// default 6), STEM.work (the detector's work copy) at most 1600 px long for marking dust by eye. With
 /// `$DUST_SYNTH` = N, N synthetic dust discs (seeded per file, 2–8 % deep,
 /// radius 0.15–0.6 % of the long edge) are painted on the base first and
-/// listed as `synthetic` (the second, labelled set).
+/// listed as `synthetic` (the second, labelled set). With `$DUST_BASE`,
+/// STEM.base too: the base image (width, height as little-endian u32,
+/// then RGB f32), for the heal measurement (`rawtonic_engine::dust` test
+/// `heal_bases`).
 #[test]
 #[ignore = "tool: needs DUST_FILES and DUST_OUT"]
 fn print_dust() {
@@ -411,6 +417,16 @@ fn print_dust() {
             cached.extend_from_slice(&v.to_le_bytes());
         }
         std::fs::write(out.join(format!("{stem}.work")), cached).unwrap();
+        if std::env::var("DUST_BASE").is_ok() {
+            let rgb = image.to_rgb32f();
+            let mut bytes = Vec::with_capacity(8 + rgb.as_raw().len() * 4);
+            bytes.extend_from_slice(&rgb.width().to_le_bytes());
+            bytes.extend_from_slice(&rgb.height().to_le_bytes());
+            for v in rgb.as_raw() {
+                bytes.extend_from_slice(&v.to_le_bytes());
+            }
+            std::fs::write(out.join(format!("{stem}.base")), bytes).unwrap();
+        }
         // The local contrast view, and the share of flat area (|view| small
         // over a 9 × 9 neighbourhood) as a guide to which photos can show dust.
         let factor = w.max(h).div_ceil(1600).max(1);

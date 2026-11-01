@@ -49,6 +49,9 @@ it("says what each photo is doing, AI Denoise with its share done", () => {
     "AI Denoise 42 %",
   );
   expect(describeExportItem({ ...item(0, { state: "running" }), stage: "loading" })).toBe("Reading the photo…");
+  expect(describeExportItem({ ...item(0, { state: "running" }), stage: "selecting" })).toBe(
+    "Computing AI selections…",
+  );
   expect(describeExportItem(item(0, { state: "done", startedMs: 1000, finishedMs: 4250 }))).toBe("Done in 3.3 s");
   expect(describeExportItem(item(0, { state: "failed", error: "Decoder said no" }))).toBe("Decoder said no");
   expect(describeExportItem(item(0, {}))).toBe("Waiting");

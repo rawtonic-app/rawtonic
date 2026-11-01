@@ -19,6 +19,7 @@ use std::{
 
 pub mod capture_one;
 pub mod lightroom;
+pub mod lightroom_settings;
 
 /// The develop settings of a photograph, in its editor's own form.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -42,6 +43,18 @@ pub struct Photo {
     /// For a virtual copy (Lightroom) or a further variant (Capture One):
     /// the key of the photograph it belongs to.
     pub copy_of: Option<String>,
+    /// The editor's global id for the photograph or copy (Lightroom's
+    /// `id_global`, a UUID that a copied catalog keeps; for Capture One,
+    /// which has none, the session file's path and the variant's id).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
+    /// A virtual copy's name in its editor (Lightroom's Copy Name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copy_name: Option<String>,
+    /// The editor's snapshots of this photograph: name and settings, oldest
+    /// first (Lightroom's develop snapshots).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub snapshots: Vec<(String, Develop)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +66,45 @@ pub struct Album {
     /// A collection set / album group, holding albums rather than photos.
     pub is_group: bool,
     pub photos: Vec<String>,
+    /// A smart collection: its rules, as the editor states them (the app
+    /// translates them into a smart album's rules).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smart: Option<SmartRules>,
+}
+
+/// A smart collection's rules in Lightroom's terms
+/// (`AgLibraryCollectionContent`: `s = { { criteria = "rating",
+/// operation = ">=", value = 4 }, combine = "intersect" }`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartRules {
+    /// `intersect` (all), `union` (any) or `exclude` (none).
+    pub combine: String,
+    pub rules: Vec<SmartRule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", untagged)]
+pub enum SmartRule {
+    Group(SmartRules),
+    Condition {
+        criteria: String,
+        operation: String,
+        value: SmartValue,
+        /// The range's end (`operation = "in"`).
+        value2: SmartValue,
+        /// `days`, `weeks`, `months`, `years` (`inLast`).
+        units: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum SmartValue {
+    None,
+    Bool(bool),
+    Number(f64),
+    Text(String),
 }
 
 /// What a reader found but does not bring over.
@@ -119,38 +171,11 @@ pub struct Root {
     pub found: usize,
 }
 
-/// Rawtonic's colour labels (Lightroom's default set).
-pub const LABELS: [&str; 5] = ["Red", "Yellow", "Green", "Blue", "Purple"];
-
 /// A label name in one of the common interface languages, or `""`.
 pub fn label_from_name(name: &str) -> String {
-    let lower = name.trim().to_lowercase();
-    let label = match lower.as_str() {
-        "red" | "rot" | "rouge" | "rojo" | "rosso" | "vermelho" | "rood" | "czerwony"
-        | "красный" | "赤" | "红色" | "紅色" | "빨간색" => "Red",
-        "yellow" | "gelb" | "jaune" | "amarillo" | "giallo" | "amarelo" | "geel" | "żółty"
-        | "желтый" | "黄" | "黄色" | "노란색" => "Yellow",
-        "green" | "grün" | "vert" | "verde" | "groen" | "zielony" | "зеленый" | "緑" | "绿色"
-        | "綠色" | "녹색" => "Green",
-        "blue" | "blau" | "bleu" | "azul" | "blu" | "blauw" | "niebieski" | "синий" | "青"
-        | "蓝色" | "藍色" | "파란색" => "Blue",
-        "purple"
-        | "violett"
-        | "lila"
-        | "violet"
-        | "morado"
-        | "púrpura"
-        | "viola"
-        | "roxo"
-        | "paars"
-        | "fioletowy"
-        | "фиолетовый"
-        | "紫"
-        | "紫色"
-        | "보라색" => "Purple",
-        _ => "",
-    };
-    label.to_string()
+    rawtonic_metadata::labels::canonical(name)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// Opens a copy of another application's SQLite database, read-only. The

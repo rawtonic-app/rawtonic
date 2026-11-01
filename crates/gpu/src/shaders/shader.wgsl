@@ -1361,6 +1361,29 @@ const HL_V3_BLACK_K0: f32 = 0.0;
 const HL_V3_BLACK_K1: f32 = 2.0;
 const HL_V3_BLEND: f32 = 2.0;
 const HL_V3_RANGE: f32 = 2.0;
+// Tone version 4: lowering Highlights adapts to bright frames too, as
+// Camera Raw's does. On frames of bright key (snow, overcast or bright
+// skies, white rooms) Camera Raw's −100 lowers broad bright areas only
+// 0.2–0.7 times as far as on a frame of mid tones; how far followed the
+// frame's 10th percentile and median (log ratio against version 3,
+// leave-one-out rmse 0.31 EV against a spread of 0.69). Version 4
+// compresses such a frame as if it were up to 2 EV darker (gentler, the
+// same mechanism as version 3's shift in the other direction) but keeps
+// version 3's pivot and blend width (raising them too left the upper
+// midtones untouched where Camera Raw still lowers them a little). The
+// shift is HL_V4_BRIGHT0 − HL_V4_BRIGHT_MEDIAN_SLOPE · Km −
+// HL_V4_BRIGHT_LOW_SLOPE · Kl where negative (EV over the black point
+// with the baseline, as in version 3): none where the 10th percentile is
+// at the black point and the median less than 5 EV above it. The local
+// base's range keeps version 3's narrowing for its dark-frame shift only.
+// Fitted against Camera Raw's −100 and −40 change on 23 raw.pixls.us
+// frames, checked on 25 untouched ones (−100: ΔE×100 of the change in
+// broad bright areas 7.5 → 2.3; notes:
+// benchmark-results/hl-highlights-2026-11-01).
+const HL_V4_BRIGHT0: f32 = 0.8;
+const HL_V4_BRIGHT_MEDIAN_SLOPE: f32 = 0.157;
+const HL_V4_BRIGHT_LOW_SLOPE: f32 = 0.36;
+const HL_V4_BRIGHT_MAX: f32 = 2.0;
 const CR_HIGHLIGHTS_DESAT_START: f32 = 0.9;
 const CR_HIGHLIGHTS_DESAT_END: f32 = 2.5;
 const STANDARD_WHITES_RAISE: f32 = 1.7;
@@ -2193,7 +2216,8 @@ fn apply_tonal_adjustments(
 // EV by which lowering Highlights (tone version 3) treats the frame as
 // brighter at −100: 0 on frames of daylight key or without a measured key,
 // at most HL_V3_SHIFT_MAX; faded out as the 90th percentile falls from 2 EV
-// over the black point to it (none at or below it).
+// over the black point to it (none at or below it). Tone version 4 adds a
+// negative shift on frames of bright key (at most HL_V4_BRIGHT_MAX EV).
 fn hl_v3_shift() -> f32 {
     let key = adjustments.global.image_key;
     let median = adjustments.global.image_key_median;
@@ -2205,7 +2229,12 @@ fn hl_v3_shift() -> f32 {
     let km = log2(max(median, CR_RANGE_FLOOR)) + offset;
     let kl = log2(max(adjustments.global.image_key_low, CR_RANGE_FLOOR)) + offset;
     let d = HL_V3_SHIFT0 - HL_V3_MEDIAN_SLOPE * km - HL_V3_KEY_SLOPE * k - HL_V3_LOW_SLOPE * kl;
-    return clamp(d, 0.0, HL_V3_SHIFT_MAX) * smoothstep(HL_V3_BLACK_K0, HL_V3_BLACK_K1, k);
+    let dark = clamp(d, 0.0, HL_V3_SHIFT_MAX) * smoothstep(HL_V3_BLACK_K0, HL_V3_BLACK_K1, k);
+    if (adjustments.global.tone_version < 3.5) {
+        return dark;
+    }
+    let bright = HL_V4_BRIGHT0 - HL_V4_BRIGHT_MEDIAN_SLOPE * km - HL_V4_BRIGHT_LOW_SLOPE * kl;
+    return dark + clamp(bright, -HL_V4_BRIGHT_MAX, 0.0);
 }
 
 fn apply_highlights_adjustment(
@@ -2232,14 +2261,19 @@ fn apply_highlights_adjustment(
     // so the response sits at the same display levels on every camera.
     var hl_unit = 1.0;
     // Version 3: dark frames shift the response down and compress harder
-    // (EV of shift, faded in towards −100).
+    // (EV of shift, faded in towards −100). Version 4's negative shift on
+    // bright frames compresses more gently but keeps the pivot and the
+    // blend width (`pivot_unit`), so the upper midtones still darken a
+    // little, as in Camera Raw.
     var key_shift = 0.0;
+    var pivot_unit = 1.0;
     if (v2) {
         if (adjustments.global.tone_version > 2.5) {
             key_shift = hl_v3_shift() * pow(min(-highlights_adj / HL_K100, 1.0), HL_V3_AMOUNT_EXPONENT);
         }
         hl_unit = exp2(adjustments.global.baseline_exposure + key_shift);
-        l_pivot = HL_V2_PIVOT / hl_unit;
+        pivot_unit = exp2(adjustments.global.baseline_exposure + max(key_shift, 0.0));
+        l_pivot = HL_V2_PIVOT / pivot_unit;
         lower_gain = HL_V2_LOWER * exp2(HL_V3_GAIN * key_shift);
     }
     let highlights_gain = select(
@@ -2283,7 +2317,7 @@ fn apply_highlights_adjustment(
     // bright plateau otherwise took a base pulled down by the rim, and the
     // detail lift on that turned tones over across the edge (a light rim
     // inside a darker band, 0.1 EV on a clipped disc).
-    let range_tol = max(pixel_luma * 0.22, 0.03) * exp2(-HL_V3_RANGE * key_shift);
+    let range_tol = max(pixel_luma * 0.22, 0.03) * exp2(-HL_V3_RANGE * max(key_shift, 0.0));
     let inv_two_range_sq = 1.0 / (2.0 * range_tol * range_tol);
 
     var sum_luma: f32 = pixel_luma;
@@ -2361,7 +2395,7 @@ fn apply_highlights_adjustment(
             // Narrower as version 3 compresses harder: blending the
             // untouched level into a far lower target over the v2 width
             // turned tones over (a dark band inside bright edges).
-            blend_width = HL_V2_BLEND * exp2(-HL_V3_BLEND * key_shift) / hl_unit;
+            blend_width = HL_V2_BLEND * exp2(-HL_V3_BLEND * max(key_shift, 0.0)) / pivot_unit;
         }
         let blend = smoothstep(l_pivot, l_pivot + blend_width, pixel_luma);
         target_luma = mix(pixel_luma, recovered_target, blend);
@@ -5590,6 +5624,21 @@ const CAMERA_RAW_BLACK: f32 = 0.005;
 // once their levels matched Adobe's; 0.6 % fits that profile
 // (notes: reference/tone-controls.md, 2026-10-05).
 const CAMERA_RAW_BLACK_NEUTRAL: f32 = 0.006;
+// renderVersion 10 (profile_curve[15].x = 1): Camera Raw renders a RAW from
+// baseline + Exposure only, and its deepest tones follow either change
+// with the slope of its whole tone curve: the black point does not scale
+// with Exposure. Measured against Camera Raw's renders at Exposure -1..+2
+// on 21 base-ISO RAWs of 9 makes and on extended-ISO twins (the same data
+// with the ISO metadata at base): a black that follows a quarter of
+// baseline + Exposure (from the 0.6 % at a baseline of 0.4 EV) under a toe
+// whose power keeps the ramp's log slope from 3.5 x the black down to zero
+// (no hard zero below it, so channel differences near black are not
+// magnified tenfold) left the deepest bands within 0.2-0.5 EV at every
+// Exposure (the scaled ramp: up to 8.5 EV darker at +2) and the twins
+// within 0.17 EV (notes: benchmark-results/br-black-ramp-2026-11-01).
+const CR_SCENE_BLACK_FOLLOW: f32 = 0.25;
+const CR_SCENE_BLACK_REFERENCE_EV: f32 = 0.4;
+const CR_SCENE_TOE_SPAN: f32 = 3.5;
 const CAMERA_RAW_SATURATION: f32 = 1.15;
 const CAMERA_RAW_BLUE_HUE: f32 = 265.0;
 const CAMERA_RAW_BLUE_REACH: f32 = 45.0;
@@ -5644,8 +5693,15 @@ fn camera_raw_curve(x: f32) -> f32 {
     return exp2(mix(DEFAULT_TONE_CURVE[index], DEFAULT_TONE_CURVE[index + 1u], t));
 }
 
+// renderVersion 10's scene-referred black and soft toe (looks with flags 2-4).
+fn camera_raw_scene_black() -> bool {
+    return adjustments.global.profile_curve[15].x > 0.5 && adjustments.global.profile_curve[15].w > 1.5;
+}
+
 // The neutral look's black point scales with Exposure, so Exposure acts
-// 1:1 in the deepest tones as in Lightroom.
+// 1:1 in the deepest tones. From renderVersion 10 this is the black only
+// the tone sliders place their tables and order guards by (they were
+// fitted to it); the base tone ramps from `camera_raw_scene_black_level`.
 fn camera_raw_black() -> f32 {
     // DNG DefaultBlackRender = None: no black subtraction.
     if (adjustments.global.profile_curve[15].z > 0.5) {
@@ -5669,6 +5725,33 @@ fn camera_raw_black_ramp(x: f32) -> f32 {
     }
     let y = x - (black - radius);
     return slope / (4.0 * radius) * y * y;
+}
+
+// renderVersion 10's black point of the base tone: it follows a quarter of
+// baseline + Exposure (`CR_SCENE_BLACK_FOLLOW`); 0 without a black.
+fn camera_raw_scene_black_level() -> f32 {
+    if (adjustments.global.profile_curve[15].z > 0.5) {
+        return 0.0;
+    }
+    let ev = adjustments.global.exposure + adjustments.global.baseline_exposure - CR_SCENE_BLACK_REFERENCE_EV;
+    return min(CAMERA_RAW_BLACK_NEUTRAL * exp2(CR_SCENE_BLACK_FOLLOW * ev), 0.05);
+}
+
+// renderVersion 10's black ramp: below `CR_SCENE_TOE_SPAN` x black a power
+// of the input that meets the straight ramp with its value and slope.
+fn camera_raw_scene_black_ramp(x: f32, black: f32) -> f32 {
+    if (black <= 0.0) {
+        return x;
+    }
+    let slope = 1.0 / (1.0 - black);
+    let top = CR_SCENE_TOE_SPAN * black;
+    if (x >= top) {
+        return (x - black) * slope;
+    }
+    if (x <= 0.0) {
+        return 0.0;
+    }
+    return slope * (top - black) * pow(x / top, top / (top - black));
 }
 
 // Rawtonic's colour rendition for the neutral look (all RAWs except files
@@ -5836,6 +5919,10 @@ fn apply_camera_profile(c: vec3<f32>) -> vec3<f32> {
 fn camera_raw_tonemap(scene: vec3<f32>) -> vec3<f32> {
     let p = max(srgb_to_prophoto(scene), vec3<f32>(0.0));
     var ramped = vec3<f32>(camera_raw_black_ramp(p.r), camera_raw_black_ramp(p.g), camera_raw_black_ramp(p.b));
+    if (camera_raw_scene_black()) {
+        let black = camera_raw_scene_black_level();
+        ramped = vec3<f32>(camera_raw_scene_black_ramp(p.r, black), camera_raw_scene_black_ramp(p.g, black), camera_raw_scene_black_ramp(p.b, black));
+    }
     // A camera profile's LookTable acts after exposure, before the curve.
     if (adjustments.global.camera_profile.y != 0u && adjustments.global.camera_profile_look.x != 0u) {
         ramped = dcp_table(ramped, adjustments.global.camera_profile_look, adjustments.global.camera_profile.z);

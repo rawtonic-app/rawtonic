@@ -432,3 +432,31 @@ fn read_only_photographs_back_up_and_restore_and_keep_their_attribute() {
 fn modified(path: &Path) -> std::time::SystemTime {
     fs::metadata(path).unwrap().modified().unwrap()
 }
+
+#[test]
+fn uppercase_external_xmp_is_copied_and_verified_with_the_photo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (lib, _) = catalog(&root);
+    let ext = root.join("external");
+    fs::create_dir(&ext).unwrap();
+    let photo = ext.join("upper.arw");
+    fs::write(&photo, b"external original").unwrap();
+    let id = lib.add_asset(&photo).unwrap().id;
+    let upper = photo.with_extension("XMP");
+    fs::write(&upper, b"foreign XMP bytes").unwrap();
+    if photo.with_extension("xmp").exists() {
+        return;
+    }
+    let backup = root.join("backup");
+    copy_library(&lib.directory, &backup, "backup", &cancel(), |_| {}).unwrap();
+    verify(&backup, &cancel(), |_| {}).unwrap();
+    let copied = Library::open(&backup).unwrap().asset(&id).unwrap().path;
+    assert_eq!(
+        fs::read(copied.with_extension("XMP")).unwrap(),
+        b"foreign XMP bytes"
+    );
+    assert!(!copied.with_extension("xmp").exists());
+    assert_eq!(fs::read(&photo).unwrap(), b"external original");
+    assert_eq!(fs::read(&upper).unwrap(), b"foreign XMP bytes");
+}

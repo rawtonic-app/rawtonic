@@ -179,6 +179,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('toggle_fullscreen', { check: true }),
       c('toggle_metadata', { check: true }),
       c('toggle_split_view', { check: true }),
+      c('toggle_original', { check: true }),
       c('toggle_multi_view', { check: true }),
       'separator',
       c('toggle_clipping', { check: true }),

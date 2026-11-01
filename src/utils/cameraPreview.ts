@@ -92,8 +92,8 @@ export function cameraPreviewTarget(): string | null {
   if (!path || !cameraPreviewPossible(path)) return null;
   const multi = useMultiViewStore.getState();
   if (multi.active || multi.libraryEnabled) return null;
-  const { splitView, showOriginal } = useEditorStore.getState();
-  return splitView || showOriginal || editingToolOnScreen() ? null : path;
+  const { splitView, showOriginal, toolBefore } = useEditorStore.getState();
+  return splitView || showOriginal || toolBefore || editingToolOnScreen() ? null : path;
 }
 
 /** Whether the camera preview is on screen (for `path`: of that photograph). */

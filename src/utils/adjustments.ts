@@ -584,6 +584,12 @@ export interface Adjustments {
   lensDistortionEnabled: boolean;
   lensTcaEnabled: boolean;
   lensVignetteEnabled: boolean;
+  /** Manual lens vignetting (manual_vignette.rs): a radial exposure gain of
+   * the uncropped frame, −100…+100 (positive brightens the corners);
+   * missing = none. Lightroom's Lens Vignetting. */
+  lensManualVignetteAmount?: number;
+  /** Its midpoint, 0…100 (missing = 50): lower reaches further in. */
+  lensManualVignetteMidpoint?: number;
   /** Capture One's diffraction correction: sharpening by the f-number and
    * pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
@@ -652,7 +658,8 @@ export interface Adjustments {
    * `TONE_VERSION`): 2 = Shadows above +50 reaches further into the
    * quarter-tones and lowered Highlights is refitted; 3 = lowered
    * Highlights also adapts to the image key (reaches further in dark
-   * frames); 1 or missing on
+   * frames); 4 = and lowers less on frames of bright key (snow, overcast
+   * skies, white rooms); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1343,7 +1350,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 3;
+export const TONE_VERSION = 4;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
@@ -1362,7 +1369,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 9;
+export const RENDER_VERSION = 11;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1388,6 +1395,17 @@ export const UNBIASED_BLACK_RENDER_VERSION = 8;
  * decides (`image_loader::decode_variant`). */
 export const unbiasedBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= UNBIASED_BLACK_RENDER_VERSION;
+
+/** The render version from which the masked sensor border's black replaces
+ * a decoder's that spreads over the 2 × 2 positions more than 3 levels
+ * beyond the border's (crates/engine/src/image_loader.rs
+ * `BORDER_BLACK_RENDER_VERSION`). */
+export const BORDER_BLACK_RENDER_VERSION = 11;
+
+/** Whether a recipe's RAW is developed with that border black, as the
+ * backend decides (`image_loader::decode_variant`). */
+export const borderBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= BORDER_BLACK_RENDER_VERSION;
 
 /** The render version from which clipped colours inside larger partly
  * clipped areas are rebuilt from colour ratios (crates/engine/src/image_loader.rs
@@ -1714,7 +1732,7 @@ const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => 
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
-  // Versions 2 and 3 change Shadows above +50 and lowered Highlights only.
+  // Versions 2 to 4 change Shadows above +50 and lowered Highlights only.
   const differs = (values: { shadows?: unknown; highlights?: unknown } | undefined) =>
     ((values?.shadows as number | undefined) ?? 0) > 50 || ((values?.highlights as number | undefined) ?? 0) < 0;
   const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
@@ -2148,6 +2166,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         LensAdjustment.LensDistortionEnabled,
         LensAdjustment.LensTcaEnabled,
         LensAdjustment.LensVignetteEnabled,
+        'lensManualVignetteAmount',
+        'lensManualVignetteMidpoint',
         'diffractionCorrection',
         'diffractionVersion',
         'autoChromaticAberration',

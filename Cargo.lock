@@ -5307,6 +5307,7 @@ dependencies = [
  "rawtonic-onnx",
  "rawtonic-rawdecode",
  "rawtonic-runtime",
+ "rawtonic-segment",
  "rawtonic-tether",
  "rayon",
  "regex",
@@ -5381,6 +5382,7 @@ dependencies = [
  "rawtonic-metadata",
  "rawtonic-onnx",
  "rawtonic-rawdecode",
+ "rawtonic-segment",
  "rusqlite",
  "serde",
  "serde_json",
@@ -5489,6 +5491,7 @@ dependencies = [
  "rawtonic-naming",
  "rawtonic-rawdecode",
  "rawtonic-runtime",
+ "rawtonic-segment",
  "rayon",
  "rusqlite",
  "serde",
@@ -5581,7 +5584,9 @@ name = "rawtonic-interop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "rawtonic-metadata",
+ "roxmltree",
  "rusqlite",
  "serde",
  "tempfile",
@@ -5667,6 +5672,22 @@ dependencies = [
  "libmimalloc-sys",
  "log",
  "serde_json",
+]
+
+[[package]]
+name = "rawtonic-segment"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "image",
+ "log",
+ "ndarray",
+ "ort",
+ "rawtonic-denoise",
+ "rawtonic-onnx",
+ "rayon",
+ "sha2 0.11.0",
 ]
 
 [[package]]

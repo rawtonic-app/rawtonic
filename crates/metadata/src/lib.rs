@@ -1,4 +1,5 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
+pub mod labels;
 pub mod no_clobber;
 pub mod provenance;
 pub mod resources;
@@ -22,6 +23,9 @@ pub const PHOTOSHOP: &str = "http://ns.adobe.com/photoshop/1.0/";
 pub const IPTC_CORE: &str = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
 pub const XMP_RIGHTS: &str = "http://ns.adobe.com/xap/1.0/rights/";
 pub const IPTC_EXT: &str = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+/// XMP Dynamic Media: Lightroom Classic (15) and Bridge write the pick flag
+/// as `xmpDM:pick` (1 pick, -1 reject, 0 none) with `xmpDM:good`.
+pub const XMP_DM: &str = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
 /// IPTC Digital Source Type of a photo with areas made by a generative model
 /// (object removal, generative fill): the machine-readable marking the EU AI
 /// Act (Art. 50(2)) asks of such output.
@@ -35,14 +39,66 @@ pub enum IptcKind {
     Simple,
     /// A language alternative (`rdf:Alt`), written as `x-default`.
     Alt,
+    /// An unordered list, edited as one item per line.
+    Bag,
     /// A field of `Iptc4xmpCore:CreatorContactInfo`.
     Contact,
 }
 
-/// The IPTC Core fields Rawtonic keeps (Capture One's and Lightroom's IPTC
+/// The IPTC Core and Extension fields Rawtonic keeps (Capture One's and Lightroom's IPTC
 /// panels): key in [`Metadata::iptc`], namespace, XMP name, kind. Title,
 /// description, creator and copyright are Dublin Core fields of `Metadata`.
 pub const IPTC_FIELDS: &[(&str, &str, &str, IptcKind)] = &[
+    ("personInImage", IPTC_EXT, "PersonInImage", IptcKind::Bag),
+    (
+        "organisationInImageName",
+        IPTC_EXT,
+        "OrganisationInImageName",
+        IptcKind::Bag,
+    ),
+    (
+        "organisationInImageCode",
+        IPTC_EXT,
+        "OrganisationInImageCode",
+        IptcKind::Bag,
+    ),
+    ("event", IPTC_EXT, "Event", IptcKind::Alt),
+    ("modelAge", IPTC_EXT, "ModelAge", IptcKind::Bag),
+    (
+        "additionalModelInfo",
+        IPTC_EXT,
+        "AddlModelInfo",
+        IptcKind::Simple,
+    ),
+    (
+        "maxAvailHeight",
+        IPTC_EXT,
+        "MaxAvailHeight",
+        IptcKind::Simple,
+    ),
+    ("maxAvailWidth", IPTC_EXT, "MaxAvailWidth", IptcKind::Simple),
+    (
+        "digitalSourceType",
+        IPTC_EXT,
+        "DigitalSourceType",
+        IptcKind::Simple,
+    ),
+    ("subjectCode", IPTC_CORE, "SubjectCode", IptcKind::Bag),
+    ("scene", IPTC_CORE, "Scene", IptcKind::Bag),
+    (
+        "intellectualGenre",
+        IPTC_CORE,
+        "IntellectualGenre",
+        IptcKind::Simple,
+    ),
+    (
+        "captionWriter",
+        PHOTOSHOP,
+        "CaptionWriter",
+        IptcKind::Simple,
+    ),
+    ("dateCreated", PHOTOSHOP, "DateCreated", IptcKind::Simple),
+    ("rightsUrl", XMP_RIGHTS, "WebStatement", IptcKind::Simple),
     ("headline", PHOTOSHOP, "Headline", IptcKind::Simple),
     ("location", IPTC_CORE, "Location", IptcKind::Simple),
     ("city", PHOTOSHOP, "City", IptcKind::Simple),
@@ -122,7 +178,8 @@ pub struct Metadata {
     pub description: String,
     pub creator: String,
     pub copyright: String,
-    /// IPTC Core fields by the keys of [`IPTC_FIELDS`]; empty ones are absent.
+    /// IPTC fields by [`IPTC_FIELDS`]. An absent key preserves the sidecar's
+    /// value; an explicit empty string clears it on every write.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub iptc: BTreeMap<String, String>,
 }
@@ -165,6 +222,18 @@ impl Metadata {
         } else {
             self.iptc.insert(key.to_string(), value.to_string());
         }
+    }
+}
+
+/// The existing stem sidecar, preserving its extension's case. New sidecars
+/// use `.xmp`; an existing `.XMP` must be read and updated in place on Linux.
+pub fn sidecar_path(photo: &Path) -> std::path::PathBuf {
+    let lower = photo.with_extension("xmp");
+    let upper = photo.with_extension("XMP");
+    if !lower.exists() && upper.exists() {
+        upper
+    } else {
+        lower
     }
 }
 
@@ -212,19 +281,23 @@ fn managed(namespace: Option<&str>, name: &str) -> bool {
         Some(DC) => ["subject", "title", "description", "creator", "rights"].contains(&name),
         Some(LR) => name == "hierarchicalSubject",
         Some(RT | FORMER_RT) => ["Flag", "Recipe"].contains(&name),
+        Some(XMP_DM) => ["pick", "good"].contains(&name),
+        Some(PHOTOSHOP) => name == "LabelColor",
         _ => false,
     }
 }
 
 /// Whether a packet says anything about the culling flag: Rawtonic's own
-/// `Flag` property, or a rejected rating (`xmp:Rating` -1). Other editors
+/// `Flag` property, the shared `xmpDM:pick`, or a rejected rating
+/// (`xmp:Rating` -1). Other editors
 /// rewriting a sidecar may leave the flag out; reading such a packet back
 /// keeps the library's flag rather than taking the absent one as "unflagged".
 pub fn carries_flag(text: &str) -> Result<bool> {
     ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let doc = roxmltree::Document::parse(text)?;
     let flag = |namespace: Option<&str>, name: &str| {
-        matches!(namespace, Some(RT | FORMER_RT)) && name == "Flag"
+        (matches!(namespace, Some(RT | FORMER_RT)) && name == "Flag")
+            || (namespace == Some(XMP_DM) && name == "pick")
     };
     let rejected = |namespace: Option<&str>, name: &str, value: &str| {
         namespace == Some(XMP) && name == "Rating" && value.trim() == "-1"
@@ -249,6 +322,11 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     // in any order: Rawtonic writes ratings 0–5 and its flag apart, so a -1
     // rating beside a pick is an outside change the flag did not follow.
     let mut rejected = false;
+    // The pick flag other applications write (`xmpDM:pick`) wins over
+    // Rawtonic's own property, which they leave as it was.
+    let mut pick: Option<i8> = None;
+    let mut flat = Vec::new();
+    let mut hierarchical = Vec::new();
     for node in doc.descendants().filter(|n| n.is_element()) {
         let name = node.tag_name();
         for attr in node.attributes() {
@@ -258,8 +336,9 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                     result.rating = rating.max(0) as u8;
                     rejected |= rating == -1;
                 }
-                (Some(XMP), "Label") => result.label = attr.value().into(),
+                (Some(XMP), "Label") => result.label = labels::stored(attr.value()),
                 (Some(RT | FORMER_RT), "Flag") => result.flag = attr.value().parse()?,
+                (Some(XMP_DM), "pick") => pick = Some(parse_pick(attr.value())?),
                 (namespace, name) => {
                     let key = iptc_key(namespace, name).or_else(|| {
                         node.ancestors()
@@ -296,12 +375,28 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                 result.rating = rating.max(0) as u8;
                 rejected |= rating == -1;
             }
-            (Some(XMP), "Label") => result.label = value(),
+            (Some(XMP), "Label") => result.label = labels::stored(&value()),
             (Some(RT | FORMER_RT), "Flag") => result.flag = value().parse()?,
+            (Some(XMP_DM), "pick") => pick = Some(parse_pick(&value())?),
             (Some(RT | FORMER_RT), "Recipe") => recipe = Some(serde_json::from_str(&value())?),
             (Some(DC), "title") => result.title = value(),
             (Some(DC), "description") => result.description = value(),
-            (Some(DC), "creator") => result.creator = value(),
+            // Several creators (Capture One adds the camera's artist to the
+            // one set by hand) are one field, as Lightroom shows them.
+            (Some(DC), "creator") => {
+                let creators: Vec<&str> = node
+                    .descendants()
+                    .filter(|n| n.has_tag_name((RDF, "li")))
+                    .filter_map(|n| n.text())
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .collect();
+                result.creator = if creators.is_empty() {
+                    value()
+                } else {
+                    creators.join("; ")
+                };
+            }
             (Some(DC), "rights") => result.copyright = value(),
             (namespace, tag)
                 if iptc_key(namespace, tag).is_some()
@@ -312,20 +407,38 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
             {
                 let key = iptc_key(namespace, tag).or_else(|| contact_key(namespace, tag));
                 if let Some(key) = key {
-                    result.set_iptc(key, &value());
+                    let value = if iptc_field(key).is_some_and(|(_, _, kind)| kind == IptcKind::Bag)
+                    {
+                        node.descendants()
+                            .filter(|n| n.has_tag_name((RDF, "li")))
+                            .filter_map(|n| n.text())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    } else {
+                        value()
+                    };
+                    result.set_iptc(key, &value);
                 }
             }
             (Some(DC), "subject") | (Some(LR), "hierarchicalSubject") => {
-                for li in node.descendants().filter(|n| n.has_tag_name((RDF, "li"))) {
-                    if let Some(s) = li.text()
-                        && !result.keywords.iter().any(|k| k == s)
-                    {
-                        result.keywords.push(s.into());
-                    }
-                }
+                let list = if name.namespace() == Some(DC) {
+                    &mut flat
+                } else {
+                    &mut hierarchical
+                };
+                list.extend(
+                    node.descendants()
+                        .filter(|n| n.has_tag_name((RDF, "li")))
+                        .filter_map(|n| n.text())
+                        .map(str::to_string),
+                );
             }
             _ => {}
         }
+    }
+    result.keywords = keywords_from(flat, hierarchical);
+    if let Some(pick) = pick {
+        result.flag = pick;
     }
     if rejected {
         result.flag = -1;
@@ -334,15 +447,92 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     Ok((result, recipe))
 }
 
+fn parse_pick(value: &str) -> Result<i8> {
+    let pick: i8 = value.trim().parse()?;
+    Ok(pick.clamp(-1, 1))
+}
+
+/// A photo's keywords from the flat `dc:subject` and the hierarchical
+/// `lr:hierarchicalSubject` (`A|B|C`). With a hierarchy, its entries are the
+/// keywords, each as assigned (also a root keyword named like a level of a
+/// path, or a path's ancestor that Capture One lists); `dc:subject`, where
+/// Lightroom and Capture One list every level of the paths as a term, only
+/// adds the terms no entry holds (written by an application that writes
+/// `dc:subject` only).
+fn keywords_from(flat: Vec<String>, hierarchical: Vec<String>) -> Vec<String> {
+    let clean = |list: Vec<String>| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for k in list {
+            let k = k.trim();
+            if !k.is_empty() && !out.iter().any(|o| o == k) {
+                out.push(k.to_string());
+            }
+        }
+        out
+    };
+    let flat = clean(flat);
+    let hierarchical = clean(hierarchical);
+    let levels: Vec<&str> = hierarchical
+        .iter()
+        .filter(|k| k.contains('|'))
+        .flat_map(|k| k.split('|').map(str::trim))
+        .collect();
+    let mut keywords = hierarchical.clone();
+    for term in flat {
+        if !levels.contains(&term.as_str()) && !keywords.contains(&term) {
+            keywords.push(term);
+        }
+    }
+    keywords
+}
+
+/// The terms of `dc:subject` for the keywords: every level of a
+/// hierarchical keyword as a term of its own, as Lightroom writes them.
+fn subject_terms(keywords: &[String]) -> Vec<&str> {
+    let mut terms: Vec<&str> = Vec::new();
+    for term in keywords.iter().flat_map(|k| k.split('|')).map(str::trim) {
+        if !term.is_empty() && !terms.contains(&term) {
+            terms.push(term);
+        }
+    }
+    terms
+}
+
 /// Namespace declarations for [`iptc_elements`]; none without IPTC, so
 /// sidecars and exports without IPTC stay as they were.
 fn iptc_namespaces(metadata: &Metadata) -> String {
-    if metadata.iptc.values().all(|v| v.trim().is_empty()) {
+    if metadata.iptc.is_empty() {
         return String::new();
     }
-    format!(
+    let mut namespaces = format!(
         " xmlns:photoshop=\"{PHOTOSHOP}\" xmlns:Iptc4xmpCore=\"{IPTC_CORE}\" xmlns:xmpRights=\"{XMP_RIGHTS}\""
-    )
+    );
+    if metadata.iptc.iter().any(|(key, value)| {
+        !value.trim().is_empty() && iptc_field(key).is_some_and(|(ns, _, _)| ns == IPTC_EXT)
+    }) {
+        namespaces.push_str(&format!(" xmlns:Iptc4xmpExt=\"{IPTC_EXT}\""));
+    }
+    namespaces
+}
+
+/// The first value of a simple property (attribute or element text, or the
+/// first `rdf:li`) anywhere in the packet.
+fn property(root: roxmltree::Node, namespace: &str, name: &str) -> Option<String> {
+    root.descendants()
+        .filter(|n| n.is_element())
+        .find_map(|node| {
+            if let Some(value) = node.attribute((namespace, name)) {
+                return Some(value.to_string());
+            }
+            node.has_tag_name((namespace, name)).then(|| {
+                node.descendants()
+                    .find(|n| n.has_tag_name((RDF, "li")))
+                    .and_then(|n| n.text())
+                    .or_else(|| node.text())
+                    .unwrap_or("")
+                    .to_string()
+            })
+        })
 }
 
 /// What other applications keep inside the sidecar's creator contact
@@ -356,8 +546,9 @@ struct ForeignContact {
     children: String,
 }
 
-/// Prefixes the description Rawtonic writes declares (`merge_xmp_with`).
-const OWN_PREFIXES: [(&str, &str); 8] = [
+/// Prefixes the description Rawtonic writes declares (`merge_xmp`).
+const OWN_PREFIXES: [(&str, &str); 9] = [
+    ("xmpDM", XMP_DM),
     ("rdf", RDF),
     ("xmp", XMP),
     ("dc", DC),
@@ -443,6 +634,7 @@ fn iptc_elements(
     let prefix = |ns: &str| match ns {
         PHOTOSHOP => "photoshop",
         IPTC_CORE => "Iptc4xmpCore",
+        IPTC_EXT => "Iptc4xmpExt",
         _ => "xmpRights",
     };
     let mut out = String::new();
@@ -458,6 +650,13 @@ fn iptc_elements(
         };
         let tag = format!("{}:{name}", prefix(ns));
         match kind {
+            IptcKind::Bag => {
+                out.push_str(&format!("<{tag}><rdf:Bag>"));
+                for item in value.lines().map(str::trim).filter(|v| !v.is_empty()) {
+                    out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(item)));
+                }
+                out.push_str(&format!("</rdf:Bag></{tag}>"));
+            }
             IptcKind::Simple => out.push_str(&format!("<{tag}>{}</{tag}>", escape(value))),
             IptcKind::Alt => out.push_str(&format!(
                 "<{tag}><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></{tag}>",
@@ -466,7 +665,7 @@ fn iptc_elements(
             IptcKind::Contact => contact.push_str(&format!("<{tag}>{}</{tag}>", escape(value))),
         }
     }
-    if !contact.is_empty() {
+    if !contact.is_empty() || !foreign.start.is_empty() || !foreign.children.is_empty() {
         out.push_str(&format!(
             "<Iptc4xmpCore:CreatorContactInfo{} rdf:parseType=\"Resource\">{contact}{}</Iptc4xmpCore:CreatorContactInfo>",
             foreign.start, foreign.children
@@ -481,21 +680,6 @@ pub fn merge_xmp(
     existing: Option<&str>,
     metadata: &Metadata,
     recipe: Option<&serde_json::Value>,
-) -> Result<String> {
-    merge_xmp_with(existing, metadata, recipe, false)
-}
-
-/// `merge_xmp`; with `replace_iptc` the IPTC fields Rawtonic models are
-/// the library's only (one the library has empty is removed from the
-/// sidecar), for resolving a conflict in the library's favour. Without it,
-/// a field the library does not hold keeps the sidecar's value. Either way
-/// a library with creator contact fields rewrites the whole contact
-/// structure, as before.
-fn merge_xmp_with(
-    existing: Option<&str>,
-    metadata: &Metadata,
-    recipe: Option<&serde_json::Value>,
-    replace_iptc: bool,
 ) -> Result<String> {
     metadata.validate()?;
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
@@ -512,21 +696,44 @@ fn merge_xmp_with(
     );
     let close = root.range().start + root_text.rfind("</").context("Missing RDF closing tag")?;
     let mut removals: Vec<std::ops::Range<usize>> = Vec::new();
+    // The label in the sidecar's own words (`labels::for_sidecar`).
+    let previous_label = property(root, XMP, "Label").unwrap_or_default();
+    // Lightroom writes `photoshop:LabelColor` beside every label it sets;
+    // Capture One never does. Rawtonic keeps that pair only where it is.
+    let lightroom_label = property(root, PHOTOSHOP, "LabelColor").is_some();
+    // Capture One reads an empty label as "unchanged" and brings its colour
+    // back from the urgency it keeps beside the label; its own `None` clears
+    // the tag. So a label cleared in a sidecar that holds an urgency and no
+    // Lightroom label colour is written as `None` (on every later save too:
+    // the previous label is then `None`). A photo that had no label keeps
+    // none, and the urgency itself is never changed: it may be the
+    // photographer's own.
+    let cleared = !previous_label.trim().is_empty();
+    let capture_one_none =
+        cleared && !lightroom_label && property(root, PHOTOSHOP, "Urgency").is_some();
+    let label = if metadata.label.is_empty() && capture_one_none {
+        labels::NONE.to_string()
+    } else {
+        labels::for_sidecar(&metadata.label, &previous_label)
+    };
+    // Unchanged custom labels keep their exact source property (including
+    // Capture One's Orange/Pink), rather than being rewritten in our form.
+    let keep_label = !previous_label.is_empty()
+        && labels::canonical(&previous_label).is_none()
+        && previous_label.eq_ignore_ascii_case(&metadata.label);
     // IPTC fields this model has a value for replace the sidecar's; the
     // others stay as they are, so IPTC written by Lightroom or Capture One
     // before Rawtonic knew the field is never dropped.
     let has_contact = IPTC_FIELDS
         .iter()
         .any(|(k, _, _, kind)| *kind == IptcKind::Contact && metadata.iptc.contains_key(*k));
-    // With contact fields the structure is rewritten as a whole (below);
-    // replacing without any, only its modelled fields go, so properties of
-    // other applications inside it stay.
+    // Only keys actually held by the library are owned, including explicit
+    // empty clears. This also applies to Keep library: an old catalog never
+    // observed fields added to the model later and must not erase them.
     let managed = |namespace: Option<&str>, name: &str| {
-        managed(namespace, name)
-            || iptc_key(namespace, name)
-                .is_some_and(|k| replace_iptc || metadata.iptc.contains_key(k))
+        (managed(namespace, name) && !(keep_label && namespace == Some(XMP) && name == "Label"))
+            || iptc_key(namespace, name).is_some_and(|k| metadata.iptc.contains_key(k))
             || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
-            || (replace_iptc && !has_contact && contact_key(namespace, name).is_some())
     };
     let owned =
         |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
@@ -579,7 +786,29 @@ fn merge_xmp_with(
     out.push_str(&base[cursor..close]);
     // Line breaks around the replaced description would otherwise pile up.
     out.truncate(out.trim_end().len());
-    out.push_str(&format!("\n<rdf:Description xmlns:rdf=\"{RDF}\" xmlns:xmp=\"{XMP}\" xmlns:dc=\"{DC}\" xmlns:lr=\"{LR}\" xmlns:rawtonic=\"{RT}\"{} rdf:about=\"\" xmp:Rating=\"{}\" xmp:Label=\"{}\" rawtonic:Flag=\"{}\">", iptc_namespaces(metadata), metadata.rating, escape(&metadata.label), metadata.flag));
+    // Lightroom's label colour beside the name and the pick flag other
+    // applications read.
+    let mut shared = format!(" xmpDM:pick=\"{}\"", metadata.flag);
+    if metadata.flag != 0 {
+        shared.push_str(&format!(" xmpDM:good=\"{}\"", metadata.flag > 0));
+    }
+    let mut photoshop = String::new();
+    if let Some(colour) = labels::canonical(&metadata.label).filter(|_| lightroom_label) {
+        photoshop.push_str(&format!(
+            " photoshop:LabelColor=\"{}\"",
+            colour.to_lowercase()
+        ));
+    }
+    let namespaces = iptc_namespaces(metadata);
+    if !photoshop.is_empty() && namespaces.is_empty() {
+        shared.push_str(&format!(" xmlns:photoshop=\"{PHOTOSHOP}\""));
+    }
+    let label_attribute = if keep_label {
+        String::new()
+    } else {
+        format!(" xmp:Label=\"{}\"", escape(&label))
+    };
+    out.push_str(&format!("\n<rdf:Description xmlns:rdf=\"{RDF}\" xmlns:xmp=\"{XMP}\" xmlns:dc=\"{DC}\" xmlns:lr=\"{LR}\" xmlns:rawtonic=\"{RT}\" xmlns:xmpDM=\"{XMP_DM}\"{namespaces} rdf:about=\"\" xmp:Rating=\"{}\"{label_attribute} rawtonic:Flag=\"{}\"{shared}{photoshop}>", metadata.rating, metadata.flag));
     for (tag, val) in [
         ("title", &metadata.title),
         ("description", &metadata.description),
@@ -590,13 +819,24 @@ fn merge_xmp_with(
             escape(val)
         ));
     }
-    out.push_str(&format!(
-        "<dc:creator><rdf:Seq><rdf:li>{}</rdf:li></rdf:Seq></dc:creator>",
-        escape(&metadata.creator)
-    ));
+    // Several creators ("A; B", as read) go back as entries of their own.
+    out.push_str("<dc:creator><rdf:Seq>");
+    let mut creators: Vec<&str> = metadata
+        .creator
+        .split(';')
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .collect();
+    if creators.is_empty() {
+        creators.push("");
+    }
+    for creator in creators {
+        out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(creator)));
+    }
+    out.push_str("</rdf:Seq></dc:creator>");
     // The contact structure is rewritten as a whole; its fields this model
     // does not set keep the sidecar's values.
-    let kept_contact: BTreeMap<String, String> = if has_contact && !replace_iptc {
+    let kept_contact: BTreeMap<String, String> = if has_contact {
         read_xmp(base)
             .map(|(old, _)| old.iptc)
             .unwrap_or_default()
@@ -614,10 +854,15 @@ fn merge_xmp_with(
         ForeignContact::default()
     };
     out.push_str(&iptc_elements(metadata, &kept_contact, &foreign));
-    for tag in ["dc:subject", "lr:hierarchicalSubject"] {
+    // Every level of a hierarchical keyword is a term of `dc:subject` and
+    // the keyword itself an entry of `lr:hierarchicalSubject`, as Lightroom
+    // writes them; a hierarchy in `dc:subject` would be one odd keyword there.
+    let terms = subject_terms(&metadata.keywords);
+    let keywords: Vec<&str> = metadata.keywords.iter().map(String::as_str).collect();
+    for (tag, values) in [("dc:subject", terms), ("lr:hierarchicalSubject", keywords)] {
         out.push_str(&format!("<{tag}><rdf:Bag>"));
-        for keyword in &metadata.keywords {
-            out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(keyword)));
+        for value in values {
+            out.push_str(&format!("<rdf:li>{}</rdf:li>", escape(value)));
         }
         out.push_str(&format!("</rdf:Bag></{tag}>"));
     }
@@ -664,8 +909,11 @@ pub fn export_xmp_with_source(
         escape(creator_tool)
     ));
     if let Some(source) = digital_source_type {
+        if !iptc_namespaces(metadata).contains("xmlns:Iptc4xmpExt=") {
+            out.push_str(&format!(" xmlns:Iptc4xmpExt=\"{IPTC_EXT}\""));
+        }
         out.push_str(&format!(
-            " xmlns:Iptc4xmpExt=\"{IPTC_EXT}\" Iptc4xmpExt:DigitalSourceType=\"{}\"",
+            " Iptc4xmpExt:DigitalSourceType=\"{}\"",
             escape(source)
         ));
     }
@@ -694,8 +942,12 @@ pub fn export_xmp_with_source(
             escape(&metadata.creator)
         ));
     }
+    let mut export_metadata = metadata.clone();
+    if digital_source_type.is_some() {
+        export_metadata.iptc.remove("digitalSourceType");
+    }
     out.push_str(&iptc_elements(
-        metadata,
+        &export_metadata,
         &BTreeMap::new(),
         &ForeignContact::default(),
     ));
@@ -761,28 +1013,21 @@ pub fn write_xmp(
     recipe: Option<&serde_json::Value>,
     expected_hash: Option<&str>,
 ) -> Result<String> {
-    write_xmp_with(path, metadata, recipe, expected_hash, false)
+    write_xmp_announced(path, metadata, recipe, expected_hash, |_| Ok(()))
 }
 
-/// `write_xmp` for a conflict resolved in the library's favour: the IPTC
-/// fields Rawtonic models are written as the library holds them, an empty
-/// one removing the sidecar's (`merge_xmp_with`). Properties Rawtonic does
-/// not model are kept as with `write_xmp`.
-pub fn write_xmp_replacing_iptc(
+/// `write_xmp` that hands `announce` the digest of the sidecar it is about
+/// to publish, after every check and before the file is replaced: the
+/// caller records it durably, so a crash between the publish and the
+/// caller's commit of that digest is recognisable afterwards (the sidecar
+/// on disk then has the announced digest). An error from `announce` stops
+/// the write with the sidecar untouched.
+pub fn write_xmp_announced(
     path: &Path,
     metadata: &Metadata,
     recipe: Option<&serde_json::Value>,
     expected_hash: Option<&str>,
-) -> Result<String> {
-    write_xmp_with(path, metadata, recipe, expected_hash, true)
-}
-
-fn write_xmp_with(
-    path: &Path,
-    metadata: &Metadata,
-    recipe: Option<&serde_json::Value>,
-    expected_hash: Option<&str>,
-    replace_iptc: bool,
+    announce: impl FnOnce(&str) -> Result<()>,
 ) -> Result<String> {
     let existing = match fs::read_to_string(path) {
         Ok(s) => Some(s),
@@ -802,9 +1047,11 @@ fn write_xmp_with(
             "The XMP sidecar is read-only"
         );
     }
-    let merged = merge_xmp_with(existing.as_deref(), metadata, recipe, replace_iptc)?;
+    let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
+    let hash = digest(merged.as_bytes());
+    announce(&hash)?;
     atomic_write(path, merged.as_bytes())?;
-    Ok(digest(merged.as_bytes()))
+    Ok(hash)
 }
 
 #[cfg(test)]
@@ -850,18 +1097,20 @@ mod tests {
     }
 
     #[test]
-    fn replacing_iptc_keeps_foreign_properties_inside_the_contact_structure() {
+    fn explicitly_clearing_contact_keeps_foreign_properties_inside_its_structure() {
         let packet = format!(
             r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description rdf:about="" xmlns:Iptc4xmpCore="{IPTC_CORE}" xmlns:other="https://example.invalid/other/"><Iptc4xmpCore:CreatorContactInfo rdf:parseType="Resource"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork><other:Pager>123</other:Pager></Iptc4xmpCore:CreatorContactInfo></rdf:Description></rdf:RDF></x:xmpmeta>"#
         );
-        let replaced = merge_xmp_with(Some(&packet), &Metadata::default(), None, true).unwrap();
+        let mut cleared = Metadata::default();
+        cleared.iptc.insert("creatorEmail".into(), String::new());
+        let replaced = merge_xmp(Some(&packet), &cleared, None).unwrap();
         assert!(!replaced.contains("someone@"), "{replaced}");
         assert!(
             replaced.contains("<other:Pager>123</other:Pager>"),
             "{replaced}"
         );
         assert!(read_xmp(&replaced).unwrap().0.iptc.is_empty());
-        // Without replacing, the sidecar's contact field stays.
+        // An absent key preserves the sidecar's contact field.
         let kept = merge_xmp(Some(&packet), &Metadata::default(), None).unwrap();
         assert!(kept.contains("someone@"), "{kept}");
     }
@@ -878,36 +1127,33 @@ mod tests {
             // As Use XMP reads it, written back with the library's metadata.
             let mut meta = read_xmp(&packet).unwrap().0;
             meta.set_iptc("creatorPhone", "+1 555");
-            for replace in [false, true] {
-                let written = merge_xmp_with(Some(&packet), &meta, None, replace).unwrap();
-                let doc = roxmltree::Document::parse(&written).unwrap();
-                let pager = doc
-                    .descendants()
-                    .find(|n| n.has_tag_name(("https://example.invalid/other/", "Pager")))
-                    .unwrap_or_else(|| panic!("{written}"));
-                assert_eq!(pager.text(), Some("123"));
-                assert!(
-                    doc.descendants()
-                        .any(|n| n.attribute(("https://example.invalid/other/", "Note"))
-                            == Some("n"))
-                );
-                let read = read_xmp(&written).unwrap().0;
-                assert_eq!(
-                    read.iptc.get("creatorEmail").map(String::as_str),
-                    Some("someone@example.invalid")
-                );
-                assert_eq!(
-                    read.iptc.get("creatorPhone").map(String::as_str),
-                    Some("+1 555")
-                );
-                assert_eq!(
-                    doc.descendants()
-                        .filter(|n| n.has_tag_name((IPTC_CORE, "CreatorContactInfo")))
-                        .count(),
-                    1,
-                    "{written}"
-                );
-            }
+            let written = merge_xmp(Some(&packet), &meta, None).unwrap();
+            let doc = roxmltree::Document::parse(&written).unwrap();
+            let pager = doc
+                .descendants()
+                .find(|n| n.has_tag_name(("https://example.invalid/other/", "Pager")))
+                .unwrap_or_else(|| panic!("{written}"));
+            assert_eq!(pager.text(), Some("123"));
+            assert!(
+                doc.descendants()
+                    .any(|n| n.attribute(("https://example.invalid/other/", "Note")) == Some("n"))
+            );
+            let read = read_xmp(&written).unwrap().0;
+            assert_eq!(
+                read.iptc.get("creatorEmail").map(String::as_str),
+                Some("someone@example.invalid")
+            );
+            assert_eq!(
+                read.iptc.get("creatorPhone").map(String::as_str),
+                Some("+1 555")
+            );
+            assert_eq!(
+                doc.descendants()
+                    .filter(|n| n.has_tag_name((IPTC_CORE, "CreatorContactInfo")))
+                    .count(),
+                1,
+                "{written}"
+            );
         }
     }
 

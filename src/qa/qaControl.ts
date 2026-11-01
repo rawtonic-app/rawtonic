@@ -9,6 +9,7 @@ import {
   dialogState,
   queueDialogAnswers,
 } from "./dialogAnswers";
+import { useActivityStore } from "../store/useActivityStore";
 import { useEditorStore } from "../store/useEditorStore";
 import { onDraftShown } from "../utils/browserDraftPatch";
 import { useLibraryStore } from "../store/useLibraryStore";
@@ -38,6 +39,7 @@ export interface QaElement {
 }
 
 const stores: Record<string, { getState: () => unknown }> = {
+  activity: useActivityStore,
   editor: useEditorStore,
   library: useLibraryStore,
   process: useProcessStore,
@@ -280,14 +282,18 @@ async function domDrag(params: Params) {
     typeof params.interval_ms === "number" ? params.interval_ms : 1000 / 60;
   const extra = modifiers(params);
   const [x0, y0] = points[0];
-  const start = document.elementFromPoint(x0, y0);
+  // `name`/`selector` (as ui.click takes them) pins every event to that
+  // element: a press held on one control, where hit-testing by point is
+  // unreliable (WebKitGTK under Xvfb returned the panel for its buttons).
+  const pinned = params.name !== undefined || params.selector !== undefined ? findOne(params).element : null;
+  const start = pinned ?? document.elementFromPoint(x0, y0);
   if (!start) throw new Error(`nothing at ${x0},${y0}`);
   firePointer(start, "down", x0, y0, 1, { ...extra, ...pen(0) });
   for (const [i, [x, y]] of points.entries()) {
     if (i === 0) continue;
     await sleep(interval);
     firePointer(
-      document.elementFromPoint(x, y) ?? start,
+      pinned ?? document.elementFromPoint(x, y) ?? start,
       "move",
       x,
       y,
@@ -297,7 +303,7 @@ async function domDrag(params: Params) {
   }
   const [x1, y1] = points[points.length - 1];
   firePointer(
-    document.elementFromPoint(x1, y1) ?? start,
+    pinned ?? document.elementFromPoint(x1, y1) ?? start,
     "up",
     x1,
     y1,

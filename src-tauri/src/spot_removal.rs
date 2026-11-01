@@ -226,7 +226,13 @@ pub async fn find_dust(
             let bytes = std::fs::read(&source_path).map_err(|e| e.to_string())?;
             let orientation =
                 crate::image_loader::source_orientation(&bytes, &source_path.to_string_lossy());
-            rawtonic_engine::dust::heal_spots(&base, &js_adjustments, &found, orientation)
+            rawtonic_engine::dust::heal_spots(
+                &base,
+                &js_adjustments,
+                &analysis,
+                &found,
+                orientation,
+            )
         } else {
             found
                 .iter()

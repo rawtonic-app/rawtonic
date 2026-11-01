@@ -2,14 +2,22 @@
 //! of work:
 //!
 //! - Prefetch: the photographs the user is likely to open next, such as the
-//!   filmstrip neighbours of the open one, at utility priority on a small
-//!   thread pool, so the interactive work keeps the other cores. The newest
+//!   filmstrip neighbours of the open one, on every core at normal priority
+//!   as the open photograph's own decode (below the editor's priority on
+//!   Linux): stepping on, its load waits for the decode under way. With a
+//!   quiet time after every decode of the open photograph, four
+//!   utility-class threads (the efficiency cores on Apple silicon) and a
+//!   preview write before the next decode, 1 of 40 steps at 2.25 s per
+//!   photograph found its decode ready on a six-core PC (notes:
+//!   benchmark-results/fst-fast-steps-2026-11-01/REPORT.md). The newest
 //!   request replaces the queue, and it goes before builds. It yields to
-//!   edits of the open photograph as the multi view's prefetch does: an
-//!   interactive preview frame (a slider or brush drag) cancels the decode
-//!   under way, which is done again later, and none starts until the app
-//!   was quiet for `multi_view_prefetch::QUIET`, nor while the open
-//!   photograph is being decoded or developed (`multi_view_prefetch::busy`).
+//!   the open photograph as the multi view's prefetch does: an interactive
+//!   preview frame (a slider or brush drag) cancels the decode under way,
+//!   which is done again later, as does the open photograph's own decode
+//!   one of another photograph; none starts within
+//!   `multi_view_prefetch::QUIET` after such an edit, while the open
+//!   photograph is being decoded or developed (`multi_view_prefetch::busy`),
+//!   nor within `multi_view_prefetch::SETTLE` after its decode or frame.
 //!   On a six-core laptop with an integrated GPU the decodes slowed a drag's
 //!   GPU work by ~70 % (the shared memory and power budget, not CPU time: a
 //!   lower thread priority did not help), and on a first start they slowed
@@ -37,9 +45,6 @@ use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
 use crate::preview_proxy::{self, ProxyKind};
 
-/// Threads decoding neighbours in the background (of the rayon work inside
-/// a decode).
-const WORKER_THREADS: usize = 4;
 /// Event with the build's `BuildProgress`.
 pub const PROGRESS_EVENT: &str = "preview-build-progress";
 /// Failures kept for the progress report (the count is always complete).
@@ -159,6 +164,14 @@ impl Queue {
         self.prefetch_head.as_deref() == Some(path)
     }
 
+    /// Whether the request asks first for a photograph of RAW `source` (a
+    /// virtual copy's too).
+    fn asks_first_for(&self, source: &str) -> bool {
+        self.prefetch_head
+            .as_deref()
+            .is_some_and(|head| source_of(head) == source)
+    }
+
     /// A prefetch cancelled by an edit is done again first, unless a newer
     /// request replaced the queue since `generation`.
     fn retry_prefetch(&mut self, path: String, generation: usize) {
@@ -234,24 +247,24 @@ struct Worker {
 struct PrefetchGate(Arc<AtomicUsize>);
 
 impl PrefetchGate {
-    /// Called after the frame was recorded as activity (`since_activity`).
+    /// Called after the frame was recorded as activity (`step_prefetch_wait`).
     fn interaction(&self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// The cancel token of a decode that may start now, None while the app
-    /// is not quiet or the open photograph is `busy` (its decode, or a frame
-    /// under way, which on a first start waits for its shader compile). The
-    /// token is taken before the quiet time is read: an interactive frame
-    /// after it cancels the decode, one before it is seen as activity.
+    /// The cancel token of a decode that may start now, None while it must
+    /// still `wait` (after an edit or the open photograph's last decode or
+    /// frame) or the open photograph is `busy` (its decode, or a frame under
+    /// way, which on a first start waits for its shader compile). The token
+    /// is taken before the wait is read: an interactive frame after it
+    /// cancels the decode, one before it is seen as activity.
     fn start(
         &self,
-        since_activity: impl FnOnce() -> Duration,
+        wait: impl FnOnce() -> Duration,
         busy: impl FnOnce() -> bool,
     ) -> Option<(Arc<AtomicUsize>, usize)> {
         let token = self.0.load(Ordering::SeqCst);
-        (since_activity() >= crate::multi_view_prefetch::QUIET && !busy())
-            .then(|| (Arc::clone(&self.0), token))
+        (wait().is_zero() && !busy()).then(|| (Arc::clone(&self.0), token))
     }
 
     fn cancelled(&self, token: usize) -> bool {
@@ -436,6 +449,26 @@ pub(crate) fn keeps_decode_of(key: &str, now: &Option<preview_proxy::ProxyKey>) 
         .is_some_and(|kept| kept.key == key && kept.made.is_some() && kept.made == *now)
 }
 
+/// Whether the decode kept ahead is of RAW `source`.
+fn kept_ahead(source: &str) -> bool {
+    AHEAD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|kept| kept.source == source)
+}
+
+/// Whether the last prefetch request asks for `source` first.
+fn is_prefetch_head(source: &str) -> bool {
+    WORKER.get().is_some_and(|worker| {
+        worker
+            .queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .asks_first_for(source)
+    })
+}
+
 /// The decoder's settings changed or the caches were cleared: the decode
 /// kept ahead goes.
 pub(crate) fn forget_ahead() {
@@ -484,17 +517,6 @@ fn take_under_way<I: PartialEq>(
     }
 }
 
-#[cfg(target_os = "macos")]
-fn lower_priority() {
-    // SAFETY: sets the calling thread's own QoS class; no pointers involved.
-    unsafe {
-        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn lower_priority() {}
-
 fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
     WORKER
         .get_or_init(|| {
@@ -533,19 +555,16 @@ fn emit_progress(app_handle: &tauri::AppHandle, progress: &BuildProgress) {
 }
 
 fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
-    lower_priority();
+    // Prefetches and the builds the user asked for run like an export: every
+    // core (Lightroom builds previews at full speed too), below the editor's
+    // priority. On four utility-class threads (the efficiency cores on Apple
+    // silicon) a 40 MP X-Trans decode took 2-3 s of a build. Linux: on the
+    // time the editor leaves, so the next photograph's decode slows the
+    // frames of the one stepped to less (six-core PC, developed frame from a
+    // kept decode 0.66 s p50 at normal priority, 0.55-0.61 s this way).
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(WORKER_THREADS)
-        .thread_name(|i| format!("preview-proxy-{i}"))
-        .start_handler(|_| lower_priority())
-        .build()
-        .expect("preview proxy thread pool");
-    // Builds the user asked for run like an export: every core at normal
-    // priority (Lightroom builds previews at full speed too). On four
-    // utility-class threads a 40 MP X-Trans decode took 2-3 s of a build.
-    let build_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(std::thread::available_parallelism().map_or(WORKER_THREADS, |n| n.get()))
         .thread_name(|i| format!("preview-build-{i}"))
+        .start_handler(|_| crate::export_processing::lower_thread_priority())
         .build()
         .expect("preview build thread pool");
     loop {
@@ -553,7 +572,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
                 let start = worker.prefetch_gate.start(
-                    crate::multi_view_prefetch::since_activity,
+                    crate::multi_view_prefetch::step_prefetch_wait,
                     crate::multi_view_prefetch::busy,
                 );
                 if let Some(job) = queue.next(start.is_some()) {
@@ -563,9 +582,8 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 queue = if queue.prefetch.is_empty() {
                     worker.wake.wait(queue).unwrap_or_else(|e| e.into_inner())
                 } else {
-                    let wait = crate::multi_view_prefetch::QUIET
-                        .saturating_sub(crate::multi_view_prefetch::since_activity())
-                        .max(Duration::from_millis(100));
+                    let wait = crate::multi_view_prefetch::step_prefetch_wait()
+                        .max(Duration::from_millis(25));
                     worker
                         .wake
                         .wait_timeout(queue, wait)
@@ -596,7 +614,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 }
             }
             Job::Build(item) => {
-                let outcome = build_pool.install(|| build(app_handle, worker, &item));
+                let outcome = pool.install(|| build(app_handle, worker, &item));
                 let (progress, finished) = {
                     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
                     queue.finish(&item, outcome);
@@ -700,6 +718,19 @@ fn prepare(
     if raised.load(Ordering::SeqCst) != token {
         return;
     }
+    // Handed over to the open photograph's load, or kept for it: that load
+    // writes the proxy beside its frames, so the next photograph's decode
+    // starts now instead of after this write (~0.4 s for a 36 MP RAW on a
+    // six-core PC, which made every step wait for a decode started late).
+    if *state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        == path
+        || kept_ahead(&source.to_string_lossy())
+    {
+        return;
+    }
     match preview_proxy::write(&source, &image, size, &settings, variant, measures) {
         // The thumbnail is now developed from the proxy.
         Ok(proxy) => {
@@ -780,8 +811,11 @@ fn decode(
     .map(|(image, measures)| (Arc::new(image), measures));
     if let Some(keep) = prefetch {
         // Kept (before the load waiting for it is told), else handed over
-        // to the open photograph's load, which waits for it.
-        if keep
+        // to the open photograph's load, which waits for it. Also when a
+        // request made since asks for it first (stepped on meanwhile: the
+        // decode started as the second photograph ahead), rather than
+        // decoding it again as the new head.
+        if (keep || is_prefetch_head(&source_str))
             && made.is_some()
             && let Ok((image, measures)) = &decoded
             && image.as_bytes().len() <= crate::multi_view_prefetch::hold_budget()
@@ -1135,22 +1169,25 @@ mod tests {
     fn an_interactive_frame_while_a_prefetch_starts_is_never_lost() {
         let gate = PrefetchGate::default();
         let idle = || false;
-        // Recorded as activity before the quiet time is read: no start.
-        assert!(gate.start(|| Duration::ZERO, idle).is_none());
+        // Recorded as activity before the wait is read: no start.
+        assert!(
+            gate.start(|| crate::multi_view_prefetch::QUIET, idle)
+                .is_none()
+        );
         // Lands after the token was taken, before its activity is seen:
         // the decode starts but is already cancelled.
         let (_, token) = gate
             .start(
                 || {
                     gate.interaction();
-                    Duration::MAX
+                    Duration::ZERO
                 },
                 idle,
             )
             .expect("quiet");
         assert!(gate.cancelled(token));
         // Quiet and no frame since: the decode runs.
-        let (_, token) = gate.start(|| Duration::MAX, idle).expect("quiet");
+        let (_, token) = gate.start(|| Duration::ZERO, idle).expect("quiet");
         assert!(!gate.cancelled(token));
         gate.interaction();
         assert!(gate.cancelled(token));
@@ -1162,8 +1199,8 @@ mod tests {
         // its first frame (on a first start waiting for its shader compile)
         // is under way: the neighbours wait.
         let gate = PrefetchGate::default();
-        assert!(gate.start(|| Duration::MAX, || true).is_none());
-        assert!(gate.start(|| Duration::MAX, || false).is_some());
+        assert!(gate.start(|| Duration::ZERO, || true).is_none());
+        assert!(gate.start(|| Duration::ZERO, || false).is_some());
     }
 
     #[test]
@@ -1263,6 +1300,19 @@ mod tests {
         };
         assert_eq!(again.generation, queue.generation);
         assert!(!queue.progress.stopped);
+    }
+
+    #[test]
+    fn a_decode_started_second_is_kept_once_a_step_asks_for_it_first() {
+        let mut queue = Queue::default();
+        queue.set_prefetch(paths(&["N1.NEF", "N2.NEF?vc=1a2b3c", "P.NEF"]));
+        assert!(queue.asks_first_for("/s/Capture/N1.NEF"));
+        assert!(!queue.asks_first_for("/s/Capture/N2.NEF"));
+        // Stepped on while N2 decodes: the new request asks for it first,
+        // so its decode, ending now, is kept for its opening.
+        queue.set_prefetch(paths(&["N2.NEF?vc=1a2b3c", "N3.NEF", "N1.NEF"]));
+        assert!(queue.asks_first_for("/s/Capture/N2.NEF"));
+        assert!(!queue.asks_first_for("/s/Capture/N1.NEF"));
     }
 
     #[test]

@@ -13,7 +13,10 @@ use anyhow::{Result, bail, ensure};
 use rawtonic_metadata::{Metadata, XmpConflict};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// A photograph whose XMP sidecar does not hold what the library holds.
 #[derive(Debug, Clone, Serialize)]
@@ -80,9 +83,10 @@ impl Library {
     }
 
     /// Resolves a conflict for the library: its metadata and recipe replace
-    /// the sidecar's owned properties (everything else in the sidecar is
-    /// kept). Refused while the photograph is offline; a sidecar changed
-    /// again meanwhile is a conflict again, not overwritten.
+    /// the sidecar's owned properties. IPTC keys absent from the library
+    /// stay in the sidecar; only explicit empty values clear them. Refused
+    /// while the photograph is offline; a sidecar changed again meanwhile
+    /// is a conflict again, not overwritten.
     pub fn keep_library_xmp(&self, asset: &str) -> Result<()> {
         let path = self.writable_sidecar(asset)?;
         // The edit the photograph shows is what the sidecar gets.
@@ -92,7 +96,7 @@ impl Library {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
         };
-        self.write_sidecar(asset, &path, current.as_deref(), true)
+        self.write_sidecar(asset, &path, current.as_deref())
     }
 
     /// Resolves a conflict for the sidecar: the metadata Rawtonic reads
@@ -137,7 +141,7 @@ impl Library {
         metadata.validate()?;
         crate::write_metadata(&tx, asset, &metadata)?;
         tx.execute(
-            "UPDATE metadata SET xmp_hash=? WHERE asset_id=?",
+            "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL WHERE asset_id=?",
             params![rawtonic_metadata::digest(text.as_bytes()), asset],
         )?;
         tx.commit()?;
@@ -205,20 +209,19 @@ impl Library {
             self.xmp_owners(&a.path)? == 1,
             "RAW/JPEG sidecar ownership needs pair resolution"
         );
-        Ok(a.path.with_extension("xmp"))
+        Ok(rawtonic_metadata::sidecar_path(&a.path))
     }
 
     /// Writes the library's metadata and recipe over a sidecar whose digest
-    /// is `expected` (None: there is none); `replace_iptc` as
-    /// `rawtonic_metadata::write_xmp_replacing_iptc`. A changed sidecar marks a
+    /// is `expected` (None: there is none). Absent IPTC keys are preserved;
+    /// stored values and explicit clears win. A changed sidecar marks a
     /// conflict; other failures (read-only, a full disk) leave the state as
     /// it was, so the photograph stays pending.
     pub(crate) fn write_sidecar(
         &self,
         asset: &str,
-        path: &std::path::Path,
+        path: &Path,
         expected: Option<&str>,
-        replace_iptc: bool,
     ) -> Result<()> {
         let recipe = self.recipe(&self.primary_version(asset)?)?;
         let data: String =
@@ -227,20 +230,45 @@ impl Library {
                     r.get(0)
                 })?;
         let metadata: Metadata = serde_json::from_str(&data)?;
-        let written = if replace_iptc {
-            rawtonic_metadata::write_xmp_replacing_iptc(path, &metadata, recipe.as_ref(), expected)
-        } else {
-            rawtonic_metadata::write_xmp(path, &metadata, recipe.as_ref(), expected)
-        };
+        // The digest to be published is committed first (`xmp_publishing`,
+        // its own statement outside any transaction), so a crash between
+        // the publish and the commit of `xmp_hash` leaves a sidecar the next
+        // check recognises as this write, not as another program's change.
+        debug_assert!(
+            self.conn.is_autocommit(),
+            "the announced digest must be durable"
+        );
+        let written = rawtonic_metadata::write_xmp_announced(
+            path,
+            &metadata,
+            recipe.as_ref(),
+            expected,
+            |hash| {
+                self.conn.execute(
+                    "UPDATE metadata SET xmp_publishing=? WHERE asset_id=?",
+                    params![hash, asset],
+                )?;
+                Ok(())
+            },
+        );
+        #[cfg(any(test, feature = "test-support"))]
+        if written.is_ok()
+            && self
+                .crash_after_publish
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            bail!("test: stopped between the XMP publish and its digest's commit");
+        }
         match written {
             Ok(hash) => {
                 // In sync only with the metadata written: an edit committed
                 // meanwhile (another connection) keeps the photograph pending.
                 self.conn.execute(
                     "UPDATE metadata SET xmp_hash=?,
+                     xmp_publishing=CASE WHEN xmp_publishing=? THEN NULL ELSE xmp_publishing END,
                      xmp_status=CASE WHEN data=? THEN 'synced' ELSE xmp_status END
                      WHERE asset_id=?",
-                    params![hash, data, asset],
+                    params![hash, hash, data, asset],
                 )?;
                 Ok(())
             }
@@ -251,6 +279,33 @@ impl Library {
                 Err(e)
             }
         }
+    }
+
+    /// Takes over a publish a crash cut off: when the sidecar on disk is
+    /// the one `write_sidecar` announced (`xmp_publishing`) but never
+    /// committed, its digest becomes the library's (`xmp_hash`). Any other
+    /// sidecar is left to the usual check (a change elsewhere stays one).
+    pub(crate) fn settle_xmp_publishing(&self, asset: &str, sidecar: &Path) -> Result<()> {
+        let publishing: Option<String> = self.conn.query_row(
+            "SELECT xmp_publishing FROM metadata WHERE asset_id=?",
+            [asset],
+            |r| r.get(0),
+        )?;
+        let Some(publishing) = publishing else {
+            return Ok(());
+        };
+        // Unreadable or missing: nothing to take over.
+        let Ok(bytes) = fs::read(sidecar) else {
+            return Ok(());
+        };
+        if rawtonic_metadata::digest(&bytes) == publishing {
+            self.conn.execute(
+                "UPDATE metadata SET xmp_hash=xmp_publishing, xmp_publishing=NULL
+                 WHERE asset_id=? AND xmp_publishing=?",
+                params![asset, publishing],
+            )?;
+        }
+        Ok(())
     }
 
     pub(crate) fn mark_xmp_conflict(&self, asset: &str) -> Result<()> {

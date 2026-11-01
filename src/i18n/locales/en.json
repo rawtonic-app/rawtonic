@@ -62,6 +62,23 @@
       "starting": "Starting import…"
     },
     "indexing": "Indexing the library",
+    "interrupted": {
+      "applyRest": "Apply to the rest",
+      "color": "Color label",
+      "detail": "A quit or crash stopped this batch before every photo was written. Apply it to the rest, undo the part that was applied, or leave the photos as they are. Your photos themselves are never changed.",
+      "failed": "{{batch}} could not be finished: {{error}}",
+      "keywordAdd": "Keyword “{{tag}}”",
+      "keywordRemove": "Removing keyword “{{tag}}”",
+      "notWritten_one": "{{count}} photo could not be written",
+      "notWritten_other": "{{count}} photos could not be written",
+      "paste": "Paste Settings",
+      "preset": "Preset",
+      "rating": "Rating {{rating}}",
+      "style": "Style",
+      "title_one": "Interrupted: {{batch}} applied to {{applied}} of {{count}} photo",
+      "title_other": "Interrupted: {{batch}} applied to {{applied}} of {{count}} photos",
+      "undoApplied": "Undo the applied part"
+    },
     "leftovers": {
       "kept_one": "{{count}} unfinished folder of an interrupted job was left in place",
       "kept_other": "{{count}} unfinished folders of an interrupted job were left in place",
@@ -283,6 +300,7 @@
       "toggle_left_panel": "Left Panel",
       "toggle_metadata": "Photo Info",
       "toggle_multi_view": "Multi View",
+      "toggle_original": "Before (Whole Photo)",
       "toggle_pointer_readout": "Pointer RGB Readout",
       "toggle_proof_margin": "Proof Margin",
       "toggle_right_panel": "Right Panel",
@@ -1574,8 +1592,8 @@
       "albums_other": "{{count}} albums",
       "check": "Check",
       "chooseSource": "Choose the library to import",
-      "copiesNotImported_one": "{{count}} virtual copy (not imported)",
-      "copiesNotImported_other": "{{count}} virtual copies (not imported)",
+      "copies_one": "{{count}} virtual copy",
+      "copies_other": "{{count}} virtual copies",
       "edited_one": "{{count}} with edits",
       "edited_other": "{{count}} with edits",
       "filterName": "Catalogs and sessions",
@@ -1854,10 +1872,14 @@
       "flagsSavedRefreshFailed": "Flags saved; project summary could not refresh: {{error}}",
       "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
       "hotFolderResumeFailed": "The hot folder could not resume: {{error}}",
-      "importAiMasksOnOpen_one": "AI masks of {{count}} photo are computed when it is opened in Develop",
-      "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop",
+      "importAiMasksOnOpen_one": "AI masks of {{count}} photo are computed when it is opened in Develop or exported",
+      "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop or exported",
+      "importCopies_one": "{{count}} virtual copy imported",
+      "importCopies_other": "{{count}} virtual copies imported",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
       "importCopiesSkipped_other": "{{count}} virtual copies not imported",
+      "importCropsClipped_one": "{{count}} crop reached beyond the camera's frame and was trimmed to it",
+      "importCropsClipped_other": "{{count}} crops reached beyond the camera's frame and were trimmed to it",
       "imported_one": "{{count}} photo imported ({{withSettings}} with edits, {{albums}} albums)",
       "imported_other": "{{count}} photos imported ({{withSettings}} with edits, {{albums}} albums)",
       "importNotFound_one": "{{count}} not found",
@@ -1929,6 +1951,7 @@
     },
     "xmp": {
       "buttonTitle": "Some XMP files are behind the library. Click for details and to write them again.",
+      "catchUp": "Writing XMP files left over from the last session",
       "conflictHeading_one": "{{count}} XMP file changed by another program",
       "conflictHeading_other": "{{count}} XMP files changed by another program",
       "conflictHint": "Choose whose metadata to keep. Your edit stays as it is either way.",
@@ -2195,6 +2218,7 @@
         "toggle_masks": "Toggle Masks panel",
         "toggle_metadata": "Metadata tool (Library) or photo info (Develop, full screen)",
         "toggle_multi_view": "Multi view: selected photos side by side",
+        "toggle_original": "Toggle: whole photo before",
         "toggle_pointer_readout": "Toggle pointer RGB readout",
         "toggle_proof_margin": "Toggle proof margin",
         "toggle_right_panel": "Toggle Right Panel",
@@ -3088,6 +3112,7 @@
       "toolGroup": {
         "isOn": "{{tool}} on",
         "reset": "Reset {{tool}}",
+        "resetOrHold": "Reset {{tool}} (hold, or Alt/Option-press: show the photo without it)",
         "turnOff": "Turn {{tool}} off",
         "turnOn": "Turn {{tool}} on"
       },
@@ -3245,6 +3270,7 @@
           "loading": "Reading the photo…",
           "masks": "Writing masks…",
           "rendering": "Rendering and writing…",
+          "selecting": "Computing AI selections…",
           "waiting": "Waiting"
         },
         "photos_one": "{{count}} photo",
@@ -3523,6 +3549,8 @@
       "enable": "Enable profile corrections",
       "lookingUp": "Looking up the lens…",
       "make": "Make",
+      "manualVignetting": "Lens vignetting",
+      "manualVignettingMidpoint": "Vignetting midpoint",
       "model": "Model",
       "noFocalData": "The profile has no data for this focal length.",
       "none": "None",
@@ -4165,6 +4193,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "Additional model information",
+          "captionWriter": "Caption writer",
           "city": "City",
           "country": "Country",
           "countryCode": "ISO country code",
@@ -4178,17 +4208,31 @@
           "creatorRegion": "Contact state / province",
           "creatorUrl": "Website",
           "credit": "Credit line",
+          "dateCreated": "Date created",
+          "digitalSourceType": "Digital source type",
+          "event": "Event",
           "headline": "Headline",
           "instructions": "Instructions",
+          "intellectualGenre": "Intellectual genre",
           "jobId": "Job identifier",
           "location": "Sublocation",
+          "maxAvailHeight": "Maximum available height",
+          "maxAvailWidth": "Maximum available width",
+          "modelAge": "Model ages (one per line)",
+          "organisationInImageCode": "Organisation codes (one per line)",
+          "organisationInImageName": "Organisations shown (one per line)",
+          "personInImage": "People shown (one per line)",
+          "rightsUrl": "Rights URL",
+          "scene": "Scene codes (one per line)",
           "source": "Source",
           "state": "State / Province",
+          "subjectCode": "Subject codes (one per line)",
           "usageTerms": "Rights usage terms"
         },
         "sections": {
           "content": "Content",
           "creatorContact": "Creator contact",
+          "extension": "IPTC Extension",
           "location": "Location",
           "status": "Status"
         }
@@ -4834,6 +4878,7 @@
         "close": "Close tools",
         "progress": "Exporting {{current}} / {{total}}",
         "progressDenoising": "Exporting {{current}} / {{total}} · AI Denoise…",
+        "progressSelecting": "Exporting {{current}} / {{total}} · AI selections…",
         "title": "Export photos"
       },
       "flags": {
@@ -4927,6 +4972,7 @@
         "compareMode": {
           "left-right": "Split left/right",
           "off": "Off",
+          "side-by-side": "Side by side",
           "top-bottom": "Split top/bottom"
         },
         "compareModes": "Compare mode",
@@ -4950,6 +4996,7 @@
         "splitDivider": "Before/after divider",
         "togglePanels": "Toggle panels",
         "undo": "Undo",
+        "withoutTool": "Without {{tool}}",
         "zoom": "Zoom"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

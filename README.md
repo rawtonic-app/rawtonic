@@ -170,8 +170,9 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **6**–**9**                  | red / yellow / green / blue label |
 | **Caps Lock**                | auto-advance (also in the Photo menu) |
 | **Y**                        | toggle before / after split    |
-| **⇧Y**                       | cycle Off / left-right / top-bottom |
+| **⇧Y**                       | cycle Off / left-right / top-bottom / side by side |
 | hold **\\**                  | whole photograph before        |
+| ⌘\\ / Ctrl+\\                | whole photograph before, on until pressed again |
 | **N**                        | multi view of the selection    |
 | **F**                        | photograph alone, full screen  |
 | **I** (Develop, full screen) | photograph info                |
@@ -184,7 +185,9 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **Tab** (on the photograph)  | hide or show the panels        |
 | ⌘Z / ⇧⌘Z                     | undo / redo                    |
 
-The before / after button’s menu (chevron or right-click) chooses Off, Split left-right or Split top-bottom. The divider follows a drag or the arrow keys along its axis (Shift for a larger step), Home/End moves to an edge, and double-click centres it. The choice and divider position are remembered per project or catalog, while zoom and pan stay in place when switching modes.
+The before / after button’s menu (chevron or right-click) chooses Off, Split left-right, Split top-bottom or Side by side. Side by side shows the whole photograph twice, before on the left and after on the right, at the same zoom and pan; the wheel zooms both from either pane. The divider follows a drag or the arrow keys along its axis (Shift for a larger step), Home/End moves to an edge, and double-click centres it. The choice and divider position are remembered per project or catalog, while zoom and pan stay in place when switching modes.
+
+To see one tool's part of the edit, hold its reset button with ⌥/Alt pressed (or hold it for a moment without): the photograph shows without that tool — on the active layer only when a layer is selected — until you let go. Nothing is reset and no history step is made; a short click still resets the tool.
 
 The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 

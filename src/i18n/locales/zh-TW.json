@@ -58,6 +58,21 @@
       "starting": "正在開始匯入…"
     },
     "indexing": "正在為圖庫建立索引",
+    "interrupted": {
+      "applyRest": "套用到其餘照片",
+      "color": "色彩標籤",
+      "detail": "結束或當機使此批次作業在所有照片寫入前停止。可將其套用到其餘照片、復原已套用的部分，或保持原狀。照片本身絕不會被變更。",
+      "failed": "無法完成{{batch}}：{{error}}",
+      "keywordAdd": "關鍵字「{{tag}}」",
+      "keywordRemove": "移除關鍵字「{{tag}}」",
+      "notWritten_other": "有 {{count}} 張照片無法寫入",
+      "paste": "貼上設定",
+      "preset": "預設集",
+      "rating": "評等 {{rating}}",
+      "style": "風格",
+      "title_other": "已中斷：{{batch}}已套用到 {{count}} 張中的 {{applied}} 張照片",
+      "undoApplied": "復原已套用的部分"
+    },
     "leftovers": {
       "kept_other": "保留了中斷工作的 {{count}} 個未完成資料夾",
       "removed_other": "已移除中斷工作留下的 {{size}} 未完成副本",
@@ -274,6 +289,7 @@
       "toggle_left_panel": "左側面板",
       "toggle_metadata": "照片資訊",
       "toggle_multi_view": "多重檢視",
+      "toggle_original": "之前（整張照片）",
       "toggle_pointer_readout": "指標 RGB 讀數",
       "toggle_proof_margin": "校樣邊界",
       "toggle_right_panel": "右側面板",
@@ -1529,7 +1545,7 @@
       "albums_other": "{{count}} 個相簿",
       "check": "檢查",
       "chooseSource": "選擇要匯入的圖庫",
-      "copiesNotImported_other": "{{count}} 個虛擬副本（不匯入）",
+      "copies_other": "{{count}} 個虛擬副本",
       "edited_other": "{{count}} 張有調整",
       "filterName": "目錄與工作階段",
       "photos_other": "{{count}} 張照片",
@@ -1795,8 +1811,10 @@
       "flagsSavedRefreshFailed": "旗標已儲存；無法重新整理專案摘要：{{error}}",
       "hotFolderFailed": "監看資料夾：{{file}}：{{error}}",
       "hotFolderResumeFailed": "無法繼續監看資料夾：{{error}}",
-      "importAiMasksOnOpen_other": "{{count}} 張相片的 AI 遮色片會在「顯影」中開啟時計算",
+      "importAiMasksOnOpen_other": "{{count}} 張相片的 AI 遮色片會在「顯影」中開啟或匯出時計算",
+      "importCopies_other": "已匯入 {{count}} 個虛擬副本",
       "importCopiesSkipped_other": "{{count}} 個虛擬副本未匯入",
+      "importCropsClipped_other": "{{count}} 個裁切超出相機畫面，已收縮到畫面內",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
       "importNotFound_other": "{{count}} 張找不到",
       "importWarnings_other": "{{count}} 張照片已匯入，但有警告。{{error}}",
@@ -1859,6 +1877,7 @@
     },
     "xmp": {
       "buttonTitle": "部分 XMP 檔案未與圖庫同步。按一下以查看詳細資訊並重新寫入。",
+      "catchUp": "正在寫入上次工作階段遺留的 XMP 檔案",
       "conflictHeading_other": "{{count}} 個 XMP 檔案已被其他程式修改",
       "conflictHint": "選擇保留哪一方的中繼資料。無論哪種選擇,你的編輯都保持不變。",
       "count_other": "{{count}} 個 XMP 未更新",
@@ -2114,6 +2133,7 @@
         "toggle_masks": "切換遮色片面板",
         "toggle_metadata": "中繼資料工具（圖庫）或相片資訊（顯影、全螢幕）",
         "toggle_multi_view": "多圖檢視：選取的照片並排顯示",
+        "toggle_original": "切換：整張照片之前",
         "toggle_pointer_readout": "切換指標 RGB 讀數",
         "toggle_proof_margin": "切換校樣邊距",
         "toggle_right_panel": "切換右側面板",
@@ -3007,6 +3027,7 @@
       "toolGroup": {
         "isOn": "{{tool}} 開啟",
         "reset": "重設{{tool}}",
+        "resetOrHold": "重設{{tool}}（按住，或按住 Alt/Option 鍵按下：顯示不含此工具的照片）",
         "turnOff": "關閉{{tool}}",
         "turnOn": "開啟{{tool}}"
       },
@@ -3161,6 +3182,7 @@
           "loading": "正在讀取照片…",
           "masks": "正在寫入遮罩…",
           "rendering": "正在算繪並寫入…",
+          "selecting": "正在計算 AI 選取範圍…",
           "waiting": "等待中"
         },
         "photos_other": "{{count}} 張照片",
@@ -3433,6 +3455,8 @@
       "enable": "啟用描述檔校正",
       "lookingUp": "正在尋找鏡頭…",
       "make": "品牌",
+      "manualVignetting": "鏡頭暗角",
+      "manualVignettingMidpoint": "暗角中點",
       "model": "型號",
       "noFocalData": "此描述檔沒有這個焦距的資料。",
       "none": "無",
@@ -4050,6 +4074,8 @@
       },
       "iptc": {
         "fields": {
+          "additionalModelInfo": "模特兒附加資訊",
+          "captionWriter": "說明撰寫者",
           "city": "城市",
           "country": "國家",
           "countryCode": "ISO 國家代碼",
@@ -4063,17 +4089,31 @@
           "creatorRegion": "州/省（聯絡資訊）",
           "creatorUrl": "網站",
           "credit": "來源署名",
+          "dateCreated": "建立日期",
+          "digitalSourceType": "數位來源類型",
+          "event": "事件",
           "headline": "大標題",
           "instructions": "指示",
+          "intellectualGenre": "內容體裁",
           "jobId": "工作識別碼",
           "location": "子位置",
+          "maxAvailHeight": "可用的最大高度",
+          "maxAvailWidth": "可用的最大寬度",
+          "modelAge": "模特兒年齡（每行一個）",
+          "organisationInImageCode": "組織代碼（每行一個）",
+          "organisationInImageName": "畫面中的組織（每行一個）",
+          "personInImage": "畫面中的人物（每行一人）",
+          "rightsUrl": "權利資訊網址",
+          "scene": "場景代碼（每行一個）",
           "source": "來源",
           "state": "州/省",
+          "subjectCode": "主題代碼（每行一個）",
           "usageTerms": "使用條款"
         },
         "sections": {
           "content": "內容",
           "creatorContact": "創作者聯絡資訊",
+          "extension": "IPTC 擴充",
           "location": "位置",
           "status": "狀態"
         }
@@ -4710,6 +4750,7 @@
         "close": "關閉工具",
         "progress": "正在匯出 {{current}} / {{total}}",
         "progressDenoising": "正在匯出 {{current}} / {{total}} · AI 降噪…",
+        "progressSelecting": "正在匯出 {{current}} / {{total}} · AI 選取範圍…",
         "title": "匯出照片"
       },
       "flags": {
@@ -4798,6 +4839,7 @@
         "compareMode": {
           "left-right": "左右分割",
           "off": "關閉",
+          "side-by-side": "並排",
           "top-bottom": "上下分割"
         },
         "compareModes": "對比模式",
@@ -4821,6 +4863,7 @@
         "splitDivider": "前後對比分割線",
         "togglePanels": "顯示/隱藏面板",
         "undo": "復原",
+        "withoutTool": "不含{{tool}}",
         "zoom": "縮放"
       },
       "withShortcut": "{{label}} ({{shortcut}})"

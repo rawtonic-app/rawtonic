@@ -297,8 +297,8 @@ fn develop_internal(
         _ => (false, true),
     };
 
-    if black == crate::black_bias::BlackLevels::Unbiased {
-        use_masked_black(&mut raw_image);
+    if let Some(margin) = black.border_margin() {
+        use_masked_black(&mut raw_image, margin);
     }
     // Canon sRAW/mRAW is YCbCr that rawler converts to RGB which is already
     // black-subtracted; rawler still applies the sensor black (~512), which
@@ -436,7 +436,7 @@ fn develop_internal(
     // Signed means of the mosaic's colours before it is clipped at black
     // (black_bias.rs); not for drafts or fast developments, nor beside CFA
     // gain maps (they change the mosaic after the clip).
-    let shadow_means = (black == crate::black_bias::BlackLevels::Unbiased
+    let shadow_means = (black.unbiased()
         && is_rgb_mosaic
         && !fast_demosaic
         && superccd.is_none()
@@ -1756,13 +1756,13 @@ fn sony_linear_white(
 /// The black levels of a 2 × 2 repeat read from the masked sensor border
 /// (black_bias.rs `masked_black`) where the camera has one and the
 /// decoder's levels spread over the repeat's positions by more than
-/// `MAX_EXTRA_SPREAD` beyond the border's own spread: per-colour levels
+/// `max_extra_spread` beyond the border's own spread: per-colour levels
 /// that the photosites do not show (EOS 7D maker notes at ISO 12800:
 /// 2032-2061, its border 2044-2048, Adobe's level 2047). The border's
-/// column banding (up to ±10 levels at high ISO) leaves its level a few
-/// levels uncertain, so a decoder level within that stays.
-fn use_masked_black(raw_image: &mut RawImage) {
-    const MAX_EXTRA_SPREAD: f32 = 8.0;
+/// column banding leaves its level a few levels uncertain, so a decoder
+/// level within that stays (`BlackLevels::border_margin`: 8 levels for
+/// `Unbiased`, `black_bias::BORDER_NOISE` for `UnbiasedBorder`).
+fn use_masked_black(raw_image: &mut RawImage, max_extra_spread: f32) {
     let RawPhotometricInterpretation::Cfa(config) = &raw_image.photometric else {
         return;
     };
@@ -1796,10 +1796,7 @@ fn use_masked_black(raw_image: &mut RawImage) {
         return;
     };
     let decoder = raw_image.blacklevel.as_bayer_array();
-    let spread = |v: &[f32]| {
-        v.iter().copied().fold(f32::MIN, f32::max) - v.iter().copied().fold(f32::MAX, f32::min)
-    };
-    if spread(&decoder) > spread(&masked) + MAX_EXTRA_SPREAD {
+    if crate::black_bias::border_replaces(&decoder, &masked, max_extra_spread) {
         log::info!("Black level from the masked border: {masked:?} (decoder {decoder:?})");
         raw_image.blacklevel = rawler::rawimage::BlackLevel::new(&masked, 2, 2, 1);
     }

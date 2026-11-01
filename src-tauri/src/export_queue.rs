@@ -31,6 +31,8 @@ pub enum Stage {
     Loading,
     /// AI Denoise (reports how many of its tiles are done).
     Denoising,
+    /// Computing Sky and Subject selections of a photo never opened.
+    Selecting,
     /// Rendering, encoding and writing the file.
     Rendering,
     /// Writing the photo's separate mask files.

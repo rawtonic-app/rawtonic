@@ -681,14 +681,17 @@ pub async fn session_pending_xmp(directory: String) -> Result<Vec<PathBuf>, Stri
     .await
     .map_err(|e| e.to_string())?
 }
-/// Writes those sidecars again (the session bar's "Try again"); only XMP
+/// Writes those sidecars again (the session bar's "Try again", all of
+/// them; the write at library open, `paths` part by part); only XMP
 /// sidecars are written, a sidecar changed elsewhere is never replaced.
 #[tauri::command]
 pub async fn session_write_pending_xmp(
     directory: String,
+    paths: Option<Vec<PathBuf>>,
 ) -> Result<rawtonic_catalog::XmpRetry, String> {
-    with_library(directory, true, |lib| {
-        lib.write_pending_xmp().map_err(|e| e.to_string())
+    with_library(directory, true, move |lib| {
+        lib.write_pending_xmp_of(paths.as_deref())
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1178,7 +1181,7 @@ pub struct TextMetadata {
     pub description: String,
     pub creator: String,
     pub copyright: String,
-    /// IPTC Core fields by key (`rawtonic_metadata::IPTC_FIELDS`), flat.
+    /// IPTC Core and Extension fields by key (`rawtonic_metadata::IPTC_FIELDS`), flat.
     #[serde(flatten)]
     pub iptc: std::collections::BTreeMap<String, String>,
 }
@@ -1273,7 +1276,9 @@ fn write_text_metadata(
             if rawtonic_metadata::iptc_field(key).is_none() {
                 return Err(format!("Unknown metadata field {key}"));
             }
-            meta.set_iptc(key, value);
+            // Retain explicit clears: absence means "keep the sidecar's
+            // value" to the preserving XMP writer.
+            meta.iptc.insert(key.clone(), value.trim().to_string());
         }
         meta.validate().map_err(|e| e.to_string())?;
         changed.insert(id.clone(), meta);
@@ -2429,6 +2434,22 @@ mod tests {
         // The frontend reads them flat beside the title.
         let json = serde_json::to_value(&written[&path]).unwrap();
         assert_eq!(json["city"], "Ascona");
+        let mut extension = TextMetadataUpdate::default();
+        extension
+            .iptc
+            .insert("personInImage".into(), "Person A\nPerson B".into());
+        extension.iptc.insert("event".into(), "Event".into());
+        write_text_metadata(&lib, vec![path.clone()], &extension).unwrap();
+        extension.iptc.insert("personInImage".into(), String::new());
+        extension.iptc.insert("city".into(), String::new());
+        write_text_metadata(&lib, vec![path.clone()], &extension).unwrap();
+        let read =
+            rawtonic_metadata::read_xmp(&fs::read_to_string(photo.with_extension("xmp")).unwrap())
+                .unwrap()
+                .0;
+        assert!(!read.iptc.contains_key("personInImage"));
+        assert!(!read.iptc.contains_key("city"));
+        assert_eq!(read.iptc["event"], "Event");
         let mut bad = TextMetadataUpdate::default();
         bad.iptc.insert("nonsense".into(), "x".into());
         assert!(write_text_metadata(&lib, vec![path], &bad).is_err());

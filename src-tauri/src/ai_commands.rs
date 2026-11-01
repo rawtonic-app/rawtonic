@@ -1,10 +1,10 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::io::Cursor;
 use std::sync::Arc;
 
-use base64::{Engine as _, engine::general_purpose};
-use image::{GrayImage, ImageFormat};
+use base64::Engine as _;
+use image::GrayImage;
+use tauri::Manager;
 
 use crate::ai_lifecycle::LIFECYCLE;
 use crate::ai_processing::{
@@ -13,7 +13,7 @@ use crate::ai_processing::{
     generate_image_embeddings, get_or_init_depth_model, get_or_init_sam_models,
     get_or_init_sky_model, get_or_init_subject_model, mask_model_installed,
     run_depth_anything_model, run_sam_decoder, run_sam_decoder_prompts, run_sky_seg_model,
-    run_subject_model,
+    subject_selection,
 };
 use crate::app_state::{AiTaskGuard, AiTaskToken, AppState};
 use crate::cache_utils::GEOMETRY_KEYS;
@@ -42,12 +42,7 @@ fn ensure_photo(loaded: &str, asked: &str) -> Result<(), String> {
 }
 
 fn encode_to_base64_png(image: &GrayImage) -> Result<String, String> {
-    let mut buf = Cursor::new(Vec::new());
-    image
-        .write_to(&mut buf, ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
-    let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
-    Ok(format!("data:image/png;base64,{}", base64_str))
+    rawtonic_segment::mask_data_url(image)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -59,6 +54,7 @@ pub async fn generate_ai_foreground_mask(
     flip_horizontal: bool,
     flip_vertical: bool,
     orientation_steps: u8,
+    subject_version: Option<u32>,
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
@@ -74,9 +70,19 @@ pub async fn generate_ai_foreground_mask(
 
     LIFECYCLE.touch();
     let started = std::time::Instant::now();
-    let mask = subject_mask(&state, &app_handle, &js_adjustments, &path, cancel_flag)
-        .await?
-        .ok_or_else(|| "The subject model is not available".to_string())?;
+    // The component's `subjectVersion` (absent: 1, a selection saved before
+    // version 2).
+    let version = subject_version.unwrap_or(1);
+    let mask = subject_mask(
+        &state,
+        &app_handle,
+        &js_adjustments,
+        version,
+        &path,
+        cancel_flag,
+    )
+    .await?
+    .ok_or_else(|| "The subject model is not available".to_string())?;
     log::info!(
         "AI subject mask: answered after {} ms",
         started.elapsed().as_millis()
@@ -795,6 +801,7 @@ async fn auto_mask(
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
     kind: AutoMask,
+    subject_version: u32,
     asked: Option<&str>,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, String> {
@@ -809,7 +816,11 @@ async fn auto_mask(
     if let Some(asked) = asked {
         ensure_photo(&loaded.path, asked)?;
     }
-    let key = geometry_key(&loaded, js_adjustments);
+    let mut key = geometry_key(&loaded, js_adjustments);
+    if kind == AutoMask::Subject {
+        // Each Select Subject version is its own mask.
+        key.push_str(&format!(":v{subject_version}"));
+    }
     if let Some(mask) = cached_mask(state, kind, &key) {
         return Ok(Some(mask));
     }
@@ -879,7 +890,13 @@ async fn auto_mask(
         let qos = crate::ai_processing::thread_qos();
         let (mask, backend) = match &network {
             Network::Subject(model) => (
-                run_subject_model(warped_image.as_ref(), model, is_raw, run_options.as_deref()),
+                subject_selection(
+                    warped_image.as_ref(),
+                    model,
+                    is_raw,
+                    run_options.as_deref(),
+                    subject_version,
+                ),
                 model.backend_name(),
             ),
             Network::Sky(model) => (
@@ -917,10 +934,62 @@ async fn auto_mask(
     Ok(Some(data))
 }
 
+/// The Sky and Subject selections an export computes for a photo that was
+/// never opened (`ai_selections::detect_missing`), with the app's models as
+/// the editor runs them: an installed model only (an export downloads
+/// nothing; one that is not installed fails that photo, naming the way to
+/// get it), one run of each kind at a time, kept from an idle unload while
+/// it runs. Called from export workers, outside the async runtime.
+pub(crate) struct ExportSelections<'a> {
+    pub app_handle: &'a tauri::AppHandle,
+}
+
+impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> {
+    fn detect(
+        &self,
+        selection: rawtonic_engine::ai_selections::AutoSelection,
+        version: u32,
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<String, String> {
+        use rawtonic_engine::ai_selections::AutoSelection;
+        let kind = match selection {
+            AutoSelection::Sky => AutoMask::Sky,
+            AutoSelection::Subject => AutoMask::Subject,
+        };
+        let state = self.app_handle.state::<AppState>();
+        LIFECYCLE.touch();
+        let _running = LIFECYCLE.run();
+        let _run = kind.lock().blocking_lock();
+        let network = tauri::async_runtime::block_on(network(&state, self.app_handle, kind, false))?
+            .ok_or_else(|| {
+                format!(
+                    "the {} model is not installed (open the photo in Develop once to download it, then export again)",
+                    selection.name()
+                )
+            })?;
+        let started = std::time::Instant::now();
+        let mask = match &network {
+            Network::Subject(model) => subject_selection(warped, model, linear, None, version),
+            Network::Sky(model) => run_sky_seg_model(warped, model, linear, None),
+        }
+        .map_err(|e| e.to_string())?;
+        log::info!(
+            "AI {} mask for an export: {}x{} in {} ms",
+            kind.name(),
+            warped.width(),
+            warped.height(),
+            started.elapsed().as_millis()
+        );
+        encode_to_base64_png(&mask)
+    }
+}
+
 async fn subject_mask(
     state: &tauri::State<'_, AppState>,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
+    version: u32,
     asked: &str,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, String> {
@@ -929,6 +998,7 @@ async fn subject_mask(
         app_handle,
         js_adjustments,
         AutoMask::Subject,
+        version,
         Some(asked),
         cancel,
     )
@@ -947,6 +1017,7 @@ async fn sky_mask(
         app_handle,
         js_adjustments,
         AutoMask::Sky,
+        1,
         Some(asked),
         cancel,
     )
@@ -987,7 +1058,19 @@ async fn precompute(
         return Ok(());
     }
     let start = std::time::Instant::now();
-    match auto_mask(&state, &app_handle, &js_adjustments, kind, None, cancel).await {
+    // Ahead of a click on a new selection: the current Subject version.
+    let version = rawtonic_segment::SUBJECT_VERSION;
+    match auto_mask(
+        &state,
+        &app_handle,
+        &js_adjustments,
+        kind,
+        version,
+        None,
+        cancel,
+    )
+    .await
+    {
         Ok(Some(_)) => {
             log::info!(
                 "AI {} mask: background mask of {path} ready after {} ms",

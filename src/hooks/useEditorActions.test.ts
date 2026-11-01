@@ -12,9 +12,14 @@ import {
   registerScheduledRecipe,
   rememberOpenedRecipe,
   startBeforePeek,
+  startToolBefore,
+  endToolBefore,
+  adjustmentsAfter,
+  toggleBeforeView,
   updateAdjustments,
   useEditorActions,
   waitForPendingMetadataSave,
+  writeRecipeRepair,
 } from './useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -271,6 +276,34 @@ it.each([
   stop();
   expect(useEditorStore.getState().adjustments.exposure).toBe(exposure);
   errorLog.mockRestore();
+});
+
+it('names the open photograph to a paste batch it is part of (offered whole after a crash)', async () => {
+  useEditorStore.setState({ copiedFrom: '/source.dng' });
+  const { result } = renderHook(useEditorActions);
+  act(() => {
+    result.current.handlePasteAdjustments(['/first.dng', '/second.dng']);
+  });
+  await act(async () => {});
+  const call = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
+  expect(call?.[1]).toMatchObject({ paths: ['/second.dng'], open: '/first.dng' });
+});
+
+it('writes the open photograph\'s waiting save before a paste batch that includes it', async () => {
+  useEditorStore.setState({ copiedFrom: '/source.dng' });
+  debouncedSave('/first.dng', { ...INITIAL_ADJUSTMENTS, exposure: -2 });
+  const { result } = renderHook(useEditorActions);
+  act(() => {
+    result.current.handlePasteAdjustments(['/first.dng', '/second.dng']);
+  });
+  await act(async () => {});
+  const commands = vi.mocked(invoke).mock.calls.map(([command]) => command);
+  const saved = commands.indexOf(Invokes.SaveMetadataAndUpdateThumbnail);
+  expect(saved).toBeGreaterThanOrEqual(0);
+  // The batch waits in the photograph's queue for that save.
+  expect(commands.indexOf(Invokes.ApplyAdjustmentsToPaths)).toBe(-1);
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+  expect(pending.some((request) => request.command === Invokes.ApplyAdjustmentsToPaths)).toBe(true);
 });
 
 it('writes two pastes onto the same photograph queued one after the other, neither waiting for the later', async () => {
@@ -976,5 +1009,111 @@ describe('the frame of the RAW (ADR 0020, "new photos only")', () => {
     await act(async () => {});
     expect(useEditorStore.getState().adjustments.exposure).toBe(3);
     expect(frame()).toBe(0);
+  });
+});
+
+it('closes a photograph a recipe repair writes, so no editor holds its old recipe, and shows the result', async () => {
+  const { useUIStore } = await import('../store/useUIStore');
+  useUIStore.setState({ activeView: 'editor' });
+  renderHook(useEditorActions);
+  const repaired = writeRecipeRepair(
+    ['/first.dng'],
+    Invokes.ReplaceRecipes,
+    { changes: [{ path: '/first.dng', adjustments: { exposure: 1.5 } }] },
+    { whole: true },
+  );
+  expect(useEditorStore.getState().selectedImage).toBeNull();
+  expect(useUIStore.getState().activeView).toBe('library');
+  await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: {}, after: { exposure: 1.5 } }] });
+  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1.5 } });
+  await expect(repaired).resolves.toEqual([]);
+  expect(useLibraryStore.getState().libraryActiveAdjustments.exposure).toBe(1.5);
+});
+
+it('writes a failed earlier save before a partial repair applies onto it', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
+  debouncedSave('/kept.dng', { ...INITIAL_ADJUSTMENTS, temperature: 42 });
+  await act(async () => { await debouncedSave.flush(); });
+  const repaired = writeRecipeRepair(['/kept.dng'], Invokes.ApplyAdjustmentsToPaths, { paths: ['/kept.dng'], adjustments: { exposure: 1 } }, { whole: false });
+  await act(async () => {});
+  expect(pending.at(-1)?.command).toBe(Invokes.SaveMetadataAndUpdateThumbnail);
+  expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ adjustments: { temperature: 42 } });
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [{ path: '/kept.dng', before: {}, after: {} }] });
+  await expect(repaired).resolves.toEqual([]);
+  errorLog.mockRestore();
+});
+
+describe('per-tool before and the whole-photo toggle', () => {
+  beforeEach(() => {
+    useEditorStore.setState({ showOriginal: false, toolBefore: null, previewOverride: null, isSliderDragging: false });
+  });
+  const resetExposure = () => updateAdjustments((prev) => ({ ...prev, exposure: 0 }));
+
+  it('shows the photograph as the tool reset would leave it, writing nothing', () => {
+    const before = useEditorStore.getState();
+    expect(startToolBefore('Exposure', resetExposure)).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.toolBefore).toBe('Exposure');
+    expect(state.previewOverride).toMatchObject({ exposure: 0 });
+    // The recipe and its history are untouched; nothing is saved.
+    expect(state.adjustments).toBe(before.adjustments);
+    expect(state.adjustments.exposure).toBe(-2);
+    expect(state.history).toBe(before.history);
+    expect(state.historyIndex).toBe(before.historyIndex);
+    endToolBefore();
+    expect(useEditorStore.getState()).toMatchObject({ toolBefore: null, previewOverride: null });
+    expect(useEditorStore.getState().adjustments).toBe(before.adjustments);
+    expect(vi.mocked(invoke)).not.toHaveBeenCalled();
+  });
+
+  it('applies the tool reset to the recipe it is given (a layer reset changes that layer only)', () => {
+    const layered = { ...INITIAL_ADJUSTMENTS, exposure: 1, masks: [{ id: 'a', adjustments: { exposure: 2 } }, { id: 'b', adjustments: { exposure: 3 } }] } as never;
+    useEditorStore.setState({ adjustments: layered });
+    const without = adjustmentsAfter(() =>
+      updateAdjustments((prev) => ({ ...prev, masks: prev.masks.map((m) => (m.id === 'a' ? { ...m, adjustments: { ...m.adjustments, exposure: 0 } } : m)) })),
+    )!;
+    expect(without.exposure).toBe(1);
+    expect(without.masks.map((m) => m.adjustments.exposure)).toEqual([0, 3]);
+    expect(useEditorStore.getState().adjustments).toBe(layered);
+  });
+
+  it('does not cover another preview, a drag or a photograph still loading', () => {
+    useEditorStore.setState({ showOriginal: true });
+    expect(startToolBefore('Exposure', resetExposure)).toBe(false);
+    useEditorStore.setState({ showOriginal: false, isSliderDragging: true });
+    expect(startToolBefore('Exposure', resetExposure)).toBe(false);
+    useEditorStore.setState({ isSliderDragging: false });
+    select('/loading.dng', false);
+    expect(startToolBefore('Exposure', resetExposure)).toBe(false);
+    expect(useEditorStore.getState().toolBefore).toBeNull();
+  });
+
+  it('is not offered for a tool that lives in the RAW decode (AI Denoise): it would need a new develop', () => {
+    useEditorStore.setState({
+      selectedImage: { ...photo('/denoised.dng'), isDecoded: true, aiDenoise: 50 } as never,
+      adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 50 },
+    });
+    expect(startToolBefore('Noise reduction', () => updateAdjustments({ aiDenoise: 0 }))).toBe(false);
+    expect(useEditorStore.getState()).toMatchObject({ toolBefore: null, previewOverride: null });
+    // A tool rendered from the decode as it is still shows.
+    expect(startToolBefore('Exposure', resetExposure)).toBe(true);
+  });
+
+  it('ends with an edit, which applies to the recipe, not the preview', () => {
+    startToolBefore('Exposure', resetExposure);
+    updateAdjustments({ contrast: 10 });
+    const state = useEditorStore.getState();
+    expect(state).toMatchObject({ toolBefore: null, previewOverride: null });
+    expect(state.adjustments).toMatchObject({ exposure: -2, contrast: 10 });
+  });
+
+  it('toggles the whole photograph before on and off', () => {
+    toggleBeforeView();
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    expect(useEditorStore.getState().previewOverride?.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
+    toggleBeforeView();
+    expect(useEditorStore.getState()).toMatchObject({ showOriginal: false, previewOverride: null });
   });
 });
