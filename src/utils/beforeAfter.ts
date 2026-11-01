@@ -167,10 +167,15 @@ type FitSize = { width: number; height: number; offsetX: number; offsetY: number
  * the viewer's centre, after its fit changed from `old` to `next`.
  */
 export function keepMagnification(old: FitSize, next: FitSize, scale: number, a: number, b: number) {
-  const nextScale = scale * (old.width / next.width);
+  return anchoredAt(next, scale * (old.width / next.width), a, b);
+}
+
+/** The transform at `scale` with the photo point `a`, `b` (shares of the
+ * photo) at the centre of the viewer `fit`. */
+export function anchoredAt(fit: FitSize, scale: number, a: number, b: number) {
   return {
-    scale: nextScale,
-    x: next.containerWidth / 2 - nextScale * (next.offsetX + a * next.width),
-    y: next.containerHeight / 2 - nextScale * (next.offsetY + b * next.height),
+    scale,
+    x: fit.containerWidth / 2 - scale * (fit.offsetX + a * fit.width),
+    y: fit.containerHeight / 2 - scale * (fit.offsetY + b * fit.height),
   };
 }

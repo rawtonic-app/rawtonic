@@ -3,6 +3,7 @@ import { INITIAL_ADJUSTMENTS } from './adjustments';
 import {
   BEFORE_FRAMING_KEYS,
   COMPARE_MODES,
+  anchoredAt,
   keepMagnification,
   DEFAULT_SPLIT_POSITION,
   nextCompareMode,
@@ -154,5 +155,19 @@ describe('keepMagnification', () => {
     const back = keepMagnification(half, wide, next.scale, 0.25, 0.5);
     expect(back.scale).toBe(8);
     expect(back.x).toBeCloseTo(500 - 8 * 250);
+  });
+});
+
+describe('keepMagnification for a portrait fitted by height', () => {
+  it('keeps the centred detail although the fitted width stays the same', () => {
+    // 4000×6000 portrait: fit 533×800 in a 1200×800 viewer and in a 600×800 pane.
+    const wide = { width: 533.33, height: 800, offsetX: 333.33, offsetY: 0, containerWidth: 1200, containerHeight: 800 };
+    const pane = { width: 533.33, height: 800, offsetX: 33.33, offsetY: 0, containerWidth: 600, containerHeight: 800 };
+    const next = keepMagnification(wide, pane, 7.5, 0.5, 0.5);
+    expect(next.scale).toBeCloseTo(7.5);
+    expect(((pane.containerWidth / 2 - next.x) / next.scale - pane.offsetX) / pane.width).toBeCloseTo(0.5);
+    // A scale held at the zoom limit keeps the same centre.
+    const limited = anchoredAt(pane, 5, 0.5, 0.5);
+    expect(((pane.containerWidth / 2 - limited.x) / 5 - pane.offsetX) / pane.width).toBeCloseTo(0.5);
   });
 });

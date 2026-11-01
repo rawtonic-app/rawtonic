@@ -39,7 +39,7 @@ import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
 import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
-import { keepMagnification } from '../../utils/beforeAfter';
+import { anchoredAt, keepMagnification } from '../../utils/beforeAfter';
 import BrowserBeforePane from './editor/BrowserBeforePane';
 import {
   MIN_VIEWER_ZOOM,
@@ -453,13 +453,21 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   // 100 % stays 100 % on the same detail (zoom is relative to the fit).
   useLayoutEffect(() => {
     const old = paneChangeRef.current;
-    if (!old || imageRenderSize.width === old.width) return;
+    // The viewer's size is what changes (a portrait fitted by height keeps
+    // its width and moves sideways).
+    if (!old || (imageRenderSize.containerWidth === old.containerWidth &&
+      imageRenderSize.containerHeight === old.containerHeight)) return;
     paneChangeRef.current = null;
     const { scale, positionX, positionY } = transformStateRef.current;
     if (!(old.width > 0) || !(old.height > 0) || !(imageRenderSize.width > 0) || scale <= 1.01) return;
     const a = ((old.containerWidth / 2 - positionX) / scale - old.offsetX) / old.width;
     const b = ((old.containerHeight / 2 - positionY) / scale - old.offsetY) / old.height;
-    const next = keepMagnification(old, imageRenderSize, scale, a, b);
+    // The zoom limits of the new fit (the passive effect sets them later).
+    maxScaleRef.current = transformConfig.maxScale;
+    minScaleRef.current = transformConfig.minScale;
+    const wanted = keepMagnification(old, imageRenderSize, scale, a, b).scale;
+    const nextScale = Math.max(minScaleRef.current, Math.min(maxScaleRef.current, wanted));
+    const next = anchoredAt(imageRenderSize, nextScale, a, b);
     const bounded = clampToBounds(next.x, next.y, next.scale);
     applyTransform(bounded.x, bounded.y, bounded.scale);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new fit after a pane change acts
