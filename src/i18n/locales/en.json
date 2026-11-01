@@ -2527,6 +2527,8 @@
     "visualize": "Visualize spots"
   },
   "stacks": {
+    "albumNote_one": "Stacked {{count}} photo. Stacks show in folder views; an album lists its photos singly.",
+    "albumNote_other": "Stacked {{count}} photos. Stacks show in folder views; an album lists its photos singly.",
     "auto": {
       "apply_one": "Make {{count}} stack",
       "apply_other": "Make {{count}} stacks",

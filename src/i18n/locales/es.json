@@ -2658,6 +2658,9 @@
     "visualize": "Visualizar manchas"
   },
   "stacks": {
+    "albumNote_one": "{{count}} foto apilada. Las pilas se ven en las vistas de carpeta; un álbum muestra sus fotos por separado.",
+    "albumNote_many": "{{count}} fotos apiladas. Las pilas se ven en las vistas de carpeta; un álbum muestra sus fotos por separado.",
+    "albumNote_other": "{{count}} fotos apiladas. Las pilas se ven en las vistas de carpeta; un álbum muestra sus fotos por separado.",
     "auto": {
       "apply_one": "Crear {{count}} pila",
       "apply_many": "Crear {{count}} pilas",

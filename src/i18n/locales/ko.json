@@ -2439,6 +2439,8 @@
     "visualize": "스팟 시각화"
   },
   "stacks": {
+    "albumNote_one": "사진 {{count}}장을 스택으로 묶었습니다. 스택은 폴더 보기에 표시되며, 앨범에서는 사진이 하나씩 표시됩니다.",
+    "albumNote_other": "사진 {{count}}장을 스택으로 묶었습니다. 스택은 폴더 보기에 표시되며, 앨범에서는 사진이 하나씩 표시됩니다.",
     "auto": {
       "apply_one": "스택 {{count}}개 만들기",
       "apply_other": "스택 {{count}}개 만들기",

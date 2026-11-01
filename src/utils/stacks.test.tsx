@@ -5,7 +5,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { RawStatus, SortDirection, type ImageFile } from "../components/ui/AppProperties";
 import StudioBrowser from "../components/studio/StudioBrowser";
 import { computeGroupedLibrary, type LibraryQueryState } from "../hooks/useSortedLibrary";
+import { useEditorStore } from "../store/useEditorStore";
 import { useLibraryStore } from "../store/useLibraryStore";
+import { notify } from "../activity/notify";
 import { arrangeStacks, indexStacks, setStacks, useStackStore, type WebStack } from "../store/useStackStore";
 import { useUIStore } from "../store/useUIStore";
 import { canUndo, getUndoLabel, redo, undo, useCatalogUndoStore } from "./appUndo";
@@ -46,6 +48,7 @@ beforeEach(() => {
     searchCriteria: { text: "", tags: [], mode: "OR" },
     multiSelectedPaths: [], libraryActivePath: null, imageRatings: {}, imageFlags: {},
   });
+  useEditorStore.setState({ selectedImage: null });
   useUIStore.setState({ activeView: "library" });
   useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -142,6 +145,50 @@ describe("stack commands", () => {
     expect(invoke).toHaveBeenCalledWith("stacks_restore", { library: "/job", change, undo: true });
     await redo();
     expect(invoke).toHaveBeenCalledWith("stacks_restore", { library: "/job", change, undo: false });
+  });
+
+  it.each([
+    // Click the best frame (c), then add the others: ⌘-click moves the last
+    // clicked photo (libraryActivePath) but the Navigator keeps c.
+    ["⌘-click", [2, 0, 1], 1],
+    // Click c, then ⇧-click a later photo: the range ends elsewhere.
+    ["⇧-click", [2, 3, 4], 4],
+  ])("makes the photo the Navigator shows the top after %s", async (_name, selected, lastClicked) => {
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "stacks_group") return { library: "/job", change: { before: [], after: [{ id: "s" }] } };
+      return [];
+    });
+    useEditorStore.setState({ selectedImage: { path: files[2].path } as never });
+    useLibraryStore.setState({
+      multiSelectedPaths: selected.map((i) => files[i].path),
+      libraryActivePath: files[lastClicked].path,
+    });
+    await groupIntoStack();
+    const paths = vi.mocked(invoke).mock.calls.find(([command]) => command === "stacks_group")?.[1] as { paths: string[] };
+    expect(paths.paths[0]).toBe(files[2].path);
+    expect(paths.paths.slice().sort()).toEqual(selected.map((i) => files[i].path).sort());
+  });
+
+  it("falls back to the last clicked photo when the shown one is not selected", async () => {
+    vi.mocked(invoke).mockImplementation(async () => ({ library: "/job", change: { before: [], after: [] } }));
+    useEditorStore.setState({ selectedImage: { path: files[4].path } as never });
+    useLibraryStore.setState({ multiSelectedPaths: [files[0].path, files[1].path], libraryActivePath: files[1].path });
+    await groupIntoStack();
+    expect(invoke).toHaveBeenCalledWith("stacks_group", { paths: [files[1].path, files[0].path] });
+  });
+
+  it("says that stacks do not show in an album, once, when grouping there", async () => {
+    vi.mocked(invoke).mockImplementation(async () => ({ library: "/job", change: { before: [], after: [] } }));
+    useLibraryStore.setState({
+      activeAlbumId: "album-1", multiSelectedPaths: [files[0].path, files[1].path], libraryActivePath: files[0].path,
+    });
+    await groupIntoStack();
+    expect(notify.info).toHaveBeenCalledOnce();
+    expect(vi.mocked(notify.info).mock.calls[0][0]).toMatch(/folder/i);
+    vi.mocked(notify.info).mockClear();
+    useLibraryStore.setState({ activeAlbumId: null });
+    await groupIntoStack();
+    expect(notify.info).not.toHaveBeenCalled();
   });
 
   it("moves a selected member to its stack's top before the collapse hides it", async () => {

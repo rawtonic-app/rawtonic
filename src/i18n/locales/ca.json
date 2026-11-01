@@ -2658,6 +2658,9 @@
     "visualize": "Visualitza les taques"
   },
   "stacks": {
+    "albumNote_one": "{{count}} foto apilada. Les piles es veuen a les vistes de carpeta; un àlbum mostra les fotos per separat.",
+    "albumNote_many": "{{count}} fotos apilades. Les piles es veuen a les vistes de carpeta; un àlbum mostra les fotos per separat.",
+    "albumNote_other": "{{count}} fotos apilades. Les piles es veuen a les vistes de carpeta; un àlbum mostra les fotos per separat.",
     "auto": {
       "apply_one": "Crea {{count}} pila",
       "apply_many": "Crea {{count}} piles",

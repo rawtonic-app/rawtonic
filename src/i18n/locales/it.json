@@ -2658,6 +2658,9 @@
     "visualize": "Visualizza macchie"
   },
   "stacks": {
+    "albumNote_one": "{{count}} foto impilata. Le pile compaiono nelle viste delle cartelle; un album elenca le foto singolarmente.",
+    "albumNote_many": "{{count}} foto impilate. Le pile compaiono nelle viste delle cartelle; un album elenca le foto singolarmente.",
+    "albumNote_other": "{{count}} foto impilate. Le pile compaiono nelle viste delle cartelle; un album elenca le foto singolarmente.",
     "auto": {
       "apply_one": "Crea {{count}} pila",
       "apply_many": "Crea {{count}} pile",

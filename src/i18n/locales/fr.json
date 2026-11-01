@@ -2658,6 +2658,9 @@
     "visualize": "Visualiser les défauts"
   },
   "stacks": {
+    "albumNote_one": "{{count}} photo empilée. Les piles apparaissent dans les vues de dossier ; un album liste ses photos une à une.",
+    "albumNote_many": "{{count}} photos empilées. Les piles apparaissent dans les vues de dossier ; un album liste ses photos une à une.",
+    "albumNote_other": "{{count}} photos empilées. Les piles apparaissent dans les vues de dossier ; un album liste ses photos une à une.",
     "auto": {
       "apply_one": "Créer {{count}} pile",
       "apply_many": "Créer {{count}} piles",
