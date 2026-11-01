@@ -105,9 +105,9 @@ fn source_of(path: &str) -> String {
 #[derive(Default)]
 struct Queue {
     prefetch: VecDeque<String>,
-    /// The first photograph of the last prefetch request (the likeliest
-    /// next one): its decode is kept for its opening.
-    prefetch_head: Option<String>,
+    /// The first photographs of the last prefetch request (the likeliest
+    /// next ones, [`KEPT_AHEAD`]): their decodes are kept for their opening.
+    prefetch_ahead: Vec<String>,
     /// Raised by each prefetch request (it replaces the queue).
     prefetch_generation: usize,
     builds: VecDeque<BuildItem>,
@@ -154,22 +154,30 @@ impl Queue {
 
     /// Replaces what waits to be prefetched.
     fn set_prefetch(&mut self, paths: Vec<String>) {
-        self.prefetch_head = paths.first().cloned();
+        self.prefetch_ahead = paths.iter().take(KEPT_AHEAD).cloned().collect();
         self.prefetch = paths.into();
         self.prefetch_generation += 1;
     }
 
     /// Whether the prefetch of `path` keeps its decode (the request's head).
     fn keeps_decode(&self, path: &str) -> bool {
-        self.prefetch_head.as_deref() == Some(path)
+        self.prefetch_ahead.iter().any(|ahead| ahead == path)
     }
 
     /// Whether the request asks first for a photograph of RAW `source` (a
     /// virtual copy's too).
     fn asks_first_for(&self, source: &str) -> bool {
-        self.prefetch_head
-            .as_deref()
+        self.prefetch_ahead
+            .first()
             .is_some_and(|head| source_of(head) == source)
+    }
+
+    /// Whether the request asks for a photograph of RAW `source` among the
+    /// first [`KEPT_AHEAD`].
+    fn asks_ahead_for(&self, source: &str) -> bool {
+        self.prefetch_ahead
+            .iter()
+            .any(|ahead| source_of(ahead) == source)
     }
 
     /// A prefetch cancelled by an edit is done again first, unless a newer
@@ -302,13 +310,52 @@ impl<I: PartialEq> MadeDecode<I> {
         let held = slot.take()?;
         (held.made.is_some() && held.made == *now).then_some((held.image, held.measures))
     }
+
+    /// Whether it is the decode of `key` made as one made `now` would be.
+    fn is(&self, key: &str, now: &Option<I>) -> bool {
+        self.key == key && self.made.is_some() && self.made == *now
+    }
 }
 
-/// The decode kept for the photograph likeliest opened next (the prefetch
-/// request's head), until its load takes it, another one replaces it or a
-/// request no longer asks for it: one decode, within the multi view's hold
-/// budget (none while short of memory).
-static AHEAD: Mutex<Option<MadeDecode<preview_proxy::ProxyKey>>> = Mutex::new(None);
+/// The decodes kept for the photographs likeliest opened next (the prefetch
+/// request's first [`KEPT_AHEAD`]), each until its load takes it, another
+/// one replaces it or a request no longer asks for it: together within the
+/// multi view's hold budget (RAM/8; none while short of memory).
+static AHEAD: Mutex<Vec<MadeDecode<preview_proxy::ProxyKey>>> = Mutex::new(Vec::new());
+
+/// How many photographs ahead keep their decode: the next one and the one
+/// after it. With only the next one kept, the one after it was decoded
+/// once for its proxy and again when it became the next one; at 0.6 s per
+/// photograph its 45 MP decode (0.3-0.7 s on an M5 Pro) then often was not
+/// in at the step (notes: benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md).
+const KEPT_AHEAD: usize = 2;
+
+/// Keeps `made` among the decodes ahead, replacing one of the same
+/// photograph; over [`KEPT_AHEAD`] or `budget` bytes, those no longer asked
+/// for ahead (`asked`) go first, then those after the request's head, the
+/// oldest first. Whether `made` stayed.
+fn keep_ahead<I>(
+    ahead: &mut Vec<MadeDecode<I>>,
+    made: MadeDecode<I>,
+    budget: usize,
+    asked: impl Fn(&str) -> (bool, bool),
+) -> bool {
+    let size = |kept: &MadeDecode<I>| kept.image.as_bytes().len();
+    if size(&made) > budget {
+        return false;
+    }
+    ahead.retain(|kept| kept.key != made.key);
+    let key = made.key.clone();
+    ahead.push(made);
+    while ahead.len() > KEPT_AHEAD || ahead.iter().map(size).sum::<usize>() > budget {
+        // (asked ahead, the head): the least wanted goes, the oldest first.
+        let Some(least) = (0..ahead.len()).min_by_key(|&i| asked(&ahead[i].source)) else {
+            break;
+        };
+        ahead.remove(least);
+    }
+    ahead.iter().any(|kept| kept.key == key)
+}
 
 /// The prefetch decode under way, which the open photograph's load may
 /// take over (`decode_for_open`).
@@ -425,12 +472,14 @@ pub(crate) fn decode_for_open(
     Arc<image::DynamicImage>,
     Option<crate::image_loader::DecodeMeasures>,
 )> {
-    if let Some(kept) = MadeDecode::take_if(
-        &mut AHEAD.lock().unwrap_or_else(|e| e.into_inner()),
-        key,
-        &now,
-    ) {
-        return Some(kept);
+    {
+        let mut ahead = AHEAD.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(at) = ahead.iter().position(|kept| kept.key == key) {
+            let kept = ahead.remove(at);
+            if kept.is(key, &now) {
+                return Some((kept.image, kept.measures));
+            }
+        }
     }
     take_under_way(&UNDER_WAY, key, &now, wait, || {
         if let Some(worker) = WORKER.get() {
@@ -445,8 +494,59 @@ pub(crate) fn keeps_decode_of(key: &str, now: &Option<preview_proxy::ProxyKey>) 
     AHEAD
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .is_some_and(|kept| kept.key == key && kept.made.is_some() && kept.made == *now)
+        .iter()
+        .any(|kept| kept.is(key, now))
+}
+
+/// The decode kept for the photograph of decoded-cache key `key` (made as a
+/// decode `now` would be), shared rather than taken: the step onto it shows
+/// its developed frame from it at once (`image_loader::open_kept_decode`),
+/// and the slot keeps answering for it (`keeps_decode_of`) until its load
+/// finds it in the decoded cache. No second copy is made.
+pub(crate) fn kept_decode(
+    key: &str,
+    now: &Option<preview_proxy::ProxyKey>,
+) -> Option<(
+    Arc<image::DynamicImage>,
+    Option<crate::image_loader::DecodeMeasures>,
+)> {
+    AHEAD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|kept| kept.is(key, now))
+        .map(|kept| (Arc::clone(&kept.image), kept.measures))
+}
+
+/// Whether the prefetch decode under way is the one of decoded-cache key
+/// `key`.
+pub(crate) fn decoding_ahead(key: &str) -> bool {
+    UNDER_WAY
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .key
+        .as_deref()
+        == Some(key)
+}
+
+/// Waits up to `wait` while the prefetch decode of decoded-cache key `key`
+/// is under way (and its preview base built ahead, `decode`). Neither takes
+/// nor asks for it: kept ahead, it is then shared (`kept_decode`).
+pub(crate) fn wait_under_way(key: &str, wait: Duration) {
+    let (under_way, ended) = &UNDER_WAY;
+    let deadline = std::time::Instant::now() + wait;
+    let mut guard = under_way.lock().unwrap_or_else(|e| e.into_inner());
+    while guard.key.as_deref() == Some(key) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        guard = ended
+            .wait_timeout(guard, left)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+    }
 }
 
 /// Whether the decode kept ahead is of RAW `source`.
@@ -454,25 +554,23 @@ fn kept_ahead(source: &str) -> bool {
     AHEAD
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .is_some_and(|kept| kept.source == source)
+        .iter()
+        .any(|kept| kept.source == source)
 }
 
-/// Whether the last prefetch request asks for `source` first.
-fn is_prefetch_head(source: &str) -> bool {
-    WORKER.get().is_some_and(|worker| {
-        worker
-            .queue
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .asks_first_for(source)
+/// Whether the last prefetch request asks for `source` among the first
+/// [`KEPT_AHEAD`], and first.
+fn asked_ahead(source: &str) -> (bool, bool) {
+    WORKER.get().map_or((false, false), |worker| {
+        let queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
+        (queue.asks_ahead_for(source), queue.asks_first_for(source))
     })
 }
 
 /// The decoder's settings changed or the caches were cleared: the decode
 /// kept ahead goes.
 pub(crate) fn forget_ahead() {
-    *AHEAD.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    AHEAD.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
 fn take_under_way<I: PartialEq>(
@@ -640,8 +738,8 @@ fn wanted_size(app_handle: &tauri::AppHandle, viewer_dim: u32) -> u32 {
     preview_proxy::standard_size(if dim > 0 { dim } else { viewer_dim }, &settings)
 }
 
-/// Prepares the preview proxy of `path`; with `keep` (the likeliest next
-/// photograph) its decode stays in the decoded-image cache too, so opening
+/// Prepares the preview proxy of `path`; with `keep` (one of the likeliest
+/// next photographs) its decode is kept ahead too (`AHEAD`), so opening
 /// it develops the full frame without decoding the RAW again.
 fn prepare(
     app_handle: &tauri::AppHandle,
@@ -785,8 +883,8 @@ fn decode(
         && let Some(kept) = AHEAD
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .filter(|kept| kept.key == key && kept.made.is_some() && kept.made == made)
+            .iter()
+            .find(|kept| kept.is(&key, &made))
     {
         return Some((Arc::clone(&kept.image), variant, kept.measures));
     }
@@ -815,20 +913,35 @@ fn decode(
         // request made since asks for it first (stepped on meanwhile: the
         // decode started as the second photograph ahead), rather than
         // decoding it again as the new head.
-        if (keep || is_prefetch_head(&source_str))
+        let mut kept = None;
+        if (keep || asked_ahead(&source_str).0)
             && made.is_some()
             && let Ok((image, measures)) = &decoded
-            && image.as_bytes().len() <= crate::multi_view_prefetch::hold_budget()
+            && keep_ahead(
+                &mut AHEAD.lock().unwrap_or_else(|e| e.into_inner()),
+                MadeDecode {
+                    source: source_str.to_string(),
+                    key: key.clone(),
+                    image: Arc::clone(image),
+                    measures: *measures,
+                    made: made.clone(),
+                },
+                crate::multi_view_prefetch::hold_budget(),
+                asked_ahead,
+            )
         {
-            *AHEAD.lock().unwrap_or_else(|e| e.into_inner()) = Some(MadeDecode {
-                source: source_str.to_string(),
-                key: key.clone(),
-                image: Arc::clone(image),
-                measures: *measures,
-                made: made.clone(),
-            });
+            kept = Some(Arc::clone(image));
         }
         let (under_way, ended) = &UNDER_WAY;
+        // Its first developed frame then finds its preview base built,
+        // before the decode is told ended (a step onto it waits for both,
+        // `wait_under_way`). Not for a decode the open photograph's load
+        // waits for: its frame is being made from the load, and the next
+        // decode starts sooner (before that frame holds it back).
+        let wanted = under_way.lock().unwrap_or_else(|e| e.into_inner()).wanted;
+        if !wanted && let Some(image) = kept {
+            crate::editor_preview::prepare_base_ahead(&state, &source_str, &image);
+        }
         under_way.lock().unwrap_or_else(|e| e.into_inner()).end(
             decoded
                 .as_ref()
@@ -926,15 +1039,12 @@ pub fn prepare_preview_proxies(paths: Vec<String>, app_handle: tauri::AppHandle)
     {
         worker.prefetch_gate.interaction();
     }
-    // Nor the decode kept ahead: let go.
+    // Nor the decodes kept ahead: let go.
     {
-        let mut ahead = AHEAD.lock().unwrap_or_else(|e| e.into_inner());
-        if ahead
-            .as_ref()
-            .is_some_and(|kept| !paths.iter().any(|p| source_of(p) == kept.source))
-        {
-            *ahead = None;
-        }
+        AHEAD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|kept| paths.iter().any(|p| source_of(p) == kept.source));
     }
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
     queue.set_prefetch(paths);
@@ -1316,15 +1426,58 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_photograph_asked_for_keeps_its_decode() {
+    fn the_first_two_photographs_asked_for_keep_their_decodes() {
         let mut queue = Queue::default();
         queue.set_prefetch(paths(&["N.RAF", "NN.RAF", "P.RAF"]));
         assert!(queue.keeps_decode("/s/Capture/N.RAF"));
-        assert!(!queue.keeps_decode("/s/Capture/NN.RAF"));
-        // A step back: the previous photograph comes first now.
+        assert!(queue.keeps_decode("/s/Capture/NN.RAF"));
+        assert!(!queue.keeps_decode("/s/Capture/P.RAF"));
+        // A step back: the previous photographs come first now.
         queue.set_prefetch(paths(&["P.RAF", "PP.RAF", "N.RAF"]));
         assert!(queue.keeps_decode("/s/Capture/P.RAF"));
+        assert!(queue.keeps_decode("/s/Capture/PP.RAF"));
         assert!(!queue.keeps_decode("/s/Capture/N.RAF"));
+    }
+
+    fn made(source: &str, bytes: u32) -> MadeDecode<u32> {
+        MadeDecode {
+            source: source.to_string(),
+            key: format!("{source}-key"),
+            image: Arc::new(image::DynamicImage::new_luma8(bytes, 1)),
+            measures: None,
+            made: Some(0),
+        }
+    }
+
+    fn kept(ahead: &[MadeDecode<u32>]) -> Vec<&str> {
+        ahead.iter().map(|kept| kept.source.as_str()).collect()
+    }
+
+    #[test]
+    fn decodes_ahead_stay_within_two_and_the_budget_the_least_wanted_going() {
+        // Asked ahead: N (the head) and NN; O was the head before the step.
+        let asked = |source: &str| match source {
+            "N" => (true, true),
+            "NN" => (true, false),
+            _ => (false, false),
+        };
+        let mut ahead = vec![made("O", 10)];
+        assert!(keep_ahead(&mut ahead, made("N", 10), 100, asked));
+        assert_eq!(kept(&ahead), ["O", "N"]);
+        // A third: the one no longer asked for goes.
+        assert!(keep_ahead(&mut ahead, made("NN", 10), 100, asked));
+        assert_eq!(kept(&ahead), ["N", "NN"]);
+        // The same photograph again replaces its decode.
+        assert!(keep_ahead(&mut ahead, made("NN", 20), 100, asked));
+        assert_eq!(kept(&ahead), ["N", "NN"]);
+        assert_eq!(ahead[1].image.as_bytes().len(), 20);
+        // Over the budget together: the head stays, the one after it goes.
+        let mut ahead = vec![made("N", 60)];
+        assert!(!keep_ahead(&mut ahead, made("NN", 60), 100, asked));
+        assert_eq!(kept(&ahead), ["N"]);
+        // One alone over the budget is not kept and drops nothing.
+        assert!(!keep_ahead(&mut ahead, made("NN", 101), 100, asked));
+        assert_eq!(kept(&ahead), ["N"]);
     }
 
     fn decoded() -> (

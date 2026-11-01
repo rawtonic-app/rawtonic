@@ -999,7 +999,19 @@ pub async fn load_image(
     }
     state.source_signal.changed();
 
-    clear_source_caches(&state);
+    // The step onto it opened its kept decode already (`open_kept_decode`):
+    // that source and what was computed from it stay when the decoded
+    // cache answers with the same decode below.
+    let opened_already = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|o| o.path == path)
+        .map(|o| Arc::clone(&o.image));
+    if opened_already.is_none() {
+        clear_source_caches(&state);
+    }
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
     let source_path_str = source_path.to_string_lossy().to_string();
@@ -1228,6 +1240,14 @@ pub async fn load_image(
     if state.load_image_generation.load(Ordering::SeqCst) != my_generation {
         return Err("Load cancelled".to_string());
     }
+    // Another decode than the one opened at the step: what was computed
+    // from that one goes.
+    if opened_already
+        .as_ref()
+        .is_some_and(|opened| !Arc::ptr_eq(&pristine_arc, opened))
+    {
+        clear_source_caches(&state);
+    }
 
     let is_raw = is_raw_file(&source_path_str);
 
@@ -1351,6 +1371,101 @@ pub async fn load_image(
             .as_deref()
             .is_some_and(|reason| !reason.contains(NO_OPEN_DECODER)),
     })
+}
+
+/// Stepping onto `path` (a RAW opened with decode `variant`, no AI Denoise)
+/// whose decode the step prefetch keeps ahead (`proxy_worker::kept_decode`):
+/// the decode becomes the open photograph's source at once, so its
+/// developed frame can be rendered before the webview's load arrives. The
+/// decode is shared with the kept slot, not copied. It is the decode the
+/// load makes itself (same function, settings and variant), so an export of
+/// the open photograph, which reuses this source, is unchanged: measured in
+/// two 80-step culling runs, each kept decode made the source here was
+/// byte-identical to a fresh decode as `load_image` makes it (159/159, 19 of
+/// photographs with saved edits; notes:
+/// benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md). None when no
+/// decode is kept for it or another photograph was asked for meanwhile.
+pub(crate) fn open_kept_decode(
+    state: &AppState,
+    path: &str,
+    variant: DecodeVariant,
+    settings: &AppSettings,
+) -> Option<OpenedDecode> {
+    let (source_path, _) = parse_virtual_path(path);
+    let source_path_str = source_path.to_string_lossy().to_string();
+    let key = decoded_cache_key(&source_path_str, None, variant);
+    let now = crate::preview_proxy::current_key(&source_path, settings, variant);
+    let (image, measures) = crate::proxy_worker::kept_decode(&key, &now)?;
+    let mut original = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Checked under the source lock: a load of a photograph asked for
+    // later clears it after this, so this decode cannot replace that one's.
+    let asked_for = *state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        == path;
+    if !asked_for {
+        return None;
+    }
+    let opened = OpenedDecode {
+        key,
+        image: Arc::clone(&image),
+        measures,
+    };
+    if original.as_ref().is_some_and(|o| o.path == path) {
+        // Its load was quicker: the source is in already.
+        return Some(opened);
+    }
+    *original = Some(LoadedImage {
+        path: path.to_string(),
+        image,
+        is_raw: true,
+        decode: Some(variant),
+        measures,
+    });
+    drop(original);
+    clear_derived_caches(state);
+    {
+        let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
+        if proxy.as_ref().is_some_and(|p| p.path != path) {
+            *proxy = None;
+        }
+    }
+    state.source_signal.changed();
+    Some(opened)
+}
+
+/// A kept decode made the open photograph's source (`open_kept_decode`).
+pub(crate) struct OpenedDecode {
+    key: String,
+    image: Arc<DynamicImage>,
+    measures: Option<DecodeMeasures>,
+}
+
+impl OpenedDecode {
+    pub(crate) fn size(&self) -> (u32, u32) {
+        self.image.dimensions()
+    }
+
+    /// Into the decoded cache with the EXIF of `path`'s file, where the
+    /// photograph's `load_image` finds it (a cache hit that keeps the source
+    /// and what was computed from it). Its load takes the same decode from
+    /// the kept slot when it comes first.
+    pub(crate) fn remember(self, state: &AppState, path: &str) {
+        let (source_path, _) = parse_virtual_path(path);
+        let Ok(mmap) = read_file_mapped(&source_path) else {
+            return;
+        };
+        let exif = exif_processing::read_exif_data(&source_path.to_string_lossy(), &mmap);
+        state
+            .decoded_image_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(self.key, self.image, exif, self.measures);
+    }
 }
 
 /// The error for a photograph whose file is gone and that has no preview to
