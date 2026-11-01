@@ -1228,15 +1228,33 @@ pub(crate) fn thread_qos() -> &'static str {
 #[cfg(target_os = "macos")]
 fn link_into_package(source: &Path, target: &Path, sha: &str) -> Result<bool> {
     use std::os::unix::fs::MetadataExt;
-    let same = match (fs::metadata(source), fs::metadata(target)) {
+    let (same_file, same_content) = match (fs::metadata(source), fs::metadata(target)) {
         (Ok(a), Ok(b)) => {
-            (a.dev(), a.ino()) == (b.dev(), b.ino())
-                || (a.len() == b.len() && file_has_sha256(target, sha)?)
+            let same_file = (a.dev(), a.ino()) == (b.dev(), b.ino());
+            let same_content =
+                same_file || (a.len() == b.len() && file_has_sha256(target, sha)?);
+            (same_file, same_content)
         }
-        _ => false,
+        _ => (false, false),
     };
-    if same {
+    if same_file {
         return Ok(false);
+    }
+    if same_content {
+        // A copy of the checked file (a models folder copied or migrated,
+        // `install_models.sh`): made a link of it once, so later loads see
+        // the same file instead of hashing the copy at every load (Subject's
+        // 464 MB, 0.19 s on the first click's path on an M4 Pro; notes:
+        // benchmark-results/fc-first-click-2026-11-01). Same content, so
+        // the compiled model stays. Where no link can be made the copy
+        // stays and is hashed as before.
+        let staging = target.with_extension("partial");
+        let _ = fs::remove_file(&staging);
+        if fs::hard_link(source, &staging).is_err() {
+            return Ok(false);
+        }
+        fs::rename(&staging, target)?;
+        return Ok(true);
     }
     let package = target
         .ancestors()
@@ -2644,6 +2662,31 @@ mod tool_tests {
         assert!(super::link_into_package(&model, &target, &good).unwrap());
         assert_eq!(std::fs::read(&target).unwrap(), b"weights");
         assert!(!compiled.exists(), "the compiled model is built again");
+    }
+
+    /// A package file that is a copy of the checked file (a copied models
+    /// folder) becomes a link to it once, keeping the compiled model; later
+    /// loads then find the same file and hash nothing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_copied_package_file_becomes_a_link_and_keeps_the_compiled_model() {
+        use sha2::Digest;
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("x_coreml_weight.bin");
+        std::fs::write(&model, b"weights").unwrap();
+        let good = hex::encode(sha2::Sha256::digest(b"weights"));
+        let target = dir.path().join("x.mlpackage/Data/weights/weight.bin");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"weights").unwrap();
+        let compiled = dir.path().join("x.mlmodelc");
+        std::fs::create_dir_all(&compiled).unwrap();
+        assert!(super::link_into_package(&model, &target, &good).unwrap());
+        let inode = |p: &std::path::Path| std::fs::metadata(p).unwrap().ino();
+        assert_eq!(inode(&model), inode(&target), "a link now");
+        assert!(compiled.exists(), "same content: not compiled again");
+        assert_eq!(std::fs::read(&target).unwrap(), b"weights");
+        assert!(!super::link_into_package(&model, &target, &good).unwrap());
     }
 
     #[test]

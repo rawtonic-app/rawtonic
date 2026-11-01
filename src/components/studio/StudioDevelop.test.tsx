@@ -1678,3 +1678,47 @@ describe("mask overlay outside the mask tabs", () => {
     expect(outside()).toBe(false);
   });
 });
+
+describe("Subject starts when the masking tools are reached for", () => {
+  const subjectAsked = async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return vi.mocked(invoke).mock.calls.filter(([name]) => name === "precompute_ai_foreground_mask").length;
+  };
+  const layersGroup = () =>
+    document.querySelector('details[data-tool-title="Layers & masks"]') as HTMLDetailsElement;
+  beforeEach(async () => {
+    const { resetAiMaskSession } = await import("../../hooks/useAiMasking");
+    resetAiMaskSession();
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+  });
+
+  it("unfolding Layers & masks in Adjust starts Subject; a folded group does not", async () => {
+    mount();
+    expect(layersGroup().open).toBe(false);
+    expect(await subjectAsked()).toBe(0);
+    // The header click: the browser opens the details, then fires toggle.
+    act(() => {
+      layersGroup().open = true;
+      fireEvent(layersGroup(), new Event("toggle"));
+    });
+    expect(await subjectAsked()).toBe(1);
+  });
+
+  it("an open group that the photo's layers open is no reach for the tools", async () => {
+    const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
+    adjustments.masks = [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: "layer", subMasks: [] }];
+    useEditorStore.setState({ adjustments });
+    mount();
+    expect(layersGroup().open).toBe(true);
+    fireEvent(layersGroup(), new Event("toggle"));
+    expect(await subjectAsked()).toBe(0);
+  });
+
+  it("the Layers tab starts Subject on the press", async () => {
+    mount();
+    const tab = within(screen.getByRole("navigation")).getByRole("button", { name: "Layers & masks" });
+    fireEvent.pointerDown(tab);
+    expect(await subjectAsked()).toBe(1);
+  });
+});
