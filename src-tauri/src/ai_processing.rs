@@ -1231,8 +1231,7 @@ fn link_into_package(source: &Path, target: &Path, sha: &str) -> Result<bool> {
     let (same_file, same_content) = match (fs::metadata(source), fs::metadata(target)) {
         (Ok(a), Ok(b)) => {
             let same_file = (a.dev(), a.ino()) == (b.dev(), b.ino());
-            let same_content =
-                same_file || (a.len() == b.len() && file_has_sha256(target, sha)?);
+            let same_content = same_file || (a.len() == b.len() && file_has_sha256(target, sha)?);
             (same_file, same_content)
         }
         _ => (false, false),
