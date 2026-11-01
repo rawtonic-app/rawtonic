@@ -1,3 +1,4 @@
+// @ts-expect-error node:fs is untyped in the frontend tsconfig
 import { readFileSync } from "node:fs";
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -1204,7 +1205,7 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
     // The selected row is brought into view inside the list, and the list
     // is a bounded area with its own scroll (studio.css).
     expect(scrolled).toHaveBeenCalled();
-    const css = readFileSync("src/components/studio/studio.css", "utf8");
+    const css = readFileSync("src/components/studio/studio.css", "utf8") as string;
     const rule = /\.studio-layer-list\s*\{[^}]*\}/.exec(css)?.[0] ?? "";
     expect(rule).toMatch(/max-height:\s*min\(\d+px,\s*\d+vh\)/);
     expect(rule).toMatch(/overflow-y:\s*auto/);
