@@ -1077,6 +1077,7 @@ pub async fn load_image(
         }
         cached
     };
+
     #[cfg(feature = "performance-profiling")]
     let was_cached = cached_data.is_some();
     let (pristine_arc, exif_data, measures) = if let Some((cached_img, cached_exif, measures)) =
