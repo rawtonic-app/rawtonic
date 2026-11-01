@@ -66,3 +66,27 @@ export function outsideFolders(folders: SessionFolder[] | undefined): string[] {
 export function usableSessionFolder(directory: string, role: FolderRole): Promise<string> {
   return invoke<string>(Invokes.SessionUsableFolder, { directory, role });
 }
+
+/** What "Move contents" did: items moved (in one or more undoable
+ * operations) and why it stopped, if it did. */
+export interface ContentsMoved {
+  items: number;
+  operations: number;
+  error?: string;
+}
+
+type ContentsMover = (from: string, to: string) => Promise<ContentsMoved>;
+let mover: ContentsMover | null = null;
+
+/** The Library's file operations register how a folder's contents move
+ * (saved edits first, each operation an Undo step, paths followed). */
+export function registerContentsMover(next: ContentsMover | null) {
+  mover = next;
+}
+
+/** Moves everything in `from` into `to` through the Library's file
+ * operations (Session Folders' "Move contents"). */
+export function moveFolderContents(from: string, to: string): Promise<ContentsMoved> {
+  if (!mover) return Promise.resolve({ items: 0, operations: 0, error: "The Library is not ready" });
+  return mover(from, to);
+}

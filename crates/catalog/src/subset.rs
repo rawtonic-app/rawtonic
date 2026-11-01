@@ -88,6 +88,7 @@ impl Library {
             capture: "Photos".into(),
             output: "Output".into(),
             selects: crate::session_folders::default_selects(),
+            former_folders: Vec::new(),
         };
         atomic_write(
             &folder.join(manifest_name(Mode::Catalog)),

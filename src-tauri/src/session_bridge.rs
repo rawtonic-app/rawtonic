@@ -383,7 +383,9 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
         .into_iter()
         .filter_entry(|e| {
             e.depth() == 0
-                || !e.file_name().to_string_lossy().starts_with('.')
+                // The session's Output folder, whatever its name (G38).
+                || !lib.in_output_folder(e.path())
+                    && !e.file_name().to_string_lossy().starts_with('.')
                     && !matches!(
                         e.file_name().to_str(),
                         Some(

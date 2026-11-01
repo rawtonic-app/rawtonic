@@ -257,3 +257,86 @@ fn traversal_in_a_stored_relative_folder_is_still_refused() {
     .unwrap();
     assert!(Library::open(&dir).is_err());
 }
+
+#[test]
+fn a_folder_outside_left_behind_keeps_its_photographs_and_takes_an_undo_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let a = tmp.path().join("Drive/A");
+    let b = tmp.path().join("Drive/B");
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let (a, b) = (a.canonicalize().unwrap(), b.canonicalize().unwrap());
+    lib.set_session_folder(FolderRole::Capture, &a).unwrap();
+    let kept = a.join("Kept.ARW");
+    let moving = a.join("Moving.ARW");
+    fs::write(&kept, b"kept").unwrap();
+    fs::write(&moving, b"moving").unwrap();
+    let kept_id = lib.add_asset(&kept).unwrap().id;
+    let moving_id = lib.add_asset(&moving).unwrap().id;
+
+    // Capture changes to B: A is remembered, its photographs stay the session's.
+    lib.set_session_folder(FolderRole::Capture, &b).unwrap();
+    assert_eq!(
+        manifest(&lib)["former_folders"],
+        json!([a.to_str().unwrap()])
+    );
+    assert_eq!(
+        outside_folders_of(&lib.directory),
+        vec![a.clone(), b.clone()]
+    );
+    assert_eq!(lib.asset_at(&kept).unwrap().unwrap().id, kept_id);
+
+    // "Move contents" and its Undo: the record follows there and back.
+    let target = b.join("Moving.ARW");
+    fs::rename(&moving, &target).unwrap();
+    lib.relocate(&moving, &target).unwrap();
+    assert_eq!(lib.asset(&moving_id).unwrap().path, target);
+    fs::rename(&target, &moving).unwrap();
+    lib.relocate(&target, &moving).unwrap();
+    let back = lib.asset(&moving_id).unwrap();
+    assert_eq!(back.path, moving);
+    assert!(!back.missing);
+
+    // Choosing A again takes it off the former folders.
+    lib.set_session_folder(FolderRole::Capture, &a).unwrap();
+    assert_eq!(
+        manifest(&lib)["former_folders"],
+        json!([b.to_str().unwrap()])
+    );
+}
+
+#[test]
+fn synchronize_folder_covers_folders_outside_and_leaves_the_output_folder_out() {
+    use rawtonic_catalog::folder_sync::{SyncOptions, is_photo};
+    use std::sync::atomic::AtomicBool;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut lib = session(tmp.path());
+    let drive = tmp.path().join("Drive/Capture");
+    fs::create_dir_all(&drive).unwrap();
+    let drive = drive.canonicalize().unwrap();
+    lib.set_session_folder(FolderRole::Capture, &drive).unwrap();
+    let delivered = lib.directory.join("Delivered");
+    fs::create_dir(&delivered).unwrap();
+    lib.set_session_folder(FolderRole::Output, &delivered)
+        .unwrap();
+    fs::write(drive.join("New.ARW"), b"new capture").unwrap();
+    fs::write(delivered.join("Export.jpg"), b"an export").unwrap();
+    fs::write(lib.directory.join("Selects/Pick.ARW"), b"pick").unwrap();
+
+    assert_eq!(lib.sync_scope(Some(&drive)).unwrap(), vec![drive.clone()]);
+    assert!(lib.sync_scope(Some(tmp.path())).is_err());
+    let options = SyncOptions {
+        accept: &is_photo,
+        cancel: &AtomicBool::new(false),
+        progress: &|_| {},
+    };
+    let plan = lib.scan_folder_sync(None, &options).unwrap();
+    let new: Vec<_> = plan.new_files.iter().map(|f| f.path.clone()).collect();
+    assert!(new.contains(&drive.join("New.ARW")), "{new:?}");
+    assert!(
+        new.contains(&lib.directory.join("Selects/Pick.ARW")),
+        "{new:?}"
+    );
+    assert!(!new.iter().any(|p| p.starts_with(&delivered)), "{new:?}");
+}

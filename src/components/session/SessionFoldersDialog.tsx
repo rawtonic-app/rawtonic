@@ -4,13 +4,13 @@ import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { Invokes } from "../ui/AppProperties";
 import { openDialog } from "../../utils/fileDialog";
-import { FOLDER_ROLES, type FolderRole, type SessionFolder } from "../../utils/sessionFolders";
+import { FOLDER_ROLES, moveFolderContents, type FolderRole, type SessionFolder } from "../../utils/sessionFolders";
 
 /** What `session_set_folder` returns. */
 export interface FolderChange {
   folder: SessionFolder;
-  operations: { id: string; label: string; items: number; note?: string | null }[];
-  moveError?: string | null;
+  /** The folder it was before. */
+  previous: SessionFolder;
 }
 
 /**
@@ -88,11 +88,15 @@ export default function SessionFoldersDialog({
         moveContents,
       });
       setFolders((list) => (list ?? []).map((f) => (f.role === role ? change.folder : f)));
-      const moved = change.operations.reduce((sum, op) => sum + op.items, 0);
-      if (change.moveError) setError(t("session.folders.moveFailed", { error: change.moveError }));
-      else if (moveContents && change.operations.length)
-        setNotice(t("session.folders.moved", { count: moved }));
       onChanged(change);
+      // The folder changed; its old contents move after, each part an
+      // undoable file operation (nothing moves without the option).
+      if (moveContents && change.previous.available && change.previous.path !== change.folder.path) {
+        const moved = await moveFolderContents(change.previous.path, change.folder.path);
+        if (moved.error) setError(t("session.folders.moveFailed", { error: moved.error }));
+        else if (moved.items) setNotice(t("session.folders.moved", { count: moved.items }));
+        onChanged(change);
+      }
     } catch (e) {
       setError(String(e));
     } finally {

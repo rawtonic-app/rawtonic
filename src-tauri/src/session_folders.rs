@@ -40,83 +40,70 @@ pub async fn session_usable_folder(directory: String, role: FolderRole) -> Resul
 #[serde(rename_all = "camelCase")]
 pub struct FolderChange {
     pub folder: SessionFolder,
-    /// The moves of the old folder's contents ("Move contents"), each one
-    /// undo step: one for the files, one per subfolder going to another drive.
-    pub operations: Vec<OperationSummary>,
-    /// Why the contents were not (all) moved; the folder is changed anyway.
-    pub move_error: Option<String>,
+    /// The folder it was before (whose contents "Move contents" moves).
+    pub previous: SessionFolder,
 }
 
-/// Makes `path` the session's folder with `role`. With `move_contents` the
-/// old folder's entries then move into it with the journaled file
-/// operations (verified copies to another drive, undoable); without, no
-/// file moves. The move is planned before the folder changes, so a name
-/// clash refuses both.
+/// Makes `path` the session's folder with `role`; no file moves. With
+/// `move_contents` the move of the old folder's contents is planned first,
+/// so a name clash (or a link in it) refuses the change before anything
+/// happens; the webview then runs the moves one undoable operation at a
+/// time (`session_move_folder_contents`).
 #[tauri::command]
 pub async fn session_set_folder(
     directory: String,
     role: FolderRole,
     path: String,
     move_contents: bool,
-    app: AppHandle,
 ) -> Result<FolderChange, String> {
     crate::file_management::blocking(move || {
-        set_folder(
-            &app,
-            Path::new(&directory),
-            role,
-            Path::new(&path),
-            move_contents,
-        )
+        let directory = Path::new(&directory);
+        let change = {
+            let _turn = crate::session_bridge::write_turn();
+            let mut lib = Library::open(directory).map_err(|e| format!("{e:#}"))?;
+            let previous = lib.session_folder(role);
+            if move_contents && previous.available {
+                rawtonic_fileops::plan_move_contents(&previous.path, Path::new(&path))
+                    .map_err(|e| format!("{e:#}"))?;
+            }
+            let folder = lib
+                .set_session_folder(role, Path::new(&path))
+                .map_err(|e| format!("{e:#}"))?;
+            FolderChange { folder, previous }
+        };
+        if crate::session_bridge::active_library_directory().as_deref() == Some(directory) {
+            crate::session_bridge::register_outside_folders(directory);
+        }
+        Ok(change)
     })
     .await?
 }
 
-fn set_folder(
-    app: &AppHandle,
-    directory: &Path,
-    role: FolderRole,
-    path: &Path,
-    move_contents: bool,
-) -> Result<FolderChange, String> {
-    let (folder, plan) = {
-        let _turn = crate::session_bridge::write_turn();
-        let mut lib = Library::open(directory).map_err(|e| format!("{e:#}"))?;
-        let old = lib.session_folder(role);
-        let plan = if move_contents && old.available {
-            rawtonic_fileops::plan_move_contents(&old.path, path).map_err(|e| format!("{e:#}"))?
-        } else {
-            Vec::new()
-        };
-        let folder = lib
-            .set_session_folder(role, path)
+/// Moves the next part of `from`'s contents into `to` as one journaled,
+/// undoable operation: its files and the folders on `to`'s drive, else the
+/// next folder going to another drive (an operation of its own). `None`
+/// when `from` is empty. Nothing moves when a name in `from` is taken in
+/// `to`.
+#[tauri::command]
+pub async fn session_move_folder_contents(
+    from: String,
+    to: String,
+    app: AppHandle,
+) -> Result<Option<OperationSummary>, String> {
+    crate::file_management::blocking(move || {
+        let plan = rawtonic_fileops::plan_move_contents(Path::new(&from), Path::new(&to))
             .map_err(|e| format!("{e:#}"))?;
-        (folder, plan)
-    };
-    if crate::session_bridge::active_library_directory().as_deref() == Some(directory) {
-        crate::session_bridge::register_outside_folders(directory);
-    }
-    let name = folder
-        .path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
-    let mut operations = Vec::new();
-    let mut move_error = None;
-    for steps in plan {
-        let label = format!("Move contents to {name}");
-        match crate::file_operations::run(app, "move", &label, steps) {
-            Ok(op) => operations.push((&op).into()),
-            Err(e) => {
-                move_error = Some(e);
-                break;
-            }
-        }
-    }
-    Ok(FolderChange {
-        folder,
-        operations,
-        move_error,
+        let Some(steps) = plan.into_iter().next() else {
+            return Ok(None);
+        };
+        let name = Path::new(&to)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let op =
+            crate::file_operations::run(&app, "move", &format!("Move contents to {name}"), steps)?;
+        Ok(Some((&op).into()))
     })
+    .await?
 }

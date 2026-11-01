@@ -4,10 +4,16 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { invoke } from "@tauri-apps/api/core";
 import SessionFoldersDialog, { type FolderChange } from "./SessionFoldersDialog";
 import { openDialog } from "../../utils/fileDialog";
-import { outsideFolders, sessionFolderPath, type SessionFolder } from "../../utils/sessionFolders";
+import {
+  outsideFolders,
+  registerContentsMover,
+  sessionFolderPath,
+  type SessionFolder,
+} from "../../utils/sessionFolders";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../../utils/fileDialog", () => ({ openDialog: vi.fn() }));
+const mover = vi.fn();
 
 const folders: SessionFolder[] = [
   { role: "capture", stored: "Capture", path: "/Jobs/Job/Capture", inside: true, available: true },
@@ -18,6 +24,8 @@ const folders: SessionFolder[] = [
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(openDialog).mockReset();
+  mover.mockReset();
+  registerContentsMover(mover);
 });
 afterEach(cleanup);
 
@@ -40,7 +48,7 @@ it("shows each folder, where it is, and a folder whose drive is away", async () 
 it("changes a folder without moving files by default", async () => {
   const changed: FolderChange = {
     folder: { role: "capture", stored: "/Volumes/Card/Job", path: "/Volumes/Card/Job", inside: false, available: true },
-    operations: [],
+    previous: folders[0],
   };
   vi.mocked(invoke).mockImplementation(async (command) => (command === "session_folders" ? folders : changed));
   vi.mocked(openDialog).mockResolvedValue("/Volumes/Card/Job");
@@ -56,15 +64,17 @@ it("changes a folder without moving files by default", async () => {
     moveContents: false,
   });
   expect(within(row("capture")).getByText("/Volumes/Card/Job")).toBeTruthy();
+  expect(mover).not.toHaveBeenCalled();
 });
 
 it("moves the contents when asked and reports a move that failed", async () => {
   const changed: FolderChange = {
     folder: { role: "selects", stored: "Picks", path: "/Jobs/Job/Picks", inside: true, available: true },
-    operations: [{ id: "1", label: "Move contents to Picks", items: 3 }],
+    previous: folders[1],
   };
   vi.mocked(invoke).mockImplementation(async (command) => (command === "session_folders" ? folders : changed));
   vi.mocked(openDialog).mockResolvedValue("/Jobs/Job/Picks");
+  mover.mockResolvedValue({ items: 3, operations: 1 });
   render(<SessionFoldersDialog directory="/Jobs/Job" onChanged={vi.fn()} onClose={vi.fn()} />);
   await screen.findByText("/Jobs/Job/Capture");
   fireEvent.click(screen.getByRole("checkbox", { name: "Move the contents to the new folder" }));
@@ -72,10 +82,10 @@ it("moves the contents when asked and reports a move that failed", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Change the Selects folder" }));
   await screen.findByText("Moved 3 items.");
   expect(invoke).toHaveBeenCalledWith("session_set_folder", expect.objectContaining({ role: "selects", moveContents: true }));
+  // Through the Library's file operations (saved edits, Undo, paths followed).
+  expect(mover).toHaveBeenCalledWith("/Volumes/Share/Selects", "/Jobs/Job/Picks");
 
-  vi.mocked(invoke).mockImplementation(async (command) =>
-    command === "session_folders" ? folders : { ...changed, operations: [], moveError: "B.RAF is already in Picks" },
-  );
+  mover.mockResolvedValue({ items: 0, operations: 0, error: "B.RAF is already in Picks" });
   fireEvent.click(screen.getByRole("button", { name: "Change the Selects folder" }));
   await screen.findByText(/were not all moved: B.RAF is already in Picks/);
 });

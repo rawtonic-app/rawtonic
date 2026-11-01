@@ -99,6 +99,13 @@ pub(crate) fn validate_manifest(manifest: &Manifest) -> Result<()> {
         }
         validate_relative(Path::new(setting))?;
     }
+    ensure!(
+        manifest
+            .former_folders
+            .iter()
+            .all(|f| is_absolute_setting(f)),
+        "A former session folder must be an absolute path"
+    );
     Ok(())
 }
 
@@ -119,7 +126,9 @@ impl Manifest {
         }
     }
 
-    /// The session's folders outside the library folder (absolute).
+    /// The session's folders outside the library folder (absolute): those
+    /// set now and those set before (`former_folders`), whose photographs
+    /// stay the session's.
     pub fn outside_folders(&self) -> Vec<PathBuf> {
         if self.mode != Mode::Session {
             return Vec::new();
@@ -127,6 +136,7 @@ impl Manifest {
         let mut folders: Vec<PathBuf> = FolderRole::ALL
             .iter()
             .map(|role| self.folder_setting(*role))
+            .chain(self.former_folders.iter().map(String::as_str))
             .filter(|setting| is_absolute_setting(setting))
             .map(PathBuf::from)
             .collect();
@@ -195,6 +205,13 @@ impl Library {
             folder.path.display(),
             role.name()
         )
+    }
+
+    /// Whether `path` is the session's Output folder or below it (exports,
+    /// not photographs: scans leave it out wherever it is).
+    pub fn in_output_folder(&self, path: &Path) -> bool {
+        self.manifest.mode == Mode::Session
+            && path.starts_with(self.folder_path(FolderRole::Output))
     }
 
     /// Whether `path` is in one of the session's folders outside the
@@ -273,7 +290,16 @@ impl Library {
             );
         }
         let mut manifest = self.manifest.clone();
-        *manifest.folder_setting_mut(role) = stored;
+        let previous = std::mem::replace(manifest.folder_setting_mut(role), stored.clone());
+        // A folder outside left behind keeps its photographs the session's
+        // (and an Undo of "Move contents" can put them back there).
+        manifest.former_folders.retain(|f| *f != stored);
+        if is_absolute_setting(&previous)
+            && previous != stored
+            && !manifest.former_folders.contains(&previous)
+        {
+            manifest.former_folders.push(previous);
+        }
         self.write_manifest(manifest)?;
         Ok(self.session_folder(role))
     }
@@ -288,6 +314,7 @@ impl Library {
                 fs::create_dir_all(self.directory.join(role.default_setting()))?;
             }
         }
+        manifest.former_folders.clear();
         self.write_manifest(manifest)
     }
 

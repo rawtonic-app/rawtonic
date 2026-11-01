@@ -241,6 +241,7 @@ export enum Invokes {
   SessionFolders = 'session_folders',
   SessionUsableFolder = 'session_usable_folder',
   SessionSetFolder = 'session_set_folder',
+  SessionMoveFolderContents = 'session_move_folder_contents',
   ReadExifForPaths = 'read_exif_for_paths',
   CaptureTimePreview = 'capture_time_preview',
   CaptureTimePlan = 'capture_time_plan',

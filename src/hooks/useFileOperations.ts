@@ -14,7 +14,7 @@ import { ImageFile, Invokes } from '../components/ui/AppProperties';
 import { followPathMoves, type PathMove } from '../utils/pathKeyedState';
 import { recountAfterFileOperation } from '../utils/offline';
 import { openDialog } from '../utils/fileDialog';
-import { usableSessionFolder } from '../utils/sessionFolders';
+import { registerContentsMover, usableSessionFolder, type ContentsMoved } from '../utils/sessionFolders';
 import { flushRecipeSaves } from './useEditorActions';
 import {
   fileAction,
@@ -790,6 +790,53 @@ export function useFileOperations(
     },
     [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
   );
+
+  /** Session Folders' "Move contents" (G38): everything in `from` moves
+   * into `to`, each part one undoable operation (the files; each folder
+   * going to another drive), with the edits saved first and the shown
+   * folders, selection and open photograph following. */
+  const handleMoveFolderContents = useCallback(
+    async (from: string, to: string): Promise<ContentsMoved> => {
+      const moved: ContentsMoved = { items: 0, operations: 0 };
+      if (!(await saveEditsFirst([from]))) return { ...moved, error: ops('moveFailed', { error: from }) };
+      try {
+        // Each call moves the next part; none is left when it returns null.
+        for (let part = 0; part < 1000; part++) {
+          const summary = await fileAction(
+            () =>
+              withCopyProgress(() =>
+                invoke<FileOperationSummary | null>(Invokes.SessionMoveFolderContents, { from, to }),
+              ),
+            'move', undefined, undefined, [from, to],
+          );
+          if (!summary || !summary.items) break;
+          moved.items += summary.items;
+          moved.operations++;
+          warnAboutNote(summary);
+          followMoves(summary.moves ?? [])();
+        }
+      } catch (err) {
+        moved.error = String(err);
+      }
+      const { selectedImage } = useEditorStore.getState();
+      if (selectedImage && isBelow(selectedImage.path.split('?vc=')[0], from)) {
+        if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
+        useEditorStore.getState().setEditor({ selectedImage: null });
+      }
+      if (moved.operations) {
+        useLibraryStore.getState().setLibrary({ multiSelectedPaths: [], libraryActivePath: null });
+        await refreshImageList();
+        await refreshAllFolderTrees();
+        void recountAfterFileOperation();
+      }
+      return moved;
+    },
+    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
+  );
+  useEffect(() => {
+    registerContentsMover(handleMoveFolderContents);
+    return () => registerContentsMover(null);
+  }, [handleMoveFolderContents]);
 
   /** Moves a folder with everything in it into a folder the user picks
    * (`destination` skips the picker): a rename on its drive; to another

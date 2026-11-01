@@ -85,6 +85,11 @@ pub struct Manifest {
     /// Absent in manifests written before configurable folders (schema 23).
     #[serde(default = "session_folders::default_selects")]
     pub selects: String,
+    /// Folders outside the session that were its Capture, Selects or Output
+    /// folder before (absolute): the photographs registered there, and
+    /// those an Undo of "Move contents" puts back there, stay its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former_folders: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Asset {
@@ -355,6 +360,7 @@ impl Library {
             .into(),
             output: "Output".into(),
             selects: session_folders::default_selects(),
+            former_folders: Vec::new(),
         };
         let conn = Connection::open(directory.join(db_name(mode)))?;
         Self::configure(&conn)?;

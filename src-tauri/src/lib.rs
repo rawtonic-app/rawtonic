@@ -885,6 +885,7 @@ pub fn run() {
             session_folders::session_folders,
             session_folders::session_usable_folder,
             session_folders::session_set_folder,
+            session_folders::session_move_folder_contents,
             catalog_subset::library_export_catalog,
             catalog_subset::library_export_catalog_cancel,
             catalog_subset::library_export_catalog_owned,
