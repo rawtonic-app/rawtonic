@@ -298,8 +298,11 @@
       "stack_collapse_all": "Recolher todas as pilhas",
       "stack_expand_all": "Expandir todas as pilhas",
       "stack_group": "Agrupar em pilha",
+      "stack_move_down": "Mover para baixo na pilha",
       "stack_move_top": "Mover para o topo da pilha",
+      "stack_move_up": "Mover para cima na pilha",
       "stack_remove": "Remover da pilha",
+      "stack_split": "Dividir pilha",
       "stack_toggle": "Recolher/expandir pilha",
       "stack_unstack": "Desempilhar",
       "sync_settings": "Sincronizar ajustes",
@@ -438,12 +441,14 @@
   "commandPalette": {
     "close": "Fechar a paleta de comandos",
     "empty": "Nenhum comando correspondente. Tente outra pesquisa.",
+    "expandStackFirst": "Primeiro expanda a pilha para dividi-la",
     "keys": "↑ ↓ Selecionar · Enter Executar · Esc Fechar",
     "recent": "Comandos recentes primeiro · ↑ ↓ Selecionar · Enter Executar · Esc Fechar",
     "search": "Pesquisar comandos…",
     "selectAtMostPhotos": "Selecione no máximo {{max}} fotografias",
     "selectFourPhotos": "Selecione pelo menos quatro fotografias",
     "selectPhotos": "Selecione uma ou mais fotos",
+    "selectStackMember": "Selecione uma foto de uma pilha",
     "selectTwoPhotos": "Selecione pelo menos duas fotografias"
   },
   "contextMenus": {

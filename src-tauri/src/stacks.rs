@@ -146,6 +146,63 @@ pub async fn stacks_move_to_top(path: String) -> Result<StackResult, String> {
     .await
 }
 
+/// Split Stack: the first path that is a member below its stack's top
+/// splits its stack there; the change is one undo step (`done`, false when
+/// no path applied).
+#[tauri::command]
+pub async fn stacks_split(paths: Vec<String>) -> Result<SplitResult, String> {
+    blocking(move || {
+        let (directory, lib, members) = members(&paths)?;
+        let mut done = false;
+        let mut change = StackChange::default();
+        for member in &members {
+            if lib.can_split_stack(member).map_err(|e| e.to_string())? {
+                (change, done) = lib.split_stack(member).map_err(|e| e.to_string())?;
+                break;
+            }
+        }
+        Ok(SplitResult {
+            library: directory.to_string_lossy().into_owned(),
+            change,
+            done,
+        })
+    })
+    .await
+}
+
+/// What Split Stack did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitResult {
+    pub library: String,
+    pub change: StackChange,
+    pub done: bool,
+}
+
+/// Move Up in Stack (`up`) or Move Down in Stack: the first path that has a
+/// neighbour on that side swaps with it; one undo step.
+#[tauri::command]
+pub async fn stacks_move(paths: Vec<String>, up: bool) -> Result<StackResult, String> {
+    blocking(move || {
+        let (directory, lib, members) = members(&paths)?;
+        let mut change = StackChange::default();
+        for member in &members {
+            if lib
+                .can_move_in_stack(member, up)
+                .map_err(|e| e.to_string())?
+            {
+                change = lib.move_in_stack(member, up).map_err(|e| e.to_string())?;
+                break;
+            }
+        }
+        Ok(StackResult {
+            library: directory.to_string_lossy().into_owned(),
+            change,
+        })
+    })
+    .await
+}
+
 /// Collapses (`true`), expands (`false`) or toggles (none) the stacks of
 /// `paths`.
 #[tauri::command]

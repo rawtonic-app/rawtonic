@@ -284,8 +284,11 @@
       "stack_collapse_all": "Collapse All Stacks",
       "stack_expand_all": "Expand All Stacks",
       "stack_group": "Group into Stack",
+      "stack_move_down": "Move Down in Stack",
       "stack_move_top": "Move to Top of Stack",
+      "stack_move_up": "Move Up in Stack",
       "stack_remove": "Remove from Stack",
+      "stack_split": "Split Stack",
       "stack_toggle": "Collapse/Expand Stack",
       "stack_unstack": "Unstack",
       "sync_settings": "Sync Settings",
@@ -416,12 +419,14 @@
   "commandPalette": {
     "close": "Close command palette",
     "empty": "No matching commands. Try another search.",
+    "expandStackFirst": "Expand the stack first to split it",
     "keys": "↑ ↓ Select · Enter Run · Esc Close",
     "recent": "Recent commands first · ↑ ↓ Select · Enter Run · Esc Close",
     "search": "Search commands…",
     "selectAtMostPhotos": "Select at most {{max}} photos",
     "selectFourPhotos": "Select at least four photos",
     "selectPhotos": "Select one or more photos",
+    "selectStackMember": "Select a photo in a stack",
     "selectTwoPhotos": "Select at least two photos"
   },
   "contextMenus": {

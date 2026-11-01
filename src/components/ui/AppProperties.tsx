@@ -251,6 +251,8 @@ export enum Invokes {
   StacksUnstack = 'stacks_unstack',
   StacksRemove = 'stacks_remove',
   StacksMoveToTop = 'stacks_move_to_top',
+  StacksSplit = 'stacks_split',
+  StacksMove = 'stacks_move',
   StacksSetCollapsed = 'stacks_set_collapsed',
   StacksRestore = 'stacks_restore',
   StacksAutoPlan = 'stacks_auto_plan',

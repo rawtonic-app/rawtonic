@@ -284,8 +284,11 @@
       "stack_collapse_all": "Alle Stapel zuklappen",
       "stack_expand_all": "Alle Stapel aufklappen",
       "stack_group": "Zu Stapel gruppieren",
+      "stack_move_down": "Im Stapel nach unten",
       "stack_move_top": "An Stapelanfang verschieben",
+      "stack_move_up": "Im Stapel nach oben",
       "stack_remove": "Aus Stapel entfernen",
+      "stack_split": "Stapel teilen",
       "stack_toggle": "Stapel ein-/ausblenden",
       "stack_unstack": "Stapel aufheben",
       "sync_settings": "Einstellungen synchronisieren",
@@ -416,12 +419,14 @@
   "commandPalette": {
     "close": "Befehlspalette schließen",
     "empty": "Keine passenden Befehle. Versuche einen anderen Suchbegriff.",
+    "expandStackFirst": "Stapel zuerst aufklappen, um ihn zu teilen",
     "keys": "↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
     "recent": "Zuletzt verwendete Befehle zuerst · ↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
     "search": "Befehle suchen…",
     "selectAtMostPhotos": "Wähle höchstens {{max}} Fotos aus",
     "selectFourPhotos": "Wähle mindestens vier Fotos aus",
     "selectPhotos": "Wähle ein oder mehrere Fotos aus",
+    "selectStackMember": "Ein Foto im Stapel auswählen",
     "selectTwoPhotos": "Wähle mindestens zwei Fotos aus"
   },
   "contextMenus": {

@@ -6,7 +6,15 @@ import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
-import { keepSelectionShown, refreshStacks, stackKey, useStackStore, type StackChange } from '../store/useStackStore';
+import {
+  canMoveInStack,
+  canSplitStack,
+  keepSelectionShown,
+  refreshStacks,
+  stackKey,
+  useStackStore,
+  type StackChange,
+} from '../store/useStackStore';
 import { registerAppCommands } from './appCommands';
 import { stackAction } from './appUndo';
 import { invokeInOrder } from './catalogWrites';
@@ -68,6 +76,20 @@ export const unstack = (paths = selection()) => run(Invokes.StacksUnstack, { pat
 export const removeFromStack = (paths = selection()) => run(Invokes.StacksRemove, { paths }, paths);
 export const moveToTopOfStack = (path = selection()[0]) =>
   path ? run(Invokes.StacksMoveToTop, { path }, [path]) : Promise.resolve();
+/** Split Stack: the active photo (`selection`, the first), else the first
+ * selected member of an expanded stack below its top (e.g. a ⇧-click range;
+ * the backend takes the first path that applies). */
+export const splitStack = (paths = selection()) => run(Invokes.StacksSplit, { paths }, paths);
+/** Move Up in Stack (`up`) or Move Down in Stack, the same way. */
+export const moveInStack = (up: boolean, paths = selection()) =>
+  run(Invokes.StacksMove, { paths, up }, paths);
+
+/** Whether a selected photo can be split (`splittable`) or moved up/down
+ * (`movable`) in a stack: the menu greys Split Stack, Move Up and Move Down
+ * out otherwise. A ⇧-click range inside a stack holds members the Navigator
+ * does not show (the active photo stays first in `selection`). */
+export const splittable = () => selection().some(canSplitStack);
+export const movable = (up: boolean) => selection().some((path) => canMoveInStack(path, up));
 export const toggleStacks = (paths = selection()) =>
   run(Invokes.StacksSetCollapsed, { paths, collapsed: null }, paths);
 /** Collapse All / Expand All: the stacks of the shown folder's photos. */
@@ -112,6 +134,23 @@ export function useStackCommands() {
       stack_move_top: {
         enabled: () => libraryShown() && selected().length === 1 && inStack(selected()[0]),
         run: () => void moveToTopOfStack(),
+      },
+      // Split Stack, Move Up/Down in Stack: ⇧[ and ⇧] act on the active photo
+      // a ⇧-click range first (see `selection`).
+      stack_split: {
+        enabled: () => libraryShown() && splittable(),
+        disabledHint: () => i18n.t('commandPalette.expandStackFirst'),
+        run: () => void splitStack(),
+      },
+      stack_move_up: {
+        enabled: () => libraryShown() && movable(true),
+        disabledHint: () => i18n.t('commandPalette.selectStackMember'),
+        run: () => void moveInStack(true),
+      },
+      stack_move_down: {
+        enabled: () => libraryShown() && movable(false),
+        disabledHint: () => i18n.t('commandPalette.selectStackMember'),
+        run: () => void moveInStack(false),
       },
       stack_toggle: {
         enabled: () => libraryShown() && selected().some(inStack),

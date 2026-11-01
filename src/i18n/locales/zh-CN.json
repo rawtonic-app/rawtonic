@@ -273,8 +273,11 @@
       "stack_collapse_all": "折叠所有堆栈",
       "stack_expand_all": "展开所有堆栈",
       "stack_group": "组合为堆栈",
+      "stack_move_down": "在堆栈中下移",
       "stack_move_top": "移到堆栈顶部",
+      "stack_move_up": "在堆栈中上移",
       "stack_remove": "从堆栈中移除",
+      "stack_split": "拆分堆栈",
       "stack_toggle": "折叠/展开堆栈",
       "stack_unstack": "取消堆栈",
       "sync_settings": "同步设置",
@@ -405,12 +408,14 @@
   "commandPalette": {
     "close": "关闭命令面板",
     "empty": "没有匹配的命令。请尝试其他搜索词。",
+    "expandStackFirst": "请先展开堆栈再拆分",
     "keys": "↑ ↓ 选择 · Enter 执行 · Esc 关闭",
     "recent": "最近使用的命令优先 · ↑ ↓ 选择 · Enter 执行 · Esc 关闭",
     "search": "搜索命令…",
     "selectAtMostPhotos": "最多选择 {{max}} 张照片",
     "selectFourPhotos": "请至少选择四张照片",
     "selectPhotos": "请选择一张或多张照片",
+    "selectStackMember": "请选择堆栈中的一张照片",
     "selectTwoPhotos": "请至少选择两张照片"
   },
   "contextMenus": {

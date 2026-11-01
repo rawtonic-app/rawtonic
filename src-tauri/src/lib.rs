@@ -837,6 +837,8 @@ pub fn run() {
             stacks::stacks_unstack,
             stacks::stacks_remove,
             stacks::stacks_move_to_top,
+            stacks::stacks_split,
+            stacks::stacks_move,
             stacks::stacks_set_collapsed,
             stacks::stacks_restore,
             stacks::stacks_auto_plan,

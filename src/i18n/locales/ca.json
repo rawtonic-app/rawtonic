@@ -298,8 +298,11 @@
       "stack_collapse_all": "Replega totes les piles",
       "stack_expand_all": "Desplega totes les piles",
       "stack_group": "Agrupa en una pila",
+      "stack_move_down": "Mou cap avall a la pila",
       "stack_move_top": "Mou a dalt de la pila",
+      "stack_move_up": "Mou cap amunt a la pila",
       "stack_remove": "Treu de la pila",
+      "stack_split": "Divideix la pila",
       "stack_toggle": "Replega/desplega la pila",
       "stack_unstack": "Desapila",
       "sync_settings": "Sincronitza els ajustos",
@@ -438,12 +441,14 @@
   "commandPalette": {
     "close": "Tanca la paleta d’ordres",
     "empty": "Cap ordre coincident. Prova una altra cerca.",
+    "expandStackFirst": "Desplega primer la pila per dividir-la",
     "keys": "↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "recent": "Ordres recents primer · ↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "search": "Cerca ordres…",
     "selectAtMostPhotos": "Selecciona com a màxim {{max}} fotografies",
     "selectFourPhotos": "Selecciona almenys quatre fotografies",
     "selectPhotos": "Selecciona una o més fotos",
+    "selectStackMember": "Selecciona una foto d’una pila",
     "selectTwoPhotos": "Selecciona almenys dues fotografies"
   },
   "contextMenus": {

@@ -273,8 +273,11 @@
       "stack_collapse_all": "すべてのスタックを折りたたむ",
       "stack_expand_all": "すべてのスタックを展開",
       "stack_group": "スタックにグループ化",
+      "stack_move_down": "スタック内で下へ",
       "stack_move_top": "スタックの先頭に移動",
+      "stack_move_up": "スタック内で上へ",
       "stack_remove": "スタックから削除",
+      "stack_split": "スタックを分割",
       "stack_toggle": "スタックを折りたたむ/展開",
       "stack_unstack": "スタックを解除",
       "sync_settings": "設定を同期",
@@ -405,12 +408,14 @@
   "commandPalette": {
     "close": "コマンドパレットを閉じる",
     "empty": "一致するコマンドがありません。別の語句で検索してください。",
+    "expandStackFirst": "先にスタックを展開してから分割してください",
     "keys": "↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
     "recent": "最近使ったコマンドを優先 · ↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
     "search": "コマンドを検索…",
     "selectAtMostPhotos": "写真は最大{{max}}枚まで選択してください",
     "selectFourPhotos": "写真を4枚以上選択してください",
     "selectPhotos": "写真を 1 枚以上選択してください",
+    "selectStackMember": "スタック内の写真を選択してください",
     "selectTwoPhotos": "写真を2枚以上選択してください"
   },
   "contextMenus": {

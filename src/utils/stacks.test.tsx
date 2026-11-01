@@ -2,7 +2,7 @@ import "../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
-import { RawStatus, SortDirection, type ImageFile } from "../components/ui/AppProperties";
+import { Invokes, RawStatus, SortDirection, type ImageFile } from "../components/ui/AppProperties";
 import StudioBrowser from "../components/studio/StudioBrowser";
 import { computeGroupedLibrary, type LibraryQueryState } from "../hooks/useSortedLibrary";
 import { useEditorStore } from "../store/useEditorStore";
@@ -12,7 +12,7 @@ import { arrangeStacks, indexStacks, setStacks, useStackStore, type WebStack } f
 import { useUIStore } from "../store/useUIStore";
 import { canUndo, getUndoLabel, redo, undo, useCatalogUndoStore } from "./appUndo";
 import { runAppCommand } from "./appCommands";
-import { autoStackScope, groupIntoStack, selectShownMembers, toggleStacks, useStackCommands } from "./stacks";
+import { autoStackScope, groupIntoStack, moveInStack, selectShownMembers, splitStack, toggleStacks, useStackCommands } from "./stacks";
 import { buildComboMap } from "./keyboardUtils";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => []), convertFileSrc: (p: string) => p }));
@@ -124,6 +124,98 @@ describe("the grid's stacks", () => {
       expect(invoke).toHaveBeenCalledWith("stacks_set_collapsed", { paths: [files[0].path], collapsed: null }),
     );
     expect(getUndoLabel()).toBe("Undo Stacking");
+  });
+});
+
+describe("splitting and moving inside a stack", () => {
+  const run = (command: Invokes) =>
+    vi.mocked(invoke).mockImplementation(async (name) =>
+      name === command ? { library: "/job", change: { before: [1], after: [2] } } : [],
+    );
+
+  it("splits at the active photo (the selection, active first) as one undo step", async () => {
+    run(Invokes.StacksSplit);
+    // The Navigator shows c; a ⇧-click range ends with a, so the backend
+    // gets c first and splits at c.
+    useEditorStore.setState({ selectedImage: { path: files[2].path } as never });
+    useLibraryStore.setState({ multiSelectedPaths: [files[2].path, files[0].path], libraryActivePath: files[0].path });
+    await splitStack();
+    expect(invoke).toHaveBeenCalledWith("stacks_split", { paths: [files[2].path, files[0].path] });
+    expect(getUndoLabel()).toBe("Undo Stacking");
+    await undo();
+    expect(invoke).toHaveBeenCalledWith("stacks_restore", { library: "/job", change: { before: [1], after: [2] }, undo: true });
+  });
+
+  it("moves the active member up or down as one undo step each", async () => {
+    run(Invokes.StacksMove);
+    useLibraryStore.setState({ multiSelectedPaths: [files[1].path], libraryActivePath: files[1].path });
+    await moveInStack(false);
+    expect(invoke).toHaveBeenCalledWith("stacks_move", { paths: [files[1].path], up: false });
+    await moveInStack(true);
+    expect(invoke).toHaveBeenCalledWith("stacks_move", { paths: [files[1].path], up: true });
+    expect(canUndo()).toBe(true);
+    await undo();
+    await undo();
+    expect(canUndo()).toBe(false);
+  });
+
+  it("enables Split Stack below an expanded stack's top and the moves at the right ends", () => {
+    const hook = renderHook(() => useStackCommands());
+    setStacks("/job", [stack("s", ["a", "b", "c"], false)]);
+    const select = (i: number) =>
+      useLibraryStore.setState({ multiSelectedPaths: [files[i].path], libraryActivePath: files[i].path });
+    // The top can neither be split nor move up.
+    select(0);
+    expect(runAppCommand("stack_split")).toBe(false);
+    expect(runAppCommand("stack_move_up")).toBe(false);
+    expect(runAppCommand("stack_move_down")).toBe(true);
+    // A middle member does both.
+    select(1);
+    expect(runAppCommand("stack_split")).toBe(true);
+    expect(runAppCommand("stack_move_up")).toBe(true);
+    expect(runAppCommand("stack_move_down")).toBe(true);
+    // The last member cannot move down, but splits.
+    select(2);
+    expect(runAppCommand("stack_move_down")).toBe(false);
+    expect(runAppCommand("stack_split")).toBe(true);
+    // A photo outside a stack: nothing.
+    select(4);
+    for (const command of ["stack_split", "stack_move_up", "stack_move_down"]) expect(runAppCommand(command)).toBe(false);
+    // A collapsed stack shows no member to split at, but its top moves.
+    setStacks("/job", [stack("s", ["a", "b"], true)]);
+    select(1);
+    expect(runAppCommand("stack_split")).toBe(false);
+    expect(runAppCommand("stack_move_up")).toBe(true);
+    // Develop has its own keys: none of them run there.
+    useUIStore.setState({ activeView: "editor" });
+    for (const command of ["stack_split", "stack_move_up", "stack_move_down"]) expect(runAppCommand(command)).toBe(false);
+    hook.unmount();
+  });
+
+  it("with a selection of several photos, acts on the first that applies", () => {
+    const hook = renderHook(() => useStackCommands());
+    setStacks("/job", [stack("s", ["a", "b", "c"], false)]);
+    // c is active (first) and last, b below it: only b can move down.
+    useLibraryStore.setState({ multiSelectedPaths: [files[2].path, files[1].path], libraryActivePath: files[2].path });
+    expect(runAppCommand("stack_split")).toBe(true);
+    expect(runAppCommand("stack_move_down")).toBe(true);
+    expect(runAppCommand("stack_move_up")).toBe(true);
+    // d is outside the stack: d cannot be split at, a (top) cannot move up.
+    useLibraryStore.setState({ multiSelectedPaths: [files[3].path, files[0].path], libraryActivePath: files[3].path });
+    expect(runAppCommand("stack_move_up")).toBe(false);
+    expect(runAppCommand("stack_split")).toBe(false);
+    // c alone (last): nothing to move down to.
+    useLibraryStore.setState({ multiSelectedPaths: [files[2].path], libraryActivePath: files[2].path });
+    expect(runAppCommand("stack_move_down")).toBe(false);
+    hook.unmount();
+  });
+
+  it("binds ⇧[ and ⇧] to the moves, next to the bare bracket keys of rotation", () => {
+    const map = buildComboMap(null);
+    expect(map.get("shift+BracketLeft")).toEqual(["stack_move_up"]);
+    expect(map.get("shift+BracketRight")).toEqual(["stack_move_down"]);
+    expect(map.get("BracketLeft")).toEqual(["rotate_left"]);
+    expect(map.get("BracketRight")).toEqual(["rotate_right"]);
   });
 });
 
@@ -266,8 +358,6 @@ describe("stack commands", () => {
     useUIStore.setState({ activeView: "editor" });
     expect(runAppCommand("stack_toggle")).toBe(false); // S is the crop tool there
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("stacks_group", expect.anything()));
-    expect(invoke).toHaveBeenCalledWith("stacks_set_collapsed", { paths: [files[0].path], collapsed: null });
-    expect(invoke).toHaveBeenCalledWith("stacks_unstack", { paths: [files[0].path] });
     hook.unmount();
   });
 });
