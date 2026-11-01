@@ -781,6 +781,7 @@ fn import_one_into_with(
         earlier: None,
         before_copy: None,
         read_ahead: None,
+        leftovers_taken: None,
     };
     Ok(import_pair(library, source, None, &options, contents, cancel)?.photo)
 }
@@ -805,6 +806,9 @@ pub(crate) struct ImportOptions<'a> {
     pub before_copy: Option<BeforeCopy<'a>>,
     /// The batch's files read ahead.
     pub read_ahead: Option<&'a copy::ReadAhead>,
+    /// The leftovers this import removed are added here (the bytes a
+    /// resumed job freed, its log, G66).
+    pub leftovers_taken: Option<&'a std::sync::Mutex<rawtonic_metadata::temp::Removed>>,
 }
 
 /// What importing a photograph with a companion did: the photograph's
@@ -1120,7 +1124,7 @@ pub(crate) fn import_pair(
     // the photograph and its companion, under its name or a collision name
     // (the backup's may differ from the library's): this job alone writes
     // these names, one photograph at a time, so whatever their age they are
-    // its own.
+    // its own. Counted by the caller (`ImportOptions::leftovers_taken`).
     if let Some(planned) = options.earlier {
         let companion_extension = companion
             .and_then(|path| path.extension())
@@ -1132,11 +1136,23 @@ pub(crate) fn import_pair(
                 .flatten()
                 .any(|base| is_copy_name_of(base, companion_extension, target))
         };
+        let mut removed = rawtonic_metadata::temp::Removed::default();
         if let Some(library_folder) = planned.parent() {
-            rawtonic_metadata::temp::remove_leftovers_matching(library_folder, ours);
+            removed.add(rawtonic_metadata::temp::remove_leftovers_matching(
+                library_folder,
+                ours,
+            ));
         }
         if let Some(backup_folder) = options.backup {
-            rawtonic_metadata::temp::remove_leftovers_matching(backup_folder, ours);
+            removed.add(rawtonic_metadata::temp::remove_leftovers_matching(
+                backup_folder,
+                ours,
+            ));
+        }
+        if removed.files > 0
+            && let Some(taken) = options.leftovers_taken
+        {
+            taken.lock().unwrap_or_else(|e| e.into_inner()).add(removed);
         }
     }
     let earlier = match options.earlier {
