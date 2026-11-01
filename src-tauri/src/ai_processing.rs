@@ -1243,7 +1243,7 @@ fn link_into_package(source: &Path, target: &Path, sha: &str) -> Result<bool> {
         // A copy of the checked file (a models folder copied or migrated,
         // `install_models.sh`): made a link of it once, so later loads see
         // the same file instead of hashing the copy at every load (Subject's
-        // 464 MB, 0.19 s on the first click's path on an M4 Pro; notes:
+        // 464 MB, 0.21-0.24 s of the load on an M4 Pro, app log; notes:
         // benchmark-results/fc-first-click-2026-11-01). Same content, so
         // the compiled model stays. Where no link can be made the copy
         // stays and is hashed as before.
