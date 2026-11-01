@@ -3530,6 +3530,17 @@ const RELIGHT_RANGE2_FEATURE: usize = 256;
 /// A light of Relight's range version 3 (`RELIGHT_RANGE3`), compiled only
 /// for recipes with one for the same reason.
 const RELIGHT_RANGE3_FEATURE: usize = 512;
+
+/// One slot per display variant, on the heap: the processor holds several
+/// such tables, together too large for a render thread's stack.
+type VariantTable<T> = Box<[T; PREVIEW_PIPELINE_COUNT]>;
+
+fn variant_table<T: Default>() -> VariantTable<T> {
+    let slots: Box<[T]> = (0..PREVIEW_PIPELINE_COUNT).map(|_| T::default()).collect();
+    slots
+        .try_into()
+        .unwrap_or_else(|_| unreachable!("one slot per display variant"))
+}
 /// A RAW with the default detail settings (Sharpening 40, Color 25).
 const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16;
 
@@ -3731,18 +3742,18 @@ pub struct GpuProcessor {
     detail_pipeline: Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     detail_compilation: std::sync::OnceLock<()>,
     preview_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
-    preview_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
+    preview_compilation: VariantTable<std::sync::OnceLock<()>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
     preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]>,
     /// Display variants that read the layer sums (`LAYER_SUMS`), by features.
     layer_sum_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
-    layer_sum_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
+    layer_sum_compilation: VariantTable<std::sync::OnceLock<()>>,
     preview_shader: wgpu::ShaderModule,
     preview_layout: wgpu::PipelineLayout,
     /// `None` records a variant that failed validation; exports use the general pipeline.
-    export_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
+    export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     high_precision_export_pipelines:
-        [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
+        VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     high_precision_shader: wgpu::ShaderModule,
     high_precision_layout: wgpu::PipelineLayout,
     high_precision_bgl: wgpu::BindGroupLayout,
@@ -3750,8 +3761,7 @@ pub struct GpuProcessor {
     high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// [`MainOutput::Deferred`]: specialized variants by features, the
     /// general pipeline, and the tile the main pass writes.
-    deferred_export_pipelines:
-        [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
+    deferred_export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     deferred_pipeline: BackgroundPipeline,
     deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// `encode_deferred` into an 8-bit and a high-precision output tile.
@@ -3815,10 +3825,9 @@ pub struct GpuProcessor {
     #[cfg(test)]
     force_unprepared_layers: std::sync::atomic::AtomicBool,
     #[cfg(test)]
-    unprepared_layer_pipelines:
-        [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
+    unprepared_layer_pipelines: VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>,
     #[cfg(test)]
-    legacy_curve_pipelines: [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
+    legacy_curve_pipelines: VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>,
     dummy_lut_view: wgpu::TextureView,
     dummy_lut_sampler: wgpu::Sampler,
     /// The shaper stage's buffer for LUTs without one (no curve).
@@ -5642,11 +5651,10 @@ impl GpuProcessor {
         // common ones start with the processor (see the end of `new`).
         let preview_pipelines: Arc<
             [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
-        > = Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new()));
+        > = Arc::from(variant_table());
         let preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]> =
-            Arc::new(std::array::from_fn(|_| Default::default()));
-        let preview_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT] =
-            std::array::from_fn(|_| std::sync::OnceLock::new());
+            Arc::from(variant_table());
+        let preview_compilation: VariantTable<std::sync::OnceLock<()>> = variant_table();
         if display_variants {
             preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES].get_or_init(|| {
                 spawn_preview_compile(
@@ -6187,18 +6195,18 @@ impl GpuProcessor {
             preview_pipelines,
             preview_compilation,
             preview_failed,
-            layer_sum_pipelines: Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new())),
-            layer_sum_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            layer_sum_pipelines: Arc::from(variant_table()),
+            layer_sum_compilation: variant_table(),
             preview_shader: shader_module,
             preview_layout: pipeline_layout,
-            export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
-            high_precision_export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            export_pipelines: variant_table(),
+            high_precision_export_pipelines: variant_table(),
             high_precision_shader,
             high_precision_layout: high_precision_pipeline_layout,
             high_precision_bgl,
             high_precision_pipeline: std::sync::OnceLock::new(),
             high_precision_tile: std::sync::OnceLock::new(),
-            deferred_export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            deferred_export_pipelines: variant_table(),
             deferred_pipeline,
             deferred_tile: std::sync::OnceLock::new(),
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
@@ -6250,9 +6258,9 @@ impl GpuProcessor {
             #[cfg(test)]
             force_unprepared_layers: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
-            unprepared_layer_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            unprepared_layer_pipelines: variant_table(),
             #[cfg(test)]
-            legacy_curve_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            legacy_curve_pipelines: variant_table(),
             dummy_lut_view,
             dummy_lut_sampler,
             no_lut_shaper,
