@@ -286,7 +286,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         validNamingTemplate(job.draft.template, "export"),
     })),
   );
-  const [planFolders, setPlanFolders] = useState<{ request: string; folders: string[] } | null>(null);
+  const [planFolders, setPlanFolders] = useState<{ request: string; folders: (string | undefined)[] } | null>(null);
   useEffect(() => {
     const jobs = JSON.parse(planFoldersRequest) as {
       path: string | null;
@@ -299,9 +299,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       try {
         const folders = await Promise.all(
           jobs.map(async ({ subfolder, valid, ...request }) => {
-            if (!request.path || !subfolder || !valid) return "";
+            if (!request.path || !subfolder || !valid) return undefined;
             const preview = await invoke<NamingPreview>(Invokes.ExportNamingPreview, request);
-            return preview?.folder ?? "";
+            return preview?.folder;
           }),
         );
         if (!stale) setPlanFolders({ request: planFoldersRequest, folders });
@@ -315,7 +315,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     };
   }, [planFoldersRequest]);
   const planFolderOf = (index: number) =>
-    planFolders?.request === planFoldersRequest ? planFolders.folders[index] || undefined : undefined;
+    planFolders?.request === planFoldersRequest ? planFolders.folders[index] : undefined;
 
   /** Changes the saved recipes as they are now in the settings, so several
    * changes in a row (a folder remembered per recipe while exporting) all stay. */

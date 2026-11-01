@@ -1056,3 +1056,13 @@ it("shows the footer's destination with the subfolder rendered for the first pho
     expect.objectContaining({ path: "/p/a.RAF" }),
   );
 });
+
+it("shows the destination without a subfolder when the template renders empty for the photo", async () => {
+  vi.mocked(invoke).mockImplementation(((command: string) =>
+    Promise.resolve(command === "export_naming_preview" ? { folder: "", name: "a.jpg" } : undefined)) as never);
+  render(<StudioExport />);
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{title}" } });
+  const plan = () => document.querySelector(".studio-export-plan li span")?.textContent ?? "";
+  await vi.waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("export_naming_preview", expect.anything()));
+  await vi.waitFor(() => expect(plan()).not.toContain("{title}"));
+});

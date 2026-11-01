@@ -39,7 +39,11 @@ export function readFormDraft(library: string | null): RecipeDraft | null {
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return null;
     const draft: Record<string, unknown> = { ...DEFAULT_RECIPE_DRAFT };
     for (const [name, fallback] of Object.entries(DEFAULT_RECIPE_DRAFT)) {
-      if (name in saved && typeof saved[name] === typeof fallback) draft[name] = saved[name];
+      if (!(name in saved)) continue;
+      // A setting that defaults to nothing (a watermark's file or font) is
+      // a string once chosen.
+      const same = fallback === null || fallback === undefined ? typeof saved[name] === 'string' : typeof saved[name] === typeof fallback;
+      if (same) draft[name] = saved[name];
     }
     if (typeof saved.folder === 'string') draft.folder = saved.folder;
     return draft as unknown as RecipeDraft;
