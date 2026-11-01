@@ -1647,7 +1647,8 @@
         "edit": "правка",
         "eyes": "проверки глаз",
         "metadata": "метаданные",
-        "snapshots": "снимки"
+        "snapshots": "снимки",
+        "stacks": "стопки"
       },
       "changedPhotos_one": "Изменённые фото ({{count}})",
       "changedPhotos_few": "Изменённые фото ({{count}})",

@@ -1567,7 +1567,8 @@
         "edit": "modifica",
         "eyes": "controlli degli occhi",
         "metadata": "metadati",
-        "snapshots": "istantanee"
+        "snapshots": "istantanee",
+        "stacks": "pile"
       },
       "changedPhotos_one": "Foto modificata ({{count}})",
       "changedPhotos_many": "Foto modificate ({{count}})",

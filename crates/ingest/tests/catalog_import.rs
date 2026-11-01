@@ -313,6 +313,121 @@ fn stacks_come_with_the_photographs_and_once() {
     );
 }
 
+/// What the review offers: the photographs only their stack changed.
+fn stack_only(w: &World) -> Vec<String> {
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    seen.photos
+        .iter()
+        .inspect(|p| {
+            assert_eq!(p.changes, ["stacks"], "{p:?}");
+            assert_eq!(p.side, Some(Side::There));
+        })
+        .map(|p| p.id.clone())
+        .collect()
+}
+
+#[test]
+fn a_stack_changed_alone_there_comes_back_and_one_changed_here_stays() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    // The photographs are the same in both; the stack is made on the laptop.
+    assert!(stack_only(&w).is_empty());
+    w.laptop.group_stack(&[a.clone(), b.clone()]).unwrap();
+    let mut offered = stack_only(&w);
+    offered.sort();
+    let mut both = w.ids[..2].to_vec();
+    both.sort();
+    assert_eq!(offered, both);
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.added, receipt.report.replaced), (0, 0));
+    assert_eq!(receipt.report.stacks, 1);
+    assert_eq!(w.main.stacks().unwrap(), w.laptop.stacks().unwrap());
+    assert!(stack_only(&w).is_empty(), "nothing is offered twice");
+
+    // Only the top changes there: it comes back (the same stack, a new top).
+    w.laptop.move_to_stack_top(&b).unwrap();
+    assert_eq!(stack_only(&w).len(), 2);
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    let here = w.main.stack_of(&a).unwrap().unwrap();
+    assert_eq!(here.members, [b.clone(), a.clone()]);
+    assert_eq!(w.main.stacks().unwrap(), w.laptop.stacks().unwrap());
+
+    // Keep current leaves a change there alone.
+    w.laptop.move_to_stack_top(&a).unwrap();
+    let mut keep = options(NewPhotos::Reference);
+    keep.changed = Some(Choice::Keep);
+    let receipt = import(&w.main, &w.laptop.directory, &keep, &go(), |_| {}).unwrap();
+    assert_eq!((receipt.report.stacks, receipt.report.kept), (0, 2));
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [b.clone(), a.clone()]
+    );
+
+    // The photographer changed the stack here since (expanded it): a later
+    // change there does not take it back, and nothing is offered.
+    w.main
+        .set_stacks_collapsed(std::slice::from_ref(&a), Some(false))
+        .unwrap();
+    assert!(stack_only(&w).is_empty());
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(receipt.report.stacks, 0);
+    let here = w.main.stack_of(&a).unwrap().unwrap();
+    assert_eq!(
+        (here.collapsed, here.members),
+        (false, vec![b.clone(), a.clone()])
+    );
+}
+
+#[test]
+fn a_stack_there_does_not_replace_one_the_photographer_made_here() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world();
+    let m = |i: usize| Member::photo(w.ids[i].clone());
+    // Here a, b and c are stacked (c is not on the laptop); there a and b,
+    // the other way round. Nothing was imported before: the stack here is
+    // the photographer's and stays.
+    w.main.group_stack(&[m(0), m(1), m(2)]).unwrap();
+    w.laptop.group_stack(&[m(1), m(0)]).unwrap();
+    let before = w.main.stacks().unwrap();
+    assert!(stack_only(&w).is_empty());
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(receipt.report.stacks, 0);
+    assert_eq!(w.main.stacks().unwrap(), before);
+}
+
 #[test]
 fn conflict_choices_keep_virtual_copy_and_changed_here_only() {
     let (_tmp, w) = world();

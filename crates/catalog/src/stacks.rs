@@ -285,6 +285,108 @@ pub(crate) fn merge_stack(conn: &Connection, stack: &Stack) -> Result<Option<Str
     Ok(Some(stack.id.clone()))
 }
 
+/// What an Import from Catalog does with a stack of the other catalog that
+/// changed there since the last import (`stack_offer`): the local stacks it
+/// replaces and the stack that takes their place.
+pub(crate) struct StackOffer {
+    replaces: Vec<String>,
+    stack: Stack,
+}
+
+/// Whether `a` and `b` are the same stack state (the id is not part of it).
+pub fn same_state(a: &Stack, b: &Stack) -> bool {
+    a.collapsed == b.collapsed && a.members == b.members
+}
+
+/// `stack` with only the members that are here.
+pub(crate) fn existing_members(conn: &Connection, stack: &Stack) -> Result<Stack> {
+    let mut members = Vec::new();
+    for member in &stack.members {
+        if exists(conn, member)? {
+            members.push(member.clone());
+        }
+    }
+    Ok(Stack {
+        id: stack.id.clone(),
+        collapsed: stack.collapsed,
+        members,
+    })
+}
+
+/// The change another library's stack `theirs` (its members named as here)
+/// brings, when it changed there since the last import and nothing here
+/// stands in its way; `common` holds the stack states both libraries had at
+/// that import. `None` when:
+/// - `theirs` is one of those states (it did not change there);
+/// - a stack here that holds one of its photographs, or carries its id, is
+///   not in a common state: the photographer stacked differently here since,
+///   and that is kept;
+/// - fewer than two of its photographs are here, or nothing would change.
+///
+/// Otherwise the stacks here holding its photographs are replaced by it: its
+/// top, order, members and collapsed state.
+pub(crate) fn stack_offer(
+    conn: &Connection,
+    theirs: &Stack,
+    common: &[Stack],
+) -> Result<Option<StackOffer>> {
+    let theirs = existing_members(conn, theirs)?;
+    if theirs.members.len() < 2 || common.iter().any(|c| same_state(c, &theirs)) {
+        return Ok(None);
+    }
+    let mut replaces: Vec<String> = Vec::new();
+    for member in &theirs.members {
+        if let Some(id) = stack_of(conn, member)?
+            && !replaces.contains(&id)
+        {
+            replaces.push(id);
+        }
+    }
+    if read_stack(conn, &theirs.id)?.is_some() && !replaces.contains(&theirs.id) {
+        replaces.push(theirs.id.clone());
+    }
+    let mut here = Vec::new();
+    for id in &replaces {
+        let Some(stack) = read_stack(conn, id)? else {
+            continue;
+        };
+        if !common.iter().any(|c| same_state(c, &stack)) {
+            return Ok(None);
+        }
+        here.push(stack);
+    }
+    let stack = theirs;
+    if here.len() == 1 && same_state(&here[0], &stack) {
+        return Ok(None);
+    }
+    Ok(Some(StackOffer { replaces, stack }))
+}
+
+/// Puts `offer` in place of the stacks it replaces.
+pub(crate) fn apply_offer(conn: &Connection, offer: &StackOffer) -> Result<()> {
+    for id in &offer.replaces {
+        conn.execute("DELETE FROM stacks WHERE id=?", [id])?;
+    }
+    write_stack(conn, &offer.stack)
+}
+
+/// Brings in `theirs` as `stack_offer` says if it changed there alone,
+/// else as `merge_stack` does (completes, never rearranges). Returns the
+/// stack's id when it was made or changed.
+pub(crate) fn sync_stack(
+    conn: &Connection,
+    theirs: &Stack,
+    common: Option<&[Stack]>,
+) -> Result<Option<String>> {
+    if let Some(common) = common
+        && let Some(offer) = stack_offer(conn, theirs, common)?
+    {
+        apply_offer(conn, &offer)?;
+        return Ok(Some(offer.stack.id));
+    }
+    merge_stack(conn, theirs)
+}
+
 impl Library {
     /// Runs `change` on the stacks of `members` (and those it names by id
     /// afterwards) in one transaction; returns them before and after.
@@ -439,6 +541,38 @@ impl Library {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Whether Import from Catalog would change a stack here for `theirs`
+    /// (another catalog's stack, members named as here) that changed there
+    /// since the last import (`common`: the states both had then).
+    pub fn stack_import_offered(&self, theirs: &Stack, common: &[Stack]) -> Result<bool> {
+        Ok(stack_offer(&self.conn, theirs, common)?.is_some())
+    }
+
+    /// The stack states both libraries hold after an import: each of `theirs`
+    /// (members named as here, those not here left out) that is now a stack
+    /// here exactly, and each of `before` that still is one.
+    pub fn stack_import_common(&self, theirs: &[Stack], before: &[Stack]) -> Result<Vec<Stack>> {
+        let mut out: Vec<Stack> = Vec::new();
+        let candidates = theirs
+            .iter()
+            .map(|s| existing_members(&self.conn, s))
+            .chain(before.iter().cloned().map(Ok));
+        for candidate in candidates {
+            let candidate = candidate?;
+            let Some(first) = candidate.members.first() else {
+                continue;
+            };
+            if candidate.members.len() >= 2
+                && let Some(here) = self.stack_of(first)?
+                && same_state(&here, &candidate)
+                && !out.iter().any(|c| same_state(c, &candidate))
+            {
+                out.push(candidate);
+            }
+        }
+        Ok(out)
     }
 
     /// Every stack, its top first.

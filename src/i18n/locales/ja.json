@@ -1447,7 +1447,8 @@
         "edit": "編集",
         "eyes": "目のチェック",
         "metadata": "メタデータ",
-        "snapshots": "スナップショット"
+        "snapshots": "スナップショット",
+        "stacks": "スタック"
       },
       "changedPhotos_other": "変更された写真（{{count}}）",
       "choice": {

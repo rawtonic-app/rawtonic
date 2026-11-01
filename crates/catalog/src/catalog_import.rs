@@ -14,6 +14,7 @@
 //! what the photographer chose, in one transaction. Replacing an edit adds
 //! the incoming state as a new step of the photograph's history, so Undo
 //! and the History panel return to the state it replaced.
+use crate::stacks::{Member, Stack};
 use crate::{
     Library, Metadata, external_root_key, insert_root, portable_relative, prune_blobs,
     valid_copy_id, write_metadata, write_recipe,
@@ -23,7 +24,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
 };
@@ -87,6 +88,20 @@ pub struct Baseline {
     /// catalog exported from).
     pub origin: String,
     pub photos: BTreeMap<String, BTreeMap<String, String>>,
+    /// The stacks both catalogs held after the last import, as stacks here
+    /// (`None`: not recorded yet, then a stack changed there is not brought
+    /// over on its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stacks: Option<Vec<Stack>>,
+}
+
+/// The common stack states of `imported` (the record of the last import) or,
+/// without one, of a catalog exported from this one (none).
+fn stack_baseline(imported: Option<Baseline>, exported: Option<Baseline>) -> Option<Vec<Stack>> {
+    match imported {
+        Some(record) => record.stacks,
+        None => exported.map(|_| Vec::new()),
+    }
 }
 
 /// One photograph of the other catalog.
@@ -124,9 +139,13 @@ pub struct Plan {
     pub batch_kind: &'static str,
     /// The name of the snapshot that keeps an edit Replace replaces.
     pub before: String,
-    /// The other library's stacks that hold an imported photograph, their
-    /// members named as they are here (`stacks::merge_stack`).
-    pub stacks: Vec<crate::stacks::Stack>,
+    /// The other library's stacks to bring in (those holding an imported
+    /// photograph, or one whose stack changed there alone), their members
+    /// named as they are here (`stacks::sync_stack`).
+    pub stacks: Vec<Stack>,
+    /// The stack states both catalogs held at the last import (`None`: not
+    /// recorded: stacks only complete, as `stacks::merge_stack`).
+    pub common_stacks: Option<Vec<Stack>>,
 }
 
 /// A changed photograph of a `Plan`.
@@ -363,6 +382,7 @@ impl Library {
         }
         Ok(Baseline {
             origin: origin.to_string(),
+            stacks: None,
             photos,
         })
     }
@@ -379,6 +399,54 @@ impl Library {
         let exported = read(other_dir.join(EXPORT_BASELINE))
             .filter(|baseline| baseline.origin == self.manifest.id);
         (imported, exported)
+    }
+
+    /// The stack states this catalog and `other` held after the last import
+    /// from it (`None`: not recorded, then a stack changed there is not
+    /// brought over on its own). Catalogs exported from this one held no
+    /// common stack state: a stack here that is not theirs is kept.
+    pub fn common_stacks(&self, other: &Library, other_dir: &Path) -> Option<Vec<Stack>> {
+        let (imported, exported) = self.baselines(other, other_dir);
+        stack_baseline(imported, exported)
+    }
+
+    /// Records the stack states both catalogs hold now (`stack_import_common`),
+    /// so a later import tells a stack changed there from one changed here.
+    pub fn record_stacks(&self, other: &Library, stacks: Vec<Stack>) -> Result<()> {
+        let Some(file) = import_record(&self.directory, &other.manifest.id) else {
+            return Ok(());
+        };
+        let mut record: Baseline = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        record.origin = other.manifest.id.clone();
+        record.stacks = Some(stacks);
+        std::fs::create_dir_all(self.directory.join(IMPORT_BASELINES))?;
+        rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
+        Ok(())
+    }
+
+    /// The stacks of `other`, their members named as here (`here`: asset id
+    /// there → here); a member that is not here is left out.
+    pub fn stacks_as_here(other: &Library, here: &HashMap<&str, &str>) -> Result<Vec<Stack>> {
+        Ok(other
+            .stacks()?
+            .into_iter()
+            .map(|mut stack| {
+                stack.members = stack
+                    .members
+                    .into_iter()
+                    .filter_map(|m| {
+                        Some(Member {
+                            asset_id: here.get(m.asset_id.as_str())?.to_string(),
+                            copy: m.copy,
+                        })
+                    })
+                    .collect();
+                stack
+            })
+            .collect())
     }
 
     /// Records, after an import from `other`, the photographs whose state
@@ -769,6 +837,30 @@ impl Library {
                 available,
             });
         }
+        // A stack changed there alone (its photographs themselves the same):
+        // those photographs are offered as changed in their stack.
+        if let Some(common) = stack_baseline(imported, exported) {
+            let mut offered: HashSet<String> = HashSet::new();
+            {
+                let here: HashMap<&str, &str> = out
+                    .iter()
+                    .filter_map(|p| Some((p.id.as_str(), p.target.as_deref()?)))
+                    .collect();
+                let theirs = other.stacks()?;
+                for (stack, mapped) in theirs.iter().zip(Self::stacks_as_here(other, &here)?) {
+                    if self.stack_import_offered(&mapped, &common)? {
+                        offered.extend(stack.members.iter().map(|m| m.asset_id.clone()));
+                    }
+                }
+            }
+            for photo in &mut out {
+                if photo.status == Status::Unchanged && offered.contains(&photo.id) {
+                    photo.status = Status::Changed;
+                    photo.changes = vec!["stacks"];
+                    photo.side = Some(Side::There);
+                }
+            }
+        }
         Ok(out)
     }
 
@@ -875,7 +967,9 @@ impl Library {
         // Stacks after every photograph and copy is in; a photograph in a
         // stack here stays in it.
         for stack in &plan.stacks {
-            report.stacks += usize::from(crate::stacks::merge_stack(&tx, stack)?.is_some());
+            report.stacks += usize::from(
+                crate::stacks::sync_stack(&tx, stack, plan.common_stacks.as_deref())?.is_some(),
+            );
         }
         prune_blobs(&tx)?;
         tx.commit()?;

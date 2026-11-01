@@ -1647,7 +1647,8 @@
         "edit": "edycja",
         "eyes": "kontrole oczu",
         "metadata": "metadane",
-        "snapshots": "migawki"
+        "snapshots": "migawki",
+        "stacks": "stosy"
       },
       "changedPhotos_one": "Zmienione zdjęcie ({{count}})",
       "changedPhotos_few": "Zmienione zdjęcia ({{count}})",
