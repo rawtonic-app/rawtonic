@@ -53,15 +53,12 @@ impl Library {
             &self.directory.join(".cache"),
             staging::CATALOG_SNAPSHOT,
         ));
-        let library = self
-            .directory
-            .canonicalize()
-            .and_then(|library| library.canonicalize())
-            .unwrap_or(self.directory.clone());
-        // The backup folders outside the library's tree (one may be on
-        // another drive): only our temporary files go, never what else they
-        // hold, and nothing in them is looked into. Inside the tree, the
-        // sweep above reaches them already (once).
+        // The backup folders of unfinished ingest jobs, wherever they are
+        // (one may be on another drive): only our stale temporary files go,
+        // never what else they hold, and nothing in them is looked into. One
+        // inside the library's tree may also be reached by the tree sweep
+        // (not inside a nested library, which it skips); a file removed there
+        // is gone here, so nothing is counted twice.
         let mut backups = Vec::new();
         for job in self.unfinished_ingest_jobs()? {
             let Some(backup) = job
@@ -73,11 +70,7 @@ impl Library {
             else {
                 continue;
             };
-            // A backup inside the library's tree is swept with it, once:
-            // `Path::starts_with` compares whole names, so one beside it
-            // (`Backup 2` for `Backup`) is not taken for one inside.
             if let Ok(backup) = backup.canonicalize()
-                && !backup.starts_with(&library)
                 && !backups.contains(&backup)
             {
                 backups.push(backup);
@@ -220,8 +213,9 @@ mod tests {
 
     /// G66 item (4): the leaves of a job that could not be recognised (a
     /// backup copy whose name got a collision suffix, the leaves of a job
-    /// that never started) go at the next open, without waiting for them to
-    /// go stale; the backup's finished files and anyone else's stay, and the
+    /// that never started) go at the first open after they are stale
+    /// (`temp::STALE_AGE`) — fresh ones stay, since a write may still be
+    /// running; the backup's finished files and anyone else's stay, and the
     /// bytes of the temporary files alone are counted.
     #[test]
     fn the_sweep_removes_temp_files_of_a_collision_named_backup_copy_and_counts_them() {
@@ -257,7 +251,15 @@ mod tests {
         let finished = backup.join("C1.ARW");
         let foreign = backup.join(".tmpAbC123");
         fs::write(&foreign, b"another program's").unwrap();
-        // An open does not wait for them to go stale.
+        // An open before they are stale leaves them: a write may still run.
+        let fresh = lib
+            .sweep_leftovers(SystemTime::now(), &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!((fresh.temp_files, fresh.temp_bytes), (0, 0), "{fresh:?}");
+        for path in &leftovers {
+            assert!(path.exists(), "{}", path.display());
+        }
+        // The first open after they are stale removes them.
         let later = SystemTime::now() + temp::STALE_AGE + Duration::from_secs(1);
         let swept = lib.sweep_leftovers(later, &AtomicBool::new(false)).unwrap();
         // What a resumed job removes (its own planned names) and the open
