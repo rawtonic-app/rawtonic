@@ -2800,6 +2800,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "Trascina per regolare · doppio clic per ripristinare",
+      "trackHint": "Trascina per regolare; allontana il puntatore dal cursore per passi più fini · Alt (⌥): un decimo · doppio clic per ripristinare",
       "value": "{{name}}: valore",
       "valueWithUnit": "{{name}}: valore ({{unit}})"
     },

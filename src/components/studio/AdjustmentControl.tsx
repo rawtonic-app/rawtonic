@@ -33,6 +33,24 @@ export interface AdjustmentControlProps {
   onInteraction?(active: boolean): void;
 }
 
+/** The thumb's width in the stylesheet (`.adjustment-track` thumb, 9 px). */
+const THUMB = 9;
+/** A press this close to the thumb's centre grabs it without a jump. */
+const GRAB = 8;
+
+/**
+ * How much of the track's own movement a drag makes per pixel when the
+ * pointer is `distance` px above or below the track: all of it on and near
+ * the track, then less the farther away (half at 48 px, a quarter at 96,
+ * a tenth from 240), as on a scrubbing bar. A small hand movement then
+ * makes a small change, without a modifier key (notes:
+ * reference/slider-precision-2026-11-01.md).
+ */
+export function dragPrecision(distance: number) {
+  const near = 24;
+  return distance <= near ? 1 : Math.max(0.1, near / distance);
+}
+
 export function boundedValue(
   value: number,
   min: number,
@@ -84,8 +102,14 @@ export default memo(function AdjustmentControl({
   const interactionCallback = useRef(onInteraction);
   interactionCallback.current = onInteraction;
   const scrub = useRef<{ x: number; value: number } | null>(null);
-  // An Option-drag on the track: a tenth of the track's own movement per pixel.
-  const fine = useRef<{ x: number; value: number; perPixel: number } | null>(null);
+  // A drag on the track: from the thumb without a jump, a pixel worth the
+  // track's own movement (a tenth with Option, less away from the track).
+  const fine = useRef<{
+    x: number;
+    centreY: number;
+    value: number;
+    perPixel: number;
+  } | null>(null);
   // Slider positions: value units, or the scale's with 1000 steps.
   const trackMin = scale ? scale.toTrack(min) : min;
   const trackMax = scale ? scale.toTrack(max) : max;
@@ -237,31 +261,49 @@ export default memo(function AdjustmentControl({
         disabled={disabled}
         onChange={(e) => update(fromTrack(Number(e.target.value)))}
         onPointerDown={(e) => {
-          if (e.altKey && !disabled && e.button === 0) {
-            // Fine control (Option, as on the label): the thumb does not jump
-            // to the pointer and moves a tenth of a plain drag per pixel.
+          const box = e.currentTarget.getBoundingClientRect();
+          const travel = box.width - THUMB;
+          if (!disabled && e.button === 0 && travel > 0) {
+            // The drag is ours, not the native slider's: pressing the thumb
+            // no longer moves it to the pointer (a click changed the value by
+            // up to half a thumb), and the drag can slow down.
             e.preventDefault();
             // preventDefault also stops the native focus move: keys go here next.
             e.currentTarget.focus();
             e.currentTarget.setPointerCapture(e.pointerId);
-            const width = e.currentTarget.getBoundingClientRect().width;
+            const left = (box.left || 0) + THUMB / 2;
+            // pending, not local: focusing the track just committed a typed value
+            // whose state has not rendered yet.
+            let start = toTrack(pending.current);
+            const thumb = left + ((start - trackMin) / (trackMax - trackMin)) * travel;
+            // Option grabs the thumb wherever the press is, as on the label.
+            if (!e.altKey && Math.abs(e.clientX - thumb) > GRAB) {
+              // A press beside the thumb moves it there, as a slider does.
+              const at = Math.max(0, Math.min(1, (e.clientX - left) / travel));
+              start = trackMin + at * (trackMax - trackMin);
+              update(fromTrack(start));
+            }
             fine.current = {
               x: e.clientX,
-              // pending, not local: focusing the track just committed a typed value
-              // whose state has not rendered yet.
-              value: toTrack(pending.current),
-              perPixel: width > 0 ? (trackMax - trackMin) / width / 10 : 0,
+              centreY: (box.top || 0) + box.height / 2,
+              value: start,
+              perPixel: (trackMax - trackMin) / travel,
             };
           }
           begin();
         }}
         onPointerMove={(e) => {
           if (!fine.current) return;
-          const { x, value, perPixel } = fine.current;
-          update(
-            fromTrack(Math.max(trackMin, Math.min(trackMax, value + (e.clientX - x) * perPixel))),
-            step / 10,
+          const drag = fine.current;
+          const factor = e.altKey ? 0.1 : dragPrecision(Math.abs(e.clientY - drag.centreY));
+          // Each move adds its own distance at the precision of the moment:
+          // moving away from the track never makes the value jump.
+          drag.value = Math.max(
+            trackMin,
+            Math.min(trackMax, drag.value + (e.clientX - drag.x) * drag.perPixel * factor),
           );
+          drag.x = e.clientX;
+          update(fromTrack(drag.value), factor < 1 ? step / 10 : step);
         }}
         onPointerUp={end}
         onPointerCancel={end}
@@ -271,6 +313,7 @@ export default memo(function AdjustmentControl({
         onKeyDown={keys}
         onDoubleClick={reset}
         aria-label={ariaLabel ?? label}
+        title={t("studio.adjustment.trackHint")}
       />
       <input
         className="adjustment-value"

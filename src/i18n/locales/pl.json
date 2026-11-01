@@ -2945,6 +2945,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "Przeciągnij, aby dostosować · dwuklik resetuje",
+      "trackHint": "Przeciągnij, aby dostosować; odsuń wskaźnik od suwaka, by uzyskać drobniejsze kroki · Alt (⌥): jedna dziesiąta · dwuklik resetuje",
       "value": "{{name}} – wartość",
       "valueWithUnit": "{{name}} – wartość ({{unit}})"
     },

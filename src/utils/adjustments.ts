@@ -43,7 +43,11 @@ export enum BasicAdjustment {
 
 // Stored brightness uses the engine's exposure-like units, not percentages.
 // Keep both editing surfaces in sync without reinterpreting existing recipes.
-export const BRIGHTNESS_CONTROL = { min: -5, max: 5, step: 0.01 } as const;
+// ±2 (+26 L* on a portrait at 2, notes: reference/slider-precision-2026-11-01.md)
+// covers Capture One's whole Brightness (±50 = ±1.15 here, its style import);
+// ±5 clipped half the photo at 5 and made every pixel of the track 2.5×
+// coarser. A stored value beyond it renders as before and shows in the field.
+export const BRIGHTNESS_CONTROL = { min: -2, max: 2, step: 0.01 } as const;
 export const MAX_CURVE_POINTS = 16;
 
 export enum ColorAdjustment {

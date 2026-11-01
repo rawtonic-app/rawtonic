@@ -2654,6 +2654,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "Drag to adjust · double-click to reset",
+      "trackHint": "Drag to adjust; move the pointer away from the slider for finer steps · Alt (⌥): a tenth · double-click to reset",
       "value": "{{name}} value",
       "valueWithUnit": "{{name}} value ({{unit}})"
     },

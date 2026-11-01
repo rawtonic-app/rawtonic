@@ -2800,6 +2800,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "Arrossega per ajustar · doble clic per restablir",
+      "trackHint": "Arrossega per ajustar; allunya el punter del control per a passos més fins · Alt (⌥): una desena part · doble clic per restablir",
       "value": "{{name}}: valor",
       "valueWithUnit": "{{name}}: valor ({{unit}})"
     },

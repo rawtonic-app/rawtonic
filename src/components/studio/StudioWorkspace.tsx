@@ -236,6 +236,27 @@ function EdgeStrip({
 const readyNow = () =>
   Boolean(useEditorStore.getState().selectedImage?.isReady);
 
+/** Set once the user moves the tool column's separator. */
+const WIDTH_CHOSEN_KEY = "rawtonic.studio.widthChosen";
+
+/**
+ * The tool column's width at start. The column stored its width from the
+ * first start on, chosen or not, so the 300 px default of before 2026-10-31
+ * kept every existing user on the coarse sliders the 340 px default fixed:
+ * a stored 300 that the separator never set is that old default.
+ */
+export function initialToolsWidth(): number {
+  const stored = storedStudioLayout("width");
+  let chosen = false;
+  try {
+    chosen = localStorage.getItem(WIDTH_CHOSEN_KEY) === "1";
+  } catch {
+    // Storage unavailable: nothing was chosen.
+  }
+  if (stored === "300" && !chosen) return 340;
+  return Number(stored) || 340;
+}
+
 export default function StudioWorkspace(props: Props) {
   const {
     files,
@@ -643,8 +664,17 @@ export default function StudioWorkspace(props: Props) {
     // 340 px by default: a 112 px Exposure track at 300 px moved 0.097 EV per
     // pixel, coarser than both reference editors (notes:
     // reference/ux-develop-core-2026-10-31). A width the user chose stays.
-    Math.max(270, Math.min(390, Number(storedStudioLayout("width")) || 340)),
+    Math.max(270, Math.min(390, initialToolsWidth())),
   );
+  // The separator marks the width as chosen (see `initialToolsWidth`).
+  const chooseWidth: typeof setWidth = (next) => {
+    try {
+      localStorage.setItem(WIDTH_CHOSEN_KEY, "1");
+    } catch {
+      // Storage unavailable: the width still applies for this session.
+    }
+    setWidth(next);
+  };
   // Each module keeps its own layout (Lightroom), saved with the settings.
   const panels = readModuleLayout(storedPanels, moduleOf(activeView));
   const present = presentGroups(moduleOf(activeView), layout);
@@ -1408,7 +1438,7 @@ export default function StudioWorkspace(props: Props) {
               onKeyDown={(e) => {
                 if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
                   e.preventDefault();
-                  setWidth((v) =>
+                  chooseWidth((v) =>
                     Math.max(
                       270,
                       Math.min(
@@ -1427,7 +1457,7 @@ export default function StudioWorkspace(props: Props) {
               }}
               onPointerMove={(e) => {
                 if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-                setWidth((v) =>
+                chooseWidth((v) =>
                   Math.max(
                     270,
                     Math.min(

@@ -115,7 +115,7 @@ describe("Develop tool contracts", () => {
       ["Temperature", -100, 100, 1, 0],
       ["Tint", -100, 100, 1, 0],
       ["Exposure", -5, 5, 0.01, 0],
-      ["Brightness", -5, 5, 0.01, 0],
+      ["Brightness", -2, 2, 0.01, 0],
       ...[
         "Contrast",
         "Highlights",
@@ -259,7 +259,7 @@ describe("Develop tool contracts", () => {
     fireEvent.keyDown(slider, { key: "ArrowRight" });
     expect(useEditorStore.getState().adjustments.brightness).toBe(0.41);
     edit("Brightness", 80);
-    expect(useEditorStore.getState().adjustments.brightness).toBe(5);
+    expect(useEditorStore.getState().adjustments.brightness).toBe(2);
     fireEvent.doubleClick(slider);
     expect(useEditorStore.getState().adjustments.brightness).toBe(0);
     fireEvent.click(screen.getByRole("button", { name: "Layers & masks" }));

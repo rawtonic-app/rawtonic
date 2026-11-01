@@ -656,6 +656,30 @@ describe("workspace keyboard accessibility", () => {
     expect(separator.getAttribute("aria-valuenow")).toBe("340");
   });
 
+  it("moves the old 300 px default to 340 px once, but keeps a width the user chose", () => {
+    // The column stored its width from the first start on, so the old
+    // default reached everyone as a "stored" 300.
+    localStorage.removeItem("rawtonic.studio.widthChosen");
+    localStorage.setItem("rawtonic.studio.width", "300");
+    workspace();
+    const separator = screen.getByRole("separator", { name: "Tool panel width" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("340");
+    // Moved back to 300 with the separator, it stays there.
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("300");
+    cleanup();
+    workspace();
+    expect(screen.getByRole("separator", { name: "Tool panel width" }).getAttribute("aria-valuenow")).toBe("300");
+    // Any other stored width is the user's.
+    localStorage.removeItem("rawtonic.studio.widthChosen");
+    localStorage.setItem("rawtonic.studio.width", "310");
+    cleanup();
+    workspace();
+    expect(screen.getByRole("separator", { name: "Tool panel width" }).getAttribute("aria-valuenow")).toBe("310");
+    localStorage.removeItem("rawtonic.studio.widthChosen");
+    localStorage.removeItem("rawtonic.studio.width");
+  });
+
   it.each(["split-tools", "tools-left"] as const)("moves the separator in the arrow direction in %s", (layout) => {
     useUIStore.getState().setStudioToolLayout(layout);
     workspace();
