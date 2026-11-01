@@ -56,6 +56,7 @@ const job = (part: Partial<ExportJob>): ExportJob => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   localStorage.removeItem("rawtonic.export.recipes");
   useSettingsStore.setState({ appSettings: null });
   useLibraryStore.setState({
@@ -1022,4 +1023,36 @@ it("sends the job name and a folder template, and remembers the job name for the
   expect((screen.getByLabelText("Job name") as HTMLInputElement).value).toBe("Acme");
   fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/../x" } });
   expect((screen.getByRole("button", { name: "Export" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("remembers the last form settings per library and starts the next dialog there", () => {
+  useLibraryStore.setState({ sessionDirectory: "/Shoots/Wedding" });
+  render(<StudioExport />);
+  fireEvent.change(screen.getByLabelText("Format"), { target: { value: "tiff" } });
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/{format}" } });
+  cleanup();
+  render(<StudioExport />);
+  expect((screen.getByLabelText("Format") as HTMLSelectElement).value).toBe("tiff");
+  expect((screen.getByLabelText("Put in subfolder") as HTMLInputElement).value).toBe("{job}/{format}");
+  // Another library keeps its own, starting from the defaults.
+  cleanup();
+  useLibraryStore.setState({ sessionDirectory: "/Shoots/Other" });
+  render(<StudioExport />);
+  expect((screen.getByLabelText("Format") as HTMLSelectElement).value).toBe("jpg");
+  expect((screen.getByLabelText("Put in subfolder") as HTMLInputElement).value).toBe("");
+});
+
+it("shows the footer's destination with the subfolder rendered for the first photo", async () => {
+  vi.mocked(invoke).mockImplementation(((command: string) =>
+    Promise.resolve(command === "export_naming_preview" ? { folder: "Acme/2026-10-11/jpg", name: "a.jpg" } : undefined)) as never);
+  useLibraryStore.setState({ sessionDirectory: "/Shoots/Wedding" });
+  render(<StudioExport />);
+  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/{date}/{format}" } });
+  const plan = () => document.querySelector(".studio-export-plan li span")?.textContent ?? "";
+  await vi.waitFor(() => expect(plan()).toContain("Acme/2026-10-11/jpg"));
+  expect(plan()).not.toContain("{job}");
+  expect(invoke).toHaveBeenCalledWith(
+    "export_naming_preview",
+    expect.objectContaining({ path: "/p/a.RAF" }),
+  );
 });
