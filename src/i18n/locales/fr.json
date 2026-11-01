@@ -4799,6 +4799,20 @@
       "x": "Position X",
       "y": "Position Y"
     },
+    "scopes": {
+      "aria": "Moniteurs de la photo",
+      "empty": "Moniteurs disponibles après l’ouverture d’une photo",
+      "luma": "Luma",
+      "lumaAria": "Forme d’onde luma de la photo affichée",
+      "mode": "Affichage",
+      "parade": "Parade",
+      "paradeAria": "Parade RVB de la photo affichée",
+      "rgb": "RVB",
+      "rgbAria": "Forme d’onde RVB de la photo affichée",
+      "title": "Moniteurs",
+      "vectorscope": "Vecteur",
+      "vectorscopeAria": "Vectorscope de la photo affichée"
+    },
     "seriesMatch": {
       "after": "Harmonisé",
       "analysing": "Analyse {{done}} sur {{total}}…",

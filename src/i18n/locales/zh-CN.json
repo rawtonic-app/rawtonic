@@ -4481,6 +4481,20 @@
       "x": "X 位置",
       "y": "Y 位置"
     },
+    "scopes": {
+      "aria": "照片示波器",
+      "empty": "打开照片后可查看示波器",
+      "luma": "亮度",
+      "lumaAria": "所显示照片的亮度波形",
+      "mode": "视图",
+      "parade": "分量",
+      "paradeAria": "所显示照片的 RGB 分量图",
+      "rgb": "RGB",
+      "rgbAria": "所显示照片的 RGB 波形",
+      "title": "示波器",
+      "vectorscope": "矢量",
+      "vectorscopeAria": "所显示照片的矢量示波器"
+    },
     "seriesMatch": {
       "after": "统一后",
       "analysing": "正在分析 {{done}} / {{total}}…",

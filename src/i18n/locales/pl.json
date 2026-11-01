@@ -4987,6 +4987,20 @@
       "x": "Pozycja X",
       "y": "Pozycja Y"
     },
+    "scopes": {
+      "aria": "Wykresy zdjęcia",
+      "empty": "Wykresy dostępne po otwarciu zdjęcia",
+      "luma": "Luma",
+      "lumaAria": "Przebieg luminancji wyświetlanego zdjęcia",
+      "mode": "Widok",
+      "parade": "Parada",
+      "paradeAria": "Parada RGB wyświetlanego zdjęcia",
+      "rgb": "RGB",
+      "rgbAria": "Przebieg RGB wyświetlanego zdjęcia",
+      "title": "Wykresy",
+      "vectorscope": "Wektor",
+      "vectorscopeAria": "Wektoroskop wyświetlanego zdjęcia"
+    },
     "seriesMatch": {
       "after": "Wyrównane",
       "analysing": "Analiza {{done}} z {{total}}…",

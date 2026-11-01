@@ -4611,6 +4611,20 @@
       "x": "Position X",
       "y": "Position Y"
     },
+    "scopes": {
+      "aria": "Messinstrumente des Fotos",
+      "empty": "Messinstrumente nach dem Öffnen eines Fotos verfügbar",
+      "luma": "Luma",
+      "lumaAria": "Luma-Wellenform des angezeigten Fotos",
+      "mode": "Anzeige",
+      "parade": "Parade",
+      "paradeAria": "RGB-Parade des angezeigten Fotos",
+      "rgb": "RGB",
+      "rgbAria": "RGB-Wellenform des angezeigten Fotos",
+      "title": "Messinstrumente",
+      "vectorscope": "Vektor",
+      "vectorscopeAria": "Vektorskop des angezeigten Fotos"
+    },
     "seriesMatch": {
       "after": "Angeglichen",
       "analysing": "Analysiere {{done}} von {{total}}…",

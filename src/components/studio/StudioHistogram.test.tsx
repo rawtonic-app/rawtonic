@@ -335,3 +335,23 @@ it("writes the capture settings under the histogram with their units, as the vie
     useEditorStore.setState({ selectedImage: null });
   }
 });
+
+it("colours a lit clipping triangle by the channels that clip, neutral when all do", () => {
+  useEditorStore.setState({
+    histogram: {
+      red: [],
+      green: [],
+      blue: [],
+      luma: [],
+      clippedHighlights: true,
+      clippedShadows: true,
+      highlightChannels: [true, true, false],
+      shadowChannels: [true, true, true],
+    },
+  });
+  render(<StudioHistogram />);
+  const highlights = screen.getByRole("button", { name: "Highlight clipping, clipped" });
+  expect(highlights.style.getPropertyValue("--clip-channel")).toBe("rgb(235, 235, 40)");
+  const shadows = screen.getByRole("button", { name: "Shadow clipping, clipped" });
+  expect(shadows.getAttribute("style")).toBeNull();
+});

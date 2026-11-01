@@ -70,6 +70,7 @@ import {
   renderedPoints,
 } from "../../utils/pointCurve";
 import StudioHistogram from "./StudioHistogram";
+import StudioScopes from "./StudioScopes";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
 import StudioLut from "./StudioLut";
@@ -883,6 +884,8 @@ export default function StudioDevelop() {
   // The tool ends cropping and layer editing, so from Crop or Layers it
   // returns to Adjust, as the panel change above does.
   const isSpotToolActive = useEditorStore((s) => s.isSpotToolActive);
+  // The scopes (Analysis shortcut, A) below the histogram.
+  const scopesVisible = useEditorStore((s) => s.isWaveformVisible);
   const tabRef = useRef(tab);
   tabRef.current = tab;
   const tabBeforeSpot = useRef<string | null>(null);
@@ -1190,6 +1193,11 @@ export default function StudioDevelop() {
       <PerfProfiler id="histogram">
         <StudioHistogram />
       </PerfProfiler>
+      {scopesVisible && (
+        <PerfProfiler id="scopes">
+          <StudioScopes />
+        </PerfProfiler>
+      )}
       <nav
         className="studio-tool-tabs"
         aria-label={t("studio.develop.tabs.aria")}

@@ -4611,6 +4611,20 @@
       "x": "Position X",
       "y": "Position Y"
     },
+    "scopes": {
+      "aria": "Photo scopes",
+      "empty": "Scopes available after opening a photo",
+      "luma": "Luma",
+      "lumaAria": "Luma waveform of the shown photo",
+      "mode": "Scope",
+      "parade": "Parade",
+      "paradeAria": "RGB parade of the shown photo",
+      "rgb": "RGB",
+      "rgbAria": "RGB waveform of the shown photo",
+      "title": "Scopes",
+      "vectorscope": "Vector",
+      "vectorscopeAria": "Vectorscope of the shown photo"
+    },
     "seriesMatch": {
       "after": "Matched",
       "analysing": "Analysing {{done}} of {{total}}…",

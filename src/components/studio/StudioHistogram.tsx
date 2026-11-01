@@ -1,8 +1,8 @@
-import { memo } from "react";
+import { memo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { COLOR_SPACES, COLOR_SPACE_NAMES } from "../../utils/exportRecipes";
-import { histogramClipping } from "../../utils/clippingWarnings";
+import { clippingChannelColour, histogramClipping } from "../../utils/clippingWarnings";
 import {
   formatAperture,
   formatFocalLength,
@@ -30,6 +30,7 @@ function ClippingCorner({
   side,
   on,
   lit,
+  colour,
   label,
   title,
   onToggle,
@@ -37,6 +38,8 @@ function ClippingCorner({
   side: ClippingSide;
   on: boolean;
   lit: boolean;
+  /** The clipping channels' colour of a lit triangle; null: neutral. */
+  colour: string | null;
   label: string;
   title: string;
   onToggle(): void;
@@ -49,6 +52,7 @@ function ClippingCorner({
       aria-pressed={on}
       title={title}
       data-clipping={lit || undefined}
+      style={lit && colour ? ({ "--clip-channel": colour } as CSSProperties) : undefined}
       onClick={(event) => {
         event.stopPropagation();
         onToggle();
@@ -92,6 +96,7 @@ export default memo(function StudioHistogram() {
           side="shadows"
           on={clipShadows}
           lit={clipped.shadows}
+          colour={clippingChannelColour(histogram, "shadows")}
           label={
             clipped.shadows
               ? t("studio.histogram.shadowClippingLit")
@@ -124,6 +129,7 @@ export default memo(function StudioHistogram() {
           side="highlights"
           on={clipHighlights}
           lit={clipped.highlights}
+          colour={clippingChannelColour(histogram, "highlights")}
           label={
             clipped.highlights
               ? t("studio.histogram.highlightClippingLit")

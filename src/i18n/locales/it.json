@@ -4799,6 +4799,20 @@
       "x": "Posizione X",
       "y": "Posizione Y"
     },
+    "scopes": {
+      "aria": "Scope della foto",
+      "empty": "Scope disponibili dopo l'apertura di una foto",
+      "luma": "Luma",
+      "lumaAria": "Forma d'onda luma della foto mostrata",
+      "mode": "Vista",
+      "parade": "Parade",
+      "paradeAria": "Parade RGB della foto mostrata",
+      "rgb": "RGB",
+      "rgbAria": "Forma d'onda RGB della foto mostrata",
+      "title": "Scope",
+      "vectorscope": "Vettore",
+      "vectorscopeAria": "Vettorscopio della foto mostrata"
+    },
     "seriesMatch": {
       "after": "Uniformata",
       "analysing": "Analisi {{done}} di {{total}}…",
