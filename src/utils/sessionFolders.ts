@@ -107,6 +107,9 @@ export function usableSessionFolder(directory: string, role: FolderRole): Promis
 /** A refusal of a folder setting the backend words for the user
  * (`FolderRefusal` in `crates/catalog/src/session_folders.rs`): the folder,
  * and where an Output folder took it. */
+/** See `FOLDER_REFUSAL_MARKER` in `crates/catalog/src/session_folders.rs`. */
+const FOLDER_REFUSAL_MARKER = "rawtonic-refusal:";
+
 export interface RefusedFolder {
   code: "inOutputFolder";
   role: FolderRole;
@@ -115,15 +118,34 @@ export interface RefusedFolder {
   output: string;
 }
 
-/** Reads a refusal out of `message`, a backend error
- * (`rawtonic:<code>:<role>:<folder>:<output>`, fields joined by ": " when
- * they hold one); `null` for every other error. */
+/** Reads a refusal out of `message`, a backend error that holds
+ * `rawtonic-refusal:` and the refusal's fields as JSON (`FolderRefusal` in
+ * `crates/catalog/src/session_folders.rs`), wherever the message puts it
+ * (callers may wrap it, e.g. in parentheses); `null` for every other error. */
 export function parseFolderRefusal(message: string): RefusedFolder | null {
-  const match = /rawtonic:([A-Za-z]+):(capture|selects|output):([\s\S]*)$/.exec(message);
-  if (!match || match[1] !== "inOutputFolder") return null;
-  const [folder, output] = match[3].split(": ");
-  if (!folder || !output) return null;
-  return { code: "inOutputFolder", role: match[2] as FolderRole, folder, output };
+  const at = message.indexOf(FOLDER_REFUSAL_MARKER);
+  if (at < 0) return null;
+  const rest = message.slice(at + FOLDER_REFUSAL_MARKER.length);
+  // The JSON object ends at one of the closing braces; text may follow it.
+  for (let end = rest.lastIndexOf("}"); end >= 0; end = rest.lastIndexOf("}", end - 1)) {
+    let fields: unknown;
+    try {
+      fields = JSON.parse(rest.slice(0, end + 1));
+    } catch {
+      continue;
+    }
+    const { code, role, folder, output } = (fields ?? {}) as Record<string, unknown>;
+    if (
+      code !== "inOutputFolder" ||
+      (role !== "capture" && role !== "selects" && role !== "output") ||
+      typeof folder !== "string" ||
+      typeof output !== "string"
+    ) {
+      return null;
+    }
+    return { code, role, folder, output };
+  }
+  return null;
 }
 
 /** The user's language for a refusal of `message`: why choosing `folder`

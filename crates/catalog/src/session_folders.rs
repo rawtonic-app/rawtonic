@@ -66,16 +66,20 @@ pub struct FolderRefusal {
     pub output: String,
 }
 
+/// The marker before a refusal's JSON in an error message: the app finds it
+/// wherever a caller put the message (`parseFolderRefusal`), and paths may
+/// hold any character, so the fields travel as JSON.
+pub const FOLDER_REFUSAL_MARKER: &str = "rawtonic-refusal:";
+
 impl std::fmt::Display for FolderRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "rawtonic:{}:{}:{}:{}",
-            self.code,
-            self.role.key(),
-            self.folder,
-            self.output
-        )
+        let fields = serde_json::json!({
+            "code": self.code,
+            "role": self.role.key(),
+            "folder": self.folder,
+            "output": self.output,
+        });
+        write!(f, "{FOLDER_REFUSAL_MARKER}{fields}")
     }
 }
 
