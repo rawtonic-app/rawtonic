@@ -6863,6 +6863,8 @@ const RELIGHT_RANGE3_SHINE: f32 = 0.5;
 // over a band wider than the true rim and lit it as a bright outline.
 const RELIGHT_RANGE3_RIM: f32 = 0.006;
 const RELIGHT_RANGE3_RIM_FLATTEN: f32 = 0.65;
+// The share of the subject's relief a pattern follows.
+const RELIGHT_RANGE3_PATTERN_RELIEF: f32 = 0.6;
 
 // A people normal near the matte's edge, turned towards the camera by how
 // close the edge is (range version 3).
@@ -6960,19 +6962,32 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
         if (camera_lighting) {
             let c_camera = adjustments.global.relight_camera;
             let g_camera = adjustments.global.relight_geometry;
-            let pattern_center = (placement.xy - c_camera.zw) * g_camera.x / c_camera.xy / g_camera.y;
+            var pattern_center = (placement.xy - c_camera.zw) * g_camera.x / c_camera.xy / g_camera.y;
             let sun_direction = vec3<f32>(-s * cos(settings.w), c * cos(settings.w), sin(settings.w));
             var position = world_position;
+            let subject_inverse = adjustments.global.relight_source[3].x;
+            if (range3 && !scene_only && subject_inverse > 0.0) {
+                // Range version 3: the pattern's centre is where it lies on
+                // the subject, not on the camera's reference plane; a low
+                // light moved it off the face by depth × cot(elevation).
+                let anchor = relight_position(placement.xy, subject_inverse, strength);
+                pattern_center = anchor.xy - sun_direction.xy * anchor.z / max(sun_direction.z, 0.0001);
+                if (placement.w > 0.5) {
+                    let source = relight_source(controls.xy, controls.w, strength);
+                    pattern_center = anchor.xy + (anchor.xy - source.xy) * anchor.z / max(source.z - anchor.z, 0.0001);
+                }
+            }
             // Range version 3: monocular depth invents relief in plain
             // backdrops, which bent a pattern into waves: behind the subject
             // the pattern falls on a plane at the subject's distance. On the
             // subject, depth blurred towards the background at its silhouette
             // shifted the pattern into bright slivers along the edge: there
             // it stays no farther than that plane.
-            let subject_inverse = adjustments.global.relight_source[3].x;
             if (range3 && !scene_only && subject_inverse > 0.0) {
                 let plane = relight_position(uv, subject_inverse, strength);
-                let on_subject = relight_position(uv, max(surface.z, subject_inverse), strength);
+                // Its relief is damped: monocular depth of hair and foreheads
+                // is noisy, and a grazing light turned that noise into swirls.
+                let on_subject = mix(plane, relight_position(uv, max(surface.z, subject_inverse), strength), RELIGHT_RANGE3_PATTERN_RELIEF);
                 position = mix(plane, on_subject, people.z);
             }
             projected = position.xy - sun_direction.xy * position.z / max(sun_direction.z, 0.0001) - pattern_center;
@@ -7217,7 +7232,14 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     }
     // Multiplicative illumination preserves photographic texture and black;
     // accumulate lights commutatively so reordering does not change the result.
-    let original = select(1.0, adjustments.global.relight_surface.y, has_light);
+    var original = select(1.0, adjustments.global.relight_surface.y, has_light);
+    // Range version 3: Original light is the subject's own light that the new
+    // light replaces. The background keeps its light (a backdrop is lit by
+    // its own lights and spill; dimming it cut the subject out as if under a
+    // spot) and gets the new light by its reach.
+    if (RELIGHT_RANGE3 && camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
+        original = mix(1.0, original, people.z);
+    }
     let gain = (vec3<f32>(original) + light_gain) * exp2(-shadow_ev);
     // The original light's skin shine goes with the original light.
     let photo = rgb * (1.0 - shine * people.z * (1.0 - original));

@@ -262,6 +262,10 @@ export interface RelightAnchor {
   y: number;
   /** -1 the face turns to the frame's left, 1 to its right, 0 frontal or unknown. */
   turn: number;
+  /** The face's width, share of the frame's short side (faces only). */
+  size?: number;
+  /** The frame's width / height (faces only). */
+  aspect?: number;
 }
 
 /**
@@ -272,6 +276,11 @@ export interface RelightAnchor {
 export function relightFaceAnchor(depth: RelightDepth | undefined): RelightAnchor | null {
   let best: RelightAnchor | null = null;
   let bestArea = 0;
+  // Width / height of the frame, from the analysis's focal lengths (each
+  // normalized to its own axis); square without them.
+  const camera = depth?.camera;
+  const ratio = camera && camera.fx > 0 && camera.fy > 0 ? camera.fy / camera.fx : 1;
+  const aspect = Math.min(4, Math.max(0.25, ratio));
   for (const face of depth?.faces ?? []) {
     if (face.length < 2) continue;
     const xs = face.map((p) => p[0]);
@@ -285,6 +294,8 @@ export function relightFaceAnchor(depth: RelightDepth | undefined): RelightAncho
       x: Math.round((x0 + x1) * 500) / 10,
       y: Math.round((y0 + y1) * 500) / 10,
       turn: Math.abs(offset) < 0.06 ? 0 : Math.sign(offset),
+      size: (x1 - x0) * Math.max(1, aspect),
+      aspect,
     };
   }
   return best;
@@ -305,25 +316,35 @@ type PresetSettings = Partial<RelightLight> & {
   /** Rotation for a key from the frame's left; mirrored for the right. */
   rotation: number;
   originalLight: number;
+  /** A pattern's scale as a multiple of the face's width (on a face). */
+  patternFaces?: number;
+  /** Centre the face in a window pane, not on the window's cross. */
+  inPane?: boolean;
 };
 // Rotation 90 lights from the frame's left, 180 from above (relightSource).
-// Elevation 90 lights from the camera, 5 grazes the surfaces. Intensities
-// are in range version 2 (benchmark-results/rl-relight-ux-2026-10-31).
+// Elevation 90 lights from the camera, 5 grazes the surfaces. Range version
+// 3 (notes: benchmark-results/rr-relight-realism-2026-11-01): a key has the
+// photo's white balance (6500 K is white here) unless the setup is warm by
+// nature (evening sun); a key that replaces the original light keeps the
+// face's exposure (Strength measured exposure-neutral on three portraits at
+// the setup's Original light); Edge and Soft fill add to the original light
+// by about 2 L* on the face. Original light sets how far the setup's own
+// direction replaces the photo's.
 const PRESETS: Record<RelightPreset, PresetSettings> = {
-  side: { rotation: 95, elevation: 30, intensity: 55, temperature: 5000, softness: 35, diffusion: 15, originalLight: 50 },
-  loop: { rotation: 140, elevation: 50, intensity: 50, temperature: 5000, softness: 45, diffusion: 20, originalLight: 55 },
-  split: { rotation: 90, elevation: 8, intensity: 60, temperature: 5000, softness: 20, diffusion: 5, originalLight: 35 },
-  butterfly: { rotation: 180, elevation: 65, intensity: 45, temperature: 5500, softness: 45, diffusion: 20, originalLight: 60 },
-  edge: { rotation: 100, elevation: 5, intensity: 70, temperature: 6500, softness: 15, diffusion: 0, originalLight: 70 },
+  side: { rotation: 95, elevation: 30, intensity: 37, temperature: 6500, softness: 35, diffusion: 15, originalLight: 35 },
+  loop: { rotation: 140, elevation: 50, intensity: 27, temperature: 6500, softness: 45, diffusion: 20, originalLight: 45 },
+  split: { rotation: 90, elevation: 8, intensity: 75, temperature: 6500, softness: 20, diffusion: 5, originalLight: 25 },
+  butterfly: { rotation: 180, elevation: 65, intensity: 23, temperature: 6500, softness: 45, diffusion: 20, originalLight: 55 },
+  edge: { rotation: 100, elevation: 5, intensity: 15, temperature: 6500, softness: 15, diffusion: 0, originalLight: 100 },
   window: {
-    rotation: 120, elevation: 30, intensity: 55, temperature: 6000, softness: 45, diffusion: 20,
-    pattern: "window", scale: 120, originalLight: 50,
+    rotation: 120, elevation: 30, intensity: 38, temperature: 6500, softness: 65, diffusion: 25,
+    pattern: "window", scale: 120, patternFaces: 2.5, inPane: true, originalLight: 50,
   },
-  evening: { rotation: 105, elevation: 12, intensity: 60, temperature: 2700, softness: 35, diffusion: 15, originalLight: 50 },
-  fill: { rotation: 180, elevation: 80, intensity: 35, temperature: 5500, softness: 80, diffusion: 60, originalLight: 100 },
+  evening: { rotation: 105, elevation: 12, intensity: 74, temperature: 2700, softness: 35, diffusion: 15, originalLight: 40 },
+  fill: { rotation: 180, elevation: 80, intensity: 9, temperature: 6500, softness: 80, diffusion: 60, originalLight: 100 },
   blinds: {
-    rotation: 110, elevation: 15, intensity: 60, temperature: 2700, softness: 20, diffusion: 15,
-    pattern: "blinds", scale: 18, originalLight: 50,
+    rotation: 110, elevation: 35, intensity: 75, temperature: 2700, softness: 20, diffusion: 15,
+    pattern: "blinds", scale: 18, patternFaces: 0.25, originalLight: 55,
   },
 };
 
@@ -337,13 +358,31 @@ export function relightPresetLight(
   preset: RelightPreset,
   anchor: RelightAnchor | null = null,
 ): { light: RelightLight; originalLight: number } {
-  const { originalLight, ...settings } = PRESETS[preset];
+  const { originalLight, patternFaces, inPane, ...settings } = PRESETS[preset];
   const light: RelightLight = { ...createRelightLight(), ...settings };
+  // A pattern sized to the face: blinds' slats or a window's panes look
+  // the same on a head and shoulders as on a close-up.
+  if (patternFaces && anchor?.size) {
+    light.scale = Math.round(Math.min(300, Math.max(5, 100 * anchor.size * patternFaces)));
+  }
   if (anchor?.turn === 1) light.rotation = -light.rotation;
   light.color = kelvinToHex(light.temperature!);
   light.patternRotation = light.rotation;
   light.x = anchor?.x ?? 50;
   light.y = anchor?.y ?? 50;
+  if (inPane) {
+    // The window pattern's pane centres lie at ±0.235 of its scale from its
+    // cross (shader `relight_pattern` case 2), in the pattern's rotated
+    // frame; move the cross so a pane is on the face.
+    const q = 0.235 * (light.scale / 100);
+    const a = ((light.patternRotation ?? light.rotation) * Math.PI) / 180;
+    const aspect = anchor?.aspect ?? 1;
+    const dx = q * (Math.cos(a) - Math.sin(a));
+    const dy = q * (Math.sin(a) + Math.cos(a));
+    // Short-side units to percent of each axis.
+    light.x -= (dx * 100) / Math.max(1, aspect);
+    light.y -= dy * 100 * Math.min(1, aspect);
+  }
   // Same placement rule as dragging a sun's source (35% of the short side).
   delete light.sourceX;
   delete light.sourceY;

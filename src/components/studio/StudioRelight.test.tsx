@@ -428,7 +428,7 @@ it("applies a preset on the face in one click, sets the original light, and Undo
   // On the face (centre 65 %, 40 %), keyed from the side it turns to (right).
   expect([light.x, light.y]).toEqual([65, 40]);
   expect(light.rotation).toBeLessThan(0);
-  expect(after.relightOriginalLight).toBe(50);
+  expect(after.relightOriginalLight).toBe(40);
   act(() => useEditorStore.getState().undo());
   expect(useEditorStore.getState().adjustments.relightLights).toEqual(before.relightLights);
   expect(useEditorStore.getState().adjustments.relightOriginalLight).toBe(before.relightOriginalLight);

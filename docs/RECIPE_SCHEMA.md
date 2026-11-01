@@ -195,7 +195,11 @@ skin sheen at half range 2's strength, the photo's own light divided out no
 further than 0.5 (the fit's shadow side holds unmodelled fill light), people
 normals turned towards the camera near the matte's edge, the matte's edge lit
 as its mix of subject and background, and a pattern projected onto a plane at
-the subject's distance behind it and never behind that plane on it. Ranges 1
+the subject's distance behind it, never behind that plane on it and following
+60 % of the subject's relief, centred where it lies on the subject (a low
+light no longer moves it off the face). With a version-five subject,
+Original light applies to the subject only: the background keeps its light
+and gets the new light by its reach. Ranges 1
 and 2 render as before; the editor's *Use the current ranges* moves a light
 to range 3 at the same gain. A recipe with any range-3 light compiles the
 range-3 code (`RELIGHT_RANGE3`) for all its lights (notes:
