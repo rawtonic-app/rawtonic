@@ -24,6 +24,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { useDragSend } from "../../hooks/useDragSend";
+import { openMaskingTools } from "../../hooks/useAiMasking";
 import { useSliderDraft } from "../../utils/sliderDraft";
 import {
   INITIAL_ADJUSTMENTS,
@@ -112,12 +113,16 @@ export function ToolGroup({
   toggle,
   actions,
   onOpenChange,
+  onUserOpen,
   expand,
 }: {
   /** Stable id of the tool (remembered open state and order, copy/apply,
    * `data-tool-title`); never translated. */
   title: string;
   onOpenChange?: (open: boolean) => void;
+  /** The user unfolded the group (its header), not a remembered or
+   * programmatic open. */
+  onUserOpen?: () => void;
   /** The shown, translated name; `title` when absent. */
   label?: string;
   children: ReactNode;
@@ -160,7 +165,10 @@ export function ToolGroup({
       data-tool-title={title}
       onToggle={(e) => {
         // Native toggles (header clicks) are remembered for this column.
-        if (e.currentTarget.open !== isOpen) setOpen(e.currentTarget.open);
+        if (e.currentTarget.open !== isOpen) {
+          setOpen(e.currentTarget.open);
+          if (e.currentTarget.open) onUserOpen?.();
+        }
       }}
     >
       <summary
@@ -1231,6 +1239,8 @@ export default function StudioDevelop() {
               title={title as string}
               aria-label={title as string}
               aria-pressed={tab === id}
+              // The Layers tab starts Subject on the press, not the release.
+              onPointerDown={id === "layers" ? () => openMaskingTools() : undefined}
               onClick={() => selectTab(id as string)}
             >
               <ToolIcon size={16} />
@@ -1320,6 +1330,9 @@ export default function StudioDevelop() {
               // Exposure are in view on a laptop (Lightroom keeps masking
               // out of the Basic panel); a photo with layers opens it.
               open={tab === "layers" || adjustments.masks.length > 0}
+              // Unfolding it is reaching for the masking tools, as the
+              // Layers tab is: Subject starts at once (`openMaskingTools`).
+              onUserOpen={openMaskingTools}
               actions={
                 <>
                   <button
