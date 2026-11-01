@@ -361,7 +361,7 @@ export function restoreLastSession(
     })
     .catch((e) => {
       done();
-      notify.error(i18n.t("session.restore.failed", { error: String(e) }), { toastId: RESTORE_FAILED_NOTICE });
+      notify.error(i18n.t("session.restore.failed", { error: String(e) }), { toastId: RESTORE_FAILED_NOTICE, autoClose: false });
     });
 }
 
