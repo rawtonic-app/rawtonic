@@ -89,6 +89,7 @@ mod qa_control;
 mod red_eye;
 mod series_match;
 mod session_bridge;
+mod session_folders;
 mod session_move;
 mod snapshots;
 mod spot_removal;
@@ -881,6 +882,9 @@ pub fn run() {
             file_management::move_folder,
             file_management::plan_move_folder,
             session_move::move_session,
+            session_folders::session_folders,
+            session_folders::session_usable_folder,
+            session_folders::session_set_folder,
             catalog_subset::library_export_catalog,
             catalog_subset::library_export_catalog_cancel,
             catalog_subset::library_export_catalog_owned,

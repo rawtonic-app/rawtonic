@@ -14,6 +14,7 @@ import { ImageFile, Invokes } from '../components/ui/AppProperties';
 import { followPathMoves, type PathMove } from '../utils/pathKeyedState';
 import { recountAfterFileOperation } from '../utils/offline';
 import { openDialog } from '../utils/fileDialog';
+import { usableSessionFolder } from '../utils/sessionFolders';
 import { flushRecipeSaves } from './useEditorActions';
 import {
   fileAction,
@@ -874,10 +875,22 @@ export function useFileOperations(
             ? [libraryActivePath]
             : [];
     const separator = sessionDirectory.includes('\\') ? '\\' : '/';
-    const selects = `${sessionDirectory}${separator}Selects`;
-    const outside = paths.filter((p) => getParentDir(p.split('?vc=')[0]) !== selects);
+    // The session's Selects folder, wherever it is set (G38).
+    const shown =
+      useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ??
+      `${sessionDirectory}${separator}Selects`;
+    const outside = paths.filter((p) => getParentDir(p.split('?vc=')[0]) !== shown);
     if (outside.length === 0) {
       notify.info(ops(paths.length ? 'alreadyInSelects' : 'selectForSelects'));
+      return;
+    }
+    let selects: string;
+    try {
+      // Made again inside the session when removed; a folder outside it
+      // whose drive is away is refused, and nothing moves elsewhere.
+      selects = await usableSessionFolder(sessionDirectory, 'selects');
+    } catch {
+      notify.error(i18next.t('session.folders.selectsUnavailable', { folder: shown }));
       return;
     }
     await handleMoveToFolder(outside, selects);

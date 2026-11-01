@@ -325,6 +325,15 @@ fn check_folder(session: &Path, folder: &Path) -> Result<(PathBuf, PathBuf), Str
     if folder.starts_with(&session) || session.starts_with(&folder) {
         return Err("Choose a hot folder outside the session.".into());
     }
+    // Nor one of the session's folders outside it (G38), or one holding them.
+    for own in rawtonic_catalog::session_folders::outside_folders_of(&session) {
+        if folder.starts_with(&own) || own.starts_with(&folder) {
+            return Err(format!(
+                "{} is one of the session's own folders; choose another hot folder.",
+                own.display()
+            ));
+        }
+    }
     Ok((session, folder))
 }
 

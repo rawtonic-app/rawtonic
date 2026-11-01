@@ -650,9 +650,16 @@ pub fn destination_folder(
     let sort_by_date = folder.is_none() && library.manifest.mode == rawtonic_catalog::Mode::Catalog;
     let folder = match folder {
         None => {
-            let capture = library.directory.join(&library.manifest.capture);
-            create_dir_all_durable(&capture, &library.directory)?;
-            capture
+            let capture =
+                library.session_folder(rawtonic_catalog::session_folders::FolderRole::Capture);
+            if capture.inside {
+                create_dir_all_durable(&capture.path, &library.directory)?;
+                capture.path
+            } else {
+                // A Capture folder outside the session that is not there
+                // (its drive away) fails: nothing is made in its place.
+                library.usable_folder(rawtonic_catalog::session_folders::FolderRole::Capture)?
+            }
         }
         Some(folder) => {
             ensure!(
@@ -680,10 +687,27 @@ pub fn destination_folder(
             sort_by_date,
         });
     }
-    ensure!(
-        library.manifest.mode == rawtonic_catalog::Mode::Catalog,
-        "Photographs can only be copied into a folder of this session"
-    );
+    if library.manifest.mode == rawtonic_catalog::Mode::Session {
+        // A session's own folders outside it (G38), not hidden below them.
+        let owner = library
+            .manifest
+            .outside_folders()
+            .into_iter()
+            .filter_map(|root| root.canonicalize().ok())
+            .find(|root| canonical.starts_with(root))
+            .context("Photographs can only be copied into a folder of this session")?;
+        ensure!(
+            !canonical
+                .strip_prefix(&owner)
+                .is_ok_and(|below| below.components().any(hidden)),
+            "Photographs cannot be copied into the hidden folder {}",
+            folder.display()
+        );
+        return Ok(Destination {
+            path: folder,
+            sort_by_date,
+        });
+    }
     let shown = library
         .folders()?
         .into_iter()

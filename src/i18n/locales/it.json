@@ -1652,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Modello del nome file"
     },
+    "folders": {
+      "change": "Cambia…",
+      "choose": "Scegli la cartella {{folder}}",
+      "chooseFor": "Cambia la cartella {{folder}}",
+      "done": "Fine",
+      "inside": "Nella sessione",
+      "intro": "Dove questa sessione mette scatti e importazioni (Capture), le foto spostate in Selects (Selects) e le esportazioni (Output). Una cartella dentro la sessione si sposta con essa; una cartella fuori, ad esempio su un altro disco, resta dov’è.",
+      "menu": "Cartelle della sessione…",
+      "moveContents": "Sposta il contenuto nella nuova cartella",
+      "moveContentsHelp": "I file della vecchia cartella vengono spostati nella nuova (copiati e verificati su un altro disco). Modifica ▸ Annulla li riporta indietro.",
+      "moved_one": "{{count}} elemento spostato.",
+      "moved_many": "{{count}} elementi spostati.",
+      "moved_other": "{{count}} elementi spostati.",
+      "moveFailed": "La cartella è stata cambiata, ma il suo contenuto non è stato spostato del tutto: {{error}}",
+      "nothingMoves": "Cambiare cartella non sposta file: ciò che è nella vecchia cartella resta lì e nella sessione.",
+      "outputUnavailable": "La cartella Output {{folder}} non è disponibile (il suo disco è collegato?). Non è stato esportato nulla; scegli un’altra cartella Output in Cartelle della sessione.",
+      "outside": "Fuori dalla sessione",
+      "reading": "Lettura…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "La cartella Selects {{folder}} non è disponibile (il suo disco è collegato?). Non è stato spostato nulla; scegli un’altra cartella Selects in Cartelle della sessione.",
+      "title": "Cartelle della sessione",
+      "unavailable": "Non disponibile: la cartella manca o il suo disco non è collegato.",
+      "unavailableUse": {
+        "capture": "Scatti e importazioni in essa non riescono finché non torna o si sceglie un’altra cartella.",
+        "output": "Le esportazioni nella cartella Output non riescono finché non torna o si sceglie un’altra cartella.",
+        "selects": "«Sposta in Selects» non riesce finché non torna o si sceglie un’altra cartella."
+      },
+      "working": "In corso…"
+    },
     "hotFolder": {
       "chooseFolder": "Scegli la cartella monitorata",
       "copyFromLast": "Copia dall’ultimo scatto",

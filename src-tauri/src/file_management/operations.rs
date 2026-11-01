@@ -713,7 +713,9 @@ fn session_above(folder: &Path) -> Result<Option<PathBuf>, String> {
     Ok(real
         .ancestors()
         .find(|p| p.join("session.json").is_file())
-        .map(Path::to_path_buf))
+        .map(Path::to_path_buf)
+        // The open session's own folders outside it (G38).
+        .or_else(|| rawtonic_engine::session_layout::outside_folder_owner(&real)))
 }
 
 #[tauri::command]

@@ -91,7 +91,18 @@ import { flagTargets, viewerShown } from "../../utils/viewerMode";
 import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
 import { switchLibraryAfterSaves } from "../../utils/quit";
 import AddFolderDialog from "./AddFolderDialog";
+import SessionFoldersDialog from "./SessionFoldersDialog";
+import { outsideFolders, sessionFolderPath, type SessionFolder } from "../../utils/sessionFolders";
 import { listenForAddFolder, type AddFolderDetail } from "./addFolder";
+
+/** The folder trees of a session's folders outside it (G38). */
+function sessionFolderTrees(paths: string[]): Promise<FolderTree[]> {
+  return Promise.all(
+    paths.map((path) =>
+      invoke<FolderTree>(Invokes.GetFolderTree, { path, expandedFolders: [path], showImageCounts: true }),
+    ),
+  );
+}
 
 export interface SessionSummary {
   directory: string;
@@ -100,7 +111,10 @@ export interface SessionSummary {
     mode: "session" | "catalog";
     capture: string;
     output: string;
+    selects?: string;
   };
+  /** The session's Capture, Selects and Output folders (G38); none for a catalog. */
+  folders?: SessionFolder[];
   assets: number;
   picked: number;
   rated: number;
@@ -364,6 +378,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [catalog, setCatalog] = useState(false);
   const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
   const [catalogExport, setCatalogExport] = useState<{ selected: string[]; shown: string[] } | null>(null);
+  const [foldersOpen, setFoldersOpen] = useState(false);
   const [catalogImport, setCatalogImport] = useState(false);
   /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
   const [syncing, setSyncing] = useState<{ folder: string | null } | null>(null);
@@ -433,13 +448,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     async (summary: SessionSummary) => {
       summaryRequest.current++;
       const root = summary.directory;
-      const [tree, flags] = await Promise.all([
+      // The session's own folders outside it are listed beside its tree.
+      const outside = outsideFolders(summary.folders);
+      const [tree, flags, outsideTrees] = await Promise.all([
         invoke<FolderTree>(Invokes.GetFolderTree, {
           path: root,
           expandedFolders: [root],
           showImageCounts: true,
         }),
         invoke<Record<string, number>>(Invokes.SessionFlags, { directory: root }),
+        sessionFolderTrees(outside),
       ]);
       // Opening a library completes first start even if the default was kept.
       if (storedStudioLayout("layout") === null) {
@@ -452,10 +470,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       const subfolderDefaultRoot = summary.manifest.mode === "catalog" ? await join(root, summary.manifest.capture) : null;
       useLibraryStore.getState().setLibrary({
         sessionDirectory: root,
+        sessionFolders: summary.folders ?? [],
         subfolderDefaultRoot,
         imageFlags: flags,
-        rootPaths: [root],
-        folderTrees: [tree],
+        rootPaths: [root, ...outsideTrees.map((t) => t.path)],
+        folderTrees: [tree, ...outsideTrees],
         expandedFolders: new Set([root]),
       });
       const settings = useSettingsStore.getState();
@@ -464,7 +483,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           ...settings.appSettings,
           rootFolders: [root],
         });
-      await onNavigate(await join(root, summary.manifest.capture), true);
+      // The Capture folder; the session itself while it is not available.
+      const capture = summary.folders?.find((f) => f.role === "capture");
+      await onNavigate(
+        capture ? (capture.available ? capture.path : root) : await join(root, summary.manifest.capture),
+        true,
+      );
       const current = useSettingsStore.getState();
       if (current.appSettings) void current.handleSettingsChange({
         ...current.appSettings,
@@ -907,6 +931,21 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (request === summaryRequest.current && useLibraryStore.getState().sessionDirectory === session.directory)
       setSession(summary);
   }, [session]);
+  // A folder changed in Session Folders: the summary, the folders listed
+  // beside the session and the fixed folders follow.
+  const refreshFolders = useCallback(async (directory: string) => {
+    const summary = await invoke<SessionSummary>(Invokes.SessionSummary, { directory });
+    if (useLibraryStore.getState().sessionDirectory !== directory) return;
+    setSession(summary);
+    const outside = outsideFolders(summary.folders);
+    const trees = await sessionFolderTrees(outside);
+    const { folderTrees, setLibrary } = useLibraryStore.getState();
+    setLibrary({
+      sessionFolders: summary.folders ?? [],
+      rootPaths: [directory, ...trees.map((t) => t.path)],
+      folderTrees: [...folderTrees.filter((tree) => tree.path === directory), ...trees],
+    });
+  }, []);
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   // Undo/redo can restore flags without going through mark(): refresh the
@@ -1393,7 +1432,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         shown ??
         (adding
           ? files[0].slice(0, Math.max(files[0].lastIndexOf("/"), files[0].lastIndexOf("\\")))
-          : (folder ?? (await join(session.directory, session.manifest.capture))));
+          : (folder ?? sessionFolderPath(session, "capture")));
       setImportMode(adding ? "add" : "copy");
       if (useUIStore.getState().activeView !== "editor") await onNavigate(destination);
       // The view this import shows; still shown afterwards, it changes to Previous Import.
@@ -1457,7 +1496,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // Where the ingest copies to: the full path, so a folder on another drive
   // is plain to see, and that drive's name.
   const libraryRoot = session?.directory.replace(/[\\/]+$/, "") ?? "";
-  const destinationPath = target.folder ?? `${libraryRoot}/${session?.manifest.capture ?? "Capture"}`;
+  const destinationPath = target.folder ?? (session ? sessionFolderPath(session, "capture") : `${libraryRoot}/Capture`);
   const insideLibrary = Boolean(libraryRoot) && destinationPath.startsWith(`${libraryRoot}`) &&
     /[\\/]/.test(destinationPath.charAt(libraryRoot.length));
   const destinationLabel = insideLibrary
@@ -1511,6 +1550,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   icon: RefreshCcw,
                   disabled: !session,
                   onClick: () => setSyncing({ folder: null }),
+                },
+                {
+                  // Capture, Selects and Output, inside or outside the session (G38).
+                  label: t("session.folders.menu"),
+                  icon: FolderOpen,
+                  disabled: session?.manifest.mode !== "session",
+                  onClick: () => setFoldersOpen(true),
                 },
                 {
                   // The selection, or what the folder or album shows (G39).
@@ -1727,6 +1773,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             window.dispatchEvent(new CustomEvent(FOLDER_SYNC_APPLIED, { detail: applied }));
             window.dispatchEvent(new Event(IMPORTS_CHANGED));
           }}
+        />
+      )}
+      {foldersOpen && session && (
+        <SessionFoldersDialog
+          directory={session.directory}
+          onClose={() => setFoldersOpen(false)}
+          onChanged={() => void refreshFolders(session.directory)}
         />
       )}
       {catalogExport && session && <CatalogExportDialog directory={session.directory} name={session.manifest.name}
@@ -2172,7 +2225,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               )}
               {target.folder && (
                 <button type="button" className="session-link-button" onClick={() => setTarget({ ...target, folder: null })}>
-                  {t("session.ingest.useCapture", { folder: session?.manifest.capture ?? "Capture" })}
+                  {t("session.ingest.useCapture", { folder: session ? sessionFolderPath(session, "capture").split(/[\\/]/).pop() : "Capture" })}
                 </button>
               )}
               {target.album && (
