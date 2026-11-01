@@ -90,8 +90,8 @@ pub struct Baseline {
     pub photos: BTreeMap<String, BTreeMap<String, String>>,
     /// The stacks both catalogs held after the last import, as stacks here
     /// (`None`: not recorded, then a stack changed there is not brought over
-    /// on its own); in an Export as Catalog's record: the stacks of this
-    /// catalog when it was exported.
+    /// on its own); in an Export as Catalog's record: the source's stacks
+    /// over the exported photographs when it was exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stacks: Option<Vec<Stack>>,
 }
@@ -149,6 +149,9 @@ pub struct Plan {
     /// The photographs here that the other library holds (by their id here):
     /// the only ones its stacks can speak of.
     pub known_here: HashSet<String>,
+    /// Ids of the other library's stacks the photographer chose to leave as
+    /// they are (they still complete, as `merge_stack` does).
+    pub stacks_left: HashSet<String>,
 }
 
 /// A changed photograph of a `Plan`.
@@ -371,8 +374,9 @@ impl Library {
     }
 
     /// Every photograph's state now, as the record of an Export as Catalog
-    /// of this (new) catalog from the catalog `origin`.
-    pub fn export_baseline(&self, origin: &str) -> Result<Baseline> {
+    /// of this (new) catalog from the catalog `origin`, whose stacks over
+    /// the exported photographs (`stacks`, whole) are the common stacks.
+    pub fn export_baseline(&self, origin: &str, stacks: Vec<Stack>) -> Result<Baseline> {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
@@ -385,7 +389,7 @@ impl Library {
         }
         Ok(Baseline {
             origin: origin.to_string(),
-            stacks: Some(self.stacks()?),
+            stacks: Some(stacks),
             photos,
         })
     }
@@ -974,7 +978,9 @@ impl Library {
                 crate::stacks::sync_stack(
                     &tx,
                     stack,
-                    plan.common_stacks.as_deref(),
+                    plan.common_stacks
+                        .as_deref()
+                        .filter(|_| !plan.stacks_left.contains(&stack.id)),
                     &plan.known_here,
                 )?
                 .is_some(),

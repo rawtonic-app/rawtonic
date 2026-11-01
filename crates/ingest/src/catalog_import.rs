@@ -284,7 +284,7 @@ pub fn import(
     // members named as here (read before the snapshot keeps only what
     // comes in). Photographs kept as they are here (unchanged, Keep
     // current) are members too; one imported as a virtual copy is not.
-    let (stacks, theirs_as_here, known_here) = {
+    let (stacks, theirs_as_here, known_here, stacks_left) = {
         let here: HashMap<&str, &str> = photos
             .iter()
             .filter_map(|p| match (p.status, &p.target) {
@@ -302,9 +302,10 @@ pub fn import(
         let used: HashSet<&str> = used.iter().map(String::as_str).collect();
         let all = Library::stacks_as_here(&source.snapshot, &here)?;
         let named = source.snapshot.stacks()?;
-        // The ones to bring: those with an imported photograph, or with a
-        // photograph whose stack the photographer takes over and none
-        // whose stack is left as it is (one choice for the whole stack).
+        // The ones to bring: those with an imported photograph or one whose
+        // stack is offered. One choice stands for the whole stack: with a
+        // photograph set to Keep current it is only completed, however the
+        // others are set.
         let chosen: Vec<Stack> = named
             .iter()
             .zip(&all)
@@ -315,12 +316,21 @@ pub fn import(
                         .iter()
                         .any(|m| set.contains(m.asset_id.as_str()))
                 };
-                any(&used) || (any(&stack_replaced) && !any(&stack_left))
+                any(&used) || any(&stack_replaced)
             })
             .map(|(_, here)| here.clone())
             .collect();
         let known: HashSet<String> = here.values().map(|id| id.to_string()).collect();
-        (chosen, all, known)
+        let left: HashSet<String> = named
+            .iter()
+            .filter(|s| {
+                s.members
+                    .iter()
+                    .any(|m| stack_left.contains(m.asset_id.as_str()))
+            })
+            .map(|s| s.id.clone())
+            .collect();
+        (chosen, all, known, left)
     };
     // Only what comes in: no other photograph's resources are copied (a
     // stack changed alone brings no photograph).
@@ -352,6 +362,7 @@ pub fn import(
         stacks,
         common_stacks: common_stacks.clone(),
         known_here: known_here.clone(),
+        stacks_left,
     };
     // A new photograph inside the other library's folder (its own copies)
     // belongs to it: referring to it would edit it in that library's name.

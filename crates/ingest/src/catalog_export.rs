@@ -168,7 +168,7 @@ pub fn export_catalog(
         &format!("Export as Catalog from {}", source.display()),
     )?;
     let stage_root = staged.path().canonicalize()?;
-    let catalog = Library::subset_from(&source, &stage_root, &options.name, ids)?;
+    let (catalog, source_stacks) = Library::subset_from(&source, &stage_root, &options.name, ids)?;
     catalog.check_integrity()?;
     // Photographs another library owns: their latest edit is there, so
     // what this library holds of them may be older. Never exported.
@@ -355,7 +355,7 @@ pub fn export_catalog(
     let origin = rawtonic_catalog::subset::read_manifest(&source)?.id;
     rawtonic_metadata::atomic_write(
         &stage_root.join(rawtonic_catalog::catalog_import::EXPORT_BASELINE),
-        serde_json::to_vec_pretty(&catalog.export_baseline(&origin)?)?,
+        serde_json::to_vec_pretty(&catalog.export_baseline(&origin, source_stacks)?)?,
     )?;
     catalog.check_integrity()?;
     catalog.compact()?;

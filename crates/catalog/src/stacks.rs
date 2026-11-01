@@ -603,7 +603,10 @@ impl Library {
     /// The stack states both libraries hold after an import: the stack here
     /// of each of `theirs` (members named as here, those not here left out;
     /// `known`: the photographs the other library holds) that is the same
-    /// there, and each of `before` that still is a stack here.
+    /// there, and each of `before` that no such stack replaces. A state of
+    /// `before` that is no stack here any more stays: it is what tells a
+    /// stack the photographer dissolved or changed here from one never
+    /// touched.
     pub fn stack_import_common(
         &self,
         theirs: &[Stack],
@@ -611,27 +614,23 @@ impl Library {
         known: &HashSet<String>,
     ) -> Result<Vec<Stack>> {
         let mut out: Vec<Stack> = Vec::new();
-        let mut keep = |here: Stack| {
-            if !out.iter().any(|c| same_state(c, &here)) {
-                out.push(here);
-            }
-        };
         for stack in theirs {
             let stack = existing_members(&self.conn, stack)?;
             if let Some(first) = stack.members.first()
                 && stack.members.len() >= 2
                 && let Some(here) = self.stack_of(first)?
                 && same_state(&restricted(&here, known), &stack)
+                && !out.iter().any(|c| same_state(c, &here))
             {
-                keep(here);
+                out.push(here);
             }
         }
+        let fresh: HashSet<Member> = out.iter().flat_map(|s| s.members.clone()).collect();
         for old in before {
-            if let Some(first) = old.members.first()
-                && let Some(here) = self.stack_of(first)?
-                && same_state(&here, old)
+            if !old.members.iter().any(|m| fresh.contains(m))
+                && !out.iter().any(|c| same_state(c, old))
             {
-                keep(here);
+                out.push(old.clone());
             }
         }
         Ok(out)

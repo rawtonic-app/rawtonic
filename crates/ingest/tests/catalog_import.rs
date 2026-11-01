@@ -470,6 +470,82 @@ fn stacks_of_the_export_and_a_first_keep_are_remembered() {
 }
 
 #[test]
+fn a_stack_larger_here_than_exported_keeps_its_other_members() {
+    use rawtonic_catalog::stacks::Member;
+    // Three stacked, two exported.
+    let (_tmp, w) = world_with(|main, ids| {
+        let all: Vec<Member> = ids.iter().cloned().map(Member::photo).collect();
+        main.group_stack(&all).unwrap();
+    });
+    let m = |i: usize| Member::photo(w.ids[i].clone());
+    assert_eq!(w.laptop.stack_of(&m(0)).unwrap().unwrap().members.len(), 2);
+    assert!(stack_only(&w).is_empty());
+    w.laptop.move_to_stack_top(&m(1)).unwrap();
+    assert_eq!(stack_only(&w).len(), 2);
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    // The new top, the member only here after the others.
+    assert_eq!(
+        w.main.stack_of(&m(0)).unwrap().unwrap().members,
+        [m(1), m(0), m(2)]
+    );
+}
+
+#[test]
+fn a_stack_unstacked_here_stays_so_after_other_imports_and_with_edits_on_a_member() {
+    use rawtonic_catalog::stacks::Member;
+    let (_tmp, w) = world_with(|main, ids| {
+        main.group_stack(&[Member::photo(ids[0].clone()), Member::photo(ids[1].clone())])
+            .unwrap();
+    });
+    let (a, b) = (
+        Member::photo(w.ids[0].clone()),
+        Member::photo(w.ids[1].clone()),
+    );
+    let again = || {
+        import(
+            &w.main,
+            &w.laptop.directory,
+            &options(NewPhotos::Reference),
+            &go(),
+            |_| {},
+        )
+        .unwrap()
+    };
+    // Keep current for one photograph decides for the stack, also when the
+    // other one comes in with an edit.
+    w.laptop.move_to_stack_top(&b).unwrap();
+    w.laptop.save_editor_state(&w.ids[1], &edit(2.5)).unwrap();
+    let mut mixed = options(NewPhotos::Reference);
+    mixed.overrides.insert(w.ids[0].clone(), Choice::Keep);
+    import(&w.main, &w.laptop.directory, &mixed, &go(), |_| {}).unwrap();
+    assert_eq!(exposure(&w.main, &w.ids[1]), json!(2.5));
+    assert_eq!(
+        w.main.stack_of(&a).unwrap().unwrap().members,
+        [a.clone(), b.clone()]
+    );
+
+    // Unstacked here, then another import (a new photograph): the stack is
+    // not made again when its top changes there.
+    again();
+    w.main.unstack(std::slice::from_ref(&a)).unwrap();
+    let card = w.root.join("Card");
+    fs::create_dir_all(&card).unwrap();
+    fs::write(card.join("n.arw"), "laptop n").unwrap();
+    w.laptop.add_asset(&card.join("n.arw")).unwrap();
+    assert_eq!(again().report.added, 1);
+    w.laptop.move_to_stack_top(&a).unwrap();
+    assert!(stack_only(&w).is_empty());
+    assert!(w.main.stack_of(&a).unwrap().is_none());
+}
+
+#[test]
 fn a_stack_there_does_not_replace_one_the_photographer_made_here() {
     use rawtonic_catalog::stacks::Member;
     let (_tmp, w) = world();
