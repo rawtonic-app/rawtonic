@@ -368,6 +368,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE2_FEATURE != 0 && expected & RELIGHT_PREVIEW_FEATURE == 0 {
             continue;
         }
+        // A range-3 light is a range-2 light too.
+        if expected & RELIGHT_RANGE3_FEATURE != 0 && expected & RELIGHT_RANGE2_FEATURE == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -396,6 +400,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE2_FEATURE != 0 {
             profile["relightLights"][0]["rangeVersion"] = json!(2);
         }
+        if expected & RELIGHT_RANGE3_FEATURE != 0 {
+            profile["relightLights"][0]["rangeVersion"] = json!(3);
+        }
         if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
             profile["lumaNoiseDetail"] = json!(70);
         }
@@ -406,7 +413,8 @@ fn preview_features_preserve_global_and_local_effects() {
             adjustments.mask_count = 0;
             assert_eq!(
                 preview_features(&adjustments),
-                expected & (RELIGHT_PREVIEW_FEATURE | RELIGHT_RANGE2_FEATURE)
+                expected
+                    & (RELIGHT_PREVIEW_FEATURE | RELIGHT_RANGE2_FEATURE | RELIGHT_RANGE3_FEATURE)
             );
             continue;
         }
@@ -7487,6 +7495,7 @@ fn pipeline_compilation_probe() {
     for features in (1..PREVIEW_PIPELINE_COUNT).filter(|f| {
         (f & REFINED_NR_PREVIEW_FEATURE == 0 || f & 16 != 0)
             && (f & RELIGHT_RANGE2_FEATURE == 0 || f & RELIGHT_PREVIEW_FEATURE != 0)
+            && (f & RELIGHT_RANGE3_FEATURE == 0 || f & RELIGHT_RANGE2_FEATURE != 0)
     }) {
         let start = Instant::now();
         create_preview_pipeline(

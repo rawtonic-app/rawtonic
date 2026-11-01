@@ -70,19 +70,26 @@ export interface RelightLight {
   rangeVersion?: number;
 }
 
-/** Ranges new lights get: Intensity 100 % is a clearly visible key light. */
-export const RELIGHT_RANGE_VERSION = 2;
+/**
+ * Ranges new lights get: Intensity 100 % is a clearly visible key light (2);
+ * no sheen on the eyes, a bounded lift of the photo's shadow side, clean
+ * silhouettes and flat backdrops for patterns (3, same gain as 2).
+ */
+export const RELIGHT_RANGE_VERSION = 3;
 // Intensity's gain in range 2 (crates/engine/src/relight.rs RANGE_2_*).
 const RANGE_2_MAX_GAIN = 4;
 const RANGE_2_EXPONENT = 1.5;
 
 /**
- * A light of the first ranges moved to the current ones, as bright as it
- * was (same gain, within range 2's top). Softness, Diffusion and Face
- * reflections then act as range 2 defines.
+ * A light of older ranges moved to the current ones, as bright as it was
+ * (same gain, within range 2's top; ranges 2 and 3 share the gain).
+ * Softness, Diffusion and Face reflections then act as the current ranges
+ * define.
  */
 export function relightWithCurrentRanges(light: RelightLight): RelightLight {
-  if ((light.rangeVersion ?? 1) >= RELIGHT_RANGE_VERSION) return light;
+  const version = light.rangeVersion ?? 1;
+  if (version >= RELIGHT_RANGE_VERSION) return light;
+  if (version >= 2) return { ...light, rangeVersion: RELIGHT_RANGE_VERSION };
   const gain = (light.intensity / 100) * 3;
   const intensity = 100 * Math.min(1, gain / RANGE_2_MAX_GAIN) ** (1 / RANGE_2_EXPONENT);
   return { ...light, intensity: Math.round(intensity * 10) / 10, rangeVersion: RELIGHT_RANGE_VERSION };

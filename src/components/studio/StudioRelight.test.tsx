@@ -424,7 +424,7 @@ it("applies a preset on the face in one click, sets the original light, and Undo
   const after = useEditorStore.getState().adjustments;
   const [light] = after.relightLights!;
   expect(after.relightLights).toHaveLength(1);
-  expect(light).toMatchObject({ temperature: 2700, rangeVersion: 2 });
+  expect(light).toMatchObject({ temperature: 2700, rangeVersion: 3 });
   // On the face (centre 65 %, 40 %), keyed from the side it turns to (right).
   expect([light.x, light.y]).toEqual([65, 40]);
   expect(light.rotation).toBeLessThan(0);
@@ -492,7 +492,7 @@ it("offers an old light the current ranges, as one undoable step", () => {
   mount();
   fireEvent.click(screen.getByRole("button", { name: "Use the current ranges" }));
   const [light] = useEditorStore.getState().adjustments.relightLights!;
-  expect(light.rangeVersion).toBe(2);
+  expect(light.rangeVersion).toBe(3);
   expect(light.intensity).toBeCloseTo(52, 0);
   expect(screen.queryByRole("button", { name: "Use the current ranges" })).toBeNull();
 });

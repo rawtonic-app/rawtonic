@@ -45,8 +45,9 @@ pub const MIN_SHADING: f32 = 0.2;
 /// the frame's texture: left, x and y of the people normal (z is positive,
 /// the surface faces the camera), the subject matte and the weight of the
 /// people normal (0 where no person was analyzed); right, the share of the
-/// photo that is the original light's skin highlight (`specular`) and the
-/// background reach (`background_reach`, 1 without one).
+/// photo that is the original light's skin highlight (`specular`), the
+/// background reach (`background_reach`, 1 without one) and, filled in when
+/// the recipe is read, the eyes (`mark_eyes`).
 pub fn encode_subject(
     normals: &Normals,
     matte: &image::GrayImage,
@@ -73,6 +74,79 @@ pub fn encode_subject(
             Rgba([wide(specular, x, y, 0), wide(reach, x, y, 65535), 0, 65535])
         }
     })
+}
+
+/// Marks the eyes of `faces` (face-mesh points, x/y normalized to the frame)
+/// in the atlas's right half, third channel: 1 inside the lids, fading out
+/// over a margin of a quarter of the eye's size. An eye is a wet, mirror-like
+/// surface: a broad skin sheen over it reads as a milky veil.
+pub fn mark_eyes(atlas: &mut SubjectImage, faces: &[Vec<[f32; 4]>]) {
+    let (w, h) = (atlas.width() / 2, atlas.height());
+    for face in faces {
+        for eye in &EXCLUDED[..2] {
+            let Some(points) = eye
+                .iter()
+                .map(|&i| face.get(i).map(|p| [p[0] * w as f32, p[1] * h as f32]))
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let n = points.len() as f32;
+            let centre = [
+                points.iter().map(|p| p[0]).sum::<f32>() / n,
+                points.iter().map(|p| p[1]).sum::<f32>() / n,
+            ];
+            let scaled = |scale: f32| -> Vec<[f32; 2]> {
+                points
+                    .iter()
+                    .map(|p| {
+                        [
+                            centre[0] + (p[0] - centre[0]) * scale,
+                            centre[1] + (p[1] - centre[1]) * scale,
+                        ]
+                    })
+                    .collect()
+            };
+            // The smallest scale of the contour about its centre that holds
+            // a pixel (the contour is star-shaped about it).
+            let scale_at = |q: [f32; 2]| {
+                let (mut lo, mut hi) = (0f32, 2f32);
+                if !inside(&scaled(hi), q) {
+                    return hi;
+                }
+                for _ in 0..12 {
+                    let mid = (lo + hi) / 2.;
+                    if inside(&scaled(mid), q) {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                hi
+            };
+            let reach = |k: usize| {
+                points
+                    .iter()
+                    .map(|p| (p[k] - centre[k]).abs())
+                    .fold(0., f32::max)
+                    * 1.5
+            };
+            let (rx, ry) = (reach(0), reach(1));
+            let x0 = (centre[0] - rx).floor().max(0.) as u32;
+            let x1 = ((centre[0] + rx).ceil().max(0.) as u32).min(w);
+            let y0 = (centre[1] - ry).floor().max(0.) as u32;
+            let y1 = ((centre[1] + ry).ceil().max(0.) as u32).min(h);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let s = scale_at([x as f32 + 0.5, y as f32 + 0.5]);
+                    let t = ((s - 1.05) / 0.25).clamp(0., 1.);
+                    let value = ((1. - t * t * (3. - 2. * t)) * 65535.).round() as u16;
+                    let texel = atlas.get_pixel_mut(x + w, y);
+                    texel[2] = texel[2].max(value);
+                }
+            }
+        }
+    }
 }
 
 /// The GPU values of an atlas texel (`encode_subject`): left [nx, ny, matte,

@@ -188,6 +188,9 @@ it("moves an old light to the current ranges as bright as it was", () => {
   // Range 1: 3 × 50 %; range 2: 4 × (intensity / 100)^1.5 (relight.rs).
   expect(4 * (moved.intensity / 100) ** 1.5).toBeCloseTo(1.5, 2);
   expect(relightWithCurrentRanges({ ...old, intensity: 100 }).intensity).toBeLessThanOrEqual(100);
+  // Range 2 has range 3's gain: only the version moves.
+  const second = { ...old, rangeVersion: 2 };
+  expect(relightWithCurrentRanges(second)).toEqual({ ...second, rangeVersion: RELIGHT_RANGE_VERSION });
   expect(relightWithCurrentRanges(moved)).toBe(moved);
   // Range 2's constants are the renderer's.
   expect(relightRs).toMatch(/const RANGE_2_MAX_GAIN: f32 = 4\.;/);

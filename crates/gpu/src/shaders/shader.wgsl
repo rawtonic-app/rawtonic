@@ -13,6 +13,9 @@ override ENABLE_RELIGHT: bool = true;
 // Range-2 lights (relight.rs RANGE_2_FLAG): compiled only into pipelines for
 // recipes that have one, so other recipes' exports keep their bits.
 override RELIGHT_RANGE2: bool = false;
+// Range-3 lights (relight.rs RANGE_3_FLAG), compiled likewise only into
+// pipelines for recipes with such a light.
+override RELIGHT_RANGE3: bool = false;
 // The luminance noise reduction's edge-preserving pass (LUMA_NR_EDGE_NOISE);
 // exports of quieter photos use pipelines without it (gpu_processing.rs
 // `LUMA_NR_EDGE_NOISE_START`).
@@ -6742,6 +6745,16 @@ fn relight_camera_visibility(uv: vec2<f32>, origin: vec3<f32>, direction: vec3<f
 // it does not estimate or remove the photograph's original specular highlights.
 // Return diffuse energy fraction and reflected radiance for unit illumination.
 fn relight_skin(normal: vec3<f32>, light: vec3<f32>, view: vec3<f32>, softness: f32, amount: f32) -> vec2<f32> {
+    return relight_skin_lobe(normal, light, view, 0.5 + 0.25 * softness, amount);
+}
+
+// Range version 3: skin's own sheen is a narrower lobe. The broad one of
+// range 2 lay over the whole face as a grey haze; real skin highlights sit
+// on the forehead, nose bridge and cheekbones (notes:
+// benchmark-results/rr-relight-realism-2026-11-01).
+const RELIGHT_RANGE3_ROUGHNESS: f32 = 0.3;
+
+fn relight_skin_lobe(normal: vec3<f32>, light: vec3<f32>, view: vec3<f32>, roughness: f32, amount: f32) -> vec2<f32> {
     let nl = max(dot(normal, light), 0.0);
     let nv = max(dot(normal, view), 0.0);
     if (amount <= 0.0 || nl <= 0.0 || nv <= 0.0) { return vec2<f32>(1.0, 0.0); }
@@ -6750,7 +6763,6 @@ fn relight_skin(normal: vec3<f32>, light: vec3<f32>, view: vec3<f32>, softness: 
     let vh = clamp(dot(half_vector, view), 0.0, 1.0);
     // Broaden the lobe for softer sources; the skin roughness is a modest
     // default, not a recovered material parameter.
-    let roughness = 0.5 + 0.25 * softness;
     let alpha2 = roughness * roughness * roughness * roughness;
     let denominator = nh * nh * (alpha2 - 1.0) + 1.0;
     let distribution = alpha2 / (3.14159265 * denominator * denominator);
@@ -6839,6 +6851,32 @@ const RELIGHT_RANGE2_FILL: f32 = 0.5;
 // Range version 2: Face reflections 100 % is a visible sheen (a dielectric
 // skin lobe alone stays below one L* step).
 const RELIGHT_RANGE2_SHINE: f32 = 12.0;
+// Range version 3 (notes: benchmark-results/rr-relight-realism-2026-11-01):
+// the lowest shading of the photo's own light a new light is divided by. The
+// fit's shadow side holds fill light it does not model (often ambient 0), so
+// 0.2 lifted shadow sides fivefold and flattened the face's modelling.
+const RELIGHT_RANGE3_MIN_SHADING: f32 = 0.5;
+// Range version 3's sheen relative to range 2's, for its narrower lobe.
+const RELIGHT_RANGE3_SHINE: f32 = 0.5;
+// The band inside the matte's edge, as a share of the short side, where
+// people normals turn less sideways: the model's silhouette normals graze
+// over a band wider than the true rim and lit it as a bright outline.
+const RELIGHT_RANGE3_RIM: f32 = 0.006;
+const RELIGHT_RANGE3_RIM_FLATTEN: f32 = 0.65;
+
+// A people normal near the matte's edge, turned towards the camera by how
+// close the edge is (range version 3).
+fn relight_rim_normal(n: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
+    let r = RELIGHT_RANGE3_RIM * min(dims.x, dims.y) / dims;
+    var interior = 1.0;
+    for (var k = 0u; k < 8u; k++) {
+        let a = f32(k) * 0.7853982;
+        interior = min(interior, relight_subject_sample(uv + vec2<f32>(cos(a), sin(a)) * r, 0.0).z);
+    }
+    let edge = 1.0 - smoothstep(0.5, 1.0, interior);
+    let xy = n.xy * (1.0 - RELIGHT_RANGE3_RIM_FLATTEN * edge);
+    return vec3<f32>(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+}
 
 
 fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool, people: vec4<f32>, reach_map: f32) -> RelightEnergy {
@@ -6878,10 +6916,15 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
             // People normals of a version-five subject are finer than the
             // depth's: they carry the light response where people are.
             if (people.w > 0.0) {
-                normal = normalize(mix(normal, relight_people_normal(people), people.w));
+                var people_normal = relight_people_normal(people);
+                if (RELIGHT_RANGE3) { people_normal = relight_rim_normal(people_normal, uv, dims); }
+                normal = normalize(mix(normal, people_normal, people.w));
             }
         }
     }
+    // Range version 3: no skin sheen on the eyes (the atlas's eye mask).
+    var eyes = 0.0;
+    if (RELIGHT_RANGE3 && people.z > 0.0) { eyes = relight_subject_sample(uv, 1.0).z; }
     var light_gain = vec3<f32>(0.0);
     var reflected_light = vec3<f32>(0.0);
     var shadow_ev = 0.0;
@@ -6913,15 +6956,29 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
                 }
             }
         }
+        let range3 = RELIGHT_RANGE3 && (u32(settings.y + 0.5) & 256u) != 0u;
         if (camera_lighting) {
             let c_camera = adjustments.global.relight_camera;
             let g_camera = adjustments.global.relight_geometry;
             let pattern_center = (placement.xy - c_camera.zw) * g_camera.x / c_camera.xy / g_camera.y;
             let sun_direction = vec3<f32>(-s * cos(settings.w), c * cos(settings.w), sin(settings.w));
-            projected = world_position.xy - sun_direction.xy * world_position.z / max(sun_direction.z, 0.0001) - pattern_center;
+            var position = world_position;
+            // Range version 3: monocular depth invents relief in plain
+            // backdrops, which bent a pattern into waves: behind the subject
+            // the pattern falls on a plane at the subject's distance. On the
+            // subject, depth blurred towards the background at its silhouette
+            // shifted the pattern into bright slivers along the edge: there
+            // it stays no farther than that plane.
+            let subject_inverse = adjustments.global.relight_source[3].x;
+            if (range3 && !scene_only && subject_inverse > 0.0) {
+                let plane = relight_position(uv, subject_inverse, strength);
+                let on_subject = relight_position(uv, max(surface.z, subject_inverse), strength);
+                position = mix(plane, on_subject, people.z);
+            }
+            projected = position.xy - sun_direction.xy * position.z / max(sun_direction.z, 0.0001) - pattern_center;
             if (placement.w > 0.5) {
                 let source = relight_source(controls.xy, controls.w, strength);
-                projected = world_position.xy + (world_position.xy - source.xy) * world_position.z / max(source.z - world_position.z, 0.0001) - pattern_center;
+                projected = position.xy + (position.xy - source.xy) * position.z / max(source.z - position.z, 0.0001) - pattern_center;
             }
         }
         let pc = cos(controls.z);
@@ -6993,9 +7050,13 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
                     // surface without dimming the side facing it.
                     let soft = max(shape.z * RELIGHT_RANGE2_WRAP, 0.15 * people.w);
                     response = mix(max(dot(normal, direction) + soft, 0.0) / (1.0 + soft), RELIGHT_RANGE2_FILL, shape.w);
-                    let material = relight_skin(normal, direction, view, shape.z, skin);
+                    var material = relight_skin(normal, direction, view, shape.z, skin);
+                    if (range3) {
+                        material = relight_skin_lobe(normal, direction, view, RELIGHT_RANGE3_ROUGHNESS + 0.25 * shape.z, skin);
+                    }
                     response *= material.x;
                     specular = material.y * RELIGHT_RANGE2_SHINE;
+                    if (range3) { specular *= RELIGHT_RANGE3_SHINE * (1.0 - eyes); }
                 } else {
                     let wrap = max(shape.w * 0.2, 0.4 * people.w);
                     response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
@@ -7061,7 +7122,13 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         // Soft matte edges mix the person with the background (hair against
         // sky): only confidently covered pixels take the person's normal and
         // shading, or background light would be divided by the person's.
-        people.w *= smoothstep(0.5, 0.95, people.z);
+        // Range version 3 lights the matte's edge as the mix of person and
+        // background it is (below), so the person keeps its own normal
+        // there; the coarse scene depth's blurred bevel showed as a jagged
+        // outline.
+        if (!RELIGHT_RANGE3) {
+            people.w *= smoothstep(0.5, 0.95, people.z);
+        }
     }
     var confidence = 0.0;
     var planes: array<vec4<f32>, 4>;
@@ -7100,6 +7167,15 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     }
     let energy = relight_energy(surface, uv, coord, dims, false, people, background_reach);
     var light_gain = energy.diffuse;
+    // Range version 3: a pixel on the matte's edge is part subject, part
+    // background; the subject's light alone lit its background share as a
+    // bright, hard rim. Its own light is the coverage-weighted mix.
+    let mixed_edge = RELIGHT_RANGE3 && camera_mode && has_depth && energy.has_light
+        && adjustments.global.relight_source[3].x > 0.0 && people.z > 0.0 && people.z < 1.0;
+    var background_light = RelightEnergy(vec3<f32>(0.0), vec3<f32>(0.0), 0.0, false);
+    if (mixed_edge) {
+        background_light = relight_energy(surface, uv, coord, dims, false, vec4<f32>(0.0), background_reach);
+    }
     // Incident radiance must receive the same exposure as the diffuse photo.
     // Otherwise reducing exposure leaves newly added dielectric highlights fixed.
     var reflected_light = energy.reflected * exposure_gain;
@@ -7115,7 +7191,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // A light set up for the subject reaches its background only near it:
     // a wall right behind it, not the sky or a distant backdrop (version
     // five, the analysis's reach map; Original light alone keeps those).
-    if (camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
+    if (camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0 && !RELIGHT_RANGE3) {
         let reach = mix(1.0, background_reach, 1.0 - people.z);
         light_gain *= reach;
         reflected_light *= reach;
@@ -7123,7 +7199,21 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // New light lights the material, not the already lit photo: divide by
     // the photo's own shading where it is known (I·L/S = A·L).
     if (people.w > 0.0 && adjustments.global.relight_source[2].z > 0.5) {
-        light_gain /= mix(1.0, relight_source_shading(relight_people_normal(people)), people.w);
+        var shading = relight_source_shading(relight_people_normal(people));
+        if (RELIGHT_RANGE3) { shading = max(shading, RELIGHT_RANGE3_MIN_SHADING); }
+        light_gain /= mix(1.0, shading, people.w);
+    }
+    if (RELIGHT_RANGE3 && camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
+        // The subject's share takes the subject's light, the background's
+        // its own, reduced by its reach.
+        if (mixed_edge) {
+            light_gain = mix(background_light.diffuse * background_reach, light_gain, people.z);
+            reflected_light = mix(background_light.reflected * exposure_gain * background_reach, reflected_light, people.z);
+        } else {
+            let reach = mix(1.0, background_reach, 1.0 - people.z);
+            light_gain *= reach;
+            reflected_light *= reach;
+        }
     }
     // Multiplicative illumination preserves photographic texture and black;
     // accumulate lights commutatively so reordering does not change the result.
