@@ -3,6 +3,7 @@ import { INITIAL_ADJUSTMENTS } from './adjustments';
 import {
   BEFORE_FRAMING_KEYS,
   COMPARE_MODES,
+  keepMagnification,
   DEFAULT_SPLIT_POSITION,
   nextCompareMode,
   parseSplitOrientation,
@@ -135,5 +136,23 @@ describe('side by side', () => {
   it('has no divider for the keys to move', () => {
     expect(nudgeSplitPosition(0.5, 'ArrowLeft', false, 'side-by-side')).toBeNull();
     expect(nudgeSplitPosition(0.5, 'Home', false, 'side-by-side')).toBeNull();
+  });
+});
+
+describe('keepMagnification', () => {
+  it('keeps 100 % on the same detail when the before pane halves the viewer', () => {
+    // 8000 px photo: fit 1000 px wide in a 1000 px viewer, zoomed to 100 % (×8),
+    // the photo point (0.25, 0.5) at the centre.
+    const wide = { width: 1000, height: 500, offsetX: 0, offsetY: 250, containerWidth: 1000, containerHeight: 1000 };
+    const half = { width: 500, height: 250, offsetX: 0, offsetY: 375, containerWidth: 500, containerHeight: 1000 };
+    const next = keepMagnification(wide, half, 8, 0.25, 0.5);
+    expect(next.scale).toBe(16);
+    // The centre of the narrower viewer shows the same photo point.
+    expect(((half.containerWidth / 2 - next.x) / next.scale - half.offsetX) / half.width).toBeCloseTo(0.25);
+    expect(((half.containerHeight / 2 - next.y) / next.scale - half.offsetY) / half.height).toBeCloseTo(0.5);
+    // Back again: the original transform.
+    const back = keepMagnification(half, wide, next.scale, 0.25, 0.5);
+    expect(back.scale).toBe(8);
+    expect(back.x).toBeCloseTo(500 - 8 * 250);
   });
 });

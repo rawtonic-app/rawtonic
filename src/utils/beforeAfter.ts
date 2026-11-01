@@ -157,3 +157,20 @@ export function nudgeSplitPosition(position: number, key: string, shift: boolean
       return null;
   }
 }
+
+/** A fitted photograph in its viewer (useImageRenderSize's RenderSize). */
+type FitSize = { width: number; height: number; offsetX: number; offsetY: number; containerWidth: number; containerHeight: number };
+
+/**
+ * The transform that shows the photograph at the same magnification (CSS
+ * pixels per photo pixel) with the point `a`, `b` (shares of the photo) at
+ * the viewer's centre, after its fit changed from `old` to `next`.
+ */
+export function keepMagnification(old: FitSize, next: FitSize, scale: number, a: number, b: number) {
+  const nextScale = scale * (old.width / next.width);
+  return {
+    scale: nextScale,
+    x: next.containerWidth / 2 - nextScale * (next.offsetX + a * next.width),
+    y: next.containerHeight / 2 - nextScale * (next.offsetY + b * next.height),
+  };
+}

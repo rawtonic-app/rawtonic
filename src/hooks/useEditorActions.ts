@@ -1,4 +1,5 @@
 import { useCallback, type SyntheticEvent } from 'react';
+import { sourceDevelopToApply } from '../utils/aiDenoise';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import i18next from 'i18next';
@@ -947,6 +948,12 @@ export function startToolBefore(tool: string, reset: () => void): boolean {
   if (state.showOriginal || state.previewOverride || state.isSliderDragging) return false;
   const without = adjustmentsAfter(reset);
   if (!without) return false;
+  // A tool that lives in the RAW's decode (AI Denoise, the colour noise
+  // base, …) would need the photograph developed again, seconds, not a held
+  // look: the preview would keep the edit's decode under a "without" label.
+  const image = state.selectedImage!;
+  const develop = (recipe: Adjustments) => JSON.stringify(sourceDevelopToApply(image, recipe, false));
+  if (develop(without) !== develop(state.adjustments)) return false;
   state.setEditor({ toolBefore: tool, previewOverride: without });
   return true;
 }

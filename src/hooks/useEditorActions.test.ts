@@ -1090,6 +1090,17 @@ describe('per-tool before and the whole-photo toggle', () => {
     expect(useEditorStore.getState().toolBefore).toBeNull();
   });
 
+  it('is not offered for a tool that lives in the RAW decode (AI Denoise): it would need a new develop', () => {
+    useEditorStore.setState({
+      selectedImage: { ...photo('/denoised.dng'), isDecoded: true, aiDenoise: 50 } as never,
+      adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 50 },
+    });
+    expect(startToolBefore('Noise reduction', () => updateAdjustments({ aiDenoise: 0 }))).toBe(false);
+    expect(useEditorStore.getState()).toMatchObject({ toolBefore: null, previewOverride: null });
+    // A tool rendered from the decode as it is still shows.
+    expect(startToolBefore('Exposure', resetExposure)).toBe(true);
+  });
+
   it('ends with an edit, which applies to the recipe, not the preview', () => {
     startToolBefore('Exposure', resetExposure);
     updateAdjustments({ contrast: 10 });

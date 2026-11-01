@@ -39,6 +39,7 @@ import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
 import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
+import { keepMagnification } from '../../utils/beforeAfter';
 import BrowserBeforePane from './editor/BrowserBeforePane';
 import {
   MIN_VIEWER_ZOOM,
@@ -439,6 +440,30 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   );
   const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions, proofMargin);
   const imageRenderSizeRef = useRef(imageRenderSize);
+  // The fit before the before pane opened or closed (side by side), until
+  // the viewer's new size arrives.
+  const paneChangeRef = useRef<RenderSize | null>(null);
+  const sideBySideLayout = useEditorStore((s) => s.splitView && s.splitOrientation === 'side-by-side') &&
+    !isCropping && canRenderSource(selectedImage);
+  useLayoutEffect(() => {
+    paneChangeRef.current = imageRenderSizeRef.current;
+  }, [sideBySideLayout]);
+  // Opening or closing the before pane halves or doubles the viewer: keep the
+  // magnification and the point of the photograph at the viewer's centre, so
+  // 100 % stays 100 % on the same detail (zoom is relative to the fit).
+  useLayoutEffect(() => {
+    const old = paneChangeRef.current;
+    if (!old || imageRenderSize.width === old.width) return;
+    paneChangeRef.current = null;
+    const { scale, positionX, positionY } = transformStateRef.current;
+    if (!(old.width > 0) || !(old.height > 0) || !(imageRenderSize.width > 0) || scale <= 1.01) return;
+    const a = ((old.containerWidth / 2 - positionX) / scale - old.offsetX) / old.width;
+    const b = ((old.containerHeight / 2 - positionY) / scale - old.offsetY) / old.height;
+    const next = keepMagnification(old, imageRenderSize, scale, a, b);
+    const bounded = clampToBounds(next.x, next.y, next.scale);
+    applyTransform(bounded.x, bounded.y, bounded.scale);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new fit after a pane change acts
+  }, [imageRenderSize]);
   imageRenderSizeRef.current = imageRenderSize;
   /** Tells the preview the size the photograph is shown at with `scale`. */
   const reportDisplaySize = useCallback(
@@ -1648,8 +1673,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       // so it stays where it was put while panning and zooming.
       // A held before peek (showOriginal) covers both sides with the before.
       const { splitView, splitPosition, splitOrientation, showOriginal: peeking } = useEditorStore.getState();
+      // Side by side keeps its before pane through a held peek.
       const sideBySide = splitOrientation === 'side-by-side' && paneOffset !== null;
-      const split = splitView && !state.isCropping && !peeking
+      const split = splitView && !state.isCropping && (sideBySide || !peeking)
         ? sideBySide
           ? currentRect.left * dpr
           : splitScreenX(splitOrientation === 'top-bottom' ? { left: currentRect.top, width: currentRect.height } : currentRect, splitPosition, dpr)
@@ -2434,8 +2460,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isWgpuActive = appSettings?.useWgpuRenderer !== false && (hasRenderedFirstFrame || holdingNativeFrame);
-  // A held or toggled whole before and cropping show one photograph.
-  const sideBySideShown = splitView && splitOrientation === 'side-by-side' && !isCropping && !showOriginal &&
+  // Cropping shows one photograph. A held or toggled whole before keeps the
+  // panes (its before then fills the after pane too), so nothing moves.
+  const sideBySideShown = splitView && splitOrientation === 'side-by-side' && !isCropping &&
     canRenderSource(selectedImage);
   // The before pane mirrors the after pane: a wheel over it zooms both
   // about the same point of the photograph.
