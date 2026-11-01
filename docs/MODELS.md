@@ -74,6 +74,16 @@ see them:
 | BiRefNet lite (Swin-T) | 0.802 / 0.914 | 55 % | 0.789 | 0.037 | 1.3 s |
 | BiRefNet (Swin-L, shipped) | 0.883 / 0.937 | 71 % | 0.882 | 0.021 | 5.0 s |
 
+Select Subject keeps the subject in focus (2026-11-01,
+`rawtonic_segment::select_subject`): BiRefNet marks every foreground object,
+so separate objects of its mask whose edges are clearly more blurred than
+the sharpest object's (median defocus σ more than 2.2× and 0.8 px more, at
+1280 px) are left out with their soft edge; one object is never cut.
+Against Lightroom's Select Subject on the three Subject photos of a real
+Lightroom catalog, IoU 0.375 → 0.551 on the photo with a second, blurred
+flower (others unchanged); on 76 further RAWs no mask changed. Relight's
+matte stays the network's own (`run_subject_model`).
+
 On eight RAW samples (pumpkin, figurines, flower, toy, umbellifers, robin,
 fruit bowl, geranium) BiRefNet's masks are complete and sharp where U²-Net's
 were grey and incomplete (umbellifers, geranium pot, the figurines' gaps);

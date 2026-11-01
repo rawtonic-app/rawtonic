@@ -40,7 +40,7 @@ impl SelectionDetector for Models {
             AutoSelection::Subject => self
                 .0
                 .subject()
-                .and_then(|m| rawtonic_segment::run_subject_model(warped, &m, linear, None)),
+                .and_then(|m| rawtonic_segment::select_subject(warped, &m, linear, None)),
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)

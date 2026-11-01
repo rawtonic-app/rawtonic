@@ -34,7 +34,9 @@ use rawtonic_segment::{
     SKYSEG_FILENAME, SKYSEG_SHA256, SUBJECT_FILENAME, SUBJECT_SHA256, box_filter_opt, display_rgb8,
     fast_guided_filter, file_has_sha256, run_single,
 };
-pub use rawtonic_segment::{SkyModel, SubjectModel, run_sky_seg_model, run_subject_model};
+pub use rawtonic_segment::{
+    SkyModel, SubjectModel, run_sky_seg_model, run_subject_model, select_subject,
+};
 
 /// Rawtonic's model pack: files rebuilt from their authors' releases, with
 /// licenses (docs/MODELS.md, scripts/models/build_model_pack.py);
@@ -3260,7 +3262,7 @@ mod tool_tests {
                 ),
                 (
                     "subject",
-                    super::run_subject_model(&image, &subject, linear, None).unwrap(),
+                    super::select_subject(&image, &subject, linear, None).unwrap(),
                 ),
             ] {
                 let (w, h) = mask.dimensions();

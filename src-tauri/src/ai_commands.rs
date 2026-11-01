@@ -13,7 +13,7 @@ use crate::ai_processing::{
     generate_image_embeddings, get_or_init_depth_model, get_or_init_sam_models,
     get_or_init_sky_model, get_or_init_subject_model, mask_model_installed,
     run_depth_anything_model, run_sam_decoder, run_sam_decoder_prompts, run_sky_seg_model,
-    run_subject_model,
+    select_subject,
 };
 use crate::app_state::{AiTaskGuard, AiTaskToken, AppState};
 use crate::cache_utils::GEOMETRY_KEYS;
@@ -874,7 +874,7 @@ async fn auto_mask(
         let qos = crate::ai_processing::thread_qos();
         let (mask, backend) = match &network {
             Network::Subject(model) => (
-                run_subject_model(warped_image.as_ref(), model, is_raw, run_options.as_deref()),
+                select_subject(warped_image.as_ref(), model, is_raw, run_options.as_deref()),
                 model.backend_name(),
             ),
             Network::Sky(model) => (
@@ -947,7 +947,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
             })?;
         let started = std::time::Instant::now();
         let mask = match &network {
-            Network::Subject(model) => run_subject_model(warped, model, linear, None),
+            Network::Subject(model) => select_subject(warped, model, linear, None),
             Network::Sky(model) => run_sky_seg_model(warped, model, linear, None),
         }
         .map_err(|e| e.to_string())?;
