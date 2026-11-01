@@ -2567,6 +2567,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "拖动以调整 · 双击重置",
+      "trackHint": "拖动以调整；将指针移离滑块可更精细调整 · Alt (⌥)：十分之一 · 双击重置",
       "value": "{{name}}值",
       "valueWithUnit": "{{name}}值（{{unit}}）"
     },

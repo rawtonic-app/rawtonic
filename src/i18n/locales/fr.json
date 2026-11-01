@@ -2800,6 +2800,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "Faites glisser pour régler · double-clic pour réinitialiser",
+      "trackHint": "Faites glisser pour régler ; éloignez le pointeur du curseur pour des pas plus fins · Alt (⌥) : un dixième · double-clic pour réinitialiser",
       "value": "{{name}} – valeur",
       "valueWithUnit": "{{name}} – valeur ({{unit}})"
     },

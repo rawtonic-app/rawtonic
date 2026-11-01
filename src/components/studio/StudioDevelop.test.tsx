@@ -115,7 +115,7 @@ describe("Develop tool contracts", () => {
       ["Temperature", -100, 100, 1, 0],
       ["Tint", -100, 100, 1, 0],
       ["Exposure", -5, 5, 0.01, 0],
-      ["Brightness", -5, 5, 0.01, 0],
+      ["Brightness", -2, 2, 0.01, 0],
       ...[
         "Contrast",
         "Highlights",
@@ -259,7 +259,7 @@ describe("Develop tool contracts", () => {
     fireEvent.keyDown(slider, { key: "ArrowRight" });
     expect(useEditorStore.getState().adjustments.brightness).toBe(0.41);
     edit("Brightness", 80);
-    expect(useEditorStore.getState().adjustments.brightness).toBe(5);
+    expect(useEditorStore.getState().adjustments.brightness).toBe(2);
     fireEvent.doubleClick(slider);
     expect(useEditorStore.getState().adjustments.brightness).toBe(0);
     fireEvent.click(screen.getByRole("button", { name: "Layers & masks" }));
@@ -580,6 +580,27 @@ describe("Develop tool contracts", () => {
     fireEvent.pointerUp(slider);
     expect(useEditorStore.getState().adjustments.regionCurve?.highlights).toBe(80);
     unregister();
+  });
+
+  it("makes a press beside a slider's thumb and its drag one undo step", () => {
+    // Codex r1: the jump to the pointer went out before the drag began, so
+    // it became a history step of its own and Undo stopped at it.
+    mount();
+    const slider = screen.getByRole("slider", { name: "Exposure" }) as HTMLInputElement;
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, width: 109, height: 20 } as DOMRect);
+    slider.setPointerCapture = vi.fn();
+    const exposure = () => useEditorStore.getState().adjustments.exposure;
+    fireEvent.pointerDown(slider, { button: 0, clientX: 14.5, clientY: 10 });
+    // Long enough for the drag's drafts to be committed on the way.
+    for (const x of [19.5, 24.5]) {
+      act(() => vi.advanceTimersByTime(300));
+      fireEvent.pointerMove(slider, { clientX: x, clientY: 10 });
+    }
+    fireEvent.pointerUp(slider);
+    expect(exposure()).toBe(-3);
+    act(() => debouncedSetHistory.flush());
+    act(() => useEditorStore.getState().undo());
+    expect(exposure()).toBe(0);
   });
 
   it("ends a curve drag on cancellation and unmount", () => {

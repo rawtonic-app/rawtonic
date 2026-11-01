@@ -2567,6 +2567,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "ドラッグで調整 · ダブルクリックでリセット",
+      "trackHint": "ドラッグで調整。ポインタをスライダーから離すと細かく調整 · Alt (⌥): 10分の1 · ダブルクリックでリセット",
       "value": "{{name}}の値",
       "valueWithUnit": "{{name}}の値（{{unit}}）"
     },

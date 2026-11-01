@@ -2567,6 +2567,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "드래그하여 조정 · 두 번 클릭하여 재설정",
+      "trackHint": "드래그하여 조정, 포인터를 슬라이더에서 멀리 이동하면 더 세밀하게 · Alt (⌥): 10분의 1 · 두 번 클릭하여 재설정",
       "value": "{{name}} 값",
       "valueWithUnit": "{{name}} 값({{unit}})"
     },
