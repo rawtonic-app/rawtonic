@@ -1566,6 +1566,38 @@
     "fields": {
       "filenameTemplate": "Filename template"
     },
+    "folders": {
+      "change": "Change…",
+      "choose": "Choose the {{folder}} folder",
+      "chooseFor": "Change the {{folder}} folder",
+      "done": "Done",
+      "inside": "Inside the session",
+      "intro": "Where this session puts captures and imports (Capture), photos you move to Selects (Selects) and exports (Output). A folder inside the session moves with it; a folder outside it, such as on another drive, stays where it is.",
+      "menu": "Session Folders…",
+      "moveContents": "Move the contents to the new folder",
+      "moveContentsHelp": "The files in the old folder move into the new one (copied and verified when it is on another drive). Edit ▸ Undo puts them back.",
+      "moved_one": "Moved {{count}} item.",
+      "moved_other": "Moved {{count}} items.",
+      "moveFailed": "The folder was changed, but its contents were not all moved: {{error}}",
+      "nothingMoves": "Changing a folder moves no files: what is in the old folder stays there and stays in the session.",
+      "outputUnavailable": "The Output folder {{folder}} is not available (is its drive connected?). Nothing was exported; choose another Output folder in Session Folders.",
+      "outside": "Outside the session",
+      "reading": "Reading…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "The Selects folder {{folder}} is not available (is its drive connected?). Nothing was moved; choose another Selects folder in Session Folders.",
+      "title": "Session Folders",
+      "unavailable": "Not available: the folder is missing or its drive is not connected.",
+      "unavailableUse": {
+        "capture": "Capturing and importing into it fail until it is back or another folder is chosen.",
+        "output": "Exports to the Output folder fail until it is back or another folder is chosen.",
+        "selects": "Move to Selects fails until it is back or another folder is chosen."
+      },
+      "working": "Working…"
+    },
     "hotFolder": {
       "chooseFolder": "Choose the watched folder",
       "copyFromLast": "Copy from last capture",

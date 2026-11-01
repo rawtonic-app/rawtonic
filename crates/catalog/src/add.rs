@@ -278,8 +278,8 @@ impl Library {
             )
         } else {
             ensure!(
-                self.manifest.mode == Mode::Catalog,
-                "Session assets must be inside the session; use verified ingest to copy them"
+                self.manifest.mode == Mode::Catalog || self.in_outside_folder(&path),
+                "Session assets must be inside the session or one of its folders; use verified ingest to copy them"
             );
             let parent = path.parent().context("No parent")?;
             (

@@ -10,7 +10,7 @@
 //! the catalog it came from by its id.
 use crate::{
     Library, Manifest, Mode, SCHEMA_VERSION, db_name, external_root_key, insert_root,
-    manifest_name, prune_blobs, validate_relative,
+    manifest_name, prune_blobs,
 };
 use anyhow::{Context, Result, ensure};
 use rawtonic_metadata::atomic_write;
@@ -33,8 +33,7 @@ pub fn read_manifest(source: &Path) -> Result<Manifest> {
         "Unsupported manifest version {}",
         manifest.schema_version
     );
-    validate_relative(Path::new(&manifest.capture))?;
-    validate_relative(Path::new(&manifest.output))?;
+    crate::session_folders::validate_manifest(&manifest)?;
     Ok(manifest)
 }
 
@@ -88,6 +87,8 @@ impl Library {
             mode: Mode::Catalog,
             capture: "Photos".into(),
             output: "Output".into(),
+            selects: crate::session_folders::default_selects(),
+            former_folders: Vec::new(),
         };
         atomic_write(
             &folder.join(manifest_name(Mode::Catalog)),

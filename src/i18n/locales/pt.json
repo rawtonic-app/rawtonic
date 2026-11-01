@@ -1652,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Modelo de nome de arquivo"
     },
+    "folders": {
+      "change": "Alterar…",
+      "choose": "Escolher a pasta {{folder}}",
+      "chooseFor": "Alterar a pasta {{folder}}",
+      "done": "Concluído",
+      "inside": "Dentro da sessão",
+      "intro": "Onde esta sessão guarda capturas e importações (Capture), as fotos movidas para Selects (Selects) e as exportações (Output). Uma pasta dentro da sessão move-se com ela; uma pasta fora, por exemplo noutro disco, fica onde está.",
+      "menu": "Pastas da sessão…",
+      "moveContents": "Mover o conteúdo para a nova pasta",
+      "moveContentsHelp": "Os ficheiros da pasta antiga são movidos para a nova (copiados e verificados se estiver noutro disco). Editar ▸ Desfazer devolve-os.",
+      "moved_one": "{{count}} item movido.",
+      "moved_many": "{{count}} itens movidos.",
+      "moved_other": "{{count}} itens movidos.",
+      "moveFailed": "A pasta foi alterada, mas o seu conteúdo não foi todo movido: {{error}}",
+      "nothingMoves": "Alterar uma pasta não move ficheiros: o que está na pasta antiga fica lá e na sessão.",
+      "outputUnavailable": "A pasta Output {{folder}} não está disponível (o disco está ligado?). Nada foi exportado; escolha outra pasta Output em Pastas da sessão.",
+      "outside": "Fora da sessão",
+      "reading": "A ler…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "A pasta Selects {{folder}} não está disponível (o disco está ligado?). Nada foi movido; escolha outra pasta Selects em Pastas da sessão.",
+      "title": "Pastas da sessão",
+      "unavailable": "Indisponível: a pasta não existe ou o disco não está ligado.",
+      "unavailableUse": {
+        "capture": "Capturar e importar para ela falha até que volte ou seja escolhida outra pasta.",
+        "output": "As exportações para a pasta Output falham até que volte ou seja escolhida outra pasta.",
+        "selects": "«Mover para Selects» falha até que volte ou seja escolhida outra pasta."
+      },
+      "working": "A trabalhar…"
+    },
     "hotFolder": {
       "chooseFolder": "Escolher a pasta monitorada",
       "copyFromLast": "Copiar da última captura",

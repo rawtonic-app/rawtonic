@@ -1520,6 +1520,37 @@
     "fields": {
       "filenameTemplate": "ファイル名テンプレート"
     },
+    "folders": {
+      "change": "変更…",
+      "choose": "{{folder}} フォルダを選択",
+      "chooseFor": "{{folder}} フォルダを変更",
+      "done": "完了",
+      "inside": "セッション内",
+      "intro": "このセッションが撮影と読み込み (Capture)、Selects に移動した写真 (Selects)、書き出し (Output) を置く場所です。セッション内のフォルダはセッションと一緒に移動し、別のドライブなどセッション外のフォルダはその場所に残ります。",
+      "menu": "セッションフォルダ…",
+      "moveContents": "内容を新しいフォルダに移動",
+      "moveContentsHelp": "古いフォルダのファイルを新しいフォルダに移動します (別のドライブへはコピーして検証)。編集 ▸ 取り消しで元に戻せます。",
+      "moved_other": "{{count}} 項目を移動しました。",
+      "moveFailed": "フォルダは変更されましたが、内容の一部が移動されていません: {{error}}",
+      "nothingMoves": "フォルダを変更してもファイルは移動しません。古いフォルダの内容はそのまま残り、セッションにも残ります。",
+      "outputUnavailable": "Output フォルダ {{folder}} を使用できません (ドライブは接続されていますか?)。何も書き出していません。「セッションフォルダ」で別の Output フォルダを選んでください。",
+      "outside": "セッション外",
+      "reading": "読み込み中…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Selects フォルダ {{folder}} を使用できません (ドライブは接続されていますか?)。何も移動していません。「セッションフォルダ」で別の Selects フォルダを選んでください。",
+      "title": "セッションフォルダ",
+      "unavailable": "使用できません: フォルダがないか、ドライブが接続されていません。",
+      "unavailableUse": {
+        "capture": "戻るか別のフォルダを選ぶまで、このフォルダへの撮影と読み込みは失敗します。",
+        "output": "戻るか別のフォルダを選ぶまで、Output フォルダへの書き出しは失敗します。",
+        "selects": "戻るか別のフォルダを選ぶまで、「Selects に移動」は失敗します。"
+      },
+      "working": "処理中…"
+    },
     "hotFolder": {
       "chooseFolder": "監視するフォルダを選択",
       "copyFromLast": "前回の撮影からコピー",

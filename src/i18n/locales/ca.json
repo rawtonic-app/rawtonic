@@ -1652,6 +1652,39 @@
     "fields": {
       "filenameTemplate": "Plantilla de nom de fitxer"
     },
+    "folders": {
+      "change": "Canvia…",
+      "choose": "Tria la carpeta {{folder}}",
+      "chooseFor": "Canvia la carpeta {{folder}}",
+      "done": "Fet",
+      "inside": "Dins de la sessió",
+      "intro": "On desa aquesta sessió les captures i importacions (Capture), les fotos mogudes a Selects (Selects) i les exportacions (Output). Una carpeta dins de la sessió es mou amb ella; una carpeta fora, per exemple en un altre disc, es queda on és.",
+      "menu": "Carpetes de la sessió…",
+      "moveContents": "Mou el contingut a la carpeta nova",
+      "moveContentsHelp": "Els fitxers de la carpeta anterior es mouen a la nova (copiats i verificats si és en un altre disc). Edita ▸ Desfés els torna.",
+      "moved_one": "{{count}} element mogut.",
+      "moved_many": "{{count}} elements moguts.",
+      "moved_other": "{{count}} elements moguts.",
+      "moveFailed": "S’ha canviat la carpeta, però el seu contingut no s’ha mogut del tot: {{error}}",
+      "nothingMoves": "Canviar una carpeta no mou cap fitxer: el que hi ha a la carpeta anterior s’hi queda i continua a la sessió.",
+      "outputUnavailable": "La carpeta Output {{folder}} no està disponible (el disc està connectat?). No s’ha exportat res; tria una altra carpeta Output a Carpetes de la sessió.",
+      "outside": "Fora de la sessió",
+      "reading": "Llegint…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "La carpeta Selects {{folder}} no està disponible (el disc està connectat?). No s’ha mogut res; tria una altra carpeta Selects a Carpetes de la sessió.",
+      "title": "Carpetes de la sessió",
+      "unavailable": "No disponible: falta la carpeta o el seu disc no està connectat.",
+      "unavailableUse": {
+        "capture": "Capturar i importar-hi falla fins que torni o se’n triï una altra.",
+        "output": "Les exportacions a la carpeta Output fallen fins que torni o se’n triï una altra.",
+        "selects": "«Mou a Selects» falla fins que torni o se’n triï una altra."
+      },
+      "working": "Treballant…"
+    },
     "hotFolder": {
       "chooseFolder": "Tria la carpeta vigilada",
       "copyFromLast": "Copia de l’última captura",

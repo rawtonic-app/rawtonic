@@ -54,6 +54,7 @@ import { canUndo, canRedo, getUndoLabel,
   getRedoLabel, undo, redo } from '../utils/appUndo';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
+import { usableSessionFolder } from '../utils/sessionFolders';
 import { useProcessStore } from '../store/useProcessStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -658,7 +659,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const copyLabel = t('contextMenus.thumbnail.copyImage', { count: selectionCount });
       const autoAdjustLabel = t('contextMenus.thumbnail.autoAdjust', { count: selectionCount });
       const renameLabel = t('contextMenus.thumbnail.renameImage', { count: selectionCount });
-      const sessionSelects = sessionDirectory ? `${sessionDirectory}/Selects` : null;
+      const sessionSelects = sessionDirectory ? (useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ?? `${sessionDirectory}/Selects`) : null;
       const cullLabel = t('contextMenus.thumbnail.cullImage', { count: selectionCount });
       const collageLabel = t('contextMenus.thumbnail.collage', { count: selectionCount });
       const stitchLabel = t('contextMenus.editor.stitchPanorama');
@@ -985,7 +986,13 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 icon: FolderInput,
                 label: t('settings.keybinds.actions.move_to_selects'),
                 disabled: finalSelection.every((p) => p.split('?vc=')[0].startsWith(`${sessionSelects}/`)),
-                onClick: () => props.handleMoveToFolder?.(finalSelection, sessionSelects),
+                onClick: () =>
+                  // A Selects folder outside the session whose drive is away
+                  // refuses the move, naming it (G38).
+                  void usableSessionFolder(sessionDirectory!, 'selects').then(
+                    (selects) => props.handleMoveToFolder?.(finalSelection, selects),
+                    () => notify.error(t('session.folders.selectsUnavailable', { folder: sessionSelects })),
+                  ),
               },
             ]
           : []),

@@ -22,7 +22,10 @@ import {
 import type { AppSettings } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(() => Promise.resolve()),
+  // The session's Output folder (G38) is where the session keeps it.
+  invoke: vi.fn((command: string, args?: { directory?: string }) =>
+    Promise.resolve(command === "session_usable_folder" ? `${args?.directory}/Output` : undefined),
+  ),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(() => Promise.resolve("/out")),

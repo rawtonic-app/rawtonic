@@ -1,3 +1,4 @@
+import type { SessionFolder } from '../utils/sessionFolders';
 import { create } from 'zustand';
 import { useSettingsStore } from './useSettingsStore';
 import {
@@ -47,6 +48,10 @@ interface LibraryState {
   imageRatings: Record<string, number>;
   imageFlags: Record<string, number>;
   sessionDirectory: string | null;
+  /** The open session's Capture, Selects and Output folders (G38): where
+   * "Move to Selects" goes; they stay where they are (no rename or move from
+   * the Folders panel). */
+  sessionFolders: SessionFolder[];
   /** The folder whose grid includes its subfolders unless the user turned
    * that off (a catalog's Photos root with its dated folders). */
   subfolderDefaultRoot: string | null;
@@ -102,6 +107,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   imageRatings: {},
   imageFlags: {},
   sessionDirectory: null,
+  sessionFolders: [],
   subfolderDefaultRoot: null,
   multiSelectedPaths: [],
   selectionAnchorPath: null,

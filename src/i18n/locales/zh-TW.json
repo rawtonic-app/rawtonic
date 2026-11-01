@@ -1520,6 +1520,37 @@
     "fields": {
       "filenameTemplate": "檔案名稱範本"
     },
+    "folders": {
+      "change": "變更…",
+      "choose": "選擇 {{folder}} 資料夾",
+      "chooseFor": "變更 {{folder}} 資料夾",
+      "done": "完成",
+      "inside": "在工作階段內",
+      "intro": "此工作階段存放拍攝與匯入 (Capture)、移到 Selects 的照片 (Selects) 以及輸出 (Output) 的位置。工作階段內的資料夾會隨工作階段一起移動；工作階段外的資料夾（例如在另一部磁碟上）則留在原處。",
+      "menu": "工作階段資料夾…",
+      "moveContents": "將內容移到新資料夾",
+      "moveContentsHelp": "舊資料夾中的檔案會移到新資料夾（移到其他磁碟時會複製並驗證）。編輯 ▸ 還原可將其移回。",
+      "moved_other": "已移動 {{count}} 個項目。",
+      "moveFailed": "資料夾已變更，但其內容未全部移動：{{error}}",
+      "nothingMoves": "變更資料夾不會移動任何檔案：舊資料夾中的內容留在原處，也仍在工作階段中。",
+      "outputUnavailable": "Output 資料夾 {{folder}} 無法使用（其磁碟是否已連接？）。未輸出任何內容；請在「工作階段資料夾」中選擇其他 Output 資料夾。",
+      "outside": "在工作階段外",
+      "reading": "正在讀取…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Selects 資料夾 {{folder}} 無法使用（其磁碟是否已連接？）。未移動任何內容；請在「工作階段資料夾」中選擇其他 Selects 資料夾。",
+      "title": "工作階段資料夾",
+      "unavailable": "無法使用：資料夾不存在或其磁碟未連接。",
+      "unavailableUse": {
+        "capture": "在它恢復或選擇其他資料夾之前，拍攝與匯入到其中都會失敗。",
+        "output": "在它恢復或選擇其他資料夾之前，輸出到 Output 資料夾會失敗。",
+        "selects": "在它恢復或選擇其他資料夾之前，「移到 Selects」會失敗。"
+      },
+      "working": "處理中…"
+    },
     "hotFolder": {
       "chooseFolder": "選擇受監看的資料夾",
       "copyFromLast": "從上一次拍攝拷貝",

@@ -12,6 +12,7 @@ use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 mod attributes;
+mod contents;
 mod folders;
 mod in_place;
 

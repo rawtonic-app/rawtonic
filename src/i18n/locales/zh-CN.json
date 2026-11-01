@@ -1520,6 +1520,37 @@
     "fields": {
       "filenameTemplate": "文件名模板"
     },
+    "folders": {
+      "change": "更改…",
+      "choose": "选择 {{folder}} 文件夹",
+      "chooseFor": "更改 {{folder}} 文件夹",
+      "done": "完成",
+      "inside": "在会话内",
+      "intro": "此会话存放拍摄和导入 (Capture)、移到 Selects 的照片 (Selects) 以及导出 (Output) 的位置。会话内的文件夹随会话一起移动；会话外的文件夹（例如在另一个驱动器上）保持原位。",
+      "menu": "会话文件夹…",
+      "moveContents": "将内容移到新文件夹",
+      "moveContentsHelp": "旧文件夹中的文件会移到新文件夹（移到其他驱动器时会复制并校验）。编辑 ▸ 撤销可将其移回。",
+      "moved_other": "已移动 {{count}} 项。",
+      "moveFailed": "文件夹已更改，但其内容未全部移动：{{error}}",
+      "nothingMoves": "更改文件夹不会移动任何文件：旧文件夹中的内容留在原处，也仍在会话中。",
+      "outputUnavailable": "Output 文件夹 {{folder}} 不可用（其驱动器是否已连接？）。未导出任何内容；请在“会话文件夹”中选择其他 Output 文件夹。",
+      "outside": "在会话外",
+      "reading": "正在读取…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Selects 文件夹 {{folder}} 不可用（其驱动器是否已连接？）。未移动任何内容；请在“会话文件夹”中选择其他 Selects 文件夹。",
+      "title": "会话文件夹",
+      "unavailable": "不可用：文件夹不存在或其驱动器未连接。",
+      "unavailableUse": {
+        "capture": "在它恢复或选择其他文件夹之前，拍摄和导入到其中都会失败。",
+        "output": "在它恢复或选择其他文件夹之前，导出到 Output 文件夹会失败。",
+        "selects": "在它恢复或选择其他文件夹之前，“移到 Selects”会失败。"
+      },
+      "working": "处理中…"
+    },
     "hotFolder": {
       "chooseFolder": "选择被监视的文件夹",
       "copyFromLast": "从上一次拍摄复制",

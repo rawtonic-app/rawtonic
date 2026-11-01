@@ -32,13 +32,44 @@ pub fn set_outside_photos(library: &Path, photos: HashSet<PathBuf>) {
     }
 }
 
+/// The folders the open session keeps outside its folder (its Capture,
+/// Selects or Output folder on another drive, G38), as the app registered
+/// them from its `session.json`.
+static OUTSIDE_FOLDERS: RwLock<Vec<(PathBuf, Vec<PathBuf>)>> = RwLock::new(Vec::new());
+
+/// Registers the folders the session at `library` keeps outside its
+/// folder, replacing what was registered for it; none removes it.
+pub fn set_outside_folders(library: &Path, folders: Vec<PathBuf>) {
+    let mut registered = OUTSIDE_FOLDERS.write().unwrap_or_else(|e| e.into_inner());
+    registered.retain(|(dir, _)| dir != library);
+    if !folders.is_empty() {
+        registered.push((library.to_path_buf(), folders));
+    }
+}
+
+/// The session that registered a folder outside it holding `path` (the
+/// folder itself or anything below it).
+pub fn outside_folder_owner(path: &Path) -> Option<PathBuf> {
+    let registered = OUTSIDE_FOLDERS.read().unwrap_or_else(|e| e.into_inner());
+    if registered.is_empty() {
+        return None;
+    }
+    let path = registered_form(path);
+    registered
+        .iter()
+        .find(|(_, folders)| folders.iter().any(|folder| path.starts_with(folder)))
+        .map(|(dir, _)| dir.clone())
+}
+
 /// The library (session or catalog folder) whose resources — `profiles/`,
 /// `resources/` — a recipe of the photograph at `path` names: the library
 /// folder holding it, else the library that registered it as one of its
 /// photographs outside its folder. `path` may also be the photograph's
 /// editor sidecar (`<file>.rrdata`, `<file>.<copy>.rrdata`).
 pub fn library_root(path: &Path) -> Option<PathBuf> {
-    session_root(path).or_else(|| registered_owner(path))
+    session_root(path)
+        .or_else(|| registered_owner(path))
+        .or_else(|| outside_folder_owner(path))
 }
 
 fn registered_owner(path: &Path) -> Option<PathBuf> {
@@ -96,6 +127,29 @@ fn registered_form(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sessions_folder_outside_it_names_the_session_as_the_photos_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        let drive = dir.path().join("Drive/Capture");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::create_dir_all(drive.join("Day 1")).unwrap();
+        let drive = drive.canonicalize().unwrap();
+        let photo = drive.join("Day 1/A.ARW");
+        std::fs::write(&photo, b"a").unwrap();
+        assert_eq!(library_root(&photo), None);
+        set_outside_folders(&session, vec![drive.clone()]);
+        assert_eq!(library_root(&photo), Some(session.clone()));
+        assert_eq!(
+            library_root(&photo.with_file_name("A.ARW.rrdata")),
+            Some(session.clone())
+        );
+        assert_eq!(outside_folder_owner(&drive), Some(session.clone()));
+        assert_eq!(outside_folder_owner(&dir.path().join("Drive/B.ARW")), None);
+        set_outside_folders(&session, Vec::new());
+        assert_eq!(library_root(&photo), None);
+    }
 
     #[test]
     fn photos_outside_their_session_belong_to_the_library_that_registered_them() {

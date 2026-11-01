@@ -1636,6 +1636,64 @@ pub struct PurgePlan {
     pub files: Vec<PathBuf>,
 }
 
+/// Moving everything in `from` into `to` (a session's Capture, Selects or
+/// Output folder changed with "Move contents", G38), as the operations to
+/// run, each one undo step: the files and the folders on `to`'s volume in
+/// one, and each folder going to another volume in an operation of its own
+/// (as [`Journal::execute`] requires). Nothing is planned when a name in
+/// `from` is taken in `to`, when `to` is inside `from`, or when `from`
+/// holds a link or something that is neither file nor folder: all of it
+/// moves or nothing does. Empty when `from` is empty.
+pub fn plan_move_contents(from: &Path, to: &Path) -> Result<Vec<Vec<Step>>> {
+    let real = |p: &Path| {
+        p.canonicalize()
+            .with_context(|| format!("{} is not available", p.display()))
+    };
+    let (from, to) = (real(from)?, real(to)?);
+    ensure!(from.is_dir(), "{} is not a folder", from.display());
+    ensure!(to.is_dir(), "{} is not a folder", to.display());
+    ensure!(from != to, "The folders are the same");
+    ensure!(
+        !to.starts_with(&from),
+        "{} is inside {}; its contents cannot move into it",
+        to.display(),
+        from.display()
+    );
+    let mut entries: Vec<PathBuf> = fs::read_dir(&from)?
+        .map(|entry| entry.map(|e| e.path()))
+        .collect::<io::Result<_>>()?;
+    entries.sort();
+    let mut together = Vec::new();
+    let mut alone = Vec::new();
+    for entry in entries {
+        let meta = fs::symlink_metadata(&entry)?;
+        ensure!(
+            meta.is_file() || meta.is_dir(),
+            "{} is a link or a special file; nothing was moved",
+            entry.display()
+        );
+        let target = to.join(entry.file_name().context("No name")?);
+        ensure!(
+            fs::symlink_metadata(&target).is_err(),
+            "{} is already in {}; nothing was moved",
+            target.file_name().unwrap_or_default().to_string_lossy(),
+            to.display()
+        );
+        let step = Step::moving(&entry, target)?;
+        if meta.is_dir() && matches!(step.to, Target::OtherVolume { .. }) {
+            alone.push(vec![step]);
+        } else {
+            together.push(step);
+        }
+    }
+    let mut operations = Vec::new();
+    if !together.is_empty() {
+        operations.push(together);
+    }
+    operations.extend(alone);
+    Ok(operations)
+}
+
 /// Lists what [`Journal::purge`] would delete in `folder`. The folder must
 /// be given by its real path (absolute, no `..`, no link in it or on the
 /// way to it) and be a folder, not a link; nothing below it is followed.

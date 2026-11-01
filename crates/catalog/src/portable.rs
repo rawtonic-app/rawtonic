@@ -1,9 +1,7 @@
 //! Consistent database snapshots and remapping for complete library copies.
 //! File copying/verification is owned by ingest; these methods affect only
 //! the destination database, never the live source.
-use crate::{
-    Library, Manifest, SCHEMA_VERSION, db_name, manifest_name, portable_relative, validate_relative,
-};
+use crate::{Library, Manifest, SCHEMA_VERSION, db_name, manifest_name, portable_relative};
 use anyhow::{Result, ensure};
 use rusqlite::params;
 use serde_json::Value;
@@ -35,8 +33,7 @@ impl Library {
             manifest.schema_version == SCHEMA_VERSION,
             "Unsupported manifest version"
         );
-        validate_relative(Path::new(&manifest.capture))?;
-        validate_relative(Path::new(&manifest.output))?;
+        crate::session_folders::validate_manifest(&manifest)?;
         let source_db = source.join(db_name(manifest.mode));
         ensure!(
             !fs::symlink_metadata(&source_db)?.file_type().is_symlink(),

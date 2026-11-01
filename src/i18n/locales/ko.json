@@ -1520,6 +1520,37 @@
     "fields": {
       "filenameTemplate": "파일 이름 템플릿"
     },
+    "folders": {
+      "change": "변경…",
+      "choose": "{{folder}} 폴더 선택",
+      "chooseFor": "{{folder}} 폴더 변경",
+      "done": "완료",
+      "inside": "세션 안",
+      "intro": "이 세션이 촬영 및 가져오기(Capture), Selects로 옮긴 사진(Selects), 내보내기(Output)를 두는 위치입니다. 세션 안의 폴더는 세션과 함께 이동하고, 다른 드라이브 등 세션 밖의 폴더는 그 자리에 남습니다.",
+      "menu": "세션 폴더…",
+      "moveContents": "내용을 새 폴더로 이동",
+      "moveContentsHelp": "이전 폴더의 파일을 새 폴더로 옮깁니다(다른 드라이브로는 복사 후 검증). 편집 ▸ 실행 취소로 되돌릴 수 있습니다.",
+      "moved_other": "{{count}}개 항목을 옮겼습니다.",
+      "moveFailed": "폴더는 변경되었지만 내용이 모두 이동되지는 않았습니다: {{error}}",
+      "nothingMoves": "폴더를 바꿔도 파일은 이동하지 않습니다. 이전 폴더의 내용은 그대로 남고 세션에도 남습니다.",
+      "outputUnavailable": "Output 폴더 {{folder}}을(를) 사용할 수 없습니다(드라이브가 연결되어 있나요?). 아무것도 내보내지 않았습니다. 세션 폴더에서 다른 Output 폴더를 선택하세요.",
+      "outside": "세션 밖",
+      "reading": "읽는 중…",
+      "role": {
+        "capture": "Capture",
+        "output": "Output",
+        "selects": "Selects"
+      },
+      "selectsUnavailable": "Selects 폴더 {{folder}}을(를) 사용할 수 없습니다(드라이브가 연결되어 있나요?). 아무것도 옮기지 않았습니다. 세션 폴더에서 다른 Selects 폴더를 선택하세요.",
+      "title": "세션 폴더",
+      "unavailable": "사용할 수 없음: 폴더가 없거나 드라이브가 연결되지 않았습니다.",
+      "unavailableUse": {
+        "capture": "폴더가 돌아오거나 다른 폴더를 선택할 때까지 이 폴더로의 촬영과 가져오기는 실패합니다.",
+        "output": "폴더가 돌아오거나 다른 폴더를 선택할 때까지 Output 폴더로의 내보내기는 실패합니다.",
+        "selects": "폴더가 돌아오거나 다른 폴더를 선택할 때까지 'Selects로 이동'은 실패합니다."
+      },
+      "working": "처리 중…"
+    },
     "hotFolder": {
       "chooseFolder": "감시할 폴더 선택",
       "copyFromLast": "마지막 촬영에서 복사",
