@@ -84,7 +84,9 @@ Start a **project** for a portrait sitting, a wedding or a product shoot. **Inge
 
 Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. Moved, renamed, added or deleted files outside Rawtonic? **Synchronize Folder** finds the changes, follows moved photos with their edits and lets you review everything before it is applied. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
 
-Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can import it, with ratings, labels, keywords, albums and translated edits.
+**Session Folders…** sets where a project's captures, selects and exports go, inside the project or on another drive. **Find Duplicates** lists photos whose files hold identical image data, even under other names, and moves only the ones you mark to the Trash; visually similar photos are not found. **Export as Catalog…** takes a job to another computer, and **Import from Catalog…** brings the edits made there back, with a review first and one Undo step.
+
+Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can import it, with ratings, labels, keywords, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and translated edits.
 
 ### 2 · Find the keepers
 
@@ -92,11 +94,11 @@ Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can 
   <a href="docs/images/readme-library.jpg"><img src="docs/images/readme-library.jpg" alt="Library workspace filtered by a Sony camera search, with landscapes, cats, ratings and picks" width="860"></a>
 </p>
 
-The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and X, add colour labels, then filter down to the frames that matter. Press E or Space to see a photograph large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. A double-click (or D) opens it in Develop. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
+The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and X, add colour labels, then filter down to the frames that matter. Press E or Space to see a photograph large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. A double-click (or D) opens it in Develop. Stepping through a series shows the next photo at once, from its camera JPEG. **Stacks** group a burst or bracket under one top photo (⌘/Ctrl+G; S collapses), and **Auto-Stack** builds them from the camera's burst and bracket data or from the time between shots. **Check eyes…** suggests which faces have closed eyes; it only suggests, and nothing is rated or rejected for you. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
 
 ### 3 · Develop
 
-The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore or type a number to be exact.
+The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, or type a number to be exact. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo.
 
 <table>
 <tr>
@@ -127,7 +129,7 @@ The **Develop** room gives the photograph the space: a filmstrip, a histogram an
   <a href="docs/images/readme-retouch.jpg"><img src="docs/images/readme-retouch.jpg" alt="Face retouch on a studio portrait: small blemishes healed and dark circles softened, skin texture kept" width="860"></a>
 </p>
 
-**Portrait retouch.** Rawtonic finds the faces and heals blemishes, evens out skin, softens dark circles and shine, each with one slider, for everyone in the photo or one person at a time, and keeps the skin's texture. Heal, clone and remove distractions by hand where you need to.
+**Portrait retouch.** Rawtonic finds the faces and heals blemishes, evens out skin, softens dark circles and shine, each with one slider, for everyone in the photo or one person at a time, and keeps the skin's texture. Heal, clone and remove distractions by hand where you need to. **Find dust** marks sensor dust on flat areas and turns it into ordinary heal spots, and can add the same spots to other photos from the same camera.
 
 **Relight** _(experimental)_. Add up to four lights to a photograph after the fact. Rawtonic estimates the depth, the people's surfaces and the photo's own lighting, so a new light brightens a face's shadow side, the original light can be turned down and the subject casts its shadow on the background.
 
@@ -150,10 +152,11 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 - **Detail.** Sharpening, noise reduction, AI Denoise\*, chromatic aberration removal and defringing.
 - **Local adjustments.** Brush, linear and radial masks, colour and luminance ranges, subject, sky, background, depth and people masks\* (skin, hair, eyes, lips, clothes …), layer opacity.
 - **Geometry.** Crop, straighten, automatic and guided perspective correction, automatic lens corrections.
-- **Retouch.** Heal and clone with spots or brush strokes, object removal\*, automatic face retouch\*.
+- **Retouch.** Heal and clone with spots or brush strokes, Find dust, object removal\*, automatic face retouch\* with a protection brush for freckles and moles.
 - **Relight\*** _(experimental)_. Up to four added lights with patterns; the photo's own light can be turned down.
 - **Merge.** HDR, panorama, HDR panorama and focus stacking to a DNG; collages.
 - **Film.** Convert scanned negatives; grain with five structures (even, soft, clumped, speckled, gritty) and vignette.
+- **Library.** Ratings, flags, labels, keywords and IPTC in XMP sidecars; stacks and Auto-Stack; find duplicates; eyes-open check\*; Shift Capture Time; Match Light; catalogs, albums and smart albums; import from Lightroom Classic and Capture One.
 - **Output.** JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
 - **Private by design.** No account or telemetry. An optional startup update check is the only automatic network access ([privacy](PRIVACY.md)).
 
@@ -174,6 +177,10 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | hold **\\**                  | whole photograph before        |
 | ⌘\\ / Ctrl+\\                | whole photograph before, on until pressed again |
 | **N**                        | multi view of the selection    |
+| ⌘G / Ctrl+G, ⇧⌘G / ⇧Ctrl+G  | group into a stack / unstack   |
+| **S** / **⇧S**               | collapse or expand a stack / move a photo to the top of its stack |
+| ⌘' / Ctrl+'                  | new virtual copy               |
+| **⇧\\**                      | camera preview (the JPEG in the RAW) |
 | **F**                        | photograph alone, full screen  |
 | **I** (Develop, full screen) | photograph info                |
 | ⌃⌘F (macOS) / **F11**        | window full screen             |
@@ -199,7 +206,7 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 
 - **macOS on Apple Silicon and Linux (x86-64 AppImage); Windows experimental.** The Intel Mac build is experimental (not yet run on Intel hardware), and so is the unsigned Windows installer (so far tested with one NVIDIA graphics card). On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
-- **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
+- **Importing from Lightroom or Capture One** brings over metadata, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and most edits, but not everything: Remove spots, Lightroom's history steps, virtual copies' names and album membership, Capture One's local adjustment layers and some smart-collection rules (edit date, has adjustments, video) don't transfer, Select Subject can pick a larger subject than Lightroom's, and photos can look different.
 - **Batch export is still slower than Lightroom and Capture One.** A set of 20 Nikon Z RAWs (38 web JPEG and 16-bit print TIFF outputs; one unsupported RAW) took about 14 s in a headless Rawtonic run on a Mac mini M4 Pro, versus Lightroom’s 8 s and Capture One’s 9 s on an M5 Pro laptop. These were not measured on the same machine; the [alpha.4 same-machine comparison](CHANGELOG.md#010-alpha4--2026-10-24) was about 17 s versus 8/9 s, and has not been repeated. Across successive A/B measurements since alpha.4, app export time on a separate 27-RAW batch on the Mac mini fell by about 40 % (about 41 s to 25 s).[^batch-export]
 - **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
 - **Tethering is experimental.** The Tether tool (session bar) connects a camera on USB through libgphoto2 in a separate helper process, fires it, shows its settings and live view and copies each photo into Capture. It has been tested on a Mac with a Sony a7 III and a7 IV and a Fujifilm X-H2S and GFX 50R (capture, settings, focus, cable pulled and plugged in again, long series); Fujifilm live view does not work yet, the GFX 50R shows a new photo a little later than Capture One, Canon cameras are not supported yet, and other cameras and Linux have not been tried with a body. The tether panel's **Camera test** checks a camera step by step and makes an anonymous report you can send in one click (after seeing exactly what is sent) or paste into a camera report; tested and reported cameras are listed in [docs/TETHER_CAMERAS.md](docs/TETHER_CAMERAS.md). The hot folder works with your camera maker's tethering app.
