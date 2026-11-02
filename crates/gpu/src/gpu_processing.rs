@@ -8447,6 +8447,11 @@ impl GpuProcessor {
         // every render version (older ones read no blur beyond the tile).
         let reach = clarity_reach(&adjustments, scale);
         let log_alpha = reach > 0 || shadows_v6_used(&adjustments);
+        // Tone version 6 stores the small blur's mean log luminance against
+        // the log luminance of its colour (blur.wgsl, flag bit 2): in deep
+        // shadows the absolute value kept only 0.008 EV in 16 bits, which
+        // raised Shadows' level turned into steps on smooth gradients.
+        let relative_log = log_alpha && adjustments.global.tone_version > 5.5;
         let largest_beyond = ((40.0 * scale).ceil() as u32 + reach).saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
@@ -8516,7 +8521,7 @@ impl GpuProcessor {
                     input_height,
                     u32::from(whole_blur_radius),
                     reach,
-                    u32::from(log_alpha),
+                    u32::from(log_alpha) | (u32::from(relative_log) << 1),
                 ];
                 let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache.input.as_ref() != Some(input_texture_view) {
@@ -8604,7 +8609,8 @@ impl GpuProcessor {
                         rows_above,
                         blurred_rows,
                         flags: u32::from(log_alpha && (index == 2 || index == 3))
-                            | (u32::from(adjustments.global.is_raw_image != 1) << 1),
+                            | (u32::from(adjustments.global.is_raw_image != 1) << 1)
+                            | (u32::from(relative_log && index == 2) << 2),
                     };
                     queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(&params));
 

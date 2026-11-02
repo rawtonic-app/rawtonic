@@ -2067,13 +2067,17 @@ const SHADOWS_LOWER: f32 = 1.2;
 // (display EV per scene EV), so the texture's scene contrast (the tonal
 // blur against the wide level, at most SH_V6_SPAN EV) is raised by the
 // slope ratio, at most SH_V6_CAP. Finer detail (the pixel against the tonal
-// blur, mostly noise in lifted shadows) is lifted as before.
+// blur, mostly noise in lifted shadows) is lifted as before. Offsets below
+// SH_V6_FLOOR EV are smooth gradients, not texture (the two blurs differ
+// there by their sizes and 16-bit rounding): raising those reordered tones
+// on smooth ramps by up to 0.01 EV.
 const SH_V6_CAP: f32 = 2.0;
 const SH_V6_SPAN: f32 = 1.0;
+const SH_V6_FLOOR: f32 = 0.01;
 
 // The wide level: luminance in input space (before exposure).
 fn shadows_v6_level(coords: vec2<u32>) -> f32 {
-    return exp2(textureLoad(clarity_blur_texture, coords, 0).a);
+    return exp2(small_blur_mean_log(vec2<i32>(coords)));
 }
 
 // The texture gain on top of the wide level's lift `gain`.
@@ -2081,7 +2085,8 @@ fn shadows_v6_texture(tonal_level: f32, wide_level: f32, gain: f32, exposure_gai
     let before = camera_raw_level_slope(wide_level * exposure_gain).y;
     let after = camera_raw_level_slope(wide_level * exposure_gain * gain).y;
     let ratio = clamp(before / max(after, 1e-3), 1.0, SH_V6_CAP);
-    let texture = clamp(log2(max(tonal_level, 0.0001) / wide_level), -SH_V6_SPAN, SH_V6_SPAN);
+    let offset = log2(max(tonal_level, 0.0001) / wide_level);
+    let texture = sign(offset) * clamp(abs(offset) - SH_V6_FLOOR, 0.0, SH_V6_SPAN);
     return exp2(texture * (ratio - 1.0));
 }
 
@@ -3401,6 +3406,27 @@ const CLARITY_FINE_PRIOR: f32 = 0.12;
 // the base of its darker surroundings up (the dark halo of a plain blur).
 // The outer ring stays within the 128 px the blur tiles extend beyond their
 // tile (gpu_processing.rs TILE_OVERLAP), so tiles join exactly.
+// log2 luminance of a blur's colour as blur.wgsl's `log_luma` takes it.
+fn blur_log_luma(c: vec3<f32>) -> f32 {
+    var lin = clamp(c, vec3<f32>(-65504.0), vec3<f32>(65504.0));
+    if (adjustments.global.is_raw_image != 1u) {
+        let s = max(lin, vec3<f32>(0.0));
+        lin = select(pow((s + 0.055) / 1.055, vec3<f32>(2.4)), s / 12.92, s <= vec3<f32>(0.04045));
+    }
+    return log2(max(dot(lin, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0001));
+}
+
+// The small blur's mean log2 luminance at `coords`: tone version 6 stores it
+// against the log luminance of the blur's colour (blur.wgsl flag bit 2),
+// for its precision in deep shadows.
+fn small_blur_mean_log(coords: vec2<i32>) -> f32 {
+    let s = textureLoad(clarity_blur_texture, coords, 0);
+    if (adjustments.global.tone_version > 5.5) {
+        return s.a + blur_log_luma(s.rgb);
+    }
+    return s.a;
+}
+
 fn clarity_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
     let dims = vec2<i32>(textureDimensions(structure_blur_texture)) - vec2<i32>(1);
     let d = clamp(CLARITY_SIDE * 20.0 * scale, 1.0, 60.0);
@@ -3420,7 +3446,7 @@ fn clarity_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
             wsum += w;
         }
     }
-    let fine = textureLoad(clarity_blur_texture, coords, 0).a;
+    let fine = small_blur_mean_log(coords);
     let tf = (fine - own_log) / CLARITY_RANGE;
     let wf = CLARITY_FINE_PRIOR * exp(-0.5 * tf * tf);
     return (sum + wf * fine) / (wsum + wf);

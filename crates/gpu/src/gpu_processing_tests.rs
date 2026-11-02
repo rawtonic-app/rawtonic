@@ -8960,7 +8960,11 @@ fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Valu
 /// (where the tone-slider versions differ), the same recipe with
 /// `toneVersion` 2, and for lowered Highlights with `toneVersion` 3 on a
 /// night frame's key, `toneVersion` 4 on a bright frame's and
-/// `toneVersion` 5 on both; for raised Shadows also `toneVersion` 6 on both.
+/// `toneVersion` 5 on both; for raised Shadows also `toneVersion` 6 on a
+/// bright frame's key and without one. (Not on the night key: there raised
+/// Shadows' key adaptation already turns tones over by up to 0.008 EV with
+/// Exposure −2 at Shadows +100 in `toneVersion` 2 to 5, which 6 keeps;
+/// notes: G05.)
 fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
     let differs = |recipe: &&serde_json::Value| {
         recipe["shadows"].as_f64().unwrap_or(0.0) > 0.0
@@ -8969,11 +8973,12 @@ fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
     let mut versioned: Vec<serde_json::Value> = Vec::new();
     for recipe in recipes.iter().filter(differs) {
         if recipe["shadows"].as_f64().unwrap_or(0.0) > 0.0 {
-            for key in [BRIGHT_KEY, NIGHT_KEY] {
-                let mut sixth = with_image_key(recipe, key);
-                sixth["toneVersion"] = json!(6);
-                versioned.push(sixth);
-            }
+            let mut sixth = recipe.clone();
+            sixth["toneVersion"] = json!(6);
+            versioned.push(sixth);
+            let mut bright = with_image_key(recipe, BRIGHT_KEY);
+            bright["toneVersion"] = json!(6);
+            versioned.push(bright);
         }
         if recipe["shadows"].as_f64().unwrap_or(0.0) <= 50.0
             && recipe["highlights"].as_f64().unwrap_or(0.0) >= 0.0
