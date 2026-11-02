@@ -423,6 +423,16 @@ impl ExportQueue {
         Ok(())
     }
 
+    /// Points every photo of a finished job at `output`: a job whose photos
+    /// went into one file (a proof sheet) rather than a file each.
+    pub fn set_outputs(&self, job: &str, output: &Path) -> Result<()> {
+        self.conn.execute(
+            "UPDATE items SET output=? WHERE job_id=?",
+            params![output.to_string_lossy(), job],
+        )?;
+        Ok(())
+    }
+
     pub fn item_failed(&self, job: &str, index: usize, error: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE items SET state=?, error=?, finished_ms=? WHERE job_id=? AND idx=?",

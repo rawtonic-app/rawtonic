@@ -83,6 +83,7 @@ mod preview_jpeg;
 mod preview_proxy;
 mod preview_slot;
 mod profile_thumbnails;
+mod proof_sheet;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
@@ -726,6 +727,8 @@ pub fn run() {
             gpu_processing::gpu_start_error,
             startup::frontend_log,
             collage::save_collage,
+            proof_sheet::proof_sheet_preview,
+            proof_sheet::queue_proof_sheet,
             merges::merge_photos,
             merges::save_merge,
             merges::refinish_merge,

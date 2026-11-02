@@ -336,7 +336,7 @@ impl PinnedPhoto {
 
     /// The capture date of `source` before it is decoded, for its names:
     /// the snapshot's, else the file's own (`capture_date_with`).
-    fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+    pub(crate) fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
         exif_processing::capture_date_with(source, &|| {
             self.corrected(
                 self.exif
@@ -1755,6 +1755,7 @@ pub async fn export_images(
             library,
             pinned: None,
             edit_with: None,
+            proof_sheet: None,
         },
     )
     .await
@@ -1841,7 +1842,7 @@ pub async fn export_images_batch(
 
 /// Fails before any render when exports could not be written to `folder`
 /// (permissions or a read-only volume such as an AppImage mount).
-fn ensure_writable_folder(folder: &std::path::Path) -> Result<(), String> {
+pub(crate) fn ensure_writable_folder(folder: &std::path::Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
