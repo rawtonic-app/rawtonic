@@ -57,7 +57,9 @@
   transform-origin: 50% 50%;
 }
 .activity-ring.is-indeterminate .activity-ring-value {
-  animation: activity-turn 1s linear infinite;
+  /* Stepped like .animate-spin (styles.css): a smooth turn composites the
+     window on every display frame. */
+  animation: activity-turn 1s steps(8) infinite;
 }
 @keyframes activity-turn {
   to { transform: rotate(270deg); }
