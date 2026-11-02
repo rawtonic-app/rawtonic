@@ -470,6 +470,14 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                 />
                 {t("proofSheet.pageNumbers")}
               </label>
+              <label className="studio-proof-sheet-check">
+                <input
+                  type="checkbox"
+                  checked={draft.cropMarks}
+                  onChange={(e) => set({ cropMarks: e.target.checked })}
+                />
+                {t("proofSheet.cropMarks")}
+              </label>
             </fieldset>
 
             <fieldset>

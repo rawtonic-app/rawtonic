@@ -50,6 +50,10 @@ pub struct ProofSheet {
     /// Installed font family; none for the system's sans-serif.
     #[serde(default)]
     pub font_family: Option<String>,
+    /// Crop (cut) marks at the corners of every cell, in the gaps and margins
+    /// outside the cells; off unless asked for.
+    #[serde(default)]
+    pub crop_marks: bool,
     #[serde(default = "default_ppi")]
     pub ppi: u32,
     #[serde(default = "yes")]
@@ -404,6 +408,34 @@ fn page_lines(
     lines
 }
 
+/// Length of a crop mark (mm) and its stroke width (pt).
+const MARK_LENGTH_MM: f64 = 3.0;
+const MARK_WIDTH_PT: f64 = 0.25;
+
+/// The crop marks of page `page` as line segments `[x0, y0, x1, y1]` in
+/// millimetres (origin top left): at each corner of each cell one horizontal
+/// and one vertical tick pointing away from the cell. They are at most half a
+/// gap long, so the ticks of neighbouring cells never meet or reach a
+/// neighbour's photo; without room for a visible tick (under 0.5 mm) there
+/// are none. Empty when the sheet asks for none.
+pub fn crop_marks(sheet: &ProofSheet, layout: &Layout, page: usize) -> Vec<[f64; 4]> {
+    let length = MARK_LENGTH_MM.min(sheet.gap_mm / 2.0);
+    if !sheet.crop_marks || length < 0.5 {
+        return Vec::new();
+    }
+    let mut marks = Vec::new();
+    for cell in &layout.pages[page].cells {
+        let c = cell.cell;
+        for (x, dx) in [(c.x, -length), (c.x + c.w, length)] {
+            for (y, dy) in [(c.y, -length), (c.y + c.h, length)] {
+                marks.push([x, y, x + dx, y]);
+                marks.push([x, y, x, y + dy]);
+            }
+        }
+    }
+    marks
+}
+
 /// The finished sheet: the PDF and/or one JPEG per page, as asked.
 pub struct Sheet {
     pub pdf: Option<Vec<u8>>,
@@ -672,6 +704,20 @@ fn write_pdf(
                 num(page_h - (at.y + at.h) * PT_PER_MM)
             );
         }
+        let marks = crop_marks(sheet, layout, page);
+        if !marks.is_empty() {
+            let _ = writeln!(content, "{} w 0 G", num(MARK_WIDTH_PT));
+            for [x0, y0, x1, y1] in marks {
+                let _ = writeln!(
+                    content,
+                    "{} {} m {} {} l S",
+                    num(x0 * PT_PER_MM),
+                    num(page_h - y0 * PT_PER_MM),
+                    num(x1 * PT_PER_MM),
+                    num(page_h - y1 * PT_PER_MM)
+                );
+            }
+        }
         let lines = page_lines(sheet, layout, page, captions, values, face);
         content.push_str("0 g\n");
         for line in &lines {
@@ -846,6 +892,29 @@ fn render_page(
             (at.x * px_per_mm).round() as i64,
             (at.y * px_per_mm).round() as i64,
         );
+    }
+    let stroke = ((MARK_WIDTH_PT / 72.0 * sheet.ppi as f64).round() as i64).max(1);
+    for [x0, y0, x1, y1] in crop_marks(sheet, layout, page) {
+        // Axis-parallel ticks as filled rectangles `stroke` pixels wide.
+        let (ax, bx) = (x0.min(x1) * px_per_mm, x0.max(x1) * px_per_mm);
+        let (ay, by) = (y0.min(y1) * px_per_mm, y0.max(y1) * px_per_mm);
+        let left = ax.round() as i64 - if ax == bx { stroke / 2 } else { 0 };
+        let top = ay.round() as i64 - if ay == by { stroke / 2 } else { 0 };
+        let right = if ax == bx {
+            left + stroke
+        } else {
+            bx.round() as i64
+        };
+        let bottom = if ay == by {
+            top + stroke
+        } else {
+            by.round() as i64
+        };
+        for py in top.max(0)..bottom.min(h as i64) {
+            for px in left.max(0)..right.min(w as i64) {
+                canvas.put_pixel(px as u32, py as u32, image::Rgb([0, 0, 0]));
+            }
+        }
     }
     for line in page_lines(sheet, layout, page, captions, values, face) {
         let size = (line.pt / 72.0 * sheet.ppi as f64) as f32;
@@ -1029,6 +1098,7 @@ mod tests {
             page_numbers: true,
             text_pt: 10.0,
             font_family: None,
+            crop_marks: false,
             ppi: 300,
             pdf: true,
             jpeg: false,
