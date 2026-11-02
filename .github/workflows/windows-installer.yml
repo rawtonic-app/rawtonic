@@ -197,6 +197,7 @@ jobs:
           $sum.Add('')
           $sum.Add("Recorded detections on this runner: $(@(Get-MpThreatDetection -ErrorAction SilentlyContinue).Count)")
           $sum -join "`n" >> $env:GITHUB_STEP_SUMMARY
+          [IO.File]::WriteAllText("$out\summary.md", ($sum -join "`n"))
           [IO.File]::WriteAllText("$out\defender-verdicts.txt", $verdicts)
           $verdicts
       - uses: actions/upload-artifact@v4
@@ -316,6 +317,8 @@ jobs:
           $ort = Select-String -Path "$logs\stdout.log" -Pattern 'Set ORT_DYLIB_PATH to: (.+)$' | Select-Object -First 1
           if (-not $ort) { Write-Error 'the app printed no ONNX Runtime path'; exit 1 }
           $ortPath = $ort.Matches[0].Groups[1].Value.Trim()
+          # Rust's canonical paths carry the verbatim prefix \\?\.
+          if ($ortPath.StartsWith('\\?\')) { $ortPath = $ortPath.Substring(4) }
           if (-not $ortPath.StartsWith($env:INSTALL_DIR) -or -not (Test-Path $ortPath)) { Write-Error "ONNX Runtime path $ortPath is not in $env:INSTALL_DIR"; exit 1 }
           "$env:KIND resources found: $ortPath"
           if ($p.ExitCode -ne 0) {
