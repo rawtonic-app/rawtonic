@@ -16,6 +16,11 @@ if (!process.env.VITE_RAWTONIC_COMMIT) {
 
 const host = process.env.TAURI_DEV_HOST;
 
+// Tests run in the test environment whatever NODE_ENV the shell exports:
+// react and react-dom pick their production build (without act) from it, so
+// NODE_ENV=production fails every render test.
+if (process.env.VITEST) process.env.NODE_ENV = 'test';
+
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [tailwindcss(), react()],
@@ -56,5 +61,8 @@ export default defineConfig(async () => ({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     globals: false,
+    // A shell NODE_ENV beats test.env (the line above covers that); this also
+    // covers vitest loading the config in another process.
+    env: { NODE_ENV: 'test' },
   },
 }));
