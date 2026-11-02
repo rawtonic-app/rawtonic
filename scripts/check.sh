@@ -100,6 +100,9 @@ rust_tests() {
 }
 
 run "legal: notices shipped with the app" legal
+# A user-facing change needs a CHANGELOG.md entry, or a commit message line
+# `Changelog: none` (scripts/changelog_gate.py); empty on main, so CI passes.
+run "changelog: entry for user-facing changes" python3 scripts/changelog_gate.py
 if [ "$FRONTEND" = 1 ]; then
   run "frontend: typecheck" npm run -s typecheck
   run "frontend: lint (errors only)" npm run -s lint -- --quiet
@@ -129,6 +132,7 @@ if [ "$RELAY" = 1 ]; then
   run "relay: typecheck" npm --prefix services/relay run -s typecheck
   run "relay: tests" npm --prefix services/relay test --silent
 fi
+run "scripts: changelog gate test" python3 scripts/changelog_gate_test.py
 run "scripts: ship.sh test" sh scripts/ship_test.sh
 run "scripts: macOS packaging test" python3 scripts/package_macos_test.py
 run "scripts: verified review input" python3 scripts/review/test_verified_diff.py

@@ -46,3 +46,11 @@ usually enough.
   hook runs gitleaks (`scripts/git-hooks/pre-push`).
 - **Network access** the user did not ask for. Rawtonic does not phone
   home (see `PRIVACY.md`).
+
+## Pull requests
+
+A change to user-facing code (`src/`, `src-tauri/src/`,
+`crates/*/src/`, `src-tauri/resources/`, `src-tauri/tauri.conf.json`) needs an
+entry under `## Unreleased` in `CHANGELOG.md`; `scripts/check.sh` fails without
+one, unless a commit message on the branch has the line `Changelog: none` for
+a refactor with no user-visible effect (`scripts/changelog_gate.py`).
