@@ -1476,7 +1476,9 @@
   opacity: 0.45;
 }
 .studio-mask-thumb.is-busy {
-  animation: studio-mask-thumb-busy 1.2s ease-in-out infinite;
+  /* Stepped (five changes a second) like .animate-spin in styles.css: a smooth
+     pulse composites the window on every display frame while the AI works. */
+  animation: studio-mask-thumb-busy 1.2s steps(3) infinite;
 }
 @keyframes studio-mask-thumb-busy {
   50% {

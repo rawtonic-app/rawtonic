@@ -21,6 +21,19 @@
 
   --radius-md: 8px;
   --radius-lg: 15px;
+
+  /* Every turning spinner moves in eight steps a second, not on every display
+     frame: a smooth turn made the window server composite the whole
+     transparent window 120 times a second (WindowServer ~68 % GPU time vs
+     ~13 % stepped and ~8 % still), which slows GPU work running beside it
+     (notes: parity-gaps/G43, task SPN). */
+  --animate-spin: spin 1s steps(8) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation: none;
+  }
 }
 
 @layer base {
