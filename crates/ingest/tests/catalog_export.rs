@@ -500,11 +500,12 @@ fn an_offline_original_is_exported_by_reference_but_not_copied() {
 }
 
 #[test]
-fn own_photographs_are_copied_and_another_librarys_never_exported() {
+fn own_photographs_go_edits_only_and_another_librarys_never_exported() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().canonicalize().unwrap();
     // A session's photographs belong to it: a catalog referring to them
-    // would edit them in the session's name.
+    // would edit them in the session's name. Without originals they go
+    // edits only: at their place in the new catalog, without their file.
     let session = Library::create(&root.join("Session"), "S", Mode::Session).unwrap();
     let file = session.directory.join("Capture/a.arw");
     fs::write(&file, b"session original").unwrap();
@@ -533,9 +534,24 @@ fn own_photographs_are_copied_and_another_librarys_never_exported() {
         no_stage,
     )
     .unwrap();
-    assert_eq!(receipt.originals_copied, 1);
+    assert_eq!((receipt.originals_copied, receipt.edits_only), (0, 1));
     let a = Library::open(&root.join("A")).unwrap();
-    assert!(a.asset(&id).unwrap().path.starts_with(&a.directory));
+    let place = a.asset(&id).unwrap().path;
+    assert!(place.starts_with(&a.directory));
+    assert!(!place.exists() && place.parent().unwrap().is_dir());
+    assert_eq!(a.offline_assets().unwrap().len(), 1);
+    // With originals it is copied.
+    let receipt = export_catalog(
+        &session.directory,
+        std::slice::from_ref(&id),
+        &root.join("A2"),
+        &options(true),
+        &go(),
+        |_| {},
+        no_stage,
+    )
+    .unwrap();
+    assert_eq!((receipt.originals_copied, receipt.edits_only), (1, 0));
     // Its latest edit is in that session, not here: never exported. The
     // export is refused, or leaves it out when asked.
     let in_other = other.add_asset(&theirs).unwrap().id;
@@ -593,9 +609,10 @@ fn own_photographs_are_copied_and_another_librarys_never_exported() {
         (
             receipt.photographs,
             receipt.left_out,
-            receipt.originals_copied
+            receipt.originals_copied,
+            receipt.edits_only
         ),
-        (2, 1, 1)
+        (2, 1, 0, 1)
     );
     let b = Library::open(&root.join("B")).unwrap();
     assert!(b.asset(&own_id).unwrap().path.starts_with(&b.directory));
@@ -706,6 +723,12 @@ fn a_fresh_export_has_no_xmp_waiting() {
         assert_eq!(new.metadata(&ids[1]).unwrap().rating, 4);
         let camera = new.asset(&ids[0]).unwrap().path;
         assert!(!camera.with_file_name("camera.jpg.rrdata").exists());
-        assert!(camera.with_file_name("rated.jpg.rrdata").exists());
+        // Edits only (without originals): no sidecar beside a file that is
+        // not there; the catalog holds the work.
+        assert_eq!(
+            camera.with_file_name("rated.jpg.rrdata").exists(),
+            originals,
+            "originals {originals}"
+        );
     }
 }

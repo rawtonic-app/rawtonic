@@ -25,10 +25,13 @@ beforeEach(() => {
 
 const receipt = { photographs: 2, originalsCopied: 0, offline: 0, previews: 2, missingResources: 0, missingCurrentResources: 0, leftOut: 0 };
 /** The backend: nothing owned elsewhere unless `owned` says so. */
-function backend(owned: { id: string; path: string; library: string; name: string }[] = [], total = 2) {
+function backend(owned: { id: string; path: string; library: string; name: string }[] = [], total = 2,
+  extra: { inside?: number; bytes?: number; exported?: boolean } = {}) {
   vi.mocked(invoke).mockImplementation(async (command: string) =>
-    command === "library_export_catalog_owned" ? { total, owned } : receipt);
+    command === "library_export_catalog_owned" ? { total, owned, ...extra } : receipt);
 }
+/** When the export itself was invoked (not the size query). */
+const exportCall = () => vi.mocked(invoke).mock.calls.findIndex(([command]) => command === "library_export_catalog");
 
 it("exports the selection by reference with previews by default, after saving edits, and closes", async () => {
   const user = userEvent.setup();
@@ -50,8 +53,24 @@ it("exports the selection by reference with previews by default, after saving ed
     source: "/Main", paths: ["/s/a.arw", "/s/b.arw?vc=abcdef"], destination: "/laptop/Job",
     includeOriginals: false, includePreviews: true, leaveOutOwnedElsewhere: false,
   }));
-  expect(vi.mocked(flushBeforeQuit).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(invoke).mock.invocationCallOrder[0]);
+  expect(vi.mocked(flushBeforeQuit).mock.invocationCallOrder[0])
+    .toBeLessThan(vi.mocked(invoke).mock.invocationCallOrder[exportCall()]);
   expect(onClose).toHaveBeenCalled();
+});
+
+it("includes the originals of a hand-over of its own photos, and sends a returned catalog's work edits only", async () => {
+  backend([], 2, { inside: 2, bytes: 33_000_000 });
+  render(<CatalogExportDialog directory="/Main" name="Main" selected={["/s/a.arw", "/s/b.arw"]} shown={[]}
+    onClose={vi.fn()} onOpen={vi.fn()} />);
+  const box = screen.getByRole("checkbox", { name: "Include original files" }) as HTMLInputElement;
+  await waitFor(() => expect(box.checked).toBe(true));
+  expect(screen.getByText(/Originals: 33 MB/)).toBeTruthy();
+  cleanup();
+  backend([], 2, { inside: 2, bytes: 33_000_000, exported: true });
+  render(<CatalogExportDialog directory="/Laptop" name="Laptop" selected={["/s/a.arw", "/s/b.arw"]} shown={[]}
+    onClose={vi.fn()} onOpen={vi.fn()} />);
+  await screen.findByText(/Edits only: 2 photos stored in this library go without their originals/);
+  expect((screen.getByRole("checkbox", { name: "Include original files" }) as HTMLInputElement).checked).toBe(false);
 });
 
 it("can export what the folder or album shows, with originals", async () => {
@@ -78,7 +97,7 @@ it("does not export when edits could not be saved", async () => {
   await user.click(screen.getByRole("button", { name: "Destination parent folder" }));
   await user.click(screen.getByRole("button", { name: "Export 1 photo" }));
   await screen.findByRole("alert");
-  expect(invoke).not.toHaveBeenCalled();
+  expect(exportCall()).toBe(-1);
   expect(onClose).not.toHaveBeenCalled();
 });
 

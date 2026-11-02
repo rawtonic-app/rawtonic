@@ -46,6 +46,7 @@ fn options(new_photos: NewPhotos) -> Options {
         overrides: HashMap::new(),
         include_new: true,
         before_snapshot: "Before import".into(),
+        kept_snapshot: "Not imported".into(),
     }
 }
 
@@ -1352,4 +1353,232 @@ fn the_common_state_advances_past_a_replaced_edit() {
             .iter()
             .any(|s| s.name == "S (mine)")
     );
+}
+
+/// UXP use test 2026-11-02 (G51): the round trip A → B (with originals) →
+/// C (B's work sent back edits only) → imported into A. C holds no
+/// original, and each photograph changed on one side only is told as such,
+/// for each kind of change (edit, rating, other metadata); one changed on
+/// both sides stays a conflict.
+#[test]
+fn an_edits_only_return_from_an_exported_catalog_tells_each_side() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
+    let shoot = root.join("Shoot");
+    fs::create_dir_all(&shoot).unwrap();
+    let mut ids = Vec::new();
+    let mut files = Vec::new();
+    for n in 0..6 {
+        let file = shoot.join(format!("c{n}.arw"));
+        fs::write(&file, format!("original {n} {}", "x".repeat(4096))).unwrap();
+        let id = main.add_asset(&file).unwrap().id;
+        main.save_editor_state(&id, &edit(0.1 * n as f64)).unwrap();
+        ids.push(id);
+        files.push(file);
+    }
+    let export = |from: &Path, ids: &[String], to: &str, originals: bool| {
+        export_catalog(
+            from,
+            ids,
+            &root.join(to),
+            &catalog_export::Options {
+                name: to.into(),
+                include_originals: originals,
+                leave_out_owned_elsewhere: false,
+            },
+            &go(),
+            |_| {},
+            |_, _, _| Ok(0),
+        )
+        .unwrap()
+    };
+    let handed = export(&main.directory, &ids, "Laptop", true);
+    assert_eq!(handed.originals_copied, 6);
+    let laptop = Library::open(&root.join("Laptop")).unwrap();
+    // On the laptop: 0 edit, 1 rating, 2 keyword; 3 rating there and here;
+    // 4 changed here only (rating); 5 untouched.
+    laptop.save_editor_state(&ids[0], &edit(2.0)).unwrap();
+    let set = |lib: &Library, id: &str, change: &dyn Fn(&mut Metadata)| {
+        let mut meta = lib.metadata(id).unwrap();
+        change(&mut meta);
+        lib.set_metadata(id, &meta).unwrap();
+    };
+    set(&laptop, &ids[1], &|m| m.rating = 5);
+    set(&laptop, &ids[2], &|m| m.keywords.push("Bride".into()));
+    set(&laptop, &ids[3], &|m| m.rating = 5);
+    set(&main, &ids[3], &|m| m.rating = 3);
+    set(&main, &ids[4], &|m| m.rating = 2);
+    // Sent back edits only: no original travels, though all are inside
+    // the laptop's catalog.
+    let back = export(&laptop.directory, &ids, "Back", false);
+    assert_eq!((back.originals_copied, back.edits_only), (0, 6));
+    let package = Library::open(&root.join("Back")).unwrap();
+    for id in &ids {
+        let asset = package.asset(id).unwrap();
+        assert!(asset.path.starts_with(&package.directory));
+        assert!(!asset.path.exists(), "no original in an edits-only return");
+    }
+    assert_eq!(package.offline_assets().unwrap().len(), 6);
+    assert_eq!(exposure(&package, &ids[0]), json!(2.0));
+    drop(package);
+    let mut bytes = 0;
+    let mut stack = vec![root.join("Back")];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                stack.push(entry.path());
+            } else {
+                assert!(
+                    !entry.path().extension().is_some_and(|e| e == "arw"),
+                    "{}",
+                    entry.path().display()
+                );
+                bytes += entry.metadata().unwrap().len();
+            }
+        }
+    }
+    assert!(bytes < 1_000_000, "{bytes}");
+
+    let source = open_source(&main, &root.join("Back")).unwrap();
+    let seen = review(&main, &source).unwrap();
+    drop(source);
+    let side = |n: usize| {
+        let p = seen.photos.iter().find(|p| p.id == ids[n]).unwrap();
+        (p.changes.clone(), p.side)
+    };
+    assert_eq!(side(0), (vec!["edit"], Some(Side::There)));
+    assert_eq!(side(1), (vec!["metadata"], Some(Side::There)));
+    assert_eq!(side(2), (vec!["metadata"], Some(Side::There)));
+    assert_eq!(side(3), (vec!["metadata"], Some(Side::Both)));
+    assert_eq!(side(4), (vec!["metadata"], Some(Side::Here)));
+    assert_eq!((seen.new, seen.changed, seen.unchanged), (0, 5, 1));
+
+    let receipt = import(
+        &main,
+        &root.join("Back"),
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((receipt.report.replaced, receipt.report.kept), (3, 2));
+    assert_eq!(exposure(&main, &ids[0]), json!(2.0));
+    assert_eq!(main.metadata(&ids[1]).unwrap().rating, 5);
+    assert_eq!(main.metadata(&ids[3]).unwrap().rating, 3, "kept here");
+    assert_eq!(main.metadata(&ids[4]).unwrap().rating, 2, "kept here");
+    // Every original as it was, where it was.
+    for (n, file) in files.iter().enumerate() {
+        assert!(
+            fs::read_to_string(file)
+                .unwrap()
+                .starts_with(&format!("original {n}"))
+        );
+        assert_eq!(main.asset(&ids[n]).unwrap().path, *file);
+    }
+
+    // The next return from the laptop: what came back is common ground
+    // with the laptop too, so a change there alone is "there" again.
+    set(&laptop, &ids[1], &|m| m.rating = 1);
+    let again = export(&laptop.directory, &ids[1..2], "Again", false);
+    assert_eq!(again.edits_only, 1);
+    let source = open_source(&main, &root.join("Again")).unwrap();
+    let seen = review(&main, &source).unwrap();
+    assert_eq!(seen.photos[0].side, Some(Side::There));
+}
+
+/// Keep current keeps the photograph as it is here, and what the other
+/// side did is not lost: its edit as a snapshot, its metadata in the
+/// import's report (kept in the catalog). Replace over a change here keeps
+/// the replaced metadata in the report the same way.
+#[test]
+fn the_losing_sides_work_is_kept() {
+    let (_tmp, w) = world();
+    for id in &w.ids[..2] {
+        w.laptop.save_editor_state(id, &edit(1.5)).unwrap();
+        let mut there = w.laptop.metadata(id).unwrap();
+        there.rating = 5;
+        w.laptop.set_metadata(id, &there).unwrap();
+        w.main.save_editor_state(id, &edit(0.9)).unwrap();
+        let mut here = w.main.metadata(id).unwrap();
+        here.rating = 3;
+        w.main.set_metadata(id, &here).unwrap();
+    }
+    let mut opts = options(NewPhotos::Reference);
+    opts.overrides.insert(w.ids[1].clone(), Choice::Replace);
+    let receipt = import(&w.main, &w.laptop.directory, &opts, &go(), |_| {}).unwrap();
+    assert_eq!((receipt.report.replaced, receipt.report.kept), (1, 1));
+    // Kept: the photograph as it was here, the laptop's edit one click away.
+    assert_eq!(exposure(&w.main, &w.ids[0]), json!(0.9));
+    assert_eq!(w.main.metadata(&w.ids[0]).unwrap().rating, 3);
+    let version = w.main.primary_version(&w.ids[0]).unwrap();
+    let snapshots = w.main.snapshots(&version).unwrap();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].name, "Not imported");
+    assert_eq!(snapshots[0].adjustments["exposure"], json!(1.5));
+    assert_eq!(receipt.report.snapshots_kept, 1);
+    // Both metadata set aside, each saying which the photograph kept.
+    let aside: Vec<(&str, u8, u8)> = receipt
+        .report
+        .set_aside
+        .iter()
+        .map(|s| (s.kept, s.here.rating, s.there.rating))
+        .collect();
+    assert_eq!(aside, [("here", 3, 5), ("there", 3, 5)]);
+    let file = receipt.report_file.unwrap();
+    assert!(file.starts_with(w.main.directory.join("import-reports")));
+    let kept: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kept["from"], "Laptop");
+    assert_eq!(kept["setAside"][0]["there"]["rating"], 5);
+    // Importing again adds no second snapshot of the same edit.
+    let again = import(&w.main, &w.laptop.directory, &opts, &go(), |_| {}).unwrap();
+    assert_eq!(again.report.snapshots_kept, 0);
+    assert_eq!(w.main.snapshots(&version).unwrap().len(), 1);
+}
+
+/// A new photograph sent without its original (an edits-only return of a
+/// photograph the target never had) cannot come in; the import goes on
+/// with the rest and says how many were left out.
+#[test]
+fn a_new_photograph_without_its_original_is_left_out_not_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
+    let shoot = root.join("Shoot");
+    fs::create_dir_all(&shoot).unwrap();
+    let file = shoot.join("a.arw");
+    fs::write(&file, b"a").unwrap();
+    let a = main.add_asset(&file).unwrap().id;
+    let export = |from: &Path, ids: &[String], to: &str, originals: bool| {
+        export_catalog(
+            from,
+            ids,
+            &root.join(to),
+            &catalog_export::Options {
+                name: to.into(),
+                include_originals: originals,
+                leave_out_owned_elsewhere: false,
+            },
+            &go(),
+            |_| {},
+            |_, _, _| Ok(0),
+        )
+        .unwrap()
+    };
+    export(&main.directory, std::slice::from_ref(&a), "Laptop", true);
+    let laptop = Library::open(&root.join("Laptop")).unwrap();
+    let card = laptop.directory.join("Photos/Card");
+    fs::create_dir_all(&card).unwrap();
+    fs::write(card.join("new.arw"), b"shot on the trip").unwrap();
+    let new = laptop.add_asset(&card.join("new.arw")).unwrap().id;
+    laptop.save_editor_state(&a, &edit(1.0)).unwrap();
+    export(&laptop.directory, &[a.clone(), new.clone()], "Back", false);
+    for mode in [NewPhotos::Reference, NewPhotos::Copy(root.join("Shoot"))] {
+        let receipt = import(&main, &root.join("Back"), &options(mode), &go(), |_| {}).unwrap();
+        assert_eq!(receipt.without_original, 1);
+        assert_eq!(receipt.report.added, 0);
+        assert!(main.asset(&new).is_err());
+    }
+    assert_eq!(exposure(&main, &a), json!(1.0));
 }

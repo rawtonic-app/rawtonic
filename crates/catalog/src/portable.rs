@@ -204,7 +204,8 @@ impl Library {
         for asset in self.assets(None)? {
             // Photographs referenced outside the library (a catalog exported
             // by reference) keep the sidecars beside their files untouched.
-            if !asset.path.starts_with(&self.directory) {
+            // Nor do photographs without their file here (edits only).
+            if !asset.path.starts_with(&self.directory) || !asset.path.is_file() {
                 continue;
             }
             let name = asset.path.file_name().unwrap().to_string_lossy();
