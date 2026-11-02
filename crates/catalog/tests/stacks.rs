@@ -524,6 +524,117 @@ fn split_stack_divides_at_the_photo_and_undo_restores_the_whole_stack() {
 }
 
 #[test]
+fn splitting_at_the_last_member_dissolves_the_one_member_stack_and_undo_restores_the_stack() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "D.ARW"]);
+    use rawtonic_catalog::stacks::Stack;
+
+    // A B C D, expanded, and D the active photo: the last member.
+    lib.group_stack(&photos(&ids, &[0, 1, 2, 3])).unwrap();
+    lib.set_stacks_collapsed(&photos(&ids, &[0]), Some(false))
+        .unwrap();
+    let grouped = lib
+        .stack_of(&Member::photo(ids[0].clone()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(grouped.members, photos(&ids, &[0, 1, 2, 3]));
+    assert!(lib.can_split_stack(&Member::photo(ids[3].clone())).unwrap());
+    let (split, done) = lib.split_stack(&Member::photo(ids[3].clone())).unwrap();
+    assert!(done);
+    // The surviving prefix keeps its top and order; the one-member stack D
+    // dissolved, so only one stack is left, A B C.
+    let kept = lib
+        .stack_of(&Member::photo(ids[0].clone()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.members, photos(&ids, &[0, 1, 2]));
+    assert!(!kept.collapsed);
+    assert_eq!(stack(&lib, &ids, 3), None);
+    assert_eq!(stack(&lib, &ids, 2), Some((vec![0, 1, 2], false)));
+    assert_eq!(lib.listed_stacks().unwrap().len(), 1);
+    // One undo step puts the stack back exactly: members, order, top,
+    // expanded, the same id.
+    lib.restore_stacks(&split, true).unwrap();
+    assert_eq!(
+        lib.stack_of(&Member::photo(ids[0].clone())).unwrap(),
+        Some(grouped.clone())
+    );
+    assert_eq!(
+        lib.stack_of(&Member::photo(ids[3].clone())).unwrap(),
+        Some(Stack {
+            id: grouped.id.clone(),
+            collapsed: false,
+            members: photos(&ids, &[0, 1, 2, 3]),
+        })
+    );
+    assert_eq!(
+        lib.stack_of(&Member::photo(ids[2].clone())).unwrap(),
+        lib.stack_of(&Member::photo(ids[0].clone())).unwrap()
+    );
+    assert_eq!(lib.listed_stacks().unwrap().len(), 1);
+
+    // Redo splits it again; splitting once more at the last member keeps
+    // A B, and one undo gives A B C back.
+    lib.restore_stacks(&split, false).unwrap();
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1, 2], false)));
+    assert_eq!(stack(&lib, &ids, 3), None);
+    let (again, done) = lib.split_stack(&Member::photo(ids[2].clone())).unwrap();
+    assert!(done);
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1], false)));
+    assert_eq!(stack(&lib, &ids, 2), None);
+    lib.restore_stacks(&again, true).unwrap();
+    assert_eq!(stack(&lib, &ids, 0), Some((vec![0, 1, 2], false)));
+}
+
+#[test]
+fn splitting_at_the_second_of_four_dissolves_the_top_and_keeps_the_new_stacks_order() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "D.ARW"]);
+    use rawtonic_catalog::stacks::Stack;
+
+    // A B C D, collapsed: the split takes the collapsed state along.
+    lib.group_stack(&photos(&ids, &[0, 1, 2, 3])).unwrap();
+    let grouped = lib
+        .stack_of(&Member::photo(ids[0].clone()))
+        .unwrap()
+        .unwrap();
+    assert!(grouped.collapsed);
+    let (split, done) = lib.split_stack(&Member::photo(ids[1].clone())).unwrap();
+    assert!(done);
+    // The prefix A is no stack; B C D keep their order, B at the top.
+    assert_eq!(stack(&lib, &ids, 0), None);
+    let made = lib
+        .stack_of(&Member::photo(ids[1].clone()))
+        .unwrap()
+        .unwrap();
+    assert_ne!(made.id, grouped.id);
+    assert_eq!(made.members, photos(&ids, &[1, 2, 3]));
+    assert!(made.collapsed);
+    assert_eq!(stack(&lib, &ids, 2), Some((vec![1, 2, 3], true)));
+    assert_eq!(stack(&lib, &ids, 3), Some((vec![1, 2, 3], true)));
+    assert_eq!(lib.listed_stacks().unwrap().len(), 1);
+    // One undo step: A B C D again, A the top, collapsed, the same id.
+    lib.restore_stacks(&split, true).unwrap();
+    assert_eq!(
+        lib.stack_of(&Member::photo(ids[1].clone())).unwrap(),
+        Some(grouped.clone())
+    );
+    assert_eq!(
+        lib.stack_of(&Member::photo(ids[3].clone())).unwrap(),
+        Some(Stack {
+            id: grouped.id.clone(),
+            collapsed: true,
+            members: photos(&ids, &[0, 1, 2, 3]),
+        })
+    );
+    assert_eq!(lib.listed_stacks().unwrap().len(), 1);
+    // Redo: B C D again.
+    lib.restore_stacks(&split, false).unwrap();
+    assert_eq!(stack(&lib, &ids, 0), None);
+    assert_eq!(stack(&lib, &ids, 1), Some((vec![1, 2, 3], true)));
+}
+
+#[test]
 fn a_virtual_copy_splits_the_stack_it_is_in() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = session(d.path(), &["A.ARW", "B.ARW"]);

@@ -15,7 +15,7 @@
 - **Nothing is lost when one side wins.** *Keep current* over a photo the other catalog changed keeps that catalog's edit as a snapshot ("From …, not imported"), as *Replace* keeps the replaced one. The rating, label, flag, keywords or text either choice leaves out of the photo are listed in the import's result and kept in the catalog's `import-reports` folder. An edit whose LUT or camera profile is missing compares by where the file sits in its catalog, so importing the same work again keeps no second copy of the snapshot.
 - **Three Windows downloads, and help when Windows blocks one.** A tester's PC deleted the unsigned Windows installer right after download. Each release now has an MSI installer (the recommended download; for all users, asks for administrator permission), the installer for your user only (`-setup.exe`) and a portable zip that runs from any folder without installing. Before a release, every Windows download is scanned with Microsoft Defender on a Windows build machine (evidence, not a promise for every PC). The README and the website explain what to do when the browser, Windows Security or SmartScreen holds a download back. The downloads are still unsigned; free signing through the SignPath Foundation is prepared (`docs/CODE_SIGNING.md`).
 
-## 0.1.0-alpha.11.1 — 2026-11-02
+## 0.1.0-alpha.11.1 — 2026-11-01
 
 A small update. Relight's set-ups now relight a portrait instead of brightening and tinting it, artefacts at the eyes, ears and backdrop are gone, and photos whose Relight analysis was made before alpha.11 get their depth back. The Develop sliders are finer to drag. Saved edits export exactly as in alpha.11, except Relight edits whose analysis was made before alpha.11 (see *Changes to existing edits*).
 
