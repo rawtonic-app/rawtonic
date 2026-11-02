@@ -52,9 +52,10 @@ describe('proof sheet form', () => {
   });
 
   it('takes the selection in the order the grid shows it, else every photo shown', () => {
-    const shown = ['a', 'b', 'c', 'd'];
+    const photo = (n: number) => `/p/${n}.NEF`;
+    const shown = [1, 2, 3, 4].map(photo);
     expect(sheetPhotos(shown, [])).toEqual(shown);
-    expect(sheetPhotos(shown, ['d', 'b'])).toEqual(['b', 'd']);
-    expect(sheetPhotos(shown, ['x', 'c'])).toEqual(['c', 'x']);
+    expect(sheetPhotos(shown, [photo(4), photo(2)])).toEqual([photo(2), photo(4)]);
+    expect(sheetPhotos(shown, [photo(9), photo(3)])).toEqual([photo(3), photo(9)]);
   });
 });
