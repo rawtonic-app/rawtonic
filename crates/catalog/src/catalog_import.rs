@@ -303,7 +303,8 @@ impl Digests {
     }
 
     /// `normalize`, with a file that is not there — no content to compare —
-    /// replaced by its place within `within` (else the reference as it is):
+    /// replaced by its place within `within` (else the reference as it is;
+    /// `None` keeps it as it is, as the persisted import baselines do):
     /// one resource copied into a library sits at the same place within it
     /// wherever it came from, so the same missing file compares equal from
     /// either side.
@@ -330,9 +331,15 @@ impl Digests {
                 *path = format!("sha256:{digest}");
                 return;
             }
+            // Baselines of import/export keep the plain reference (their
+            // recorded digests predate this fallback); only the snapshot
+            // comparison names a missing file by its place.
+            let Some(within) = within else {
+                return;
+            };
             let place = match rawtonic_metadata::resources::relative(path) {
                 Some(relative) => relative.to_path_buf(),
-                None => match within.and_then(|within| Path::new(path).strip_prefix(within).ok()) {
+                None => match Path::new(path).strip_prefix(within).ok() {
                     Some(inside) => inside.to_path_buf(),
                     None => PathBuf::from(path.as_str()),
                 },
@@ -1635,4 +1642,33 @@ fn ensure_album(
         params![new_id, name, parent, kind, position],
     )?;
     Ok((new_id, made + 1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Digests;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    /// Baselines recorded before the snapshot fallback named a missing
+    /// resource by its plain reference; `normalize` must still do so, or an
+    /// untouched edit would differ from its baseline after an update.
+    #[test]
+    fn a_baseline_keeps_a_missing_resource_as_it_is() {
+        let root = std::env::temp_dir().join("rawtonic-baseline-missing-resource");
+        let reference = "rawtonic-resource:resources/gone/look.cube";
+        let mut edit = json!({ "lutPath": reference });
+        let mut digests = Digests {
+            cache: HashMap::new(),
+        };
+        digests.normalize(&mut edit, &root);
+        assert_eq!(edit, json!({ "lutPath": reference }));
+
+        let mut snapshot = json!({ "lutPath": reference });
+        digests.normalize_within(&mut snapshot, &root, Some(&root));
+        assert_eq!(
+            snapshot,
+            json!({ "lutPath": "file:resources/gone/look.cube" })
+        );
+    }
 }
