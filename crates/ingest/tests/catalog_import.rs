@@ -1638,3 +1638,48 @@ fn an_edits_only_photograph_is_matched_by_content_without_a_recorded_hash() {
     assert_eq!(fs::read(&own).unwrap(), b"the same raw");
     assert_eq!(project.checksum(&in_project).unwrap(), None);
 }
+
+/// Review round 2: the laptop's edit names a LUT and a camera profile the
+/// photograph was developed with, but neither travelled with the exported
+/// catalog and neither is here — they are gone. Their references differ
+/// only in the library they are relative to (the laptop's folder there, the
+/// Main catalog's here); with no file to compare by content, a second Keep
+/// current import read them as another edit and kept a second snapshot.
+#[test]
+fn a_kept_edit_naming_a_missing_lut_is_not_kept_twice() {
+    let (_tmp, w) = world();
+    for id in &w.ids[..2] {
+        w.laptop
+            .save_editor_state(
+                id,
+                &json!({"version": 1, "adjustments": {
+                    "exposure": 1.5,
+                    "lutPath": "rawtonic-resource:resources/gone/look.cube",
+                    "cameraProfile": "rawtonic-resource:resources/gone/camera.dcp",
+                }}),
+            )
+            .unwrap();
+        w.main.save_editor_state(id, &edit(0.9)).unwrap();
+    }
+    let opts = options(NewPhotos::Reference);
+    let receipt = import(&w.main, &w.laptop.directory, &opts, &go(), |_| {}).unwrap();
+    assert_eq!(receipt.report.kept, 2);
+    // Neither catalog has the files the edit names.
+    for lib in [&w.laptop, &w.main] {
+        assert!(!lib.directory.join("resources/gone").exists());
+    }
+    assert_eq!(receipt.report.snapshots_kept, 2);
+    let version = w.main.primary_version(&w.ids[0]).unwrap();
+    let snapshots = w.main.snapshots(&version).unwrap();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].name, "Not imported");
+    assert_eq!(snapshots[0].adjustments["exposure"], json!(1.5));
+    // The photograph here keeps its own edit.
+    assert_eq!(exposure(&w.main, &w.ids[0]), json!(0.9));
+    // Importing again adds no second snapshot of the same edit.
+    let again = import(&w.main, &w.laptop.directory, &opts, &go(), |_| {}).unwrap();
+    assert_eq!(again.report.snapshots_kept, 0);
+    assert_eq!(w.main.snapshots(&version).unwrap().len(), 1);
+    let other = w.main.primary_version(&w.ids[1]).unwrap();
+    assert_eq!(w.main.snapshots(&other).unwrap().len(), 1);
+}
