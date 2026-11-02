@@ -34,6 +34,8 @@ export interface ProofDraft {
   watermark: boolean;
   /** Output sharpening for a print looked at from reading distance. */
   sharpen: boolean;
+  /** How strongly, when sharpening is on. */
+  sharpenLevel: SharpenLevel;
   ppi: number;
   pdf: boolean;
   jpeg: boolean;
@@ -41,6 +43,10 @@ export interface ProofDraft {
   folder?: string;
   name: string;
 }
+
+/** Output sharpening strength: the share of the print sharpening's amount. */
+export const SHARPEN_AMOUNTS = { low: 50, standard: 100, high: 150 } as const;
+export type SharpenLevel = keyof typeof SHARPEN_AMOUNTS;
 
 /** Lightroom's 4 × 5 contact sheet on A4: twenty numbered photos a page. */
 export const DEFAULT_PROOF_DRAFT: ProofDraft = {
@@ -61,6 +67,7 @@ export const DEFAULT_PROOF_DRAFT: ProofDraft = {
   textPt: 10,
   watermark: false,
   sharpen: true,
+  sharpenLevel: 'standard',
   ppi: 300,
   pdf: true,
   jpeg: false,
@@ -82,6 +89,7 @@ export function readProofDraft(library: string | null): ProofDraft {
       if (name in saved && typeof saved[name] === typeof fallback) draft[name] = saved[name];
     }
     if (typeof saved.folder === 'string') draft.folder = saved.folder;
+    if (!Object.hasOwn(SHARPEN_AMOUNTS, draft.sharpenLevel as string)) draft.sharpenLevel = DEFAULT_PROOF_DRAFT.sharpenLevel;
     if (!Object.hasOwn(PAPERS, draft.paper as string) && draft.paper !== "custom") draft.paper = DEFAULT_PROOF_DRAFT.paper;
     return draft as unknown as ProofDraft;
   } catch {
@@ -139,7 +147,7 @@ export function sheetFromDraft(draft: ProofDraft) {
  * print sharpening), or none. */
 export function sheetSharpening(draft: ProofDraft) {
   if (!draft.sharpen) return null;
-  return { amount: 100, radius: printRadius(30, clamp(draft.ppi, 72, 1200, 300)), threshold: 1 };
+  return { amount: SHARPEN_AMOUNTS[draft.sharpenLevel] ?? 100, radius: printRadius(30, clamp(draft.ppi, 72, 1200, 300)), threshold: 1 };
 }
 
 /** Which photos a sheet holds: the selection, else every photo shown, in the

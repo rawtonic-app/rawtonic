@@ -1540,6 +1540,12 @@
     "preview": "Strona 1 tak, jak zostanie zapisana",
     "rows": "Wiersze",
     "sharpen": "Wyostrz do druku",
+    "sharpenLevel": "Siła wyostrzania",
+    "sharpenLevels": {
+      "high": "Wysoka",
+      "low": "Niska",
+      "standard": "Standardowa"
+    },
     "summary": "Zdjęcia: {{photos}} · stron: {{pages}} po {{perPage}} · każde zdjęcie do {{width}} × {{height}} px",
     "text": "Tekst",
     "textHelp": "{job} nazwa zlecenia, {date} dziś, {count} zdjęcia, {page} i {pages} numery stron",

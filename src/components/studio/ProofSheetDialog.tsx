@@ -26,6 +26,7 @@ import { renderErrorMessage } from "../../utils/renderErrors";
 import {
   CAPTION_PRESETS,
   PAPERS,
+  SHARPEN_AMOUNTS,
   readProofDraft,
   sheetFromDraft,
   sheetPhotos,
@@ -33,6 +34,7 @@ import {
   useProofSheetDialog,
   writeProofDraft,
   type Paper,
+  type SharpenLevel,
   type ProofDraft,
 } from "../../utils/proofSheet";
 
@@ -521,6 +523,21 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                 <input type="checkbox" checked={draft.sharpen} onChange={(e) => set({ sharpen: e.target.checked })} />
                 {t("proofSheet.sharpen")}
               </label>
+              {draft.sharpen && (
+                <label>
+                  {t("proofSheet.sharpenLevel")}
+                  <select
+                    value={draft.sharpenLevel}
+                    onChange={(e) => set({ sharpenLevel: e.target.value as SharpenLevel })}
+                  >
+                    {(Object.keys(SHARPEN_AMOUNTS) as SharpenLevel[]).map((level) => (
+                      <option key={level} value={level}>
+                        {t(`proofSheet.sharpenLevels.${level}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label>
                 {t("proofSheet.ppi")}
                 <input

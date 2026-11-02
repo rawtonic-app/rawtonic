@@ -1481,6 +1481,12 @@
     "preview": "Page 1 telle qu’elle sera écrite",
     "rows": "Lignes",
     "sharpen": "Accentuer pour l’impression",
+    "sharpenLevel": "Intensité de la netteté",
+    "sharpenLevels": {
+      "high": "Élevée",
+      "low": "Faible",
+      "standard": "Standard"
+    },
     "summary": "Photos : {{photos}} · pages : {{pages}} · {{perPage}} par page · chaque photo jusqu’à {{width}} × {{height}} px",
     "text": "Texte",
     "textHelp": "{job} nom du travail, {date} aujourd’hui, {count} photos, {page} et {pages} numéros de page",

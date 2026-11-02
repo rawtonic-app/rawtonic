@@ -1540,6 +1540,12 @@
     "preview": "Страница 1 в том виде, в каком будет записана",
     "rows": "Строки",
     "sharpen": "Резкость для печати",
+    "sharpenLevel": "Степень резкости",
+    "sharpenLevels": {
+      "high": "Высокая",
+      "low": "Низкая",
+      "standard": "Стандартная"
+    },
     "summary": "Фото: {{photos}} · страниц: {{pages}} по {{perPage}} · каждое фото до {{width}} × {{height}} px",
     "text": "Текст",
     "textHelp": "{job} название задания, {date} сегодня, {count} фото, {page} и {pages} номера страниц",

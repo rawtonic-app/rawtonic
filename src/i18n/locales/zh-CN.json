@@ -1403,6 +1403,12 @@
     "preview": "将写入的第 1 页",
     "rows": "行",
     "sharpen": "为打印锐化",
+    "sharpenLevel": "锐化强度",
+    "sharpenLevels": {
+      "high": "高",
+      "low": "低",
+      "standard": "标准"
+    },
     "summary": "{{photos}} 张照片 · {{pages}} 页，每页 {{perPage}} 张 · 每张最大 {{width}} × {{height}} px",
     "text": "文字",
     "textHelp": "{job} 任务名称、{date} 今天、{count} 照片数、{page} 和 {pages} 页码",

@@ -36,6 +36,10 @@ describe('proof sheet form', () => {
       jpeg: false,
     });
     expect(sheetSharpening({ ...DEFAULT_PROOF_DRAFT, sharpen: false })).toBeNull();
+    // Standard is the amount sheets always had; Low and High scale it.
+    expect(sheetSharpening(DEFAULT_PROOF_DRAFT)?.amount).toBe(100);
+    expect(sheetSharpening({ ...DEFAULT_PROOF_DRAFT, sharpenLevel: 'low' })?.amount).toBe(50);
+    expect(sheetSharpening({ ...DEFAULT_PROOF_DRAFT, sharpenLevel: 'high' })?.amount).toBe(150);
     // The export's print sharpening for 300 ppi seen from 30 cm.
     expect(sheetSharpening(DEFAULT_PROOF_DRAFT)?.radius).toBeCloseTo(1.03, 2);
   });

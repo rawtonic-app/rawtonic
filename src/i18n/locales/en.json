@@ -1422,6 +1422,12 @@
     "preview": "Page 1 as it will be written",
     "rows": "Rows",
     "sharpen": "Sharpen for print",
+    "sharpenLevel": "Sharpening strength",
+    "sharpenLevels": {
+      "high": "High",
+      "low": "Low",
+      "standard": "Standard"
+    },
     "summary": "Photos: {{photos}} · pages: {{pages}} · {{perPage}} per page · each photo up to {{width}} × {{height}} px",
     "text": "Text",
     "textHelp": "{job} job name, {date} today, {count} photos, {page} and {pages} page numbers",

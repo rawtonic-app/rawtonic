@@ -1481,6 +1481,12 @@
     "preview": "Pagina 1 come verrà scritta",
     "rows": "Righe",
     "sharpen": "Nitidezza per la stampa",
+    "sharpenLevel": "Intensità della nitidezza",
+    "sharpenLevels": {
+      "high": "Alta",
+      "low": "Bassa",
+      "standard": "Standard"
+    },
     "summary": "Foto: {{photos}} · pagine: {{pages}} · {{perPage}} per pagina · ogni foto fino a {{width}} × {{height}} px",
     "text": "Testo",
     "textHelp": "{job} nome del lavoro, {date} oggi, {count} foto, {page} e {pages} numeri di pagina",

@@ -1403,6 +1403,12 @@
     "preview": "기록될 1페이지",
     "rows": "행",
     "sharpen": "인쇄용 선명하게",
+    "sharpenLevel": "선명도 강도",
+    "sharpenLevels": {
+      "high": "높음",
+      "low": "낮음",
+      "standard": "표준"
+    },
     "summary": "사진 {{photos}}장 · {{pages}}페이지(페이지당 {{perPage}}장) · 각 사진 최대 {{width}} × {{height}} px",
     "text": "텍스트",
     "textHelp": "{job} 작업 이름, {date} 오늘, {count} 사진 수, {page}와 {pages} 페이지 번호",
