@@ -44,6 +44,8 @@ case $step in
     ;;
   smoke)
     D=$1 P=$2 V=$3 T=$1/smoke bad=0
+    # A smoke left running by a dropped ssh connection finishes first.
+    exec 9> "$D/smoke.lock"; flock 9
     rm -rf "${T:?}"; mkdir -p "$T/app" "$T/host" "$T/prev"
     cp "$D/out/Rawtonic_${V}_amd64.AppImage" "$T/app/"; chmod +x "$T/app/"*.AppImage
     app=$T/app/Rawtonic_${V}_amd64.AppImage

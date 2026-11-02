@@ -36,6 +36,8 @@ After `prev`, three chains run in parallel: the Mac chain (Apple Silicon build �
 
 ## Reruns
 
+A full run takes about an hour, most of it the Windows runner: start it where it survives a closed terminal (`tmux`, `nohup … &`). An interrupted run keeps its markers; a step already running on the Linux host finishes there, and the rerun waits for it (build lock, smoke lock); a remembered Windows run is waited for again. Only one run per version at a time (`WORK/run.lock`).
+
 A rerun with the same version skips every stage that passed. `--from STAGE` redoes that stage and all after it, `--only STAGE` runs one stage (its inputs must exist), e.g. `--only gui` after fixing the QA machine. A failed Windows run is not waited for again: the rerun starts a new one.
 
 Other options: `--no-bump` builds `--sha` (default `origin/main`), which must already carry the version and its CHANGELOG section (a hotfix branch, or a rebuild); `--no-draft` stops before `gh release create`; `--prev VERSION` sets the release the identity checks compare with; `--accept-ident-diff` lists identity differences instead of failing — only for an export change the CHANGELOG states.
@@ -75,6 +77,10 @@ python3 scripts/release/gui_smoke.py --app "path/Rawtonic QA release.app" --cli 
 ```
 
 In a new folder it makes a fresh profile (HOME) and a session with a copy of the RAW (the CLI's `create` and `ingest`), then: first start on the empty profile and a clean quit; a start as after an update (the profile's `lastRunVersion` set to an older version), where What's new must name the version; the session opens, a double click opens the photo in Develop, and a capture of the window must show a picture in the viewer (not one flat colour); one export into the session's Output folder must be a JPEG; quit through macOS (an Apple Event, as the Dock does) with exit 0, no panic in the app log, the RAW unchanged. The app takes the keyboard focus for about a minute. It refuses the user's identifier `cc.rawtonic.editor`.
+
+## After the release
+
+Check `README.md` against the new CHANGELOG section (features, What it does, the keyboard table, limitations, download file names) and fix it in a PR; the summary's last line reminds of it.
 
 ## Not covered
 

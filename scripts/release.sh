@@ -358,7 +358,9 @@ st_gui() {
 
 st_relay() {
   need source
-  local d=$WORK/relay-e2e os_ver; os_ver=$(sw_vers -productVersion)
+  # The relay's schema (services/relay/src/schema.ts): major.minor, aarch64 | x86_64.
+  local d=$WORK/relay-e2e os_ver arch
+  os_ver=$(sw_vers -productVersion | cut -d. -f1,2); arch=$(uname -m); [ "$arch" = arm64 ] && arch=aarch64
   mkdir -p "$d/src"
   cat > "$d/Cargo.toml" <<EOF
 [package]
@@ -388,7 +390,7 @@ async fn main() {
     let scrubber = Scrubber::for_this_machine();
     let payload = serde_json::json!({
         "schema": 2,
-        "app": {"version": "$VERSION", "os": "macos", "osVersion": "$os_ver", "arch": "$(uname -m)"},
+        "app": {"version": "$VERSION", "os": "macos", "osVersion": "$os_ver", "arch": "$arch"},
         "text": "Release smoke test for $VERSION (sent by the maintainer's release check, deleted right away)"
     });
     let prepared = prepare(Channel::Report, payload, &scrubber).expect("prepare");
@@ -486,7 +488,8 @@ st_creds() {
     for name in $names; do
       # shellcheck disable=SC1090
       val=$(set -a; . "$SIGNING_ENV"; printenv "$name")
-      [ ${#val} -ge 6 ] && n=$((n + $(grep -c -a -F -- "$val" "$f")))
+      # (grep -c exits 1 on no match; set -e would end the stage)
+      if [ ${#val} -ge 6 ]; then n=$((n + $(grep -c -a -F -- "$val" "$f" || true))); fi
     done
     [ "$n" = 0 ] || echo "credential values in $(basename "$f"): $n"
     total=$((total + n))
@@ -567,6 +570,7 @@ summary() {
     printf '%-12s %-22s %8s  %s\n' "$s" "$r" "${t:+$((t / 60))m$(printf %02d $((t % 60)))s}" "$([ -f "$LOGS/$s.log" ] && echo "$LOGS/$s.log")"
   done
   printf '%-12s %-22s %8s\n' total "this run" "$((total / 60))m$(printf %02d $((total % 60)))s"
+  echo "Last step (by hand): check README.md against the new CHANGELOG section — features, What it does, keyboard table, limitations, download file names."
   [ "$DRAFT" = 1 ] && [ -f "$STATE/draft.ok" ] && echo "Draft: $(gh release view "$TAG" -R "$GH_REPO" --json url -q .url) — review the notes and assets, then publish it by hand."
 }
 
@@ -581,6 +585,14 @@ main() {
   fi
 
   mkdir -p "$STATE" "$LOGS"; chmod 700 "$WORK" "$LOGS"; umask 077
+  # One run per version at a time: two would share worktrees, assets and the host's folders.
+  if ! mkdir "$WORK/run.lock" 2>/dev/null; then
+    local holder; holder=$(cat "$WORK/run.lock/pid" 2>/dev/null)
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then echo "release: another run (pid $holder) works on $VERSION" >&2; exit 1; fi
+    echo "release: taking over the lock of an ended run (pid ${holder:-?})"
+  fi
+  echo $$ > "$WORK/run.lock/pid"
+  trap 'rm -rf "$WORK/run.lock"' EXIT
   rm -f "$STATE"/*.skipped
   START=$(date +%s)
   if [ -n "$FROM" ]; then
