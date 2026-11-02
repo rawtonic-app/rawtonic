@@ -68,9 +68,26 @@ To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpd
 
 ### Windows (experimental)
 
-Since 0.1.0-alpha.10, each release has a Windows installer: download `Rawtonic_<version>_x64-setup.exe` and `SHA256SUMS-windows.txt` from the [Releases page](https://github.com/rawtonic-app/rawtonic/releases) for Windows 10 or 11 (x64; so far tested on Windows 11). The installer is **not signed** yet. To check download integrity before running it: in PowerShell, `Get-FileHash .\Rawtonic_*_x64-setup.exe` must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). This catches download corruption; it does not verify the publisher. When you start it, Windows SmartScreen shows "Windows protected your PC": click **More info**, then **Run anyway**. It installs for your user only, without administrator rights; uninstall it in Settings → Apps.
+Releases after 0.1.0-alpha.11.1 have three Windows downloads of the same app (earlier ones only the `-setup.exe`), for Windows 10 or 11 (x64; so far tested on Windows 11), on the [Releases page](https://github.com/rawtonic-app/rawtonic/releases):
 
-Installing takes about a minute: at the end the installer prepares Rawtonic's GPU shaders, so the first photo appears sooner on the first start. Rawtonic needs a GPU with a Vulkan or DirectX 12 driver; PCs with only Microsoft's software renderer are not supported yet. Windows support is new and has so far been tested with one NVIDIA graphics card, so please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
+- `Rawtonic_<version>_x64.msi` — **the recommended download.** It installs for all users into Program Files, so Windows asks for administrator permission.
+- `Rawtonic_<version>_x64-setup.exe` — installs for your user only, without administrator rights.
+- `Rawtonic_<version>_x64-portable.zip` — portable, no installation: unpack it anywhere (a USB drive works) and start `Rawtonic\rawtonic-app.exe`. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 includes and Edge installs on Windows 10. Settings and libraries are kept in your user profile, not beside the app.
+
+The downloads are **not signed** yet. To check a download before running it: in PowerShell, `Get-FileHash .\Rawtonic_<version>_x64.msi` (or the file you chose) must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). This catches download corruption; it does not verify the publisher. Uninstall an installed Rawtonic in Settings → Apps.
+
+Installing takes about a minute: at the end the installer prepares Rawtonic's GPU shaders, so the first photo appears sooner on the first start (the portable app has no installer, so its first start waits for them instead). Rawtonic needs a GPU with a Vulkan or DirectX 12 driver; PCs with only Microsoft's software renderer are not supported yet. Windows support is new and has so far been tested with one NVIDIA graphics card, so please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
+
+#### If Windows blocks the download
+
+Unsigned programs from a new publisher are often held back by the browser, Microsoft Defender or SmartScreen, although nothing is wrong with them. Before each release, every download is scanned with Microsoft Defender (freshly updated signatures) on a Windows build machine; the results are in the release's build log. That is evidence, not a promise that your PC's protection agrees, so check the SHA-256 as above before you allow a file.
+
+1. **The browser holds it back.** Edge: open Downloads (Ctrl+J), click **…** beside the file, then **Keep** → **Show more** → **Keep anyway**. Chrome: in Downloads, choose **Keep** (or **Download dangerous file**).
+2. **Windows Security removed it.** Open **Windows Security** → **Virus & threat protection** → **Protection history**, select the entry for the Rawtonic file, then **Actions** → **Restore** (or **Allow**). Then check its SHA-256 with `Get-FileHash`.
+3. **SmartScreen says "Windows protected your PC"** when you start it: click **More info**, then **Run anyway**.
+4. **Still blocked?** Try another of the three downloads, and please [tell us](https://github.com/rawtonic-app/rawtonic/issues) which file was blocked and by what, so we can report it to Microsoft as a false positive.
+
+The downloads will be code-signed through the SignPath Foundation programme for open-source projects once it accepts Rawtonic; the [code signing policy](docs/CODE_SIGNING.md) is prepared but not in effect yet.
 
 ### Other systems
 

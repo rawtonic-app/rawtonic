@@ -2,7 +2,7 @@
 # shellcheck disable=SC2329  # the stages are called by name (fn_of)
 # One release in one command: the version bump PR, then from the merged
 # commit the signed and notarized macOS DMGs (Apple Silicon, Intel), the Linux
-# AppImage (Linux build host over SSH) and the Windows installer (GitHub
+# AppImage (Linux build host over SSH) and the Windows downloads (GitHub
 # workflow) in parallel, every release smoke, the release notes, SHA256SUMS
 # and a DRAFT prerelease. It never publishes a release or pushes a tag.
 #
@@ -133,7 +133,7 @@ describe() {
     relay) echo "cargo run --release of a scratch crate on $WT/crates/contribute: send one report to the build's relay and delete it";;
     linux) echo "git archive SHA | ${SSH[*]:-ssh HOST} tar -x -C $LINUX_DIR/$VERSION/src; ${SSH[*]:-ssh HOST} 'flock ${LINUX_LOCK:-LOCK} chrt --other 0 packaging/linux/build-appimage.sh $LINUX_CACHE' (scripts/release/linux.sh build); copy AppImage + .zsync back";;
     linux-smoke) echo "scripts/release/linux.sh smoke on the host: relay string, zsync info, xvfb-run host exports vs the previous AppImage, ubuntu:22.04 ubuntu:24.04 debian:12 fedora:42 container exports";;
-    windows) echo "git push origin SHA:refs/heads/$BUILD_BRANCH; gh workflow run windows-installer.yml --ref $BUILD_BRANCH; wait; gh run download -n windows-installer; sha256 -c; log has 'WARP refused cleanly'/'uninstaller exit 0'; relay string (7z on the Linux host); delete $BUILD_BRANCH";;
+    windows) echo "git push origin SHA:refs/heads/$BUILD_BRANCH; gh workflow run windows-installer.yml --ref $BUILD_BRANCH; wait; gh run download -n windows-installer, windows-defender; sha256 -c; log has '<kind> WARP refused cleanly'/'<kind> uninstaller exit 0' per nsis/msi/portable; Defender verdicts (MSI must be clean); relay string (7z on the Linux host); copy setup.exe, .msi, -portable.zip, SHA256SUMS-windows.txt; delete $BUILD_BRANCH";;
     creds) echo "count every signing credential value (except the public identity hash) in $LOGS and the built apps: must be 0; gitleaks dir $LOGS";;
     sums) echo "LGPL tarballs (previous release or pinned URL, SHA-256 against scripts/tether/build_libgphoto2.sh); shasum -a 256 * > $ASSETS/SHA256SUMS.txt";;
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
@@ -473,19 +473,29 @@ st_windows() {
   echo "run $id: $st"
   gh run view "$id" -R "$GH_REPO" --log > "$w/run.log" 2>&1
   [ "$st" = "completed success" ] || fail "the Windows run did not succeed"
-  grep -q 'WARP refused cleanly (exit 1)' "$w/run.log" && echo "export: WARP refused cleanly (exit 1)" \
-    || grep -q 'export exit 0' "$w/run.log" || fail "the log shows neither the WARP refusal nor an export"
-  grep -q 'uninstaller exit 0' "$w/run.log" || fail "no 'uninstaller exit 0'"
-  rm -rf "$w/artifact"; gh run download "$id" -R "$GH_REPO" -n windows-installer -D "$w/artifact" || fail "download"
+  local kind
+  for kind in nsis msi portable; do
+    grep -q "$kind WARP refused cleanly (exit 1)" "$w/run.log" && echo "$kind export: WARP refused cleanly (exit 1)" \
+      || grep -q "$kind export exit 0" "$w/run.log" || fail "the $kind log shows neither the WARP refusal nor an export"
+  done
+  for kind in nsis msi; do grep -q "$kind uninstaller exit 0" "$w/run.log" || fail "no '$kind uninstaller exit 0'"; done
+  rm -rf "$w/artifact" "$w/defender"
+  gh run download "$id" -R "$GH_REPO" -n windows-installer -D "$w/artifact" || fail "download"
+  gh run download "$id" -R "$GH_REPO" -n windows-defender -D "$w/defender" || fail "download the Defender verdicts"
   (cd "$w/artifact" && shasum -a 256 -c SHA256SUMS-windows.txt) || fail "checksum"
-  local exe="Rawtonic_${VERSION}_x64-setup.exe"
-  [ -f "$w/artifact/$exe" ] || fail "no $exe"
+  local exe="Rawtonic_${VERSION}_x64-setup.exe" msi="Rawtonic_${VERSION}_x64.msi" zip="Rawtonic_${VERSION}_x64-portable.zip" f
+  for f in "$exe" "$msi" "$zip"; do [ -f "$w/artifact/$f" ] || fail "no $f"; done
+  # Evidence from one runner, not proof (windows-installer.yml); the MSI is the
+  # website's Windows download, so it must scan clean there.
+  cat "$w/defender/defender-verdicts.txt"
+  grep -qx "defender: $msi: clean (exit 0)" "$w/defender/defender-verdicts.txt" || fail "Defender did not report $msi clean"
+  grep -v ': clean (exit 0)$' "$w/defender/defender-verdicts.txt" | sed 's/^/WARNING: /' || true
   # The relay address in the installed binary (7z unpacks the NSIS installer; on the Linux host).
   local d; d=$(linux_d)
   remote "rm -rf $d/win && mkdir -p $d/win && cat > $d/win/setup.exe && cd $d/win && 7z x -y -ox setup.exe >/dev/null && grep -c -a relay.rawtonic.cc x/rawtonic-app.exe" \
     < "$w/artifact/$exe" > "$w/relay.txt" || fail "relay string check"
   echo "relay strings in rawtonic-app.exe: $(cat "$w/relay.txt")"; [ "$(cat "$w/relay.txt")" -ge 1 ] || fail "no relay address"
-  mkdir -p "$ASSETS"; cp "$w/artifact/$exe" "$w/artifact/SHA256SUMS-windows.txt" "$ASSETS/"
+  mkdir -p "$ASSETS"; cp "$w/artifact/$exe" "$w/artifact/$msi" "$w/artifact/$zip" "$w/artifact/SHA256SUMS-windows.txt" "$ASSETS/"
   git -C "$REPO_ROOT" push -q origin --delete "$BUILD_BRANCH" && echo "deleted $BUILD_BRANCH" || echo "note: $BUILD_BRANCH not deleted"
 }
 

@@ -102,6 +102,22 @@ class Notes(unittest.TestCase):
                            SUMS.replace("0.2.0-beta.2", "0.2.0.1"))
         self.assertIn("`Rawtonic_0.2.0.1_aarch64.dmg` below", text)
 
+    def test_windows_install_names_the_msi_and_the_zip(self):
+        body = PREV_BODY.replace("## What's new since beta.0",
+                                 "### Windows (experimental, unsigned)\n\n1. Download the old installer.\n\n"
+                                 "## What's new since beta.0")
+        sums = SUMS + "ff  Rawtonic_0.2.0-beta.2_x64.msi\n11  Rawtonic_0.2.0-beta.2_x64-portable.zip\n"
+        text = notes.notes("0.2.0-beta.2", "0.2.0-beta.1", CHANGELOG, body, sums)
+        self.assertIn("- `Rawtonic_0.2.0-beta.2_x64.msi`: **the recommended download.**", text)
+        self.assertIn("`Rawtonic_0.2.0-beta.2_x64-portable.zip`: portable", text)
+        self.assertIn("start `Rawtonic\\rawtonic-app.exe`", text)
+        self.assertNotIn("the old installer", text)
+        self.assertIn("`Rawtonic_0.2.0-beta.2_aarch64.dmg` below", text)
+        self.assertIn("- `Rawtonic_0.2.0-beta.2_x64.msi`: `ff`", text)
+        self.assertIn("- `Rawtonic_0.2.0-beta.2_x64-portable.zip`: `11`", text)
+        # Without the MSI the previous text stays.
+        self.assertIn("the old installer", notes.notes("0.2.0-beta.2", "0.2.0-beta.1", CHANGELOG, body, SUMS))
+
     def test_missing_section_fails(self):
         with self.assertRaisesRegex(ValueError, "no '## 0.3.0"):
             notes.notes("0.3.0", "0.2.0-beta.1", CHANGELOG, PREV_BODY, SUMS)

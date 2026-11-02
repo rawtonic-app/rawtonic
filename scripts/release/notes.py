@@ -50,6 +50,40 @@ def body_sections(body):
     return sections
 
 
+WINDOWS_HELP = "https://github.com/rawtonic-app/rawtonic#if-windows-blocks-the-download"
+
+
+def windows_install(version):
+    """The Windows part of Install when the release has the MSI and the portable zip."""
+    return f"""### Windows (experimental, unsigned)
+
+Three downloads of the same app, for Windows 10 or 11 (x64):
+
+- `Rawtonic_{version}_x64.msi`: **the recommended download.** Installs for all users into Program Files; Windows asks for administrator permission.
+- `Rawtonic_{version}_x64-setup.exe`: installs for your user only, without administrator rights.
+- `Rawtonic_{version}_x64-portable.zip`: portable, no installation. Unpack it anywhere and start `Rawtonic\\rawtonic-app.exe`. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 includes and Edge installs on Windows 10. Settings and libraries are kept in your user profile, not beside the app.
+
+1. Download one of them and `SHA256SUMS-windows.txt` below.
+2. **The downloads are not signed.** Check the download first: in PowerShell, `Get-FileHash .\\<file>` must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper or lower case does not matter). This catches a damaged download; it does not prove who made the file.
+3. Start it. Windows SmartScreen says "Windows protected your PC": click **More info**, then **Run anyway**. Uninstall an installed Rawtonic in Settings → Apps.
+4. Installing takes about a minute: at the end the installer prepares the graphics pipelines, so the first photo appears sooner.
+
+If your browser or Windows Security removes or blocks the download, see [Windows blocked the download?]({WINDOWS_HELP}). Each download was scanned with Microsoft Defender on a Windows build machine before the release; that is evidence, not a promise that your PC's protection agrees.
+
+**Rawtonic needs a graphics card with a Vulkan or DirectX 12 driver.** PCs with only Microsoft's software renderer (WARP, for example a virtual machine without a graphics driver) are not supported: Rawtonic says so and closes instead of starting. **Windows support is experimental:** please [report]({REPO_URL}/issues) how it runs on your PC."""
+
+
+def with_windows_install(install, version, names):
+    """Install with its Windows subsection rewritten when the release has the MSI and the zip."""
+    if not (f"Rawtonic_{version}_x64.msi" in names and f"Rawtonic_{version}_x64-portable.zip" in names):
+        return install
+    replaced, count = re.subn(r"^### Windows.*?(?=^### |\Z)", lambda _: windows_install(version) + "\n\n",
+                              install + "\n", flags=re.S | re.M)
+    if count != 1:
+        raise ValueError("the install text has no '### Windows' subsection")
+    return replaced.strip()
+
+
 def notes(version, prev, changelog, prev_body, sums):
     section = changelog_section(changelog, version)
     intro, sub = subsections(section)
@@ -76,6 +110,7 @@ def notes(version, prev, changelog, prev_body, sums):
     if prev != version and re.search(same_version(prev), install):
         raise ValueError("the previous version is left in the install text")
     names = {line.split()[1].lstrip("*"): line.split()[0] for line in sums.splitlines() if line.strip()}
+    install = with_windows_install(install, version, names)
     tail = [kept("Source code"), kept("Feedback")]
     tarballs = sorted(n for n in names if re.search(r"\.tar\.(bz2|xz|gz)$", n))
     for i, line in enumerate(tail):
@@ -90,7 +125,7 @@ def notes(version, prev, changelog, prev_body, sums):
         warning.group(0).strip(),
         intro,
         f"Updating from {short(prev)}: replace the app (macOS: drag the new Rawtonic to Applications; Linux: "
-        "AppImageUpdate or Gear Lever, or download the new AppImage; Windows: run the new installer). "
+        "AppImageUpdate or Gear Lever, or download the new AppImage; Windows: run the new installer, or unpack the new portable zip). "
         "Your libraries, sessions and edits stay as they are.",
         install,
         f"## What's new since {short(prev)}\n\n{highlights}",
