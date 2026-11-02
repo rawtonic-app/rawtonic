@@ -4,15 +4,16 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { updateAdjustments } from '../../../hooks/useEditorActions';
 import { useEditorStore } from '../../../store/useEditorStore';
-import type { AiPatch, AiPatchData, Spot } from '../../../utils/adjustments';
+import type { AiPatch, Spot } from '../../../utils/adjustments';
 import { Invokes } from '../../ui/AppProperties';
-import { Mask, SubMaskMode, ToolType } from '../right/Masks';
+import { Mask, SubMaskMode } from '../right/Masks';
 import { useProcessStore } from '../../../store/useProcessStore';
 import { isAiTaskCancelled, toastAiError } from '../../../utils/aiErrors';
 import { notify } from '../../../activity/notify';
 import { getTransformAdjustments } from '../../../hooks/useAiMasking';
 import { createSubMask } from '../../../utils/maskUtils';
-import { shapeAsShown, shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
+import { shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
+import { fillRemoval, removalArea, removalPatch, type SpotPlan } from '../../../utils/spotFill';
 import { withoutSpotItems } from '../../../utils/spotItems';
 
 interface Props {
@@ -69,9 +70,8 @@ function removalsOf(aiPatches: AiPatch[] | undefined, now?: SizedFrame): Removal
       if (p.startX === undefined || p.startY === undefined || p.endX === undefined || p.endY === undefined) return [];
       return [{ patch, kind: 'object', start: { x: p.startX, y: p.startY }, end: { x: p.endX, y: p.endY } }];
     }
-    const shown = sub?.parameters && shapeAsShown(sub.type, sub.parameters, now);
-    const line = (shown?.lines as { points: Point[]; brushSize: number }[] | undefined)?.[0];
-    return line ? [{ patch, kind: 'area', points: line.points, radius: line.brushSize / 2 }] : [];
+    const area = removalArea(patch, now);
+    return area ? [{ patch, kind: 'area', ...area }] : [];
   });
 }
 
@@ -206,7 +206,16 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // and shows its source, so you see what a click will select).
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [stroke, setStroke] = useState<Point[] | null>(null);
-  const [pending, setPending] = useState<{ x: number; y: number; radius: number; points?: Point[] } | null>(null);
+  // Spots and removals being placed (a removal's fill takes about a second;
+  // the brush keeps painting meanwhile).
+  const [pending, setPending] = useState<{ key: string; x: number; y: number; radius: number; points?: Point[] }[]>(
+    [],
+  );
+  const addPending = (x: number, y: number, radius: number, points?: Point[]) => {
+    const key = crypto.randomUUID();
+    setPending((all) => [...all, { key, x, y, radius, points }]);
+    return () => setPending((all) => all.filter((p) => p.key !== key));
+  };
   // An object being drawn around (box) or being selected and removed.
   const [box, setBox] = useState<{ start: Point; end: Point } | null>(null);
   // A box being drawn with Alt: what it reaches is deleted.
@@ -277,13 +286,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     try {
       const definition = select ? await select(patch) : patch;
       if (useEditorStore.getState().selectedImage?.path !== path) return;
-      const json = await invoke<string>(Invokes.InvokeGenerativeReplaseWithMaskDef, {
-        currentAdjustments: adjustments,
-        patchDefinition: definition,
-        taskId: patch.id,
-      });
-      if (useEditorStore.getState().selectedImage?.path !== path) return;
-      const done: AiPatch = { ...definition, patchData: JSON.parse(json) as AiPatchData, isLoading: false };
+      const done = await fillRemoval(definition, adjustments, patch.id);
+      if (!done) return;
       updateAdjustments((prev) => {
         const patches = prev.aiPatches ?? [];
         return {
@@ -311,43 +315,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
    * inpainting model. */
   const removeArea = async (x: number, y: number, points?: Point[]) => {
     const radius = settings.size;
-    const { selectedImage, adjustments } = useEditorStore.getState();
-    // The geometry the area is painted in, so it stays on its spot.
-    const frame = shapeFrame(adjustments, selectedImage?.width, selectedImage?.height);
-    setPending({ x, y, radius, points });
+    const done = addPending(x, y, radius, points);
     try {
-      await fillAndAdd({
-        id: crypto.randomUUID(),
-        name: 'Remove',
-        isLoading: false,
-        invert: false,
-        patchData: null,
-        prompt: '',
-        visible: true,
-        subMasks: [
-          {
-            id: crypto.randomUUID(),
-            type: Mask.Brush,
-            mode: SubMaskMode.Additive,
-            invert: false,
-            opacity: 100,
-            visible: true,
-            parameters: {
-              lines: [
-                {
-                  points: points ?? [{ x, y }],
-                  brushSize: radius * 2,
-                  feather: 0.2,
-                  tool: ToolType.Brush,
-                  ...(frame && { frame }),
-                },
-              ],
-            },
-          },
-        ],
-      });
+      await fillAndAdd(removalPatch(points ?? [{ x, y }], radius));
     } finally {
-      setPending(null);
+      done();
     }
   };
 
@@ -416,17 +388,23 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const { selectedImage, adjustments, setEditor } = useEditorStore.getState();
     if (!selectedImage?.isReady) return;
     const radius = settings.size;
-    setPending({ x, y, radius, points });
+    // Heal fills where the spot crosses strong edges, unless turned off.
+    const fillAcrossEdges = settings.mode === 'heal' && settings.fillAcrossEdges !== false;
+    const done = addPending(x, y, radius, points);
     const path = selectedImage.path;
     try {
-      const [sourceX, sourceY] = await invoke<[number, number]>(Invokes.FindSpotSource, {
+      const plan = await invoke<SpotPlan>(Invokes.FindSpotSource, {
         x,
         y,
         radius,
         points: points ?? null,
         jsAdjustments: adjustments,
+        fillAcrossEdges,
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
+      if (plan.fill) return await fillAndAdd(removalPatch(points ?? [{ x, y }], radius, true));
+      if (!plan.source) throw new Error('No source area fits around this spot');
+      const [sourceX, sourceY] = plan.source;
       const spot: Spot = {
         id: crypto.randomUUID(),
         mode: settings.mode === 'clone' ? 'clone' : 'heal',
@@ -445,7 +423,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     } catch (error) {
       console.error('Spot removal: no source found', error);
     } finally {
-      setPending(null);
+      done();
     }
   };
 
@@ -1010,13 +988,13 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         {stroke && stroke.length > 1 && (
           <g style={{ color: '#fff' }}>{strokeArea('painting', stroke, settings.size, 'spot-painting')}</g>
         )}
-        {pending && (
-          <g style={{ color: '#fff' }}>
-            {pending.points
-              ? strokeArea('pending', pending.points, pending.radius, 'spot-pending', 0, 0, true)
-              : circle('pending', pending.x, pending.y, pending.radius, 'spot-pending', true)}
+        {pending.map((p) => (
+          <g key={p.key} style={{ color: '#fff' }}>
+            {p.points
+              ? strokeArea(`pending-${p.key}`, p.points, p.radius, 'spot-pending', 0, 0, true)
+              : circle(`pending-${p.key}`, p.x, p.y, p.radius, 'spot-pending', true)}
           </g>
-        )}
+        ))}
       </svg>
       {progress && (
         <div

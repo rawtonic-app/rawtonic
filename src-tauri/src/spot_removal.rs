@@ -4,11 +4,22 @@ pub use rawtonic_engine::spot_removal::*;
 
 use serde_json::Value;
 
+/// What a new spot on the open photo becomes (`find_spot_source`).
+#[derive(serde::Serialize)]
+pub struct SpotPlan {
+    /// The automatic source (mask frame); `None` with `fill`.
+    source: Option<(f64, f64)>,
+    /// Remove's fill instead of a heal: the spot crosses strong edges.
+    fill: bool,
+}
+
 /// The automatic source for a spot about to be placed on the open photo:
 /// mask-frame centre and radius in, mask-frame source centre out (the
 /// recipe's existing patches and spots already applied). With `points`
 /// (two or more), a brush stroke along them: where its first point copies
-/// from.
+/// from. With `fill_across_edges` (a heal spot in the default mode), a spot
+/// that crosses strong edges (`crosses_edges`) gets no source and `fill`:
+/// the editor fills it with Remove instead.
 #[tauri::command]
 pub async fn find_spot_source(
     x: f64,
@@ -16,16 +27,37 @@ pub async fn find_spot_source(
     radius: f64,
     points: Option<Vec<StrokePoint>>,
     js_adjustments: Value,
+    fill_across_edges: Option<bool>,
     state: tauri::State<'_, crate::app_state::AppState>,
-) -> Result<(f64, f64), String> {
+) -> Result<SpotPlan, String> {
     let (source, _) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
         let base = crate::image_loader::composite_patches_on_image(&source, &js_adjustments)
             .map_err(|e| e.to_string())?;
-        match points.filter(|p| p.len() >= 2) {
+        let points = points.filter(|p| p.len() >= 2);
+        if fill_across_edges == Some(true)
+            && crosses_edges(
+                &base,
+                &js_adjustments,
+                x,
+                y,
+                radius,
+                points.as_deref().unwrap_or(&[]),
+            )
+        {
+            return Ok(SpotPlan {
+                source: None,
+                fill: true,
+            });
+        }
+        match points {
             Some(points) => find_stroke_source(&base, &js_adjustments, &points, radius),
             None => find_source(&base, &js_adjustments, x, y, radius),
         }
+        .map(|source| SpotPlan {
+            source: Some(source),
+            fill: false,
+        })
         .ok_or_else(|| "No source area fits around this spot".to_string())
     })
     .await

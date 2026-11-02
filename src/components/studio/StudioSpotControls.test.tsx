@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 import StudioSpotControls, { StudioSpotList } from "./StudioSpotControls";
@@ -44,6 +45,18 @@ describe("spot removal settings", () => {
     expect(useEditorStore.getState().spotSettings.objectSelect).toBe("box");
     expect(screen.queryByLabelText("spotRemoval.sizeAria")).toBeNull();
     expect(screen.getByText(/spotRemoval\.detectObjectsBoxHint/)).toBeTruthy();
+  });
+
+  it("offers Fill across edges in Heal only, on unless turned off", () => {
+    render(<StudioSpotControls />);
+    const box = screen.getByLabelText("spotRemoval.fillAcrossEdges") as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(useEditorStore.getState().spotSettings.fillAcrossEdges).toBe(false);
+    fireEvent.click(screen.getByRole("radio", { name: "spotRemoval.modes.clone" }));
+    expect(screen.queryByLabelText("spotRemoval.fillAcrossEdges")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "spotRemoval.modes.remove" }));
+    expect(screen.queryByLabelText("spotRemoval.fillAcrossEdges")).toBeNull();
   });
 });
 
@@ -160,6 +173,53 @@ describe("spot list and deleting", () => {
     // Red eye corrections belong to Red eye mode's list.
     expect(after.redEyes).toHaveLength(1);
     expect(screen.queryByRole("list")).toBeNull();
+  });
+
+  it("turns a heal spot into a fill and the heal tool's fill back into a heal, showing it as busy meanwhile", async () => {
+    const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
+    let finish: (json: string) => void = () => {};
+    invoke.mockReset();
+    invoke.mockImplementation((command: string) =>
+      command === "find_spot_source"
+        ? Promise.resolve({ source: [40, 10], fill: false })
+        : new Promise((resolve) => {
+            finish = resolve;
+          }),
+    );
+    render(<StudioSpotList />);
+    // Only heal spots and the heal tool's fills can be switched.
+    expect(screen.getAllByRole("button", { name: "spotRemoval.list.useFill" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "spotRemoval.list.useHeal" })).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "spotRemoval.list.useFill" })));
+    const call = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const args = call[1] as {
+      currentAdjustments: { spots: { id: string }[] };
+      patchDefinition: { fromHeal: boolean; subMasks: { parameters: { lines: unknown[] } }[] };
+      taskId: string;
+    };
+    // Filled from the photo without the heal, the spot's own area, under the spot's id.
+    expect(args.currentAdjustments.spots.map((s) => s.id)).toEqual(["s2"]);
+    expect(args.patchDefinition.fromHeal).toBe(true);
+    expect(args.patchDefinition.subMasks[0].parameters.lines).toEqual([
+      expect.objectContaining({ points: [{ x: 10, y: 10 }], brushSize: 10 }),
+    ]);
+    expect(args.taskId).toBe("s1");
+    expect(screen.getByRole("status", { name: "spotRemoval.list.switching" })).toBeTruthy();
+    // Nothing changes in the recipe until the fill is ready.
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s1", "s2"]);
+    await act(async () => finish(JSON.stringify(patchData)));
+    const filled = useEditorStore.getState().adjustments;
+    expect(filled.spots.map((s) => s.id)).toEqual(["s2"]);
+    const fill = filled.aiPatches.find((p) => p.fromHeal)!;
+    expect(fill).toMatchObject({ name: "Remove", patchData });
+    expect(screen.queryByRole("status")).toBeNull();
+    // Back to a heal with an automatic source.
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "spotRemoval.list.useHeal" })));
+    const ask = invoke.mock.calls.find(([name]) => name === "find_spot_source")!;
+    expect(ask[1]).toMatchObject({ x: 10, y: 10, radius: 5, points: null, fillAcrossEdges: false });
+    const healed = useEditorStore.getState().adjustments;
+    expect(healed.aiPatches.some((p) => p.id === fill.id)).toBe(false);
+    expect(healed.spots.at(-1)).toMatchObject({ mode: "heal", x: 10, y: 10, radius: 5, sourceX: 40, sourceY: 10 });
   });
 
   it("lists red eye corrections in Red eye mode", () => {

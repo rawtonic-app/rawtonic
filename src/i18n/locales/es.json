@@ -2650,6 +2650,8 @@
     "fallbackUnavailable": "No se pudo ejecutar el modelo de eliminación de objetos, así que el modelo más pequeño (MI-GAN) rellenó esta zona.",
     "feather": "Difuminado",
     "featherAria": "Difuminado de la mancha",
+    "fillAcrossEdges": "Rellenar sobre bordes",
+    "fillAcrossEdgesHint": "Un punto de corrección que cruza bordes marcados (esquinas, líneas, contornos de objetos) se rellena con Eliminar; las zonas planas se siguen corrigiendo. Cada uno se puede cambiar en la lista de abajo.",
     "filling": "Eliminando… paso {{done}} de {{total}}",
     "largeHoleTooSlow": "Esta GPU es demasiado lenta para eliminar zonas grandes; Eliminar usará el método rápido durante el resto de la sesión.",
     "list": {
@@ -2661,11 +2663,15 @@
       "item": "{{kind}} {{number}}",
       "select": "Seleccionar {{name}}",
       "showAll": "Mostrar todas",
-      "toggle": "Mostrar {{name}}"
+      "switching": "Cambiando {{name}}…",
+      "toggle": "Mostrar {{name}}",
+      "useFill": "Usar relleno para {{name}}",
+      "useHeal": "Usar corrección para {{name}}"
     },
     "mode": "Modo de manchas",
     "modes": {
       "clone": "Clonar",
+      "fill": "Relleno",
       "heal": "Corregir",
       "redEye": "Ojos rojos",
       "remove": "Eliminar"

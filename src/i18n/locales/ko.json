@@ -2423,6 +2423,8 @@
     "fallbackUnavailable": "개체 제거 모델을 실행할 수 없어 더 작은 모델(MI-GAN)로 이 영역을 채웠습니다.",
     "feather": "페더",
     "featherAria": "스팟 페더",
+    "fillAcrossEdges": "가장자리를 지나면 채우기",
+    "fillAcrossEdgesHint": "뚜렷한 가장자리(모서리, 선, 물체 경계)를 지나는 복구 스폿은 대신 제거로 채웁니다. 평평한 영역은 계속 복구됩니다. 각 스폿은 아래 목록에서 전환할 수 있습니다.",
     "filling": "제거 중… {{total}}단계 중 {{done}}단계",
     "largeHoleTooSlow": "이 GPU는 큰 영역을 제거하기에 너무 느립니다. 이 세션 동안 제거는 빠른 방법을 사용합니다.",
     "list": {
@@ -2434,11 +2436,15 @@
       "item": "{{kind}} {{number}}",
       "select": "{{name}} 선택",
       "showAll": "모두 표시",
-      "toggle": "{{name}} 표시"
+      "switching": "{{name}} 전환 중…",
+      "toggle": "{{name}} 표시",
+      "useFill": "{{name}}에 채우기 사용",
+      "useHeal": "{{name}}에 복구 사용"
     },
     "mode": "스팟 모드",
     "modes": {
       "clone": "복제",
+      "fill": "채우기",
       "heal": "복구",
       "redEye": "적목",
       "remove": "제거"

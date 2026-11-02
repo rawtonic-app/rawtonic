@@ -1080,6 +1080,138 @@ pub fn find_stroke_source(
     to_mask_point(adjustments, frame, (first.x, first.y), offset)
 }
 
+/// Above this ratio the edges around a new heal spot (`edge_ratio`) are
+/// strong enough that Remove's fill replaces it better than a heal: a heal
+/// copies one offset of the photo, which carries the neighbouring object
+/// across a corner or breaks an edge it crosses, while the fill continues
+/// the edge (heal 0.067 vs fill 0.035 LPIPS at junctions; on flat sky
+/// heal keeps grain and gradient better). Fitted on half of HS's photos
+/// and checked on the other half (notes:
+/// benchmark-results/rf2-fill-default-2026-11-02/REPORT.md).
+pub const FILL_EDGE_RATIO: f64 = 3.0;
+
+/// How strongly edges stand out in a spot's surroundings: the 98th
+/// percentile of the gradient magnitude over its median, in the ring 1.1–1.6
+/// radii from the circle or stroke (base pixels), on luminance in the
+/// working space after a [1 2 1] smoothing. Noise, grain and smooth
+/// gradients give about 2.4 whatever their strength; an edge entering the
+/// spot raises the tail. `None` when fewer than 16 ring pixels lie in the
+/// photo.
+pub fn edge_ratio(image: &Rgb32FImage, path: &[(f64, f64)], radius: f64) -> Option<f64> {
+    let (w, h) = (image.width() as i64, image.height() as i64);
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for p in path {
+        x0 = x0.min(p.0);
+        y0 = y0.min(p.1);
+        x1 = x1.max(p.0);
+        y1 = y1.max(p.1);
+    }
+    if path.is_empty() || radius <= 0.0 {
+        return None;
+    }
+    // The ring plus the two pixels the smoothing and the gradient reach.
+    let reach = 1.6 * radius + 2.0;
+    let bx0 = ((x0 - reach).floor() as i64).clamp(0, w - 1);
+    let by0 = ((y0 - reach).floor() as i64).clamp(0, h - 1);
+    let bx1 = ((x1 + reach).ceil() as i64).clamp(0, w - 1);
+    let by1 = ((y1 + reach).ceil() as i64).clamp(0, h - 1);
+    let (cw, ch) = ((bx1 - bx0 + 1) as usize, (by1 - by0 + 1) as usize);
+    let luma: Vec<f32> = (0..cw * ch)
+        .map(|i| {
+            let p = image
+                .get_pixel((bx0 as usize + i % cw) as u32, (by0 as usize + i / cw) as u32)
+                .0;
+            encode(0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2])
+        })
+        .collect();
+    // [1 2 1] / 4 along rows, then columns; the crop's edge repeats.
+    let smooth = |values: &[f32], horizontal: bool| -> Vec<f32> {
+        (0..cw * ch)
+            .map(|i| {
+                let (x, y) = (i % cw, i / cw);
+                let at = |dx: isize| {
+                    if horizontal {
+                        values[y * cw + (x as isize + dx).clamp(0, cw as isize - 1) as usize]
+                    } else {
+                        values[(y as isize + dx).clamp(0, ch as isize - 1) as usize * cw + x]
+                    }
+                };
+                0.25 * at(-1) + 0.5 * at(0) + 0.25 * at(1)
+            })
+            .collect()
+    };
+    let smoothed = smooth(&smooth(&luma, true), false);
+    let at = |x: usize, y: usize| smoothed[y * cw + x];
+    let mut ring = Vec::new();
+    for y in 1..ch.saturating_sub(1) {
+        for x in 1..cw.saturating_sub(1) {
+            let p = ((bx0 as usize + x) as f64, (by0 as usize + y) as f64);
+            let d = if path.len() >= 2 {
+                distance_to_path(p, path)
+            } else {
+                (p.0 - path[0].0).hypot(p.1 - path[0].1)
+            } / radius;
+            if (1.1..=1.6).contains(&d) {
+                let gx = (at(x + 1, y) - at(x - 1, y)) / 2.0;
+                let gy = (at(x, y + 1) - at(x, y - 1)) / 2.0;
+                ring.push(gx.hypot(gy));
+            }
+        }
+    }
+    if ring.len() < 16 {
+        return None;
+    }
+    let mut quantile = |q: f64| {
+        let k = ((ring.len() - 1) as f64 * q).round() as usize;
+        *ring.select_nth_unstable_by(k, f32::total_cmp).1 as f64
+    };
+    let median = quantile(0.5);
+    let tail = quantile(0.98);
+    Some(if median > 0.0 {
+        tail / median
+    } else if tail > 0.0 {
+        // A flat ring that an edge crosses.
+        f64::INFINITY
+    } else {
+        1.0
+    })
+}
+
+/// Whether a new heal spot at mask-frame (`x`, `y`) with `radius` (a
+/// stroke along `points` when there are two or more) crosses edges
+/// strong enough that Remove's fill should replace it (`FILL_EDGE_RATIO`).
+pub fn crosses_edges(
+    base: &DynamicImage,
+    adjustments: &Value,
+    x: f64,
+    y: f64,
+    radius: f64,
+    points: &[StrokePoint],
+) -> bool {
+    // The base image is float already in the app: no copy of it.
+    let converted;
+    let image = match base {
+        DynamicImage::ImageRgb32F(image) => image,
+        other => {
+            converted = other.to_rgb32f();
+            &converted
+        }
+    };
+    let frame = mask_frame(adjustments, image.width(), image.height());
+    let path: Vec<(f64, f64)> = if points.len() >= 2 {
+        points
+            .iter()
+            .map(|p| to_base(adjustments, frame, p.x, p.y))
+            .collect()
+    } else {
+        vec![to_base(adjustments, frame, x, y)]
+    };
+    let ex = to_base(adjustments, frame, x + 1.0, y);
+    let centre = to_base(adjustments, frame, x, y);
+    let base_radius = radius * (ex.0 - centre.0).hypot(ex.1 - centre.1);
+    edge_ratio(image, &path, base_radius.max(1.0)).is_some_and(|r| r > FILL_EDGE_RATIO)
+}
+
 /// Running box blur of a single-channel image (rows, then columns),
 /// `radius` pixels each side; three passes approximate a Gaussian.
 fn box_blur(values: &[f32], width: usize, height: usize, radius: usize) -> Vec<f32> {
@@ -1210,6 +1342,66 @@ pub fn band_cache() -> &'static BandCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Grain-like noise, deterministic (a 64-bit LCG), about ±`amount`.
+    fn grain(seed: u64, amount: f32) -> impl FnMut() -> f32 {
+        let mut state = seed;
+        move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((state >> 40) as f32 / (1u64 << 24) as f32 - 0.5) * 2.0 * amount
+        }
+    }
+
+    /// A flat grey with grain of `amount`, a dark disc of radius 8 at (100,
+    /// 100) (dust), and, when `edge`, a dark area right of x = 104 (a wall
+    /// that the spot reaches across).
+    fn edge_test_photo(amount: f32, edge: bool, seed: u64) -> DynamicImage {
+        let mut noise = grain(seed, amount);
+        DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(200, 200, |x, y| {
+            let mut v = if edge && x > 104 { 0.05 } else { 0.3 };
+            if (x as f32 - 100.0).hypot(y as f32 - 100.0) < 8.0 {
+                v *= 0.3;
+            }
+            let v = (v + noise()).max(0.0);
+            image::Rgb([v, v, v])
+        }))
+    }
+
+    #[test]
+    fn heal_spots_that_cross_strong_edges_are_filled_and_dust_on_flat_areas_is_healed() {
+        let none = serde_json::json!({});
+        for (amount, seed) in [(0.002, 1), (0.03, 2), (0.08, 3)] {
+            // Dust on a flat, grainy area, at any grain strength: a heal.
+            let flat = edge_test_photo(amount, false, seed);
+            assert!(!crosses_edges(&flat, &none, 100.0, 100.0, 12.0, &[]), "{amount}");
+            // A circle whose surroundings an edge crosses: a fill.
+            let wall = edge_test_photo(amount, true, seed);
+            assert!(crosses_edges(&wall, &none, 100.0, 100.0, 12.0, &[]), "{amount}");
+            // A stroke along the flat area beside the wall stays a heal; one
+            // drawn across the wall is filled.
+            let along = [StrokePoint { x: 60.0, y: 40.0 }, StrokePoint { x: 60.0, y: 160.0 }];
+            let across = [StrokePoint { x: 70.0, y: 60.0 }, StrokePoint { x: 140.0, y: 60.0 }];
+            assert!(!crosses_edges(&wall, &none, 60.0, 40.0, 10.0, &along), "{amount}");
+            assert!(crosses_edges(&wall, &none, 70.0, 60.0, 10.0, &across), "{amount}");
+        }
+        // A smooth gradient without grain (a clear sky) is no edge.
+        let sky = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(200, 200, |x, y| {
+            let v = 0.1 + 0.4 * (x + y) as f32 / 400.0;
+            image::Rgb([v * 0.8, v * 0.9, v])
+        }));
+        assert!(!crosses_edges(&sky, &none, 100.0, 100.0, 12.0, &[]));
+    }
+
+    #[test]
+    fn the_edge_ratio_needs_enough_of_the_surroundings_in_the_photo() {
+        let flat = edge_test_photo(0.02, false, 4).to_rgb32f();
+        assert!(edge_ratio(&flat, &[(100.0, 100.0)], 12.0).is_some());
+        // A spot of one pixel has too few ring pixels to judge: a heal.
+        assert_eq!(edge_ratio(&flat, &[(100.0, 100.0)], 1.0), None);
+        assert_eq!(edge_ratio(&flat, &[], 12.0), None);
+    }
 
     /// A smooth gradient with a dark dust spot and fine grain.
     fn photo_with_dust() -> Rgb32FImage {

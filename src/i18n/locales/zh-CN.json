@@ -2423,6 +2423,8 @@
     "fallbackUnavailable": "无法运行对象移除模型，因此由较小的模型（MI-GAN）填充了此区域。",
     "feather": "羽化",
     "featherAria": "污点羽化",
+    "fillAcrossEdges": "跨边缘时填充",
+    "fillAcrossEdgesHint": "跨越明显边缘（拐角、线条、物体边界）的修复点改用移除填充；平坦区域仍使用修复。每个点都可以在下方列表中切换。",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
     "largeHoleTooSlow": "此 GPU 处理大面积移除太慢；本次会话中移除将使用快速方法。",
     "list": {
@@ -2434,11 +2436,15 @@
       "item": "{{kind}} {{number}}",
       "select": "选择 {{name}}",
       "showAll": "全部显示",
-      "toggle": "显示 {{name}}"
+      "switching": "正在切换 {{name}}…",
+      "toggle": "显示 {{name}}",
+      "useFill": "对 {{name}} 使用填充",
+      "useHeal": "对 {{name}} 使用修复"
     },
     "mode": "污点模式",
     "modes": {
       "clone": "仿制",
+      "fill": "填充",
       "heal": "修复",
       "redEye": "红眼",
       "remove": "移除"

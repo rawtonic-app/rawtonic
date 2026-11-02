@@ -2514,6 +2514,8 @@
     "fallbackUnavailable": "The object removal model could not be run, so the smaller model (MI-GAN) filled this area.",
     "feather": "Feather",
     "featherAria": "Spot feather",
+    "fillAcrossEdges": "Fill across edges",
+    "fillAcrossEdgesHint": "A heal spot that crosses strong edges (corners, lines, object borders) is filled with Remove instead; flat areas stay healed. Each one can be switched in the list below.",
     "filling": "Removing… step {{done}} of {{total}}",
     "largeHoleTooSlow": "This GPU is too slow for large-hole removal; Remove uses the fast method for the rest of the session.",
     "list": {
@@ -2525,11 +2527,15 @@
       "item": "{{kind}} {{number}}",
       "select": "Select {{name}}",
       "showAll": "Show all",
-      "toggle": "Show {{name}}"
+      "switching": "Switching {{name}}…",
+      "toggle": "Show {{name}}",
+      "useFill": "Use fill for {{name}}",
+      "useHeal": "Use heal for {{name}}"
     },
     "mode": "Spot mode",
     "modes": {
       "clone": "Clone",
+      "fill": "Fill",
       "heal": "Heal",
       "redEye": "Red eye",
       "remove": "Remove"

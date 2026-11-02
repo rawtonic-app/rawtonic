@@ -115,6 +115,10 @@ interface EditorState {
     feather: number;
     opacity: number;
     detectObjects?: boolean;
+    /** Heal: a spot that crosses strong edges is filled with Remove
+     * instead (crates/engine/src/spot_removal.rs, `crosses_edges`); on
+     * unless turned off. */
+    fillAcrossEdges?: boolean;
     /** Detect objects: brush loosely over the object (Lightroom's way) or
      * draw a box around it; a click selects in both. */
     objectSelect?: 'brush' | 'box';
