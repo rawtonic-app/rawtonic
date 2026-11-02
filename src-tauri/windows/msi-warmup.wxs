@@ -10,10 +10,20 @@
   install (Return="ignore"). "Path" is the main binary's File Id in Tauri's
   main.wxs. The empty ComponentGroup only links this fragment in
   (bundle.windows.wix.componentGroupRefs).
+
+  It also refuses to install while the per-user NSIS installation
+  (Rawtonic_<version>_x64-setup.exe) is registered: Tauri's MSI takes the
+  NSIS install folder from the registry and installs into it, so removing the
+  NSIS copy afterwards would delete the MSI's files. The user uninstalls the
+  NSIS copy first (libraries, edits and settings stay in the user profile).
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
     <ComponentGroup Id="RawtonicGpuWarmup" />
+    <Property Id="RAWTONICNSISINSTALL" Secure="yes">
+      <RegistrySearch Id="RawtonicNsisUninstall" Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic" Name="UninstallString" Type="raw" />
+    </Property>
+    <Condition Message="Rawtonic is already installed for your user by its other installer (Rawtonic_..._x64-setup.exe). Uninstall that copy first in Settings, Apps (leave 'Delete the application data' unticked: your libraries, edits and settings stay), then run this installer again.">Installed OR NOT RAWTONICNSISINSTALL</Condition>
     <CustomAction Id="RawtonicWarmGpuCache" FileKey="Path" ExeCommand="--warm-gpu-cache" Execute="immediate" Impersonate="yes" Return="ignore" />
     <InstallExecuteSequence>
       <Custom Action="RawtonicWarmGpuCache" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>

@@ -190,7 +190,8 @@ jobs:
             $code = $LASTEXITCODE
             Get-Content "$out\scan-$($f.Name).txt"
             $threats = (Select-String -Path "$out\scan-$($f.Name).txt" -Pattern '^\s*Threat\s*:\s*(.+)$' | ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() }) -join ', '
-            $verdict = switch ($code) { 0 { 'clean' } 2 { "THREAT $threats" } default { "error" } }
+            # Exit 2 means a detection or a scan error: only named threats count as a detection.
+            $verdict = if ($code -eq 0) { 'clean' } elseif ($code -eq 2 -and $threats) { "THREAT $threats" } else { 'scan error' }
             $sum.Add("| ``$name`` | $verdict | $code |")
             $verdicts += "defender: ${name}: $verdict (exit $code)`n"
           }
@@ -254,6 +255,24 @@ jobs:
             'msi' {
               $dir = Join-Path $env:ProgramFiles 'Rawtonic'
               $msi = (Get-ChildItem installer-out\*.msi)[0].FullName
+              # Over a per-user NSIS installation the MSI must refuse (it would
+              # share that folder); after the NSIS copy is uninstalled it installs.
+              $setup = (Get-ChildItem installer-out\*-setup.exe)[0].FullName
+              $q = Start-Process $setup -ArgumentList '/S' -PassThru -Wait
+              if ($q.ExitCode -ne 0) { Write-Error "NSIS install for the migration test failed ($($q.ExitCode))"; exit 1 }
+              $nsisDir = Join-Path $env:LOCALAPPDATA 'Rawtonic'
+              if (-not (Test-Path "$nsisDir\rawtonic-app.exe")) { Write-Error "NSIS copy not in $nsisDir"; exit 1 }
+              $q = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\msi-over-nsis.log`"" -PassThru -Wait
+              if ($q.ExitCode -eq 0 -or (Test-Path "$dir\rawtonic-app.exe")) { Write-Error "the MSI installed over the NSIS copy (exit $($q.ExitCode))"; exit 1 }
+              if (-not (Select-String -Path "$env:RUNNER_TEMP\msi-over-nsis.log" -SimpleMatch 'already installed for your user' -Quiet)) { Write-Error 'the MSI refused without its message'; exit 1 }
+              if (-not (Test-Path "$nsisDir\rawtonic-app.exe")) { Write-Error 'the refused MSI touched the NSIS copy'; exit 1 }
+              "msi refused over the NSIS copy (exit $($q.ExitCode))"
+              $q = Start-Process "$nsisDir\uninstall.exe" -ArgumentList '/S' -PassThru -Wait
+              for ($i = 0; $i -lt 60 -and (Test-Path "$nsisDir\rawtonic-app.exe"); $i++) { Start-Sleep 1 }
+              if (Test-Path "$nsisDir\rawtonic-app.exe") { Write-Error 'the NSIS copy was not uninstalled'; exit 1 }
+              # The MSI's own warm-up must leave its log.
+              Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue | Remove-Item
+              $watch.Restart()
               $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"" -PassThru -Wait
             }
             'portable' {

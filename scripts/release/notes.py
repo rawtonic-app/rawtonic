@@ -59,7 +59,7 @@ def windows_install(version):
 
 Three downloads of the same app, for Windows 10 or 11 (x64):
 
-- `Rawtonic_{version}_x64.msi`: **the recommended download.** Installs for all users into Program Files; Windows asks for administrator permission.
+- `Rawtonic_{version}_x64.msi`: **the recommended download.** Installs for all users into Program Files; Windows asks for administrator permission. Installed an earlier release with the `-setup.exe`? Uninstall that copy first in Settings → Apps (libraries, edits and settings stay); the MSI says so and stops otherwise.
 - `Rawtonic_{version}_x64-setup.exe`: installs for your user only, without administrator rights.
 - `Rawtonic_{version}_x64-portable.zip`: portable, no installation. Unpack it anywhere and start `Rawtonic\\rawtonic-app.exe`. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 includes and Edge installs on Windows 10. Settings and libraries are kept in your user profile, not beside the app.
 

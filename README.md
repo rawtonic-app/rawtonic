@@ -70,7 +70,7 @@ To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpd
 
 Releases after 0.1.0-alpha.11.1 have three Windows downloads of the same app (earlier ones only the `-setup.exe`), for Windows 10 or 11 (x64; so far tested on Windows 11), on the [Releases page](https://github.com/rawtonic-app/rawtonic/releases):
 
-- `Rawtonic_<version>_x64.msi` — **the recommended download.** It installs for all users into Program Files, so Windows asks for administrator permission.
+- `Rawtonic_<version>_x64.msi` — **the recommended download.** It installs for all users into Program Files, so Windows asks for administrator permission. If you installed Rawtonic earlier with the `-setup.exe`, uninstall that copy first in Settings → Apps (your libraries, edits and settings stay); the MSI says so and stops otherwise.
 - `Rawtonic_<version>_x64-setup.exe` — installs for your user only, without administrator rights.
 - `Rawtonic_<version>_x64-portable.zip` — portable, no installation: unpack it anywhere (a USB drive works) and start `Rawtonic\rawtonic-app.exe`. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 includes and Edge installs on Windows 10. Settings and libraries are kept in your user profile, not beside the app.
 
