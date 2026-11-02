@@ -9515,7 +9515,10 @@ fn tone_version_5_keeps_detail_in_lowered_bright_areas() {
                 "{amount} key {key:?}: mean level {:.3} EV from version 4",
                 mean(stats[2]) - mean(stats[1])
             );
-            assert!(mean(stats[2]) < mean(stats[0]), "{amount} key {key:?}: not lowered");
+            assert!(
+                mean(stats[2]) < mean(stats[0]),
+                "{amount} key {key:?}: not lowered"
+            );
         }
     }
 }
@@ -9569,7 +9572,11 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         // (its narrow, version 3 range), "5" on a bright one's.
                         let recipe = with_image_key(
                             &json!({ "highlights": amount, "toneVersion": version.min(5) }),
-                            if version == 4 || version == 5 { BRIGHT_KEY } else { NIGHT_KEY },
+                            if version == 4 || version == 5 {
+                                BRIGHT_KEY
+                            } else {
+                                NIGHT_KEY
+                            },
                         );
                         let pixels = render_raw_look(
                             &processor,
