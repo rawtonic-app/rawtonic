@@ -700,19 +700,48 @@ fn write_pdf(
             }
             content.push_str("f\n");
         }
-        // Selectable, searchable copy of the text (render mode 3: invisible).
+        // Selectable, searchable copy of the text (render mode 3: invisible),
+        // stretched to the drawn line. Characters outside WinAnsi stand in as
+        // `?`, and the line's real text goes with it as ActualText, so copying
+        // and searching give the names in any script.
         for line in &lines {
-            let Some(bytes) = line.text.chars().map(win_ansi).collect::<Option<Vec<u8>>>() else {
+            let bytes: Vec<u8> = line
+                .text
+                .chars()
+                .map(|c| win_ansi(c).unwrap_or(b'?'))
+                .collect();
+            if bytes.is_empty() {
                 continue;
+            }
+            let layer_width: f32 = bytes
+                .iter()
+                .filter_map(|b| char_of_win_ansi(*b))
+                .map(|c| face.advance(c, line.pt as f32))
+                .sum();
+            let drawn = face.width(&line.text, line.pt as f32);
+            let stretch = if layer_width > 0.0 && drawn > 0.0 {
+                (drawn / layer_width * 100.0) as f64
+            } else {
+                100.0
             };
-            let _ = writeln!(
+            let exact = line.text.chars().all(|c| win_ansi(c).is_some());
+            if !exact {
+                let _ = write!(
+                    content,
+                    "/Span << /ActualText {} >> BDC ",
+                    pdf_text(&line.text)
+                );
+            }
+            let _ = write!(
                 content,
-                "BT /F1 {} Tf 3 Tr {} {} Td {} Tj ET",
+                "BT /F1 {} Tf 3 Tr {} Tz {} {} Td {} Tj ET",
                 num(line.pt),
+                num(stretch),
                 num(line.left(face) * PT_PER_MM),
                 num(page_h - line.baseline * PT_PER_MM),
                 pdf_string(&bytes)
             );
+            content.push_str(if exact { "\n" } else { " EMC\n" });
         }
         pdf.stream(
             content_id,

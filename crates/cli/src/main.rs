@@ -1263,7 +1263,11 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
         args.output.display()
     );
     let layout = sheet.layout(photos.len()).map_err(anyhow::Error::msg)?;
-    let settings = cell_settings(&layout, None, args.output_sharpening);
+    let settings = rawtonic_export::export_processing::ExportSettings {
+        // `{job}` in captions, as in the app.
+        job_name: Some(args.job.clone()),
+        ..cell_settings(&layout, None, args.output_sharpening)
+    };
     let recipes: Vec<Option<serde_json::Value>> = photos
         .iter()
         .map(|photo| Some(editor_recipe(&parse_virtual_path(photo).1)))

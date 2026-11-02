@@ -919,6 +919,26 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
                 continue;
             }
         };
+        // A sheet photo whose render is still in the sheet's folder and whose
+        // recipe was let go (it rendered) needs no new render: a retry of a
+        // sheet that could not be written then only writes the sheet.
+        let items: Vec<Item> = if request.proof_sheet.is_some() {
+            items
+                .into_iter()
+                .map(|mut item| {
+                    let rendered = item.state != ItemState::Done
+                        && item.output.as_deref().is_some_and(Path::is_file)
+                        && with_queue(|q| q.item_snapshot(&job.id, item.index))
+                            .is_some_and(|snapshot| snapshot.is_none());
+                    if rendered && with_queue(|q| q.item_done(&job.id, item.index)).is_some() {
+                        item.state = ItemState::Done;
+                    }
+                    item
+                })
+                .collect()
+        } else {
+            items
+        };
         let pending: HashSet<usize> = items
             .iter()
             .filter(|i| i.state != ItemState::Done)
@@ -1052,6 +1072,10 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     }
 }
 
+/// How a sheet that could not be written fails its last photo; a retry
+/// writes it from the renders it kept (`run_jobs`).
+const SHEET_NOT_WRITTEN: &str = "The proof sheet was not written";
+
 /// Writes the proof sheet of `job` when every photo of it is rendered: its
 /// photos then point at the sheet and their renders are removed. A sheet
 /// that cannot be written fails the job's last photo with the reason, so
@@ -1081,9 +1105,7 @@ async fn write_proof_sheet(
         }
         Err(e) => {
             log::error!("Proof sheet not written: {e}");
-            with_queue(|q| {
-                q.item_failed(job, last, &format!("The proof sheet was not written: {e}"))
-            });
+            with_queue(|q| q.item_failed(job, last, &format!("{SHEET_NOT_WRITTEN}: {e}")));
         }
     }
 }

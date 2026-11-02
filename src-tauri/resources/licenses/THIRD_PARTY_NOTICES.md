@@ -89,6 +89,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | addr2line | 0.25.1 | Apache-2.0 OR MIT |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
 | adler32 | 1.2.0 | Zlib |
+| aes | 0.9.2 | MIT OR Apache-2.0 |
 | ahash | 0.8.12 | MIT OR Apache-2.0 |
 | aho-corasick | 1.1.5 | Unlicense OR MIT |
 | aligned | 0.4.3 | MIT OR Apache-2.0 |
@@ -147,6 +148,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | blake3 | 1.8.7 | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception |
 | block-buffer | 0.10.4 | MIT OR Apache-2.0 |
 | block-buffer | 0.12.1 | MIT OR Apache-2.0 |
+| block-padding | 0.4.2 | MIT OR Apache-2.0 |
 | block2 | 0.6.2 | MIT |
 | brotli | 8.0.4 | BSD-3-Clause AND MIT |
 | brotli | 9.0.0 | BSD-3-Clause AND MIT |
@@ -169,6 +171,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | cargo_toml | 1.0.1 | Apache-2.0 OR MIT |
 | cast | 0.3.0 | MIT OR Apache-2.0 |
 | castaway | 0.2.4 | MIT |
+| cbc | 0.2.1 | MIT OR Apache-2.0 |
 | cc | 1.4.4 | MIT OR Apache-2.0 |
 | cesu8 | 1.1.0 | Apache-2.0/MIT |
 | cexpr | 0.6.0 | Apache-2.0/MIT |
@@ -181,6 +184,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ciborium | 0.2.2 | Apache-2.0 |
 | ciborium-io | 0.2.2 | Apache-2.0 |
 | ciborium-ll | 0.2.2 | Apache-2.0 |
+| cipher | 0.5.2 | MIT OR Apache-2.0 |
 | clang-sys | 1.9.1 | Apache-2.0 |
 | clap | 4.6.7 | MIT OR Apache-2.0 |
 | clap_builder | 4.6.7 | MIT OR Apache-2.0 |
@@ -199,6 +203,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 |
 | core-graphics | 0.25.0 | MIT OR Apache-2.0 |
 | core-graphics-types | 0.2.0 | MIT OR Apache-2.0 |
+| cpubits | 0.1.1 | MIT OR Apache-2.0 |
 | cpufeatures | 0.2.17 | MIT OR Apache-2.0 |
 | cpufeatures | 0.3.0 | MIT OR Apache-2.0 |
 | crc | 3.4.0 | MIT OR Apache-2.0 |
@@ -251,6 +256,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | dtoa-short | 0.3.5 | MPL-2.0 |
 | dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
 | dyn-clone | 1.0.20 | MIT OR Apache-2.0 |
+| ecb | 0.2.1 | MIT OR Apache-2.0 |
 | either | 1.18.0 | MIT OR Apache-2.0 |
 | embed-resource | 3.0.11 | MIT |
 | embed_plist | 1.2.2 | MIT OR Apache-2.0 |
@@ -336,6 +342,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | gtk-sys | 0.18.2 | MIT |
 | gtk3-macros | 0.18.2 | MIT |
 | half | 2.7.1 | MIT OR Apache-2.0 |
+| harfrust | 0.14.0 | MIT |
 | hashbrown | 0.12.3 | MIT OR Apache-2.0 |
 | hashbrown | 0.15.5 | MIT OR Apache-2.0 |
 | hashbrown | 0.16.1 | MIT OR Apache-2.0 |
@@ -376,6 +383,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | indexmap | 1.9.3 | Apache-2.0 OR MIT |
 | indexmap | 2.14.0 | Apache-2.0 OR MIT |
 | infer | 0.22.0 | MIT |
+| inout | 0.2.5 | MIT OR Apache-2.0 |
 | interpolate_name | 0.2.4 | MIT |
 | ipnet | 2.12.1 | MIT OR Apache-2.0 |
 | is-docker | 0.2.0 | MIT |
@@ -446,6 +454,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | lock_api | 0.4.14 | MIT OR Apache-2.0 |
 | log | 0.4.34 | MIT OR Apache-2.0 |
 | loop9 | 0.1.5 | MIT |
+| lopdf | 0.46.0 | MIT |
 | lru-slab | 0.1.2 | MIT OR Apache-2.0 OR Zlib |
 | macro_rules_attribute | 0.2.3 | Apache-2.0 OR MIT OR Zlib |
 | macro_rules_attribute-proc_macro | 0.2.3 | Apache-2.0 OR MIT OR Zlib |
@@ -454,6 +463,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | markup5ever | 0.39.0 | MIT OR Apache-2.0 |
 | matrixmultiply | 0.3.11 | MIT/Apache-2.0 |
 | maybe-rayon | 0.1.1 | MIT |
+| md-5 | 0.11.0 | MIT OR Apache-2.0 |
 | md5 | 0.8.1 | Apache-2.0 OR MIT |
 | memchr | 2.8.3 | Unlicense OR MIT |
 | memmap2 | 0.9.11 | MIT OR Apache-2.0 |
@@ -594,6 +604,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | rand_pcg | 0.10.2 | MIT OR Apache-2.0 |
 | rand_xorshift | 0.4.0 | MIT OR Apache-2.0 |
 | range-alloc | 0.1.5 | MIT OR Apache-2.0 |
+| rangemap | 1.8.0 | MIT/Apache-2.0 |
 | rav1d | 1.1.0 | BSD-2-Clause |
 | rav1e | 0.8.1 | BSD-2-Clause |
 | ravif | 0.13.0 | BSD-3-Clause |
@@ -714,6 +725,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | strength_reduce | 0.2.4 | MIT OR Apache-2.0 |
 | string_cache | 0.9.0 | MIT OR Apache-2.0 |
 | string_cache_codegen | 0.6.1 | MIT OR Apache-2.0 |
+| stringprep | 0.1.5 | MIT/Apache-2.0 |
 | strsim | 0.11.1 | MIT |
 | strum | 0.26.3 | MIT |
 | strum_macros | 0.26.4 | MIT |
@@ -794,8 +806,11 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | typenum | 1.20.1 | MIT OR Apache-2.0 |
 | uds_windows | 1.2.1 | MIT |
 | unarray | 0.1.4 | MIT OR Apache-2.0 |
+| unicode-bidi | 0.3.18 | MIT OR Apache-2.0 |
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 |
+| unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-normalization-alignments | 0.1.12 | MIT/Apache-2.0 |
+| unicode-properties | 0.1.5 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |
 | unicode-width | 0.2.2 | MIT OR Apache-2.0 |
 | unicode_categories | 0.1.1 | MIT OR Apache-2.0 |
@@ -835,6 +850,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | webview2-com-macros | 0.8.1 | MIT |
 | webview2-com-sys | 0.39.1 | MIT |
 | weezl | 0.1.12 | MIT OR Apache-2.0 |
+| weezl | 0.2.1 | MIT OR Apache-2.0 |
 | wgpu | 29.0.4 | MIT OR Apache-2.0 |
 | wgpu-core | 29.0.4 | MIT OR Apache-2.0 |
 | wgpu-core-deps-apple | 29.0.4 | MIT OR Apache-2.0 |
@@ -932,7 +948,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib |
 | zune-inflate | 0.2.54 | MIT OR Apache-2.0 OR Zlib |
 | zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib |
-
 ## Resolved npm dependencies (including build and test tools)
 
 | Package | Version | Declared license |

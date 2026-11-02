@@ -19,6 +19,10 @@ fn jpeg(w: u32, h: u32, rgb: [u8; 3], gray: bool) -> Vec<u8> {
     bytes
 }
 
+fn text_of(doc: &lopdf::Document, page: u32) -> String {
+    doc.extract_text(&[page]).unwrap()
+}
+
 fn sheet() -> ProofSheet {
     serde_json::from_value(serde_json::json!({
         "pageWidthMm": 210.0, "pageHeightMm": 297.0,
@@ -119,6 +123,18 @@ fn a_proof_sheet_reads_back_as_the_pages_photos_and_text_it_holds() {
         text.contains("23 DSC_0122.NEF") && text.contains("2 / 2"),
         "{text:?}"
     );
+    // A name outside WinAnsi keeps its text for copying and searching.
+    let page = doc.get_page_content(pages[&1]);
+    let content = String::from_utf8_lossy(&page);
+    let expected: String = "08 写真.jpg"
+        .encode_utf16()
+        .map(|u| format!("{u:04X}"))
+        .collect();
+    assert!(
+        content.contains(&format!("/ActualText <FEFF{expected}>")),
+        "no ActualText"
+    );
+    assert!(text_of(&doc, 1).contains("08 ??.jpg"));
     // AI-generated areas in a photo: the sheet carries the marking.
     let marked = String::from_utf8_lossy(&pdf);
     assert!(marked.contains(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI));

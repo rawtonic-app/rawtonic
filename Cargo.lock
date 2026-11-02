@@ -2484,6 +2484,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "harfrust"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86aa776d6d32b072119e1f1650f4db843ff4382a4aaa6a2c9c4e35703cd377cb"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytemuck",
+ "read-fonts",
+ "smallvec",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5584,6 +5596,7 @@ dependencies = [
  "flate2",
  "fontdb",
  "half",
+ "harfrust",
  "image",
  "jxl-encoder",
  "jxl-oxide",
@@ -5608,6 +5621,7 @@ dependencies = [
  "skrifa",
  "tempfile",
  "turbojpeg",
+ "unicode-bidi",
  "uuid",
  "walkdir",
  "webp",

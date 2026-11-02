@@ -46,6 +46,9 @@ fontdb = { version = "0.24.0", default-features = false, features = ["std", "fs"
 skrifa = "0.48.0"
 ab_glyph_rasterizer = "0.1.10"
 miniz_oxide = "0.8.9"
+# 0.14 shares read-fonts 0.45 with skrifa 0.48 (0.15 would add a second copy).
+harfrust = "=0.14.0"
+unicode-bidi = "0.3.18"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "require-simd"] }

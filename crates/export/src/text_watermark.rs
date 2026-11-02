@@ -58,7 +58,8 @@ pub fn font_families() -> Vec<String> {
 
 /// An installed font file's data and the face's index in it (collections).
 struct FontData {
-    data: Vec<u8>,
+    /// Shared with the shaper's copy of the face (`Typeface`).
+    data: std::sync::Arc<Vec<u8>>,
     index: u32,
 }
 
@@ -266,7 +267,7 @@ fn load_font(family: Option<&str>) -> Option<FontData> {
         })
         .or_else(|| db.faces().next().map(|face| face.id))?;
     let font = db.with_face_data(id, |data, index| FontData {
-        data: data.to_vec(),
+        data: std::sync::Arc::new(data.to_vec()),
         index,
     })?;
     // Only faces skrifa can read.
@@ -406,6 +407,9 @@ pub struct Typeface {
 
 struct Loaded {
     font: FontData,
+    /// The same face for shaping (GSUB/GPOS: ligatures, joining scripts,
+    /// marks), sharing its data.
+    shaper: harfrust::Font,
     units_per_em: f32,
 }
 
@@ -420,7 +424,13 @@ impl Loaded {
             .head()
             .ok()?
             .units_per_em() as f32;
-        (units_per_em > 0.0).then_some(Self { font, units_per_em })
+        let data: std::sync::Arc<dyn AsRef<[u8]> + Send + Sync> = font.data.clone();
+        let shaper = harfrust::Font::new(harfrust::font::Blob::from(data), font.index)?;
+        (units_per_em > 0.0).then_some(Self {
+            font,
+            shaper,
+            units_per_em,
+        })
     }
 }
 
@@ -440,11 +450,13 @@ fn embedding_allowed(font: &FontData) -> bool {
     }
 }
 
-/// A glyph placed on a line: which face, which glyph, its pen position.
+/// A glyph placed on a line: which face, which glyph, its pen position
+/// and its offset above the baseline (marks).
 struct Placed {
     face: usize,
     id: GlyphId,
     x: f32,
+    y: f32,
 }
 
 impl Typeface {
@@ -470,7 +482,7 @@ impl Typeface {
             })
             .filter_map(|id| {
                 db.with_face_data(id, |data, index| FontData {
-                    data: data.to_vec(),
+                    data: std::sync::Arc::new(data.to_vec()),
                     index,
                 })
             })
@@ -515,7 +527,7 @@ impl Typeface {
                 break;
             }
             let Some(font) = db.with_face_data(face.id, |data, index| FontData {
-                data: data.to_vec(),
+                data: std::sync::Arc::new(data.to_vec()),
                 index,
             }) else {
                 continue;
@@ -550,28 +562,67 @@ impl Typeface {
             .collect()
     }
 
-    /// The glyphs of `text` at `size` from pen position 0, kerned within a
-    /// face, and the line's width.
+    /// The glyphs of `text` at `size` from pen position 0, in visual order,
+    /// and the line's width: the line is ordered by the Unicode bidi
+    /// algorithm, each run cut where the face that has its characters
+    /// changes and shaped with that face (HarfBuzz rules: kerning,
+    /// ligatures, Arabic joining, Indic reordering, mark positions).
     fn place(&self, faces: &[Face], text: &str, size: f32) -> (Vec<Placed>, f32) {
         let mut placed = Vec::with_capacity(text.len());
         let mut x = 0.0;
-        let mut previous: Option<(usize, GlyphId)> = None;
-        for c in text.chars() {
-            let index = faces
-                .iter()
-                .position(|face| face.charmap.map(c).is_some())
-                .unwrap_or(0);
-            let face = &faces[index];
-            let scale = size / self.faces[index].units_per_em;
-            let id = face.glyph_id(c);
-            if let Some((prev_face, prev)) = previous
-                && prev_face == index
-            {
-                x += face.kern(prev, id) * scale;
+        let bidi = unicode_bidi::BidiInfo::new(text, None);
+        for paragraph in &bidi.paragraphs {
+            let (levels, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
+            for run in runs {
+                let rtl = levels[run.start].is_rtl();
+                // The run's stretches of one face, in logical order.
+                let mut stretches: Vec<(usize, std::ops::Range<usize>)> = Vec::new();
+                for (offset, c) in text[run.clone()].char_indices() {
+                    let at = run.start + offset;
+                    let face = if c.is_whitespace() || c.is_control() {
+                        stretches.last().map_or(0, |(face, _)| *face)
+                    } else {
+                        faces
+                            .iter()
+                            .position(|face| face.charmap.map(c).is_some())
+                            .unwrap_or(0)
+                    };
+                    match stretches.last_mut() {
+                        Some((last, range)) if *last == face => range.end = at + c.len_utf8(),
+                        _ => stretches.push((face, at..at + c.len_utf8())),
+                    }
+                }
+                if rtl {
+                    stretches.reverse();
+                }
+                for (face, range) in stretches {
+                    let scale = size / self.faces[face].units_per_em;
+                    let mut buffer = harfrust::Buffer::new();
+                    buffer.push_str(&text[range]);
+                    buffer.set_direction(if rtl {
+                        harfrust::Direction::RightToLeft
+                    } else {
+                        harfrust::Direction::LeftToRight
+                    });
+                    buffer.guess_segment_properties();
+                    let shaper = harfrust::ShaperFont::new(&self.faces[face].shaper);
+                    if harfrust::shape(&shaper, &mut buffer, harfrust::ShapeOptions::new()).is_err()
+                    {
+                        continue;
+                    }
+                    for (info, position) in
+                        buffer.glyph_infos().iter().zip(buffer.glyph_positions())
+                    {
+                        placed.push(Placed {
+                            face,
+                            id: GlyphId::new(info.glyph_id),
+                            x: x + position.x_offset as f32 * scale,
+                            y: position.y_offset as f32 * scale,
+                        });
+                        x += position.x_advance as f32 * scale;
+                    }
+                }
             }
-            placed.push(Placed { face: index, id, x });
-            x += face.advance(id) * scale;
-            previous = Some((index, id));
         }
         (placed, x)
     }
@@ -626,8 +677,8 @@ impl Typeface {
                 continue;
             };
             let scale = size / self.faces[glyph.face].units_per_em;
-            let pen_x = x + glyph.x;
-            let at = |p: Point| (pen_x + p.x * scale, y + p.y * scale);
+            let (pen_x, pen_y) = (x + glyph.x, y + glyph.y);
+            let at = |p: Point| (pen_x + p.x * scale, pen_y + p.y * scale);
             let mut last: Option<Point> = None;
             for curve in &curves {
                 let start = match *curve {
@@ -688,7 +739,7 @@ impl Typeface {
                 &faces[glyph.face],
                 glyph.id,
                 scale,
-                point(x + glyph.x, y),
+                point(x + glyph.x, y - glyph.y),
                 &mut put,
             );
         }
@@ -698,6 +749,29 @@ impl Typeface {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn running_text_is_shaped_and_ordered_right_to_left() {
+        let text = "\u{0633}\u{0644}\u{0627}\u{0645}"; // Arabic "salam"
+        let Some(typeface) = Typeface::for_text(None, [text]) else {
+            return; // No fonts on this machine.
+        };
+        let faces = typeface.faces();
+        let Some(face) = text.chars().next().and_then(|c| typeface.face_for(c)) else {
+            return; // No installed face has Arabic.
+        };
+        let (glyphs, width) = typeface.place(&faces, text, 100.0);
+        assert!(width > 0.0);
+        let nominal: Vec<GlyphId> = text.chars().map(|c| faces[face].glyph_id(c)).collect();
+        let shaped: Vec<GlyphId> = glyphs.iter().map(|g| g.id).collect();
+        // Joining forms (and the lam-alef ligature) replace the nominal
+        // glyphs, and the first letter is drawn rightmost.
+        assert_ne!(shaped, nominal);
+        assert!(!shaped.contains(&nominal[0]) || glyphs.last().unwrap().x > glyphs[0].x);
+        // Latin is drawn left to right, glyph by glyph.
+        let (latin, _) = typeface.place(&faces, "AB", 100.0);
+        assert!(latin[1].x > latin[0].x);
+    }
 
     #[test]
     fn renders_text_at_the_requested_width_in_its_colour() {
