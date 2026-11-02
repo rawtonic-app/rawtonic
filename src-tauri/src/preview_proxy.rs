@@ -494,7 +494,9 @@ fn frame_fits(
     }
     let requested = source_frame::requested(recipe);
     let wanted = match facts.and_then(|facts| facts.frames.as_deref()) {
-        Some(frames) if requested > 0 => source_frame::effective_in(frames, requested),
+        Some(frames) if requested > 0 => {
+            source_frame::effective_in(frames, requested, &source_frame::extension_of(source))
+        }
         _ => source_frame::effective(source, requested),
     };
     proxy_frame == wanted

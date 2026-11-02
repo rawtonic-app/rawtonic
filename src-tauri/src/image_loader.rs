@@ -1954,3 +1954,52 @@ mod patch_cache_tests {
         assert_eq!(*state.current_source.lock().unwrap(), "b.ARW");
     }
 }
+
+#[cfg(test)]
+mod new_edit_frame_tests {
+    use super::*;
+    use rawtonic_engine::source_facts::{SourceFacts, VERSION, forget, register};
+
+    /// An offline Sony aspect photo whose previews were built before frame
+    /// version 2 (their facts list two frames) is edited in the frame they
+    /// show: its first edit never claims the newest frame, which would
+    /// develop the whole sensor once the RAW is back (review r1).
+    #[test]
+    fn previews_from_before_a_frame_version_pin_the_first_edit_to_theirs() {
+        let arw = "/offline/ssz-new-edit-frame/DSC00018.ARW";
+        register(
+            arw,
+            SourceFacts {
+                version: 17,
+                frames: Some(vec![0, 0]),
+                ..Default::default()
+            },
+        );
+        assert_eq!(new_edit_frame(arw, 0), Some(0));
+        // Facts that know version 2 frame it alike: nothing to pin.
+        register(
+            arw,
+            SourceFacts {
+                version: VERSION,
+                frames: Some(vec![0, 0, 0]),
+                ..Default::default()
+            },
+        );
+        assert_eq!(new_edit_frame(arw, 0), None);
+        forget(arw);
+        // A CR3's list from before version 2 still tells its newest frame
+        // (version 2 changes only ARWs).
+        let cr3 = "/offline/ssz-new-edit-frame/IMG_0001.CR3";
+        register(
+            cr3,
+            SourceFacts {
+                version: 17,
+                frames: Some(vec![0, 1]),
+                ..Default::default()
+            },
+        );
+        assert_eq!(new_edit_frame(cr3, 1), None);
+        assert_eq!(new_edit_frame(cr3, 0), Some(0));
+        forget(cr3);
+    }
+}

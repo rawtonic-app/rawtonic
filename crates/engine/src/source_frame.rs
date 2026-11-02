@@ -48,10 +48,7 @@ pub fn reset_recipe(adjustments: &Value) -> Value {
 /// size and modification time), else, offline, from what its previews keep
 /// (`source_facts`); None when neither knows.
 pub fn frames(path: &str) -> Option<Vec<u32>> {
-    let extension = std::path::Path::new(path)
-        .extension()
-        .map(|e| e.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let extension = extension_of(path);
     if !crate::formats::is_raw_file(path)
         || !rawtonic_rawdecode::source_frame::may_change(&extension)
     {
@@ -110,17 +107,40 @@ pub fn effective(path: &str, version: u32) -> u32 {
     if version == 0 {
         return 0;
     }
-    frames(path).map_or(version, |frames| effective_in(&frames, version))
+    frames(path).map_or(version, |frames| {
+        effective_in(&frames, version, &extension_of(path))
+    })
+}
+
+/// The extension of `path` (no dot).
+pub fn extension_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// `effective` from a file's `frames` list (`frames`, or what a preview's
-/// facts keep of them).
-pub fn effective_in(frames: &[u32], version: u32) -> u32 {
-    frames
-        .get(version as usize)
-        .or(frames.last())
-        .copied()
-        .unwrap_or(version)
+/// facts keep of them), for a file with this extension. A list made before
+/// `version` (shorter than it) answers only where no later version's fix
+/// can change such a file (`rawdecode::source_frame::changes`); otherwise
+/// the frame is unknown and reads as `version` itself, so previews of an
+/// older frame never stand for it and an offline first edit stays in the
+/// frame its previews show (`image_loader::new_edit_frame`).
+pub fn effective_in(frames: &[u32], version: u32, extension: &str) -> u32 {
+    if let Some(&known) = frames.get(version as usize) {
+        return known;
+    }
+    let known = frames.len() as u32;
+    match frames.last() {
+        Some(&last)
+            if (known.max(1)..=version)
+                .all(|v| !rawtonic_rawdecode::source_frame::changes(v, extension)) =>
+        {
+            last
+        }
+        _ => version,
+    }
 }
 
 #[cfg(test)]
@@ -142,9 +162,16 @@ mod tests {
         assert_eq!(effective("/p/A.NEF", 1), 0);
         assert_eq!(effective("/p/A.jpg", 1), 0);
         // A preview's facts tell an offline file's frames.
-        assert_eq!(effective_in(&[0, 0], 1), 0);
-        assert_eq!(effective_in(&[0, 1], 1), 1);
-        assert_eq!(effective_in(&[0, 1], 0), 0);
+        assert_eq!(effective_in(&[0, 0], 1, "CR3"), 0);
+        assert_eq!(effective_in(&[0, 1], 1, "CR3"), 1);
+        assert_eq!(effective_in(&[0, 1], 0, "CR3"), 0);
+        // A list from before version 2 answers it for a CR3 (version 2
+        // changes only ARWs), not for an ARW: unknown, read as 2.
+        assert_eq!(effective_in(&[0, 1], 2, "CR3"), 1);
+        assert_eq!(effective_in(&[0, 0], 2, "ARW"), 2);
+        assert_eq!(effective_in(&[0, 0, 2], 2, "ARW"), 2);
+        assert_eq!(effective_in(&[0, 0, 0], 2, "arw"), 0);
+        assert_eq!(effective_in(&[], 1, "CR3"), 1);
     }
 
     /// A Reset keeps the frame of an edited photograph (decision

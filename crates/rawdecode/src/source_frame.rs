@@ -35,9 +35,21 @@ const CR3_RECORDED_CROP: u32 = 1;
 const ARW_WHOLE_SENSOR: u32 = 2;
 
 /// Whether some frame version can change the frame of a file with this
-/// extension (lower case, no dot): only those files are read to find out.
+/// extension (any case, no dot): only those files are read to find out.
 pub fn may_change(extension: &str) -> bool {
-    extension.eq_ignore_ascii_case("cr3") || extension.eq_ignore_ascii_case("arw")
+    (1..=VERSION).any(|version| changes(version, extension))
+}
+
+/// Whether frame version `version`'s fix can change the frame of a file
+/// with this extension (any case, no dot): a list of a file's frames made
+/// before `version` (an offline photograph's previews) tells its frame at
+/// `version` only where it cannot.
+pub fn changes(version: u32, extension: &str) -> bool {
+    match version {
+        CR3_RECORDED_CROP => extension.eq_ignore_ascii_case("cr3"),
+        ARW_WHOLE_SENSOR => extension.eq_ignore_ascii_case("arw"),
+        _ => false,
+    }
 }
 
 /// Whether frame version `version` develops the whole `base` area of a RAW
@@ -324,7 +336,11 @@ mod fixture_tests {
             if old != new {
                 assert!(may_change(&path.extension().unwrap().to_string_lossy()));
                 println!("{name}: {:?} -> {:?}", old.rect, new.rect);
-                assert_eq!(effective(&source, VERSION), VERSION);
+                // The first version that frames it as the newest does.
+                let first = (1..=VERSION)
+                    .find(|&v| frame(&source, v) == Some(new))
+                    .unwrap();
+                assert_eq!(effective(&source, VERSION), first, "{name}");
                 changed.push(name);
             } else {
                 assert_eq!(effective(&source, VERSION), 0, "{name}");
