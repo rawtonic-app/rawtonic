@@ -1486,7 +1486,9 @@
     "textPt": "Taille de l’en-tête et du pied (pt)",
     "title": "Planche contact",
     "watermark": "Filigrane du formulaire d’export",
-    "watermarkHelp": "Définissez un filigrane dans Export pour l’utiliser ici.",
+    "watermarkHelp": "Enregistré comme texte de filigrane du formulaire d’export ; les exports restent sans filigrane tant que vous ne l’activez pas là-bas.",
+    "watermarkNew": "Filigrane",
+    "watermarkText": "Texte du filigrane",
     "widthMm": "Largeur (mm)",
     "writes": "Écrit « {{name}} »"
   },

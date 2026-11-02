@@ -1427,7 +1427,9 @@
     "textPt": "Größe von Kopf- und Fußzeile (pt)",
     "title": "Kontaktbogen",
     "watermark": "Wasserzeichen aus dem Exportformular",
-    "watermarkHelp": "Lege im Export ein Wasserzeichen fest, um es hier zu verwenden.",
+    "watermarkHelp": "Wird als Wasserzeichentext des Exportformulars gespeichert; Exporte bleiben ohne Wasserzeichen, bis du es dort einschaltest.",
+    "watermarkNew": "Wasserzeichen",
+    "watermarkText": "Text des Wasserzeichens",
     "widthMm": "Breite (mm)",
     "writes": "Schreibt „{{name}}“"
   },

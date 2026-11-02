@@ -66,7 +66,7 @@ export const DEFAULT_PROOF_DRAFT: ProofDraft = {
 };
 
 /** Ready-made captions; any naming template can be typed instead. */
-export const CAPTION_PRESETS = ['{seq}  {orig}', '{orig}', '{seq}', '{seq}  {orig_base}  {rating}', ''] as const;
+export const CAPTION_PRESETS = ['{seq}  {orig}', '{orig}', '{seq}', '{seq}  {orig_base}  {rating|stars}', ''] as const;
 
 const formKey = (library: string | null) => `rawtonic.proofSheet.form:${library ?? ''}`;
 

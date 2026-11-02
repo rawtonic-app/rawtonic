@@ -357,6 +357,7 @@ export function namingExample(
     for (const transform of transforms) {
       if (transform === "upper") value = value.toUpperCase();
       else if (transform === "lower") value = value.toLowerCase();
+      else if (transform === "stars") value = /^\d+$/.test(value) ? "★".repeat(Math.min(5, Number(value))) : value;
       else if (/^pad:\d+$/.test(transform)) value = value.padStart(Math.min(20, Number(transform.slice(4))), "0");
       else return match;
     }
@@ -399,7 +400,9 @@ function validTokenPart(part: string, mode: NamingMode): boolean {
       (name === "time" && (TIME_FORMATS as readonly string[]).includes(option));
     if (!ok) return false;
   }
-  return transforms.every((tr) => tr === "upper" || tr === "lower" || (tr.startsWith("pad:") && width(tr.slice(4))));
+  return transforms.every(
+    (tr) => tr === "upper" || tr === "lower" || tr === "stars" || (tr.startsWith("pad:") && width(tr.slice(4))),
+  );
 }
 
 /** Catch typos before a copy/export starts; final filesystem validation stays in Rust. */

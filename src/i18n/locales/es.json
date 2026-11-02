@@ -1486,7 +1486,9 @@
     "textPt": "Tamaño de encabezado y pie (pt)",
     "title": "Hoja de contactos",
     "watermark": "Marca de agua del formulario de exportación",
-    "watermarkHelp": "Define una marca de agua en Exportar para usarla aquí.",
+    "watermarkHelp": "Se guarda como texto de marca de agua del formulario de exportación; las exportaciones siguen sin marca de agua hasta que la actives allí.",
+    "watermarkNew": "Marca de agua",
+    "watermarkText": "Texto de la marca de agua",
     "widthMm": "Ancho (mm)",
     "writes": "Escribe «{{name}}»"
   },

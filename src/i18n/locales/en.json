@@ -1427,7 +1427,9 @@
     "textPt": "Header and footer size (pt)",
     "title": "Proof Sheet",
     "watermark": "Watermark from the Export form",
-    "watermarkHelp": "Set a watermark in Export to use it here.",
+    "watermarkHelp": "Kept as the Export form's watermark text; exports stay without a watermark until you turn it on there.",
+    "watermarkNew": "Watermark",
+    "watermarkText": "Watermark text",
     "widthMm": "Width (mm)",
     "writes": "Writes “{{name}}”"
   },

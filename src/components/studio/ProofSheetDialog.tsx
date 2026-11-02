@@ -14,8 +14,13 @@ import { currentEditForExport, useEditorStore } from "../../store/useEditorStore
 import { computeSortedLibrary } from "../../hooks/useSortedLibrary";
 import { flushRecipeSaves } from "../../hooks/useEditorActions";
 import { photoWritesAndStepsSettled } from "../../utils/photoWrites";
-import { readFormDraft, readJobName, writeJobName } from "../../utils/exportJob";
-import { exportSettingsFromDraft, watermarkReady } from "../../utils/exportRecipes";
+import { readFormDraft, readJobName, writeFormDraft, writeJobName } from "../../utils/exportJob";
+import {
+  DEFAULT_RECIPE_DRAFT,
+  exportSettingsFromDraft,
+  watermarkReady,
+  type RecipeDraft,
+} from "../../utils/exportRecipes";
 import { submittedFrom } from "../../utils/runExportJobs";
 import { usableSessionFolder } from "../../utils/sessionFolders";
 import { renderErrorMessage } from "../../utils/renderErrors";
@@ -106,12 +111,20 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
   const dialog = useRef<HTMLDivElement>(null);
   const set = (patch: Partial<ProofDraft>) => setDraft((current) => ({ ...current, ...patch }));
 
-  // The watermark is the one set in the Export form of this library.
+  // The watermark is the one set in the Export form of this library. When
+  // that form has none yet, its text is typed here and kept in the form on
+  // Create, without switching the watermark on for exports.
   const exportForm = useMemo(() => readFormDraft(session), [session]);
-  const watermark =
-    exportForm && watermarkReady(exportForm)
-      ? exportSettingsFromDraft({ ...exportForm, watermark: true }).settings.watermark
+  const formReady = !!exportForm && watermarkReady(exportForm);
+  const [watermarkText, setWatermarkText] = useState("");
+  const watermarkForm: RecipeDraft | null = formReady
+    ? exportForm
+    : watermarkText.trim()
+      ? { ...(exportForm ?? DEFAULT_RECIPE_DRAFT), watermarkKind: "text", watermarkText }
       : null;
+  const watermark = watermarkForm
+    ? exportSettingsFromDraft({ ...watermarkForm, watermark: true }).settings.watermark
+    : null;
   const target = draft.where === "output" && !session ? "choose" : draft.where;
 
   const request = (destination: string) => ({
@@ -174,6 +187,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
       await invoke(Invokes.QueueProofSheet, { request: request(destination) });
       writeProofDraft(session, draft);
       writeJobName(session, jobName);
+      if (draft.watermark && !formReady && watermarkForm) writeFormDraft(session, watermarkForm);
       close();
     } catch (e) {
       setProblem(renderErrorMessage(e));
@@ -464,13 +478,25 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
               <label className="studio-proof-sheet-check">
                 <input
                   type="checkbox"
-                  checked={draft.watermark && !!watermark}
-                  disabled={!watermark}
+                  checked={draft.watermark}
                   onChange={(e) => set({ watermark: e.target.checked })}
                 />
-                {t("proofSheet.watermark")}
+                {formReady ? t("proofSheet.watermark") : t("proofSheet.watermarkNew")}
               </label>
-              {!watermark && <p className="studio-help">{t("proofSheet.watermarkHelp")}</p>}
+              {draft.watermark && !formReady && (
+                <>
+                  <label>
+                    {t("proofSheet.watermarkText")}
+                    <input
+                      type="text"
+                      value={watermarkText}
+                      placeholder="©"
+                      onChange={(e) => setWatermarkText(e.target.value)}
+                    />
+                  </label>
+                  <p className="studio-help">{t("proofSheet.watermarkHelp")}</p>
+                </>
+              )}
               <label className="studio-proof-sheet-check">
                 <input type="checkbox" checked={draft.sharpen} onChange={(e) => set({ sharpen: e.target.checked })} />
                 {t("proofSheet.sharpen")}
@@ -528,7 +554,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
             <button
               type="button"
               className="studio-button is-primary"
-              disabled={busy || !preview || (!draft.pdf && !draft.jpeg)}
+              disabled={busy || !preview || (!draft.pdf && !draft.jpeg) || (draft.watermark && !watermark)}
               onClick={() => void create()}
             >
               {t("proofSheet.create")}

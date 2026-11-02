@@ -112,6 +112,9 @@ it("rejects malformed or unsupported templates before writing files", () => {
   expect(validNamingTemplate("{job}", "rename")).toBe(false);
   expect(validNamingTemplate("{orig_base|upper}_{seq:auto}.{ext|lower}", "rename")).toBe(true);
   expect(validNamingTemplate("{date:dd.mm.yyyy} {time:hhMM}", "export")).toBe(true);
+  // Stars: the example photo is unrated, so none show.
+  expect(validNamingTemplate("{orig_base}_{rating|stars}", "export")).toBe(true);
+  expect(namingExample("{orig_base}_{rating|stars}x", "export", "DSC1.ARW")).toBe("DSC1_x.jpg");
 });
 
 it("checks folder templates as the backend renders them", () => {

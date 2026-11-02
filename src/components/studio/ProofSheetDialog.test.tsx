@@ -101,3 +101,23 @@ it("a layout the backend refuses is shown and cannot be created", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain("too small");
   expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it("without an Export watermark, its text is typed in the sheet and kept in the Export form, not switched on there", async () => {
+  render(<ProofSheetDialogHost />);
+  act(() => useProofSheetDialog.getState().show(photos));
+  expect(await screen.findByText("1 A.NEF")).toBeTruthy();
+  const create = () => screen.getByRole("button", { name: "Create" }) as HTMLButtonElement;
+
+  fireEvent.click(screen.getByLabelText("Watermark"));
+  // Ticked without text: nothing to print yet.
+  expect(create().disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("Watermark text"), { target: { value: "PROOF" } });
+  await waitFor(() => expect(create().disabled).toBe(false));
+
+  fireEvent.click(create());
+  await waitFor(() => expect(calls("queue_proof_sheet")).toHaveLength(1));
+  const { request } = calls("queue_proof_sheet")[0][1] as { request: { watermark: { text: { text: string } } | null } };
+  expect(request.watermark?.text.text).toBe("PROOF");
+  const form = JSON.parse(localStorage.getItem(`rawtonic.export.form:${LIBRARY}`)!);
+  expect([form.watermarkKind, form.watermarkText, form.watermark]).toEqual(["text", "PROOF", false]);
+});

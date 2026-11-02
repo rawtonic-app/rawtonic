@@ -1486,7 +1486,9 @@
     "textPt": "Tamanho do cabeçalho e rodapé (pt)",
     "title": "Folha de contactos",
     "watermark": "Marca de água do formulário Exportar",
-    "watermarkHelp": "Defina uma marca de água em Exportar para a usar aqui.",
+    "watermarkHelp": "Guardado como texto da marca d’água do formulário de exportação; as exportações ficam sem marca d’água até a ativar lá.",
+    "watermarkNew": "Marca d’água",
+    "watermarkText": "Texto da marca d’água",
     "widthMm": "Largura (mm)",
     "writes": "Escreve «{{name}}»"
   },

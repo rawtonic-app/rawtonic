@@ -430,6 +430,12 @@ fn expand(expression: &str, context: &Context) -> Result<String> {
         value = match transform {
             "upper" => value.to_uppercase(),
             "lower" => value.to_lowercase(),
+            // A number as that many stars (at most five; none for 0, an
+            // unrated photo), e.g. `{rating|stars}` in a caption.
+            "stars" => match value.parse::<usize>() {
+                Ok(n) => "★".repeat(n.min(5)),
+                Err(_) => value,
+            },
             x if x.starts_with("pad:") => format!("{value:0>width$}", width = width(&x[4..])?),
             _ => bail!("Unknown naming transform: {transform}"),
         };
@@ -648,6 +654,16 @@ mod tests {
         );
         assert_eq!(render("{orig_num}_{folder}"), "0042_100CANON");
         assert_eq!(render("{rating}{color|lower}_{title}"), "4red_Harbour");
+        assert_eq!(render("{rating|stars}_{seq}"), "★★★★_7");
+        let mut unrated = Context::new("IMG_0042.CR3", 7);
+        unrated.apply_capture(&Capture {
+            rating: Some(0),
+            ..capture()
+        });
+        assert_eq!(
+            super::render("{rating}_{rating|stars}x", &unrated).unwrap(),
+            "0_x"
+        );
         assert_eq!(render("{creator}"), "A. Photographer");
         // `©` is a valid filename character.
         assert_eq!(render("{copyright}"), "© 2026 A. Photographer");

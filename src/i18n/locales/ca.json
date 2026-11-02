@@ -1486,7 +1486,9 @@
     "textPt": "Mida de capçalera i peu (pt)",
     "title": "Full de contactes",
     "watermark": "Marca d’aigua del formulari d’exportació",
-    "watermarkHelp": "Defineix una marca d’aigua a Exporta per fer-la servir aquí.",
+    "watermarkHelp": "Es desa com a text de marca d’aigua del formulari d’exportació; les exportacions continuen sense marca d’aigua fins que l’activis allà.",
+    "watermarkNew": "Marca d’aigua",
+    "watermarkText": "Text de la marca d’aigua",
     "widthMm": "Amplada (mm)",
     "writes": "Escriu «{{name}}»"
   },

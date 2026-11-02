@@ -1408,7 +1408,9 @@
     "textPt": "머리글·바닥글 크기(pt)",
     "title": "밀착 인화지",
     "watermark": "내보내기 양식의 워터마크",
-    "watermarkHelp": "여기서 사용하려면 내보내기에서 워터마크를 설정하세요.",
+    "watermarkHelp": "내보내기 양식의 워터마크 텍스트로 저장됩니다. 그곳에서 켜기 전까지 내보내기에는 워터마크가 들어가지 않습니다.",
+    "watermarkNew": "워터마크",
+    "watermarkText": "워터마크 텍스트",
     "widthMm": "너비(mm)",
     "writes": "“{{name}}” 기록"
   },
