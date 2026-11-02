@@ -454,32 +454,45 @@ impl Typeface {
     pub fn load(family: Option<&str>) -> Option<Self> {
         let main = load_font(family).and_then(Loaded::new).or_else(|| {
             let db = database();
-            ["Helvetica", "Arial", "Liberation Sans", "DejaVu Sans", "Noto Sans"]
-                .iter()
-                .filter_map(|name| {
-                    db.query(&fontdb::Query {
-                        families: &[fontdb::Family::Name(name)],
-                        ..Default::default()
-                    })
+            [
+                "Helvetica",
+                "Arial",
+                "Liberation Sans",
+                "DejaVu Sans",
+                "Noto Sans",
+            ]
+            .iter()
+            .filter_map(|name| {
+                db.query(&fontdb::Query {
+                    families: &[fontdb::Family::Name(name)],
+                    ..Default::default()
                 })
-                .filter_map(|id| {
-                    db.with_face_data(id, |data, index| FontData {
-                        data: data.to_vec(),
-                        index,
-                    })
+            })
+            .filter_map(|id| {
+                db.with_face_data(id, |data, index| FontData {
+                    data: data.to_vec(),
+                    index,
                 })
-                .find_map(Loaded::new)
+            })
+            .find_map(Loaded::new)
         })?;
         Some(Self { faces: vec![main] })
     }
 
     /// `load`, with fallback faces for the characters of `texts` the font
     /// lacks (the first installed face, by name, that has each).
-    pub fn for_text<'a>(family: Option<&str>, texts: impl IntoIterator<Item = &'a str>) -> Option<Self> {
+    pub fn for_text<'a>(
+        family: Option<&str>,
+        texts: impl IntoIterator<Item = &'a str>,
+    ) -> Option<Self> {
         let mut typeface = Self::load(family)?;
         let mut missing: Vec<char> = Vec::new();
         for c in texts.into_iter().flat_map(str::chars) {
-            if !c.is_control() && !c.is_whitespace() && !missing.contains(&c) && typeface.face_for(c).is_none() {
+            if !c.is_control()
+                && !c.is_whitespace()
+                && !missing.contains(&c)
+                && typeface.face_for(c).is_none()
+            {
                 missing.push(c);
             }
         }
@@ -489,7 +502,11 @@ impl Typeface {
         let db = database();
         let mut candidates: Vec<&fontdb::FaceInfo> = db
             .faces()
-            .filter(|face| face.families.first().is_some_and(|(name, _)| !name.starts_with('.')))
+            .filter(|face| {
+                face.families
+                    .first()
+                    .is_some_and(|(name, _)| !name.starts_with('.'))
+            })
             .filter(|face| face.style == fontdb::Style::Normal)
             .collect();
         candidates.sort_by_key(|face| (face.weight.0.abs_diff(400), face.families[0].0.clone()));
@@ -631,8 +648,10 @@ impl Typeface {
                     }
                     Curve::Quad(a, q, b) => {
                         // The quadratic as a cubic of the same shape.
-                        let c1 = point(a.x + (q.x - a.x) * 2.0 / 3.0, a.y + (q.y - a.y) * 2.0 / 3.0);
-                        let c2 = point(b.x + (q.x - b.x) * 2.0 / 3.0, b.y + (q.y - b.y) * 2.0 / 3.0);
+                        let c1 =
+                            point(a.x + (q.x - a.x) * 2.0 / 3.0, a.y + (q.y - a.y) * 2.0 / 3.0);
+                        let c2 =
+                            point(b.x + (q.x - b.x) * 2.0 / 3.0, b.y + (q.y - b.y) * 2.0 / 3.0);
                         let ((x1, y1), (x2, y2), (x3, y3)) = (at(c1), at(c2), at(b));
                         ops.push(PathOp::Cubic(x1, y1, x2, y2, x3, y3));
                         b
@@ -654,11 +673,24 @@ impl Typeface {
 
     /// Rasterises `text` at `size` pixels per em, its baseline starting at
     /// `(x, y)` of a y-down image, calling `put(x, y, coverage)`.
-    pub fn rasterize(&self, text: &str, size: f32, x: f32, y: f32, mut put: impl FnMut(i64, i64, f32)) {
+    pub fn rasterize(
+        &self,
+        text: &str,
+        size: f32,
+        x: f32,
+        y: f32,
+        mut put: impl FnMut(i64, i64, f32),
+    ) {
         let faces = self.faces();
         for glyph in self.place(&faces, text, size).0 {
             let scale = size / self.faces[glyph.face].units_per_em;
-            draw_glyph(&faces[glyph.face], glyph.id, scale, point(x + glyph.x, y), &mut put);
+            draw_glyph(
+                &faces[glyph.face],
+                glyph.id,
+                scale,
+                point(x + glyph.x, y),
+                &mut put,
+            );
         }
     }
 }

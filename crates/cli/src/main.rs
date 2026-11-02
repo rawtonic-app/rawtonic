@@ -1242,26 +1242,35 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     let mut photos = Vec::new();
     for source in &args.sources {
         if source.is_dir() {
-            photos.extend(sources_with_copies(source).into_iter().flat_map(|(image, copies)| {
-                copies
+            photos.extend(
+                sources_with_copies(source)
                     .into_iter()
-                    .map(move |copy| virtual_path(&image, copy.as_deref()))
-            }));
+                    .flat_map(|(image, copies)| {
+                        copies
+                            .into_iter()
+                            .map(move |copy| virtual_path(&image, copy.as_deref()))
+                    }),
+            );
         } else {
             anyhow::ensure!(source.is_file(), "Source not found: {}", source.display());
             photos.push(source.to_string_lossy().into_owned());
         }
     }
     anyhow::ensure!(!photos.is_empty(), "No photos for the proof sheet");
-    anyhow::ensure!(args.output.is_dir(), "Output folder not found: {}", args.output.display());
+    anyhow::ensure!(
+        args.output.is_dir(),
+        "Output folder not found: {}",
+        args.output.display()
+    );
     let layout = sheet.layout(photos.len()).map_err(anyhow::Error::msg)?;
     let settings = cell_settings(&layout, None, args.output_sharpening);
     let recipes: Vec<Option<serde_json::Value>> = photos
         .iter()
         .map(|photo| Some(editor_recipe(&parse_virtual_path(photo).1)))
         .collect();
-    let exporter = rawtonic_export::file_export::FileExporter::new(&lensfun_folder(args.lensfun_db)?)
-        .map_err(anyhow::Error::msg)?;
+    let exporter =
+        rawtonic_export::file_export::FileExporter::new(&lensfun_folder(args.lensfun_db)?)
+            .map_err(anyhow::Error::msg)?;
     let exporter = with_recipe_models(exporter, args.models, &recipes);
     let cells_dir = tempfile::tempdir()?;
     let total = photos.len();
@@ -1276,11 +1285,20 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
         let (sequence, last) = settings.filename_counter(index, total);
         let capture = rawtonic_ingest::naming_capture(&source, metadata.as_ref());
         let naming = settings.naming_context(&source, sequence, last, &date, "jpg", Some(&capture));
-        captions.push(sheet.caption.as_deref().map(|t| caption(t, &naming)).unwrap_or_default());
+        captions.push(
+            sheet
+                .caption
+                .as_deref()
+                .map(|t| caption(t, &naming))
+                .unwrap_or_default(),
+        );
         generated |= recipe
             .as_ref()
             .is_some_and(rawtonic_engine::image_loader::has_generated_areas);
-        if let Some(resource) = recipe.as_ref().and_then(|r| unresolved_resource(r, &source)) {
+        if let Some(resource) = recipe
+            .as_ref()
+            .and_then(|r| unresolved_resource(r, &source))
+        {
             failed.push(serde_json::json!({"source": photo, "error": format!(
                 "The recipe names the library resource {resource}, but the photo is in no session or catalog"
             )}));
@@ -1309,7 +1327,11 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     // As the app: a sheet is written only with every photo on it.
     if !failed.is_empty() {
         print(serde_json::json!({ "written": [], "failed": failed }))?;
-        anyhow::bail!("{} of {} photos failed; no proof sheet written", failed.len(), total);
+        anyhow::bail!(
+            "{} of {} photos failed; no proof sheet written",
+            failed.len(),
+            total
+        );
     }
     let values = PageValues {
         job: args.job,
@@ -1318,7 +1340,8 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
             .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string()),
         count: total,
     };
-    let written = write_sheet(&sheet, &cells, &captions, &values, generated).map_err(anyhow::Error::msg)?;
+    let written =
+        write_sheet(&sheet, &cells, &captions, &values, generated).map_err(anyhow::Error::msg)?;
     let stem = file_stem(&page_text(&args.name, &values, 1, layout.pages.len()));
     let files = write_files(&args.output, &stem, &written).map_err(anyhow::Error::msg)?;
     print(serde_json::json!({

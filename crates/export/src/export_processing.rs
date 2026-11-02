@@ -418,7 +418,10 @@ pub fn calculate_resize_target(
     if !(value.is_finite() && value > 0.0) {
         return (current_w, current_h);
     }
-    if matches!(resize_opts.mode, ResizeMode::Dimensions | ResizeMode::FitBox) {
+    if matches!(
+        resize_opts.mode,
+        ResizeMode::Dimensions | ResizeMode::FitBox
+    ) {
         let other = resize_opts.second_value;
         if !(other.is_finite() && other > 0.0) || current_w == 0 || current_h == 0 {
             return (current_w, current_h);

@@ -181,7 +181,9 @@ impl ProofSheet {
         };
         let photo_h = cell_h - caption_band;
         if cell_w < 5.0 || photo_h < 5.0 {
-            return Err("The cells are too small: use fewer columns or rows, or smaller margins.".into());
+            return Err(
+                "The cells are too small: use fewer columns or rows, or smaller margins.".into(),
+            );
         }
         let px = |mm: f64| (mm / MM_PER_INCH * self.ppi as f64).floor().max(1.0) as u32;
         let box_px = (px(cell_w), px(photo_h));
@@ -211,10 +213,7 @@ impl ProofSheet {
                         Cell {
                             photo,
                             cell,
-                            photo_box: Rect {
-                                h: photo_h,
-                                ..cell
-                            },
+                            photo_box: Rect { h: photo_h, ..cell },
                             caption_baseline: (caption_band > 0.0)
                                 .then(|| cell.y + photo_h + caption_band * 0.2 + ascent),
                         }
@@ -346,9 +345,8 @@ fn page_lines(
     let [_, right, _, left] = sheet.margins_mm;
     let width = layout.page_width_mm - left - right;
     let text_pt = sheet.text_pt;
-    let fit = |text: &str, pt: f64, max_mm: f64| {
-        face.fit(text, pt as f32, (max_mm * PT_PER_MM) as f32)
-    };
+    let fit =
+        |text: &str, pt: f64, max_mm: f64| face.fit(text, pt as f32, (max_mm * PT_PER_MM) as f32);
     let mut lines = Vec::new();
     let pages = layout.pages.len();
     if let (Some(baseline), Some(header)) = (layout.header_baseline, sheet.header.as_deref()) {
@@ -370,7 +368,11 @@ fn page_lines(
             .unwrap_or(0.0);
         if let Some(footer) = sheet.footer.as_deref().filter(|f| !f.trim().is_empty()) {
             lines.push(TextLine {
-                text: fit(&page_text(footer, values, page + 1, pages), text_pt, width - number_mm),
+                text: fit(
+                    &page_text(footer, values, page + 1, pages),
+                    text_pt,
+                    width - number_mm,
+                ),
                 x: left,
                 baseline,
                 pt: text_pt,
@@ -432,13 +434,17 @@ pub fn write_sheet(
         .iter()
         .map(|cell| cell.as_ref().and_then(|c| jpeg_info(&c.jpeg)))
         .collect();
-    let pdf = sheet
-        .pdf
-        .then(|| write_pdf(sheet, &layout, cells, &infos, captions, values, &face, generated));
+    let pdf = sheet.pdf.then(|| {
+        write_pdf(
+            sheet, &layout, cells, &infos, captions, values, &face, generated,
+        )
+    });
     let jpegs = if sheet.jpeg {
         (0..layout.pages.len())
             .map(|page| {
-                render_page(sheet, &layout, page, cells, captions, values, &face, generated)
+                render_page(
+                    sheet, &layout, page, cells, captions, values, &face, generated,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?
     } else {
@@ -450,7 +456,11 @@ pub fn write_sheet(
 fn num(value: f64) -> String {
     let text = format!("{value:.3}");
     let text = text.trim_end_matches('0').trim_end_matches('.');
-    if text == "-0" { "0".into() } else { text.into() }
+    if text == "-0" {
+        "0".into()
+    } else {
+        text.into()
+    }
 }
 
 /// The Windows-1252 code of `c` (the invisible text layer's encoding).
@@ -460,11 +470,33 @@ fn win_ansi(c: char) -> Option<u8> {
         return Some(code as u8);
     }
     const HIGH: [(char, u8); 27] = [
-        ('€', 0x80), ('‚', 0x82), ('ƒ', 0x83), ('„', 0x84), ('…', 0x85), ('†', 0x86),
-        ('‡', 0x87), ('ˆ', 0x88), ('‰', 0x89), ('Š', 0x8A), ('‹', 0x8B), ('Œ', 0x8C),
-        ('Ž', 0x8E), ('‘', 0x91), ('’', 0x92), ('“', 0x93), ('”', 0x94), ('•', 0x95),
-        ('–', 0x96), ('—', 0x97), ('˜', 0x98), ('™', 0x99), ('š', 0x9A), ('›', 0x9B),
-        ('œ', 0x9C), ('ž', 0x9E), ('Ÿ', 0x9F),
+        ('€', 0x80),
+        ('‚', 0x82),
+        ('ƒ', 0x83),
+        ('„', 0x84),
+        ('…', 0x85),
+        ('†', 0x86),
+        ('‡', 0x87),
+        ('ˆ', 0x88),
+        ('‰', 0x89),
+        ('Š', 0x8A),
+        ('‹', 0x8B),
+        ('Œ', 0x8C),
+        ('Ž', 0x8E),
+        ('‘', 0x91),
+        ('’', 0x92),
+        ('“', 0x93),
+        ('”', 0x94),
+        ('•', 0x95),
+        ('–', 0x96),
+        ('—', 0x97),
+        ('˜', 0x98),
+        ('™', 0x99),
+        ('š', 0x9A),
+        ('›', 0x9B),
+        ('œ', 0x9C),
+        ('ž', 0x9E),
+        ('Ÿ', 0x9F),
     ];
     HIGH.iter().find(|(h, _)| *h == c).map(|(_, b)| *b)
 }
@@ -611,8 +643,7 @@ fn write_pdf(
         let mut content = String::new();
         let mut images = Vec::new();
         for cell in &layout.pages[page].cells {
-            let (Some(image), Some((w, h, components))) =
-                (&cells[cell.photo], infos[cell.photo])
+            let (Some(image), Some((w, h, components))) = (&cells[cell.photo], infos[cell.photo])
             else {
                 continue;
             };
@@ -648,12 +679,21 @@ fn write_pdf(
             let y = (page_h - line.baseline * PT_PER_MM) as f32;
             for op in face.outline(&line.text, line.pt as f32, x, y) {
                 let _ = match op {
-                    PathOp::Move(x, y) => writeln!(content, "{} {} m", num(x as f64), num(y as f64)),
-                    PathOp::Line(x, y) => writeln!(content, "{} {} l", num(x as f64), num(y as f64)),
+                    PathOp::Move(x, y) => {
+                        writeln!(content, "{} {} m", num(x as f64), num(y as f64))
+                    }
+                    PathOp::Line(x, y) => {
+                        writeln!(content, "{} {} l", num(x as f64), num(y as f64))
+                    }
                     PathOp::Cubic(a, b, c, d, e, f) => writeln!(
                         content,
                         "{} {} {} {} {} {} c",
-                        num(a as f64), num(b as f64), num(c as f64), num(d as f64), num(e as f64), num(f as f64)
+                        num(a as f64),
+                        num(b as f64),
+                        num(c as f64),
+                        num(d as f64),
+                        num(e as f64),
+                        num(f as f64)
                     ),
                     PathOp::Close => writeln!(content, "h"),
                 };
@@ -674,7 +714,11 @@ fn write_pdf(
                 pdf_string(&bytes)
             );
         }
-        pdf.stream(content_id, " /Filter /FlateDecode", &deflate(content.as_bytes()));
+        pdf.stream(
+            content_id,
+            " /Filter /FlateDecode",
+            &deflate(content.as_bytes()),
+        );
         pdf.object(
             page_id,
             &format!(
@@ -752,7 +796,12 @@ fn render_page(
         let decoded = image::load_from_memory_with_format(&image.jpeg, image::ImageFormat::Jpeg)
             .map_err(|e| format!("A rendered photo could not be read: {e}"))?
             .to_rgb8();
-        let at = placed(&cell.photo_box, decoded.width(), decoded.height(), sheet.ppi);
+        let at = placed(
+            &cell.photo_box,
+            decoded.width(),
+            decoded.height(),
+            sheet.ppi,
+        );
         let (tw, th) = (
             ((at.w * px_per_mm).round() as u32).max(1),
             ((at.h * px_per_mm).round() as u32).max(1),
@@ -964,7 +1013,11 @@ mod tests {
         let layout = sheet.layout(45).unwrap();
         assert_eq!(layout.pages.len(), 3);
         assert_eq!(
-            layout.pages.iter().map(|p| p.cells.len()).collect::<Vec<_>>(),
+            layout
+                .pages
+                .iter()
+                .map(|p| p.cells.len())
+                .collect::<Vec<_>>(),
             [20, 20, 5]
         );
         let first = &layout.pages[0].cells;
@@ -1033,7 +1086,12 @@ mod tests {
             count: 20,
         };
         assert_eq!(
-            page_text("{job} – {date} – {count} photos – {page}/{pages} {other}", &values, 2, 3),
+            page_text(
+                "{job} – {date} – {count} photos – {page}/{pages} {other}",
+                &values,
+                2,
+                3
+            ),
             "Smith wedding – 2026-11-02 – 20 photos – 2/3 {other}"
         );
     }
@@ -1043,7 +1101,10 @@ mod tests {
         let image = image::DynamicImage::new_rgb8(37, 21);
         let mut bytes = Vec::new();
         image
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Jpeg,
+            )
             .unwrap();
         assert_eq!(jpeg_info(&bytes), Some((37, 21, 3)));
         assert_eq!(jpeg_info(b"not a jpeg"), None);
@@ -1078,8 +1139,14 @@ mod tests {
         // Only one of the names taken: all of them move on together.
         std::fs::remove_file(dir.path().join("Smith.pdf")).unwrap();
         let second = write_files(dir.path(), "Smith", &sheet).unwrap();
-        assert_eq!(names(&second), ["Smith-2.pdf", "Smith-2-01.jpg", "Smith-2-02.jpg"]);
-        assert_eq!(std::fs::read(dir.path().join("Smith-01.jpg")).unwrap(), b"a");
+        assert_eq!(
+            names(&second),
+            ["Smith-2.pdf", "Smith-2-01.jpg", "Smith-2-02.jpg"]
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("Smith-01.jpg")).unwrap(),
+            b"a"
+        );
         assert_eq!(file_stem(" a/b:c. "), "a-b-c");
         assert_eq!(file_stem("///"), "---");
         assert_eq!(file_stem(" . "), "Proof sheet");
@@ -1089,12 +1156,18 @@ mod tests {
     fn captions_fill_the_naming_tokens_as_free_text() {
         let mut naming = rawtonic_naming::Context::new("DSC_0042.NEF", 7);
         naming.values.insert("rating".into(), "4".into());
-        assert_eq!(caption("{seq} · {orig} · {rating}/5", &naming), "7 · DSC_0042.NEF · 4/5");
+        assert_eq!(
+            caption("{seq} · {orig} · {rating}/5", &naming),
+            "7 · DSC_0042.NEF · 4/5"
+        );
         assert_eq!(caption("{nonsense}", &naming), "DSC_0042.NEF");
         let layout = a4().layout(3).unwrap();
         let settings = cell_settings(&layout, None, None);
         let resize = settings.resize.unwrap();
-        assert_eq!((resize.value as u32, resize.second_value as u32), layout.box_px);
+        assert_eq!(
+            (resize.value as u32, resize.second_value as u32),
+            layout.box_px
+        );
         assert_eq!(
             crate::export_processing::calculate_resize_target(6000, 4000, &resize).0,
             layout.box_px.0
@@ -1103,7 +1176,12 @@ mod tests {
 
     #[test]
     fn photos_are_centred_and_never_larger_than_their_box() {
-        let photo_box = Rect { x: 10.0, y: 20.0, w: 40.0, h: 30.0 };
+        let photo_box = Rect {
+            x: 10.0,
+            y: 20.0,
+            w: 40.0,
+            h: 30.0,
+        };
         // 300 ppi: 236 px = 19.98 mm.
         let at = placed(&photo_box, 236, 354, 300);
         assert!((at.x + at.w / 2.0 - 30.0).abs() < 1e-9);

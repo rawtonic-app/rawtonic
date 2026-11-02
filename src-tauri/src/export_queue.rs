@@ -1067,12 +1067,11 @@ async fn write_proof_sheet(
         return;
     }
     let last = items.iter().map(|item| item.index).max().unwrap_or(0);
-    let composed = tauri::async_runtime::spawn_blocking(move || {
-        crate::proof_sheet::compose(&items, &sheet)
-    })
-    .await
-    .map_err(|e| e.to_string())
-    .and_then(|written| written);
+    let composed =
+        tauri::async_runtime::spawn_blocking(move || crate::proof_sheet::compose(&items, &sheet))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|written| written);
     match composed {
         Ok(written) => {
             if let Some(first) = written.first() {
@@ -1082,7 +1081,9 @@ async fn write_proof_sheet(
         }
         Err(e) => {
             log::error!("Proof sheet not written: {e}");
-            with_queue(|q| q.item_failed(job, last, &format!("The proof sheet was not written: {e}")));
+            with_queue(|q| {
+                q.item_failed(job, last, &format!("The proof sheet was not written: {e}"))
+            });
         }
     }
 }

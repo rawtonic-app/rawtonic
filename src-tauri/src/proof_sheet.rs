@@ -95,7 +95,11 @@ impl ProofSheetRequest {
             job_name: Some(self.job_name.clone()),
             ..cell_settings(&self.sheet.layout(1)?, None, None)
         };
-        let template = self.sheet.caption.as_deref().filter(|c| !c.trim().is_empty());
+        let template = self
+            .sheet
+            .caption
+            .as_deref()
+            .filter(|c| !c.trim().is_empty());
         let total = self.paths.len();
         let mut generated = false;
         let captions = paths
@@ -103,7 +107,8 @@ impl ProofSheetRequest {
             .zip(&photos)
             .enumerate()
             .map(|(offset, (path, pinned))| {
-                generated |= rawtonic_engine::image_loader::has_generated_areas(&pinned.adjustments);
+                generated |=
+                    rawtonic_engine::image_loader::has_generated_areas(&pinned.adjustments);
                 let Some(template) = template else {
                     return String::new();
                 };
@@ -176,7 +181,10 @@ pub async fn queue_proof_sheet(
     }
     let destination = PathBuf::from(&request.destination);
     if !destination.is_dir() {
-        return Err(format!("The folder {} is not available.", destination.display()));
+        return Err(format!(
+            "The folder {} is not available.",
+            destination.display()
+        ));
     }
     crate::export_processing::ensure_writable_folder(&destination)?;
     let layout = request.sheet.layout(request.paths.len())?;
@@ -244,7 +252,13 @@ pub(crate) fn compose(items: &[Item], job: &ProofJob) -> Result<Vec<PathBuf>, St
             Ok(Some(CellImage { jpeg }))
         })
         .collect::<Result<Vec<_>, String>>()?;
-    let sheet = write_sheet(&job.sheet, &cells, &job.captions, &job.values, job.generated)?;
+    let sheet = write_sheet(
+        &job.sheet,
+        &cells,
+        &job.captions,
+        &job.values,
+        job.generated,
+    )?;
     write_files(Path::new(&job.destination), &job.stem, &sheet)
 }
 

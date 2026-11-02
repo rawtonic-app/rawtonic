@@ -11,7 +11,10 @@ fn jpeg(w: u32, h: u32, rgb: [u8; 3], gray: bool) -> Vec<u8> {
     };
     let mut bytes = Vec::new();
     image
-        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Jpeg,
+        )
         .unwrap();
     bytes
 }
@@ -43,7 +46,11 @@ fn a_proof_sheet_reads_back_as_the_pages_photos_and_text_it_holds() {
     let mut cells: Vec<Option<CellImage>> = (0..23)
         .map(|i| {
             // Landscape and portrait photos fitted into the box.
-            let (w, h) = if i % 2 == 0 { (bw, bw * 2 / 3) } else { (bh * 2 / 3, bh) };
+            let (w, h) = if i % 2 == 0 {
+                (bw, bw * 2 / 3)
+            } else {
+                (bh * 2 / 3, bh)
+            };
             Some(CellImage {
                 jpeg: jpeg(w, h.min(bh), [200, (i * 10) as u8, 40], i == 3),
             })
@@ -77,24 +84,50 @@ fn a_proof_sheet_reads_back_as_the_pages_photos_and_text_it_holds() {
     // The export's JPEGs go in unchanged.
     let first = images_on(1);
     for image in &first {
-        assert_eq!(image.filters.as_deref(), Some(&["DCTDecode".to_string()][..]));
+        assert_eq!(
+            image.filters.as_deref(),
+            Some(&["DCTDecode".to_string()][..])
+        );
         assert!(cells.iter().flatten().any(|c| c.jpeg == image.content));
     }
-    assert!(first.iter().any(|i| i.color_space.as_deref() == Some("DeviceGray")));
-    assert!(first.iter().any(|i| i.color_space.as_deref() == Some("ICCBased")));
+    assert!(
+        first
+            .iter()
+            .any(|i| i.color_space.as_deref() == Some("DeviceGray"))
+    );
+    assert!(
+        first
+            .iter()
+            .any(|i| i.color_space.as_deref() == Some("ICCBased"))
+    );
     let text = doc.extract_text(&[1]).unwrap();
-    for expected in ["Smith wedding", "2026-11-02", "01 DSC_0100.NEF", "20 DSC_0119.NEF", "23 photos", "1 / 2"] {
-        assert!(text.contains(expected), "{expected:?} missing from {text:?}");
+    for expected in [
+        "Smith wedding",
+        "2026-11-02",
+        "01 DSC_0100.NEF",
+        "20 DSC_0119.NEF",
+        "23 photos",
+        "1 / 2",
+    ] {
+        assert!(
+            text.contains(expected),
+            "{expected:?} missing from {text:?}"
+        );
     }
     let text = doc.extract_text(&[2]).unwrap();
-    assert!(text.contains("23 DSC_0122.NEF") && text.contains("2 / 2"), "{text:?}");
+    assert!(
+        text.contains("23 DSC_0122.NEF") && text.contains("2 / 2"),
+        "{text:?}"
+    );
     // AI-generated areas in a photo: the sheet carries the marking.
     let marked = String::from_utf8_lossy(&pdf);
     assert!(marked.contains(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI));
 
     // One JPEG per page at the sheet's resolution, photos where the PDF has them.
     assert_eq!(written.jpegs.len(), 2);
-    let page = image::load_from_memory(&written.jpegs[0]).unwrap().to_rgb8();
+    let page = image::load_from_memory(&written.jpegs[0])
+        .unwrap()
+        .to_rgb8();
     let px = |mm: f64| (mm / 25.4 * 100.0).round() as u32;
     assert_eq!(page.dimensions(), (px(210.0), px(297.0)));
     let cell = &layout.pages[0].cells[0].photo_box;
@@ -117,10 +150,16 @@ fn without_generated_photos_the_sheet_carries_no_marking() {
     }
     let mut sheet = sheet();
     sheet.jpeg = false;
-    let cells = vec![Some(CellImage { jpeg: jpeg(100, 80, [10, 20, 30], false) })];
-    let written = write_sheet(&sheet, &cells, &["1".into()], &PageValues::default(), false).unwrap();
+    let cells = vec![Some(CellImage {
+        jpeg: jpeg(100, 80, [10, 20, 30], false),
+    })];
+    let written =
+        write_sheet(&sheet, &cells, &["1".into()], &PageValues::default(), false).unwrap();
     assert!(written.jpegs.is_empty());
     let pdf = written.pdf.unwrap();
     assert!(!String::from_utf8_lossy(&pdf).contains("DigitalSourceType"));
-    assert_eq!(lopdf::Document::load_mem(&pdf).unwrap().get_pages().len(), 1);
+    assert_eq!(
+        lopdf::Document::load_mem(&pdf).unwrap().get_pages().len(),
+        1
+    );
 }
