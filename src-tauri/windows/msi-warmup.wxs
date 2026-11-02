@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rawtonic MSI fragment (bundle.windows.wix.fragmentPaths): the MSI's
+  counterpart of the NSIS hook in installer-hooks.nsh. After an install or
+  update, fill the app's GPU pipeline cache so the first launch does not wait
+  for shader compiles (src-tauri/src/gpu_warmup.rs). It runs after
+  InstallFinalize like Tauri's own LaunchApplication action, so it runs as
+  the installing user and the cache lands in that user's %LOCALAPPDATA%. The
+  app ends the warm-up itself within 120 s; its outcome never fails the
+  install (Return="ignore"). "Path" is the main binary's File Id in Tauri's
+  main.wxs. The empty ComponentGroup only links this fragment in
+  (bundle.windows.wix.componentGroupRefs).
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="RawtonicGpuWarmup" />
+    <CustomAction Id="RawtonicWarmGpuCache" FileKey="Path" ExeCommand="--warm-gpu-cache" Execute="immediate" Impersonate="yes" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RawtonicWarmGpuCache" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

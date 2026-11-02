@@ -1,10 +1,11 @@
-# The experimental, unsigned Windows x64 installer (NSIS), built as the
-# private Windows build does it (`tauri build --bundles nsis`, ONNX Runtime
-# bundled, no DXC, static VC runtime with dynamic UCRT), then installed
-# silently on a fresh runner, tried in a headless export and uninstalled. Runs on
-# demand and for version tags; the installer and SHA256SUMS-windows.txt are
-# kept as a workflow artifact and attached to a release by hand
-# (packaging/README.md).
+# The experimental, unsigned Windows x64 downloads: the NSIS installer
+# (per-user), the MSI (per-machine) and a portable zip, built as the private
+# Windows build does it (`tauri build`, ONNX Runtime bundled, no DXC, static
+# VC runtime with dynamic UCRT), scanned with Microsoft Defender, then each
+# installed (or unpacked) on a fresh runner, tried in a headless export and
+# uninstalled. Runs on demand and for version tags; the downloads and
+# SHA256SUMS-windows.txt are kept as a workflow artifact and attached to a
+# release by scripts/release.sh (packaging/README.md).
 name: Windows installer
 on:
   workflow_dispatch:
@@ -54,10 +55,24 @@ jobs:
         with:
           key: windows-installer
       - run: npm ci
-      - name: Build the NSIS installer
+      # MSI needs a numeric ProductVersion: 0.1.0-alpha.11.1 -> 0.1.0.1101
+      # (alpha 0-19999, beta 20000+, rc 40000+, a final release 60000), so
+      # it rises from release to release. Tauri's MSI allows downgrades, so
+      # any other version replaces an installed one.
+      - name: Build the NSIS installer and the MSI
         run: |
-          npm run tauri -- build --bundles nsis --ci -- --locked
+          $version = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+)(?:\.(\d+))?)?$') { Write-Error "version $version has no MSI mapping"; exit 1 }
+          $stage = @{ alpha = 0; beta = 20000; rc = 40000 }
+          $build = if ($Matches[4]) { $stage[$Matches[4]] + 100 * [int]$Matches[5] + [int]$Matches[6] } else { 60000 }
+          if ($Matches[5] -and ([int]$Matches[5] -ge 200 -or [int]$Matches[6] -ge 100)) { Write-Error "version $version overflows the MSI mapping"; exit 1 }
+          $msiVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).$build"
+          "version $version, MSI version $msiVersion"
+          $wix = Join-Path $env:RUNNER_TEMP 'wix-version.json'
+          [IO.File]::WriteAllText($wix, (@{ bundle = @{ windows = @{ wix = @{ version = $msiVersion } } } } | ConvertTo-Json -Depth 5))
+          npm run tauri -- build --bundles nsis,msi --ci --config $wix -- --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "VERSION=$version" >> $env:GITHUB_ENV
       # Static VC runtime: no VCRUNTIME/MSVCP imports, so no VC++
       # redistributable is needed; the UCRT is part of Windows 10/11.
       - name: Check the executable's imports and the bundled files
@@ -70,27 +85,60 @@ jobs:
           foreach ($dll in 'onnxruntime.dll', 'onnxruntime_providers_webgpu.dll') {
             if (-not (Test-Path "src-tauri\resources\$dll")) { Write-Error "$dll not bundled"; exit 1 }
           }
-      - name: Collect the installer
+      # Three downloads: the NSIS installer (per-user), the MSI (per-machine,
+      # administrator) and a portable zip. The zip holds exactly the files the
+      # MSI installs (an administrative extraction, `msiexec /a`, installs
+      # nothing): the app finds its resources beside its executable, so it
+      # runs from any folder.
+      - name: Collect the installers and the portable zip
         run: |
           New-Item -ItemType Directory installer-out | Out-Null
-          Copy-Item target\release\bundle\nsis\*-setup.exe installer-out\
+          $setup = @(Get-ChildItem target\release\bundle\nsis\*-setup.exe)
+          $msi = @(Get-ChildItem target\release\bundle\msi\*.msi)
+          if ($setup.Count -ne 1 -or $msi.Count -ne 1) { Write-Error "expected one installer of each kind, found $($setup.Count) NSIS, $($msi.Count) MSI"; exit 1 }
+          Copy-Item $setup[0] "installer-out\Rawtonic_${env:VERSION}_x64-setup.exe"
+          # Tauri names the MSI by its numeric MSI version; the release uses the app version.
+          Copy-Item $msi[0] "installer-out\Rawtonic_${env:VERSION}_x64.msi"
+          $admin = Join-Path $env:RUNNER_TEMP 'msi-admin'
+          $p = Start-Process msiexec.exe -ArgumentList '/a', "`"$($msi[0].FullName)`"", '/qn', "TARGETDIR=`"$admin`"" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { Write-Error "administrative extraction failed ($($p.ExitCode))"; exit 1 }
+          $exe = @(Get-ChildItem $admin -Recurse -Filter rawtonic-app.exe)
+          if ($exe.Count -ne 1) { Write-Error "expected one rawtonic-app.exe in the MSI, found $($exe.Count)"; exit 1 }
+          $root = $exe[0].Directory.FullName
+          Get-ChildItem $admin -Recurse -Filter *.msi | Remove-Item
+          foreach ($need in 'resources\onnxruntime.dll', 'resources\onnxruntime_providers_webgpu.dll', 'lensfun_db') {
+            if (-not (Test-Path (Join-Path $root $need))) { Write-Error "the portable folder lacks $need"; exit 1 }
+          }
+          $dxc = Get-ChildItem $root -Recurse -Include dxcompiler.dll, dxil.dll
+          if ($dxc) { Write-Error "DXC must not be bundled: $dxc"; exit 1 }
+          # The zip holds one folder, Rawtonic\, so unpacking it never scatters files.
+          $stage = Join-Path $env:RUNNER_TEMP 'portable'
+          New-Item -ItemType Directory $stage | Out-Null
+          Copy-Item $root (Join-Path $stage 'Rawtonic') -Recurse
+          Compress-Archive -Path (Join-Path $stage 'Rawtonic') -DestinationPath "installer-out\Rawtonic_${env:VERSION}_x64-portable.zip" -CompressionLevel Optimal
           Set-Location installer-out
-          $files = Get-ChildItem *-setup.exe
-          if ($files.Count -ne 1) { Write-Error "expected one installer, found $($files.Count)"; exit 1 }
           # sha256sum format (lower-case hash, two spaces, name), LF endings.
-          $line = "{0}  {1}`n" -f (Get-FileHash $files[0] -Algorithm SHA256).Hash.ToLower(), $files[0].Name
-          [IO.File]::WriteAllText("$PWD\SHA256SUMS-windows.txt", $line)
+          $text = ''
+          foreach ($f in Get-ChildItem -File | Sort-Object Name) {
+            $text += "{0}  {1}`n" -f (Get-FileHash $f -Algorithm SHA256).Hash.ToLower(), $f.Name
+            "{0}: {1} bytes" -f $f.Name, $f.Length
+          }
+          [IO.File]::WriteAllText("$PWD\SHA256SUMS-windows.txt", $text)
           Get-Content SHA256SUMS-windows.txt
-          "{0} bytes" -f $files[0].Length
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: installer-out/
           retention-days: 14
-  smoke:
+  # Microsoft Defender on a fresh runner, with signatures updated just before:
+  # each download and the app executable inside them are scanned. Evidence,
+  # not proof: users' PCs also use cloud protection, reputation (SmartScreen,
+  # Smart App Control) and newer signatures. The verdicts go to the run
+  # summary and the windows-defender artifact; scripts/release.sh reads them.
+  defender:
     needs: build
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -99,7 +147,86 @@ jobs:
         with:
           name: windows-installer
           path: installer-out
-      - name: Verify the checksum
+      - name: Scan with Microsoft Defender
+        run: |
+          $mp = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          $out = Join-Path $env:RUNNER_TEMP 'defender'
+          New-Item -ItemType Directory $out | Out-Null
+          $sum = [Collections.Generic.List[string]]::new()
+          $sum.Add('## Microsoft Defender scan')
+          $sum.Add('')
+          $sum.Add('Evidence, not proof: a scan on one GitHub runner with freshly updated signatures. Users'' PCs also use cloud protection, reputation (SmartScreen, Smart App Control) and newer signatures, so a clean result here does not promise a clean download there.')
+          $sum.Add('')
+          # Ask for cloud protection; the runner may refuse (Tamper Protection, policy).
+          try {
+            Set-MpPreference -MAPSReporting Advanced -CloudBlockLevel High -CloudExtendedTimeout 50 -ErrorAction Stop
+            $cloudPref = 'set (MAPS Advanced, cloud block level High)'
+          } catch { $cloudPref = "refused: $($_.Exception.Message)" }
+          & $mp -SignatureUpdate *> "$out\signature-update.txt"
+          $sigExit = $LASTEXITCODE
+          & $mp -ValidateMapsConnection *> "$out\maps.txt"
+          $mapsExit = $LASTEXITCODE
+          $st = Get-MpComputerStatus
+          $pref = Get-MpPreference
+          $sum.Add('| Runner property | Value |')
+          $sum.Add('|---|---|')
+          $sum.Add("| Antivirus enabled | $($st.AntivirusEnabled) (service $($st.AMServiceEnabled), real-time $($st.RealTimeProtectionEnabled), tamper protection $($st.IsTamperProtected)) |")
+          $sum.Add("| Engine / signatures | $($st.AMEngineVersion) / $($st.AntivirusSignatureVersion) of $($st.AntivirusSignatureLastUpdated) |")
+          $sum.Add("| Signature update | exit $sigExit |")
+          $sum.Add("| Cloud protection | preference $cloudPref; MAPSReporting=$($pref.MAPSReporting), CloudBlockLevel=$($pref.CloudBlockLevel); connection test exit $mapsExit ($(if ($mapsExit -eq 0) { 'reachable, cloud verdicts possible' } else { 'not reachable: local signatures and ML only' })) |")
+          $sum.Add('')
+          Get-Content "$out\signature-update.txt", "$out\maps.txt"
+          # The app executable inside the portable zip (the same file both installers carry).
+          $inner = Join-Path $env:RUNNER_TEMP 'portable'
+          Expand-Archive (Get-ChildItem installer-out\*-portable.zip)[0] -DestinationPath $inner
+          $files = @(Get-ChildItem installer-out -File | Where-Object Name -ne 'SHA256SUMS-windows.txt') + @(Get-ChildItem $inner -Recurse -Filter rawtonic-app.exe)
+          $sum.Add('| File | Verdict | MpCmdRun exit |')
+          $sum.Add('|---|---|---|')
+          $verdicts = ''
+          foreach ($f in $files) {
+            $name = if ($f.FullName.StartsWith($inner)) { 'rawtonic-app.exe (inside the downloads)' } else { $f.Name }
+            # -DisableRemediation: report only, never quarantine (the artifact is evidence).
+            & $mp -Scan -ScanType 3 -File $f.FullName -DisableRemediation *> "$out\scan-$($f.Name).txt"
+            $code = $LASTEXITCODE
+            Get-Content "$out\scan-$($f.Name).txt"
+            $threats = (Select-String -Path "$out\scan-$($f.Name).txt" -Pattern '^\s*Threat\s*:\s*(.+)$' | ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() }) -join ', '
+            $verdict = switch ($code) { 0 { 'clean' } 2 { "THREAT $threats" } default { "error" } }
+            $sum.Add("| ``$name`` | $verdict | $code |")
+            $verdicts += "defender: ${name}: $verdict (exit $code)`n"
+          }
+          $sum.Add('')
+          $sum.Add("Recorded detections on this runner: $(@(Get-MpThreatDetection -ErrorAction SilentlyContinue).Count)")
+          $sum -join "`n" >> $env:GITHUB_STEP_SUMMARY
+          [IO.File]::WriteAllText("$out\defender-verdicts.txt", $verdicts)
+          $verdicts
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: windows-defender
+          path: ${{ runner.temp }}/defender/
+          retention-days: 14
+  # Each download on its own fresh runner: install (or unpack), try a headless
+  # export, uninstall. Log lines carry the kind (nsis/msi/portable) for
+  # scripts/release.sh.
+  smoke:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [nsis, msi, portable]
+    env:
+      KIND: ${{ matrix.kind }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer-out
+      - name: Verify the checksums
         run: |
           Set-Location installer-out
           foreach ($line in Get-Content SHA256SUMS-windows.txt) {
@@ -107,28 +234,48 @@ jobs:
             if ((Get-FileHash $name -Algorithm SHA256).Hash -ne $sum) { Write-Error "${name}: checksum mismatch"; exit 1 }
             "ok $name"
           }
-      # Silent per-user install into a scratch folder. The installer's
-      # post-install hook runs `rawtonic-app --warm-gpu-cache`; the runner has
-      # no GPU, only Windows' software DX12 adapter (WARP).
-      - name: Install silently
+      # Silent install. Both installers run `rawtonic-app --warm-gpu-cache`
+      # afterwards (NSIS: src-tauri/windows/installer-hooks.nsh, MSI:
+      # msi-warmup.wxs); the runner has no GPU, only Windows' software DX12
+      # adapter (WARP). NSIS installs per user into a scratch folder, the MSI
+      # per machine into Program Files (administrator; the runner is one).
+      # The portable zip is unpacked into a folder with a space in its path.
+      - name: Install silently (${{ matrix.kind }})
         run: |
-          $dir = Join-Path $env:RUNNER_TEMP 'Rawtonic install'
-          $setup = (Get-ChildItem installer-out\*-setup.exe)[0].FullName
           $watch = [Diagnostics.Stopwatch]::StartNew()
-          # NSIS wants /D last and unquoted, spaces included.
-          $p = Start-Process $setup -ArgumentList '/S', "/D=$dir" -PassThru -Wait
-          "installer exit $($p.ExitCode) after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
-          if ($p.ExitCode -ne 0) { exit 1 }
+          switch ($env:KIND) {
+            'nsis' {
+              $dir = Join-Path $env:RUNNER_TEMP 'Rawtonic install'
+              $setup = (Get-ChildItem installer-out\*-setup.exe)[0].FullName
+              # NSIS wants /D last and unquoted, spaces included.
+              $p = Start-Process $setup -ArgumentList '/S', "/D=$dir" -PassThru -Wait
+            }
+            'msi' {
+              $dir = Join-Path $env:ProgramFiles 'Rawtonic'
+              $msi = (Get-ChildItem installer-out\*.msi)[0].FullName
+              $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"" -PassThru -Wait
+            }
+            'portable' {
+              $base = Join-Path $env:RUNNER_TEMP 'Portable apps'
+              Expand-Archive (Get-ChildItem installer-out\*-portable.zip)[0].FullName -DestinationPath $base
+              $dir = Join-Path $base 'Rawtonic'
+              $p = [pscustomobject]@{ ExitCode = 0 }
+            }
+          }
+          "$env:KIND installer exit $($p.ExitCode) after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
+          if ($p.ExitCode -ne 0) { if (Test-Path "$env:RUNNER_TEMP\msi-install.log") { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 60 }; exit 1 }
           if (-not (Test-Path "$dir\rawtonic-app.exe")) { Write-Error 'rawtonic-app.exe not installed'; exit 1 }
           foreach ($dll in 'onnxruntime.dll', 'onnxruntime_providers_webgpu.dll') {
             if (-not (Test-Path "$dir\resources\$dll")) { Write-Error "$dll not installed"; exit 1 }
           }
           $dxc = Get-ChildItem $dir -Recurse -Include dxcompiler.dll, dxil.dll
           if ($dxc) { Write-Error "DXC must not be bundled: $dxc"; exit 1 }
-          $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-          if (-not $log) { Write-Error 'the GPU warm-up left no log: the hook did not run'; exit 1 }
-          Get-Content $log.FullName
+          if ($env:KIND -ne 'portable') {
+            $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if (-not $log) { Write-Error 'the GPU warm-up left no log: the hook did not run'; exit 1 }
+            Get-Content $log.FullName
+          }
           "INSTALL_DIR=$dir" >> $env:GITHUB_ENV
       # A synthetic gradient, no photograph: the installed app decodes,
       # develops on the GPU and encodes it without a window. The runner's only
@@ -161,15 +308,21 @@ jobs:
           # Without a handle taken before the exit, ExitCode reads as null.
           $null = $p.Handle
           if (-not $p.WaitForExit(900000)) { $p.Kill(); Write-Error 'export hung (15 min)'; exit 1 }
-          "export exit $($p.ExitCode) after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
+          "$env:KIND export exit $($p.ExitCode) after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
           $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter app.log -ErrorAction SilentlyContinue |
             Select-Object -First 1
           if ($log) { Get-Content $log.FullName -Tail 40 }
+          # The app found its ONNX Runtime beside itself (installed or unpacked anywhere).
+          $ort = Select-String -Path "$logs\stdout.log" -Pattern 'Set ORT_DYLIB_PATH to: (.+)$' | Select-Object -First 1
+          if (-not $ort) { Write-Error 'the app printed no ONNX Runtime path'; exit 1 }
+          $ortPath = $ort.Matches[0].Groups[1].Value.Trim()
+          if (-not $ortPath.StartsWith($env:INSTALL_DIR) -or -not (Test-Path $ortPath)) { Write-Error "ONNX Runtime path $ortPath is not in $env:INSTALL_DIR"; exit 1 }
+          "$env:KIND resources found: $ortPath"
           if ($p.ExitCode -ne 0) {
             $err = Get-Content "$logs\stderr.log" -Raw
             if ($p.ExitCode -eq 1 -and $err -match 'software renderer \(WARP\) is not supported') {
               if (Test-Path $out) { Write-Error 'a refused export left a file'; exit 1 }
-              'WARP refused cleanly (exit 1)'
+              "$env:KIND WARP refused cleanly (exit 1)"
               exit 0
             }
             Write-Error "export failed (exit $($p.ExitCode)); see windows-export-logs artifact"
@@ -196,16 +349,21 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: windows-export-logs
+          name: windows-export-logs-${{ matrix.kind }}
           path: ${{ runner.temp }}/windows-export-logs/
           retention-days: 14
           if-no-files-found: warn
       - name: Uninstall silently
-        if: ${{ !cancelled() && env.INSTALL_DIR != '' }}
+        if: ${{ !cancelled() && env.INSTALL_DIR != '' && matrix.kind != 'portable' }}
         run: |
-          $p = Start-Process "$env:INSTALL_DIR\uninstall.exe" -ArgumentList '/S' -PassThru -Wait
-          "uninstaller exit $($p.ExitCode)"
+          if ($env:KIND -eq 'nsis') {
+            $p = Start-Process "$env:INSTALL_DIR\uninstall.exe" -ArgumentList '/S' -PassThru -Wait
+          } else {
+            $msi = (Get-ChildItem installer-out\*.msi)[0].FullName
+            $p = Start-Process msiexec.exe -ArgumentList '/x', "`"$msi`"", '/qn', '/norestart' -PassThru -Wait
+          }
+          "$env:KIND uninstaller exit $($p.ExitCode)"
           # The NSIS uninstaller copies itself to %TEMP% and returns at once.
           for ($i = 0; $i -lt 60 -and (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe"); $i++) { Start-Sleep 1 }
           if (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe") { Write-Error 'rawtonic-app.exe still installed'; exit 1 }
-          "uninstalled"
+          "$env:KIND uninstalled"

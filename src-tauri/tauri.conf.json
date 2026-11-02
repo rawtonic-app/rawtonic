@@ -334,6 +334,14 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "installerHooks": "windows/installer-hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": [
+          "windows/msi-warmup.wxs"
+        ],
+        "componentGroupRefs": [
+          "RawtonicGpuWarmup"
+        ]
       }
     }
   },
