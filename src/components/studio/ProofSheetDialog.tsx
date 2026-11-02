@@ -14,9 +14,8 @@ import { currentEditForExport, useEditorStore } from "../../store/useEditorStore
 import { computeSortedLibrary } from "../../hooks/useSortedLibrary";
 import { flushRecipeSaves } from "../../hooks/useEditorActions";
 import { photoWritesAndStepsSettled } from "../../utils/photoWrites";
-import { readFormDraft, readJobName, writeFormDraft, writeJobName } from "../../utils/exportJob";
+import { readFormDraft, readJobName, startFormDraft, writeFormDraft, writeJobName } from "../../utils/exportJob";
 import {
-  DEFAULT_RECIPE_DRAFT,
   exportSettingsFromDraft,
   watermarkReady,
   type RecipeDraft,
@@ -120,7 +119,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
   const watermarkForm: RecipeDraft | null = formReady
     ? exportForm
     : watermarkText.trim()
-      ? { ...(exportForm ?? DEFAULT_RECIPE_DRAFT), watermarkKind: "text", watermarkText }
+      ? { ...(exportForm ?? startFormDraft(session)), watermarkKind: "text", watermarkText }
       : null;
   const watermark = watermarkForm
     ? exportSettingsFromDraft({ ...watermarkForm, watermark: true }).settings.watermark

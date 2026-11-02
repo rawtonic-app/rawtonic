@@ -120,4 +120,6 @@ it("without an Export watermark, its text is typed in the sheet and kept in the 
   expect(request.watermark?.text.text).toBe("PROOF");
   const form = JSON.parse(localStorage.getItem(`rawtonic.export.form:${LIBRARY}`)!);
   expect([form.watermarkKind, form.watermarkText, form.watermark]).toEqual(["text", "PROOF", false]);
+  // A form made here keeps the Export dialog's own default: the Output folder.
+  expect(form.where).toBe("output");
 });
