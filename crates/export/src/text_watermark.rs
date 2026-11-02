@@ -450,6 +450,17 @@ fn embedding_allowed(font: &FontData) -> bool {
     }
 }
 
+/// The script of `c` as the shaper reads it; none for characters every
+/// script uses (spaces, digits, punctuation) and combining marks.
+fn script_of(c: char) -> Option<harfrust::Script> {
+    let mut buffer = harfrust::Buffer::new();
+    buffer.push_str(c.encode_utf8(&mut [0; 4]));
+    buffer.guess_segment_properties();
+    buffer
+        .script()
+        .filter(|s| *s != harfrust::Script::COMMON && *s != harfrust::Script::INHERITED)
+}
+
 /// A glyph placed on a line: which face, which glyph, its pen position
 /// and its offset above the baseline (marks).
 struct Placed {
@@ -575,12 +586,17 @@ impl Typeface {
             let (levels, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
             for run in runs {
                 let rtl = levels[run.start].is_rtl();
-                // The run's stretches of one face, in logical order.
-                let mut stretches: Vec<(usize, std::ops::Range<usize>)> = Vec::new();
+                // The run's stretches of one face and one script, in logical
+                // order; spaces, punctuation and marks (common or inherited
+                // script) stay with the stretch they are in.
+                let mut stretches: Vec<(usize, Option<harfrust::Script>, std::ops::Range<usize>)> =
+                    Vec::new();
                 for (offset, c) in text[run.clone()].char_indices() {
                     let at = run.start + offset;
+                    let script = script_of(c);
+                    let previous = stretches.last().map(|(face, script, _)| (*face, *script));
                     let face = if c.is_whitespace() || c.is_control() {
-                        stretches.last().map_or(0, |(face, _)| *face)
+                        previous.map_or(0, |(face, _)| face)
                     } else {
                         faces
                             .iter()
@@ -588,14 +604,24 @@ impl Typeface {
                             .unwrap_or(0)
                     };
                     match stretches.last_mut() {
-                        Some((last, range)) if *last == face => range.end = at + c.len_utf8(),
-                        _ => stretches.push((face, at..at + c.len_utf8())),
+                        Some((last, last_script, range))
+                            if *last == face
+                                && (script.is_none()
+                                    || last_script.is_none()
+                                    || *last_script == script) =>
+                        {
+                            range.end = at + c.len_utf8();
+                            if last_script.is_none() {
+                                *last_script = script;
+                            }
+                        }
+                        _ => stretches.push((face, script, at..at + c.len_utf8())),
                     }
                 }
                 if rtl {
                     stretches.reverse();
                 }
-                for (face, range) in stretches {
+                for (face, script, range) in stretches {
                     let scale = size / self.faces[face].units_per_em;
                     let mut buffer = harfrust::Buffer::new();
                     buffer.push_str(&text[range]);
@@ -604,6 +630,7 @@ impl Typeface {
                     } else {
                         harfrust::Direction::LeftToRight
                     });
+                    buffer.set_script(script);
                     buffer.guess_segment_properties();
                     let shaper = harfrust::ShaperFont::new(&self.faces[face].shaper);
                     if harfrust::shape(&shaper, &mut buffer, harfrust::ShapeOptions::new()).is_err()
@@ -768,6 +795,10 @@ mod tests {
         // glyphs, and the first letter is drawn rightmost.
         assert_ne!(shaped, nominal);
         assert!(!shaped.contains(&nominal[0]) || glyphs.last().unwrap().x > glyphs[0].x);
+        // Latin and Devanagari in one face are shaped as two scripts: the
+        // vowel sign i is drawn before its consonant.
+        assert_ne!(script_of('C'), script_of('\u{0915}'));
+        assert_eq!(script_of(' '), None);
         // Latin is drawn left to right, glyph by glyph.
         let (latin, _) = typeface.place(&faces, "AB", 100.0);
         assert!(latin[1].x > latin[0].x);
