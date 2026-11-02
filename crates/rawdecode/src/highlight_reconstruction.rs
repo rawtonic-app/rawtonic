@@ -41,6 +41,8 @@
 use rawler::CFA;
 use rayon::prelude::*;
 
+pub mod gpu;
+
 /// Window half-size for the neighbourhood means of clipped samples (5 × 5
 /// covers every colour of a Bayer or X-Trans pattern).
 const RADIUS: usize = 2;
@@ -270,6 +272,18 @@ fn onset_thresholds<T: Copy + Into<f32> + Send + Sync>(
                 a
             },
         );
+    thresholds_from_onset(&histograms, maxima, nominal_white)
+}
+
+/// Per colour, the clip level from its onset histogram over the top
+/// ONSET_RANGE below `maxima` (`onset_thresholds`).
+fn thresholds_from_onset(
+    histograms: &[[usize; ONSET_BINS]; 3],
+    maxima: [f32; 3],
+    nominal_white: f32,
+) -> [Option<f32>; 3] {
+    let lows = maxima.map(|m| m * (1.0 - ONSET_RANGE));
+    let bin_width = maxima.map(|m| (m * ONSET_RANGE / ONSET_BINS as f32).max(f32::MIN_POSITIVE));
     let mut thresholds = [None; 3];
     for color in 0..3 {
         if maxima[color] < nominal_white * NOMINAL_FRACTION {
