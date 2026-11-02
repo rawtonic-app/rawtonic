@@ -7292,10 +7292,13 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// benchmark-results/hl-highlights-2026-11-01);
 /// 5 (2026-11-02) keeps the detail of lowered bright areas (cloud and wall
 /// structure) as Camera Raw and Capture One do, through a wider local base
-/// (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02).
+/// (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02);
+/// 6 (2026-11-03) keeps the local contrast of shadows lifted by raised
+/// Shadows through a wider base for its level (notes: G05,
+/// benchmark-results/hls-shadow-detail-2026-11-03).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 5;
+pub const TONE_VERSION: u64 = 6;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.

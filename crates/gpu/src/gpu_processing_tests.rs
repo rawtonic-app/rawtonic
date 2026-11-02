@@ -8960,14 +8960,26 @@ fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Valu
 /// (where the tone-slider versions differ), the same recipe with
 /// `toneVersion` 2, and for lowered Highlights with `toneVersion` 3 on a
 /// night frame's key, `toneVersion` 4 on a bright frame's and
-/// `toneVersion` 5 on both.
+/// `toneVersion` 5 on both; for raised Shadows also `toneVersion` 6 on both.
 fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
     let differs = |recipe: &&serde_json::Value| {
-        recipe["shadows"].as_f64().unwrap_or(0.0) > 50.0
+        recipe["shadows"].as_f64().unwrap_or(0.0) > 0.0
             || recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0
     };
     let mut versioned: Vec<serde_json::Value> = Vec::new();
     for recipe in recipes.iter().filter(differs) {
+        if recipe["shadows"].as_f64().unwrap_or(0.0) > 0.0 {
+            for key in [BRIGHT_KEY, NIGHT_KEY] {
+                let mut sixth = with_image_key(recipe, key);
+                sixth["toneVersion"] = json!(6);
+                versioned.push(sixth);
+            }
+        }
+        if recipe["shadows"].as_f64().unwrap_or(0.0) <= 50.0
+            && recipe["highlights"].as_f64().unwrap_or(0.0) >= 0.0
+        {
+            continue;
+        }
         let mut second = recipe.clone();
         second["toneVersion"] = json!(2);
         versioned.push(second);
@@ -9521,6 +9533,130 @@ fn tone_version_5_keeps_detail_in_lowered_bright_areas() {
             );
         }
     }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 6 against version 5 on textured shadows"]
+fn tone_version_6_keeps_texture_in_lifted_shadows() {
+    let context = context();
+    // 1080 px tall: the blurs at their 1:1 radii (tonal sigma 2 px, the
+    // small Clarity blur's 4 px). A ramp from −10 to −1 EV with a texture of
+    // ±0.3 EV and a 16 px period, between the two blurs' scales.
+    let (width, height) = (1536u32, 1080u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let level = |x: u32| {
+        let ramp = -10.0 + 9.0 * x as f32 / (width - 1) as f32;
+        let texture = 0.3 * (std::f32::consts::TAU * x as f32 / 16.0).sin();
+        (2.0f32).powf(ramp + texture)
+    };
+    let levels: Vec<f32> = (0..height).flat_map(|_| 0..width).map(level).collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, look)
+    };
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without raised Shadows, version 6 renders as version 5.
+    for recipe in [
+        json!({}),
+        json!({ "shadows": -60, "blacks": 50 }),
+        json!({ "highlights": -80, "whites": 40, "contrast": 30 }),
+    ] {
+        assert!(
+            render(with(&recipe, 5)) == render(with(&recipe, 6)),
+            "{recipe} differs"
+        );
+    }
+    let row = (height / 2 * width) as usize;
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    let neutral = render(with(&json!({}), 6));
+    for amount in [100, 50] {
+        let recipe = json!({ "shadows": amount });
+        let fifth = render(with(&recipe, 5));
+        let sixth = render(with(&recipe, 6));
+        // Over the lifted shadows (display −7 … −3 EV of the neutral render,
+        // whole periods): the texture's amplitude in display EV and the mean
+        // level.
+        let ev = |pixels: &[[u16; 3]], x: usize| luma(&pixels[row + x]).max(1e-9).log2();
+        let mut stats = [(0.0f64, 0.0f64, 0usize); 3];
+        for x in 64..(width - 64) as usize {
+            let display = ev(&neutral, x);
+            if !(-7.0..-3.0).contains(&display) {
+                continue;
+            }
+            for (k, pixels) in [&neutral, &fifth, &sixth].into_iter().enumerate() {
+                let local = (x - 8..x + 8).map(|i| ev(pixels, i)).sum::<f64>() / 16.0;
+                let texture = ev(pixels, x) - local;
+                stats[k].0 += ev(pixels, x);
+                stats[k].1 += texture * texture;
+                stats[k].2 += 1;
+            }
+        }
+        let spread = |(_, q, n): (f64, f64, usize)| (q / n as f64).sqrt();
+        let mean = |(s, _, n): (f64, f64, usize)| s / n as f64;
+        let (kept_5, kept_6) = (
+            spread(stats[1]) / spread(stats[0]),
+            spread(stats[2]) / spread(stats[0]),
+        );
+        eprintln!("shadows {amount}: spread kept v5 {kept_5:.3} v6 {kept_6:.3}, mean v6 − v5 {:.3} EV", mean(stats[2]) - mean(stats[1]));
+        assert!(
+            kept_6 > kept_5 + 0.05,
+            "{amount}: version 6 keeps {kept_6:.3} of the spread, version 5 {kept_5:.3}"
+        );
+        assert!(
+            (mean(stats[2]) - mean(stats[1])).abs() < 0.1,
+            "{amount}: mean level {:.3} EV from version 5",
+            mean(stats[2]) - mean(stats[1])
+        );
+        assert!(mean(stats[2]) > mean(stats[0]) + 0.2, "{amount}: not lifted");
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 6 against version 5: GPU time of a preview render per drag step"]
+fn tone_version_6_shadows_drag_render_time() {
+    // A drag step renders the whole preview again with the new amount; the
+    // blurs are cached per input, so they are not part of it. Time per render
+    // (submit to readback) at a 2560 × 1707 preview of a textured frame.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 8.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let look = (3, 2.0);
+    let mut medians = Vec::new();
+    for version in [5u64, 6, 5, 6] {
+        let mut times = Vec::new();
+        for step in 0..40 {
+            let recipe = json!({ "shadows": 40 + step, "toneVersion": version });
+            let start = std::time::Instant::now();
+            let _ = render_raw_look(&processor, &view, (width, height), &recipe, look);
+            if step >= 5 {
+                times.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let p50 = times[times.len() / 2];
+        eprintln!("version {version}: p50 {p50:.2} ms, p90 {:.2} ms", times[times.len() * 9 / 10]);
+        medians.push((version, p50));
+    }
+    let of = |v: u64| medians.iter().filter(|m| m.0 == v).map(|m| m.1).sum::<f64>() / 2.0;
+    eprintln!("p50 v5 {:.2} ms, v6 {:.2} ms", of(5), of(6));
 }
 
 #[test]

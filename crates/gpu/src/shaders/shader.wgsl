@@ -2056,9 +2056,39 @@ const WHITES_REACH_LOWER: f32 = 2.5;
 const SHADOWS_RAISE: f32 = 1.8;
 const SHADOWS_LOWER: f32 = 1.2;
 
+// Tone version 6: raised Shadows keeps the local contrast of the shadows
+// it lifts, as Camera Raw and Capture One do (notes: G05, benchmark-results/
+// hls-shadow-detail-2026-11-03). Its level comes from the small Clarity
+// blur's mean log luminance (sigma 4 px per 1080 px of the short side,
+// about twice the tonal blur's; a mean of log luminance, so bright
+// neighbours do not pull the level up and the lift down), so texture up to
+// that scale is lifted by one gain. And that texture keeps the display
+// contrast it had: the look's curve is flatter where the lift takes it
+// (display EV per scene EV), so the texture's scene contrast (the tonal
+// blur against the wide level, at most SH_V6_SPAN EV) is raised by the
+// slope ratio, at most SH_V6_CAP. Finer detail (the pixel against the tonal
+// blur, mostly noise in lifted shadows) is lifted as before.
+const SH_V6_CAP: f32 = 2.0;
+const SH_V6_SPAN: f32 = 1.0;
+
+// The wide level: luminance in input space (before exposure).
+fn shadows_v6_level(coords: vec2<u32>) -> f32 {
+    return exp2(textureLoad(clarity_blur_texture, coords, 0).a);
+}
+
+// The texture gain on top of the wide level's lift `gain`.
+fn shadows_v6_texture(tonal_level: f32, wide_level: f32, gain: f32, exposure_gain: f32) -> f32 {
+    let before = camera_raw_level_slope(wide_level * exposure_gain).y;
+    let after = camera_raw_level_slope(wide_level * exposure_gain * gain).y;
+    let ratio = clamp(before / max(after, 1e-3), 1.0, SH_V6_CAP);
+    let texture = clamp(log2(max(tonal_level, 0.0001) / wide_level), -SH_V6_SPAN, SH_V6_SPAN);
+    return exp2(texture * (ratio - 1.0));
+}
+
 fn apply_tonal_adjustments(
     color: vec3<f32>,
     blurred_color_input_space: vec3<f32>,
+    wide_luma_input_space: f32,
     is_raw: u32,
     con: f32,
     sh: f32,
@@ -2075,6 +2105,8 @@ fn apply_tonal_adjustments(
         blurred_linear = srgb_to_linear(blurred_color_input_space);
     }
 
+    // Whites' luminance ratio at the pixel, which the blurred levels follow.
+    var whites_ratio = 1.0;
     if (wh != 0.0 && base_look_is_camera_raw()) {
         // Renderer value is slider / 30.
         let amount = clamp(wh * 0.3, -1.0, 1.0);
@@ -2088,6 +2120,7 @@ fn apply_tonal_adjustments(
         let ratio = max(get_luma(max(whitened, vec3<f32>(0.0))), 0.0) / luma_before;
         rgb = whitened;
         blurred_linear *= ratio;
+        whites_ratio = ratio;
     } else if (wh != 0.0) {
         // Whites moves the upper tones, as Capture One's and Lightroom's White
         // sliders do (it used to scale every tone like a white-point gain).
@@ -2113,6 +2146,7 @@ fn apply_tonal_adjustments(
         let ratio = pow(max(1.0 + k * pow(t_gain, reach), 0.05), 2.2);
         rgb *= ratio;
         blurred_linear *= ratio;
+        whites_ratio = ratio;
     }
 
     let pixel_luma = get_luma(max(rgb, vec3<f32>(0.0)));
@@ -2131,9 +2165,17 @@ fn apply_tonal_adjustments(
         // 0.013 EV at display −6.6 EV). Detail keeps the blurred level.
         let level_ratio = safe_blurred_luma / safe_pixel_luma;
         let level_snap = smoothstep(0.001, 0.004, abs(log(level_ratio)));
-        let level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        var level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        let v6 = sh > 0.0 && adjustments.global.tone_version > 5.5;
+        let tonal_level = level_luma;
+        if (v6) {
+            level_luma = max(wide_luma_input_space * whites_ratio, 0.0001);
+        }
         let gain = camera_raw_shadows_blacks_gain(level_luma * exposure_gain, sh, bl);
         rgb *= gain;
+        if (v6) {
+            rgb *= shadows_v6_texture(tonal_level, level_luma, gain, exposure_gain);
+        }
     } else if (sh != 0.0 || bl != 0.0) {
         let t_pixel = pow(safe_pixel_luma, 0.4545);
         let t_blurred = pow(safe_blurred_luma, 0.4545);
@@ -6506,7 +6548,7 @@ fn apply_glow_bloom(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -7309,7 +7351,7 @@ fn apply_halation(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -7846,7 +7888,11 @@ fn main(
     composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
     composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);
     if (ENABLE_TONE) {
-        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+        var wide_luma = 0.0;
+        if (t_shadows > 0.0 && adjustments.global.tone_version > 5.5) {
+            wide_luma = shadows_v6_level(id.xy);
+        }
+        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
     }
     if (ENABLE_HIGHLIGHTS) {
         composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
