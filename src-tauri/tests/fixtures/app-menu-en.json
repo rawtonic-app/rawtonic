@@ -134,6 +134,12 @@
           "items": []
         },
         {
+          "kind": "item",
+          "id": "cmd:proof_sheet",
+          "label": "Proof Sheet…",
+          "enabled": false
+        },
+        {
           "kind": "separator"
         },
         {

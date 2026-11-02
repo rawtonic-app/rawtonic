@@ -336,7 +336,7 @@ impl PinnedPhoto {
 
     /// The capture date of `source` before it is decoded, for its names:
     /// the snapshot's, else the file's own (`capture_date_with`).
-    fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+    pub(crate) fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
         exif_processing::capture_date_with(source, &|| {
             self.corrected(
                 self.exif
@@ -1323,16 +1323,7 @@ pub(crate) fn naming_capture(
     original: &Path,
     metadata: Option<&rawtonic_metadata::Metadata>,
 ) -> rawtonic_naming::Capture {
-    let mut capture = rawtonic_ingest::source_facts(original).capture;
-    if let Some(metadata) = metadata {
-        let text = |value: &str| Some(value.to_string()).filter(|v| !v.trim().is_empty());
-        capture.rating = Some(metadata.rating);
-        capture.label = text(&metadata.label);
-        capture.title = text(&metadata.title).or(capture.title);
-        capture.creator = text(&metadata.creator).or(capture.creator);
-        capture.copyright = text(&metadata.copyright).or(capture.copyright);
-    }
-    capture
+    rawtonic_ingest::naming_capture(original, metadata)
 }
 
 /// Each of `targets` in turn: its file is planned right before it is
@@ -1764,6 +1755,7 @@ pub async fn export_images(
             library,
             pinned: None,
             edit_with: None,
+            proof_sheet: None,
         },
     )
     .await
@@ -1850,7 +1842,7 @@ pub async fn export_images_batch(
 
 /// Fails before any render when exports could not be written to `folder`
 /// (permissions or a read-only volume such as an AppImage mount).
-fn ensure_writable_folder(folder: &std::path::Path) -> Result<(), String> {
+pub(crate) fn ensure_writable_folder(folder: &std::path::Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;

@@ -45,6 +45,10 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 fontdb = { version = "0.24.0", default-features = false, features = ["std", "fs", "memmap"] }
 skrifa = "0.48.0"
 ab_glyph_rasterizer = "0.1.10"
+miniz_oxide = "0.8.9"
+# 0.14 shares read-fonts 0.45 with skrifa 0.48 (0.15 would add a second copy).
+harfrust = "=0.14.0"
+unicode-bidi = "0.3.18"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "require-simd"] }
@@ -55,6 +59,7 @@ rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-sup
 tempfile = "3.27.0"
 jxl-oxide = { version = "0.12.6", features = ["image"] }
 half = "2.7.1"
+lopdf = { version = "0.46", default-features = false }
 flate2 = "1.1.9"
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0", features = ["test-support"] }
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }

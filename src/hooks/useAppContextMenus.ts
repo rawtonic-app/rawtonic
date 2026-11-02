@@ -17,6 +17,7 @@ import {
   FolderPlus,
   Images,
   LayoutTemplate,
+  LayoutGrid,
   LayersArrowDown,
   Redo,
   RotateCcw,
@@ -98,6 +99,7 @@ import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
 import { withSourceFrameOf } from '../utils/sourceFrame';
 import { useStackStore, stackKey, canMoveInStack, canSplitStack } from '../store/useStackStore';
+import { showProofSheet } from '../components/studio/ProofSheetDialog';
 import {
   autoStackScope, groupIntoStack, moveInStack, moveToTopOfStack, removeFromStack, setAllStacks, splitStack, toggleStacks,
   unstack, useAutoStackDialog,
@@ -899,6 +901,12 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 setUI({ collageModalState: { isOpen: true, sourceImages: imagesForCollage } });
               },
               disabled: selectionCount === 0 || selectionCount > 9,
+            },
+            {
+              icon: LayoutGrid,
+              label: t('contextMenus.thumbnail.proofSheet'),
+              onClick: () => showProofSheet(finalSelection),
+              disabled: selectionCount === 0,
             },
             {
               label: cullLabel,

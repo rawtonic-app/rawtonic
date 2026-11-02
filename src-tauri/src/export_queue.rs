@@ -96,6 +96,10 @@ pub struct ExportRequest {
     /// again (`take_interrupted_edits`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit_with: Option<EditWithRun>,
+    /// Set on a proof sheet's job (`proof_sheet.rs`): its photos render into
+    /// the app's cache, and once all are rendered the sheet is written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof_sheet: Option<crate::proof_sheet::ProofJob>,
 }
 
 /// What an interrupted Edit With is tried again with: the program chosen
@@ -105,6 +109,15 @@ pub struct ExportRequest {
 pub struct EditWithRun {
     pub program: String,
     pub photos: Vec<String>,
+}
+
+/// The folder a stored proof sheet job renders its photos into.
+fn proof_staging(stored: &Value) -> Option<PathBuf> {
+    stored.get("proofSheet").filter(|sheet| !sheet.is_null())?;
+    stored
+        .get("outputFolderOrFile")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
 }
 
 /// The Edit With run of a stored request, if it is one.
@@ -560,6 +573,13 @@ pub fn open(app: &AppHandle) {
             {
                 hold();
             }
+            let staged: Vec<PathBuf> = queue
+                .jobs()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|job| proof_staging(&job.request))
+                .collect();
+            crate::proof_sheet::prune_staging(app, &staged);
             if let Ok(mut guard) = QUEUE.lock() {
                 *guard = Some(queue);
             }
@@ -699,7 +719,11 @@ pub fn resume(app: &AppHandle, job: &str) -> Result<usize, String> {
 }
 
 pub fn remove(app: &AppHandle, job: &str) -> Result<(), String> {
+    let staging = with_queue(|q| q.job(job)).and_then(|j| proof_staging(&j.request));
     with_queue(|q| q.remove(job)).ok_or("This export cannot be removed.")?;
+    if let Some(staging) = staging {
+        crate::proof_sheet::remove_staging(app, &staging);
+    }
     notify(app);
     Ok(())
 }
@@ -814,8 +838,13 @@ fn request_uses(request: &Value, dir: &Path) -> bool {
         .get("library")
         .and_then(|library| library.get("library"))
         .and_then(Value::as_str);
+    let sheet = request
+        .get("proofSheet")
+        .and_then(|sheet| sheet.get("destination"))
+        .and_then(Value::as_str);
     photos
         .chain(text("outputFolderOrFile"))
+        .chain(sheet)
         .chain(library)
         .any(|path| Path::new(path).starts_with(dir))
 }
@@ -875,6 +904,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let mut targets = Vec::with_capacity(jobs.len());
     let mut trackings: Vec<(&str, Tracking)> = Vec::with_capacity(jobs.len());
     let mut first: Option<ExportRequest> = None;
+    let mut sheets: Vec<(String, crate::proof_sheet::ProofJob, PathBuf)> = Vec::new();
     for job in jobs {
         let items = with_queue(|q| q.items(&job.id)).unwrap_or_default();
         let request = match runnable(&job.request) {
@@ -888,6 +918,26 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
                 with_queue(|q| q.finish(&job.id, RunEnd::Completed));
                 continue;
             }
+        };
+        // A sheet photo whose render is still in the sheet's folder and whose
+        // recipe was let go (it rendered) needs no new render: a retry of a
+        // sheet that could not be written then only writes the sheet.
+        let items: Vec<Item> = if request.proof_sheet.is_some() {
+            items
+                .into_iter()
+                .map(|mut item| {
+                    let rendered = item.state != ItemState::Done
+                        && item.output.as_deref().is_some_and(Path::is_file)
+                        && with_queue(|q| q.item_snapshot(&job.id, item.index))
+                            .is_some_and(|snapshot| snapshot.is_none());
+                    if rendered && with_queue(|q| q.item_done(&job.id, item.index)).is_some() {
+                        item.state = ItemState::Done;
+                    }
+                    item
+                })
+                .collect()
+        } else {
+            items
         };
         let pending: HashSet<usize> = items
             .iter()
@@ -904,6 +954,13 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             app: app.clone(),
         };
         trackings.push((&job.label, tracking.clone()));
+        if let Some(sheet) = &request.proof_sheet {
+            sheets.push((
+                job.id.clone(),
+                sheet.clone(),
+                PathBuf::from(&request.output_folder_or_file),
+            ));
+        }
         targets.push(ExportTarget {
             output_folder_or_file: request.output_folder_or_file.clone(),
             is_explicit_file_path: request.is_explicit_file_path,
@@ -965,6 +1022,17 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         let _ = rx.await;
     }
     CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    // Proof sheets whose photos are all rendered are written now, before
+    // their jobs end; one not written fails its job (retry writes it).
+    for (job, sheet, staging) in sheets {
+        let Some((_, tracking)) = trackings.iter().find(|(_, t)| t.job == job) else {
+            continue;
+        };
+        if !tracking.goes_on() || tracking.run.state().settled {
+            continue;
+        }
+        write_proof_sheet(app, &job, sheet, staging).await;
+    }
     // (Cancel in the Export dialog holds the queue itself; a job cancelled
     // in the queue panel lets it go on.)
     for (_, tracking) in &trackings {
@@ -992,8 +1060,53 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             )
         })
         .collect();
+    // A proof sheet's photos all name the sheet: announced once.
+    let mut seen = HashSet::new();
+    // The renders of a sheet not written yet are no output of the user's.
+    let outputs: Vec<PathBuf> = outputs
+        .into_iter()
+        .filter(|o| !crate::proof_sheet::is_staged(app, o) && seen.insert(o.clone()))
+        .collect();
     if !outputs.is_empty() {
         let _ = app.emit("export-outputs-written", outputs);
+    }
+}
+
+/// How a sheet that could not be written fails its last photo; a retry
+/// writes it from the renders it kept (`run_jobs`).
+const SHEET_NOT_WRITTEN: &str = "The proof sheet was not written";
+
+/// Writes the proof sheet of `job` when every photo of it is rendered: its
+/// photos then point at the sheet and their renders are removed. A sheet
+/// that cannot be written fails the job's last photo with the reason, so
+/// the job can be retried.
+async fn write_proof_sheet(
+    app: &AppHandle,
+    job: &str,
+    sheet: crate::proof_sheet::ProofJob,
+    staging: PathBuf,
+) {
+    let items = with_queue(|q| q.items(job)).unwrap_or_default();
+    if items.is_empty() || items.iter().any(|item| item.state != ItemState::Done) {
+        return;
+    }
+    let last = items.iter().map(|item| item.index).max().unwrap_or(0);
+    let composed =
+        tauri::async_runtime::spawn_blocking(move || crate::proof_sheet::compose(&items, &sheet))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|written| written);
+    match composed {
+        Ok(written) => {
+            if let Some(first) = written.first() {
+                with_queue(|q| q.set_outputs(job, first));
+            }
+            crate::proof_sheet::remove_staging(app, &staging);
+        }
+        Err(e) => {
+            log::error!("Proof sheet not written: {e}");
+            with_queue(|q| q.item_failed(job, last, &format!("{SHEET_NOT_WRITTEN}: {e}")));
+        }
     }
 }
 

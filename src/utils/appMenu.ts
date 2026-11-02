@@ -85,6 +85,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       'separator',
       c('toggle_export'),
       { dynamic: 'recipes' },
+      c('proof_sheet'),
       'separator',
       { native: 'closeWindow' },
     ],

@@ -270,6 +270,8 @@ describe('the macOS menu bar', () => {
     const owners = new Set(['command_palette', 'about', 'check_updates', 'keyboard_shortcuts', 'website', 'report_problem', 'select_none',
       'clear_recent', 'show_in_finder', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
       'view_grid', 'view_loupe', 'view_develop', 'match_light', 'shift_capture_time', 'show_activity', 'open_with', 'edit_with', 'find_duplicates',
+      // studio/ProofSheetDialog (ProofSheetDialogHost).
+      'proof_sheet',
       // utils/stacks (useStackCommands).
       'stack_group', 'stack_unstack', 'stack_remove', 'stack_move_top', 'stack_toggle', 'stack_collapse_all', 'stack_expand_all',
       'stack_split', 'stack_move_up', 'stack_move_down', 'auto_stack',

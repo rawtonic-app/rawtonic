@@ -180,6 +180,10 @@ enum Command {
     /// Export photos at full resolution without the desktop app, as the
     /// app's export renders them with default preferences. Never overwrites.
     Export(ExportArgs),
+    /// Make a proof sheet (contact sheet) of photos as the app's Proof
+    /// Sheet does: each photo rendered with its recipe at its cell's size,
+    /// laid out in a PDF and/or one JPEG per page. Never overwrites.
+    ProofSheet(ProofSheetArgs),
     /// Merge photos into a linear DNG that develops like a RAW. Never
     /// overwrites.
     Merge(MergeArgs),
@@ -245,6 +249,38 @@ struct MergeArgs {
     #[arg(long)]
     output: PathBuf,
 }
+#[derive(clap::Args)]
+struct ProofSheetArgs {
+    /// Photos in the sheet's order; a folder adds its photos and their
+    /// virtual copies in the library order, as `export` does.
+    #[arg(required = true)]
+    sources: Vec<PathBuf>,
+    /// The folder the sheet is written into.
+    #[arg(long)]
+    output: PathBuf,
+    /// The layout as JSON, as the app stores it (`ProofSheet`: page size and
+    /// margins in mm, columns, rows, caption template, header, footer, ppi,
+    /// pdf, jpeg).
+    #[arg(long)]
+    sheet: PathBuf,
+    /// The file name; `{job}` and `{date}` are filled.
+    #[arg(long, default_value = "{job} proof sheet")]
+    name: String,
+    /// The job name `{job}` fills.
+    #[arg(long, default_value = "")]
+    job: String,
+    /// The date `{date}` fills (default: today, yyyy-mm-dd).
+    #[arg(long)]
+    date: Option<String>,
+    /// Output sharpening as AMOUNT:RADIUS[:THRESHOLD] for the photos.
+    #[arg(long, value_parser = parse_output_sharpening)]
+    output_sharpening: Option<rawtonic_export::output_sharpening::OutputSharpening>,
+    #[arg(long)]
+    lensfun_db: Option<PathBuf>,
+    #[arg(long)]
+    models: Option<PathBuf>,
+}
+
 #[derive(clap::Args)]
 struct ExportArgs {
     /// A photo, or a folder exported with its subfolders.
@@ -734,6 +770,7 @@ fn run() -> Result<()> {
             fast,
         } => decode(&path, repeats, fast),
         Command::Export(args) => export(args),
+        Command::ProofSheet(args) => proof_sheet(args),
         Command::Merge(args) => merge(args),
         Command::AiBench(args) => ai_bench(args),
         Command::Fingerprint(args) => fingerprint::run(args),
@@ -1003,16 +1040,7 @@ fn export(args: ExportArgs) -> Result<()> {
         output_sharpening,
         face_retouch,
     } = args;
-    let lensfun_db = lensfun_db
-        .or_else(|| std::env::var_os("RAWTONIC_LENSFUN_DB").map(PathBuf::from))
-        .or_else(|| {
-            let exe = std::env::current_exe().ok()?;
-            let dir = exe.parent()?;
-            [dir.join("lensfun_db"), dir.join("../Resources/lensfun_db")]
-                .into_iter()
-                .find(|candidate| candidate.is_dir())
-        })
-        .context("Lensfun database not found; pass --lensfun-db (the app's lensfun_db folder)")?;
+    let lensfun_db = lensfun_folder(lensfun_db)?;
     let recipe = adjustments
         .as_deref()
         .map(|path| -> Result<serde_json::Value> {
@@ -1119,7 +1147,7 @@ fn export(args: ExportArgs) -> Result<()> {
     // First: it loads the Lensfun database, which preparing the recipes
     // (face retouch: lens defaults and lens parameters of recipes saved
     // while the photo could not be read) already reads.
-    let mut exporter =
+    let exporter =
         rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
     // --adjustments overrides every photo; otherwise each photo's own
     // recipe, as the app's export reads it.
@@ -1156,36 +1184,7 @@ fn export(args: ExportArgs) -> Result<()> {
         }
         None => recipes,
     };
-    let ai_models: std::collections::BTreeSet<usize> = recipes
-        .iter()
-        .flatten()
-        .filter_map(|r| rawtonic_engine::image_loader::ai_denoise_settings(r).map(|ai| ai.model()))
-        .collect();
-    // A model that cannot be loaded fails only the photos that need it.
-    for model in ai_models {
-        match ai_denoiser(models.clone(), model) {
-            Ok(denoiser) => exporter = exporter.with_mosaic_denoiser(model, denoiser),
-            Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
-        }
-    }
-    // Sky and Subject selections a never-opened photo holds without their
-    // bitmap are computed with the app's models, as the app's export does;
-    // without the models those photos fail.
-    if recipes
-        .iter()
-        .flatten()
-        .any(|r| !rawtonic_engine::ai_selections::undetected(r).is_empty())
-    {
-        match models_dir(models.clone()) {
-            Ok(dir) => {
-                ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
-                exporter = exporter.with_selection_detector(std::sync::Arc::new(SelectionModels(
-                    rawtonic_segment::Models::new(dir),
-                )));
-            }
-            Err(e) => eprintln!("AI selections unavailable: {e:#}"),
-        }
-    }
+    let exporter = with_recipe_models(exporter, models, &recipes);
     let mut written = Vec::new();
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
@@ -1228,6 +1227,191 @@ fn export(args: ExportArgs) -> Result<()> {
     );
     Ok(())
 }
+fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
+    use rawtonic_export::proof_sheet::{
+        CellImage, PageValues, ProofSheet, caption, cell_settings, file_stem, page_text,
+        write_files, write_sheet,
+    };
+    use rawtonic_export::sidecars::{parse_virtual_path, sources_with_copies, virtual_path};
+    let started = Instant::now();
+    let sheet: ProofSheet = serde_json::from_str(
+        &std::fs::read_to_string(&args.sheet)
+            .with_context(|| format!("Read {}", args.sheet.display()))?,
+    )
+    .context("--sheet: proof sheet JSON expected")?;
+    let mut photos = Vec::new();
+    for source in &args.sources {
+        if source.is_dir() {
+            photos.extend(
+                sources_with_copies(source)
+                    .into_iter()
+                    .flat_map(|(image, copies)| {
+                        copies
+                            .into_iter()
+                            .map(move |copy| virtual_path(&image, copy.as_deref()))
+                    }),
+            );
+        } else {
+            anyhow::ensure!(source.is_file(), "Source not found: {}", source.display());
+            photos.push(source.to_string_lossy().into_owned());
+        }
+    }
+    anyhow::ensure!(!photos.is_empty(), "No photos for the proof sheet");
+    anyhow::ensure!(
+        args.output.is_dir(),
+        "Output folder not found: {}",
+        args.output.display()
+    );
+    let layout = sheet.layout(photos.len()).map_err(anyhow::Error::msg)?;
+    let settings = rawtonic_export::export_processing::ExportSettings {
+        // `{job}` in captions, as in the app.
+        job_name: Some(args.job.clone()),
+        ..cell_settings(&layout, None, args.output_sharpening)
+    };
+    let recipes: Vec<Option<serde_json::Value>> = photos
+        .iter()
+        .map(|photo| Some(editor_recipe(&parse_virtual_path(photo).1)))
+        .collect();
+    let exporter =
+        rawtonic_export::file_export::FileExporter::new(&lensfun_folder(args.lensfun_db)?)
+            .map_err(anyhow::Error::msg)?;
+    let exporter = with_recipe_models(exporter, args.models, &recipes);
+    let cells_dir = tempfile::tempdir()?;
+    let total = photos.len();
+    let mut cells = Vec::with_capacity(total);
+    let mut captions = Vec::with_capacity(total);
+    let mut failed = Vec::new();
+    let mut generated = false;
+    for (index, (photo, recipe)) in photos.iter().zip(recipes).enumerate() {
+        let (source, sidecar) = parse_virtual_path(photo);
+        let metadata = photo_metadata(photo, &source, &sidecar);
+        let date = rawtonic_export::exif_processing::capture_date_with(&source, &|| None);
+        let (sequence, last) = settings.filename_counter(index, total);
+        let capture = rawtonic_ingest::naming_capture(&source, metadata.as_ref());
+        let naming = settings.naming_context(&source, sequence, last, &date, "jpg", Some(&capture));
+        captions.push(
+            sheet
+                .caption
+                .as_deref()
+                .map(|t| caption(t, &naming))
+                .unwrap_or_default(),
+        );
+        generated |= recipe
+            .as_ref()
+            .is_some_and(rawtonic_engine::image_loader::has_generated_areas);
+        if let Some(resource) = recipe
+            .as_ref()
+            .and_then(|r| unresolved_resource(r, &source))
+        {
+            failed.push(serde_json::json!({"source": photo, "error": format!(
+                "The recipe names the library resource {resource}, but the photo is in no session or catalog"
+            )}));
+            cells.push(None);
+            continue;
+        }
+        let output = cells_dir.path().join(format!("cell-{index}.jpg"));
+        let result = exporter.export(&rawtonic_export::file_export::FileExport {
+            source: &source,
+            output: &output,
+            format: "jpg",
+            recipe,
+            settings: settings.clone(),
+            base: rawtonic_engine::image_loader::BaseImageOptions::default(),
+            catalog: metadata,
+            capture: corrected_capture(&source),
+        });
+        match result.and_then(|()| std::fs::read(&output).map_err(|e| e.to_string())) {
+            Ok(jpeg) => cells.push(Some(CellImage { jpeg })),
+            Err(error) => {
+                failed.push(serde_json::json!({"source": photo, "error": error}));
+                cells.push(None);
+            }
+        }
+    }
+    // As the app: a sheet is written only with every photo on it.
+    if !failed.is_empty() {
+        print(serde_json::json!({ "written": [], "failed": failed }))?;
+        anyhow::bail!(
+            "{} of {} photos failed; no proof sheet written",
+            failed.len(),
+            total
+        );
+    }
+    let values = PageValues {
+        job: args.job,
+        date: args
+            .date
+            .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string()),
+        count: total,
+    };
+    let written =
+        write_sheet(&sheet, &cells, &captions, &values, generated).map_err(anyhow::Error::msg)?;
+    let stem = file_stem(&page_text(&args.name, &values, 1, layout.pages.len()));
+    let files = write_files(&args.output, &stem, &written).map_err(anyhow::Error::msg)?;
+    print(serde_json::json!({
+        "written": files,
+        "pages": layout.pages.len(),
+        "photos": total,
+        "cellPixels": [layout.box_px.0, layout.box_px.1],
+        "seconds": started.elapsed().as_secs_f64(),
+    }))
+}
+
+/// `exporter` with what `recipes` need of the app's models: AI Denoise
+/// and the Sky and Subject selections of never-opened photos.
+fn with_recipe_models(
+    mut exporter: rawtonic_export::file_export::FileExporter,
+    models: Option<PathBuf>,
+    recipes: &[Option<serde_json::Value>],
+) -> rawtonic_export::file_export::FileExporter {
+    let ai_models: std::collections::BTreeSet<usize> = recipes
+        .iter()
+        .flatten()
+        .filter_map(|r| rawtonic_engine::image_loader::ai_denoise_settings(r).map(|ai| ai.model()))
+        .collect();
+    // A model that cannot be loaded fails only the photos that need it.
+    for model in ai_models {
+        match ai_denoiser(models.clone(), model) {
+            Ok(denoiser) => exporter = exporter.with_mosaic_denoiser(model, denoiser),
+            Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
+        }
+    }
+    // Sky and Subject selections a never-opened photo holds without their
+    // bitmap are computed with the app's models, as the app's export does;
+    // without the models those photos fail.
+    if recipes
+        .iter()
+        .flatten()
+        .any(|r| !rawtonic_engine::ai_selections::undetected(r).is_empty())
+    {
+        match models_dir(models.clone()) {
+            Ok(dir) => {
+                ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
+                exporter = exporter.with_selection_detector(std::sync::Arc::new(SelectionModels(
+                    rawtonic_segment::Models::new(dir),
+                )));
+            }
+            Err(e) => eprintln!("AI selections unavailable: {e:#}"),
+        }
+    }
+    exporter
+}
+
+/// The app's Lensfun folder: `explicit`, `$RAWTONIC_LENSFUN_DB`, else
+/// `lensfun_db` beside this binary or in a macOS app bundle's Resources.
+fn lensfun_folder(explicit: Option<PathBuf>) -> Result<PathBuf> {
+    explicit
+        .or_else(|| std::env::var_os("RAWTONIC_LENSFUN_DB").map(PathBuf::from))
+        .or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            let dir = exe.parent()?;
+            [dir.join("lensfun_db"), dir.join("../Resources/lensfun_db")]
+                .into_iter()
+                .find(|candidate| candidate.is_dir())
+        })
+        .context("Lensfun database not found; pass --lensfun-db (the app's lensfun_db folder)")
+}
+
 /// A photo's recipe as the app's export reads it: the session database's
 /// editor state for a primary photo in a session, else its `.rrdata`
 /// sidecar (a virtual copy always reads its sidecar). Read-only.

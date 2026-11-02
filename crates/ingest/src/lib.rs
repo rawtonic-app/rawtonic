@@ -76,6 +76,25 @@ pub struct SourceFacts {
     pub sidecar_error: Option<String>,
 }
 
+/// What the naming tokens of `original` are filled with: its capture
+/// facts, with the library's rating, label, title, creator and copyright
+/// (`metadata`) over the file's own. Reads only.
+pub fn naming_capture(
+    original: &Path,
+    metadata: Option<&rawtonic_metadata::Metadata>,
+) -> rawtonic_naming::Capture {
+    let mut capture = source_facts(original).capture;
+    if let Some(metadata) = metadata {
+        let text = |value: &str| Some(value.to_string()).filter(|v| !v.trim().is_empty());
+        capture.rating = Some(metadata.rating);
+        capture.label = text(&metadata.label);
+        capture.title = text(&metadata.title).or(capture.title);
+        capture.creator = text(&metadata.creator).or(capture.creator);
+        capture.copyright = text(&metadata.copyright).or(capture.copyright);
+    }
+    capture
+}
+
 /// Reads `source`'s capture facts and card sidecar. Reads only.
 pub fn source_facts(source: &Path) -> SourceFacts {
     let mut facts = SourceFacts {
