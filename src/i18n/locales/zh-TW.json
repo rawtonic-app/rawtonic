@@ -1403,6 +1403,12 @@
     "preview": "將寫入的第 1 頁",
     "rows": "列",
     "sharpen": "為列印銳利化",
+    "sharpenLevel": "銳化強度",
+    "sharpenLevels": {
+      "high": "高",
+      "low": "低",
+      "standard": "標準"
+    },
     "summary": "{{photos}} 張照片 · {{pages}} 頁，每頁 {{perPage}} 張 · 每張最大 {{width}} × {{height}} px",
     "text": "文字",
     "textHelp": "{job} 工作名稱、{date} 今天、{count} 照片數、{page} 與 {pages} 頁碼",

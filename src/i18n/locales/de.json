@@ -1422,6 +1422,12 @@
     "preview": "Seite 1, wie sie geschrieben wird",
     "rows": "Zeilen",
     "sharpen": "Für den Druck schärfen",
+    "sharpenLevel": "Schärfungsstärke",
+    "sharpenLevels": {
+      "high": "Hoch",
+      "low": "Niedrig",
+      "standard": "Standard"
+    },
     "summary": "Fotos: {{photos}} · Seiten: {{pages}} · {{perPage}} pro Seite · jedes Foto bis {{width}} × {{height}} px",
     "text": "Text",
     "textHelp": "{job} Auftragsname, {date} heute, {count} Fotos, {page} und {pages} Seitenzahlen",

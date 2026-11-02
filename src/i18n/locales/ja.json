@@ -1403,6 +1403,12 @@
     "preview": "書き出される1ページ目",
     "rows": "行",
     "sharpen": "印刷用シャープ",
+    "sharpenLevel": "シャープの強さ",
+    "sharpenLevels": {
+      "high": "強",
+      "low": "弱",
+      "standard": "標準"
+    },
     "summary": "写真 {{photos}} 枚 · {{pages}} ページ（1ページ {{perPage}} 枚）· 各写真 最大 {{width}} × {{height}} px",
     "text": "テキスト",
     "textHelp": "{job} ジョブ名、{date} 今日、{count} 写真数、{page} と {pages} ページ番号",

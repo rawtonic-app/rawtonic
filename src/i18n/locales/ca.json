@@ -1481,6 +1481,12 @@
     "preview": "Pàgina 1 tal com s’escriurà",
     "rows": "Files",
     "sharpen": "Enfocar per imprimir",
+    "sharpenLevel": "Intensitat de l’enfocament",
+    "sharpenLevels": {
+      "high": "Alta",
+      "low": "Baixa",
+      "standard": "Estàndard"
+    },
     "summary": "Fotos: {{photos}} · pàgines: {{pages}} · {{perPage}} per pàgina · cada foto fins a {{width}} × {{height}} px",
     "text": "Text",
     "textHelp": "{job} nom de la feina, {date} avui, {count} fotos, {page} i {pages} números de pàgina",
