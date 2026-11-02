@@ -6972,3 +6972,10 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   flex: 1;
   min-width: 0;
 }
+
+.studio-proof-sheet-marks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}

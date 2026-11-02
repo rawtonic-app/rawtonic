@@ -27,6 +27,8 @@ export interface ProofDraft {
   header: string;
   footer: string;
   pageNumbers: boolean;
+  /** Crop marks at the corners of every cell. */
+  cropMarks: boolean;
   textPt: number;
   /** The watermark set in the Export form, on every photo. */
   watermark: boolean;
@@ -55,6 +57,7 @@ export const DEFAULT_PROOF_DRAFT: ProofDraft = {
   header: '{job}',
   footer: '{date}',
   pageNumbers: true,
+  cropMarks: false,
   textPt: 10,
   watermark: false,
   sharpen: true,
@@ -123,6 +126,7 @@ export function sheetFromDraft(draft: ProofDraft) {
     header: draft.header.trim() ? draft.header : null,
     footer: draft.footer.trim() ? draft.footer : null,
     pageNumbers: draft.pageNumbers,
+    cropMarks: draft.cropMarks,
     textPt: clamp(draft.textPt, 4, 72, 10),
     ppi: Math.round(clamp(draft.ppi, 72, 1200, 300)),
     pdf: draft.pdf,

@@ -1388,6 +1388,7 @@
     "chooseFolder": "Folder for the proof sheet",
     "columns": "Columns",
     "create": "Create",
+    "cropMarks": "Crop marks",
     "fileName": "File name",
     "footer": "Footer",
     "gapMm": "Spacing (mm)",

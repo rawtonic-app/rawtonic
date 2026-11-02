@@ -179,3 +179,108 @@ fn without_generated_photos_the_sheet_carries_no_marking() {
         1
     );
 }
+
+fn plain_cells(sheet: &ProofSheet, count: usize) -> Vec<Option<CellImage>> {
+    let (bw, bh) = sheet.layout(count).unwrap().box_px;
+    (0..count)
+        .map(|i| {
+            Some(CellImage {
+                jpeg: jpeg(bw, bh.min(bw), [90, (i * 7) as u8, 160], false),
+            })
+        })
+        .collect()
+}
+
+/// A page's content stream, decoded, as operations.
+fn operations(doc: &lopdf::Document, page: u32) -> Vec<lopdf::content::Operation> {
+    let id = doc.get_pages()[&page];
+    lopdf::content::Content::decode(&doc.get_page_content(id))
+        .unwrap()
+        .operations
+}
+
+#[test]
+fn crop_marks_are_vector_lines_at_the_cell_corners_and_off_changes_nothing() {
+    if Typeface::load(None).is_none() {
+        return;
+    }
+    let mut off = sheet();
+    off.jpeg = true;
+    let mut on = off.clone();
+    on.crop_marks = true;
+    let cells = plain_cells(&off, 6);
+    let captions: Vec<String> = (1..=6).map(|i| format!("{i:02}")).collect();
+    let values = PageValues {
+        job: "Job".into(),
+        date: "2026-11-02".into(),
+        count: 6,
+    };
+    let plain = write_sheet(&off, &cells, &captions, &values, false).unwrap();
+    // Off is the default: a sheet saved before the option reads back as off.
+    let mut json = serde_json::to_value(&off).unwrap();
+    json.as_object_mut().unwrap().remove("cropMarks");
+    let legacy: ProofSheet = serde_json::from_value(json).unwrap();
+    assert!(!legacy.crop_marks);
+    let again = write_sheet(&legacy, &cells, &captions, &values, false).unwrap();
+    assert_eq!(plain.pdf, again.pdf);
+    assert_eq!(plain.jpegs, again.jpegs);
+
+    let marked = write_sheet(&on, &cells, &captions, &values, false).unwrap();
+    let doc_off = lopdf::Document::load_mem(plain.pdf.as_ref().unwrap()).unwrap();
+    let doc_on = lopdf::Document::load_mem(marked.pdf.as_ref().unwrap()).unwrap();
+    let ops_off = operations(&doc_off, 1);
+    let ops_on = operations(&doc_on, 1);
+    // Marks are the only addition: `w`, `G`, then 8 segments a cell.
+    let layout = on.layout(6).unwrap();
+    let expected = crate_marks(&on, &layout);
+    assert_eq!(expected.len(), 6 * 8);
+    let stroked = ops_on.iter().filter(|o| o.operator == "S").count();
+    assert_eq!(stroked, expected.len());
+    assert_eq!(ops_on.len(), ops_off.len() + 2 + 3 * expected.len());
+    // Every segment sits where the layout puts it (points, y up).
+    let page_h = layout.page_height_mm * 72.0 / 25.4;
+    let pt = |mm: f64| mm * 72.0 / 25.4;
+    let mut at = ops_on.iter().skip_while(|o| o.operator != "w");
+    assert_eq!(at.next().unwrap().operator, "w");
+    assert_eq!(at.next().unwrap().operator, "G");
+    for [x0, y0, x1, y1] in &expected {
+        let m = at.next().unwrap();
+        let l = at.next().unwrap();
+        assert_eq!(at.next().unwrap().operator, "S");
+        let f = |o: &lopdf::content::Operation, i: usize| o.operands[i].as_float().unwrap() as f64;
+        assert!((f(m, 0) - pt(*x0)).abs() < 0.01 && (f(m, 1) - (page_h - pt(*y0))).abs() < 0.01);
+        assert!((f(l, 0) - pt(*x1)).abs() < 0.01 && (f(l, 1) - (page_h - pt(*y1))).abs() < 0.01);
+    }
+    // The JPEG page is black at a mark and paper white without marks there.
+    let page_on = image::load_from_memory(&marked.jpegs[0]).unwrap().to_rgb8();
+    let page_off = image::load_from_memory(&plain.jpegs[0]).unwrap().to_rgb8();
+    let px = |mm: f64| (mm / 25.4 * 100.0).round() as u32;
+    let [x0, y0, x1, _] = expected[0];
+    let (mx, my) = (px((x0 + x1) / 2.0), px(y0));
+    assert!(
+        page_on.get_pixel(mx, my)[0] < 30,
+        "{:?}",
+        page_on.get_pixel(mx, my)
+    );
+    assert!(page_off.get_pixel(mx, my)[0] > 240);
+}
+
+fn crate_marks(sheet: &ProofSheet, layout: &rawtonic_export::proof_sheet::Layout) -> Vec<[f64; 4]> {
+    rawtonic_export::proof_sheet::crop_marks(sheet, layout, 0)
+}
+
+#[test]
+fn crop_marks_stay_inside_the_gaps_and_vanish_without_room() {
+    let mut sheet = sheet();
+    sheet.crop_marks = true;
+    let layout = sheet.layout(20).unwrap();
+    let marks = rawtonic_export::proof_sheet::crop_marks(&sheet, &layout, 0);
+    assert_eq!(marks.len(), 20 * 8);
+    // 4 mm gap: ticks of 2 mm, so neighbours never touch.
+    for [x0, y0, x1, y1] in &marks {
+        assert!(((x1 - x0).abs() - 2.0).abs() < 1e-9 || ((y1 - y0).abs() - 2.0).abs() < 1e-9);
+    }
+    sheet.gap_mm = 0.5;
+    let layout = sheet.layout(20).unwrap();
+    assert!(rawtonic_export::proof_sheet::crop_marks(&sheet, &layout, 0).is_empty());
+}

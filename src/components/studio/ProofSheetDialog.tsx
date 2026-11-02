@@ -53,6 +53,7 @@ interface Preview {
     headerBaseline: number | null;
     footerBaseline: number | null;
   };
+  cropMarks: [number, number, number, number][];
   captions: string[];
   header: string | null;
   footer: string | null;
@@ -267,6 +268,18 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                     {draft.pageNumbers && <span>{`1 / ${pages}`}</span>}
                   </span>
                 )}
+                {preview && preview.cropMarks.length > 0 && (
+                  <svg
+                    className="studio-proof-sheet-marks"
+                    width={mm(page.pageWidthMm)}
+                    height={mm(page.pageHeightMm)}
+                    aria-hidden="true"
+                  >
+                    {preview.cropMarks.map(([x0, y0, x1, y1], i) => (
+                      <line key={i} x1={x0 * scale} y1={y0 * scale} x2={x1 * scale} y2={y1 * scale} stroke="#000" strokeWidth={1} />
+                    ))}
+                  </svg>
+                )}
                 {cells.map((cell) => {
                   const path = paths[cell.photo];
                   const thumbnail = thumbnails[path];
@@ -469,6 +482,14 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   onChange={(e) => set({ pageNumbers: e.target.checked })}
                 />
                 {t("proofSheet.pageNumbers")}
+              </label>
+              <label className="studio-proof-sheet-check">
+                <input
+                  type="checkbox"
+                  checked={draft.cropMarks}
+                  onChange={(e) => set({ cropMarks: e.target.checked })}
+                />
+                {t("proofSheet.cropMarks")}
               </label>
             </fieldset>
 

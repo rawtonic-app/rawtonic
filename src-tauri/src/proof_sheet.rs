@@ -62,6 +62,8 @@ pub struct ProofSheetRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ProofSheetPreview {
     pub layout: Layout,
+    /// Page 1's crop marks as `[x0, y0, x1, y1]` in millimetres; none when off.
+    pub crop_marks: Vec<[f64; 4]>,
     /// The captions of the first page's photos, in their order.
     pub captions: Vec<String>,
     pub header: Option<String>,
@@ -153,6 +155,7 @@ pub async fn proof_sheet_preview(request: ProofSheetRequest) -> Result<ProofShee
             header: text(&request.sheet.header),
             footer: text(&request.sheet.footer),
             file_name: request.file_name(pages),
+            crop_marks: rawtonic_export::proof_sheet::crop_marks(&request.sheet, &layout, 0),
             layout,
         })
     })
