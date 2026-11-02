@@ -581,7 +581,8 @@ export interface Adjustments {
    * Panasonic's and Fujifilm's framing as the cameras frame it; 6 = also
    * Sony's knot table warped as it is (lens model 2); 7 = also
    * Fujifilm's (lens model 3); 8 = also Nikon Z corrected about the
-   * shot's own optical centre (`centre_x`, `centre_y`); missing = as before (saving such recipes again keeps their parameters). */
+   * shot's own optical centre (`centre_x`, `centre_y`); 9 = also
+   * Fujifilm's distortion knots on the whole sensor in a crop mode (Sports Finder); missing = as before (saving such recipes again keeps their parameters). */
   cameraGeometryVersion?: number;
   lensDistortionAmount: number;
   lensVignetteAmount: number;
@@ -1437,7 +1438,7 @@ export const AI_DENOISE_VERSION = 3;
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** How new edits read the camera data's geometry in camera lens mode (notes: parity-gaps/G71). */
-export const CAMERA_GEOMETRY_VERSION = 8;
+export const CAMERA_GEOMETRY_VERSION = 9;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
 export const AUTO_CA_VERSION = 3;
 

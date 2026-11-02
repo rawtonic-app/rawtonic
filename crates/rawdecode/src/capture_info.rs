@@ -1590,6 +1590,20 @@ mod format_tests {
 /// DynamicRangeSetting (0x1402: 0x200 Wide 1 = 230 %, 0x201 Wide 2 =
 /// 400 %), else 400 for "Wide" (0x1400 = 3, the F700's SuperCCD SR mode).
 pub fn fujifilm_dynamic_range(path: &str) -> Option<u32> {
+    fujifilm_dynamic_range_from_maker_note(&fujifilm_maker_note(path)?)
+}
+
+/// Fujifilm's crop mode of a RAF (maker note CropMode, 0x104d, of its
+/// embedded JPEG): 0 none, 2 Sports Finder, 4 the electronic shutter's
+/// 1.25× crop, 1 a GFX's 35 mm format. In a crop mode the RAF keeps only
+/// the middle of the sensor (`RawImageCroppedSize`), while it still reads
+/// out the sensor's whole width (`raf_raw_size`).
+pub fn fujifilm_crop_mode(path: &str) -> Option<u16> {
+    fujifilm_crop_mode_from_maker_note(&fujifilm_maker_note(path)?)
+}
+
+/// The maker note of a RAF's embedded JPEG.
+fn fujifilm_maker_note(path: &str) -> Option<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
     let mut header = [0u8; 100];
@@ -1608,17 +1622,17 @@ pub fn fujifilm_dynamic_range(path: &str) -> Option<u32> {
     let exif = exif::Reader::new()
         .read_from_container(&mut std::io::Cursor::new(&jpeg))
         .ok()?;
-    let note = match &exif
+    match &exif
         .get_field(exif::Tag::MakerNote, exif::In::PRIMARY)?
         .value
     {
-        exif::Value::Undefined(bytes, _) => bytes.clone(),
-        _ => return None,
-    };
-    fujifilm_dynamic_range_from_maker_note(&note)
+        exif::Value::Undefined(bytes, _) => Some(bytes.clone()),
+        _ => None,
+    }
 }
 
-fn fujifilm_dynamic_range_from_maker_note(note: &[u8]) -> Option<u32> {
+/// The single-SHORT entries of a Fujifilm maker note, as (tag, value).
+fn fujifilm_short_entries(note: &[u8]) -> Option<Vec<(u16, u16)>> {
     if !note.starts_with(b"FUJIFILM") {
         return None;
     }
@@ -1632,14 +1646,26 @@ fn fujifilm_dynamic_range_from_maker_note(note: &[u8]) -> Option<u32> {
     };
     let ifd = le32(8)? as usize;
     let count = le16(ifd)? as usize;
-    let (mut dynamic_range, mut setting, mut development) = (None, None, None);
+    let mut entries = Vec::new();
     for i in 0..count.min(512) {
         let at = ifd + 2 + 12 * i;
         let (tag, kind) = (le16(at)?, le16(at + 2)?);
-        if kind != 3 {
-            continue;
+        if kind == 3 {
+            entries.push((tag, le16(at + 8)?));
         }
-        let value = le16(at + 8)?;
+    }
+    Some(entries)
+}
+
+fn fujifilm_crop_mode_from_maker_note(note: &[u8]) -> Option<u16> {
+    fujifilm_short_entries(note)?
+        .into_iter()
+        .find_map(|(tag, value)| (tag == 0x104d).then_some(value))
+}
+
+fn fujifilm_dynamic_range_from_maker_note(note: &[u8]) -> Option<u32> {
+    let (mut dynamic_range, mut setting, mut development) = (None, None, None);
+    for (tag, value) in fujifilm_short_entries(note)? {
         match tag {
             0x1400 => dynamic_range = Some(value),
             0x1402 => setting = Some(value),
@@ -1662,7 +1688,7 @@ fn fujifilm_dynamic_range_from_maker_note(note: &[u8]) -> Option<u32> {
 
 #[cfg(test)]
 mod fujifilm_dynamic_range_tests {
-    use super::fujifilm_dynamic_range_from_maker_note;
+    use super::{fujifilm_crop_mode_from_maker_note, fujifilm_dynamic_range_from_maker_note};
 
     fn note(entries: &[(u16, u16)]) -> Vec<u8> {
         let mut n = b"FUJIFILM".to_vec();
@@ -1705,6 +1731,25 @@ mod fujifilm_dynamic_range_tests {
             Some(100)
         );
         assert_eq!(fujifilm_dynamic_range_from_maker_note(b"NIKON\0"), None);
+    }
+
+    #[test]
+    fn the_crop_mode_is_read_from_the_maker_note() {
+        // X-T5 in Sports Finder mode (raw.pixls.us 7271): CropMode 2.
+        assert_eq!(
+            fujifilm_crop_mode_from_maker_note(&note(&[(0x1403, 200), (0x104d, 2)])),
+            Some(2)
+        );
+        assert_eq!(
+            fujifilm_crop_mode_from_maker_note(&note(&[(0x104d, 0)])),
+            Some(0)
+        );
+        // Older bodies write no CropMode.
+        assert_eq!(
+            fujifilm_crop_mode_from_maker_note(&note(&[(0x1400, 1)])),
+            None
+        );
+        assert_eq!(fujifilm_crop_mode_from_maker_note(b"NIKON\0"), None);
     }
 }
 
