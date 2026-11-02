@@ -333,7 +333,7 @@ fn run(
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         {
-            let mut pass = encoder.begin_compute_pass(&Default::default());
+            let mut pass = encoder.begin_compute_pass(&crate::gpu_timer::pass("xtrans"));
             pass.set_pipeline(&pipelines.pad);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(
@@ -455,7 +455,7 @@ fn run(
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         {
-            let mut pass = encoder.begin_compute_pass(&Default::default());
+            let mut pass = encoder.begin_compute_pass(&crate::gpu_timer::pass("xtrans"));
             pass.set_bind_group(0, &bind_group, &[]);
             let groups = (
                 (padded_width as u32).div_ceil(16),

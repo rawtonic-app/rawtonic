@@ -942,7 +942,7 @@ pub(crate) async fn export_images_impl(
     } else {
         available_cores
             .min(ram_based_limit)
-            .clamp(1, MAX_EXPORT_WORKERS)
+            .clamp(1, std::env::var("BX8_WORKERS").ok().and_then(|v| v.parse().ok()).unwrap_or(MAX_EXPORT_WORKERS))
             .min(max_jobs.unwrap_or(usize::MAX))
     };
 

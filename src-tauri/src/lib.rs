@@ -468,10 +468,12 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         match crate::export_processing::run_headless_export(session, app_handle_clone.clone()).await {
                             Ok(_) => {
+                                rawtonic_rawdecode::gpu_timer::finish();
                                 println!("Headless export completed successfully.");
                                 app_handle_clone.exit(0);
                             }
                             Err(e) => {
+                                rawtonic_rawdecode::gpu_timer::finish();
                                 eprintln!("Headless export failed: {}", e);
                                 app_handle_clone.exit(1);
                             }

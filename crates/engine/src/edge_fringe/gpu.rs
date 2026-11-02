@@ -708,7 +708,7 @@ fn run(
             let mut encoder = device.create_command_encoder(&Default::default());
             let mut input = 0;
             {
-                let mut pass = encoder.begin_compute_pass(&Default::default());
+                let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                 let dispatch =
                     |pass: &mut wgpu::ComputePass, group: u32, width: usize, rows: usize| {
                         pass.dispatch_workgroups(

@@ -631,7 +631,7 @@ impl<'a> Prepared<'a> {
                 entry(4, &self.missed),
             ],
         });
-        let mut pass = encoder.begin_compute_pass(&Default::default());
+        let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
         pass.set_pipeline(&self.pipeline.warp);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.dispatch_workgroups(

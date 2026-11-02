@@ -278,6 +278,7 @@ fn create_context(
         display_space,
     };
     crate::gpu_demosaic::register(new_context.device.clone(), new_context.queue.clone());
+    rawtonic_rawdecode::gpu_timer::register(new_context.device.clone(), new_context.queue.clone());
     rawtonic_engine::edge_fringe::gpu::register(
         new_context.device.clone(),
         new_context.queue.clone(),

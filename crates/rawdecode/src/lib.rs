@@ -15,6 +15,7 @@ pub mod dng_opcodes;
 pub mod fingerprint;
 pub mod gamut;
 pub mod gpu_demosaic;
+pub mod gpu_timer;
 pub mod highlight_reconstruction;
 pub mod hot_pixels;
 pub mod image_key;

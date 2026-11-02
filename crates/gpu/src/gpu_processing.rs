@@ -70,6 +70,9 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
     }
     // Used only once the app opens a cache file (`pipeline_cache::open`).
     required_features |= crate::pipeline_cache::device_features(adapter);
+    if rawtonic_rawdecode::gpu_timer::wanted() && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+        required_features |= wgpu::Features::TIMESTAMP_QUERY;
+    }
     wgpu::DeviceDescriptor {
         label: Some("Processing Device"),
         required_features,
@@ -118,6 +121,7 @@ impl GpuContext {
             display_space: Default::default(),
         };
         rawtonic_rawdecode::gpu_demosaic::register(context.device.clone(), context.queue.clone());
+        rawtonic_rawdecode::gpu_timer::register(context.device.clone(), context.queue.clone());
         rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
         Ok(context)
     }
@@ -509,7 +513,7 @@ fn pyramid_pass(
         layout: &pipeline.get_bind_group_layout(0),
         entries: &all,
     });
-    let mut pass = encoder.begin_compute_pass(&Default::default());
+    let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, &group0, &[]);
     pass.dispatch_workgroups(size[0].div_ceil(group), size[1].div_ceil(group), 1);
@@ -1151,7 +1155,7 @@ impl ChromaGpu {
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         {
-            let mut pass = encoder.begin_compute_pass(&Default::default());
+            let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
             pass.set_pipeline(&pipelines.energy);
             pass.set_bind_group(0, &group0, &[]);
             pass.set_bind_group(1, &group1, &[]);
@@ -1291,7 +1295,7 @@ impl ChromaGpu {
                 ],
             });
             let [size, rows] = pyramid.size(l - 1);
-            let mut pass = encoder.begin_compute_pass(&Default::default());
+            let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
             pass.set_pipeline(&pipelines.reconstruct);
             pass.set_bind_group(0, &group, &[]);
             pass.dispatch_workgroups(size.div_ceil(16), rows.div_ceil(16), 1);
@@ -1341,7 +1345,7 @@ impl ChromaGpu {
         });
         {
             let size = self.packed.size();
-            let mut pass = encoder.begin_compute_pass(&Default::default());
+            let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
             pass.set_pipeline(&pipelines.pack);
             pass.set_bind_group(0, &group0, &[]);
             pass.set_bind_group(1, &group1, &[]);
@@ -6892,7 +6896,7 @@ impl GpuProcessor {
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         {
-            let mut pass = encoder.begin_compute_pass(&Default::default());
+            let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
             pass.set_pipeline(&self.layer_sums_pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
@@ -8276,7 +8280,7 @@ impl GpuProcessor {
             });
 
             {
-                let mut cpass = encoder.begin_compute_pass(&Default::default());
+                let mut cpass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                 cpass.set_pipeline(&self.flare_threshold_pipeline);
                 cpass.set_bind_group(0, &bg0, &[]);
                 cpass.dispatch_workgroups(FLARE_MAP_SIZE / 16, FLARE_MAP_SIZE / 16, 1);
@@ -8321,7 +8325,7 @@ impl GpuProcessor {
             });
 
             {
-                let mut cpass = encoder.begin_compute_pass(&Default::default());
+                let mut cpass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                 cpass.set_pipeline(&self.flare_ghosts_pipeline);
                 cpass.set_bind_group(0, &bg0_ghosts, &[]);
                 cpass.set_bind_group(1, &bg1, &[]);
@@ -8610,7 +8614,7 @@ impl GpuProcessor {
                     });
 
                     {
-                        let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
+                        let mut cpass = blur_encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                         cpass.set_pipeline(&self.h_blur_pipeline);
                         cpass.set_bind_group(0, &h_blur_bg, &[]);
                         cpass.dispatch_workgroups(
@@ -8640,7 +8644,7 @@ impl GpuProcessor {
                     });
 
                     {
-                        let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
+                        let mut cpass = blur_encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                         cpass.set_pipeline(&self.v_blur_pipeline);
                         cpass.set_bind_group(0, &v_blur_bg, &[]);
                         cpass.dispatch_workgroups(
@@ -8886,7 +8890,7 @@ impl GpuProcessor {
                     });
                     let mut encoder = device.create_command_encoder(&Default::default());
                     {
-                        let mut pass = encoder.begin_compute_pass(&Default::default());
+                        let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                         pass.set_pipeline(detail_pipeline.unwrap());
                         pass.set_bind_group(0, &detail_bind_group, &[]);
                         pass.dispatch_workgroups(
@@ -8972,7 +8976,7 @@ impl GpuProcessor {
                 );
                 let mut main_encoder = device.create_command_encoder(&Default::default());
                 {
-                    let mut compute_pass = main_encoder.begin_compute_pass(&Default::default());
+                    let mut compute_pass = main_encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                     compute_pass.set_pipeline(output_pipeline);
                     compute_pass.set_bind_group(0, &bind_group, &[]);
                     compute_pass.dispatch_workgroups(
@@ -9042,7 +9046,7 @@ impl GpuProcessor {
                             );
                             let mut encoder = device.create_command_encoder(&Default::default());
                             {
-                                let mut pass = encoder.begin_compute_pass(&Default::default());
+                                let mut pass = encoder.begin_compute_pass(&rawtonic_rawdecode::gpu_timer::pass("p"));
                                 pass.set_pipeline(pipeline);
                                 pass.set_bind_group(0, bind_group, &[]);
                                 pass.dispatch_workgroups(
