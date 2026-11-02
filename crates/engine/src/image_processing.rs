@@ -7289,10 +7289,13 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// 4 (2026-11-01) lets it lower less on frames of bright key (snow,
 /// overcast or bright skies, white rooms), where Camera Raw's lowers broad
 /// bright areas 0.2–0.7 times as far (notes: G05,
-/// benchmark-results/hl-highlights-2026-11-01).
+/// benchmark-results/hl-highlights-2026-11-01);
+/// 5 (2026-11-02) keeps the detail of lowered bright areas (cloud and wall
+/// structure) as Camera Raw and Capture One do, through a wider local base
+/// (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 4;
+pub const TONE_VERSION: u64 = 5;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
