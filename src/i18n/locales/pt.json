@@ -1480,7 +1480,7 @@
     "preview": "Página 1 como será escrita",
     "rows": "Linhas",
     "sharpen": "Nitidez para impressão",
-    "summary": "{{photos}} fotos · {{pages}} páginas de {{perPage}} · cada foto até {{width}} × {{height}} px",
+    "summary": "Fotos: {{photos}} · páginas: {{pages}} · {{perPage}} por página · cada foto até {{width}} × {{height}} px",
     "text": "Texto",
     "textHelp": "{job} nome do trabalho, {date} hoje, {count} fotos, {page} e {pages} números de página",
     "textPt": "Tamanho do cabeçalho e rodapé (pt)",

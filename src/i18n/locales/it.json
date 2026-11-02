@@ -1480,7 +1480,7 @@
     "preview": "Pagina 1 come verrà scritta",
     "rows": "Righe",
     "sharpen": "Nitidezza per la stampa",
-    "summary": "{{photos}} foto · {{pages}} pagine da {{perPage}} · ogni foto fino a {{width}} × {{height}} px",
+    "summary": "Foto: {{photos}} · pagine: {{pages}} · {{perPage}} per pagina · ogni foto fino a {{width}} × {{height}} px",
     "text": "Testo",
     "textHelp": "{job} nome del lavoro, {date} oggi, {count} foto, {page} e {pages} numeri di pagina",
     "textPt": "Dimensione intestazione e piè (pt)",

@@ -68,7 +68,7 @@ it("File › Proof Sheet shows page 1 as laid out and queues the sheet into the 
   });
   expect(await screen.findByText("1 A.NEF")).toBeTruthy();
   expect(screen.getByText("Wedding")).toBeTruthy();
-  expect(screen.getByText(/2 photos · 1 pages of 20/)).toBeTruthy();
+  expect(screen.getByText(/Photos: 2 · pages: 1 · 20 per page/)).toBeTruthy();
 
   fireEvent.change(screen.getByLabelText("Columns"), { target: { value: "5" } });
   await waitFor(() => {

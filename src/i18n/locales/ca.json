@@ -1480,7 +1480,7 @@
     "preview": "Pàgina 1 tal com s’escriurà",
     "rows": "Files",
     "sharpen": "Enfocar per imprimir",
-    "summary": "{{photos}} fotos · {{pages}} pàgines de {{perPage}} · cada foto fins a {{width}} × {{height}} px",
+    "summary": "Fotos: {{photos}} · pàgines: {{pages}} · {{perPage}} per pàgina · cada foto fins a {{width}} × {{height}} px",
     "text": "Text",
     "textHelp": "{job} nom de la feina, {date} avui, {count} fotos, {page} i {pages} números de pàgina",
     "textPt": "Mida de capçalera i peu (pt)",

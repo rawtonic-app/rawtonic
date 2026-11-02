@@ -1421,7 +1421,7 @@
     "preview": "Page 1 as it will be written",
     "rows": "Rows",
     "sharpen": "Sharpen for print",
-    "summary": "{{photos}} photos · {{pages}} pages of {{perPage}} · each photo up to {{width}} × {{height}} px",
+    "summary": "Photos: {{photos}} · pages: {{pages}} · {{perPage}} per page · each photo up to {{width}} × {{height}} px",
     "text": "Text",
     "textHelp": "{job} job name, {date} today, {count} photos, {page} and {pages} page numbers",
     "textPt": "Header and footer size (pt)",

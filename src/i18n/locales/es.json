@@ -1480,7 +1480,7 @@
     "preview": "Página 1 tal como se escribirá",
     "rows": "Filas",
     "sharpen": "Enfocar para impresión",
-    "summary": "{{photos}} fotos · {{pages}} páginas de {{perPage}} · cada foto hasta {{width}} × {{height}} px",
+    "summary": "Fotos: {{photos}} · páginas: {{pages}} · {{perPage}} por página · cada foto hasta {{width}} × {{height}} px",
     "text": "Texto",
     "textHelp": "{job} nombre del trabajo, {date} hoy, {count} fotos, {page} y {pages} números de página",
     "textPt": "Tamaño de encabezado y pie (pt)",
