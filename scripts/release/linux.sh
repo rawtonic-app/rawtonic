@@ -48,7 +48,7 @@ case $step in
     exec 9> "$D/smoke.lock"; flock 9
     rm -rf "${T:?}"; mkdir -p "$T/app" "$T/host" "$T/prev"
     cp "$D/out/Rawtonic_${V}_amd64.AppImage" "$T/app/"; chmod +x "$T/app/"*.AppImage
-    app=$T/app/Rawtonic_${V}_amd64.AppImage
+    app=$(realpath "$T/app/Rawtonic_${V}_amd64.AppImage")
     (cd "$T" && "$app" --appimage-extract usr/bin/rawtonic-app >/dev/null 2>&1)
     n=$(grep -c -a relay.rawtonic.cc "$T/squashfs-root/usr/bin/rawtonic-app"); echo "relay strings: $n"; [ "$n" -ge 1 ] || bad=1
     u=$(grep -a -o 'gh-releases-zsync[^ ]*zsync' "$app" | head -1); echo "update information: $u"; [ -n "$u" ] || bad=1
