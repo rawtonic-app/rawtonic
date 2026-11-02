@@ -299,6 +299,16 @@ struct Digests {
 
 impl Digests {
     fn normalize(&mut self, value: &mut Value, root: &Path) {
+        self.normalize_within(value, root, None);
+    }
+
+    /// `normalize`, with a file that is not there — no content to compare —
+    /// replaced by its place within `within` (else the reference as it is;
+    /// `None` keeps it as it is, as the persisted import baselines do):
+    /// one resource copied into a library sits at the same place within it
+    /// wherever it came from, so the same missing file compares equal from
+    /// either side.
+    fn normalize_within(&mut self, value: &mut Value, root: &Path, within: Option<&Path>) {
         rawtonic_metadata::resources::visit(value, &mut |path| {
             let file = match rawtonic_metadata::resources::relative(path) {
                 Some(relative) => root.join(relative),
@@ -319,7 +329,22 @@ impl Digests {
                 .clone();
             if let Some(digest) = digest {
                 *path = format!("sha256:{digest}");
+                return;
             }
+            // Baselines of import/export keep the plain reference (their
+            // recorded digests predate this fallback); only the snapshot
+            // comparison names a missing file by its place.
+            let Some(within) = within else {
+                return;
+            };
+            let place = match rawtonic_metadata::resources::relative(path) {
+                Some(relative) => relative.to_path_buf(),
+                None => match Path::new(path).strip_prefix(within).ok() {
+                    Some(inside) => inside.to_path_buf(),
+                    None => PathBuf::from(path.as_str()),
+                },
+            };
+            *path = format!("file:{}", place.to_string_lossy());
         });
     }
 }
@@ -1496,20 +1521,23 @@ fn keep_their_edit(
         |r| r.get(0),
     )?;
     // Compared with resources named by their content: a snapshot read
-    // back names them by absolute path, the incoming edit by the catalog's
-    // relative reference.
+    // back names them by absolute path, the incoming edit by the other
+    // catalog's own reference. A resource that is gone has no content: it
+    // compares by its place within its library instead — the snapshot's
+    // names this catalog's, the incoming edit's the other's — so that the
+    // same missing file is the same edit from either side.
     let mut digests = Digests {
         cache: HashMap::new(),
     };
     let mut wanted = adjustments.clone();
-    digests.normalize(&mut wanted, &lib.directory);
-    let mut same = |mut value: Value| {
-        digests.normalize(&mut value, &lib.directory);
+    digests.normalize_within(&mut wanted, &lib.directory, Some(&other.directory));
+    let mut same_edit = |mut value: Value| {
+        digests.normalize_within(&mut value, &lib.directory, Some(&lib.directory));
         value == wanted
     };
     let mut have = false;
     for snapshot in crate::snapshots::read(tx, &lib.directory, &version)? {
-        if same(snapshot.adjustments) {
+        if same_edit(snapshot.adjustments) {
             have = true;
             break;
         }
@@ -1526,7 +1554,7 @@ fn keep_their_edit(
         let mut value: Value = serde_json::from_str(&text)?;
         crate::load_blobs(tx, &mut value)?;
         if let Some(earlier) = value.pointer("/editor_state/adjustments").cloned()
-            && same(earlier)
+            && same_edit(earlier)
         {
             in_history = true;
             break;
@@ -1614,4 +1642,33 @@ fn ensure_album(
         params![new_id, name, parent, kind, position],
     )?;
     Ok((new_id, made + 1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Digests;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    /// Baselines recorded before the snapshot fallback named a missing
+    /// resource by its plain reference; `normalize` must still do so, or an
+    /// untouched edit would differ from its baseline after an update.
+    #[test]
+    fn a_baseline_keeps_a_missing_resource_as_it_is() {
+        let root = std::env::temp_dir().join("rawtonic-baseline-missing-resource");
+        let reference = "rawtonic-resource:resources/gone/look.cube";
+        let mut edit = json!({ "lutPath": reference });
+        let mut digests = Digests {
+            cache: HashMap::new(),
+        };
+        digests.normalize(&mut edit, &root);
+        assert_eq!(edit, json!({ "lutPath": reference }));
+
+        let mut snapshot = json!({ "lutPath": reference });
+        digests.normalize_within(&mut snapshot, &root, Some(&root));
+        assert_eq!(
+            snapshot,
+            json!({ "lutPath": "file:resources/gone/look.cube" })
+        );
+    }
 }
