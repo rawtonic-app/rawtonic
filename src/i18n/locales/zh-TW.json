@@ -2423,6 +2423,8 @@
     "fallbackUnavailable": "無法執行物件移除模型，因此由較小的模型（MI-GAN）填補了此區域。",
     "feather": "羽化",
     "featherAria": "污點羽化",
+    "fillAcrossEdges": "跨邊緣時填補",
+    "fillAcrossEdgesHint": "跨越明顯邊緣（轉角、線條、物件邊界）的修復點改用移除填補；平坦區域仍使用修復。每個點都可以在下方清單中切換。",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
     "largeHoleTooSlow": "此 GPU 處理大面積移除太慢；本次工作階段中移除將使用快速方法。",
     "list": {
@@ -2434,11 +2436,15 @@
       "item": "{{kind}} {{number}}",
       "select": "選取 {{name}}",
       "showAll": "全部顯示",
-      "toggle": "顯示 {{name}}"
+      "switching": "正在切換 {{name}}…",
+      "toggle": "顯示 {{name}}",
+      "useFill": "對 {{name}} 使用填補",
+      "useHeal": "對 {{name}} 使用修復"
     },
     "mode": "污點模式",
     "modes": {
       "clone": "仿製",
+      "fill": "填補",
       "heal": "修復",
       "redEye": "紅眼",
       "remove": "移除"

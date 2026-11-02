@@ -2,16 +2,18 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { invoke } from "@tauri-apps/api/core";
-import { Eye, EyeOff, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Eye, EyeOff, Loader2, Trash2 } from "lucide-react";
 import AdjustmentControl from "./AdjustmentControl";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
+import { useProcessStore } from "../../store/useProcessStore";
 import { syncDustToPaths, updateAdjustments } from "../../hooks/useEditorActions";
 import { Invokes } from "../ui/AppProperties";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { shortcutHint } from "../../utils/keyboardUtils";
 import type { Spot } from "../../utils/adjustments";
 import { spotItems, withoutSpotItems, withSpotItemsVisible, type SpotItemKind } from "../../utils/spotItems";
+import { flipSpotItem } from "../../utils/spotFill";
 import StudioRedEyeControls from "./StudioRedEyeControls";
 import { useStudioTools } from "./useStudioTools";
 
@@ -243,8 +245,10 @@ export function StudioFindDust() {
 
 /** What the spot tool made (`spotItems`; Capture One's layer list for its
  * repair layers, but per spot, as Lightroom keeps them): a
- * click selects one on the photo, the eye hides it in the photo and its
- * exports, the bin deletes it; the header does both for all of them. */
+ * click selects one on the photo, the arrows turn a heal spot into Remove's
+ * fill of the same area and a fill the heal tool chose back into a heal, the
+ * eye hides it in the photo and its exports, the bin deletes it; the header
+ * does both for all of them. */
 export function StudioSpotList() {
   const { t } = useTranslation();
   const { startSpotTool } = useStudioTools();
@@ -259,6 +263,8 @@ export function StudioSpotList() {
   );
   const items = spotItems({ spots, aiPatches, redEyes }, redEye);
   const activeSpotId = useEditorStore((s) => s.activeSpotId);
+  // Items being switched between heal and fill (an AI task under their id).
+  const busy = useProcessStore((s) => s.activeAiTasks);
   if (items.length === 0) return null;
   const all = new Set(items.map((item) => item.id));
   const anyShown = items.some((item) => item.visible);
@@ -322,6 +328,24 @@ export function StudioSpotList() {
               >
                 <span className="studio-layer-label">{name}</span>
               </button>
+              {(item.kind === "heal" || item.kind === "fill") &&
+                (busy[item.id] ? (
+                  <span className="studio-row-icon" role="status" aria-label={t("spotRemoval.list.switching", { name })}>
+                    <Loader2 size={12} className="animate-spin" />
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="studio-row-icon"
+                    aria-label={t(item.kind === "heal" ? "spotRemoval.list.useFill" : "spotRemoval.list.useHeal", {
+                      name,
+                    })}
+                    title={t(item.kind === "heal" ? "spotRemoval.list.useFill" : "spotRemoval.list.useHeal", { name })}
+                    onClick={() => void flipSpotItem(item.id)}
+                  >
+                    <ArrowLeftRight size={12} />
+                  </button>
+                ))}
               <button
                 type="button"
                 className="studio-row-icon"
@@ -436,6 +460,16 @@ export default function StudioSpotControls() {
         ))}
       </div>
       {redEye && <StudioRedEyeControls />}
+      {shown.mode === "heal" && !activeSpot && (
+        <label className="studio-inline studio-check" title={t("spotRemoval.fillAcrossEdgesHint")}>
+          <input
+            type="checkbox"
+            checked={settings.fillAcrossEdges !== false}
+            onChange={(e) => set({ fillAcrossEdges: e.target.checked })}
+          />
+          {t("spotRemoval.fillAcrossEdges")}
+        </label>
+      )}
       {shown.mode === "remove" && (
         <label
           className="studio-inline studio-check"

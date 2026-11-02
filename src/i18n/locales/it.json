@@ -2650,6 +2650,8 @@
     "fallbackUnavailable": "Impossibile eseguire il modello di rimozione oggetti, quindi il modello più piccolo (MI-GAN) ha riempito quest’area.",
     "feather": "Sfumatura",
     "featherAria": "Sfumatura della macchia",
+    "fillAcrossEdges": "Riempi sui bordi",
+    "fillAcrossEdgesHint": "Un punto di correzione che attraversa bordi netti (angoli, linee, contorni di oggetti) viene riempito con Rimuovi; le aree piatte restano corrette. Ognuno può essere cambiato nell'elenco qui sotto.",
     "filling": "Rimozione… passo {{done}} di {{total}}",
     "largeHoleTooSlow": "Questa GPU è troppo lenta per rimuovere aree grandi; Rimuovi usa il metodo rapido per il resto della sessione.",
     "list": {
@@ -2661,11 +2663,15 @@
       "item": "{{kind}} {{number}}",
       "select": "Seleziona {{name}}",
       "showAll": "Mostra tutte",
-      "toggle": "Mostra {{name}}"
+      "switching": "Cambio di {{name}}…",
+      "toggle": "Mostra {{name}}",
+      "useFill": "Usa riempimento per {{name}}",
+      "useHeal": "Usa correzione per {{name}}"
     },
     "mode": "Modalità macchie",
     "modes": {
       "clone": "Clona",
+      "fill": "Riempimento",
       "heal": "Correggi",
       "redEye": "Occhi rossi",
       "remove": "Rimuovi"

@@ -1,8 +1,9 @@
 import type { Adjustments } from './adjustments';
 
 /** What a spot tool item does: a heal or clone spot, a removal (an AI patch
- * Remove made) or a red or pet eye correction. */
-export type SpotItemKind = 'heal' | 'clone' | 'remove' | 'red' | 'pet';
+ * Remove made; `fill` when the heal tool chose it for a spot across strong
+ * edges) or a red or pet eye correction. */
+export type SpotItemKind = 'heal' | 'clone' | 'remove' | 'fill' | 'red' | 'pet';
 
 export interface SpotItem {
   id: string;
@@ -22,7 +23,11 @@ export function spotItems(
     ...(adjustments.spots ?? []).map((spot) => ({ id: spot.id, kind: spot.mode, visible: spot.visible !== false })),
     ...(adjustments.aiPatches ?? [])
       .filter((patch) => patch.name === 'Remove')
-      .map((patch) => ({ id: patch.id, kind: 'remove' as const, visible: patch.visible !== false })),
+      .map((patch) => ({
+        id: patch.id,
+        kind: patch.fromHeal ? ('fill' as const) : ('remove' as const),
+        visible: patch.visible !== false,
+      })),
   ];
 }
 

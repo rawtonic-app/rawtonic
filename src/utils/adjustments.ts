@@ -892,6 +892,10 @@ export interface AiPatch {
   invert: boolean;
   /** false: no model made the pixels (Fill edges); exports are not marked. */
   generated?: boolean;
+  /** A removal the heal tool chose instead of a heal spot, because the area
+   * crosses strong edges: the spot list shows it as Fill and turns it back
+   * into a heal. */
+  fromHeal?: boolean;
   name: string;
   patchData: AiPatchData | null;
   prompt: string;

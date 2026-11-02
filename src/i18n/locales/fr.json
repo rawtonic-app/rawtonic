@@ -2650,6 +2650,8 @@
     "fallbackUnavailable": "Le modèle de suppression d’objets n’a pas pu être exécuté ; le modèle plus petit (MI-GAN) a rempli cette zone.",
     "feather": "Contour progressif",
     "featherAria": "Contour progressif de la zone",
+    "fillAcrossEdges": "Remplir sur les bords",
+    "fillAcrossEdgesHint": "Un point de correction qui traverse des bords marqués (angles, lignes, contours d'objets) est rempli avec Supprimer ; les zones planes restent corrigées. Chacun peut être basculé dans la liste ci-dessous.",
     "filling": "Suppression… étape {{done}} sur {{total}}",
     "largeHoleTooSlow": "Ce GPU est trop lent pour supprimer de grandes zones ; Supprimer utilise la méthode rapide jusqu'à la fin de la session.",
     "list": {
@@ -2661,11 +2663,15 @@
       "item": "{{kind}} {{number}}",
       "select": "Sélectionner {{name}}",
       "showAll": "Tout afficher",
-      "toggle": "Afficher {{name}}"
+      "switching": "Bascule de {{name}}…",
+      "toggle": "Afficher {{name}}",
+      "useFill": "Utiliser le remplissage pour {{name}}",
+      "useHeal": "Utiliser la correction pour {{name}}"
     },
     "mode": "Mode de correction",
     "modes": {
       "clone": "Cloner",
+      "fill": "Remplissage",
       "heal": "Corriger",
       "redEye": "Yeux rouges",
       "remove": "Supprimer"

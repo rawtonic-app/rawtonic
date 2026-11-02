@@ -2785,6 +2785,8 @@
     "fallbackUnavailable": "Nie udało się uruchomić modelu usuwania obiektów, więc ten obszar wypełnił mniejszy model (MI-GAN).",
     "feather": "Wtapianie",
     "featherAria": "Wtapianie plamy",
+    "fillAcrossEdges": "Wypełniaj na krawędziach",
+    "fillAcrossEdgesHint": "Punkt korekcji przecinający wyraźne krawędzie (narożniki, linie, brzegi obiektów) jest zamiast tego wypełniany funkcją Usuń; płaskie obszary są nadal korygowane. Każdy można przełączyć na liście poniżej.",
     "filling": "Usuwanie… krok {{done}} z {{total}}",
     "largeHoleTooSlow": "Ten procesor graficzny jest zbyt wolny do usuwania dużych obszarów; Usuń używa szybkiej metody do końca sesji.",
     "list": {
@@ -2796,11 +2798,15 @@
       "item": "{{kind}} {{number}}",
       "select": "Zaznacz {{name}}",
       "showAll": "Pokaż wszystkie",
-      "toggle": "Pokaż {{name}}"
+      "switching": "Przełączanie {{name}}…",
+      "toggle": "Pokaż {{name}}",
+      "useFill": "Użyj wypełnienia dla {{name}}",
+      "useHeal": "Użyj korekcji dla {{name}}"
     },
     "mode": "Tryb usuwania plam",
     "modes": {
       "clone": "Klonuj",
+      "fill": "Wypełnienie",
       "heal": "Napraw",
       "redEye": "Czerwone oczy",
       "remove": "Usuń"

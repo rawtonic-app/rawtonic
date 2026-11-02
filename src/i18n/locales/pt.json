@@ -2650,6 +2650,8 @@
     "fallbackUnavailable": "Não foi possível executar o modelo de remoção de objetos, por isso o modelo mais pequeno (MI-GAN) preencheu esta área.",
     "feather": "Suavização",
     "featherAria": "Suavização da mancha",
+    "fillAcrossEdges": "Preencher sobre arestas",
+    "fillAcrossEdgesHint": "Um ponto de correção que atravessa arestas fortes (cantos, linhas, contornos de objetos) é preenchido com Remover; as áreas planas continuam a ser corrigidas. Cada um pode ser trocado na lista abaixo.",
     "filling": "Removendo… etapa {{done}} de {{total}}",
     "largeHoleTooSlow": "Esta GPU é lenta demais para remover áreas grandes; Remover usa o método rápido pelo resto da sessão.",
     "list": {
@@ -2661,11 +2663,15 @@
       "item": "{{kind}} {{number}}",
       "select": "Selecionar {{name}}",
       "showAll": "Mostrar todas",
-      "toggle": "Mostrar {{name}}"
+      "switching": "A trocar {{name}}…",
+      "toggle": "Mostrar {{name}}",
+      "useFill": "Usar preenchimento para {{name}}",
+      "useHeal": "Usar correção para {{name}}"
     },
     "mode": "Modo de manchas",
     "modes": {
       "clone": "Clonar",
+      "fill": "Preenchimento",
       "heal": "Corrigir",
       "redEye": "Olhos vermelhos",
       "remove": "Remover"

@@ -2650,6 +2650,8 @@
     "fallbackUnavailable": "No s’ha pogut executar el model d’eliminació d’objectes, així que el model més petit (MI-GAN) ha omplert aquesta zona.",
     "feather": "Difuminat",
     "featherAria": "Difuminat de la taca",
+    "fillAcrossEdges": "Omple a les vores",
+    "fillAcrossEdgesHint": "Un punt de correcció que travessa vores marcades (cantonades, línies, contorns d'objectes) s'omple amb Elimina; les zones planes es continuen corregint. Cadascun es pot canviar a la llista de sota.",
     "filling": "S'està eliminant… pas {{done}} de {{total}}",
     "largeHoleTooSlow": "Aquesta GPU és massa lenta per eliminar zones grans; Elimina fa servir el mètode ràpid la resta de la sessió.",
     "list": {
@@ -2661,11 +2663,15 @@
       "item": "{{kind}} {{number}}",
       "select": "Selecciona {{name}}",
       "showAll": "Mostra-les totes",
-      "toggle": "Mostra {{name}}"
+      "switching": "S'està canviant {{name}}…",
+      "toggle": "Mostra {{name}}",
+      "useFill": "Fes servir emplenament per a {{name}}",
+      "useHeal": "Fes servir correcció per a {{name}}"
     },
     "mode": "Mode de taques",
     "modes": {
       "clone": "Clona",
+      "fill": "Emplenament",
       "heal": "Corregeix",
       "redEye": "Ulls vermells",
       "remove": "Elimina"

@@ -68,7 +68,7 @@ describe("Find Dust preview", () => {
 
 describe("spot removal overlay", () => {
   it("places a spot with the backend's automatic source", async () => {
-    invoke.mockResolvedValue([260, 150]);
+    invoke.mockResolvedValue({ source: [260, 150], fill: false });
     const el = overlay();
     await act(async () => {
       fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
@@ -76,7 +76,7 @@ describe("spot removal overlay", () => {
     });
     expect(invoke).toHaveBeenCalledWith(
       "find_spot_source",
-      expect.objectContaining({ x: 200, y: 150, radius: 20, points: null }),
+      expect.objectContaining({ x: 200, y: 150, radius: 20, points: null, fillAcrossEdges: true }),
     );
     const { adjustments, activeSpotId } = useEditorStore.getState();
     expect(adjustments.spots).toHaveLength(1);
@@ -136,7 +136,7 @@ describe("spot removal overlay", () => {
   });
 
   it("paints a heal stroke when dragged, with one automatic source offset", async () => {
-    invoke.mockResolvedValue([200, 210]);
+    invoke.mockResolvedValue({ source: [200, 210], fill: false });
     const el = overlay();
     // Box (50, 50) → (90, 50): mask (200, 150) → (280, 150), a point every 4 px.
     await act(async () => {
@@ -151,6 +151,89 @@ describe("spot removal overlay", () => {
     const [spot] = useEditorStore.getState().adjustments.spots;
     expect(spot).toMatchObject({ x: 200, y: 150, radius: 20, sourceX: 200, sourceY: 210 });
     expect(spot.points).toEqual(points);
+  });
+
+  it("fills a heal stroke that crosses strong edges with Remove, marked as the heal tool's fill", async () => {
+    const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
+    let finishFill: (json: string) => void = () => {};
+    let asked = 0;
+    // The stroke crosses edges; the circle placed next does not.
+    invoke.mockImplementation((command: string) =>
+      command === "find_spot_source"
+        ? Promise.resolve(asked++ ? { source: [460, 250], fill: false } : { source: null, fill: true })
+        : new Promise((resolve) => {
+            finishFill = resolve;
+          }),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "heal", size: 20, feather: 50, opacity: 60 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      for (let x = 52; x <= 90; x += 2) fireEvent.pointerMove(el, { clientX: x, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 90, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const definition = (fill[1] as { patchDefinition: { name: string; fromHeal?: boolean } }).patchDefinition;
+    expect(definition).toMatchObject({ name: "Remove", fromHeal: true });
+    // The stroke shows as pending while it fills, and the brush paints on.
+    expect(document.querySelectorAll(".spot-pending").length).toBeGreaterThan(0);
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 150, clientY: 100, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 1 });
+    });
+    expect(invoke.mock.calls.filter(([name]) => name === "find_spot_source")).toHaveLength(2);
+    await act(async () => finishFill(JSON.stringify(patchData)));
+    const [patch] = useEditorStore.getState().adjustments.aiPatches;
+    expect(patch).toMatchObject({ name: "Remove", fromHeal: true, patchData });
+    expect(patch.subMasks[0].parameters.lines?.[0].points.at(-1)).toEqual({ x: 280, y: 150 });
+    // The fill keeps the heal's opacity and feather.
+    expect(patch.subMasks[0].opacity).toBe(60);
+    expect(patch.subMasks[0].parameters.lines?.[0]).toMatchObject({ feather: 0.5 });
+    // The circle placed meanwhile is a heal spot.
+    expect(useEditorStore.getState().adjustments.spots).toMatchObject([{ mode: "heal", x: 400, y: 250 }]);
+  });
+
+  it("gives a heal fill at least Remove's soft edge, and asks for none at opacity 0", async () => {
+    invoke.mockImplementation((command: string) =>
+      command === "find_spot_source" ? Promise.resolve({ source: null, fill: true }) : new Promise(() => {}),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "heal", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const definition = (fill[1] as { patchDefinition: { subMasks: { parameters: { lines: { feather: number }[] } }[] } })
+      .patchDefinition;
+    expect(definition.subMasks[0].parameters.lines[0].feather).toBe(0.2);
+    act(() => useEditorStore.setState({ spotSettings: { mode: "heal", size: 20, feather: 0, opacity: 0 } }));
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 150, clientY: 100, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 1 });
+    });
+    const asks = invoke.mock.calls.filter(([name]) => name === "find_spot_source");
+    expect((asks[1][1] as { fillAcrossEdges: boolean }).fillAcrossEdges).toBe(false);
+  });
+
+  it("asks for no fill when Fill across edges is off or the tool is Clone", async () => {
+    invoke.mockResolvedValue({ source: [260, 150], fill: false });
+    useEditorStore.setState({
+      spotSettings: { mode: "heal", size: 20, feather: 50, opacity: 100, fillAcrossEdges: false },
+    });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    act(() => useEditorStore.setState({ spotSettings: { mode: "clone", size: 20, feather: 50, opacity: 100 } }));
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 150, clientY: 100, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 1 });
+    });
+    const asks = invoke.mock.calls.filter(([name]) => name === "find_spot_source");
+    expect(asks.map(([, args]) => (args as { fillAcrossEdges: boolean }).fillAcrossEdges)).toEqual([false, false]);
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.mode)).toEqual(["heal", "clone"]);
   });
 
   it("moves a stroke with its source and hit-tests along its path", () => {
@@ -763,5 +846,40 @@ describe("spot removal overlay", () => {
       expect.objectContaining({ sensitivity: 70, maxEdge: 2400 }),
     );
     expect(screen.getByTestId("spot-overlay").querySelector("img")?.getAttribute("src")).toBe("blob:view");
+  });
+
+  it("refreshes the Visualize Spots view when a fill is added or hidden", async () => {
+    vi.useFakeTimers();
+    URL.createObjectURL = vi.fn(() => "blob:view");
+    URL.revokeObjectURL = vi.fn();
+    invoke.mockResolvedValue(new ArrayBuffer(4));
+    useEditorStore.setState({ spotVisualize: { on: true, sensitivity: 70 } });
+    overlay();
+    const views = () => invoke.mock.calls.filter(([name]) => name === "visualize_spots").length;
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(views()).toBe(1);
+    const fill = {
+      id: "f1", name: "Remove", fromHeal: true, isLoading: false, invert: false, visible: true, prompt: "",
+      patchData: null, subMasks: [],
+    };
+    await act(async () => {
+      useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiPatches: [fill] } });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(views()).toBe(2);
+    await act(async () => {
+      useEditorStore.setState({
+        adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiPatches: [{ ...fill, visible: false }] },
+      });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    vi.useRealTimers();
+    expect(views()).toBe(3);
   });
 });

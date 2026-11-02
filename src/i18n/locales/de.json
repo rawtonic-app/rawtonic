@@ -2514,6 +2514,8 @@
     "fallbackUnavailable": "Das Modell zum Entfernen von Objekten konnte nicht ausgeführt werden, daher hat das kleinere Modell (MI-GAN) diesen Bereich gefüllt.",
     "feather": "Weiche Kante",
     "featherAria": "Weiche Kante des Bereichs",
+    "fillAcrossEdges": "Über Kanten füllen",
+    "fillAcrossEdgesHint": "Ein Reparaturpunkt, der starke Kanten kreuzt (Ecken, Linien, Objektränder), wird stattdessen mit Entfernen gefüllt; flache Bereiche werden weiter repariert. Jeder lässt sich in der Liste unten umschalten.",
     "filling": "Wird entfernt… Schritt {{done}} von {{total}}",
     "largeHoleTooSlow": "Diese GPU ist für das Entfernen großer Bereiche zu langsam; Entfernen nutzt bis zum Neustart die schnelle Methode.",
     "list": {
@@ -2525,11 +2527,15 @@
       "item": "{{kind}} {{number}}",
       "select": "{{name}} auswählen",
       "showAll": "Alle einblenden",
-      "toggle": "{{name}} anzeigen"
+      "switching": "{{name}} wird umgeschaltet…",
+      "toggle": "{{name}} anzeigen",
+      "useFill": "Füllen für {{name}}",
+      "useHeal": "Reparieren für {{name}}"
     },
     "mode": "Reparaturmodus",
     "modes": {
       "clone": "Kopieren",
+      "fill": "Füllen",
       "heal": "Reparieren",
       "redEye": "Rote Augen",
       "remove": "Entfernen"

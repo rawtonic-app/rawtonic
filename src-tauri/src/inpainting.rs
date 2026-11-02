@@ -320,7 +320,10 @@ fn complete_with_guide(
         &img,
         &hole,
         Some(&guide),
-        &removal_fill_params(hole.iter().filter(|&&h| h).count()),
+        &removal_fill_params(
+            hole.iter().filter(|&&h| h).count(),
+            hole_thickness(hole_mask, (min_x, max_x, min_y, max_y)),
+        ),
     );
     let mut out = guided;
     for (i, v) in filled.iter().enumerate() {
@@ -456,16 +459,30 @@ fn box_line(row: &mut [f32], r: usize, line: &mut Vec<f32>) {
 }
 
 /// The completion's settings for Remove, chosen on the object-removal set
-/// (docs/MODELS.md): 5 × 5 patches follow thin structure (rails, joints)
-/// better than 7 × 7, a strong guide keeps MI-GAN's layout, and weighted
-/// texture features keep grain from washing out. Holes above
-/// `LARGE_HOLE` pixels only refine their finest levels (where the hole is
-/// wider than 256 of their pixels), which keeps a car-sized removal on a
-/// 45 MP photo to seconds.
-fn removal_fill_params(hole_pixels: usize) -> rawtonic_engine::patch_fill::PatchFillParams {
+/// (docs/MODELS.md): a strong guide keeps the network's layout, and
+/// weighted texture features keep grain from washing out. Small holes
+/// (thinner than `LARGE_HOLE_THICKNESS`: spots, strokes, wires) take 7 × 7
+/// patches, which carry grain and continue edges better there (held-out
+/// half of HS's holes: LPIPS 0.0462 → 0.0451, high ISO 0.072 → 0.065,
+/// controls not worse; notes:
+/// benchmark-results/rf2-fill-default-2026-11-02/REPORT.md); large holes
+/// keep 5 × 5, which follow thin structure (rails, joints) inside a large
+/// removal better. Holes above `LARGE_HOLE` pixels only refine their
+/// finest levels (where the hole is wider than 256 of their pixels), which
+/// keeps a car-sized removal on a 45 MP photo to seconds. A fill is stored
+/// as pixels in its patch, so these settings never change a recipe's
+/// existing removals.
+fn removal_fill_params(
+    hole_pixels: usize,
+    thickness: f32,
+) -> rawtonic_engine::patch_fill::PatchFillParams {
     const LARGE_HOLE: usize = 400_000;
     rawtonic_engine::patch_fill::PatchFillParams {
-        patch_radius: 2,
+        patch_radius: if thickness < LARGE_HOLE_THICKNESS {
+            3
+        } else {
+            2
+        },
         guide_weight: 10.0,
         texture_weight: 3.0,
         fine_extent: if hole_pixels > LARGE_HOLE { 256 } else { 0 },
@@ -1259,6 +1276,14 @@ mod removal_timing {
         // The first run ends at 0.9 s (encoder, compilation); then 0.4 s each.
         let per_run = super::seconds_per_run(&[at(900), at(1300), at(1700), at(2100)]).unwrap();
         assert!((per_run - 0.4).abs() < 1e-9, "{per_run}");
+    }
+
+    #[test]
+    fn small_holes_take_larger_patches_than_large_ones() {
+        let small = super::removal_fill_params(2_000, 50.0);
+        let large = super::removal_fill_params(200_000, super::LARGE_HOLE_THICKNESS);
+        assert_eq!((small.patch_radius, large.patch_radius), (3, 2));
+        assert_eq!(small.guide_weight, large.guide_weight);
     }
 
     #[test]
