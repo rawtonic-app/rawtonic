@@ -204,6 +204,9 @@ describe("spot list and deleting", () => {
       expect.objectContaining({ points: [{ x: 10, y: 10 }], brushSize: 10 }),
     ]);
     expect(args.taskId).toBe("s1");
+    // The spot's opacity and feather carry over (feather never below Remove's).
+    expect(args.patchDefinition.subMasks[0]).toMatchObject({ opacity: 100 });
+    expect(args.patchDefinition.subMasks[0].parameters.lines[0]).toMatchObject({ feather: 0.2 });
     expect(screen.getByRole("status", { name: "spotRemoval.list.switching" })).toBeTruthy();
     // Nothing changes in the recipe until the fill is ready.
     expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s1", "s2"]);
@@ -219,7 +222,9 @@ describe("spot list and deleting", () => {
     expect(ask[1]).toMatchObject({ x: 10, y: 10, radius: 5, points: null, fillAcrossEdges: false });
     const healed = useEditorStore.getState().adjustments;
     expect(healed.aiPatches.some((p) => p.id === fill.id)).toBe(false);
-    expect(healed.spots.at(-1)).toMatchObject({ mode: "heal", x: 10, y: 10, radius: 5, sourceX: 40, sourceY: 10 });
+    expect(healed.spots.at(-1)).toMatchObject({
+      mode: "heal", x: 10, y: 10, radius: 5, sourceX: 40, sourceY: 10, opacity: 100, feather: 20,
+    });
   });
 
   it("lists red eye corrections in Red eye mode", () => {

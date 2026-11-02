@@ -165,6 +165,7 @@ describe("spot removal overlay", () => {
             finishFill = resolve;
           }),
     );
+    useEditorStore.setState({ spotSettings: { mode: "heal", size: 20, feather: 50, opacity: 60 } });
     const el = overlay();
     await act(async () => {
       fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
@@ -185,8 +186,34 @@ describe("spot removal overlay", () => {
     const [patch] = useEditorStore.getState().adjustments.aiPatches;
     expect(patch).toMatchObject({ name: "Remove", fromHeal: true, patchData });
     expect(patch.subMasks[0].parameters.lines?.[0].points.at(-1)).toEqual({ x: 280, y: 150 });
+    // The fill keeps the heal's opacity and feather.
+    expect(patch.subMasks[0].opacity).toBe(60);
+    expect(patch.subMasks[0].parameters.lines?.[0]).toMatchObject({ feather: 0.5 });
     // The circle placed meanwhile is a heal spot.
     expect(useEditorStore.getState().adjustments.spots).toMatchObject([{ mode: "heal", x: 400, y: 250 }]);
+  });
+
+  it("gives a heal fill at least Remove's soft edge, and asks for none at opacity 0", async () => {
+    invoke.mockImplementation((command: string) =>
+      command === "find_spot_source" ? Promise.resolve({ source: null, fill: true }) : new Promise(() => {}),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "heal", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const definition = (fill[1] as { patchDefinition: { subMasks: { parameters: { lines: { feather: number }[] } }[] } })
+      .patchDefinition;
+    expect(definition.subMasks[0].parameters.lines[0].feather).toBe(0.2);
+    act(() => useEditorStore.setState({ spotSettings: { mode: "heal", size: 20, feather: 0, opacity: 0 } }));
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 150, clientY: 100, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 1 });
+    });
+    const asks = invoke.mock.calls.filter(([name]) => name === "find_spot_source");
+    expect((asks[1][1] as { fillAcrossEdges: boolean }).fillAcrossEdges).toBe(false);
   });
 
   it("asks for no fill when Fill across edges is off or the tool is Clone", async () => {

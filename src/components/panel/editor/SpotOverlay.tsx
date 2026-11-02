@@ -388,8 +388,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const { selectedImage, adjustments, setEditor } = useEditorStore.getState();
     if (!selectedImage?.isReady) return;
     const radius = settings.size;
-    // Heal fills where the spot crosses strong edges, unless turned off.
-    const fillAcrossEdges = settings.mode === 'heal' && settings.fillAcrossEdges !== false;
+    // Heal fills where the spot crosses strong edges, unless turned off (or
+    // at opacity 0, where the spot changes nothing either way).
+    const fillAcrossEdges = settings.mode === 'heal' && settings.fillAcrossEdges !== false && settings.opacity > 0;
     const done = addPending(x, y, radius, points);
     const path = selectedImage.path;
     try {
@@ -402,7 +403,10 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         fillAcrossEdges,
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
-      if (plan.fill) return await fillAndAdd(removalPatch(points ?? [{ x, y }], radius, true));
+      if (plan.fill)
+        return await fillAndAdd(
+          removalPatch(points ?? [{ x, y }], radius, { opacity: settings.opacity, feather: settings.feather }),
+        );
       if (!plan.source) throw new Error('No source area fits around this spot');
       const [sourceX, sourceY] = plan.source;
       const spot: Spot = {

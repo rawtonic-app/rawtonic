@@ -1117,10 +1117,22 @@ pub fn edge_ratio(image: &Rgb32FImage, path: &[(f64, f64)], radius: f64) -> Opti
             kept.push(p);
         }
     }
-    // Segments (a circle is one of zero length), bucketed in cells of
-    // `reach`: every segment within `reach` of a point is in its cell.
+    // Segments (a circle is one of zero length), a long one split into
+    // pieces of at most a radius so that each piece's box stays near the
+    // ring, bucketed in cells of `reach`: every segment within `reach` of a
+    // point is in its cell.
     let segments: Vec<((f64, f64), (f64, f64))> = if kept.len() >= 2 {
-        kept.windows(2).map(|p| (p[0], p[1])).collect()
+        kept.windows(2)
+            .flat_map(|p| {
+                let (a, b) = (p[0], p[1]);
+                let pieces = ((b.0 - a.0).hypot(b.1 - a.1) / radius).ceil().max(1.0) as usize;
+                let at = move |k: usize| {
+                    let t = k as f64 / pieces as f64;
+                    (a.0 + t * (b.0 - a.0), a.1 + t * (b.1 - a.1))
+                };
+                (0..pieces).map(move |k| (at(k), at(k + 1)))
+            })
+            .collect()
     } else {
         vec![(kept[0], kept[0])]
     };

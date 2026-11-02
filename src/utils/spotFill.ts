@@ -18,11 +18,23 @@ export interface SpotPlan {
   fill: boolean;
 }
 
+/** A heal spot's look carried over to its fill: opacity 0–100 and feather
+ * 0–100 % of the radius. */
+export interface HealLook {
+  opacity: number;
+  feather: number;
+}
+
+/** Remove's own soft edge (a fraction of the radius): a fill's edge is never
+ * harder, since a hard-edged fill shows its seam. */
+const REMOVE_FEATHER = 0.2;
+
 /** A removal of the area a brush of `radius` painted along `points` (one
  * point: a circle): an AI patch named Remove, not yet filled. `fromHeal`:
  * the heal tool chose the fill because the area crosses strong edges (the
- * spot list shows it as Fill and turns it back into a heal). */
-export function removalPatch(points: Point[], radius: number, fromHeal = false): AiPatch {
+ * spot list shows it as Fill and turns it back into a heal); it keeps the
+ * heal's opacity and, softer than Remove's edge, its feather. */
+export function removalPatch(points: Point[], radius: number, fromHeal?: HealLook): AiPatch {
   const { selectedImage, adjustments } = useEditorStore.getState();
   // The geometry the area is painted in, so it stays on its spot.
   const frame = shapeFrame(adjustments, selectedImage?.width, selectedImage?.height);
@@ -41,10 +53,18 @@ export function removalPatch(points: Point[], radius: number, fromHeal = false):
         type: Mask.Brush,
         mode: SubMaskMode.Additive,
         invert: false,
-        opacity: 100,
+        opacity: fromHeal?.opacity ?? 100,
         visible: true,
         parameters: {
-          lines: [{ points, brushSize: radius * 2, feather: 0.2, tool: ToolType.Brush, ...(frame && { frame }) }],
+          lines: [
+            {
+              points,
+              brushSize: radius * 2,
+              feather: Math.max(REMOVE_FEATHER, (fromHeal?.feather ?? 0) / 100),
+              tool: ToolType.Brush,
+              ...(frame && { frame }),
+            },
+          ],
         },
       },
     ],
@@ -59,6 +79,13 @@ export function removalArea(patch: AiPatch, now: SizedFrame | undefined): { poin
   const shown = sub.parameters && shapeAsShown(sub.type, sub.parameters, now);
   const line = (shown?.lines as { points: Point[]; brushSize: number }[] | undefined)?.[0];
   return line?.points?.length ? { points: line.points, radius: line.brushSize / 2 } : null;
+}
+
+/** The heal look a fill the heal tool made carries (`removalPatch`). */
+function healLookOf(patch: AiPatch): HealLook {
+  const sub = patch.subMasks[0];
+  const line = (sub?.parameters?.lines as { feather?: number }[] | undefined)?.[0];
+  return { opacity: sub?.opacity ?? 100, feather: Math.round((line?.feather ?? REMOVE_FEATHER) * 100) };
 }
 
 /** Fills `patch` (a removal) from the open photo as `adjustments` render
@@ -94,7 +121,8 @@ export async function flipSpotItem(id: string): Promise<void> {
       const points = (spot.points?.length ?? 0) >= 2 ? spot.points! : [{ x: spot.x, y: spot.y }];
       // The fill starts from the photo without the heal it replaces.
       const without = { ...adjustments, spots: (adjustments.spots ?? []).filter((s) => s.id !== id) };
-      const patch = { ...removalPatch(points, spot.radius, true), visible: spot.visible !== false };
+      const look = { opacity: spot.opacity, feather: spot.feather };
+      const patch = { ...removalPatch(points, spot.radius, look), visible: spot.visible !== false };
       const done = await fillRemoval(patch, without, id);
       if (!done) return;
       updateAdjustments((prev) =>
@@ -127,8 +155,7 @@ export async function flipSpotItem(id: string): Promise<void> {
       radius: area.radius,
       sourceX: plan.source[0],
       sourceY: plan.source[1],
-      feather: settings.feather,
-      opacity: settings.opacity,
+      ...(fill!.fromHeal ? healLookOf(fill!) : { feather: settings.feather, opacity: settings.opacity }),
       visible: fill!.visible !== false,
       ...(area.points.length >= 2 && { points: area.points }),
     };
