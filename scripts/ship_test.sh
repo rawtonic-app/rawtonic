@@ -60,6 +60,7 @@ git -C "$T/main" push -q origin main
 
 # Reviewer stubs for scripts/review.sh (RAWTONIC_REVIEWER).
 for v in approve changes_requested; do
+  # shellcheck disable=SC2016  # the stub's own $1
   printf '#!/bin/sh\ncat >/dev/null\nprintf %s >"$1"\n' \
     "'{\"verdict\": \"$v\", \"summary\": \"stub $v\", \"findings\": []}'" >"$T/bin/review-$v"
   chmod +x "$T/bin/review-$v"
@@ -202,6 +203,7 @@ git -C "$T/main" reset -q --hard origin/main
 
 # 16. origin refuses the push of main: the local merge is undone.
 new_branch refused
+# shellcheck disable=SC2016  # the hook's own $ref
 printf '#!/bin/sh\nwhile read -r _ _ ref; do [ "$ref" != refs/heads/main ] || exit 1; done\n' >"$T/origin.git/hooks/pre-receive"
 chmod +x "$T/origin.git/hooks/pre-receive"
 before=$(git -C "$T/main" rev-parse HEAD)
@@ -216,6 +218,7 @@ rm "$T/origin.git/hooks/pre-receive"
 # review it, and Claude (CLAUDECODE=1) may not review Claude's own change.
 review_as() { # env dir args... (review in DIR with only the given agent env)
   e=$1 d=$2; shift 2
+  # shellcheck disable=SC2086  # $e is empty or one VAR=value word
   (cd "$d" && env -u CODEX_THREAD_ID -u CLAUDECODE $e RAWTONIC_REVIEWER=review-approve sh scripts/review.sh "$@") >"$T/out" 2>&1
 }
 new_branch unreviewed-codex

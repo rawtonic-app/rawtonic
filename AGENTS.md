@@ -59,6 +59,7 @@ npm run i18n:check
 scripts/check.sh --brief       # every gate before a merge into main; CI repeats them on Linux after the merge (not shellcheck; cargo test instead of nextest). --brief: one line per step, failures show their last 40 lines
 scripts/ship.sh [--title T] [--body-file F] [--no-merge] [--keep-worktree] [--dry-run] [--no-review REASON]   # from a clean branch worktree: full check (skipped if it passed on this HEAD) → second-model review (scripts/review.sh; skipped if it approved this HEAD) → push → PR → merge --no-ff into main → delete remote branch; removes worktree + local branch only when called from outside it (never from inside it or an Orca worktree — agents: send your final report, then run the removal command from the last line). Last line: `ship: merged PR #N as <sha>; …` / `ship: FAILED …`
 scripts/review.sh [--base REF] | --plan FILE   # second-model review (Codex, read-only) of REF..HEAD or of a plan; exit 0 = approve; verdict stored per HEAD for ship.sh
+scripts/release.sh [--dry-run] [--no-bump] [--no-draft] [--from STAGE | --only STAGE] VERSION   # a release up to a DRAFT prerelease (bump PR, DMGs, AppImage, Windows, smokes incl. scripted GUI smoke, notes, sums); resumable; never publishes — docs/RELEASING.md
 scripts/check.sh --brief --changed   # while working: only the gates/Rust packages (and dependents) the change touches; never a substitute for the full run. --quick skips Rust tests
 
 cargo fmt --all --check
@@ -94,4 +95,4 @@ Two halves, mid-migration (ADR 0001). **Before changing a crate, read its part o
 
 ## Key docs
 
-`docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, `docs/RECIPE_SCHEMA.md`, `docs/MODELS.md` (AI models, origins and licenses), `docs/testing/README.md` (fixture manifest format), `docs/decisions/` (ADRs), `CONTRIBUTING.md`, `PRIVACY.md`, `TRADEMARKS.md`, `THIRD_PARTY_NOTICES.md`.
+`docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, `docs/RECIPE_SCHEMA.md`, `docs/MODELS.md` (AI models, origins and licenses), `docs/RELEASING.md` (scripts/release.sh), `docs/testing/README.md` (fixture manifest format), `docs/decisions/` (ADRs), `CONTRIBUTING.md`, `PRIVACY.md`, `TRADEMARKS.md`, `THIRD_PARTY_NOTICES.md`.

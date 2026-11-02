@@ -192,6 +192,10 @@ How to read it: measure on an idle machine (the script prints the load average) 
 
 [Fixture instructions](testing/README.md) describe `APP_FIXTURES`, GPU gating and golden comparisons. [Packaging](../packaging/README.md) records signing, Linux and tethering blockers. AI is optional; missing ONNX runtime produces an error, with an opt-in build path documented there.
 
+### Releases
+
+`scripts/release.sh VERSION` makes a release up to a draft prerelease: bump PR, signed macOS DMGs, Linux AppImage, Windows installer, every smoke, notes and checksums. Steps, configuration and the scripted GUI smoke: [RELEASING.md](RELEASING.md).
+
 ### macOS release signing (opt-in)
 
 `RAWTONIC_BUNDLE_ONNX=1 npm run package:mac` still makes the existing ad-hoc app and DMG when no Apple credentials are set; Developer ID signing is **off by default** and only runs with the credentials below. There is no install script. Releases from 0.1.0-alpha.7 on are signed and notarized with the maintainer's credentials (Apple Silicon and the experimental Intel build: notarization accepted, `scripts/verify_macos_release.sh` and a quarantine check passed on the release DMGs); builds without credentials stay ad hoc and need the quarantine flag cleared.

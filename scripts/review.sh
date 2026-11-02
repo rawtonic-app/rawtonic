@@ -97,6 +97,7 @@ else
   fi
   {
     cat "$DIR/prompt.md"
+    # shellcheck disable=SC2016  # backticks are Markdown here
     printf '\n## The change\n\nReview the commits `%s..HEAD` (HEAD %s). Read them with `git log %s..HEAD` and `git diff %s...HEAD`.\n\n' \
       "$BASE" "$HEAD_SHA" "$BASE" "$BASE"
     git log --format='- %s' "$BASE"..HEAD
@@ -134,6 +135,7 @@ elif [ "$REVIEWER" = claude ]; then
     }
     { printf '\n## Incremental diff since earlier review (%s to %s)\n\n' "$PREVIOUS" "$HEAD_SHA"; cat "$DIFF"; } >>"$PROMPT"
   fi
+  # shellcheck disable=SC2015  # the || branch handles a failure of either step
   claude -p --model "$MODEL" --tools Read,Grep,Glob --setting-sources '' --strict-mcp-config \
     --permission-mode dontAsk --output-format json --json-schema "$(cat "$DIR/verdict.schema.json")" \
     <"$PROMPT" >"$LOG" 2>&1 &&

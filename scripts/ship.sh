@@ -141,6 +141,7 @@ NOTE=$(mktemp "${TMPDIR:-/tmp}/rawtonic-review-note.XXXXXX")
 if [ -n "$NO_REVIEW" ]; then
   printf '## Second-model review\n\nSkipped for %s: %s\n' "$HEAD_SHA" "$NO_REVIEW" >"$NOTE"
 else
+  # shellcheck disable=SC2016  # Python source
   python3 -c '
 import json, sys
 v = json.load(open(sys.argv[1]))
