@@ -44,6 +44,7 @@ beforeEach(async () => {
           headerBaseline: 15,
           footerBaseline: 290,
         },
+        cropMarks: [],
         captions: ["1 A.NEF", "2 B.NEF"],
         header: "Wedding",
         footer: "2026-11-02",
