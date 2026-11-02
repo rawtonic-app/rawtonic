@@ -1329,6 +1329,22 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   (`inpainting::MOEBIUS_MAX_SECONDS_PER_RUN`, about three times the 5 s
   budget; integrated GPUs may be that slow) finishes, and later large holes
   use MI-GAN for the rest of the session with a notice.
+
+  **Small holes and the heal tool (2026-11-02).** On 167 synthetic holes
+  at junctions, across edges and on controls (24 CC0 RAWs, notes
+  `benchmark-results/hs-heal-hold-2026-11-02`), Remove's fill beats the
+  heal at junctions (LPIPS 0.034 vs 0.067) but loses on flat sky, where
+  the heal keeps grain and gradient. New heal spots therefore become a
+  fill where strong edges cross their surroundings
+  (`spot_removal::crosses_edges`: the 98th percentile of the gradient
+  over its median in the ring 1.1–1.6 radii around the spot, above 3.0,
+  fitted on half of the photos): on the other half LPIPS 0.0448 against
+  heal only 0.0673 and always fill 0.0462, better than both on junctions,
+  edges and at high ISO, and equal to always fill on the controls. Holes
+  thinner than `LARGE_HOLE_THICKNESS` complete with 7 × 7 instead of 5 × 5
+  patches: on the held-out half 0.0462 → 0.0451 (high ISO 0.072 → 0.065,
+  junctions 0.0365 → 0.0371, controls 0.0513 → 0.0511). Notes
+  `benchmark-results/rf2-fill-default-2026-11-02/REPORT.md`.
 - **Sky.** UperNet + ConvNeXt-T against the inherited sky model on 34 RAW
   samples (22 with sky): solid masks on overcast and cloud-textured skies
   where the old one had holes, a missed sky found (bare trees in snow), no
