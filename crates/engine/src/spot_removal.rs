@@ -1119,7 +1119,10 @@ pub fn edge_ratio(image: &Rgb32FImage, path: &[(f64, f64)], radius: f64) -> Opti
     let luma: Vec<f32> = (0..cw * ch)
         .map(|i| {
             let p = image
-                .get_pixel((bx0 as usize + i % cw) as u32, (by0 as usize + i / cw) as u32)
+                .get_pixel(
+                    (bx0 as usize + i % cw) as u32,
+                    (by0 as usize + i / cw) as u32,
+                )
                 .0;
             encode(0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2])
         })
@@ -1375,16 +1378,34 @@ mod tests {
         for (amount, seed) in [(0.002, 1), (0.03, 2), (0.08, 3)] {
             // Dust on a flat, grainy area, at any grain strength: a heal.
             let flat = edge_test_photo(amount, false, seed);
-            assert!(!crosses_edges(&flat, &none, 100.0, 100.0, 12.0, &[]), "{amount}");
+            assert!(
+                !crosses_edges(&flat, &none, 100.0, 100.0, 12.0, &[]),
+                "{amount}"
+            );
             // A circle whose surroundings an edge crosses: a fill.
             let wall = edge_test_photo(amount, true, seed);
-            assert!(crosses_edges(&wall, &none, 100.0, 100.0, 12.0, &[]), "{amount}");
+            assert!(
+                crosses_edges(&wall, &none, 100.0, 100.0, 12.0, &[]),
+                "{amount}"
+            );
             // A stroke along the flat area beside the wall stays a heal; one
             // drawn across the wall is filled.
-            let along = [StrokePoint { x: 60.0, y: 40.0 }, StrokePoint { x: 60.0, y: 160.0 }];
-            let across = [StrokePoint { x: 70.0, y: 60.0 }, StrokePoint { x: 140.0, y: 60.0 }];
-            assert!(!crosses_edges(&wall, &none, 60.0, 40.0, 10.0, &along), "{amount}");
-            assert!(crosses_edges(&wall, &none, 70.0, 60.0, 10.0, &across), "{amount}");
+            let along = [
+                StrokePoint { x: 60.0, y: 40.0 },
+                StrokePoint { x: 60.0, y: 160.0 },
+            ];
+            let across = [
+                StrokePoint { x: 70.0, y: 60.0 },
+                StrokePoint { x: 140.0, y: 60.0 },
+            ];
+            assert!(
+                !crosses_edges(&wall, &none, 60.0, 40.0, 10.0, &along),
+                "{amount}"
+            );
+            assert!(
+                crosses_edges(&wall, &none, 70.0, 60.0, 10.0, &across),
+                "{amount}"
+            );
         }
         // A smooth gradient without grain (a clear sky) is no edge.
         let sky = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(200, 200, |x, y| {

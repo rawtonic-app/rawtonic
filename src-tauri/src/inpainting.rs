@@ -478,7 +478,11 @@ fn removal_fill_params(
 ) -> rawtonic_engine::patch_fill::PatchFillParams {
     const LARGE_HOLE: usize = 400_000;
     rawtonic_engine::patch_fill::PatchFillParams {
-        patch_radius: if thickness < LARGE_HOLE_THICKNESS { 3 } else { 2 },
+        patch_radius: if thickness < LARGE_HOLE_THICKNESS {
+            3
+        } else {
+            2
+        },
         guide_weight: 10.0,
         texture_weight: 3.0,
         fine_extent: if hole_pixels > LARGE_HOLE { 256 } else { 0 },
