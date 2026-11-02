@@ -71,18 +71,21 @@ export default function StudioLensCorrection() {
     };
   }, [adjustments.lensMaker]);
   useEffect(() => setStatus("idle"), [selectedImage?.path]);
+  // The frame the open photo develops (an edit from before the key: the
+  // first), whose camera data apply to it.
+  const frame = adjustments.sourceFrameVersion ?? 0;
   useEffect(() => {
     setCamera(null);
     const path = selectedImage?.path;
     if (!path) return;
     let current = true;
-    invoke<CameraLensProfile | null>(Invokes.GetCameraLensProfile, { path })
+    invoke<CameraLensProfile | null>(Invokes.GetCameraLensProfile, { path, frame })
       .then((profile) => current && setCamera(profile ?? null))
       .catch(() => {});
     return () => {
       current = false;
     };
-  }, [selectedImage?.path]);
+  }, [selectedImage?.path, frame]);
   const applyCamera = (profile: CameraLensProfile) =>
     setAdjustments((prev) => ({
       ...prev,

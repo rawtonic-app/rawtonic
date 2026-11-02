@@ -47,7 +47,14 @@ import {
 } from '../utils/settingsClipboard';
 import { MAX_RENDERED_LAYERS } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
-import { editorRecipe, neverEdited, newSaved, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import {
+  editorRecipe,
+  neverEdited,
+  newSaved,
+  savedSourceFrame,
+  withNeverEditedDefaults,
+  type CameraLens,
+} from '../utils/neverEdited';
 import { cameraCropFor, withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
@@ -534,7 +541,11 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
         : initialAdjustmentsFor(isRaw),
       meta?.adjustments,
       isRaw,
-      () => invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: from }).catch(() => null),
+      () =>
+        invoke<CameraLens>(Invokes.GetCameraLensProfile, {
+          path: from,
+          frame: savedSourceFrame(meta?.adjustments),
+        }).catch(() => null),
     );
     return { path: from, adjustments, isRaw, ...size };
   } catch (err) {
@@ -730,7 +741,9 @@ async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
       isRaw && neverEdited(saved)
         ? openedRecipe?.path === path
           ? openedRecipe.camera
-          : await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path }).catch(() => null)
+          : await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path, frame: savedSourceFrame(saved) }).catch(
+              () => null,
+            )
         : null;
     if (isCurrentEditorImage(path)) {
       const crops = useEditorStore.getState().selectedImage?.cameraCrops;

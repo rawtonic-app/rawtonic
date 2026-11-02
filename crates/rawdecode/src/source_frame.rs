@@ -10,6 +10,15 @@
 //! that ends 118 px short of its recorded crop (and of SensorRightBorder),
 //! so the frame decoded 4970 × 3392 and ≈ 54 px off-centre instead of the
 //! 5088 × 3392 of the camera's JPEG and Camera Raw (notes: parity-gaps/G71).
+//!
+//! 2 (2026-11-02): a Sony ARW's aspect frame (16:9, 4:3, 1:1 set in the
+//! camera) is no longer cut at decode; the whole sensor develops and new
+//! edits start with the camera's frame as their crop
+//! (`camera_crop`), as for Canon's aspect ratios. Sony's distortion data
+//! refer to the sensor, and the camera and Camera Raw correct the whole
+//! sensor before they crop: on the frame alone the warp lacked the pixels
+//! beyond it (HX95, RX0 II, ZV-E10 16:9 against the camera's JPEG: 11.9,
+//! 3.4, 2.0 → 0.35, 0.45, 0.38 JPEG px; notes: parity-gaps/G71, ssz).
 
 use rawler::RawImage;
 use rawler::decoders::{FormatHint, RawDecodeParams};
@@ -17,15 +26,54 @@ use rawler::imgop::{Point, Rect};
 use rawler::rawsource::RawSource;
 
 /// The newest frame version: new edits start with it.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// Version 1's fix: a CR3's active area holds its recorded crop.
 const CR3_RECORDED_CROP: u32 = 1;
 
+/// Version 2's fix: a Sony ARW keeps the sensor around its aspect frame.
+const ARW_WHOLE_SENSOR: u32 = 2;
+
 /// Whether some frame version can change the frame of a file with this
 /// extension (lower case, no dot): only those files are read to find out.
 pub fn may_change(extension: &str) -> bool {
-    extension.eq_ignore_ascii_case("cr3")
+    extension.eq_ignore_ascii_case("cr3") || extension.eq_ignore_ascii_case("arw")
+}
+
+/// Whether frame version `version` develops the whole `base` area of a RAW
+/// instead of the camera's aspect `frame` inside it (both in buffer
+/// coordinates): from version 2 for a Sony ARW whose frame the camera's
+/// crop gives back exactly — centred in `base`, with the size the file
+/// records as its image's (`camera_crop`). Elsewhere the frame stays cut,
+/// so no photograph loses its camera framing.
+pub(crate) fn keeps_sensor(
+    format: FormatHint,
+    version: u32,
+    file_bytes: &[u8],
+    base: Rect,
+    frame: Rect,
+) -> bool {
+    if version < ARW_WHOLE_SENSOR || format != FormatHint::ARW {
+        return false;
+    }
+    let Some((width, height, _)) = crate::capture_info::camera_image_size(file_bytes) else {
+        return false;
+    };
+    let (long, short) = (width.max(height), width.min(height));
+    let recorded = if frame.d.w >= frame.d.h {
+        (long, short)
+    } else {
+        (short, long)
+    };
+    // The crop new edits will start with, in buffer axes (`crop_for` centres
+    // alike in either orientation, up to a pixel of rounding).
+    let Some(crop) = crate::camera_crop::crop_for(base.d.w as u32, base.d.h as u32, recorded)
+    else {
+        return false;
+    };
+    (crop.width as usize, crop.height as usize) == (frame.d.w, frame.d.h)
+        && (base.p.x + crop.x as usize).abs_diff(frame.p.x) <= 1
+        && (base.p.y + crop.y as usize).abs_diff(frame.p.y) <= 1
 }
 
 /// Applies the frame fixes of `version` to the areas of an undecoded
@@ -165,6 +213,53 @@ mod tests {
 
     fn ltrb(l: usize, t: usize, r: usize, b: usize) -> Rect {
         Rect::new_with_points(Point::new(l, t), Point::new(r, b))
+    }
+
+    /// A little-endian TIFF header whose Exif image size is `width` ×
+    /// `height` (PixelXDimension, PixelYDimension).
+    fn exif_size(width: u32, height: u32) -> Vec<u8> {
+        let mut data = b"II*\0".to_vec();
+        data.extend(8u32.to_le_bytes());
+        // IFD0 at 8: one entry, the Exif IFD pointer to 26.
+        data.extend(1u16.to_le_bytes());
+        data.extend(0x8769u16.to_le_bytes());
+        data.extend(4u16.to_le_bytes());
+        data.extend(1u32.to_le_bytes());
+        data.extend(26u32.to_le_bytes());
+        data.extend(0u32.to_le_bytes());
+        // Exif IFD at 26.
+        data.extend(2u16.to_le_bytes());
+        for (tag, value) in [(0xa002u16, width), (0xa003, height)] {
+            data.extend(tag.to_le_bytes());
+            data.extend(4u16.to_le_bytes());
+            data.extend(1u32.to_le_bytes());
+            data.extend(value.to_le_bytes());
+        }
+        data.extend(0u32.to_le_bytes());
+        data
+    }
+
+    /// Frame version 2 leaves a Sony aspect frame uncut only where the
+    /// camera crop new edits start with gives it back.
+    #[test]
+    fn a_sony_aspect_frame_stays_uncut_where_the_camera_crop_gives_it_back() {
+        // HX95 16:9: default crop 12,18 4896 × 3672; frame 12,478 4896 × 2752.
+        let base = Rect::new(Point::new(12, 18), rawler::imgop::Dim2::new(4896, 3672));
+        let frame = Rect::new(Point::new(12, 478), rawler::imgop::Dim2::new(4896, 2752));
+        let exif = exif_size(4896, 2752);
+        assert!(keeps_sensor(FormatHint::ARW, 2, &exif, base, frame));
+        // Up to version 1, and in other formats, the frame is cut as before.
+        assert!(!keeps_sensor(FormatHint::ARW, 1, &exif, base, frame));
+        assert!(!keeps_sensor(FormatHint::RW2, 2, &exif, base, frame));
+        // An Exif size turned with the photo reads along the frame.
+        assert!(keeps_sensor(FormatHint::ARW, 2, &exif_size(2752, 4896), base, frame));
+        // The recorded size is not the frame's, or the frame is off-centre:
+        // the camera crop would not give it back, so it stays cut.
+        assert!(!keeps_sensor(FormatHint::ARW, 2, &exif_size(4800, 2700), base, frame));
+        let off = Rect::new(Point::new(12, 400), rawler::imgop::Dim2::new(4896, 2752));
+        assert!(!keeps_sensor(FormatHint::ARW, 2, &exif, base, off));
+        // No Exif size at all.
+        assert!(!keeps_sensor(FormatHint::ARW, 2, b"II*\0", base, frame));
     }
 
     #[test]

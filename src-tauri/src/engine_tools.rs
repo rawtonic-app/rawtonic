@@ -186,7 +186,7 @@ fn print_embedded_lens() {
         let start = std::time::Instant::now();
         let data = read(std::path::Path::new(path));
         let elapsed = start.elapsed();
-        let legacy = read_version(std::path::Path::new(path), 0, 0);
+        let legacy = read_version(std::path::Path::new(path), 0, 0, 0);
         println!(
             "{path}\t{elapsed:?}\t{}\t{}",
             json(data.as_ref().and_then(to_params)),

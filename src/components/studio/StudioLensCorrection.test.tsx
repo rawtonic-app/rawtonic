@@ -230,4 +230,15 @@ describe("camera lens data", () => {
     expect(current).toMatchObject({ lensCorrectionMode: "manual", lensDistortionParams: null });
     expect(screen.getByLabelText("Lens make")).toBeTruthy();
   });
+  it("is read for the frame the open photo develops", async () => {
+    // An edit from before the frame key develops the first frame.
+    await renderTool();
+    expect(mockInvoke).toHaveBeenCalledWith("get_camera_lens_profile", { path: "/job/x.raf", frame: 0 });
+    cleanup();
+    mockInvoke.mockClear();
+    current = { ...INITIAL_ADJUSTMENTS, sourceFrameVersion: 2 };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    expect(mockInvoke).toHaveBeenCalledWith("get_camera_lens_profile", { path: "/job/x.raf", frame: 2 });
+  });
 });

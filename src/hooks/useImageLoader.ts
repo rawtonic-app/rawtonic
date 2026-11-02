@@ -11,12 +11,13 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
 import {
   isNewRecipe,
+  SOURCE_FRAME_VERSION,
   type Adjustments,
 } from '../utils/adjustments';
 import { withNewEditFrame } from '../utils/sourceFrame';
 import { withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
-import { editorRecipe, neverEdited } from '../utils/neverEdited';
+import { editorRecipe, neverEdited, newSaved, savedSourceFrame, type CameraLens } from '../utils/neverEdited';
 import { historyFor, keptSince } from '../utils/photoHistory';
 import { recipeStepsSince } from '../utils/appUndo';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
@@ -171,10 +172,21 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             });
           }
           // The camera's lens data, needed when the recipe has no lens mode;
-          // read beside the decode instead of after it.
-          const cameraRequest = invoke<{ params: Adjustments['lensDistortionParams'] } | null>(
-            Invokes.GetCameraLensProfile, { path: selectedImage.path },
-          ).catch(() => null);
+          // read beside the decode instead of after it, for the frame a
+          // never-edited photo develops (another frame's only when its saved
+          // recipe keeps one: a Reset of an older edit).
+          const cameraRequests = new Map<number, Promise<CameraLens>>();
+          const cameraRequestFor = (frame: number) => {
+            let request = cameraRequests.get(frame);
+            if (!request) {
+              request = invoke<CameraLens>(
+                Invokes.GetCameraLensProfile, { path: selectedImage.path, frame },
+              ).catch(() => null);
+              cameraRequests.set(frame, request);
+            }
+            return request;
+          };
+          void cameraRequestFor(SOURCE_FRAME_VERSION);
           // The aspect ratio set in the camera, the crop new recipes start
           // with (src/utils/cameraCrop.ts); kept for a Reset.
           const cropsRequest = isRawPhoto(selectedImage.path)
@@ -195,7 +207,14 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // recipe has no lens mode at all) starts with the camera's own lens
             // data, the edge-fringe pass and the automatic lateral CA, as its
             // export does.
-            const camera = isRaw && neverEdited(savedAdjustments) ? await cameraRequest : null;
+            const camera =
+              isRaw && neverEdited(savedAdjustments)
+                ? await cameraRequestFor(
+                    newSaved(savedAdjustments) && savedAdjustments?.sourceFrameVersion == null && newEditFrame != null
+                      ? newEditFrame
+                      : savedSourceFrame(savedAdjustments),
+                  )
+                : null;
             cameraCrops = isRaw ? await cropsRequest : null;
             // Kept for a paste onto it while it is not edited (it pastes onto
             // this saved recipe, as onto a closed photograph). A new recipe
@@ -227,7 +246,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   isRaw,
                   width,
                   height,
-                  isRaw && neverEdited(after) ? await cameraRequest : null,
+                  isRaw && neverEdited(after) ? await cameraRequestFor(savedSourceFrame(after)) : null,
                   cameraCrops,
                 ),
               })),
