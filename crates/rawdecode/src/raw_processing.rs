@@ -868,7 +868,7 @@ pub(crate) fn prepare_raw_image(
     if decoder.format_hint() != rawler::decoders::FormatHint::DNG {
         linearize_canon_300d(raw_image, iso);
     }
-    apply_aspect_crop(raw_image, file_bytes, decoder.format_hint());
+    apply_aspect_crop(raw_image, file_bytes, decoder.format_hint(), frame_version);
     if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
         apply_dng_user_crop(raw_image, decoder);
     }
@@ -946,7 +946,7 @@ pub(crate) fn developed_areas(
 ) -> (rawler::imgop::Rect, rawler::imgop::Rect) {
     use rawler::imgop::{Point, Rect};
     crate::source_frame::apply(raw_image, decoder.format_hint(), frame_version);
-    apply_aspect_crop(raw_image, file_bytes, decoder.format_hint());
+    apply_aspect_crop(raw_image, file_bytes, decoder.format_hint(), frame_version);
     if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
         apply_dng_user_crop(raw_image, decoder);
     }
@@ -965,11 +965,14 @@ pub(crate) fn developed_areas(
 }
 
 /// The sizes (width, height; unrotated) of the active area and of the
-/// developed frame of the RAW in `source`, as frame version 0 develops it
-/// (the camera lens data read here, Sony, Fujifilm and Samsung, describe
-/// files no frame version changes). `None` for files rawler cannot read and
-/// Super CCD layouts.
-pub fn sensor_and_frame(source: &RawSource) -> Option<([usize; 2], [usize; 2])> {
+/// developed frame of the RAW in `source`, as frame version `frame_version`
+/// develops it (of the camera lens data read here only Sony's describe
+/// files a frame version changes: version 2 keeps a Sony aspect frame
+/// uncut). `None` for files rawler cannot read and Super CCD layouts.
+pub fn sensor_and_frame(
+    source: &RawSource,
+    frame_version: u32,
+) -> Option<([usize; 2], [usize; 2])> {
     let decoder = rawler::get_decoder(source).ok()?;
     let mut raw_image = decoder
         .raw_image(source, &RawDecodeParams::default(), true)
@@ -977,7 +980,12 @@ pub fn sensor_and_frame(source: &RawSource) -> Option<([usize; 2], [usize; 2])> 
     if superccd_layout(&raw_image, source.buf()).is_some() {
         return None;
     }
-    let (active, frame) = developed_areas(&mut raw_image, source.buf(), decoder.as_ref(), 0);
+    let (active, frame) = developed_areas(
+        &mut raw_image,
+        source.buf(),
+        decoder.as_ref(),
+        frame_version,
+    );
     Some(([active.d.w, active.d.h], [frame.d.w, frame.d.h]))
 }
 
@@ -1401,11 +1409,14 @@ pub(crate) struct SuperCcdLayout {
 /// 1:1 on a 4:3 sensor; 16:9, 4:3, 1:1 on a 3:2 one) is recorded as a
 /// frame; Camera Raw crops to it by default,
 /// rawler kept the whole sensor (and showed e.g. a square FZ330 frame as
-/// 4:3 with vignetted corners).
+/// 4:3 with vignetted corners). From frame version 2 a Sony frame stays
+/// uncut where the camera's crop gives it back exactly
+/// (`source_frame::keeps_sensor`).
 fn apply_aspect_crop(
     raw_image: &mut RawImage,
     file_bytes: &[u8],
     format: rawler::decoders::FormatHint,
+    frame_version: u32,
 ) {
     use rawler::decoders::FormatHint;
     use rawler::imgop::{Dim2, Point, Rect};
@@ -1444,7 +1455,21 @@ fn apply_aspect_crop(
         && frame.p.y + frame.d.h <= base.p.y + base.d.h;
     let smaller = frame.d.w * frame.d.h < base.d.w * base.d.h;
     let sensible = frame.d.w * 2 >= base.d.w && frame.d.h * 2 >= base.d.h;
-    if inside && smaller && sensible {
+    if inside
+        && smaller
+        && sensible
+        && crate::source_frame::keeps_sensor(format, frame_version, file_bytes, base, frame)
+    {
+        log::info!(
+            "Aspect-ratio frame {}x{} at {},{} left to the camera crop (of {}x{})",
+            frame.d.w,
+            frame.d.h,
+            frame.p.x,
+            frame.p.y,
+            base.d.w,
+            base.d.h
+        );
+    } else if inside && smaller && sensible {
         log::info!(
             "Aspect-ratio crop {}x{} at {},{} (of {}x{})",
             frame.d.w,

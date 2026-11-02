@@ -1913,7 +1913,10 @@ mod tests {
             assert_eq!(recipe["crop"]["y"], 376);
             assert_eq!(recipe["crop"]["height"], 2248);
             assert_eq!(recipe["aspectRatio"], 4000.0 / 2248.0);
-            assert_eq!(recipe["sourceFrameVersion"], 1);
+            assert_eq!(
+                recipe["sourceFrameVersion"],
+                rawtonic_engine::source_frame::VERSION
+            );
             assert!(recipe["renderVersion"].is_u64());
         }
         // A Reset of a frame 1 edit crops; one of a frame 0 edit does not

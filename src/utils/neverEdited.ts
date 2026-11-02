@@ -6,6 +6,7 @@ import {
   initialAdjustmentsFor,
   isNewRecipe,
   normalizeLoadedAdjustments,
+  SOURCE_FRAME_VERSION,
   type Adjustments,
 } from './adjustments';
 import { withCameraCrop, type CameraCrops } from './cameraCrop';
@@ -52,6 +53,16 @@ export async function withNeverEditedDefaults(
 /** Whether a saved recipe `saved` is new (none, or a Reset's: `isNewRecipe`). */
 export const newSaved = (saved: unknown): boolean =>
   !saved || Boolean((saved as { is_null?: boolean }).is_null) || isNewRecipe(saved as Partial<Adjustments>);
+
+/** The frame version a saved recipe `saved` develops, whose camera lens data
+ * it reads (`get_camera_lens_profile`'s `frame`): its own key, else the
+ * newest for a new recipe and the first for an older edit, as the backend
+ * (`source_frame::requested`). */
+export const savedSourceFrame = (saved: unknown): number => {
+  const own = saved ? (saved as Partial<Adjustments>).sourceFrameVersion : undefined;
+  if (typeof own === 'number') return own;
+  return newSaved(saved) ? SOURCE_FRAME_VERSION : 0;
+};
 
 /** The recipe the editor opens a saved recipe `saved` (none: never edited)
  * of a photograph `width` × `height` with: normalized, a new recipe with

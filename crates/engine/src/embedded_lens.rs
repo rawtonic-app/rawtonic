@@ -338,8 +338,9 @@ impl SonyFrame {
 /// Camera Raw: 0.3–0.9 px median instead of 0.65–1.7 with the developed
 /// frame's own half-diagonal; notes: parity-gaps/G71), the developed frame
 /// (aspect crops included) is the output.
-fn sony_sensor_frame(source: &RawSource) -> Option<SonyFrame> {
-    let ([sensor_w, sensor_h], [w, h]) = crate::raw_processing::sensor_and_frame(source)?;
+fn sony_sensor_frame(source: &RawSource, frame_version: u32) -> Option<SonyFrame> {
+    let ([sensor_w, sensor_h], [w, h]) =
+        crate::raw_processing::sensor_and_frame(source, frame_version)?;
     let (w, h) = (w as f64, h as f64);
     let reach = w.hypot(h) / (sensor_w as f64).hypot(sensor_h as f64);
     (w > 0.0 && h > 0.0 && (0.5..=1.0).contains(&reach)).then_some(SonyFrame {
@@ -1186,17 +1187,26 @@ pub fn geometry_version_of(adjustments: &serde_json::Value) -> u64 {
         .min(GEOMETRY_VERSION)
 }
 
-/// The correction data stored in the RAW file, if any.
+/// The correction data stored in the RAW file, if any, for the newest
+/// frame (`source_frame::VERSION`).
 pub fn read(path: &Path) -> Option<EmbeddedLensData> {
-    read_version(path, CA_VERSION, GEOMETRY_VERSION)
+    read_version(
+        path,
+        CA_VERSION,
+        GEOMETRY_VERSION,
+        crate::source_frame::VERSION,
+    )
 }
 
 /// The correction data as camera CA version `ca_version` and camera
-/// geometry version `geometry_version` read them.
+/// geometry version `geometry_version` read them, for the frame that frame
+/// version `frame_version` develops (`source_frame`: only a Sony aspect
+/// frame left uncut, version 2, reads differently).
 pub fn read_version(
     path: &Path,
     ca_version: u64,
     geometry_version: u64,
+    frame_version: u32,
 ) -> Option<EmbeddedLensData> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     let source = RawSource::new(path).ok()?;
@@ -1238,7 +1248,7 @@ pub fn read_version(
             if geometry_version < PANASONIC_FUJIFILM_GEOMETRY {
                 return Some(data);
             }
-            let aspect = crate::raw_processing::sensor_and_frame(&source)
+            let aspect = crate::raw_processing::sensor_and_frame(&source, 0)
                 .map(|(_, [w, h])| w as f64 / h as f64)
                 .filter(|aspect| aspect.is_finite() && *aspect > 0.0)
                 .unwrap_or(1.5);
@@ -1257,14 +1267,19 @@ pub fn read_version(
                 IFD::new_root_with_correction(&mut reader, 0, 0, 0, 10, &[SUB_IFDS, EXIF_IFD])
                     .ok()?;
             // A 16:9, 4:3 or 1:1 frame reaches a smaller part of the 3:2
-            // sensor's radius the data refer to.
+            // sensor's radius the data refer to; from frame version 2 such a
+            // frame is a crop of the whole sensor, which develops.
             let mut head = Vec::new();
             std::fs::File::open(path)
                 .ok()?
                 .take(1 << 20)
                 .read_to_end(&mut head)
                 .ok()?;
+            let uncut = frame_version > 0
+                && crate::raw_processing::sensor_and_frame(&source, frame_version)
+                    != crate::raw_processing::sensor_and_frame(&source, 0);
             let frame_reach = match crate::capture_info::aspect_crop(&head) {
+                _ if uncut => 1.0,
                 Some(crate::capture_info::AspectCrop::Centered(w, h)) => {
                     let (w, h) = (w as f64, h as f64);
                     let full_w = w.max(h * 1.5);
@@ -1278,7 +1293,7 @@ pub fn read_version(
                 ..if geometry_version == 0 {
                     SonyFrame::FULL
                 } else {
-                    sony_sensor_frame(&source).unwrap_or(SonyFrame::FULL)
+                    sony_sensor_frame(&source, frame_version).unwrap_or(SonyFrame::FULL)
                 }
             };
             // The lateral CA is only in the encrypted SR2 directory.
@@ -1413,7 +1428,7 @@ pub fn read_version(
             let applied = values(&notes, SAMSUNG_APPLIED_DISTORTION);
             let recorded = values(&notes, SAMSUNG_DISTORTION);
             let (model, start) = samsung_model(applied.as_deref(), recorded.as_deref())?;
-            let (_, [w, h]) = crate::raw_processing::sensor_and_frame(&source)?;
+            let (_, [w, h]) = crate::raw_processing::sensor_and_frame(&source, 0)?;
             samsung_curve(
                 &samsung_decrypt(model, &key, start)?,
                 (w as f64).hypot(h as f64) / 2.0,
@@ -1623,9 +1638,24 @@ pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
 pub const CAMERA_MODE: &str = "camera";
 
 /// Parameters from the camera's data for `source`, if it carries any, at
-/// the current versions (`current_geometry_version`).
+/// the current versions (`current_geometry_version`) and the newest frame.
 pub fn params_for(source: &Path) -> Option<LensDistortionParams> {
-    params_for_version(source, CA_VERSION, current_geometry_version(source))
+    params_for_version(
+        source,
+        CA_VERSION,
+        current_geometry_version(source),
+        crate::source_frame::VERSION,
+    )
+}
+
+/// The frame version whose frame a recipe develops of `source`
+/// (`source_frame::requested`, made `source_frame::effective`): the one
+/// its camera lens data are read for.
+fn recipe_frame(source: &Path, adjustments: &serde_json::Value) -> u32 {
+    crate::source_frame::effective(
+        &source.to_string_lossy(),
+        crate::source_frame::requested(adjustments),
+    )
 }
 
 /// The camera geometry version `params_for` reads `source` with: the
@@ -1694,6 +1724,7 @@ pub fn params_for_recipe(
         source,
         ca_version_of(adjustments),
         geometry_version_of(adjustments),
+        crate::source_frame::requested(adjustments),
     )
 }
 
@@ -1712,7 +1743,21 @@ pub fn recipe_params_known(source: &Path, adjustments: &serde_json::Value) -> bo
             || ca_version_of(adjustments) == 0
             || !is_panasonic(source))
             && geometry_version_of(adjustments) <= known_geometry_version(source, facts.version)
+            && facts.camera_lens_known(
+                geometry_version_of(adjustments),
+                recipe_frame(source, adjustments),
+                reads_by_frame(source),
+            )
     })
+}
+
+/// Whether a frame version reads the camera lens data of `source`
+/// differently (`read_version`: a Sony ARW's aspect frame left uncut).
+fn reads_by_frame(source: &Path) -> bool {
+    source
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("arw"))
 }
 
 fn is_panasonic(source: &Path) -> bool {
@@ -1723,26 +1768,30 @@ fn is_panasonic(source: &Path) -> bool {
 }
 
 /// Parameters from the camera's data for `source` as camera CA version
-/// `ca_version` and geometry version `geometry_version` read them.
+/// `ca_version` and geometry version `geometry_version` read them, for the
+/// frame frame version `frame_version` develops (`read_version`).
 pub fn params_for_version(
     source: &Path,
     ca_version: u64,
     geometry_version: u64,
+    frame_version: u32,
 ) -> Option<LensDistortionParams> {
     // Read once per file (and modification time): opening a photograph,
     // its thumbnail and its export all ask, and reading the RAW header costs
     // several milliseconds.
     type Cache = std::sync::Mutex<
         std::collections::HashMap<
-            (std::path::PathBuf, std::time::SystemTime, u64, u64),
+            (std::path::PathBuf, std::time::SystemTime, u64, u64, u32),
             Option<LensDistortionParams>,
         >,
     >;
     // Offline: the data the file had (source_facts), read at the current
     // versions; CA version 0 had no Panasonic CA and no CA-only data,
     // older geometry versions' data are kept where they differ.
+    // Files no frame version changes read as frame 0.
+    let frame = crate::source_frame::effective(&source.to_string_lossy(), frame_version);
     if let Some(facts) = crate::source_facts::registered(&source.to_string_lossy()) {
-        let params = facts.camera_lens_at(geometry_version);
+        let params = facts.camera_lens_for(geometry_version, frame);
         if ca_version == 0 && is_panasonic(source) {
             return params
                 .map(LensDistortionParams::without_tca)
@@ -1752,14 +1801,22 @@ pub fn params_for_version(
     }
     static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
     let modified = std::fs::metadata(source).and_then(|m| m.modified()).ok();
-    let key = modified.map(|time| (source.to_path_buf(), time, ca_version, geometry_version));
+    let key = modified.map(|time| {
+        (
+            source.to_path_buf(),
+            time,
+            ca_version,
+            geometry_version,
+            frame,
+        )
+    });
     let cache = CACHE.get_or_init(Default::default);
     if let Some(key) = &key
         && let Some(params) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(key)
     {
         return params.clone();
     }
-    let params = read_version(source, ca_version, geometry_version)
+    let params = read_version(source, ca_version, geometry_version, frame)
         .as_ref()
         .and_then(to_params);
     if let Some(key) = key {
@@ -1801,14 +1858,16 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     // And with the current automatic lateral CA, which decides itself
     // against the camera's CA data (`lateral_ca::applies`, `competes`).
     crate::lateral_ca::apply_default(adjustments, true, is_raw);
-    if let Some(params) = params_for(source) {
+    let geometry = current_geometry_version(source);
+    // The frame it develops (stamped above for a new recipe).
+    let frame = recipe_frame(source, adjustments);
+    if let Some(params) = params_for_version(source, CA_VERSION, geometry, frame) {
         if adjustments.is_null() {
             *adjustments = serde_json::json!({});
         }
         adjustments["lensCorrectionMode"] = serde_json::json!(CAMERA_MODE);
         adjustments["lensDistortionParams"] = serde_json::to_value(params).unwrap_or_default();
         adjustments[CA_VERSION_KEY] = serde_json::json!(CA_VERSION);
-        let geometry = current_geometry_version(source);
         if geometry > 0 {
             adjustments[GEOMETRY_VERSION_KEY] = serde_json::json!(geometry);
         }
@@ -2172,7 +2231,7 @@ fn sony_dng_lens(source: &RawSource, geometry: u64) -> Option<EmbeddedLensData> 
         ..if geometry == 0 {
             SonyFrame::FULL
         } else {
-            sony_sensor_frame(source).unwrap_or(SonyFrame::FULL)
+            sony_sensor_frame(source, 0).unwrap_or(SonyFrame::FULL)
         }
     };
     sony_lens(&distortion, vignetting.as_deref(), None, frame, geometry)
@@ -2983,9 +3042,9 @@ mod tests {
         std::fs::write(&path, header).unwrap();
         let reach = 0.5 * 4592f64.hypot(3064.0) / 2870.0;
         let at = |half_diagonal| panasonic_curve(&G7, half_diagonal, true).unwrap().zoom;
-        let old = read_version(&path, 1, 0).unwrap();
+        let old = read_version(&path, 1, 0, 0).unwrap();
         assert_eq!(old.zoom, panasonic_curve(&G7, None, false).unwrap().zoom);
-        let new = read_version(&path, 1, 5).unwrap();
+        let new = read_version(&path, 1, 5, 0).unwrap();
         assert!((new.zoom - at(Some(reach * 2870.0))).abs() < 1e-12);
         assert!((new.zoom - old.zoom).abs() > 1e-3);
     }

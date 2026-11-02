@@ -10,10 +10,12 @@
 //! a crop the photographer can widen. Rawtonic keeps the developed frame
 //! (the lens warp corrects the whole sensor) and gives new edits the
 //! camera's frame as an ordinary crop (`camera_crop`). Formats whose aspect
-//! tags the decode already crops to (Panasonic, Olympus / OM System, Sony:
-//! `raw_processing::apply_aspect_crop`) develop that frame, so the sizes
-//! agree and no crop follows; a DNG's own default crop is its frame (its
-//! Exif size is the original camera's).
+//! tags the decode already crops to (Panasonic, Olympus / OM System, and
+//! Sony up to frame version 1: `raw_processing::apply_aspect_crop`) develop
+//! that frame, so the sizes agree and no crop follows; from frame version 2
+//! a Sony frame develops the whole sensor and gets its frame as this crop
+//! (`source_frame::keeps_sensor`). A DNG's own default crop is its frame
+//! (its Exif size is the original camera's).
 
 use rawler::rawsource::RawSource;
 

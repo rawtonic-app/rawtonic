@@ -7,7 +7,7 @@ import { pasteInto } from './settingsClipboard';
 
 // Samsung EX2F 16:9 on its 4000 × 3000 sensor (crates/rawdecode/src/camera_crop.rs).
 const sixteenNine: Crop = { unit: 'px', x: 0, y: 376, width: 4000, height: 2248 };
-const crops: CameraCrops = [sixteenNine, sixteenNine];
+const crops: CameraCrops = [sixteenNine, sixteenNine, sixteenNine];
 
 describe('the aspect ratio set in the camera as the crop new edits start with', () => {
   it('opens a never-edited RAW, or a Reset, cropped to the camera frame', () => {

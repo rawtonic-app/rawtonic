@@ -50,7 +50,12 @@ use crate::lens_correction::LensDistortionParams;
 /// 16: `base_look.capture_gain_ev` (renderVersion 9's extended-low-ISO
 /// pull), so that an offline Sony photograph at ISO 50 develops with it.
 /// 17: `camera_lens` at camera geometry version 8 (Nikon Z optical centre).
-pub const VERSION: u32 = 17;
+/// 18: `camera_lens_frames` (a Sony aspect frame left uncut, frame
+/// version 2, reads its lens data on the whole sensor).
+pub const VERSION: u32 = 18;
+
+/// The facts version from which `camera_lens_frames` is kept.
+const CAMERA_LENS_FRAMES: u32 = 18;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -91,6 +96,12 @@ pub struct SourceFacts {
     /// (version 7 on).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub camera_lens_geometry: std::collections::BTreeMap<u64, Option<LensDistortionParams>>,
+    /// `camera_lens` (the newest geometry version) for the frames that
+    /// frame versions after 0 develop (`source_frame::effective`), where it
+    /// differs (version 18 on). `camera_lens` and `camera_lens_geometry`
+    /// are frame 0's.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub camera_lens_frames: std::collections::BTreeMap<u32, Option<LensDistortionParams>>,
     /// `embedded_lens::lensfun_default`: maker, model and parameters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lensfun_default: Option<(String, String, LensDistortionParams)>,
@@ -235,6 +246,30 @@ impl SourceFacts {
         }
     }
 
+    /// The camera's lens data at camera geometry version `geometry` for the
+    /// frame of (effective) frame version `frame`; `camera_lens_known` says
+    /// whether these facts hold it.
+    pub fn camera_lens_for(&self, geometry: u64, frame: u32) -> Option<LensDistortionParams> {
+        match self.camera_lens_frames.get(&frame) {
+            Some(params) if frame > 0 => params.clone(),
+            _ => self.camera_lens_at(geometry),
+        }
+    }
+
+    /// Whether `camera_lens_for(geometry, frame)` is the data the file
+    /// gives, for a file whose lens data a frame version may read
+    /// differently (`by_frame`: a Sony ARW): always for frame 0 and for
+    /// other files; for a later frame only at the newest geometry version,
+    /// in facts that keep `camera_lens_frames`, or facts that do not know
+    /// the file's frames (their previews show whatever frame they show).
+    pub fn camera_lens_known(&self, geometry: u64, frame: u32, by_frame: bool) -> bool {
+        frame == 0
+            || !by_frame
+            || self.frames.is_none()
+            || (self.version >= CAMERA_LENS_FRAMES
+                && geometry == crate::embedded_lens::facts_geometry_version(self.version))
+    }
+
     /// The measured image key ([10th, 90th, 50th] percentile, as
     /// `image_key::measure`); the median 0 (unknown) in facts from before
     /// version 6.
@@ -273,12 +308,31 @@ pub fn collect(path: &str) -> SourceFacts {
     }
     let source = std::path::Path::new(path);
     let diffraction = crate::diffraction::sigmas_for_path(path);
-    let camera_lens_at = |geometry| {
-        crate::embedded_lens::params_for_version(source, crate::embedded_lens::CA_VERSION, geometry)
+    let camera_lens_at = |geometry, frame| {
+        crate::embedded_lens::params_for_version(
+            source,
+            crate::embedded_lens::CA_VERSION,
+            geometry,
+            frame,
+        )
     };
-    let camera_lens = camera_lens_at(crate::embedded_lens::GEOMETRY_VERSION);
+    let frames = crate::source_frame::frames(path);
+    let camera_lens = camera_lens_at(crate::embedded_lens::GEOMETRY_VERSION, 0);
     let camera_lens_geometry = (0..crate::embedded_lens::GEOMETRY_VERSION)
-        .map(|geometry| (geometry, camera_lens_at(geometry)))
+        .map(|geometry| (geometry, camera_lens_at(geometry, 0)))
+        .filter(|(_, params)| *params != camera_lens)
+        .collect();
+    let camera_lens_frames = frames
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|&frame| frame > 0)
+        .collect::<std::collections::BTreeSet<u32>>()
+        .into_iter()
+        .map(|frame| {
+            let params = camera_lens_at(crate::embedded_lens::GEOMETRY_VERSION, frame);
+            (frame, params)
+        })
         .filter(|(_, params)| *params != camera_lens)
         .collect();
     let mut facts = SourceFacts {
@@ -296,8 +350,9 @@ pub fn collect(path: &str) -> SourceFacts {
             .filter(|_| diffraction.v1 != diffraction.current),
         camera_lens,
         camera_lens_geometry,
+        camera_lens_frames,
         lensfun_default: crate::embedded_lens::lensfun_default(source),
-        frames: crate::source_frame::frames(path),
+        frames,
         camera_crop: crate::camera_crop::crops(path)
             .get(crate::source_frame::VERSION as usize)
             .copied()
@@ -370,6 +425,46 @@ pub fn registered(path: &str) -> Option<Arc<SourceFacts>> {
 mod tests {
     use super::*;
 
+    /// A later frame's lens data (a Sony aspect frame left uncut) come from
+    /// `camera_lens_frames`, and only facts that keep them know them.
+    #[test]
+    fn camera_lens_per_frame() {
+        let params = |k: f64| Some(LensDistortionParams::ptlens(0.0, k, 0.0, [0.0; 3]));
+        let newest = crate::embedded_lens::GEOMETRY_VERSION;
+        let facts = SourceFacts {
+            version: VERSION,
+            frames: Some(vec![0, 0, 2]),
+            camera_lens: params(0.01),
+            camera_lens_geometry: [(0, params(0.02))].into_iter().collect(),
+            camera_lens_frames: [(2, params(0.03))].into_iter().collect(),
+            ..Default::default()
+        };
+        assert_eq!(facts.camera_lens_for(newest, 0), params(0.01));
+        assert_eq!(facts.camera_lens_for(0, 0), params(0.02));
+        assert_eq!(facts.camera_lens_for(newest, 2), params(0.03));
+        // A frame these facts hold no own data for reads as frame 0's.
+        assert_eq!(facts.camera_lens_for(newest, 1), params(0.01));
+        assert!(facts.camera_lens_known(newest, 2, true));
+        assert!(facts.camera_lens_known(0, 0, true));
+        // Older geometry on a later frame, or facts from before version 18:
+        // not known for a Sony ARW, so a recipe keeps its own parameters.
+        assert!(!facts.camera_lens_known(0, 2, true));
+        let older = SourceFacts {
+            version: 17,
+            ..facts.clone()
+        };
+        assert!(!older.camera_lens_known(newest, 2, true));
+        assert!(older.camera_lens_known(newest, 0, true));
+        // Other files read every frame alike (the R5 II's frame 1).
+        assert!(older.camera_lens_known(newest, 1, false));
+        // Facts that do not know the frames: as before them.
+        let unknown = SourceFacts {
+            frames: None,
+            ..older
+        };
+        assert!(unknown.camera_lens_known(newest, 2, true));
+    }
+
     #[test]
     fn facts_round_trip_through_json_and_the_registry() {
         let mut curve = [0.0f32; PROFILE_CURVE_SAMPLES];
@@ -415,6 +510,7 @@ mod tests {
             diffraction_sigma_v1: None,
             camera_lens: None,
             camera_lens_geometry: Default::default(),
+            camera_lens_frames: [(2, None)].into_iter().collect(),
             lensfun_default: None,
             frames: Some(vec![0, 1]),
             camera_crop: Some(vec![0, 376, 4000, 2248]),

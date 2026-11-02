@@ -1767,11 +1767,16 @@ mod tests {
             serde_json::json!({}),
             serde_json::json!({KEY: 1}),
         ] {
+            // A Reset's frame stays; a never-edited photo takes the newest.
+            let frame = new
+                .get(KEY)
+                .cloned()
+                .unwrap_or(serde_json::json!(rawtonic_engine::source_frame::VERSION));
             let recipe = paste(new);
             assert_eq!(recipe["exposure"], 1.0);
             assert_eq!(recipe["crop"]["y"], 376);
             assert_eq!(recipe["aspectRatio"], 4000.0 / 2248.0);
-            assert_eq!(recipe[KEY], 1);
+            assert_eq!(recipe[KEY], frame);
             assert!(recipe["renderVersion"].is_u64());
         }
         // A pasted crop replaces it; an edited photograph keeps its own.

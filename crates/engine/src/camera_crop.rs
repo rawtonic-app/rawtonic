@@ -28,7 +28,7 @@ pub fn crops(path: &str) -> Vec<Option<CameraCrop>> {
         return vec![None; versions];
     }
     if let Some(facts) = crate::source_facts::registered(path) {
-        return offline(&facts);
+        return offline(&facts, &crate::source_frame::extension_of(path));
     }
     type Cache = Mutex<HashMap<String, (u64, std::time::SystemTime, Vec<Option<CameraCrop>>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
@@ -65,7 +65,7 @@ pub fn crops(path: &str) -> Vec<Option<CameraCrop>> {
 
 /// `crops` from an offline photograph's facts: the newest frame's crop for
 /// every version that frames the file as the newest does.
-fn offline(facts: &crate::source_facts::SourceFacts) -> Vec<Option<CameraCrop>> {
+fn offline(facts: &crate::source_facts::SourceFacts, extension: &str) -> Vec<Option<CameraCrop>> {
     let Some(kept) = facts.camera_crop.as_deref() else {
         return Vec::new();
     };
@@ -82,8 +82,8 @@ fn offline(facts: &crate::source_facts::SourceFacts) -> Vec<Option<CameraCrop>> 
     };
     (0..=newest)
         .map(|version| {
-            (crate::source_frame::effective_in(frames, version)
-                == crate::source_frame::effective_in(frames, newest))
+            (crate::source_frame::effective_in(frames, version, extension)
+                == crate::source_frame::effective_in(frames, newest, extension))
             .then_some(crop)
             .flatten()
         })
@@ -174,7 +174,7 @@ mod tests {
         // set too (the crop alone would make it an edit without them).
         for new in [json!({}), Value::Null] {
             let mut recipe = new;
-            start_new_edit(&mut recipe, &[Some(crop), Some(crop)]);
+            start_new_edit(&mut recipe, &[Some(crop), Some(crop), Some(crop)]);
             assert_eq!(
                 recipe["renderVersion"],
                 json!(crate::image_processing::RENDER_VERSION)
@@ -189,7 +189,7 @@ mod tests {
         }
         // A Reset's recipe keeps its frame and takes that frame's crop.
         let mut reset = json!({crate::source_frame::KEY: 0});
-        start_new_edit(&mut reset, &[None, Some(crop)]);
+        start_new_edit(&mut reset, &[None, Some(crop), Some(crop)]);
         assert_eq!(reset[crate::source_frame::KEY], json!(0));
         assert!(reset.get("crop").is_none());
         assert_eq!(
@@ -198,7 +198,7 @@ mod tests {
         );
         // An edit keeps its own crop (none) and versions.
         let mut edited = json!({"exposure": 1.0});
-        start_new_edit(&mut edited, &[Some(crop), Some(crop)]);
+        start_new_edit(&mut edited, &[Some(crop), Some(crop), Some(crop)]);
         assert_eq!(edited, json!({"exposure": 1.0}));
         // Not a RAW: only the versions, the file is never read.
         let mut other = json!({});
@@ -228,15 +228,24 @@ mod tests {
             width: 4000,
             height: 2248,
         });
-        // Frame 0 differs from the newest: its crop is not known.
-        assert_eq!(offline(&facts), vec![None, crop]);
+        // Frame 0 differs from the newest: its crop is not known (facts
+        // from before frame version 2 list two frames; the newest reads as
+        // their last).
+        assert_eq!(offline(&facts, "CR3"), vec![None, crop, crop]);
+        // An ARW's list from before version 2 does not tell its newest
+        // frame: only that frame gets the crop.
         facts.frames = Some(vec![0, 0]);
-        assert_eq!(offline(&facts), vec![crop, crop]);
+        assert_eq!(offline(&facts, "ARW"), vec![None, None, crop]);
+        facts.frames = Some(vec![0, 1]);
+        facts.frames = Some(vec![0, 0, 0]);
+        assert_eq!(offline(&facts, "CR3"), vec![crop, crop, crop]);
+        facts.frames = Some(vec![0, 0, 2]);
+        assert_eq!(offline(&facts, "CR3"), vec![None, None, crop]);
         // Kept as none: none for every frame.
         facts.camera_crop = Some(Vec::new());
-        assert_eq!(offline(&facts), vec![None, None]);
+        assert_eq!(offline(&facts, "CR3"), vec![None, None, None]);
         // Facts from before the crop was kept tell nothing.
         facts.camera_crop = None;
-        assert_eq!(offline(&facts), Vec::new());
+        assert_eq!(offline(&facts, "CR3"), Vec::new());
     }
 }
