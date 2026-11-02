@@ -252,10 +252,22 @@ mod tests {
         assert!(!keeps_sensor(FormatHint::ARW, 1, &exif, base, frame));
         assert!(!keeps_sensor(FormatHint::RW2, 2, &exif, base, frame));
         // An Exif size turned with the photo reads along the frame.
-        assert!(keeps_sensor(FormatHint::ARW, 2, &exif_size(2752, 4896), base, frame));
+        assert!(keeps_sensor(
+            FormatHint::ARW,
+            2,
+            &exif_size(2752, 4896),
+            base,
+            frame
+        ));
         // The recorded size is not the frame's, or the frame is off-centre:
         // the camera crop would not give it back, so it stays cut.
-        assert!(!keeps_sensor(FormatHint::ARW, 2, &exif_size(4800, 2700), base, frame));
+        assert!(!keeps_sensor(
+            FormatHint::ARW,
+            2,
+            &exif_size(4800, 2700),
+            base,
+            frame
+        ));
         let off = Rect::new(Point::new(12, 400), rawler::imgop::Dim2::new(4896, 2752));
         assert!(!keeps_sensor(FormatHint::ARW, 2, &exif, base, off));
         // No Exif size at all.

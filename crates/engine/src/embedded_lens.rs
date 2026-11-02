@@ -1190,7 +1190,12 @@ pub fn geometry_version_of(adjustments: &serde_json::Value) -> u64 {
 /// The correction data stored in the RAW file, if any, for the newest
 /// frame (`source_frame::VERSION`).
 pub fn read(path: &Path) -> Option<EmbeddedLensData> {
-    read_version(path, CA_VERSION, GEOMETRY_VERSION, crate::source_frame::VERSION)
+    read_version(
+        path,
+        CA_VERSION,
+        GEOMETRY_VERSION,
+        crate::source_frame::VERSION,
+    )
 }
 
 /// The correction data as camera CA version `ca_version` and camera
@@ -1796,8 +1801,15 @@ pub fn params_for_version(
     }
     static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
     let modified = std::fs::metadata(source).and_then(|m| m.modified()).ok();
-    let key =
-        modified.map(|time| (source.to_path_buf(), time, ca_version, geometry_version, frame));
+    let key = modified.map(|time| {
+        (
+            source.to_path_buf(),
+            time,
+            ca_version,
+            geometry_version,
+            frame,
+        )
+    });
     let cache = CACHE.get_or_init(Default::default);
     if let Some(key) = &key
         && let Some(params) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(key)
