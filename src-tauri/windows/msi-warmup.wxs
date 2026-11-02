@@ -16,6 +16,9 @@
   NSIS install folder from the registry and installs into it, so removing the
   NSIS copy afterwards would delete the MSI's files. The user uninstalls the
   NSIS copy first (libraries, edits and settings stay in the user profile).
+  The NSIS uninstaller leaves that registry entry behind, so an install
+  folder found in the user's LocalAppData is reset to Program Files: this
+  per-machine install never goes into one user's profile.
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
@@ -24,6 +27,7 @@
       <RegistrySearch Id="RawtonicNsisUninstall" Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic" Name="UninstallString" Type="raw" />
     </Property>
     <Condition Message="Rawtonic is already installed for your user by its other installer (Rawtonic_..._x64-setup.exe). Uninstall that copy first in Settings, Apps (leave 'Delete the application data' unticked: your libraries, edits and settings stay), then run this installer again.">Installed OR NOT RAWTONICNSISINSTALL</Condition>
+    <SetProperty Id="INSTALLDIR" Value="[ProgramFiles64Folder]Rawtonic\" After="AppSearch" Sequence="both">NOT Installed AND INSTALLDIR AND LocalAppDataFolder AND (INSTALLDIR ~&lt;&lt; LocalAppDataFolder)</SetProperty>
     <CustomAction Id="RawtonicWarmGpuCache" FileKey="Path" ExeCommand="--warm-gpu-cache" Execute="immediate" Impersonate="yes" Return="ignore" />
     <InstallExecuteSequence>
       <Custom Action="RawtonicWarmGpuCache" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>

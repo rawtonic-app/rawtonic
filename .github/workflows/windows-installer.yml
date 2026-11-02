@@ -272,6 +272,7 @@ jobs:
               if (Test-Path "$nsisDir\rawtonic-app.exe") { Write-Error 'the NSIS copy was not uninstalled'; exit 1 }
               # The MSI's own warm-up must leave its log.
               Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue | Remove-Item
+              # NSIS leaves HKCU\Software\<publisher>\Rawtonic behind; the MSI must still go to Program Files.
               $watch.Restart()
               $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"" -PassThru -Wait
             }
