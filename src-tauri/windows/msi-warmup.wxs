@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rawtonic MSI fragment (bundle.windows.wix.fragmentPaths): the MSI's
+  counterpart of the NSIS hook in installer-hooks.nsh. After an install or
+  update, fill the app's GPU pipeline cache so the first launch does not wait
+  for shader compiles (src-tauri/src/gpu_warmup.rs). It runs after
+  InstallFinalize like Tauri's own LaunchApplication action, so it runs as
+  the installing user and the cache lands in that user's %LOCALAPPDATA%. The
+  app ends the warm-up itself within 120 s; its outcome never fails the
+  install (Return="ignore"). "Path" is the main binary's File Id in Tauri's
+  main.wxs. The empty ComponentGroup only links this fragment in
+  (bundle.windows.wix.componentGroupRefs).
+
+  It also refuses to install while the per-user NSIS installation
+  (Rawtonic_<version>_x64-setup.exe) is registered: Tauri's MSI takes the
+  NSIS install folder from the registry and installs into it, so removing the
+  NSIS copy afterwards would delete the MSI's files. The user uninstalls the
+  NSIS copy first (libraries, edits and settings stay in the user profile).
+  The NSIS uninstaller leaves that registry entry behind, so an install
+  folder found in the user's LocalAppData is reset to Program Files: this
+  per-machine install never goes into one user's profile.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="RawtonicGpuWarmup" />
+    <Property Id="RAWTONICNSISINSTALL" Secure="yes">
+      <RegistrySearch Id="RawtonicNsisUninstall" Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic" Name="UninstallString" Type="raw" />
+    </Property>
+    <Condition Message="Rawtonic is already installed for your user by its other installer (Rawtonic_..._x64-setup.exe). Uninstall that copy first in Settings, Apps (leave 'Delete the application data' unticked: your libraries, edits and settings stay), then run this installer again.">Installed OR NOT RAWTONICNSISINSTALL</Condition>
+    <SetProperty Id="INSTALLDIR" Value="[ProgramFiles64Folder]Rawtonic\" After="AppSearch" Sequence="both">NOT Installed AND INSTALLDIR AND LocalAppDataFolder AND (INSTALLDIR ~&lt;&lt; LocalAppDataFolder)</SetProperty>
+    <CustomAction Id="RawtonicWarmGpuCache" FileKey="Path" ExeCommand="--warm-gpu-cache" Execute="immediate" Impersonate="yes" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RawtonicWarmGpuCache" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>
