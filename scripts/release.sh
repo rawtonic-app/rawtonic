@@ -83,6 +83,10 @@ LINUX_CACHE=${RAWTONIC_LINUX_CACHE:-$LINUX_DIR/cache}
 LINUX_LOCK=${RAWTONIC_LINUX_LOCK:-}
 LINUX_PHOTOS=${RAWTONIC_LINUX_PHOTOS:-}
 read -ra SSH <<< "${RAWTONIC_LINUX_SSH:-}"
+# Remote paths go into command lines on the host unquoted: allow only plain ones.
+for v in "$LINUX_DIR" "$LINUX_CACHE" "$LINUX_LOCK" "$LINUX_PHOTOS" "${RAWTONIC_LINUX_CACHE_SEED:-}"; do
+  [[ $v =~ ^[A-Za-z0-9._/-]*$ ]] && [[ $v != *..* ]] || { echo "release: Linux host path '$v' may only hold letters, digits and . _ / - (no spaces, no ..)" >&2; exit 2; }
+done
 read -ra LOCK <<< "${RAWTONIC_BUILD_LOCK:-}"
 
 STATE=$WORK/state LOGS=$WORK/logs ASSETS=$WORK/assets
@@ -174,7 +178,7 @@ st_preflight() {
 st_bump() {
   if [ "$BUMP" = 0 ]; then
     local s; s=$(git -C "$REPO_ROOT" rev-parse --verify "${SHA_ARG:-origin/main}^{commit}") || fail "no commit ${SHA_ARG:-origin/main}"
-    check_release_commit "$s"; echo "$s" > "$STATE/sha"; echo "building $s without a bump"; return
+    check_release_commit "$s"; keep_sha "$s"; echo "building $s without a bump"; return
   fi
   local b=$WORK/bump branch=release-$VERSION
   if [ ! -d "$b" ]; then
@@ -198,7 +202,14 @@ EOF
   [ -n "$merged" ] || fail "ship.sh did not merge (see above)"
   git -C "$REPO_ROOT" fetch -q origin
   merged=$(git -C "$REPO_ROOT" rev-parse "$merged")
-  check_release_commit "$merged"; echo "$merged" > "$STATE/sha"; echo "merged as $merged"
+  check_release_commit "$merged"; keep_sha "$merged"; echo "merged as $merged"
+}
+# Every built stage belongs to one commit: a different one needs a new work folder.
+keep_sha() {
+  if [ -f "$STATE/sha" ] && [ "$(cat "$STATE/sha")" != "$1" ]; then
+    fail "this work folder holds builds of $(cat "$STATE/sha"), not $1: move $WORK aside (or set RAWTONIC_RELEASE_WORK) and run again"
+  fi
+  echo "$1" > "$STATE/sha"
 }
 check_release_commit() {
   local v
@@ -324,7 +335,8 @@ st_ident() {
       # Confirm with fresh homes: a cache left by an earlier export is not the cause.
       rm -rf "$i/h1" "$i/h2"; mkdir -p "$i/h1" "$i/h2"
       ho=$(one "$old" "$i/h1" "$f" "$r"); hn=$(one "$new" "$i/h2" "$f" "$r")
-      if [ "$ho" = "$hn" ]; then same=$((same + 1)); echo "same with fresh homes: $b $k"; else diff=$((diff + 1)); echo "DIFF $b $k"; fi
+      if [ -z "$ho" ] || [ -z "$hn" ]; then failed=$((failed + 1)); echo "FAILED with fresh homes $b $k old=$ho new=$hn"
+      elif [ "$ho" = "$hn" ]; then same=$((same + 1)); echo "same with fresh homes: $b $k"; else diff=$((diff + 1)); echo "DIFF $b $k"; fi
     done
   done
   echo "ident: $n pairs, $same identical, $diff differ, $failed failed (v$(cat "$STATE/prev") vs $VERSION, arm64, 16-bit TIFF)"
@@ -600,6 +612,8 @@ main() {
     case $FROM in preflight|bump|windows) rm -f "$STATE/windows-run";; esac
   fi
   [ -f "$STATE/prev" ] && PREV=${PREV:-$(cat "$STATE/prev")}
+  # Without a bump the commit is resolved again on every run (keep_sha refuses a changed one).
+  [ "$BUMP" = 0 ] && rm -f "$STATE/bump.ok"
   if [ -n "$ONLY" ]; then
     rm -f "$STATE/$ONLY.ok"; [ "$ONLY" = windows ] && rm -f "$STATE/windows-run"
     run_stage "$ONLY"; rc=$?; summary; exit $rc

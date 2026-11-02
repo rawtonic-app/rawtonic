@@ -43,7 +43,8 @@ case $step in
     (cd "$D/out" && sha256sum Rawtonic_"${V}"_amd64.AppImage*)
     ;;
   smoke)
-    D=$1 P=$2 V=$3 T=$1/smoke bad=0
+    # Absolute paths: the app ignores relative XDG folders and would use the host's own profile.
+    D=$(realpath -m "$1") P=$(realpath -m "$2") V=$3 bad=0; T=$D/smoke
     # A smoke left running by a dropped ssh connection finishes first.
     exec 9> "$D/smoke.lock"; flock 9
     rm -rf "${T:?}"; mkdir -p "$T/app" "$T/host" "$T/prev"
@@ -52,11 +53,12 @@ case $step in
     (cd "$T" && "$app" --appimage-extract usr/bin/rawtonic-app >/dev/null 2>&1)
     n=$(grep -c -a relay.rawtonic.cc "$T/squashfs-root/usr/bin/rawtonic-app"); echo "relay strings: $n"; [ "$n" -ge 1 ] || bad=1
     u=$(grep -a -o 'gh-releases-zsync[^ ]*zsync' "$app" | head -1); echo "update information: $u"; [ -n "$u" ] || bad=1
-    export XDG_CONFIG_HOME=$T/cfg XDG_DATA_HOME=$T/data XDG_CACHE_HOME=$T/cache
+    mkdir -p "$T/home" "$T/phome"
+    export HOME=$T/home XDG_CONFIG_HOME=$T/cfg XDG_DATA_HOME=$T/data XDG_CACHE_HOME=$T/cache
     for f in "$P"/*; do b=$(basename "$f"); [ "$b" = SHA256SUMS ] && continue
       s=$(date +%s)
       xvfb-run -a "$app" export "$f" --output "$T/host/$b.jpg" --format jpeg > "$T/host/$b.log" 2>&1 < /dev/null; c=$?
-      XDG_CONFIG_HOME=$T/pcfg XDG_DATA_HOME=$T/pdata XDG_CACHE_HOME=$T/pcache \
+      HOME=$T/phome XDG_CONFIG_HOME=$T/pcfg XDG_DATA_HOME=$T/pdata XDG_CACHE_HOME=$T/pcache \
         xvfb-run -a "$D/prev/prev.AppImage" export "$f" --output "$T/prev/$b.jpg" --format jpeg > "$T/prev/$b.log" 2>&1 < /dev/null
       cmp -s "$T/host/$b.jpg" "$T/prev/$b.jpg" && same=identical-to-prev || same=DIFF-vs-prev
       echo "host $b exit $c $(( $(date +%s) - s ))s $(stat -c %s "$T/host/$b.jpg" 2>/dev/null) $same"

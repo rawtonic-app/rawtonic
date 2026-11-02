@@ -42,7 +42,7 @@ A rerun with the same version skips every stage that passed. `--from STAGE` redo
 
 Other options: `--no-bump` builds `--sha` (default `origin/main`), which must already carry the version and its CHANGELOG section (a hotfix branch, or a rebuild); `--no-draft` stops before `gh release create`; `--prev VERSION` sets the release the identity checks compare with; `--accept-ident-diff` lists identity differences instead of failing — only for an export change the CHANGELOG states.
 
-A change after the bump means rebuilding every asset: use a new work folder (move the old one aside) or `--from source` after the fix is merged.
+A work folder belongs to one commit. A change after the bump means rebuilding every asset: move the work folder aside (or set another `RAWTONIC_RELEASE_WORK`) and run again (`--no-bump --sha FIXED` when the version is already merged); the script refuses to mix commits in one folder. Linux host paths may hold only letters, digits and `. _ / -`.
 
 ## Configuration
 
