@@ -612,8 +612,11 @@ main() {
     case $FROM in preflight|bump|windows) rm -f "$STATE/windows-run";; esac
   fi
   [ -f "$STATE/prev" ] && PREV=${PREV:-$(cat "$STATE/prev")}
-  # Without a bump the commit is resolved again on every run (keep_sha refuses a changed one).
-  [ "$BUMP" = 0 ] && rm -f "$STATE/bump.ok"
+  # Without a bump the commit is resolved again on every run, --only runs too
+  # (keep_sha refuses a changed one; the stages after it keep their markers).
+  if [ "$BUMP" = 0 ] && [ -f "$STATE/preflight.ok" ] && [ "$ONLY" != bump ]; then
+    rm -f "$STATE/bump.ok"; run_stage bump || { summary; exit 1; }
+  fi
   if [ -n "$ONLY" ]; then
     rm -f "$STATE/$ONLY.ok"; [ "$ONLY" = windows ] && rm -f "$STATE/windows-run"
     run_stage "$ONLY"; rc=$?; summary; exit $rc
