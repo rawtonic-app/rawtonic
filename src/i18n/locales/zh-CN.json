@@ -1408,7 +1408,9 @@
     "textPt": "页眉页脚大小 (pt)",
     "title": "小样页",
     "watermark": "导出表单中的水印",
-    "watermarkHelp": "请先在导出中设置水印以在此使用。",
+    "watermarkHelp": "保存为导出表单的水印文字；在那里开启之前，导出不会添加水印。",
+    "watermarkNew": "水印",
+    "watermarkText": "水印文字",
     "widthMm": "宽度 (mm)",
     "writes": "写入“{{name}}”"
   },

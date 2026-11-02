@@ -1545,7 +1545,9 @@
     "textPt": "Rozmiar nagłówka i stopki (pt)",
     "title": "Stykówka",
     "watermark": "Znak wodny z formularza eksportu",
-    "watermarkHelp": "Ustaw znak wodny w Eksporcie, aby użyć go tutaj.",
+    "watermarkHelp": "Zapisywany jako tekst znaku wodnego formularza eksportu; eksporty pozostają bez znaku wodnego, dopóki go tam nie włączysz.",
+    "watermarkNew": "Znak wodny",
+    "watermarkText": "Tekst znaku wodnego",
     "widthMm": "Szerokość (mm)",
     "writes": "Zapisuje „{{name}}”"
   },

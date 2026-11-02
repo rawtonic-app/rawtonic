@@ -1,6 +1,6 @@
 import { runExportJobs, submittedFrom } from "../../utils/runExportJobs";
 import { validNamingTemplate, validSequenceStart, type NamingPreview } from "../../utils/namingTemplates";
-import { readFormDraft, readJobName, writeFormDraft, writeJobName } from "../../utils/exportJob";
+import { readJobName, startFormDraft, writeFormDraft, writeJobName } from "../../utils/exportJob";
 import NamingEditor from "../ui/NamingEditor";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,7 +23,6 @@ import {
 } from "../ui/ExportImportProperties";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import {
-  DEFAULT_RECIPE_DRAFT,
   RESIZE_MODES,
   defaultResizeValue,
   draftFromPreset,
@@ -108,13 +107,8 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const state = useProcessStore((s) => s.exportState);
   const paths = selected.length ? selected : image ? [image.path] : [];
   const session = useLibraryStore((s) => s.sessionDirectory);
-  // Capture One sessions export into their Output folder by default.
   // The last settings of this library come back when the dialog reopens.
-  const startDraft = (library: string | null): RecipeDraft =>
-    readFormDraft(library) ?? {
-      ...DEFAULT_RECIPE_DRAFT,
-      where: library ? "output" : "choose",
-    };
+  const startDraft = startFormDraft;
   const [draft, setDraft] = useState<RecipeDraft>(() => startDraft(session));
   const draftLibrary = useRef(session);
   const set = (patch: Partial<RecipeDraft>) =>

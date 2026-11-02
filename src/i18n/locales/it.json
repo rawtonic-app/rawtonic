@@ -1486,7 +1486,9 @@
     "textPt": "Dimensione intestazione e piè (pt)",
     "title": "Provino a contatto",
     "watermark": "Filigrana del modulo Esporta",
-    "watermarkHelp": "Imposta una filigrana in Esporta per usarla qui.",
+    "watermarkHelp": "Salvato come testo della filigrana del modulo di esportazione; le esportazioni restano senza filigrana finché non la attivi lì.",
+    "watermarkNew": "Filigrana",
+    "watermarkText": "Testo della filigrana",
     "widthMm": "Larghezza (mm)",
     "writes": "Scrive «{{name}}»"
   },

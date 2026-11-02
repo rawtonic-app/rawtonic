@@ -52,6 +52,13 @@ export function readFormDraft(library: string | null): RecipeDraft | null {
   }
 }
 
+/** The Export form a library starts from: its last settings, else the
+ * defaults with the library's Output folder as destination (Capture One
+ * sessions export there by default). */
+export function startFormDraft(library: string | null): RecipeDraft {
+  return readFormDraft(library) ?? { ...DEFAULT_RECIPE_DRAFT, where: library ? 'output' : 'choose' };
+}
+
 export function writeFormDraft(library: string | null, draft: RecipeDraft): void {
   try {
     localStorage.setItem(formKey(library), JSON.stringify(draft));

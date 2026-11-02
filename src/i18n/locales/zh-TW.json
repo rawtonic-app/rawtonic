@@ -1408,7 +1408,9 @@
     "textPt": "頁首頁尾大小 (pt)",
     "title": "小樣頁",
     "watermark": "匯出表單中的浮水印",
-    "watermarkHelp": "請先在匯出中設定浮水印以在此使用。",
+    "watermarkHelp": "儲存為匯出表單的浮水印文字；在那裡開啟之前，匯出不會加上浮水印。",
+    "watermarkNew": "浮水印",
+    "watermarkText": "浮水印文字",
     "widthMm": "寬度 (mm)",
     "writes": "寫入「{{name}}」"
   },
