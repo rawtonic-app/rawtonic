@@ -222,10 +222,15 @@ impl Library {
     /// its file (Export as Catalog without originals of a library's own
     /// photographs: edits only). It is offline here, keeps its edits and
     /// previews, and Import from Catalog brings its work back to the library
-    /// that holds the original. Nothing on disk changes.
-    pub fn place_without_original(&self, places: &[(String, std::path::PathBuf)]) -> Result<()> {
+    /// that holds the original, matched by id or by the content hash given
+    /// (read from the original before; kept when `None`). Nothing on disk
+    /// changes.
+    pub fn place_without_original(
+        &self,
+        places: &[(String, std::path::PathBuf, Option<String>)],
+    ) -> Result<()> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        for (id, relative) in places {
+        for (id, relative, sha256) in places {
             let stored = crate::portable_relative(relative)?;
             ensure!(
                 !self.directory.join(relative).exists(),
@@ -234,8 +239,9 @@ impl Library {
             );
             ensure!(
                 tx.execute(
-                    "UPDATE assets SET root_id='session',rel_path=?,missing=1 WHERE id=?",
-                    params![stored, id],
+                    "UPDATE assets SET root_id='session',rel_path=?,missing=1,
+                       sha256=coalesce(?,sha256) WHERE id=?",
+                    params![stored, sha256, id],
                 )? == 1,
                 "Unknown asset {id}"
             );

@@ -1495,8 +1495,17 @@ fn an_edits_only_return_from_an_exported_catalog_tells_each_side() {
 #[test]
 fn the_losing_sides_work_is_kept() {
     let (_tmp, w) = world();
+    // The laptop's edit uses a LUT: the kept snapshot names it as this
+    // catalog's copy, and a second import still finds it the same edit.
+    let lut = w.root.join("Shoot/look.cube");
+    fs::write(&lut, b"LUT").unwrap();
     for id in &w.ids[..2] {
-        w.laptop.save_editor_state(id, &edit(1.5)).unwrap();
+        w.laptop
+            .save_editor_state(
+                id,
+                &json!({"version": 1, "adjustments": {"exposure": 1.5, "lutPath": lut}}),
+            )
+            .unwrap();
         let mut there = w.laptop.metadata(id).unwrap();
         there.rating = 5;
         w.laptop.set_metadata(id, &there).unwrap();
@@ -1581,4 +1590,51 @@ fn a_new_photograph_without_its_original_is_left_out_not_refused() {
         assert!(main.asset(&new).is_err());
     }
     assert_eq!(exposure(&main, &a), json!(1.0));
+}
+
+/// Review round 1: a photograph registered on each side independently (Add
+/// Folder: other asset ids, no content hash recorded yet) and sent back
+/// edits only is still matched by its content: the export reads the hash
+/// while the original is at hand.
+#[test]
+fn an_edits_only_photograph_is_matched_by_content_without_a_recorded_hash() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let project = Library::create(&root.join("Project"), "Project", Mode::Catalog).unwrap();
+    let own = project.directory.join("Photos/a.arw");
+    fs::create_dir_all(own.parent().unwrap()).unwrap();
+    fs::write(&own, b"the same raw").unwrap();
+    let in_project = project.add_asset(&own).unwrap().id;
+    project.save_editor_state(&in_project, &edit(1.2)).unwrap();
+    let master = Library::create(&root.join("Master"), "Master", Mode::Catalog).unwrap();
+    let copy = root.join("Archive/a.arw");
+    fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    fs::write(&copy, b"the same raw").unwrap();
+    let in_master = master.add_asset(&copy).unwrap().id;
+    assert_ne!(in_project, in_master);
+    assert_eq!(project.checksum(&in_project).unwrap(), None);
+    let receipt = export_catalog(
+        &project.directory,
+        std::slice::from_ref(&in_project),
+        &root.join("Back"),
+        &catalog_export::Options {
+            name: "Back".into(),
+            include_originals: false,
+            leave_out_owned_elsewhere: false,
+        },
+        &go(),
+        |_| {},
+        |_, _, _| Ok(0),
+    )
+    .unwrap();
+    assert_eq!(receipt.edits_only, 1);
+    let source = open_source(&master, &root.join("Back")).unwrap();
+    let seen = review(&master, &source).unwrap();
+    drop(source);
+    assert_eq!((seen.new, seen.changed), (0, 1));
+    assert_eq!(seen.photos[0].matched_by, Some("sha256"));
+    assert_eq!(seen.photos[0].target.as_deref(), Some(in_master.as_str()));
+    // The project's original and record are as they were.
+    assert_eq!(fs::read(&own).unwrap(), b"the same raw");
+    assert_eq!(project.checksum(&in_project).unwrap(), None);
 }

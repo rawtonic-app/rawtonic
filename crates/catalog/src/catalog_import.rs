@@ -1495,18 +1495,39 @@ fn keep_their_edit(
         [target],
         |r| r.get(0),
     )?;
-    let have = crate::snapshots::read(tx, &lib.directory, &version)?
-        .into_iter()
-        .any(|snapshot| snapshot.adjustments == adjustments);
+    // Compared with resources named by their content: a snapshot read
+    // back names them by absolute path, the incoming edit by the catalog's
+    // relative reference.
+    let mut digests = Digests {
+        cache: HashMap::new(),
+    };
+    let mut wanted = adjustments.clone();
+    digests.normalize(&mut wanted, &lib.directory);
+    let mut same = |mut value: Value| {
+        digests.normalize(&mut value, &lib.directory);
+        value == wanted
+    };
+    let mut have = false;
+    for snapshot in crate::snapshots::read(tx, &lib.directory, &version)? {
+        if same(snapshot.adjustments) {
+            have = true;
+            break;
+        }
+    }
     let payloads: Vec<String> = tx
         .prepare("SELECT payload FROM recipes WHERE version_id=?")?
         .query_map([&version], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     let mut in_history = false;
     for text in payloads {
+        if have {
+            break;
+        }
         let mut value: Value = serde_json::from_str(&text)?;
         crate::load_blobs(tx, &mut value)?;
-        if value.pointer("/editor_state/adjustments") == Some(&adjustments) {
+        if let Some(earlier) = value.pointer("/editor_state/adjustments").cloned()
+            && same(earlier)
+        {
             in_history = true;
             break;
         }

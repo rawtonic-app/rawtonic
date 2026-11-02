@@ -294,14 +294,29 @@ pub fn export_catalog(
         rawtonic_catalog::portable_relative(&relative)?;
         let to = stage_root.join(&relative);
         ensure!(
-            !to.exists() && !without.iter().any(|(_, r)| r == &relative),
+            !to.exists() && !without.iter().any(|(_, r, _)| r == &relative),
             "Two photographs would share {}",
             relative.display()
         );
         if !copy {
-            // Edits only: its folder is there, its file is not.
+            // Edits only: its folder is there, its file is not. Without the
+            // file the other side can match it only by its id or by the
+            // content hash recorded here, so a hash not recorded yet is
+            // read now, while the original is at hand (and unchanged).
             fs::create_dir_all(to.parent().context("No folder")?)?;
-            without.push((asset.id.clone(), relative));
+            let sha256 = match catalog.checksum(&asset.id)? {
+                Some(sha) => Some(sha),
+                None if from.is_file()
+                    && fs::metadata(from)?.len() == asset.size
+                    && rawtonic_catalog::fingerprint(from)? == asset.fingerprint =>
+                {
+                    let sha = rawtonic_catalog::checksum::sha256_file(from, cancel)?;
+                    check(cancel)?;
+                    sha
+                }
+                None => None,
+            };
+            without.push((asset.id.clone(), relative, sha256));
             exported.push(Exported {
                 id: asset.id.clone(),
                 from: from.clone(),
