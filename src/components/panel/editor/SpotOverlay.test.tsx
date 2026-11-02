@@ -820,4 +820,39 @@ describe("spot removal overlay", () => {
     );
     expect(screen.getByTestId("spot-overlay").querySelector("img")?.getAttribute("src")).toBe("blob:view");
   });
+
+  it("refreshes the Visualize Spots view when a fill is added or hidden", async () => {
+    vi.useFakeTimers();
+    URL.createObjectURL = vi.fn(() => "blob:view");
+    URL.revokeObjectURL = vi.fn();
+    invoke.mockResolvedValue(new ArrayBuffer(4));
+    useEditorStore.setState({ spotVisualize: { on: true, sensitivity: 70 } });
+    overlay();
+    const views = () => invoke.mock.calls.filter(([name]) => name === "visualize_spots").length;
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(views()).toBe(1);
+    const fill = {
+      id: "f1", name: "Remove", fromHeal: true, isLoading: false, invert: false, visible: true, prompt: "",
+      patchData: null, subMasks: [],
+    };
+    await act(async () => {
+      useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiPatches: [fill] } });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(views()).toBe(2);
+    await act(async () => {
+      useEditorStore.setState({
+        adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiPatches: [{ ...fill, visible: false }] },
+      });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    vi.useRealTimers();
+    expect(views()).toBe(3);
+  });
 });

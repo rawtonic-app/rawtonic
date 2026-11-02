@@ -665,8 +665,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   };
 
   // Visualize Spots: the backend's band-pass view of the displayed photo
-  // (with its spots), refreshed when the spots or the sensitivity change.
-  const spotsKey = JSON.stringify(spots);
+  // (with its spots and patches), refreshed when the spots, the AI patches
+  // (a removal or a heal spot's fill added, hidden or deleted) or the
+  // sensitivity change. Patches by id and visibility: their pixels are large
+  // and a changed fill gets a new id.
+  const spotsKey = JSON.stringify([spots, (aiPatches ?? []).map((p) => [p.id, p.visible !== false])]);
   useEffect(() => {
     if (!visualize?.on) {
       setView(null);

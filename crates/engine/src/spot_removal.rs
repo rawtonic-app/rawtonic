@@ -1095,70 +1095,119 @@ pub const FILL_EDGE_RATIO: f64 = 3.0;
 /// radii from the circle or stroke (base pixels), on luminance in the
 /// working space after a [1 2 1] smoothing. Noise, grain and smooth
 /// gradients give about 2.4 whatever their strength; an edge entering the
-/// spot raises the tail. `None` when fewer than 16 ring pixels lie in the
-/// photo.
+/// spot raises the tail. Every ring pixel of a spot or short stroke counts;
+/// a long stroke's ring is sampled on a grid of at most about
+/// `RING_SAMPLES` points, so the cost stays bounded. `None` when fewer than
+/// 16 ring pixels lie in the photo.
 pub fn edge_ratio(image: &Rgb32FImage, path: &[(f64, f64)], radius: f64) -> Option<f64> {
-    let (w, h) = (image.width() as i64, image.height() as i64);
-    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-    for p in path {
-        x0 = x0.min(p.0);
-        y0 = y0.min(p.1);
-        x1 = x1.max(p.0);
-        y1 = y1.max(p.1);
-    }
+    const RING_SAMPLES: f64 = 40_000.0;
     if path.is_empty() || radius <= 0.0 {
         return None;
     }
-    // The ring plus the two pixels the smoothing and the gradient reach.
-    let reach = 1.6 * radius + 2.0;
-    let bx0 = ((x0 - reach).floor() as i64).clamp(0, w - 1);
-    let by0 = ((y0 - reach).floor() as i64).clamp(0, h - 1);
-    let bx1 = ((x1 + reach).ceil() as i64).clamp(0, w - 1);
-    let by1 = ((y1 + reach).ceil() as i64).clamp(0, h - 1);
-    let (cw, ch) = ((bx1 - bx0 + 1) as usize, (by1 - by0 + 1) as usize);
-    let luma: Vec<f32> = (0..cw * ch)
-        .map(|i| {
-            let p = image
-                .get_pixel(
-                    (bx0 as usize + i % cw) as u32,
-                    (by0 as usize + i / cw) as u32,
-                )
-                .0;
-            encode(0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2])
-        })
-        .collect();
-    // [1 2 1] / 4 along rows, then columns; the crop's edge repeats.
-    let smooth = |values: &[f32], horizontal: bool| -> Vec<f32> {
-        (0..cw * ch)
-            .map(|i| {
-                let (x, y) = (i % cw, i / cw);
-                let at = |dx: isize| {
-                    if horizontal {
-                        values[y * cw + (x as isize + dx).clamp(0, cw as isize - 1) as usize]
-                    } else {
-                        values[(y as isize + dx).clamp(0, ch as isize - 1) as usize * cw + x]
-                    }
-                };
-                0.25 * at(-1) + 0.5 * at(0) + 0.25 * at(1)
-            })
-            .collect()
+    let (w, h) = (image.width() as i64, image.height() as i64);
+    let reach = 1.6 * radius;
+    // The path with points closer than half a radius to the last one kept
+    // left out (a pointer samples every few pixels; the chord differs from
+    // the path by a fraction of a pixel there), so the segments' boxes
+    // overlap little and the work follows the ring's area.
+    let mut kept = vec![path[0]];
+    for (i, &p) in path.iter().enumerate().skip(1) {
+        let last = kept[kept.len() - 1];
+        if (p.0 - last.0).hypot(p.1 - last.1) >= 0.5 * radius || i == path.len() - 1 {
+            kept.push(p);
+        }
+    }
+    // Segments (a circle is one of zero length), bucketed in cells of
+    // `reach`: every segment within `reach` of a point is in its cell.
+    let segments: Vec<((f64, f64), (f64, f64))> = if kept.len() >= 2 {
+        kept.windows(2).map(|p| (p[0], p[1])).collect()
+    } else {
+        vec![(kept[0], kept[0])]
     };
-    let smoothed = smooth(&smooth(&luma, true), false);
-    let at = |x: usize, y: usize| smoothed[y * cw + x];
-    let mut ring = Vec::new();
-    for y in 1..ch.saturating_sub(1) {
-        for x in 1..cw.saturating_sub(1) {
-            let p = ((bx0 as usize + x) as f64, (by0 as usize + y) as f64);
-            let d = if path.len() >= 2 {
-                distance_to_path(p, path)
-            } else {
-                (p.0 - path[0].0).hypot(p.1 - path[0].1)
-            } / radius;
-            if (1.1..=1.6).contains(&d) {
-                let gx = (at(x + 1, y) - at(x - 1, y)) / 2.0;
-                let gy = (at(x, y + 1) - at(x, y - 1)) / 2.0;
-                ring.push(gx.hypot(gy));
+    let length: f64 = segments
+        .iter()
+        .map(|(a, b)| (b.0 - a.0).hypot(b.1 - a.1))
+        .sum();
+    let ring_area = length * radius
+        + std::f64::consts::PI * (1.6f64.powi(2) - 1.1f64.powi(2)) * radius * radius;
+    let step = (ring_area / RING_SAMPLES).sqrt().max(1.0).floor() as i64;
+    let cell_of = |v: f64| (v / reach).floor() as i64;
+    let mut cells: std::collections::HashMap<(i64, i64), Vec<usize>> = Default::default();
+    let bounds = |(a, b): ((f64, f64), (f64, f64))| {
+        (
+            a.0.min(b.0) - reach,
+            a.1.min(b.1) - reach,
+            a.0.max(b.0) + reach,
+            a.1.max(b.1) + reach,
+        )
+    };
+    for (i, segment) in segments.iter().enumerate() {
+        let (x0, y0, x1, y1) = bounds(*segment);
+        for cy in cell_of(y0)..=cell_of(y1) {
+            for cx in cell_of(x0)..=cell_of(x1) {
+                cells.entry((cx, cy)).or_default().push(i);
             }
+        }
+    }
+    let distance = |p: (f64, f64)| {
+        cells
+            .get(&(cell_of(p.0), cell_of(p.1)))
+            .into_iter()
+            .flatten()
+            .map(|&i| {
+                let (a, b) = segments[i];
+                let (vx, vy) = (b.0 - a.0, b.1 - a.1);
+                let length2 = vx * vx + vy * vy;
+                let t = if length2 > 0.0 {
+                    (((p.0 - a.0) * vx + (p.1 - a.1) * vy) / length2).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                (p.0 - a.0 - t * vx).hypot(p.1 - a.1 - t * vy)
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    // Luminance in the working space, the photo's edge repeated.
+    let luma = |x: i64, y: i64| {
+        let p = image
+            .get_pixel(x.clamp(0, w - 1) as u32, y.clamp(0, h - 1) as u32)
+            .0;
+        encode(0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2])
+    };
+    // [1 2 1] / 4 along rows and columns.
+    let smoothed = |x: i64, y: i64| {
+        let mut sum = 0.0;
+        for (dy, wy) in [(-1, 0.25), (0, 0.5), (1, 0.25)] {
+            for (dx, wx) in [(-1, 0.25), (0, 0.5), (1, 0.25)] {
+                sum += wx * wy * luma(x + dx, y + dy);
+            }
+        }
+        sum
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut ring = Vec::new();
+    for segment in &segments {
+        let (x0, y0, x1, y1) = bounds(*segment);
+        // On the grid of `step` pixels, within the photo.
+        let first =
+            |v: f64, size: i64| (v.floor() as i64).clamp(0, size - 1).div_euclid(step) * step;
+        let (gx0, gy0) = (first(x0, w), first(y0, h));
+        let (gx1, gy1) = ((x1.ceil() as i64).min(w - 1), (y1.ceil() as i64).min(h - 1));
+        let mut y = gy0;
+        while y <= gy1 {
+            let mut x = gx0;
+            while x <= gx1 {
+                if seen.insert((x, y)) {
+                    let d = distance((x as f64, y as f64)) / radius;
+                    if (1.1..=1.6).contains(&d) {
+                        let gx = (smoothed(x + 1, y) - smoothed(x - 1, y)) / 2.0;
+                        let gy = (smoothed(x, y + 1) - smoothed(x, y - 1)) / 2.0;
+                        ring.push(gx.hypot(gy));
+                    }
+                }
+                x += step;
+            }
+            y += step;
         }
     }
     if ring.len() < 16 {
@@ -1407,6 +1456,24 @@ mod tests {
                 "{amount}"
             );
         }
+        // A densely sampled stroke (a pointer every pixel) decides as its
+        // two-point form does.
+        let wall = edge_test_photo(0.03, true, 5);
+        let dense = |from: (f64, f64), to: (f64, f64)| -> Vec<StrokePoint> {
+            (0..=100)
+                .map(|i| {
+                    let t = i as f64 / 100.0;
+                    StrokePoint {
+                        x: from.0 + t * (to.0 - from.0),
+                        y: from.1 + t * (to.1 - from.1),
+                    }
+                })
+                .collect()
+        };
+        let along = dense((60.0, 40.0), (60.0, 160.0));
+        let across = dense((70.0, 60.0), (140.0, 60.0));
+        assert!(!crosses_edges(&wall, &none, 60.0, 40.0, 10.0, &along));
+        assert!(crosses_edges(&wall, &none, 70.0, 60.0, 10.0, &across));
         // A smooth gradient without grain (a clear sky) is no edge.
         let sky = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(200, 200, |x, y| {
             let v = 0.1 + 0.4 * (x + y) as f32 / 400.0;
