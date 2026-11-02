@@ -11,26 +11,8 @@ import {
 } from '../../store/useActivityStore';
 import { showPhotos } from '../../activity/showPhotos';
 import { registerAppCommands } from '../../utils/appCommands';
+import { ProgressRing } from './ProgressRing';
 import './activity.css';
-
-/** A ring filled to `fraction`, or turning when the progress is unknown. */
-function Ring({ fraction }: { fraction: number | null }) {
-  const r = 6;
-  const length = 2 * Math.PI * r;
-  return (
-    <svg className={`activity-ring${fraction === null ? ' is-indeterminate' : ''}`} width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <circle className="activity-ring-track" cx="8" cy="8" r={r} />
-      <circle
-        className="activity-ring-value"
-        cx="8"
-        cy="8"
-        r={r}
-        strokeDasharray={length}
-        strokeDashoffset={fraction === null ? length * 0.7 : length * (1 - Math.min(1, Math.max(0, fraction)))}
-      />
-    </svg>
-  );
-}
 
 /** How far the running tasks with a known progress are, together. */
 function runningFraction(running: ActivityEntry[]): number | null {
@@ -67,7 +49,7 @@ function Entry({ entry }: { entry: ActivityEntry }) {
     <li ref={row} className={`activity-entry is-${entry.status}`}>
       <span className="activity-entry-mark" aria-hidden>
         {entry.status === 'running' ? (
-          <Ring fraction={percent === null ? null : percent / 100} />
+          <ProgressRing fraction={percent === null ? null : percent / 100} />
         ) : entry.status === 'done' ? (
           <Check size={13} />
         ) : (
@@ -260,7 +242,7 @@ export default function ActivityCentre() {
           title={`${summary}\n${lead.title}`}
           onClick={() => setOpen((shown) => !shown)}
         >
-          {running.length > 0 && <Ring fraction={runningFraction(running)} />}
+          {running.length > 0 && <ProgressRing fraction={runningFraction(running)} />}
           {running.length > 1 && <span className="activity-slot-count">{running.length}</span>}
           <span className="activity-slot-text">{lead.title}</span>
           {attention.length > 0 && <span className={`activity-dot is-${failure ? 'failure' : 'warning'}`} />}

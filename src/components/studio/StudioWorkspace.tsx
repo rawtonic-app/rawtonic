@@ -31,7 +31,6 @@ import {
   PanelRight,
   Settings,
   Upload,
-  LoaderCircle,
   X,
   Search,
   Star,
@@ -150,6 +149,7 @@ import ViewerInfoOverlay from "./ViewerInfoOverlay";
 import { LoupeFaces } from "./StudioEyes";
 import { useIdleCursor } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
+import { ProgressRing } from "../activity/ProgressRing";
 
 interface Props {
   files: ImageFile[];
@@ -1055,10 +1055,20 @@ export default function StudioWorkspace(props: Props) {
         title={withShortcut(t("studio.workspace.export.title"), "⇧⌘E")}
         onClick={() => openTools(Panel.Export)}
       >
-        {/* A long photo (AI Denoise: up to a minute without a GPU) must not
-            look stuck: the icon turns and the button names the stage. */}
+        {/* The ring fills as the files are written and the button names the
+            stage (AI Denoise: up to a minute a photo without a GPU). Not a
+            turning icon: one made the window server composite the window
+            on every display frame and slowed the export's GPU passes by
+            half (notes: parity-gaps/G43, task AG). */}
         {exporting ? (
-          <LoaderCircle size={13} className="animate-spin" aria-hidden />
+          <ProgressRing
+            size={13}
+            fraction={
+              exportState.progress.total > 0
+                ? (exportState.progress.current ?? 0) / exportState.progress.total
+                : 0
+            }
+          />
         ) : (
           <Upload size={13} />
         )}

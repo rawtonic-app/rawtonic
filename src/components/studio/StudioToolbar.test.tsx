@@ -121,7 +121,7 @@ it("has one Before/After button: it toggles the split and names both keys", () =
   expect(useEditorStore.getState().splitView).toBe(false);
 });
 
-it("shows the export turning and naming AI Denoise while a photo waits for it", async () => {
+it("shows the export's progress in a still ring and names AI Denoise while a photo waits for it", async () => {
   const { useProcessStore } = await import("../../store/useProcessStore");
   const { Status } = await import("../ui/ExportImportProperties");
   useProcessStore.setState({
@@ -151,11 +151,19 @@ it("shows the export turning and naming AI Denoise while a photo waits for it", 
     />,
   );
   const button = screen.getByRole("button", { name: "Exporting 0 / 1 · AI Denoise…" });
-  expect(button.querySelector(".animate-spin")).not.toBeNull();
+  // A turning icon composites the window on every display frame and slows
+  // the export's GPU passes; the ring moves only as files are written.
+  expect(button.querySelector(".animate-spin")).toBeNull();
+  const ring = () => button.querySelector(".activity-ring");
+  expect(ring()?.classList.contains("is-indeterminate")).toBe(false);
+  const offset = () => Number(button.querySelector(".activity-ring-value")?.getAttribute("stroke-dashoffset"));
+  const empty = offset();
   act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, denoising: [], selecting: ["/qa/import.orf"] } })));
   expect(screen.getByRole("button", { name: "Exporting 0 / 1 · AI selections…" })).toBe(button);
   act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, selecting: [], progress: { current: 1, total: 1 } } })));
   expect(screen.getByRole("button", { name: "Exporting 1 / 1" })).toBe(button);
+  expect(empty).toBeGreaterThan(0);
+  expect(offset()).toBe(0);
   act(() => useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } }));
 });
 
