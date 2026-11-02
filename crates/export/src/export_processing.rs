@@ -79,6 +79,9 @@ pub enum ResizeMode {
     /// photo's orientation (Lightroom's Dimensions: 1920 × 1080 keeps a
     /// portrait photo within 1080 × 1920).
     Dimensions,
+    /// Fit inside `value` wide × `second_value` high as given, never
+    /// turned (a proof sheet's cell).
+    FitBox,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -415,17 +418,21 @@ pub fn calculate_resize_target(
     if !(value.is_finite() && value > 0.0) {
         return (current_w, current_h);
     }
-    if matches!(resize_opts.mode, ResizeMode::Dimensions) {
+    if matches!(resize_opts.mode, ResizeMode::Dimensions | ResizeMode::FitBox) {
         let other = resize_opts.second_value;
         if !(other.is_finite() && other > 0.0) || current_w == 0 || current_h == 0 {
             return (current_w, current_h);
         }
-        let (box_long, box_short) = (value.max(other), value.min(other));
-        let (long, short) = (
-            current_w.max(current_h) as f64,
-            current_w.min(current_h) as f64,
-        );
-        let scale = (box_long / long).min(box_short / short);
+        let scale = if matches!(resize_opts.mode, ResizeMode::FitBox) {
+            (value / current_w as f64).min(other / current_h as f64)
+        } else {
+            let (box_long, box_short) = (value.max(other), value.min(other));
+            let (long, short) = (
+                current_w.max(current_h) as f64,
+                current_w.min(current_h) as f64,
+            );
+            (box_long / long).min(box_short / short)
+        };
         if resize_opts.dont_enlarge && scale >= 1.0 {
             return (current_w, current_h);
         }
@@ -440,7 +447,7 @@ pub fn calculate_resize_target(
         ResizeMode::ShortEdge => (current_w.min(current_h), current_w <= current_h),
         ResizeMode::Width => (current_w, true),
         ResizeMode::Height => (current_h, false),
-        ResizeMode::Dimensions => return (current_w, current_h),
+        ResizeMode::Dimensions | ResizeMode::FitBox => return (current_w, current_h),
         ResizeMode::Megapixels | ResizeMode::Percentage => {
             let scale = if matches!(resize_opts.mode, ResizeMode::Megapixels) {
                 (value * 1_000_000.0 / (current_w as f64 * current_h as f64).max(1.0)).sqrt()

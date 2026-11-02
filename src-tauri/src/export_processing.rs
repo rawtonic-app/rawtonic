@@ -1323,16 +1323,7 @@ pub(crate) fn naming_capture(
     original: &Path,
     metadata: Option<&rawtonic_metadata::Metadata>,
 ) -> rawtonic_naming::Capture {
-    let mut capture = rawtonic_ingest::source_facts(original).capture;
-    if let Some(metadata) = metadata {
-        let text = |value: &str| Some(value.to_string()).filter(|v| !v.trim().is_empty());
-        capture.rating = Some(metadata.rating);
-        capture.label = text(&metadata.label);
-        capture.title = text(&metadata.title).or(capture.title);
-        capture.creator = text(&metadata.creator).or(capture.creator);
-        capture.copyright = text(&metadata.copyright).or(capture.copyright);
-    }
-    capture
+    rawtonic_ingest::naming_capture(original, metadata)
 }
 
 /// Each of `targets` in turn: its file is planned right before it is

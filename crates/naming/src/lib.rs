@@ -493,6 +493,12 @@ pub fn render_or_original(template: &str, context: &Context) -> Result<String> {
     Ok(output)
 }
 
+/// `template` filled as free text, such as a proof sheet's caption: the
+/// tokens as `render` fills them, without the checks of a file name.
+pub fn render_text(template: &str, context: &Context) -> Result<String> {
+    fill(template, context)
+}
+
 /// `template` with its tokens filled, not yet checked as a name.
 fn fill(template: &str, context: &Context) -> Result<String> {
     ensure!(template.len() <= 4096, "Template too long");

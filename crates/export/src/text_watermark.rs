@@ -385,6 +385,284 @@ pub fn render(watermark: &TextWatermark, target_width: u32) -> Option<RgbaImage>
     Some(out)
 }
 
+/// One drawing operation of a glyph outline, in points of a y-up page
+/// (`Typeface::outline`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PathOp {
+    Move(f32, f32),
+    Line(f32, f32),
+    Cubic(f32, f32, f32, f32, f32, f32),
+    Close,
+}
+
+/// An installed font for running text (proof sheet captions and headers),
+/// sized in points per em, whose faces allow embedding in documents.
+/// Characters the font lacks come from another installed face that has
+/// them (`for_text`), so names in any script print.
+pub struct Typeface {
+    /// The chosen face first, then the fallbacks.
+    faces: Vec<Loaded>,
+}
+
+struct Loaded {
+    font: FontData,
+    units_per_em: f32,
+}
+
+impl Loaded {
+    fn new(font: FontData) -> Option<Self> {
+        Face::new(&font)?;
+        if !embedding_allowed(&font) {
+            return None;
+        }
+        let units_per_em = FontRef::from_index(&font.data, font.index)
+            .ok()?
+            .head()
+            .ok()?
+            .units_per_em() as f32;
+        (units_per_em > 0.0).then_some(Self { font, units_per_em })
+    }
+}
+
+/// Whether a face's OS/2 `fsType` lets its glyphs go into a document: not
+/// "restricted license embedding" (bits 0–3 = 2) and not bitmap-only.
+fn embedding_allowed(font: &FontData) -> bool {
+    let Ok(font) = FontRef::from_index(&font.data, font.index) else {
+        return false;
+    };
+    match font.os2() {
+        Ok(os2) => {
+            let fs_type = os2.fs_type();
+            fs_type & 0x000F != 0x0002 && fs_type & 0x0200 == 0
+        }
+        // No OS/2 table: no restriction stated.
+        Err(_) => true,
+    }
+}
+
+/// A glyph placed on a line: which face, which glyph, its pen position.
+struct Placed {
+    face: usize,
+    id: GlyphId,
+    x: f32,
+}
+
+impl Typeface {
+    /// `family`, else the system's sans-serif font, as the watermark finds
+    /// them; a face whose licence forbids embedding is passed over for the
+    /// next. None when no installed face can be used.
+    pub fn load(family: Option<&str>) -> Option<Self> {
+        let main = load_font(family).and_then(Loaded::new).or_else(|| {
+            let db = database();
+            ["Helvetica", "Arial", "Liberation Sans", "DejaVu Sans", "Noto Sans"]
+                .iter()
+                .filter_map(|name| {
+                    db.query(&fontdb::Query {
+                        families: &[fontdb::Family::Name(name)],
+                        ..Default::default()
+                    })
+                })
+                .filter_map(|id| {
+                    db.with_face_data(id, |data, index| FontData {
+                        data: data.to_vec(),
+                        index,
+                    })
+                })
+                .find_map(Loaded::new)
+        })?;
+        Some(Self { faces: vec![main] })
+    }
+
+    /// `load`, with fallback faces for the characters of `texts` the font
+    /// lacks (the first installed face, by name, that has each).
+    pub fn for_text<'a>(family: Option<&str>, texts: impl IntoIterator<Item = &'a str>) -> Option<Self> {
+        let mut typeface = Self::load(family)?;
+        let mut missing: Vec<char> = Vec::new();
+        for c in texts.into_iter().flat_map(str::chars) {
+            if !c.is_control() && !c.is_whitespace() && !missing.contains(&c) && typeface.face_for(c).is_none() {
+                missing.push(c);
+            }
+        }
+        if missing.is_empty() {
+            return Some(typeface);
+        }
+        let db = database();
+        let mut candidates: Vec<&fontdb::FaceInfo> = db
+            .faces()
+            .filter(|face| face.families.first().is_some_and(|(name, _)| !name.starts_with('.')))
+            .filter(|face| face.style == fontdb::Style::Normal)
+            .collect();
+        candidates.sort_by_key(|face| (face.weight.0.abs_diff(400), face.families[0].0.clone()));
+        for face in candidates {
+            if missing.iter().all(|c| typeface.face_for(*c).is_some()) {
+                break;
+            }
+            let Some(font) = db.with_face_data(face.id, |data, index| FontData {
+                data: data.to_vec(),
+                index,
+            }) else {
+                continue;
+            };
+            let useful = FontRef::from_index(&font.data, font.index)
+                .map(|f| {
+                    let charmap = f.charmap();
+                    missing
+                        .iter()
+                        .any(|c| typeface.face_for(*c).is_none() && charmap.map(*c).is_some())
+                })
+                .unwrap_or(false);
+            if useful && let Some(loaded) = Loaded::new(font) {
+                typeface.faces.push(loaded);
+            }
+        }
+        Some(typeface)
+    }
+
+    /// The first face that has `c`.
+    fn face_for(&self, c: char) -> Option<usize> {
+        self.faces.iter().position(|loaded| {
+            FontRef::from_index(&loaded.font.data, loaded.font.index)
+                .is_ok_and(|f| f.charmap().map(c).is_some())
+        })
+    }
+
+    fn faces(&self) -> Vec<Face<'_>> {
+        self.faces
+            .iter()
+            .map(|loaded| Face::new(&loaded.font).expect("checked when loaded"))
+            .collect()
+    }
+
+    /// The glyphs of `text` at `size` from pen position 0, kerned within a
+    /// face, and the line's width.
+    fn place(&self, faces: &[Face], text: &str, size: f32) -> (Vec<Placed>, f32) {
+        let mut placed = Vec::with_capacity(text.len());
+        let mut x = 0.0;
+        let mut previous: Option<(usize, GlyphId)> = None;
+        for c in text.chars() {
+            let index = faces
+                .iter()
+                .position(|face| face.charmap.map(c).is_some())
+                .unwrap_or(0);
+            let face = &faces[index];
+            let scale = size / self.faces[index].units_per_em;
+            let id = face.glyph_id(c);
+            if let Some((prev_face, prev)) = previous
+                && prev_face == index
+            {
+                x += face.kern(prev, id) * scale;
+            }
+            placed.push(Placed { face: index, id, x });
+            x += face.advance(id) * scale;
+            previous = Some((index, id));
+        }
+        (placed, x)
+    }
+
+    /// Ascender and descender (negative) of `size` points per em.
+    pub fn extent(&self, size: f32) -> (f32, f32) {
+        let face = &self.faces()[0];
+        let scale = size / self.faces[0].units_per_em;
+        (face.ascent * scale, face.descent * scale)
+    }
+
+    /// The width of `text` at `size`, with kerning.
+    pub fn width(&self, text: &str, size: f32) -> f32 {
+        self.place(&self.faces(), text, size).1
+    }
+
+    /// The advance of `c` alone at `size` (a document's width table).
+    pub fn advance(&self, c: char, size: f32) -> f32 {
+        self.width(c.encode_utf8(&mut [0; 4]), size)
+    }
+
+    /// `text`, cut in the middle with an ellipsis until it is at most
+    /// `max_width` wide at `size` (file names keep their number at the end).
+    pub fn fit(&self, text: &str, size: f32, max_width: f32) -> String {
+        let faces = self.faces();
+        if self.place(&faces, text, size).1 <= max_width {
+            return text.to_string();
+        }
+        let chars: Vec<char> = text.chars().collect();
+        for keep in (0..chars.len()).rev() {
+            let head = keep.div_ceil(2);
+            let tail = keep - head;
+            let candidate: String = chars[..head]
+                .iter()
+                .chain(std::iter::once(&'…'))
+                .chain(&chars[chars.len() - tail..])
+                .collect();
+            if self.place(&faces, &candidate, size).1 <= max_width {
+                return candidate;
+            }
+        }
+        String::new()
+    }
+
+    /// The outlines of `text` at `size`, its baseline starting at `(x, y)`
+    /// of a y-up page, each glyph's contours closed.
+    pub fn outline(&self, text: &str, size: f32, x: f32, y: f32) -> Vec<PathOp> {
+        let faces = self.faces();
+        let mut ops = Vec::new();
+        for glyph in self.place(&faces, text, size).0 {
+            let Some((curves, _, _)) = faces[glyph.face].outline(glyph.id) else {
+                continue;
+            };
+            let scale = size / self.faces[glyph.face].units_per_em;
+            let pen_x = x + glyph.x;
+            let at = |p: Point| (pen_x + p.x * scale, y + p.y * scale);
+            let mut last: Option<Point> = None;
+            for curve in &curves {
+                let start = match *curve {
+                    Curve::Line(a, _) | Curve::Quad(a, _, _) | Curve::Cubic(a, _, _, _) => a,
+                };
+                if last != Some(start) {
+                    if last.is_some() {
+                        ops.push(PathOp::Close);
+                    }
+                    let (sx, sy) = at(start);
+                    ops.push(PathOp::Move(sx, sy));
+                }
+                let end = match *curve {
+                    Curve::Line(_, b) => {
+                        let (bx, by) = at(b);
+                        ops.push(PathOp::Line(bx, by));
+                        b
+                    }
+                    Curve::Quad(a, q, b) => {
+                        // The quadratic as a cubic of the same shape.
+                        let c1 = point(a.x + (q.x - a.x) * 2.0 / 3.0, a.y + (q.y - a.y) * 2.0 / 3.0);
+                        let c2 = point(b.x + (q.x - b.x) * 2.0 / 3.0, b.y + (q.y - b.y) * 2.0 / 3.0);
+                        let ((x1, y1), (x2, y2), (x3, y3)) = (at(c1), at(c2), at(b));
+                        ops.push(PathOp::Cubic(x1, y1, x2, y2, x3, y3));
+                        b
+                    }
+                    Curve::Cubic(_, c1, c2, b) => {
+                        let ((x1, y1), (x2, y2), (x3, y3)) = (at(c1), at(c2), at(b));
+                        ops.push(PathOp::Cubic(x1, y1, x2, y2, x3, y3));
+                        b
+                    }
+                };
+                last = Some(end);
+            }
+            if last.is_some() {
+                ops.push(PathOp::Close);
+            }
+        }
+        ops
+    }
+
+    /// Rasterises `text` at `size` pixels per em, its baseline starting at
+    /// `(x, y)` of a y-down image, calling `put(x, y, coverage)`.
+    pub fn rasterize(&self, text: &str, size: f32, x: f32, y: f32, mut put: impl FnMut(i64, i64, f32)) {
+        let faces = self.faces();
+        for glyph in self.place(&faces, text, size).0 {
+            let scale = size / self.faces[glyph.face].units_per_em;
+            draw_glyph(&faces[glyph.face], glyph.id, scale, point(x + glyph.x, y), &mut put);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

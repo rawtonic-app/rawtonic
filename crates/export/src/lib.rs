@@ -10,6 +10,7 @@ pub mod file_export;
 pub mod lanczos;
 pub mod output;
 pub mod output_sharpening;
+pub mod proof_sheet;
 pub mod queue;
 pub mod sidecars;
 pub mod text_watermark;
