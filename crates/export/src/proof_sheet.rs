@@ -215,7 +215,7 @@ impl ProofSheet {
                             cell,
                             photo_box: Rect { h: photo_h, ..cell },
                             caption_baseline: (caption_band > 0.0)
-                                .then(|| cell.y + photo_h + caption_band * 0.2 + ascent),
+                                .then_some(cell.y + photo_h + caption_band * 0.2 + ascent),
                         }
                     })
                     .collect(),
@@ -227,8 +227,8 @@ impl ProofSheet {
             page_height_mm: ph,
             pages,
             box_px,
-            header_baseline: header.then(|| top + text_ascent),
-            footer_baseline: footer.then(|| ph - bottom - text_line * 0.25),
+            header_baseline: header.then_some(top + text_ascent),
+            footer_baseline: footer.then_some(ph - bottom - text_line * 0.25),
         })
     }
 }
