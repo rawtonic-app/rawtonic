@@ -362,6 +362,9 @@ pub fn estimate_cached(image: &Rgb32FImage, version: u64) -> Option<CaModel> {
 /// the estimate competes with from version 3) `estimate_versus`: `None`
 /// then keeps `own`.
 pub fn estimate_for(image: &Rgb32FImage, version: u64, own: Option<CaModel>) -> Option<CaModel> {
+    if rawtonic_rawdecode::raw_processing::gd_probe() >= 2 {
+        return own; // SCRATCH ONLY (task GD probe)
+    }
     let own = own.filter(|_| version >= 3);
     let key = image_key(image, version, own);
     if let Some(value) = cached(key) {

@@ -341,7 +341,7 @@ fn develop_internal(
         .unwrap_or((0, 0, raw_image.width, raw_image.height));
     // Hot and dead photosites (hot_pixels.rs), before anything reads the
     // mosaic's levels.
-    if is_rgb_mosaic {
+    if is_rgb_mosaic && gd_probe() == 0 {
         let range = (original_white_level - original_black_level).max(1.0);
         let wb = raw_image.wb_coeffs;
         let width = raw_image.width;
@@ -437,6 +437,7 @@ fn develop_internal(
     // (black_bias.rs); not for drafts or fast developments, nor beside CFA
     // gain maps (they change the mosaic after the clip).
     let shadow_means = (black.unbiased()
+        && gd_probe() == 0
         && is_rgb_mosaic
         && !fast_demosaic
         && superccd.is_none()
@@ -449,7 +450,7 @@ fn develop_internal(
         shadow_means_of(&raw_image, to_white)
     })
     .flatten();
-    let clip_levels = if is_rgb_mosaic {
+    let clip_levels = if is_rgb_mosaic && gd_probe() == 0 {
         match (&raw_image.photometric, &raw_image.data) {
             (RawPhotometricInterpretation::Cfa(config), rawler::RawImageData::Integer(samples)) => {
                 crate::highlight_reconstruction::detect_clip_levels(
@@ -1927,6 +1928,8 @@ fn develop_rgb_mosaic(
     raw_image.data = rawler::RawImageData::Float(Vec::new());
     let mut rgb = if bin > 1 {
         crate::demosaic::bin(&mosaic, roi_w, roi_h, &pattern, bin)
+    } else if gd_probe() > 0 && pattern.is_bayer() {
+        gd_probe_fill(&mosaic, roi_w, roi_h, &pattern)
     } else {
         crate::demosaic::demosaic_unless(&mosaic, roi_w, roi_h, &pattern, cancelled)
             .map_err(|_| anyhow!("Load cancelled"))?
@@ -2603,4 +2606,40 @@ mod draft_tests {
         }
         assert!(count > 0);
     }
+}
+
+/// SCRATCH ONLY (task GD ceiling probe): `GD_PROBE=1` skips hot pixels,
+/// shadow means, highlight reconstruction and replaces the Bayer demosaic
+/// by a 2 x 2 replicate fill (pixels change; timing probe only);
+/// `GD_PROBE=2` also skips the lateral-CA measurement (engine).
+pub fn gd_probe() -> u32 {
+    static P: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *P.get_or_init(|| {
+        std::env::var("GD_PROBE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
+fn gd_probe_fill(
+    mosaic: &[f32],
+    w: usize,
+    h: usize,
+    pattern: &crate::demosaic::CfaPattern,
+) -> Vec<[f32; 3]> {
+    let mut out = vec![[0.0f32; 3]; w * h];
+    out.par_chunks_mut(w).enumerate().for_each(|(r, line)| {
+        let r0 = r & !1;
+        let r1 = (r0 + 1).min(h - 1);
+        for (c, px) in line.iter_mut().enumerate() {
+            let c0 = c & !1;
+            let c1 = (c0 + 1).min(w - 1);
+            for (y, x) in [(r0, c0), (r0, c1), (r1, c0), (r1, c1)] {
+                let k = pattern.color(y as isize, x as isize);
+                px[k] = mosaic[y * w + x];
+            }
+        }
+    });
+    out
 }
