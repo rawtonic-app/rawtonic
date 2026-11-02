@@ -137,8 +137,9 @@ run "scripts: ship.sh test" sh scripts/ship_test.sh
 run "scripts: macOS packaging test" python3 scripts/package_macos_test.py
 run "scripts: verified review input" python3 scripts/review/test_verified_diff.py
 run "scripts: earlier review round" python3 scripts/review/test_earlier_round.py
+run "scripts: release helpers" python3 scripts/release/test_release.py
 if command -v shellcheck >/dev/null 2>&1; then
-  run "scripts: shellcheck" shellcheck scripts/*.sh scripts/git-hooks/pre-push
+  run "scripts: shellcheck" shellcheck scripts/*.sh scripts/release/*.sh scripts/git-hooks/pre-push
 fi
 if [ "$DEPS" = 1 ]; then
   if command -v cargo-deny >/dev/null 2>&1; then
