@@ -83,11 +83,18 @@ pub async fn library_export_catalog(
 
 /// Of the photographs at `paths` in the library at `source`: how many
 /// there are and those another library owns (Export as Catalog leaves them
-/// out or refuses: their latest edit is in that library).
+/// out or refuses: their latest edit is in that library); how many lie in
+/// the library's own folder (without originals they go edits only), the
+/// size of all their originals, and whether the library was itself made by
+/// Export as Catalog (sending its work back: edits only by default).
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OwnedReport {
     total: usize,
     owned: Vec<rawtonic_ingest::catalog_export::OwnedElsewhere>,
+    inside: usize,
+    bytes: u64,
+    exported: bool,
 }
 
 #[tauri::command]
@@ -102,9 +109,21 @@ pub async fn library_export_catalog_owned(
         ids.dedup();
         let owned = rawtonic_ingest::catalog_export::owned_elsewhere(&lib, &ids)
             .map_err(|e| format!("{e:#}"))?;
+        let (mut inside, mut bytes) = (0, 0);
+        for id in &ids {
+            let asset = lib.asset(id).map_err(|e| format!("{e:#}"))?;
+            inside += usize::from(asset.path.starts_with(&lib.directory));
+            bytes += asset.size;
+        }
         Ok(OwnedReport {
             total: ids.len(),
             owned,
+            inside,
+            bytes,
+            exported: lib
+                .directory
+                .join(rawtonic_catalog::catalog_import::EXPORT_BASELINE)
+                .is_file(),
         })
     })
     .await

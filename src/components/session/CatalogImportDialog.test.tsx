@@ -70,6 +70,7 @@ it("imports with per-photo choices and copies of new originals, after saving edi
     options: {
       newPhotos: { mode: "copy", folder: "/photos/Imported" }, changed: "replace",
       overrides: { a: "virtualCopy", b: "keep", c: "keep" }, includeNew: true, beforeSnapshot: "Before import from Laptop",
+      keptSnapshot: "From Laptop, not imported",
     },
   }));
   expect(vi.mocked(flushBeforeQuit).mock.invocationCallOrder[0])

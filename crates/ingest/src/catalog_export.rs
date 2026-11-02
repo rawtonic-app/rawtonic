@@ -10,10 +10,14 @@
 //! With `include_originals` each original is copied (verified, no clobber)
 //! into the catalog's `Photos/<its folder's name>/` with its XMP and
 //! companion JPEG, and stored relative to the catalog, so the folder can
-//! move. Without, the catalog refers to the originals where they are; on
-//! another computer they show as offline (on their previews) until their
-//! drive is connected. Photographs inside a library's folder (the source's
-//! own, a session's) belong to that library and are always copied. Edit resources
+//! move. Without, the catalog refers to the originals outside any library
+//! where they are; on another computer they show as offline (on their
+//! previews) until their drive is connected. Photographs inside the source
+//! library's folder (its own, all of a session's) belong to it: a catalog
+//! referring to them would edit them in its name, so without originals they
+//! go edits only — at their place under `Photos/` without their file, offline
+//! in the new catalog, brought back by Import from Catalog to the library
+//! that holds them (matched by identity, else SHA-256). Edit resources
 //! (LUTs, profiles, mask images) are always copied into the catalog's
 //! `resources/`.
 use crate::transfer::{ResourceCopier, check, copy_file, flush_staged, walk};
@@ -62,6 +66,9 @@ pub struct Receipt {
     /// Photographs whose original was not there (by reference only: they
     /// are in the catalog, marked missing).
     pub offline: usize,
+    /// Photographs of the source library's own folder exported without
+    /// their original (edits only): offline in the new catalog.
+    pub edits_only: usize,
     /// What the `stage` step reported (the app: previews copied).
     pub previews: usize,
     pub missing_resources: usize,
@@ -228,12 +235,14 @@ pub fn export_catalog(
     let mut exported = Vec::with_capacity(assets.len());
     // A photograph inside the source library's folder (its own copies, all
     // of a session's) belongs to it: a catalog referring to it would edit
-    // it in the source's name. It is always copied; only photographs
+    // it in the source's name. Without originals it goes edits only, at
+    // its place in the new catalog without its file; only photographs
     // outside any library are referred to where they are (those another
     // library owns were left out above).
-    let copied: Vec<bool> = originals
+    let copied = vec![options.include_originals; originals.len()];
+    let own: Vec<bool> = originals
         .iter()
-        .map(|path| options.include_originals || rawtonic_catalog::session_for(path).is_some())
+        .map(|path| rawtonic_catalog::session_for(path).is_some())
         .collect();
     let missing: Vec<String> = originals
         .iter()
@@ -253,12 +262,20 @@ pub fn export_catalog(
         .filter(|(_, copy)| **copy)
         .map(|(path, _)| path.clone())
         .collect();
-    let folders = folder_names(&to_copy);
+    // Placed under `Photos/` (copied, or edits only).
+    let placed: Vec<PathBuf> = originals
+        .iter()
+        .zip(copied.iter().zip(&own))
+        .filter(|(_, (copy, own))| **copy || **own)
+        .map(|(path, _)| path.clone())
+        .collect();
+    let folders = folder_names(&placed);
+    let mut without = Vec::new();
     let mut places = Vec::new();
     let mut referenced = Vec::new();
-    for ((asset, from), copy) in assets.iter().zip(&originals).zip(&copied) {
+    for (((asset, from), copy), own) in assets.iter().zip(&originals).zip(&copied).zip(&own) {
         check(cancel)?;
-        if !copy {
+        if !copy && !own {
             if !from.is_file() {
                 receipt.offline += 1;
             }
@@ -277,10 +294,36 @@ pub fn export_catalog(
         rawtonic_catalog::portable_relative(&relative)?;
         let to = stage_root.join(&relative);
         ensure!(
-            !to.exists(),
+            !to.exists() && !without.iter().any(|(_, r, _)| r == &relative),
             "Two photographs would share {}",
             relative.display()
         );
+        if !copy {
+            // Edits only: its folder is there, its file is not. Without the
+            // file the other side can match it only by its id or by the
+            // content hash recorded here, so a hash not recorded yet is
+            // read now, while the original is at hand (and unchanged).
+            fs::create_dir_all(to.parent().context("No folder")?)?;
+            let sha256 = match catalog.checksum(&asset.id)? {
+                Some(sha) => Some(sha),
+                None if from.is_file()
+                    && fs::metadata(from)?.len() == asset.size
+                    && rawtonic_catalog::fingerprint(from)? == asset.fingerprint =>
+                {
+                    let sha = rawtonic_catalog::checksum::sha256_file(from, cancel)?;
+                    check(cancel)?;
+                    sha
+                }
+                None => None,
+            };
+            without.push((asset.id.clone(), relative, sha256));
+            exported.push(Exported {
+                id: asset.id.clone(),
+                from: from.clone(),
+                to,
+            });
+            continue;
+        }
         copy_file(from, &to, cancel)?;
         ensure!(
             fs::metadata(&to)?.len() == asset.size
@@ -330,6 +373,10 @@ pub fn export_catalog(
     if !referenced.is_empty() {
         catalog.reference_assets(&referenced)?;
     }
+    if !without.is_empty() {
+        catalog.place_without_original(&without)?;
+        receipt.edits_only = without.len();
+    }
     if !places.is_empty() {
         catalog.internalize_assets(&places)?;
         catalog.write_portable_sidecars()?;
@@ -355,7 +402,7 @@ pub fn export_catalog(
     let origin = rawtonic_catalog::subset::read_manifest(&source)?.id;
     rawtonic_metadata::atomic_write(
         &stage_root.join(rawtonic_catalog::catalog_import::EXPORT_BASELINE),
-        serde_json::to_vec_pretty(&catalog.export_baseline(&origin, source_stacks)?)?,
+        serde_json::to_vec_pretty(&catalog.export_baseline(&origin, &source, source_stacks)?)?,
     )?;
     catalog.check_integrity()?;
     catalog.compact()?;

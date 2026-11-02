@@ -22,7 +22,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { FolderOpen, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import i18n from "i18next";
+import i18n, { type TFunction } from "i18next";
 import OperationError from "../ui/OperationError";
 import { Invokes } from "../ui/AppProperties";
 import { flushBeforeQuit, registerQuitFlush } from "../../utils/quit";
@@ -55,10 +55,20 @@ export interface CatalogImportOptions {
   includeNew: boolean;
   /** Name of the snapshot keeping an edit that Replace replaces. */
   beforeSnapshot: string;
+  /** Name of the snapshot keeping the other catalog's edit Keep current leaves out. */
+  keptSnapshot?: string;
 }
+interface PhotoMetadata {
+  rating: number; label: string; flag: number; keywords: string[];
+  title: string; description: string; creator: string; copyright: string; iptc?: Record<string, string>;
+}
+/** Metadata a side changed that the photo does not have now: `kept` says
+ * whose it has ("here": Keep current, "there": Replace). */
+interface SetAside { asset: string; name: string; kept: "here" | "there"; here: PhotoMetadata; there: PhotoMetadata }
 interface Receipt {
   added: number; replaced: number; virtualCopies: number; kept: number; albumsCreated: number; stacks?: number;
   unchanged: number; originalsCopied: number; offline: number; missingResources: number; leftOut: number;
+  snapshotsKept?: number; setAside?: SetAside[]; reportFile?: string | null; withoutOriginal?: number;
   /** What puts back the metadata Replace replaced (one undo step). */
   undo: XmpReceipt[];
 }
@@ -106,6 +116,10 @@ export async function runCatalogImport(target: string, other: string, name: stri
       receipt.originalsCopied ? t("session.catalogExport.originalsCopied", { count: receipt.originalsCopied }) : "",
       receipt.offline ? t("session.catalogExport.offline", { count: receipt.offline }) : "",
       receipt.leftOut ? t("session.catalogExport.leftOut", { count: receipt.leftOut }) : "",
+      receipt.withoutOriginal ? t("session.catalogImport.withoutOriginal", { count: receipt.withoutOriginal }) : "",
+      receipt.snapshotsKept ? t("session.catalogImport.snapshotsKept", { count: receipt.snapshotsKept, name: options.keptSnapshot ?? "" }) : "",
+      ...(receipt.setAside ?? []).map((photo) => setAsideLine(photo, t)),
+      receipt.setAside?.length && receipt.reportFile ? t("session.catalogImport.reportKept", { file: receipt.reportFile }) : "",
     ].filter(Boolean).join("\n");
     notify.success(t("session.catalogImport.done", { name }), { source: "import", toastId: CATALOG_IMPORT_ACTIVITY, detail });
     await onDone();
@@ -122,6 +136,27 @@ export async function runCatalogImport(target: string, other: string, name: stri
 }
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+/** The fields of `a` that differ from `b`, as a short text ("3★ · Red · keywords: Bride"). */
+function metadataText(a: PhotoMetadata, b: PhotoMetadata, t: TFunction) {
+  const parts: string[] = [];
+  if (a.rating !== b.rating) parts.push(a.rating ? `${a.rating}★` : t("session.catalogImport.metadata.noRating"));
+  if (a.label !== b.label) parts.push(a.label || t("session.catalogImport.metadata.noLabel"));
+  if (a.flag !== b.flag) parts.push(t(`session.catalogImport.metadata.flag${a.flag === 1 ? "Pick" : a.flag === -1 ? "Reject" : "None"}`));
+  if (a.keywords.join("\n") !== b.keywords.join("\n")) parts.push(t("session.catalogImport.metadata.keywords", { keywords: a.keywords.join(", ") || "–" }));
+  const fields = (["title", "description", "creator", "copyright"] as const).filter((field) => a[field] !== b[field]);
+  if (JSON.stringify(a.iptc ?? {}) !== JSON.stringify(b.iptc ?? {})) parts.push("IPTC");
+  return [...parts, ...fields.map((field) => t(`session.catalogImport.metadata.${field}`, { value: a[field] || "–" }))].join(" · ");
+}
+
+/** One photo's metadata set aside, for the result's details. */
+function setAsideLine(photo: SetAside, t: TFunction) {
+  const lost = photo.kept === "here" ? photo.there : photo.here;
+  const kept = photo.kept === "here" ? photo.here : photo.there;
+  return t(photo.kept === "here" ? "session.catalogImport.setAsideThere" : "session.catalogImport.setAsideHere", {
+    name: photo.name, lost: metadataText(lost, kept, t), kept: metadataText(kept, lost, t),
+  });
+}
 
 /** The safe defaults: newer work here is never replaced unasked, so a photo
  * this catalog changed (alone or as well) is kept; the run's choice is for
@@ -195,6 +230,7 @@ export default function CatalogImportDialog({ directory, onClose, onDone }: Prop
         overrides,
         includeNew,
         beforeSnapshot: t("session.catalogImport.beforeSnapshot", { name: review.name }),
+        keptSnapshot: t("session.catalogImport.keptSnapshot", { name: review.name }),
       };
       void runCatalogImport(directory, other, review.name, options, onDone);
       onClose();

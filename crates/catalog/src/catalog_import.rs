@@ -94,6 +94,72 @@ pub struct Baseline {
     /// over the exported photographs when it was exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stacks: Option<Vec<Stack>>,
+    /// In an Export as Catalog's record: the states the catalog exported
+    /// from held in common with other catalogs (its own export's record and
+    /// its imports', carried on), one per other catalog. A catalog exported
+    /// from an exported catalog so still tells, back in the first, which
+    /// side changed a photograph (A → B → C, C imported into A).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lineage: Vec<Baseline>,
+}
+
+/// The key of each photograph's record that says when it was recorded
+/// (RFC 3339, UTC): of several records of a common state, the latest is
+/// the one compared with. Not a part.
+const RECORDED: &str = "@recorded";
+
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Of the records `candidates` of one photograph (in order of preference),
+/// the latest recorded; one without a time counts as the oldest.
+fn latest<'a>(
+    candidates: impl IntoIterator<Item = &'a BTreeMap<String, String>>,
+) -> Option<&'a BTreeMap<String, String>> {
+    let mut best: Option<&BTreeMap<String, String>> = None;
+    for candidate in candidates {
+        if best.is_none_or(|best| candidate.get(RECORDED) > best.get(RECORDED)) {
+            best = Some(candidate);
+        }
+    }
+    best
+}
+
+fn read_baseline(path: &Path) -> Option<Baseline> {
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+/// What two catalogs held in common, as a catalog exported from one of
+/// them carries it: per other catalog, each of the photographs `ids`' latest
+/// record from `records` (the exporting catalog's own records and those
+/// its own export carried).
+fn merge_lineage(records: Vec<Baseline>, ids: &BTreeSet<String>) -> Vec<Baseline> {
+    let mut by_origin: BTreeMap<String, Baseline> = BTreeMap::new();
+    for record in records {
+        let merged = by_origin
+            .entry(record.origin.clone())
+            .or_insert_with(|| Baseline {
+                origin: record.origin.clone(),
+                ..Baseline::default()
+            });
+        for (id, parts) in record.photos {
+            if !ids.contains(&id) {
+                continue;
+            }
+            let newer = merged
+                .photos
+                .get(&id)
+                .is_none_or(|kept| parts.get(RECORDED) > kept.get(RECORDED));
+            if newer {
+                merged.photos.insert(id, parts);
+            }
+        }
+    }
+    by_origin
+        .into_values()
+        .filter(|record| !record.photos.is_empty())
+        .collect()
 }
 
 /// The common stack states of `imported` (the record of the last import) or,
@@ -139,6 +205,9 @@ pub struct Plan {
     pub batch_kind: &'static str,
     /// The name of the snapshot that keeps an edit Replace replaces.
     pub before: String,
+    /// The name of the snapshot that keeps the other catalog's edit Keep
+    /// current does not take (`set_aside`).
+    pub kept_name: String,
     /// The other library's stacks to bring in (those holding an imported
     /// photograph, or one whose stack changed there alone), their members
     /// named as they are here (`stacks::sync_stack`).
@@ -164,6 +233,27 @@ pub struct Changed {
     pub choice: Choice,
     /// What differs (`Incoming::changes`): Replace takes only those.
     pub changes: Vec<&'static str>,
+    /// Which catalog changed it (`Incoming::side`): the work of a side
+    /// that changed it and loses is kept (`set_aside`).
+    pub side: Option<Side>,
+}
+
+/// Metadata of a photograph that one side changed and the import did not
+/// keep in the photograph (Keep current: the other catalog's; Replace: the
+/// one replaced here), kept in the import's report so no rating, label or
+/// keyword set on either computer is lost unseen.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAside {
+    /// The photograph here.
+    pub asset: String,
+    /// Its file name.
+    pub name: String,
+    /// Whose metadata the photograph has now: "here" (Keep current) or
+    /// "there" (Replace).
+    pub kept: &'static str,
+    pub here: Metadata,
+    pub there: Metadata,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -182,6 +272,10 @@ pub struct Report {
     /// What puts back the metadata Replace replaced (`travel_import`); the
     /// replaced edit is a step of the photograph's history.
     pub undo: Vec<crate::xmp_review::XmpUndo>,
+    /// The other catalog's edits Keep current kept as a snapshot.
+    pub snapshots_kept: usize,
+    /// The metadata a side changed that the photograph does not have now.
+    pub set_aside: Vec<SetAside>,
 }
 
 /// What a photograph carries that an import compares, with resources
@@ -374,24 +468,74 @@ impl Library {
     }
 
     /// Every photograph's state now, as the record of an Export as Catalog
-    /// of this (new) catalog from the catalog `origin`, whose stacks over
-    /// the exported photographs (`stacks`, whole) are the common stacks.
-    pub fn export_baseline(&self, origin: &str, stacks: Vec<Stack>) -> Result<Baseline> {
+    /// of this (new) catalog from the catalog at `source` (id `origin`),
+    /// whose stacks over the exported photographs (`stacks`, whole) are the
+    /// common stacks. It carries what `source` held in common with other
+    /// catalogs (`Baseline::lineage`).
+    pub fn export_baseline(
+        &self,
+        origin: &str,
+        source: &Path,
+        stacks: Vec<Stack>,
+    ) -> Result<Baseline> {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
         let mut photos = BTreeMap::new();
+        let recorded = now();
         for asset in self.assets(None)? {
-            photos.insert(
-                asset.id.clone(),
-                self.import_digests(&asset.id, &self.directory, &mut digests)?,
-            );
+            let mut parts = self.import_digests(&asset.id, &self.directory, &mut digests)?;
+            parts.insert(RECORDED.into(), recorded.clone());
+            photos.insert(asset.id.clone(), parts);
         }
+        // The source's records: its own export's (and what that carried)
+        // and its imports'.
+        let mut records = Vec::new();
+        if let Some(mut exported) = read_baseline(&source.join(EXPORT_BASELINE)) {
+            records.append(&mut exported.lineage);
+            records.push(exported);
+        }
+        if let Ok(entries) = std::fs::read_dir(source.join(IMPORT_BASELINES)) {
+            for entry in entries.flatten() {
+                if let Some(record) = read_baseline(&entry.path()) {
+                    records.push(record);
+                }
+            }
+        }
+        records.retain(|record| record.origin != origin);
+        let ids: BTreeSet<String> = photos.keys().cloned().collect();
         Ok(Baseline {
             origin: origin.to_string(),
             stacks: Some(stacks),
+            lineage: merge_lineage(records, &ids),
             photos,
         })
+    }
+
+    /// The records of the states this catalog and `other` (at `other_dir`)
+    /// held in common, in order of preference: this catalog's record of its
+    /// last import of `other`; `other`'s record of being exported from this
+    /// catalog; and when `other` was exported from a third catalog, this
+    /// catalog's record of importing from that one, then what `other`
+    /// carries of that one's common states with this catalog. Each
+    /// photograph is compared with its latest record among them (`latest`).
+    fn photo_baselines(&self, other: &Library, other_dir: &Path) -> Vec<Baseline> {
+        let mine = |id: &str| import_record(&self.directory, id).and_then(|f| read_baseline(&f));
+        let mut out: Vec<Baseline> = mine(&other.manifest.id).into_iter().collect();
+        if let Some(exported) = read_baseline(&other_dir.join(EXPORT_BASELINE)) {
+            if exported.origin == self.manifest.id {
+                out.push(exported);
+            } else {
+                out.extend(mine(&exported.origin));
+                out.extend(
+                    exported
+                        .lineage
+                        .into_iter()
+                        .filter(|record| record.origin == self.manifest.id),
+                );
+            }
+        }
+        out
     }
 
     /// The common states recorded for photographs of `other` (at
@@ -399,11 +543,9 @@ impl Library {
     /// of being exported from this catalog. A record of an export from
     /// another catalog says nothing about this one.
     fn baselines(&self, other: &Library, other_dir: &Path) -> (Option<Baseline>, Option<Baseline>) {
-        let read = |path: PathBuf| -> Option<Baseline> {
-            serde_json::from_slice(&std::fs::read(path).ok()?).ok()
-        };
-        let imported = import_record(&self.directory, &other.manifest.id).and_then(read);
-        let exported = read(other_dir.join(EXPORT_BASELINE))
+        let imported =
+            import_record(&self.directory, &other.manifest.id).and_then(|f| read_baseline(&f));
+        let exported = read_baseline(&other_dir.join(EXPORT_BASELINE))
             .filter(|baseline| baseline.origin == self.manifest.id);
         (imported, exported)
     }
@@ -422,10 +564,7 @@ impl Library {
         let Some(file) = import_record(&self.directory, &other.manifest.id) else {
             return Ok(());
         };
-        let mut record: Baseline = std::fs::read(&file)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let mut record: Baseline = read_baseline(&file).unwrap_or_default();
         record.origin = other.manifest.id.clone();
         record.stacks = Some(stacks);
         std::fs::create_dir_all(self.directory.join(IMPORT_BASELINES))?;
@@ -457,7 +596,11 @@ impl Library {
 
     /// Records, after an import from `other`, the photographs whose state
     /// is now the same in both catalogs (`pairs`: their id there and here),
-    /// so a later import tells which side changed them since.
+    /// so a later import tells which side changed them since. When `other`
+    /// was exported from a third catalog, the parts it has not changed
+    /// since are that catalog's state at the export: they are recorded as
+    /// in common with it too (a later catalog exported from it then tells
+    /// which side changed them).
     pub fn record_import(
         &self,
         other: &Library,
@@ -467,18 +610,19 @@ impl Library {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
+        let baselines = self.photo_baselines(other, other_dir);
+        let exported = read_baseline(&other_dir.join(EXPORT_BASELINE)).filter(|record| {
+            record.origin != self.manifest.id && record.origin != other.manifest.id
+        });
+        let recorded = now();
+        let mut theirs_parent: Vec<(String, BTreeMap<String, String>)> = Vec::new();
         // Another catalog's id that is no plain name: nothing recorded (a
         // later import only asks more).
         let Some(file) = import_record(&self.directory, &other.manifest.id) else {
             return Ok(());
         };
-        let folder = self.directory.join(IMPORT_BASELINES);
-        let mut record: Baseline = std::fs::read(&file)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let mut record: Baseline = read_baseline(&file).unwrap_or_default();
         record.origin = other.manifest.id.clone();
-        let (_, exported) = self.baselines(other, other_dir);
         for (incoming, target) in pairs {
             let theirs = other.import_digests(incoming, other_dir, &mut digests)?;
             let ours = self.import_digests(target, &self.directory, &mut digests)?;
@@ -486,10 +630,7 @@ impl Library {
             // state; one that differs (an album or virtual copy only here, a
             // replaced edit kept as a snapshot here) keeps the state recorded
             // before, else none (a later import counts it as both sides).
-            let mut common = record
-                .photos
-                .get(incoming)
-                .or_else(|| exported.as_ref().and_then(|b| b.photos.get(incoming)))
+            let mut common = latest(baselines.iter().filter_map(|b| b.photos.get(incoming)))
                 .cloned()
                 .unwrap_or_default();
             for (part, digest) in &theirs {
@@ -497,10 +638,35 @@ impl Library {
                     common.insert(part.clone(), digest.clone());
                 }
             }
+            common.insert(RECORDED.into(), recorded.clone());
             record.photos.insert(incoming.clone(), common);
+            if let Some(then) = exported.as_ref().and_then(|b| b.photos.get(incoming)) {
+                let unchanged: BTreeMap<String, String> = theirs
+                    .iter()
+                    .filter(|(part, digest)| {
+                        ours.get(*part) == Some(*digest) && then.get(*part) == Some(*digest)
+                    })
+                    .map(|(part, digest)| (part.clone(), digest.clone()))
+                    .collect();
+                theirs_parent.push((incoming.clone(), unchanged));
+            }
         }
-        std::fs::create_dir_all(&folder)?;
+        std::fs::create_dir_all(self.directory.join(IMPORT_BASELINES))?;
         rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
+        if let Some(parent) = exported
+            && !theirs_parent.is_empty()
+            && let Some(file) = import_record(&self.directory, &parent.origin)
+        {
+            let mut record: Baseline = read_baseline(&file).unwrap_or_default();
+            record.origin = parent.origin.clone();
+            for (id, unchanged) in theirs_parent {
+                let mut common = record.photos.get(&id).cloned().unwrap_or_default();
+                common.extend(unchanged);
+                common.insert(RECORDED.into(), recorded.clone());
+                record.photos.insert(id, common);
+            }
+            rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
+        }
         Ok(())
     }
 
@@ -680,6 +846,7 @@ impl Library {
             cache: HashMap::new(),
         };
         let (imported, exported) = self.baselines(other, other_dir);
+        let photo_baselines = self.photo_baselines(other, other_dir);
         let mut out = Vec::new();
         // In the order the other library registered them, so that of two
         // copies of one file there the earlier keeps its match here, import
@@ -776,10 +943,11 @@ impl Library {
             let side = if changes.is_empty() {
                 None
             } else {
-                let baseline = imported
-                    .as_ref()
-                    .and_then(|b| b.photos.get(&asset.id))
-                    .or_else(|| exported.as_ref().and_then(|b| b.photos.get(&asset.id)));
+                let baseline = latest(
+                    photo_baselines
+                        .iter()
+                        .filter_map(|b| b.photos.get(&asset.id)),
+                );
                 Some(match baseline {
                     None => Side::Both,
                     Some(baseline) => {
@@ -939,8 +1107,40 @@ impl Library {
         for changed in &plan.changed {
             let (incoming, target) = (&changed.incoming, &changed.target);
             match changed.choice {
-                Choice::Keep => report.kept += 1,
+                Choice::Keep => {
+                    report.kept += 1;
+                    // Their work, when they changed it: the edit one click
+                    // away as a snapshot, the metadata in the report.
+                    if changed.side != Some(Side::Here) {
+                        if changed.changes.contains(&"edit")
+                            && keep_their_edit(&tx, self, other, incoming, target, &plan.kept_name)?
+                        {
+                            report.snapshots_kept += 1;
+                            report.touched.push(target.clone());
+                        }
+                        if changed.changes.contains(&"metadata") {
+                            report.set_aside.push(SetAside {
+                                asset: target.clone(),
+                                name: file_name(self, target)?,
+                                kept: "here",
+                                here: self.metadata(target)?,
+                                there: other.metadata(incoming)?,
+                            });
+                        }
+                    }
+                }
                 Choice::Replace => {
+                    // Ours, when we changed it (the replaced edit is a
+                    // snapshot, see `replace`).
+                    if changed.side != Some(Side::There) && changed.changes.contains(&"metadata") {
+                        report.set_aside.push(SetAside {
+                            asset: target.clone(),
+                            name: file_name(self, target)?,
+                            kept: "there",
+                            here: self.metadata(target)?,
+                            there: other.metadata(incoming)?,
+                        });
+                    }
                     report.undo.extend(replace(
                         &tx,
                         self,
@@ -1258,6 +1458,90 @@ fn replace(
         copy_rows(tx, "face_eyes", &theirs_only, &[("asset_id", &set_target)])?;
     }
     Ok(undo)
+}
+
+/// The file name of the photograph `asset` here.
+fn file_name(lib: &Library, asset: &str) -> Result<String> {
+    Ok(lib
+        .asset(asset)?
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default())
+}
+
+/// Keeps the edit of `incoming` (of `other`) that Keep current leaves out
+/// as a snapshot `name` of the photograph `target`, unless it has it
+/// already (a snapshot, or a step of its history). Returns whether it made
+/// one.
+fn keep_their_edit(
+    tx: &Connection,
+    lib: &Library,
+    other: &Library,
+    incoming: &str,
+    target: &str,
+    name: &str,
+) -> Result<bool> {
+    let theirs = other.primary_version(incoming)?;
+    let Some(adjustments) = other
+        .recipe(&theirs)?
+        .and_then(|recipe| recipe.pointer("/editor_state/adjustments").cloned())
+        .filter(Value::is_object)
+    else {
+        return Ok(false);
+    };
+    let version: String = tx.query_row(
+        "SELECT id FROM versions WHERE asset_id=? AND is_primary=1",
+        [target],
+        |r| r.get(0),
+    )?;
+    // Compared with resources named by their content: a snapshot read
+    // back names them by absolute path, the incoming edit by the catalog's
+    // relative reference.
+    let mut digests = Digests {
+        cache: HashMap::new(),
+    };
+    let mut wanted = adjustments.clone();
+    digests.normalize(&mut wanted, &lib.directory);
+    let mut same = |mut value: Value| {
+        digests.normalize(&mut value, &lib.directory);
+        value == wanted
+    };
+    let mut have = false;
+    for snapshot in crate::snapshots::read(tx, &lib.directory, &version)? {
+        if same(snapshot.adjustments) {
+            have = true;
+            break;
+        }
+    }
+    let payloads: Vec<String> = tx
+        .prepare("SELECT payload FROM recipes WHERE version_id=?")?
+        .query_map([&version], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut in_history = false;
+    for text in payloads {
+        if have {
+            break;
+        }
+        let mut value: Value = serde_json::from_str(&text)?;
+        crate::load_blobs(tx, &mut value)?;
+        if let Some(earlier) = value.pointer("/editor_state/adjustments").cloned()
+            && same(earlier)
+        {
+            in_history = true;
+            break;
+        }
+    }
+    if have || in_history {
+        return Ok(false);
+    }
+    crate::snapshots::insert(
+        tx,
+        &lib.directory,
+        &version,
+        &[crate::Snapshot::new(name, adjustments)?],
+    )?;
+    Ok(true)
 }
 
 /// The incoming photograph's edit as a new virtual copy here; the

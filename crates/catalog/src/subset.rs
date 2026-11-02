@@ -218,6 +218,42 @@ impl Library {
         Ok(())
     }
 
+    /// Records each photograph at `relative` inside this catalog without
+    /// its file (Export as Catalog without originals of a library's own
+    /// photographs: edits only). It is offline here, keeps its edits and
+    /// previews, and Import from Catalog brings its work back to the library
+    /// that holds the original, matched by id or by the content hash given
+    /// (read from the original before; kept when `None`). Nothing on disk
+    /// changes.
+    pub fn place_without_original(
+        &self,
+        places: &[(String, std::path::PathBuf, Option<String>)],
+    ) -> Result<()> {
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        for (id, relative, sha256) in places {
+            let stored = crate::portable_relative(relative)?;
+            ensure!(
+                !self.directory.join(relative).exists(),
+                "{} is in the catalog already",
+                relative.display()
+            );
+            ensure!(
+                tx.execute(
+                    "UPDATE assets SET root_id='session',rel_path=?,missing=1,
+                       sha256=coalesce(?,sha256) WHERE id=?",
+                    params![stored, sha256, id],
+                )? == 1,
+                "Unknown asset {id}"
+            );
+        }
+        tx.execute(
+            "DELETE FROM roots WHERE external=1 AND id NOT IN (SELECT root_id FROM assets)",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Rebuilds the search index and the database file so nothing of the
     /// removed photographs stays behind (an exported catalog is handed on):
     /// full-text deletions only mark entries until their index segments

@@ -156,6 +156,15 @@ pub struct Options {
     /// app's translation of "Before import from …").
     #[serde(default = "before_import")]
     pub before_snapshot: String,
+    /// The name of the snapshot that keeps the other catalog's edit Keep
+    /// current does not take (the app's translation of "From …, not
+    /// imported").
+    #[serde(default = "kept_from_import")]
+    pub kept_snapshot: String,
+}
+
+fn kept_from_import() -> String {
+    "Not imported".into()
 }
 
 fn before_import() -> String {
@@ -198,7 +207,16 @@ pub struct Receipt {
     pub missing_resources: usize,
     /// Photographs inside a third library's folder, not imported.
     pub left_out: usize,
+    /// New photographs whose original the other catalog does not hold (an
+    /// edits-only export of photographs from elsewhere): not imported.
+    pub without_original: usize,
+    /// Where the import's report of metadata set aside (`Report::set_aside`)
+    /// was kept, in this catalog's `import-reports/`.
+    pub report_file: Option<PathBuf>,
 }
+
+/// This catalog's folder of the reports of imports that set metadata aside.
+pub const IMPORT_REPORTS: &str = "import-reports";
 
 /// Imports the library at `other` into `target` as `options` says.
 pub fn import(
@@ -218,10 +236,17 @@ pub fn import(
         left_out,
         ..Receipt::default()
     };
-    let new: Vec<&Incoming> = photos
+    // A new photograph has to come with its original when it is copied (or
+    // lies inside the other catalog, which holds it): without, as in an
+    // edits-only export, there is nothing here to put its work on. It is
+    // left out and counted; the other catalog keeps it.
+    let copy_all = matches!(options.new_photos, NewPhotos::Copy(_));
+    let (new, without): (Vec<&Incoming>, Vec<&Incoming>) = photos
         .iter()
         .filter(|p| p.status == Status::New && options.include_new)
-        .collect();
+        .partition(|p| p.available || !(copy_all || p.path.starts_with(&source.directory)));
+    receipt.without_original = without.len();
+    let without: HashSet<&str> = without.iter().map(|p| p.id.as_str()).collect();
     let choice_of = |p: &Incoming| {
         options
             .overrides
@@ -250,6 +275,7 @@ pub fn import(
             target: p.target.clone().expect("a changed photograph has one here"),
             choice: choice_of(p),
             changes: p.changes.clone(),
+            side: p.side,
         })
         .collect();
     // Keep current keeps everything of the photograph here, its stack too.
@@ -284,8 +310,17 @@ pub fn import(
     if let Err(error) = target.record_import(&source.snapshot, &source.directory, &same) {
         log::warn!("Import from Catalog: common states not recorded: {error:#}");
     }
+    // Changed photographs kept here whose other side changed them: their
+    // edit is kept as a snapshot and their metadata in the report, so they
+    // stay in the snapshot too (but bring no stack).
+    let aside: Vec<String> = changed
+        .iter()
+        .filter(|c| c.choice == Choice::Keep && c.side != Some(Side::Here))
+        .filter(|c| c.changes.contains(&"edit") || c.changes.contains(&"metadata"))
+        .map(|c| c.incoming.clone())
+        .collect();
     let stack_kept = stack_only.len() - stack_replaced.len();
-    if used.is_empty() && stack_replaced.is_empty() {
+    if used.is_empty() && aside.is_empty() && stack_replaced.is_empty() {
         receipt.report.kept = changed.len() + stack_kept;
         return Ok(receipt);
     }
@@ -298,7 +333,9 @@ pub fn import(
         let here: HashMap<&str, &str> = photos
             .iter()
             .filter_map(|p| match (p.status, &p.target) {
-                (Status::New, _) if options.include_new => Some((p.id.as_str(), p.id.as_str())),
+                (Status::New, _) if options.include_new && !without.contains(p.id.as_str()) => {
+                    Some((p.id.as_str(), p.id.as_str()))
+                }
                 (Status::New, _) => None,
                 (_, Some(target)) => Some((p.id.as_str(), target.as_str())),
                 _ => None,
@@ -344,8 +381,9 @@ pub fn import(
     };
     // Only what comes in: no other photograph's resources are copied (a
     // stack changed alone brings no photograph).
-    if !used.is_empty() {
-        source.snapshot.retain_only(&used)?;
+    if !used.is_empty() || !aside.is_empty() {
+        let retained: Vec<String> = used.iter().chain(&aside).cloned().collect();
+        source.snapshot.retain_only(&retained)?;
         check(cancel)?;
         // The edit resources the imported photographs use, into this catalog's
         // `resources/` (references in a database are its library's own).
@@ -369,6 +407,7 @@ pub fn import(
         changed,
         batch_kind: "add",
         before: options.before_snapshot.clone(),
+        kept_name: options.kept_snapshot.clone(),
         stacks,
         common_stacks: common_stacks.clone(),
         known_here: known_here.clone(),
@@ -380,9 +419,9 @@ pub fn import(
     // this catalog's own `Photos/`; only photographs outside any library
     // (or already inside this catalog) are referred to where they are.
     // Those inside a third library were left out above.
-    let (folder, copy_all) = match &options.new_photos {
-        NewPhotos::Copy(folder) => (folder.clone(), true),
-        NewPhotos::Reference => (target.directory.join(&target.manifest.capture), false),
+    let folder = match &options.new_photos {
+        NewPhotos::Copy(folder) => folder.clone(),
+        NewPhotos::Reference => target.directory.join(&target.manifest.capture),
     };
     let (to_copy, referenced): (Vec<&Incoming>, Vec<&Incoming>) = new
         .iter()
@@ -447,6 +486,14 @@ pub fn import(
             }
             receipt.report = report;
             receipt.report.kept += stack_kept;
+            if !receipt.report.set_aside.is_empty() {
+                match write_report(target, &source, &receipt.report) {
+                    Ok(file) => receipt.report_file = Some(file),
+                    Err(error) => {
+                        log::warn!("Import from Catalog: report not kept: {error:#}")
+                    }
+                }
+            }
             Ok(receipt)
         }
         Err(error) => {
@@ -454,6 +501,40 @@ pub fn import(
             Err(error)
         }
     }
+}
+
+/// Keeps the metadata an import set aside as `import-reports/<time>
+/// <catalog id>.json` in `target`'s folder (written once, never replaced).
+fn write_report(target: &Library, source: &Source, report: &Report) -> Result<PathBuf> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Kept<'a> {
+        imported_at: String,
+        from: &'a str,
+        from_folder: &'a Path,
+        set_aside: &'a [rawtonic_catalog::catalog_import::SetAside],
+    }
+    let at = chrono::Utc::now();
+    let folder = target.directory.join(IMPORT_REPORTS);
+    fs::create_dir_all(&folder)?;
+    let id = &source.snapshot.manifest.id;
+    let safe: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(64)
+        .collect();
+    let file = folder.join(format!("{} {safe}.json", at.format("%Y-%m-%d %H%M%S%.3f")));
+    let bytes = serde_json::to_vec_pretty(&Kept {
+        imported_at: at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        from: &source.snapshot.manifest.name,
+        from_folder: &source.directory,
+        set_aside: &report.set_aside,
+    })?;
+    let mut temp = tempfile::NamedTempFile::new_in(&folder)?;
+    std::io::Write::write_all(&mut temp, &bytes)?;
+    temp.as_file().sync_all()?;
+    rawtonic_metadata::no_clobber::persist(temp, &file)?;
+    Ok(file)
 }
 
 /// Folders of copied originals put in place before the database

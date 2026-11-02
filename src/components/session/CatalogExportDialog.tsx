@@ -22,6 +22,7 @@ import { flushBeforeQuit, registerQuitFlush } from "../../utils/quit";
 import { openDialog } from "../../utils/fileDialog";
 import { useActivityStore } from "../../store/useActivityStore";
 import { notify } from "../../activity/notify";
+import { formatBytes } from "../../utils/catalogFolders";
 
 interface Progress { phase: "originals" | "finishing"; done: number; total: number }
 export interface CatalogExportReceipt {
@@ -32,6 +33,8 @@ export interface CatalogExportReceipt {
   missingResources: number;
   missingCurrentResources: number;
   leftOut: number;
+  /** Photos of the library's own folder sent without their original. */
+  editsOnly?: number;
 }
 export interface CatalogExportRequest {
   source: string;
@@ -43,8 +46,14 @@ export interface CatalogExportRequest {
   leaveOutOwnedElsewhere: boolean;
 }
 /** Photos of the export whose file lies in another library's folder. */
-/** `name`: the owning library's name as the user knows it. */
-interface OwnedReport { total: number; owned: { id: string; path: string; library: string; name: string }[] }
+/** `name`: the owning library's name as the user knows it. `inside`: photos
+ * in the library's own folder (edits only without originals); `bytes`: the
+ * size of all their originals; `exported`: the library was itself made by
+ * Export as Catalog. */
+interface OwnedReport {
+  total: number; owned: { id: string; path: string; library: string; name: string }[];
+  inside?: number; bytes?: number; exported?: boolean;
+}
 
 /** The activity centre's entry of a running export. */
 export const CATALOG_EXPORT_ACTIVITY = "catalog-export";
@@ -82,6 +91,7 @@ export async function runCatalogExport(request: CatalogExportRequest, onOpen: (d
       receipt.originalsCopied ? t("session.catalogExport.originalsCopied", { count: receipt.originalsCopied }) : t("session.catalogExport.referenced"),
       receipt.previews ? t("session.catalogExport.previews", { count: receipt.previews }) : "",
       receipt.offline ? t("session.catalogExport.offline", { count: receipt.offline }) : "",
+      receipt.editsOnly ? t("session.catalogExport.editsOnlyDone", { count: receipt.editsOnly }) : "",
       receipt.leftOut ? t("session.catalogExport.leftOut", { count: receipt.leftOut }) : "",
       receipt.missingResources ? t("session.transfer.missingResources", {
         files: receipt.missingResources, current: receipt.missingCurrentResources,
@@ -134,6 +144,9 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
   const [parent, setParent] = useState("");
   const [folder, setFolder] = useState(() => `${name || "Rawtonic"} – ${new Date().toISOString().slice(0, 10)}`);
   const [includeOriginals, setIncludeOriginals] = useState(false);
+  /** Set once the photographer ticks or unticks Include original files. */
+  const [originalsChosen, setOriginalsChosen] = useState(false);
+  const [sizes, setSizes] = useState<OwnedReport | null>(null);
   const [includePreviews, setIncludePreviews] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -147,6 +160,25 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
     element?.showModal();
     return () => element?.close();
   }, []);
+
+  // What the originals weigh and where they are: a hand-over of photos
+  // stored in this library includes them by default (without, they would
+  // arrive offline); sending the work of a catalog made by Export as
+  // Catalog back is edits only by default (the originals are where it came
+  // from).
+  useEffect(() => {
+    let current = true;
+    if (!paths.length) return;
+    Promise.resolve(invoke<OwnedReport>(Invokes.LibraryExportCatalogOwned, { source: directory, paths }))
+      .then((report) => {
+        if (!current || !report) return;
+        setSizes(report);
+        if (!originalsChosen) setIncludeOriginals(!!report.inside && !report.exported);
+      })
+      .catch(() => {});
+    return () => { current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per scope; `paths` follows it, and a choice made stays
+  }, [directory, scope]);
 
   async function choose() {
     try {
@@ -208,11 +240,17 @@ export default function CatalogExportDialog({ directory, name, selected, shown, 
           <input required maxLength={180} value={folder} disabled={busy} onChange={(e) => setFolder(e.target.value)} />
         </label>
         <label className="session-ingest-album">
-          <input type="checkbox" checked={includeOriginals} disabled={busy} onChange={(e) => setIncludeOriginals(e.target.checked)} />
+          <input type="checkbox" checked={includeOriginals} disabled={busy}
+            onChange={(e) => { setOriginalsChosen(true); setIncludeOriginals(e.target.checked); }} />
           {t("session.catalogExport.includeOriginals")}
         </label>
-        <p className="session-create-description">{t(includeOriginals ? "session.catalogExport.originalsHint" : "session.catalogExport.referenceHint")}
-          {!includeOriginals && <> {t("session.catalogExport.ownCopied")}</>}</p>
+        <p className="session-create-description">
+          {includeOriginals
+            ? t("session.catalogExport.originalsHint")
+            : sizes?.inside
+              ? t("session.catalogExport.editsOnlyHint", { count: sizes.inside })
+              : t("session.catalogExport.referenceHint")}
+          {sizes?.bytes ? <> {t("session.catalogExport.originalsSize", { size: formatBytes(sizes.bytes) })}</> : null}</p>
         <label className="session-ingest-album">
           <input type="checkbox" checked={includePreviews} disabled={busy} onChange={(e) => setIncludePreviews(e.target.checked)} />
           {t("session.catalogExport.includePreviews")}
