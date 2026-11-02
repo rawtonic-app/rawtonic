@@ -668,7 +668,8 @@ export interface Adjustments {
    * quarter-tones and lowered Highlights is refitted; 3 = lowered
    * Highlights also adapts to the image key (reaches further in dark
    * frames); 4 = and lowers less on frames of bright key (snow, overcast
-   * skies, white rooms); 1 or missing on
+   * skies, white rooms); 5 = and keeps the detail of lowered bright areas
+   * (clouds, lit walls); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1363,7 +1364,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 4;
+export const TONE_VERSION = 5;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;

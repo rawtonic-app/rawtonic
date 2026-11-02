@@ -1364,6 +1364,13 @@ const HL_V3_BLACK_K0: f32 = 0.0;
 const HL_V3_BLACK_K1: f32 = 2.0;
 const HL_V3_BLEND: f32 = 2.0;
 const HL_V3_RANGE: f32 = 2.0;
+// Tone version 5: the range of the local base lowered Highlights
+// compresses, as a share of the pixel's luminance (version 4: 0.22), and how
+// fast it narrows back to version 4's as version 3's dark-frame shift grows
+// (per EV of shift). Chosen on 42 frames against Camera Raw and Capture One
+// (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02).
+const HL_V5_RANGE: f32 = 1.0;
+const HL_V5_DARK: f32 = 4.0;
 // Tone version 4: lowering Highlights adapts to bright frames too, as
 // Camera Raw's does. On frames of bright key (snow, overcast or bright
 // skies, white rooms) Camera Raw's −100 lowers broad bright areas only
@@ -2320,7 +2327,13 @@ fn apply_highlights_adjustment(
     // bright plateau otherwise took a base pulled down by the rim, and the
     // detail lift on that turned tones over across the edge (a light rim
     // inside a darker band, 0.1 EV on a clipped disc).
-    let range_tol = max(pixel_luma * 0.22, 0.03) * exp2(-HL_V3_RANGE * max(key_shift, 0.0));
+    let v5 = v2 && adjustments.global.tone_version > 4.5;
+    // Version 5: a wider range lets the base carry mid-scale structure
+    // (clouds, lit walls), so lowering it keeps their detail as Camera Raw
+    // and Capture One do; faded back to the narrow range as version 3
+    // compresses harder on dark frames, where a wide base turned rim tones over.
+    let range_factor = select(0.22, mix(0.22, HL_V5_RANGE, exp2(-HL_V5_DARK * max(key_shift, 0.0))), v5);
+    let range_tol = max(pixel_luma * range_factor, 0.03) * exp2(-HL_V3_RANGE * max(key_shift, 0.0));
     let inv_two_range_sq = 1.0 / (2.0 * range_tol * range_tol);
 
     var sum_luma: f32 = pixel_luma;
