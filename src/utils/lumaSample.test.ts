@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { LUMA_CLICK_WIDTH, LUMA_EDGE_SNAP, lumaRangeFromSample, sampleLumaRange, toPercentile, toTone } from './lumaSample';
+import {
+  LUMA_CLICK_WIDTH,
+  LUMA_EDGE_SNAP,
+  lumaRangeFromSample,
+  sampleLumaRange,
+  toPercentile,
+  toTone
+} from './lumaSample';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from './adjustments';
 import { createSubMask } from './maskUtils';
 import { Mask } from '../components/panel/right/Masks';
@@ -33,7 +40,7 @@ describe("the luma range a sample sets (Lightroom's rule, in percentiles)", () =
     expect(lumaRangeFromSample(at(25, dark), false)).toEqual({
       rangeLow: 16,
       rangeHigh: 36,
-      falloff: Math.round(((16 - 2.25) + (72.25 - 36)) / 2),
+      falloff: Math.round((16 - 2.25 + (72.25 - 36)) / 2)
     });
   });
 
@@ -52,10 +59,13 @@ describe("the luma range a sample sets (Lightroom's rule, in percentiles)", () =
     // Snapped at white: the range is now 0.4 wide below it.
     expect(lumaRangeFromSample(at(75), false, current)).toEqual({ rangeLow: 55, rangeHigh: 100, falloff: 25 });
     // The full range counts as new.
-    expect(lumaRangeFromSample(at(60), false, { rangeLow: 0, rangeHigh: 100 })).toMatchObject({ rangeLow: 50, rangeHigh: 70 });
+    expect(lumaRangeFromSample(at(60), false, { rangeLow: 0, rangeHigh: 100 })).toMatchObject({
+      rangeLow: 50,
+      rangeHigh: 70
+    });
     // An imported Lightroom range keeps its width too.
     expect(
-      lumaRangeFromSample(at(50), false, { rangeLow: 0, rangeHigh: 100, lrRange: [0.1, 0.3, 0.6, 0.8] }),
+      lumaRangeFromSample(at(50), false, { rangeLow: 0, rangeHigh: 100, lrRange: [0.1, 0.3, 0.6, 0.8] })
     ).toMatchObject({ rangeLow: 35, rangeHigh: 65 });
   });
 
@@ -68,18 +78,25 @@ describe("the luma range a sample sets (Lightroom's rule, in percentiles)", () =
     expect(lumaRangeFromSample(at(42, even, 31.4, 58.2), true, { rangeLow: 60, rangeHigh: 70 }, true)).toEqual({
       rangeLow: 31,
       rangeHigh: 70,
-      falloff: 25,
+      falloff: 25
     });
     // Swapped bounds count as the same range.
-    expect(
-      lumaRangeFromSample(at(42, even, 31.4, 58.2), true, { rangeLow: 50, rangeHigh: 20 }, true),
-    ).toMatchObject({ rangeLow: 20, rangeHigh: 59 });
+    expect(lumaRangeFromSample(at(42, even, 31.4, 58.2), true, { rangeLow: 50, rangeHigh: 20 }, true)).toMatchObject({
+      rangeLow: 20,
+      rangeHigh: 59
+    });
   });
 
   it('works without levels (tones as percentiles) and stays within black and white', () => {
-    expect(lumaRangeFromSample({ low: 40, median: 50, high: 60 }, false)).toMatchObject({ rangeLow: 40, rangeHigh: 60 });
+    expect(lumaRangeFromSample({ low: 40, median: 50, high: 60 }, false)).toMatchObject({
+      rangeLow: 40,
+      rangeHigh: 60
+    });
     expect(lumaRangeFromSample({ low: 0, median: 1, high: 2 }, false)).toMatchObject({ rangeLow: 0, rangeHigh: 11 });
-    expect(lumaRangeFromSample({ low: 98, median: 99.5, high: 100 }, false)).toMatchObject({ rangeLow: 89, rangeHigh: 100 });
+    expect(lumaRangeFromSample({ low: 98, median: 99.5, high: 100 }, false)).toMatchObject({
+      rangeLow: 89,
+      rangeHigh: 100
+    });
   });
 });
 
@@ -99,10 +116,10 @@ describe('sampling tones on the photo', () => {
           {
             ...structuredClone(INITIAL_MASK_CONTAINER),
             id: 'l',
-            subMasks: [createSubMask(Mask.All, size), luma],
-          },
-        ],
-      },
+            subMasks: [createSubMask(Mask.All, size), luma]
+          }
+        ]
+      }
     });
   });
 
@@ -111,7 +128,7 @@ describe('sampling tones on the photo', () => {
     expect(await sampleLumaRange('l', { x: 10, y: 20 }, false)).toBe(true);
     expect(invoke).toHaveBeenCalledWith(
       'sample_luma_range',
-      expect.objectContaining({ x: 10, y: 20, width: 0, height: 0, jsAdjustments: expect.any(Object) }),
+      expect.objectContaining({ x: 10, y: 20, width: 0, height: 0, jsAdjustments: expect.any(Object) })
     );
     // The current range 70–90 is 20 percentiles wide; it moves to the tone.
     expect(range()).toMatchObject({ rangeLow: 20, rangeHigh: 40, falloff: 23 });
@@ -131,11 +148,13 @@ describe('sampling tones on the photo', () => {
           {
             ...s.adjustments.masks[0],
             subMasks: s.adjustments.masks[0].subMasks.map((sub) =>
-              sub.type === Mask.LumaRange ? { ...sub, parameters: { ...sub.parameters, lrRange: [0, 0.1, 0.2, 0.3] } } : sub,
-            ),
-          },
-        ],
-      },
+              sub.type === Mask.LumaRange
+                ? { ...sub, parameters: { ...sub.parameters, lrRange: [0, 0.1, 0.2, 0.3] } }
+                : sub
+            )
+          }
+        ]
+      }
     }));
     await sampleLumaRange('l', { x: 0, y: 0, width: 50, height: 40 }, true);
     expect(range().lrRange).toBeUndefined();

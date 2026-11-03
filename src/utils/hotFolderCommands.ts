@@ -2,7 +2,8 @@ import type { Invokes } from '../components/ui/AppProperties';
 import { invoke } from '@tauri-apps/api/core';
 
 /** The hot folder commands the app sends (`hot_folder.rs`). */
-export type HotFolderCommand = `${Invokes.HotFolderStart | Invokes.HotFolderResume | Invokes.HotFolderSuspend | Invokes.HotFolderStop}`;
+export type HotFolderCommand =
+  `${Invokes.HotFolderStart | Invokes.HotFolderResume | Invokes.HotFolderSuspend | Invokes.HotFolderStop}`;
 
 let last: Promise<unknown> = Promise.resolve();
 
@@ -13,7 +14,7 @@ let last: Promise<unknown> = Promise.resolve();
 export function hotFolderCommand<T>(command: HotFolderCommand, args: Record<string, unknown>): Promise<T> {
   const run = last.then(
     () => invoke<T>(command, args),
-    () => invoke<T>(command, args),
+    () => invoke<T>(command, args)
   );
   last = run.catch(() => undefined);
   return run;

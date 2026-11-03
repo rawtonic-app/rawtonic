@@ -2,7 +2,13 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUIStore } from '../store/useUIStore';
 import { invoke } from '@tauri-apps/api/core';
-import { cancelQuitRequest, confirmQuitWithUnsaved, flushBeforeQuit, handleQuitRequest, registerQuitFlush } from './quit';
+import {
+  cancelQuitRequest,
+  confirmQuitWithUnsaved,
+  flushBeforeQuit,
+  handleQuitRequest,
+  registerQuitFlush
+} from './quit';
 import { Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
@@ -19,7 +25,12 @@ afterEach(() => {
 
 it('quits only after every pending save finished', async () => {
   let finishSave!: (failures: string[]) => void;
-  register(() => new Promise((resolve) => { finishSave = resolve; }));
+  register(
+    () =>
+      new Promise((resolve) => {
+        finishSave = resolve;
+      })
+  );
   const ask = vi.fn();
   const quitting = handleQuitRequest(ask, 1);
   await vi.waitFor(() => expect(finishSave).toBeTypeOf('function'));
@@ -32,7 +43,9 @@ it('quits only after every pending save finished', async () => {
 
 it('keeps the app open and lets the user decide when a save failed', async () => {
   register(async () => ['Edits of a.dng']);
-  register(async () => { throw new Error('disk full'); });
+  register(async () => {
+    throw new Error('disk full');
+  });
   register(async () => []);
   const ask = vi.fn();
   await handleQuitRequest(ask, 1);
@@ -42,7 +55,7 @@ it('keeps the app open and lets the user decide when a save failed', async () =>
   expect(commands()).toEqual([Invokes.QuitSaving, Invokes.CancelQuit, Invokes.FinishQuit]);
 });
 
-it('runs each flush once for a save that keeps failing, and never quits without the user\'s choice', async () => {
+it("runs each flush once for a save that keeps failing, and never quits without the user's choice", async () => {
   const failing = vi.fn(async () => ['Edits of a.dng']);
   const saved = vi.fn(async () => []);
   register(failing);
@@ -67,7 +80,12 @@ it('runs each flush once for a save that keeps failing, and never quits without 
 
 it('ignores a second request while the first one saves', async () => {
   let finishSave!: (failures: string[]) => void;
-  const flush = vi.fn(() => new Promise<string[]>((resolve) => { finishSave = resolve; }));
+  const flush = vi.fn(
+    () =>
+      new Promise<string[]>((resolve) => {
+        finishSave = resolve;
+      })
+  );
   register(flush);
   const first = handleQuitRequest(vi.fn(), 1);
   await handleQuitRequest(vi.fn(), 1);
@@ -87,9 +105,19 @@ it('no longer runs unregistered flushes', async () => {
 it('tells the backend it is still saving each time a queued photo write settles', async () => {
   const { submitPhotoWrite } = await import('./photoWrites');
   let finishBatch!: () => void;
-  const batch = submitPhotoWrite(['/a.dng'], () => new Promise<void>((resolve) => { finishBatch = resolve; }), { kind: 'auto' });
+  const batch = submitPhotoWrite(
+    ['/a.dng'],
+    () =>
+      new Promise<void>((resolve) => {
+        finishBatch = resolve;
+      }),
+    { kind: 'auto' }
+  );
   const save = submitPhotoWrite(['/a.dng'], async () => {}, { kind: 'recipe' });
-  register(async () => { await save; return []; });
+  register(async () => {
+    await save;
+    return [];
+  });
   const quitting = handleQuitRequest(vi.fn(), 1);
   await Promise.resolve();
   expect(commands()).toEqual([Invokes.QuitSaving]);
@@ -100,10 +128,14 @@ it('tells the backend it is still saving each time a queued photo write settles'
   expect(commands()).toEqual([Invokes.QuitSaving, Invokes.QuitSaving, Invokes.QuitSaving, Invokes.FinishQuit]);
 });
 
-
 it('keeps a cancelled request from quitting when its pending save finally finishes', async () => {
   let finish!: (failures: string[]) => void;
-  const flush = vi.fn(() => new Promise<string[]>((resolve) => { finish = resolve; }));
+  const flush = vi.fn(
+    () =>
+      new Promise<string[]>((resolve) => {
+        finish = resolve;
+      })
+  );
   register(flush);
   const quitting = handleQuitRequest(vi.fn(), 10);
   await vi.waitFor(() => expect(flush).toHaveBeenCalledOnce());
@@ -129,8 +161,9 @@ it('does not let an old cancellation or handler finally clear a newer request', 
   expect(flush).toHaveBeenCalledTimes(2);
   finishes[1]([]);
   await current;
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.FinishQuit))
-    .toEqual([[Invokes.FinishQuit, { requestId: 21, force: false }]]);
+  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.FinishQuit)).toEqual([
+    [Invokes.FinishQuit, { requestId: 21, force: false }]
+  ]);
 });
 
 it('authorizes only the current explicit decision, and cancel invalidates its confirm callback', async () => {
@@ -144,20 +177,19 @@ it('authorizes only the current explicit decision, and cancel invalidates its co
   ask.mock.calls[0][2]();
   ask.mock.calls[0][1]();
   expect(commands()).not.toContain(Invokes.FinishQuit);
-  expect(vi.mocked(invoke).mock.calls.at(-1))
-    .toEqual([Invokes.CancelQuit, { requestId: 31, allowQuitAnyway: false }]);
+  expect(vi.mocked(invoke).mock.calls.at(-1)).toEqual([Invokes.CancelQuit, { requestId: 31, allowQuitAnyway: false }]);
 });
 
 it('captures a synchronous flush throw as an unsaved change', async () => {
-  register(() => { throw new Error('disk unavailable'); });
+  register(() => {
+    throw new Error('disk unavailable');
+  });
   const ask = vi.fn();
   await handleQuitRequest(ask, 40);
   expect(ask).toHaveBeenCalledWith(['Error: disk unavailable'], expect.any(Function), expect.any(Function));
-  expect(vi.mocked(invoke).mock.calls.at(-1))
-    .toEqual([Invokes.CancelQuit, { requestId: 40, allowQuitAnyway: true }]);
+  expect(vi.mocked(invoke).mock.calls.at(-1)).toEqual([Invokes.CancelQuit, { requestId: 40, allowQuitAnyway: true }]);
   ask.mock.calls[0][1]();
-  expect(vi.mocked(invoke).mock.calls.at(-1))
-    .toEqual([Invokes.FinishQuit, { requestId: 40, force: true }]);
+  expect(vi.mocked(invoke).mock.calls.at(-1)).toEqual([Invokes.FinishQuit, { requestId: 40, force: true }]);
 });
 
 it('does not drain or quit when the native acknowledgement rejects an expired request', async () => {
@@ -169,10 +201,11 @@ it('does not drain or quit when the native acknowledgement rejects an expired re
   expect(commands()).toEqual([Invokes.QuitSaving]);
 });
 
-
 it('cancels a dismissed confirmation, but closing after confirmation does not cancel the chosen quit', () => {
   vi.mocked(getCurrentWindow).mockReturnValue({
-    unminimize: vi.fn(async () => {}), show: vi.fn(async () => {}), setFocus: vi.fn(async () => {}),
+    unminimize: vi.fn(async () => {}),
+    show: vi.fn(async () => {}),
+    setFocus: vi.fn(async () => {})
   } as unknown as ReturnType<typeof getCurrentWindow>);
   const quit = vi.fn();
   const cancel = vi.fn();

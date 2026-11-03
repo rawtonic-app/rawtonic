@@ -13,7 +13,7 @@ import {
   resolveViewerBackground,
   viewerBackgroundCss,
   viewerBackgroundRgba,
-  zoomPresetsAboveFit,
+  zoomPresetsAboveFit
 } from './viewerDisplay';
 
 describe('zoom floor', () => {
@@ -130,7 +130,7 @@ describe('crop mode margin', () => {
       [1600, 1000, 4000, 6000], // portrait photo
       [700, 1200, 6000, 4000], // portrait viewer
       [700, 1200, 4000, 6000],
-      [2560, 1400, 6000, 6000], // full screen, square
+      [2560, 1400, 6000, 6000] // full screen, square
     ]) {
       const box = cropModeBox(cw, ch, w, h);
       expect(roomAround(cw, ch, box)).toBeGreaterThanOrEqual(CROP_ROTATE_BAND_PX - 1e-9);

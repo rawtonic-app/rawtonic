@@ -14,15 +14,29 @@ import { CACHED_BITMAP } from './bitmapIds';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
 
 const PHOTO = '/p.dng';
-const subject = { id: 'subject', type: 'ai-subject', visible: true, mode: 'additive', parameters: { maskDataBase64: 'old' } };
+const subject = {
+  id: 'subject',
+  type: 'ai-subject',
+  visible: true,
+  mode: 'additive',
+  parameters: { maskDataBase64: 'old' }
+};
 const radial = {
   id: 'radial',
   type: 'radial',
   visible: true,
   mode: 'additive',
-  parameters: { centerX: 100, centerY: 200, radiusX: 50, radiusY: 50, rotation: 0, feather: 0.5 },
+  parameters: { centerX: 100, centerY: 200, radiusX: 50, radiusY: 50, rotation: 0, feather: 0.5 }
 };
-const layer = (subMasks: unknown[]) => ({ id: 'layer', name: 'Layer', visible: true, invert: false, opacity: 100, adjustments: {}, subMasks });
+const layer = (subMasks: unknown[]) => ({
+  id: 'layer',
+  name: 'Layer',
+  visible: true,
+  invert: false,
+  opacity: 100,
+  adjustments: {},
+  subMasks
+});
 
 /** A snapshot framed and developed as the edit, with a drawn mask and an AI
  * mask whose id the edit reuses for a newer bitmap. */
@@ -33,8 +47,8 @@ const snapshot: Snapshot = {
   adjustments: {
     ...INITIAL_ADJUSTMENTS,
     exposure: 1,
-    masks: [layer([subject, radial])],
-  } as unknown as Adjustments,
+    masks: [layer([subject, radial])]
+  } as unknown as Adjustments
 };
 
 beforeEach(() => {
@@ -42,13 +56,24 @@ beforeEach(() => {
   useSettingsStore.setState({ osPlatform: 'macos', appSettings: { useWgpuRenderer: true } as never });
   useSnapshotStore.setState({ path: PHOTO, snapshots: [snapshot] });
   useEditorStore.setState({
-    selectedImage: { path: PHOTO, isReady: true, isDecoded: true, isRaw: true, width: 6000, height: 4000, aiDenoise: 0 } as never,
-    adjustments: { ...INITIAL_ADJUSTMENTS, masks: [layer([{ ...subject, parameters: { maskDataBase64: 'new' } }])] } as never,
+    selectedImage: {
+      path: PHOTO,
+      isReady: true,
+      isDecoded: true,
+      isRaw: true,
+      width: 6000,
+      height: 4000,
+      aiDenoise: 0
+    } as never,
+    adjustments: {
+      ...INITIAL_ADJUSTMENTS,
+      masks: [layer([{ ...subject, parameters: { maskDataBase64: 'new' } }])]
+    } as never,
     splitView: true,
     showOriginal: false,
     previewOverride: null,
     patchesSentToBackend: new Set<string>(),
-    splitBeforeShows: null,
+    splitBeforeShows: null
   });
   compareWithSnapshot(snapshot);
 });
@@ -76,7 +101,9 @@ it('is the before only while it frames the photograph as the edit does', () => {
   // unedited photograph again.
   useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, orientationSteps: 1 } as never });
   expect(beforeSnapshot()).toBeNull();
-  expect(originalPreviewAdjustments(useEditorStore.getState().adjustments, beforeSnapshotAdjustments()).exposure).toBe(0);
+  expect(originalPreviewAdjustments(useEditorStore.getState().adjustments, beforeSnapshotAdjustments()).exposure).toBe(
+    0
+  );
   // Framed alike again, it is compared with again.
   useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, orientationSteps: 0 } as never });
   expect(beforeSnapshot()?.id).toBe('s');
@@ -103,7 +130,12 @@ it('renders the split before and the held peek from the snapshot', () => {
 });
 
 it('names the snapshot whose before is in place, not one still on its way', async () => {
-  const other: Snapshot = { ...snapshot, id: 'o', name: 'Other', adjustments: { ...snapshot.adjustments, exposure: -1 } };
+  const other: Snapshot = {
+    ...snapshot,
+    id: 'o',
+    name: 'Other',
+    adjustments: { ...snapshot.adjustments, exposure: -1 }
+  };
   useSnapshotStore.setState({ snapshots: [snapshot, other] });
   const place: Array<(placed: boolean) => void> = [];
   vi.mocked(invoke).mockImplementation(() => new Promise((resolve) => place.push(resolve as never)));

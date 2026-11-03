@@ -97,5 +97,5 @@ export const hasOwnWork = (member: DuplicateMember): boolean =>
 export const useDuplicatesDialog = create<{ open: boolean; show(): void; close(): void }>((set) => ({
   open: false,
   show: () => set({ open: true }),
-  close: () => set({ open: false }),
+  close: () => set({ open: false })
 }));

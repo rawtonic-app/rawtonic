@@ -131,7 +131,7 @@ export function unresolved(plan: SyncPlan, choices: Map<string, ContestedChoice>
 export function syncActions(
   plan: SyncPlan,
   selected: ReadonlySet<string>,
-  choices: Map<string, ContestedChoice>,
+  choices: Map<string, ContestedChoice>
 ): SyncAction[] {
   const actions: SyncAction[] = [];
   const move = (m: SyncMove): SyncAction => ({
@@ -139,7 +139,7 @@ export function syncActions(
     assetId: m.assetId,
     from: m.from,
     to: m.to,
-    identity: m.identity,
+    identity: m.identity
   });
   for (const group of SYNC_GROUPS) {
     for (const row of groupRows(plan, group)) {
@@ -196,7 +196,7 @@ export function sortPlan(plan: SyncPlan): SyncPlan {
     contested: sorted(plan.contested, (c) => c.path),
     removed: sorted(plan.removed, (m) => m.path),
     unavailable: sorted(plan.unavailable, (m) => m.path),
-    errors: sorted(plan.errors, (e) => e.path),
+    errors: sorted(plan.errors, (e) => e.path)
   };
 }
 
@@ -249,7 +249,7 @@ export async function openPreviousImport(
   directory: string,
   name: string,
   select: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void,
-  preserveEditor = false,
+  preserveEditor = false
 ): Promise<number> {
   const { paths } = await previousImport(directory);
   select(PREVIOUS_IMPORT_VIEW_ID, name, paths, preserveEditor);

@@ -185,7 +185,7 @@ export default function GlobalTooltip() {
             'bg-surface/80 backdrop-blur-xs',
             'border border-text-secondary/10 shadow-xl rounded-md',
             'px-2.5 py-1.5 whitespace-nowrap',
-            tooltip.isAbove && '-translate-y-full',
+            tooltip.isAbove && '-translate-y-full'
           )}
         >
           <Text variant={TextVariants.small} color={TextColors.primary} weight={TextWeights.medium}>
@@ -194,6 +194,6 @@ export default function GlobalTooltip() {
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    document.body
   );
 }

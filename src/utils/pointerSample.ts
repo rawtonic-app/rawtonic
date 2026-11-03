@@ -33,7 +33,7 @@ export type ReadoutUnit = 'rgb255' | 'percent';
 export function pointerToNormalized(
   clientX: number,
   clientY: number,
-  rect: { left: number; top: number; width: number; height: number },
+  rect: { left: number; top: number; width: number; height: number }
 ): { x: number; y: number } | null {
   if (!(rect.width > 0 && rect.height > 0)) return null;
   const x = (clientX - rect.left) / rect.width;
@@ -52,9 +52,9 @@ const round1 = (value: number) => Math.round(value * 10) / 10;
 
 /** R, G and B as the readout shows them: 0–255 or percent (one decimal). */
 export function readoutValues(rgb: readonly number[], unit: ReadoutUnit): string[] {
-  return rgb.slice(0, 3).map((value) =>
-    unit === 'percent' ? round1((value / 255) * 100).toFixed(1) : String(Math.round(value)),
-  );
+  return rgb
+    .slice(0, 3)
+    .map((value) => (unit === 'percent' ? round1((value / 255) * 100).toFixed(1) : String(Math.round(value))));
 }
 
 /** The patch's cell at `[column, row]` of the 11 × 11 block, or null when the
@@ -81,7 +81,7 @@ export function loupePlacement(
   pointer: { x: number; y: number },
   loupe: { width: number; height: number },
   viewer: { width: number; height: number },
-  gap = 24,
+  gap = 24
 ): { left: number; top: number } {
   const right = pointer.x + gap;
   const below = pointer.y + gap;
@@ -106,7 +106,7 @@ interface PointerSampleState {
  * bar's readout. */
 export const usePointerSampleStore = create<PointerSampleState>((set) => ({
   sample: null,
-  set: (sample) => set({ sample }),
+  set: (sample) => set({ sample })
 }));
 
 /** `inputAt`: the pointer event's time stamp (performance.now() base). */
@@ -134,7 +134,7 @@ export function patchFromRgba(
   width: number,
   height: number,
   x: number,
-  y: number,
+  y: number
 ): PreviewPatch | null {
   if (!(width > 0 && height > 0) || !(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return null;
   const block = sampleBlock(x, y, width, height);
@@ -158,7 +158,7 @@ export function patchFromRgba(
     pixels,
     center: [cx - block.left, cy - block.top],
     mean: [sum[0] / count, sum[1] / count, sum[2] / count],
-    frame: [width, height],
+    frame: [width, height]
   };
 }
 
@@ -189,7 +189,7 @@ export function createImagePatchFetch(url: () => string | null): Fetch {
       image.naturalWidth,
       image.naturalHeight,
       x,
-      y,
+      y
     );
   };
 }
@@ -202,7 +202,7 @@ export function createImagePatchFetch(url: () => string | null): Fetch {
 export function createPatchSampler(
   onSample: (sample: PointerSample, inputAt?: number) => void,
   fetch: Fetch = fetchPatch,
-  schedule: (run: () => void) => unknown = (run) => run(),
+  schedule: (run: () => void) => unknown = (run) => run()
 ) {
   let pending: Request | null = null;
   let busy = false;
@@ -239,6 +239,6 @@ export function createPatchSampler(
     cancel() {
       pending = null;
       generation += 1;
-    },
+    }
   };
 }

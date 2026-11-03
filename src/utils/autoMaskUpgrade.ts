@@ -43,9 +43,9 @@ export function upgradeLayerAutoMask(layer: MaskContainer): MaskContainer {
         ...sub,
         parameters: {
           ...sub.parameters,
-          lines: lines.map((line) => (old(line) ? { ...line, autoMaskVersion: AUTO_MASK_VERSION } : line)),
-        },
+          lines: lines.map((line) => (old(line) ? { ...line, autoMaskVersion: AUTO_MASK_VERSION } : line))
+        }
       };
-    }),
+    })
   };
 }

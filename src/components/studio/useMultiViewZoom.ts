@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useMultiViewStore, type CellZoomKey } from "../../store/useMultiViewStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { Invokes } from "../ui/AppProperties";
-import type { TransformWrapperHandle } from "../panel/Editor";
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useMultiViewStore, type CellZoomKey } from '../../store/useMultiViewStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { Invokes } from '../ui/AppProperties';
+import type { TransformWrapperHandle } from '../panel/Editor';
 import {
   cycleCellZoom,
   fitScaleOf,
@@ -14,8 +14,8 @@ import {
   sharedZoomOf,
   transformOfZoom,
   zoomCell,
-  type SharedZoom,
-} from "../../utils/multiView";
+  type SharedZoom
+} from '../../utils/multiView';
 
 /** A cell's photograph area in CSS px (window coordinates). */
 export interface CellArea {
@@ -36,7 +36,7 @@ interface Options {
   transformWrapperRef?: RefObject<TransformWrapperHandle | null>;
 }
 
-const dprNow = () => (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+const dprNow = () => (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
 /** Pointer travel (CSS px) after which a press on a zoomed cell pans it. */
 const DRAG_SLOP = 4;
@@ -65,7 +65,7 @@ function samePayload(a: ZoomPayload | undefined, b: ZoomPayload): boolean {
  * and developed its regions from full-resolution decodes. */
 export function editorInCell(
   fit: { containerWidth: number; containerHeight: number },
-  area: CellArea | undefined,
+  area: CellArea | undefined
 ): boolean {
   if (!area) return true;
   return Math.abs(fit.containerWidth - area.width) <= 2 && Math.abs(fit.containerHeight - area.height) <= 2;
@@ -111,8 +111,8 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
     if (!active || useSettingsStore.getState().osPlatform === 'linux') return;
     let stop: (() => void) | undefined;
     let cancelled = false;
-    listen<{ path: string; width: number; height: number }[]>("multi-view-cell-sizes", (event) =>
-      useMultiViewStore.getState().setCellSizes(event.payload),
+    listen<{ path: string; width: number; height: number }[]>('multi-view-cell-sizes', (event) =>
+      useMultiViewStore.getState().setCellSizes(event.payload)
     )
       .then((unlisten) => {
         if (cancelled) unlisten();
@@ -161,8 +161,8 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
       .getState()
       .setCellZooms(
         Object.fromEntries(
-          live.current.shown.filter((path) => path !== live.current.primary).map((path) => [path, shared]),
-        ),
+          live.current.shown.filter((path) => path !== live.current.primary).map((path) => [path, shared])
+        )
       );
   }, [active, zoomLock]);
 
@@ -205,8 +205,8 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
         : {
             zoom: null,
             cells: Object.fromEntries(
-              Object.entries(store.cellZooms).filter(([path]) => path !== primary && shown.includes(path)),
-            ),
+              Object.entries(store.cellZooms).filter(([path]) => path !== primary && shown.includes(path))
+            )
           };
       if (!samePayload(sent, payload)) {
         sent = payload;
@@ -221,7 +221,10 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
 
   /** Zooms or pans the other cell `path` (lock off); false when it cannot
    * (its size is not known yet). */
-  const changeCell = (path: string, change: (zoom: SharedZoom | null, area: CellArea, size: { width: number; height: number }) => SharedZoom | null) => {
+  const changeCell = (
+    path: string,
+    change: (zoom: SharedZoom | null, area: CellArea, size: { width: number; height: number }) => SharedZoom | null
+  ) => {
     const area = live.current.areas.get(path);
     const size = useMultiViewStore.getState().cellSizes[path];
     if (!area || !size) return false;
@@ -231,7 +234,7 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   };
   const pointerIn = (area: CellArea, x: number, y: number): [number, number] => [
     x - (area.x + area.width / 2),
-    y - (area.y + area.height / 2),
+    y - (area.y + area.height / 2)
   ];
 
   // The zoom keys over another cell (lock off) zoom that cell.
@@ -245,26 +248,27 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
         const pointer = pointerIn(area, at.x, at.y);
         const scale = zoom?.scale ?? fitScaleOf(area, size, dpr);
         switch (kind) {
-          case "cycle":
+          case 'cycle':
             return cycleCellZoom(zoom, pointer, area, size, dpr);
-          case "fit":
+          case 'fit':
             return null;
-          case "actual":
+          case 'actual':
             return zoomCell(zoom, 1 / scale, pointer, area, size, dpr);
-          case "in":
+          case 'in':
             return zoomCell(zoom, 1.2, pointer, area, size, dpr);
-          case "out":
+          case 'out':
             return zoomCell(zoom, 1 / 1.2, pointer, area, size, dpr);
-          case "stepIn":
+          case 'stepIn':
             return zoomCell(zoom, (scale + 0.1) / scale, pointer, area, size, dpr);
-          case "stepOut":
+          case 'stepOut':
             return zoomCell(zoom, Math.max(0.01, scale - 0.1) / scale, pointer, area, size, dpr);
         }
       });
     };
     useMultiViewStore.setState({ zoomHoveredCell: handler });
     return () => {
-      if (useMultiViewStore.getState().zoomHoveredCell === handler) useMultiViewStore.setState({ zoomHoveredCell: null });
+      if (useMultiViewStore.getState().zoomHoveredCell === handler)
+        useMultiViewStore.setState({ zoomHoveredCell: null });
     };
     // changeCell reads everything through refs and the stores.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,7 +314,7 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
       const was = swallowClick.current;
       swallowClick.current = false;
       return was;
-    },
+    }
   });
 
   /** The wheel over another cell (lock off): zoom (mouse wheel, pinch) or
@@ -318,7 +322,7 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   const onWheel = (path: string, e: WheelEvent) => {
     if (live.current.zoomLock || path === live.current.primary) return false;
     const { appSettings } = useSettingsStore.getState();
-    const trackpad = appSettings?.canvasInputMode === "trackpad";
+    const trackpad = appSettings?.canvasInputMode === 'trackpad';
     const zoomIntent = e.ctrlKey || (!trackpad && !e.shiftKey && !e.altKey);
     const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
     return changeCell(path, (zoom, area, size) => {

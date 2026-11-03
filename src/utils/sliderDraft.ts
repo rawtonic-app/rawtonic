@@ -70,7 +70,7 @@ export function draftFor(path: string): Adjustments | null {
 export function renderDraft(
   path: string,
   adjustments: Adjustments,
-  commit: (path: string, adjustments: Adjustments) => void,
+  commit: (path: string, adjustments: Adjustments) => void
 ): boolean {
   if (!renderer?.(path, adjustments)) return false;
   draft = { path, adjustments };

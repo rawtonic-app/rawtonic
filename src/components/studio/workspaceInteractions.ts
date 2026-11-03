@@ -1,24 +1,16 @@
-import { useLibraryStore } from "../../store/useLibraryStore";
-
+import { useLibraryStore } from '../../store/useLibraryStore';
 
 /** Whether Tab belongs to the panel shortcut rather than to focus traversal:
  * with nothing focused, or on the photograph viewer and the browser tiles
  * (`data-panel-shortcut`), never on a field, button, disclosure or separator. */
 export function ownsPanelShortcut(target: EventTarget | null) {
-  if (
-    target === null ||
-    target === document.body ||
-    target === document.documentElement
-  )
-    return true;
-  return target instanceof HTMLElement && target.dataset.panelShortcut === "true";
+  if (target === null || target === document.body || target === document.documentElement) return true;
+  return target instanceof HTMLElement && target.dataset.panelShortcut === 'true';
 }
 
 /** The library column's tool group with `title`, when it is on screen. */
 export function libraryTool(title: string) {
-  return document.querySelector<HTMLDetailsElement>(
-    `.studio-navigation details[data-tool-title="${title}"]`,
-  );
+  return document.querySelector<HTMLDetailsElement>(`.studio-navigation details[data-tool-title="${title}"]`);
 }
 
 /** Opens a library tool (Metadata, Folders), scrolls it into view and focuses
@@ -28,8 +20,8 @@ export function revealLibraryTool(title: string) {
   if (!group) return false;
   // The toggle event remembers it open (useToolOpen).
   group.open = true;
-  group.scrollIntoView?.({ block: "nearest" });
-  group.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
+  group.scrollIntoView?.({ block: 'nearest' });
+  group.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
   return true;
 }
 
@@ -37,7 +29,7 @@ export function revealLibraryTool(title: string) {
 export function focusWorkspaceControl(target: EventTarget | null) {
   if (!(target instanceof Element)) return;
   const control = target.closest('button,summary,[role="separator"]');
-  if (control instanceof HTMLElement && !control.matches(":disabled")) {
+  if (control instanceof HTMLElement && !control.matches(':disabled')) {
     control.focus({ preventScroll: true });
   }
 }

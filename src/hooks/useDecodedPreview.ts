@@ -25,7 +25,10 @@ export function useDecodedPreview<T extends { url: string }>(frame: T | null, id
     if (typeof image.decode === 'function') void image.decode().then(commit, () => {});
     else if (image.complete && image.naturalWidth > 0) commit();
     else image.onload = commit;
-    return () => { cancelled = true; image.onload = null; };
+    return () => {
+      cancelled = true;
+      image.onload = null;
+    };
   }, [url, identity]);
   return frame && ready?.identity === identity ? ready.frame : null;
 }

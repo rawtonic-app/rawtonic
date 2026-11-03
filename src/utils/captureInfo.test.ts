@@ -5,7 +5,7 @@ import {
   formatFocalLength,
   formatIso,
   formatShutter,
-  parseExposureTime,
+  parseExposureTime
 } from './captureInfo';
 
 describe('capture info under the photograph', () => {
@@ -38,7 +38,7 @@ describe('capture info under the photograph', () => {
 
   it('shows ISO, shutter, aperture and focal length in that order, leaving out missing ones', () => {
     expect(
-      captureInfoParts({ PhotographicSensitivity: '100', ExposureTime: '1/850 s', FNumber: 'f/2.8', FocalLength: '35' }),
+      captureInfoParts({ PhotographicSensitivity: '100', ExposureTime: '1/850 s', FNumber: 'f/2.8', FocalLength: '35' })
     ).toEqual(['ISO 100', '1/850 s', 'f/2.8', '35 mm']);
     expect(captureInfoParts({ ISOSpeedRatings: '200', FocalLength: '23.5' })).toEqual(['ISO 200', '23.5 mm']);
     expect(captureInfoParts({})).toEqual([]);

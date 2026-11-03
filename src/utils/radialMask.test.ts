@@ -7,7 +7,7 @@ import {
   radialLines,
   toImage,
   toLocal,
-  type RadialParams,
+  type RadialParams
 } from './radialMask';
 
 const base: RadialParams = { centerX: 400, centerY: 300, radiusX: 200, radiusY: 100, rotation: 0, feather: 0.5 };
@@ -88,7 +88,7 @@ describe('dragging the feather lines', () => {
       ['inner', { x: 120, y: 0 }],
       ['outer', { x: 0, y: 95 }],
       ['inner', { x: 0, y: 10 }],
-      ['outer', { x: 290, y: 0 }],
+      ['outer', { x: 290, y: 0 }]
     ] as const) {
       const next = dragRadialLine(base, line, point, true);
       near(radialLines(next).central.x, central.x);
@@ -124,7 +124,12 @@ describe('dragging the shape handles', () => {
   it('keeps the opposite handle in place with Alt', () => {
     const before = radialHandlePositions({ ...base, rotation: 20 });
     const rotated = { ...base, rotation: 20 };
-    const next = dragRadialHandle(rotated, 'bottom', { x: 0, y: radialLines(rotated).central.y + 40 }, { lockOpposite: true });
+    const next = dragRadialHandle(
+      rotated,
+      'bottom',
+      { x: 0, y: radialLines(rotated).central.y + 40 },
+      { lockOpposite: true }
+    );
     const after = radialHandlePositions(next);
     near(after.top.x, before.top.x);
     near(after.top.y, before.top.y);

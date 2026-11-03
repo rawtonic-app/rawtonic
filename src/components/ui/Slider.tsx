@@ -56,7 +56,7 @@ const Slider = ({
   value,
   trackClassName,
   fillOrigin = 'default',
-  suffix = '',
+  suffix = ''
 }: SliderProps) => {
   const { t } = useTranslation();
   const [displayValue, setDisplayValue] = useState<number>(value);
@@ -106,7 +106,7 @@ const Slider = ({
       const clamped = Math.max(min, Math.min(max, snapped));
       return parseFloat(clamped.toFixed(decimalPlaces));
     },
-    [min, max, step, decimalPlaces],
+    [min, max, step, decimalPlaces]
   );
 
   const onChangeRef = useRef(onChange);
@@ -179,8 +179,8 @@ const Slider = ({
 
         const syntheticEvent = {
           target: {
-            value: clampedValue,
-          },
+            value: clampedValue
+          }
         };
         onChange(syntheticEvent);
       }
@@ -331,8 +331,8 @@ const Slider = ({
     setInputValue(String(defaultValue));
     const syntheticEvent = {
       target: {
-        value: defaultValue,
-      },
+        value: defaultValue
+      }
     };
     onChange(syntheticEvent);
     onPointerUp?.();
@@ -397,7 +397,7 @@ const Slider = ({
       startX: touch.clientX,
       startY: touch.clientY,
       latestX: touch.clientX,
-      startValue: displayValue,
+      startValue: displayValue
     };
   };
 
@@ -469,8 +469,8 @@ const Slider = ({
       const clampedValue = Math.max(min, Math.min(max, parsedValue));
       onChange({
         target: {
-          value: clampedValue,
-        },
+          value: clampedValue
+        }
       });
     }
   };
@@ -490,8 +490,8 @@ const Slider = ({
     }
     const syntheticEvent = {
       target: {
-        value: newValue,
-      },
+        value: newValue
+      }
     };
     onChange(syntheticEvent);
     setIsEditing(false);
@@ -520,8 +520,8 @@ const Slider = ({
       setInputValue(String(snappedNewValue));
       onChange({
         target: {
-          value: snappedNewValue,
-        },
+          value: snappedNewValue
+        }
       });
     }
   };
@@ -606,7 +606,7 @@ const Slider = ({
           className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full pointer-events-none bg-accent/25"
           style={{
             left: `${Math.min(fillPercentage, originPercentage)}%`,
-            width: `${Math.abs(fillPercentage - originPercentage)}%`,
+            width: `${Math.abs(fillPercentage - originPercentage)}%`
           }}
         />
         {markers?.map(({ color, value: markerValue }, index) => (
@@ -615,7 +615,7 @@ const Slider = ({
             key={index}
             style={{
               backgroundColor: color,
-              left: `calc(8px + (100% - 16px) * ${Math.max(0, Math.min(1, getFraction(markerValue, min, max)))})`,
+              left: `calc(8px + (100% - 16px) * ${Math.max(0, Math.min(1, getFraction(markerValue, min, max)))})`
             }}
           />
         ))}

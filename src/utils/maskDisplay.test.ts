@@ -11,7 +11,7 @@ import {
   nativeMaskOverlay,
   sameNativeMaskOverlay,
   toggleGrayscaleMask,
-  toggleMaskDisplay,
+  toggleMaskDisplay
 } from './maskDisplay';
 
 it('defaults to always and ignores unknown stored values', () => {
@@ -82,7 +82,7 @@ it('keeps a layer mask visible while its shape is moved, like Capture One', () =
     masking: true,
     drawing: false,
     shapeInteracting: false,
-    controlHovered: false,
+    controlHovered: false
   };
   expect(maskOverlayOpacity(base)).toBe(1);
   expect(maskOverlayOpacity({ ...base, shapeInteracting: true })).toBe(1);
@@ -99,7 +99,9 @@ it('keeps a layer mask visible while its shape is moved, like Capture One', () =
   expect(maskOverlayOpacity({ ...base, masking: false, shapeInteracting: true })).toBe(0);
   expect(maskOverlayOpacity({ ...base, masking: false, directPatch: { markerHovered: false } })).toBe(0);
   expect(maskOverlayOpacity({ ...base, masking: false, directPatch: { markerHovered: true } })).toBe(1);
-  expect(maskOverlayOpacity({ ...base, masking: false, controlHovered: true, directPatch: { markerHovered: false } })).toBe(1);
+  expect(
+    maskOverlayOpacity({ ...base, masking: false, controlHovered: true, directPatch: { markerHovered: false } })
+  ).toBe(1);
 });
 
 it('draws mask layers natively only on the native display with live previews', () => {
@@ -115,14 +117,16 @@ it('describes the native overlay from the display settings', () => {
     maskId: 'layer',
     color: [255, 0, 0],
     opacity: 50,
-    grayscale: false,
+    grayscale: false
   });
-  expect(nativeMaskOverlay('layer', true, { maskDisplay: 'grayscale', maskColor: '#00ff00', maskOpacity: 80 })).toEqual({
-    maskId: 'layer',
-    color: [0, 255, 0],
-    opacity: 80,
-    grayscale: true,
-  });
+  expect(nativeMaskOverlay('layer', true, { maskDisplay: 'grayscale', maskColor: '#00ff00', maskOpacity: 80 })).toEqual(
+    {
+      maskId: 'layer',
+      color: [0, 255, 0],
+      opacity: 80,
+      grayscale: true
+    }
+  );
   expect(nativeMaskOverlay('layer', false, null)).toBeNull();
   expect(nativeMaskOverlay(null, true, null)).toBeNull();
   expect(nativeMaskOverlay('layer', true, { maskDisplay: 'never' })).toBeNull();
@@ -139,8 +143,13 @@ it('compares native overlays by value', () => {
 
 it('hides the overlay with the select tool and shows it with a mask tool', () => {
   const state = {
-    display: 'always' as const, showingOriginal: false, sliderDragging: false, masking: true,
-    drawing: false, shapeInteracting: false, controlHovered: false,
+    display: 'always' as const,
+    showingOriginal: false,
+    sliderDragging: false,
+    masking: true,
+    drawing: false,
+    shapeInteracting: false,
+    controlHovered: false
   };
   expect(maskOverlayOpacity({ ...state, toolActive: true })).toBe(1);
   expect(maskOverlayOpacity({ ...state, toolActive: false })).toBe(0);
@@ -156,7 +165,7 @@ describe('mask overlay while a luma range slider is dragged', () => {
     drawing: false,
     shapeInteracting: false,
     toolActive: false,
-    controlHovered: false,
+    controlHovered: false
   };
   it('shows the mask, unlike adjustment sliders', () => {
     expect(maskOverlayOpacity(base)).toBe(0);

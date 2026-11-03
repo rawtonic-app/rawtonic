@@ -100,7 +100,7 @@ export function lumaRangeFromSample(
   sample: LumaSample,
   area: boolean,
   current?: LumaRangeState | null,
-  add = false,
+  add = false
 ): Required<Omit<LumaRangeState, 'lrRange'>> {
   const levels = usableLevels(sample.levels);
   const pct = (tone: number) => (tone <= 0 ? 0 : tone >= 100 ? 1 : toPercentile(levels, tone));
@@ -147,7 +147,7 @@ export function lumaRangeFromSample(
   return {
     rangeLow: clamp(Math.floor(rangeLow + 1e-6)),
     rangeHigh: clamp(Math.ceil(rangeHigh - 1e-6)),
-    falloff: clamp(Math.round(falloff)),
+    falloff: clamp(Math.round(falloff))
   };
 }
 
@@ -167,7 +167,7 @@ export async function sampleLumaRange(layerId: string, sample: LumaSampleArea, a
     y: sample.y,
     width: area ? sample.width : 0,
     height: area ? sample.height : 0,
-    jsAdjustments: adjustmentsForMaskCommand(adjustments),
+    jsAdjustments: adjustmentsForMaskCommand(adjustments)
   });
   if (!tones || useEditorStore.getState().selectedImage?.path !== path) return false;
   let changed = false;
@@ -185,14 +185,14 @@ export async function sampleLumaRange(layerId: string, sample: LumaSampleArea, a
                 rangeLow: Number(parameters.rangeLow ?? 0),
                 rangeHigh: Number(parameters.rangeHigh ?? 100),
                 falloff: Number(parameters.falloff ?? 20),
-                lrRange: Array.isArray(imported) ? (imported as number[]) : null,
+                lrRange: Array.isArray(imported) ? (imported as number[]) : null
               };
               changed = true;
               // The sample replaces an imported Lightroom range (in percentiles).
               return { ...sub, parameters: { ...parameters, ...lumaRangeFromSample(tones, area, current, add) } };
-            }),
-          },
-    ),
+            })
+          }
+    )
   }));
   return changed;
 }

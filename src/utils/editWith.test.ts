@@ -1,13 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  BUILT_IN_EDIT_RECIPES,
-  chosenRecipe,
-  editRecipes,
-  editRequest,
-  runEditWith,
-  waitForJobs,
-} from './editWith';
+import { BUILT_IN_EDIT_RECIPES, chosenRecipe, editRecipes, editRequest, runEditWith, waitForJobs } from './editWith';
 import { exportSettingsFromPreset } from './exportRecipes';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -43,7 +36,7 @@ const preset = (over: Partial<ExportPreset>): ExportPreset =>
     watermarkScale: 10,
     watermarkSpacing: 5,
     watermarkOpacity: 75,
-    ...over,
+    ...over
   }) as ExportPreset;
 
 const job = (id: string, state: ExportJob['state']) => ({ id, state }) as ExportJob;
@@ -59,12 +52,17 @@ describe('recipes', () => {
   it('offers full-size 16-bit TIFFs first, then the saved image recipes', () => {
     const [adobe, proPhoto] = BUILT_IN_EDIT_RECIPES;
     expect(adobe.outputFormat).toBe('tiff');
-    expect(adobe.settings).toMatchObject({ tiffBitDepth: 16, colorSpace: 'adobeRgb', resize: null, keepMetadata: true });
+    expect(adobe.settings).toMatchObject({
+      tiffBitDepth: 16,
+      colorSpace: 'adobeRgb',
+      resize: null,
+      keepMetadata: true
+    });
     expect(proPhoto.settings.colorSpace).toBe('proPhoto');
     const recipes = editRecipes([
       preset({}),
       preset({ id: 'lut', name: 'LUT', fileFormat: 'cube' }),
-      preset({ id: '__last_used__', name: 'last' }),
+      preset({ id: '__last_used__', name: 'last' })
     ]);
     expect(recipes.map((r) => r.id)).toEqual(['builtin-tiff16-adobe', 'builtin-tiff16-prophoto', 'r1']);
     // A saved recipe renders with exactly what Export uses for it.
@@ -88,7 +86,7 @@ describe('recipes', () => {
       destinationType: 'customFolder',
       subfolder: '',
       filenameTemplate: null,
-      exportMasks: false,
+      exportMasks: false
     });
     expect(request.outputFormat).toBe('tiff');
     expect(request.baseOriginFolders).toEqual(['/s']);
@@ -133,7 +131,7 @@ describe('runEditWith', () => {
     const targets = [
       { source: '/s/Capture/A.NEF', target: '/s/Capture/A_edit.tiff' },
       { source: '/s/Capture/B.NEF', target: '/s/Capture/B_edit.tiff' },
-      { source: '/s/Capture/C.NEF', target: '/s/Capture/C_edit.tiff' },
+      { source: '/s/Capture/C.NEF', target: '/s/Capture/C_edit.tiff' }
     ];
     started(targets, ['j1', 'j2', 'j3'], [job('j1', 'done'), job('j2', 'failed'), job('j3', 'done')]);
     const paths = targets.map((t) => t.source);
@@ -143,11 +141,11 @@ describe('runEditWith', () => {
     // The program goes with the jobs: a quit offers this Edit With again.
     expect(calls[0]).toEqual([
       'edit_with_start',
-      { paths, recipe: editRequest(BUILT_IN_EDIT_RECIPES[0]), program: '/Applications/Preview.app' },
+      { paths, recipe: editRequest(BUILT_IN_EDIT_RECIPES[0]), program: '/Applications/Preview.app' }
     ]);
     expect(calls[1]).toEqual([
       'edit_with_finish',
-      { items: [targets[0], targets[2]], program: '/Applications/Preview.app' },
+      { items: [targets[0], targets[2]], program: '/Applications/Preview.app' }
     ]);
   });
 
@@ -194,17 +192,17 @@ describe('runEditWith', () => {
     useLibraryStore.setState({ sessionDirectory: '/A.session' });
     useEditorStore.setState({
       selectedImage: { path: '/A.session/Capture/a.NEF', isReady: true } as never,
-      adjustments: { exposure: 1 } as never,
+      adjustments: { exposure: 1 } as never
     });
     const atClick = editRequest(BUILT_IN_EDIT_RECIPES[0]);
     expect(atClick).toMatchObject({
       library: { library: '/A.session' },
-      currentEditPath: '/A.session/Capture/a.NEF',
+      currentEditPath: '/A.session/Capture/a.NEF'
     });
     let saved: (failed: string[]) => void = () => {};
     saves.flush.mockImplementationOnce(() => new Promise((resolve) => (saved = resolve)));
     const targets = [
-      { source: '/A.session/Capture/a.NEF', target: '/A.session/Capture/a_edit.tiff', library: '/A.session' },
+      { source: '/A.session/Capture/a.NEF', target: '/A.session/Capture/a_edit.tiff', library: '/A.session' }
     ];
     vi.mocked(invoke).mockImplementation(async (command: string) => {
       if (command === 'edit_with_start') {

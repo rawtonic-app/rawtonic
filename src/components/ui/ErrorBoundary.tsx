@@ -1,5 +1,5 @@
-import { Component, type ErrorInfo, type ReactNode } from "react";
-import i18n from "i18next";
+import { Component, type ErrorInfo, type ReactNode } from 'react';
+import i18n from 'i18next';
 
 interface Props {
   /** What failed, for the message ("Library tools", "Rawtonic"). */
@@ -27,14 +27,12 @@ export default class ErrorBoundary extends Component<Props, { error: Error | nul
     const { error } = this.state;
     if (!error) return this.props.children;
     return (
-      <div className={`error-boundary ${this.props.fullScreen ? "is-full-screen" : ""}`} role="alert">
-        <strong>{i18n.t("ui.errorBoundary.stopped", { name: this.props.name })}</strong>
+      <div className={`error-boundary ${this.props.fullScreen ? 'is-full-screen' : ''}`} role="alert">
+        <strong>{i18n.t('ui.errorBoundary.stopped', { name: this.props.name })}</strong>
         <span>{error.message}</span>
-        <small>{i18n.t("ui.errorBoundary.editsSafe")}</small>
-        <button
-          onClick={() => (this.props.fullScreen ? window.location.reload() : this.setState({ error: null }))}
-        >
-          {this.props.fullScreen ? i18n.t("ui.errorBoundary.reload") : i18n.t("ui.errorBoundary.tryAgain")}
+        <small>{i18n.t('ui.errorBoundary.editsSafe')}</small>
+        <button onClick={() => (this.props.fullScreen ? window.location.reload() : this.setState({ error: null }))}>
+          {this.props.fullScreen ? i18n.t('ui.errorBoundary.reload') : i18n.t('ui.errorBoundary.tryAgain')}
         </button>
       </div>
     );

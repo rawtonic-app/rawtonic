@@ -26,7 +26,7 @@ export function resizeCropFromEdge(
   aspect: number,
   boxWidth: number,
   boxHeight: number,
-  minSize = 10,
+  minSize = 10
 ): CropRect {
   const vertical = edge === 'n' || edge === 's';
   const centreX = start.x + start.width / 2;
@@ -35,7 +35,7 @@ export function resizeCropFromEdge(
     // The dragged side may reach the box edge; the centred width must fit.
     const maxHeight = Math.min(
       edge === 'n' ? start.y + start.height : boxHeight - start.y,
-      (2 * Math.min(centreX, boxWidth - centreX)) / aspect,
+      (2 * Math.min(centreX, boxWidth - centreX)) / aspect
     );
     const height = Math.max(minSize, Math.min(maxHeight, start.height + (edge === 'n' ? -dy : dy)));
     const width = height * aspect;
@@ -43,12 +43,12 @@ export function resizeCropFromEdge(
       x: centreX - width / 2,
       y: edge === 'n' ? start.y + start.height - height : start.y,
       width,
-      height,
+      height
     };
   }
   const maxWidth = Math.min(
     edge === 'w' ? start.x + start.width : boxWidth - start.x,
-    2 * Math.min(centreY, boxHeight - centreY) * aspect,
+    2 * Math.min(centreY, boxHeight - centreY) * aspect
   );
   const width = Math.max(minSize, Math.min(maxWidth, start.width + (edge === 'w' ? -dx : dx)));
   const height = width / aspect;
@@ -56,6 +56,6 @@ export function resizeCropFromEdge(
     x: edge === 'w' ? start.x + start.width - width : start.x,
     y: centreY - height / 2,
     width,
-    height,
+    height
   };
 }

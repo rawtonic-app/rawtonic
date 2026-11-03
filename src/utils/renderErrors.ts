@@ -11,7 +11,7 @@ const OFFLINE = /^(.+) is offline: exporting needs the RAW file$/;
 const WRITE_FAILED = /^Failed to write file to '(.+)': (.+)$/s;
 const KNOWN: Record<string, () => string> = {
   'Export task terminated unexpectedly': () => i18n.t('studio.export.errors.terminated'),
-  'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest'),
+  'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest')
 };
 
 function fileName(path: string): string {

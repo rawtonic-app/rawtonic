@@ -7,7 +7,7 @@ import {
   isNewRecipe,
   normalizeLoadedAdjustments,
   SOURCE_FRAME_VERSION,
-  type Adjustments,
+  type Adjustments
 } from './adjustments';
 import { withCameraCrop, type CameraCrops } from './cameraCrop';
 
@@ -17,13 +17,20 @@ export type CameraLens = { params: Adjustments['lensDistortionParams'] } | null;
 /** Whether a saved recipe is one of a photograph never edited (none, or one
  * without a lens mode at all: a batch paste or Auto filled it). */
 export const neverEdited = (saved: unknown): boolean =>
-  !saved || Boolean((saved as { is_null?: boolean }).is_null) || (saved as Partial<Adjustments>).lensCorrectionMode === undefined;
+  !saved ||
+  Boolean((saved as { is_null?: boolean }).is_null) ||
+  (saved as Partial<Adjustments>).lensCorrectionMode === undefined;
 
 /** `recipe` (the editor's recipe of `saved`) with what a never-edited RAW
  * starts with, as its export renders it (edge_fringe.rs, lateral_ca.rs,
  * embedded_lens.rs): the edge-fringe pass and the automatic lateral CA
  * unless the recipe states them, and the camera's lens data (`camera`). */
-export function applyNeverEditedDefaults(recipe: Adjustments, saved: unknown, isRaw: boolean, camera: CameraLens): Adjustments {
+export function applyNeverEditedDefaults(
+  recipe: Adjustments,
+  saved: unknown,
+  isRaw: boolean,
+  camera: CameraLens
+): Adjustments {
   if (!isRaw || !neverEdited(saved)) return recipe;
   recipe.fringeVersion ??= FRINGE_VERSION;
   recipe.autoCaVersion ??= AUTO_CA_VERSION;
@@ -44,7 +51,7 @@ export async function withNeverEditedDefaults(
   recipe: Adjustments,
   saved: unknown,
   isRaw: boolean,
-  camera: () => Promise<CameraLens>,
+  camera: () => Promise<CameraLens>
 ): Promise<Adjustments> {
   if (!isRaw || !neverEdited(saved)) return recipe;
   return applyNeverEditedDefaults(recipe, saved, isRaw, await camera());
@@ -75,7 +82,7 @@ export function editorRecipe(
   width: number,
   height: number,
   camera: CameraLens,
-  crops?: CameraCrops,
+  crops?: CameraCrops
 ): Adjustments {
   let recipe =
     saved && !(saved as { is_null?: boolean }).is_null

@@ -17,7 +17,7 @@ import {
   pressureKeys,
   pressureMapping,
   withPressure,
-  type StrokePoint,
+  type StrokePoint
 } from '../../../utils/penPressure';
 import { Mask, SubMask, SubMaskMode, ToolType } from '../right/Masks';
 import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppProperties';
@@ -44,7 +44,7 @@ import {
   notePointerSessionStroke,
   reportImagePlaceholderLoad,
   reportMaskOverlayLoad,
-  reportBrowserPreviewLoad,
+  reportBrowserPreviewLoad
 } from '../../../hooks/usePerformanceDiagnostics';
 import { whiteBalanceForCurrentPreview } from '../../../utils/whiteBalance';
 import { useBrushGesture } from './brushGesture';
@@ -56,19 +56,20 @@ import { Invokes, OPTION_SEPARATOR, canRenderSource } from '../../ui/AppProperti
 import { DEFAULT_COLOR_RANGE } from '../../../utils/maskKinds';
 import {
   FrameGeometry,
-  ShapeFrame, SizedFrame,
+  ShapeFrame,
+  SizedFrame,
   frameGeometry,
   reframePoint,
   sameFrameGeometry,
   shapeAsShown,
-  shapeFrame,
+  shapeFrame
 } from '../../../utils/maskGeometry';
 import {
   drawsMaskOverlayNatively,
   maskDisplayOf,
   maskOverlayOpacity,
   nativeMaskOverlay,
-  sameNativeMaskOverlay,
+  sameNativeMaskOverlay
 } from '../../../utils/maskDisplay';
 import {
   dragRadialHandle,
@@ -78,7 +79,7 @@ import {
   toLocal,
   type RadialHandle,
   type RadialLine,
-  type RadialParams,
+  type RadialParams
 } from '../../../utils/radialMask';
 import {
   dragLinearLine,
@@ -86,14 +87,14 @@ import {
   linearLineOffsets,
   rotateLinear,
   type LinearLine,
-  type LinearParams,
+  type LinearParams
 } from '../../../utils/linearMask';
 import {
   draftToCommit,
   restoreAfterShapeDrag,
   shapeFromDrag,
   type ShapeDraft,
-  type ShapeDragState,
+  type ShapeDragState
 } from '../../../utils/shapeDraw';
 import { requestLiveMaskRender } from '../../../utils/liveMaskRender';
 import {
@@ -105,7 +106,7 @@ import {
   promptsFrameChanged,
   storedPrompts,
   type ObjectPrompt,
-  type PromptGesture,
+  type PromptGesture
 } from '../../../utils/objectPrompts';
 import { objectSelectionBusy } from '../../../hooks/useAiMasking';
 import { CROP_ROTATE_BAND_PX, cropModeBox } from '../../../utils/viewerDisplay';
@@ -119,7 +120,7 @@ const PIPETTE_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent(
   `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'>` +
     `<g stroke='black' stroke-width='3.5'><path d='m2 22 1-1h3l9-9'/><path d='M3 21v-3l9-9'/><path d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'/></g>` +
     `<g stroke='white' stroke-width='1.5'><path d='m2 22 1-1h3l9-9'/><path d='M3 21v-3l9-9'/><path d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'/></g>` +
-    `</svg>`,
+    `</svg>`
 )}") 2 22, crosshair`;
 
 interface CursorPreview {
@@ -207,7 +208,7 @@ interface ImageCanvasProps {
   onGenerateAiMask(id: string | null, start: Coord, end: Coord, prompts?: ObjectPrompt[]): unknown;
   onLiveMaskPreview?: (
     previewMaskDef: LiveMaskDefinition,
-    options?: { renderLive?: boolean; stroke?: Omit<LiveStroke, 'maskId'> },
+    options?: { renderLive?: boolean; stroke?: Omit<LiveStroke, 'maskId'> }
   ) => void;
   onSelectMask(id: string | null): void;
   onStraighten(val: number): void;
@@ -328,7 +329,7 @@ function project3x3(h: number[], x: number, y: number): { x: number; y: number }
   if (Math.abs(W) < 1e-12) return { x, y };
   return {
     x: (h[0] * x + h[1] * y + h[2]) / W,
-    y: (h[3] * x + h[4] * y + h[5]) / W,
+    y: (h[3] * x + h[4] * y + h[5]) / W
   };
 }
 
@@ -356,7 +357,7 @@ const getEdgeFadeStyle = (fadeDistancePx: number = 128): React.CSSProperties => 
     linear-gradient(to right, transparent, black ${fadeDistancePx}px, black calc(100% - ${fadeDistancePx}px), transparent),
     linear-gradient(to bottom, transparent, black ${fadeDistancePx}px, black calc(100% - ${fadeDistancePx}px), transparent)
   `,
-  maskComposite: 'intersect',
+  maskComposite: 'intersect'
 });
 
 const OptimizedBrushLine = memo(
@@ -382,7 +383,7 @@ const OptimizedBrushLine = memo(
         shadowForStrokeEnabled={false}
       />
     );
-  },
+  }
 );
 
 // Painted masks have no handles; pressing their strokes may still pan, as
@@ -411,7 +412,7 @@ const MaskOverlay = memo(
     offsetY,
     stageScale,
     sampleDraft = null,
-    drawingFrame,
+    drawingFrame
   }: MaskOverlayProps) => {
     const rotateStartRef = useRef<{ angle: number; rotation: number } | null>(null);
 
@@ -428,7 +429,7 @@ const MaskOverlay = memo(
     // there too and stay stored as painted.
     const shownParameters = useMemo(
       () => shapeAsShown(subMask.type, subMask.parameters, drawingFrame),
-      [subMask.type, subMask.parameters, drawingFrame],
+      [subMask.type, subMask.parameters, drawingFrame]
     );
     const [p, setP] = useState(shownParameters);
     const pRef = useRef(p);
@@ -444,7 +445,7 @@ const MaskOverlay = memo(
         if (!pos) return null;
         return { x: pos.x / stageScale - offsetX, y: pos.y / stageScale - offsetY };
       },
-      [offsetX, offsetY, stageScale],
+      [offsetX, offsetY, stageScale]
     );
 
     useEffect(() => {
@@ -467,7 +468,7 @@ const MaskOverlay = memo(
         if (e.evt.cancelable) e.evt.preventDefault();
         e.evt.stopPropagation?.();
       },
-      [onMaskInteractionStart],
+      [onMaskInteractionStart]
     );
 
     const handleMaskTouchEnd = useCallback(() => {
@@ -488,7 +489,7 @@ const MaskOverlay = memo(
         dragStartPointer.current = getPointer(e.target.getStage());
         dragStartParams.current = { ...pRef.current };
       },
-      [onMaskInteractionStart, getPointer],
+      [onMaskInteractionStart, getPointer]
     );
 
     const handleRadialDragMove = useCallback(
@@ -502,7 +503,7 @@ const MaskOverlay = memo(
         const newP = {
           ...dragStartParams.current,
           centerX: (dragStartParams.current as RadialParams).centerX + dx,
-          centerY: (dragStartParams.current as RadialParams).centerY + dy,
+          centerY: (dragStartParams.current as RadialParams).centerY + dy
         };
 
         updateP(newP);
@@ -510,7 +511,7 @@ const MaskOverlay = memo(
 
         if (commitWhileDragging) onUpdate(subMask.id, { parameters: newP });
       },
-      [scale, updateP, onPreviewUpdate, subMask.id, getPointer, onUpdate, commitWhileDragging],
+      [scale, updateP, onPreviewUpdate, subMask.id, getPointer, onUpdate, commitWhileDragging]
     );
 
     const handleRadialDragEnd = useCallback(() => {
@@ -533,7 +534,7 @@ const MaskOverlay = memo(
         onMaskInteractionStart(e);
         e.cancelBubble = true;
       },
-      [onMaskInteractionStart],
+      [onMaskInteractionStart]
     );
 
     const handleRadialEditMove = useCallback(
@@ -551,7 +552,7 @@ const MaskOverlay = memo(
         if (onPreviewUpdate) onPreviewUpdate(subMask.id, { parameters: newP });
         if (commitWhileDragging) onUpdate(subMask.id, { parameters: newP });
       },
-      [getPointer, scale, cropX, cropY, updateP, onPreviewUpdate, subMask.id, commitWhileDragging, onUpdate],
+      [getPointer, scale, cropX, cropY, updateP, onPreviewUpdate, subMask.id, commitWhileDragging, onUpdate]
     );
 
     // Capture One-style linear editing: the start (100%) and end (0%) lines
@@ -564,7 +565,7 @@ const MaskOverlay = memo(
         const pointer = stage ? getPointer(stage) : null;
         return pointer ? { x: pointer.x / scale + cropX, y: pointer.y / scale + cropY } : null;
       },
-      [getPointer, scale, cropX, cropY],
+      [getPointer, scale, cropX, cropY]
     );
 
     const handleLinearEditStart = useCallback(
@@ -577,12 +578,12 @@ const MaskOverlay = memo(
         linearEditStart.current = {
           params,
           pointer,
-          pivot: { x: (params.startX + params.endX) / 2, y: (params.startY + params.endY) / 2 },
+          pivot: { x: (params.startX + params.endX) / 2, y: (params.startY + params.endY) / 2 }
         };
         onMaskInteractionStart(e);
         e.cancelBubble = true;
       },
-      [imagePointer, onMaskInteractionStart],
+      [imagePointer, onMaskInteractionStart]
     );
 
     const handleLinearEditMove = useCallback(
@@ -597,13 +598,13 @@ const MaskOverlay = memo(
                 start.params,
                 target,
                 pointer,
-                e.evt?.altKey ? 'independent' : e.evt?.shiftKey ? 'symmetric' : 'opposite',
+                e.evt?.altKey ? 'independent' : e.evt?.shiftKey ? 'symmetric' : 'opposite'
               );
         updateP(newP);
         if (onPreviewUpdate) onPreviewUpdate(subMask.id, { parameters: newP });
         if (commitWhileDragging) onUpdate(subMask.id, { parameters: newP });
       },
-      [imagePointer, updateP, onPreviewUpdate, subMask.id, commitWhileDragging, onUpdate],
+      [imagePointer, updateP, onPreviewUpdate, subMask.id, commitWhileDragging, onUpdate]
     );
 
     const handleShapeEditEnd = useCallback(
@@ -615,7 +616,7 @@ const MaskOverlay = memo(
         onMaskInteractionEnd();
         onUpdate(subMask.id, { parameters: pRef.current });
       },
-      [subMask.id, onMaskInteractionEnd, onUpdate],
+      [subMask.id, onMaskInteractionEnd, onUpdate]
     );
 
     const setRotateCursor = useCallback(
@@ -634,7 +635,7 @@ const MaskOverlay = memo(
         const encodedSvg = encodeURIComponent(svgStr);
         stage!.container().style.cursor = `url('data:image/svg+xml;utf8,${encodedSvg}') 16 16, crosshair`;
       },
-      [cropX, cropY, scale],
+      [cropX, cropY, scale]
     );
 
     const handleRotateStart = useCallback(
@@ -656,10 +657,10 @@ const MaskOverlay = memo(
         const startAngle = Math.atan2(pointer.y - cy, pointer.x - cx);
         rotateStartRef.current = {
           angle: startAngle,
-          rotation: pRef.current.rotation || 0,
+          rotation: pRef.current.rotation || 0
         };
       },
-      [onMaskInteractionStart, cropX, cropY, scale, getPointer],
+      [onMaskInteractionStart, cropX, cropY, scale, getPointer]
     );
 
     const handleRotateMove = useCallback(
@@ -682,7 +683,7 @@ const MaskOverlay = memo(
 
         const newP = {
           ...pRef.current,
-          rotation: newRotation,
+          rotation: newRotation
         };
 
         updateP(newP);
@@ -699,8 +700,8 @@ const MaskOverlay = memo(
         setRotateCursor,
         getPointer,
         onUpdate,
-        commitWhileDragging,
-      ],
+        commitWhileDragging
+      ]
     );
 
     const handleRotateEnd = useCallback(
@@ -714,7 +715,7 @@ const MaskOverlay = memo(
           e.target.getStage()!.container().style.cursor = '';
         }
       },
-      [subMask.id, onMaskInteractionEnd, onUpdate],
+      [subMask.id, onMaskInteractionEnd, onUpdate]
     );
 
     const handleRotateHoverMove = useCallback(
@@ -724,7 +725,7 @@ const MaskOverlay = memo(
         const pointer = getPointer(stage);
         if (pointer) setRotateCursor(stage, pointer);
       },
-      [isToolActive, setRotateCursor, getPointer],
+      [isToolActive, setRotateCursor, getPointer]
     );
 
     const handleRotateMouseEnter = useCallback(
@@ -736,7 +737,7 @@ const MaskOverlay = memo(
           if (pointer) setRotateCursor(stage, pointer);
         }
       },
-      [onMaskMouseEnter, isToolActive, setRotateCursor, getPointer],
+      [onMaskMouseEnter, isToolActive, setRotateCursor, getPointer]
     );
 
     const handleRotateMouseLeave = useCallback(
@@ -747,7 +748,7 @@ const MaskOverlay = memo(
           stage!.container().style.cursor = '';
         }
       },
-      [onMaskMouseLeave],
+      [onMaskMouseLeave]
     );
 
     const handleLinearGroupDragStart = useCallback(
@@ -759,7 +760,7 @@ const MaskOverlay = memo(
         dragStartParams.current = { ...pRef.current };
         e.cancelBubble = true;
       },
-      [onMaskInteractionStart, getPointer],
+      [onMaskInteractionStart, getPointer]
     );
 
     const handleLinearGroupDragMove = useCallback(
@@ -775,14 +776,14 @@ const MaskOverlay = memo(
           startX: (dragStartParams.current as LinearParams).startX + dx,
           startY: (dragStartParams.current as LinearParams).startY + dy,
           endX: (dragStartParams.current as LinearParams).endX + dx,
-          endY: (dragStartParams.current as LinearParams).endY + dy,
+          endY: (dragStartParams.current as LinearParams).endY + dy
         };
 
         updateP(newP);
         if (onPreviewUpdate) onPreviewUpdate(subMask.id, { parameters: newP });
         if (commitWhileDragging) onUpdate(subMask.id, { parameters: newP });
       },
-      [scale, updateP, onPreviewUpdate, subMask.id, getPointer, onUpdate, commitWhileDragging],
+      [scale, updateP, onPreviewUpdate, subMask.id, getPointer, onUpdate, commitWhileDragging]
     );
 
     const handleLinearGroupDragEnd = useCallback(
@@ -792,7 +793,7 @@ const MaskOverlay = memo(
         onMaskInteractionEnd();
         onUpdate(subMask.id, { parameters: pRef.current });
       },
-      [subMask.id, onMaskInteractionEnd, onUpdate],
+      [subMask.id, onMaskInteractionEnd, onUpdate]
     );
 
     if (!subMask.visible) {
@@ -812,7 +813,7 @@ const MaskOverlay = memo(
             ? '#a855f7'
             : 'white',
       strokeScaleEnabled: false,
-      strokeWidth: isSelected ? 3 : 2,
+      strokeWidth: isSelected ? 3 : 2
     };
 
     if (subMask.type === Mask.AiSubject) {
@@ -1037,7 +1038,7 @@ const MaskOverlay = memo(
         opacity: commonProps.opacity,
         strokeWidth: isSelected ? 2.5 : 2,
         strokeScaleEnabled: false,
-        hitStrokeWidth: 24,
+        hitStrokeWidth: 24
       };
       const setCursor = (e: KonvaEventObject<MouseEvent>, cursor: string) => {
         const stage = e.target.getStage();
@@ -1073,8 +1074,8 @@ const MaskOverlay = memo(
       const bandHandle = (line: LinearLine, offset: number, axis: number) => (
         <Circle
           key={line}
-          x={midX + normal.x * offset * scale + along.x * axis / stageScale}
-          y={midY + normal.y * offset * scale + along.y * axis / stageScale}
+          x={midX + normal.x * offset * scale + (along.x * axis) / stageScale}
+          y={midY + normal.y * offset * scale + (along.y * axis) / stageScale}
           radius={5 / stageScale}
           fill={axis < 0 ? 'white' : '#252627'}
           stroke="white"
@@ -1087,8 +1088,14 @@ const MaskOverlay = memo(
           onDragEnd={handleShapeEditEnd}
           onTouchEnd={handleMaskTouchEnd}
           onTouchStart={handleMaskTouchStart}
-          onMouseEnter={(e) => { onMaskMouseEnter(); setCursor(e, 'row-resize'); }}
-          onMouseLeave={(e) => { onMaskMouseLeave(); setCursor(e, ''); }}
+          onMouseEnter={(e) => {
+            onMaskMouseEnter();
+            setCursor(e, 'row-resize');
+          }}
+          onMouseLeave={(e) => {
+            onMaskMouseLeave();
+            setCursor(e, '');
+          }}
         />
       );
 
@@ -1154,18 +1161,22 @@ const MaskOverlay = memo(
             <>
               {featherLine('start', startLine)}
               {featherLine('end', endLine)}
-              {params.band && <>
-                {featherLine('featherStart', parallel(offsets.start - params.band.feather))}
-                {featherLine('featherEnd', parallel(offsets.end + params.band.feather))}
-              </>}
+              {params.band && (
+                <>
+                  {featherLine('featherStart', parallel(offsets.start - params.band.feather))}
+                  {featherLine('featherEnd', parallel(offsets.end + params.band.feather))}
+                </>
+              )}
             </>
           )}
-          {editable && params.band && <>
-            {bandHandle('start', offsets.start, -24)}
-            {bandHandle('end', offsets.end, -24)}
-            {bandHandle('featherStart', offsets.start - params.band.feather, 24)}
-            {bandHandle('featherEnd', offsets.end + params.band.feather, 24)}
-          </>}
+          {editable && params.band && (
+            <>
+              {bandHandle('start', offsets.start, -24)}
+              {bandHandle('end', offsets.end, -24)}
+              {bandHandle('featherStart', offsets.start - params.band.feather, 24)}
+              {bandHandle('featherEnd', offsets.end + params.band.feather, 24)}
+            </>
+          )}
           {isSelected && (
             // Capture One's centre point: the axis the central line rotates
             // around; dragging it moves the whole mask.
@@ -1239,7 +1250,7 @@ const MaskOverlay = memo(
                 { x: sample.x, y: sample.y },
                 { x: sample.x + sample.width, y: sample.y },
                 { x: sample.x + sample.width, y: sample.y + sample.height },
-                { x: sample.x, y: sample.y + sample.height },
+                { x: sample.x, y: sample.y + sample.height }
               ];
               return (
                 <Line
@@ -1295,7 +1306,7 @@ const MaskOverlay = memo(
           frameGeometry(p),
           shown,
           turned ? imageHeight : imageWidth,
-          turned ? imageWidth : imageHeight,
+          turned ? imageWidth : imageHeight
         );
         return (
           <Circle
@@ -1316,7 +1327,7 @@ const MaskOverlay = memo(
       return null;
     }
     return null;
-  },
+  }
 );
 
 const ImageCanvas = memo(
@@ -1359,7 +1370,7 @@ const ImageCanvas = memo(
     liveRotation,
     transformState,
     hasRenderedFirstFrame,
-    maskHitTestRef,
+    maskHitTestRef
   }: ImageCanvasProps) => {
     const isGuidedPerspectiveActive = useEditorStore((state) => state.isGuidedPerspectiveActive);
     // The previous photograph's native frame stands in; no placeholder over it.
@@ -1367,7 +1378,7 @@ const ImageCanvas = memo(
     const showMaskWithSelectTool = useEditorStore((state) => state.showMaskWithSelectTool);
     const isMaskRangeDragging = useEditorStore((state) => state.isMaskRangeDragging);
     const maskOverlayAutoHidden = useEditorStore(
-      (state) => state.maskOverlayAuto === 'hidden' || state.maskOverlayOutsideMaskTab,
+      (state) => state.maskOverlayAuto === 'hidden' || state.maskOverlayOutsideMaskTab
     );
     const lumaPickerLayer = useEditorStore((state) => state.lumaPickerLayer);
     const shapeDrawTarget = useEditorStore((state) => state.shapeDrawTarget);
@@ -1376,7 +1387,7 @@ const ImageCanvas = memo(
     const isSpotToolActive = useEditorStore((state) => state.isSpotToolActive);
     const redEyeMode = useEditorStore((state) => state.spotSettings.mode === 'redEye');
     const showFaceOverlay = useEditorStore(
-      (state) => state.showFaceBlemishes || state.showFaceProtection || state.faceProtect.painting,
+      (state) => state.showFaceBlemishes || state.showFaceProtection || state.faceProtect.painting
     );
     const [draftGuideLine, setDraftGuideLine] = useState<{ p1: Coord; p2: Coord } | null>(null);
     const [localDragLines, setLocalDragLines] = useState<GuideLine[] | null>(null);
@@ -1391,11 +1402,11 @@ const ImageCanvas = memo(
           const lines = ids ? (prev.guidedPerspective?.lines || []).filter((l) => !ids.includes(l.id)) : [];
           return {
             ...prev,
-            guidedPerspective: { ...prev.guidedPerspective, lines, enabled: lines.length >= 2 },
+            guidedPerspective: { ...prev.guidedPerspective, lines, enabled: lines.length >= 2 }
           };
         });
       },
-      [setAdjustments],
+      [setAdjustments]
     );
     useEffect(() => {
       if (!isGuidedPerspectiveActive) {
@@ -1443,7 +1454,7 @@ const ImageCanvas = memo(
         if (!rect.width || !rect.height) return false;
         const shape = stage.getIntersection({
           x: ((clientX - rect.left) * stage.width()) / rect.width,
-          y: ((clientY - rect.top) * stage.height()) / rect.height,
+          y: ((clientY - rect.top) * stage.height()) / rect.height
         });
         return !!shape?.findAncestor('.mask-handles');
       };
@@ -1462,7 +1473,7 @@ const ImageCanvas = memo(
       luma?: boolean;
     } | null>(null);
     const [colorSampleDraft, setColorSampleDraft] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(
-      null,
+      null
     );
     // Mirrors isDrawing for rendering: "While drawing" shows the mask only then.
     const [isStrokeActive, setIsStrokeActive] = useState(false);
@@ -1525,7 +1536,7 @@ const ImageCanvas = memo(
 
     const decodedBase = useDecodedPreview(
       finalPreviewUrl || selectedImage.thumbnailUrl ? { url: (finalPreviewUrl || selectedImage.thumbnailUrl)! } : null,
-      selectedImage.path,
+      selectedImage.path
     );
     const displayBase = decodedBase?.url;
 
@@ -1570,10 +1581,10 @@ const ImageCanvas = memo(
         if (!pos) return null;
         return {
           x: pos.x / maxSafeScale - groupOffsetX,
-          y: pos.y / maxSafeScale - groupOffsetY,
+          y: pos.y / maxSafeScale - groupOffsetY
         };
       },
-      [groupOffsetX, groupOffsetY, maxSafeScale],
+      [groupOffsetX, groupOffsetY, maxSafeScale]
     );
 
     useEffect(() => {
@@ -1640,10 +1651,10 @@ const ImageCanvas = memo(
             rotation: adjustments.rotation,
             flipHorizontal: adjustments.flipHorizontal,
             flipVertical: adjustments.flipVertical,
-            orientationSteps: adjustments.orientationSteps,
+            orientationSteps: adjustments.orientationSteps
           },
           selectedImage.width,
-          selectedImage.height,
+          selectedImage.height
         ),
       [
         adjustments.rotation,
@@ -1651,8 +1662,8 @@ const ImageCanvas = memo(
         adjustments.flipVertical,
         adjustments.orientationSteps,
         selectedImage.width,
-        selectedImage.height,
-      ],
+        selectedImage.height
+      ]
     );
 
     const effectiveImageDimensions = useMemo(() => {
@@ -1700,7 +1711,7 @@ const ImageCanvas = memo(
     const strokeAutoMaskVersion = strokeAutoMask ? AUTO_MASK_VERSION : undefined;
     const strokePressure = useMemo(
       () => (isFlowMask ? { size: false, flow: false } : pressureMapping(brushSettings)),
-      [isFlowMask, brushSettings],
+      [isFlowMask, brushSettings]
     );
 
     // An Auto Mask stroke reads the full-resolution photo as it looks before
@@ -1719,8 +1730,7 @@ const ImageCanvas = memo(
     // the gesture readout instead.
     const brushCursorRings = useMemo(() => {
       const radius = Math.max(0.1, brushStageSize / 2);
-      const softness =
-        strokeHardness === undefined ? undefined : 1 - Math.max(0, Math.min(1, strokeHardness / 100));
+      const softness = strokeHardness === undefined ? undefined : 1 - Math.max(0, Math.min(1, strokeHardness / 100));
       const feather = Math.max(0, Math.min(1, (brushSettings?.feather ?? 0) / 100));
       const isEraser = isAltPressed ? baseTool !== ToolType.Eraser : baseTool === ToolType.Eraser;
       return softness === undefined
@@ -1764,7 +1774,7 @@ const ImageCanvas = memo(
       if (samePhoto)
         restoreAfterShapeDrag(start, useEditorStore.getState().adjustments, {
           renderLive: requestLiveMaskRender,
-          showLayer: (layer) => livePreviewRef.current?.(layer),
+          showLayer: (layer) => livePreviewRef.current?.(layer)
         });
     }, [activeSubMaskId, selectedImage.path, setDrawing]);
 
@@ -1783,8 +1793,12 @@ const ImageCanvas = memo(
     // white balance picker's fallback samples; never a camera JPEG.
     const browserPreview = isWgpuActive ? null : (finalPreviewUrl ?? null);
     const sampling =
-      (!!isWgpuActive || !!browserPreview) && !!selectedImage.isReady && !isCropping && !showOriginal &&
-      !splitView && (pickerActive || pointerReadout);
+      (!!isWgpuActive || !!browserPreview) &&
+      !!selectedImage.isReady &&
+      !isCropping &&
+      !showOriginal &&
+      !splitView &&
+      (pickerActive || pointerReadout);
     usePointerSampling(canvasRootRef, imageRectRef, selectedImage.path, sampling, browserPreview);
     const brushGesture = useBrushGesture(
       canvasRootRef,
@@ -1794,9 +1808,9 @@ const ImageCanvas = memo(
       (values) => {
         const { brushSettings: current, setEditor } = useEditorStore.getState();
         setEditor({
-          brushSettings: { ...(current ?? { size: DEFAULT_BRUSH_SIZE, feather: 50, tool: ToolType.Brush }), ...values },
+          brushSettings: { ...(current ?? { size: DEFAULT_BRUSH_SIZE, feather: 50, tool: ToolType.Brush }), ...values }
         });
-      },
+      }
     );
     // The rings stay where the drag began while the pointer adjusts them.
     const [gestureAnchor, setGestureAnchor] = useState<CursorPreview | null>(null);
@@ -1814,7 +1828,7 @@ const ImageCanvas = memo(
     const drawsOverlayNatively = drawsMaskOverlayNatively({
       nativeDisplay: !!isWgpuActive,
       masking: isMasking,
-      livePreviews: appSettings?.enableLivePreviews !== false,
+      livePreviews: appSettings?.enableLivePreviews !== false
     });
     const displayedMaskUrl = isMasking && !drawsOverlayNatively ? maskOverlayUrl : null;
 
@@ -1828,7 +1842,7 @@ const ImageCanvas = memo(
       if (dragStartPointer.current)
         restoreAfterShapeDrag(dragStartPointer.current, useEditorStore.getState().adjustments, {
           renderLive: requestLiveMaskRender,
-          showLayer: (layer) => livePreviewRef.current?.(layer),
+          showLayer: (layer) => livePreviewRef.current?.(layer)
         });
       dragStartPointer.current = null;
       currentLine.current = null;
@@ -1912,7 +1926,7 @@ const ImageCanvas = memo(
         viewportHeight,
         uncroppedEffectiveWidth,
         uncroppedEffectiveHeight,
-        imageRenderSize.margin ?? 0,
+        imageRenderSize.margin ?? 0
       );
     }, [selectedImage?.width, selectedImage?.height, imageRenderSize, adjustments.orientationSteps]);
 
@@ -1929,10 +1943,15 @@ const ImageCanvas = memo(
             // stored as autoCrop), as the engine does.
             const fill = Boolean(
               adjustments.guidedPerspective?.upright &&
-                adjustments.guidedPerspective.upright !== 'off' &&
-                adjustments.guidedPerspective.autoCrop !== false,
+              adjustments.guidedPerspective.upright !== 'off' &&
+              adjustments.guidedPerspective.autoCrop !== false
             );
-            const res: GuidedPerspectiveResult = await invoke(Invokes.CalculateGuidedPerspective, { lines, width: Ow, height: Oh, fill });
+            const res: GuidedPerspectiveResult = await invoke(Invokes.CalculateGuidedPerspective, {
+              lines,
+              width: Ow,
+              height: Oh,
+              fill
+            });
             if (res?.valid && (res?.forwardH || res?.forward_h)) {
               guidedH = res.forwardH || res.forward_h;
             }
@@ -1952,10 +1971,10 @@ const ImageCanvas = memo(
               transformAspect: adjustments.transformAspect ?? 0,
               transformScale: adjustments.transformScale ?? 100,
               transformXOffset: adjustments.transformXOffset ?? 0,
-              transformYOffset: adjustments.transformYOffset ?? 0,
+              transformYOffset: adjustments.transformYOffset ?? 0
             },
             width: Ow,
-            height: Oh,
+            height: Oh
           });
         } catch (e) {
           console.error('Transform matrix failed', e);
@@ -1986,7 +2005,7 @@ const ImageCanvas = memo(
       adjustments.transformAspect,
       adjustments.transformScale,
       adjustments.transformXOffset,
-      adjustments.transformYOffset,
+      adjustments.transformYOffset
     ]);
 
     const mapUvToScreen = useCallback(
@@ -2021,7 +2040,7 @@ const ImageCanvas = memo(
           const dy = sy - cy;
           return {
             x: cx + dx * cos - dy * sin,
-            y: cy + dx * sin + dy * cos,
+            y: cy + dx * sin + dy * cos
           };
         }
 
@@ -2035,8 +2054,8 @@ const ImageCanvas = memo(
         adjustments.flipHorizontal,
         adjustments.flipVertical,
         adjustments.rotation,
-        liveRotation,
-      ],
+        liveRotation
+      ]
     );
 
     const mapScreenToUv = useCallback(
@@ -2076,10 +2095,10 @@ const ImageCanvas = memo(
 
         return {
           x: Math.max(0, Math.min(1, orig.x / Ow)),
-          y: Math.max(0, Math.min(1, orig.y / Oh)),
+          y: Math.max(0, Math.min(1, orig.y / Oh))
         };
       },
-      [invH, uncroppedImageRenderSize, selectedImage, adjustments, liveRotation],
+      [invH, uncroppedImageRenderSize, selectedImage, adjustments, liveRotation]
     );
 
     const whiteBalanceRequestRef = useRef(0);
@@ -2112,21 +2131,29 @@ const ImageCanvas = memo(
           return;
         }
         void whiteBalanceForCurrentPreview({
-          image: selectedImage, adjustments, finalPreviewUrl,
-          normalizedX: x / imgLogicalWidth, normalizedY: y / imgLogicalHeight,
-          useWgpu: isWgpuActive,
-        }).then((balance) => {
-          if (!balance || requestId !== whiteBalanceRequestRef.current) return;
-          setAdjustments((prev: Adjustments) => ({
-            ...prev,
-            ...balance,
-          }));
-          onWbPicked(keepPicker);
-        }).catch((error) => {
-          if (useEditorStore.getState().selectedImage === selectedImage && requestId === whiteBalanceRequestRef.current) {
-            notify.error(`Could not sample white balance: ${error}`);
-          }
-        });
+          image: selectedImage,
+          adjustments,
+          finalPreviewUrl,
+          normalizedX: x / imgLogicalWidth,
+          normalizedY: y / imgLogicalHeight,
+          useWgpu: isWgpuActive
+        })
+          .then((balance) => {
+            if (!balance || requestId !== whiteBalanceRequestRef.current) return;
+            setAdjustments((prev: Adjustments) => ({
+              ...prev,
+              ...balance
+            }));
+            onWbPicked(keepPicker);
+          })
+          .catch((error) => {
+            if (
+              useEditorStore.getState().selectedImage === selectedImage &&
+              requestId === whiteBalanceRequestRef.current
+            ) {
+              notify.error(`Could not sample white balance: ${error}`);
+            }
+          });
       },
       [
         isWbPickerActive,
@@ -2137,8 +2164,8 @@ const ImageCanvas = memo(
         imageRenderSize,
         onWbPicked,
         setAdjustments,
-        getCanvasPointer,
-      ],
+        getCanvasPointer
+      ]
     );
 
     // Shows the stroke being drawn (the mask overlay and the developed photo
@@ -2169,7 +2196,7 @@ const ImageCanvas = memo(
           ...pressureKeys(stroke.points, strokePressure),
           frame: drawingFrame,
           points: stroke.points.slice(),
-          tool: line.tool,
+          tool: line.tool
         };
 
         const existingLines = activeSubMask.parameters?.lines || [];
@@ -2177,13 +2204,13 @@ const ImageCanvas = memo(
           ...activeSubMask,
           parameters: {
             ...activeSubMask.parameters,
-            lines: [...existingLines, imageSpaceLine],
-          },
+            lines: [...existingLines, imageSpaceLine]
+          }
         };
 
         const previewContainer = {
           ...activeContainer,
-          subMasks: activeContainer.subMasks.map((sm: SubMask) => (sm.id === activeSubMask.id ? previewSubMask : sm)),
+          subMasks: activeContainer.subMasks.map((sm: SubMask) => (sm.id === activeSubMask.id ? previewSubMask : sm))
         };
 
         onLiveMaskPreview(previewContainer, { renderLive: true, stroke: { ...stroke, points: imageSpaceLine.points } });
@@ -2205,8 +2232,8 @@ const ImageCanvas = memo(
         strokeHardness,
         strokeAutoMask,
         strokeAutoMaskVersion,
-        drawingFrame,
-      ],
+        drawingFrame
+      ]
     );
 
     const handleStart = useCallback(
@@ -2306,7 +2333,7 @@ const ImageCanvas = memo(
           if (isAiSubjectActive) {
             objectGestureRef.current = promptGesture({
               shiftKey: e.evt.shiftKey,
-              altKey: e.evt.altKey || (window as ModifierKeyWindow).altKeyDown,
+              altKey: e.evt.altKey || (window as ModifierKeyWindow).altKeyDown
             });
             setDrawing(true);
             drawingStageRef.current = stage;
@@ -2334,7 +2361,7 @@ const ImageCanvas = memo(
             const startImageSpace = lastBrushPoint.current!;
             const endImageSpace = {
               x: pos.x / scale + cropX,
-              y: pos.y / scale + cropY,
+              y: pos.y / scale + cropY
             };
 
             const dx = endImageSpace.x - startImageSpace.x;
@@ -2346,7 +2373,7 @@ const ImageCanvas = memo(
               const t = i / steps;
               interpolatedPoints.push({
                 x: startImageSpace.x + dx * t,
-                y: startImageSpace.y + dy * t,
+                y: startImageSpace.y + dy * t
               });
             }
 
@@ -2361,7 +2388,7 @@ const ImageCanvas = memo(
               dabVersion: DAB_VERSION,
               frame: drawingFrame,
               points: interpolatedPoints,
-              tool: effectiveTool,
+              tool: effectiveTool
             };
 
             const activeId = isMasking ? activeMaskId : null;
@@ -2370,8 +2397,8 @@ const ImageCanvas = memo(
             updateSubMask(activeId, {
               parameters: {
                 ...activeSubMask?.parameters,
-                lines: [...existingLines, imageSpaceLine],
-              },
+                lines: [...existingLines, imageSpaceLine]
+              }
             });
 
             lastBrushPoint.current = endImageSpace;
@@ -2387,7 +2414,7 @@ const ImageCanvas = memo(
           const newLine: DrawnLine = {
             brushSize: isBrushActive && brushSettings?.size ? brushStageSize : 2,
             points: [isBrushActive ? withPressure(pos, pointerPressure.current) : pos],
-            tool: effectiveTool,
+            tool: effectiveTool
           };
           coalescedMoves.current = [];
           liveStroke.current = null;
@@ -2433,8 +2460,8 @@ const ImageCanvas = memo(
         getCanvasPointer,
         setDrawing,
         uncroppedImageRenderSize?.width,
-        uncroppedImageRenderSize?.height,
-      ],
+        uncroppedImageRenderSize?.height
+      ]
     );
 
     const handleMove = useCallback(
@@ -2528,8 +2555,8 @@ const ImageCanvas = memo(
               scale: screenPixelsPerImagePixel,
               handle: Math.min(effectiveImageDimensions.width, effectiveImageDimensions.height) * 0.2,
               snap: !!(e?.evt?.shiftKey ?? e?.shiftKey),
-              drawing: dragStartPointer.current.drawing,
-            },
+              drawing: dragStartPointer.current.drawing
+            }
           );
           if (!updatedParams) return;
           dragStartPointer.current.drawing = true;
@@ -2539,13 +2566,13 @@ const ImageCanvas = memo(
           if (onLiveMaskPreview && activeContainer && activeSubMask) {
             const previewSubMask = {
               ...activeSubMask,
-              parameters: updatedParams,
+              parameters: updatedParams
             };
             const previewContainer = {
               ...activeContainer,
               subMasks: activeContainer.subMasks.map((sm: SubMask) =>
-                sm.id === activeSubMask.id ? previewSubMask : sm,
-              ),
+                sm.id === activeSubMask.id ? previewSubMask : sm
+              )
             };
             onLiveMaskPreview(previewContainer, renderShapesLive ? { renderLive: true } : undefined);
             if (renderShapesLive) dragStartPointer.current.renderedLive = true;
@@ -2599,7 +2626,7 @@ const ImageCanvas = memo(
 
           const updatedLine = {
             ...currentLine.current,
-            points: [...currentLine.current.points, ...added],
+            points: [...currentLine.current.points, ...added]
           };
           currentLine.current = updatedLine;
 
@@ -2643,8 +2670,8 @@ const ImageCanvas = memo(
         cursorPreview.visible,
         brushGesture,
         uncroppedImageRenderSize?.width,
-        uncroppedImageRenderSize?.height,
-      ],
+        uncroppedImageRenderSize?.height
+      ]
     );
 
     const handleUp = useCallback(() => {
@@ -2666,7 +2693,7 @@ const ImageCanvas = memo(
             area
               ? { x: Math.min(x0, x1), y: Math.min(y0, y1), width: Math.abs(x1 - x0), height: Math.abs(y1 - y0) }
               : { x: x0, y: y0 },
-            add,
+            add
           ).catch((error) => notify.error(`Could not sample the tones: ${error}`));
         }
         return;
@@ -2704,7 +2731,7 @@ const ImageCanvas = memo(
           rotation: adjustments.rotation || 0,
           flipHorizontal: adjustments.flipHorizontal || false,
           flipVertical: adjustments.flipVertical || false,
-          orientationSteps: adjustments.orientationSteps || 0,
+          orientationSteps: adjustments.orientationSteps || 0
         };
         delete newParams.tolerance;
         updateSubMask(isMasking ? activeMaskId : null, { parameters: newParams });
@@ -2736,7 +2763,7 @@ const ImageCanvas = memo(
               id: crypto.randomUUID(),
               type,
               p1,
-              p2,
+              p2
             };
 
             const newLines = [...existingLines, newGuide];
@@ -2747,8 +2774,8 @@ const ImageCanvas = memo(
                 ...prev.guidedPerspective,
                 enabled: newLines.length >= 2,
                 lines: newLines,
-                autoCrop: true,
-              },
+                autoCrop: true
+              }
             };
           });
         }
@@ -2814,14 +2841,14 @@ const ImageCanvas = memo(
         const prompts = nextPrompts(
           base,
           promptOf(startPoint, endPoint, objectGestureRef.current === 'exclude'),
-          objectGestureRef.current,
+          objectGestureRef.current
         );
         const bounds = prompts && promptBounds(prompts);
         if (!prompts || !bounds) return;
         const draft = { id: activeSubMask.id, path: photo.path, frame, prompts };
         setObjectPromptsDraft(draft);
         Promise.resolve(onGenerateAiMask(activeId, bounds.start, bounds.end, prompts)).finally(() =>
-          setObjectPromptsDraft((shown) => (shown === draft ? null : shown)),
+          setObjectPromptsDraft((shown) => (shown === draft ? null : shown))
         );
         return;
       }
@@ -2855,12 +2882,12 @@ const ImageCanvas = memo(
             withPressure(
               {
                 x: p.x / scale + cropX,
-                y: p.y / scale + cropY,
+                y: p.y / scale + cropY
               },
-              p.p,
-            ),
+              p.p
+            )
           ),
-          tool: line.tool,
+          tool: line.tool
         };
 
         const existingLines = activeSubMask?.parameters?.lines ? [...activeSubMask.parameters.lines] : [];
@@ -2874,8 +2901,8 @@ const ImageCanvas = memo(
         updateSubMask(activeId, {
           parameters: {
             ...activeSubMask?.parameters,
-            lines: existingLines,
-          },
+            lines: existingLines
+          }
         });
 
         activeStrokeIndex.current = null;
@@ -2884,7 +2911,7 @@ const ImageCanvas = memo(
         if (lastPoint) {
           lastBrushPoint.current = {
             x: lastPoint.x / scale + cropX,
-            y: lastPoint.y / scale + cropY,
+            y: lastPoint.y / scale + cropY
           };
         }
       }
@@ -2919,7 +2946,7 @@ const ImageCanvas = memo(
       isAiSubjectActive,
       mapUvToScreen,
       adjustments.guidedPerspective?.lines,
-      t,
+      t
     ]);
 
     // Side handles with a fixed aspect ratio (see cropEdges.ts): handled here,
@@ -2941,7 +2968,7 @@ const ImageCanvas = memo(
           x: toLayout(crop.x, box.width),
           y: toLayout(crop.y, box.height),
           width: toLayout(crop.width, box.width),
-          height: toLayout(crop.height, box.height),
+          height: toLayout(crop.height, box.height)
         };
         // Pointer deltas are on screen; the frame is in layout pixels (zoom).
         const screenPerLayout = media.getBoundingClientRect().width / box.width || 1;
@@ -2959,7 +2986,7 @@ const ImageCanvas = memo(
             (event.clientY - origin.y) / screenPerLayout,
             aspect,
             box.width,
-            box.height,
+            box.height
           );
           latest = {
             px: { unit: 'px', ...rect },
@@ -2968,8 +2995,8 @@ const ImageCanvas = memo(
               x: (rect.x / box.width) * 100,
               y: (rect.y / box.height) * 100,
               width: (rect.width / box.width) * 100,
-              height: (rect.height / box.height) * 100,
-            },
+              height: (rect.height / box.height) * 100
+            }
           };
           setCrop(latest.px, latest.percent);
         };
@@ -2986,7 +3013,7 @@ const ImageCanvas = memo(
         window.addEventListener('pointerup', end, true);
         window.addEventListener('pointercancel', end, true);
       },
-      [adjustments.aspectRatio, uncroppedImageRenderSize, crop, setCrop, handleCropComplete, cropGesture],
+      [adjustments.aspectRatio, uncroppedImageRenderSize, crop, setCrop, handleCropComplete, cropGesture]
     );
 
     // Lightroom / Capture One: dragging just outside the crop frame (or beside
@@ -3008,7 +3035,7 @@ const ImageCanvas = memo(
         if (!besidePhoto && Math.hypot(dx, dy) > CROP_ROTATE_BAND_PX) return null;
         return { x: (selection.left + selection.right) / 2, y: (selection.top + selection.bottom) / 2 };
       },
-      [isStraightenActive, isGuidedPerspectiveActive],
+      [isStraightenActive, isGuidedPerspectiveActive]
     );
     const startCropRotation = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
@@ -3041,7 +3068,7 @@ const ImageCanvas = memo(
         window.addEventListener('pointerup', end, true);
         window.addEventListener('pointercancel', end, true);
       },
-      [cropRotationCentre, adjustments.rotation, selectedImage?.isReady, setAdjustments],
+      [cropRotationCentre, adjustments.rotation, selectedImage?.isReady, setAdjustments]
     );
 
     // Gradient lines and handles show while the pointer is over the photo
@@ -3218,7 +3245,7 @@ const ImageCanvas = memo(
       isBrushActive,
       isAiSubjectActive,
       isParametricActive,
-      cursorStyle,
+      cursorStyle
     ]);
 
     const handlePreviewUpdate = useCallback(
@@ -3226,11 +3253,11 @@ const ImageCanvas = memo(
         if (!activeContainer || !onLiveMaskPreview) return;
         const previewContainer = {
           ...activeContainer,
-          subMasks: activeContainer.subMasks.map((sm: SubMask) => (sm.id === id ? { ...sm, ...subMaskPreview } : sm)),
+          subMasks: activeContainer.subMasks.map((sm: SubMask) => (sm.id === id ? { ...sm, ...subMaskPreview } : sm))
         };
         onLiveMaskPreview(previewContainer, renderShapesLive ? { renderLive: true } : undefined);
       },
-      [activeContainer, onLiveMaskPreview, renderShapesLive],
+      [activeContainer, onLiveMaskPreview, renderShapesLive]
     );
 
     const handleMaskInteractionStart = useCallback(
@@ -3241,7 +3268,7 @@ const ImageCanvas = memo(
           setIsMaskTouchInteracting(true);
         }
       },
-      [setIsMaskTouchInteracting],
+      [setIsMaskTouchInteracting]
     );
 
     const handleMaskInteractionEnd = useCallback(() => {
@@ -3263,7 +3290,7 @@ const ImageCanvas = memo(
       // Off after the layer's first adjustment, as in Lightroom (notes:
       // reference/layers-panel-c1-lr.md); painting or M shows it again.
       // Outside Develop's mask tabs it shows only while drawing.
-      autoHidden: maskOverlayAutoHidden,
+      autoHidden: maskOverlayAutoHidden
     });
 
     const nativeOverlay = drawsOverlayNatively
@@ -3286,7 +3313,7 @@ const ImageCanvas = memo(
                 brushGesture.x +
                 (brushGesture.values.size / 2) * screenPixelsPerImagePixel * (2 - brushGesture.values.hardness / 100) +
                 14,
-              top: brushGesture.y - 34,
+              top: brushGesture.y - 34
             }}
           >
             {(
@@ -3294,7 +3321,7 @@ const ImageCanvas = memo(
                 ['Size', brushGesture.values.size],
                 ['Hardness', brushGesture.values.hardness],
                 ['Opacity', brushGesture.values.opacity],
-                ['Flow', brushGesture.values.flow],
+                ['Flow', brushGesture.values.flow]
               ] as const
             ).map(([label, value]) => (
               <div key={label}>
@@ -3309,7 +3336,7 @@ const ImageCanvas = memo(
           className="absolute inset-0 w-full h-full transition-opacity duration-200 flex items-center justify-center"
           style={{
             opacity: cropLayerVisible ? 0 : 1,
-            pointerEvents: cropLayerVisible ? 'none' : 'auto',
+            pointerEvents: cropLayerVisible ? 'none' : 'auto'
           }}
         >
           <div
@@ -3317,7 +3344,7 @@ const ImageCanvas = memo(
             style={{
               height: '100%',
               position: 'relative',
-              width: '100%',
+              width: '100%'
             }}
           >
             <div className="absolute inset-0 w-full h-full">
@@ -3332,14 +3359,14 @@ const ImageCanvas = memo(
                         top: `${imageRenderSize.offsetY}px`,
                         width: `${imageRenderSize.width}px`,
                         height: `${imageRenderSize.height}px`,
-                        overflow: 'visible',
+                        overflow: 'visible'
                       }
                     : {
                         position: 'absolute',
                         inset: '0px',
                         width: '100%',
                         height: '100%',
-                        overflow: 'visible',
+                        overflow: 'visible'
                       }
                 }
               >
@@ -3370,8 +3397,14 @@ const ImageCanvas = memo(
                     style={{ imageRendering: isMaxZoom ? 'pixelated' : 'auto' }}
                   />
                 )}
-                <BrowserSplitImage path={selectedImage.path} adjustments={adjustments} size={imageRenderSize}
-                  transform={transformState} enabled={!isWgpuActive && !isCropping && canRenderSource(selectedImage)} decoded={selectedImage.isDecoded} />
+                <BrowserSplitImage
+                  path={selectedImage.path}
+                  adjustments={adjustments}
+                  size={imageRenderSize}
+                  transform={transformState}
+                  enabled={!isWgpuActive && !isCropping && canRenderSource(selectedImage)}
+                  decoded={selectedImage.isDecoded}
+                />
               </svg>
               {/* Slider-drag drafts of the browser renderer (utils/browserDraftPatch.ts). */}
               <div
@@ -3388,7 +3421,7 @@ const ImageCanvas = memo(
                   // itself, not the viewer's layer under it (WebKitGTK
                   // painted ~20 % of its main thread during drags; notes:
                   // parity-gaps/G55-performance.md).
-                  willChange: 'transform',
+                  willChange: 'transform'
                 }}
               />
 
@@ -3407,12 +3440,11 @@ const ImageCanvas = memo(
                     transition: maskOpacity ? 'none' : 'opacity 300ms ease-in-out',
                     width: `${imageRenderSize.width}px`,
                     imageRendering: isMaxZoom ? 'pixelated' : 'auto',
-                    zIndex: 3,
+                    zIndex: 3
                   }}
                 />
               )}
             </div>
-
           </div>
 
           {/* The Loupe face strip's face, where the photograph shows it. */}
@@ -3422,7 +3454,7 @@ const ImageCanvas = memo(
                 left: imageRenderSize.offsetX,
                 top: imageRenderSize.offsetY,
                 width: imageRenderSize.width,
-                height: imageRenderSize.height,
+                height: imageRenderSize.height
               }}
               cropX={cropX}
               cropY={cropY}
@@ -3436,7 +3468,7 @@ const ImageCanvas = memo(
                 left: imageRenderSize.offsetX,
                 top: imageRenderSize.offsetY,
                 width: imageRenderSize.width,
-                height: imageRenderSize.height,
+                height: imageRenderSize.height
               }}
               cropX={cropX}
               cropY={cropY}
@@ -3450,7 +3482,7 @@ const ImageCanvas = memo(
                 left: imageRenderSize.offsetX,
                 top: imageRenderSize.offsetY,
                 width: imageRenderSize.width,
-                height: imageRenderSize.height,
+                height: imageRenderSize.height
               }}
               cropX={cropX}
               cropY={cropY}
@@ -3469,7 +3501,7 @@ const ImageCanvas = memo(
                   left: imageRenderSize.offsetX,
                   top: imageRenderSize.offsetY,
                   width: imageRenderSize.width,
-                  height: imageRenderSize.height,
+                  height: imageRenderSize.height
                 }}
                 cropX={cropX}
                 cropY={cropY}
@@ -3477,18 +3509,35 @@ const ImageCanvas = memo(
                 zoom={effectiveZoomScale}
               />
             )}
-          {relightHandles && selectedImage.isReady && !holdingNativeFrame && adjustments.sectionVisibility?.relight !== false
-            && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && !isSpotToolActive && !tatTarget && !showFaceOverlay && (
-            <RelightOverlay key={selectedImage.path} rect={{ left: imageRenderSize.offsetX, top: imageRenderSize.offsetY,
-              width: imageRenderSize.width, height: imageRenderSize.height }} zoom={effectiveZoomScale} />
-          )}
+          {relightHandles &&
+            selectedImage.isReady &&
+            !holdingNativeFrame &&
+            adjustments.sectionVisibility?.relight !== false &&
+            !isCropping &&
+            !isMasking &&
+            !isWbPickerActive &&
+            !isShowingOriginal &&
+            !isSpotToolActive &&
+            !tatTarget &&
+            !showFaceOverlay && (
+              <RelightOverlay
+                key={selectedImage.path}
+                rect={{
+                  left: imageRenderSize.offsetX,
+                  top: imageRenderSize.offsetY,
+                  width: imageRenderSize.width,
+                  height: imageRenderSize.height
+                }}
+                zoom={effectiveZoomScale}
+              />
+            )}
           {tatTarget && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && (
             <TargetedAdjustmentOverlay
               rect={{
                 left: imageRenderSize.offsetX,
                 top: imageRenderSize.offsetY,
                 width: imageRenderSize.width,
-                height: imageRenderSize.height,
+                height: imageRenderSize.height
               }}
             />
           )}
@@ -3507,7 +3556,7 @@ const ImageCanvas = memo(
                 userSelect: 'none',
                 opacity: isShowingOriginal ? 0 : 1,
                 transition: 'opacity 150ms ease-in-out',
-                ...getEdgeFadeStyle(128),
+                ...getEdgeFadeStyle(128)
               }}
             >
               <Stage
@@ -3648,35 +3697,50 @@ const ImageCanvas = memo(
                 <Layer listening={false}>
                   <Group scaleX={maxSafeScale} scaleY={maxSafeScale}>
                     <Group x={groupOffsetX} y={groupOffsetY}>
-                      {isBrushActive &&
-                        cursorPreview.visible && (
-                          <Group
-                            ref={brushCursorRef}
-                            listening={false}
-                            x={(brushGesture ? gestureAnchor ?? cursorPreview : cursorPreview).x}
-                            y={(brushGesture ? gestureAnchor ?? cursorPreview : cursorPreview).y}
-                          >
-                            {[brushCursorRings.outer, brushCursorRings.inner].map((radius, ring) =>
-                              ring === 0 && Math.abs(brushCursorRings.outer - brushCursorRings.inner) < 0.5 ? null : (
-                                <Group key={ring}>
-                                  <Circle radius={radius} stroke="rgba(0, 0, 0, 0.45)" strokeWidth={3} strokeScaleEnabled={false} perfectDrawEnabled={false} />
-                                  <Circle
-                                    radius={radius}
-                                    stroke={ring === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.95)'}
-                                    strokeWidth={ring === 0 ? 1 : 1.5}
-                                    strokeScaleEnabled={false}
-                                    perfectDrawEnabled={false}
-                                  />
-                                </Group>
-                              ),
-                            )}
-                            {/* A plus for drawing, a minus for erasing. */}
-                            <Line points={[-4 / effectiveZoomScale, 0, 4 / effectiveZoomScale, 0]} stroke="white" strokeWidth={1} strokeScaleEnabled={false} />
-                            {!brushCursorRings.isEraser && (
-                              <Line points={[0, -4 / effectiveZoomScale, 0, 4 / effectiveZoomScale]} stroke="white" strokeWidth={1} strokeScaleEnabled={false} />
-                            )}
-                          </Group>
-                        )}
+                      {isBrushActive && cursorPreview.visible && (
+                        <Group
+                          ref={brushCursorRef}
+                          listening={false}
+                          x={(brushGesture ? (gestureAnchor ?? cursorPreview) : cursorPreview).x}
+                          y={(brushGesture ? (gestureAnchor ?? cursorPreview) : cursorPreview).y}
+                        >
+                          {[brushCursorRings.outer, brushCursorRings.inner].map((radius, ring) =>
+                            ring === 0 && Math.abs(brushCursorRings.outer - brushCursorRings.inner) < 0.5 ? null : (
+                              <Group key={ring}>
+                                <Circle
+                                  radius={radius}
+                                  stroke="rgba(0, 0, 0, 0.45)"
+                                  strokeWidth={3}
+                                  strokeScaleEnabled={false}
+                                  perfectDrawEnabled={false}
+                                />
+                                <Circle
+                                  radius={radius}
+                                  stroke={ring === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.95)'}
+                                  strokeWidth={ring === 0 ? 1 : 1.5}
+                                  strokeScaleEnabled={false}
+                                  perfectDrawEnabled={false}
+                                />
+                              </Group>
+                            )
+                          )}
+                          {/* A plus for drawing, a minus for erasing. */}
+                          <Line
+                            points={[-4 / effectiveZoomScale, 0, 4 / effectiveZoomScale, 0]}
+                            stroke="white"
+                            strokeWidth={1}
+                            strokeScaleEnabled={false}
+                          />
+                          {!brushCursorRings.isEraser && (
+                            <Line
+                              points={[0, -4 / effectiveZoomScale, 0, 4 / effectiveZoomScale]}
+                              stroke="white"
+                              strokeWidth={1}
+                              strokeScaleEnabled={false}
+                            />
+                          )}
+                        </Group>
+                      )}
                     </Group>
                   </Group>
                 </Layer>
@@ -3700,7 +3764,7 @@ const ImageCanvas = memo(
             pointerEvents: cropLayerVisible ? 'auto' : 'none',
             // Fades in; leaving crop hides it at once (in the same render), as
             // the display then already shows the cropped photo.
-            transition: cropLayerVisible ? 'opacity 100ms' : 'none',
+            transition: cropLayerVisible ? 'opacity 100ms' : 'none'
           }}
         >
           {(cropPreviewUrl || isWgpuActive) && uncroppedImageRenderSize && (
@@ -3709,7 +3773,7 @@ const ImageCanvas = memo(
               style={{
                 height: uncroppedImageRenderSize.height,
                 position: 'relative',
-                width: uncroppedImageRenderSize.width,
+                width: uncroppedImageRenderSize.width
               }}
               onPointerDownCapture={(e) => {
                 if (e.button !== 0) {
@@ -3768,9 +3832,7 @@ const ImageCanvas = memo(
                         rotation={overlayRotation || 0}
                         denseVisible={showDenseGrid}
                       />
-                      {isCropDragging && sizeLabel && (
-                        <div className="crop-size-label">{sizeLabel} px</div>
-                      )}
+                      {isCropDragging && sizeLabel && <div className="crop-size-label">{sizeLabel} px</div>}
                     </>
                   );
                 }}
@@ -3787,7 +3849,7 @@ const ImageCanvas = memo(
                     height: `${uncroppedImageRenderSize.height}px`,
                     objectFit: 'contain',
                     transform: cropImageTransforms,
-                    imageRendering: isMaxZoom ? 'pixelated' : 'auto',
+                    imageRendering: isMaxZoom ? 'pixelated' : 'auto'
                   }}
                 />
               </ReactCrop>
@@ -3811,7 +3873,7 @@ const ImageCanvas = memo(
                     zIndex: 10,
                     cursor: isGuidedPerspectiveActive || isStraightenActive ? 'crosshair' : 'default',
                     touchAction: 'none',
-                    pointerEvents: isStraightenActive || isGuidedPerspectiveActive ? 'auto' : 'none',
+                    pointerEvents: isStraightenActive || isGuidedPerspectiveActive ? 'auto' : 'none'
                   }}
                   width={uncroppedImageRenderSize.width}
                 >
@@ -3824,7 +3886,7 @@ const ImageCanvas = memo(
                           straightenLine.start.x,
                           straightenLine.start.y,
                           straightenLine.end.x,
-                          straightenLine.end.y,
+                          straightenLine.end.y
                         ]}
                         stroke="#0ea5e9"
                         strokeWidth={2}
@@ -3859,7 +3921,7 @@ const ImageCanvas = memo(
                               showContextMenu(e.evt.clientX, e.evt.clientY, [
                                 { label: 'Remove Guide', onClick: () => removeGuides([line.id]) },
                                 { type: OPTION_SEPARATOR },
-                                { label: 'Clear All Guides', onClick: () => removeGuides(null) },
+                                { label: 'Clear All Guides', onClick: () => removeGuides(null) }
                               ]);
                             }}
                           />
@@ -3883,7 +3945,7 @@ const ImageCanvas = memo(
                                   const newUv = mapScreenToUv(e.target.x(), e.target.y());
                                   const baseLines = localDragLines || adjustments.guidedPerspective!.lines;
                                   setLocalDragLines(
-                                    baseLines.map((l: GuideLine) => (l.id === line.id ? { ...l, p1: newUv } : l)),
+                                    baseLines.map((l: GuideLine) => (l.id === line.id ? { ...l, p1: newUv } : l))
                                   );
                                 }}
                                 onDragEnd={() => {
@@ -3894,8 +3956,8 @@ const ImageCanvas = memo(
                                         ...prev.guidedPerspective,
                                         lines: localDragLines,
                                         enabled: localDragLines.length >= 2,
-                                        autoCrop: true,
-                                      },
+                                        autoCrop: true
+                                      }
                                     }));
                                     setLocalDragLines(null);
                                   }
@@ -3919,7 +3981,7 @@ const ImageCanvas = memo(
                                   const newUv = mapScreenToUv(e.target.x(), e.target.y());
                                   const baseLines = localDragLines || adjustments.guidedPerspective!.lines;
                                   setLocalDragLines(
-                                    baseLines.map((l: GuideLine) => (l.id === line.id ? { ...l, p2: newUv } : l)),
+                                    baseLines.map((l: GuideLine) => (l.id === line.id ? { ...l, p2: newUv } : l))
                                   );
                                 }}
                                 onDragEnd={() => {
@@ -3930,8 +3992,8 @@ const ImageCanvas = memo(
                                         ...prev.guidedPerspective,
                                         lines: localDragLines,
                                         enabled: localDragLines.length >= 2,
-                                        autoCrop: true,
-                                      },
+                                        autoCrop: true
+                                      }
                                     }));
                                     setLocalDragLines(null);
                                   }
@@ -3952,7 +4014,7 @@ const ImageCanvas = memo(
                         const rejected = guideRejection(
                           adjustments.guidedPerspective?.lines || [],
                           orientation,
-                          Infinity,
+                          Infinity
                         );
                         return (
                           <Line
@@ -3972,7 +4034,7 @@ const ImageCanvas = memo(
         </div>
       </div>
     );
-  },
+  }
 );
 
 export default ImageCanvas;

@@ -6,7 +6,7 @@ import {
   initialAdjustmentsFor,
   sameAdjustmentValue,
   type Adjustments,
-  type MaskContainer,
+  type MaskContainer
 } from './adjustments';
 import { MAX_RENDERED_LAYERS, isRenderedLayer } from './layerLimit';
 import type { SubMask } from '../components/panel/right/Masks';
@@ -42,8 +42,8 @@ export const RESPONSE_KEYS: string[] = [
   ...new Set(
     Object.values(ADJUSTMENT_GROUPS)
       .flatMap((groups) => groups.flatMap((g) => g.keys))
-      .filter((key) => /Version$/.test(key) && !TOOL_VERSIONS.has(key)),
-  ),
+      .filter((key) => /Version$/.test(key) && !TOOL_VERSIONS.has(key))
+  )
 ];
 /** What the renderer reads for a missing processing version that a
  * never-edited RAW starts with otherwise (edge_fringe.rs: none; lateral_ca.rs:
@@ -62,8 +62,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = Object.entries(ADJUSTMENT_GROUPS
     groups.map((group) => ({
       section: group.clipboardSection ?? section,
       label: group.label,
-      keys: group.keys.filter((key) => !RESPONSE_KEYS.includes(key)),
-    })),
+      keys: group.keys.filter((key) => !RESPONSE_KEYS.includes(key))
+    }))
   )
   .filter((group) => group.keys.length > 0);
 
@@ -103,7 +103,9 @@ export function chosenSettings(source: Adjustments, keys: string[], layerIds: st
 export function newEditResponses(): { raw: Record<string, unknown>; other: Record<string, unknown> } {
   const pick = (isRaw: boolean) => {
     const values = initialAdjustmentsFor(isRaw) as unknown as Record<string, unknown>;
-    return Object.fromEntries(RESPONSE_KEYS.filter((key) => values[key] !== undefined).map((key) => [key, values[key]]));
+    return Object.fromEntries(
+      RESPONSE_KEYS.filter((key) => values[key] !== undefined).map((key) => [key, values[key]])
+    );
   };
   return { raw: pick(true), other: pick(false) };
 }
@@ -125,7 +127,7 @@ const DETECTION_RESULT_KEYS = [
   'flipHorizontal',
   'flipVertical',
   'orientationSteps',
-  'warp',
+  'warp'
 ];
 
 /** `masks` without what AI detections wrote: two recipes whose layers
@@ -138,7 +140,7 @@ export function withoutDetections(masks: MaskContainer[] | undefined): unknown {
       const parameters = { ...((sub.parameters ?? {}) as Record<string, unknown>) };
       for (const key of DETECTION_RESULT_KEYS) delete parameters[key];
       return { ...sub, parameters };
-    }),
+    })
   }));
 }
 
@@ -160,7 +162,6 @@ export function detectionPending(sub: SubMask): boolean {
   );
 }
 
-
 /** `base` (a photograph's recipe; none: never edited) with `pasted` pasted
  * onto it as the backend pastes onto a closed photograph (`pasted_into`,
  * `masks::paste_layers`), for the open one: a new recipe starts as a new
@@ -179,7 +180,7 @@ export function pasteInto(
     replaceLayers,
     newEdit,
     keepNulls = false,
-    cameraCrop = null,
+    cameraCrop = null
   }: {
     samePhoto: boolean;
     replaceLayers: boolean;
@@ -187,7 +188,7 @@ export function pasteInto(
     keepNulls?: boolean;
     /** The camera's crop a new recipe starts with (src/utils/cameraCrop.ts). */
     cameraCrop?: Crop | null;
-  },
+  }
 ): Adjustments | null {
   const out: Record<string, unknown> = { ...(base ?? {}) };
   if (Object.keys(out).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion')) {
@@ -207,7 +208,13 @@ export function pasteInto(
     if (value === null) {
       if (keepNulls) out[key] = null;
       else delete out[key];
-    } else if (key === 'masks') out.masks = pastedLayers(out.masks as MaskContainer[] | undefined, value as MaskContainer[], samePhoto, replaceLayers);
+    } else if (key === 'masks')
+      out.masks = pastedLayers(
+        out.masks as MaskContainer[] | undefined,
+        value as MaskContainer[],
+        samePhoto,
+        replaceLayers
+      );
     else out[key] = value;
   }
   const after = rendered(out.masks);
@@ -215,7 +222,12 @@ export function pasteInto(
   return out as unknown as Adjustments;
 }
 
-function pastedLayers(own: MaskContainer[] | undefined, pasted: MaskContainer[], samePhoto: boolean, replace: boolean): MaskContainer[] {
+function pastedLayers(
+  own: MaskContainer[] | undefined,
+  pasted: MaskContainer[],
+  samePhoto: boolean,
+  replace: boolean
+): MaskContainer[] {
   const incoming = samePhoto ? pasted : pasted.map(withPendingDetections);
   if (replace) return incoming;
   const layers = [...(own ?? [])];
@@ -242,7 +254,7 @@ export function withPendingDetections(layer: MaskContainer): MaskContainer {
       if (nothingToDetect(parameters)) return { ...sub, parameters: next };
       next[DETECT_PENDING] = true;
       return { ...sub, id: crypto.randomUUID(), parameters: next };
-    }),
+    })
   };
 }
 

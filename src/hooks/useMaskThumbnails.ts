@@ -19,7 +19,7 @@ import { referToSentMaskBitmaps } from '../utils/bitmapIds';
 /** Thumbnail boxes in CSS pixels (studio.css `.studio-mask-thumb`). */
 export const MASK_THUMB_SIZE = {
   layer: [42, 28],
-  component: [24, 16],
+  component: [24, 16]
 } as const;
 
 /** Quiet time after the last change before thumbnails are made. */
@@ -36,7 +36,7 @@ interface MaskThumbnailState {
 export const useMaskThumbnailStore = create<MaskThumbnailState>(() => ({
   path: null,
   layers: {},
-  components: {},
+  components: {}
 }));
 
 /** Recipe fields that move or reshape the photo under its masks (crop,
@@ -69,9 +69,9 @@ export function layerThumbnailKey(layer: MaskContainer): string {
       invert: !!layer.invert,
       maskVersion: layer.maskVersion ?? null,
       refineEdge: layer.refineEdge ?? null,
-      subMasks: layer.subMasks.map((sub) => ({ ...sub, name: undefined })),
+      subMasks: layer.subMasks.map((sub) => ({ ...sub, name: undefined }))
     },
-    summarizeMaskData,
+    summarizeMaskData
   );
 }
 
@@ -80,7 +80,7 @@ export function layerThumbnailKey(layer: MaskContainer): string {
 export function componentThumbnailKey(sub: SubMask, maskVersion?: number): string {
   return JSON.stringify(
     { ...sub, name: undefined, mode: undefined, visible: undefined, maskVersion: maskVersion ?? null },
-    summarizeMaskData,
+    summarizeMaskData
   );
 }
 
@@ -202,7 +202,7 @@ export function useMaskThumbnailUpdates() {
           layerIds,
           componentIds,
           layerSize: size(MASK_THUMB_SIZE.layer),
-          componentSize: size(MASK_THUMB_SIZE.component),
+          componentSize: size(MASK_THUMB_SIZE.component)
         });
         if (disposed || useEditorStore.getState().selectedImage?.path !== path) return;
         failures = 0;

@@ -5,7 +5,7 @@ import {
   readModuleLayout,
   requestGroups,
   setPanelGroups,
-  togglePanelGroups,
+  togglePanelGroups
 } from './panelLayout';
 
 describe('panel layout', () => {
@@ -39,7 +39,7 @@ describe('panel layout', () => {
     expect(readModuleLayout({ develop: 'broken' }, 'develop')).toEqual(SHOWN_LAYOUT);
     expect(readModuleLayout({ develop: { left: false, bars: 'no' } }, 'develop')).toEqual({
       ...SHOWN_LAYOUT,
-      left: false,
+      left: false
     });
     expect(readModuleLayout({ develop: { left: false } }, 'library')).toEqual(SHOWN_LAYOUT);
   });
@@ -50,7 +50,7 @@ describe('panel layout', () => {
       left: false,
       right: false,
       filmstrip: true,
-      bars: true,
+      bars: true
     });
   });
 });

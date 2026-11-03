@@ -34,8 +34,8 @@ it('returns queued answers in QA builds, then falls back to the native dialog', 
     asked: [
       { title: 'Locate A', defaultPath: '/old', directory: false, multiple: false, answer: '/Volumes/QA/A.NEF' },
       { title: 'Locate folder', defaultPath: null, directory: true, multiple: false, answer: null },
-      { title: 'Third', defaultPath: null, directory: false, multiple: false, answer: 'native' },
-    ],
+      { title: 'Third', defaultPath: null, directory: false, multiple: false, answer: 'native' }
+    ]
   });
 });
 
@@ -54,8 +54,8 @@ async function bundle(qa: boolean): Promise<string> {
         write: false,
         minify: false,
         lib: { entry: file('./fileDialog.ts'), formats: ['es'] },
-        rollupOptions: { external: [/^@tauri-apps\//] },
-      },
+        rollupOptions: { external: [/^@tauri-apps\//] }
+      }
     });
     const results = Array.isArray(output) ? output : [output];
     return results

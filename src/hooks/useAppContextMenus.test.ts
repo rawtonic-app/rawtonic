@@ -23,7 +23,7 @@ const props = {
   refreshAllFolderTrees: vi.fn(() => Promise.resolve()),
   refreshImageList: vi.fn(() => Promise.resolve()),
   executeDelete: vi.fn(() => Promise.resolve()),
-  handleTogglePinFolder: vi.fn(() => Promise.resolve()),
+  handleTogglePinFolder: vi.fn(() => Promise.resolve())
 };
 const raw = '/s/Capture/DSCF0135.RAF';
 const copy = `${raw}?vc=9b8208`;
@@ -45,7 +45,7 @@ beforeEach(() => {
   useLibraryStore.setState({
     imageList: [image(raw), image(copy), image('/s/Capture/DSCF0147.RAF')],
     multiSelectedPaths: ['/s/Capture/DSCF0147.RAF'],
-    libraryActivePath: '/s/Capture/DSCF0147.RAF',
+    libraryActivePath: '/s/Capture/DSCF0147.RAF'
   });
 });
 afterEach(cleanup);
@@ -84,9 +84,9 @@ it('applies a preset to the selection from the Library', async () => {
   usePresetStore.setState({
     presets: [
       { preset: { id: 'warm', name: 'Warm', adjustments: { temperature: 12 } } },
-      { folder: { id: 'f', name: 'Film', children: [{ id: 'bw', name: 'B&W', adjustments: { saturation: -100 } }] } },
+      { folder: { id: 'f', name: 'Film', children: [{ id: 'bw', name: 'B&W', adjustments: { saturation: -100 } }] } }
     ] as never,
-    isLoading: false,
+    isLoading: false
   });
   const options = openMenu('/s/Capture/DSCF0147.RAF');
   const menu = find(options, 'editor.masks.actions.applyPreset')!;
@@ -97,8 +97,8 @@ it('applies a preset to the selection from the Library', async () => {
       paths: ['/s/Capture/DSCF0147.RAF'],
       adjustments: { saturation: -100 },
       // A style replaces each photo's last applied one, as in the styles list.
-      style: { id: 'bw' },
-    }),
+      style: { id: 'bw' }
+    })
   );
 });
 
@@ -106,7 +106,10 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   const { invoke } = await import('@tauri-apps/api/core');
   let finishAuto!: () => void;
   vi.mocked(invoke).mockImplementation((command) => {
-    if (command === 'apply_auto_adjustments_to_paths') return new Promise<void>((resolve) => { finishAuto = resolve; }) as never;
+    if (command === 'apply_auto_adjustments_to_paths')
+      return new Promise<void>((resolve) => {
+        finishAuto = resolve;
+      }) as never;
     if (command === 'load_metadata') return Promise.resolve({ adjustments: { exposure: 2 } }) as never;
     return Promise.resolve() as never;
   });
@@ -118,7 +121,12 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   const before = useEditorStore.getState().adjustments;
   const history = useEditorStore.getState().history;
   finishAuto();
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw], batch: expect.stringMatching(/^batch-\d+$/) }));
+  await vi.waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', {
+      paths: [raw],
+      batch: expect.stringMatching(/^batch-\d+$/)
+    })
+  );
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(invoke).not.toHaveBeenCalledWith('load_metadata', { path: raw });
   expect(useEditorStore.getState().adjustments).toBe(before);
@@ -141,11 +149,22 @@ it('offers selection-aware photo operations in the palette', async () => {
   const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
   const { paletteCommands } = await import('../utils/commandPalette');
   renderHook(() => useAppContextMenus(props));
-  const commands = paletteCommands((key) => Array.isArray(key) ? key[0] : key);
+  const commands = paletteCommands((key) => (Array.isArray(key) ? key[0] : key));
   const names = commands.map((command) => command.id);
   expect(commands.find((command) => command.id === 'merge_hdr')?.disabledHint).toBe('commandPalette.selectTwoPhotos');
-  expect(commands.find((command) => command.id === 'merge_hdr_panorama')?.disabledHint).toBe('commandPalette.selectFourPhotos');
-  expect(names).toEqual(expect.arrayContaining(['auto_lens_correction', 'convert_negative', 'merge_panorama', 'merge_hdr', 'merge_hdr_panorama', 'merge_focus_stack']));
+  expect(commands.find((command) => command.id === 'merge_hdr_panorama')?.disabledHint).toBe(
+    'commandPalette.selectFourPhotos'
+  );
+  expect(names).toEqual(
+    expect.arrayContaining([
+      'auto_lens_correction',
+      'convert_negative',
+      'merge_panorama',
+      'merge_hdr',
+      'merge_hdr_panorama',
+      'merge_focus_stack'
+    ])
+  );
   expect(appCommandEnabled('merge_hdr')).toBe(false);
   useLibraryStore.setState({ multiSelectedPaths: [raw, copy] });
   expect(runAppCommand('merge_hdr')).toBe(true);
@@ -153,8 +172,7 @@ it('offers selection-aware photo operations in the palette', async () => {
 });
 
 type Custom = { customComponent?: unknown; customProps?: { paths: string[] } };
-const pathsOf = (options: Option[], label: string) =>
-  (find(options, label)!.submenu![0] as Custom).customProps!.paths;
+const pathsOf = (options: Option[], label: string) => (find(options, label)!.submenu![0] as Custom).customProps!.paths;
 
 it('opens or edits the whole selection with another program from the grid and the filmstrip', () => {
   const second = '/s/Capture/DSCF0147.RAF';
@@ -183,10 +201,13 @@ it('offers Open With and Edit With in the menu bar for what the photo commands a
   const { invoke } = await import('@tauri-apps/api/core');
   vi.mocked(invoke).mockImplementation(async (command: string) =>
     command === 'open_with_apps' || command === 'edit_with_apps'
-      ? { supported: true, apps: [{ path: '/A/Preview.app', name: 'Preview', isDefault: true, isRecent: false, icon: null }] }
+      ? {
+          supported: true,
+          apps: [{ path: '/A/Preview.app', name: 'Preview', isDefault: true, isRecent: false, icon: null }]
+        }
       : command === 'open_with_prefs'
         ? { recentApps: [], editRecipe: null }
-        : undefined,
+        : undefined
   );
   const hook = renderHook(() => useAppContextMenus(props));
   useLibraryStore.setState({ multiSelectedPaths: [] });
@@ -202,8 +223,8 @@ it('offers Open With and Edit With in the menu bar for what the photo commands a
   await vi.waitFor(() =>
     expect(vi.mocked(invoke)).toHaveBeenCalledWith('open_with_open', {
       program: '/A/Preview.app',
-      paths: [raw, '/s/Capture/DSCF0147.RAF'],
-    }),
+      paths: [raw, '/s/Capture/DSCF0147.RAF']
+    })
   );
 
   // In Develop it is the photograph shown there.
@@ -221,11 +242,14 @@ it('offers Open With and Edit With in the menu bar for what the photo commands a
 it('offers Split Stack and the moves inside an expanded stack where they apply', async () => {
   useLibraryStore.setState({ sessionDirectory: '/job' });
   const stack = (members: string[], collapsed = false): WebStack => ({
-    id: 's', collapsed, members: members.map((name) => `/s/Capture/${name}.RAF`),
+    id: 's',
+    collapsed,
+    members: members.map((name) => `/s/Capture/${name}.RAF`)
   });
   const stacking = (path: string) => {
     const menu = find(openMenu(path), 'appMenu.submenus.stacking')!;
-    const state = (label: string) => menu.submenu!.find((option) => option.label === `appMenu.items.${label}`)!.disabled;
+    const state = (label: string) =>
+      menu.submenu!.find((option) => option.label === `appMenu.items.${label}`)!.disabled;
     return ['stack_split', 'stack_move_up', 'stack_move_down'].map(state);
   };
   setStacks('/job', [stack(['a', 'b', 'c'])]);
@@ -250,5 +274,7 @@ it('offers Split Stack and the moves inside an expanded stack where they apply',
   find(openMenu('/s/Capture/b.RAF'), 'appMenu.items.stack_split')!.onClick!();
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('stacks_split', { paths: ['/s/Capture/b.RAF'] }));
   find(openMenu('/s/Capture/b.RAF'), 'appMenu.items.stack_move_down')!.onClick!();
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('stacks_move', { paths: ['/s/Capture/b.RAF'], up: false }));
+  await vi.waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith('stacks_move', { paths: ['/s/Capture/b.RAF'], up: false })
+  );
 });

@@ -1,14 +1,6 @@
-import {
-  memo,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent,
-  type PointerEvent,
-} from "react";
-import { useTranslation } from "react-i18next";
-import type { HueSatLum } from "../../utils/adjustments";
+import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { HueSatLum } from '../../utils/adjustments';
 
 /** Hue 0 (red) at the right, increasing counter-clockwise, as in Lightroom's
  * colour grading wheels; saturation 0–100 from the centre to the rim. */
@@ -30,7 +22,7 @@ interface Props {
   disabled?: boolean;
   /** Diameter in pixels; "fill" sizes the wheel by its stylesheet (the
    * three-way view scales the wheels with the panel width). */
-  size?: number | "fill";
+  size?: number | 'fill';
   className?: string;
   style?: CSSProperties;
   onChange(value: HueSatLum): void;
@@ -49,11 +41,11 @@ export default memo(function StudioColorWheel({
   value,
   disabled = false,
   size = 132,
-  className = "",
+  className = '',
   style,
   onChange,
   constrain,
-  onInteraction,
+  onInteraction
 }: Props) {
   const { t } = useTranslation();
   const [local, setLocal] = useState(value);
@@ -76,7 +68,7 @@ export default memo(function StudioColorWheel({
     () => () => {
       if (frame.current !== null) cancelAnimationFrame(frame.current);
     },
-    [],
+    []
   );
   const flush = () => {
     frame.current = null;
@@ -92,7 +84,7 @@ export default memo(function StudioColorWheel({
     const box = e.currentTarget.getBoundingClientRect();
     return {
       x: ((e.clientX - box.left) / box.width) * 2 - 1,
-      y: ((e.clientY - box.top) / box.height) * 2 - 1,
+      y: ((e.clientY - box.top) / box.height) * 2 - 1
     };
   };
   const move = (e: PointerEvent<HTMLDivElement>) => {
@@ -106,7 +98,7 @@ export default memo(function StudioColorWheel({
     update({
       ...pending.current,
       hue: e.altKey ? pending.current.hue : next.hue,
-      saturation: next.saturation,
+      saturation: next.saturation
     });
   };
   const start = (e: PointerEvent<HTMLDivElement>) => {
@@ -117,13 +109,11 @@ export default memo(function StudioColorWheel({
     const onPoint =
       Math.hypot(
         p.x - wheelPosition(local.hue, local.saturation).x,
-        p.y - wheelPosition(local.hue, local.saturation).y,
+        p.y - wheelPosition(local.hue, local.saturation).y
       ) < 0.18;
     // A press beside the point jumps there (Lightroom); on the point it
     // drags relative to it, so fine Shift moves do not jump.
-    const startPoint = onPoint
-      ? wheelPosition(local.hue, local.saturation)
-      : { x: p.x, y: p.y };
+    const startPoint = onPoint ? wheelPosition(local.hue, local.saturation) : { x: p.x, y: p.y };
     drag.current = { x: p.x, y: p.y, start: startPoint };
     onInteraction?.(true);
     if (!onPoint) {
@@ -143,14 +133,10 @@ export default memo(function StudioColorWheel({
   const keys = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? 10 : 1;
     let next: HueSatLum | null = null;
-    if (e.key === "ArrowLeft")
-      next = { ...local, hue: (local.hue + 360 - step) % 360 };
-    if (e.key === "ArrowRight")
-      next = { ...local, hue: (local.hue + step) % 360 };
-    if (e.key === "ArrowUp")
-      next = { ...local, saturation: Math.min(100, local.saturation + step) };
-    if (e.key === "ArrowDown")
-      next = { ...local, saturation: Math.max(0, local.saturation - step) };
+    if (e.key === 'ArrowLeft') next = { ...local, hue: (local.hue + 360 - step) % 360 };
+    if (e.key === 'ArrowRight') next = { ...local, hue: (local.hue + step) % 360 };
+    if (e.key === 'ArrowUp') next = { ...local, saturation: Math.min(100, local.saturation + step) };
+    if (e.key === 'ArrowDown') next = { ...local, saturation: Math.max(0, local.saturation - step) };
     if (!next) return;
     e.preventDefault();
     e.stopPropagation();
@@ -160,19 +146,19 @@ export default memo(function StudioColorWheel({
   const tint = `hsl(${local.hue} ${Math.round(40 + local.saturation * 0.6)}% 55%)`;
   return (
     <div
-      className={`studio-wheel-disc ${disabled ? "is-disabled" : ""} ${className}`}
-      style={size === "fill" ? style : { width: size, height: size, ...style }}
+      className={`studio-wheel-disc ${disabled ? 'is-disabled' : ''} ${className}`}
+      style={size === 'fill' ? style : { width: size, height: size, ...style }}
       role="slider"
       tabIndex={disabled ? -1 : 0}
-      aria-label={t("studio.color.wheel.aria", { range: label })}
-      aria-valuetext={t("studio.color.wheel.valueText", {
+      aria-label={t('studio.color.wheel.aria', { range: label })}
+      aria-valuetext={t('studio.color.wheel.valueText', {
         hue: local.hue,
-        saturation: local.saturation,
+        saturation: local.saturation
       })}
       aria-valuenow={local.saturation}
       aria-valuemin={0}
       aria-valuemax={100}
-      title={t("studio.color.wheel.title")}
+      title={t('studio.color.wheel.title')}
       onPointerDown={start}
       onPointerMove={move}
       onPointerUp={end}
@@ -188,7 +174,7 @@ export default memo(function StudioColorWheel({
         style={{
           left: `${50 + point.x * 50}%`,
           top: `${50 + point.y * 50}%`,
-          background: local.saturation > 0 ? tint : undefined,
+          background: local.saturation > 0 ? tint : undefined
         }}
       />
     </div>

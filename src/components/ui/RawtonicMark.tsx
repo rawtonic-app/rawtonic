@@ -4,14 +4,7 @@
 export default function RawtonicMark({ size = 18 }: { size?: number }) {
   const small = size <= 32;
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="21 20 216 216"
-      aria-hidden
-      focusable="false"
-      className="rawtonic-mark"
-    >
+    <svg width={size} height={size} viewBox="21 20 216 216" aria-hidden focusable="false" className="rawtonic-mark">
       {small ? (
         <>
           <path fill="#dde4e9" d="M24 24H114V114H24ZM142 24H189A45 45 0 0 1 189 114H142ZM24 142H114V232H24Z" />

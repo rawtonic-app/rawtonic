@@ -21,5 +21,5 @@ export const selectOnFocus = {
   },
   onMouseUp(e: MouseEvent<HTMLInputElement>) {
     if (clickFocusing.delete(e.currentTarget)) e.preventDefault();
-  },
+  }
 };

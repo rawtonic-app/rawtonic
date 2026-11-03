@@ -14,19 +14,14 @@ import { formatBytes } from '../utils/previews';
 import { useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
-import {
-  batchPhotoCount,
-  onPhotoBatchChanged,
-  onPhotoWritesSettled,
-  type PhotoBatch,
-} from '../utils/photoWrites';
+import { batchPhotoCount, onPhotoBatchChanged, onPhotoWritesSettled, type PhotoBatch } from '../utils/photoWrites';
 import {
   DUPLICATES_FINISHED,
   DUPLICATES_PROGRESS,
   cancelDuplicatesPass,
   useDuplicatesDialog,
   type DuplicatesFinished,
-  type DuplicatesProgress,
+  type DuplicatesProgress
 } from '../utils/duplicates';
 
 const fileName = (path: string) => {
@@ -42,7 +37,7 @@ function names(paths: string[], count = 5): string {
 
 const act = (command: Invokes, args: Record<string, unknown>) =>
   invoke(command, args).catch((error) =>
-    useActivityStore.getState().report('failure', { source: 'export', title: String(error) }),
+    useActivityStore.getState().report('failure', { source: 'export', title: String(error) })
   );
 
 /** What each export job last reported, so a snapshot repeating it (or one
@@ -68,9 +63,11 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
     if (job.state === 'running' || waiting) {
       const fields = {
         source: 'export' as const,
-        title: i18n.t(job.state === 'running' ? 'activity.export.running' : 'activity.export.waiting', { label: job.label }),
+        title: i18n.t(job.state === 'running' ? 'activity.export.running' : 'activity.export.waiting', {
+          label: job.label
+        }),
         progress: { done: job.done + job.failed, total: job.total },
-        cancel: () => act(Invokes.ExportQueueCancel, { job: job.id }),
+        cancel: () => act(Invokes.ExportQueueCancel, { job: job.id })
       };
       if (activity.entries.some((entry) => entry.id === id && entry.status === 'running')) activity.update(id, fields);
       else activity.start({ id, ...fields });
@@ -80,12 +77,22 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         id,
         source: 'export',
         title: i18n.t('activity.export.failed', { count: job.failed, label: job.label }),
-        detail: failures.slice(0, 3).map((failure) => `${fileName(failure.path)}: ${failure.error}`).join('\n') || undefined,
+        detail:
+          failures
+            .slice(0, 3)
+            .map((failure) => `${fileName(failure.path)}: ${failure.error}`)
+            .join('\n') || undefined,
         paths: failures.map((failure) => failure.path),
         // An Edit With render is not resumed: nothing would hand it over.
         actions: job.editWith
           ? undefined
-          : [{ label: i18n.t('activity.tryAgain'), settles: true, run: () => act(Invokes.ExportQueueResume, { job: job.id }) }],
+          : [
+              {
+                label: i18n.t('activity.tryAgain'),
+                settles: true,
+                run: () => act(Invokes.ExportQueueResume, { job: job.id })
+              }
+            ]
       });
     } else if (job.state === 'interrupted') {
       // The app quit during it: it waits for Resume.
@@ -93,7 +100,13 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         id,
         source: 'export',
         title: i18n.t('activity.export.interrupted', { label: job.label }),
-        actions: [{ label: i18n.t('activity.resume'), settles: true, run: () => act(Invokes.ExportQueueResume, { job: job.id }) }],
+        actions: [
+          {
+            label: i18n.t('activity.resume'),
+            settles: true,
+            run: () => act(Invokes.ExportQueueResume, { job: job.id })
+          }
+        ]
       });
     } else if (job.state === 'done') {
       // The written files are reported once per run with Show in Finder
@@ -157,7 +170,7 @@ const SUPERSEDING_WRITES = new Set<string>([
   'recipe',
   Invokes.SetRatingForPaths,
   Invokes.SetColorLabelForPaths,
-  Invokes.SessionSetFlag,
+  Invokes.SessionSetFlag
 ]);
 
 /** A failed write stays under Needs attention until a later write
@@ -218,7 +231,7 @@ function showUnsavedWrites(fresh: boolean) {
     source: 'write',
     title: i18n.t('activity.writes.failed', { count: unsaved.length }),
     detail: [names(unsaved), ...reasons.slice(0, 3)].join('\n'),
-    paths: unsaved,
+    paths: unsaved
   });
 }
 
@@ -238,9 +251,12 @@ function syncBatch(batch: PhotoBatch, finished: boolean) {
     return;
   }
   const { done, total } = batchPhotoCount(batch);
-  const title = i18n.t(batch.kind === 'auto' || batch.kind === 'faceRetouch' ? `activity.batch.${batch.kind}` : 'activity.batch.other', {
-    count: total,
-  });
+  const title = i18n.t(
+    batch.kind === 'auto' || batch.kind === 'faceRetouch' ? `activity.batch.${batch.kind}` : 'activity.batch.other',
+    {
+      count: total
+    }
+  );
   if (activity.entries.some((entry) => entry.id === id)) activity.update(id, { title, progress: { done, total } });
   else activity.start({ id, source: 'batch', title, progress: { done, total } });
 }
@@ -254,7 +270,7 @@ export function syncDuplicatesProgress({ run, done, total }: DuplicatesProgress)
     source: 'app' as const,
     title: i18n.t('activity.duplicates.reading'),
     progress: total > 0 ? { done, total } : undefined,
-    cancel: () => void cancelDuplicatesPass(run).catch(() => {}),
+    cancel: () => void cancelDuplicatesPass(run).catch(() => {})
   };
   if (activity.entries.some((entry) => entry.id === id && entry.status === 'running')) activity.update(id, fields);
   else activity.start({ id, ...fields });
@@ -269,7 +285,7 @@ export function syncDuplicatesFinished(finished: DuplicatesFinished) {
       id,
       source: 'app',
       title: i18n.t('activity.duplicates.failed'),
-      detail: finished.error,
+      detail: finished.error
     });
     return;
   }
@@ -281,7 +297,7 @@ export function syncDuplicatesFinished(finished: DuplicatesFinished) {
       source: 'app',
       title: i18n.t('activity.duplicates.unreadable', { count: finished.unreadable.length }),
       detail: names(finished.unreadable),
-      paths: finished.unreadable,
+      paths: finished.unreadable
     });
   }
   if (finished.hashed === 0 && !finished.cancelled) {
@@ -290,9 +306,9 @@ export function syncDuplicatesFinished(finished: DuplicatesFinished) {
   }
   activity.finish(id, {
     title: i18n.t(finished.cancelled ? 'activity.duplicates.stopped' : 'activity.duplicates.read', {
-      count: finished.hashed,
+      count: finished.hashed
     }),
-    actions: [review],
+    actions: [review]
   });
 }
 
@@ -309,14 +325,14 @@ export function syncLeftovers({ tempFiles, folders, bytes, kept }: LeftoversRepo
       id: 'leftovers:removed',
       source: 'files',
       title: i18n.t('activity.leftovers.removed', { size: formatBytes(bytes), count: folders + tempFiles }),
-      detail: i18n.t('activity.leftovers.removedDetail'),
+      detail: i18n.t('activity.leftovers.removedDetail')
     });
   if (kept.length > 0)
     activity.report('warning', {
       id: 'leftovers:kept',
       source: 'files',
       title: i18n.t('activity.leftovers.kept', { count: kept.length }),
-      detail: kept.join('\n'),
+      detail: kept.join('\n')
     });
 }
 
@@ -348,9 +364,10 @@ export function startActivityBridges(): () => void {
           const fields = {
             source: 'app' as const,
             title: i18n.t('activity.indexing'),
-            progress: total > 0 ? { done: current ?? 0, total } : undefined,
+            progress: total > 0 ? { done: current ?? 0, total } : undefined
           };
-          if (activity.entries.some((entry) => entry.id === 'library:indexing')) activity.update('library:indexing', fields);
+          if (activity.entries.some((entry) => entry.id === 'library:indexing'))
+            activity.update('library:indexing', fields);
           else activity.start({ id: 'library:indexing', ...fields });
         }
       }
@@ -362,14 +379,14 @@ export function startActivityBridges(): () => void {
       else activity.finish('ai:denoise');
     }),
     onPhotoBatchChanged(syncBatch),
-    onPhotoWritesSettled(({ paths, failed, kind }) => syncPhotoWrite(paths, failed, kind)),
+    onPhotoWritesSettled(({ paths, failed, kind }) => syncPhotoWrite(paths, failed, kind))
   );
   const listeners = [
     listenSafely<string>('ai-model-download-start', (model) => {
       useActivityStore.getState().start({
         id: 'download:ai-model',
         source: 'download',
-        title: i18n.t('activity.download.model', { name: model }),
+        title: i18n.t('activity.download.model', { name: model })
       });
     }),
     listenSafely<DownloadProgress>('ai-model-download-progress', (payload) => {
@@ -388,26 +405,32 @@ export function startActivityBridges(): () => void {
         source: 'app' as const,
         title: i18n.t('activity.eyes.running'),
         progress: total > 0 ? { done, total } : undefined,
-        cancel: () => invoke(Invokes.StopEyeCheck).catch(() => {}),
+        cancel: () => invoke(Invokes.StopEyeCheck).catch(() => {})
       };
       if (activity.entries.some((entry) => entry.id === 'library:eyes' && entry.status === 'running'))
         activity.update('library:eyes', fields);
       else activity.start({ id: 'library:eyes', ...fields });
     }),
-    listenSafely<{ read: number; failed: number; cancelled: boolean }>('eye-check-done', ({ read, failed, cancelled }) => {
-      const activity = useActivityStore.getState();
-      if (read + failed === 0) {
-        activity.finish('library:eyes');
-        return;
+    listenSafely<{ read: number; failed: number; cancelled: boolean }>(
+      'eye-check-done',
+      ({ read, failed, cancelled }) => {
+        const activity = useActivityStore.getState();
+        if (read + failed === 0) {
+          activity.finish('library:eyes');
+          return;
+        }
+        activity.finish('library:eyes', {
+          title: i18n.t(cancelled ? 'activity.eyes.stopped' : 'activity.eyes.done', { n: read.toLocaleString() }),
+          detail: failed > 0 ? i18n.t('activity.eyes.failed', { n: failed.toLocaleString() }) : undefined
+        });
       }
-      activity.finish('library:eyes', {
-        title: i18n.t(cancelled ? 'activity.eyes.stopped' : 'activity.eyes.done', { n: read.toLocaleString() }),
-        detail: failed > 0 ? i18n.t('activity.eyes.failed', { n: failed.toLocaleString() }) : undefined,
-      });
-    }),
-    listenSafely<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ taskId, done, total }) => {
-      if (taskId && total > 0) useActivityStore.getState().update(`ai:task:${taskId}`, { progress: { done, total } });
-    }),
+    ),
+    listenSafely<{ taskId: string | null; done: number; total: number }>(
+      'ai-fill-progress',
+      ({ taskId, done, total }) => {
+        if (taskId && total > 0) useActivityStore.getState().update(`ai:task:${taskId}`, { progress: { done, total } });
+      }
+    )
   ];
   return () => {
     for (const stop of stops) stop();

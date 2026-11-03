@@ -1,4 +1,4 @@
-import { translateLegacyExport, validSequenceStart } from "./namingTemplates";
+import { translateLegacyExport, validSequenceStart } from './namingTemplates';
 import {
   BorderBasis,
   FILE_FORMATS,
@@ -7,7 +7,7 @@ import {
   type ExportSettings,
   type OutputColorSpace,
   type OutputSharpeningRecipe,
-  type TiffBitDepth,
+  type TiffBitDepth
 } from '../components/ui/ExportImportProperties';
 
 export const COLOR_SPACES: OutputColorSpace[] = ['srgb', 'displayP3', 'adobeRgb', 'proPhoto'];
@@ -16,9 +16,8 @@ export const COLOR_SPACE_NAMES: Record<OutputColorSpace, string> = {
   srgb: 'sRGB',
   displayP3: 'Display P3',
   adobeRgb: 'Adobe RGB (1998)',
-  proPhoto: 'ProPhoto RGB',
+  proPhoto: 'ProPhoto RGB'
 };
-
 
 /** How `export_images` resizes: an edge in pixels, a megapixel budget or a percentage. */
 export type ResizeMode = 'longEdge' | 'shortEdge' | 'width' | 'height' | 'dimensions' | 'megapixels' | 'percentage';
@@ -30,7 +29,7 @@ export const RESIZE_MODES: ResizeMode[] = [
   'height',
   'dimensions',
   'megapixels',
-  'percentage',
+  'percentage'
 ];
 
 /** The settings the Studio export form edits, as one value. */
@@ -148,7 +147,7 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   sharpenRadius: 0.8,
   sharpenThreshold: 1,
   printDistanceCm: 50,
-  printPpi: 300,
+  printPpi: 300
 };
 
 /** The radius that sharpens the finest detail an eye resolves at a viewing
@@ -245,8 +244,8 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
       radius: draft.sharpenRadius,
       threshold: draft.sharpenThreshold,
       distanceCm: draft.printDistanceCm,
-      ppi: draft.printPpi,
-    },
+      ppi: draft.printPpi
+    }
   };
 }
 
@@ -307,7 +306,7 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     sharpenRadius: finite(preset.outputSharpening?.radius, d.sharpenRadius),
     sharpenThreshold: finite(preset.outputSharpening?.threshold, d.sharpenThreshold),
     printDistanceCm: finite(preset.outputSharpening?.distanceCm, d.printDistanceCm),
-    printPpi: finite(preset.outputSharpening?.ppi, d.printPpi),
+    printPpi: finite(preset.outputSharpening?.ppi, d.printPpi)
   };
 }
 
@@ -334,8 +333,14 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
             value: clamp(finite(draft.resizeValue, defaultResizeValue(draft.resizeMode)), range.min, range.max),
             dontEnlarge: draft.dontEnlarge,
             ...(draft.resizeMode === 'dimensions'
-              ? { secondValue: clamp(finite(draft.resizeValue2, DEFAULT_RECIPE_DRAFT.resizeValue2), range.min, range.max) }
-              : {}),
+              ? {
+                  secondValue: clamp(
+                    finite(draft.resizeValue2, DEFAULT_RECIPE_DRAFT.resizeValue2),
+                    range.min,
+                    range.max
+                  )
+                }
+              : {})
           }
         : null,
       border: draft.border
@@ -343,7 +348,7 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
             basis: draft.borderBasis,
             horizontalPercent: clamp(finite(draft.borderHorizontal, 0), 0, 100),
             verticalPercent: clamp(finite(draft.borderVertical, 0), 0, 100),
-            color: draft.borderColor,
+            color: draft.borderColor
           }
         : null,
       pad: draft.pad
@@ -362,11 +367,14 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
               amount: clamp(finite(draft.sharpenAmount, 100), 0, 500),
               radius:
                 draft.sharpening === 'print'
-                  ? printRadius(clamp(finite(draft.printDistanceCm, 50), 10, 1000), clamp(finite(draft.printPpi, 300), 50, 2400))
+                  ? printRadius(
+                      clamp(finite(draft.printDistanceCm, 50), 10, 1000),
+                      clamp(finite(draft.printPpi, 300), 50, 2400)
+                    )
                   : clamp(finite(draft.sharpenRadius, 0.8), 0.2, 10),
-              threshold: clamp(finite(draft.sharpenThreshold, 0), 0, 50),
-            },
-    },
+              threshold: clamp(finite(draft.sharpenThreshold, 0), 0, 50)
+            }
+    }
   };
 }
 
@@ -380,7 +388,7 @@ function watermarkSettings(draft: RecipeDraft): ExportSettings['watermark'] {
     anchor: draft.watermarkAnchor,
     scale: clamp(finite(draft.watermarkScale, 10), 1, 100),
     spacing: clamp(finite(draft.watermarkSpacing, 5), 0, 25),
-    opacity: clamp(finite(draft.watermarkOpacity, 75), 0, 100),
+    opacity: clamp(finite(draft.watermarkOpacity, 75), 0, 100)
   };
   return draft.watermarkKind === 'text'
     ? {
@@ -390,8 +398,8 @@ function watermarkSettings(draft: RecipeDraft): ExportSettings['watermark'] {
           text: draft.watermarkText,
           fontFamily: draft.watermarkFont,
           color: draft.watermarkColor,
-          shadow: draft.watermarkShadow,
-        },
+          shadow: draft.watermarkShadow
+        }
       }
     : { ...placement, path: draft.watermarkPath! };
 }
@@ -406,8 +414,11 @@ export function exportSettingsFromPreset(preset: ExportPreset): { settings: Expo
 export const subfolderName = (subfolder: string | undefined) => (subfolder ?? '').trim();
 
 /** Why a subfolder name cannot be used, or null. */
-export function subfolderProblem(subfolder: string): "outside" | "fullPath" | null {
-  const parts = subfolder.trim().replace(/^[/\\]+/, '').split(/[/\\]/);
+export function subfolderProblem(subfolder: string): 'outside' | 'fullPath' | null {
+  const parts = subfolder
+    .trim()
+    .replace(/^[/\\]+/, '')
+    .split(/[/\\]/);
   if (parts.some((part) => part === '..')) return 'outside';
   if (/^[a-zA-Z]:/.test(subfolder.trim())) return 'fullPath';
   return null;

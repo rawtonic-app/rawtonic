@@ -28,7 +28,7 @@ const USER_TAG_PREFIX = 'user:';
 
 const tagVariants = {
   visible: { opacity: 1, scale: 1, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } },
-  exit: { opacity: 0, scale: 0.8, transition: { duration: 0.15 } },
+  exit: { opacity: 0, scale: 0.8, transition: { duration: 0.15 } }
 };
 
 export default function TaggingSubMenu({
@@ -36,7 +36,7 @@ export default function TaggingSubMenu({
   initialTags,
   onTagSaved,
   appSettings,
-  hideContextMenu,
+  hideContextMenu
 }: TaggingSubMenuProps) {
   const { t } = useTranslation();
   const [tags, setTags] = useState<{ tag: string; isUser: boolean }[]>(initialTags);
@@ -60,7 +60,7 @@ export default function TaggingSubMenu({
     const newTagValue = tagToAdd.trim().toLowerCase();
     if (newTagValue && !tags.some((t) => t.tag === newTagValue)) {
       const added = await applyTags(`${USER_TAG_PREFIX}${newTagValue}`, true, (kept) =>
-        [...kept, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag)),
+        [...kept, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag))
       );
       if (added) setInputValue('');
     }
@@ -69,7 +69,7 @@ export default function TaggingSubMenu({
   /** Removes the tag; see `applyTags`. */
   const handleRemoveTag = async (tagToRemove: { tag: string; isUser: boolean }) => {
     await applyTags(tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag, false, (kept) =>
-      kept.filter((t) => t.tag !== tagToRemove.tag),
+      kept.filter((t) => t.tag !== tagToRemove.tag)
     );
   };
 
@@ -87,14 +87,14 @@ export default function TaggingSubMenu({
   const applyTags = async (
     tag: string,
     adds: boolean,
-    next: (kept: { tag: string; isUser: boolean }[]) => { tag: string; isUser: boolean }[],
+    next: (kept: { tag: string; isUser: boolean }[]) => { tag: string; isUser: boolean }[]
   ) => {
     const pathsToUpdate = getPathsToUpdate();
     try {
       await invokeInOrder(
         adds ? Invokes.AddTagForPaths : Invokes.RemoveTagForPaths,
         { paths: pathsToUpdate, tag },
-        'keyword',
+        'keyword'
       );
     } catch (err) {
       const { message, failed } = saveFailure(err, pathsToUpdate);

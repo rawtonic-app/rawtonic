@@ -3,24 +3,24 @@
 // then "Review and send…" into ReviewSendDialog, which shows the exact body;
 // "Copy report" and "Open on GitHub" work without the relay. Every way out
 // uses the body the app prepared (scrubbed), never the raw input.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
-import { open } from "@tauri-apps/plugin-shell";
-import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
-import { useModalFocus } from "../../hooks/useModalFocus";
-import Button from "../ui/Button";
-import Text from "../ui/Text";
-import { TextVariants } from "../../types/typography";
-import ReviewSendDialog from "./ReviewSendDialog";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import { open } from '@tauri-apps/plugin-shell';
+import { Check, ClipboardCopy, ExternalLink } from 'lucide-react';
+import { useModalFocus } from '../../hooks/useModalFocus';
+import Button from '../ui/Button';
+import Text from '../ui/Text';
+import { TextVariants } from '../../types/typography';
+import ReviewSendDialog from './ReviewSendDialog';
 import {
   contributionAvailable,
   prepareContribution,
   type ContributionChannel,
   type ContributionReceipt,
-  type PreparedContribution,
-} from "./relay";
-import { githubIssue, reportMarkdown, textOnly, withFileLeftOut, type GithubIssue } from "./reports";
+  type PreparedContribution
+} from './relay';
+import { githubIssue, reportMarkdown, textOnly, withFileLeftOut, type GithubIssue } from './reports';
 
 interface ReportDialogProps {
   isOpen: boolean;
@@ -50,7 +50,7 @@ export default function ReportDialog({
   prepare = prepareContribution,
   available = contributionAvailable,
   openUrl = open,
-  send,
+  send
 }: ReportDialogProps) {
   const { t } = useTranslation();
   const [relay, setRelay] = useState<boolean | null>(null);
@@ -87,18 +87,21 @@ export default function ReportDialog({
   }, [payload, isOpen]);
 
   /** `text`: for Copy report / Open on GitHub, which carry no files. */
-  const scrubbed = useCallback(async (text = false) => {
-    if (!payload) return null;
-    const asked = generation.current;
-    setError(null);
-    try {
-      const body = await prepare(channel, text ? textOnly(payload) : payload);
-      return generation.current === asked ? body : null;
-    } catch {
-      if (generation.current === asked) setError(t("contribute.report.prepareFailed"));
-      return null;
-    }
-  }, [channel, payload, prepare, t]);
+  const scrubbed = useCallback(
+    async (text = false) => {
+      if (!payload) return null;
+      const asked = generation.current;
+      setError(null);
+      try {
+        const body = await prepare(channel, text ? textOnly(payload) : payload);
+        return generation.current === asked ? body : null;
+      } catch {
+        if (generation.current === asked) setError(t('contribute.report.prepareFailed'));
+        return null;
+      }
+    },
+    [channel, payload, prepare, t]
+  );
 
   const review = async () => {
     const body = await scrubbed();
@@ -109,13 +112,13 @@ export default function ReportDialog({
   // at once with the text still being prepared (a promised ClipboardItem).
   const copy = async () => {
     const text = scrubbed(true).then((body) => {
-      if (!body || !payload) throw new Error("not prepared");
+      if (!body || !payload) throw new Error('not prepared');
       return reportMarkdown(withFileLeftOut(body.body, payload));
     });
     try {
-      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
         await navigator.clipboard.write([
-          new ClipboardItem({ "text/plain": text.then((t) => new Blob([t], { type: "text/plain" })) }),
+          new ClipboardItem({ 'text/plain': text.then((t) => new Blob([t], { type: 'text/plain' })) })
         ]);
       } else {
         await navigator.clipboard.writeText(await text);
@@ -123,7 +126,13 @@ export default function ReportDialog({
       setCopied(true);
     } catch {
       // A failed preparation already said why.
-      if (await text.then(() => true, () => false)) setError(t("contribute.report.copyFailed"));
+      if (
+        await text.then(
+          () => true,
+          () => false
+        )
+      )
+        setError(t('contribute.report.copyFailed'));
     }
   };
 
@@ -138,7 +147,7 @@ export default function ReportDialog({
       await openUrl(github.url);
       onClose();
     } catch {
-      setError(t("contribute.report.openFailed"));
+      setError(t('contribute.report.openFailed'));
     }
   };
 
@@ -164,7 +173,7 @@ export default function ReportDialog({
       aria-modal="true"
       className="studio-dialog-backdrop"
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
+        if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
           onClose();
@@ -172,21 +181,15 @@ export default function ReportDialog({
       }}
       role="dialog"
     >
-      <div
-        className="studio-dialog is-wide"
-        ref={panel}
-        tabIndex={-1}
-      >
+      <div className="studio-dialog is-wide" ref={panel} tabIndex={-1}>
         <h2 className="studio-dialog-title" id="report-dialog-title">
           {title}
         </h2>
         {github ? (
           <>
-            <Text color="secondary">
-              {t("contribute.report.githubReview")}
-            </Text>
+            <Text color="secondary">{t('contribute.report.githubReview')}</Text>
             <pre
-              aria-label={t("contribute.report.githubText")}
+              aria-label={t('contribute.report.githubText')}
               className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
               tabIndex={0}
             >
@@ -199,13 +202,13 @@ export default function ReportDialog({
             )}
             <div className="studio-dialog-footer">
               <Button variant="ghost" onClick={() => setGithub(null)}>
-                {t("contribute.review.change")}
+                {t('contribute.review.change')}
               </Button>
               <div className="studio-dialog-footer-end">
                 <Button variant="ghost" onClick={onClose} data-autofocus>
-                  {t("contribute.review.cancel")}
+                  {t('contribute.review.cancel')}
                 </Button>
-                <Button onClick={() => void openGithub()}>{t("contribute.report.githubOpen")}</Button>
+                <Button onClick={() => void openGithub()}>{t('contribute.report.githubOpen')}</Button>
               </div>
             </div>
           </>
@@ -214,11 +217,11 @@ export default function ReportDialog({
             <div className="min-h-0 flex-1 overflow-auto flex flex-col gap-3 pr-1">{children}</div>
             {relay === false && (
               <Text variant={TextVariants.small} color="secondary">
-                {t("contribute.report.noRelay")}
+                {t('contribute.report.noRelay')}
               </Text>
             )}
             <Text variant={TextVariants.small} color="secondary">
-              {t("contribute.report.githubPublic")}
+              {t('contribute.report.githubPublic')}
             </Text>
             {error && (
               <Text color="error" role="alert">
@@ -228,19 +231,19 @@ export default function ReportDialog({
             <div className="studio-dialog-footer">
               <Button variant="ghost" onClick={() => void copy()} disabled={!payload}>
                 {copied ? <Check size={14} /> : <ClipboardCopy size={14} />}
-                {copied ? t("contribute.report.copied") : t("contribute.report.copy")}
+                {copied ? t('contribute.report.copied') : t('contribute.report.copy')}
               </Button>
               <Button variant="ghost" onClick={() => void reviewGithub()} disabled={!payload}>
                 <ExternalLink size={14} />
-                {t("contribute.report.github")}
+                {t('contribute.report.github')}
               </Button>
               <div className="studio-dialog-footer-end">
                 <Button variant="ghost" onClick={onClose} data-autofocus>
-                  {t("contribute.review.cancel")}
+                  {t('contribute.review.cancel')}
                 </Button>
                 {relay && (
                   <Button onClick={() => void review()} disabled={!payload}>
-                    {t("contribute.report.review")}
+                    {t('contribute.report.review')}
                   </Button>
                 )}
               </div>
@@ -251,5 +254,5 @@ export default function ReportDialog({
     </div>
   );
 
-  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
+  return typeof document !== 'undefined' ? createPortal(content, document.body) : content;
 }

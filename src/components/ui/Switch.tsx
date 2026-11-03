@@ -32,14 +32,14 @@ const Switch = ({
   label,
   onChange,
   tooltip,
-  trackClassName,
+  trackClassName
 }: SwitchProps) => {
   const uniqueId = `switch-${label.replace(/\s+/g, '-').toLowerCase()}`;
 
   const spring = {
     type: 'spring',
     stiffness: 700,
-    damping: 30,
+    damping: 30
   } as const;
 
   return (
@@ -47,7 +47,7 @@ const Switch = ({
       className={clsx(
         'flex items-center justify-between',
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-        className,
+        className
       )}
       htmlFor={uniqueId}
       data-tooltip={tooltip}
@@ -68,13 +68,13 @@ const Switch = ({
           className={clsx(
             'w-full h-full rounded-full border transition-colors',
             checked ? 'bg-[#7d95a9] border-[#7d95a9]' : 'bg-[#3a3c40] border-[#4b4e53]',
-            trackClassName,
+            trackClassName
           )}
         ></div>
         <motion.div
           className={clsx('absolute top-0.5 left-0.5 w-4 h-4 rounded-full shadow transition-colors', {
             'bg-white': checked,
-            'bg-[#c9ccd1]': !checked,
+            'bg-[#c9ccd1]': !checked
           })}
           transition={spring}
           initial={false}

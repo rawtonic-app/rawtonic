@@ -10,7 +10,13 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { AUTO_CA_VERSION, CAMERA_CA_VERSION, CAMERA_GEOMETRY_VERSION, FRINGE_VERSION, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
+import {
+  AUTO_CA_VERSION,
+  CAMERA_CA_VERSION,
+  CAMERA_GEOMETRY_VERSION,
+  FRINGE_VERSION,
+  INITIAL_ADJUSTMENTS
+} from '../utils/adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 import { debouncedSave, waitForPendingMetadataSave } from './useEditorActions';
 import { notify as toast } from '../activity/notify';
@@ -20,17 +26,30 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 
 type Pending = {
-  command: string; path: string; resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void; settled?: boolean;
+  command: string;
+  path: string;
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
+  settled?: boolean;
 };
 let pending: Pending[];
 let proxyResult: { width: number; height: number; isRaw: boolean } | null;
 let emitDraft: ((payload: { path: string; width: number; height: number; isRaw: boolean }) => void) | null;
 const photo = (path: string) => ({
-  path, isReady: false, isRaw: true, width: 4000, height: 3000, exif: {}, thumbnailUrl: '',
+  path,
+  isReady: false,
+  isRaw: true,
+  width: 4000,
+  height: 3000,
+  exif: {},
+  thumbnailUrl: ''
 });
 const nativeResult = {
-  width: 4000, height: 3000, is_raw: true, exif: {}, metadata: {},
+  width: 4000,
+  height: 3000,
+  is_raw: true,
+  exif: {},
+  metadata: {}
 };
 const resolve = async (command: string, path: string, value: unknown) => {
   // The camera JPEG is asked for once the stored-proxy answer is in.
@@ -57,7 +76,9 @@ beforeEach(() => {
     if (command === Invokes.GetCameraLensProfile) return Promise.resolve(null);
     // No preview proxy unless a test provides one.
     if (command === Invokes.LoadImageProxy) return Promise.resolve(proxyResult);
-    return new Promise((resolve, reject) => pending.push({ command, path: (args as { path: string }).path, resolve, reject }));
+    return new Promise((resolve, reject) =>
+      pending.push({ command, path: (args as { path: string }).path, resolve, reject })
+    );
   });
   useEditorStore.setState({
     selectedImage: photo('/first.dng'),
@@ -70,7 +91,7 @@ beforeEach(() => {
     finalPreviewUrl: null,
     hasRenderedFirstFrame: false,
     interactivePatch: null,
-    patchesSentToBackend: new Set(),
+    patchesSentToBackend: new Set()
   });
   useUIStore.setState({ activeView: 'editor' });
   useSettingsStore.setState({ appSettings: null });
@@ -89,7 +110,7 @@ it('loads source and metadata concurrently, then renders one complete initial st
   const renderRefs = {
     previewJobIdRef: { current: 0 },
     latestRenderedJobIdRef: { current: 0 },
-    currentResRef: { current: 0 },
+    currentResRef: { current: 0 }
   };
   renderHook(() => {
     useImageLoader({ current: null });
@@ -98,7 +119,9 @@ it('loads source and metadata concurrently, then renders one complete initial st
   await act(async () => {});
   // Without a stored proxy the decode starts as soon as that is known.
   expect(pending.map(({ command }) => command)).toEqual([
-    Invokes.LoadMetadata, Invokes.LoadEmbeddedPreview, Invokes.LoadImage,
+    Invokes.LoadMetadata,
+    Invokes.LoadEmbeddedPreview,
+    Invokes.LoadImage
   ]);
   await resolve(Invokes.LoadImage, '/first.dng', nativeResult);
   expect(useEditorStore.getState().selectedImage?.isReady).toBe(false);
@@ -112,7 +135,9 @@ it('loads source and metadata concurrently, then renders one complete initial st
   const previews = vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.ApplyAdjustments);
   expect(previews).toHaveLength(1);
   expect(previews[0][1]).toMatchObject({ jsAdjustments: { exposure: 1.5, aspectRatio: 4 / 3 } });
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.SaveMetadataAndUpdateThumbnail)).toHaveLength(0);
+  expect(
+    vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.SaveMetadataAndUpdateThumbnail)
+  ).toHaveLength(0);
 });
 
 it('ignores a source and metadata pair completed after selecting another photograph', async () => {
@@ -150,7 +175,10 @@ it('shows the priority camera JPEG before RAW completion without enabling edits 
   expect(useEditorStore.getState().selectedImage?.thumbnailUrl).toBe('');
   await resolve(Invokes.LoadMetadata, '/first.dng', { adjustments: null });
   expect(useEditorStore.getState().selectedImage).toMatchObject({
-    path: '/first.dng', isReady: false, thumbnailUrl: 'blob:priority-preview', thumbnailSource: 'embedded',
+    path: '/first.dng',
+    isReady: false,
+    thumbnailUrl: 'blob:priority-preview',
+    thumbnailSource: 'embedded'
   });
   expect(useEditorStore.getState().finalPreviewUrl).toBeNull();
   expect(useEditorStore.getState().hasRenderedFirstFrame).toBe(false);
@@ -176,7 +204,11 @@ it('ignores priority previews for obsolete selections and after the final source
   await resolve(Invokes.LoadImage, '/second.dng', nativeResult);
   await resolve(Invokes.LoadEmbeddedPreview, '/second.dng', new Uint8Array([1]).buffer);
   expect(URL.createObjectURL).not.toHaveBeenCalled();
-  expect(useEditorStore.getState().selectedImage).toMatchObject({ path: '/second.dng', isReady: true, thumbnailUrl: '' });
+  expect(useEditorStore.getState().selectedImage).toMatchObject({
+    path: '/second.dng',
+    isReady: true,
+    thumbnailUrl: ''
+  });
 });
 
 it('keeps camera JPEGs out of a recipe with saved rotation or crop', async () => {
@@ -207,12 +239,13 @@ it('waits for the reopened photograph’s pending save before reading its recipe
   expect(pending.map(({ command }) => command)).toEqual([
     Invokes.SaveMetadataAndUpdateThumbnail,
     Invokes.LoadEmbeddedPreview,
-    Invokes.LoadImage,
+    Invokes.LoadImage
   ]);
   // Decoding can finish while persistence is still busy; that old native
   // metadata must not replace the freshly edited recipe cached in the UI.
   await resolve(Invokes.LoadImage, '/first.dng', {
-    ...nativeResult, metadata: { adjustments: INITIAL_ADJUSTMENTS },
+    ...nativeResult,
+    metadata: { adjustments: INITIAL_ADJUSTMENTS }
   });
   expect(useEditorStore.getState().selectedImage?.isReady).toBe(false);
   await resolve(Invokes.SaveMetadataAndUpdateThumbnail, '/first.dng', undefined);
@@ -272,9 +305,15 @@ it('starts a never-edited RAW with the camera lens data, but not an edited one',
   vi.mocked(invoke).mockImplementation((command, args) => {
     if (command === Invokes.ApplyAdjustments) return Promise.resolve(new ArrayBuffer(0));
     if (command === Invokes.GetCameraLensProfile)
-      return Promise.resolve({ maker: 'Fujifilm', vignetting: true, params: { k1: -0.02, k2: 0.05, k3: -0.04, model: 1 } });
+      return Promise.resolve({
+        maker: 'Fujifilm',
+        vignetting: true,
+        params: { k1: -0.02, k2: 0.05, k3: -0.04, model: 1 }
+      });
     if (command === Invokes.LoadImageProxy) return Promise.resolve(null);
-    return new Promise((resolve, reject) => pending.push({ command, path: (args as { path: string }).path, resolve, reject }));
+    return new Promise((resolve, reject) =>
+      pending.push({ command, path: (args as { path: string }).path, resolve, reject })
+    );
   });
   useEditorStore.setState({ selectedImage: photo('/new.raf') });
   renderHook(() => useImageLoader({ current: null }));
@@ -291,7 +330,9 @@ it('starts a never-edited RAW with the camera lens data, but not an edited one',
 
   useEditorStore.setState({ selectedImage: photo('/edited.raf') });
   await act(async () => {});
-  await resolve(Invokes.LoadMetadata, '/edited.raf', { adjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'manual' } });
+  await resolve(Invokes.LoadMetadata, '/edited.raf', {
+    adjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'manual' }
+  });
   await resolve(Invokes.LoadEmbeddedPreview, '/edited.raf', null);
   await resolve(Invokes.LoadImage, '/edited.raf', nativeResult);
   expect(useEditorStore.getState().adjustments.lensCorrectionMode).toBe('manual');
@@ -306,7 +347,7 @@ it('renders from the preview proxy before the decode, then from the decode witho
   const renderRefs = {
     previewJobIdRef: { current: 0 },
     latestRenderedJobIdRef: { current: 0 },
-    currentResRef: { current: 0 },
+    currentResRef: { current: 0 }
   };
   renderHook(() => {
     useImageLoader({ current: null });
@@ -323,7 +364,9 @@ it('renders from the preview proxy before the decode, then from the decode witho
   // The decode waits for the proxy's first frame, so it does not take the
   // cores that frame needs.
   expect(pending.some(({ command }) => command === Invokes.LoadImage)).toBe(false);
-  act(() => useEditorStore.setState({ history: [state.adjustments, { ...state.adjustments, exposure: 2 }], historyIndex: 1 }));
+  act(() =>
+    useEditorStore.setState({ history: [state.adjustments, { ...state.adjustments, exposure: 2 }], historyIndex: 1 })
+  );
   await act(async () => useEditorStore.setState({ hasRenderedFirstFrame: true }));
   await resolve(Invokes.LoadImage, '/first.dng', nativeResult);
   state = useEditorStore.getState();
@@ -338,7 +381,7 @@ it('shows the draft its decode hands over before the decode is in', async () => 
   const renderRefs = {
     previewJobIdRef: { current: 0 },
     latestRenderedJobIdRef: { current: 0 },
-    currentResRef: { current: 0 },
+    currentResRef: { current: 0 }
   };
   renderHook(() => {
     useImageLoader({ current: null });
@@ -373,7 +416,10 @@ it('keeps an offline photograph open on its preview and says which one', async (
   await resolve(Invokes.LoadImage, '/first.dng', { ...nativeResult, offline: 'standard' });
   const state = useEditorStore.getState();
   expect(state.selectedImage).toMatchObject({
-    path: '/first.dng', isReady: true, isDecoded: true, offline: 'standard',
+    path: '/first.dng',
+    isReady: true,
+    isDecoded: true,
+    offline: 'standard'
   });
   expect(state.adjustments.exposure).toBe(0.5);
   expect(toast.error).not.toHaveBeenCalled();

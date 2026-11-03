@@ -1,28 +1,23 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
-import { open as openInBrowser } from "@tauri-apps/plugin-shell";
-import { Check, X } from "lucide-react";
-import { notify } from "../../activity/notify";
-import i18n from "i18next";
-import { useTranslation } from "react-i18next";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useEditorStore } from "../../store/useEditorStore";
-import { Invokes } from "../ui/AppProperties";
-import {
-  keywordOf,
-  saveFailure,
-  storedKeyword,
-  useLibraryActions,
-} from "../../hooks/useLibraryActions";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { expandGroupedPaths } from "../../utils/imageGrouping";
-import { COLOR_LABELS } from "../../utils/adjustments";
-import { ToolGroup } from "./StudioDevelop";
-import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
-import { submitPhotoWrite } from "../../utils/photoWrites";
-import { captureText } from "../../utils/captureTime";
-import { useCaptureTimeDialog } from "./CaptureTimeDialog";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
+import { open as openInBrowser } from '@tauri-apps/plugin-shell';
+import { Check, X } from 'lucide-react';
+import { notify } from '../../activity/notify';
+import i18n from 'i18next';
+import { useTranslation } from 'react-i18next';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useEditorStore } from '../../store/useEditorStore';
+import { Invokes } from '../ui/AppProperties';
+import { keywordOf, saveFailure, storedKeyword, useLibraryActions } from '../../hooks/useLibraryActions';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { expandGroupedPaths } from '../../utils/imageGrouping';
+import { COLOR_LABELS } from '../../utils/adjustments';
+import { ToolGroup } from './StudioDevelop';
+import { catalogChanged, invokeInOrder } from '../../utils/catalogWrites';
+import { submitPhotoWrite } from '../../utils/photoWrites';
+import { captureText } from '../../utils/captureTime';
+import { useCaptureTimeDialog } from './CaptureTimeDialog';
 
 export interface TextMetadata {
   title: string;
@@ -34,38 +29,58 @@ export interface TextMetadata {
 }
 type TextField = string;
 
-export const IPTC_LIST_FIELDS = new Set<string>(["personInImage", "organisationInImageName", "organisationInImageCode", "modelAge", "subjectCode", "scene"]);
+export const IPTC_LIST_FIELDS = new Set<string>([
+  'personInImage',
+  'organisationInImageName',
+  'organisationInImageCode',
+  'modelAge',
+  'subjectCode',
+  'scene'
+]);
 /** IPTC Core and Extension sections of the Metadata tool, as Capture One and Lightroom
  * group them: section ids and field ids (labels in `studio.metadata.iptc`). */
 export const IPTC_SECTIONS = [
-  ["content", ["headline", "subjectCode", "scene", "intellectualGenre", "captionWriter", "dateCreated"]],
-  ["location", ["location", "city", "state", "country", "countryCode"]],
-  ["status", ["jobId", "instructions", "credit", "source", "usageTerms", "rightsUrl"]],
+  ['content', ['headline', 'subjectCode', 'scene', 'intellectualGenre', 'captionWriter', 'dateCreated']],
+  ['location', ['location', 'city', 'state', 'country', 'countryCode']],
+  ['status', ['jobId', 'instructions', 'credit', 'source', 'usageTerms', 'rightsUrl']],
   [
-    "creatorContact",
+    'creatorContact',
     [
-      "creatorJobTitle",
-      "creatorEmail",
-      "creatorUrl",
-      "creatorPhone",
-      "creatorAddress",
-      "creatorCity",
-      "creatorRegion",
-      "creatorPostalCode",
-      "creatorCountry",
-    ],
+      'creatorJobTitle',
+      'creatorEmail',
+      'creatorUrl',
+      'creatorPhone',
+      'creatorAddress',
+      'creatorCity',
+      'creatorRegion',
+      'creatorPostalCode',
+      'creatorCountry'
+    ]
   ],
-  ["extension", ["personInImage", "organisationInImageName", "organisationInImageCode", "event", "modelAge", "additionalModelInfo", "maxAvailHeight", "maxAvailWidth", "digitalSourceType"]],
+  [
+    'extension',
+    [
+      'personInImage',
+      'organisationInImageName',
+      'organisationInImageCode',
+      'event',
+      'modelAge',
+      'additionalModelInfo',
+      'maxAvailHeight',
+      'maxAvailWidth',
+      'digitalSourceType'
+    ]
+  ]
 ] as const;
-const TEXT_FIELDS = ["title", "description", "creator", "copyright"] as const;
+const TEXT_FIELDS = ['title', 'description', 'creator', 'copyright'] as const;
 
 /** Display names of the colour labels (ids stay the stored tag names). */
 const COLOR_NAME_KEYS = {
-  red: "contextMenus.colors.red",
-  yellow: "contextMenus.colors.yellow",
-  green: "contextMenus.colors.green",
-  blue: "contextMenus.colors.blue",
-  purple: "contextMenus.colors.purple",
+  red: 'contextMenus.colors.red',
+  yellow: 'contextMenus.colors.yellow',
+  green: 'contextMenus.colors.green',
+  blue: 'contextMenus.colors.blue',
+  purple: 'contextMenus.colors.purple'
 } as const;
 
 /** Outside sessions the core fields are kept as EXIF overrides with each
@@ -73,26 +88,26 @@ const COLOR_NAME_KEYS = {
  * ImageDescription, Creator → Artist, Copyright → Copyright. A title has no
  * EXIF field and needs a session. */
 const EXIF_TEXT_FIELDS: Record<string, string> = {
-  description: "ImageDescription",
-  creator: "Artist",
-  copyright: "Copyright",
+  description: 'ImageDescription',
+  creator: 'Artist',
+  copyright: 'Copyright'
 };
 
 /** An EXIF text value as shown: without the quotes some readers keep, and
  * without the placeholder "default" some cameras write. */
 export function exifText(value: string | undefined) {
-  const clean = (value ?? "").replace(/^"|"$/g, "").trim();
-  return clean.toLowerCase() === "default" ? "" : clean;
+  const clean = (value ?? '').replace(/^"|"$/g, '').trim();
+  return clean.toLowerCase() === 'default' ? '' : clean;
 }
 
 /** The colour label of a photo's tags (`color:red`), or null. */
 export const colorLabelOf = (tags: string[] | null | undefined) =>
-  tags?.find((tag) => tag.startsWith("color:"))?.slice(6) ?? null;
+  tags?.find((tag) => tag.startsWith('color:'))?.slice(6) ?? null;
 
 /** "24.0 MB" from bytes (decimal units, as Finder shows them). */
 export function formatBytes(bytes: number) {
   if (bytes < 1000) return `${bytes} B`;
-  const units = ["kB", "MB", "GB", "TB"];
+  const units = ['kB', 'MB', 'GB', 'TB'];
   let value = bytes / 1000;
   let unit = 0;
   while (value >= 1000 && unit < units.length - 1) {
@@ -112,7 +127,7 @@ interface TextMetadataCache {
   load(session: string): Promise<void>;
   merge(written: Record<string, TextMetadata>): void;
 }
-const basePath = (path: string) => path.split("?vc=")[0];
+const basePath = (path: string) => path.split('?vc=')[0];
 export const useTextMetadataCache = create<TextMetadataCache>((set, get) => ({
   session: null,
   loaded: false,
@@ -121,21 +136,21 @@ export const useTextMetadataCache = create<TextMetadataCache>((set, get) => ({
     if (get().session !== session) set({ session, loaded: false, byPath: {} });
     try {
       const byPath = await invoke<Record<string, TextMetadata | null>>(Invokes.SessionAllTextMetadata, {
-        directory: session,
+        directory: session
       });
       if (get().session === session) set({ loaded: true, byPath: byPath ?? {} });
     } catch (e) {
-      notify.error(i18n.t("studio.metadata.toasts.readFailed", { error: String(e) }));
+      notify.error(i18n.t('studio.metadata.toasts.readFailed', { error: String(e) }));
     }
   },
   merge(written) {
     set((state) => ({
       byPath: {
         ...state.byPath,
-        ...Object.fromEntries(Object.entries(written).map(([path, meta]) => [basePath(path), meta])),
-      },
+        ...Object.fromEntries(Object.entries(written).map(([path, meta]) => [basePath(path), meta]))
+      }
     }));
-  },
+  }
 }));
 
 /** EXIF of photos read from their headers (Capture One shows it at once;
@@ -151,8 +166,8 @@ export function requestHeaderExif(paths: string[]) {
       const requested = new Set(needed);
       useLibraryStore.getState().setLibrary((state) => ({
         imageList: state.imageList.map((image) =>
-          requested.has(image.path) && image.exif == null ? { ...image, exif: data?.[image.path] ?? {} } : image,
-        ),
+          requested.has(image.path) && image.exif == null ? { ...image, exif: data?.[image.path] ?? {} } : image
+        )
       }));
     })
     .catch(() => {})
@@ -178,7 +193,7 @@ export function useShownPhoto() {
       list
         .slice(Math.max(0, index - 2), index + 3)
         .filter((image) => image.exif == null)
-        .map((image) => image.path),
+        .map((image) => image.path)
     );
   }, [path, exif, index]);
   return { path, shown, exif: exif ?? {} };
@@ -188,10 +203,7 @@ export function useShownPhoto() {
 export function useMetadataTargets() {
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const image = useEditorStore((s) => s.selectedImage?.path);
-  return useMemo(
-    () => (selected.length ? selected : image ? [image] : []),
-    [selected, image],
-  );
+  return useMemo(() => (selected.length ? selected : image ? [image] : []), [selected, image]);
 }
 
 /** Keywords of the targets with how many targets carry each, in name order.
@@ -221,10 +233,9 @@ export function keywordCounts(tagsByPath: (string[] | null | undefined)[]) {
 /** Keywords typed into the field: comma-separated, trimmed, without duplicates. */
 export function parseKeywords(text: string) {
   const keywords: string[] = [];
-  for (const part of text.split(",")) {
+  for (const part of text.split(',')) {
     const keyword = part.trim();
-    if (keyword && !keywords.some((k) => k.toLowerCase() === keyword.toLowerCase()))
-      keywords.push(keyword);
+    if (keyword && !keywords.some((k) => k.toLowerCase() === keyword.toLowerCase())) keywords.push(keyword);
   }
   return keywords;
 }
@@ -239,9 +250,9 @@ export function StudioKeywords() {
   // chosen photograph's variants too (as the tagging menu writes to a group,
   // and ratings and labels spread over one).
   const selected = useMetadataTargets();
-  const grouping = useSettingsStore((s) => s.appSettings?.grouping ?? "off");
+  const grouping = useSettingsStore((s) => s.appSettings?.grouping ?? 'off');
   const paths = useMemo(() => expandGroupedPaths(imageList, selected, grouping), [imageList, selected, grouping]);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState('');
   const tagsByPath = useMemo(() => {
     const byPath = new Map(imageList.map((image) => [image.path, image.tags]));
     return paths.map((path) => byPath.get(path));
@@ -252,7 +263,7 @@ export function StudioKeywords() {
       keywordCounts(imageList.map((image) => image.tags))
         .map((entry) => entry.keyword)
         .slice(0, 500),
-    [imageList],
+    [imageList]
   );
 
   const add = async (text: string) => {
@@ -280,17 +291,21 @@ export function StudioKeywords() {
         // then changes that one tag on each photograph that saved: the ones
         // the failure names (`SaveFailure.failed`) keep their old keywords.
         try {
-          await invokeInOrder(Invokes.AddTagForPaths, { paths, tag }, "keyword");
-          applyTagDelta(missing, tag, "add");
+          await invokeInOrder(Invokes.AddTagForPaths, { paths, tag }, 'keyword');
+          applyTagDelta(missing, tag, 'add');
         } catch (e) {
           const { failed } = saveFailure(e, paths);
-          applyTagDelta(paths.filter((path) => !failed.includes(path)), tag, "add");
+          applyTagDelta(
+            paths.filter((path) => !failed.includes(path)),
+            tag,
+            'add'
+          );
           throw e;
         }
       }
-      setDraft("");
+      setDraft('');
     } catch (e) {
-      notify.error(t("studio.metadata.toasts.keywordsSaveFailed", { error: saveFailure(e, paths).message }));
+      notify.error(t('studio.metadata.toasts.keywordsSaveFailed', { error: saveFailure(e, paths).message }));
     }
   };
   const remove = async (entry: (typeof keywords)[number]) => {
@@ -299,54 +314,60 @@ export function StudioKeywords() {
         // As for adding: the photographs the library names did not save keep
         // the keyword.
         try {
-          await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, "keyword");
-          applyTagDelta(paths, tag, "remove");
+          await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, 'keyword');
+          applyTagDelta(paths, tag, 'remove');
         } catch (e) {
           const { failed } = saveFailure(e, paths);
-          applyTagDelta(paths.filter((path) => !failed.includes(path)), tag, "remove");
+          applyTagDelta(
+            paths.filter((path) => !failed.includes(path)),
+            tag,
+            'remove'
+          );
           throw e;
         }
       }
     } catch (e) {
-      notify.error(t("studio.metadata.toasts.keywordsRemoveFailed", { error: saveFailure(e, paths).message }));
+      notify.error(t('studio.metadata.toasts.keywordsRemoveFailed', { error: saveFailure(e, paths).message }));
     }
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
-    if (e.key === "Enter") {
+    if (e.key === 'Enter') {
       e.preventDefault();
       void add(draft);
-    } else if (e.key === "Escape") {
-      setDraft("");
+    } else if (e.key === 'Escape') {
+      setDraft('');
       e.currentTarget.blur();
     }
   };
 
   return (
-    <ToolGroup title="Keywords" label={t("studio.metadata.keywords.title")}>
+    <ToolGroup title="Keywords" label={t('studio.metadata.keywords.title')}>
       {!paths.length ? (
-        <p className="studio-help">{t("studio.metadata.keywords.selectToAdd")}</p>
+        <p className="studio-help">{t('studio.metadata.keywords.selectToAdd')}</p>
       ) : (
         <>
-          <div className="studio-keywords" aria-label={t("studio.metadata.keywords.ofSelection")}>
-            {keywords.length === 0 && <span className="studio-keywords-empty">{t("studio.metadata.keywords.none")}</span>}
+          <div className="studio-keywords" aria-label={t('studio.metadata.keywords.ofSelection')}>
+            {keywords.length === 0 && (
+              <span className="studio-keywords-empty">{t('studio.metadata.keywords.none')}</span>
+            )}
             {keywords.map((entry) => {
               const partial = entry.count < paths.length;
               return (
                 <span
                   key={entry.keyword}
-                  className={`studio-keyword ${partial ? "is-partial" : ""}`}
+                  className={`studio-keyword ${partial ? 'is-partial' : ''}`}
                   title={
                     partial
-                      ? t("studio.metadata.keywords.partial", { on: entry.count, count: paths.length })
+                      ? t('studio.metadata.keywords.partial', { on: entry.count, count: paths.length })
                       : undefined
                   }
                 >
                   {entry.keyword}
                   {partial && <span aria-hidden="true">*</span>}
                   <button
-                    aria-label={t("studio.metadata.keywords.removeAria", { keyword: entry.keyword })}
-                    title={t("studio.metadata.keywords.removeTitle", { keyword: entry.keyword })}
+                    aria-label={t('studio.metadata.keywords.removeAria', { keyword: entry.keyword })}
+                    title={t('studio.metadata.keywords.removeTitle', { keyword: entry.keyword })}
                     onClick={() => void remove(entry)}
                   >
                     <X size={10} />
@@ -357,11 +378,11 @@ export function StudioKeywords() {
           </div>
           <input
             className="studio-metadata-input"
-            aria-label={t("studio.metadata.keywords.add")}
+            aria-label={t('studio.metadata.keywords.add')}
             placeholder={
               paths.length > 1
-                ? t("studio.metadata.keywords.addTo", { count: paths.length })
-                : t("studio.metadata.keywords.add")
+                ? t('studio.metadata.keywords.addTo', { count: paths.length })
+                : t('studio.metadata.keywords.add')
             }
             list="studio-keyword-suggestions"
             value={draft}
@@ -381,7 +402,7 @@ export function StudioKeywords() {
 
 /** The selection's value of one field, or `null` when the photographs differ. */
 export function sharedValue(records: (TextMetadata | undefined)[], field: TextField) {
-  const values = new Set(records.map((record) => record?.[field] ?? ""));
+  const values = new Set(records.map((record) => record?.[field] ?? ''));
   return values.size === 1 ? [...values][0] : null;
 }
 
@@ -390,7 +411,7 @@ function MetadataField({
   value,
   multiline,
   disabled,
-  onCommit,
+  onCommit
 }: {
   label: string;
   /** `null`: the selected photographs differ. */
@@ -400,22 +421,22 @@ function MetadataField({
   onCommit(value: string): void;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(value ?? "");
+  const [draft, setDraft] = useState(value ?? '');
   const editing = useRef(false);
   useEffect(() => {
-    if (!editing.current) setDraft(value ?? "");
+    if (!editing.current) setDraft(value ?? '');
   }, [value]);
   const commit = () => {
     editing.current = false;
     // An untouched mixed field keeps every photograph's own value.
-    if (draft.trim() !== (value ?? "") && !(value === null && draft === "")) onCommit(draft);
+    if (draft.trim() !== (value ?? '') && !(value === null && draft === '')) onCommit(draft);
   };
   const props = {
-    "aria-label": label,
-    className: "studio-metadata-input",
+    'aria-label': label,
+    className: 'studio-metadata-input',
     value: draft,
     disabled,
-    placeholder: value === null ? t("studio.metadata.mixed") : "",
+    placeholder: value === null ? t('studio.metadata.mixed') : '',
     onFocus: () => {
       editing.current = true;
     },
@@ -423,16 +444,16 @@ function MetadataField({
     onBlur: commit,
     onKeyDown: (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       e.stopPropagation();
-      if (e.key === "Escape") {
+      if (e.key === 'Escape') {
         editing.current = false;
-        setDraft(value ?? "");
+        setDraft(value ?? '');
         // Blur after the reset so the blur does not commit the old draft.
         requestAnimationFrame(() => (e.target as HTMLElement).blur());
-      } else if (e.key === "Enter" && !(multiline && e.shiftKey)) {
+      } else if (e.key === 'Enter' && !(multiline && e.shiftKey)) {
         e.preventDefault();
         (e.target as HTMLElement).blur();
       }
-    },
+    }
   };
   return (
     <label className="studio-metadata-field">
@@ -444,12 +465,13 @@ function MetadataField({
 
 function exposureSummary(exif: Record<string, string>) {
   const parts = [
-    exif.ExposureTime && (String(exif.ExposureTime).endsWith("s") ? exif.ExposureTime : `${exif.ExposureTime} s`),
-    exif.FNumber && (String(exif.FNumber).toLowerCase().startsWith("f") ? exif.FNumber : `f/${exif.FNumber}`),
+    exif.ExposureTime && (String(exif.ExposureTime).endsWith('s') ? exif.ExposureTime : `${exif.ExposureTime} s`),
+    exif.FNumber && (String(exif.FNumber).toLowerCase().startsWith('f') ? exif.FNumber : `f/${exif.FNumber}`),
     exif.PhotographicSensitivity && `ISO ${exif.PhotographicSensitivity}`,
-    (exif.FocalLength || exif.FocalLengthIn35mmFilm) && `${exif.FocalLength || exif.FocalLengthIn35mmFilm}`.replace(/(\d)$/, "$1 mm"),
+    (exif.FocalLength || exif.FocalLengthIn35mmFilm) &&
+      `${exif.FocalLength || exif.FocalLengthIn35mmFilm}`.replace(/(\d)$/, '$1 mm')
   ];
-  return parts.filter(Boolean).join(" · ");
+  return parts.filter(Boolean).join(' · ');
 }
 
 /** The EXIF of each target (the shown photo's from the editor), loading the
@@ -460,7 +482,7 @@ function useTargetExif(paths: string[]) {
   const records = useMemo(() => {
     const byPath = new Map(imageList.map((image) => [image.path, image.exif]));
     return paths.map((path) =>
-      selectedImage?.path === path && selectedImage.exif ? selectedImage.exif : (byPath.get(path) ?? null),
+      selectedImage?.path === path && selectedImage.exif ? selectedImage.exif : (byPath.get(path) ?? null)
     );
   }, [imageList, selectedImage, paths]);
   useEffect(() => {
@@ -488,21 +510,25 @@ function ColorLabelPicker({ paths }: { paths: string[] }) {
     return labels.size === 1 ? [...labels][0] : undefined;
   }, [imageList, paths]);
   return (
-    <div className="studio-metadata-field studio-color-labels" role="group" aria-label={t("studio.metadata.colorLabel.group")}>
-      <span>{t("studio.metadata.colorLabel.label")}</span>
+    <div
+      className="studio-metadata-field studio-color-labels"
+      role="group"
+      aria-label={t('studio.metadata.colorLabel.group')}
+    >
+      <span>{t('studio.metadata.colorLabel.label')}</span>
       <span>
         <button
           type="button"
-          className={`studio-color-label is-none ${current === null ? "is-current" : ""}`}
-          title={t("studio.metadata.colorLabel.none")}
-          aria-label={t("studio.metadata.colorLabel.none")}
+          className={`studio-color-label is-none ${current === null ? 'is-current' : ''}`}
+          title={t('studio.metadata.colorLabel.none')}
+          aria-label={t('studio.metadata.colorLabel.none')}
           aria-pressed={current === null}
           onClick={() => void handleSetColorLabel(null, paths)}
         >
           <X size={9} />
         </button>
         {current && !COLOR_LABELS.some((label) => label.name === current) && (
-          <span>{current === "orange" ? "Orange" : current === "pink" ? "Pink" : current}</span>
+          <span>{current === 'orange' ? 'Orange' : current === 'pink' ? 'Pink' : current}</span>
         )}
         {COLOR_LABELS.map((label) => {
           const key = COLOR_NAME_KEYS[label.name as keyof typeof COLOR_NAME_KEYS];
@@ -511,10 +537,10 @@ function ColorLabelPicker({ paths }: { paths: string[] }) {
             <button
               type="button"
               key={label.name}
-              className={`studio-color-label ${current === label.name ? "is-current" : ""}`}
+              className={`studio-color-label ${current === label.name ? 'is-current' : ''}`}
               style={{ background: label.color }}
               title={name}
-              aria-label={t("studio.metadata.colorLabel.colorAria", { color: name })}
+              aria-label={t('studio.metadata.colorLabel.colorAria', { color: name })}
               aria-pressed={current === label.name}
               onClick={() => void handleSetColorLabel(label.name, paths)}
             >
@@ -529,13 +555,13 @@ function ColorLabelPicker({ paths }: { paths: string[] }) {
 
 /** The shown photograph's file size, read once per file. */
 function useFileSize(path: string | undefined) {
-  const base = path?.split("?vc=")[0];
+  const base = path?.split('?vc=')[0];
   const [size, setSize] = useState<{ path: string; bytes: number } | null>(null);
   useEffect(() => {
     if (!base) return;
     let current = true;
     invoke<number>(Invokes.FileSize, { path: base })
-      .then((bytes) => current && typeof bytes === "number" && setSize({ path: base, bytes }))
+      .then((bytes) => current && typeof bytes === 'number' && setSize({ path: base, bytes }))
       .catch(() => {});
     return () => {
       current = false;
@@ -553,7 +579,7 @@ export function StudioMetadataTool() {
   const session = useLibraryStore((s) => s.sessionDirectory);
   const imageList = useLibraryStore((s) => s.imageList);
   // The listed files, not just their number: a rename keeps the count.
-  const listed = useMemo(() => imageList.map((image) => basePath(image.path)).join("\n"), [imageList]);
+  const listed = useMemo(() => imageList.map((image) => basePath(image.path)).join('\n'), [imageList]);
   const cache = useTextMetadataCache();
   const { handleUpdateExif } = useLibraryActions();
   const loaded = cache.loaded && cache.session === session;
@@ -573,14 +599,14 @@ export function StudioMetadataTool() {
           invoke<Record<string, TextMetadata>>(Invokes.SessionSetTextMetadata, {
             directory: session,
             paths,
-            update: { [field]: value },
+            update: { [field]: value }
           }),
-        { kind: 'text' },
+        { kind: 'text' }
       );
       catalogChanged();
       cache.merge(written);
     } catch (e) {
-      notify.error(t("studio.metadata.toasts.saveFailed", { error: String(e) }));
+      notify.error(t('studio.metadata.toasts.saveFailed', { error: String(e) }));
     }
   };
   const exifRecords = useTargetExif(paths);
@@ -592,55 +618,51 @@ export function StudioMetadataTool() {
   const bytes = useFileSize(detailsPath);
   const camera = [exif.Make, exif.Model]
     .filter(Boolean)
-    .join(" ")
-    .replace(/^(\S+) \1 /i, "$1 ");
+    .join(' ')
+    .replace(/^(\S+) \1 /i, '$1 ');
   const dimensions =
     shown?.width && shown.height
       ? `${shown.width} × ${shown.height} · ${((shown.width * shown.height) / 1e6).toFixed(1)} MP`
-      : "";
-  const fileName = detailsPath?.split("?vc=")[0].split(/[\\/]/).pop();
-  const extension = fileName?.includes(".") ? fileName.split(".").pop()?.toUpperCase() : undefined;
+      : '';
+  const fileName = detailsPath?.split('?vc=')[0].split(/[\\/]/).pop();
+  const extension = fileName?.includes('.') ? fileName.split('.').pop()?.toUpperCase() : undefined;
   const details: [string, string, string | undefined][] = [
-    ["file", t("studio.metadata.details.file"), fileName],
+    ['file', t('studio.metadata.details.file'), fileName],
     [
-      "format",
-      t("studio.metadata.details.format"),
-      [extension, detailsPath?.includes("?vc=") && t("studio.metadata.details.virtualCopy")]
-        .filter(Boolean)
-        .join(" · "),
+      'format',
+      t('studio.metadata.details.format'),
+      [extension, detailsPath?.includes('?vc=') && t('studio.metadata.details.virtualCopy')].filter(Boolean).join(' · ')
     ],
-    ["fileSize", t("studio.metadata.details.fileSize"), bytes !== null ? formatBytes(bytes) : undefined],
-    ["camera", t("studio.metadata.details.camera"), camera],
-    ["lens", t("studio.metadata.details.lens"), exif.LensModel],
-    ["exposure", t("studio.metadata.details.exposure"), exposureSummary(exif)],
+    ['fileSize', t('studio.metadata.details.fileSize'), bytes !== null ? formatBytes(bytes) : undefined],
+    ['camera', t('studio.metadata.details.camera'), camera],
+    ['lens', t('studio.metadata.details.lens'), exif.LensModel],
+    ['exposure', t('studio.metadata.details.exposure'), exposureSummary(exif)],
     [
-      "captured",
-      t("studio.metadata.details.captured"),
+      'captured',
+      t('studio.metadata.details.captured'),
       exif.DateTimeOriginal &&
-        captureText({ local: exif.DateTimeOriginal, subsec: exif.SubSecTimeOriginal, offset: exif.OffsetTimeOriginal }),
+        captureText({ local: exif.DateTimeOriginal, subsec: exif.SubSecTimeOriginal, offset: exif.OffsetTimeOriginal })
     ],
-    ["size", t("studio.metadata.details.size"), dimensions],
+    ['size', t('studio.metadata.details.size'), dimensions]
   ];
 
   return (
-    <ToolGroup title="Metadata" label={t("studio.metadata.title")}>
+    <ToolGroup title="Metadata" label={t('studio.metadata.title')}>
       {!paths.length ? (
-        <p className="studio-help">{t("studio.metadata.selectToSee")}</p>
+        <p className="studio-help">{t('studio.metadata.selectToSee')}</p>
       ) : (
         <div className="studio-metadata">
-          {!session && (
-            <p className="studio-help">{t("studio.metadata.outsideSessions")}</p>
-          )}
+          {!session && <p className="studio-help">{t('studio.metadata.outsideSessions')}</p>}
           {session && loaded && registered.length < paths.length && (
-            <p className="studio-help">{t("studio.metadata.notInSession")}</p>
+            <p className="studio-help">{t('studio.metadata.notInSession')}</p>
           )}
           {TEXT_FIELDS.map((field) =>
             session || !EXIF_TEXT_FIELDS[field] ? (
               <MetadataField
                 key={field}
                 label={t(`studio.metadata.fields.${field}`)}
-                value={loaded ? sharedValue(values, field) : ""}
-                multiline={field === "description"}
+                value={loaded ? sharedValue(values, field) : ''}
+                multiline={field === 'description'}
                 disabled={!sessionReady}
                 onCommit={(value) => void save(field, value)}
               />
@@ -648,19 +670,19 @@ export function StudioMetadataTool() {
               <MetadataField
                 key={field}
                 label={t(`studio.metadata.fields.${field}`)}
-                value={exifLoaded ? sharedExifValue(exifRecords, EXIF_TEXT_FIELDS[field]) : ""}
-                multiline={field === "description"}
+                value={exifLoaded ? sharedExifValue(exifRecords, EXIF_TEXT_FIELDS[field]) : ''}
+                multiline={field === 'description'}
                 disabled={!exifLoaded}
                 onCommit={(value) => saveExif(EXIF_TEXT_FIELDS[field], value)}
               />
-            ),
+            )
           )}
           <MetadataField
-            label={t("studio.metadata.fields.comment")}
-            value={exifLoaded ? sharedExifValue(exifRecords, "UserComment") : ""}
+            label={t('studio.metadata.fields.comment')}
+            value={exifLoaded ? sharedExifValue(exifRecords, 'UserComment') : ''}
             multiline
             disabled={!exifLoaded}
-            onCommit={(value) => saveExif("UserComment", value)}
+            onCommit={(value) => saveExif('UserComment', value)}
           />
           <ColorLabelPicker paths={paths} />
           <details className="studio-metadata-iptc">
@@ -672,8 +694,8 @@ export function StudioMetadataTool() {
                   <MetadataField
                     key={field}
                     label={t(`studio.metadata.iptc.fields.${field}`)}
-                    value={loaded ? sharedValue(values, field) : ""}
-                    multiline={IPTC_LIST_FIELDS.has(field) || field === "instructions" || field === "usageTerms"}
+                    value={loaded ? sharedValue(values, field) : ''}
+                    multiline={IPTC_LIST_FIELDS.has(field) || field === 'instructions' || field === 'usageTerms'}
                     disabled={!sessionReady}
                     onCommit={(value) => void save(field, value)}
                   />
@@ -682,7 +704,7 @@ export function StudioMetadataTool() {
             ))}
           </details>
           {paths.length > 1 && (
-            <p className="studio-metadata-note">{t("studio.metadata.appliesTo", { count: paths.length })}</p>
+            <p className="studio-metadata-note">{t('studio.metadata.appliesTo', { count: paths.length })}</p>
           )}
           <dl className="studio-metadata-details">
             {details
@@ -701,7 +723,7 @@ export function StudioMetadataTool() {
               disabled={!sessionReady}
               onClick={() => useCaptureTimeDialog.getState().open(paths)}
             >
-              {t("studio.metadata.shiftCaptureTime")}
+              {t('studio.metadata.shiftCaptureTime')}
             </button>
           )}
         </div>
@@ -720,12 +742,12 @@ export function gpsDegrees(value?: string, ref?: string) {
 
 /** "ExposureBiasValue" → "Exposure Bias Value". */
 export const exifLabel = (key: string) =>
-  key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z])([A-Z][a-z])/g, "$1 $2");
+  key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
 
 /** An OpenStreetMap view around a position. It loads from openstreetmap.org,
  * which then learns the position: only shown on request (PRIVACY.md). */
 export function osmEmbedUrl(lat: number, lon: number) {
-  const box = [lon - 0.01, lat - 0.01, lon + 0.01, lat + 0.01].join("%2C");
+  const box = [lon - 0.01, lat - 0.01, lon + 0.01, lat + 0.01].join('%2C');
   return `https://www.openstreetmap.org/export/embed.html?bbox=${box}&layer=mapnik&marker=${lat}%2C${lon}`;
 }
 
@@ -734,7 +756,7 @@ export function osmEmbedUrl(lat: number, lon: number) {
  * a map when asked for. */
 export function StudioExif() {
   const { t } = useTranslation();
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState('');
   const { path, exif } = useShownPhoto();
   // The map asked for, per photograph (it never loads by itself).
   const [mapFor, setMapFor] = useState<string | null>(null);
@@ -749,48 +771,44 @@ export function StudioExif() {
   return (
     <ToolGroup title="EXIF" open={false}>
       {!path || !Object.keys(exif).length ? (
-        <p className="studio-help">{path ? t("studio.metadata.exif.noData") : t("studio.metadata.exif.selectPhoto")}</p>
+        <p className="studio-help">{path ? t('studio.metadata.exif.noData') : t('studio.metadata.exif.selectPhoto')}</p>
       ) : (
         <>
           {lat !== null && lon !== null && (
             <div className="studio-exif-gps">
               <span>
                 {lat.toFixed(6)}, {lon.toFixed(6)}
-                {exif.GPSAltitude ? ` · ${exif.GPSAltitude}` : ""}
+                {exif.GPSAltitude ? ` · ${exif.GPSAltitude}` : ''}
               </span>
               <button
-                title={t("studio.metadata.exif.copyPosition")}
+                title={t('studio.metadata.exif.copyPosition')}
                 onClick={() => void navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lon.toFixed(6)}`)}
               >
-                {t("studio.metadata.exif.copy")}
+                {t('studio.metadata.exif.copy')}
               </button>
               {mapFor !== path && (
-                <button title={t("studio.metadata.exif.mapHint")} onClick={() => setMapFor(path ?? null)}>
-                  {t("studio.metadata.exif.showOnMap")}
+                <button title={t('studio.metadata.exif.mapHint')} onClick={() => setMapFor(path ?? null)}>
+                  {t('studio.metadata.exif.showOnMap')}
                 </button>
               )}
             </div>
           )}
           {lat !== null && lon !== null && mapFor === path && (
             <div className="studio-exif-map">
-              <iframe
-                title={t("studio.metadata.exif.mapFrame")}
-                src={osmEmbedUrl(lat, lon)}
-                loading="lazy"
-              />
+              <iframe title={t('studio.metadata.exif.mapFrame')} src={osmEmbedUrl(lat, lon)} loading="lazy" />
               <button
                 onClick={() =>
                   void openInBrowser(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}`)
                 }
               >
-                {t("studio.metadata.exif.openInBrowser")}
+                {t('studio.metadata.exif.openInBrowser')}
               </button>
             </div>
           )}
           <input
             className="studio-metadata-input studio-preset-search"
-            aria-label={t("studio.metadata.exif.findAria")}
-            placeholder={t("studio.metadata.exif.findPlaceholder")}
+            aria-label={t('studio.metadata.exif.findAria')}
+            placeholder={t('studio.metadata.exif.findPlaceholder')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={(e) => e.stopPropagation()}

@@ -6,7 +6,7 @@ const line = (type: 'vertical' | 'horizontal', id: string): GuideLine => ({
   id,
   type,
   p1: { x: 0, y: 0 },
-  p2: { x: 1, y: 1 },
+  p2: { x: 1, y: 1 }
 });
 
 describe('guided upright guides', () => {

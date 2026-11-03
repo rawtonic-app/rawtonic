@@ -5,7 +5,7 @@ import {
   liveStrokeFrame,
   registerLiveMaskRenderer,
   requestLiveMaskRender,
-  withLiveMaskContainer,
+  withLiveMaskContainer
 } from './liveMaskRender';
 
 const container = (id: string, lines: number): MaskContainer =>
@@ -16,7 +16,7 @@ const container = (id: string, lines: number): MaskContainer =>
     invert: false,
     opacity: 100,
     adjustments: {},
-    subMasks: [{ id: `${id}-brush`, type: 'brush', parameters: { lines: Array(lines).fill({}) } }],
+    subMasks: [{ id: `${id}-brush`, type: 'brush', parameters: { lines: Array(lines).fill({}) } }]
   }) as unknown as MaskContainer;
 
 it('replaces only the matching layer and keeps the committed adjustments intact', () => {
@@ -48,11 +48,11 @@ it('sends a live stroke with the recipe once, then only its new points', () => {
   forgetLiveStroke();
   expect(liveStrokeFrame(stroke(1, 3))).toEqual({
     withRecipe: true,
-    args: { id: 1, maskId: 'm', subMaskId: 's', from: 3, points: [] },
+    args: { id: 1, maskId: 'm', subMaskId: 's', from: 3, points: [] }
   });
   expect(liveStrokeFrame(stroke(1, 5))).toEqual({
     withRecipe: false,
-    args: { id: 1, maskId: 'm', subMaskId: 's', from: 3, points: points(5).slice(3) },
+    args: { id: 1, maskId: 'm', subMaskId: 's', from: 3, points: points(5).slice(3) }
   });
   // A frame dropped before sending changes nothing: the next one carries its points.
   expect(liveStrokeFrame(stroke(1, 9)).args).toMatchObject({ from: 5, points: points(9).slice(5) });

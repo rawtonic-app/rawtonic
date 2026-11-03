@@ -79,7 +79,7 @@ export default function CullingModal({
   imagePaths,
   thumbnails,
   onApply,
-  onError,
+  onError
 }: CullingModalProps) {
   useEscapeToClose(isOpen, onClose);
   const { t } = useTranslation();
@@ -91,7 +91,7 @@ export default function CullingModal({
     groupSimilar: true,
     similarityThreshold: 28,
     filterBlurry: true,
-    blurThreshold: 100.0,
+    blurThreshold: 100.0
   });
 
   const [selectedRejects, setSelectedRejects] = useState<Set<string>>(new Set());
@@ -103,12 +103,12 @@ export default function CullingModal({
       {
         value: 'reject' as const,
         label: t('modals.culling.actionReject'),
-        icon: <Tag size={16} className="text-red-500" />,
+        icon: <Tag size={16} className="text-red-500" />
       },
       { value: 'rate_zero' as const, label: t('modals.culling.actionRateZero'), icon: <Star size={16} /> },
-      { value: 'delete' as const, label: t('modals.culling.actionDelete'), icon: <Trash2 size={16} /> },
+      { value: 'delete' as const, label: t('modals.culling.actionDelete'), icon: <Trash2 size={16} /> }
     ],
-    [t],
+    [t]
   );
 
   useEffect(() => {

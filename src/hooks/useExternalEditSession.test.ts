@@ -17,7 +17,7 @@ const job = (id: string, state: ExportJob['state']): ExportJob => ({
   total: 1,
   done: state === 'done' ? 1 : 0,
   failed: state === 'failed' ? 1 : 0,
-  failures: [],
+  failures: []
 });
 
 beforeEach(() => {
@@ -26,7 +26,7 @@ beforeEach(() => {
   invoke.mockResolvedValue('mine');
   useProcessStore.setState({
     exportQueue: [],
-    externalEditSession: { source: '/a.dng', output: '/out/a.tif', format: 'tif', jpegQuality: 90 } as never,
+    externalEditSession: { source: '/a.dng', output: '/out/a.tif', format: 'tif', jpegQuality: 90 } as never
   });
   useEditorStore.setState({ selectedImage: { path: '/a.dng', isReady: true } as never });
 });

@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
-import CachedThumbnail from "../ui/CachedThumbnail";
-import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import CachedThumbnail from '../ui/CachedThumbnail';
+import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
 import {
   ArrowDownAZ,
   ArrowDownToLine,
@@ -21,46 +21,46 @@ import {
   RefreshCw,
   Star,
   StarOff,
-  Trash2,
-} from "lucide-react";
-import { notify } from "../../activity/notify";
+  Trash2
+} from 'lucide-react';
+import { notify } from '../../activity/notify';
 import {
   OFFLINE_CHANGED,
   OFFLINE_COUNTED,
   offlineBelow,
   offlineFolders,
   offlinePhotographs,
-  type OfflineFolder,
-} from "../../utils/offline";
-import { useContextMenu } from "../../context/ContextMenuContext";
-import { requestFolderSync } from "../../utils/folderSync";
+  type OfflineFolder
+} from '../../utils/offline';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { requestFolderSync } from '../../utils/folderSync';
 import {
   Invokes,
   OPTION_SEPARATOR,
   SortDirection,
   type FolderTreeSort,
   type OfflineEntry,
-  type Option,
-} from "../ui/AppProperties";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useProcessStore } from "../../store/useProcessStore";
-import { useLibraryActions } from "../../hooks/useLibraryActions";
-import { ToolGroup } from "./StudioDevelop";
-import { ToolColumn } from "./toolLayout";
-import { StudioExif, StudioKeywords, StudioMetadataTool } from "./StudioMetadata";
-import StudioAlbums, { type SelectAlbum } from "./StudioAlbums";
+  type Option
+} from '../ui/AppProperties';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useUIStore } from '../../store/useUIStore';
+import { useProcessStore } from '../../store/useProcessStore';
+import { useLibraryActions } from '../../hooks/useLibraryActions';
+import { ToolGroup } from './StudioDevelop';
+import { ToolColumn } from './toolLayout';
+import { StudioExif, StudioKeywords, StudioMetadataTool } from './StudioMetadata';
+import StudioAlbums, { type SelectAlbum } from './StudioAlbums';
 import {
   DEFAULT_FOLDER_TREE_SORT,
   filterFolderTree,
   sortFolderTree,
   toggleFolder,
-  type FolderTree,
-} from "../../utils/folderTree";
-import { FOLDER_ROLES as ROLE_FOLDERS, isInternalSessionFolder, type FolderRole } from "../../utils/sessionFolders";
-import { folderAcceptsDrop, requestIngestInto } from "../session/fileDrop";
+  type FolderTree
+} from '../../utils/folderTree';
+import { FOLDER_ROLES as ROLE_FOLDERS, isInternalSessionFolder, type FolderRole } from '../../utils/sessionFolders';
+import { folderAcceptsDrop, requestIngestInto } from '../session/fileDrop';
 import {
   catalogTreePaths,
   formatSpace,
@@ -69,8 +69,8 @@ import {
   volumeSections,
   withMissingFolders,
   type CatalogFoldersView,
-  type VolumeFolders,
-} from "../../utils/catalogFolders";
+  type VolumeFolders
+} from '../../utils/catalogFolders';
 
 /** File operations on folders: journaled and undoable where they move or
  * trash (useFileOperations); the library list itself never touches disk. */
@@ -87,7 +87,7 @@ export interface FolderActions {
   /** Takes a top-level folder off the library list; nothing on disk changes. */
   removeFromLibrary?(folder: string): void;
   /** Pastes the photographs copied with ⌘C into the folder. */
-  paste?(mode: "copy" | "move", folder: string): void;
+  paste?(mode: 'copy' | 'move', folder: string): void;
   /** Asks where a folder gone from disk is now and relinks its photographs
    * (Lightroom's Find Missing Folder). */
   locateFolder?(folder: string): void;
@@ -97,12 +97,12 @@ export interface FolderActions {
 }
 
 /** The session's own folders (Capture One's Capture, Selects, Output, Trash). */
-const SESSION_FOLDERS = new Set(["Capture", "Selects", "Output", "Trash"]);
+const SESSION_FOLDERS = new Set(['Capture', 'Selects', 'Output', 'Trash']);
 
 /** Typed text must be this long before it filters (one letter matches nearly everything). */
 const MIN_FILTER = 2;
 
-const SORT_KEYS: FolderTreeSort["key"][] = ["name", "created", "modified", "imageCount"];
+const SORT_KEYS: FolderTreeSort['key'][] = ['name', 'created', 'modified', 'imageCount'];
 
 /** The trees filtered by folder name (when `filter` is set) and sorted. */
 function shapeTrees(list: FolderTree[], filter: string, sort: FolderTreeSort) {
@@ -132,15 +132,14 @@ function FolderRow({
   node,
   depth = 0,
   parent,
-  context,
+  context
 }: {
   node: FolderTree;
   depth?: number;
   parent?: string;
   context: RowContext;
 }) {
-  const { current, onNavigate, sessionRoot, actions, allOpen, showCounts, offline, missingTitle, catalog } =
-    context;
+  const { current, onNavigate, sessionRoot, actions, allOpen, showCounts, offline, missingTitle, catalog } = context;
   // Photographs can be imported into it (dropped from Finder, or its menu's
   // "Import into this folder…", as Lightroom's).
   const importable = !node.missing && folderAcceptsDrop(node.path, sessionRoot, catalog);
@@ -150,14 +149,12 @@ function FolderRow({
   const missing = !!node.missing;
   const { showContextMenu } = useContextMenu();
   const { handleTogglePinFolder, refreshAllFolderTrees } = useLibraryActions();
-  const isMac = useSettingsStore((s) => s.osPlatform === "macos");
+  const isMac = useSettingsStore((s) => s.osPlatform === 'macos');
   const pinned = useSettingsStore((s) => s.appSettings?.pinnedFolders?.includes(node.path) ?? false);
   const expanded = useLibraryStore((s) => s.expandedFolders.has(node.path));
   const path = node.path;
-  const children = (node.children ?? []).filter(
-    (child) => !isInternalSessionFolder(path, child.name, sessionRoot),
-  );
-  const isSessionTrash = !catalog && !!sessionRoot && parent === sessionRoot && node.name === "Trash";
+  const children = (node.children ?? []).filter((child) => !isInternalSessionFolder(path, child.name, sessionRoot));
+  const isSessionTrash = !catalog && !!sessionRoot && parent === sessionRoot && node.name === 'Trash';
   const open = allOpen || expanded;
   const canExpand = children.length > 0 || !!node.hasSubdirs;
   const menu = (e: React.MouseEvent) => {
@@ -173,23 +170,24 @@ function FolderRow({
     // own folders, G40), the session folder itself is none, and the backend
     // (`set_session_folder`) refuses anything else, saying why. Without an
     // open library there is no session to give a role folder: no items.
-    const roleRefused = catalog ? "catalog" : path === sessionRoot ? "sessionRoot" : null;
+    const roleRefused = catalog ? 'catalog' : path === sessionRoot ? 'sessionRoot' : null;
     const roleActions = sessionRoot ? actions?.setRoleFolder : undefined;
-    const roleItems: Option[] = roleActions && !roleRefused
-      ? ROLE_FOLDERS.map((role) => {
-          const isRole = (useLibraryStore.getState().sessionFolders ?? []).some(
-            (folder) => folder.role === role && folder.path === path,
-          );
-          return {
-            label: t(`studio.library.folders.setRole.${role}` as const),
-            icon: isRole ? Check : undefined,
-            disabled: isRole,
-            onClick: () => roleActions(role, path),
-          };
-        })
-      : roleActions && roleRefused
-        ? [{ label: t(`studio.library.folders.roleRefused.${roleRefused}` as const), disabled: true }]
-        : [];
+    const roleItems: Option[] =
+      roleActions && !roleRefused
+        ? ROLE_FOLDERS.map((role) => {
+            const isRole = (useLibraryStore.getState().sessionFolders ?? []).some(
+              (folder) => folder.role === role && folder.path === path
+            );
+            return {
+              label: t(`studio.library.folders.setRole.${role}` as const),
+              icon: isRole ? Check : undefined,
+              disabled: isRole,
+              onClick: () => roleActions(role, path)
+            };
+          })
+        : roleActions && roleRefused
+          ? [{ label: t(`studio.library.folders.roleRefused.${roleRefused}` as const), disabled: true }]
+          : [];
     if (roleItems.length) roleItems.push({ type: OPTION_SEPARATOR });
     if (missing) {
       // Nothing on disk to move, rename or show; it can be located. Its
@@ -199,21 +197,23 @@ function FolderRow({
       showContextMenu(e.clientX, e.clientY, [
         ...roleItems,
         ...(actions?.locateFolder
-          ? [{ label: t("offline.menu.locateFolder"), icon: FolderSearch, onClick: () => actions.locateFolder?.(path) }]
+          ? [{ label: t('offline.menu.locateFolder'), icon: FolderSearch, onClick: () => actions.locateFolder?.(path) }]
           : []),
-        ...(syncable ? [{ label: t("session.sync.menu"), icon: RefreshCcw, onClick: () => requestFolderSync(path) }] : []),
+        ...(syncable
+          ? [{ label: t('session.sync.menu'), icon: RefreshCcw, onClick: () => requestFolderSync(path) }]
+          : []),
         {
-          label: t("studio.library.folders.menu.refresh"),
+          label: t('studio.library.folders.menu.refresh'),
           icon: RefreshCw,
-          onClick: () => void refreshAllFolderTrees(),
-        },
+          onClick: () => void refreshAllFolderTrees()
+        }
       ]);
       return;
     }
     const { multiSelectedPaths, rootPaths, sessionFolders } = useLibraryStore.getState();
     const { copiedFilePaths } = useProcessStore.getState();
-    const parentOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")));
-    const toMove = multiSelectedPaths.filter((p) => parentOf(p.split("?vc=")[0]) !== path);
+    const parentOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')));
+    const toMove = multiSelectedPaths.filter((p) => parentOf(p.split('?vc=')[0]) !== path);
     const isRoot = rootPaths.includes(path);
     // The session itself, its standard folders and library roots stay.
     const fixed =
@@ -222,17 +222,17 @@ function FolderRow({
       (!!sessionRoot && parent === sessionRoot && SESSION_FOLDERS.has(node.name)) ||
       // The session's Capture, Selects and Output, wherever they are set (G38).
       sessionFolders.some((folder) => folder.path === path);
-    const copied = new Set(copiedFilePaths.map((p) => p.split("?vc=")[0])).size;
+    const copied = new Set(copiedFilePaths.map((p) => p.split('?vc=')[0])).size;
     const { setUI } = useUIStore.getState();
     const fileItems: Option[] = actions
       ? [
           ...(toMove.length
             ? [
                 {
-                  label: t("studio.library.folders.menu.moveSelectedHere", { count: toMove.length }),
+                  label: t('studio.library.folders.menu.moveSelectedHere', { count: toMove.length }),
                   icon: FolderInput,
-                  onClick: () => actions.moveHere(toMove, path),
-                },
+                  onClick: () => actions.moveHere(toMove, path)
+                }
               ]
             : []),
           // Photographs copied with ⌘C: copied (copy_files refuses names that
@@ -240,76 +240,76 @@ function FolderRow({
           ...(actions.paste && copied
             ? [
                 {
-                  label: t("studio.library.folders.menu.pasteCopiesHere", { count: copied }),
+                  label: t('studio.library.folders.menu.pasteCopiesHere', { count: copied }),
                   icon: ClipboardPaste,
-                  onClick: () => actions.paste?.("copy", path),
+                  onClick: () => actions.paste?.('copy', path)
                 },
                 {
-                  label: t("studio.library.folders.menu.moveCopiedHere", { count: copied }),
+                  label: t('studio.library.folders.menu.moveCopiedHere', { count: copied }),
                   icon: FolderInput,
-                  onClick: () => actions.paste?.("move", path),
-                },
+                  onClick: () => actions.paste?.('move', path)
+                }
               ]
             : []),
           {
-            label: t("studio.library.folders.menu.newFolder"),
+            label: t('studio.library.folders.menu.newFolder'),
             icon: FolderPlus,
-            onClick: () => setUI({ folderActionTarget: path, isCreateFolderModalOpen: true }),
+            onClick: () => setUI({ folderActionTarget: path, isCreateFolderModalOpen: true })
           },
           {
-            label: t("studio.library.folders.menu.renameFolder"),
+            label: t('studio.library.folders.menu.renameFolder'),
             icon: FileEdit,
             disabled: fixed,
-            onClick: () => setUI({ folderActionTarget: path, isRenameFolderModalOpen: true }),
+            onClick: () => setUI({ folderActionTarget: path, isRenameFolderModalOpen: true })
           },
           ...(actions.moveFolder
             ? [
                 {
-                  label: t("studio.library.folders.menu.moveFolder"),
+                  label: t('studio.library.folders.menu.moveFolder'),
                   icon: FolderInput,
                   disabled: fixed,
-                  onClick: () => actions.moveFolder?.(path),
-                },
+                  onClick: () => actions.moveFolder?.(path)
+                }
               ]
             : []),
           {
-            label: t("studio.library.folders.menu.trashFolder"),
+            label: t('studio.library.folders.menu.trashFolder'),
             icon: Trash2,
             disabled: fixed,
             isDestructive: true,
-            onClick: () => actions.trash(path),
+            onClick: () => actions.trash(path)
           },
           // The session's own Trash folder (Capture One's session Trash).
           ...(actions.emptyTrash && isSessionTrash
             ? [
                 {
-                  label: t("studio.library.trash.menu"),
+                  label: t('studio.library.trash.menu'),
                   icon: Trash2,
                   isDestructive: true,
-                  onClick: () => actions.emptyTrash?.(),
-                },
+                  onClick: () => actions.emptyTrash?.()
+                }
               ]
             : []),
-          { type: OPTION_SEPARATOR },
+          { type: OPTION_SEPARATOR }
         ]
       : [];
     showContextMenu(e.clientX, e.clientY, [
       ...(importable
         ? [
             {
-              label: t("studio.library.folders.menu.importHere"),
+              label: t('studio.library.folders.menu.importHere'),
               icon: ArrowDownToLine,
-              onClick: () => requestIngestInto(path),
-            },
+              onClick: () => requestIngestInto(path)
+            }
           ]
         : []),
       ...(syncable
         ? [
             {
-              label: t("session.sync.menu"),
+              label: t('session.sync.menu'),
               icon: RefreshCcw,
-              onClick: () => requestFolderSync(path),
-            },
+              onClick: () => requestFolderSync(path)
+            }
           ]
         : []),
       ...(importable || syncable || roleItems.length ? [{ type: OPTION_SEPARATOR }] : []),
@@ -317,54 +317,54 @@ function FolderRow({
       ...fileItems,
       {
         label: pinned
-          ? t("studio.library.folders.menu.removeFromFavorites")
-          : t("studio.library.folders.menu.addToFavorites"),
+          ? t('studio.library.folders.menu.removeFromFavorites')
+          : t('studio.library.folders.menu.addToFavorites'),
         icon: pinned ? StarOff : Star,
-        onClick: () => void handleTogglePinFolder(path),
+        onClick: () => void handleTogglePinFolder(path)
       },
       ...(actions?.removeFromLibrary && isRoot && path !== sessionRoot
         ? [
             {
               // Only the list changes: the folder and its photographs stay on disk.
-              label: t("studio.library.folders.menu.removeFromLibrary"),
+              label: t('studio.library.folders.menu.removeFromLibrary'),
               icon: FolderMinus,
-              onClick: () => actions.removeFromLibrary?.(path),
-            },
+              onClick: () => actions.removeFromLibrary?.(path)
+            }
           ]
         : []),
       { type: OPTION_SEPARATOR },
       {
         label: isMac
-          ? t("studio.library.folders.menu.showInFinder")
-          : t("studio.library.folders.menu.showInFileManager"),
+          ? t('studio.library.folders.menu.showInFinder')
+          : t('studio.library.folders.menu.showInFileManager'),
         icon: FolderSearch,
         onClick: () =>
           void invoke(Invokes.ShowInFinder, { path }).catch((err) =>
-            notify.error(t("studio.library.folders.toasts.showFailed", { error: String(err) })),
-          ),
+            notify.error(t('studio.library.folders.toasts.showFailed', { error: String(err) }))
+          )
       },
       {
-        label: t("studio.library.folders.menu.refresh"),
+        label: t('studio.library.folders.menu.refresh'),
         icon: RefreshCw,
-        onClick: () => void refreshAllFolderTrees(),
-      },
+        onClick: () => void refreshAllFolderTrees()
+      }
     ]);
   };
   return (
     <>
       <div
-        className={`studio-folder ${current === path ? "is-selected" : ""} ${missing ? "is-offline" : ""}`}
+        className={`studio-folder ${current === path ? 'is-selected' : ''} ${missing ? 'is-offline' : ''}`}
         style={{ paddingLeft: 10 + depth * 12 }}
         // Photographs dragged from Finder onto the folder are imported into it.
         data-folder-drop={importable ? path : undefined}
         onContextMenu={menu}
       >
         <button
-          className={open && canExpand ? "is-expanded" : ""}
+          className={open && canExpand ? 'is-expanded' : ''}
           aria-label={
             open
-              ? t("studio.library.folders.collapse", { name: node.name })
-              : t("studio.library.folders.expand", { name: node.name })
+              ? t('studio.library.folders.collapse', { name: node.name })
+              : t('studio.library.folders.expand', { name: node.name })
           }
           aria-expanded={canExpand ? open : undefined}
           disabled={!canExpand || allOpen}
@@ -373,11 +373,19 @@ function FolderRow({
           <ChevronRight size={11} />
         </button>
         <button onClick={() => onNavigate(path)} title={missing ? missingTitle(path) : path}>
-          {isSessionTrash ? <Trash2 size={14} /> : missing ? <FolderX size={14} /> : current === path ? <FolderOpen size={14} /> : <Folder size={14} />}
+          {isSessionTrash ? (
+            <Trash2 size={14} />
+          ) : missing ? (
+            <FolderX size={14} />
+          ) : current === path ? (
+            <FolderOpen size={14} />
+          ) : (
+            <Folder size={14} />
+          )}
           <span>{node.label || node.name || path.split(/[\\/]/).pop()}</span>
           {showCounts && (node.imageCount ?? 0) > 0 && <small>{node.imageCount}</small>}
           {missingHere > 0 && (
-            <small className="studio-folder-offline" title={t("offline.folders.offlineInside", { count: missingHere })}>
+            <small className="studio-folder-offline" title={t('offline.folders.offlineInside', { count: missingHere })}>
               {`?${missingHere}`}
             </small>
           )}
@@ -396,7 +404,7 @@ function FolderRow({
 function VolumeHeader({
   volume,
   collapsed,
-  onToggle,
+  onToggle
 }: {
   volume: VolumeFolders;
   collapsed: boolean;
@@ -408,21 +416,21 @@ function VolumeHeader({
     volume.online && volume.free_bytes !== null && !!volume.total_bytes && volume.free_bytes / volume.total_bytes < 0.1;
   const title = volume.online
     ? space
-      ? t("offline.folders.volumeSpaceTitle", { name: volume.name, mount: volume.mount_point, space })
-      : t("offline.folders.volumeTitle", { name: volume.name, mount: volume.mount_point })
-    : t("offline.folders.volumeOfflineTitle", { name: volume.name });
+      ? t('offline.folders.volumeSpaceTitle', { name: volume.name, mount: volume.mount_point, space })
+      : t('offline.folders.volumeTitle', { name: volume.name, mount: volume.mount_point })
+    : t('offline.folders.volumeOfflineTitle', { name: volume.name });
   return (
     <div
-      className={`studio-folder studio-volume ${volume.online ? "" : "is-offline"}`}
+      className={`studio-folder studio-volume ${volume.online ? '' : 'is-offline'}`}
       data-volume={volume.key}
       data-online={volume.online}
     >
       <button
-        className={collapsed ? "" : "is-expanded"}
+        className={collapsed ? '' : 'is-expanded'}
         aria-label={
           collapsed
-            ? t("studio.library.folders.expand", { name: volume.name })
-            : t("studio.library.folders.collapse", { name: volume.name })
+            ? t('studio.library.folders.expand', { name: volume.name })
+            : t('studio.library.folders.collapse', { name: volume.name })
         }
         aria-expanded={!collapsed}
         onClick={onToggle}
@@ -431,13 +439,13 @@ function VolumeHeader({
       </button>
       <button onClick={onToggle} title={title}>
         <HardDrive size={14} />
-        <span>{volume.name}{volume.kind === "network" && <> · {t("offline.folders.network")}</>}</span>
-        <i
-          className={`studio-volume-state ${volume.online ? (low ? "is-low" : "is-online") : ""}`}
-          aria-hidden
-        />
-        <small className={volume.online ? "" : "studio-folder-offline"}>
-          {volume.online ? space ?? "" : t("offline.folders.volumeOffline")}
+        <span>
+          {volume.name}
+          {volume.kind === 'network' && <> · {t('offline.folders.network')}</>}
+        </span>
+        <i className={`studio-volume-state ${volume.online ? (low ? 'is-low' : 'is-online') : ''}`} aria-hidden />
+        <small className={volume.online ? '' : 'studio-folder-offline'}>
+          {volume.online ? (space ?? '') : t('offline.folders.volumeOffline')}
         </small>
       </button>
     </div>
@@ -451,13 +459,7 @@ function VolumeHeader({
  * its folders under the drive they are on, connected or not, including the
  * folders its photographs were followed or relinked to; folders gone from
  * disk stay at their place with a missing marker (utils/catalogFolders.ts). */
-export function StudioFolders({
-  onNavigate,
-  actions,
-}: {
-  onNavigate(path: string): void;
-  actions?: FolderActions;
-}) {
+export function StudioFolders({ onNavigate, actions }: { onNavigate(path: string): void; actions?: FolderActions }) {
   const trees = useLibraryStore((s) => s.folderTrees);
   const pinnedTrees = useLibraryStore((s) => s.pinnedFolderTrees);
   const catalogView = useLibraryStore((s) => s.catalogFolders);
@@ -469,7 +471,7 @@ export function StudioFolders({
   const countsWanted = useSettingsStore((s) => s.appSettings?.enableFolderImageCounts ?? false);
   const sort = useSettingsStore((s) => s.appSettings?.folderTreeSort) ?? DEFAULT_FOLDER_TREE_SORT;
   const { showContextMenu } = useContextMenu();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
   const [collapsedVolumes, setCollapsedVolumes] = useState<Set<string>>(() => new Set());
   const filter = query.trim();
   const filtering = filter.length >= MIN_FILTER;
@@ -479,7 +481,7 @@ export function StudioFolders({
   // disconnected) are listed at their place (Lightroom's "?" folders). A
   // catalog's folders come by drive.
   const [offline, setOffline] = useState<OfflineFolder[]>([]);
-  const rootsKey = rootPaths.join("\n");
+  const rootsKey = rootPaths.join('\n');
   useEffect(() => {
     const { setLibrary } = useLibraryStore.getState();
     if (!sessionRoot) {
@@ -491,13 +493,13 @@ export function StudioFolders({
     const loadFolders = () =>
       invoke<CatalogFoldersView>(Invokes.CatalogFolders, {
         directory: sessionRoot,
-        roots: rootsKey ? rootsKey.split("\n") : [],
+        roots: rootsKey ? rootsKey.split('\n') : []
       })
         .then((view) => {
           if (live) setLibrary({ catalogFolders: view ?? null });
         })
         .catch((error) => {
-          if (live) notify.error(t("studio.library.folders.toasts.loadFailed", { error: String(error) }));
+          if (live) notify.error(t('studio.library.folders.toasts.loadFailed', { error: String(error) }));
         });
     // The folders after the check: it updates which photographs are missing.
     const load = () =>
@@ -528,7 +530,7 @@ export function StudioFolders({
   // Disk trees of top-level catalog folders that are not library roots
   // (photographs found, followed or relinked outside the added folders).
   const catalogPaths = useMemo(() => catalogTreePaths(catalogView, rootPaths), [catalogView, rootPaths]);
-  const catalogKey = catalogPaths.join("\n");
+  const catalogKey = catalogPaths.join('\n');
   useEffect(() => {
     const { setLibrary } = useLibraryStore.getState();
     if (!catalogKey) {
@@ -537,10 +539,10 @@ export function StudioFolders({
     }
     let live = true;
     invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
-      paths: catalogKey.split("\n"),
+      paths: catalogKey.split('\n'),
       expandedFolders: [...useLibraryStore.getState().expandedFolders],
       // Catalog folders are counted, as the library's are.
-      showImageCounts: true,
+      showImageCounts: true
     })
       .then((loaded) => {
         if (live) setLibrary({ catalogTrees: loaded ?? [] });
@@ -555,7 +557,7 @@ export function StudioFolders({
   const missing = useMemo(() => missingFolders(catalogView, offline), [catalogView, offline]);
   const sections = useMemo(
     () => volumeSections(catalogView, [...trees, ...catalogTrees], offline),
-    [catalogView, trees, catalogTrees, offline],
+    [catalogView, trees, catalogTrees, offline]
   );
   // A session's (or a plain folder list's) trees with its missing folders
   // at their place.
@@ -574,34 +576,35 @@ export function StudioFolders({
   }, [catalog, sections, libraryTrees, pinnedTrees]);
   // Offline photographs' folders outside every listed folder.
   const unlisted = offline.filter(
-    (folder) => !listed.has(folder.path) && ![...listed].some((path) => isBelow(folder.path, path)),
+    (folder) => !listed.has(folder.path) && ![...listed].some((path) => isBelow(folder.path, path))
   );
 
   const shownTrees = useMemo(
-    () => shapeTrees(libraryTrees, filtering ? filter : "", sort),
-    [libraryTrees, filter, filtering, sort],
+    () => shapeTrees(libraryTrees, filtering ? filter : '', sort),
+    [libraryTrees, filter, filtering, sort]
   );
   const shownPinned = useMemo(
-    () => shapeTrees(pinnedTrees, filtering ? filter : "", sort),
-    [pinnedTrees, filter, filtering, sort],
+    () => shapeTrees(pinnedTrees, filtering ? filter : '', sort),
+    [pinnedTrees, filter, filtering, sort]
   );
   const shownSections = useMemo(
     () =>
       sections
-        .map((section) => ({ ...section, trees: shapeTrees(section.trees, filtering ? filter : "", sort) }))
+        .map((section) => ({ ...section, trees: shapeTrees(section.trees, filtering ? filter : '', sort) }))
         .filter((section) => !filtering || section.trees.length > 0),
-    [sections, filter, filtering, sort],
+    [sections, filter, filtering, sort]
   );
 
   const missingTitle = (path: string) => {
-    const volume = sections.find((section) =>
-      section.volume.folders.some((folder) => folder.path === path || isBelow(path, folder.path)) ||
-      section.volume.roots.some((root) => root === path || isBelow(path, root)),
+    const volume = sections.find(
+      (section) =>
+        section.volume.folders.some((folder) => folder.path === path || isBelow(path, folder.path)) ||
+        section.volume.roots.some((root) => root === path || isBelow(path, root))
     )?.volume;
     const offlineVolume = volume && !volume.online ? volume.name : offline.find((f) => f.path === path)?.volume;
     return offlineVolume
-      ? t("offline.folders.onVolume", { path, volume: offlineVolume })
-      : t("offline.folders.missing", { path });
+      ? t('offline.folders.onVolume', { path, volume: offlineVolume })
+      : t('offline.folders.missing', { path });
   };
   const context: RowContext = {
     current,
@@ -614,7 +617,7 @@ export function StudioFolders({
     showCounts: countsWanted || !!sessionRoot,
     offline,
     missingTitle,
-    catalog,
+    catalog
   };
   const rows = (list: FolderTree[], section: string) =>
     list.map((tree) => <FolderRow key={`${section}-${tree.path}`} node={tree} context={context} />);
@@ -635,19 +638,19 @@ export function StudioFolders({
       ...SORT_KEYS.map((key) => ({
         label: t(`studio.library.folders.sort.${key}`),
         icon: sort.key === key ? Check : undefined,
-        onClick: () => setSort({ key, order: sort.order }),
+        onClick: () => setSort({ key, order: sort.order })
       })),
       { type: OPTION_SEPARATOR },
       {
-        label: t("studio.library.folders.sort.ascending"),
+        label: t('studio.library.folders.sort.ascending'),
         icon: sort.order === SortDirection.Ascending ? Check : undefined,
-        onClick: () => setSort({ ...sort, order: SortDirection.Ascending }),
+        onClick: () => setSort({ ...sort, order: SortDirection.Ascending })
       },
       {
-        label: t("studio.library.folders.sort.descending"),
+        label: t('studio.library.folders.sort.descending'),
         icon: sort.order === SortDirection.Descending ? Check : undefined,
-        onClick: () => setSort({ ...sort, order: SortDirection.Descending }),
-      },
+        onClick: () => setSort({ ...sort, order: SortDirection.Descending })
+      }
     ]);
   const nothing = !trees.length && !pinnedTrees.length && !(catalog && sections.length);
   const nothingShown = catalog ? !shownSections.length : !shownTrees.length;
@@ -655,13 +658,13 @@ export function StudioFolders({
   return (
     <ToolGroup
       title="Folders"
-      label={t("studio.library.folders.title")}
+      label={t('studio.library.folders.title')}
       actions={
         <>
           <button
             type="button"
-            title={t("studio.library.folders.sortFolders")}
-            aria-label={t("studio.library.folders.sortFolders")}
+            title={t('studio.library.folders.sortFolders')}
+            aria-label={t('studio.library.folders.sortFolders')}
             onClick={(e) => {
               e.preventDefault();
               const rect = e.currentTarget.getBoundingClientRect();
@@ -673,8 +676,8 @@ export function StudioFolders({
           {actions?.addFolder && (
             <button
               type="button"
-              title={t("studio.library.folders.addFolderTitle")}
-              aria-label={t("studio.library.folders.addFolder")}
+              title={t('studio.library.folders.addFolderTitle')}
+              aria-label={t('studio.library.folders.addFolder')}
               onClick={(e) => {
                 e.preventDefault();
                 actions.addFolder?.();
@@ -689,22 +692,26 @@ export function StudioFolders({
       {!nothing && (
         <input
           className="studio-metadata-input studio-preset-search"
-          aria-label={t("studio.library.folders.find")}
-          placeholder={t("studio.library.folders.find")}
+          aria-label={t('studio.library.folders.find')}
+          placeholder={t('studio.library.folders.find')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             e.stopPropagation();
-            if (e.key === "Escape") setQuery("");
+            if (e.key === 'Escape') setQuery('');
           }}
         />
       )}
       <div className="studio-folder-tree">
         {shownPinned.length > 0 && (
           <>
-            <div className="studio-folder-section">{t("studio.library.folders.favorites")}</div>
-            {rows(shownPinned, "pinned")}
-            {!catalog && <div className="studio-folder-section">{sessionRoot ? t("studio.library.folders.session") : t("studio.library.folders.library")}</div>}
+            <div className="studio-folder-section">{t('studio.library.folders.favorites')}</div>
+            {rows(shownPinned, 'pinned')}
+            {!catalog && (
+              <div className="studio-folder-section">
+                {sessionRoot ? t('studio.library.folders.session') : t('studio.library.folders.library')}
+              </div>
+            )}
           </>
         )}
         {catalog
@@ -717,14 +724,14 @@ export function StudioFolders({
                 </Fragment>
               );
             })
-          : rows(shownTrees, "library")}
+          : rows(shownTrees, 'library')}
         {unlisted.length > 0 && (
           <>
-            <div className="studio-folder-section">{t("offline.folders.title")}</div>
+            <div className="studio-folder-section">{t('offline.folders.title')}</div>
             {unlisted.map((folder) => (
               <div
                 key={`offline-${folder.path}`}
-                className={`studio-folder is-offline ${current === folder.path ? "is-selected" : ""}`}
+                className={`studio-folder is-offline ${current === folder.path ? 'is-selected' : ''}`}
                 style={{ paddingLeft: 10 }}
               >
                 <button disabled aria-hidden tabIndex={-1}>
@@ -744,12 +751,16 @@ export function StudioFolders({
         )}
       </div>
       {filtering && nothingShown && !shownPinned.length && (
-        <p className="studio-help">{t("studio.library.folders.noMatch", { filter })}</p>
+        <p className="studio-help">{t('studio.library.folders.noMatch', { filter })}</p>
       )}
-      {nothing && <p className="studio-help">{loading ? t("studio.library.folders.reading") : t("studio.library.folders.empty")}</p>}
+      {nothing && (
+        <p className="studio-help">
+          {loading ? t('studio.library.folders.reading') : t('studio.library.folders.empty')}
+        </p>
+      )}
       {actions?.addFolder && (
         <button className="studio-text-button" onClick={() => actions.addFolder?.()}>
-          {t("studio.library.folders.addFolderButton")}
+          {t('studio.library.folders.addFolderButton')}
         </button>
       )}
     </ToolGroup>
@@ -760,7 +771,7 @@ export default function StudioNavigation({
   onNavigate,
   onSelectAlbum,
   folderActions,
-  develop = false,
+  develop = false
 }: {
   onNavigate(path: string): void;
   onSelectAlbum?: SelectAlbum;
@@ -773,24 +784,22 @@ export default function StudioNavigation({
 }) {
   const { t } = useTranslation();
   const image = useEditorStore((s) => s.selectedImage);
-  const preview = useProcessStore((s) =>
-    image ? s.thumbnails[image.path] : undefined,
-  );
+  const preview = useProcessStore((s) => (image ? s.thumbnails[image.path] : undefined));
   const column = (
-    <ToolColumn scope={develop ? "develop:browse" : "library"} className="studio-navigation">
-      <ToolGroup key="navigator" title="Navigator" label={t("studio.library.navigator.title")}>
+    <ToolColumn scope={develop ? 'develop:browse' : 'library'} className="studio-navigation">
+      <ToolGroup key="navigator" title="Navigator" label={t('studio.library.navigator.title')}>
         <div className="studio-navigator">
           {preview ? (
-            <CachedThumbnail sourcePath={image!.path} src={preview} alt={image?.path.split("?vc=")[0].split(/[\\/]/).pop()} />
+            <CachedThumbnail
+              sourcePath={image!.path}
+              src={preview}
+              alt={image?.path.split('?vc=')[0].split(/[\\/]/).pop()}
+            />
           ) : (
-            <span>{t("studio.library.navigator.empty")}</span>
+            <span>{t('studio.library.navigator.empty')}</span>
           )}
         </div>
-        {image && (
-          <div className="studio-nav-caption">
-            {image.path.split("?vc=")[0].split(/[\\/]/).pop()}
-          </div>
-        )}
+        {image && <div className="studio-nav-caption">{image.path.split('?vc=')[0].split(/[\\/]/).pop()}</div>}
       </ToolGroup>
       <StudioFolders key="folders" onNavigate={onNavigate} actions={folderActions} />
       {onSelectAlbum && <StudioAlbums key="albums" onSelectAlbum={onSelectAlbum} />}
@@ -803,7 +812,7 @@ export default function StudioNavigation({
   return (
     <section className="studio-browse" aria-labelledby="studio-browse-title">
       <h2 id="studio-browse-title" className="studio-panel-heading">
-        {t("studio.develop.browse.title")}
+        {t('studio.develop.browse.title')}
       </h2>
       {column}
     </section>

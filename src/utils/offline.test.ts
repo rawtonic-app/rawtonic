@@ -22,7 +22,7 @@ import {
   relinkSummary,
   DRIVES_CHANGED,
   VOLUMES_CHANGED,
-  watchVolumes,
+  watchVolumes
 } from './offline';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -46,7 +46,7 @@ const report = (relinked: number, extra: Partial<RelinkReport> = {}): RelinkRepo
   mismatched: [],
   taken: [],
   not_found: 0,
-  ...extra,
+  ...extra
 });
 
 it('offers nothing when no selected photograph is offline or no session is open', () => {
@@ -66,7 +66,7 @@ it('locates one photograph with its neighbours and refreshes the view', async ()
     directory: '/cat',
     selection: [file('/Volumes/Card/2026/A.NEF', true)],
     onRelinked,
-    onShowMissing,
+    onShowMissing
   });
   expect(locate.label).toBe('offline.menu.locate');
   expect(locate.disabled).toBe(false);
@@ -78,7 +78,7 @@ it('locates one photograph with its neighbours and refreshes the view', async ()
     directory: '/cat',
     path: '/Volumes/Card/2026/A.NEF',
     to: '/Volumes/Archive/2026/A.NEF',
-    nearby: true,
+    nearby: true
   });
   expect(toast.success).toHaveBeenCalledWith('offline.toasts.relinked {"count":3}', expect.anything());
   expect(onRelinked).toHaveBeenCalledExactlyOnceWith(report(3));
@@ -95,7 +95,7 @@ it('locates a folder for the old folder of the photograph', async () => {
   const [locate, locateFolder] = offlineMenu(t, {
     directory: '/cat',
     selection: [file('/Volumes/Card/2026/A.NEF', true), file('/Volumes/Card/2026/B.NEF?vc=1a2b3c', true)],
-    onRelinked,
+    onRelinked
   });
   expect(locate.disabled).toBe(true);
   locateFolder.onClick!();
@@ -103,11 +103,11 @@ it('locates a folder for the old folder of the photograph', async () => {
   expect(invoke).toHaveBeenCalledWith(Invokes.SessionRelinkFolder, {
     directory: '/cat',
     from: '/Volumes/Card/2026',
-    to: '/Volumes/Archive/2026',
+    to: '/Volumes/Archive/2026'
   });
   expect(toast.warning).toHaveBeenCalledWith(
     'offline.toasts.relinked {"count":0} · offline.toasts.mismatched {"count":1} · offline.toasts.notFound {"count":2}',
-    expect.anything(),
+    expect.anything()
   );
 });
 
@@ -131,7 +131,7 @@ it('does nothing when the dialog is cancelled and reports failures', async () =>
 it('opens the Missing Photographs view with the offline paths and their virtual copies', async () => {
   vi.mocked(invoke).mockResolvedValue([
     { path: '/Volumes/Card/A.NEF', volume: 'Card', mtime: 1, copies: ['0a0a0a'] },
-    { path: '/s/Capture/B.NEF', volume: null, mtime: 2 },
+    { path: '/s/Capture/B.NEF', volume: null, mtime: 2 }
   ]);
   const select = vi.fn();
   expect(await openMissingView('/s', 'Missing', select)).toBe(2);
@@ -140,7 +140,7 @@ it('opens the Missing Photographs view with the offline paths and their virtual 
     MISSING_VIEW_ID,
     'Missing',
     ['/Volumes/Card/A.NEF', '/Volumes/Card/A.NEF?vc=0a0a0a', '/s/Capture/B.NEF'],
-    false,
+    false
   );
 });
 
@@ -149,12 +149,12 @@ it('groups offline photographs by folder and counts them below a folder', () => 
     { path: '/s/Capture/A.NEF', volume: null, mtime: 1, folder_missing: false },
     { path: '/s/Capture/Day 2/B.NEF', volume: 'Card', mtime: 1, folder_missing: true },
     { path: '/s/Capture/Day 2/C.NEF', volume: 'Card', mtime: 1, folder_missing: true },
-    { path: '/s/Capture 2/D.NEF', volume: null, mtime: 1, folder_missing: false },
+    { path: '/s/Capture 2/D.NEF', volume: null, mtime: 1, folder_missing: false }
   ]);
   expect(folders.map((f) => [f.path, f.count, f.missing])).toEqual([
     ['/s/Capture', 1, false],
     ['/s/Capture 2', 1, false],
-    ['/s/Capture/Day 2', 2, true],
+    ['/s/Capture/Day 2', 2, true]
   ]);
   expect(offlineBelow(folders, '/s/Capture')).toBe(3);
   expect(offlineBelow(folders, '/s')).toBe(4);
@@ -165,7 +165,7 @@ it('names the disconnected drive in the badge', () => {
   expect(offlineTitle(t, { offline_volume: 'Card' })).toBe('offline.badgeTitleVolume {"volume":"Card"}');
   expect(offlineTitle(t, { offline_volume: null })).toBe('offline.badgeTitleMissing');
   expect(relinkSummary(t, report(1, { taken: ['/a'] }))).toBe(
-    'offline.toasts.relinked {"count":1} · offline.toasts.taken {"count":1}',
+    'offline.toasts.relinked {"count":1} · offline.toasts.taken {"count":1}'
   );
   expect(folderOf('C:\\Photos\\A.NEF')).toBe('C:\\Photos');
 });
@@ -178,7 +178,7 @@ it('recounts when a listing finds photographs offline or back that the views do 
   const listing = (offline: string[]) =>
     ['/s/Capture/A.NEF', '/s/Capture/A.NEF?vc=1', '/s/Capture/B.NEF'].map((path) => ({
       path,
-      is_offline: offline.includes(path.split('?vc=')[0]),
+      is_offline: offline.includes(path.split('?vc=')[0])
     }));
   // As counted: nothing to do.
   expect(noteListedOffline(listing(['/s/Capture/A.NEF']))).toBe(false);
@@ -243,8 +243,8 @@ it('shows the photograph the user located from after a relink', () => {
   const done = report(0, {
     relinked: [
       ['/d/Shoot/Day B/C.NEF', '/c/Shoot/Day B/C.NEF'],
-      ['/d/Shoot/A.NEF', '/c/Shoot/A.NEF'],
-    ],
+      ['/d/Shoot/A.NEF', '/c/Shoot/A.NEF']
+    ]
   });
   // Locate Folder from A: A's folder, not the first relinked (a subfolder).
   expect(locatedPhotograph(done, [null, '/c/Shoot/A.NEF?vc=1'])).toBe('/c/Shoot/A.NEF?vc=1');
@@ -256,10 +256,10 @@ it('maps a selection to the places the relink found, virtual copies included', (
   const done = report(0, {
     relinked: [
       ['/s/Capture/Day1/A.NEF', '/s/Capture/Moved/A.NEF'],
-      ['/s/Capture/Day1/B.NEF', '/s/Capture/Moved/B.NEF'],
-    ],
+      ['/s/Capture/Day1/B.NEF', '/s/Capture/Moved/B.NEF']
+    ]
   });
-  expect(
-    relinkedPaths(done, ['/s/Capture/Day1/A.NEF', '/s/Capture/Day1/B.NEF?vc=2', '/s/Capture/Day2/C.NEF']),
-  ).toEqual(['/s/Capture/Moved/A.NEF', '/s/Capture/Moved/B.NEF?vc=2', '/s/Capture/Day2/C.NEF']);
+  expect(relinkedPaths(done, ['/s/Capture/Day1/A.NEF', '/s/Capture/Day1/B.NEF?vc=2', '/s/Capture/Day2/C.NEF'])).toEqual(
+    ['/s/Capture/Moved/A.NEF', '/s/Capture/Moved/B.NEF?vc=2', '/s/Capture/Day2/C.NEF']
+  );
 });

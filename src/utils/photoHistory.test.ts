@@ -6,8 +6,7 @@ import { historyFor } from './photoHistory';
 import { editUndoOrder } from './undoOrder';
 
 const recipe = (exposure: number): Adjustments => ({ ...INITIAL_ADJUSTMENTS, exposure });
-const open = (path: string) =>
-  useEditorStore.setState({ selectedImage: { path, isReady: true } as never });
+const open = (path: string) => useEditorStore.setState({ selectedImage: { path, isReady: true } as never });
 
 beforeEach(() => {
   useEditorStore.setState(useEditorStore.getInitialState());
@@ -47,7 +46,7 @@ it('each batch step that wrote a closed photo becomes its own entry (C02)', () =
   open('/b.nef');
   const { history, historyIndex } = historyFor('/a.nef', recipe(3), [
     { order: 41, recipe: recipe(2) },
-    { order: 42, recipe: recipe(3) },
+    { order: 42, recipe: recipe(3) }
   ]);
   expect(history.map((step) => step.exposure)).toEqual([0, 1, 2, 3]);
   expect(historyIndex).toBe(3);
@@ -71,7 +70,7 @@ it('a batch still writing when its photograph was left becomes its entry once wr
       new Promise((resolve) => {
         written = () => resolve({ failed: [], changes: [{ path: '/a.nef', before: recipe(1), after: recipe(2) }] });
       }),
-    ['/a.nef'],
+    ['/a.nef']
   );
   // Left while the Sync (its order given out already) still writes it.
   open('/b.nef');

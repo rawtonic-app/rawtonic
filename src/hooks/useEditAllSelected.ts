@@ -20,7 +20,7 @@ import {
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
-  type Adjustments,
+  type Adjustments
 } from '../utils/adjustments';
 
 /** How long edits of the primary gather before they are written to the
@@ -109,7 +109,7 @@ function noticeFailed(id: number, failed: FailedWrite) {
     toastId: noticeId(id),
     source: 'write',
     paths,
-    actions: [{ label: i18n.t('studio.multiView.editAllTryAgain'), settles: true, run: () => tryAgain(id) }],
+    actions: [{ label: i18n.t('studio.multiView.editAllTryAgain'), settles: true, run: () => tryAgain(id) }]
   });
 }
 
@@ -138,7 +138,13 @@ onRecipeWritten((path, keys) => {
 /** Writes `changes` from `from` to `others`; what fails is shown and kept
  * as not saved (`failedWrites`). */
 function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, others: string[], from: string) {
-  const done = apply(changes, others, { openingNow: true, pasteFrom: from, replaceLayers: true, quiet: true, undoStep: false });
+  const done = apply(changes, others, {
+    openingNow: true,
+    pasteFrom: from,
+    replaceLayers: true,
+    quiet: true,
+    undoStep: false
+  });
   if (!done) return null;
   const settled = done.then((notWritten) => {
     const paths = others.filter((path) => notWritten.includes(path));
@@ -216,10 +222,13 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const patch = shown
         ? withBwVersion(
             withClarityVersion(
-              withGrainVersion(withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments), source?.adjustments),
-              source?.adjustments,
+              withGrainVersion(
+                withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+                source?.adjustments
+              ),
+              source?.adjustments
             ),
-            source?.adjustments,
+            source?.adjustments
           )
         : null;
       const key = JSON.stringify(patch);
@@ -263,11 +272,17 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const done = writeToOthers(
         applyRef.current,
         withBwVersion(
-          withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments),
-          from.adjustments,
+          withClarityVersion(
+            withGrainVersion(
+              withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
+              from.adjustments
+            ),
+            from.adjustments
+          ),
+          from.adjustments
         ),
         others,
-        from.path,
+        from.path
       );
       if (!done) {
         // Nothing was written: the cells show their recipes again.
@@ -337,7 +352,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,
-            undoStep: false,
+            undoStep: false
           });
         }
       }

@@ -16,7 +16,7 @@ import {
   type AppChoice,
   type AppChoices,
   type EditRecipe,
-  type OpenWithPrefs,
+  type OpenWithPrefs
 } from '../../utils/editWith';
 
 /** Asks for any application ("Other…"). */
@@ -26,7 +26,7 @@ async function pickApplication(title: string): Promise<string | null> {
     defaultPath: '/Applications',
     multiple: false,
     directory: false,
-    filters: [{ name: 'Applications', extensions: ['app'] }],
+    filters: [{ name: 'Applications', extensions: ['app'] }]
   });
   return typeof chosen === 'string' ? chosen : null;
 }
@@ -44,7 +44,11 @@ async function openPhotosWith(program: string, paths: string[], t: TFunction) {
   }
 }
 
-const programName = (program: string) => program.split('/').pop()?.replace(/\.app$/, '') ?? program;
+const programName = (program: string) =>
+  program
+    .split('/')
+    .pop()
+    ?.replace(/\.app$/, '') ?? program;
 
 /** Renders `paths` with `recipe` and opens the renders in `program`. */
 async function editPhotosWith(
@@ -52,10 +56,10 @@ async function editPhotosWith(
   recipe: EditRecipe,
   program: string,
   t: TFunction,
-  onRendered?: () => void | Promise<void>,
+  onRendered?: () => void | Promise<void>
 ) {
   const progress = notify.info(t('contextMenus.editWith.rendering', { app: programName(program) }), {
-    autoClose: false,
+    autoClose: false
   });
   try {
     const result = await runEditWith(paths, recipe, program);
@@ -63,7 +67,8 @@ async function editPhotosWith(
     await onRendered?.();
     if (result.failed > 0)
       notify.error(t('contextMenus.editWith.someFailed', { failed: result.failed, total: paths.length }));
-    if (result.problems.length) notify.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
+    if (result.problems.length)
+      notify.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
   } catch (e) {
     notify.dismiss(progress);
     const error = errorText(e);
@@ -99,9 +104,9 @@ export async function offerInterruptedEditWith(t: TFunction) {
             const recipes = editRecipes(useSettingsStore.getState().appSettings?.exportPresets);
             const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
             await editPhotosWith(run.photos, chosenRecipe(recipes, prefs?.editRecipe), run.program, t);
-          },
-        },
-      ],
+          }
+        }
+      ]
     });
   }
 }
@@ -120,7 +125,7 @@ function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string
   const entry = (app: AppChoice): Option => ({
     icon: AppWindow,
     label: app.isDefault ? `${app.name} · ${t('contextMenus.openWith.default')}` : app.name,
-    onClick: () => onPick(app.path),
+    onClick: () => onPick(app.path)
   });
   const pinned = choices.apps.filter((app) => app.isDefault || app.isRecent);
   const others = choices.apps.filter((app) => !app.isDefault && !app.isRecent);
@@ -136,8 +141,8 @@ function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string
       onClick: () =>
         void pickApplication(t('contextMenus.openWith.chooseTitle'))
           .catch(() => null)
-          .then((path) => path && onPick(path)),
-    },
+          .then((path) => path && onPick(path))
+    }
   ];
 }
 
@@ -146,7 +151,7 @@ export async function openWithOptions(paths: string[], t: TFunction): Promise<Op
   const choices = await invoke<AppChoices>(Invokes.OpenWithApps, { paths });
   return [
     { type: OPTION_HEADER, label: t('contextMenus.openWith.label') },
-    ...programOptions(choices, t, (program) => void openPhotosWith(program, paths, t)),
+    ...programOptions(choices, t, (program) => void openPhotosWith(program, paths, t))
   ];
 }
 
@@ -156,7 +161,7 @@ export async function editWithOptions(
   paths: string[],
   t: TFunction,
   presets: ExportPreset[] | undefined,
-  onRendered?: () => void | Promise<void>,
+  onRendered?: () => void | Promise<void>
 ): Promise<Option[]> {
   const recipes = editRecipes(presets);
   const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
@@ -169,11 +174,11 @@ export async function editWithOptions(
       submenu: recipes.map((r) => ({
         label: recipeLabel(r, t),
         checked: r.id === recipe.id,
-        onClick: () => void invoke(Invokes.EditWithSetRecipe, { recipe: r.id }).catch(() => {}),
-      })),
+        onClick: () => void invoke(Invokes.EditWithSetRecipe, { recipe: r.id }).catch(() => {})
+      }))
     },
     { type: OPTION_SEPARATOR },
-    ...programOptions(choices, t, (program) => void editPhotosWith(paths, recipe, program, t, onRendered)),
+    ...programOptions(choices, t, (program) => void editPhotosWith(paths, recipe, program, t, onRendered))
   ];
 }
 
@@ -181,8 +186,7 @@ export async function editWithOptions(
 function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path: string): void }) {
   const { t } = useTranslation();
   if (choices === null) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.reading')}</div>;
-  if (!choices.supported)
-    return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.unsupported')}</div>;
+  if (!choices.supported) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.unsupported')}</div>;
   const pinned = choices.apps.filter((app) => app.isDefault || app.isRecent);
   const others = choices.apps.filter((app) => !app.isDefault && !app.isRecent);
   const row = (app: AppChoice) => (
@@ -270,7 +274,7 @@ export function OpenWithSubMenu({ paths, hideContextMenu }: { paths: string[]; h
 export function EditWithSubMenu({
   paths,
   hideContextMenu,
-  onRendered,
+  onRendered
 }: {
   paths: string[];
   hideContextMenu(): void;
@@ -290,10 +294,7 @@ export function EditWithSubMenu({
     };
   }, []);
   const recipe = chosenRecipe(recipes, recipeId);
-  const choices = useChoices(
-    Invokes.EditWithApps,
-    recipeId === undefined ? null : { extension: recipe.outputFormat },
-  );
+  const choices = useChoices(Invokes.EditWithApps, recipeId === undefined ? null : { extension: recipe.outputFormat });
 
   const choose = (id: string) => {
     setRecipeId(id);

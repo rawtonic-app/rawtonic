@@ -26,13 +26,17 @@ describe('aiDenoiseToApply', () => {
     const v1Source = { ...decoded, aiDenoise: 60 };
     expect(aiDenoiseToApply(v1Source, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)).toBe(60);
     expect(aiDenoiseToApply(v1Source, { aiDenoise: 60, aiDenoiseVersion: 1 }, false)).toBeNull();
-    expect(aiDenoiseToApply({ ...v1Source, aiDenoiseVersion: 2 }, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)).toBeNull();
+    expect(
+      aiDenoiseToApply({ ...v1Source, aiDenoiseVersion: 2 }, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)
+    ).toBeNull();
     // Off: the version does not matter.
     expect(aiDenoiseToApply(decoded, { aiDenoise: 0, aiDenoiseVersion: 2 }, false)).toBeNull();
-    expect(sourceDevelopToApply({ ...v1Source, colorNoiseMultiscale: true }, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)).toEqual({
+    expect(
+      sourceDevelopToApply({ ...v1Source, colorNoiseMultiscale: true }, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)
+    ).toEqual({
       aiDenoise: 60,
       aiDenoiseVersion: 2,
-      multiscale: true,
+      multiscale: true
     });
   });
 
@@ -77,18 +81,18 @@ describe('sourceDevelopToApply', () => {
     // Keeps the source's AI Denoise amount.
     expect(sourceDevelopToApply({ ...oldBase, aiDenoise: 40 }, { ...v2, aiDenoise: 40 }, false)).toEqual({
       aiDenoise: 40,
-      multiscale: true,
+      multiscale: true
     });
   });
 
   it('develops AI Denoise for the source filter and both at once', () => {
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, aiDenoise: 60 }, false)).toEqual({
       aiDenoise: 60,
-      multiscale: true,
+      multiscale: true
     });
     expect(sourceDevelopToApply(oldBase, { ...v2, aiDenoise: 60 }, false)).toEqual({
       aiDenoise: 60,
-      multiscale: true,
+      multiscale: true
     });
   });
 
@@ -102,7 +106,7 @@ describe('sourceDevelopToApply', () => {
     expect(sourceDevelopToApply(decoded, v2, false)).toBeNull();
     expect(sourceDevelopToApply(decoded, { ...v2, aiDenoise: 60 }, false)).toEqual({
       aiDenoise: 60,
-      multiscale: undefined,
+      multiscale: undefined
     });
   });
 
@@ -117,16 +121,16 @@ describe('sourceDevelopToApply', () => {
     expect(sourceDevelopToApply(firstTest, { ...v2, renderVersion: 3 }, false)).toEqual({
       aiDenoise: 0,
       multiscale: true,
-      deadPixelAdjacent: true,
+      deadPixelAdjacent: true
     });
     expect(sourceDevelopToApply(secondTest, { ...v2, renderVersion: 2 }, false)).toEqual({
       aiDenoise: 0,
       multiscale: true,
-      deadPixelAdjacent: false,
+      deadPixelAdjacent: false
     });
     // A test that failed before is not retried; unknown (preview data) waits.
     expect(
-      sourceDevelopToApply({ ...firstTest, deadPixelAdjacentFailed: true }, { ...v2, renderVersion: 3 }, false),
+      sourceDevelopToApply({ ...firstTest, deadPixelAdjacentFailed: true }, { ...v2, renderVersion: 3 }, false)
     ).toBeNull();
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, renderVersion: 3 }, false)).toBeNull();
   });
@@ -142,17 +146,17 @@ describe('sourceDevelopToApply', () => {
       aiDenoise: 0,
       multiscale: true,
       deadPixelAdjacent: true,
-      unbiasedBlack: true,
+      unbiasedBlack: true
     });
     expect(sourceDevelopToApply(unbiased, { ...v2, renderVersion: 7 }, false)).toEqual({
       aiDenoise: 0,
       multiscale: true,
       deadPixelAdjacent: true,
-      unbiasedBlack: false,
+      unbiasedBlack: false
     });
     // Failed before: not retried.
     expect(
-      sourceDevelopToApply({ ...clipped, unbiasedBlackFailed: true }, { ...v2, renderVersion: 8 }, false),
+      sourceDevelopToApply({ ...clipped, unbiasedBlackFailed: true }, { ...v2, renderVersion: 8 }, false)
     ).toBeNull();
   });
 
@@ -169,18 +173,18 @@ describe('sourceDevelopToApply', () => {
       multiscale: true,
       deadPixelAdjacent: true,
       unbiasedBlack: true,
-      highlightRatios: true,
+      highlightRatios: true
     });
     expect(sourceDevelopToApply(ratios, { ...v2, renderVersion: 8 }, false)).toEqual({
       aiDenoise: 0,
       multiscale: true,
       deadPixelAdjacent: true,
       unbiasedBlack: true,
-      highlightRatios: false,
+      highlightRatios: false
     });
     // Failed before: not retried; unknown (preview data) waits.
     expect(
-      sourceDevelopToApply({ ...offsets, highlightRatiosFailed: true }, { ...v2, renderVersion: 9 }, false),
+      sourceDevelopToApply({ ...offsets, highlightRatiosFailed: true }, { ...v2, renderVersion: 9 }, false)
     ).toBeNull();
     expect(sourceDevelopToApply(base, { ...v2, renderVersion: 9 }, false)).toBeNull();
   });
@@ -199,7 +203,7 @@ describe('sourceDevelopToApply', () => {
       deadPixelAdjacent: true,
       unbiasedBlack: true,
       borderBlack: true,
-      highlightRatios: true,
+      highlightRatios: true
     });
     expect(sourceDevelopToApply(border, { ...v2, renderVersion: 10 }, false)).toEqual({
       aiDenoise: 0,
@@ -207,11 +211,11 @@ describe('sourceDevelopToApply', () => {
       deadPixelAdjacent: true,
       unbiasedBlack: true,
       borderBlack: false,
-      highlightRatios: true,
+      highlightRatios: true
     });
     // Failed before: not retried; unknown (preview data) waits.
     expect(
-      sourceDevelopToApply({ ...decoder, borderBlackFailed: true }, { ...v2, renderVersion: 11 }, false),
+      sourceDevelopToApply({ ...decoder, borderBlackFailed: true }, { ...v2, renderVersion: 11 }, false)
     ).toBeNull();
     expect(sourceDevelopToApply(base, { ...v2, renderVersion: 11 }, false)).toBeNull();
   });

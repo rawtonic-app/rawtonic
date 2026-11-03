@@ -88,7 +88,9 @@
   }
   input[type='checkbox']:focus-visible,
   input[type='radio']:focus-visible {
-    box-shadow: 0 0 0 2px #292a2c, 0 0 0 3px #b4c8d3;
+    box-shadow:
+      0 0 0 2px #292a2c,
+      0 0 0 3px #b4c8d3;
   }
   input[type='checkbox']:disabled,
   input[type='radio']:disabled {
@@ -210,7 +212,6 @@
   ::-webkit-scrollbar-thumb:hover {
     background-color: theme('colors.hover-color');
   }
-
 }
 
 @layer components {

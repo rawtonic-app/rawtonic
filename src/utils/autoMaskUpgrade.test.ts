@@ -9,7 +9,7 @@ const line = (patch: Partial<MaskStrokeLine>): MaskStrokeLine => ({
   brushSize: 50,
   points: [{ x: 1, y: 2 }],
   tool: ToolType.Brush,
-  ...patch,
+  ...patch
 });
 const brushLayer = (...lines: MaskStrokeLine[]): MaskContainer => {
   const brush = createSubMask(Mask.Brush, size);
@@ -17,7 +17,7 @@ const brushLayer = (...lines: MaskStrokeLine[]): MaskContainer => {
     ...structuredClone(INITIAL_MASK_CONTAINER),
     id: 'l',
     name: 'Brush',
-    subMasks: [{ ...brush, parameters: { ...brush.parameters, lines } }],
+    subMasks: [{ ...brush, parameters: { ...brush.parameters, lines } }]
   };
 };
 
@@ -36,7 +36,12 @@ describe('Auto Mask upgrade (D6)', () => {
     const before = JSON.stringify(layer);
     const upgraded = upgradeLayerAutoMask(layer);
     const lines = upgraded.subMasks[0].parameters.lines!;
-    expect(lines.map((l) => l.autoMaskVersion)).toEqual([AUTO_MASK_VERSION, undefined, AUTO_MASK_VERSION, AUTO_MASK_VERSION]);
+    expect(lines.map((l) => l.autoMaskVersion)).toEqual([
+      AUTO_MASK_VERSION,
+      undefined,
+      AUTO_MASK_VERSION,
+      AUTO_MASK_VERSION
+    ]);
     expect(lines[1]).toBe(plain);
     expect(lines[3]).toBe(current);
     // New parameters object: the preview sends the strokes again (maskParameterRefs).

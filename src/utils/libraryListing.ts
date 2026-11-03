@@ -19,7 +19,7 @@ export function reportLibraryPresentation(files: ImageFile[], visible: number) {
     ms: performance.now() - times.loaded,
     publish_to_frame_ms: performance.now() - times.published,
     assets: files.length,
-    visible,
+    visible
   });
 }
 
@@ -50,8 +50,13 @@ export async function loadLibraryImages(path: string, recursive: boolean, signal
     const total = page.total;
     while (true) {
       if (signal?.aborted) abortLibraryLoad();
-      if (page.total !== total || page.offset !== files.length || page.files.length > 512
-          || files.length + page.files.length > total || (page.listing_id && !page.files.length)) {
+      if (
+        page.total !== total ||
+        page.offset !== files.length ||
+        page.files.length > 512 ||
+        files.length + page.files.length > total ||
+        (page.listing_id && !page.files.length)
+      ) {
         throw new Error('Invalid library listing page');
       }
       files.push(...page.files);
@@ -63,9 +68,13 @@ export async function loadLibraryImages(path: string, recursive: boolean, signal
       }
       page = await invoke<ListingPage>(Invokes.NextImageListingPage, { listingId, offset: files.length });
     }
-    if (performanceDiagnosticsEnabled) reportPerformance('library_listing', {
-      ms: performance.now() - started, first_page_ms: firstPageMs, assets: total, pages,
-    });
+    if (performanceDiagnosticsEnabled)
+      reportPerformance('library_listing', {
+        ms: performance.now() - started,
+        first_page_ms: firstPageMs,
+        assets: total,
+        pages
+      });
     if (performanceDiagnosticsEnabled) loadStarts.set(files, started);
     return files;
   } finally {

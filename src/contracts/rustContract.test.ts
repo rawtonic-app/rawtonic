@@ -28,13 +28,13 @@ describe('commands', () => {
     const start = lib.indexOf('generate_handler![');
     const list = lib.slice(start, lib.indexOf('])', start));
     const registered = new Set(
-      [...list.matchAll(/([A-Za-z_][A-Za-z0-9_:]*)\s*,/g)].map(([, path]) => path.split('::').pop() as string),
+      [...list.matchAll(/([A-Za-z_][A-Za-z0-9_:]*)\s*,/g)].map(([, path]) => path.split('::').pop() as string)
     );
     const invoked = new Set(Object.values(Invokes) as string[]);
     expect(registered.size).toBeGreaterThan(300);
     expect({ notRegistered: difference(invoked, registered), notInInvokes: difference(registered, invoked) }).toEqual({
       notRegistered: [],
-      notInInvokes: [],
+      notInInvokes: []
     });
   });
 });
@@ -51,10 +51,13 @@ describe('settings', () => {
     const tsBody = ts.slice(tsStart, ts.indexOf('\n}', tsStart));
     const tsFields = new Set([...tsBody.matchAll(/^ {2}([A-Za-z0-9_]+)\??:/gm)].map(([, name]) => name));
     expect(rustFields.size).toBeGreaterThan(100);
-    expect({ onlyInRust: difference(rustFields, tsFields), onlyInTypeScript: difference(tsFields, rustFields) }).toEqual({
+    expect({
+      onlyInRust: difference(rustFields, tsFields),
+      onlyInTypeScript: difference(tsFields, rustFields)
+    }).toEqual({
       // Known drift on aa8e7f3c (plan step 0.2b removes these entries).
       onlyInRust: ['groupAssociatedFiles', 'lastUpdateCheck', 'linuxGpuOptimizationMigratedV1', 'taggingThreadCount'],
-      onlyInTypeScript: [],
+      onlyInTypeScript: []
     });
   });
 });
@@ -64,7 +67,13 @@ describe('recipe', () => {
   // crates that read recipes; a key renamed on one side would otherwise
   // silently render as its default. Keys that only steer the editor's own
   // interface are listed as such.
-  const rustSources = ['crates/engine/src', 'crates/gpu/src', 'crates/export/src', 'crates/rawdecode/src', 'src-tauri/src']
+  const rustSources = [
+    'crates/engine/src',
+    'crates/gpu/src',
+    'crates/export/src',
+    'crates/rawdecode/src',
+    'src-tauri/src'
+  ]
     .flatMap(rustFiles)
     .map(read)
     .join('\n');
@@ -75,7 +84,7 @@ describe('recipe', () => {
     expect(keys.size).toBeGreaterThan(100);
     expect([...keys].filter((key) => !spelled(key)).sort()).toEqual(
       // Known on aa8e7f3c: keys Rust never reads (interface state, or read under another spelling).
-      [],
+      []
     );
   });
 

@@ -14,7 +14,7 @@ import {
   readoutValues,
   usePointerSampleStore,
   type PreviewPatch,
-  type ReadoutUnit,
+  type ReadoutUnit
 } from '../../../utils/pointerSample';
 
 /** Samples the shown photograph under the pointer while `enabled` (a picker
@@ -30,7 +30,7 @@ export function usePointerSampling(
   imageRef: RefObject<Element | null>,
   path: string,
   enabled: boolean,
-  browserPreview: string | null = null,
+  browserPreview: string | null = null
 ) {
   const previewRef = useRef(browserPreview);
   previewRef.current = browserPreview;
@@ -57,12 +57,12 @@ export function usePointerSampling(
             reportPerformance('pointer_readout', {
               input_to_sample_ms: answered - inputAt,
               input_to_frame_ms: performance.now() - inputAt,
-              sampled: sample.patch ? 1 : 0,
-            }),
+              sampled: sample.patch ? 1 : 0
+            })
           );
         }
       },
-      browser ? createImagePatchFetch(() => previewRef.current) : undefined,
+      browser ? createImagePatchFetch(() => previewRef.current) : undefined
     );
     const stop = () => {
       last = null;
@@ -104,10 +104,12 @@ export function usePointerSampling(
     if (!browser)
       void listen<{ path: string }>('wgpu-frame-ready', (event) => {
         if (event.payload?.path === path) ask();
-      }).then((unlistenFrames) => {
-        if (disposed) unlistenFrames();
-        else unlisten = unlistenFrames;
-      }).catch(() => {});
+      })
+        .then((unlistenFrames) => {
+          if (disposed) unlistenFrames();
+          else unlisten = unlistenFrames;
+        })
+        .catch(() => {});
     return () => {
       disposed = true;
       askRef.current = null;
@@ -176,12 +178,16 @@ export function PickerLoupe({ unit, anchorRef }: { unit: ReadoutUnit; anchorRef:
   }, [patch, shown]);
   if (!sample) return null;
   const anchor = anchorRef.current;
-  const box = (anchor?.closest('.studio-viewer') ?? anchor)?.getBoundingClientRect() ??
-    { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  const box = (anchor?.closest('.studio-viewer') ?? anchor)?.getBoundingClientRect() ?? {
+    left: 0,
+    top: 0,
+    width: window.innerWidth,
+    height: window.innerHeight
+  };
   const place = loupePlacement(
     { x: sample.clientX - box.left, y: sample.clientY - box.top },
     { width: LOUPE_WIDTH, height: LOUPE_HEIGHT },
-    { width: box.width, height: box.height },
+    { width: box.width, height: box.height }
   );
   const color = patch && readoutColor(patch);
   const values = color ? readoutValues(color, unit) : ['–', '–', '–'];
@@ -202,6 +208,6 @@ export function PickerLoupe({ unit, anchorRef }: { unit: ReadoutUnit; anchorRef:
         {unit === 'percent' && <span>%</span>}
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

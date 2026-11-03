@@ -4,12 +4,12 @@
 // photo's camera and file type, a screenshot of the window taken when the
 // dialog opened, and the photo's file itself (off by default; sent as it is,
 // with its metadata). Nothing is sent before the review's Send.
-import { useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import Text from "../ui/Text";
-import { TextVariants } from "../../types/typography";
-import { formatFileSize } from "../../utils/formatFileSize";
-import ReportDialog from "./ReportDialog";
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import Text from '../ui/Text';
+import { TextVariants } from '../../types/typography';
+import { formatFileSize } from '../../utils/formatFileSize';
+import ReportDialog from './ReportDialog';
 import {
   DIAGNOSTICS_CAP,
   TEXT_CAP,
@@ -18,9 +18,9 @@ import {
   type CrashRecord,
   type PhotoInfo,
   type ReportContext,
-  type Screenshot,
-} from "./reports";
-import type { ContributionChannel, ContributionReceipt, PreparedContribution } from "./relay";
+  type Screenshot
+} from './reports';
+import type { ContributionChannel, ContributionReceipt, PreparedContribution } from './relay';
 
 interface ProblemReportDialogProps {
   isOpen: boolean;
@@ -52,17 +52,17 @@ export default function ProblemReportDialog({
   ...calls
 }: ProblemReportDialogProps) {
   const { t } = useTranslation();
-  const [text, setText] = useState("");
+  const [text, setText] = useState('');
   const [includeSystem, setIncludeSystem] = useState(true);
   const [includeLog, setIncludeLog] = useState(true);
-  const [logTail, setLogTail] = useState("");
+  const [logTail, setLogTail] = useState('');
   const [includePhoto, setIncludePhoto] = useState(true);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
   const [includePhotoFile, setIncludePhotoFile] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setText("");
+    setText('');
     setIncludeSystem(true);
     setIncludeLog(true);
     setIncludePhoto(true);
@@ -70,7 +70,7 @@ export default function ProblemReportDialog({
     setIncludePhotoFile(false);
   }, [isOpen]);
 
-  useEffect(() => setLogTail(context?.logTail ?? ""), [context]);
+  useEffect(() => setLogTail(context?.logTail ?? ''), [context]);
 
   const payload = useMemo(
     () =>
@@ -82,7 +82,7 @@ export default function ProblemReportDialog({
             logTail: includeLog ? logTail : null,
             photo: includePhoto || includePhotoFile ? photo : null,
             photoFile: includePhotoFile && photo !== null,
-            screenshot: includeScreenshot ? screenshot : null,
+            screenshot: includeScreenshot ? screenshot : null
           })
         : null,
     [
@@ -95,37 +95,37 @@ export default function ProblemReportDialog({
       logTail,
       photo,
       screenshot,
-      text,
-    ],
+      text
+    ]
   );
 
   const gpu = context?.gpu ? makerAndName(context.gpu.vendor, context.gpu.name) || null : null;
   const system = context
     ? `Rawtonic ${context.app.version} · ${context.app.os} ${context.app.osVersion} (${context.app.arch})`
-    : "";
+    : '';
 
   return (
     <ReportDialog
       isOpen={isOpen}
-      title={t("contribute.report.title")}
+      title={t('contribute.report.title')}
       channel="report"
       payload={payload}
       onClose={onClose}
       {...calls}
     >
       <label className="flex flex-col gap-1">
-        <Text>{t("contribute.report.textLabel")}</Text>
+        <Text>{t('contribute.report.textLabel')}</Text>
         <textarea
           className="min-h-28 rounded bg-bg-primary p-2 text-sm text-text-primary"
           data-autofocus
           maxLength={TEXT_CAP}
           onChange={(e) => setText(e.target.value)}
-          placeholder={t("contribute.report.textPlaceholder")}
+          placeholder={t('contribute.report.textPlaceholder')}
           value={text}
         />
       </label>
       <Text variant={TextVariants.small} color="secondary">
-        {t("contribute.report.always", { system })}
+        {t('contribute.report.always', { system })}
       </Text>
       <label className="flex items-start gap-2">
         <input
@@ -135,7 +135,7 @@ export default function ProblemReportDialog({
           onChange={(e) => setIncludeSystem(e.target.checked)}
         />
         <span>
-          {t("contribute.report.system")}
+          {t('contribute.report.system')}
           {gpu && <span className="text-text-secondary"> — {gpu}</span>}
         </span>
       </label>
@@ -147,30 +147,26 @@ export default function ProblemReportDialog({
           onChange={(e) => setIncludePhoto(e.target.checked)}
         />
         <span>
-          {t("contribute.report.photo")}
+          {t('contribute.report.photo')}
           {photo ? (
             <span className="text-text-secondary">
-              {" "}
+              {' '}
               — {makerAndName(photo.make, photo.model)} ({photo.fileType})
             </span>
           ) : (
-            <span className="text-text-secondary"> — {t("contribute.report.noPhoto")}</span>
+            <span className="text-text-secondary"> — {t('contribute.report.noPhoto')}</span>
           )}
         </span>
       </label>
       {photo && (
         <div className="flex flex-col gap-1">
           <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              checked={includePhotoFile}
-              onChange={(e) => setIncludePhotoFile(e.target.checked)}
-            />
-            <span>{t("contribute.report.photoFile", { type: photo.fileType })}</span>
+            <input type="checkbox" checked={includePhotoFile} onChange={(e) => setIncludePhotoFile(e.target.checked)} />
+            <span>{t('contribute.report.photoFile', { type: photo.fileType })}</span>
           </label>
           {includePhotoFile && (
             <Text variant={TextVariants.small} color="error" className="ml-6" role="note">
-              {t("contribute.report.photoFileWarning")}
+              {t('contribute.report.photoFileWarning')}
             </Text>
           )}
         </div>
@@ -183,13 +179,13 @@ export default function ProblemReportDialog({
             disabled={!context?.logTail}
             onChange={(e) => setIncludeLog(e.target.checked)}
           />
-          <span>{t("contribute.report.log")}</span>
+          <span>{t('contribute.report.log')}</span>
         </label>
         {includeLog && context?.logTail && (
           <details className="ml-6">
-            <summary className="cursor-pointer text-sm text-text-secondary">{t("contribute.report.logEdit")}</summary>
+            <summary className="cursor-pointer text-sm text-text-secondary">{t('contribute.report.logEdit')}</summary>
             <textarea
-              aria-label={t("contribute.report.log")}
+              aria-label={t('contribute.report.log')}
               className="mt-1 h-40 w-full rounded bg-bg-primary p-2 font-mono text-xs text-text-primary"
               maxLength={DIAGNOSTICS_CAP}
               onChange={(e) => setLogTail(e.target.value)}
@@ -208,7 +204,7 @@ export default function ProblemReportDialog({
               onChange={(e) => setIncludeScreenshot(e.target.checked)}
             />
             <span>
-              {t("contribute.report.screenshot")}
+              {t('contribute.report.screenshot')}
               {screenshot && (
                 <span className="text-text-secondary"> — {formatFileSize(base64Bytes(screenshot.data))}</span>
               )}
@@ -216,7 +212,7 @@ export default function ProblemReportDialog({
           </label>
           {includeScreenshot && screenshot && (
             <img
-              alt={t("contribute.report.screenshot")}
+              alt={t('contribute.report.screenshot')}
               className="ml-6 max-h-40 self-start rounded border border-surface"
               src={`data:${screenshot.mime};base64,${screenshot.data}`}
             />
@@ -225,9 +221,9 @@ export default function ProblemReportDialog({
       )}
       {pendingCrash && onReviewCrash && (
         <div className="rounded bg-bg-primary p-3 text-sm">
-          {t("contribute.report.pendingCrash", { date: pendingCrash.crashedOn })}{" "}
+          {t('contribute.report.pendingCrash', { date: pendingCrash.crashedOn })}{' '}
           <button type="button" className="underline" onClick={onReviewCrash}>
-            {t("contribute.report.reviewCrash")}
+            {t('contribute.report.reviewCrash')}
           </button>
         </div>
       )}

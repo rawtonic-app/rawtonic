@@ -8,7 +8,11 @@ import { submitPhotoWrite } from './photoWrites';
  * of its `values` (restoring culling). */
 function writtenPaths(args: InvokeArgs): string[] {
   const { paths, values } = args as { paths?: unknown; values?: unknown };
-  const listed = Array.isArray(paths) ? paths : Array.isArray(values) ? values.map((value) => (value as { path?: unknown })?.path) : [];
+  const listed = Array.isArray(paths)
+    ? paths
+    : Array.isArray(values)
+      ? values.map((value) => (value as { path?: unknown })?.path)
+      : [];
   return listed.filter((path): path is string => typeof path === 'string');
 }
 
@@ -73,7 +77,13 @@ export const SESSION_ALBUMS_CHANGED = 'rawtonic:session-albums-changed';
  * or a check that found files gone (`OFFLINE_CHANGED`), album membership
  * (`SESSION_ALBUMS_CHANGED`, album rules), file operations and undo
  * (`FILE_OPERATIONS_CHANGED`). */
-export const CATALOG_EVENTS = [CATALOG_CHANGED, IMPORTS_CHANGED, OFFLINE_CHANGED, SESSION_ALBUMS_CHANGED, FILE_OPERATIONS_CHANGED];
+export const CATALOG_EVENTS = [
+  CATALOG_CHANGED,
+  IMPORTS_CHANGED,
+  OFFLINE_CHANGED,
+  SESSION_ALBUMS_CHANGED,
+  FILE_OPERATIONS_CHANGED
+];
 
 /** Calls `handler` after any of `events` (default: everything that changes
  * what the catalog finds). Returns the unsubscribe. */

@@ -5,12 +5,7 @@ import Switch from '../ui/Switch';
 import Text from '../ui/Text';
 import { TextVariants } from '../../types/typography';
 import { type AppSettings } from '../ui/AppProperties';
-import {
-  plainLines,
-  setUsageStatsEnabled,
-  usageStatsPreview,
-  type UsageStatsPreview,
-} from '../contribute/usageStats';
+import { plainLines, setUsageStatsEnabled, usageStatsPreview, type UsageStatsPreview } from '../contribute/usageStats';
 
 /** Anonymous weekly usage statistics (ADR 0017, channel 4): off unless
  * switched on here (the app saves that choice itself, `usage_stats_set_enabled`). Switching on shows what is sent before anything is;
@@ -20,7 +15,7 @@ export default function UsageStatsSettings({
   appSettings,
   onSettingsChange,
   preview = usageStatsPreview,
-  enable = setUsageStatsEnabled,
+  enable = setUsageStatsEnabled
 }: {
   appSettings: AppSettings;
   onSettingsChange(settings: AppSettings): void | Promise<void>;

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import cases from '../../crates/engine/src/applied_style_cases.json';
 import rustSource from '../../crates/engine/src/applied_style.rs?raw';
-import { APPLIED_STYLE, PHOTO_OWN_KEYS, appliedStyleOf, recordStyle, revertStyle, withStyleAmount, withStyleValues } from './appliedStyle';
+import {
+  APPLIED_STYLE,
+  PHOTO_OWN_KEYS,
+  appliedStyleOf,
+  recordStyle,
+  revertStyle,
+  withStyleAmount,
+  withStyleValues
+} from './appliedStyle';
 
 describe('applied style', () => {
   // The cases the backend checks too (crates/engine/src/applied_style.rs).
@@ -17,7 +25,7 @@ describe('applied style', () => {
       before,
       { exposure: 1, contrast: 10, hsl: { reds: { hue: 5, saturation: 0 } }, grainVersion: 2 },
       { exposure: 1, contrast: 10, hsl: { reds: { hue: 5, saturation: 0 } }, grainVersion: 2, [APPLIED_STYLE]: {} },
-      'warm',
+      'warm'
     );
     expect(appliedStyleOf(after)).toEqual({
       id: 'warm',
@@ -27,8 +35,8 @@ describe('applied style', () => {
         { path: ['contrast'], from: 10, to: 10 },
         { path: ['hsl', 'reds', 'hue'], from: 0, to: 5 },
         { path: ['hsl', 'reds', 'saturation'], from: 0, to: 0 },
-        { path: ['grainVersion'], to: 2 },
-      ],
+        { path: ['grainVersion'], to: 2 }
+      ]
     });
     const { recipe, removed, kept } = revertStyle({ ...after, contrast: 30 });
     expect(recipe).toEqual({ ...before, contrast: 30 });
@@ -49,9 +57,14 @@ describe('applied style', () => {
     expect(revertStyle(recipe).recipe).toEqual({ saturation: -30, contrast: 0 });
   });
 
-  it('blends from the editor\'s value where a saved recipe had none, and removes it again', () => {
+  it("blends from the editor's value where a saved recipe had none, and removes it again", () => {
     // A sparse saved recipe without exposure; the style set +1.
-    let recipe = recordStyle({ renderVersion: 6 }, { renderVersion: 6, exposure: 1, clarityVersion: 3 }, { exposure: 1, clarityVersion: 3 }, 'b');
+    let recipe = recordStyle(
+      { renderVersion: 6 },
+      { renderVersion: 6, exposure: 1, clarityVersion: 3 },
+      { exposure: 1, clarityVersion: 3 },
+      'b'
+    );
     const filled = { ...revertStyle(recipe).recipe, exposure: 0, clarityVersion: 1 };
     const values = { exposure: 1, clarityVersion: 3 };
     recipe = withStyleAmount(recipe, filled, values, 75);
@@ -64,7 +77,7 @@ describe('applied style', () => {
     expect(revertStyle(recipe).recipe).toEqual({ renderVersion: 6 });
   });
 
-  it('joins a style\'s groups to the photo\'s own and takes them back as they were', () => {
+  it("joins a style's groups to the photo's own and takes them back as they were", () => {
     const own = { hsl: { reds: { hue: 0, saturation: 4 }, blues: { hue: 22 } }, masks: [{ id: 'own' }] };
     const values = { hsl: { reds: { hue: 5 } }, masks: [] };
     const after = withStyleValues(own, values);
@@ -84,19 +97,34 @@ describe('applied style', () => {
     expect(at75.hsl).toEqual({ reds: { hue: 15, saturation: 30 } });
   });
 
-  it('leaves the photo\'s own settings (lens, layers, relight lights) out of the record, as the backend does', () => {
+  it("leaves the photo's own settings (lens, layers, relight lights) out of the record, as the backend does", () => {
     const own = { lensCorrectionMode: 'manual', lensMaker: 'Mine', exposure: 0, masks: [] };
-    const values = { lensCorrectionMode: 'auto', lensMaker: 'Saved', exposure: 1, masks: [{ id: 'sky' }], relightLights: [{ x: 1 }] };
+    const values = {
+      lensCorrectionMode: 'auto',
+      lensMaker: 'Saved',
+      exposure: 1,
+      masks: [{ id: 'sky' }],
+      relightLights: [{ x: 1 }]
+    };
     const recipe = recordStyle(own, { ...own, ...values }, values, 'look');
     expect(appliedStyleOf(recipe)!.changes.map((c) => c.path)).toEqual([['exposure']]);
-    expect(revertStyle({ ...recipe, lensMaker: 'Detected' }).recipe).toEqual({ ...own, ...values, lensMaker: 'Detected', exposure: 0 });
-    const list = rustSource.slice(rustSource.indexOf('pub const PHOTO_OWN_KEYS'), rustSource.indexOf('];', rustSource.indexOf('pub const PHOTO_OWN_KEYS')));
-    expect([...list.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual(PHOTO_OWN_KEYS.filter((key) => key !== 'lensProfileFor'));
+    expect(revertStyle({ ...recipe, lensMaker: 'Detected' }).recipe).toEqual({
+      ...own,
+      ...values,
+      lensMaker: 'Detected',
+      exposure: 0
+    });
+    const list = rustSource.slice(
+      rustSource.indexOf('pub const PHOTO_OWN_KEYS'),
+      rustSource.indexOf('];', rustSource.indexOf('pub const PHOTO_OWN_KEYS'))
+    );
+    expect([...list.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual(
+      PHOTO_OWN_KEYS.filter((key) => key !== 'lensProfileFor')
+    );
     expect(list).toContain('LENS_PROFILE_FOR');
   });
 
-
-  it('keeps an older edit\'s response below half strength (a missing version key stays missing)', () => {
+  it("keeps an older edit's response below half strength (a missing version key stays missing)", () => {
     const own = { highlights: -50 };
     const values = { highlights: 0, toneVersion: 3 };
     const recipe = recordStyle(own, { ...own, ...values }, values, 'tone');
@@ -107,7 +135,14 @@ describe('applied style', () => {
 
   it('applies, records and blends curves whole, with their version', () => {
     const own = { curves: { version: 3, luma: [{ x: 0, y: 0 }] } };
-    const values = { curves: { luma: [{ x: 0, y: 0 }, { x: 128, y: 150 }] } };
+    const values = {
+      curves: {
+        luma: [
+          { x: 0, y: 0 },
+          { x: 128, y: 150 }
+        ]
+      }
+    };
     const after = withStyleValues(own, values);
     expect(after.curves).toEqual(values.curves);
     const recipe = recordStyle(own, after, values, 'c');

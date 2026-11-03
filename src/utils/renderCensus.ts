@@ -40,15 +40,15 @@ export function takeRenderCensus(): Record<string, number> {
 
 function ownName(fiber: Fiber): string | undefined {
   const type = (fiber.elementType ?? fiber.type) as
-    | { displayName?: string; name?: string; type?: { displayName?: string; name?: string }; render?: { name?: string } }
+    | {
+        displayName?: string;
+        name?: string;
+        type?: { displayName?: string; name?: string };
+        render?: { name?: string };
+      }
     | undefined;
   return (
-    type?.displayName ||
-    type?.name ||
-    type?.type?.displayName ||
-    type?.type?.name ||
-    type?.render?.name ||
-    undefined
+    type?.displayName || type?.name || type?.type?.displayName || type?.type?.name || type?.render?.name || undefined
   );
 }
 
@@ -58,11 +58,10 @@ function nameOf(fiber: Fiber): string {
   const own = ownName(fiber);
   if (own) return own;
   for (let parent = fiber.return; parent; parent = parent.return) {
-    const name =
-      COMPONENT_TAGS.has(parent.tag) || parent.tag === MEMO_TAG ? ownName(parent) : undefined;
+    const name = COMPONENT_TAGS.has(parent.tag) || parent.tag === MEMO_TAG ? ownName(parent) : undefined;
     if (name) return `(anonymous in ${name})`;
   }
-  return "(anonymous)";
+  return '(anonymous)';
 }
 
 function visit(fiber: Fiber | null, counts: Record<string, number>) {
@@ -92,10 +91,10 @@ export function installRenderCensus(host: object) {
     onPostCommitFiberRoot: () => {},
     onCommitFiberRoot: (_id: number, root: { current: Fiber }) => {
       if (!counting) return;
-      counting["(commits)"] = (counting["(commits)"] ?? 0) + 1;
+      counting['(commits)'] = (counting['(commits)'] ?? 0) + 1;
       visit(root.current.child, counting);
-    },
+    }
   };
 }
 
-if (import.meta.env.VITE_RAWTONIC_PERF === "1" && typeof window !== "undefined") installRenderCensus(window);
+if (import.meta.env.VITE_RAWTONIC_PERF === '1' && typeof window !== 'undefined') installRenderCensus(window);

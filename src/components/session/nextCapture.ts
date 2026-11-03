@@ -1,10 +1,18 @@
-import { withAiDenoiseVersion, withPresetVersions, withDiffractionVersion, withGrainStructure, withLegacyGrainVersion, withLumaNoiseVersion, withSharpenVersion } from "../../utils/adjustments";
+import {
+  withAiDenoiseVersion,
+  withPresetVersions,
+  withDiffractionVersion,
+  withGrainStructure,
+  withLegacyGrainVersion,
+  withLumaNoiseVersion,
+  withSharpenVersion
+} from '../../utils/adjustments';
 
 /** Mirrors `hot_folder::NextCapture`. */
 export type NextCapture =
-  | { mode: "defaults" }
-  | { mode: "copyFromLast" }
-  | { mode: "preset"; name: string; adjustments: Record<string, unknown> };
+  | { mode: 'defaults' }
+  | { mode: 'copyFromLast' }
+  | { mode: 'preset'; name: string; adjustments: Record<string, unknown> };
 
 /** Mirrors `hot_folder::NextCaptureMetadata`. */
 export interface NextCaptureMetadata {
@@ -20,7 +28,7 @@ export interface NextCaptureForm {
   keywords: string;
 }
 
-export const DEFAULT_NEXT_CAPTURE: NextCaptureForm = { choice: "defaults", rating: 0, keywords: "" };
+export const DEFAULT_NEXT_CAPTURE: NextCaptureForm = { choice: 'defaults', rating: 0, keywords: '' };
 
 export interface PresetChoice {
   id: string;
@@ -29,14 +37,12 @@ export interface PresetChoice {
 }
 
 /** Presets of `load_presets`, folders flattened. */
-export type PresetItemJson =
-  | { preset: PresetChoice }
-  | { folder: { name: string; children: PresetChoice[] } };
+export type PresetItemJson = { preset: PresetChoice } | { folder: { name: string; children: PresetChoice[] } };
 export function flattenPresets(items: PresetItemJson[]): PresetChoice[] {
   return items.flatMap((item) =>
-    "preset" in item
+    'preset' in item
       ? [item.preset]
-      : item.folder.children.map((p) => ({ ...p, name: `${item.folder.name} / ${p.name}` })),
+      : item.folder.children.map((p) => ({ ...p, name: `${item.folder.name} / ${p.name}` }))
   );
 }
 
@@ -53,13 +59,23 @@ export function parseKeywords(text: string): string[] {
 /** The form as the backend takes it. */
 export function nextCaptureOf(
   form: NextCaptureForm,
-  presets: PresetChoice[],
+  presets: PresetChoice[]
 ): { nextCapture: NextCapture; metadata: NextCaptureMetadata } {
   const preset = presets.find((p) => `preset:${p.id}` === form.choice);
   const nextCapture: NextCapture = preset
-    ? { mode: "preset", name: preset.name, adjustments: withPresetVersions(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(preset.adjustments))))))) }
-    : form.choice === "copyFromLast"
-      ? { mode: "copyFromLast" }
-      : { mode: "defaults" };
+    ? {
+        mode: 'preset',
+        name: preset.name,
+        adjustments: withPresetVersions(
+          withDiffractionVersion(
+            withLumaNoiseVersion(
+              withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(preset.adjustments))))
+            )
+          )
+        )
+      }
+    : form.choice === 'copyFromLast'
+      ? { mode: 'copyFromLast' }
+      : { mode: 'defaults' };
   return { nextCapture, metadata: { rating: form.rating, keywords: parseKeywords(form.keywords) } };
 }

@@ -51,7 +51,7 @@ export function compareBlocker(
   snapshot: Snapshot,
   signature: string,
   isRaw: boolean,
-  osPlatform: string | null | undefined,
+  osPlatform: string | null | undefined
 ): 'differs' | 'aiDenoise' | null {
   if (!comparableWithEdit(snapshot, signature, isRaw)) return 'differs';
   if (osPlatform === 'linux' && isRaw && aiDenoiseAmount(loadedSnapshot(snapshot, isRaw).adjustments) > 0) {
@@ -100,6 +100,6 @@ export function beforeAdjustments(adjustments: Adjustments): Adjustments {
 export function compareWithSnapshot(snapshot: Snapshot | null) {
   const { selectedImage, setEditor } = useEditorStore.getState();
   setEditor({
-    beforeSnapshot: snapshot && selectedImage ? { path: selectedImage.path, id: snapshot.id } : null,
+    beforeSnapshot: snapshot && selectedImage ? { path: selectedImage.path, id: snapshot.id } : null
   });
 }

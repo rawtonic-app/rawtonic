@@ -20,7 +20,7 @@ import {
   panCell,
   cycleCellZoom,
   fitScaleOf,
-  MAX_CELL_ZOOM,
+  MAX_CELL_ZOOM
 } from './multiView';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 

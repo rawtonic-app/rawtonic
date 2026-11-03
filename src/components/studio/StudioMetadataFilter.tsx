@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import type { ParseKeys, TFunction } from "i18next";
-import { useShallow } from "zustand/react/shallow";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { onCatalogChange } from "../../utils/catalogWrites";
-import { folderViewMode } from "../../utils/subfolderView";
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { ParseKeys, TFunction } from 'i18next';
+import { useShallow } from 'zustand/react/shallow';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { onCatalogChange } from '../../utils/catalogWrites';
+import { folderViewMode } from '../../utils/subfolderView';
 import {
   FACET_FIELDS,
   SOURCE_TYPES,
@@ -16,8 +16,8 @@ import {
   textRules,
   type FacetField,
   type FacetValue,
-  type Facets,
-} from "../../utils/librarySearch";
+  type Facets
+} from '../../utils/librarySearch';
 
 /** How long changes pause before the value lists are counted again. */
 const COUNT_DELAY_MS = 120;
@@ -46,12 +46,15 @@ export function rangeOf(rows: Row[], anchor: string, clicked: string): string[] 
   const kind = (value: string) => rows.find((row) => row.value === value)?.months !== undefined;
   if (from < 0 || to < 0) return null;
   // "No value" is of either kind: the range takes the other end's.
-  const years = clicked === "" ? kind(anchor) : kind(clicked);
-  if (anchor !== "" && clicked !== "" && kind(anchor) !== years) return null;
+  const years = clicked === '' ? kind(anchor) : kind(clicked);
+  if (anchor !== '' && clicked !== '' && kind(anchor) !== years) return null;
   const [low, high] = from < to ? [from, to] : [to, from];
   return rows
     .slice(low, high + 1)
-    .filter((row) => row.value === anchor || row.value === clicked || (row.value !== "" && (row.months !== undefined) === years))
+    .filter(
+      (row) =>
+        row.value === anchor || row.value === clicked || (row.value !== '' && (row.months !== undefined) === years)
+    )
     .map((row) => row.value);
 }
 
@@ -64,10 +67,10 @@ function yearRows(values: FacetValue[]): Row[] {
     const last = rows.at(-1);
     // A chosen year no photograph has any more (kept at 0): a year of no months.
     if (isYear(month.value)) rows.push({ value: month.value, count: month.count, months: [] });
-    else if (month.value !== "" && last?.months && last.value === year) {
+    else if (month.value !== '' && last?.months && last.value === year) {
       last.count += month.count;
       last.months.push(month);
-    } else if (month.value !== "") rows.push({ value: year, count: month.count, months: [month] });
+    } else if (month.value !== '') rows.push({ value: year, count: month.count, months: [month] });
     else rows.push(month);
   }
   return rows;
@@ -79,7 +82,7 @@ const ORDERED: Partial<Record<FacetField, (a: string, b: string) => number>> = {
   captureDate: (a, b) => b.localeCompare(a),
   iso: (a, b) => Number(a) - Number(b),
   focalLength: (a, b) => Number(a) - Number(b),
-  aperture: (a, b) => Number(a) - Number(b),
+  aperture: (a, b) => Number(a) - Number(b)
 };
 
 /** A list's values with the chosen ones no photograph has any more (at 0,
@@ -90,40 +93,35 @@ function withKept(field: FacetField, values: FacetValue[], kept: string[]): Face
   const order = ORDERED[field];
   if (!order) return listed;
   return [
-    ...listed.filter((v) => v.value !== "").sort((a, b) => order(a.value, b.value)),
-    ...listed.filter((v) => v.value === ""),
+    ...listed.filter((v) => v.value !== '').sort((a, b) => order(a.value, b.value)),
+    ...listed.filter((v) => v.value === '')
   ];
 }
 
 /** A list value as the Library shows it ("" is the photographs without one). */
-export function facetLabel(
-  field: FacetField,
-  value: string,
-  t: TFunction,
-  locale?: string,
-): string {
-  if (value === "") return t(`studio.library.metadataFilter.none.${field}`);
+export function facetLabel(field: FacetField, value: string, t: TFunction, locale?: string): string {
+  if (value === '') return t(`studio.library.metadataFilter.none.${field}`);
   switch (field) {
-    case "captureDate": {
+    case 'captureDate': {
       if (isYear(value)) return value;
-      const [year, month] = value.split("-").map(Number);
+      const [year, month] = value.split('-').map(Number);
       return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString(locale, {
-        year: "numeric",
-        month: "long",
-        timeZone: "UTC",
+        year: 'numeric',
+        month: 'long',
+        timeZone: 'UTC'
       });
     }
-    case "fileType":
+    case 'fileType':
       return t(`studio.library.metadataFilter.fileTypes.${value}` as ParseKeys);
-    case "iso":
-      return t("studio.library.metadataFilter.isoValue", { value });
-    case "focalLength":
-      return t("studio.library.metadataFilter.focalValue", { value });
-    case "aperture":
-      return t("studio.library.metadataFilter.apertureValue", { value });
-    case "ai":
+    case 'iso':
+      return t('studio.library.metadataFilter.isoValue', { value });
+    case 'focalLength':
+      return t('studio.library.metadataFilter.focalValue', { value });
+    case 'aperture':
+      return t('studio.library.metadataFilter.apertureValue', { value });
+    case 'ai':
       return t(`studio.library.metadataFilter.aiFacts.${value}` as ParseKeys, { defaultValue: value });
-    case "sourceType":
+    case 'sourceType':
       return (SOURCE_TYPES as readonly string[]).includes(value)
         ? t(`studio.library.metadataFilter.sourceTypes.${value}` as ParseKeys)
         : value;
@@ -154,11 +152,13 @@ export default function StudioMetadataFilter() {
       albumId: s.activeAlbumId,
       text: s.searchCriteria.text,
       filter: s.filterCriteria,
-      setFilter: s.setFilterCriteria,
-    })),
+      setFilter: s.setFilterCriteria
+    }))
   );
   const subfolderDefault = useLibraryStore((s) => s.subfolderDefaultRoot);
-  const viewMode = useSettingsStore((s) => (folder ? folderViewMode(folder, s.appSettings, subfolderDefault) : undefined));
+  const viewMode = useSettingsStore((s) =>
+    folder ? folderViewMode(folder, s.appSettings, subfolderDefault) : undefined
+  );
   // A refreshed list (rename, move, background tagging) is counted again.
   const imageList = useLibraryStore((s) => s.imageList);
   const selection = filter.metadata;
@@ -191,7 +191,7 @@ export default function StudioMetadataFilter() {
           .catch((e) => {
             // No lists rather than another filter's counts.
             if (!cancelled && mine === generation) setFacets({});
-            console.error("Metadata lists failed:", e);
+            console.error('Metadata lists failed:', e);
           });
       }, COUNT_DELAY_MS);
     };
@@ -216,14 +216,17 @@ export default function StudioMetadataFilter() {
     else if (chosen.includes(value)) next = chosen.filter((v) => v !== value);
     else {
       // A month of a chosen year: the year gives way to its other months.
-      const year = field === "captureDate" && !isYear(value) ? value.slice(0, 4) : null;
+      const year = field === 'captureDate' && !isYear(value) ? value.slice(0, 4) : null;
       const yearRow = year && chosen.includes(year) ? rows.find((row) => row.value === year) : undefined;
       next = yearRow
-        ? [...chosen.filter((v) => v !== year), ...(yearRow.months ?? []).map((m) => m.value).filter((m) => m !== value)]
+        ? [
+            ...chosen.filter((v) => v !== year),
+            ...(yearRow.months ?? []).map((m) => m.value).filter((m) => m !== value)
+          ]
         : [...chosen, value];
     }
     // A chosen year holds its months: they are not chosen besides it.
-    if (field === "captureDate") {
+    if (field === 'captureDate') {
       const years = new Set(next.filter(isYear));
       next = next.filter((v) => isYear(v) || !years.has(v.slice(0, 4)));
     }
@@ -232,7 +235,7 @@ export default function StudioMetadataFilter() {
   };
   const clear = (field: FacetField) => setFilter({ metadata: { ...selection, [field]: [] } });
   return (
-    <div className="studio-metadata-filter" role="group" aria-label={t("studio.library.metadataFilter.label")}>
+    <div className="studio-metadata-filter" role="group" aria-label={t('studio.library.metadataFilter.label')}>
       {FACET_FIELDS.map((field) => {
         const values: FacetValue[] = facets[field] ?? [];
         const chosen = selection?.[field] ?? [];
@@ -241,45 +244,47 @@ export default function StudioMetadataFilter() {
         // so it can be taken back.
         const gone = chosen
           .filter((c) => !values.some((v) => v.value === c))
-          .filter((c) => !(field === "captureDate" && isYear(c) && values.some((v) => v.value.startsWith(`${c}-`))));
+          .filter((c) => !(field === 'captureDate' && isYear(c) && values.some((v) => v.value.startsWith(`${c}-`))));
         const kept = withKept(field, values, gone);
-        const listed: Row[] = field === "captureDate" ? yearRows(kept) : kept;
+        const listed: Row[] = field === 'captureDate' ? yearRows(kept) : kept;
         // Rows as shown: a year's months below it while it is open.
-        const shown: Row[] = listed.flatMap((row) =>
-          row.months && open[row.value] ? [row, ...row.months] : [row],
-        );
+        const shown: Row[] = listed.flatMap((row) => (row.months && open[row.value] ? [row, ...row.months] : [row]));
         const heading = t(`studio.library.metadataFilter.fields.${field}`);
         const pressed = (value: string) =>
-          chosen.includes(value) || (field === "captureDate" && !isYear(value) && chosen.includes(value.slice(0, 4)));
+          chosen.includes(value) || (field === 'captureDate' && !isYear(value) && chosen.includes(value.slice(0, 4)));
         return (
           <div key={field} className="studio-metadata-column" role="group" aria-label={heading}>
-            <div className="studio-metadata-column-title" title={t("studio.library.metadataFilter.rangeHint")}>
+            <div className="studio-metadata-column-title" title={t('studio.library.metadataFilter.rangeHint')}>
               {heading}
             </div>
             <div className="studio-metadata-values">
               <button aria-pressed={chosen.length === 0} onClick={() => clear(field)}>
-                <span>{t("studio.library.metadataFilter.all", { count: field === "captureDate" ? values.length : listed.length })}</span>
+                <span>
+                  {t('studio.library.metadataFilter.all', {
+                    count: field === 'captureDate' ? values.length : listed.length
+                  })}
+                </span>
                 {/* A photograph counts once per keyword or AI edit. */}
-                {field !== "keyword" && field !== "ai" && <small>{total.toLocaleString()}</small>}
+                {field !== 'keyword' && field !== 'ai' && <small>{total.toLocaleString()}</small>}
               </button>
               {shown.map(({ value, count, months }) => {
-                const month = field === "captureDate" && value !== "" && !isYear(value);
+                const month = field === 'captureDate' && value !== '' && !isYear(value);
                 const label = facetLabel(field, value, t, i18n.language);
                 return (
-                  <div key={value} className={`studio-metadata-row${month ? " is-month" : ""}`}>
+                  <div key={value} className={`studio-metadata-row${month ? ' is-month' : ''}`}>
                     {months && months.length > 0 && (
                       <button
                         className="studio-metadata-disclosure"
                         aria-expanded={Boolean(open[value])}
                         aria-label={t(
                           open[value]
-                            ? "studio.library.metadataFilter.hideMonths"
-                            : "studio.library.metadataFilter.showMonths",
-                          { year: value },
+                            ? 'studio.library.metadataFilter.hideMonths'
+                            : 'studio.library.metadataFilter.showMonths',
+                          { year: value }
                         )}
                         onClick={() => setOpen((o) => ({ ...o, [value]: !o[value] }))}
                       >
-                        {open[value] ? "▾" : "▸"}
+                        {open[value] ? '▾' : '▸'}
                       </button>
                     )}
                     <button
@@ -287,7 +292,7 @@ export default function StudioMetadataFilter() {
                       onClick={(event) => choose(field, value, shown, event.shiftKey)}
                       // Shift-click chooses a range; it selects no page text.
                       onMouseDown={(event) => event.shiftKey && event.preventDefault()}
-                      className={value === "" ? "is-none" : undefined}
+                      className={value === '' ? 'is-none' : undefined}
                     >
                       <span>{label}</span>
                       <small>{count.toLocaleString()}</small>

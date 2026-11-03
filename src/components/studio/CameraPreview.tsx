@@ -1,18 +1,18 @@
-import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useUIStore } from "../../store/useUIStore";
-import type { SelectedImage } from "../ui/AppProperties";
-import { useMultiViewStore } from "../../store/useMultiViewStore";
-import { useRelightStore } from "../../store/useRelightStore";
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
+import type { SelectedImage } from '../ui/AppProperties';
+import { useMultiViewStore } from '../../store/useMultiViewStore';
+import { useRelightStore } from '../../store/useRelightStore';
 import {
   TOGGLE_CAMERA_PREVIEW,
   cameraPreviewTarget,
   hideCameraPreview,
-  toggleCameraPreview,
-} from "../../utils/cameraPreview";
-import { shortcutHint } from "../../utils/keyboardUtils";
+  toggleCameraPreview
+} from '../../utils/cameraPreview';
+import { shortcutHint } from '../../utils/keyboardUtils';
 
 /**
  * While the camera preview is shown: stepping to another photograph,
@@ -37,7 +37,7 @@ export function useCameraPreviewGuard(): void {
       useEditorStore.subscribe(check),
       useUIStore.subscribe(check),
       useMultiViewStore.subscribe(check),
-      useRelightStore.subscribe(check),
+      useRelightStore.subscribe(check)
     ];
     return () => {
       stops.forEach((stop) => stop());
@@ -71,14 +71,16 @@ export function CameraPreview() {
       className="studio-camera-preview"
       data-bench-id="camera-preview"
       role="group"
-      aria-label={t("studio.workspace.cameraPreview.label")}
+      aria-label={t('studio.workspace.cameraPreview.label')}
     >
       <p className="studio-camera-preview-note" role="note">
-        <strong>{t("studio.workspace.cameraPreview.label")}</strong>
-        {t("studio.workspace.cameraPreview.note")}
+        <strong>{t('studio.workspace.cameraPreview.label')}</strong>
+        {t('studio.workspace.cameraPreview.note')}
         {/* How to leave it (the toggle's key, or Escape). */}
         <span className="studio-camera-preview-keys">
-          {key ? t("studio.workspace.cameraPreview.returnWith", { key, esc: t("studio.workspace.cameraPreview.esc") }) : null}
+          {key
+            ? t('studio.workspace.cameraPreview.returnWith', { key, esc: t('studio.workspace.cameraPreview.esc') })
+            : null}
         </span>
       </p>
     </div>
@@ -105,11 +107,11 @@ export function CameraPreviewButton() {
   const osPlatform = useSettingsStore((s) => s.osPlatform);
   const { disabled, possible } = cameraPreviewToggleState(selectedImage);
   const key = shortcutHint(TOGGLE_CAMERA_PREVIEW, keybinds, osPlatform);
-  const label = t("studio.workspace.cameraPreview.label");
+  const label = t('studio.workspace.cameraPreview.label');
   const title = !possible
-    ? t("studio.workspace.cameraPreview.unavailable")
+    ? t('studio.workspace.cameraPreview.unavailable')
     : key
-      ? t("studio.workspace.withShortcut", { label, shortcut: key })
+      ? t('studio.workspace.withShortcut', { label, shortcut: key })
       : label;
   return (
     <button
@@ -121,15 +123,24 @@ export function CameraPreviewButton() {
       onClick={toggleCameraPreview}
     >
       <CameraIcon />
-      <span className="optional-label">{t("studio.workspace.cameraPreview.button")}</span>
+      <span className="optional-label">{t('studio.workspace.cameraPreview.button')}</span>
     </button>
   );
 }
 
 function CameraIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
       <circle cx="12" cy="13" r="3.5" />
     </svg>

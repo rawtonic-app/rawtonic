@@ -12,7 +12,7 @@ function Host({ changed }: { changed(value: string): void }) {
       label="Input device"
       options={[
         { value: 'mouse', label: 'Mouse' },
-        { value: 'trackpad', label: 'Touchpad' },
+        { value: 'trackpad', label: 'Touchpad' }
       ]}
       value={value}
       onChange={(next) => {

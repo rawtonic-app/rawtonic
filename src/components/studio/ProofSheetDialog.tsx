@@ -1,28 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { Invokes } from "../ui/AppProperties";
-import { registerAppCommands } from "../../utils/appCommands";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useProcessStore } from "../../store/useProcessStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useStackStore } from "../../store/useStackStore";
-import { currentEditForExport, useEditorStore } from "../../store/useEditorStore";
-import { computeSortedLibrary } from "../../hooks/useSortedLibrary";
-import { flushRecipeSaves } from "../../hooks/useEditorActions";
-import { photoWritesAndStepsSettled } from "../../utils/photoWrites";
-import { readFormDraft, readJobName, startFormDraft, writeFormDraft, writeJobName } from "../../utils/exportJob";
-import {
-  exportSettingsFromDraft,
-  watermarkReady,
-  type RecipeDraft,
-} from "../../utils/exportRecipes";
-import { submittedFrom } from "../../utils/runExportJobs";
-import { usableSessionFolder } from "../../utils/sessionFolders";
-import { renderErrorMessage } from "../../utils/renderErrors";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
+import { Invokes } from '../ui/AppProperties';
+import { registerAppCommands } from '../../utils/appCommands';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useProcessStore } from '../../store/useProcessStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useStackStore } from '../../store/useStackStore';
+import { currentEditForExport, useEditorStore } from '../../store/useEditorStore';
+import { computeSortedLibrary } from '../../hooks/useSortedLibrary';
+import { flushRecipeSaves } from '../../hooks/useEditorActions';
+import { photoWritesAndStepsSettled } from '../../utils/photoWrites';
+import { readFormDraft, readJobName, startFormDraft, writeFormDraft, writeJobName } from '../../utils/exportJob';
+import { exportSettingsFromDraft, watermarkReady, type RecipeDraft } from '../../utils/exportRecipes';
+import { submittedFrom } from '../../utils/runExportJobs';
+import { usableSessionFolder } from '../../utils/sessionFolders';
+import { renderErrorMessage } from '../../utils/renderErrors';
 import {
   CAPTION_PRESETS,
   PAPERS,
@@ -35,8 +31,8 @@ import {
   writeProofDraft,
   type Paper,
   type SharpenLevel,
-  type ProofDraft,
-} from "../../utils/proofSheet";
+  type ProofDraft
+} from '../../utils/proofSheet';
 
 interface Rect {
   x: number;
@@ -67,7 +63,7 @@ function shownPhotos(): string[] {
   const library = useLibraryStore.getState();
   return computeSortedLibrary(
     { ...library, stacks: useStackStore.getState().byPath, stackView: library.activeAlbumId === null },
-    useSettingsStore.getState(),
+    useSettingsStore.getState()
   ).map((image) => image.path);
 }
 
@@ -87,11 +83,11 @@ export function ProofSheetDialogHost() {
       registerAppCommands({
         proof_sheet: {
           enabled: () => useLibraryStore.getState().imageList.length > 0,
-          disabledHint: () => t("proofSheet.noPhotos"),
-          run: () => showProofSheet(),
-        },
+          disabledHint: () => t('proofSheet.noPhotos'),
+          run: () => showProofSheet()
+        }
       }),
-    [t],
+    [t]
   );
   if (!paths) return null;
   return <ProofSheetDialog paths={paths} />;
@@ -118,16 +114,16 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
   // Create, without switching the watermark on for exports.
   const exportForm = useMemo(() => readFormDraft(session), [session]);
   const formReady = !!exportForm && watermarkReady(exportForm);
-  const [watermarkText, setWatermarkText] = useState("");
+  const [watermarkText, setWatermarkText] = useState('');
   const watermarkForm: RecipeDraft | null = formReady
     ? exportForm
     : watermarkText.trim()
-      ? { ...(exportForm ?? startFormDraft(session)), watermarkKind: "text", watermarkText }
+      ? { ...(exportForm ?? startFormDraft(session)), watermarkKind: 'text', watermarkText }
       : null;
   const watermark = watermarkForm
     ? exportSettingsFromDraft({ ...watermarkForm, watermark: true }).settings.watermark
     : null;
-  const target = draft.where === "output" && !session ? "choose" : draft.where;
+  const target = draft.where === 'output' && !session ? 'choose' : draft.where;
 
   const request = (destination: string) => ({
     paths,
@@ -138,7 +134,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
     watermark: draft.watermark ? watermark : null,
     outputSharpening: sheetSharpening(draft),
     ...currentEditForExport(useEditorStore.getState()),
-    library: submittedFrom(session),
+    library: submittedFrom(session)
   });
 
   useEffect(() => {
@@ -149,7 +145,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
   useEffect(() => {
     let current = true;
     const timer = window.setTimeout(() => {
-      invoke<Preview>(Invokes.ProofSheetPreview, { request: request("") })
+      invoke<Preview>(Invokes.ProofSheetPreview, { request: request('') })
         .then((next) => {
           if (!current) return;
           setPreview(next);
@@ -172,18 +168,18 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
     setProblem(null);
     try {
       const unsaved = (await Promise.all([flushRecipeSaves(), photoWritesAndStepsSettled()]))[0].filter((p) =>
-        paths.includes(p),
+        paths.includes(p)
       );
       if (unsaved.length)
-        throw new Error(t("studio.export.toasts.unsavedEdits", { names: unsaved.map(fileName).join(", ") }));
+        throw new Error(t('studio.export.toasts.unsavedEdits', { names: unsaved.map(fileName).join(', ') }));
       let destination: string | null = null;
-      if (target === "output" && session) {
-        destination = await usableSessionFolder(session, "output");
+      if (target === 'output' && session) {
+        destination = await usableSessionFolder(session, 'output');
       } else if (draft.folder) {
         destination = draft.folder;
       } else {
-        const chosen = await open({ title: t("proofSheet.chooseFolder"), directory: true, multiple: false });
-        destination = typeof chosen === "string" ? chosen : null;
+        const chosen = await open({ title: t('proofSheet.chooseFolder'), directory: true, multiple: false });
+        destination = typeof chosen === 'string' ? chosen : null;
       }
       if (!destination) return;
       await invoke(Invokes.QueueProofSheet, { request: request(destination) });
@@ -200,22 +196,22 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
 
   const chooseFolder = async () => {
     const chosen = await open({
-      title: t("proofSheet.chooseFolder"),
+      title: t('proofSheet.chooseFolder'),
       directory: true,
       multiple: false,
-      defaultPath: draft.folder,
+      defaultPath: draft.folder
     });
-    if (typeof chosen === "string") set({ where: "choose", folder: chosen });
+    if (typeof chosen === 'string') set({ where: 'choose', folder: chosen });
   };
 
   const keys = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       e.stopPropagation();
       close();
     }
   };
 
-  const number = (value: string) => (value.trim() === "" ? Number.NaN : Number(value));
+  const number = (value: string) => (value.trim() === '' ? Number.NaN : Number(value));
   const page = preview?.layout;
   const pages = page?.pages.length ?? 0;
   const cells = page?.pages[0]?.cells ?? [];
@@ -223,7 +219,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
   const scale = page ? Math.min(300 / page.pageWidthMm, 400 / page.pageHeightMm) : 1;
   const mm = (value: number) => `${value * scale}px`;
   const [, rightMargin, , leftMargin] = sheetFromDraft(draft).marginsMm;
-  const title = t("proofSheet.title");
+  const title = t('proofSheet.title');
 
   return createPortal(
     <div className="studio-dialog-backdrop" onKeyDown={keys}>
@@ -237,7 +233,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
       >
         <h2 className="studio-dialog-title">{title}</h2>
         <div className="studio-proof-sheet-body">
-          <figure className="studio-proof-sheet-preview" aria-label={t("proofSheet.preview")}>
+          <figure className="studio-proof-sheet-preview" aria-label={t('proofSheet.preview')}>
             {page && (
               <div
                 className="studio-proof-sheet-page"
@@ -250,7 +246,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                       left: mm(leftMargin),
                       top: mm(page.headerBaseline - draft.textPt * PT_TO_MM * 0.8),
                       fontSize: mm(draft.textPt * PT_TO_MM),
-                      maxWidth: mm(page.pageWidthMm - leftMargin - rightMargin),
+                      maxWidth: mm(page.pageWidthMm - leftMargin - rightMargin)
                     }}
                   >
                     {preview.header}
@@ -263,10 +259,10 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                       left: mm(leftMargin),
                       right: mm(rightMargin),
                       top: mm(page.footerBaseline - draft.textPt * PT_TO_MM * 0.8),
-                      fontSize: mm(draft.textPt * PT_TO_MM),
+                      fontSize: mm(draft.textPt * PT_TO_MM)
                     }}
                   >
-                    <span>{preview?.footer ?? ""}</span>
+                    <span>{preview?.footer ?? ''}</span>
                     {draft.pageNumbers && <span>{`1 / ${pages}`}</span>}
                   </span>
                 )}
@@ -278,7 +274,15 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                     aria-hidden="true"
                   >
                     {preview.cropMarks.map(([x0, y0, x1, y1], i) => (
-                      <line key={i} x1={x0 * scale} y1={y0 * scale} x2={x1 * scale} y2={y1 * scale} stroke="#000" strokeWidth={1} />
+                      <line
+                        key={i}
+                        x1={x0 * scale}
+                        y1={y0 * scale}
+                        x2={x1 * scale}
+                        y2={y1 * scale}
+                        stroke="#000"
+                        strokeWidth={1}
+                      />
                     ))}
                   </svg>
                 )}
@@ -293,7 +297,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                           left: mm(cell.photoBox.x),
                           top: mm(cell.photoBox.y),
                           width: mm(cell.photoBox.w),
-                          height: mm(cell.photoBox.h),
+                          height: mm(cell.photoBox.h)
                         }}
                       >
                         {thumbnail ? <img src={thumbnail} alt="" /> : <span className="studio-proof-sheet-missing" />}
@@ -305,10 +309,10 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                             left: mm(cell.cell.x),
                             width: mm(cell.cell.w),
                             top: mm(cell.captionBaseline - draft.captionPt * PT_TO_MM * 0.8),
-                            fontSize: mm(draft.captionPt * PT_TO_MM),
+                            fontSize: mm(draft.captionPt * PT_TO_MM)
                           }}
                         >
-                          {preview?.captions[cell.photo] ?? ""}
+                          {preview?.captions[cell.photo] ?? ''}
                         </span>
                       )}
                     </div>
@@ -318,35 +322,35 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
             )}
             <figcaption className="studio-help">
               {page
-                ? t("proofSheet.summary", {
+                ? t('proofSheet.summary', {
                     photos: paths.length,
                     pages,
                     perPage: draft.columns * draft.rows,
                     width: page.boxPx[0],
-                    height: page.boxPx[1],
+                    height: page.boxPx[1]
                   })
-                : " "}
+                : ' '}
             </figcaption>
           </figure>
 
           <div className="studio-proof-sheet-form">
             <fieldset>
-              <legend>{t("proofSheet.page")}</legend>
+              <legend>{t('proofSheet.page')}</legend>
               <label>
-                {t("proofSheet.paper")}
+                {t('proofSheet.paper')}
                 <select value={draft.paper} onChange={(e) => set({ paper: e.target.value as Paper })}>
                   {(Object.keys(PAPERS) as (keyof typeof PAPERS)[]).map((paper) => (
                     <option key={paper} value={paper}>
                       {t(`proofSheet.papers.${paper}`)}
                     </option>
                   ))}
-                  <option value="custom">{t("proofSheet.papers.custom")}</option>
+                  <option value="custom">{t('proofSheet.papers.custom')}</option>
                 </select>
               </label>
-              {draft.paper === "custom" && (
+              {draft.paper === 'custom' && (
                 <div className="studio-proof-sheet-pair">
                   <label>
-                    {t("proofSheet.widthMm")}
+                    {t('proofSheet.widthMm')}
                     <input
                       type="number"
                       min={20}
@@ -356,7 +360,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                     />
                   </label>
                   <label>
-                    {t("proofSheet.heightMm")}
+                    {t('proofSheet.heightMm')}
                     <input
                       type="number"
                       min={20}
@@ -367,18 +371,18 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   </label>
                 </div>
               )}
-              <div className="studio-proof-sheet-choice" role="radiogroup" aria-label={t("proofSheet.orientation")}>
+              <div className="studio-proof-sheet-choice" role="radiogroup" aria-label={t('proofSheet.orientation')}>
                 <label>
                   <input type="radio" checked={!draft.landscape} onChange={() => set({ landscape: false })} />
-                  {t("proofSheet.portrait")}
+                  {t('proofSheet.portrait')}
                 </label>
                 <label>
                   <input type="radio" checked={draft.landscape} onChange={() => set({ landscape: true })} />
-                  {t("proofSheet.landscape")}
+                  {t('proofSheet.landscape')}
                 </label>
               </div>
               <label>
-                {t("proofSheet.marginMm")}
+                {t('proofSheet.marginMm')}
                 <input
                   type="number"
                   min={0}
@@ -390,10 +394,10 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
             </fieldset>
 
             <fieldset>
-              <legend>{t("proofSheet.grid")}</legend>
+              <legend>{t('proofSheet.grid')}</legend>
               <div className="studio-proof-sheet-pair">
                 <label>
-                  {t("proofSheet.columns")}
+                  {t('proofSheet.columns')}
                   <input
                     type="number"
                     min={1}
@@ -403,7 +407,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   />
                 </label>
                 <label>
-                  {t("proofSheet.rows")}
+                  {t('proofSheet.rows')}
                   <input
                     type="number"
                     min={1}
@@ -413,7 +417,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   />
                 </label>
                 <label>
-                  {t("proofSheet.gapMm")}
+                  {t('proofSheet.gapMm')}
                   <input
                     type="number"
                     min={0}
@@ -426,13 +430,13 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
             </fieldset>
 
             <fieldset>
-              <legend>{t("proofSheet.text")}</legend>
+              <legend>{t('proofSheet.text')}</legend>
               <label>
-                {t("proofSheet.caption")}
+                {t('proofSheet.caption')}
                 <input
                   list="proof-sheet-captions"
                   value={draft.caption}
-                  placeholder={t("proofSheet.noCaption")}
+                  placeholder={t('proofSheet.noCaption')}
                   onChange={(e) => set({ caption: e.target.value })}
                 />
                 <datalist id="proof-sheet-captions">
@@ -441,23 +445,23 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   ))}
                 </datalist>
               </label>
-              <p className="studio-help">{t("proofSheet.captionHelp")}</p>
+              <p className="studio-help">{t('proofSheet.captionHelp')}</p>
               <label>
-                {t("proofSheet.header")}
+                {t('proofSheet.header')}
                 <input value={draft.header} onChange={(e) => set({ header: e.target.value })} />
               </label>
               <label>
-                {t("proofSheet.footer")}
+                {t('proofSheet.footer')}
                 <input value={draft.footer} onChange={(e) => set({ footer: e.target.value })} />
               </label>
-              <p className="studio-help">{t("proofSheet.textHelp")}</p>
+              <p className="studio-help">{t('proofSheet.textHelp')}</p>
               <label>
-                {t("proofSheet.jobName")}
+                {t('proofSheet.jobName')}
                 <input value={jobName} onChange={(e) => setJobName(e.target.value)} />
               </label>
               <div className="studio-proof-sheet-pair">
                 <label>
-                  {t("proofSheet.captionPt")}
+                  {t('proofSheet.captionPt')}
                   <input
                     type="number"
                     min={4}
@@ -467,7 +471,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   />
                 </label>
                 <label>
-                  {t("proofSheet.textPt")}
+                  {t('proofSheet.textPt')}
                   <input
                     type="number"
                     min={4}
@@ -483,7 +487,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   checked={draft.pageNumbers}
                   onChange={(e) => set({ pageNumbers: e.target.checked })}
                 />
-                {t("proofSheet.pageNumbers")}
+                {t('proofSheet.pageNumbers')}
               </label>
               <label className="studio-proof-sheet-check">
                 <input
@@ -491,24 +495,24 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                   checked={draft.cropMarks}
                   onChange={(e) => set({ cropMarks: e.target.checked })}
                 />
-                {t("proofSheet.cropMarks")}
+                {t('proofSheet.cropMarks')}
               </label>
             </fieldset>
 
             <fieldset>
-              <legend>{t("proofSheet.output")}</legend>
+              <legend>{t('proofSheet.output')}</legend>
               <label className="studio-proof-sheet-check">
                 <input
                   type="checkbox"
                   checked={draft.watermark}
                   onChange={(e) => set({ watermark: e.target.checked })}
                 />
-                {formReady ? t("proofSheet.watermark") : t("proofSheet.watermarkNew")}
+                {formReady ? t('proofSheet.watermark') : t('proofSheet.watermarkNew')}
               </label>
               {draft.watermark && !formReady && (
                 <>
                   <label>
-                    {t("proofSheet.watermarkText")}
+                    {t('proofSheet.watermarkText')}
                     <input
                       type="text"
                       value={watermarkText}
@@ -516,16 +520,16 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                       onChange={(e) => setWatermarkText(e.target.value)}
                     />
                   </label>
-                  <p className="studio-help">{t("proofSheet.watermarkHelp")}</p>
+                  <p className="studio-help">{t('proofSheet.watermarkHelp')}</p>
                 </>
               )}
               <label className="studio-proof-sheet-check">
                 <input type="checkbox" checked={draft.sharpen} onChange={(e) => set({ sharpen: e.target.checked })} />
-                {t("proofSheet.sharpen")}
+                {t('proofSheet.sharpen')}
               </label>
               {draft.sharpen && (
                 <label>
-                  {t("proofSheet.sharpenLevel")}
+                  {t('proofSheet.sharpenLevel')}
                   <select
                     value={draft.sharpenLevel}
                     onChange={(e) => set({ sharpenLevel: e.target.value as SharpenLevel })}
@@ -539,7 +543,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
                 </label>
               )}
               <label>
-                {t("proofSheet.ppi")}
+                {t('proofSheet.ppi')}
                 <input
                   type="number"
                   min={72}
@@ -551,30 +555,30 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
               <div className="studio-proof-sheet-choice">
                 <label>
                   <input type="checkbox" checked={draft.pdf} onChange={(e) => set({ pdf: e.target.checked })} />
-                  {t("proofSheet.pdf")}
+                  {t('proofSheet.pdf')}
                 </label>
                 <label>
                   <input type="checkbox" checked={draft.jpeg} onChange={(e) => set({ jpeg: e.target.checked })} />
-                  {t("proofSheet.jpeg")}
+                  {t('proofSheet.jpeg')}
                 </label>
               </div>
               <label>
-                {t("proofSheet.fileName")}
+                {t('proofSheet.fileName')}
                 <input value={draft.name} onChange={(e) => set({ name: e.target.value })} />
               </label>
               <div className="studio-proof-sheet-choice">
                 {session && (
                   <label>
-                    <input type="radio" checked={target === "output"} onChange={() => set({ where: "output" })} />
-                    {t("proofSheet.outputFolder")}
+                    <input type="radio" checked={target === 'output'} onChange={() => set({ where: 'output' })} />
+                    {t('proofSheet.outputFolder')}
                   </label>
                 )}
                 <label>
-                  <input type="radio" checked={target === "choose"} onChange={() => void chooseFolder()} />
-                  {target === "choose" && draft.folder ? fileName(draft.folder) : t("proofSheet.otherFolder")}
+                  <input type="radio" checked={target === 'choose'} onChange={() => void chooseFolder()} />
+                  {target === 'choose' && draft.folder ? fileName(draft.folder) : t('proofSheet.otherFolder')}
                 </label>
               </div>
-              {preview && <p className="studio-help">{t("proofSheet.writes", { name: preview.fileName })}</p>}
+              {preview && <p className="studio-help">{t('proofSheet.writes', { name: preview.fileName })}</p>}
             </fieldset>
           </div>
         </div>
@@ -586,7 +590,7 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
         <footer className="studio-dialog-footer">
           <div className="studio-dialog-footer-end">
             <button type="button" className="studio-button" onClick={close}>
-              {t("proofSheet.cancel")}
+              {t('proofSheet.cancel')}
             </button>
             <button
               type="button"
@@ -594,12 +598,12 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
               disabled={busy || !preview || (!draft.pdf && !draft.jpeg) || (draft.watermark && !watermark)}
               onClick={() => void create()}
             >
-              {t("proofSheet.create")}
+              {t('proofSheet.create')}
             </button>
           </div>
         </footer>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

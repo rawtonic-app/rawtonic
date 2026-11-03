@@ -23,7 +23,7 @@ export interface AddFolderDetail {
 }
 
 /** Window event that opens the Add Folder dialog for a chosen folder. */
-export const ADD_FOLDER_EVENT = "rawtonic-add-folder";
+export const ADD_FOLDER_EVENT = 'rawtonic-add-folder';
 
 /** Whether a library's workspace handles Add Folder (it listens). */
 let listening = 0;
@@ -45,12 +45,12 @@ export function requestAddFolder(detail: AddFolderDetail): boolean {
   return true;
 }
 
-const DISMISSED = "rawtonic.addFolder.bannerDismissed";
+const DISMISSED = 'rawtonic.addFolder.bannerDismissed';
 
 function dismissedKeys(): string[] {
   try {
-    const value = JSON.parse(localStorage.getItem(DISMISSED) ?? "[]");
-    return Array.isArray(value) ? value.filter((v) => typeof v === "string") : [];
+    const value = JSON.parse(localStorage.getItem(DISMISSED) ?? '[]');
+    return Array.isArray(value) ? value.filter((v) => typeof v === 'string') : [];
   } catch {
     return [];
   }

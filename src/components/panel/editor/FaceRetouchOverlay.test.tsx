@@ -14,13 +14,13 @@ const face = {
   underEyes: null,
   blemishes: [
     { id: 1, x: 100, y: 100, r: 5, score: 0.9 },
-    { id: 2, x: 200, y: 100, r: 4, score: 0.03 },
+    { id: 2, x: 200, y: 100, r: 4, score: 0.03 }
   ],
   kept: [] as number[],
   added: [] as number[],
   settings: {},
   enabled: true,
-  box: [50, 50, 300, 300],
+  box: [50, 50, 300, 300]
 };
 
 beforeEach(() => {
@@ -29,20 +29,22 @@ beforeEach(() => {
     settings: { blemishes: 30 },
     faces: [face],
     frame: '{}',
-    geometry: JSON.stringify(faceRetouchGeometry(adjustments)),
+    geometry: JSON.stringify(faceRetouchGeometry(adjustments))
   };
   useEditorStore.setState({
     adjustments,
     selectedImage: { path: '/qa/p.dng', width: 400, height: 300, isRaw: true, isReady: true } as never,
     showFaceBlemishes: true,
     showFaceProtection: false,
-    faceProtect: { painting: false, erase: false, size: 30, feather: 50 },
+    faceProtect: { painting: false, erase: false, size: 30, feather: 50 }
   });
 });
 afterEach(cleanup);
 
 const mount = () =>
-  render(<FaceRetouchOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} cropX={0} cropY={0} scale={1} zoom={1} />);
+  render(
+    <FaceRetouchOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} cropX={0} cropY={0} scale={1} zoom={1} />
+  );
 const retouched = () => useEditorStore.getState().adjustments.faceRetouch!.faces[0];
 
 describe('face retouch blemishes on the photograph', () => {
@@ -77,7 +79,8 @@ describe('face retouch protection brush', () => {
   const protect = () => useEditorStore.getState().adjustments.faceRetouch!.protect;
   const paint = (el: HTMLElement, from: number, to: number, altKey = false) => {
     fireEvent.pointerDown(el, { button: 0, clientX: from, clientY: 100, pointerId: 1, altKey });
-    for (let x = from + 5; x <= to; x += 5) fireEvent.pointerMove(el, { clientX: x, clientY: 100, pointerId: 1, altKey });
+    for (let x = from + 5; x <= to; x += 5)
+      fireEvent.pointerMove(el, { clientX: x, clientY: 100, pointerId: 1, altKey });
     fireEvent.pointerUp(el, { pointerId: 1 });
   };
 
@@ -115,7 +118,9 @@ describe('face retouch protection brush', () => {
   it('leaves the blemishes to the brush while painting', () => {
     useEditorStore.setState({ faceProtect: { painting: true, erase: false, size: 20, feather: 40 } });
     mount();
-    expect((screen.getByLabelText('Keep blemish 1 of face-1') as unknown as SVGElement).style.pointerEvents).toBe('none');
+    expect((screen.getByLabelText('Keep blemish 1 of face-1') as unknown as SVGElement).style.pointerEvents).toBe(
+      'none'
+    );
   });
 
   it('shows the protected areas only when asked, without painting', () => {
@@ -123,8 +128,8 @@ describe('face retouch protection brush', () => {
       showFaceBlemishes: false,
       adjustments: {
         ...s.adjustments,
-        faceRetouch: { ...s.adjustments.faceRetouch!, protect: [{ points: [{ x: 10, y: 10 }], radius: 5, feather: 0 }] },
-      },
+        faceRetouch: { ...s.adjustments.faceRetouch!, protect: [{ points: [{ x: 10, y: 10 }], radius: 5, feather: 0 }] }
+      }
     }));
     mount();
     expect(screen.queryByLabelText('Protected areas')).toBeNull();

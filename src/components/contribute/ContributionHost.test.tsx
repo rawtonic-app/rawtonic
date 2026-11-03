@@ -20,7 +20,7 @@ const record = (id: string, asked = false): CrashRecord => ({
   location: 'decode.rs:12:5',
   backtrace: '0: rawdecode::open (decode.rs:12:5)',
   logTail: 'opening <path>.CR3',
-  asked,
+  asked
 });
 
 let pending: CrashRecord[] = [];
@@ -56,7 +56,9 @@ describe('the crash question at start', () => {
     expect(calls()).toContainEqual(['crash_report_mark_asked', { id: 'b' }]);
     fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
     expect(screen.queryByText(/quit unexpectedly last time/)).toBeNull();
-    expect(calls().some(([command]) => command === 'crash_report_remove' || command === 'crash_reports_set_enabled')).toBe(false);
+    expect(
+      calls().some(([command]) => command === 'crash_report_remove' || command === 'crash_reports_set_enabled')
+    ).toBe(false);
   });
 
   it('does not ask about crashes asked before, or when the user chose Never', async () => {
@@ -86,7 +88,9 @@ describe('the crash question at start', () => {
     expect(await screen.findByText('Crash report')).toBeTruthy();
     expect(screen.getByText('decode.rs:12:5')).toBeTruthy();
     // The message can be corrected before it is sent.
-    expect((screen.getByRole('textbox', { name: /Error message/ }) as HTMLTextAreaElement).value).toBe('index out of bounds');
+    expect((screen.getByRole('textbox', { name: /Error message/ }) as HTMLTextAreaElement).value).toBe(
+      'index out of bounds'
+    );
     expect(screen.getByRole('checkbox', { name: /Backtrace/ })).toBeTruthy();
   });
 });
@@ -96,7 +100,7 @@ describe('camera help', () => {
     const { useEditorStore } = await import('../../store/useEditorStore');
     const { useUIStore } = await import('../../store/useUIStore');
     useEditorStore.setState({
-      selectedImage: { path: '/p/other.NEF', exif: { Make: 'NIKON', Model: 'Z 6' } } as never,
+      selectedImage: { path: '/p/other.NEF', exif: { Make: 'NIKON', Model: 'Z 6' } } as never
     });
     vi.mocked(invoke).mockImplementation((command: string) => {
       if (command === 'crash_reports_pending') return Promise.resolve([]);
@@ -107,7 +111,7 @@ describe('camera help', () => {
           app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '26.5', arch: 'aarch64' },
           gpu: null,
           logTail: null,
-          screenshotAvailable: false,
+          screenshotAvailable: false
         });
       return Promise.resolve(null);
     });
@@ -132,7 +136,7 @@ describe('camera help', () => {
           app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '26.5', arch: 'aarch64' },
           gpu: null,
           logTail: null,
-          screenshotAvailable: false,
+          screenshotAvailable: false
         });
       return Promise.resolve(null);
     });

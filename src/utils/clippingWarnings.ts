@@ -37,7 +37,7 @@ export function histogramClipping(histogram: unknown): { shadows: boolean; highl
   const flags = (histogram ?? {}) as Record<string, unknown>;
   return {
     shadows: flags.clippedShadows === true,
-    highlights: flags.clippedHighlights === true,
+    highlights: flags.clippedHighlights === true
   };
 }
 

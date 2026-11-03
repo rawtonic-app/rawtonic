@@ -15,11 +15,11 @@ export function loadBuiltinPresets(): Promise<void> {
   loading ??= invoke<Omit<Preset, 'builtin'>[]>(Invokes.LoadBuiltinPresets).then(
     (presets) =>
       useBuiltinPresets.setState({
-        presets: Array.isArray(presets) ? presets.map((preset) => ({ ...preset, builtin: true })) : [],
+        presets: Array.isArray(presets) ? presets.map((preset) => ({ ...preset, builtin: true })) : []
       }),
     (error) => {
       console.error('Failed to load built-in presets:', error);
-    },
+    }
   );
   return loading;
 }

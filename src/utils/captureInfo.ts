@@ -59,7 +59,7 @@ export function captureInfoParts(exif: Exif): string[] {
     formatIso(exif.PhotographicSensitivity ?? exif.ISOSpeedRatings ?? exif.ISOSpeed ?? exif.ISO),
     formatShutter(parseExposureTime(exif.ExposureTime)),
     formatAperture(exif.FNumber),
-    formatFocalLength(exif.FocalLength),
+    formatFocalLength(exif.FocalLength)
   ];
   return parts.filter((part): part is string => part !== null);
 }

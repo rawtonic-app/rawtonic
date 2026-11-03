@@ -1,48 +1,35 @@
-import { useShallow } from "zustand/react/shallow";
-import i18n from "i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
-import { INITIAL_MASK_CONTAINER, MASK_VERSION } from "../../utils/adjustments";
-import { addComponentBeforeLumaRange, createSubMask } from "../../utils/maskUtils";
-import { Mask, SubMaskMode, ToolType } from "../panel/right/Masks";
-import { createComponents, type MaskKind } from "../../utils/maskKinds";
-import { Panel } from "../ui/AppProperties";
-import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
-import { warnIfComponentStartsLayer, warnIfLayerLimit } from "./layerLimitToast";
-import { keepWithinLayerLimit } from "../../utils/layerLimit";
+import { useShallow } from 'zustand/react/shallow';
+import i18n from 'i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useUIStore } from '../../store/useUIStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useEditorActions } from '../../hooks/useEditorActions';
+import { INITIAL_MASK_CONTAINER, MASK_VERSION } from '../../utils/adjustments';
+import { addComponentBeforeLumaRange, createSubMask } from '../../utils/maskUtils';
+import { Mask, SubMaskMode, ToolType } from '../panel/right/Masks';
+import { createComponents, type MaskKind } from '../../utils/maskKinds';
+import { Panel } from '../ui/AppProperties';
+import { DEFAULT_BRUSH_SIZE } from '../../utils/brushSize';
+import { warnIfComponentStartsLayer, warnIfLayerLimit } from './layerLimitToast';
+import { keepWithinLayerLimit } from '../../utils/layerLimit';
 
 /** Cursor tools of the viewer bar, after Capture One's cursor tools. */
-export type StudioTool =
-  | "select"
-  | "crop"
-  | "straighten"
-  | "linear"
-  | "radial"
-  | "brush"
-  | "erase"
-  | "spot"
-  | "wb";
+export type StudioTool = 'select' | 'crop' | 'straighten' | 'linear' | 'radial' | 'brush' | 'erase' | 'spot' | 'wb';
 
-export {
-  BRUSH_SIZE_MAX,
-  BRUSH_SIZE_MIN,
-  stepBrushSize,
-} from "../../utils/brushSize";
+export { BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, stepBrushSize } from '../../utils/brushSize';
 
 /** Shift+Q: the spot removal tool's Remove with Detect objects (click or
  * box an object to remove it). Opens the tool in that mode; pressed again
  * while it is on, it ends the tool, as Q does. */
 export function toggleRemoveObjects(selectTool: (tool: StudioTool) => void) {
   const { spotSettings, isSpotToolActive, setEditor } = useEditorStore.getState();
-  const on = isSpotToolActive && spotSettings.mode === "remove" && Boolean(spotSettings.detectObjects);
-  if (!on) setEditor({ spotSettings: { ...spotSettings, mode: "remove", detectObjects: true } });
-  if (!isSpotToolActive || on) selectTool("spot");
+  const on = isSpotToolActive && spotSettings.mode === 'remove' && Boolean(spotSettings.detectObjects);
+  if (!on) setEditor({ spotSettings: { ...spotSettings, mode: 'remove', detectObjects: true } });
+  if (!isSpotToolActive || on) selectTool('spot');
 }
 
 /** Gradients, drawn by a drag on the photo once created. */
-const isDrawnShape = (kind: MaskKind) => kind === "linear" || kind === "radial";
+const isDrawnShape = (kind: MaskKind) => kind === 'linear' || kind === 'radial';
 
 /** Tool state and actions shared by the layer panel, the viewer's tool bar
  * and the tool settings popover. */
@@ -56,7 +43,7 @@ export function useStudioTools() {
     isStraightenActive,
     isSpotToolActive,
     setEditor,
-    brushSettings,
+    brushSettings
   } = useEditorStore(
     useShallow((s) => ({
       // The layers only: the photo's own values change on every edit.
@@ -68,45 +55,36 @@ export function useStudioTools() {
       isStraightenActive: s.isStraightenActive,
       isSpotToolActive: s.isSpotToolActive,
       setEditor: s.setEditor,
-      brushSettings: s.brushSettings,
-    })),
+      brushSettings: s.brushSettings
+    }))
   );
   const { setAdjustments } = useEditorActions();
   const activePanel = useUIStore((s) => s.activePanel);
-  const radialDrawInside = useSettingsStore(
-    (s) => s.appSettings?.radialDrawInside !== false,
-  );
+  const radialDrawInside = useSettingsStore((s) => s.appSettings?.radialDrawInside !== false);
   type Layer = (typeof masks)[number];
-  const layer =
-    activePanel === Panel.Masks
-      ? masks.find((m) => m.id === activeMaskContainerId)
-      : undefined;
+  const layer = activePanel === Panel.Masks ? masks.find((m) => m.id === activeMaskContainerId) : undefined;
   const activeSubMask = layer?.subMasks.find((m) => m.id === activeMaskId);
-  const brushActive =
-    activeSubMask?.type === Mask.Brush || activeSubMask?.type === Mask.Flow;
+  const brushActive = activeSubMask?.type === Mask.Brush || activeSubMask?.type === Mask.Flow;
   // Whether painting with the active brush component adds visible coverage.
-  const activeBrushDraws =
-    (activeSubMask?.mode === SubMaskMode.Subtractive) ===
-    Boolean(layer?.invert);
-  const radialMask =
-    activeSubMask?.type === Mask.Radial ? activeSubMask : undefined;
+  const activeBrushDraws = (activeSubMask?.mode === SubMaskMode.Subtractive) === Boolean(layer?.invert);
+  const radialMask = activeSubMask?.type === Mask.Radial ? activeSubMask : undefined;
   const activeTool: StudioTool = isWbPickerActive
-    ? "wb"
+    ? 'wb'
     : isSpotToolActive
-      ? "spot"
+      ? 'spot'
       : isStraightenActive && activePanel === Panel.Crop
-      ? "straighten"
-      : activePanel === Panel.Crop
-      ? "crop"
-      : brushActive
-        ? activeBrushDraws
-          ? "brush"
-          : "erase"
-        : activeSubMask?.type === Mask.Linear
-          ? "linear"
-          : activeSubMask?.type === Mask.Radial
-            ? "radial"
-            : "select";
+        ? 'straighten'
+        : activePanel === Panel.Crop
+          ? 'crop'
+          : brushActive
+            ? activeBrushDraws
+              ? 'brush'
+              : 'erase'
+            : activeSubMask?.type === Mask.Linear
+              ? 'linear'
+              : activeSubMask?.type === Mask.Radial
+                ? 'radial'
+                : 'select';
   const ready = Boolean(selectedImage?.isReady);
 
   const brushFor = (size: number) => ({
@@ -117,7 +95,7 @@ export function useStudioTools() {
     flow: brushSettings?.flow,
     pressureSize: brushSettings?.pressureSize,
     pressureFlow: brushSettings?.pressureFlow,
-    tool: ToolType.Brush,
+    tool: ToolType.Brush
   });
 
   /** Capture One's naming: a new layer is called after its kind ("Brush 1",
@@ -126,10 +104,10 @@ export function useStudioTools() {
   const kindLayerName = (names: (string | undefined)[], kind: MaskKind) => {
     const label = i18n.t(`studio.masks.kinds.${kind}`);
     const taken = names.map((name) => {
-      const rest = name?.startsWith(`${label} `) ? name.slice(label.length + 1) : "";
+      const rest = name?.startsWith(`${label} `) ? name.slice(label.length + 1) : '';
       return /^\d+$/.test(rest) ? Number(rest) : 0;
     });
-    return i18n.t("studio.develop.layers.kindName", { kind: label, number: Math.max(0, ...taken) + 1 });
+    return i18n.t('studio.develop.layers.kindName', { kind: label, number: Math.max(0, ...taken) + 1 });
   };
 
   /** A new layer of `kind` (a drawn shape, an automatic selection or a
@@ -138,25 +116,36 @@ export function useStudioTools() {
     if (!selectedImage?.isReady) return;
     if (warnIfLayerLimit()) return;
     const maskKind: MaskKind =
-      kind === Mask.Brush ? "brush" : kind === Mask.Linear ? "linear" : kind === Mask.Radial ? "radial" : (kind as MaskKind);
+      kind === Mask.Brush
+        ? 'brush'
+        : kind === Mask.Linear
+          ? 'linear'
+          : kind === Mask.Radial
+            ? 'radial'
+            : (kind as MaskKind);
     const components = createComponents(maskKind, selectedImage);
     const mask = components[0];
     // Capture One's "Draw Mask Inside" decides which side a new radial covers.
-    if (maskKind === "radial") mask.invert = !radialDrawInside;
+    if (maskKind === 'radial') mask.invert = !radialDrawInside;
     const id = crypto.randomUUID();
-    setAdjustments((prev) => keepWithinLayerLimit(prev, {
-      ...prev,
-      masks: [
-        ...prev.masks,
-        {
-          ...structuredClone(INITIAL_MASK_CONTAINER),
-          maskVersion: MASK_VERSION,
-          id,
-          name: kindLayerName(prev.masks.map((m) => m.name), maskKind),
-          subMasks: components,
-        },
-      ],
-    }));
+    setAdjustments((prev) =>
+      keepWithinLayerLimit(prev, {
+        ...prev,
+        masks: [
+          ...prev.masks,
+          {
+            ...structuredClone(INITIAL_MASK_CONTAINER),
+            maskVersion: MASK_VERSION,
+            id,
+            name: kindLayerName(
+              prev.masks.map((m) => m.name),
+              maskKind
+            ),
+            subMasks: components
+          }
+        ]
+      })
+    );
     setEditor({
       activeMaskContainerId: id,
       activeMaskId: mask.id,
@@ -165,14 +154,14 @@ export function useStudioTools() {
       isWbPickerActive: false,
       isStraightenActive: false,
       // A luminance range starts sampling tones on the photo (Lightroom).
-      ...(maskKind === "luminance" ? { lumaPickerLayer: id } : {}),
+      ...(maskKind === 'luminance' ? { lumaPickerLayer: id } : {}),
       // A gradient is drawn by the next drag on the photo.
       shapeDrawTarget: isDrawnShape(maskKind) ? mask.id : null,
       // A new layer keeps the current brush size.
       brushSettings: {
         ...brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE),
-        feather: 50,
-      },
+        feather: 50
+      }
     });
     useUIStore.getState().setPanel(Panel.Masks);
   };
@@ -183,25 +172,20 @@ export function useStudioTools() {
   // On an inverted layer the two swap, so drawing still adds visible coverage.
   const paintOnLayer = (target: Layer, draw: boolean) => {
     if (!selectedImage?.isReady) return;
-    const mode =
-      draw !== Boolean(target.invert)
-        ? SubMaskMode.Additive
-        : SubMaskMode.Subtractive;
-    let brush = target.subMasks.find(
-      (m) => m.type === Mask.Brush && m.mode === mode,
-    );
+    const mode = draw !== Boolean(target.invert) ? SubMaskMode.Additive : SubMaskMode.Subtractive;
+    let brush = target.subMasks.find((m) => m.type === Mask.Brush && m.mode === mode);
     if (!brush) {
       if (warnIfComponentStartsLayer(target.id)) return;
       const created = createSubMask(Mask.Brush, selectedImage, mode);
       brush = created;
-      setAdjustments((prev) => keepWithinLayerLimit(prev, {
-        ...prev,
-        masks: prev.masks.map((m) =>
-          m.id === target.id
-            ? { ...m, subMasks: addComponentBeforeLumaRange(m.subMasks, created) }
-            : m,
-        ),
-      }));
+      setAdjustments((prev) =>
+        keepWithinLayerLimit(prev, {
+          ...prev,
+          masks: prev.masks.map((m) =>
+            m.id === target.id ? { ...m, subMasks: addComponentBeforeLumaRange(m.subMasks, created) } : m
+          )
+        })
+      );
     }
     setEditor({
       activeMaskContainerId: target.id,
@@ -209,7 +193,7 @@ export function useStudioTools() {
       focusedMaskComponentId: brush.id,
       isWbPickerActive: false,
       isStraightenActive: false,
-      brushSettings: brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE),
+      brushSettings: brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE)
     });
     useUIStore.getState().setPanel(Panel.Masks);
   };
@@ -221,23 +205,25 @@ export function useStudioTools() {
     const components = createComponents(kind, selectedImage, mode);
     // A luminance range added to a layer is its luma range.
     const added =
-      kind === "luminance"
+      kind === 'luminance'
         ? components.filter((c) => c.type === Mask.LumaRange && !target.subMasks.some((m) => m.type === Mask.LumaRange))
         : components;
     if (added.length > 0 && warnIfComponentStartsLayer(target.id)) return;
     if (added.length === 0) {
       // The layer has its luma range already: sample tones for it.
-      if (kind === "luminance") setEditor({ activeMaskContainerId: target.id, lumaPickerLayer: target.id });
+      if (kind === 'luminance') setEditor({ activeMaskContainerId: target.id, lumaPickerLayer: target.id });
       return;
     }
-    setAdjustments((prev) => keepWithinLayerLimit(prev, {
-      ...prev,
-      masks: prev.masks.map((m) =>
-        m.id === target.id
-          ? { ...m, subMasks: added.reduce((subs, c) => addComponentBeforeLumaRange(subs, c), m.subMasks) }
-          : m,
-      ),
-    }));
+    setAdjustments((prev) =>
+      keepWithinLayerLimit(prev, {
+        ...prev,
+        masks: prev.masks.map((m) =>
+          m.id === target.id
+            ? { ...m, subMasks: added.reduce((subs, c) => addComponentBeforeLumaRange(subs, c), m.subMasks) }
+            : m
+        )
+      })
+    );
     setEditor({
       activeMaskContainerId: target.id,
       activeMaskId: added[0].id,
@@ -246,10 +232,10 @@ export function useStudioTools() {
       isWbPickerActive: false,
       isStraightenActive: false,
       // A luminance range starts sampling tones on the photo (Lightroom).
-      ...(kind === "luminance" ? { lumaPickerLayer: target.id } : {}),
+      ...(kind === 'luminance' ? { lumaPickerLayer: target.id } : {}),
       shapeDrawTarget: isDrawnShape(kind) ? added[0].id : null,
       // A brush component (Intersect's) paints, as `paintOnLayer` does.
-      ...(kind === "brush" ? { brushSettings: brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE) } : {}),
+      ...(kind === 'brush' ? { brushSettings: brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE) } : {})
     });
     useUIStore.getState().setPanel(Panel.Masks);
   };
@@ -257,41 +243,34 @@ export function useStudioTools() {
   const toggleInvert = (target: Layer) =>
     setAdjustments((prev) => ({
       ...prev,
-      masks: prev.masks.map((m) =>
-        m.id === target.id ? { ...m, invert: !m.invert } : m,
-      ),
+      masks: prev.masks.map((m) => (m.id === target.id ? { ...m, invert: !m.invert } : m))
     }));
 
   const selectTool = (tool: StudioTool) => {
     if (!ready) return;
     const { setPanel } = useUIStore.getState();
     // Any other tool ends spot removal.
-    if (tool !== "spot" && isSpotToolActive)
-      setEditor({ isSpotToolActive: false, activeSpotId: null });
+    if (tool !== 'spot' && isSpotToolActive) setEditor({ isSpotToolActive: false, activeSpotId: null });
     switch (tool) {
-      case "select":
+      case 'select':
         // Keeps the layer selected, so its shape stays editable on the canvas.
         setEditor({
           activeMaskId: null,
           isWbPickerActive: false,
-          isStraightenActive: false,
+          isStraightenActive: false
         });
         if (activePanel === Panel.Crop) setPanel(Panel.Adjustments);
         break;
-      case "crop":
+      case 'crop':
         setEditor({
           activeMaskContainerId: null,
           activeMaskId: null,
           isWbPickerActive: false,
-          isStraightenActive: false,
+          isStraightenActive: false
         });
-        setPanel(
-          activePanel === Panel.Crop && !isStraightenActive
-            ? Panel.Adjustments
-            : Panel.Crop,
-        );
+        setPanel(activePanel === Panel.Crop && !isStraightenActive ? Panel.Adjustments : Panel.Crop);
         break;
-      case "straighten":
+      case 'straighten':
         // Capture One's straighten: draw a line along something that should
         // be level or plumb; the photo rotates to it (in the crop view, which
         // shows the whole photo). Pressed again it returns to the crop tool.
@@ -299,24 +278,24 @@ export function useStudioTools() {
           activeMaskContainerId: null,
           activeMaskId: null,
           isWbPickerActive: false,
-          isStraightenActive: !isStraightenActive,
+          isStraightenActive: !isStraightenActive
         });
         setPanel(Panel.Crop);
         break;
-      case "linear":
+      case 'linear':
         addLayer(Mask.Linear);
         break;
-      case "radial":
+      case 'radial':
         addLayer(Mask.Radial);
         break;
-      case "brush":
-      case "erase":
+      case 'brush':
+      case 'erase':
         // Paints on the selected layer; with none selected the brush starts a
         // new layer (erasing needs a layer to erase from).
-        if (layer) paintOnLayer(layer, tool === "brush");
-        else if (tool === "brush") addLayer(Mask.Brush);
+        if (layer) paintOnLayer(layer, tool === 'brush');
+        else if (tool === 'brush') addLayer(Mask.Brush);
         break;
-      case "spot":
+      case 'spot':
         // Lightroom's Healing / Capture One's Heal and Clone: spots on the
         // photograph itself, not on a layer.
         setEditor({
@@ -325,18 +304,18 @@ export function useStudioTools() {
           isWbPickerActive: false,
           isStraightenActive: false,
           isSpotToolActive: !isSpotToolActive,
-          activeSpotId: null,
+          activeSpotId: null
         });
         if (activePanel !== Panel.Adjustments) setPanel(Panel.Adjustments);
         break;
-      case "wb":
+      case 'wb':
         // The picker sets the photograph's white balance, not a layer's.
         setEditor({
           activeMaskContainerId: null,
           activeMaskId: null,
           isWbPickerActive: !isWbPickerActive,
           isStraightenActive: false,
-          isSpotToolActive: false,
+          isSpotToolActive: false
         });
         if (activePanel !== Panel.Adjustments) setPanel(Panel.Adjustments);
         break;
@@ -346,14 +325,12 @@ export function useStudioTools() {
   /** Turns the spot tool on, as Lightroom's Remove panel does when a mode is
    * chosen; unlike `selectTool("spot")` it never turns the tool off. */
   const startSpotTool = () => {
-    if (!isSpotToolActive) selectTool("spot");
+    if (!isSpotToolActive) selectTool('spot');
   };
 
   const setBrushSize = (size: number) =>
     setEditor({
-      brushSettings: brushSettings
-        ? { ...brushSettings, size }
-        : { ...brushFor(size), feather: 50 },
+      brushSettings: brushSettings ? { ...brushSettings, size } : { ...brushFor(size), feather: 50 }
     });
 
   return {
@@ -371,6 +348,6 @@ export function useStudioTools() {
     toggleInvert,
     selectTool,
     startSpotTool,
-    setBrushSize,
+    setBrushSize
   };
 }

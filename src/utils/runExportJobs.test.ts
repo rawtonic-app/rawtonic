@@ -32,7 +32,7 @@ beforeEach(async () => {
   useLibraryStore.setState({ sessionDirectory: '/Shoots/A', rootPaths: ['/Shoots/A'] });
   useEditorStore.setState({
     selectedImage: { path: '/p/a.NEF', isReady: true } as never,
-    adjustments: { exposure: 1 } as never,
+    adjustments: { exposure: 1 } as never
   });
 });
 
@@ -57,7 +57,7 @@ it('queues an export from its library once the recipes being saved are written',
     library: { library: '/Shoots/A' },
     baseOriginFolders: ['/Shoots/A'],
     currentEditPath: '/p/a.NEF',
-    currentEditAdjustments: { exposure: 1 },
+    currentEditAdjustments: { exposure: 1 }
   });
 });
 
@@ -70,7 +70,7 @@ it('says an export comes from no library when none is open', async () => {
   expect((args as { requests: { library: unknown }[] }).requests[0].library).toBe('noLibrary');
 });
 
-it('exports nothing while a selected photograph\'s edits could not be saved', async () => {
+it("exports nothing while a selected photograph's edits could not be saved", async () => {
   saves.flush.mockResolvedValueOnce(['/p/b.NEF', '/elsewhere/c.NEF']);
   const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'original' as const };
   const { settings, outputFormat } = exportSettingsFromDraft(draft);
@@ -82,7 +82,7 @@ it('exports nothing while a selected photograph\'s edits could not be saved', as
   expect(errorMessage).not.toContain('c.NEF');
 });
 
-it('cancels the whole export when a recipe\'s folder picker is cancelled', async () => {
+it("cancels the whole export when a recipe's folder picker is cancelled", async () => {
   const { open } = await import('@tauri-apps/plugin-dialog');
   // The first recipe's folder is cancelled: the second one is not asked for.
   vi.mocked(open).mockResolvedValueOnce(null).mockResolvedValueOnce('/out/print');
@@ -91,14 +91,16 @@ it('cancels the whole export when a recipe\'s folder picker is cancelled', async
     presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, where: 'choose', folder: undefined }, id, name);
   useSettingsStore.setState({
     appSettings: { exportPresets: [recipe('web', 'Web'), recipe('print', 'Print')] } as never,
-    handleSettingsChange,
+    handleSettingsChange
   });
   const planned = ['web', 'print'].map((id) => {
     const preset = recipe(id, id);
     const draft = draftFromPreset(preset);
     return { recipe: preset, draft, ...exportSettingsFromDraft(draft) };
   });
-  useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: '', progress: { current: 0, total: 0 } } });
+  useProcessStore.setState({
+    exportState: { status: Status.Idle, errorMessage: '', progress: { current: 0, total: 0 } }
+  });
   expect(await runExportJobs(planned, ['/p/a.NEF'])).toBe(0);
   // Nothing is exported, and no later folder is asked for.
   expect(vi.mocked(invoke)).not.toHaveBeenCalled();
@@ -109,7 +111,7 @@ it('cancels the whole export when a recipe\'s folder picker is cancelled', async
   expect(handleSettingsChange).not.toHaveBeenCalled();
 });
 
-it('exports nothing when a later recipe\'s folder picker is cancelled', async () => {
+it("exports nothing when a later recipe's folder picker is cancelled", async () => {
   const { open } = await import('@tauri-apps/plugin-dialog');
   // The first recipe's folder is chosen, the second one's is cancelled: the
   // requests are only sent once every picker answered, so none is sent.
@@ -119,14 +121,16 @@ it('exports nothing when a later recipe\'s folder picker is cancelled', async ()
     presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, where: 'choose', folder: undefined }, id, name);
   useSettingsStore.setState({
     appSettings: { exportPresets: [recipe('web', 'Web'), recipe('print', 'Print')] } as never,
-    handleSettingsChange,
+    handleSettingsChange
   });
   const planned = ['web', 'print'].map((id) => {
     const preset = recipe(id, id);
     const draft = draftFromPreset(preset);
     return { recipe: preset, draft, ...exportSettingsFromDraft(draft) };
   });
-  useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: '', progress: { current: 0, total: 0 } } });
+  useProcessStore.setState({
+    exportState: { status: Status.Idle, errorMessage: '', progress: { current: 0, total: 0 } }
+  });
   expect(await runExportJobs(planned, ['/p/a.NEF'])).toBe(0);
   // Neither recipe is exported, although the first one's folder was chosen.
   expect(vi.mocked(invoke)).not.toHaveBeenCalled();
@@ -140,9 +144,10 @@ it('exports nothing when a later recipe\'s folder picker is cancelled', async ()
     expect(changed.exportPresets?.filter((p) => p.lastExportPath)).toMatchObject([{ lastExportPath: '/out/web' }]);
 });
 
-it('queues an export once a rating set just before Export is written', async () => {  let rated: (value?: unknown) => void = () => {};
+it('queues an export once a rating set just before Export is written', async () => {
+  let rated: (value?: unknown) => void = () => {};
   vi.mocked(invoke).mockImplementation((command: string) =>
-    command === 'set_rating_for_paths' ? new Promise((resolve) => (rated = resolve)) : Promise.resolve(undefined),
+    command === 'set_rating_for_paths' ? new Promise((resolve) => (rated = resolve)) : Promise.resolve(undefined)
   );
   void invokeInOrder('set_rating_for_paths', { paths: ['/p/a.NEF'], rating: 5 });
   const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'original' as const };
@@ -155,5 +160,8 @@ it('queues an export once a rating set just before Export is written', async () 
   expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['set_rating_for_paths']);
   rated([]);
   expect(await run).toBe(1);
-  expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['set_rating_for_paths', 'export_images_batch']);
+  expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual([
+    'set_rating_for_paths',
+    'export_images_batch'
+  ]);
 });

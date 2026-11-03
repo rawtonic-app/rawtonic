@@ -88,14 +88,14 @@ const pinOf = (start: Point, end: Point) =>
 export function strokePrompt(points: Point[], radius: number): { start: Point; end: Point } {
   const travelled = points.reduce(
     (sum, p, i) => (i ? sum + Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) : 0),
-    0,
+    0
   );
   if (travelled < radius * 0.5) return { start: points[0], end: points[0] };
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);
   return {
     start: { x: Math.max(0, Math.min(...xs) - radius), y: Math.max(0, Math.min(...ys) - radius) },
-    end: { x: Math.max(...xs) + radius, y: Math.max(...ys) + radius },
+    end: { x: Math.max(...xs) + radius, y: Math.max(...ys) + radius }
   };
 }
 
@@ -130,7 +130,7 @@ function segmentMeetsBox(a: Point, b: Point, lo: Point, hi: Point) {
     [-dx, a.x - lo.x],
     [dx, hi.x - a.x],
     [-dy, a.y - lo.y],
-    [dy, hi.y - a.y],
+    [dy, hi.y - a.y]
   ]) {
     if (p === 0) {
       if (q < 0) return false;
@@ -150,7 +150,7 @@ export function pathToBox(points: Point[], lo: Point, hi: Point) {
   const corners = [lo, hi, { x: lo.x, y: hi.y }, { x: hi.x, y: lo.y }];
   return Math.min(
     ...points.map(toBox),
-    ...(points.length > 1 ? corners.map((c) => distanceToPath(c.x, c.y, points)) : []),
+    ...(points.length > 1 ? corners.map((c) => distanceToPath(c.x, c.y, points)) : [])
   );
 }
 
@@ -208,9 +208,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const [stroke, setStroke] = useState<Point[] | null>(null);
   // Spots and removals being placed (a removal's fill takes about a second;
   // the brush keeps painting meanwhile).
-  const [pending, setPending] = useState<{ key: string; x: number; y: number; radius: number; points?: Point[] }[]>(
-    [],
-  );
+  const [pending, setPending] = useState<{ key: string; x: number; y: number; radius: number; points?: Point[] }[]>([]);
   const addPending = (x: number, y: number, radius: number, points?: Point[]) => {
     const key = crypto.randomUUID();
     setPending((all) => [...all, { key, x, y, radius, points }]);
@@ -231,8 +229,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // reported of each; the newest one with a report is shown.
   const filling = useRef<string[]>([]);
   const [reports, setReports] = useState<FillProgress[]>([]);
-  const report = (next: FillProgress) =>
-    setReports((all) => [...all.filter((r) => r.taskId !== next.taskId), next]);
+  const report = (next: FillProgress) => setReports((all) => [...all.filter((r) => r.taskId !== next.taskId), next]);
   const progress =
     filling.current
       .toReversed()
@@ -247,7 +244,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const b = ref.current!.getBoundingClientRect();
     return [
       ((clientX - b.left) / b.width) * (rect.width / scale) + cropX,
-      ((clientY - b.top) / b.height) * (rect.height / scale) + cropY,
+      ((clientY - b.top) / b.height) * (rect.height / scale) + cropY
     ] as const;
   };
   const shown = spots.map((s) => (draft && s.id === draft.id ? draft : s));
@@ -257,7 +254,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const commit = (spot: Spot) =>
     updateAdjustments((prev) => ({
       ...prev,
-      spots: (prev.spots ?? []).map((s) => (s.id === spot.id ? spot : s)),
+      spots: (prev.spots ?? []).map((s) => (s.id === spot.id ? spot : s))
     }));
 
   /** Fills `patch` (an AI patch named Remove) with the local inpainting
@@ -268,11 +265,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
    * and returns the patch with its selection. A refined removal gets a new
    * id: the preview sends a patch's pixels once per id, and undo brings the
    * old one back under its own. */
-  const fillAndAdd = async (
-    patch: AiPatch,
-    select?: (patch: AiPatch) => Promise<AiPatch>,
-    replaces?: string,
-  ) => {
+  const fillAndAdd = async (patch: AiPatch, select?: (patch: AiPatch) => Promise<AiPatch>, replaces?: string) => {
     const { selectedImage, adjustments: current } = useEditorStore.getState();
     // The fill starts from the photo without the removal it replaces.
     const adjustments = replaces
@@ -295,7 +288,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           aiPatches:
             replaces && patches.some((p) => p.id === replaces)
               ? patches.map((p) => (p.id === replaces ? done : p))
-              : [...patches, done],
+              : [...patches, done]
         };
       });
       useEditorStore.getState().setEditor({ activeSpotId: patch.id });
@@ -340,7 +333,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       ...created,
       name: 'Object',
       mode: op === 'subtract' ? SubMaskMode.Subtractive : SubMaskMode.Additive,
-      parameters: { ...created.parameters, startX: start.x, startY: start.y, endX: end.x, endY: end.y },
+      parameters: { ...created.parameters, startX: start.x, startY: start.y, endX: end.x, endY: end.y }
     };
     setPendingObject({ start, end, op });
     try {
@@ -355,7 +348,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
               patchData: null,
               prompt: '',
               visible: true,
-              subMasks: [],
+              subMasks: []
             },
         async (patch) => {
           const { adjustments } = useEditorStore.getState();
@@ -368,14 +361,14 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
             flipHorizontal: adjustments.flipHorizontal,
             flipVertical: adjustments.flipVertical,
             orientationSteps: adjustments.orientationSteps,
-            taskId: patch.id,
+            taskId: patch.id
           });
           return {
             ...patch,
-            subMasks: [...patch.subMasks, { ...selection, parameters: { ...selection.parameters, ...mask } }],
+            subMasks: [...patch.subMasks, { ...selection, parameters: { ...selection.parameters, ...mask } }]
           };
         },
-        target?.id,
+        target?.id
       );
     } finally {
       setPendingObject(null);
@@ -400,12 +393,12 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         radius,
         points: points ?? null,
         jsAdjustments: adjustments,
-        fillAcrossEdges,
+        fillAcrossEdges
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
       if (plan.fill)
         return await fillAndAdd(
-          removalPatch(points ?? [{ x, y }], radius, { opacity: settings.opacity, feather: settings.feather }),
+          removalPatch(points ?? [{ x, y }], radius, { opacity: settings.opacity, feather: settings.feather })
         );
       if (!plan.source) throw new Error('No source area fits around this spot');
       const [sourceX, sourceY] = plan.source;
@@ -420,7 +413,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         feather: settings.feather,
         opacity: settings.opacity,
         visible: true,
-        ...(points && { points }),
+        ...(points && { points })
       };
       updateAdjustments((prev) => ({ ...prev, spots: [...(prev.spots ?? []), spot] }));
       setEditor({ activeSpotId: spot.id });
@@ -464,16 +457,14 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const hi = { x: Math.max(a.x, b.x), y: Math.max(a.y, b.y) };
     const touches = (points: Point[], radius: number) => pathToBox(points, lo, hi) < radius;
     return new Set([
-      ...shown
-        .filter((spot) => touches(isStroke(spot) ? spot.points : [spot], spot.radius))
-        .map((spot) => spot.id),
+      ...shown.filter((spot) => touches(isStroke(spot) ? spot.points : [spot], spot.radius)).map((spot) => spot.id),
       ...removals
         .filter((removal) =>
           removal.kind === 'object'
             ? pathToBox([pinOf(removal.start, removal.end)], lo, hi) === 0
-            : touches(removal.points, removal.radius),
+            : touches(removal.points, removal.radius)
         )
-        .map((removal) => removal.patch.id),
+        .map((removal) => removal.patch.id)
     ]);
   };
 
@@ -603,13 +594,13 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         y: d.spot.y + dy,
         sourceX: d.spot.sourceX + (isStroke(d.spot) ? dx : 0),
         sourceY: d.spot.sourceY + (isStroke(d.spot) ? dy : 0),
-        ...(d.spot.points && { points: d.spot.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) }),
+        ...(d.spot.points && { points: d.spot.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) })
       });
     } else {
       setDraft({
         ...d.spot,
         sourceX: d.spot.sourceX + x - d.startX,
-        sourceY: d.spot.sourceY + y - d.startY,
+        sourceY: d.spot.sourceY + y - d.startY
       });
     }
   };
@@ -642,7 +633,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         void removeObject(
           { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y) },
           { x: Math.max(start.x, end.x), y: Math.max(start.y, end.y) },
-          d.op,
+          d.op
         );
       return;
     }
@@ -657,7 +648,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       const first = d.points[0];
       const travelled = d.points.reduce(
         (sum, p, i) => (i ? sum + Math.hypot(p.x - d.points[i - 1].x, p.y - d.points[i - 1].y) : 0),
-        0,
+        0
       );
       // Shorter than half the brush radius: a click.
       if (travelled < settings.size * 0.5) void place(first.x, first.y);
@@ -686,7 +677,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       invoke<ArrayBuffer>(Invokes.VisualizeSpots, {
         sensitivity: visualize.sensitivity,
         maxEdge: 2400,
-        jsAdjustments: adjustments,
+        jsAdjustments: adjustments
       })
         .then((bytes) => {
           if (cancelled) return;
@@ -706,10 +697,13 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // while the removal waits) and the network's runs.
   useEffect(() => {
     const unlisten = [
-      listen<{ taskId: string | null; done: number; total: number; phase?: 'preparing' }>('ai-fill-progress', ({ payload }) => {
-        if (payload.taskId && filling.current.includes(payload.taskId))
-          report({ taskId: payload.taskId, done: payload.done, total: payload.total, phase: payload.phase });
-      }),
+      listen<{ taskId: string | null; done: number; total: number; phase?: 'preparing' }>(
+        'ai-fill-progress',
+        ({ payload }) => {
+          if (payload.taskId && filling.current.includes(payload.taskId))
+            report({ taskId: payload.taskId, done: payload.done, total: payload.total, phase: payload.phase });
+        }
+      ),
       listen<{ received: number; total: number; batchReceived?: number; batchTotal?: number }>(
         'ai-model-download-progress',
         ({ payload }) => {
@@ -728,23 +722,26 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
               return [...all.filter((r) => r.taskId !== id), { ...previous, taskId: id, download }];
             });
           }
-        },
+        }
       ),
       // Moebius could not be used for a large hole: MI-GAN filled it, and
       // the user is told why the fill is weaker.
       // The GPU took too long per network run: large holes use the fast
       // method for the rest of the session (inpainting::MOEBIUS_TOO_SLOW).
-      listen<{ taskId: string | null; reason: 'download' | 'unavailable' | 'tooSlow' }>('ai-fill-notice', ({ payload }) => {
-        if (payload.reason === 'tooSlow') {
-          notify.info(t('spotRemoval.largeHoleTooSlow'));
-          return;
+      listen<{ taskId: string | null; reason: 'download' | 'unavailable' | 'tooSlow' }>(
+        'ai-fill-notice',
+        ({ payload }) => {
+          if (payload.reason === 'tooSlow') {
+            notify.info(t('spotRemoval.largeHoleTooSlow'));
+            return;
+          }
+          if (!payload.taskId || !filling.current.includes(payload.taskId)) return;
+          notify.warn(
+            t(payload.reason === 'download' ? 'spotRemoval.fallbackDownload' : 'spotRemoval.fallbackUnavailable'),
+            { toastId: `ai-fill-notice-${payload.reason}` }
+          );
         }
-        if (!payload.taskId || !filling.current.includes(payload.taskId)) return;
-        notify.warn(
-          t(payload.reason === 'download' ? 'spotRemoval.fallbackDownload' : 'spotRemoval.fallbackUnavailable'),
-          { toastId: `ai-fill-notice-${payload.reason}` },
-        );
-      }),
+      )
     ].map((p) => p.catch(() => null));
     return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
   }, [t]);
@@ -762,7 +759,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         updateAdjustments((prev) => ({
           ...prev,
           spots: (prev.spots ?? []).filter((s) => s.id !== id),
-          aiPatches: (prev.aiPatches ?? []).filter((p) => p.id !== id),
+          aiPatches: (prev.aiPatches ?? []).filter((p) => p.id !== id)
         }));
         setEditor({ activeSpotId: null });
       } else if (e.key === '[' || e.key === ']') {
@@ -771,7 +768,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         const factor = e.key === ']' ? 1.15 : 1 / 1.15;
         const spot = adjustments.spots?.find((s) => s.id === id);
         if (spot) commit({ ...spot, radius: Math.max(2, spot.radius * factor) });
-        else setEditor({ spotSettings: { ...spotSettings, size: Math.max(2, Math.round(spotSettings.size * factor)) } });
+        else
+          setEditor({ spotSettings: { ...spotSettings, size: Math.max(2, Math.round(spotSettings.size * factor)) } });
       } else if (e.key === 'Escape' && filling.current.length) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -882,7 +880,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         height: rect.height,
         zIndex: 6,
         cursor: 'crosshair',
-        touchAction: 'none',
+        touchAction: 'none'
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -1023,7 +1021,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
             fontSize: 12,
             cursor: 'default',
             maxWidth: 'calc(100% - 32px)',
-            whiteSpace: 'normal',
+            whiteSpace: 'normal'
           }}
         >
           <span>
@@ -1043,7 +1041,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
               border: '1px solid rgba(255,255,255,0.3)',
               background: 'transparent',
               color: 'inherit',
-              cursor: 'pointer',
+              cursor: 'pointer'
             }}
           >
             {t('spotRemoval.cancel')}

@@ -9,11 +9,7 @@ import { isDecoderError, offerCameraHelp, warnPreviewFallback } from '../compone
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
-import {
-  isNewRecipe,
-  SOURCE_FRAME_VERSION,
-  type Adjustments,
-} from '../utils/adjustments';
+import { isNewRecipe, SOURCE_FRAME_VERSION, type Adjustments } from '../utils/adjustments';
 import { withNewEditFrame } from '../utils/sourceFrame';
 import { withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
@@ -28,10 +24,26 @@ function canShowCameraPreview(recipe: Partial<Adjustments> | null | undefined) {
   // A camera JPEG cannot represent a user's crop or geometry. Keep waiting for
   // that photograph's rendered thumbnail/final preview instead of showing an
   // incorrectly rotated/cropped intermediate frame.
-  if (recipe.crop || recipe.flipHorizontal || recipe.flipVertical || recipe.guidedPerspective?.enabled ||
-      recipe.lensModel || recipe.lensDistortionParams) return false;
-  const geometry = ['orientationSteps', 'rotation', 'transformDistortion', 'transformVertical',
-    'transformHorizontal', 'transformRotate', 'transformAspect', 'transformXOffset', 'transformYOffset'] as const;
+  if (
+    recipe.crop ||
+    recipe.flipHorizontal ||
+    recipe.flipVertical ||
+    recipe.guidedPerspective?.enabled ||
+    recipe.lensModel ||
+    recipe.lensDistortionParams
+  )
+    return false;
+  const geometry = [
+    'orientationSteps',
+    'rotation',
+    'transformDistortion',
+    'transformVertical',
+    'transformHorizontal',
+    'transformRotate',
+    'transformAspect',
+    'transformXOffset',
+    'transformYOffset'
+  ] as const;
   return geometry.every((key) => !recipe[key]) && (recipe.transformScale ?? 100) === 100;
 }
 
@@ -111,8 +123,12 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
   useEffect(() => {
     const url = selectedImage?.thumbnailSource === 'embedded' ? selectedImage.thumbnailUrl : undefined;
     return () => {
-      if (url?.startsWith('blob:') && useEditorStore.getState().selectedImage?.thumbnailUrl !== url &&
-          !globalImageCache.isProtected(url)) URL.revokeObjectURL(url);
+      if (
+        url?.startsWith('blob:') &&
+        useEditorStore.getState().selectedImage?.thumbnailUrl !== url &&
+        !globalImageCache.isProtected(url)
+      )
+        URL.revokeObjectURL(url);
     };
   }, [selectedImage?.thumbnailUrl, selectedImage?.thumbnailSource]);
 
@@ -130,21 +146,23 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           const pendingSave = waitForPendingMetadataSave(selectedImage.path);
           // (null: a failed restore of its never-edited recipe.)
           let unsavedAdjustments: Adjustments | null | undefined;
-          const metadataRequest = (pendingSave
-            ? pendingSave.then((unsaved) => {
-                unsavedAdjustments = unsaved;
-                return readMetadata();
-              })
-            : readMetadata()).catch((err) => {
-              console.error('Failed to load metadata:', err);
-              return null;
-            });
+          const metadataRequest = (
+            pendingSave
+              ? pendingSave.then((unsaved) => {
+                  unsavedAdjustments = unsaved;
+                  return readMetadata();
+                })
+              : readMetadata()
+          ).catch((err) => {
+            console.error('Failed to load metadata:', err);
+            return null;
+          });
           // A stored preview proxy answers within milliseconds; only without
           // one the camera JPEG (a large transfer that would delay the other
           // answers) is asked for, and the full decode hands over a draft
           // before it demosaics.
           const storedProxy = invoke<ProxyInfo | null>(Invokes.LoadImageProxy, {
-            path: selectedImage.path,
+            path: selectedImage.path
           }).catch(() => null);
           const draftListener = storedProxy.then((proxy) => (proxy ? null : listenForDraft(selectedImage.path)));
           const showCameraPreview = () => {
@@ -153,18 +171,33 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // EXIF orientation; readiness still belongs to the full RAW decode.
             void Promise.all([
               invoke<ArrayBuffer>(Invokes.LoadEmbeddedPreview, { path: selectedImage.path }),
-              metadataRequest,
-            ]).then(([bytes, metadata]: [ArrayBuffer, ImageMetadata | null]) => {
-              if (!isEffectActive || !metadata || !bytes.byteLength ||
-                  !canShowCameraPreview(unsavedAdjustments !== undefined ? unsavedAdjustments : metadata?.adjustments)) return;
-              const current = useEditorStore.getState();
-              if (current.selectedImage?.path !== selectedImage.path || current.selectedImage.isReady ||
-                  current.selectedImage.thumbnailUrl || current.hasRenderedFirstFrame || current.finalPreviewUrl) return;
-              const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
-              setEditor({ selectedImage: { ...current.selectedImage, thumbnailUrl: url, thumbnailSource: 'embedded' } });
-            }).catch(() => {
-              // Optional preview extraction must never fail the full image load.
-            });
+              metadataRequest
+            ])
+              .then(([bytes, metadata]: [ArrayBuffer, ImageMetadata | null]) => {
+                if (
+                  !isEffectActive ||
+                  !metadata ||
+                  !bytes.byteLength ||
+                  !canShowCameraPreview(unsavedAdjustments !== undefined ? unsavedAdjustments : metadata?.adjustments)
+                )
+                  return;
+                const current = useEditorStore.getState();
+                if (
+                  current.selectedImage?.path !== selectedImage.path ||
+                  current.selectedImage.isReady ||
+                  current.selectedImage.thumbnailUrl ||
+                  current.hasRenderedFirstFrame ||
+                  current.finalPreviewUrl
+                )
+                  return;
+                const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
+                setEditor({
+                  selectedImage: { ...current.selectedImage, thumbnailUrl: url, thumbnailSource: 'embedded' }
+                });
+              })
+              .catch(() => {
+                // Optional preview extraction must never fail the full image load.
+              });
           };
           if (!selectedImage.thumbnailUrl && !useEditorStore.getState().finalPreviewUrl) {
             void storedProxy.then((proxy) => {
@@ -179,9 +212,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           const cameraRequestFor = (frame: number) => {
             let request = cameraRequests.get(frame);
             if (!request) {
-              request = invoke<CameraLens>(
-                Invokes.GetCameraLensProfile, { path: selectedImage.path, frame },
-              ).catch(() => null);
+              request = invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: selectedImage.path, frame }).catch(
+                () => null
+              );
               cameraRequests.set(frame, request);
             }
             return request;
@@ -200,7 +233,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             isRaw: boolean,
             width: number,
             height: number,
-            newEditFrame: number | null | undefined,
+            newEditFrame: number | null | undefined
           ) => {
             const savedAdjustments = unsavedAdjustments !== undefined ? unsavedAdjustments : metadata?.adjustments;
             // Profile corrections are on by default: a never-edited RAW (its
@@ -212,7 +245,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                 ? await cameraRequestFor(
                     newSaved(savedAdjustments) && savedAdjustments?.sourceFrameVersion == null && newEditFrame != null
                       ? newEditFrame
-                      : savedSourceFrame(savedAdjustments),
+                      : savedSourceFrame(savedAdjustments)
                   )
                 : null;
             cameraCrops = isRaw ? await cropsRequest : null;
@@ -234,7 +267,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               crops: cameraCrops,
               width,
               height,
-              shown,
+              shown
             });
             // The batch edits written onto it while it was not open, each a
             // History entry of its own (photoHistory.ts).
@@ -247,9 +280,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   width,
                   height,
                   isRaw && neverEdited(after) ? await cameraRequestFor(savedSourceFrame(after)) : null,
-                  cameraCrops,
-                ),
-              })),
+                  cameraCrops
+                )
+              }))
             );
             return shown;
           };
@@ -257,7 +290,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             initialAdjusts: Adjustments,
             width: number,
             height: number,
-            image: Partial<NonNullable<typeof selectedImage>>,
+            image: Partial<NonNullable<typeof selectedImage>>
           ) => {
             const maxSize = appSettings?.editorPreviewResolution;
             const previewScale = maxSize ? Math.min(1, maxSize / Math.max(width, height)) : 0;
@@ -275,9 +308,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                 originalSize: { width, height },
                 previewSize: {
                   width: Math.round(width * previewScale),
-                  height: Math.round(height * previewScale),
+                  height: Math.round(height * previewScale)
                 },
-                selectedImage: { ...state.selectedImage, ...image, cameraCrops, height, width },
+                selectedImage: { ...state.selectedImage, ...image, cameraCrops, height, width }
               };
             });
           };
@@ -305,7 +338,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               })
               .catch(() => null)
               .finally(() => mark('loader_proxy_answer')),
-            metadataRequest.finally(() => mark('loader_metadata_answer')),
+            metadataRequest.finally(() => mark('loader_metadata_answer'))
           ]).then(async ([proxy, metadata]) => {
             if (!proxy || !stillCurrent() || useEditorStore.getState().selectedImage?.isDecoded) return;
             const recipe = await recipeFor(metadata, proxy.isRaw, proxy.width, proxy.height, proxy.newEditFrame);
@@ -317,7 +350,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               isRaw: proxy.isRaw,
               isPreviewReady: true,
               isReady: true,
-              metadata,
+              metadata
             });
           });
           // With a stored proxy its developed frame comes first: the full
@@ -328,7 +361,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           // proxy the decode starts at once.
           // Without one it starts as soon as the draft can be received.
           const decodeStart = storedProxy.then((proxy) =>
-            proxy ? waitForFirstFrame(PROXY_FRAME_FIRST_MS) : draftListener.then(() => undefined),
+            proxy ? waitForFirstFrame(PROXY_FRAME_FIRST_MS) : draftListener.then(() => undefined)
           );
           const decode = decodeStart
             .then(() => {
@@ -343,7 +376,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             });
           const [metadata, loadImageResult]: [ImageMetadata | null, LoadImageResult] = await Promise.all([
             metadataRequest,
-            decode,
+            decode
           ]);
           if (!stillCurrent()) return;
           // The decode never waits for the proxy: a proxy still on its way
@@ -369,10 +402,10 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             ...(loadImageResult.ai_denoise_error
               ? {
                   aiDenoiseFailed: Number(storedMetadata?.adjustments?.aiDenoise ?? 0),
-                  aiDenoiseFailedVersion: Number(storedMetadata?.adjustments?.aiDenoiseVersion ?? 1),
+                  aiDenoiseFailedVersion: Number(storedMetadata?.adjustments?.aiDenoiseVersion ?? 1)
                 }
               : {}),
-            metadata: storedMetadata,
+            metadata: storedMetadata
           };
           if (loadImageResult.ai_denoise_error) {
             notify.error(`AI Denoise is not available: ${loadImageResult.ai_denoise_error}`);
@@ -389,12 +422,14 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               if (state.selectedImage?.path !== selectedImage.path) return state;
               const adjustments = state.adjustments;
               const sizeChanged = draft.width !== width || draft.height !== height;
-              const followAspect = sizeChanged && !adjustments.crop &&
+              const followAspect =
+                sizeChanged &&
+                !adjustments.crop &&
                 Math.abs((adjustments.aspectRatio ?? 0) - draft.width / draft.height) < 1e-9;
               return {
                 ...(followAspect ? { adjustments: { ...adjustments, aspectRatio: width / height } } : {}),
                 originalSize: { width, height },
-                selectedImage: { ...state.selectedImage, ...fullSource, height, width },
+                selectedImage: { ...state.selectedImage, ...fullSource, height, width }
               };
             });
           } else {
@@ -403,7 +438,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               loadImageResult.is_raw,
               width,
               height,
-              loadImageResult.new_edit_frame,
+              loadImageResult.new_edit_frame
             );
             if (!stillCurrent()) return;
             publishSource(initialAdjusts, width, height, fullSource);
@@ -419,7 +454,10 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               .imageList.some((image) => image.path === selectedImage.path && image.is_offline);
             if (!offline || useUIStore.getState().activeView === 'editor') {
               if (isRawPhoto(selectedImage.path) && isDecoderError(err)) {
-                offerCameraHelp(loadErrorText(err, selectedImage.path), { path: selectedImage.path, reason: 'unreadable' });
+                offerCameraHelp(loadErrorText(err, selectedImage.path), {
+                  path: selectedImage.path,
+                  reason: 'unreadable'
+                });
               } else {
                 notify.error(loadErrorText(err, selectedImage.path));
               }
@@ -440,13 +478,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
       };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on path and isReady; this load itself rewrites selectedImage (embedded preview, readiness) and checks the current image via getState(), so other changes must not restart it
-  }, [
-    selectedImage?.path,
-    selectedImage?.isDecoded,
-    appSettings?.editorPreviewResolution,
-    setEditor,
-    setLibrary,
-  ]);
+  }, [selectedImage?.path, selectedImage?.isDecoded, appSettings?.editorPreviewResolution, setEditor, setLibrary]);
 
   useEffect(() => {
     if (selectedImage?.path && selectedImage.isReady && (finalPreviewUrl || isWgpuActive)) {
@@ -458,7 +490,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
         uncroppedPreviewUrl: uncroppedAdjustedPreviewUrl,
         selectedImage,
         originalSize,
-        previewSize,
+        previewSize
       };
     } else {
       cachedEditStateRef.current = null;
@@ -473,6 +505,6 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
     originalSize,
     previewSize,
     isWgpuActive,
-    cachedEditStateRef,
+    cachedEditStateRef
   ]);
 }

@@ -10,7 +10,7 @@ export function srgbToOklab([r, g, b]: [number, number, number]): [number, numbe
   return [
     0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
     1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
   ];
 }
 
@@ -20,7 +20,7 @@ export function srgbToOklch(rgb: [number, number, number]) {
   return {
     lightness,
     chroma: Math.hypot(a, b),
-    hue: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360,
+    hue: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360
   };
 }
 

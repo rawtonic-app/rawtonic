@@ -22,8 +22,8 @@ import {
   registerFileUndoHandlers,
   clearFileUndoHistory,
   undoBranchId,
-  useCatalogUndoStore,
-} from "../utils/appUndo";
+  useCatalogUndoStore
+} from '../utils/appUndo';
 import { isBelow } from '../utils/catalogFolders';
 import { openExportQueue } from '../utils/catalogEvents';
 import type { PlannedFile } from '../components/modals/RenameFileModal';
@@ -98,7 +98,7 @@ export function describeCrossVolumeMove(plan: MovePlan): string {
     size: formatBytes(plan.bytes),
     drive: plan.drive,
     free: formatBytes(plan.freeBytes),
-    sources: plan.sourceDrives.join(', '),
+    sources: plan.sourceDrives.join(', ')
   });
 }
 
@@ -112,7 +112,7 @@ export function describeCrossVolumeFolderMove(plan: MovePlan, name: string): str
     size: formatBytes(plan.bytes),
     drive: plan.drive,
     free: formatBytes(plan.freeBytes),
-    sources: plan.sourceDrives.join(', '),
+    sources: plan.sourceDrives.join(', ')
   });
 }
 
@@ -126,7 +126,7 @@ export function describeSessionMove(offer: SessionMoveOffer): string {
     ? t('studio.library.fileOperations.sessionMoveOtherDrive', {
         size: formatBytes(offer.bytes),
         drive: offer.drive,
-        free: formatBytes(offer.freeBytes),
+        free: formatBytes(offer.freeBytes)
       })
     : t('studio.library.fileOperations.sessionMoveSameDrive');
   return `${why} ${how}`;
@@ -153,8 +153,8 @@ function offerSessionMove(offer: SessionMoveOffer) {
       message: describeSessionMove(offer),
       confirmText: t('studio.library.fileOperations.sessionMoveConfirm', { folder }),
       confirmVariant: 'primary',
-      onConfirm: () => void moveSession(offer, folder),
-    },
+      onConfirm: () => void moveSession(offer, folder)
+    }
   });
 }
 
@@ -181,8 +181,8 @@ function askToFinishExports(offer: SessionMoveOffer) {
       message: t('studio.library.fileOperations.sessionMoveExportsPending', { name: offer.name }),
       confirmText: t('studio.library.fileOperations.openExportQueue'),
       confirmVariant: 'primary',
-      onConfirm: openExportQueue,
-    },
+      onConfirm: openExportQueue
+    }
   });
 }
 
@@ -198,13 +198,13 @@ async function moveSession(offer: SessionMoveOffer, folder: string) {
         withCopyProgress(() =>
           invoke<FileOperationSummary>(Invokes.MoveSession, {
             session: offer.session,
-            destination: offer.destination,
-          }),
+            destination: offer.destination
+          })
         ),
       'move',
       undefined,
       undefined,
-      [offer.session, offer.destination],
+      [offer.session, offer.destination]
     );
     if (summary)
       notify.success(t('studio.library.fileOperations.sessionMoved', { name: offer.name, folder, hint: undoHint() }));
@@ -237,7 +237,7 @@ async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
     const title = i18next.t('studio.library.fileOperations.copying', {
       label: payload.label,
       done: formatBytes(payload.done),
-      total: formatBytes(payload.total),
+      total: formatBytes(payload.total)
     });
     // Below the total: a full bar would read as done before the move is.
     const progress = { done: Math.min(payload.done, payload.total * 0.99), total: Math.max(payload.total, 1) };
@@ -246,7 +246,7 @@ async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
         source: 'files',
         title,
         progress,
-        cancel: () => void invoke(Invokes.StopFileOperation, { run: payload.run }),
+        cancel: () => void invoke(Invokes.StopFileOperation, { run: payload.run })
       });
     } else {
       activity.update(shown, { title, progress });
@@ -280,7 +280,7 @@ export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
     createElement('button', { className: 'ml-3 underline', onClick }, label);
   const show = (path: string) =>
     void invoke(Invokes.ShowInFinder, { path }).catch((err) =>
-      notify.error(t('contextMenus.toasts.couldNotShowExplorer', { err })),
+      notify.error(t('contextMenus.toasts.couldNotShowExplorer', { err }))
     );
   const trash = async (path: string) => {
     try {
@@ -301,17 +301,17 @@ export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
       { key: copy.path, title: copy.path },
       copy.complete ? fileName(copy.path) : ops('keptCopyIncomplete', { name: fileName(copy.path) }),
       button(showLabel, () => show(copy.path)),
-      button(ops('trashConfirm'), () => void trash(copy.path)),
-    ),
+      button(ops('trashConfirm'), () => void trash(copy.path))
+    )
   );
   notify.warn(
     createElement(
       'div',
       null,
       opsCount('keptCopies', kept.copies.length),
-      createElement('ul', { className: 'mt-1 max-h-40 overflow-y-auto' }, rows),
+      createElement('ul', { className: 'mt-1 max-h-40 overflow-y-auto' }, rows)
     ),
-    { autoClose: false, closeOnClick: false },
+    { autoClose: false, closeOnClick: false }
   );
 }
 
@@ -341,14 +341,14 @@ async function saveEditsFirst(moving: string[] = [], sameName = false): Promise<
       (target) =>
         physical(path) === physical(target) ||
         isBelow(physical(path), physical(target)) ||
-        (sameName && withoutExtension(path) === withoutExtension(target)),
-    ),
+        (sameName && withoutExtension(path) === withoutExtension(target))
+    )
   );
   if (!kept.length) return true;
   notify.error(
     i18next.t('studio.library.fileOperations.unsavedEdits', {
-      files: kept.map((path) => path.split(/[\\/]/).pop()).join(', '),
-    }),
+      files: kept.map((path) => path.split(/[\\/]/).pop()).join(', ')
+    })
   );
   return false;
 }
@@ -391,7 +391,8 @@ type FileOperationText =
 const ops = (key: FileOperationText, options: Record<string, unknown> = {}) =>
   i18next.t(`studio.library.fileOperations.${key}`, options);
 /** The texts with a number (plural forms). */
-type FileOperationCount = 'keptCopies' | 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
+type FileOperationCount =
+  'keptCopies' | 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
 const opsCount = (key: FileOperationCount, count: number, options: Record<string, unknown> = {}) =>
   i18next.t(`studio.library.fileOperations.${key}`, { ...options, count });
 
@@ -399,9 +400,7 @@ const opsCount = (key: FileOperationCount, count: number, options: Record<string
  * undoes edits (the edit history), so the hint names the Library. */
 export function undoHint(): string {
   const key = undoKey();
-  return useUIStore.getState().activeView === 'editor'
-    ? ops('undoHintFromDevelop', { key })
-    : ops('undoHint', { key });
+  return useUIStore.getState().activeView === 'editor' ? ops('undoHintFromDevelop', { key }) : ops('undoHint', { key });
 }
 
 /** Mirrors `TrashContents` in src-tauri/src/file_operations.rs. */
@@ -449,7 +448,7 @@ async function askBeforeOtherDrive(
   paths: string[],
   destination: string,
   move: () => Promise<void>,
-  failed: 'moveFailed' | 'moveFilesFailed',
+  failed: 'moveFailed' | 'moveFilesFailed'
 ) {
   let plan: MovePlan;
   try {
@@ -476,8 +475,8 @@ async function askBeforeOtherDrive(
       title: i18next.t('studio.library.fileOperations.otherDriveTitle', { drive: plan.drive }),
       message: describeCrossVolumeMove(plan),
       confirmText: i18next.t('studio.library.fileOperations.otherDriveConfirm'),
-      onConfirm: () => void move(),
-    },
+      onConfirm: () => void move()
+    }
   });
 }
 
@@ -486,7 +485,7 @@ export function useFileOperations(
   refreshAllFolderTrees: () => Promise<void>,
   handleImageSelect: (path: string, openInEditor?: boolean) => void,
   handleBackToLibrary: () => void,
-  sortedImageList: ImageFile[],
+  sortedImageList: ImageFile[]
 ) {
   /**
    * Renames, moves and their undo: the path-keyed state follows the moved
@@ -503,7 +502,7 @@ export function useFileOperations(
         }
       };
     },
-    [handleImageSelect],
+    [handleImageSelect]
   );
 
   // Copies a stopped or failed move left on the other drive: offered to
@@ -513,7 +512,7 @@ export function useFileOperations(
       showKeptCopies(payload, () => {
         void refreshImageList();
         void refreshAllFolderTrees();
-      }),
+      })
     );
     return () => void unlisten.then((stop) => stop());
   }, [refreshImageList, refreshAllFolderTrees]);
@@ -573,9 +572,12 @@ export function useFileOperations(
       try {
         if (!(await saveEditsFirst(pathsToDelete, options.includeAssociated))) return;
         const command = options.includeAssociated ? Invokes.DeleteFilesWithAssociated : Invokes.DeleteFilesFromDisk;
-        const summary = await fileAction(() =>
-          invoke<FileOperationSummary>(command, { paths: pathsToDelete }),
-          "trash", undefined, undefined, withSourceParents(pathsToDelete),
+        const summary = await fileAction(
+          () => invoke<FileOperationSummary>(command, { paths: pathsToDelete }),
+          'trash',
+          undefined,
+          undefined,
+          withSourceParents(pathsToDelete)
         );
         if (summary) notify.success(describeFileOperation(summary));
         await refreshImageList();
@@ -612,7 +614,7 @@ export function useFileOperations(
         notify.error(ops('deleteFailed', { error: String(err) }));
       }
     },
-    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, sortedImageList, handleImageSelect],
+    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, sortedImageList, handleImageSelect]
   );
 
   const handleUndoFileOperation = useCallback(async () => {
@@ -620,7 +622,7 @@ export function useFileOperations(
     try {
       await saveEditsFirst();
       const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.UndoFileOperation));
-      fileOperationTravel("undo", summary, startedOnBranch);
+      fileOperationTravel('undo', summary, startedOnBranch);
       if (!summary) {
         notify.info(ops('nothingToUndo'));
         return;
@@ -647,18 +649,15 @@ export function useFileOperations(
   /** Redoes the file operation undone last (validated again; refused when
    * something took a place since). */
   const handleRedoFileOperation = useCallback(async () => {
-    if (
-      useCatalogUndoStore.getState().fileRedoBlocked &&
-      useCatalogUndoStore.getState().filesFuture.length === 0
-    ) {
-      notify.info(i18next.t("studio.library.fileOperations.nothingToRedo"));
+    if (useCatalogUndoStore.getState().fileRedoBlocked && useCatalogUndoStore.getState().filesFuture.length === 0) {
+      notify.info(i18next.t('studio.library.fileOperations.nothingToRedo'));
       return;
     }
     const startedOnBranch = undoBranchId();
     try {
       await saveEditsFirst();
       const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.RedoFileOperation));
-      fileOperationTravel("redo", summary, startedOnBranch);
+      fileOperationTravel('redo', summary, startedOnBranch);
       if (!summary) {
         notify.info(i18next.t('studio.library.fileOperations.nothingToRedo'));
         return;
@@ -714,7 +713,7 @@ export function useFileOperations(
               session: sessionDirectory,
               photos: contents.photos,
               files: contents.files,
-              entries: contents.entries,
+              entries: contents.entries
             });
             clearFileUndoHistory();
             if (result?.note) {
@@ -738,7 +737,7 @@ export function useFileOperations(
                 library.libraryActivePath && inTrash(library.libraryActivePath) ? null : library.libraryActivePath,
               ...(library.currentFolderPath && isBelow(library.currentFolderPath, trashFolder)
                 ? { currentFolderPath: trashFolder }
-                : {}),
+                : {})
             });
             await refreshAllFolderTrees();
             await refreshImageList();
@@ -746,8 +745,8 @@ export function useFileOperations(
           } catch (err) {
             notify.error(t('studio.library.trash.failed', { error: String(err) }));
           }
-        },
-      },
+        }
+      }
     });
   }, [refreshImageList, refreshAllFolderTrees, handleBackToLibrary]);
 
@@ -759,14 +758,18 @@ export function useFileOperations(
       const move = async () => {
         try {
           if (!(await saveEditsFirst(paths))) return;
-          const summary = await fileAction(() =>
-            withCopyProgress(() =>
-              invoke<FileOperationSummary>(Invokes.MoveFiles, {
-                sourcePaths: paths,
-                destinationFolder: destination,
-              }),
-            ),
-            "move", undefined, undefined, [...withSourceParents(paths), destination],
+          const summary = await fileAction(
+            () =>
+              withCopyProgress(() =>
+                invoke<FileOperationSummary>(Invokes.MoveFiles, {
+                  sourcePaths: paths,
+                  destinationFolder: destination
+                })
+              ),
+            'move',
+            undefined,
+            undefined,
+            [...withSourceParents(paths), destination]
           );
           if (summary) notify.success(describeFileOperation(summary));
           warnAboutNote(summary);
@@ -788,7 +791,7 @@ export function useFileOperations(
       };
       await askBeforeOtherDrive(paths, destination, move, 'moveFailed');
     },
-    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
+    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves]
   );
 
   /** Session Folders' "Move contents" (G38): everything in `from` moves
@@ -805,9 +808,12 @@ export function useFileOperations(
           const summary = await fileAction(
             () =>
               withCopyProgress(() =>
-                invoke<FileOperationSummary | null>(Invokes.SessionMoveFolderContents, { from, to }),
+                invoke<FileOperationSummary | null>(Invokes.SessionMoveFolderContents, { from, to })
               ),
-            'move', undefined, undefined, [from, to],
+            'move',
+            undefined,
+            undefined,
+            [from, to]
           );
           // Only an empty folder ends it: a part may move files that are no
           // photos (a .DS_Store) before the folders with the photos.
@@ -833,7 +839,7 @@ export function useFileOperations(
       }
       return moved;
     },
-    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
+    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves]
   );
   useEffect(() => {
     registerContentsMover(handleMoveFolderContents);
@@ -849,22 +855,28 @@ export function useFileOperations(
       const name = path.split(/[\\/]/).pop() ?? path;
       const picked =
         destination ??
-        (await openDialog({ directory: true, multiple: false, title: ops('moveFolderTo', { name }) }).catch(() => null));
+        (await openDialog({ directory: true, multiple: false, title: ops('moveFolderTo', { name }) }).catch(
+          () => null
+        ));
       if (typeof picked !== 'string' || !picked) return;
       const move = async () => {
         try {
           if (!(await saveEditsFirst([path]))) return;
-          const summary = await fileAction(() =>
-            withCopyProgress(() =>
-              invoke<FileOperationSummary>(Invokes.MoveFolder, { path, destinationFolder: picked }),
-            ),
-            "move", undefined, undefined, [path, picked],
+          const summary = await fileAction(
+            () =>
+              withCopyProgress(() =>
+                invoke<FileOperationSummary>(Invokes.MoveFolder, { path, destinationFolder: picked })
+              ),
+            'move',
+            undefined,
+            undefined,
+            [path, picked]
           );
           if (summary) notify.success(describeFileOperation(summary));
           warnAboutNote(summary);
           const separator = picked.includes('/') ? '/' : '\\';
           const reopen = followMoves(
-            summary?.moves?.length ? summary.moves : [{ from: path, to: `${picked}${separator}${name}` }],
+            summary?.moves?.length ? summary.moves : [{ from: path, to: `${picked}${separator}${name}` }]
           );
           await refreshAllFolderTrees();
           await refreshImageList();
@@ -899,11 +911,11 @@ export function useFileOperations(
           title: i18next.t('studio.library.fileOperations.otherDriveTitle', { drive: plan.drive }),
           message: describeCrossVolumeFolderMove(plan, name),
           confirmText: i18next.t('studio.library.fileOperations.otherDriveConfirm'),
-          onConfirm: () => void move(),
-        },
+          onConfirm: () => void move()
+        }
       });
     },
-    [refreshImageList, refreshAllFolderTrees, followMoves],
+    [refreshImageList, refreshAllFolderTrees, followMoves]
   );
 
   /** Capture One's Move to Selects (⌘J): the selection into the session's Selects folder. */
@@ -959,9 +971,12 @@ export function useFileOperations(
           onConfirm: async () => {
             try {
               if (!(await saveEditsFirst([path]))) return;
-              const summary = await fileAction(() =>
-                invoke<FileOperationSummary>(Invokes.DeleteFolder, { path }),
-                "trash", undefined, undefined, [path],
+              const summary = await fileAction(
+                () => invoke<FileOperationSummary>(Invokes.DeleteFolder, { path }),
+                'trash',
+                undefined,
+                undefined,
+                [path]
               );
               if (summary) notify.success(describeFileOperation(summary));
               const { currentFolderPath, setLibrary } = useLibraryStore.getState();
@@ -975,11 +990,11 @@ export function useFileOperations(
               notify.error(ops('trashFolderFailed', { error: String(err) }));
             }
           },
-          title: ops('trashFolderTitle'),
-        },
+          title: ops('trashFolderTitle')
+        }
       });
     },
-    [refreshAllFolderTrees, refreshImageList],
+    [refreshAllFolderTrees, refreshImageList]
   );
 
   const handleDeleteSelected = useCallback(() => {
@@ -1018,11 +1033,11 @@ export function useFileOperations(
     // A collapsed stack shows its top only: say that only it goes, and that
     // the next member becomes the top (Lightroom shows the stack first).
     const { byPath } = useStackStore.getState();
-    const collapsedTops = useLibraryStore.getState().activeAlbumId === null
-      ? pathsToDelete.filter((path) => byPath.get(stackKey(path))?.stack.collapsed).length
-      : 0;
-    if (collapsedTops > 0)
-      modalMessage = `${modalMessage} ${i18next.t('stacks.trashTop', { count: collapsedTops })}`;
+    const collapsedTops =
+      useLibraryStore.getState().activeAlbumId === null
+        ? pathsToDelete.filter((path) => byPath.get(stackKey(path))?.stack.collapsed).length
+        : 0;
+    if (collapsedTops > 0) modalMessage = `${modalMessage} ${i18next.t('stacks.trashTop', { count: collapsedTops })}`;
 
     setUI({
       confirmModalState: {
@@ -1032,8 +1047,8 @@ export function useFileOperations(
         isOpen: true,
         message: modalMessage,
         onConfirm: () => executeDelete(pathsToDelete, { includeAssociated: false }),
-        title: modalTitle,
-      },
+        title: modalTitle
+      }
     });
   }, [executeDelete]);
 
@@ -1050,7 +1065,7 @@ export function useFileOperations(
         }
       }
     },
-    [refreshAllFolderTrees],
+    [refreshAllFolderTrees]
   );
 
   const handleRenameFolder = useCallback(
@@ -1063,12 +1078,16 @@ export function useFileOperations(
           const trimmedNewName = newName.trim();
 
           if (!(await saveEditsFirst([oldPath]))) return;
-          const summary = await fileAction(() =>
-            invoke<FileOperationSummary>(Invokes.RenameFolder, {
-              path: oldPath,
-              newName: trimmedNewName,
-            }),
-            "rename", undefined, undefined, [oldPath, getParentDir(oldPath)],
+          const summary = await fileAction(
+            () =>
+              invoke<FileOperationSummary>(Invokes.RenameFolder, {
+                path: oldPath,
+                newName: trimmedNewName
+              }),
+            'rename',
+            undefined,
+            undefined,
+            [oldPath, getParentDir(oldPath)]
           );
           if (summary) notify.success(describeFileOperation(summary));
 
@@ -1089,7 +1108,7 @@ export function useFileOperations(
         }
       }
     },
-    [refreshAllFolderTrees, refreshImageList, followMoves],
+    [refreshAllFolderTrees, refreshImageList, followMoves]
   );
 
   const handleSaveRename = useCallback(
@@ -1105,16 +1124,13 @@ export function useFileOperations(
                 expected,
                 nameTemplate,
                 sequenceStart,
-                paths: renameTargetPaths,
+                paths: renameTargetPaths
               }),
-            "rename",
+            'rename',
+            (renamed) => renamed.some((path, index) => path !== renameTargetPaths[index]),
             (renamed) =>
-              renamed.some((path, index) => path !== renameTargetPaths[index]),
-            (renamed) =>
-              renameTargetPaths.flatMap((from, index) =>
-                renamed[index] ? [{ from, to: renamed[index] }] : [],
-              ),
-            [...renameTargetPaths, ...renameTargetPaths.map(getParentDir)],
+              renameTargetPaths.flatMap((from, index) => (renamed[index] ? [{ from, to: renamed[index] }] : [])),
+            [...renameTargetPaths, ...renameTargetPaths.map(getParentDir)]
           );
           // The selection, the open photograph, picks, ratings and
           // thumbnails stay with the renamed photos (as on undo).
@@ -1132,7 +1148,7 @@ export function useFileOperations(
       }
       setUI({ renameTargetPaths: [] });
     },
-    [refreshImageList, followMoves],
+    [refreshImageList, followMoves]
   );
 
   const handleRenameFiles = useCallback(async (paths: Array<string>) => {
@@ -1160,14 +1176,18 @@ export function useFileOperations(
           const move = async () => {
             try {
               if (!(await saveEditsFirst(copiedFilePaths))) return;
-              const summary = await fileAction(() =>
-                withCopyProgress(() =>
-                  invoke<FileOperationSummary>(Invokes.MoveFiles, {
-                    sourcePaths: copiedFilePaths,
-                    destinationFolder: target,
-                  }),
-                ),
-                "move", undefined, undefined, [...withSourceParents(copiedFilePaths), target],
+              const summary = await fileAction(
+                () =>
+                  withCopyProgress(() =>
+                    invoke<FileOperationSummary>(Invokes.MoveFiles, {
+                      sourcePaths: copiedFilePaths,
+                      destinationFolder: target
+                    })
+                  ),
+                'move',
+                undefined,
+                undefined,
+                [...withSourceParents(copiedFilePaths), target]
               );
               if (summary) notify.success(describeFileOperation(summary));
               warnAboutNote(summary);
@@ -1190,16 +1210,16 @@ export function useFileOperations(
         notify.error(ops(mode === 'copy' ? 'copyFilesFailed' : 'moveFilesFailed', { error: String(err) }));
       }
     },
-    [refreshImageList, refreshAllFolderTrees, followMoves],
+    [refreshImageList, refreshAllFolderTrees, followMoves]
   );
 
   useEffect(
     () =>
       registerFileUndoHandlers({
         undo: handleUndoFileOperation,
-        redo: handleRedoFileOperation,
+        redo: handleRedoFileOperation
       }),
-    [handleUndoFileOperation, handleRedoFileOperation],
+    [handleUndoFileOperation, handleRedoFileOperation]
   );
 
   return {
@@ -1216,6 +1236,6 @@ export function useFileOperations(
     handleRenameFolder,
     handleSaveRename,
     handleRenameFiles,
-    handlePasteFiles,
+    handlePasteFiles
   };
 }

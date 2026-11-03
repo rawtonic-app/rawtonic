@@ -82,7 +82,7 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
     const b = ref.current!.getBoundingClientRect();
     return {
       x: ((clientX - b.left) / b.width) * (rect.width / scale) + cropX,
-      y: ((clientY - b.top) / b.height) * (rect.height / scale) + cropY,
+      y: ((clientY - b.top) / b.height) * (rect.height / scale) + cropY
     };
   };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -98,7 +98,7 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
       points: [toImage(e.clientX, e.clientY)],
       radius: brush.size,
       feather: brush.feather,
-      ...(erase && { erase: true }),
+      ...(erase && { erase: true })
     };
     setStroke(drag.current);
   };
@@ -139,10 +139,15 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
     const blur = soft > 0.5 ? `${maskId}-soft-${i}` : undefined;
     // Object-bounding-box filters disappear on horizontal/vertical paths
     // and clip the cap of short strokes. Include the brush and blur reach.
-    const bounds = points.reduce((b, p) => ({
-      x0: Math.min(b.x0, p.x), y0: Math.min(b.y0, p.y),
-      x1: Math.max(b.x1, p.x), y1: Math.max(b.y1, p.y),
-    }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+    const bounds = points.reduce(
+      (b, p) => ({
+        x0: Math.min(b.x0, p.x),
+        y0: Math.min(b.y0, p.y),
+        x1: Math.max(b.x1, p.x),
+        y1: Math.max(b.y1, p.y)
+      }),
+      { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+    );
     return (
       <g key={i}>
         {blur && (
@@ -180,7 +185,7 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
         width: rect.width,
         height: rect.height,
         pointerEvents: brush.painting ? 'all' : 'none',
-        cursor: brush.painting ? 'none' : undefined,
+        cursor: brush.painting ? 'none' : undefined
       }}
       aria-label="Face retouch"
       onPointerDown={brush.painting ? onPointerDown : undefined}

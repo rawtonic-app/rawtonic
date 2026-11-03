@@ -44,7 +44,7 @@ export function showDraftPatch(patch: InteractivePatch, job: number): boolean {
         left: `${patch.normX * 100}%`,
         top: `${patch.normY * 100}%`,
         width: `${patch.normW * 100}%`,
-        height: `${patch.normH * 100}%`,
+        height: `${patch.normH * 100}%`
       });
       const previous = target.firstElementChild as HTMLImageElement | null;
       target.replaceChildren(image);
@@ -52,7 +52,7 @@ export function showDraftPatch(patch: InteractivePatch, job: number): boolean {
       reportBrowserPreviewLoad(patch.url, true);
       shownListeners.forEach((listener) => listener());
     },
-    () => revoke(patch.url),
+    () => revoke(patch.url)
   );
   return true;
 }

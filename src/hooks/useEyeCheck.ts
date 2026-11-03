@@ -53,7 +53,7 @@ export function useEyeCheck() {
     invoke(Invokes.StartEyeCheck, { directory, download: false, resume: true }).catch((error) => {
       if (String(error) === MODELS_MISSING)
         notify.warn(i18n.t('studio.eyes.modelsMissing'), {
-          actions: [{ label: i18n.t('studio.eyes.download'), run: () => checkEyes(directory), settles: true }],
+          actions: [{ label: i18n.t('studio.eyes.download'), run: () => checkEyes(directory), settles: true }]
         });
       else notify.warn(i18n.t('studio.eyes.startFailed', { error: String(error) }));
     });
@@ -119,7 +119,12 @@ export function useEyeCheck() {
       return;
     }
     const timer = setTimeout(() => {
-      store.load(directory, imageList.map((image) => image.path)).catch(() => {});
+      store
+        .load(
+          directory,
+          imageList.map((image) => image.path)
+        )
+        .catch(() => {});
     }, SUMMARY_DELAY_MS);
     return () => clearTimeout(timer);
   }, [directory, enabled, imageList, generation]);

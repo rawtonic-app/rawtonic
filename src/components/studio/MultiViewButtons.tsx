@@ -1,10 +1,10 @@
-import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, Lock, LockOpen } from "lucide-react";
-import { useShallow } from "zustand/react/shallow";
-import { useMultiViewStore } from "../../store/useMultiViewStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { shortcutHint } from "../../utils/keyboardUtils";
+import { useTranslation } from 'react-i18next';
+import { LayoutGrid, Layers, Lock, LockOpen } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
+import { useMultiViewStore } from '../../store/useMultiViewStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { shortcutHint } from '../../utils/keyboardUtils';
 
 /**
  * The viewer toolbar's multi view switch (N) and, while several photographs
@@ -22,25 +22,25 @@ export default function MultiViewButtons() {
       toggle: s.toggle,
       setEditAll: s.setEditAll,
       zoomLock: s.zoomLock,
-      setZoomLock: s.setZoomLock,
-    })),
+      setZoomLock: s.setZoomLock
+    }))
   );
   const { keybinds, osPlatform, useWgpu } = useSettingsStore(
     useShallow((s) => ({
       keybinds: s.appSettings?.keybinds,
       osPlatform: s.osPlatform,
-      useWgpu: s.appSettings?.useWgpuRenderer !== false,
-    })),
+      useWgpu: s.appSettings?.useWgpuRenderer !== false
+    }))
   );
   const several = useLibraryStore((s) => s.multiSelectedPaths.length > 1);
-  const supported = osPlatform === "linux" || (useWgpu && !unavailable);
-  const label = t("studio.multiView.toggle");
-  const shortcut = shortcutHint("toggle_multi_view", keybinds, osPlatform);
+  const supported = osPlatform === 'linux' || (useWgpu && !unavailable);
+  const label = t('studio.multiView.toggle');
+  const shortcut = shortcutHint('toggle_multi_view', keybinds, osPlatform);
   const title = !supported
-    ? t("studio.multiView.unsupported")
-    : t("studio.workspace.withShortcut", {
-        label: several ? label : `${label} — ${t("studio.multiView.selectSeveral")}`,
-        shortcut: shortcut ?? t("studio.workspace.noKey"),
+    ? t('studio.multiView.unsupported')
+    : t('studio.workspace.withShortcut', {
+        label: several ? label : `${label} — ${t('studio.multiView.selectSeveral')}`,
+        shortcut: shortcut ?? t('studio.workspace.noKey')
       });
   return (
     <>
@@ -55,22 +55,22 @@ export default function MultiViewButtons() {
       </button>
       {active && (
         <button
-          className={editAll ? "studio-edit-all is-on" : "studio-edit-all"}
+          className={editAll ? 'studio-edit-all is-on' : 'studio-edit-all'}
           aria-pressed={editAll}
-          title={t("studio.multiView.editAllTitle")}
+          title={t('studio.multiView.editAllTitle')}
           onClick={() => setEditAll(!editAll)}
         >
           <Layers size={14} />
-          <span className="optional-label">{t("studio.multiView.editAll")}</span>
+          <span className="optional-label">{t('studio.multiView.editAll')}</span>
         </button>
       )}
       {active && (
         <button
           aria-pressed={zoomLock}
-          aria-label={t("studio.multiView.zoomLock")}
-          title={t("studio.workspace.withShortcut", {
-            label: t("studio.multiView.zoomLockTitle"),
-            shortcut: shortcutHint("toggle_zoom_lock", keybinds, osPlatform) ?? t("studio.workspace.noKey"),
+          aria-label={t('studio.multiView.zoomLock')}
+          title={t('studio.workspace.withShortcut', {
+            label: t('studio.multiView.zoomLockTitle'),
+            shortcut: shortcutHint('toggle_zoom_lock', keybinds, osPlatform) ?? t('studio.workspace.noKey')
           })}
           onClick={() => setZoomLock(!zoomLock)}
         >

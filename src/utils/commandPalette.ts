@@ -1,18 +1,7 @@
-import { type Option, OPTION_SEPARATOR } from "../components/ui/AppProperties";
-import {
-  appCommand,
-  appCommandEnabled,
-  registeredAppCommands,
-  runAppCommand,
-} from "./appCommands";
-import {
-  buildMenuSpec,
-  MENU_ID_PREFIX,
-  MENU_LAYOUT,
-  type MenuNode,
-  type Translate,
-} from "./appMenu";
-import { KEYBIND_DEFINITIONS, shortcutHint } from "./keyboardUtils";
+import { type Option, OPTION_SEPARATOR } from '../components/ui/AppProperties';
+import { appCommand, appCommandEnabled, registeredAppCommands, runAppCommand } from './appCommands';
+import { buildMenuSpec, MENU_ID_PREFIX, MENU_LAYOUT, type MenuNode, type Translate } from './appMenu';
+import { KEYBIND_DEFINITIONS, shortcutHint } from './keyboardUtils';
 
 export interface PaletteCommand {
   id: string;
@@ -25,15 +14,14 @@ export interface PaletteCommand {
 export function paletteCommands(
   t: Translate,
   keybinds?: Record<string, string[]> | null,
-  platform = "macos",
-  enabled = appCommandEnabled,
+  platform = 'macos',
+  enabled = appCommandEnabled
 ): PaletteCommand[] {
   const labels = new Map<string, string>();
   const walk = (nodes: MenuNode[]) =>
     nodes.forEach((node) => {
-      if (node.kind === "item")
-        labels.set(node.id.slice(MENU_ID_PREFIX.length), node.label);
-      if (node.kind === "submenu") walk(node.items);
+      if (node.kind === 'item') labels.set(node.id.slice(MENU_ID_PREFIX.length), node.label);
+      if (node.kind === 'submenu') walk(node.items);
     });
   walk(buildMenuSpec(t, keybinds, enabled).spec.menus);
   for (const [id, command] of registeredAppCommands()) {
@@ -41,13 +29,9 @@ export function paletteCommands(
       const def = KEYBIND_DEFINITIONS.find((def) => def.action === id);
       labels.set(
         id,
-        command.paletteLabel ?? command.menu?.label ??
-          t(
-            def
-              ? [`appMenu.items.${id}`, def.description]
-              : `appMenu.items.${id}`,
-            { defaultValue: id },
-          ),
+        command.paletteLabel ??
+          command.menu?.label ??
+          t(def ? [`appMenu.items.${id}`, def.description] : `appMenu.items.${id}`, { defaultValue: id })
       );
     }
   }
@@ -56,18 +40,13 @@ export function paletteCommands(
     label,
     enabled: enabled(id),
     shortcut: shortcutHint(id, keybinds, platform),
-    ...(!enabled(id) ? { disabledHint: appCommand(id)?.disabledHint?.() } : {}),
+    ...(!enabled(id) ? { disabledHint: appCommand(id)?.disabledHint?.() } : {})
   }));
 }
 
-const normalize = (text: string) =>
-  text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+const normalize = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
 /** Subsequence matching rewards contiguous letters and word starts; exact labels win. */
-export function rankCommands(
-  commands: PaletteCommand[],
-  query: string,
-  recent: string[],
-): PaletteCommand[] {
+export function rankCommands(commands: PaletteCommand[], query: string, recent: string[]): PaletteCommand[] {
   const needle = normalize(query.trim());
   const score = (label: string) => {
     const haystack = normalize(label);
@@ -84,39 +63,32 @@ export function rankCommands(
     }
     return value - haystack.length / 100;
   };
-  const recency = (id: string) =>
-    recent.includes(id) ? recent.length - recent.indexOf(id) : 0;
+  const recency = (id: string) => (recent.includes(id) ? recent.length - recent.indexOf(id) : 0);
   return commands
     .map((command, index) => ({ command, index, score: score(command.label) }))
     .filter((row) => row.score >= 0)
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        recency(b.command.id) - recency(a.command.id) ||
-        a.index - b.index,
-    )
+    .sort((a, b) => b.score - a.score || recency(b.command.id) - recency(a.command.id) || a.index - b.index)
     .map((row) => row.command);
 }
 
 /** The same tree as the native menu; app-only commands join Edit/Help. */
 /** Linux and Windows have no native menu bar: the ⋯ menu holds the menu tree. */
-export const hasOverflowMenu = (platform: string) => platform === "linux" || platform === "windows";
+export const hasOverflowMenu = (platform: string) => platform === 'linux' || platform === 'windows';
 
 export function overflowCommands(
   platform: string,
   t: Translate,
   keybinds?: Record<string, string[]> | null,
-  enabled = appCommandEnabled,
+  enabled = appCommandEnabled
 ): Option[] {
   if (!hasOverflowMenu(platform)) return [];
   const built = buildMenuSpec(t, keybinds, enabled).spec.menus;
   const convert = (nodes: MenuNode[]): Option[] =>
     nodes
       .flatMap((node): Option[] => {
-        if (node.kind === "native") return [];
-        if (node.kind === "separator") return [{ type: OPTION_SEPARATOR }];
-        if (node.kind === "submenu")
-          return [{ label: node.label, submenu: convert(node.items) }];
+        if (node.kind === 'native') return [];
+        if (node.kind === 'separator') return [{ type: OPTION_SEPARATOR }];
+        if (node.kind === 'submenu') return [{ label: node.label, submenu: convert(node.items) }];
         const command = node.id.slice(MENU_ID_PREFIX.length);
         return [
           {
@@ -125,49 +97,29 @@ export function overflowCommands(
             checked: node.checked,
             onClick: () => {
               if (enabled(command)) runAppCommand(command);
-            },
-          },
+            }
+          }
         ];
       })
       .filter(
         (option, index, all) =>
           option.type !== OPTION_SEPARATOR ||
-          (index > 0 &&
-            index < all.length - 1 &&
-            all[index - 1].type !== OPTION_SEPARATOR),
+          (index > 0 && index < all.length - 1 && all[index - 1].type !== OPTION_SEPARATOR)
       );
   return MENU_LAYOUT.flatMap((top, index) => {
     const node = built[index];
-    if (
-      !["file", "edit", "photo", "view", "help"].includes(top.menu) ||
-      node.kind !== "submenu"
-    )
-      return [];
-    const extra =
-      top.menu === "edit"
-        ? ["open_settings"]
-        : top.menu === "help"
-          ? ["about", "check_updates"]
-          : [];
+    if (!['file', 'edit', 'photo', 'view', 'help'].includes(top.menu) || node.kind !== 'submenu') return [];
+    const extra = top.menu === 'edit' ? ['open_settings'] : top.menu === 'help' ? ['about', 'check_updates'] : [];
     const app = built[0];
     const extras =
-      app.kind === "submenu"
-        ? app.items.filter(
-            (n) =>
-              n.kind === "item" &&
-              extra.includes(n.id.slice(MENU_ID_PREFIX.length)),
-          )
+      app.kind === 'submenu'
+        ? app.items.filter((n) => n.kind === 'item' && extra.includes(n.id.slice(MENU_ID_PREFIX.length)))
         : [];
     return [
       {
         label: node.label,
-        submenu: convert([
-          ...node.items,
-          ...(extras.length
-            ? [{ kind: "separator" } as MenuNode, ...extras]
-            : []),
-        ]),
-      },
+        submenu: convert([...node.items, ...(extras.length ? [{ kind: 'separator' } as MenuNode, ...extras] : [])])
+      }
     ];
   });
 }

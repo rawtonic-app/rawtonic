@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
-import type { ParseKeys } from "i18next";
-import { notify } from "../../activity/notify";
-import { create } from "zustand";
-import { captureTimeAction } from "../../utils/appUndo";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import type { ParseKeys } from 'i18next';
+import { notify } from '../../activity/notify';
+import { create } from 'zustand';
+import { captureTimeAction } from '../../utils/appUndo';
 import {
   captureText,
   planCaptureTimes,
@@ -12,8 +12,8 @@ import {
   type CapturePreview,
   type Plan,
   type PlanRequest,
-  type ShiftParts,
-} from "../../utils/captureTime";
+  type ShiftParts
+} from '../../utils/captureTime';
 
 interface CaptureTimeDialogState {
   paths: string[] | null;
@@ -23,19 +23,19 @@ interface CaptureTimeDialogState {
 export const useCaptureTimeDialog = create<CaptureTimeDialogState>((set) => ({
   paths: null,
   open: (paths) => set({ paths: [...paths] }),
-  close: () => set({ paths: null }),
+  close: () => set({ paths: null })
 }));
 
-const fileName = (path: string) => path.split("?vc=")[0].split(/[\\/]/).pop() ?? path;
+const fileName = (path: string) => path.split('?vc=')[0].split(/[\\/]/).pop() ?? path;
 
 export function CaptureTimeDialogHost() {
   const paths = useCaptureTimeDialog((s) => s.paths);
   if (!paths) return null;
-  return <CaptureTimeDialog key={paths.join("\n")} paths={paths} />;
+  return <CaptureTimeDialog key={paths.join('\n')} paths={paths} />;
 }
 
-type Mode = "shift" | "reference" | "reset";
-const NO_SHIFT: ShiftParts = { negative: false, days: "", hours: "", minutes: "", seconds: "" };
+type Mode = 'shift' | 'reference' | 'reset';
+const NO_SHIFT: ShiftParts = { negative: false, days: '', hours: '', minutes: '', seconds: '' };
 
 /**
  * Shift Capture Time: one signed shift for the selected photographs (or
@@ -48,10 +48,10 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
   const close = useCaptureTimeDialog((s) => s.close);
   const dialog = useRef<HTMLFormElement>(null);
   const [preview, setPreview] = useState<CapturePreview | null>(null);
-  const [mode, setMode] = useState<Mode>("shift");
+  const [mode, setMode] = useState<Mode>('shift');
   const [parts, setParts] = useState<ShiftParts>(NO_SHIFT);
-  const [reference, setReference] = useState<string>("");
-  const [corrected, setCorrected] = useState("");
+  const [reference, setReference] = useState<string>('');
+  const [corrected, setCorrected] = useState('');
   // A plan with the request it answers: Apply waits for the current one.
   const [planned, setPlanned] = useState<{ key: string; plan: Plan } | null>(null);
   const [applying, setApplying] = useState(false);
@@ -59,11 +59,11 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
   const [failure, setFailure] = useState<string | null>(null);
   const fail = useCallback(
     (error: unknown) => {
-      const text = t("captureTime.failed", { error: String(error) });
+      const text = t('captureTime.failed', { error: String(error) });
       setFailure(text);
       notify.error(text);
     },
-    [t],
+    [t]
   );
   const [conflict, setConflict] = useState(false);
 
@@ -77,7 +77,7 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
     previewCaptureTimes(paths)
       .then((next) => {
         setPreview(next);
-        setReference((current) => current || next.items[0]?.assetId || "");
+        setReference((current) => current || next.items[0]?.assetId || '');
       })
       .catch(fail);
   }, [paths, fail]);
@@ -87,17 +87,17 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
   const referenceItem = items.find((item) => item.assetId === reference) ?? null;
   const referenceNow = referenceItem ? (referenceItem.corrected ?? referenceItem.source) : null;
   useEffect(() => {
-    if (mode === "reference" && referenceNow && !corrected) setCorrected(referenceNow.local);
+    if (mode === 'reference' && referenceNow && !corrected) setCorrected(referenceNow.local);
   }, [mode, referenceNow, corrected]);
 
   const request: PlanRequest | null =
-    mode === "shift"
-      ? { kind: "shift", parts }
-      : mode === "reference"
+    mode === 'shift'
+      ? { kind: 'shift', parts }
+      : mode === 'reference'
         ? reference
-          ? { kind: "reference", assetId: reference, corrected }
+          ? { kind: 'reference', assetId: reference, corrected }
           : null
-        : { kind: "reset" };
+        : { kind: 'reset' };
   const requestKey = JSON.stringify(request);
   const plan = planned?.key === requestKey ? planned.plan : null;
   useEffect(() => {
@@ -123,10 +123,10 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
   const cameras = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of items) {
-      const name = item.camera || t("captureTime.unknownCamera");
+      const name = item.camera || t('captureTime.unknownCamera');
       counts.set(name, (counts.get(name) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([name, count]) => t("captureTime.cameraCount", { name, n: count })).join(", ");
+    return [...counts.entries()].map(([name, count]) => t('captureTime.cameraCount', { name, n: count })).join(', ');
   }, [items, t]);
   const correctedCount = items.filter((item) => item.corrected).length;
   const changes = plan?.changes ?? [];
@@ -134,9 +134,9 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
   const blocked = !plan || !!plan.error || plan.outOfRange.length > 0 || changes.length === 0;
 
   const fieldError = (field: keyof ShiftParts) =>
-    plan?.error?.kind === "field" && plan.error.field === field ? t("captureTime.errors.field") : null;
+    plan?.error?.kind === 'field' && plan.error.field === field ? t('captureTime.errors.field') : null;
   const referenceError =
-    plan?.error?.kind === "reference" ? t(`captureTime.errors.${plan.error.problem}` as ParseKeys) : null;
+    plan?.error?.kind === 'reference' ? t(`captureTime.errors.${plan.error.problem}` as ParseKeys) : null;
 
   const apply = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -150,8 +150,8 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
         load();
         return;
       }
-      notify.success(t("captureTime.applied", { count: changes.length }));
-      if (applied.failed.length) notify.warning(t("captureTime.sidecarsFailed", { count: applied.failed.length }));
+      notify.success(t('captureTime.applied', { count: changes.length }));
+      if (applied.failed.length) notify.warning(t('captureTime.sidecarsFailed', { count: applied.failed.length }));
       close();
     } catch (error) {
       fail(error);
@@ -161,17 +161,17 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
 
   const keys = (e: KeyboardEvent) => {
     e.stopPropagation();
-    if (e.key === "Escape") close();
+    if (e.key === 'Escape') close();
   };
-  const title = t("captureTime.title");
+  const title = t('captureTime.title');
   const shiftText = (shift: ShiftParts) =>
-    t(shift.negative ? "captureTime.shiftEarlier" : "captureTime.shiftLater", {
+    t(shift.negative ? 'captureTime.shiftEarlier' : 'captureTime.shiftLater', {
       days: shift.days,
       hours: shift.hours,
       minutes: shift.minutes,
-      seconds: shift.seconds,
+      seconds: shift.seconds
     });
-  const part = (field: Exclude<keyof ShiftParts, "negative">) => {
+  const part = (field: Exclude<keyof ShiftParts, 'negative'>) => {
     const error = fieldError(field);
     return (
       <div className="studio-capture-time-part">
@@ -179,7 +179,7 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
         <input
           id={`capture-time-${field}`}
           type="text"
-          inputMode={field === "seconds" ? "decimal" : "numeric"}
+          inputMode={field === 'seconds' ? 'decimal' : 'numeric'}
           value={parts[field]}
           placeholder="0"
           aria-invalid={!!error}
@@ -207,18 +207,18 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
         onSubmit={(e) => void apply(e)}
       >
         <h2>{title}</h2>
-        {!preview && <p role="status">{t("captureTime.reading")}</p>}
-        {preview && !preview.library && <p className="studio-help">{t("captureTime.notInLibrary")}</p>}
+        {!preview && <p role="status">{t('captureTime.reading')}</p>}
+        {preview && !preview.library && <p className="studio-help">{t('captureTime.notInLibrary')}</p>}
         {preview?.library && (
           <>
-            <p className="studio-help">{t("captureTime.intro")}</p>
+            <p className="studio-help">{t('captureTime.intro')}</p>
             <p role="status">
-              {t("captureTime.summary", { count: items.length })}
+              {t('captureTime.summary', { count: items.length })}
               {items.length > 0 && <> · {cameras}</>}
             </p>
             {preview.excluded.length > 0 && (
               <details className="studio-capture-time-excluded">
-                <summary>{t("captureTime.excludedCount", { count: preview.excluded.length })}</summary>
+                <summary>{t('captureTime.excludedCount', { count: preview.excluded.length })}</summary>
                 <ul>
                   {preview.excluded.map(({ path, reason }) => (
                     <li key={path}>
@@ -235,62 +235,67 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
             )}
             {conflict && (
               <p className="studio-capture-time-error" role="alert">
-                {t("captureTime.conflict", { count: changes.length })}
+                {t('captureTime.conflict', { count: changes.length })}
               </p>
             )}
             <fieldset className="studio-capture-time-modes">
-              <legend>{t("captureTime.how")}</legend>
-              <label>
-                <input type="radio" name="capture-time-mode" checked={mode === "shift"} onChange={() => setMode("shift")} />
-                {t("captureTime.modes.shift")}
-              </label>
+              <legend>{t('captureTime.how')}</legend>
               <label>
                 <input
                   type="radio"
                   name="capture-time-mode"
-                  checked={mode === "reference"}
-                  onChange={() => setMode("reference")}
+                  checked={mode === 'shift'}
+                  onChange={() => setMode('shift')}
                 />
-                {t("captureTime.modes.reference")}
+                {t('captureTime.modes.shift')}
               </label>
               <label>
                 <input
                   type="radio"
                   name="capture-time-mode"
-                  checked={mode === "reset"}
+                  checked={mode === 'reference'}
+                  onChange={() => setMode('reference')}
+                />
+                {t('captureTime.modes.reference')}
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="capture-time-mode"
+                  checked={mode === 'reset'}
                   disabled={correctedCount === 0}
-                  onChange={() => setMode("reset")}
+                  onChange={() => setMode('reset')}
                 />
-                {t("captureTime.modes.reset", { count: correctedCount })}
+                {t('captureTime.modes.reset', { count: correctedCount })}
               </label>
             </fieldset>
-            {mode === "shift" && (
+            {mode === 'shift' && (
               <div className="studio-capture-time-shift">
                 <label className="studio-capture-time-part">
-                  <span>{t("captureTime.direction")}</span>
+                  <span>{t('captureTime.direction')}</span>
                   <select
-                    value={parts.negative ? "earlier" : "later"}
-                    onChange={(e) => setParts((p) => ({ ...p, negative: e.target.value === "earlier" }))}
+                    value={parts.negative ? 'earlier' : 'later'}
+                    onChange={(e) => setParts((p) => ({ ...p, negative: e.target.value === 'earlier' }))}
                   >
-                    <option value="later">{t("captureTime.later")}</option>
-                    <option value="earlier">{t("captureTime.earlier")}</option>
+                    <option value="later">{t('captureTime.later')}</option>
+                    <option value="earlier">{t('captureTime.earlier')}</option>
                   </select>
                 </label>
-                {part("days")}
-                {part("hours")}
-                {part("minutes")}
-                {part("seconds")}
+                {part('days')}
+                {part('hours')}
+                {part('minutes')}
+                {part('seconds')}
               </div>
             )}
-            {mode === "reference" && (
+            {mode === 'reference' && (
               <div className="studio-capture-time-reference">
                 <label>
-                  <span>{t("captureTime.referencePhoto")}</span>
+                  <span>{t('captureTime.referencePhoto')}</span>
                   <select
                     value={reference}
                     onChange={(e) => {
                       setReference(e.target.value);
-                      setCorrected("");
+                      setCorrected('');
                     }}
                   >
                     {items.map((item) => (
@@ -301,7 +306,7 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
                   </select>
                 </label>
                 <label>
-                  <span>{t("captureTime.correctedTime")}</span>
+                  <span>{t('captureTime.correctedTime')}</span>
                   <input
                     type="text"
                     value={corrected}
@@ -311,57 +316,60 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
                     onChange={(e) => setCorrected(e.target.value)}
                   />
                 </label>
-                <small id="capture-time-reference-help" className={referenceError ? "studio-capture-time-error" : "studio-help"}>
-                  {referenceError ?? t("captureTime.correctedHelp")}
+                <small
+                  id="capture-time-reference-help"
+                  className={referenceError ? 'studio-capture-time-error' : 'studio-help'}
+                >
+                  {referenceError ?? t('captureTime.correctedHelp')}
                 </small>
               </div>
             )}
             {plan && !plan.error && (
               <div className="studio-capture-time-preview" role="status" aria-live="polite">
-                {plan.shift && mode !== "reset" && <p>{shiftText(plan.shift)}</p>}
+                {plan.shift && mode !== 'reset' && <p>{shiftText(plan.shift)}</p>}
                 {plan.outOfRange.length > 0 && (
                   <p className="studio-capture-time-error">
-                    {t("captureTime.outOfRange", {
+                    {t('captureTime.outOfRange', {
                       count: plan.outOfRange.length,
-                      name: fileName(plan.outOfRange[0]),
+                      name: fileName(plan.outOfRange[0])
                     })}
                   </p>
                 )}
-                {referenceChange && mode !== "reset" && (
+                {referenceChange && mode !== 'reset' && (
                   <p>
-                    {t("captureTime.referenceChange", {
+                    {t('captureTime.referenceChange', {
                       name: fileName(referenceChange.path),
                       before: captureText(referenceChange.before),
-                      after: captureText(referenceChange.after),
+                      after: captureText(referenceChange.after)
                     })}
                   </p>
                 )}
                 {plan.beforeRange && plan.afterRange && (
                   <p>
-                    {t("captureTime.rangeChange", {
+                    {t('captureTime.rangeChange', {
                       from: captureText(plan.beforeRange[0]),
                       to: captureText(plan.beforeRange[1]),
                       newFrom: captureText(plan.afterRange[0]),
-                      newTo: captureText(plan.afterRange[1]),
+                      newTo: captureText(plan.afterRange[1])
                     })}
                   </p>
                 )}
-                {changes.length === 0 && plan.outOfRange.length === 0 && <p>{t("captureTime.nothingToChange")}</p>}
+                {changes.length === 0 && plan.outOfRange.length === 0 && <p>{t('captureTime.nothingToChange')}</p>}
               </div>
             )}
-            <p className="studio-help">{t("captureTime.filesUnchanged")}</p>
+            <p className="studio-help">{t('captureTime.filesUnchanged')}</p>
           </>
         )}
         <footer>
           <button type="button" onClick={close}>
-            {t("captureTime.cancel")}
+            {t('captureTime.cancel')}
           </button>
           <button type="submit" className="is-primary" disabled={blocked || applying || !preview?.library}>
-            {t("captureTime.apply", { count: changes.length })}
+            {t('captureTime.apply', { count: changes.length })}
           </button>
         </footer>
       </form>
     </div>,
-    document.body,
+    document.body
   );
 }

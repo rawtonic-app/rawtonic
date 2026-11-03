@@ -1,9 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, type PointerEvent } from "react";
-import { updateAdjustments } from "../../../hooks/useEditorActions";
-import { useEditorStore } from "../../../store/useEditorStore";
-import { INITIAL_LEVELS } from "../../../utils/adjustments";
-import { levelsInputKey, pickedLevels } from "../../../utils/levels";
+import { invoke } from '@tauri-apps/api/core';
+import { useEffect, useRef, type PointerEvent } from 'react';
+import { updateAdjustments } from '../../../hooks/useEditorActions';
+import { useEditorStore } from '../../../store/useEditorStore';
+import { INITIAL_LEVELS } from '../../../utils/adjustments';
+import { levelsInputKey, pickedLevels } from '../../../utils/levels';
 import {
   TAT_UNITS_PER_PIXEL,
   curveInputMean,
@@ -12,10 +12,10 @@ import {
   isToneTarget,
   startTargetedAdjustment,
   targetedPatch,
-  type TatStart,
-} from "../../../utils/targetedAdjustment";
-import { Invokes } from "../../ui/AppProperties";
-import { draftFor } from "../../../utils/sliderDraft";
+  type TatStart
+} from '../../../utils/targetedAdjustment';
+import { Invokes } from '../../ui/AppProperties';
+import { draftFor } from '../../../utils/sliderDraft';
 
 /** Pointer travel (px) a press may move and still be a click. */
 const CLICK_SLOP = 2;
@@ -76,14 +76,16 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     h.next = null;
     const view = useEditorStore.getState();
     const { selectedImage, adjustments, tatTarget } = view;
-    if (!selectedImage?.isReady || tatTarget !== "curve") return;
+    if (!selectedImage?.isReady || tatTarget !== 'curve') return;
     h.busy = true;
     const issued = ++h.generation;
     const path = selectedImage.path;
-    const pixels = await invoke<[number, number, number][] | null>(
-      Invokes.SampleCurveInput,
-      { path, normalizedX: x, normalizedY: y, adjustments },
-    ).catch(() => null);
+    const pixels = await invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
+      path,
+      normalizedX: x,
+      normalizedY: y,
+      adjustments
+    }).catch(() => null);
     h.busy = false;
     const now = useEditorStore.getState();
     // A press or a newer sample since, or the tool or photo changed: the
@@ -93,17 +95,11 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       !h.gone &&
       h.inside &&
       !drag.current &&
-      now.tatTarget === "curve" &&
+      now.tatTarget === 'curve' &&
       now.selectedImage?.path === path
     ) {
-      const marker = curveInputMean(
-        "curve",
-        now.adjustments,
-        pixels,
-        now.curveChannel,
-      );
-      if (marker !== now.tatCurveMarker)
-        now.setEditor({ tatCurveMarker: marker });
+      const marker = curveInputMean('curve', now.adjustments, pixels, now.curveChannel);
+      if (marker !== now.tatCurveMarker) now.setEditor({ tatCurveMarker: marker });
     }
     if (h.next) void sampleHover();
   };
@@ -121,14 +117,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const onPointerDown = async (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const view = useEditorStore.getState();
-    const {
-      selectedImage,
-      adjustments,
-      tatTarget,
-      curveChannel,
-      setEditor,
-      levelsPickerPress,
-    } = view;
+    const { selectedImage, adjustments, tatTarget, curveChannel, setEditor, levelsPickerPress } = view;
     if (!selectedImage?.isReady || !tatTarget) return;
     // Each press takes the next value: a hover sample still on its way
     // no longer applies, the press marks its own input level.
@@ -149,7 +138,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       frame: null,
       delta: 0,
       live: false,
-      released: false,
+      released: false
     };
     drag.current = record;
     const path = selectedImage.path;
@@ -169,10 +158,10 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       const press = levelsPickerPress + 1;
       useEditorStore.setState({ levelsPickerPress: press });
       const input = levelsInputKey(path, adjustments);
-      const pixels = await invoke<[number, number, number][] | null>(
-        Invokes.SampleCurveInput,
-        { ...point, adjustments: { ...adjustments, levels: INITIAL_LEVELS } },
-      ).catch(() => null);
+      const pixels = await invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
+        ...point,
+        adjustments: { ...adjustments, levels: INITIAL_LEVELS }
+      }).catch(() => null);
       const now = useEditorStore.getState();
       // A slider drag's newest values may not be committed yet (sliderDraft):
       // check and compute against them, so a pending drag is neither undone
@@ -186,12 +175,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
         levelsInputKey(path, current) !== input
       )
         return;
-      const levels = pickedLevels(
-        current.levels,
-        channel,
-        tatTarget === "levelsBlack" ? "black" : "white",
-        pixels,
-      );
+      const levels = pickedLevels(current.levels, channel, tatTarget === 'levelsBlack' ? 'black' : 'white', pixels);
       if (levels) updateAdjustments((prev) => ({ ...prev, levels }));
       setEditor({ tatTarget: null });
       return;
@@ -201,41 +185,32 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const [linear, curveInput] = await Promise.all([
       isToneTarget(tatTarget)
         ? Promise.resolve(null)
-        : invoke<[number, number, number] | null>(
-            Invokes.SamplePreviewWhiteBalance,
-            point,
-          ).catch(() => null),
+        : invoke<[number, number, number] | null>(Invokes.SamplePreviewWhiteBalance, point).catch(() => null),
       isToneTarget(tatTarget)
         ? invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
             ...point,
-            adjustments,
+            adjustments
           }).catch(() => null)
-        : Promise.resolve(null),
+        : Promise.resolve(null)
     ]);
     if (useEditorStore.getState().selectedImage?.path !== path) return;
     // Drag mode (interactive previews) only after sampling: the sample
     // renders from the preview base the shown frame was built from.
     if (!record.released) setEditor({ isSliderDragging: true });
-    record.start = startTargetedAdjustment(
-      tatTarget,
-      adjustments,
-      linear,
-      curveInput,
-      curveChannel,
-    );
+    record.start = startTargetedAdjustment(tatTarget, adjustments, linear, curveInput, curveChannel);
     if (record.start)
       setEditor({
         tatFocus: dominantChannel(record.start),
         // Marked while the pointer is still over the photo.
-        ...(tatTarget === "curve" && hover.current.inside && !hover.current.gone
+        ...(tatTarget === 'curve' && hover.current.inside && !hover.current.gone
           ? { tatCurveMarker: record.start.curveX ?? null }
-          : {}),
+          : {})
       });
     // A quick flick can end before the sample arrives: apply where it ended.
     if (record.released && record.start) {
       updateAdjustments((prev) => ({
         ...prev,
-        ...targetedPatch(record.start!, record.delta),
+        ...targetedPatch(record.start!, record.delta)
       }));
     }
   };
@@ -243,12 +218,12 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     if (!d) {
-      if (useEditorStore.getState().tatTarget !== "curve") return;
+      if (useEditorStore.getState().tatTarget !== 'curve') return;
       const bounds = e.currentTarget.getBoundingClientRect();
       hover.current.inside = true;
       hover.current.next = {
         x: (e.clientX - bounds.left) / bounds.width,
-        y: (e.clientY - bounds.top) / bounds.height,
+        y: (e.clientY - bounds.top) / bounds.height
       };
       void sampleHover();
       return;
@@ -264,8 +239,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const onPointerLeave = () => {
     hover.current.inside = false;
     hover.current.next = null;
-    if (!drag.current)
-      useEditorStore.getState().setEditor({ tatCurveMarker: null });
+    if (!drag.current) useEditorStore.getState().setEditor({ tatCurveMarker: null });
   };
 
   const end = (e: PointerEvent<HTMLDivElement>) => {
@@ -275,8 +249,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     apply();
     d.released = true;
     drag.current = null;
-    if (e.currentTarget.hasPointerCapture(e.pointerId))
-      e.currentTarget.releasePointerCapture(e.pointerId);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     useEditorStore.getState().setEditor({ isSliderDragging: false });
   };
 
@@ -285,14 +258,14 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       aria-label="Targeted adjustment: drag up or down on the photo"
       data-testid="targeted-adjustment"
       style={{
-        cursor: target && isLevelsPicker(target) ? "crosshair" : "ns-resize",
-        position: "absolute",
+        cursor: target && isLevelsPicker(target) ? 'crosshair' : 'ns-resize',
+        position: 'absolute',
         left: rect.left,
         top: rect.top,
         width: rect.width,
         height: rect.height,
         zIndex: 6,
-        touchAction: "none",
+        touchAction: 'none'
       }}
       onPointerDown={(e) => void onPointerDown(e)}
       onPointerMove={onPointerMove}

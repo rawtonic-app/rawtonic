@@ -1,20 +1,17 @@
-import { MAX_CURVE_POINTS, type Coord } from "./adjustments";
+import { MAX_CURVE_POINTS, type Coord } from './adjustments';
 
 /**
  * The renderer's point curve (shader `apply_curve`, point_curve.rs):
  * monotone cubic Hermite through the points, flat beyond the ends. `x` and
  * the result in 0–255; fewer than two points leave `x` alone.
  */
-export function pointCurveValue(
-  points: Coord[] | undefined,
-  x: number,
-): number {
+export function pointCurveValue(points: Coord[] | undefined, x: number): number {
   const p =
     points && points.length >= 2
       ? points
       : [
           { x: 0, y: 0 },
-          { x: 255, y: 255 },
+          { x: 255, y: 255 }
         ];
   const n = p.length;
   if (x <= p[0].x) return p[0].y;
@@ -25,19 +22,12 @@ export function pointCurveValue(
     if (x > p2.x) continue;
     const p0 = p[Math.max(i - 1, 0)];
     const p3 = p[Math.min(i + 2, n - 1)];
-    const slope = (a: Coord, b: Coord) =>
-      (b.y - a.y) / Math.max(b.x - a.x, 0.001);
+    const slope = (a: Coord, b: Coord) => (b.y - a.y) / Math.max(b.x - a.x, 0.001);
     const before = slope(p0, p1);
     const current = slope(p1, p2);
     const after = slope(p2, p3);
-    let m1 =
-      i === 0 ? current : before * current <= 0 ? 0 : (before + current) / 2;
-    let m2 =
-      i + 1 === n - 1
-        ? current
-        : current * after <= 0
-          ? 0
-          : (current + after) / 2;
+    let m1 = i === 0 ? current : before * current <= 0 ? 0 : (before + current) / 2;
+    let m2 = i + 1 === n - 1 ? current : current * after <= 0 ? 0 : (current + after) / 2;
     if (current !== 0) {
       const alpha = m1 / current;
       const beta = m2 / current;
@@ -53,10 +43,7 @@ export function pointCurveValue(
     const t2 = t * t;
     const t3 = t2 * t;
     const y =
-      (2 * t3 - 3 * t2 + 1) * p1.y +
-      (t3 - 2 * t2 + t) * m1 * dx +
-      (-2 * t3 + 3 * t2) * p2.y +
-      (t3 - t2) * m2 * dx;
+      (2 * t3 - 3 * t2 + 1) * p1.y + (t3 - 2 * t2 + t) * m1 * dx + (-2 * t3 + 3 * t2) * p2.y + (t3 - t2) * m2 * dx;
     return Math.min(255, Math.max(0, y));
   }
   return p[n - 1].y;
@@ -66,22 +53,18 @@ export function pointCurveValue(
  * The points the renderer uses: all of them with `whole` (the photo's
  * curves at `Curves.version` 2), else the first 16 (curves saved before, layers).
  */
-export const renderedPoints = (
-  points: Coord[] | undefined,
-  whole: boolean,
-): Coord[] | undefined => (whole ? points : points?.slice(0, MAX_CURVE_POINTS));
+export const renderedPoints = (points: Coord[] | undefined, whole: boolean): Coord[] | undefined =>
+  whole ? points : points?.slice(0, MAX_CURVE_POINTS);
 
 /**
  * The points the renderer uses for a Luminance curve (point_curve.rs
  * `luminance_points`): none (drawn neutral) when the whole curve changes
  * nothing, else the first 16, whatever the curves' version.
  */
-export const renderedLuminancePoints = (
-  points: Coord[] | undefined,
-): Coord[] => {
+export const renderedLuminancePoints = (points: Coord[] | undefined): Coord[] => {
   const neutral = [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ];
   if (!points || points.length < 2) return neutral;
   const first = points[0];

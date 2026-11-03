@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { createThumbnailQueue, useThumbnails } from './useThumbnails';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 describe('visible thumbnail queue', () => {
   it('sends the first viewport immediately and coalesces in-flight scroll requests to the latest one', async () => {
@@ -24,8 +27,14 @@ describe('visible thumbnail queue', () => {
 
   it('clears obsolete pending work and permits regeneration after a folder refresh', async () => {
     let finish!: () => void;
-    const send = vi.fn<(paths: string[]) => Promise<void>>()
-      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+    const send = vi
+      .fn<(paths: string[]) => Promise<void>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      )
       .mockResolvedValue(undefined);
     const queue = createThumbnailQueue(send);
     queue.request(['old']);

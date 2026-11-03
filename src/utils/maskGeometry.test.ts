@@ -10,7 +10,7 @@ import {
   shapeAsShown,
   shapeFrame,
   shownPixelToPhoto,
-  shownToPhoto,
+  shownToPhoto
 } from './maskGeometry';
 
 const W = 600;
@@ -22,12 +22,16 @@ describe('mask geometry', () => {
     frameGeometry({ orientationSteps: 1 }),
     frameGeometry({ orientationSteps: 2, flipHorizontal: true }),
     frameGeometry({ orientationSteps: 3, flipVertical: true, rotation: 7.5 }),
-    frameGeometry({ orientationSteps: 1, rotation: -12, flipHorizontal: true, flipVertical: true }),
+    frameGeometry({ orientationSteps: 1, rotation: -12, flipHorizontal: true, flipVertical: true })
   ];
 
   it('maps a shown point to the photo and back', () => {
     for (const g of geometries) {
-      for (const p of [{ x: 10, y: 20 }, { x: 300, y: 150 }, { x: 590, y: 390 }]) {
+      for (const p of [
+        { x: 10, y: 20 },
+        { x: 300, y: 150 },
+        { x: 590, y: 390 }
+      ]) {
         const shown = photoToShown(p, g, W, H);
         const back = shownToPhoto(shown, g, W, H);
         expect(back.x).toBeCloseTo(p.x, 6);
@@ -83,7 +87,7 @@ describe('drawn mask frames', () => {
       // The end of its long axis stays on its spot too.
       const axis = (p: typeof drawn, r: number) => ({
         x: p.centerX + r * Math.cos((p.rotation * Math.PI) / 180),
-        y: p.centerY + r * Math.sin((p.rotation * Math.PI) / 180),
+        y: p.centerY + r * Math.sin((p.rotation * Math.PI) / 180)
       });
       const end = onPhoto(axis(drawn, 80), upright);
       const shownEnd = onPhoto(axis(shown, 80), now);
@@ -91,7 +95,7 @@ describe('drawn mask frames', () => {
       // A mirror may swap the axis' ends: either end lands there.
       const d = Math.min(
         Math.hypot(shownEnd.x - end.x, shownEnd.y - end.y),
-        Math.hypot(shownOther.x - end.x, shownOther.y - end.y),
+        Math.hypot(shownOther.x - end.x, shownOther.y - end.y)
       );
       expect(d).toBeLessThan(1e-6);
     }
@@ -106,7 +110,7 @@ describe('drawn mask frames', () => {
     };
     const spots = [
       { x: 150, y: 150 },
-      { x: 420, y: 350 },
+      { x: 420, y: 350 }
     ];
     for (const now of [turned, flipped, shapeFrame({ flipVertical: true, orientationSteps: 3 }, W, H)!]) {
       const shown = shapeAsShown('linear', drawn, now);
@@ -120,7 +124,15 @@ describe('drawn mask frames', () => {
   });
 
   it('shows strokes painted in other frames where they were painted, each by its own frame', () => {
-    const before = { tool: 'brush', brushSize: 20, points: [{ x: 10, y: 20 }, { x: 50, y: 60 }], frame: upright };
+    const before = {
+      tool: 'brush',
+      brushSize: 20,
+      points: [
+        { x: 10, y: 20 },
+        { x: 50, y: 60 }
+      ],
+      frame: upright
+    };
     const after = { tool: 'brush', brushSize: 20, points: [{ x: 30, y: 40 }], frame: turned };
     const older = { tool: 'eraser', brushSize: 5, points: [{ x: 7, y: 9 }] };
     const params = { lines: [before, after, older] };
@@ -150,17 +162,33 @@ describe('drawn mask frames', () => {
 
   it('places shapes as the engine does', () => {
     // The numbers of the engine's `shapes_move_as_the_viewer_moves_them`.
-    const drawn = { width: 60, height: 40, rotation: 7, flipHorizontal: true, flipVertical: false, orientationSteps: 1 };
+    const drawn = {
+      width: 60,
+      height: 40,
+      rotation: 7,
+      flipHorizontal: true,
+      flipVertical: false,
+      orientationSteps: 1
+    };
     const now = shapeFrame({ rotation: -3, orientationSteps: 2 }, 90, 50)!;
     const radial = shapeAsShown(
       'radial',
       { centerX: 12, centerY: 31, radiusX: 9, radiusY: 4, rotation: 20, feather: 0.5, frame: drawn },
-      now,
+      now
     );
     const linear = shapeAsShown(
       'linear',
-      { startX: 5, startY: 8, endX: 30, endY: 50, range: 6, rangeEnd: 2, band: { width: 12, feather: 3 }, frame: drawn },
-      now,
+      {
+        startX: 5,
+        startY: 8,
+        endX: 30,
+        endY: 50,
+        range: 6,
+        rangeEnd: 2,
+        band: { width: 12, feather: 3 },
+        frame: drawn
+      },
+      now
     );
     const stroke = shapeAsShown('brush', { lines: [{ brushSize: 10, points: [{ x: 12, y: 31 }], frame: drawn }] }, now);
     const expected: Array<[unknown, number]> = [
@@ -179,7 +207,7 @@ describe('drawn mask frames', () => {
       [linear.band.feather, 3.985284],
       [stroke.lines[0].points[0].x, 41.257114],
       [stroke.lines[0].points[0].y, 33.856149],
-      [stroke.lines[0].brushSize, 10 * Math.sqrt(1.875)],
+      [stroke.lines[0].brushSize, 10 * Math.sqrt(1.875)]
     ];
     for (const [got, want] of expected) expect(got as number).toBeCloseTo(want, 5);
     expect(radial.frame).toEqual(now);
@@ -209,9 +237,9 @@ describe('drawn mask frames', () => {
           { type: 'radial', parameters: { centerX: 1 } },
           { type: 'linear', parameters: { startX: 1, frame: { orientationSteps: 1 } } },
           { type: 'brush', parameters: { lines: [{ points: [] }, { points: [], frame: turned }] } },
-          { type: 'ai-sky', parameters: { maskDataBase64: 'x' } },
-        ],
-      },
+          { type: 'ai-sky', parameters: { maskDataBase64: 'x' } }
+        ]
+      }
     ];
     const framed = frameDrawnMasks(masks, geometry, W, H)!;
     const [radial, linear, brush, ai] = framed[0].subMasks;
@@ -219,12 +247,12 @@ describe('drawn mask frames', () => {
     expect(linear.parameters.frame).toEqual({ orientationSteps: 1, width: W, height: H });
     expect((brush.parameters.lines as Array<{ frame?: unknown }>).map((l) => l.frame)).toEqual([
       shapeFrame(geometry, W, H),
-      turned,
+      turned
     ]);
     expect(ai).toBe(masks[0].subMasks[3]);
     // Without the size: the geometry alone; nothing to do keeps the objects.
     expect(frameDrawnMasks(masks, geometry, undefined, undefined)![0].subMasks[0].parameters.frame).toEqual(
-      frameGeometry(geometry),
+      frameGeometry(geometry)
     );
     expect(frameDrawnMasks(framed, geometry, W, H)).toBe(framed);
   });
@@ -234,7 +262,12 @@ describe('drawn mask frames', () => {
     const brush = {
       id: 'b',
       type: 'brush',
-      parameters: { lines: [{ tool: 'brush', points: [], frame: turned }, { tool: 'brush', points: [] }] },
+      parameters: {
+        lines: [
+          { tool: 'brush', points: [], frame: turned },
+          { tool: 'brush', points: [] }
+        ]
+      }
     };
     const ai = { id: 'a', type: 'ai-sky', parameters: { maskDataBase64: 'x' } };
     type Recipe = {
@@ -262,7 +295,7 @@ describe('drawn mask frames', () => {
     const pasted: Recipe = {
       ...previous,
       orientationSteps: 1,
-      masks: [{ subMasks: [{ ...radial, parameters: { ...radial.parameters } }] }],
+      masks: [{ subMasks: [{ ...radial, parameters: { ...radial.parameters } }] }]
     };
     expect(keepDrawnMasksOnPhoto(previous, pasted, W, H)).toBe(pasted);
   });

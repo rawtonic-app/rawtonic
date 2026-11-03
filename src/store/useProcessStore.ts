@@ -168,7 +168,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
 
   setExportState: (updater) => {
     set((prev) => ({
-      exportState: { ...prev.exportState, ...(typeof updater === 'function' ? updater(prev.exportState) : updater) },
+      exportState: { ...prev.exportState, ...(typeof updater === 'function' ? updater(prev.exportState) : updater) }
     }));
 
     const status = get().exportState.status;
@@ -184,8 +184,8 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
             denoising: [],
             selecting: [],
             errorMessage: '',
-            progress: { current: 0, total: 0 },
-          },
+            progress: { current: 0, total: 0 }
+          }
         }));
       }, 5000);
     }
@@ -193,7 +193,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
 
   registerAiTask: (id, type) =>
     set((state) => ({
-      activeAiTasks: { ...state.activeAiTasks, [id]: { id, type, count: (state.activeAiTasks[id]?.count ?? 0) + 1 } },
+      activeAiTasks: { ...state.activeAiTasks, [id]: { id, type, count: (state.activeAiTasks[id]?.count ?? 0) + 1 } }
     })),
 
   // The task ends with the last request under its id.
@@ -226,8 +226,8 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
             return item.state === 'running' && old?.state === 'running'
               ? { ...item, stage: old.stage, fraction: old.fraction, seq: old.seq }
               : item;
-          }),
-        },
+          })
+        }
       };
     }),
 
@@ -261,7 +261,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
         exportQueue: jobs,
         exportQueueHeld: held,
         exportItems,
-        exportPausing: state.exportPausing.filter((id) => running.has(id)),
+        exportPausing: state.exportPausing.filter((id) => running.has(id))
       };
-    }),
+    })
 }));

@@ -14,7 +14,7 @@ export default function BrowserBeforePane({
   size,
   transform,
   enabled,
-  decoded,
+  decoded
 }: {
   path: string;
   adjustments: Adjustments;

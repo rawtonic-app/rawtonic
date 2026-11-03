@@ -1,9 +1,4 @@
-import {
-  catalogAction,
-  undo as appUndo,
-  useCatalogUndoStore,
-  fileOperationTravel,
-} from "../utils/appUndo";
+import { catalogAction, undo as appUndo, useCatalogUndoStore, fileOperationTravel } from '../utils/appUndo';
 import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -26,7 +21,7 @@ import {
   showKeptCopies,
   undoHint,
   type TrashContents,
-  useFileOperations,
+  useFileOperations
 } from './useFileOperations';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -44,7 +39,15 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) 
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(() => Promise.resolve(null)) }));
 vi.mock('../activity/notify', () => ({
-  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn(), update: vi.fn(), dismiss: vi.fn(), isActive: vi.fn(() => false) },
+  notify: {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    update: vi.fn(),
+    dismiss: vi.fn(),
+    isActive: vi.fn(() => false)
+  }
 }));
 
 const summary = (part: Partial<FileOperationSummary>): FileOperationSummary => ({
@@ -56,30 +59,34 @@ const summary = (part: Partial<FileOperationSummary>): FileOperationSummary => (
   systemTrash: 0,
   newPaths: [],
   moves: [],
-  ...part,
+  ...part
 });
 
 it('says where deleted photos went and how to undo it', () => {
   expect(describeFileOperation(summary({ sessionTrash: 2 }), '⌘Z undoes it.')).toBe(
-    "Moved 2 items to the session's Trash folder. ⌘Z undoes it.",
+    "Moved 2 items to the session's Trash folder. ⌘Z undoes it."
   );
   expect(describeFileOperation(summary({ items: 1, systemTrash: 1 }), 'Ctrl+Z undoes it.')).toBe(
-    'Moved 1 item to the Trash. Ctrl+Z undoes it.',
+    'Moved 1 item to the Trash. Ctrl+Z undoes it.'
   );
   expect(describeFileOperation(summary({ sessionTrash: 1, systemTrash: 1 }), '')).toContain(
-    "the session's Trash folder and the Trash",
+    "the session's Trash folder and the Trash"
   );
 });
 
 it('names the folder photos were moved to, and other operations by their label', () => {
   expect(
     describeFileOperation(
-      summary({ kind: 'move', label: 'Move 2 photos to Selects', newPaths: ['/job/Selects/A.RAF', '/job/Selects/B.RAF'] }),
-      '⌘Z undoes it.',
-    ),
+      summary({
+        kind: 'move',
+        label: 'Move 2 photos to Selects',
+        newPaths: ['/job/Selects/A.RAF', '/job/Selects/B.RAF']
+      }),
+      '⌘Z undoes it.'
+    )
   ).toBe('Moved 2 photos to Selects. ⌘Z undoes it.');
   expect(describeFileOperation(summary({ kind: 'renameFolder', label: 'Rename folder Day 1' }), '⌘Z undoes it.')).toBe(
-    'Rename folder Day 1. ⌘Z undoes it.',
+    'Rename folder Day 1. ⌘Z undoes it.'
   );
 });
 
@@ -91,12 +98,18 @@ it('names the Library for undoing in Develop, where ⌘Z undoes edits', () => {
   useUIStore.setState({ activeView: 'editor' });
   expect(undoHint()).toBe('⌘Z in the Library undoes it.');
   expect(describeFileOperation(summary({ items: 1, systemTrash: 1 }))).toBe(
-    'Moved 1 item to the Trash. ⌘Z in the Library undoes it.',
+    'Moved 1 item to the Trash. ⌘Z in the Library undoes it.'
   );
   // The Delete dialog in Develop says so too.
   useLibraryStore.setState({ multiSelectedPaths: ['/job/Capture/A.RAF'], imageList: [] });
   const { result } = renderHook(() =>
-    useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+    useFileOperations(
+      vi.fn(() => Promise.resolve()),
+      vi.fn(() => Promise.resolve()),
+      vi.fn(),
+      vi.fn(),
+      []
+    )
   );
   result.current.handleDeleteSelected();
   expect(useUIStore.getState().confirmModalState.message).toContain('⌘Z in the Library undoes it.');
@@ -107,7 +120,13 @@ it('renaming the selected photo in the Library stays in the Library and keeps it
   vi.mocked(invoke).mockResolvedValueOnce(['/job/Capture/Grandpa.RAF']);
   const handleImageSelect = vi.fn();
   const { result } = renderHook(() =>
-    useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), handleImageSelect, vi.fn(), []),
+    useFileOperations(
+      vi.fn(() => Promise.resolve()),
+      vi.fn(() => Promise.resolve()),
+      handleImageSelect,
+      vi.fn(),
+      []
+    )
   );
   useUIStore.setState({ activeView: 'library', renameTargetPaths: ['/job/Capture/A.RAF'] });
   useEditorStore.setState({ selectedImage: { path: '/job/Capture/A.RAF' } as never });
@@ -128,7 +147,13 @@ it('a renamed pick stays picked, so the pick filter still finds it', async () =>
     return Promise.resolve();
   });
   const { result } = renderHook(() =>
-    useFileOperations(refresh, vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+    useFileOperations(
+      refresh,
+      vi.fn(() => Promise.resolve()),
+      vi.fn(),
+      vi.fn(),
+      []
+    )
   );
   useUIStore.setState({ activeView: 'library', renameTargetPaths: ['/job/Capture/chart0.png'] });
   useEditorStore.setState({ selectedImage: null });
@@ -146,7 +171,7 @@ describe('undo follows the paths it moves back', () => {
     label: 'Rename 1 photo',
     items: 1,
     newPaths: [original],
-    moves: [{ from: renamed, to: original }],
+    moves: [{ from: renamed, to: original }]
   });
 
   beforeEach(() => {
@@ -160,7 +185,7 @@ describe('undo follows the paths it moves back', () => {
       libraryActivePath: renamed,
       selectionAnchorPath: renamed,
       imageFlags: { [renamed]: 1 },
-      imageRatings: { [renamed]: 4, [`${renamed}?vc=c0ffee`]: 2 },
+      imageRatings: { [renamed]: 4, [`${renamed}?vc=c0ffee`]: 2 }
     });
     useProcessStore.setState({ thumbnails: { [renamed]: 'blob:thumb' } });
     useEditorStore.setState({ selectedImage: { path: renamed } as never });
@@ -175,7 +200,13 @@ describe('undo follows the paths it moves back', () => {
       return Promise.resolve();
     });
     const { result } = renderHook(() =>
-      useFileOperations(refresh, vi.fn(() => Promise.resolve()), handleImageSelect, vi.fn(), []),
+      useFileOperations(
+        refresh,
+        vi.fn(() => Promise.resolve()),
+        handleImageSelect,
+        vi.fn(),
+        []
+      )
     );
     useUIStore.setState({ activeView: 'library' });
     await result.current.handleUndoFileOperation();
@@ -199,8 +230,8 @@ describe('undo follows the paths it moves back', () => {
         kind: 'moveSession',
         label: 'Move session job to Archive',
         items: 1,
-        moves: [{ from: '/Archive/job', to: '/job' }],
-      }),
+        moves: [{ from: '/Archive/job', to: '/job' }]
+      })
     );
     const refresh = vi.fn(() => Promise.resolve());
     const refreshTrees = vi.fn(() => Promise.resolve());
@@ -215,7 +246,13 @@ describe('undo follows the paths it moves back', () => {
     vi.mocked(invoke).mockResolvedValueOnce(undoneRename);
     const handleImageSelect = vi.fn();
     const { result } = renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), handleImageSelect, vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        handleImageSelect,
+        vi.fn(),
+        []
+      )
     );
     useUIStore.setState({ activeView: 'editor' });
     await result.current.handleUndoFileOperation();
@@ -227,15 +264,21 @@ describe('undo follows the paths it moves back', () => {
       currentFolderPath: '/job/Day 2',
       rootPaths: ['/job/Day 2'],
       multiSelectedPaths: ['/job/Day 2/A.RAF'],
-      libraryActivePath: '/job/Day 2/A.RAF',
+      libraryActivePath: '/job/Day 2/A.RAF'
     });
     useEditorStore.setState({ selectedImage: null });
     vi.mocked(invoke).mockResolvedValueOnce(
-      summary({ kind: 'renameFolder', label: 'Rename folder Day 1', moves: [{ from: '/job/Day 2', to: '/job/Day 1' }] }),
+      summary({ kind: 'renameFolder', label: 'Rename folder Day 1', moves: [{ from: '/job/Day 2', to: '/job/Day 1' }] })
     );
     const handleImageSelect = vi.fn();
     const { result } = renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), handleImageSelect, vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        handleImageSelect,
+        vi.fn(),
+        []
+      )
     );
     await result.current.handleUndoFileOperation();
     const library = useLibraryStore.getState();
@@ -254,7 +297,13 @@ describe('undo follows the paths it moves back', () => {
     window.addEventListener(FILE_OPERATIONS_CHANGED, catalog);
     window.addEventListener(OFFLINE_COUNTED, counted);
     const { result } = renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
     );
     await result.current.handleUndoFileOperation();
     await waitFor(() => expect(counted).toHaveBeenCalled());
@@ -281,10 +330,16 @@ describe('redo', () => {
     useLibraryStore.setState({ multiSelectedPaths: [from], libraryActivePath: from, imageFlags: { [from]: 1 } });
     useEditorStore.setState({ selectedImage: null });
     vi.mocked(invoke).mockResolvedValueOnce(
-      summary({ kind: 'rename', label: 'Rename 1 photo', items: 1, newPaths: [to], moves: [{ from, to }] }),
+      summary({ kind: 'rename', label: 'Rename 1 photo', items: 1, newPaths: [to], moves: [{ from, to }] })
     );
     const { result } = renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
     );
     await result.current.handleRedoFileOperation();
     expect(invoke).toHaveBeenCalledWith(Invokes.RedoFileOperation);
@@ -295,13 +350,19 @@ describe('redo', () => {
 
   it('says when there is nothing to redo, and why a redo was refused', async () => {
     const { result } = renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
     );
     vi.mocked(invoke).mockResolvedValueOnce(null);
     await result.current.handleRedoFileOperation();
     expect(toast.info).toHaveBeenCalledWith('There is no file operation to redo.');
     // A newly undone operation makes a fresh native redo available.
-    fileOperationTravel("undo", summary({ kind: "rename" }));
+    fileOperationTravel('undo', summary({ kind: 'rename' }));
     vi.mocked(invoke).mockRejectedValueOnce('/job/Capture/b.RAF already exists: Nothing was redone');
     await result.current.handleRedoFileOperation();
     expect(toast.error).toHaveBeenCalledWith('Could not redo: /job/Capture/b.RAF already exists: Nothing was redone');
@@ -310,7 +371,13 @@ describe('redo', () => {
   it('says after an undo how to redo it', async () => {
     vi.mocked(invoke).mockResolvedValueOnce(summary({ kind: 'trash', label: 'Delete 2 photos' }));
     const { result } = renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
     );
     await result.current.handleUndoFileOperation();
     expect(toast.success).toHaveBeenCalledWith('Undone: Delete 2 photos. ⇧⌘Z redoes it.');
@@ -331,13 +398,13 @@ describe('emptying the session Trash', () => {
       sessionDirectory: '/job',
       currentFolderPath: '/job/Trash/Capture',
       multiSelectedPaths: ['/job/Trash/Capture/A.RAF', '/job/Capture/K.RAF'],
-      libraryActivePath: '/job/Trash/Capture/A.RAF',
+      libraryActivePath: '/job/Trash/Capture/A.RAF'
     });
   });
 
   it('names the count, says it is permanent and not undoable', () => {
     expect(describeEmptyTrash(contents)).toBe(
-      "Permanently delete 3 photos in this session's Trash folder? 7 files are removed from disk, sidecars and XMP included. This cannot be undone, and file changes made before it can no longer be undone either.",
+      "Permanently delete 3 photos in this session's Trash folder? 7 files are removed from disk, sidecars and XMP included. This cannot be undone, and file changes made before it can no longer be undone either."
     );
     expect(describeEmptyTrash({ photos: 1, files: 1, entries: 1 })).toContain('Permanently delete 1 photo in');
     expect(describeEmptyTrash({ photos: 0, files: 2, entries: 1 })).toContain('Permanently delete 2 files in');
@@ -353,8 +420,8 @@ describe('emptying the session Trash', () => {
         vi.fn(() => Promise.resolve()),
         vi.fn(),
         handleBackToLibrary,
-        [],
-      ),
+        []
+      )
     );
     await result.current.handleEmptySessionTrash();
     expect(invoke).toHaveBeenCalledWith(Invokes.SessionTrashContents, { session: '/job' });
@@ -373,7 +440,7 @@ describe('emptying the session Trash', () => {
       session: '/job',
       photos: 3,
       files: 7,
-      entries: 2,
+      entries: 2
     });
     expect(toast.success).toHaveBeenCalledWith('3 photos deleted permanently.');
     expect(useEditorStore.getState().selectedImage).toBeNull();
@@ -386,7 +453,13 @@ describe('emptying the session Trash', () => {
   it('an empty Trash asks nothing', async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ photos: 0, files: 0, entries: 0 });
     const { result } = renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
     );
     await result.current.handleEmptySessionTrash();
     expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
@@ -397,7 +470,13 @@ describe('emptying the session Trash', () => {
 describe('moving to the Trash', () => {
   const hook = () =>
     renderHook(() =>
-      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
     ).result.current;
   const calls = () => vi.mocked(invoke).mock.calls.map((call) => call[0]);
 
@@ -422,13 +501,17 @@ describe('moving to the Trash', () => {
     debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
     await hook().executeDelete(['/p/A.RAF']);
     expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeGreaterThanOrEqual(0);
-    expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeLessThan(calls().indexOf('delete_files_from_disk'));
+    expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeLessThan(
+      calls().indexOf('delete_files_from_disk')
+    );
   });
 
   const failSaves = () =>
-    vi.mocked(invoke).mockImplementation((command) =>
-      command === Invokes.SaveMetadataAndUpdateThumbnail ? Promise.reject('disk full') : Promise.resolve(undefined),
-    );
+    vi
+      .mocked(invoke)
+      .mockImplementation((command) =>
+        command === Invokes.SaveMetadataAndUpdateThumbnail ? Promise.reject('disk full') : Promise.resolve(undefined)
+      );
 
   it('moves nothing when the edit of a photo to move could not be saved', async () => {
     failSaves();
@@ -485,9 +568,13 @@ describe('moving photos to another drive', () => {
     freeBytes: 1_900_000_000_000,
     sourceDrives: ['Macintosh HD'],
     refusal: null,
-    ...part,
+    ...part
   });
-  const moved = summary({ kind: 'move', label: 'Move 2 photos to 2026', newPaths: ['/Volumes/Archive SSD/2026/A.RAF'] });
+  const moved = summary({
+    kind: 'move',
+    label: 'Move 2 photos to 2026',
+    newPaths: ['/Volumes/Archive SSD/2026/A.RAF']
+  });
   const hook = () => renderHook(() => useFileOperations(vi.fn(), vi.fn(), vi.fn(), vi.fn(), []));
 
   beforeEach(() => {
@@ -511,7 +598,7 @@ describe('moving photos to another drive', () => {
     expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.PlanMoveFiles, {
       sourcePaths: ['/Users/a/A.RAF', '/Users/a/B.RAF'],
-      destinationFolder: '/Volumes/Archive SSD/2026',
+      destinationFolder: '/Volumes/Archive SSD/2026'
     });
     const asked = useUIStore.getState().confirmModalState;
     expect(asked.title).toBe('Move to Archive SSD?');
@@ -523,8 +610,8 @@ describe('moving photos to another drive', () => {
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFiles, {
         sourcePaths: ['/Users/a/A.RAF', '/Users/a/B.RAF'],
-        destinationFolder: '/Volumes/Archive SSD/2026',
-      }),
+        destinationFolder: '/Volumes/Archive SSD/2026'
+      })
     );
   });
 
@@ -546,7 +633,7 @@ describe('moving photos to another drive', () => {
     expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
     expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
     expect(toast.warn).toHaveBeenCalledWith('/Users/a/A.xmp changed while it was moved and was kept', {
-      autoClose: false,
+      autoClose: false
     });
   });
 });
@@ -561,7 +648,7 @@ describe('moving photos or a folder out of their session', () => {
     drive: '',
     freeBytes: 0,
     refusal: null,
-    ...part,
+    ...part
   });
   const offered = (part: Partial<SessionMoveOffer>) => ({ crossVolume: false, sessionMove: offer(part) });
   const hook = () => renderHook(() => useFileOperations(vi.fn(), vi.fn(), vi.fn(), vi.fn(), []));
@@ -584,7 +671,7 @@ describe('moving photos or a folder out of their session', () => {
     expect(asked.title).toBe('Move the Whole Session “S7Job”?');
     expect(asked.message).toBe(
       'Photos stay inside their session “S7Job”, so it remains one self-contained folder that moves as a whole; ' +
-        'the whole session can go into “2026” instead. It moves on its drive in one step; Undo moves it back.',
+        'the whole session can go into “2026” instead. It moves on its drive in one step; Undo moves it back.'
     );
     expect(asked.confirmText).toBe('Move the Whole Session to “2026”');
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
@@ -593,39 +680,41 @@ describe('moving photos or a folder out of their session', () => {
     vi.mocked(invoke).mockImplementation(async (command) =>
       command === Invokes.MoveSession
         ? summary({ kind: 'moveSession', label: 'Move session S7Job to 2026', items: 1 })
-        : undefined,
+        : undefined
     );
     asked.onConfirm?.();
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveSession, {
         session: '/Users/a/Jobs/S7Job',
-        destination: '/Volumes/Archive SSD/2026',
-      }),
+        destination: '/Volumes/Archive SSD/2026'
+      })
     );
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Moved the session “S7Job” to “2026”. ⌘Z undoes it.'),
+      expect(toast.success).toHaveBeenCalledWith('Moved the session “S7Job” to “2026”. ⌘Z undoes it.')
     );
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
   });
 
   it('names the other drive, the bytes and the free space when the session is copied', () => {
     expect(
-      describeSessionMove(offer({ crossVolume: true, bytes: 123_400_000, drive: 'Archive SSD', freeBytes: 1_900_000_000_000 })),
+      describeSessionMove(
+        offer({ crossVolume: true, bytes: 123_400_000, drive: 'Archive SSD', freeBytes: 1_900_000_000_000 })
+      )
     ).toContain(
       'It is copied to Archive SSD (123.4 MB, 1.9 TB free there) and checked byte for byte; ' +
-        'only then does the original session folder go to the Trash.',
+        'only then does the original session folder go to the Trash.'
     );
   });
 
   it('says why the whole session cannot go there either, and moves nothing', async () => {
     vi.mocked(invoke).mockResolvedValueOnce(
-      offered({ refusal: '/Volumes/Archive SSD/2026 already holds something named S7Job; nothing was moved.' }),
+      offered({ refusal: '/Volumes/Archive SSD/2026 already holds something named S7Job; nothing was moved.' })
     );
     const { result } = hook();
     await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
     expect(toast.error).toHaveBeenCalledWith(
       'Photos stay inside their session “S7Job”, and the whole session cannot go there: ' +
-        '/Volumes/Archive SSD/2026 already holds something named S7Job; nothing was moved.',
+        '/Volumes/Archive SSD/2026 already holds something named S7Job; nothing was moved.'
     );
     expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
     expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
@@ -637,7 +726,7 @@ describe('moving photos or a folder out of their session', () => {
     await result.current.handleMoveFolder('/Users/a/Jobs/S7Job/Capture', '/Volumes/Archive SSD/2026');
     expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.PlanMoveFolder, {
       path: '/Users/a/Jobs/S7Job/Capture',
-      destinationFolder: '/Volumes/Archive SSD/2026',
+      destinationFolder: '/Volumes/Archive SSD/2026'
     });
     expect(useUIStore.getState().confirmModalState.title).toBe('Move the Whole Session “S7Job”?');
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
@@ -658,7 +747,7 @@ describe('moving photos or a folder out of their session', () => {
       await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
       const asked = useUIStore.getState().confirmModalState;
       expect(asked.message).toBe(
-        'Finish or cancel the exports of the session “S7Job” first: they read its photos, which the move would take away. Nothing was moved.',
+        'Finish or cancel the exports of the session “S7Job” first: they read its photos, which the move would take away. Nothing was moved.'
       );
       expect(asked.confirmText).toBe('Open Export Queue');
       asked.onConfirm?.();
@@ -674,7 +763,8 @@ describe('moving photos or a folder out of their session', () => {
     const { result } = hook();
     await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
     vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === Invokes.MoveSession) throw 'Finish or cancel the exports of this session first; nothing was moved.';
+      if (command === Invokes.MoveSession)
+        throw 'Finish or cancel the exports of this session first; nothing was moved.';
       return undefined;
     });
     useUIStore.getState().confirmModalState.onConfirm?.();
@@ -693,8 +783,8 @@ describe('moving photos or a folder out of their session', () => {
     useUIStore.getState().confirmModalState.onConfirm?.();
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Could not move the session “S7Job”: The session S7Job is open in another program',
-      ),
+        'Could not move the session “S7Job”: The session S7Job is open in another program'
+      )
     );
   });
 });
@@ -704,8 +794,8 @@ describe('copies a stopped or failed move left on the other drive', () => {
     operationId: 'op-1',
     copies: [
       { path: '/Volumes/CARD/2026/A.RAF', source: '/Users/a/A.RAF', complete: false },
-      { path: '/Volumes/CARD/2026/A.xmp', source: '/Users/a/A.xmp', complete: true },
-    ],
+      { path: '/Volumes/CARD/2026/A.xmp', source: '/Users/a/A.xmp', complete: true }
+    ]
   };
   const shown = () => {
     const [element, options] = vi.mocked(toast.warn).mock.calls.at(-1)!;
@@ -748,9 +838,11 @@ describe('copies a stopped or failed move left on the other drive', () => {
     await waitFor(() => expect(onTrashed).toHaveBeenCalled());
     expect(invoke).toHaveBeenCalledWith(Invokes.TrashKeptCopy, {
       operationId: 'op-1',
-      path: '/Volumes/CARD/2026/A.xmp',
+      path: '/Volumes/CARD/2026/A.xmp'
     });
-    expect(toast.success).toHaveBeenCalledWith('A.xmp is in the Trash of its drive; drag it out of the Trash to get it back.');
+    expect(toast.success).toHaveBeenCalledWith(
+      'A.xmp is in the Trash of its drive; drag it out of the Trash to get it back.'
+    );
   });
 
   it('says why a copy could not go to the Trash', async () => {
@@ -761,8 +853,8 @@ describe('copies a stopped or failed move left on the other drive', () => {
     fireEvent.click(screen.getAllByText('Move to Trash')[0]);
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Could not move A.RAF to the Trash: it is no longer the copy the move left',
-      ),
+        'Could not move A.RAF to the Trash: it is no longer the copy the move left'
+      )
     );
     expect(onTrashed).not.toHaveBeenCalled();
   });
@@ -770,7 +862,15 @@ describe('copies a stopped or failed move left on the other drive', () => {
   it('the Library listens for them and reads the folder again after one went', async () => {
     vi.mocked(listen).mockClear();
     const refresh = vi.fn(() => Promise.resolve());
-    renderHook(() => useFileOperations(refresh, vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []));
+    renderHook(() =>
+      useFileOperations(
+        refresh,
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
+    );
     const call = vi.mocked(listen).mock.calls.find(([event]) => event === 'file-operation-kept-copies');
     expect(call).toBeTruthy();
     const handler = call![1] as (event: { payload: KeptCopies }) => void;
@@ -791,12 +891,12 @@ describe('moving a folder', () => {
     freeBytes: 1_900_000_000_000,
     sourceDrives: ['Macintosh HD'],
     refusal: null,
-    ...part,
+    ...part
   });
   const moved = summary({
     kind: 'moveFolder',
     label: 'Move folder Day 1 to 2026',
-    moves: [{ from: '/Users/a/Day 1', to: '/Volumes/Archive SSD/2026/Day 1' }],
+    moves: [{ from: '/Users/a/Day 1', to: '/Volumes/Archive SSD/2026/Day 1' }]
   });
   const hook = () => renderHook(() => useFileOperations(vi.fn(), vi.fn(), vi.fn(), vi.fn(), []));
 
@@ -814,10 +914,12 @@ describe('moving a folder', () => {
     vi.mocked(invoke).mockResolvedValueOnce(plan({})).mockResolvedValueOnce(moved);
     const { result } = hook();
     await result.current.handleMoveFolder('/Users/a/Day 1');
-    expect(vi.mocked(open)).toHaveBeenCalledWith(expect.objectContaining({ directory: true, title: 'Move “Day 1” to' }));
+    expect(vi.mocked(open)).toHaveBeenCalledWith(
+      expect.objectContaining({ directory: true, title: 'Move “Day 1” to' })
+    );
     expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.PlanMoveFolder, {
       path: '/Users/a/Day 1',
-      destinationFolder: '/Volumes/Archive SSD/2026',
+      destinationFolder: '/Volumes/Archive SSD/2026'
     });
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
     const asked = useUIStore.getState().confirmModalState;
@@ -829,12 +931,12 @@ describe('moving a folder', () => {
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFolder, {
         path: '/Users/a/Day 1',
-        destinationFolder: '/Volumes/Archive SSD/2026',
-      }),
+        destinationFolder: '/Volumes/Archive SSD/2026'
+      })
     );
     // The shown folder follows it.
     await waitFor(() =>
-      expect(useLibraryStore.getState().currentFolderPath).toBe('/Volumes/Archive SSD/2026/Day 1/Picks'),
+      expect(useLibraryStore.getState().currentFolderPath).toBe('/Volumes/Archive SSD/2026/Day 1/Picks')
     );
   });
 
@@ -842,12 +944,14 @@ describe('moving a folder', () => {
     const { result } = hook();
     await result.current.handleMoveFolder('/Users/a/Day 1');
     expect(vi.mocked(invoke)).not.toHaveBeenCalled();
-    vi.mocked(invoke).mockResolvedValueOnce(plan({ crossVolume: false })).mockResolvedValueOnce(moved);
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(plan({ crossVolume: false }))
+      .mockResolvedValueOnce(moved);
     await result.current.handleMoveFolder('/Users/a/Day 1', '/Users/a/2026');
     expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
     expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFolder, {
       path: '/Users/a/Day 1',
-      destinationFolder: '/Users/a/2026',
+      destinationFolder: '/Users/a/2026'
     });
   });
 
@@ -859,19 +963,18 @@ describe('moving a folder', () => {
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
   });
 });
-it("Library Undo after rating then moving calls the file journal before metadata restore", async () => {
+it('Library Undo after rating then moving calls the file journal before metadata restore', async () => {
   useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
-  useUIStore.setState({ activeView: "library" });
+  useUIStore.setState({ activeView: 'library' });
   useEditorStore.setState({ selectedImage: null });
   const moved = summary({
-    id: "move-after-rating",
-    kind: "move",
-    moves: [{ from: "/a.nef", to: "/other/a.nef" }],
+    id: 'move-after-rating',
+    kind: 'move',
+    moves: [{ from: '/a.nef', to: '/other/a.nef' }]
   });
   vi.mocked(invoke).mockImplementation(async (command) => {
     if (command === Invokes.PlanMoveFiles) return { crossVolume: false };
-    if (command === Invokes.MoveFiles || command === Invokes.UndoFileOperation)
-      return moved;
+    if (command === Invokes.MoveFiles || command === Invokes.UndoFileOperation) return moved;
     return [];
   });
   const { result } = renderHook(() =>
@@ -880,58 +983,92 @@ it("Library Undo after rating then moving calls the file journal before metadata
       vi.fn(async () => {}),
       vi.fn(),
       vi.fn(),
-      [],
-    ),
+      []
+    )
   );
-  await catalogAction("rating", async () => [
+  await catalogAction('rating', async () => [
     {
-      path: "/a.nef",
-      before: { kind: "rating", value: 0 },
-      after: { kind: "rating", value: 4 },
-    },
+      path: '/a.nef',
+      before: { kind: 'rating', value: 0 },
+      after: { kind: 'rating', value: 4 }
+    }
   ]);
-  await result.current.handleMoveToFolder(["/a.nef"], "/other");
+  await result.current.handleMoveToFolder(['/a.nef'], '/other');
   vi.mocked(invoke).mockClear();
   await appUndo();
   expect(invoke).toHaveBeenCalledWith(Invokes.UndoFileOperation);
-  expect(invoke).not.toHaveBeenCalledWith(
-    Invokes.RestoreCulling,
-    expect.anything(),
-  );
+  expect(invoke).not.toHaveBeenCalledWith(Invokes.RestoreCulling, expect.anything());
   cleanup();
 });
 
-it.each(['move', 'paste', 'trash', 'trash-associated'] as const)('metadata waits for a companion affected by %s', async (operation) => {
-  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
-  useUIStore.setState({ activeView: 'library' });
-  useEditorStore.setState({ selectedImage: null });
-  useLibraryStore.setState({ sessionDirectory: null, currentFolderPath: '/dest', imageList: [], libraryActivePath: null });
-  useProcessStore.setState({ copiedFilePaths: ['/capture/a.nef'] });
-  let finish!: (value: FileOperationSummary) => void;
-  vi.mocked(invoke).mockImplementation(async (command) => {
-    if (command === Invokes.PlanMoveFiles) return { crossVolume: false };
-    if ([Invokes.MoveFiles, Invokes.DeleteFilesFromDisk, Invokes.DeleteFilesWithAssociated].includes(command as Invokes))
-      return new Promise<FileOperationSummary>((resolve) => { finish = resolve; });
-    return [];
-  });
-  const hook = renderHook(() => useFileOperations(vi.fn(async () => {}), vi.fn(async () => {}), vi.fn(), vi.fn(), []));
-  const running = operation === 'move' ? hook.result.current.handleMoveToFolder(['/capture/a.nef'], '/dest')
-    : operation === 'paste' ? hook.result.current.handlePasteFiles('move', '/dest')
-      : hook.result.current.executeDelete(['/capture/a.nef'], { includeAssociated: operation === 'trash-associated' });
-  await waitFor(() => expect(finish).toBeTypeOf('function'));
-  let target: string | null = null;
-  const rated = catalogAction('rating', async ({ resolvePaths }) => {
-    target = resolvePaths(['/capture/a.jpg'])[0];
-    return [{ path: target, before: { kind: 'rating', value: 0 }, after: { kind: 'rating', value: 4 } }];
-  }, ['/capture/a.jpg']);
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(target).toBeNull();
-  } finally {
-    finish(summary({ kind: 'move', moves: [{ from: '/capture/a.nef', to: '/dest/a.nef' }, { from: '/capture/a.jpg', to: '/dest/a.jpg' }] }));
-    await running;
-    await rated;
-    hook.unmount();
+it.each(['move', 'paste', 'trash', 'trash-associated'] as const)(
+  'metadata waits for a companion affected by %s',
+  async (operation) => {
+    useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+    useUIStore.setState({ activeView: 'library' });
+    useEditorStore.setState({ selectedImage: null });
+    useLibraryStore.setState({
+      sessionDirectory: null,
+      currentFolderPath: '/dest',
+      imageList: [],
+      libraryActivePath: null
+    });
+    useProcessStore.setState({ copiedFilePaths: ['/capture/a.nef'] });
+    let finish!: (value: FileOperationSummary) => void;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === Invokes.PlanMoveFiles) return { crossVolume: false };
+      if (
+        [Invokes.MoveFiles, Invokes.DeleteFilesFromDisk, Invokes.DeleteFilesWithAssociated].includes(command as Invokes)
+      )
+        return new Promise<FileOperationSummary>((resolve) => {
+          finish = resolve;
+        });
+      return [];
+    });
+    const hook = renderHook(() =>
+      useFileOperations(
+        vi.fn(async () => {}),
+        vi.fn(async () => {}),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
+    );
+    const running =
+      operation === 'move'
+        ? hook.result.current.handleMoveToFolder(['/capture/a.nef'], '/dest')
+        : operation === 'paste'
+          ? hook.result.current.handlePasteFiles('move', '/dest')
+          : hook.result.current.executeDelete(['/capture/a.nef'], {
+              includeAssociated: operation === 'trash-associated'
+            });
+    await waitFor(() => expect(finish).toBeTypeOf('function'));
+    let target: string | null = null;
+    const rated = catalogAction(
+      'rating',
+      async ({ resolvePaths }) => {
+        target = resolvePaths(['/capture/a.jpg'])[0];
+        return [{ path: target, before: { kind: 'rating', value: 0 }, after: { kind: 'rating', value: 4 } }];
+      },
+      ['/capture/a.jpg']
+    );
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(target).toBeNull();
+    } finally {
+      finish(
+        summary({
+          kind: 'move',
+          moves: [
+            { from: '/capture/a.nef', to: '/dest/a.nef' },
+            { from: '/capture/a.jpg', to: '/dest/a.jpg' }
+          ]
+        })
+      );
+      await running;
+      await rated;
+      hook.unmount();
+    }
+    expect(target).toBe('/dest/a.jpg');
   }
-  expect(target).toBe('/dest/a.jpg');
-});
+);

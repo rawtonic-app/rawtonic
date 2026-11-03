@@ -10,9 +10,14 @@ beforeEach(() => resetActivityStore());
 it('asks the app for the view and keeps its photographs, following a rename', () => {
   const asked = vi.fn();
   window.addEventListener(SHOW_ACTIVITY_PHOTOS_EVENT, asked);
-  useActivityStore.getState().report('failure', { id: 'f', source: 'export', title: '1 photo did not export', paths: ['/s/A.NEF'] });
+  useActivityStore
+    .getState()
+    .report('failure', { id: 'f', source: 'export', title: '1 photo did not export', paths: ['/s/A.NEF'] });
   showPhotos('1 photo did not export', ['/s/A.NEF', '/s/B.NEF']);
-  expect((asked.mock.calls[0][0] as CustomEvent).detail).toEqual({ name: '1 photo did not export', paths: ['/s/A.NEF', '/s/B.NEF'] });
+  expect((asked.mock.calls[0][0] as CustomEvent).detail).toEqual({
+    name: '1 photo did not export',
+    paths: ['/s/A.NEF', '/s/B.NEF']
+  });
   window.removeEventListener(SHOW_ACTIVITY_PHOTOS_EVENT, asked);
 
   followRenamedPaths(['/s/A.NEF'], ['/s/Wedding-001.NEF']);

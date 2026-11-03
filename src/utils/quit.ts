@@ -10,7 +10,7 @@ import {
   onBatchWriteSettled,
   onPhotoWritesSettled,
   photoBatches,
-  photoWritesAndStepsSettled,
+  photoWritesAndStepsSettled
 } from './photoWrites';
 
 /** A write that must reach disk before the app quits (a debounced save):
@@ -52,7 +52,7 @@ const WRITE_NAMES: Record<string, string> = {
   snapshot: 'Snapshot',
   useXmp: 'Use XMP',
   useXmpUndo: 'Undo of Use XMP',
-  keepLibraryXmp: 'Keep library (XMP)',
+  keepLibraryXmp: 'Keep library (XMP)'
 };
 
 const fileName = (path: string) => path.split('?vc=')[0].split(/[\\/]/).pop() ?? path;
@@ -121,7 +121,7 @@ class QuitDrain {
   items(): string[] {
     const identified: QuitFailure[] = [...this.identified].map(([order, { kind, failed }]) => ({
       order,
-      items: failed.map((path) => describe(kind, path)),
+      items: failed.map((path) => describe(kind, path))
     }));
     for (const batch of photoBatches().values()) {
       if (this.before.has(batch.id)) continue;
@@ -129,7 +129,7 @@ class QuitDrain {
       if (done < total) {
         identified.push({
           order: batch.id,
-          items: [`${WRITE_NAMES[batch.kind] ?? 'Batch'} not finished (${done} of ${total} photos saved)`],
+          items: [`${WRITE_NAMES[batch.kind] ?? 'Batch'} not finished (${done} of ${total} photos saved)`]
         });
       }
       // The registry and this drain may both have heard the same report.
@@ -209,7 +209,8 @@ function hearWrites(kept: QuitDrain, requestId: number, update: () => void): () 
     // A failed photograph is kept even though its write may still finish (a
     // retry inside the command reports it written later).
     if (ok !== undefined) kept.recordBatchPhoto(batch.id, `${fileName(path)} (${ok})`);
-    for (const extra of also) kept.recordBatchPhoto(batch.id, `${fileName(extra)} (not written with ${fileName(path)})`);
+    for (const extra of also)
+      kept.recordBatchPhoto(batch.id, `${fileName(extra)} (not written with ${fileName(path)})`);
     progress();
   });
   return () => {
@@ -230,7 +231,7 @@ async function drainBeforeQuit(requestId: number): Promise<string[] | null> {
   const update = holdForQuit(requestId);
   const stopHearing = hearWrites(kept, requestId, update);
   try {
-    if (await invoke<boolean>(Invokes.QuitSaving, { requestId }) !== true) {
+    if ((await invoke<boolean>(Invokes.QuitSaving, { requestId })) !== true) {
       cancelQuitRequest(requestId);
       return null;
     }
@@ -293,8 +294,8 @@ export const confirmSwitchWithUnsaved: AskBeforeSwitch = (failures) =>
         cancelText: t('session.unsaved.cancel'),
         onConfirm: () => resolve('retry'),
         onSecondary: () => resolve('discard'),
-        onCancel: () => resolve('cancel'),
-      },
+        onCancel: () => resolve('cancel')
+      }
     });
   });
 
@@ -308,7 +309,7 @@ export const confirmSwitchWithUnsaved: AskBeforeSwitch = (failures) =>
  */
 export async function switchLibraryAfterSaves<T>(
   open: () => Promise<T>,
-  ask: AskBeforeSwitch = confirmSwitchWithUnsaved,
+  ask: AskBeforeSwitch = confirmSwitchWithUnsaved
 ): Promise<T | null> {
   // From the first save until the next library is open nothing can be
   // edited: an edit made while the saves are written could miss them, and
@@ -350,7 +351,11 @@ export const confirmQuitWithUnsaved: AskToQuitAnyway = (failures, quit, cancel) 
   };
   // Quit may come from the menu while the window is minimised or hidden.
   const appWindow = getCurrentWindow();
-  void appWindow.unminimize().then(() => appWindow.show()).then(() => appWindow.setFocus()).catch(() => undefined);
+  void appWindow
+    .unminimize()
+    .then(() => appWindow.show())
+    .then(() => appWindow.setFocus())
+    .catch(() => undefined);
   useUIStore.getState().setUI({
     confirmModalState: {
       confirmText: i18n.t('modals.quit.quitAnyway'),
@@ -359,8 +364,8 @@ export const confirmQuitWithUnsaved: AskToQuitAnyway = (failures, quit, cancel) 
       message: i18n.t('modals.quit.unsavedMessage', { changes: listed(failures) }),
       onConfirm: () => decide(quit),
       onCancel: () => decide(cancel),
-      title: i18n.t('modals.quit.unsavedTitle'),
-    },
+      title: i18n.t('modals.quit.unsavedTitle')
+    }
   });
 };
 
@@ -404,13 +409,14 @@ export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway, reques
     askToQuitAnyway(
       failures,
       () => decide(Invokes.FinishQuit, { force: true }),
-      () => decide(Invokes.CancelQuit, { allowQuitAnyway: false }),
+      () => decide(Invokes.CancelQuit, { allowQuitAnyway: false })
     );
   } catch (error) {
     // Logging alone leaves the native timeout armed. Cancel it explicitly;
     // the backend rejects this command if a newer request already owns it.
-    await invoke(Invokes.CancelQuit, { ...request, allowQuitAnyway: false })
-      .catch((cancelError) => console.error('Cancelling the quit failed:', cancelError));
+    await invoke(Invokes.CancelQuit, { ...request, allowQuitAnyway: false }).catch((cancelError) =>
+      console.error('Cancelling the quit failed:', cancelError)
+    );
     cancelQuitRequest(requestId);
     console.error('Saving before quitting failed:', error);
   } finally {

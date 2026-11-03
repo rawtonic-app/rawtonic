@@ -35,8 +35,8 @@ export function withOwnBitmapIds(adjustments: Adjustments, shown?: Adjustments):
     masks: adjustments.masks?.map((mask: MaskContainer) => ({ ...mask, subMasks: subMasks(mask.subMasks) ?? [] })),
     aiPatches: adjustments.aiPatches?.map((patch: AiPatch) => ({
       ...own(patch, patch.patchData ? JSON.stringify(patch.patchData) : null),
-      subMasks: subMasks(patch.subMasks) ?? patch.subMasks,
-    })),
+      subMasks: subMasks(patch.subMasks) ?? patch.subMasks
+    }))
   };
 }
 

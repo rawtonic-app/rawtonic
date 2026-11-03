@@ -18,20 +18,29 @@ const selection = () => {
 export function useRecipeMenuCommands(): void {
   const presets = useSettingsStore((state) => state.appSettings?.exportPresets);
   const choosing = useRef(false);
-  useEffect(() => registerAppCommands(Object.fromEntries(savedRecipes(presets).map((recipe) => [
-    `recipe:${recipe.id}`, {
-      menu: { group: 'recipes' as const, label: recipe.name },
-      enabled: () => !choosing.current && selection().length > 0,
-      run: () => {
-        const paths = selection();
-        const draft = draftFromPreset(recipe);
-        choosing.current = true;
-        notifyAppCommandsChanged();
-        void runExportJobs([{ recipe, draft, ...exportSettingsFromDraft(draft) }], paths).finally(() => {
-          choosing.current = false;
-          notifyAppCommandsChanged();
-        });
-      },
-    },
-  ]))), [presets]);
+  useEffect(
+    () =>
+      registerAppCommands(
+        Object.fromEntries(
+          savedRecipes(presets).map((recipe) => [
+            `recipe:${recipe.id}`,
+            {
+              menu: { group: 'recipes' as const, label: recipe.name },
+              enabled: () => !choosing.current && selection().length > 0,
+              run: () => {
+                const paths = selection();
+                const draft = draftFromPreset(recipe);
+                choosing.current = true;
+                notifyAppCommandsChanged();
+                void runExportJobs([{ recipe, draft, ...exportSettingsFromDraft(draft) }], paths).finally(() => {
+                  choosing.current = false;
+                  notifyAppCommandsChanged();
+                });
+              }
+            }
+          ])
+        )
+      ),
+    [presets]
+  );
 }

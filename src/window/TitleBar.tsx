@@ -1,9 +1,9 @@
-import { useCallback, useState, useEffect } from "react";
-import { platform } from "@tauri-apps/plugin-os";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Square, X } from "lucide-react";
+import { useCallback, useState, useEffect } from 'react';
+import { platform } from '@tauri-apps/plugin-os';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Minus, Square, X } from 'lucide-react';
 
-const RestoreDownIcon = ({ size = 14, className = "" }) => (
+const RestoreDownIcon = ({ size = 14, className = '' }) => (
   <svg
     width={size}
     height={size}
@@ -21,7 +21,7 @@ const RestoreDownIcon = ({ size = 14, className = "" }) => (
 );
 
 export default function TitleBar() {
-  const [osPlatform, setOsPlatform] = useState("");
+  const [osPlatform, setOsPlatform] = useState('');
   const [isMaximized, setIsMaximized] = useState(false);
 
   const appWindow = getCurrentWindow();
@@ -32,8 +32,8 @@ export default function TitleBar() {
         const p = platform();
         setOsPlatform(p);
       } catch (error) {
-        console.error("Failed to get platform:", error);
-        setOsPlatform("windows");
+        console.error('Failed to get platform:', error);
+        setOsPlatform('windows');
       }
     };
     getPlatform();
@@ -45,7 +45,7 @@ export default function TitleBar() {
         const max = await appWindow.isMaximized();
         setIsMaximized(max);
       } catch (error) {
-        console.error("Failed to check maximized state:", error);
+        console.error('Failed to check maximized state:', error);
       }
     };
 
@@ -70,34 +70,26 @@ export default function TitleBar() {
     try {
       await appWindow.toggleMaximize();
     } catch (error) {
-      console.error("Failed to toggle maximize:", error);
+      console.error('Failed to toggle maximize:', error);
     }
   }, [appWindow]);
 
-  const isLinux = osPlatform === "linux";
-  const isWindows = osPlatform === "windows";
-  if (!osPlatform || osPlatform === "macos") {
+  const isLinux = osPlatform === 'linux';
+  const isWindows = osPlatform === 'windows';
+  if (!osPlatform || osPlatform === 'macos') {
     return null;
   }
-  const outerDragProps = isLinux ? {} : { "data-tauri-drag-region": "true" };
+  const outerDragProps = isLinux ? {} : { 'data-tauri-drag-region': 'true' };
 
   return (
-    <div
-      className="relative pt-2 px-2 w-full z-50 bg-transparent"
-      {...outerDragProps}
-    >
+    <div className="relative pt-2 px-2 w-full z-50 bg-transparent" {...outerDragProps}>
       <div
         className="h-10 bg-bg-secondary flex justify-between items-center select-none rounded-lg overflow-hidden"
         {...outerDragProps}
       >
         <div className="flex items-center h-full">
-          <div
-            data-tauri-drag-region
-            className="flex items-center h-full px-4"
-          >
-            <p className="text-sm font-semibold text-text-secondary pointer-events-none">
-              Rawtonic
-            </p>
+          <div data-tauri-drag-region className="flex items-center h-full px-4">
+            <p className="text-sm font-semibold text-text-secondary pointer-events-none">Rawtonic</p>
           </div>
         </div>
         <div data-tauri-drag-region className="flex-1 h-full" />
@@ -132,32 +124,19 @@ export default function TitleBar() {
             </div>
           )}
 
-          {isWindows && (
-            <div
-              data-tauri-drag-region
-              className="w-36 shrink-0 h-full pointer-events-none"
-            />
-          )}
+          {isWindows && <div data-tauri-drag-region className="w-36 shrink-0 h-full pointer-events-none" />}
         </div>
       </div>
 
       {isWindows && (
         <div className="absolute top-0 right-0 flex h-12 z-20">
-          <button
-            aria-label="Minimize window"
-            className="relative w-12 group outline-none"
-            onClick={handleMinimize}
-          >
+          <button aria-label="Minimize window" className="relative w-12 group outline-none" onClick={handleMinimize}>
             <div className="absolute bottom-0 left-0 w-12 h-10 flex justify-center items-center group-hover:bg-white/10 group-active:bg-white/20 transition-colors duration-150">
               <Minus size={16} className="text-text-secondary" />
             </div>
           </button>
 
-          <button
-            aria-label="Maximize window"
-            className="relative w-12 group outline-none"
-            onClick={handleMaximize}
-          >
+          <button aria-label="Maximize window" className="relative w-12 group outline-none" onClick={handleMaximize}>
             <div className="absolute bottom-0 left-0 w-12 h-10 flex justify-center items-center group-hover:bg-white/10 group-active:bg-white/20 transition-colors duration-150">
               {isMaximized ? (
                 <RestoreDownIcon size={12} className="text-text-secondary" />
@@ -167,16 +146,9 @@ export default function TitleBar() {
             </div>
           </button>
 
-          <button
-            aria-label="Close window"
-            className="relative w-14 group outline-none"
-            onClick={handleClose}
-          >
+          <button aria-label="Close window" className="relative w-14 group outline-none" onClick={handleClose}>
             <div className="absolute bottom-0 left-0 w-12 h-10 flex justify-center items-center group-hover:bg-red-500 group-active:bg-red-600 transition-colors duration-150 rounded-r-lg">
-              <X
-                size={16}
-                className="text-text-secondary group-hover:text-white transition-colors duration-150"
-              />
+              <X size={16} className="text-text-secondary group-hover:text-white transition-colors duration-150" />
             </div>
           </button>
         </div>

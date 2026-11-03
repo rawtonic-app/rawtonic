@@ -150,5 +150,5 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
 
   remove: async (path, id) => {
     show(path, await inTurn(path, () => invoke<unknown>(Invokes.SnapshotDelete, { path, id })));
-  },
+  }
 }));

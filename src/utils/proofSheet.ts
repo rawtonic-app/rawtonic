@@ -8,7 +8,7 @@ export const PAPERS = {
   a3: [297, 420],
   letter: [215.9, 279.4],
   legal: [215.9, 355.6],
-  tabloid: [279.4, 431.8],
+  tabloid: [279.4, 431.8]
 } as const;
 export type Paper = keyof typeof PAPERS | 'custom';
 
@@ -72,7 +72,7 @@ export const DEFAULT_PROOF_DRAFT: ProofDraft = {
   pdf: true,
   jpeg: false,
   where: 'output',
-  name: '{job} proof sheet',
+  name: '{job} proof sheet'
 };
 
 /** Ready-made captions; any naming template can be typed instead. */
@@ -89,8 +89,10 @@ export function readProofDraft(library: string | null): ProofDraft {
       if (name in saved && typeof saved[name] === typeof fallback) draft[name] = saved[name];
     }
     if (typeof saved.folder === 'string') draft.folder = saved.folder;
-    if (!Object.hasOwn(SHARPEN_AMOUNTS, draft.sharpenLevel as string)) draft.sharpenLevel = DEFAULT_PROOF_DRAFT.sharpenLevel;
-    if (!Object.hasOwn(PAPERS, draft.paper as string) && draft.paper !== "custom") draft.paper = DEFAULT_PROOF_DRAFT.paper;
+    if (!Object.hasOwn(SHARPEN_AMOUNTS, draft.sharpenLevel as string))
+      draft.sharpenLevel = DEFAULT_PROOF_DRAFT.sharpenLevel;
+    if (!Object.hasOwn(PAPERS, draft.paper as string) && draft.paper !== 'custom')
+      draft.paper = DEFAULT_PROOF_DRAFT.paper;
     return draft as unknown as ProofDraft;
   } catch {
     return { ...DEFAULT_PROOF_DRAFT };
@@ -139,7 +141,7 @@ export function sheetFromDraft(draft: ProofDraft) {
     ppi: Math.round(clamp(draft.ppi, 72, 1200, 300)),
     pdf: draft.pdf,
     jpeg: draft.jpeg,
-    jpegQuality: 92,
+    jpegQuality: 92
   };
 }
 
@@ -147,7 +149,11 @@ export function sheetFromDraft(draft: ProofDraft) {
  * print sharpening), or none. */
 export function sheetSharpening(draft: ProofDraft) {
   if (!draft.sharpen) return null;
-  return { amount: SHARPEN_AMOUNTS[draft.sharpenLevel] ?? 100, radius: printRadius(30, clamp(draft.ppi, 72, 1200, 300)), threshold: 1 };
+  return {
+    amount: SHARPEN_AMOUNTS[draft.sharpenLevel] ?? 100,
+    radius: printRadius(30, clamp(draft.ppi, 72, 1200, 300)),
+    threshold: 1
+  };
 }
 
 /** Which photos a sheet holds: the selection, else every photo shown, in the
@@ -170,5 +176,5 @@ interface ProofSheetDialogState {
 export const useProofSheetDialog = create<ProofSheetDialogState>((set) => ({
   paths: null,
   show: (paths) => set({ paths }),
-  close: () => set({ paths: null }),
+  close: () => set({ paths: null })
 }));

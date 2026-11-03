@@ -8,10 +8,10 @@ import {
   type Coord,
   type GrayMixer,
   type RegionCurve,
-  editedCurvesVersion,
-} from "./adjustments";
-import { pointCurveValue, renderedPoints } from "./pointCurve";
-import { regionAt, regionCurveValue } from "./regionCurve";
+  editedCurvesVersion
+} from './adjustments';
+import { pointCurveValue, renderedPoints } from './pointCurve';
+import { regionAt, regionCurveValue } from './regionCurve';
 
 /**
  * Lightroom's Targeted Adjustment Tool (Capture One's curve and colour
@@ -21,49 +21,23 @@ import { regionAt, regionCurveValue } from "./regionCurve";
  * region curve (the region of the tone under the pointer, as Lightroom's
  * parametric curve).
  */
-export type TatTarget =
-  | "hue"
-  | "saturation"
-  | "luminance"
-  | "grayMixer"
-  | "curve"
-  | "regionCurve"
-  | LevelsPicker;
+export type TatTarget = 'hue' | 'saturation' | 'luminance' | 'grayMixer' | 'curve' | 'regionCurve' | LevelsPicker;
 
 /** Levels' black and white point pickers: a click on the photo sets the
  * point (utils/levels.ts `pickedLevels`) instead of a drag. */
-export type LevelsPicker = "levelsBlack" | "levelsWhite";
+export type LevelsPicker = 'levelsBlack' | 'levelsWhite';
 export const isLevelsPicker = (target: TatTarget): target is LevelsPicker =>
-  target === "levelsBlack" || target === "levelsWhite";
+  target === 'levelsBlack' || target === 'levelsWhite';
 
 /** The point curve channels (the curve panel's tabs): `luma` is the RGB
  * curve, `luminance` the Luminance curve after it. */
-export type CurveChannel = "luma" | "luminance" | "red" | "green" | "blue";
+export type CurveChannel = 'luma' | 'luminance' | 'red' | 'green' | 'blue';
 
 /** Targets that act on the displayed tone rather than the photo's colour. */
-export const isToneTarget = (target: TatTarget) =>
-  target === "curve" || target === "regionCurve";
+export const isToneTarget = (target: TatTarget) => target === 'curve' || target === 'regionCurve';
 
-export const HSL_CHANNELS = [
-  "reds",
-  "oranges",
-  "yellows",
-  "greens",
-  "aquas",
-  "blues",
-  "purples",
-  "magentas",
-] as const;
-const GRAY_CHANNELS = [
-  "red",
-  "orange",
-  "yellow",
-  "green",
-  "aqua",
-  "blue",
-  "purple",
-  "magenta",
-] as const;
+export const HSL_CHANNELS = ['reds', 'oranges', 'yellows', 'greens', 'aquas', 'blues', 'purples', 'magentas'] as const;
+const GRAY_CHANNELS = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'] as const;
 
 // Channel windows as the shader selects colours (apply_hsl_panel,
 // apply_black_and_white): Oklab hue centres and raised-cosine reach.
@@ -80,27 +54,20 @@ export const TAT_UNITS_PER_PIXEL = 0.5;
 /** Colours closer to grey than this (Oklab chroma) have no channel. */
 const MIN_CHROMA = 0.02;
 
-const toLinear = (v: number) =>
-  v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+const toLinear = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 
 /** Oklab lightness, chroma and hue (degrees) of a linear sRGB colour. */
 export function oklch([r, g, b]: [number, number, number]) {
-  const l = Math.cbrt(
-    Math.max(0, 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b),
-  );
-  const m = Math.cbrt(
-    Math.max(0, 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b),
-  );
-  const s = Math.cbrt(
-    Math.max(0, 0.0883024619 * r + 0.2817188376 * g + 0.6299787 * b),
-  );
+  const l = Math.cbrt(Math.max(0, 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b));
+  const m = Math.cbrt(Math.max(0, 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b));
+  const s = Math.cbrt(Math.max(0, 0.0883024619 * r + 0.2817188376 * g + 0.6299787 * b));
   const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
   const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
   const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
   return {
     lightness: L,
     chroma: Math.hypot(A, B),
-    hue: ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360,
+    hue: ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360
   };
 }
 
@@ -141,7 +108,7 @@ export function startTargetedAdjustment(
   base: Adjustments,
   linearRgb: [number, number, number] | null,
   curveInput: [number, number, number][] | null,
-  curveChannel: CurveChannel = "luma",
+  curveChannel: CurveChannel = 'luma'
 ): TatStart | null {
   if (isToneTarget(target)) {
     const curveX = curveInputMean(target, base, curveInput, curveChannel);
@@ -150,14 +117,14 @@ export function startTargetedAdjustment(
       target,
       base,
       curveX,
-      ...(target === "curve" ? { curveChannel } : {}),
+      ...(target === 'curve' ? { curveChannel } : {})
     };
   }
   if (!linearRgb) return null;
   const { chroma, hue } = oklch(linearRgb);
   if (chroma < MIN_CHROMA) return null;
   const weights =
-    target === "grayMixer"
+    target === 'grayMixer'
       ? (base.bwVersion ?? 1) >= 2
         ? channelWeights(hue, BW2_CENTRES, BW2_REACH)
         : channelWeights(hue, BW_CENTRES, BW_REACH)
@@ -175,13 +142,10 @@ export function curveInputMean(
   target: TatTarget,
   base: Adjustments,
   pixels: [number, number, number][] | null,
-  channel: CurveChannel = "luma",
+  channel: CurveChannel = 'luma'
 ): number | null {
   if (!pixels?.length) return null;
-  const sum = pixels.reduce(
-    (total, pixel) => total + curveInputLevel(target, base, pixel, channel),
-    0,
-  );
+  const sum = pixels.reduce((total, pixel) => total + curveInputLevel(target, base, pixel, channel), 0);
   return Math.round(sum / pixels.length);
 }
 
@@ -198,18 +162,15 @@ function curveInputLevel(
   target: TatTarget,
   base: Adjustments,
   pixel: [number, number, number],
-  channel: CurveChannel,
+  channel: CurveChannel
 ): number {
   // The region curve and curves on display values see the colour clipped
   // to sRGB.
   const display = pixel.map((v) => toEncoded(v) * 255);
-  if (target === "regionCurve") return tone(display, false);
+  if (target === 'regionCurve') return tone(display, false);
   // The point curve acts on the region curve's output (when the curve tool
   // is on).
-  const region =
-    base.sectionVisibility?.curves !== false
-      ? regionOf(base)
-      : INITIAL_REGION_CURVE;
+  const region = base.sectionVisibility?.curves !== false ? regionOf(base) : INITIAL_REGION_CURVE;
   const regioned = display.map((v) => regionCurveValue(region, v / 255) * 255);
   const version = editedCurvesVersion(base.curves);
   const wide = version >= CURVE_VERSION;
@@ -217,30 +178,18 @@ function curveInputLevel(
   // ratio (shader `carry_beyond_srgb`); the wide curves see it.
   const clipped = display.map((v) => toLinear(v / 255));
   const shown = regioned.map((v) => toLinear(v / 255));
-  const ratio = Math.min(
-    luminance(shown) / Math.max(luminance(clipped), 1e-5),
-    4,
-  );
-  const carried = gamutUnit(
-    shown.map((v, c) => v + (pixel[c] - clipped[c]) * ratio),
-  );
+  const ratio = Math.min(luminance(shown) / Math.max(luminance(clipped), 1e-5), 4);
+  const carried = gamutUnit(shown.map((v, c) => v + (pixel[c] - clipped[c]) * ratio));
   // Display-value curves see the carried colour clipped to the sRGB cube.
-  const levels = wide
-    ? wideCurveLevels(carried)
-    : carried.map((v) => toEncoded(v) * 255);
-  if (channel === "luma") return tone(levels, wide);
+  const levels = wide ? wideCurveLevels(carried) : carried.map((v) => toEncoded(v) * 255);
+  if (channel === 'luma') return tone(levels, wide);
   const whole = version >= LONG_CURVE_VERSION;
-  const rgb = levels.map((v) =>
-    pointCurveValue(renderedPoints(base.curves.luma, whole), v),
-  );
-  const index = ["red", "green", "blue"].indexOf(channel);
+  const rgb = levels.map((v) => pointCurveValue(renderedPoints(base.curves.luma, whole), v));
+  const index = ['red', 'green', 'blue'].indexOf(channel);
   if (index !== -1) return rgb[index];
   // The Luminance curve: after the colour curves, back in display values.
   const curved = rgb.map((v, c) =>
-    toLinear(
-      pointCurveValue(renderedPoints(base.curves[COLOUR_CURVES[c]], whole), v) /
-        255,
-    ),
+    toLinear(pointCurveValue(renderedPoints(base.curves[COLOUR_CURVES[c]], whole), v) / 255)
   );
   let linear: number[];
   if (wide) {
@@ -248,76 +197,56 @@ function curveInputLevel(
   } else {
     // carry_beyond_srgb
     const input = levels.map((v) => toLinear(v / 255));
-    const carry = Math.min(
-      luminance(curved.map((v) => Math.max(v, 0))) /
-        Math.max(luminance(input), 1e-5),
-      4,
-    );
+    const carry = Math.min(luminance(curved.map((v) => Math.max(v, 0))) / Math.max(luminance(input), 1e-5), 4);
     linear = curved.map((v, c) => v + (carried[c] - input[c]) * carry);
   }
   // Both outputs are clipped to the gamut (`display_unit`).
   return toEncoded(Math.max(luminance(gamutUnit(linear)), 0)) * 255;
 }
 
-const COLOUR_CURVES = ["red", "green", "blue"] as const;
+const COLOUR_CURVES = ['red', 'green', 'blue'] as const;
 
 /** The colour mixer channel a drag acts on most (for the panel to show). */
 export function dominantChannel(start: TatStart): string | null {
-  if (
-    !start.weights ||
-    start.target === "grayMixer" ||
-    isToneTarget(start.target)
-  )
-    return null;
+  if (!start.weights || start.target === 'grayMixer' || isToneTarget(start.target)) return null;
   return HSL_CHANNELS[start.weights.indexOf(Math.max(...start.weights))];
 }
 
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, v));
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const round = (v: number) => Math.round(v * 10) / 10;
 
 /** The adjustments after dragging `delta` slider units (up = positive). */
-export function targetedPatch(
-  start: TatStart,
-  delta: number,
-): Partial<Adjustments> {
+export function targetedPatch(start: TatStart, delta: number): Partial<Adjustments> {
   const { base, target } = start;
   if (isLevelsPicker(target)) return {};
-  if (target === "regionCurve") {
+  if (target === 'regionCurve') {
     const region = regionOf(base);
     const key = regionAt(region, (start.curveX ?? 128) / 255);
     return {
       regionCurve: {
         ...region,
-        [key]: Math.round(clamp(region[key] + delta, -100, 100)),
-      },
+        [key]: Math.round(clamp(region[key] + delta, -100, 100))
+      }
     };
   }
-  if (target === "curve") {
-    const channel = start.curveChannel ?? "luma";
+  if (target === 'curve') {
+    const channel = start.curveChannel ?? 'luma';
     const moved = {
       ...base.curves,
-      [channel]: moveCurve(
-        base.curves[channel] as Coord[] | undefined,
-        start.curveX ?? 128,
-        delta,
-      ),
+      [channel]: moveCurve(base.curves[channel] as Coord[] | undefined, start.curveX ?? 128, delta)
     };
     // As an edit in the curve panel (StudioDevelop `PointCurve`).
     return {
       curves: { ...moved, version: editedCurvesVersion(base.curves) },
       pointCurves: moved,
-      curveMode: "point",
+      curveMode: 'point'
     };
   }
   const weights = start.weights ?? [];
-  if (target === "grayMixer") {
+  if (target === 'grayMixer') {
     const mixer: GrayMixer = { ...INITIAL_GRAY_MIXER, ...base.grayMixer };
     GRAY_CHANNELS.forEach((channel, i) => {
-      if (weights[i] > 0.02)
-        mixer[channel] = round(
-          clamp(mixer[channel] + delta * weights[i], -100, 100),
-        );
+      if (weights[i] > 0.02) mixer[channel] = round(clamp(mixer[channel] + delta * weights[i], -100, 100));
     });
     return { grayMixer: mixer, blackAndWhite: true };
   }
@@ -326,9 +255,7 @@ export function targetedPatch(
     if (weights[i] > 0.02) {
       hsl[channel] = {
         ...hsl[channel],
-        [target]: round(
-          clamp(hsl[channel][target] + delta * weights[i], -100, 100),
-        ),
+        [target]: round(clamp(hsl[channel][target] + delta * weights[i], -100, 100))
       };
     }
   });
@@ -337,7 +264,7 @@ export function targetedPatch(
 
 const regionOf = (a: Adjustments): RegionCurve => ({
   ...INITIAL_REGION_CURVE,
-  ...a.regionCurve,
+  ...a.regionCurve
 });
 
 /** The renderer's luma point curve at `x` (0–255). */
@@ -352,64 +279,53 @@ const toEncoded = (v: number) => {
 const TO_PROPHOTO = [
   [0.5293458, 0.3300728, 0.1405812],
   [0.0983744, 0.8734611, 0.0281647],
-  [0.0168832, 0.1176725, 0.8654443],
+  [0.0168832, 0.1176725, 0.8654443]
 ];
 
 // Linear ProPhoto back to linear sRGB, the shader's `prophoto_to_srgb`.
 const FROM_PROPHOTO = [
   [2.0340763, -0.7273343, -0.3067417],
   [-0.2288135, 1.2317302, -0.0029169],
-  [-0.0085698, -0.1532866, 1.1618565],
+  [-0.0085698, -0.1532866, 1.1618565]
 ];
 
-const matrix = (m: number[][], v: number[]) =>
-  m.map((row) => row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
+const matrix = (m: number[][], v: number[]) => m.map((row) => row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
 
 /** Linear sRGB clipped to the ProPhoto gamut (shader `gamut_unit`). */
 function gamutUnit(linear: number[]): [number, number, number] {
-  if (linear.every((v) => v >= 0 && v <= 1))
-    return linear as [number, number, number];
+  if (linear.every((v) => v >= 0 && v <= 1)) return linear as [number, number, number];
   const prophoto = matrix(TO_PROPHOTO, linear).map((v) => clamp(v, 0, 1));
   return matrix(FROM_PROPHOTO, prophoto) as [number, number, number];
 }
 
-const luminance = (linear: number[]) =>
-  0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+const luminance = (linear: number[]) => 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
 
 /** Linear sRGB (beyond 0–1 for colours outside sRGB) as the wide curves
  * receive it, in levels 0–255: ProPhoto primaries with the sRGB curve
  * (shader `wide_curve_input`). */
-export function wideCurveLevels(
-  linear: [number, number, number],
-): [number, number, number] {
-  return TO_PROPHOTO.map(
-    (row) =>
-      toEncoded(row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2]) *
-      255,
-  ) as [number, number, number];
+export function wideCurveLevels(linear: [number, number, number]): [number, number, number] {
+  return TO_PROPHOTO.map((row) => toEncoded(row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2]) * 255) as [
+    number,
+    number,
+    number
+  ];
 }
 
 /** The tone of curve levels: their luminance-weighted mean, with the
  * luminance of the space the curves act in. */
 const tone = (levels: number[], wide: boolean) => {
-  const weights = wide
-    ? [0.2880402, 0.7118741, 0.0000857]
-    : [0.2126, 0.7152, 0.0722];
+  const weights = wide ? [0.2880402, 0.7118741, 0.0000857] : [0.2126, 0.7152, 0.0722];
   return levels.reduce((sum, level, c) => sum + weights[c] * level, 0);
 };
 
 /** Moves the curve at `x` by `delta`: the point there, or a new one. */
-function moveCurve(
-  points: Coord[] | undefined,
-  x: number,
-  delta: number,
-): Coord[] {
+function moveCurve(points: Coord[] | undefined, x: number, delta: number): Coord[] {
   const p =
     points && points.length >= 2
       ? points.map((q) => ({ ...q }))
       : [
           { x: 0, y: 0 },
-          { x: 255, y: 255 },
+          { x: 255, y: 255 }
         ];
   // The nearest inner point within reach (imported curves can hold points
   // a level apart).
@@ -427,7 +343,5 @@ function moveCurve(
   return [...p, { x, y }].sort((a, b) => a.x - b.x);
 }
 
-export const linearFromSrgb = (
-  rgb: [number, number, number],
-): [number, number, number] =>
+export const linearFromSrgb = (rgb: [number, number, number]): [number, number, number] =>
   rgb.map((v) => toLinear(v / 255)) as [number, number, number];

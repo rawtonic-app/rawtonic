@@ -29,6 +29,6 @@ it('saves the chosen background in the app settings', () => {
   viewerBackgroundMenu()[0].onClick!();
   expect(useSettingsStore.getState().appSettings?.viewerBackground).toBe('black');
   expect(invoke).toHaveBeenCalledWith(Invokes.SaveSettings, {
-    settings: expect.objectContaining({ viewerBackground: 'black' }),
+    settings: expect.objectContaining({ viewerBackground: 'black' })
   });
 });

@@ -1,10 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState, type ReactNode } from "react";
-import type { WhiteBalanceMode } from "../../utils/adjustments";
-import { KELVIN_SCALE, WHITE_BALANCE_PRESETS } from "../../utils/whiteBalance";
-import { useTranslation } from "react-i18next";
-import { Invokes } from "../ui/AppProperties";
-import AdjustmentControl from "./AdjustmentControl";
+import { invoke } from '@tauri-apps/api/core';
+import { useEffect, useState, type ReactNode } from 'react';
+import type { WhiteBalanceMode } from '../../utils/adjustments';
+import { KELVIN_SCALE, WHITE_BALANCE_PRESETS } from '../../utils/whiteBalance';
+import { useTranslation } from 'react-i18next';
+import { Invokes } from '../ui/AppProperties';
+import AdjustmentControl from './AdjustmentControl';
 
 export interface WhiteBalanceValues {
   whiteBalance?: WhiteBalanceMode;
@@ -31,7 +31,7 @@ export default function StudioWhiteBalance({
   onAuto,
   onInteraction,
   fallback,
-  picker,
+  picker
 }: {
   values: WhiteBalanceValues;
   imagePath: string | undefined;
@@ -59,78 +59,68 @@ export default function StudioWhiteBalance({
   }, [imagePath]);
   if (!asShot) return <>{fallback}</>;
 
-  const mode = values.whiteBalance ?? "asShot";
+  const mode = values.whiteBalance ?? 'asShot';
   const shown: Balance =
-    (mode === "custom" || mode === "auto") && values.wbTemperature !== undefined
+    (mode === 'custom' || mode === 'auto') && values.wbTemperature !== undefined
       ? { temperature: values.wbTemperature, tint: values.wbTint ?? 0 }
       : mode in WHITE_BALANCE_PRESETS
         ? WHITE_BALANCE_PRESETS[mode as keyof typeof WHITE_BALANCE_PRESETS]
         : asShot;
   const custom = (balance: Balance) =>
     onChange({
-      whiteBalance: "custom",
+      whiteBalance: 'custom',
       wbTemperature: balance.temperature,
-      wbTint: balance.tint,
+      wbTint: balance.tint
     });
 
   return (
     <>
       <div className="studio-inline">
         <label>
-          <span>{t("studio.whiteBalance.short")}</span>
+          <span>{t('studio.whiteBalance.short')}</span>
           <select
-            aria-label={t("studio.whiteBalance.aria.mode")}
+            aria-label={t('studio.whiteBalance.aria.mode')}
             value={mode}
             disabled={disabled}
             onChange={(e) => {
               const next = e.target.value as WhiteBalanceMode;
-              if (next === "auto") {
+              if (next === 'auto') {
                 // Lightroom's Auto: the balance found for this photo, kept.
                 onAuto();
                 return;
               }
               onChange(
-                next === "asShot"
+                next === 'asShot'
                   ? {
                       whiteBalance: undefined,
                       wbTemperature: undefined,
-                      wbTint: undefined,
+                      wbTint: undefined
                     }
-                  : next === "custom"
-                    ? { whiteBalance: "custom" }
+                  : next === 'custom'
+                    ? { whiteBalance: 'custom' }
                     : {
                         whiteBalance: next,
                         wbTemperature: undefined,
-                        wbTint: undefined,
-                      },
+                        wbTint: undefined
+                      }
               );
             }}
           >
-            <option value="asShot">
-              {t("studio.whiteBalance.modes.asShot")}
-            </option>
-            <option value="auto">{t("studio.whiteBalance.modes.auto")}</option>
-            {(
-              Object.keys(
-                WHITE_BALANCE_PRESETS,
-              ) as (keyof typeof WHITE_BALANCE_PRESETS)[]
-            ).map((key) => (
+            <option value="asShot">{t('studio.whiteBalance.modes.asShot')}</option>
+            <option value="auto">{t('studio.whiteBalance.modes.auto')}</option>
+            {(Object.keys(WHITE_BALANCE_PRESETS) as (keyof typeof WHITE_BALANCE_PRESETS)[]).map((key) => (
               <option key={key} value={key}>
                 {t(`studio.whiteBalance.modes.${key}`)}
               </option>
             ))}
-            {mode === "custom" && (
-              <option value="custom">
-                {t("studio.whiteBalance.modes.custom")}
-              </option>
-            )}
+            {mode === 'custom' && <option value="custom">{t('studio.whiteBalance.modes.custom')}</option>}
           </select>
         </label>
         {picker}
       </div>
       <AdjustmentControl
-        label={t("studio.whiteBalance.temp")}
-        ariaLabel={t("studio.whiteBalance.aria.temperature")}
+        label={t('studio.whiteBalance.temp')}
+        ariaLabel={t('studio.whiteBalance.aria.temperature')}
         unit="K"
         value={shown.temperature}
         min={2000}
@@ -144,8 +134,8 @@ export default function StudioWhiteBalance({
         onInteraction={onInteraction}
       />
       <AdjustmentControl
-        label={t("studio.whiteBalance.tint")}
-        ariaLabel={t("studio.whiteBalance.aria.tint")}
+        label={t('studio.whiteBalance.tint')}
+        ariaLabel={t('studio.whiteBalance.aria.tint')}
         value={shown.tint}
         min={-150}
         max={150}

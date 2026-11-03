@@ -12,11 +12,11 @@ import i18n from 'i18next';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('../../activity/notify', () => ({
-  notify: { error: vi.fn(), success: vi.fn(), warn: vi.fn(), info: vi.fn(), dismiss: vi.fn() },
+  notify: { error: vi.fn(), success: vi.fn(), warn: vi.fn(), info: vi.fn(), dismiss: vi.fn() }
 }));
 vi.mock('../../utils/editWith', async (original) => ({
   ...(await original<typeof import('../../utils/editWith')>()),
-  runEditWith: vi.fn(async () => ({ rendered: 2, failed: 0, linked: 2, problems: [] })),
+  runEditWith: vi.fn(async () => ({ rendered: 2, failed: 0, linked: 2, problems: [] }))
 }));
 const mockInvoke = vi.mocked(invoke);
 
@@ -25,8 +25,8 @@ const apps: AppChoices = {
   apps: [
     { path: '/System/Applications/Preview.app', name: 'Preview', isDefault: true, isRecent: false, icon: null },
     { path: '/Applications/Paint.app', name: 'Paint', isDefault: false, isRecent: true, icon: null },
-    { path: '/Applications/Viewer.app', name: 'Viewer', isDefault: false, isRecent: false, icon: null },
-  ],
+    { path: '/Applications/Viewer.app', name: 'Viewer', isDefault: false, isRecent: false, icon: null }
+  ]
 };
 const paths = ['/s/Capture/A.NEF', '/s/Capture/B.NEF?vc=c1', '/s/Capture/C.NEF'];
 
@@ -47,7 +47,7 @@ it('lists the default program first, then the recent ones, and opens every selec
   fireEvent.click(screen.getByRole('menuitem', { name: /Paint/ }));
   expect(hide).toHaveBeenCalled();
   await vi.waitFor(() =>
-    expect(mockInvoke).toHaveBeenCalledWith('open_with_open', { program: '/Applications/Paint.app', paths }),
+    expect(mockInvoke).toHaveBeenCalledWith('open_with_open', { program: '/Applications/Paint.app', paths })
   );
 });
 
@@ -62,7 +62,7 @@ it('hands the originals over only once their queued writes (rating, XMP) are wri
   expect(mockInvoke).not.toHaveBeenCalledWith('open_with_open', expect.anything());
   written();
   await vi.waitFor(() =>
-    expect(mockInvoke).toHaveBeenCalledWith('open_with_open', { program: '/Applications/Paint.app', paths }),
+    expect(mockInvoke).toHaveBeenCalledWith('open_with_open', { program: '/Applications/Paint.app', paths })
   );
 });
 
@@ -72,7 +72,7 @@ it('opens with any program chosen by Other…', async () => {
   render(<OpenWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
   fireEvent.click(await screen.findByRole('menuitem', { name: /Other…/ }));
   await vi.waitFor(() =>
-    expect(mockInvoke).toHaveBeenCalledWith('open_with_open', { program: '/Applications/Other.app', paths }),
+    expect(mockInvoke).toHaveBeenCalledWith('open_with_open', { program: '/Applications/Other.app', paths })
   );
 });
 
@@ -87,9 +87,9 @@ it('edits the selection with the remembered recipe in the chosen program', async
   useSettingsStore.setState({
     appSettings: {
       exportPresets: [
-        { id: 'jpg', name: 'Proof JPEG', fileFormat: 'jpeg', jpegQuality: 90, filenameTemplate: '{original_filename}' },
-      ],
-    } as never,
+        { id: 'jpg', name: 'Proof JPEG', fileFormat: 'jpeg', jpegQuality: 90, filenameTemplate: '{original_filename}' }
+      ]
+    } as never
   });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: 'builtin-tiff16-prophoto' };
@@ -102,7 +102,7 @@ it('edits the selection with the remembered recipe in the chosen program', async
   expect(recipes.map((r) => [r.textContent, r.getAttribute('aria-checked')])).toEqual([
     ['TIFF 16-bit · Adobe RGB', 'false'],
     ['TIFF 16-bit · ProPhoto RGB', 'true'],
-    ['Proof JPEG', 'false'],
+    ['Proof JPEG', 'false']
   ]);
   await screen.findByText('Preview');
   expect(mockInvoke).toHaveBeenCalledWith('edit_with_apps', { extension: 'tiff' });
@@ -131,7 +131,9 @@ it('says Edit With is not available for photographs with generated areas', async
   render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
   fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
   await vi.waitFor(() =>
-    expect(notify.error).toHaveBeenCalledWith('Edit With is not available for photos with generated areas yet: B.jpg, C.jpg'),
+    expect(notify.error).toHaveBeenCalledWith(
+      'Edit With is not available for photos with generated areas yet: B.jpg, C.jpg'
+    )
   );
 });
 

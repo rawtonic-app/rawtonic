@@ -1,12 +1,5 @@
-import {
-  memo,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-} from "react";
-import { useTranslation } from "react-i18next";
+import { memo, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Geometry of a three-way colour-grading cell, in SVG user units: the wheel
@@ -26,7 +19,7 @@ export const THREE_WAY_DISC = {
   left: `${((CX - DISC_R - VIEW.x) / VIEW.w) * 100}%`,
   top: `${((CY - DISC_R - VIEW.y) / VIEW.h) * 100}%`,
   width: `${((2 * DISC_R) / VIEW.w) * 100}%`,
-  height: `${((2 * DISC_R) / VIEW.h) * 100}%`,
+  height: `${((2 * DISC_R) / VIEW.h) * 100}%`
 } as const;
 
 const clamp = (v: number) => Math.max(-100, Math.min(100, Math.round(v)));
@@ -37,8 +30,7 @@ const pointOf = (degrees: number) => {
 };
 /** Luminance for an angle in degrees (0 at the right, up positive). */
 export const arcValue = (degrees: number) => clamp((degrees / ARC_SPAN) * 100);
-export const formatLuminance = (v: number) =>
-  v > 0 ? `+${v}` : v < 0 ? `−${-v}` : "0";
+export const formatLuminance = (v: number) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0');
 
 const arcPath = (from: number, to: number) => {
   const a = pointOf(from);
@@ -72,7 +64,7 @@ export default memo(function StudioLuminanceArc({
   tint,
   disabled = false,
   onChange,
-  onInteraction,
+  onInteraction
 }: Props) {
   const { t } = useTranslation();
   const [local, setLocal] = useState(clamp(value));
@@ -92,7 +84,7 @@ export default memo(function StudioLuminanceArc({
     () => () => {
       if (frame.current !== null) cancelAnimationFrame(frame.current);
     },
-    [],
+    []
   );
   const flush = () => {
     frame.current = null;
@@ -161,18 +153,18 @@ export default memo(function StudioLuminanceArc({
     () => () => {
       if (drag.current) interaction.current?.(false);
     },
-    [],
+    []
   );
   const keys = (e: KeyboardEvent<SVGElement>) => {
     if (disabled) return;
     const step = e.shiftKey ? 10 : 1;
     let next: number | null = null;
-    if (e.key === "ArrowUp" || e.key === "ArrowRight") next = local + step;
-    if (e.key === "ArrowDown" || e.key === "ArrowLeft") next = local - step;
-    if (e.key === "PageUp") next = local + 10;
-    if (e.key === "PageDown") next = local - 10;
-    if (e.key === "Home") next = -100;
-    if (e.key === "End") next = 100;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = local + step;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = local - step;
+    if (e.key === 'PageUp') next = local + 10;
+    if (e.key === 'PageDown') next = local - 10;
+    if (e.key === 'Home') next = -100;
+    if (e.key === 'End') next = 100;
     if (next === null) return;
     e.preventDefault();
     e.stopPropagation();
@@ -184,19 +176,12 @@ export default memo(function StudioLuminanceArc({
   return (
     <>
       <svg
-        className={`studio-lum-arc ${disabled ? "is-disabled" : ""}`}
+        className={`studio-lum-arc ${disabled ? 'is-disabled' : ''}`}
         viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`}
       >
         <path className="studio-lum-arc-track" d={TRACK} />
-        <circle
-          className="studio-lum-arc-zero"
-          cx={pointOf(0).x}
-          cy={pointOf(0).y}
-          r={1.1}
-        />
-        {local !== 0 && (
-          <path className="studio-lum-arc-fill" d={arcPath(0, angle)} />
-        )}
+        <circle className="studio-lum-arc-zero" cx={pointOf(0).x} cy={pointOf(0).y} r={1.1} />
+        {local !== 0 && <path className="studio-lum-arc-fill" d={arcPath(0, angle)} />}
         <circle
           className="studio-lum-arc-knob"
           cx={knob.x}
@@ -209,7 +194,7 @@ export default memo(function StudioLuminanceArc({
           d={TRACK}
           role="slider"
           tabIndex={disabled ? -1 : 0}
-          aria-label={t("studio.color.grading.luminanceAria", { range: label })}
+          aria-label={t('studio.color.grading.luminanceAria', { range: label })}
           aria-orientation="vertical"
           aria-valuemin={-100}
           aria-valuemax={100}
@@ -226,9 +211,9 @@ export default memo(function StudioLuminanceArc({
           }}
         >
           <title>
-            {t("studio.color.grading.luminanceArcTitle", {
+            {t('studio.color.grading.luminanceArcTitle', {
               range: label,
-              value: text,
+              value: text
             })}
           </title>
         </path>
@@ -238,7 +223,7 @@ export default memo(function StudioLuminanceArc({
           className="studio-lum-arc-value"
           style={{
             left: `${((knob.x - VIEW.x) / VIEW.w) * 100}%`,
-            top: `${((knob.y - VIEW.y) / VIEW.h) * 100}%`,
+            top: `${((knob.y - VIEW.y) / VIEW.h) * 100}%`
           }}
           role="status"
         >

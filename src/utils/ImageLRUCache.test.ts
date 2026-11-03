@@ -12,10 +12,14 @@ it('does not retain full camera JPEG placeholders in the twenty-image editor cac
   const revoke = vi.fn();
   vi.stubGlobal('URL', { revokeObjectURL: revoke });
   const entry = (url: string) => ({
-    adjustments: INITIAL_ADJUSTMENTS, histogram: null, waveform: null,
-    finalPreviewUrl: null, uncroppedPreviewUrl: null,
+    adjustments: INITIAL_ADJUSTMENTS,
+    histogram: null,
+    waveform: null,
+    finalPreviewUrl: null,
+    uncroppedPreviewUrl: null,
     selectedImage: { thumbnailUrl: url, thumbnailSource: 'embedded' } as SelectedImage,
-    originalSize: { width: 1, height: 1 }, previewSize: { width: 1, height: 1 },
+    originalSize: { width: 1, height: 1 },
+    previewSize: { width: 1, height: 1 }
   });
   const activeEntry = entry('blob:first');
   globalImageCache.set('first', activeEntry);

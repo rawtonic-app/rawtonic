@@ -4,7 +4,7 @@
  */
 
 /** Asked for by a rating or flag key on the photograph shown (detail: its path). */
-export const AUTO_ADVANCE_EVENT = "rawtonic:auto-advance";
+export const AUTO_ADVANCE_EVENT = 'rawtonic:auto-advance';
 
 /**
  * The direction of a step from index `from` to `to` in a list of `length`
@@ -26,9 +26,7 @@ export function stepDirection(from: number, to: number, length: number): 1 | -1 
 export function neighboursToPrepare(paths: string[], index: number, direction: 1 | -1 | null): string[] {
   if (index < 0) return [];
   const ahead = direction ?? 1;
-  return [ahead, 2 * ahead, -ahead]
-    .map((step) => paths[index + step])
-    .filter((path): path is string => Boolean(path));
+  return [ahead, 2 * ahead, -ahead].map((step) => paths[index + step]).filter((path): path is string => Boolean(path));
 }
 
 /**

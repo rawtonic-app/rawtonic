@@ -1,9 +1,9 @@
-import "../../i18n";
-import { describe, expect, it } from "vitest";
-import { wheelPosition, wheelValue } from "./StudioColorWheel";
+import '../../i18n';
+import { describe, expect, it } from 'vitest';
+import { wheelPosition, wheelValue } from './StudioColorWheel';
 
-describe("colour wheel geometry", () => {
-  it("puts hue 0 at the right and turns counter-clockwise", () => {
+describe('colour wheel geometry', () => {
+  it('puts hue 0 at the right and turns counter-clockwise', () => {
     const red = wheelPosition(0, 100);
     expect(red.x).toBeCloseTo(1);
     expect(red.y).toBeCloseTo(0);
@@ -12,12 +12,12 @@ describe("colour wheel geometry", () => {
     expect(up.y).toBeCloseTo(-1);
   });
 
-  it("round-trips positions and clamps to the rim", () => {
+  it('round-trips positions and clamps to the rim', () => {
     for (const [hue, saturation] of [
       [0, 0],
       [45, 30],
       [220, 75],
-      [359, 100],
+      [359, 100]
     ]) {
       const p = wheelPosition(hue, saturation);
       const v = wheelValue(p.x, p.y);

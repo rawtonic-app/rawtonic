@@ -1,6 +1,6 @@
-import i18n from "i18next";
+import i18n from 'i18next';
 
-const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte", "petabyte"] as const;
+const UNITS = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte', 'petabyte'] as const;
 
 /** Decimal byte units, with numbers and unit labels in the interface language. */
 export function formatFileSize(bytes: number): string {
@@ -16,9 +16,9 @@ export function formatFileSize(bytes: number): string {
     unit++;
   }
   return new Intl.NumberFormat(i18n.resolvedLanguage ?? i18n.language, {
-    style: "unit",
+    style: 'unit',
     unit: UNITS[unit],
-    unitDisplay: "short",
-    maximumFractionDigits: unit === 0 ? 0 : 1,
+    unitDisplay: 'short',
+    maximumFractionDigits: unit === 0 ? 0 : 1
   }).format(value);
 }

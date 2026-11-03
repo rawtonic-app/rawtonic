@@ -1,35 +1,45 @@
-import type { MouseEvent } from "react";
-import { useTranslation } from "react-i18next";
-import { detectionPending } from "../../utils/settingsClipboard";
-import type { TFunction } from "i18next";
-import { Check, Eye, EyeOff, FlipHorizontal2, Minus, Plus, SquaresIntersect, Trash2, type LucideIcon } from "lucide-react";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
-import { openMaskingTools } from "../../hooks/useAiMasking";
-import { useContextMenu } from "../../context/ContextMenuContext";
-import { useProcessStore } from "../../store/useProcessStore";
-import { Mask, SubMaskMode, type SubMask } from "../panel/right/Masks";
+import type { MouseEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { detectionPending } from '../../utils/settingsClipboard';
+import type { TFunction } from 'i18next';
+import {
+  Check,
+  Eye,
+  EyeOff,
+  FlipHorizontal2,
+  Minus,
+  Plus,
+  SquaresIntersect,
+  Trash2,
+  type LucideIcon
+} from 'lucide-react';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useEditorActions } from '../../hooks/useEditorActions';
+import { openMaskingTools } from '../../hooks/useAiMasking';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { useProcessStore } from '../../store/useProcessStore';
+import { Mask, SubMaskMode, type SubMask } from '../panel/right/Masks';
 import {
   DEFAULT_COLOR_RANGE,
   DEFAULT_DEPTH_RANGE,
   erasesFromLayer,
   kindOf,
-  type MaskKind,
-} from "../../utils/maskKinds";
-import AdjustmentControl from "./AdjustmentControl";
-import StudioPeopleMask from "./StudioPeopleMask";
-import { useStudioTools } from "./useStudioTools";
-import { componentIcon, maskKindMenu } from "./maskKindMenu";
-import MaskThumb from "./MaskThumb";
-import { useMaskThumbnailStore } from "../../hooks/useMaskThumbnails";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { formatKeyCode, shortcutHint } from "../../utils/keyboardUtils";
-import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
+  type MaskKind
+} from '../../utils/maskKinds';
+import AdjustmentControl from './AdjustmentControl';
+import StudioPeopleMask from './StudioPeopleMask';
+import { useStudioTools } from './useStudioTools';
+import { componentIcon, maskKindMenu } from './maskKindMenu';
+import MaskThumb from './MaskThumb';
+import { useMaskThumbnailStore } from '../../hooks/useMaskThumbnails';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { formatKeyCode, shortcutHint } from '../../utils/keyboardUtils';
+import { soloAfterSelect, toggleLayerSolo } from '../../utils/layerSolo';
 
 /** What to do on the photo after creating a component of this kind. */
-const KIND_HINTS: Partial<Record<MaskKind, "object" | "color">> = {
-  object: "object",
-  color: "color",
+const KIND_HINTS: Partial<Record<MaskKind, 'object' | 'color'>> = {
+  object: 'object',
+  color: 'color'
 };
 
 /** How a component combines with the ones above it: a glyph per mode, as
@@ -37,7 +47,7 @@ const KIND_HINTS: Partial<Record<MaskKind, "object" | "color">> = {
 const MODE_ICONS: Record<SubMaskMode, LucideIcon> = {
   [SubMaskMode.Additive]: Plus,
   [SubMaskMode.Subtractive]: Minus,
-  [SubMaskMode.Intersect]: SquaresIntersect,
+  [SubMaskMode.Intersect]: SquaresIntersect
 };
 
 /** Label of a mask kind (MASK_KIND_LABELS, translated). */
@@ -49,8 +59,8 @@ export function maskKindLabel(t: TFunction, kind: MaskKind) {
  * translated). A brush that erases from its layer reads "Erase", whether it
  * subtracts or adds on an inverted layer (`erasesFromLayer`). */
 export function maskComponentLabel(t: TFunction, sub: SubMask, layerInverted = false) {
-  if (sub.type === Mask.All) return t("studio.masks.kinds.all");
-  if (erasesFromLayer(sub, layerInverted)) return t("studio.masks.erase");
+  if (sub.type === Mask.All) return t('studio.masks.kinds.all');
+  if (erasesFromLayer(sub, layerInverted)) return t('studio.masks.erase');
   const kind = kindOf(sub);
   return kind ? maskKindLabel(t, kind) : sub.name || sub.type;
 }
@@ -70,10 +80,20 @@ function useMaskComponents() {
     setAdjustments((prev) => ({
       ...prev,
       masks: prev.masks.map((m) =>
-        m.id === layer.id ? { ...m, subMasks: m.subMasks.map((s) => (s.id === id ? { ...s, ...patch } : s)) } : m,
-      ),
+        m.id === layer.id ? { ...m, subMasks: m.subMasks.map((s) => (s.id === id ? { ...s, ...patch } : s)) } : m
+      )
     }));
-  return { layer, components, active, activeMaskId, setEditor, setAdjustments, updateComponent, addComponent, paintOnLayer };
+  return {
+    layer,
+    components,
+    active,
+    activeMaskId,
+    setEditor,
+    setAdjustments,
+    updateComponent,
+    addComponent,
+    paintOnLayer
+  };
 }
 
 /**
@@ -90,7 +110,10 @@ export default function StudioMaskComponents() {
   const aiTasks = useProcessStore((s) => s.activeAiTasks);
   const thumbnails = useMaskThumbnailStore((s) => s.components);
   const layerSolo = useEditorStore((s) => s.layerSolo);
-  const altKey = formatKeyCode("alt", useSettingsStore((s) => s.osPlatform));
+  const altKey = formatKeyCode(
+    'alt',
+    useSettingsStore((s) => s.osPlatform)
+  );
   const { showContextMenu } = useContextMenu();
   if (!layer) return null;
   const layerId = layer.id;
@@ -98,7 +121,7 @@ export default function StudioMaskComponents() {
   const removeComponent = (id: string) => {
     setAdjustments((prev) => ({
       ...prev,
-      masks: prev.masks.map((m) => (m.id === layerId ? { ...m, subMasks: m.subMasks.filter((s) => s.id !== id) } : m)),
+      masks: prev.masks.map((m) => (m.id === layerId ? { ...m, subMasks: m.subMasks.filter((s) => s.id !== id) } : m))
     }));
     if (id === activeMaskId) setEditor({ activeMaskId: null, focusedMaskComponentId: null });
   };
@@ -114,11 +137,11 @@ export default function StudioMaskComponents() {
         (kind) =>
           // Adding and subtracting brushes are the layer's brush and eraser;
           // an intersecting one is a component of its own.
-          kind === "brush" && mode !== SubMaskMode.Intersect
+          kind === 'brush' && mode !== SubMaskMode.Intersect
             ? paintOnLayer(layer, mode === SubMaskMode.Additive)
             : addComponent(layer, kind, mode),
-        (kind) => mode === SubMaskMode.Additive || kind !== "background",
-      ),
+        (kind) => mode === SubMaskMode.Additive || kind !== 'background'
+      )
     );
   };
   const modeMenu = (e: MouseEvent, sub: SubMask) => {
@@ -129,15 +152,15 @@ export default function StudioMaskComponents() {
       Object.values(SubMaskMode).map((mode) => ({
         label: t(`studio.masks.modes.${mode}`),
         icon: sub.mode === mode ? Check : MODE_ICONS[mode],
-        onClick: () => updateComponent(sub.id, { mode }),
-      })),
+        onClick: () => updateComponent(sub.id, { mode })
+      }))
     );
   };
   const busy = (sub: SubMask) => Boolean(aiTasks[sub.id]);
   const componentLabel = (sub: SubMask) => maskComponentLabel(t, sub, Boolean(layer.invert));
 
   return (
-    <div className="studio-mask-components" role="group" aria-label={t("studio.masks.aria.components")}>
+    <div className="studio-mask-components" role="group" aria-label={t('studio.masks.aria.components')}>
       <div className="studio-mask-component-list" role="list">
         {components.map((sub, index) => {
           const Icon = componentIcon(sub, Boolean(layer.invert));
@@ -147,16 +170,16 @@ export default function StudioMaskComponents() {
             <div
               key={sub.id}
               role="listitem"
-              className={`studio-mask-component ${sub.id === activeMaskId ? "is-selected" : ""} ${
-                sub.visible ? "" : "is-hidden"
-              } ${layerSolo?.componentId ? (layerSolo.componentId === sub.id ? "is-solo" : "is-solo-muted") : ""}`}
+              className={`studio-mask-component ${sub.id === activeMaskId ? 'is-selected' : ''} ${
+                sub.visible ? '' : 'is-hidden'
+              } ${layerSolo?.componentId ? (layerSolo.componentId === sub.id ? 'is-solo' : 'is-solo-muted') : ''}`}
             >
               {index > 0 ? (
                 <button
                   className="studio-mask-mode"
                   aria-haspopup="menu"
-                  aria-label={t("studio.masks.aria.modeValue", { name: componentLabel(sub), mode: modeName })}
-                  title={t("studio.masks.modeTitle", { mode: modeName })}
+                  aria-label={t('studio.masks.aria.modeValue', { name: componentLabel(sub), mode: modeName })}
+                  title={t('studio.masks.modeTitle', { mode: modeName })}
                   onClick={(e) => modeMenu(e, sub)}
                 >
                   <ModeIcon size={10} strokeWidth={2.5} />
@@ -166,34 +189,41 @@ export default function StudioMaskComponents() {
               )}
               <button
                 className="studio-mask-component-name"
-                aria-label={t("studio.masks.aria.select", { name: componentLabel(sub) })}
-                aria-current={sub.id === activeMaskId ? "true" : undefined}
+                aria-label={t('studio.masks.aria.select', { name: componentLabel(sub) })}
+                aria-current={sub.id === activeMaskId ? 'true' : undefined}
                 title={componentLabel(sub)}
                 onClick={() =>
                   setEditor({
                     activeMaskId: sub.id,
                     focusedMaskComponentId: sub.id,
                     // A component solo moves to the picked component; a layer solo stays.
-                    ...(layerSolo?.componentId ? { layerSolo: soloAfterSelect(layerSolo, layerId, sub.id) } : {}),
+                    ...(layerSolo?.componentId ? { layerSolo: soloAfterSelect(layerSolo, layerId, sub.id) } : {})
                   })
                 }
               >
                 <MaskThumb kind="component" url={thumbnails[sub.id]} icon={Icon} busy={busy(sub)} />
                 <span className="studio-mask-component-label">{componentLabel(sub)}</span>
-                {busy(sub) && <span className="studio-mask-busy">· {t("studio.masks.computing")}</span>}
+                {busy(sub) && <span className="studio-mask-busy">· {t('studio.masks.computing')}</span>}
                 {!busy(sub) && detectionPending(sub) && (
                   <span
                     className="studio-mask-pending"
-                    title={sub.type === "ai-subject" ? t("studio.copySettings.pendingObject") : t("studio.copySettings.pending")}
+                    title={
+                      sub.type === 'ai-subject'
+                        ? t('studio.copySettings.pendingObject')
+                        : t('studio.copySettings.pending')
+                    }
                   >
-                    · {sub.type === "ai-subject" ? t("studio.copySettings.pendingObjectShort") : t("studio.copySettings.pendingShort")}
+                    ·{' '}
+                    {sub.type === 'ai-subject'
+                      ? t('studio.copySettings.pendingObjectShort')
+                      : t('studio.copySettings.pendingShort')}
                   </span>
                 )}
               </button>
               <button
                 className="studio-row-icon"
-                title={t("studio.masks.invertTitle")}
-                aria-label={t("studio.masks.aria.invert", { name: componentLabel(sub) })}
+                title={t('studio.masks.invertTitle')}
+                aria-label={t('studio.masks.aria.invert', { name: componentLabel(sub) })}
                 aria-pressed={sub.invert}
                 onClick={() => updateComponent(sub.id, { invert: !sub.invert })}
               >
@@ -201,8 +231,8 @@ export default function StudioMaskComponents() {
               </button>
               <button
                 className="studio-row-icon studio-mask-eye"
-                aria-label={t("studio.masks.aria.toggle", { name: componentLabel(sub) })}
-                title={t("studio.masks.eyeTitle", { alt: altKey })}
+                aria-label={t('studio.masks.aria.toggle', { name: componentLabel(sub) })}
+                title={t('studio.masks.eyeTitle', { alt: altKey })}
                 onClick={(e) =>
                   e.altKey
                     ? setEditor({ layerSolo: toggleLayerSolo(layerSolo, layerId, sub.id) })
@@ -213,7 +243,7 @@ export default function StudioMaskComponents() {
               </button>
               <button
                 className="studio-row-icon studio-row-delete"
-                aria-label={t("studio.masks.aria.delete", { name: componentLabel(sub) })}
+                aria-label={t('studio.masks.aria.delete', { name: componentLabel(sub) })}
                 onClick={() => removeComponent(sub.id)}
               >
                 <Trash2 size={11} />
@@ -222,26 +252,30 @@ export default function StudioMaskComponents() {
           );
         })}
       </div>
-      <div className="studio-mask-add" role="group" aria-label={t("studio.masks.aria.combine")}>
-        <button aria-haspopup="menu" title={t("studio.masks.addTitle")} onClick={(e) => kindMenu(e, SubMaskMode.Additive)}>
+      <div className="studio-mask-add" role="group" aria-label={t('studio.masks.aria.combine')}>
+        <button
+          aria-haspopup="menu"
+          title={t('studio.masks.addTitle')}
+          onClick={(e) => kindMenu(e, SubMaskMode.Additive)}
+        >
           <Plus size={11} />
-          {t("studio.masks.modes.additive")}
+          {t('studio.masks.modes.additive')}
         </button>
         <button
           aria-haspopup="menu"
-          title={t("studio.masks.subtractTitle")}
+          title={t('studio.masks.subtractTitle')}
           onClick={(e) => kindMenu(e, SubMaskMode.Subtractive)}
         >
           <Minus size={11} />
-          {t("studio.masks.modes.subtractive")}
+          {t('studio.masks.modes.subtractive')}
         </button>
         <button
           aria-haspopup="menu"
-          title={t("studio.masks.intersectTitle")}
+          title={t('studio.masks.intersectTitle')}
           onClick={(e) => kindMenu(e, SubMaskMode.Intersect)}
         >
           <SquaresIntersect size={11} />
-          {t("studio.masks.modes.intersect")}
+          {t('studio.masks.modes.intersect')}
         </button>
       </div>
     </div>
@@ -262,12 +296,11 @@ export function StudioMaskComponentSettings() {
     updateComponent(active.id, { parameters: { ...active.parameters, ...patch } });
   // These sliders shape the mask (depth range, colour refine, people parts,
   // selection refine): it shows while they are dragged, like the luma range.
-  const onInteraction = (dragging: boolean) =>
-    setEditor({ isSliderDragging: dragging, isMaskRangeDragging: dragging });
+  const onInteraction = (dragging: boolean) => setEditor({ isSliderDragging: dragging, isMaskRangeDragging: dragging });
   const hint = activeKind ? KIND_HINTS[activeKind] : undefined;
   const selection =
-    activeKind === "subject" || activeKind === "background" || activeKind === "sky" || activeKind === "object";
-  if (!hint && !selection && activeKind !== "people" && activeKind !== "color" && activeKind !== "depth") return null;
+    activeKind === 'subject' || activeKind === 'background' || activeKind === 'sky' || activeKind === 'object';
+  if (!hint && !selection && activeKind !== 'people' && activeKind !== 'color' && activeKind !== 'depth') return null;
 
   return (
     <div
@@ -283,19 +316,19 @@ export function StudioMaskComponentSettings() {
           {t(`studio.masks.hints.${hint}`)}
         </p>
       )}
-      {activeKind === "object" && (
+      {activeKind === 'object' && (
         <small className="studio-hint">
-          {t("studio.masks.hints.objectMore", {
-            shift: formatKeyCode("shift", osPlatform),
-            alt: formatKeyCode("alt", osPlatform),
-            undo: shortcutHint("undo", keybinds, osPlatform) ?? formatKeyCode("ctrl", osPlatform) + "Z",
+          {t('studio.masks.hints.objectMore', {
+            shift: formatKeyCode('shift', osPlatform),
+            alt: formatKeyCode('alt', osPlatform),
+            undo: shortcutHint('undo', keybinds, osPlatform) ?? formatKeyCode('ctrl', osPlatform) + 'Z'
           })}
         </small>
       )}
       {selection && (
         <>
           <AdjustmentControl
-            label={t("editor.masks.params.grow")}
+            label={t('editor.masks.params.grow')}
             min={-100}
             max={100}
             value={Number(active.parameters.grow ?? 0)}
@@ -304,7 +337,7 @@ export function StudioMaskComponentSettings() {
             onChange={(grow) => setParameters({ grow })}
           />
           <AdjustmentControl
-            label={t("editor.masks.params.feather")}
+            label={t('editor.masks.params.feather')}
             min={0}
             max={100}
             value={Number(active.parameters.feather ?? 0)}
@@ -314,17 +347,17 @@ export function StudioMaskComponentSettings() {
           />
         </>
       )}
-      {activeKind === "people" && (
+      {activeKind === 'people' && (
         <StudioPeopleMask sub={active} setParameters={setParameters} onInteraction={onInteraction} />
       )}
-      {activeKind === "color" && (
+      {activeKind === 'color' && (
         <>
           {/* Lightroom's Refine, measured in Camera Raw (notes:
               reference/color-range.md); moving it switches an inherited
               tolerance mask to the measured model. */}
           <AdjustmentControl
-            label={t("studio.masks.refine")}
-            ariaLabel={t("studio.masks.refineAria")}
+            label={t('studio.masks.refine')}
+            ariaLabel={t('studio.masks.refineAria')}
             min={0}
             max={100}
             value={Number(active.parameters.refine ?? DEFAULT_COLOR_RANGE.refine)}
@@ -332,9 +365,9 @@ export function StudioMaskComponentSettings() {
             onInteraction={onInteraction}
             onChange={(refine) => setParameters({ refine, tolerance: undefined })}
           />
-          <small className="studio-hint">{t("studio.masks.colorSampleHint")}</small>
+          <small className="studio-hint">{t('studio.masks.colorSampleHint')}</small>
           <AdjustmentControl
-            label={t("editor.masks.params.feather")}
+            label={t('editor.masks.params.feather')}
             min={0}
             max={100}
             value={Number(active.parameters.feather ?? DEFAULT_COLOR_RANGE.feather)}
@@ -344,10 +377,10 @@ export function StudioMaskComponentSettings() {
           />
         </>
       )}
-      {activeKind === "depth" && (
+      {activeKind === 'depth' && (
         <>
           <AdjustmentControl
-            label={t("studio.masks.depth.farLimit")}
+            label={t('studio.masks.depth.farLimit')}
             min={0}
             max={100}
             unit="%"
@@ -357,7 +390,7 @@ export function StudioMaskComponentSettings() {
             onChange={(minDepth) => setParameters({ minDepth })}
           />
           <AdjustmentControl
-            label={t("studio.masks.depth.nearLimit")}
+            label={t('studio.masks.depth.nearLimit')}
             min={0}
             max={100}
             unit="%"
@@ -367,7 +400,7 @@ export function StudioMaskComponentSettings() {
             onChange={(maxDepth) => setParameters({ maxDepth })}
           />
           <AdjustmentControl
-            label={t("studio.masks.depth.falloff")}
+            label={t('studio.masks.depth.falloff')}
             min={0}
             max={50}
             unit="%"

@@ -123,7 +123,7 @@ export async function showCameraPreview(): Promise<{ shown: boolean; missing: bo
   // Optional view: a read that failed shows the edit.
   const shown = await invoke<boolean>(Invokes.ShowCameraPreview, { path }).then(
     (answer) => answer === true,
-    () => false,
+    () => false
   );
   if (asked !== request) {
     // Voided. Its cover only goes when no newer show is wanted: a newer one

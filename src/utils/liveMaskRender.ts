@@ -6,7 +6,7 @@ export function withLiveMaskContainer(adjustments: Adjustments, container: MaskC
   if (!adjustments.masks?.some((mask) => mask.id === container.id)) return adjustments;
   return {
     ...adjustments,
-    masks: adjustments.masks.map((mask) => (mask.id === container.id ? container : mask)),
+    masks: adjustments.masks.map((mask) => (mask.id === container.id ? container : mask))
   };
 }
 

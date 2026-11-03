@@ -15,13 +15,13 @@ describe('update and crash report preferences', () => {
       <>
         <UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} />
         <CrashReportSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} />
-      </>,
+      </>
     );
     const names = [
       'Check for updates at startup',
       'Include pre-releases',
       "Show what's new after an update",
-      'Offer to send a crash report after Rawtonic quit unexpectedly',
+      'Offer to send a crash report after Rawtonic quit unexpectedly'
     ];
     for (const name of names) {
       const row = screen.getByRole('checkbox', { name }).closest('.pref-row');

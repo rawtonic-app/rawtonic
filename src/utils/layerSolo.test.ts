@@ -10,7 +10,7 @@ const layer = (id: string, patch: Partial<MaskContainer> = {}): MaskContainer =>
   id,
   name: id,
   subMasks: [],
-  ...patch,
+  ...patch
 });
 
 describe('applyLayerSolo', () => {
@@ -31,7 +31,7 @@ describe('applyLayerSolo', () => {
     expect(solo.subMasks.map((s) => [s.visible, s.mode])).toEqual([
       [false, subject.mode],
       [true, SubMaskMode.Additive],
-      [luma.visible, luma.mode],
+      [luma.visible, luma.mode]
     ]);
   });
 

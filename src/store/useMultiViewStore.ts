@@ -116,5 +116,5 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
       const next = { ...state.cellSizes };
       for (const { path, width, height } of sizes) next[path] = { width, height };
       return { cellSizes: next };
-    }),
+    })
 }));

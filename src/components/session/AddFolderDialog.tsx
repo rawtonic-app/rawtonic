@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
-import { Invokes } from "../ui/AppProperties";
-import type { FolderPlan } from "./addFolder";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import type { FolderPlan } from './addFolder';
 
 function folderName(path: string) {
-  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+  return (
+    path
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() || path
+  );
 }
 
 /**
@@ -25,7 +30,7 @@ export default function AddFolderDialog({
   onAdd,
   onShow,
   onCopy,
-  onClose,
+  onClose
 }: {
   folder: string;
   directory: string;
@@ -69,9 +74,9 @@ export default function AddFolderDialog({
   };
   const keys = (e: KeyboardEvent) => {
     e.stopPropagation();
-    if (e.key === "Escape") onClose();
+    if (e.key === 'Escape') onClose();
   };
-  const title = catalog ? t("session.addFolder.title", { name }) : t("session.addFolder.sessionTitle", { name });
+  const title = catalog ? t('session.addFolder.title', { name }) : t('session.addFolder.sessionTitle', { name });
 
   return createPortal(
     <div className="studio-settings studio-smart-album-backdrop" onKeyDown={keys}>
@@ -90,84 +95,84 @@ export default function AddFolderDialog({
         </p>
         {catalog ? (
           <>
-            <p className="studio-help">{t("session.addFolder.intro")}</p>
+            <p className="studio-help">{t('session.addFolder.intro')}</p>
             <label className="studio-auto-stack-camera">
               <input type="checkbox" checked={subfolders} onChange={(e) => setSubfolders(e.target.checked)} />
-              <span>{t("session.addFolder.subfolders")}</span>
+              <span>{t('session.addFolder.subfolders')}</span>
             </label>
             <div className="studio-capture-time-preview" role="status" aria-live="polite">
               {shown ? (
                 <>
                   <p>
                     {!shown.files.length
-                      ? t("session.addFolder.nothing")
+                      ? t('session.addFolder.nothing')
                       : shown.photographs
-                        ? t("session.addFolder.toAdd", { count: shown.photographs })
-                        : t("session.addFolder.nothingNew")}
+                        ? t('session.addFolder.toAdd', { count: shown.photographs })
+                        : t('session.addFolder.nothingNew')}
                   </p>
                   {shown.companions > 0 && (
-                    <p className="studio-help">{t("session.addFolder.companions", { count: shown.companions })}</p>
+                    <p className="studio-help">{t('session.addFolder.companions', { count: shown.companions })}</p>
                   )}
                   {shown.unreadable.length > 0 && (
-                    <p className="studio-help" title={shown.unreadable.join("\n")}>
-                      {t("session.addFolder.unreadable", {
+                    <p className="studio-help" title={shown.unreadable.join('\n')}>
+                      {t('session.addFolder.unreadable', {
                         count: shown.unreadable.length,
-                        first: shown.unreadable[0],
+                        first: shown.unreadable[0]
                       })}
                     </p>
                   )}
                   {shown.registered > 0 && (
-                    <p className="studio-help">{t("session.addFolder.registered", { count: shown.registered })}</p>
+                    <p className="studio-help">{t('session.addFolder.registered', { count: shown.registered })}</p>
                   )}
                   {shown.owned.map((owner) => (
                     <p key={owner.library} className="studio-help" title={owner.library}>
-                      {t("session.addFolder.owned", { count: owner.count, name: owner.name })}
+                      {t('session.addFolder.owned', { count: owner.count, name: owner.name })}
                     </p>
                   ))}
                   {shown.truncated && (
                     <p className="studio-help">
-                      {t("session.addFolder.truncated", { n: shown.files.length.toLocaleString() })}
+                      {t('session.addFolder.truncated', { n: shown.files.length.toLocaleString() })}
                     </p>
                   )}
                 </>
               ) : (
-                !failure && <p>{t("session.addFolder.reading")}</p>
+                !failure && <p>{t('session.addFolder.reading')}</p>
               )}
             </div>
           </>
         ) : (
-          <p className="studio-help">{t("session.addFolder.sessionNote")}</p>
+          <p className="studio-help">{t('session.addFolder.sessionNote')}</p>
         )}
         {failure && (
           <p className="studio-capture-time-error" role="alert">
-            {t("session.addFolder.failed", { error: failure })}
+            {t('session.addFolder.failed', { error: failure })}
           </p>
         )}
         <footer>
           <button type="button" onClick={onClose}>
-            {t("session.addFolder.cancel")}
+            {t('session.addFolder.cancel')}
           </button>
           {catalog ? (
             <button type="submit" className="is-primary" disabled={!shown}>
               {shown && !shown.files.length
-                ? t("session.addFolder.show")
+                ? t('session.addFolder.show')
                 : shown && !shown.photographs
-                  ? t("session.addFolder.addCompanions")
-                  : t("session.addFolder.add", { count: shown?.photographs ?? 0 })}
+                  ? t('session.addFolder.addCompanions')
+                  : t('session.addFolder.add', { count: shown?.photographs ?? 0 })}
             </button>
           ) : (
             <>
               <button type="button" onClick={onCopy}>
-                {t("session.addFolder.copy")}
+                {t('session.addFolder.copy')}
               </button>
               <button type="submit" className="is-primary">
-                {t("session.addFolder.show")}
+                {t('session.addFolder.show')}
               </button>
             </>
           )}
         </footer>
       </form>
     </div>,
-    document.body,
+    document.body
   );
 }

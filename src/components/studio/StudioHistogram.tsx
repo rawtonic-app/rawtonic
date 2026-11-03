@@ -1,27 +1,23 @@
-import { memo, type CSSProperties } from "react";
-import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { COLOR_SPACES, COLOR_SPACE_NAMES } from "../../utils/exportRecipes";
-import { clippingChannelColour, histogramClipping } from "../../utils/clippingWarnings";
+import { memo, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { COLOR_SPACES, COLOR_SPACE_NAMES } from '../../utils/exportRecipes';
+import { clippingChannelColour, histogramClipping } from '../../utils/clippingWarnings';
 import {
   formatAperture,
   formatFocalLength,
   formatIso,
   formatShutter,
-  parseExposureTime,
-} from "../../utils/captureInfo";
-import type { OutputColorSpace } from "../ui/ExportImportProperties";
+  parseExposureTime
+} from '../../utils/captureInfo';
+import type { OutputColorSpace } from '../ui/ExportImportProperties';
 
 export function histogramBins(channel: unknown): number[] {
-  const bins = Array.isArray(channel)
-    ? channel
-    : (channel as { data?: unknown })?.data;
-  return Array.isArray(bins)
-    ? bins.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0))
-    : [];
+  const bins = Array.isArray(channel) ? channel : (channel as { data?: unknown })?.data;
+  return Array.isArray(bins) ? bins.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0)) : [];
 }
 
-type ClippingSide = "shadows" | "highlights";
+type ClippingSide = 'shadows' | 'highlights';
 
 /** One fixed-size control above the plot that switches that
  * side's warning (left: shadows; right: highlights). `lit` is the
@@ -33,7 +29,7 @@ function ClippingCorner({
   colour,
   label,
   title,
-  onToggle,
+  onToggle
 }: {
   side: ClippingSide;
   on: boolean;
@@ -47,12 +43,12 @@ function ClippingCorner({
   return (
     <button
       type="button"
-      className={`studio-clip-corner studio-clip-${side}${on ? " is-on" : ""}${lit ? " is-lit" : ""}`}
+      className={`studio-clip-corner studio-clip-${side}${on ? ' is-on' : ''}${lit ? ' is-lit' : ''}`}
       aria-label={label}
       aria-pressed={on}
       title={title}
       data-clipping={lit || undefined}
-      style={lit && colour ? ({ "--clip-channel": colour } as CSSProperties) : undefined}
+      style={lit && colour ? ({ '--clip-channel': colour } as CSSProperties) : undefined}
       onClick={(event) => {
         event.stopPropagation();
         onToggle();
@@ -60,7 +56,7 @@ function ClippingCorner({
       onKeyDown={(event) => {
         // Space otherwise reaches the global zoom shortcut. Keep native
         // button activation for Space/Enter and leave J available globally.
-        if (event.key === " " || event.key === "Enter") event.stopPropagation();
+        if (event.key === ' ' || event.key === 'Enter') event.stopPropagation();
       }}
     >
       <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -81,47 +77,37 @@ export default memo(function StudioHistogram() {
   const proofWarning = useEditorStore((s) => s.softProofWarning);
   const setEditor = useEditorStore((s) => s.setEditor);
   const clipped = histogramClipping(histogram);
-  const channels = ["red", "green", "blue"] as const;
-  const max = Math.max(
-    1,
-    ...channels.flatMap((channel) => histogramBins(histogram?.[channel])),
-  );
+  const channels = ['red', 'green', 'blue'] as const;
+  const max = Math.max(1, ...channels.flatMap((channel) => histogramBins(histogram?.[channel])));
   return (
-    <section
-      className="studio-histogram"
-      aria-label={t("studio.histogram.aria")}
-    >
+    <section className="studio-histogram" aria-label={t('studio.histogram.aria')}>
       <div className="studio-clip-corners">
         <ClippingCorner
           side="shadows"
           on={clipShadows}
           lit={clipped.shadows}
-          colour={clippingChannelColour(histogram, "shadows")}
-          label={
-            clipped.shadows
-              ? t("studio.histogram.shadowClippingLit")
-              : t("studio.histogram.shadowClipping")
-          }
-          title={t("studio.histogram.shadowClippingTitle", {
-            shortcut: "J",
+          colour={clippingChannelColour(histogram, 'shadows')}
+          label={clipped.shadows ? t('studio.histogram.shadowClippingLit') : t('studio.histogram.shadowClipping')}
+          title={t('studio.histogram.shadowClippingTitle', {
+            shortcut: 'J'
           })}
           onToggle={() =>
             setEditor({
-              clipShadows: !useEditorStore.getState().clipShadows,
+              clipShadows: !useEditorStore.getState().clipShadows
             })
           }
         />
         <div className="studio-section-caption">
-          <span>{t("studio.histogram.title")}</span>
+          <span>{t('studio.histogram.title')}</span>
           <span className="studio-histogram-toggles">
             <button
               type="button"
               className="studio-clipping-toggle"
               aria-pressed={proof}
-              title={t("studio.histogram.proofTitle", { shortcut: "Shift+S" })}
+              title={t('studio.histogram.proofTitle', { shortcut: 'Shift+S' })}
               onClick={() => setEditor({ softProof: !proof })}
             >
-              {t("studio.histogram.proof")}
+              {t('studio.histogram.proof')}
             </button>
           </span>
         </div>
@@ -129,18 +115,16 @@ export default memo(function StudioHistogram() {
           side="highlights"
           on={clipHighlights}
           lit={clipped.highlights}
-          colour={clippingChannelColour(histogram, "highlights")}
+          colour={clippingChannelColour(histogram, 'highlights')}
           label={
-            clipped.highlights
-              ? t("studio.histogram.highlightClippingLit")
-              : t("studio.histogram.highlightClipping")
+            clipped.highlights ? t('studio.histogram.highlightClippingLit') : t('studio.histogram.highlightClipping')
           }
-          title={t("studio.histogram.highlightClippingTitle", {
-            shortcut: "J",
+          title={t('studio.histogram.highlightClippingTitle', {
+            shortcut: 'J'
           })}
           onToggle={() =>
             setEditor({
-              clipHighlights: !useEditorStore.getState().clipHighlights,
+              clipHighlights: !useEditorStore.getState().clipHighlights
             })
           }
         />
@@ -148,11 +132,9 @@ export default memo(function StudioHistogram() {
       {proof && (
         <div className="studio-proof-line">
           <select
-            aria-label={t("studio.histogram.proofSpace")}
+            aria-label={t('studio.histogram.proofSpace')}
             value={proofSpace}
-            onChange={(e) =>
-              setEditor({ softProofSpace: e.target.value as OutputColorSpace })
-            }
+            onChange={(e) => setEditor({ softProofSpace: e.target.value as OutputColorSpace })}
           >
             {COLOR_SPACES.map((space) => (
               <option key={space} value={space}>
@@ -164,10 +146,10 @@ export default memo(function StudioHistogram() {
             type="button"
             className="studio-clipping-toggle"
             aria-pressed={proofWarning}
-            title={t("studio.histogram.gamutTitle")}
+            title={t('studio.histogram.gamutTitle')}
             onClick={() => setEditor({ softProofWarning: !proofWarning })}
           >
-            {t("studio.histogram.gamut")}
+            {t('studio.histogram.gamut')}
           </button>
         </div>
       )}
@@ -176,22 +158,10 @@ export default memo(function StudioHistogram() {
           viewBox="0 0 256 84"
           preserveAspectRatio="none"
           role="img"
-          aria-label={
-            histogram
-              ? t("studio.histogram.graphAria")
-              : t("studio.histogram.graphEmpty")
-          }
+          aria-label={histogram ? t('studio.histogram.graphAria') : t('studio.histogram.graphEmpty')}
         >
           {[64, 128, 192].map((x) => (
-            <line
-              key={x}
-              x1={x}
-              x2={x}
-              y1="0"
-              y2="84"
-              stroke="currentColor"
-              opacity=".15"
-            />
+            <line key={x} x1={x} x2={x} y1="0" y2="84" stroke="currentColor" opacity=".15" />
           ))}
           {channels.map((channel) => {
             const values = histogramBins(histogram?.[channel]);
@@ -200,7 +170,7 @@ export default memo(function StudioHistogram() {
               <path
                 key={channel}
                 className={`histogram-${channel}`}
-                d={`M0 84 ${values.map((v, i) => `L${(i * 256) / Math.max(1, values.length - 1)} ${84 - Math.sqrt(Math.max(0, v) / max) * 80}`).join(" ")} L256 84 Z`}
+                d={`M0 84 ${values.map((v, i) => `L${(i * 256) / Math.max(1, values.length - 1)} ${84 - Math.sqrt(Math.max(0, v) / max) * 80}`).join(' ')} L256 84 Z`}
               />
             );
           })}
@@ -210,18 +180,14 @@ export default memo(function StudioHistogram() {
         {image ? (
           <>
             <span>
-              {formatIso(image.exif?.ISO || image.exif?.PhotographicSensitivity) ??
-                (image.isRaw ? "RAW" : "RGB")}
+              {formatIso(image.exif?.ISO || image.exif?.PhotographicSensitivity) ?? (image.isRaw ? 'RAW' : 'RGB')}
             </span>
-            <span>{formatAperture(image.exif?.FNumber) ?? "—"}</span>
-            <span>{formatShutter(parseExposureTime(image.exif?.ExposureTime)) ?? "—"}</span>
-            <span>
-              {formatFocalLength(image.exif?.FocalLength) ??
-                `${image.width} × ${image.height}`}
-            </span>
+            <span>{formatAperture(image.exif?.FNumber) ?? '—'}</span>
+            <span>{formatShutter(parseExposureTime(image.exif?.ExposureTime)) ?? '—'}</span>
+            <span>{formatFocalLength(image.exif?.FocalLength) ?? `${image.width} × ${image.height}`}</span>
           </>
         ) : (
-          <span>{t("studio.histogram.selectPhoto")}</span>
+          <span>{t('studio.histogram.selectPhoto')}</span>
         )}
       </div>
     </section>

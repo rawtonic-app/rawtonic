@@ -13,14 +13,14 @@ const rustList = (source: string, start: RegExp) => {
 describe('face retouch frame', () => {
   it('watches the same keys as the engine, so stale faces are found again', () => {
     const colourOnly = [
-      ...(faceRetouch.match(/COLOUR_ONLY_KEYS: \[&str; \d+\] = \[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g),
+      ...(faceRetouch.match(/COLOUR_ONLY_KEYS: \[&str; \d+\] = \[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g)
     ].map((match) => match[1]);
     expect(colourOnly).toContain('fringeVersion');
     const engine = [
       ...rustList(faceRetouch, /for key in \[/),
       ...[...(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g)].map(
-        (match) => match[1],
-      ),
+        (match) => match[1]
+      )
     ].filter((key) => !colourOnly.includes(key));
     expect([...FACE_FRAME_KEYS].sort()).toEqual(engine.sort());
   });
@@ -36,10 +36,10 @@ describe('face retouch frame', () => {
     const face = {
       blemishes: [
         { id: 1, x: 0, y: 0, r: 1, score: 0.9 },
-        { id: 2, x: 0, y: 0, r: 1, score: 0.02 },
+        { id: 2, x: 0, y: 0, r: 1, score: 0.02 }
       ],
       kept: [] as number[],
-      settings: {},
+      settings: {}
     } as unknown as Parameters<typeof removedBlemishes>[0];
     expect(removedBlemishes(face, { blemishes: 20 })).toBe(1);
     expect(removedBlemishes(face, { blemishes: 100 })).toBe(2);

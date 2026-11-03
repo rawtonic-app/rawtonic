@@ -18,7 +18,7 @@ export default function RenameFolderModal({
   onSave,
   title,
   placeholder,
-  buttonText,
+  buttonText
 }: RenameFolderModalProps) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
@@ -61,7 +61,7 @@ export default function RenameFolderModal({
         onClose();
       }
     },
-    [handleSave, onClose],
+    [handleSave, onClose]
   );
 
   if (!isMounted) {
@@ -81,9 +81,7 @@ export default function RenameFolderModal({
         }`}
         onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
       >
-        <h2 className="studio-dialog-title">
-          {title || t('modals.renameFolder.title')}
-        </h2>
+        <h2 className="studio-dialog-title">{title || t('modals.renameFolder.title')}</h2>
         <input
           autoFocus
           className="w-full px-2 py-1.5"
@@ -95,10 +93,7 @@ export default function RenameFolderModal({
           value={name}
         />
         <div className="studio-dialog-footer">
-          <button
-            className="studio-button"
-            onClick={onClose}
-          >
+          <button className="studio-button" onClick={onClose}>
             {t('modals.renameFolder.cancel')}
           </button>
           <button

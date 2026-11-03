@@ -6,7 +6,10 @@ import Switch from '../ui/Switch';
 import { type AppSettings } from '../ui/AppProperties';
 import { useUpdateStore } from '../../store/useUpdateStore';
 
-export default function UpdateSettings({ appSettings, onSettingsChange }: {
+export default function UpdateSettings({
+  appSettings,
+  onSettingsChange
+}: {
   appSettings: AppSettings;
   onSettingsChange(settings: AppSettings): void | Promise<void>;
 }) {
@@ -38,9 +41,11 @@ export default function UpdateSettings({ appSettings, onSettingsChange }: {
         <Switch
           checked={appSettings.checkForUpdates ?? true}
           label={t('updates.startup')}
-          onChange={(checked) => { void onSettingsChange({ ...appSettings, checkForUpdates: checked }); }}
+          onChange={(checked) => {
+            void onSettingsChange({ ...appSettings, checkForUpdates: checked });
+          }}
         />,
-        <p className="pref-description">{t('updates.privacy')}</p>,
+        <p className="pref-description">{t('updates.privacy')}</p>
       )}
       {row(
         t('updates.prereleases'),
@@ -48,16 +53,20 @@ export default function UpdateSettings({ appSettings, onSettingsChange }: {
           disabled={prereleasesDefault === null && appSettings.updatePrereleases === undefined}
           checked={appSettings.updatePrereleases ?? prereleasesDefault ?? false}
           label={t('updates.prereleases')}
-          onChange={(checked) => { void onSettingsChange({ ...appSettings, updatePrereleases: checked }); }}
-        />,
+          onChange={(checked) => {
+            void onSettingsChange({ ...appSettings, updatePrereleases: checked });
+          }}
+        />
       )}
       {row(
         t('updates.showWhatsNew'),
         <Switch
           checked={appSettings.showWhatsNew ?? true}
           label={t('updates.showWhatsNew')}
-          onChange={(checked) => { void onSettingsChange({ ...appSettings, showWhatsNew: checked }); }}
-        />,
+          onChange={(checked) => {
+            void onSettingsChange({ ...appSettings, showWhatsNew: checked });
+          }}
+        />
       )}
       {row(
         t('updates.manual'),
@@ -65,14 +74,24 @@ export default function UpdateSettings({ appSettings, onSettingsChange }: {
           type="button"
           disabled={checking}
           className="studio-button"
-          onClick={() => { void useUpdateStore.getState().check(true); }}
+          onClick={() => {
+            void useUpdateStore.getState().check(true);
+          }}
         >
           {checking ? t('updates.checking') : t('updates.checkNow')}
         </button>,
         <>
-          {failed && <p role="status" className="pref-description">{t('updates.failed')}</p>}
-          {checked && !update && <p role="status" className="pref-description">{t('updates.noUpdate')}</p>}
-        </>,
+          {failed && (
+            <p role="status" className="pref-description">
+              {t('updates.failed')}
+            </p>
+          )}
+          {checked && !update && (
+            <p role="status" className="pref-description">
+              {t('updates.noUpdate')}
+            </p>
+          )}
+        </>
       )}
     </>
   );
