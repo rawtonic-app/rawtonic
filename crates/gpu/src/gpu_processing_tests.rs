@@ -5117,6 +5117,36 @@ fn latest_analytics_worker_replaces_pending_and_drains_final() {
 }
 
 #[test]
+fn an_older_generation_never_replaces_a_newer_pending_job() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (started_tx, started_rx) = mpsc::channel();
+    let (continue_tx, continue_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let worker = start_latest_job_worker(move |job: u64| {
+        if job == 1 {
+            started_tx.send(()).unwrap();
+            continue_rx.recv().unwrap();
+        }
+        result_tx.send(job).unwrap();
+    });
+    worker.send_unless_older(1, |job| *job);
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    // The release frame's analytics (3) wait for the busy worker; a zoomed
+    // drag's scope render of request 2 arriving late must not replace them.
+    worker.send_unless_older(3, |job| *job);
+    worker.send_unless_older(2, |job| *job);
+    drop(worker);
+    continue_tx.send(()).unwrap();
+    assert_eq!(result_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
+    assert_eq!(result_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 3);
+    assert_eq!(
+        result_rx.recv_timeout(Duration::from_secs(5)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    );
+}
+
+#[test]
 #[ignore = "requires a native GPU; exact direct export curve edge cases in 8/16-bit"]
 fn export_direct_curves_preserve_dense_general_pixels() {
     let context = context();

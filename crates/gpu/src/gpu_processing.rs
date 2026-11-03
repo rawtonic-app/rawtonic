@@ -3895,6 +3895,26 @@ impl<T> LatestJobSender<T> {
             .unwrap_or_else(|error| error.into_inner()) = Some(job);
         let _ = self.wake.try_send(());
     }
+
+    /// [`send`](Self::send) unless the pending job is newer than `job` by
+    /// `generation`: a late older job never replaces a newer one that is
+    /// waiting for the busy worker (checked under the same lock).
+    pub fn send_unless_older(&self, job: T, generation: impl Fn(&T) -> u64) {
+        {
+            let mut pending = self
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if pending
+                .as_ref()
+                .is_some_and(|waiting| generation(waiting) > generation(&job))
+            {
+                return;
+            }
+            *pending = Some(job);
+        }
+        let _ = self.wake.try_send(());
+    }
 }
 
 pub fn start_latest_job_worker<T: Send + 'static>(
@@ -3983,15 +4003,18 @@ fn send_analytics(
 ) {
     let clipped = clipped_sides(&pixels);
     if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
-        analytics.sender.send(AnalyticsJob {
-            path: analytics.path,
-            image: Arc::new(DynamicImage::ImageRgba8(image)),
-            compute_waveform: analytics.compute_waveform,
-            active_waveform_channel: analytics.active_waveform_channel,
-            clipped,
-            space,
-            generation: analytics.generation,
-        });
+        analytics.sender.send_unless_older(
+            AnalyticsJob {
+                path: analytics.path,
+                image: Arc::new(DynamicImage::ImageRgba8(image)),
+                compute_waveform: analytics.compute_waveform,
+                active_waveform_channel: analytics.active_waveform_channel,
+                clipped,
+                space,
+                generation: analytics.generation,
+            },
+            |job| job.generation,
+        );
     }
 }
 

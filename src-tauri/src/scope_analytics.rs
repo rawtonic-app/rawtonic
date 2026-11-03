@@ -7,6 +7,12 @@
 //! frame's recipe and sends its analytics
 //! (`gpu_processing::render_scope_analytics`).
 //!
+//! The drag's clipping marks come from the copy, so a highlight smaller than
+//! one copy pixel (about 12 full-resolution pixels at 26 MP) can average
+//! below the mark until the release frame sends the exact ones; like the
+//! histograms of other editors, which read a reduced preview, the drag's
+//! scopes are a sample.
+//!
 //! Why a separate small render instead of a low-resolution pass inside the
 //! frame: the frame's reply does not wait for it (the scope render runs on
 //! another thread, taking its turn at the processor between two frames),
@@ -19,9 +25,10 @@ use tauri::Manager;
 
 use crate::app_state::{AnalyticsConfig, AppState, LoadedImage};
 use crate::gpu_processing::{self, LatestJobSender, RenderRequest};
-use crate::image_processing::{downscale_f32_image, get_or_init_gpu_context};
+use crate::image_processing::get_or_init_gpu_context;
 use crate::lut_processing::Lut;
 use crate::mask_generation::MaskDefinition;
+use rawtonic_engine::image_processing::downscale_f32_image_signed;
 
 /// Long edge of the scope render's copy of the frame's input: 512 pixels
 /// hold about 175 000 of a 3:2 photo, some 680 per waveform column of 256
@@ -174,7 +181,7 @@ fn proxy_of(state: &AppState, source: &Arc<DynamicImage>) -> ScopeProxy {
     let image = if (w, h) == (width, height) {
         Arc::clone(source)
     } else {
-        Arc::new(downscale_f32_image(source, w, h))
+        Arc::new(downscale_f32_image_signed(source, w, h))
     };
     let proxy = ScopeProxy {
         of: Arc::downgrade(source),
