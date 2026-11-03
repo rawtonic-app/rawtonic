@@ -4738,11 +4738,10 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || m.shadows != 0.0
             || m.blacks != 0.0
             || m.color_noise_reduction != 0.0;
-        required[2] |=
-            m.structure != 0.0
-                || m.halation_amount > 0.0
-                || (clarity_v2 && m.clarity != 0.0)
-                || (shadows_v6 && m.shadows > 0.0);
+        required[2] |= m.structure != 0.0
+            || m.halation_amount > 0.0
+            || (clarity_v2 && m.clarity != 0.0)
+            || (shadows_v6 && m.shadows > 0.0);
         required[3] |= m.clarity != 0.0 || m.dehaze != 0.0 || m.glow_amount > 0.0;
         if m.luma_noise_reduction != 0.0 {
             required[1] = true;

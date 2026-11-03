@@ -9057,13 +9057,11 @@ const RAW_LOOKS: [(&str, u32, f32); 5] = [
 ];
 
 /// 16-bit RGB codes of a RAW render of `view` in one of `RAW_LOOKS`.
-fn render_raw_look(
-    processor: &GpuProcessor,
-    view: &wgpu::TextureView,
-    (width, height): (u32, u32),
+/// A recipe's adjustments under a RAW look (`render_raw_look`'s `(mode, flag)`).
+fn raw_look_adjustments(
     recipe: &serde_json::Value,
     (mode, flag): (u32, f32),
-) -> Vec<[u16; 3]> {
+) -> rawtonic_engine::image_processing::PreparedAdjustments {
     let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(mode.min(2)));
     adjustments.global.tonemapper_mode = mode;
     set_test_image_key(&mut adjustments, recipe);
@@ -9083,6 +9081,17 @@ fn render_raw_look(
         }
         adjustments.global.profile_curve[15][3] = flag;
     }
+    adjustments
+}
+
+fn render_raw_look(
+    processor: &GpuProcessor,
+    view: &wgpu::TextureView,
+    (width, height): (u32, u32),
+    recipe: &serde_json::Value,
+    (mode, flag): (u32, f32),
+) -> Vec<[u16; 3]> {
+    let adjustments = raw_look_adjustments(recipe, (mode, flag));
     let (pixels, ..) = processor
         .run(
             view,
@@ -9611,7 +9620,10 @@ fn tone_version_6_keeps_texture_in_lifted_shadows() {
             spread(stats[1]) / spread(stats[0]),
             spread(stats[2]) / spread(stats[0]),
         );
-        eprintln!("shadows {amount}: spread kept v5 {kept_5:.3} v6 {kept_6:.3}, mean v6 − v5 {:.3} EV", mean(stats[2]) - mean(stats[1]));
+        eprintln!(
+            "shadows {amount}: spread kept v5 {kept_5:.3} v6 {kept_6:.3}, mean v6 − v5 {:.3} EV",
+            mean(stats[2]) - mean(stats[1])
+        );
         assert!(
             kept_6 > kept_5 + 0.05,
             "{amount}: version 6 keeps {kept_6:.3} of the spread, version 5 {kept_5:.3}"
@@ -9621,16 +9633,19 @@ fn tone_version_6_keeps_texture_in_lifted_shadows() {
             "{amount}: mean level {:.3} EV from version 5",
             mean(stats[2]) - mean(stats[1])
         );
-        assert!(mean(stats[2]) > mean(stats[0]) + 0.2, "{amount}: not lifted");
+        assert!(
+            mean(stats[2]) > mean(stats[0]) + 0.2,
+            "{amount}: not lifted"
+        );
     }
 }
 
 #[test]
 #[ignore = "requires a native GPU; raised Shadows of tone version 6 against version 5: GPU time of a preview render per drag step"]
 fn tone_version_6_shadows_drag_render_time() {
-    // A drag step renders the whole preview again with the new amount; the
-    // blurs are cached per input, so they are not part of it. Time per render
-    // (submit to readback) at a 2560 × 1707 preview of a textured frame.
+    // A drag step renders the preview again with the new amount, the blurs
+    // kept from the previous step (the 8-bit preview path retains them).
+    // Time per render (submit to readback) of a 2560 × 1707 textured frame.
     let context = context();
     let (width, height) = (2560u32, 1707u32);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
@@ -9643,25 +9658,40 @@ fn tone_version_6_shadows_drag_render_time() {
         })
         .collect();
     let view = grey_texture(&context, width, height, &levels);
-    let look = (3, 2.0);
-    let mut medians = Vec::new();
-    for version in [5u64, 6, 5, 6] {
-        let mut times = Vec::new();
-        for step in 0..40 {
-            let recipe = json!({ "shadows": 40 + step, "toneVersion": version });
+    // Blocks of ten steps per version, alternated (GPU clocks drift between
+    // runs); the first two steps of a block rebuild the blurs (version 6
+    // also carries the small blur's mean log luminance) and are left out.
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 5 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "shadows": 20 + 3 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
             let start = std::time::Instant::now();
-            let _ = render_raw_look(&processor, &view, (width, height), &recipe, look);
-            if step >= 5 {
-                times.push(start.elapsed().as_secs_f64() * 1000.0);
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 5) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
-        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let p50 = times[times.len() / 2];
-        eprintln!("version {version}: p50 {p50:.2} ms, p90 {:.2} ms", times[times.len() * 9 / 10]);
-        medians.push((version, p50));
     }
-    let of = |v: u64| medians.iter().filter(|m| m.0 == v).map(|m| m.1).sum::<f64>() / 2.0;
-    eprintln!("p50 v5 {:.2} ms, v6 {:.2} ms", of(5), of(6));
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            5 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
 }
 
 #[test]
