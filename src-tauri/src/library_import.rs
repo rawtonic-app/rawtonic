@@ -1050,11 +1050,6 @@ mod tests {
     /// its own copy id (the session path is part of the uid the id is
     /// derived from), while a repeated import of one session finds the copy
     /// it made.
-    /// Two Capture One sessions with the same file name in different folders
-    /// import as two origins: the same asset's virtual copy from each gets
-    /// its own copy id (the session path is part of the uid the id is
-    /// derived from), while a repeated import of one session finds the copy
-    /// it made.
     #[test]
     fn capture_one_copies_from_two_sessions_with_one_file_name_get_their_own_ids() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1063,9 +1058,17 @@ mod tests {
         let first = read_source(&capture_one_session(&root.join("Trip A"), "Trip"))
             .unwrap()
             .0;
-        let second = read_source(&capture_one_session(&root.join("Trip B"), "Trip"))
+        let mut second = read_source(&capture_one_session(&root.join("Trip B"), "Trip"))
             .unwrap()
             .0;
+        // Two sessions reference one photograph (an external folder, or a
+        // session copied aside): B's photographs are relinked to A's, so
+        // both sources carry copies of one asset. (Without that, the two
+        // sessions hold two different files and import as two assets.)
+        assert!(
+            second.relink(&root.join("Trip B/Trip/Capture"), &root.join("Trip A/Trip/Capture"))
+                >= 2
+        );
         // Both sources carry variant 11 of `Capture/DSCF0001.RAF` as a copy
         // of variant 10: one local key and one asset, two origins.
         let (first_uid, second_uid) = (
@@ -1091,24 +1094,6 @@ mod tests {
         assert_eq!(catalog.copies(&asset.id).unwrap(), one);
 
         // The other session's copy of that asset gets its own id beside it.
-        //
-        // FAILS — open defect, expected with this test (G50, Capture One
-        // provenance; tests-only task, so product code is unchanged).
-        //
-        // Measured on this Linux PC, 2026-11-03 (same fixture, each session
-        // imported into a fresh catalog; uids = `<session file>#<variant>`,
-        // copy id = `copy_id(asset, "uid\0<uid>", attempt)`):
-        //   session A copy from A import:            `copy_id(…, A, 0)`
-        //   session B's copy in the B-import: `copy_id(…, B, 1)`, never
-        //     `copy_id(…, B, 0)` that `copy_id`/`copy_origin` alone give.
-        // So the id is not a function of asset and origin alone (the
-        // intent of `copy_id`/`copy_origin`, ~line 793/800). Not
-        // root-caused here: neither B's `attempt 0` nor `attempt 1` sidecar
-        // exists after the import (the sidecar check in `import_copy` does
-        // not explain the skip by itself), while with both sessions in one
-        // catalog B's copy sits under the asset registered at B's path
-        // instead of the asset A and B share. Cause to find in
-        // `import_copy`/`copy_state` or the catalog's version rows.
         import_into(&catalog, &second).unwrap();
         let two = copy_id(&asset.id, &second_origin, 0);
         assert_ne!(two, one[0]);
@@ -1120,6 +1105,15 @@ mod tests {
             both, expected,
             "session B's copy id is not derived from its origin alone"
         );
+        // Neither import dropped the other's copy: a repeat of either finds
+        // its own copy and adds none.
+        for source in [&first, &second] {
+            let again = import_into(&catalog, source).unwrap();
+            assert_eq!(again.errors.len(), 0, "{again:?}");
+        }
+        let mut after = catalog.copies(&asset.id).unwrap();
+        after.sort();
+        assert_eq!(after, expected);
     }
 
     #[test]
