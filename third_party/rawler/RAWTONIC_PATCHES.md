@@ -411,3 +411,7 @@ Three pieces were taken over, each from rawler 0.8.0's sources:
   (active area and mode). Rawtonic keeps the old frame for edits made
   before it (recipe `sourceFrameVersion` 3, `rawtonic-rawdecode`
   `source_frame.rs`). Unit test `rawtonic_tests` in the same file.
+- `data/cameras/canon/c50.toml`: Canon EOS C50 (CR3 stills), rawler 0.8.0's
+  entry unchanged (colour matrices from upstream). No C50 file was
+  available to test it (none in the raw.pixls.us mirror on 2026-11-03).
+  Test `canon_eos_c50_is_known` in `src/decoders/raf.rs`.

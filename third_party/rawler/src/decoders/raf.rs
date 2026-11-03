@@ -782,4 +782,13 @@ mod rawtonic_tests {
       assert_ne!(base.active_area, compressed.active_area, "{model}");
     }
   }
+
+  #[test]
+  fn canon_eos_c50_is_known() {
+    let cameras = crate::global_loader().get_cameras();
+    for mode in ["", "raw", "craw"] {
+      let c50 = cameras.get(&("Canon".into(), "Canon EOS C50".into(), mode.into())).expect("EOS C50");
+      assert_eq!(c50.clean_model, "EOS C50");
+    }
+  }
 }
