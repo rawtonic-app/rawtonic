@@ -7331,10 +7331,14 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// the midtone lift of the tables measured on a Lightroom ramp and stretches
 /// the display luminance's top so that it reaches white, where version 7
 /// lifted L* 40–70 by up to 19 and squeezed the brightest tones into the
-/// roll-off (notes: G02, benchmark-results/wh-whites-2026-11-03).
+/// roll-off (notes: G02, benchmark-results/wh-whites-2026-11-03);
+/// 9 (2026-11-03) lowers Blacks with a black point on the display L*
+/// (a shift with slope 1 in the darks, faded out by L* 30, under a soft toe)
+/// instead of Lightroom's scene gain, which darkened up to L* 40 and lost
+/// the darks' texture (notes: G02, benchmark-results/blk-blacks-2026-11-03).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 8;
+pub const TONE_VERSION: u64 = 9;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -7837,6 +7841,8 @@ mod tone_version_tests {
         assert_eq!(version(json!({"highlights": -60, "toneVersion": 7})), 7.0);
         // Version 8 (raised Whites sets the white point) is known.
         assert_eq!(version(json!({"whites": 60, "toneVersion": 8})), 8.0);
+        // Version 9 (lowered Blacks sets a display black point) is known.
+        assert_eq!(version(json!({"blacks": -60, "toneVersion": 9})), 9.0);
     }
 }
 

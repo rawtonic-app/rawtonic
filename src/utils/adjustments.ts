@@ -675,7 +675,9 @@ export interface Adjustments {
    * the shadows it lifts; 7 = and lowered Highlights stays between Capture
    * One's and Camera Raw's reach on night frames; 8 = and raised Whites
    * sets the white point (brightest tones to white, midtones barely
-   * lifted); 1 or missing on
+   * lifted); 9 = and lowered Blacks sets a black point on the display
+   * lightness (the darks keep their texture, tones above L* 30 stay);
+   * 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1376,7 +1378,16 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 8;
+export const TONE_VERSION = 9;
+
+/** The response a recipe without `toneVersion` takes when nothing in it
+ * renders differently: 5, the last that leaves Whites, Blacks and Clarity
+ * as they were. The engine adds Whites, Blacks and Clarity of its own to
+ * some phone DNGs (Camera Raw's phone defaults, `baseline_exposure.rs`),
+ * which the recipe does not show; version 6 reads Clarity's base more
+ * precisely, 8 and 9 change raised Whites and lowered Blacks (versions 6 and
+ * 7 otherwise change only raised Shadows and lowered Highlights). */
+export const KEYLESS_TONE_VERSION = 5;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
@@ -1792,25 +1803,30 @@ const loadedAiDenoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): n
 };
 
 /** The tone-slider response of a saved recipe: its own; else the current
- * one when nothing in it renders differently with it (no raised Shadows, no
- * lowered Highlights, no raised Whites and no Clarity on the photo or a
- * layer), the earlier one otherwise (missing key). */
+ * one for a new recipe (`isNewRecipe`); else `KEYLESS_TONE_VERSION` when nothing in it renders differently
+ * with it (no raised Shadows, no lowered Highlights, no raised Whites, no
+ * lowered Blacks and no Clarity on the photo or a layer), the earlier one
+ * otherwise (missing key). */
 const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => {
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
   // Versions 2 to 7 change raised Shadows and lowered Highlights, 8 raised
-  // Whites; 6 also reads Clarity's base more precisely (a rounding-level
+  // Whites, 9 lowered Blacks; 6 also reads Clarity's base more precisely (a rounding-level
   // change).
   const differs = (
-    values: { shadows?: unknown; highlights?: unknown; whites?: unknown; clarity?: unknown } | undefined,
+    values:
+      | { shadows?: unknown; highlights?: unknown; whites?: unknown; blacks?: unknown; clarity?: unknown }
+      | undefined,
   ) =>
     ((values?.shadows as number | undefined) ?? 0) > 0 ||
     ((values?.highlights as number | undefined) ?? 0) < 0 ||
     ((values?.whites as number | undefined) ?? 0) > 0 ||
+    ((values?.blacks as number | undefined) ?? 0) < 0 ||
     ((values?.clarity as number | undefined) ?? 0) !== 0;
   const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
-  return rendersDifferently ? undefined : TONE_VERSION;
+  if (isNewRecipe(loaded)) return TONE_VERSION;
+  return rendersDifferently ? undefined : KEYLESS_TONE_VERSION;
 };
 
 /** The Clarity response of a saved recipe: its own; else the current one
