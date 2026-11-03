@@ -15,6 +15,7 @@ import {
   FRINGE_VERSION,
   RENDER_VERSION,
   DEFRINGE_VERSION,
+  BW_VERSION,
   SHARPEN_VERSION,
   LUMA_NOISE_VERSION,
   AI_DENOISE_VERSION,
@@ -160,6 +161,23 @@ describe('RAW detail defaults', () => {
     } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layer, true).defringeVersion).toBeUndefined();
     expect(normalizeLoadedAdjustments({ ...purple, defringeVersion: 2 }, true).defringeVersion).toBe(2);
+  });
+
+  it('keep the B&W mix response a saved recipe rendered with', () => {
+    expect(BW_VERSION).toBe(2);
+    expect(initialAdjustmentsFor(true).bwVersion).toBe(BW_VERSION);
+    expect(initialAdjustmentsFor(false).bwVersion).toBe(BW_VERSION);
+    // A recipe in colour, or converted with every slider at 0, renders the
+    // same with either response.
+    const colour = { ...INITIAL_ADJUSTMENTS, grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer, blue: -40 } } as Adjustments;
+    expect(normalizeLoadedAdjustments(colour, true).bwVersion).toBe(BW_VERSION);
+    const neutral = { ...INITIAL_ADJUSTMENTS, blackAndWhite: true } as Adjustments;
+    expect(normalizeLoadedAdjustments(neutral, true).bwVersion).toBe(BW_VERSION);
+    // A converted recipe with a mix keeps the first response (missing key).
+    const mixed = { ...colour, blackAndWhite: true } as Adjustments;
+    expect(normalizeLoadedAdjustments(mixed, true).bwVersion).toBeUndefined();
+    expect('bwVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(mixed, true)))).toBe(false);
+    expect(normalizeLoadedAdjustments({ ...mixed, bwVersion: 2 }, true).bwVersion).toBe(2);
   });
 
   it('carry the AI Denoise version with a copied amount', () => {

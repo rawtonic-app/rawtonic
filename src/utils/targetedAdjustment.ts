@@ -69,8 +69,11 @@ const GRAY_CHANNELS = [
 // apply_black_and_white): Oklab hue centres and raised-cosine reach.
 const HSL_CENTRES = [15, 52, 105, 145, 195, 262, 305, 340];
 const HSL_REACH = [32, 38, 50, 55, 55, 50, 40, 38];
+// apply_black_and_white (`bwVersion` 1) and apply_black_and_white_v2.
 const BW_CENTRES = [18.6, 55.2, 94.3, 134.9, 181.9, 236.0, 312.1, 348.0];
 const BW_REACH = [33.9, 41.8, 38.7, 41.4, 42.1, 84.8, 60.6, 31.1];
+const BW2_CENTRES = [17.8, 52.4, 93.3, 135.0, 182.9, 247.0, 310.9, 350.5];
+const BW2_REACH = [28.6, 39.4, 41.9, 38.1, 45.4, 77.4, 51.7, 25.3];
 
 /** Slider units per screen pixel of vertical drag (Lightroom-like pace). */
 export const TAT_UNITS_PER_PIXEL = 0.5;
@@ -155,7 +158,9 @@ export function startTargetedAdjustment(
   if (chroma < MIN_CHROMA) return null;
   const weights =
     target === "grayMixer"
-      ? channelWeights(hue, BW_CENTRES, BW_REACH)
+      ? (base.bwVersion ?? 1) >= 2
+        ? channelWeights(hue, BW2_CENTRES, BW2_REACH)
+        : channelWeights(hue, BW_CENTRES, BW_REACH)
       : channelWeights(hue, HSL_CENTRES, HSL_REACH);
   return { target, base, weights };
 }

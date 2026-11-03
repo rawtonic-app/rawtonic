@@ -692,6 +692,12 @@ export interface Adjustments {
    * the layers' Defringe; 1 or missing on recipes that used Defringe before
    * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
+  /** B&W mix response (crates/engine/src/image_processing.rs
+   * `BW_VERSION`): 2 = each channel lowers more strongly the further it is
+   * pulled, windows and gains fitted to Camera Raw on 15 photographs; the
+   * conversion at 0 is version 1's. 1 or missing on recipes that converted
+   * to black and white before it. */
+  bwVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
    * `SHARPEN_VERSION`): 6 = 5, and for JPEGs and other non-RAW photos
    * stronger above Amount 40 (closer to Camera Raw's; RAW photos render as 5); 5 = 4 with Masking's ramp after Camera Raw's (wider:
@@ -1378,6 +1384,10 @@ export const FRINGE_VERSION = 5;
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;
 
+/** The B&W mix response new edits start with (notes:
+ * benchmark-results/bw2-black-white-2026-11-03). */
+export const BW_VERSION = 2;
+
 /** The sharpening response new edits start with (notes: reference/detail.md). */
 export const SHARPEN_VERSION = 6;
 
@@ -1482,6 +1492,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        bwVersion: BW_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
@@ -1495,6 +1506,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        bwVersion: BW_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
@@ -1540,6 +1552,17 @@ const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined
     (loaded.defringeGreenAmount ?? 0) > 0 ||
     (loaded.masks ?? []).some((mask) => ((mask?.adjustments?.defringe as number | undefined) ?? 0) > 0);
   return used ? undefined : DEFRINGE_VERSION;
+};
+
+/** The B&W mix response of a saved recipe: its own; else the current one
+ * when the recipe does not use the mix (not converted, every slider at 0:
+ * both responses render it alike), the first one otherwise (missing key). */
+const loadedBwVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.bwVersion !== undefined && loaded.bwVersion !== null) {
+    return loaded.bwVersion;
+  }
+  const mixed = Object.values(loaded.grayMixer ?? {}).some((v) => (v ?? 0) !== 0);
+  return loaded.blackAndWhite && mixed ? undefined : BW_VERSION;
 };
 
 /** Whether a recipe renders the same with every sharpening response: no
@@ -1936,6 +1959,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     toneVersion: loadedToneVersion(loadedAdjustments),
     clarityVersion: loadedClarityVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
+    bwVersion: loadedBwVersion(loadedAdjustments),
     sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
     // A saved recipe's own grain; without the key 1 where it has grain, else
     // the newest (a new edit's, as `initialAdjustmentsFor`).
@@ -2062,7 +2086,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading] },
     { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges'] },
     { label: 'modals.copyPaste.groups.colorCalibration', keys: ['colorCalibration'] },
-    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer'] },
+    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion'] },
   ],
   details: [
     {

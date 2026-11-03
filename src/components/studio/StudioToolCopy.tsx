@@ -31,6 +31,9 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   shadows: ["toneVersion"],
   // Clarity means what the recipe's Clarity response makes of it.
   clarity: ["clarityVersion"],
+  // The B&W mix means what the recipe's mix response makes of it.
+  blackAndWhite: ["bwVersion"],
+  grayMixer: ["bwVersion"],
   // Defringe means what the recipe's fringe detector makes of it.
   defringePurpleAmount: ["defringeVersion"],
   defringeGreenAmount: ["defringeVersion"],

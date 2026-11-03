@@ -6,6 +6,7 @@ import { notify } from "../../activity/notify";
 import { useEditorStore } from "../../store/useEditorStore";
 import { Invokes } from "../ui/AppProperties";
 import {
+  BW_VERSION,
   GRAY_MIXER_CHANNELS,
   INITIAL_ADJUSTMENTS,
   INITIAL_GRAY_MIXER,
@@ -485,7 +486,11 @@ export function StudioBlackAndWhite({
           </button>
         </>
       }
-      onReset={() => change({ grayMixer: { ...INITIAL_GRAY_MIXER } })}
+      onReset={() =>
+        // All sliders at 0 render alike in every response: the reset takes
+        // a new edit's.
+        change({ grayMixer: { ...INITIAL_GRAY_MIXER }, bwVersion: BW_VERSION })
+      }
     >
       {!enabled && (
         <button

@@ -2824,6 +2824,39 @@ fn apply_black_and_white(display: vec3<f32>) -> vec3<f32> {
     return linear_to_srgb(vec3<f32>(grey));
 }
 
+// `bwVersion` 2: the same conversion at 0 (BW_BASE), each channel lowering
+// more strongly the further it is pulled (gain + q · |slider|), as Lightroom's
+// and Capture One's mixes do; windows and gains fitted to Camera Raw on 15
+// photographs, gains then × 1.1 to match Lightroom's own B&W (its Adobe
+// Monochrome profile) on Rawtonic's colour (notes:
+// benchmark-results/bw2-black-white-2026-11-03).
+const BW2_CENTRES = array<f32, 8>(17.8, 52.4, 93.3, 135.0, 182.9, 247.0, 310.9, 350.5);
+const BW2_REACH = array<f32, 8>(28.6, 39.4, 41.9, 38.1, 45.4, 77.4, 51.7, 25.3);
+const BW2_RAISE = array<f32, 8>(2.386, 3.153, 3.062, 2.108, 1.883, 3.223, 2.463, 1.852);
+const BW2_RAISE_Q = array<f32, 8>(-0.53, -0.326, 0.446, -0.096, 0.184, 0.378, -0.083, 0.07);
+const BW2_LOWER = array<f32, 8>(2.512, 4.448, 3.21, 2.751, 2.096, 3.468, 2.206, 1.747);
+const BW2_LOWER_Q = array<f32, 8>(1.442, 2.665, 5.972, 2.618, 2.0, 3.241, 1.35, 1.056);
+
+fn apply_black_and_white_v2(display: vec3<f32>) -> vec3<f32> {
+    let lab = linear_srgb_to_oklab(display_to_linear(display));
+    let chroma = length(lab.yz);
+    let hue = (degrees(atan2(lab.z, lab.y)) + 360.0) % 360.0;
+    let position = hue / 15.0;
+    let index = u32(position) % 24u;
+    var k = mix(BW_BASE[index], BW_BASE[(index + 1u) % 24u], fract(position));
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        let m = adjustments.global.bw_mix[i / 4u][i % 4u];
+        if (m == 0.0) { continue; }
+        let distance_deg = abs(((hue - BW2_CENTRES[i]) % 360.0 + 540.0) % 360.0 - 180.0);
+        let w = 0.5 + 0.5 * cos(clamp(distance_deg / BW2_REACH[i], 0.0, 1.0) * 3.14159265);
+        let gain = select(BW2_LOWER[i] + BW2_LOWER_Q[i] * abs(m), BW2_RAISE[i] + BW2_RAISE_Q[i] * abs(m), m > 0.0);
+        k += w * m * gain;
+    }
+    let lightness = lab.x * exp(k * pow(chroma, BW_CHROMA_POWER) / max(lab.x, BW_MIN_LIGHTNESS));
+    let grey = clamp(lightness * lightness * lightness, 0.0, 1.0);
+    return linear_to_srgb(vec3<f32>(grey));
+}
+
 // Capture One's Levels (Photoshop semantics) on display values: the RGB
 // composite first, then each channel.
 fn level(v: f32, p: vec4<f32>, white: f32) -> f32 {
@@ -8111,8 +8144,10 @@ fn main(
             default_tonemapped = mix(default_tonemapped, apply_color_ranges(default_tonemapped, i + 1u, count), influence);
         }
     }
-    if (adjustments.global.bw_enabled != 0u) {
+    if (adjustments.global.bw_enabled == 1u) {
         default_tonemapped = apply_black_and_white(default_tonemapped);
+    } else if (adjustments.global.bw_enabled != 0u) {
+        default_tonemapped = apply_black_and_white_v2(default_tonemapped);
     }
     if (adjustments.global.grading_active != 0u) {
         default_tonemapped = apply_grading(default_tonemapped, 0u);
