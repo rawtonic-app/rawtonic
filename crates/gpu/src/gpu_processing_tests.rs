@@ -15663,6 +15663,62 @@ fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
     }
 }
 
+/// `fringeVersion` 6 on a moderately noisy photo (between version 2's
+/// low-noise gate and version 6's wide-window limit): 7 × 7 windows without
+/// the colour lines. The GPU computes that plan as the CPU code does, within
+/// float rounding, and it differs from version 5's 5 × 5 there.
+#[test]
+#[ignore = "requires a native GPU"]
+fn edge_fringe_version_6_wide_windows_on_moderate_noise_match_the_cpu() {
+    use rawtonic_engine::edge_fringe::{Plan, apply, apply_on_gpu_in_tiles, noise_of, plan_of};
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (w, h) = (2048usize, 512usize);
+    let (scene, noise) = [0.04f32, 0.045, 0.05]
+        .into_iter()
+        .map(|sigma| {
+            let scene = edge_fringe_scene(w as u32, h as u32, sigma).into_raw();
+            let noise = noise_of(&scene, w, h, 3);
+            (scene, noise)
+        })
+        .find(|(_, noise)| (0.017..0.025).contains(noise))
+        .expect("a scene of moderate noise");
+    let plan = plan_of(6, noise, 1.0);
+    assert!(
+        plan.gpu && plan.radius == 3 && !plan.colour_lines,
+        "{plan:?}"
+    );
+    assert_eq!(plan_of(5, noise, 1.0), Plan { radius: 2, ..plan });
+    let mut gpu = scene.clone();
+    apply_on_gpu_in_tiles(&mut gpu, w, h, 3, plan, 1024).expect("the GPU pass");
+    let mut cpu = scene.clone();
+    apply(&mut cpu, w, h, 3, Plan { gpu: false, ..plan }).expect("the CPU pass");
+    let mut five = scene.clone();
+    apply_on_gpu_in_tiles(&mut five, w, h, 3, plan_of(5, noise, 1.0), 1024).expect("version 5");
+    let changed = scene.iter().zip(&cpu).filter(|(a, b)| a != b).count();
+    let (mean, p999, max, apart) = float_differences(&cpu, &gpu);
+    eprintln!(
+        "noise {noise}: changed {changed} of {}, |GPU - CPU| mean {mean:.2e} p99.9 {p999:.2e} \
+         max {max:.2e}, > 1 code {:.4} %",
+        scene.len(),
+        100.0 * apart
+    );
+    assert!(changed > scene.len() / 50, "the scene exercises the pass");
+    assert!(max < 0.02, "largest difference {max:e}");
+    assert!(mean < 2e-6, "mean difference {mean:e}");
+    assert!(p999 < 2e-4, "p99.9 difference {p999:e}");
+    assert!(
+        apart < 0.002,
+        "{:.3} % of values more than one code apart",
+        100.0 * apart
+    );
+    let (five_mean, ..) = float_differences(&five, &gpu);
+    assert!(
+        five_mean > 10.0 * mean,
+        "version 6 differs from version 5 here ({five_mean:e})"
+    );
+}
+
 /// The edge-fringe pass written straight into a render's input texture
 /// (`upload_fringed_render_source`, task BX7) holds the very texels of
 /// uploading the pass's CPU result cropped to the window: whole frames and

@@ -1374,8 +1374,8 @@ export const TONE_VERSION = 7;
 export const CLARITY_VERSION = 2;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
- * 5 = version 4's pass computed on the GPU. */
-export const FRINGE_VERSION = 5;
+ * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */
+export const FRINGE_VERSION = 6;
 
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;
