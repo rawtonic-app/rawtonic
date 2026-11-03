@@ -3,17 +3,17 @@
 //! Camera Raw's Auto mixes span essentially two directions around one
 //! typical mix (three principal components of 59 cameras' mixes leave
 //! integer rounding): a warm/cool axis (red–yellow against aqua–purple) and
-//! a common lift. On 73 photos the best point of that plane is within
-//! 0.02 Oklab L × 100 of Lightroom's own Auto mix, so Auto only has to pick
-//! the point. It takes one step from the typical mix along the slopes of two
+//! a common lift. On 73 photos the best point of that plane is 0.015
+//! Oklab L × 100 from Lightroom's own Auto mix on average (at most 0.12),
+//! so Auto only has to pick the point. It takes one step from the typical mix along the slopes of two
 //! contrast measures of the grey image: the log of the standard deviation
 //! of its linear luminance (Lightroom lifts the hues that fill and light the
 //! frame: a tungsten-orange room gets Red and Orange raised, a sky Blue) and
 //! the 5–95 % range of its Oklab lightness. The step is a fixed linear map
 //! of the four slopes, fitted to Lightroom's Auto on 73 photos; on held-out
 //! halves the grey differs from Lightroom's by 0.16 and 0.21 Oklab L × 100
-//! on average, where the earlier range-maximising Auto gave 0.42, and no
-//! photo got worse by more than 0.2 (notes:
+//! on average, where the earlier range-maximising Auto gave 0.55 and 0.29,
+//! and no photo got worse by more than 0.2 (notes:
 //! benchmark-results/bwa-bw-auto-2026-11-03/REPORT.md).
 
 /// A B&W mix response: channel windows and gains as the shader renders
