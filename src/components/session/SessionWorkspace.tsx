@@ -1,27 +1,19 @@
-import { buildComboMap, normalizeCombo } from "../../utils/keyboardUtils";
-import { withMovedLibrary, withRecentLibrary } from "../../utils/recentLibraries";
-import { validNamingTemplate, validSequenceStart, type NamePreview } from "../../utils/namingTemplates";
-import NamingEditor from "../ui/NamingEditor";
-import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
-import CatalogExportDialog from "./CatalogExportDialog";
-import CatalogImportDialog from "./CatalogImportDialog";
-import FolderSyncDialog from "./FolderSyncDialog";
-import SessionXmpStatus from "./SessionXmpStatus";
-import ActivityCentre from "../activity/ActivityCentre";
-import { useActivityStore } from "../../store/useActivityStore";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { openDialog } from "../../utils/fileDialog";
-import { join } from "@tauri-apps/api/path";
-import { listen } from "@tauri-apps/api/event";
+import { buildComboMap, normalizeCombo } from '../../utils/keyboardUtils';
+import { withMovedLibrary, withRecentLibrary } from '../../utils/recentLibraries';
+import { validNamingTemplate, validSequenceStart, type NamePreview } from '../../utils/namingTemplates';
+import NamingEditor from '../ui/NamingEditor';
+import LibraryTransferDialog, { type TransferPurpose } from './LibraryTransferDialog';
+import CatalogExportDialog from './CatalogExportDialog';
+import CatalogImportDialog from './CatalogImportDialog';
+import FolderSyncDialog from './FolderSyncDialog';
+import SessionXmpStatus from './SessionXmpStatus';
+import ActivityCentre from '../activity/ActivityCentre';
+import { useActivityStore } from '../../store/useActivityStore';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { openDialog } from '../../utils/fileDialog';
+import { join } from '@tauri-apps/api/path';
+import { listen } from '@tauri-apps/api/event';
 import {
   ArrowDownToLine,
   ArrowRight,
@@ -37,20 +29,20 @@ import {
   Import,
   RefreshCcw,
   LoaderCircle,
-  X,
-} from "lucide-react";
-import { notify } from "../../activity/notify";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useEditorStore } from "../../store/useEditorStore";
-import { storedStudioLayout, useUIStore } from "../../store/useUIStore";
-import { refreshStacks } from "../../store/useStackStore";
-import { Invokes } from "../ui/AppProperties";
-import RawtonicMark from "../ui/RawtonicMark";
-import FirstStartToolsSide from "./FirstStartToolsSide";
-import type { FolderTree } from "../../utils/folderTree";
-import NextCaptureFields from "./NextCaptureFields";
-import TetherPanel, { type TetherStatus } from "./TetherPanel";
+  X
+} from 'lucide-react';
+import { notify } from '../../activity/notify';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useEditorStore } from '../../store/useEditorStore';
+import { storedStudioLayout, useUIStore } from '../../store/useUIStore';
+import { refreshStacks } from '../../store/useStackStore';
+import { Invokes } from '../ui/AppProperties';
+import RawtonicMark from '../ui/RawtonicMark';
+import FirstStartToolsSide from './FirstStartToolsSide';
+import type { FolderTree } from '../../utils/folderTree';
+import NextCaptureFields from './NextCaptureFields';
+import TetherPanel, { type TetherStatus } from './TetherPanel';
 import {
   DEFAULT_NEXT_CAPTURE,
   flattenPresets,
@@ -59,40 +51,57 @@ import {
   type NextCaptureForm,
   type NextCaptureMetadata,
   type PresetChoice,
-  type PresetItemJson,
-} from "./nextCapture";
-import { useContextMenu } from "../../context/ContextMenuContext";
-import { useSessionBar } from "./sessionBar";
-import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
-import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
-import { watchXmpSidecars } from "../../utils/xmpCheck";
-import { requestAutoAdvance } from "../../utils/photoStepping";
-import { hotFolderCommand } from "../../utils/hotFolderCommands";
-import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, SHOW_PREVIOUS_IMPORT, type OpenFolderSyncDetail } from "../../utils/folderSync";
-import IngestMetadata, { type ImportMetadata } from "./IngestMetadata";
-import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
+  type PresetItemJson
+} from './nextCapture';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { useSessionBar } from './sessionBar';
+import { SESSION_ALBUMS_CHANGED } from '../studio/StudioAlbums';
+import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from '../../utils/offline';
+import { watchXmpSidecars } from '../../utils/xmpCheck';
+import { requestAutoAdvance } from '../../utils/photoStepping';
+import { hotFolderCommand } from '../../utils/hotFolderCommands';
+import {
+  FOLDER_SYNC_APPLIED,
+  IMPORTS_CHANGED,
+  OPEN_FOLDER_SYNC_EVENT,
+  SHOW_PREVIOUS_IMPORT,
+  type OpenFolderSyncDetail
+} from '../../utils/folderSync';
+import IngestMetadata, { type ImportMetadata } from './IngestMetadata';
+import IngestPreviewGrid, { fileName, type IngestCandidate } from './IngestPreviewGrid';
 import {
   OPEN_INGEST_EVENT,
   folderAcceptsDrop,
   useWindowFileDrop,
   volumeOf,
   type FileDrop,
-  type OpenIngestDetail,
-} from "./fileDrop";
-import { throttleAsync } from "../../utils/throttle";
-import { onPhotoWritesSettled } from "../../utils/photoWrites";
-import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
-import { Trans, useTranslation } from "react-i18next";
-import i18n from "i18next";
-import { invokeInOrder } from "../../utils/catalogWrites";
-import { catalogAction, followLibraryMove, showCullingChanges, useCatalogUndoStore, type CullingChange } from "../../utils/appUndo";
-import "./session.css";
-import { noteTool } from "../contribute/usageStats";
-import { flagTargets, viewerShown } from "../../utils/viewerMode";
-import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
-import { switchLibraryAfterSaves } from "../../utils/quit";
-import AddFolderDialog from "./AddFolderDialog";
-import SessionFoldersDialog from "./SessionFoldersDialog";
+  type OpenIngestDetail
+} from './fileDrop';
+import { throttleAsync } from '../../utils/throttle';
+import { onPhotoWritesSettled } from '../../utils/photoWrites';
+import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from './ingestMode';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from 'i18next';
+import { invokeInOrder } from '../../utils/catalogWrites';
+import {
+  catalogAction,
+  followLibraryMove,
+  showCullingChanges,
+  useCatalogUndoStore,
+  type CullingChange
+} from '../../utils/appUndo';
+import './session.css';
+import { noteTool } from '../contribute/usageStats';
+import { flagTargets, viewerShown } from '../../utils/viewerMode';
+import {
+  notifyAppCommandsChanged,
+  COMMAND_DIALOG_SELECTOR,
+  registerAppCommands,
+  runAppCommand
+} from '../../utils/appCommands';
+import { switchLibraryAfterSaves } from '../../utils/quit';
+import AddFolderDialog from './AddFolderDialog';
+import SessionFoldersDialog from './SessionFoldersDialog';
 import {
   openableFolderPath,
   outsideFolders,
@@ -100,17 +109,21 @@ import {
   SET_ROLE_FOLDER_EVENT,
   type FolderRole,
   type SessionFolder,
-  type SetRoleFolderDetail,
-} from "../../utils/sessionFolders";
-import type { FolderChange } from "./SessionFoldersDialog";
-import { listenForAddFolder, type AddFolderDetail } from "./addFolder";
+  type SetRoleFolderDetail
+} from '../../utils/sessionFolders';
+import type { FolderChange } from './SessionFoldersDialog';
+import { listenForAddFolder, type AddFolderDetail } from './addFolder';
 
 /** The folder trees of a session's folders outside it (G38). */
 function sessionFolderTrees(paths: string[]): Promise<FolderTree[]> {
   return Promise.all(
     paths.map((path) =>
-      invoke<FolderTree>(Invokes.GetFolderTree, { path, expandedFolders: [path], showImageCounts: true }),
-    ),
+      invoke<FolderTree>(Invokes.GetFolderTree, {
+        path,
+        expandedFolders: [path],
+        showImageCounts: true
+      })
+    )
   );
 }
 
@@ -118,7 +131,7 @@ export interface SessionSummary {
   directory: string;
   manifest: {
     name: string;
-    mode: "session" | "catalog";
+    mode: 'session' | 'catalog';
     capture: string;
     output: string;
     selects?: string;
@@ -163,8 +176,14 @@ function reportIngest(
     resumed = false,
     cancelled = false,
     album = null,
-    albumError = null,
-  }: { adding?: boolean; resumed?: boolean; cancelled?: boolean; album?: string | null; albumError?: string | null },
+    albumError = null
+  }: {
+    adding?: boolean;
+    resumed?: boolean;
+    cancelled?: boolean;
+    album?: string | null;
+    albumError?: string | null;
+  }
 ) {
   const failures = results.filter((r) => r.error);
   // A companion JPEG is part of its RAW's photograph, not one of its own.
@@ -176,39 +195,48 @@ function reportIngest(
   const warnings = results.filter((r) => r.warning);
   if (failures.length)
     notify.error(
-      i18n.t("session.toasts.ingestFailed", {
+      i18n.t('session.toasts.ingestFailed', {
         copied,
         count: failures.length,
-        error: failures[0].error,
+        error: failures[0].error
       }),
-      { autoClose: false },
+      { autoClose: false }
     );
   else if (results.length || !resumed)
     notify.success(
       [
         resumed
-          ? i18n.t("session.toasts.ingestResumed", { n: copied })
+          ? i18n.t('session.toasts.ingestResumed', { n: copied })
           : adding
-            ? i18n.t("session.toasts.added", { count: copied })
-            : i18n.t("session.toasts.ingested", { count: copied }),
-        skipped ? i18n.t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
-        sidecars ? i18n.t("session.toasts.sidecarsCopied", { count: sidecars }) : null,
-        companions ? i18n.t("session.toasts.companionsKept", { n: companions }) : null,
-        album && !albumError ? i18n.t("session.toasts.addedToAlbum", { name: album }) : null,
-        cancelled ? i18n.t("session.toasts.ingestCancelled") : null,
+            ? i18n.t('session.toasts.added', { count: copied })
+            : i18n.t('session.toasts.ingested', { count: copied }),
+        skipped ? i18n.t('session.toasts.duplicatesSkipped', { count: skipped }) : null,
+        sidecars ? i18n.t('session.toasts.sidecarsCopied', { count: sidecars }) : null,
+        companions ? i18n.t('session.toasts.companionsKept', { n: companions }) : null,
+        album && !albumError ? i18n.t('session.toasts.addedToAlbum', { name: album }) : null,
+        cancelled ? i18n.t('session.toasts.ingestCancelled') : null
       ]
         .filter(Boolean)
-        .join(" · "),
+        .join(' · ')
     );
   if (warnings.length)
     notify.warning(
-      i18n.t("session.toasts.importWarnings", { count: warnings.length, error: warnings[0].warning }),
-      { autoClose: false },
+      i18n.t('session.toasts.importWarnings', {
+        count: warnings.length,
+        error: warnings[0].warning
+      }),
+      { autoClose: false }
     );
   if (albumError)
-    notify.error(i18n.t("session.toasts.albumAddFailed", { name: album, error: albumError }), {
-      autoClose: false,
-    });
+    notify.error(
+      i18n.t('session.toasts.albumAddFailed', {
+        name: album,
+        error: albumError
+      }),
+      {
+        autoClose: false
+      }
+    );
 }
 /** Mirrors `ingest::queue::JobSummary` (`session_ingest_jobs`). */
 interface IngestJobSummary {
@@ -241,8 +269,27 @@ interface IngestTarget {
 const NO_TARGET: IngestTarget = { folder: null, album: null };
 /** The ingest dialog's file dialog filter when the app's list of formats
  * has not loaded (it normally comes from `get_supported_file_types`). */
-const FALLBACK_RAW = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf"];
-const FALLBACK_EXTENSIONS = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf", "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "avif", "jxl"];
+const FALLBACK_RAW = ['arw', 'dng', 'cr3', 'cr2', 'nef', 'raf', 'rw2', 'orf'];
+const FALLBACK_EXTENSIONS = [
+  'arw',
+  'dng',
+  'cr3',
+  'cr2',
+  'nef',
+  'raf',
+  'rw2',
+  'orf',
+  'jpg',
+  'jpeg',
+  'png',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'webp',
+  'avif',
+  'jxl'
+];
 export interface HotFolderStatus {
   folder: string;
   session: string;
@@ -267,10 +314,7 @@ interface HotFolderImported {
  * goes on from the count the library keeps (`imported` survives restarts:
  * the photographs this hot folder brought in since it was started); a
  * verified duplicate or a failure is not counted. */
-export function countHotFolderCapture(
-  status: HotFolderStatus | null,
-  file: HotFolderImported,
-): HotFolderStatus | null {
+export function countHotFolderCapture(status: HotFolderStatus | null, file: HotFolderImported): HotFolderStatus | null {
   if (!status || file.error || file.skipped) return status;
   return { ...status, imported: status.imported + 1 };
 }
@@ -278,7 +322,7 @@ export function countHotFolderCapture(
 /** Mirrors `library_import::ImportPreview`. */
 interface ImportPreview {
   name: string;
-  kind: "lightroom" | "captureOne";
+  kind: 'lightroom' | 'captureOne';
   photos: number;
   copies: number;
   edited: number;
@@ -315,7 +359,7 @@ export const SLOW_RESTORE_MS = 3000;
 /** The launch's "Last library could not open" notice. It needs attention
  * until a library opens: then it is no longer so and goes (UT3 2026-11-01:
  * it stayed after another library opened). */
-export const RESTORE_FAILED_NOTICE = "session-restore-failed";
+export const RESTORE_FAILED_NOTICE = 'session-restore-failed';
 
 /** A library opened: the launch's restore failure, if any, is over. */
 export function openedLibrary() {
@@ -323,24 +367,27 @@ export function openedLibrary() {
 }
 
 /** The activity centre's entry of a running import. */
-const INGEST_ACTIVITY = "import:ingest";
+const INGEST_ACTIVITY = 'import:ingest';
 
 /** Reopens the last session. Opening a session on another volume can wait on
  * macOS's permission dialog for that volume; after a few seconds the app says
  * which session it is opening instead of showing nothing. */
 export function restoreLastSession(
   navigate: (summary: SessionSummary) => Promise<void>,
-  setError: (message: string) => void,
+  setError: (message: string) => void
 ) {
-  const notice = "session-restore";
+  const notice = 'session-restore';
   const slow = window.setTimeout(() => {
     void invoke<string | null>(Invokes.SessionLastDirectory)
       .then((directory) => {
         if (!directory) return;
         useActivityStore.getState().start({
           id: notice,
-          source: "app",
-          title: i18n.t("session.restore.opening", { name: directory.split(/[\\/]/).pop(), directory }),
+          source: 'app',
+          title: i18n.t('session.restore.opening', {
+            name: directory.split(/[\\/]/).pop(),
+            directory
+          })
         });
       })
       .catch(() => {});
@@ -362,7 +409,10 @@ export function restoreLastSession(
     })
     .catch((e) => {
       done();
-      notify.error(i18n.t("session.restore.failed", { error: String(e) }), { toastId: RESTORE_FAILED_NOTICE, autoClose: false });
+      notify.error(i18n.t('session.restore.failed', { error: String(e) }), {
+        toastId: RESTORE_FAILED_NOTICE,
+        autoClose: false
+      });
     });
 }
 
@@ -371,23 +421,25 @@ export function restoreLastSession(
  * view remounted): that is not leaving it. */
 export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: string | null) {
   if (!tetheredFor || !openLibrary) return false;
-  return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
+  return tetheredFor.replace(/\/$/, '') !== openLibrary.replace(/\/$/, '');
 }
 
 function localDateStamp(): string {
   const now = new Date();
-  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join(
+    '-'
+  );
 }
 
 export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
-  const [form, setForm] = useState<"create" | "ingest" | "hotfolder" | "import" | null>(null);
-  const [importSource, setImportSource] = useState("");
+  const [form, setForm] = useState<'create' | 'ingest' | 'hotfolder' | 'import' | null>(null);
+  const [importSource, setImportSource] = useState('');
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [relinks, setRelinks] = useState<Record<string, string>>({});
   const [hotFolder, setHotFolder] = useState<HotFolderStatus | null>(null);
-  const [hotPath, setHotPath] = useState("");
+  const [hotPath, setHotPath] = useState('');
   const [nextCaptureForm, setNextCaptureForm] = useState<NextCaptureForm>(DEFAULT_NEXT_CAPTURE);
   const [tetherOpen, setTetherOpen] = useState(false);
   const [tether, setTether] = useState<TetherStatus | null>(null);
@@ -395,11 +447,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // The library whose kept hot folder was asked to resume.
   const resumedFor = useRef<string | null>(null);
   const [presets, setPresets] = useState<PresetChoice[]>([]);
-  const [name, setName] = useState("");
-  const [parent, setParent] = useState("");
+  const [name, setName] = useState('');
+  const [parent, setParent] = useState('');
   const [catalog, setCatalog] = useState(false);
   const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
-  const [catalogExport, setCatalogExport] = useState<{ selected: string[]; shown: string[] } | null>(null);
+  const [catalogExport, setCatalogExport] = useState<{
+    selected: string[];
+    shown: string[];
+  } | null>(null);
   const [foldersOpen, setFoldersOpen] = useState(false);
   const [catalogImport, setCatalogImport] = useState(false);
   /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
@@ -412,8 +467,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [target, setTarget] = useState<IngestTarget>(NO_TARGET);
   const [addToAlbum, setAddToAlbum] = useState(true);
   // Copy or add where they are (catalogs), preselected by the sources.
-  const [mode, setMode] = useState<IngestMode>("copy");
-  const [importMode, setImportMode] = useState<IngestMode>("copy");
+  const [mode, setMode] = useState<IngestMode>('copy');
+  const [importMode, setImportMode] = useState<IngestMode>('copy');
   const [fileDrag, setFileDrag] = useState(false);
   // Cancel pressed for the running ingest (also before it reached the backend).
   const cancelRequested = useRef(false);
@@ -425,28 +480,28 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [importMetadata, setImportMetadata] = useState<ImportMetadata | null>(null);
   // RAW+JPEG pairs come in as one photograph unless this is set.
   const [separateJpeg, setSeparateJpeg] = useState(false);
-  const [template, setTemplate] = useState("{orig}");
+  const [template, setTemplate] = useState('{orig}');
   const [sequenceStart, setSequenceStart] = useState(1);
   // The ingest dialog's example name made by the backend from the first
   // chosen photograph's own EXIF and card sidecar, for the template,
   // counter and photograph it was made for.
-  const [namePreview, setNamePreview] = useState<
-    { key: string; result: NamePreview } | null
-  >(null);
-  const previewSource =
-    form === "ingest" ? (sources.find((file) => chosen.has(file.path))?.path ?? null) : null;
-  const previewKey = `${previewSource}\n${template}\n${sequenceStart}\n${session?.manifest.name ?? ""}`;
+  const [namePreview, setNamePreview] = useState<{
+    key: string;
+    result: NamePreview;
+  } | null>(null);
+  const previewSource = form === 'ingest' ? (sources.find((file) => chosen.has(file.path))?.path ?? null) : null;
+  const previewKey = `${previewSource}\n${template}\n${sequenceStart}\n${session?.manifest.name ?? ''}`;
   useEffect(() => {
-    if (!previewSource || !isTauri() || !validNamingTemplate(template, "ingest") || !validSequenceStart(sequenceStart))
+    if (!previewSource || !isTauri() || !validNamingTemplate(template, 'ingest') || !validSequenceStart(sequenceStart))
       return;
     let current = true;
     const timer = window.setTimeout(() => {
       invoke<NamePreview>(Invokes.SessionNamingPreview, {
         source: previewSource,
         template,
-        job: session?.manifest.name ?? "",
+        job: session?.manifest.name ?? '',
         sequence: sequenceStart,
-        sequenceStart,
+        sequenceStart
       })
         .then((result) => current && setNamePreview({ key: previewKey, result }))
         .catch(() => current && setNamePreview(null));
@@ -459,7 +514,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   const restored = useRef(false);
   const summaryRequest = useRef(0);
@@ -476,13 +531,15 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         invoke<FolderTree>(Invokes.GetFolderTree, {
           path: root,
           expandedFolders: [root],
-          showImageCounts: true,
+          showImageCounts: true
         }),
-        invoke<Record<string, number>>(Invokes.SessionFlags, { directory: root }),
-        sessionFolderTrees(outside),
+        invoke<Record<string, number>>(Invokes.SessionFlags, {
+          directory: root
+        }),
+        sessionFolderTrees(outside)
       ]);
       // Opening a library completes first start even if the default was kept.
-      if (storedStudioLayout("layout") === null) {
+      if (storedStudioLayout('layout') === null) {
         const ui = useUIStore.getState();
         ui.setStudioToolLayout(ui.studioToolLayout);
       }
@@ -490,7 +547,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       openedLibrary();
       // A catalog files its photographs in dated folders under Photos: that
       // folder's grid includes them (Lightroom's Show Photos in Subfolders).
-      const subfolderDefaultRoot = summary.manifest.mode === "catalog" ? await join(root, summary.manifest.capture) : null;
+      const subfolderDefaultRoot =
+        summary.manifest.mode === 'catalog' ? await join(root, summary.manifest.capture) : null;
       useLibraryStore.getState().setLibrary({
         sessionDirectory: root,
         sessionFolders: summary.folders ?? [],
@@ -498,27 +556,28 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         imageFlags: flags,
         rootPaths: [root, ...outsideTrees.map((t) => t.path)],
         folderTrees: [tree, ...outsideTrees],
-        expandedFolders: new Set([root]),
+        expandedFolders: new Set([root])
       });
       const settings = useSettingsStore.getState();
       if (settings.appSettings)
         settings.handleSettingsChange({
           ...settings.appSettings,
-          rootFolders: [root],
+          rootFolders: [root]
         });
       // The Capture folder; the session itself while it is not available,
       // and while it is missing but not the app's own default to make again
       // (a configured folder whose parent was renamed is never made at its
       // old path: opening it would create exactly that folder again).
-      const capture = openableFolderPath(summary.folders, "capture", await join(root, summary.manifest.capture));
+      const capture = openableFolderPath(summary.folders, 'capture', await join(root, summary.manifest.capture));
       await onNavigate(capture ?? root, true);
       const current = useSettingsStore.getState();
-      if (current.appSettings) void current.handleSettingsChange({
-        ...current.appSettings,
-        recentLibraries: withRecentLibrary(current.appSettings.recentLibraries, root),
-      });
+      if (current.appSettings)
+        void current.handleSettingsChange({
+          ...current.appSettings,
+          recentLibraries: withRecentLibrary(current.appSettings.recentLibraries, root)
+        });
     },
-    [onNavigate],
+    [onNavigate]
   );
 
   useEffect(() => {
@@ -550,18 +609,20 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!isTauri()) return;
     let disposed = false;
     let stop: (() => void) | undefined;
-    void listen<{ from: string; to: string }>("session-moved", ({ payload }) => {
+    void listen<{ from: string; to: string }>('session-moved', ({ payload }) => {
       const settings = useSettingsStore.getState();
       if (settings.appSettings)
         void settings.handleSettingsChange({
           ...settings.appSettings,
-          recentLibraries: withMovedLibrary(settings.appSettings.recentLibraries, payload.from, payload.to),
+          recentLibraries: withMovedLibrary(settings.appSettings.recentLibraries, payload.from, payload.to)
         });
       if (useLibraryStore.getState().sessionDirectory !== payload.from) {
         followLibraryMove(payload.from, payload.to);
         return;
       }
-      void invoke<SessionSummary>(Invokes.SessionOpen, { directory: payload.to })
+      void invoke<SessionSummary>(Invokes.SessionOpen, {
+        directory: payload.to
+      })
         .then((summary) => {
           followLibraryMove(payload.from, summary.directory);
           return navigate(summary);
@@ -583,10 +644,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useLayoutEffect(() => {
     if (form) {
       dialog.current?.showModal();
-      dialog.current
-        ?.querySelector<HTMLElement>('form input:not([type="radio"]), form button')
-        ?.focus();
-      setError("");
+      dialog.current?.querySelector<HTMLElement>('form input:not([type="radio"]), form button')?.focus();
+      setError('');
     } else dialog.current?.close();
   }, [form]);
 
@@ -594,9 +653,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!isTauri()) return;
     let disposed = false;
     let stop: (() => void) | undefined;
-    void listen<Progress>("session-ingest-progress", (event) =>
-      setProgress(event.payload),
-    ).then((fn) => {
+    void listen<Progress>('session-ingest-progress', (event) => setProgress(event.payload)).then((fn) => {
       if (disposed) fn();
       else stop = fn;
     });
@@ -612,7 +669,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!isTauri()) return;
     let disposed = false;
     let stop: (() => void) | undefined;
-    void listen<{ connected: boolean; status?: TetherStatus }>("tether-state", (event) => {
+    void listen<{ connected: boolean; status?: TetherStatus }>('tether-state', (event) => {
       if (event.payload.connected && event.payload.status) setTether(event.payload.status);
     }).then((fn) => {
       if (disposed) fn();
@@ -630,7 +687,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     let disposed = false;
     let stop: (() => void) | undefined;
     const recount = throttleAsync(() => refreshRef.current(), 500);
-    void listen<IngestedFile>("session-ingest-imported", (event) => {
+    void listen<IngestedFile>('session-ingest-imported', (event) => {
       if (!event.payload.error && !event.payload.skipped) recount();
     }).then((fn) => {
       if (disposed) fn();
@@ -647,16 +704,18 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!isTauri()) return;
     let disposed = false;
     let stop: (() => void) | undefined;
-    void listen<HotFolderImported>(
-      "hot-folder-imported",
-      (event) => {
-        const { error, skipped, source } = event.payload;
-        setHotFolder((current) => countHotFolderCapture(current, event.payload));
-        if (error)
-          notify.error(i18n.t("session.toasts.hotFolderFailed", { file: source.split(/[\\/]/).pop(), error }));
-        else if (!skipped) void refreshRef.current();
-      },
-    ).then((fn) => {
+    void listen<HotFolderImported>('hot-folder-imported', (event) => {
+      const { error, skipped, source } = event.payload;
+      setHotFolder((current) => countHotFolderCapture(current, event.payload));
+      if (error)
+        notify.error(
+          i18n.t('session.toasts.hotFolderFailed', {
+            file: source.split(/[\\/]/).pop(),
+            error
+          })
+        );
+      else if (!skipped) void refreshRef.current();
+    }).then((fn) => {
       if (disposed) fn();
       else stop = fn;
     });
@@ -671,7 +730,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!isTauri()) return;
     let disposed = false;
     let stop: (() => void) | undefined;
-    void listen<{ missing: boolean }>("hot-folder-state", (event) => {
+    void listen<{ missing: boolean }>('hot-folder-state', (event) => {
       setHotFolder((current) => current && { ...current, missing: event.payload.missing });
     }).then((fn) => {
       if (disposed) fn();
@@ -686,8 +745,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // A hot folder feeds the session it was started for; another library
   // pauses it (the library keeps it and resumes it when opened again).
   useEffect(() => {
-    if (hotFolder && session && !hotFolder.session.startsWith(session.directory.replace(/\/$/, ""))) {
-      void hotFolderCommand(Invokes.HotFolderSuspend, { directory: hotFolder.session }).catch(() => {});
+    if (hotFolder && session && !hotFolder.session.startsWith(session.directory.replace(/\/$/, ''))) {
+      void hotFolderCommand(Invokes.HotFolderSuspend, {
+        directory: hotFolder.session
+      }).catch(() => {});
       setHotFolder(null);
     }
   }, [session, hotFolder]);
@@ -703,10 +764,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     // A camera still connected (the window was reloaded).
     void invoke<TetherStatus | null>(Invokes.TetherStatus)
       .then((status) => {
-        if (!status?.camera || typeof status.session !== "string") return;
+        if (!status?.camera || typeof status.session !== 'string') return;
         // Also a camera that is away: leaving its library cancels its
         // reconnect — at once if another library is already open.
-        tetheredFor.current = status.session.replace(/\/$/, "");
+        tetheredFor.current = status.session.replace(/\/$/, '');
         if (leavesTetheredLibrary(tetheredFor.current, useLibraryStore.getState().sessionDirectory)) {
           tetheredFor.current = null;
           void invoke(Invokes.TetherDisconnect).catch(() => {});
@@ -717,7 +778,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       .catch(() => {});
   }, []);
   useEffect(() => {
-    if (tether) tetheredFor.current = tether.session.replace(/\/$/, "");
+    if (tether) tetheredFor.current = tether.session.replace(/\/$/, '');
   }, [tether]);
   // The open library as the store knows it: set when a library opens, kept
   // while this view is remounted (fullscreen) or still restoring it.
@@ -739,21 +800,25 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     resumedFor.current = sessionDirectory;
     // Still the library shown when the answer comes.
     const current = () => openDirectory.current === sessionDirectory;
-    hotFolderCommand<HotFolderStatus | null>(Invokes.HotFolderResume, { directory: sessionDirectory })
+    hotFolderCommand<HotFolderStatus | null>(Invokes.HotFolderResume, {
+      directory: sessionDirectory
+    })
       .then((status) => {
-        if (typeof status?.folder !== "string") return;
+        if (typeof status?.folder !== 'string') return;
         // Resumed for a library left meanwhile: it must not feed the next one.
         if (!current()) {
-          void invoke(Invokes.HotFolderSuspend, { directory: sessionDirectory });
+          void invoke(Invokes.HotFolderSuspend, {
+            directory: sessionDirectory
+          });
           return;
         }
         setHotFolder(status);
         const folder = status.folder.split(/[\\/]/).pop();
-        if (status.missing) notify.info(i18n.t("session.toasts.watchingMissing", { folder }));
-        else notify.info(i18n.t("session.toasts.watchingResumed", { folder }));
+        if (status.missing) notify.info(i18n.t('session.toasts.watchingMissing', { folder }));
+        else notify.info(i18n.t('session.toasts.watchingResumed', { folder }));
       })
       .catch((e) => {
-        if (current()) notify.error(i18n.t("session.toasts.hotFolderResumeFailed", { error: String(e) }));
+        if (current()) notify.error(i18n.t('session.toasts.hotFolderResumeFailed', { error: String(e) }));
       });
   }, [sessionDirectory]);
 
@@ -765,11 +830,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   resumeIngests.current = async (directory: string) => {
     const current = () => openDirectory.current === directory;
     try {
-      const jobs = await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, { directory });
+      const jobs = await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, {
+        directory
+      });
       if (!current() || !jobs.length) return;
       if (jobs.some((job) => job.available > 0)) {
         setImporting(true);
-        setImportMode("copy");
+        setImportMode('copy');
         try {
           const results = await invoke<ImportResult[]>(Invokes.SessionIngestResume, { directory });
           reportIngest(results, { resumed: true });
@@ -780,29 +847,38 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         }
       }
       if (!current()) return;
-      const waiting = (await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, { directory })).filter(
-        (job) => job.open > 0,
-      );
+      const waiting = (
+        await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, {
+          directory
+        })
+      ).filter((job) => job.open > 0);
       for (const job of waiting) {
         const toastId = `ingest-waiting-${job.id}`;
         // Waits for its card or drive: under Needs attention until imported
         // or forgotten.
-        notify.warn(i18n.t("session.toasts.ingestWaiting", { n: job.open }), {
+        notify.warn(i18n.t('session.toasts.ingestWaiting', { n: job.open }), {
           toastId,
-          source: "import",
+          source: 'import',
           actions: [
-            { label: i18n.t("session.toasts.ingestRetry"), settles: true, run: () => resumeIngests.current(directory) },
             {
-              label: i18n.t("session.toasts.ingestForget"),
+              label: i18n.t('session.toasts.ingestRetry'),
+              settles: true,
+              run: () => resumeIngests.current(directory)
+            },
+            {
+              label: i18n.t('session.toasts.ingestForget'),
               settles: true,
               run: () =>
-                invoke(Invokes.SessionIngestForget, { directory, id: job.id }).catch((e) => notify.error(String(e))),
-            },
-          ],
+                invoke(Invokes.SessionIngestForget, {
+                  directory,
+                  id: job.id
+                }).catch((e) => notify.error(String(e)))
+            }
+          ]
         });
       }
     } catch (e) {
-      if (current()) notify.error(i18n.t("session.toasts.ingestResumeFailed", { error: String(e) }));
+      if (current()) notify.error(i18n.t('session.toasts.ingestResumeFailed', { error: String(e) }));
     }
   };
   // A running import is one task of the activity centre, with Cancel.
@@ -814,19 +890,19 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     }
     activity.start({
       id: INGEST_ACTIVITY,
-      source: "import",
+      source: 'import',
       title: progress
-        ? i18n.t(importMode === "add" ? "session.progress.adding" : "session.progress.verifying", {
+        ? i18n.t(importMode === 'add' ? 'session.progress.adding' : 'session.progress.verifying', {
             current: progress.current,
-            count: progress.total,
+            count: progress.total
           })
-        : i18n.t("activity.import.starting"),
+        : i18n.t('activity.import.starting'),
       detail: progress ? `${progress.mbps.toFixed(1)} MB/s` : undefined,
       progress: progress ? { done: progress.current, total: progress.total } : undefined,
       cancel: () => {
         cancelRequested.current = true;
         void invoke(Invokes.SessionCancelIngest);
-      },
+      }
     });
   }, [importing, progress, importMode]);
   const ingestResumedFor = useRef<string | null>(null);
@@ -847,18 +923,20 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         template,
         nextCapture,
         metadata,
-        includeSubfolders,
+        includeSubfolders
       });
       setHotFolder(status);
       setForm(null);
-      notify.success(t("session.toasts.watching", { folder: hotPath.split(/[\\/]/).pop() }));
+      notify.success(t('session.toasts.watching', { folder: hotPath.split(/[\\/]/).pop() }));
     } catch (e) {
       setError(String(e));
     }
   };
   const stopHotFolder = async () => {
     try {
-      await hotFolderCommand(Invokes.HotFolderStop, { directory: session?.directory ?? null });
+      await hotFolderCommand(Invokes.HotFolderStop, {
+        directory: session?.directory ?? null
+      });
       setHotFolder(null);
     } catch (e) {
       setError(String(e));
@@ -871,10 +949,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       setNextCaptureForm((form) => ({
         ...form,
         rating: hotFolder.metadata?.rating ?? 0,
-        keywords: (hotFolder.metadata?.keywords ?? []).join(", "),
+        keywords: (hotFolder.metadata?.keywords ?? []).join(', ')
       }));
     }
-    setForm("hotfolder");
+    setForm('hotfolder');
     try {
       setPresets(flattenPresets((await invoke<PresetItemJson[]>(Invokes.LoadPresets)) ?? []));
     } catch {
@@ -887,13 +965,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       .filter(([, to]) => to.trim())
       .map(([from, to]) => ({ from, to: to.trim() }));
   const previewImport = async () => {
-    setError("");
+    setError('');
     try {
       setImportPreview(
         await invoke<ImportPreview>(Invokes.LibraryImportPreview, {
           source: importSource.trim(),
-          relinks: relinkList(),
-        }),
+          relinks: relinkList()
+        })
       );
     } catch (e) {
       setError(String(e));
@@ -903,37 +981,43 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     event.preventDefault();
     if (!session || !importPreview) return;
     setBusy(true);
-    setError("");
+    setError('');
     try {
-      noteTool("ingest");
+      noteTool('ingest');
       const report = await invoke<ImportReport>(Invokes.LibraryImport, {
         source: importSource.trim(),
         directory: session.directory,
-        relinks: relinkList(),
+        relinks: relinkList()
       });
       notify.success(
         [
-          t("session.toasts.imported", {
+          t('session.toasts.imported', {
             count: report.imported,
             withSettings: report.withSettings,
-            albums: report.albums,
+            albums: report.albums
           }),
-          report.missing ? t("session.toasts.importNotFound", { count: report.missing }) : null,
-          report.copies ? t("session.toasts.importCopies", { count: report.copies }) : null,
+          report.missing ? t('session.toasts.importNotFound', { count: report.missing }) : null,
+          report.copies ? t('session.toasts.importCopies', { count: report.copies }) : null,
           report.copiesSkipped
-            ? t("session.toasts.importCopiesSkipped", { count: report.copiesSkipped })
+            ? t('session.toasts.importCopiesSkipped', {
+                count: report.copiesSkipped
+              })
             : null,
-          report.stacks ? t("session.toasts.importStacks", { count: report.stacks }) : null,
+          report.stacks ? t('session.toasts.importStacks', { count: report.stacks }) : null,
           report.cropsClipped
-            ? t("session.toasts.importCropsClipped", { count: report.cropsClipped })
+            ? t('session.toasts.importCropsClipped', {
+                count: report.cropsClipped
+              })
             : null,
           report.aiMasksOnOpen
-            ? t("session.toasts.importAiMasksOnOpen", { count: report.aiMasksOnOpen })
-            : null,
+            ? t('session.toasts.importAiMasksOnOpen', {
+                count: report.aiMasksOnOpen
+              })
+            : null
         ]
           .filter(Boolean)
-          .join(" · "),
-        { autoClose: 8000 },
+          .join(' · '),
+        { autoClose: 8000 }
       );
       if (report.errors.length) notify.error(report.errors[0], { autoClose: false });
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
@@ -951,7 +1035,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!session) return;
     const request = ++summaryRequest.current;
     const summary = await invoke<SessionSummary>(Invokes.SessionSummary, {
-      directory: session.directory,
+      directory: session.directory
     });
     if (request === summaryRequest.current && useLibraryStore.getState().sessionDirectory === session.directory)
       setSession(summary);
@@ -959,7 +1043,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // A folder changed in Session Folders: the summary, the folders listed
   // beside the session and the fixed folders follow.
   const refreshFolders = useCallback(async (directory: string) => {
-    const summary = await invoke<SessionSummary>(Invokes.SessionSummary, { directory });
+    const summary = await invoke<SessionSummary>(Invokes.SessionSummary, {
+      directory
+    });
     if (useLibraryStore.getState().sessionDirectory !== directory) return;
     setSession(summary);
     const outside = outsideFolders(summary.folders);
@@ -968,7 +1054,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setLibrary({
       sessionFolders: summary.folders ?? [],
       rootPaths: [directory, ...trees.map((t) => t.path)],
-      folderTrees: [...folderTrees.filter((tree) => tree.path === directory), ...trees],
+      folderTrees: [...folderTrees.filter((tree) => tree.path === directory), ...trees]
     });
   }, []);
   // A folder made the Capture, Selects or Output folder in the folder tree's
@@ -984,31 +1070,41 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           directory: library,
           role,
           path,
-          moveContents: false,
+          moveContents: false
         });
         await refreshFolders(library);
         const name = i18n.t(`session.folders.role.${role}`);
         notify.success(
           change.folder.available
-            ? i18n.t("studio.library.folders.roleSet", { folder: path, name })
-            : i18n.t("studio.library.folders.roleSetMissing", { folder: path, name }),
+            ? i18n.t('studio.library.folders.roleSet', { folder: path, name })
+            : i18n.t('studio.library.folders.roleSetMissing', {
+                folder: path,
+                name
+              })
         );
       } catch (e) {
         notify.error(
-          i18n.t("studio.library.folders.roleSetFailed", { name: i18n.t(`session.folders.role.${role}`), error: String(e) }),
-          { autoClose: false },
+          i18n.t('studio.library.folders.roleSetFailed', {
+            name: i18n.t(`session.folders.role.${role}`),
+            error: String(e)
+          }),
+          { autoClose: false }
         );
       }
     },
-    [refreshFolders],
+    [refreshFolders]
   );
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   // Undo/redo can restore flags without going through mark(): refresh the
   // picked and pending-XMP counts after the catalog operation settles.
-  useEffect(() => useCatalogUndoStore.subscribe((state, previous) => {
-    if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
-  }), []);
+  useEffect(
+    () =>
+      useCatalogUndoStore.subscribe((state, previous) => {
+        if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
+      }),
+    []
+  );
   // Each settled photo write (editor save, batch paste/preset/reset, rating,
   // label…; written or not) can change how many XMP files are behind.
   useEffect(() => {
@@ -1021,7 +1117,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   }, []);
   // The folder list's "Synchronize Folder…".
   useEffect(() => {
-    const open = (e: Event) => setSyncing({ folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder });
+    const open = (e: Event) =>
+      setSyncing({
+        folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder
+      });
     window.addEventListener(OPEN_FOLDER_SYNC_EVENT, open);
     return () => window.removeEventListener(OPEN_FOLDER_SYNC_EVENT, open);
   }, []);
@@ -1032,12 +1131,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // An album view's "folder" is its name ("Album: …"), not a place.
       const shown = useLibraryStore.getState().currentFolderPath;
       const picked = await openDialog({
-        title: t("session.sync.chooseFolder"),
+        title: t('session.sync.chooseFolder'),
         directory: true,
         multiple: false,
-        defaultPath: shown && !shown.startsWith("Album: ") ? shown : session.directory,
+        defaultPath: shown && !shown.startsWith('Album: ') ? shown : session.directory
       });
-      if (typeof picked === "string") setSyncing({ folder: picked });
+      if (typeof picked === 'string') setSyncing({ folder: picked });
     } catch (e) {
       notify.error(String(e));
     }
@@ -1057,8 +1156,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // back in front and when a folder is shown, then counted on the bar.
   useEffect(
     () =>
-      sessionDirectory ? watchXmpSidecars(sessionDirectory, () => void refreshRef.current().catch(() => {})) : undefined,
-    [sessionDirectory],
+      sessionDirectory
+        ? watchXmpSidecars(sessionDirectory, () => void refreshRef.current().catch(() => {}))
+        : undefined,
+    [sessionDirectory]
   );
   // A drive connected, ejected or mounted elsewhere while a library is open.
   const libraryOpen = Boolean(session?.directory);
@@ -1074,29 +1175,37 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       if (!session || paths.length === 0) return;
       // Rapid P/X/U commands must reach SQLite in keyboard order. Apply only
       // acknowledged changes, and never paint a previous session's response.
-      noteTool("culling");
-      return catalogAction('flag', async ({ resolvePaths }) => {
-        const changed = await invokeInOrder<CullingChange[]>(Invokes.SessionSetFlag, {
-          directory: session.directory, paths: resolvePaths(paths), flag,
-        });
-        if (useLibraryStore.getState().sessionDirectory === session.directory) {
-          showCullingChanges(changed);
-          void refresh().catch((e) => notify.error(t("session.toasts.flagsSavedRefreshFailed", { error: String(e) })));
-        }
-        return changed;
-      }, paths).catch((e) => { notify.error(t("session.toasts.flagsFailed", { error: String(e) })); });
+      noteTool('culling');
+      return catalogAction(
+        'flag',
+        async ({ resolvePaths }) => {
+          const changed = await invokeInOrder<CullingChange[]>(Invokes.SessionSetFlag, {
+            directory: session.directory,
+            paths: resolvePaths(paths),
+            flag
+          });
+          if (useLibraryStore.getState().sessionDirectory === session.directory) {
+            showCullingChanges(changed);
+            void refresh().catch((e) =>
+              notify.error(
+                t('session.toasts.flagsSavedRefreshFailed', {
+                  error: String(e)
+                })
+              )
+            );
+          }
+          return changed;
+        },
+        paths
+      ).catch((e) => {
+        notify.error(t('session.toasts.flagsFailed', { error: String(e) }));
+      });
     },
-    [session, refresh, t],
+    [session, refresh, t]
   );
   const { showContextMenu } = useContextMenu();
-  const setCenterSlot = useCallback(
-    (center: HTMLDivElement | null) => useSessionBar.getState().set({ center }),
-    [],
-  );
-  const setEndSlot = useCallback(
-    (end: HTMLDivElement | null) => useSessionBar.getState().set({ end }),
-    [],
-  );
+  const setCenterSlot = useCallback((center: HTMLDivElement | null) => useSessionBar.getState().set({ center }), []);
+  const setEndSlot = useCallback((end: HTMLDivElement | null) => useSessionBar.getState().set({ end }), []);
   useEffect(() => {
     useSessionBar.getState().set({ mark: session ? mark : null });
     return () => useSessionBar.getState().set({ mark: null });
@@ -1112,17 +1221,21 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     importPhotos: () => {},
     idle: false,
     flaggable: false,
-    open: false,
+    open: false
   });
   menuCommands.current = {
     flag: (flag: number) => {
       void mark(flag);
       const ui = useUIStore.getState();
-      requestAutoAdvance(viewerShown(ui) ? useEditorStore.getState().selectedImage?.path : useLibraryStore.getState().libraryActivePath ?? undefined);
+      requestAutoAdvance(
+        viewerShown(ui)
+          ? useEditorStore.getState().selectedImage?.path
+          : (useLibraryStore.getState().libraryActivePath ?? undefined)
+      );
     },
     newSession: () => {
       setImportAfterCreate(false);
-      setForm("create");
+      setForm('create');
     },
     openSession: () => void openSession(),
     openRecent: (directory: string) => void openRecentDirectory(directory),
@@ -1130,7 +1243,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     idle: !busy && !importing && !form,
     // As the keys: with a library open, no dialog over it.
     flaggable: !!session && !form,
-    open: !!session,
+    open: !!session
   };
   // Busy, importing and the open form live here, not in a store.
   useEffect(notifyAppCommandsChanged, [busy, importing, form, session]);
@@ -1143,17 +1256,23 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         flagTargets(
           useUIStore.getState(),
           useEditorStore.getState().selectedImage?.path,
-          useLibraryStore.getState().multiSelectedPaths,
+          useLibraryStore.getState().multiSelectedPaths
         ).length > 0,
-      run: () => now().flag(value),
+      run: () => now().flag(value)
     });
     return registerAppCommands({
       new_session: { enabled: () => now().idle, run: () => now().newSession() },
-      open_session: { enabled: () => now().idle, run: () => now().openSession() },
-      import_photos: { enabled: () => now().idle && now().open, run: () => now().importPhotos() },
+      open_session: {
+        enabled: () => now().idle,
+        run: () => now().openSession()
+      },
+      import_photos: {
+        enabled: () => now().idle && now().open,
+        run: () => now().importPhotos()
+      },
       flag_pick: flag(1),
       flag_unflag: flag(0),
-      flag_reject: flag(-1),
+      flag_reject: flag(-1)
     });
   }, []);
 
@@ -1162,28 +1281,48 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => {
     if (!settingsLoaded || recentLibraries !== undefined || !isTauri()) return;
     let active = true;
-    void invoke<string | null>(Invokes.SessionLastDirectory).then((directory) => {
-      const current = useSettingsStore.getState();
-      if (active && directory && current.appSettings && current.appSettings.recentLibraries === undefined) {
-        void current.handleSettingsChange({ ...current.appSettings, recentLibraries: [directory] });
-      }
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [settingsLoaded, recentLibraries]);
-  useEffect(() => registerAppCommands({
-    clear_recent: {
-      enabled: () => !!useSettingsStore.getState().appSettings?.recentLibraries?.length,
-      run: () => {
+    void invoke<string | null>(Invokes.SessionLastDirectory)
+      .then((directory) => {
         const current = useSettingsStore.getState();
-        if (current.appSettings) void current.handleSettingsChange({ ...current.appSettings, recentLibraries: [] });
-      },
-    },
-    ...Object.fromEntries((recentLibraries ?? []).map((directory) => [`recent:${directory}`, {
-      menu: { group: 'recent' as const, label: directory },
-      enabled: () => menuCommands.current.idle,
-      run: () => menuCommands.current.openRecent(directory),
-    }])),
-  }), [recentLibraries]);
+        if (active && directory && current.appSettings && current.appSettings.recentLibraries === undefined) {
+          void current.handleSettingsChange({
+            ...current.appSettings,
+            recentLibraries: [directory]
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [settingsLoaded, recentLibraries]);
+  useEffect(
+    () =>
+      registerAppCommands({
+        clear_recent: {
+          enabled: () => !!useSettingsStore.getState().appSettings?.recentLibraries?.length,
+          run: () => {
+            const current = useSettingsStore.getState();
+            if (current.appSettings)
+              void current.handleSettingsChange({
+                ...current.appSettings,
+                recentLibraries: []
+              });
+          }
+        },
+        ...Object.fromEntries(
+          (recentLibraries ?? []).map((directory) => [
+            `recent:${directory}`,
+            {
+              menu: { group: 'recent' as const, label: directory },
+              enabled: () => menuCommands.current.idle,
+              run: () => menuCommands.current.openRecent(directory)
+            }
+          ])
+        )
+      }),
+    [recentLibraries]
+  );
 
   useLayoutEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1192,8 +1331,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         // The import dialog's photo grid and its large view take their own
         // keys (arrows, Enter, Space; Escape leaves the large view, not the
         // dialog). Global shortcuts ignore keys while a dialog is open.
-        if (target?.closest?.(".session-ingest-preview")) return;
-        if (e.key === "Escape") {
+        if (target?.closest?.('.session-ingest-preview')) return;
+        if (e.key === 'Escape') {
           e.stopImmediatePropagation();
           e.preventDefault();
           if (!busy) setForm(null);
@@ -1206,7 +1345,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       )
         return;
       const settings = useSettingsStore.getState();
-      const actions = buildComboMap(settings.appSettings?.keybinds).get(normalizeCombo(e, settings.osPlatform).join('+')) ?? [];
+      const actions =
+        buildComboMap(settings.appSettings?.keybinds).get(normalizeCombo(e, settings.osPlatform).join('+')) ?? [];
       for (const action of actions) {
         if (action.startsWith('flag_') && runAppCommand(action)) {
           e.preventDefault();
@@ -1215,14 +1355,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         }
       }
     };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
   }, [mark, form, session, busy]);
 
   const chooseFolder = async (setter: (value: string) => void) => {
     try {
       const value = await openDialog({ directory: true, multiple: false });
-      if (typeof value === "string") setter(value);
+      if (typeof value === 'string') setter(value);
     } catch (e) {
       setError(String(e));
     }
@@ -1231,17 +1371,17 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     const directory = await openDialog({
       directory: true,
       multiple: false,
-      title: t("session.dialogs.openTitle"),
+      title: t('session.dialogs.openTitle')
     });
-    if (typeof directory !== "string") return;
+    if (typeof directory !== 'string') return;
     await openRecentDirectory(directory);
   };
   const openRecentDirectory = async (directory: string) => {
     setBusy(true);
-    setError("");
+    setError('');
     try {
       await switchLibraryAfterSaves(async () =>
-        navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })),
+        navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }))
       );
     } catch (e) {
       setError(String(e));
@@ -1253,30 +1393,29 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const openImport = () => {
     setImportPreview(null);
     setRelinks({});
-    setForm("import");
+    setForm('import');
   };
   /** Imports into the open catalog, else creates one to import into. */
   const startImport = () => {
-    if (session?.manifest.mode === "catalog") return openImport();
+    if (session?.manifest.mode === 'catalog') return openImport();
     setImportAfterCreate(true);
-    setForm("create");
+    setForm('create');
   };
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setError("");
+    setError('');
     const asCatalog = catalog || importAfterCreate;
     try {
-      const directory = await join(
-        parent,
-        name.trim() + (asCatalog ? ".catalog" : ""),
-      );
+      const directory = await join(parent, name.trim() + (asCatalog ? '.catalog' : ''));
       const created = await switchLibraryAfterSaves(async () => {
-        await navigate(await invoke<SessionSummary>(Invokes.SessionCreate, {
-          directory,
-          name: name.trim(),
-          catalog: asCatalog,
-        }));
+        await navigate(
+          await invoke<SessionSummary>(Invokes.SessionCreate, {
+            directory,
+            name: name.trim(),
+            catalog: asCatalog
+          })
+        );
         return true;
       });
       if (!created) return;
@@ -1309,7 +1448,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     try {
       const scan = await invoke<IngestScan>(Invokes.SessionIngestScan, {
         directory: session?.directory ?? null,
-        paths,
+        paths
       });
       if (list !== scanList.current) return;
       const known = new Set(listed.current.map((file) => file.path));
@@ -1321,9 +1460,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         for (const file of added) if (!file.duplicate) next.add(file.path);
         return next;
       });
-      if (!listed.current.length) setError(t("session.ingest.noPhotos"));
-      else if (scan.truncated) setError(t("session.ingest.truncated", { n: scan.files.length.toLocaleString() }));
-      else setError("");
+      if (!listed.current.length) setError(t('session.ingest.noPhotos'));
+      else if (scan.truncated)
+        setError(
+          t('session.ingest.truncated', {
+            n: scan.files.length.toLocaleString()
+          })
+        );
+      else setError('');
     } catch (e) {
       if (list === scanList.current) setError(String(e));
     } finally {
@@ -1334,7 +1478,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setImportMetadata(null);
     setTarget(next);
     setAddToAlbum(true);
-    setForm("ingest");
+    setForm('ingest');
     void addSources(paths, true);
   };
   const extensions = () => {
@@ -1345,13 +1489,22 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     try {
       const value = await openDialog(
         folders
-          ? { multiple: true, directory: true, title: t("session.ingest.chooseFolderTitle") }
+          ? {
+              multiple: true,
+              directory: true,
+              title: t('session.ingest.chooseFolderTitle')
+            }
           : {
               multiple: true,
               directory: false,
-              title: t("session.ingest.chooseTitle"),
-              filters: [{ name: t("session.ingest.photographs"), extensions: extensions() }],
-            },
+              title: t('session.ingest.chooseTitle'),
+              filters: [
+                {
+                  name: t('session.ingest.photographs'),
+                  extensions: extensions()
+                }
+              ]
+            }
       );
       const paths = Array.isArray(value) ? value : value ? [value] : [];
       if (paths.length) await addSources(paths, false);
@@ -1364,25 +1517,24 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
    * silent copy), onto an album or folder with that as the target. */
   const onFileDrop = ({ paths, target: onto }: FileDrop) => {
     if (!session) {
-      notify.info(t("session.drop.noLibrary"));
+      notify.info(t('session.drop.noLibrary'));
       return;
     }
     if (importing) {
-      notify.info(t("session.drop.importing"));
+      notify.info(t('session.drop.importing'));
       return;
     }
     // Synchronize Folder and the library copy are dialogs of their own.
     if (syncing || transfer) return;
-    if (form && form !== "ingest") return;
+    if (form && form !== 'ingest') return;
     const next: IngestTarget = {
       folder:
-        onto?.kind === "folder" &&
-        folderAcceptsDrop(onto.path, session.directory, session.manifest.mode === "catalog")
+        onto?.kind === 'folder' && folderAcceptsDrop(onto.path, session.directory, session.manifest.mode === 'catalog')
           ? onto.path
           : null,
-      album: onto?.kind === "album" ? { id: onto.id, name: onto.name } : null,
+      album: onto?.kind === 'album' ? { id: onto.id, name: onto.name } : null
     };
-    if (form === "ingest") {
+    if (form === 'ingest') {
       // More files dropped onto the open dialog join the list.
       if (next.folder || next.album) setTarget(next);
       void addSources(paths, false);
@@ -1394,7 +1546,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const importInto = useRef<(folder: string) => void>(() => {});
   importInto.current = (folder: string) => {
     if (!session || importing) return;
-    if (form === "ingest") setTarget((current) => ({ ...current, folder }));
+    if (form === 'ingest') setTarget((current) => ({ ...current, folder }));
     else if (!form) openIngest([], { folder, album: null });
   };
   useEffect(() => {
@@ -1421,7 +1573,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   openAddFolder.current = (detail) => {
     if (!session) return void detail.show();
     if (importing) {
-      notify.info(t("session.drop.importing"));
+      notify.info(t('session.drop.importing'));
       return;
     }
     setAddFolder(detail);
@@ -1431,22 +1583,22 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // Recomputed whenever the sources or the target change, never kept from
   // the last import (ingestMode.ts has the rules).
   const modeChoice = preselectIngestMode({
-    catalog: session?.manifest.mode === "catalog",
+    catalog: session?.manifest.mode === 'catalog',
     files: sources,
-    intoFolder: Boolean(target.folder),
+    intoFolder: Boolean(target.folder)
   });
   const preselected = modeChoice.mode;
   useEffect(() => setMode(preselected), [sources, target.folder, preselected]);
-  const ingestMode: IngestMode = mode === "add" && modeChoice.canAdd ? "add" : "copy";
+  const ingestMode: IngestMode = mode === 'add' && modeChoice.canAdd ? 'add' : 'copy';
   // The choice of separate JPEGs is offered only when there are pairs.
   const supportedTypes = useSettingsStore((state) => state.supportedTypes);
   const pairsChosen = useMemo(
     () =>
       hasRawJpegPairs(
         sources.filter((file) => chosen.has(file.path)).map((file) => file.path),
-        supportedTypes?.raw ?? FALLBACK_RAW,
+        supportedTypes?.raw ?? FALLBACK_RAW
       ),
-    [sources, chosen, supportedTypes],
+    [sources, chosen, supportedTypes]
   );
 
   const ingest = async (event: React.FormEvent) => {
@@ -1454,14 +1606,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!session) return;
     const files = sources.filter((file) => chosen.has(file.path)).map((file) => file.path);
     if (!files.length) return;
-    const adding = ingestMode === "add";
+    const adding = ingestMode === 'add';
     setForm(null);
     await runIngest(files, {
       adding,
       folder: adding ? null : target.folder,
       album: addToAlbum ? target.album : null,
       separateJpeg,
-      metadata: importMetadata,
+      metadata: importMetadata
     });
   };
 
@@ -1477,7 +1629,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       album,
       separateJpeg,
       metadata,
-      destination: shown,
+      destination: shown
     }: {
       adding: boolean;
       folder: string | null;
@@ -1486,7 +1638,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       metadata: ImportMetadata | null;
       /** The folder the grid shows meanwhile (else the first one's). */
       destination?: string;
-    },
+    }
   ) => {
     if (!session) return;
     cancelRequested.current = false;
@@ -1499,20 +1651,20 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       const destination =
         shown ??
         (adding
-          ? files[0].slice(0, Math.max(files[0].lastIndexOf("/"), files[0].lastIndexOf("\\")))
-          : (folder ?? sessionFolderPath(session, "capture")));
-      setImportMode(adding ? "add" : "copy");
-      if (useUIStore.getState().activeView !== "editor") await onNavigate(destination);
+          ? files[0].slice(0, Math.max(files[0].lastIndexOf('/'), files[0].lastIndexOf('\\')))
+          : (folder ?? sessionFolderPath(session, 'capture')));
+      setImportMode(adding ? 'add' : 'copy');
+      if (useUIStore.getState().activeView !== 'editor') await onNavigate(destination);
       // The view this import shows; still shown afterwards, it changes to Previous Import.
       const shownView = useLibraryStore.getState().currentFolderPath;
       // Cancel pressed before the ingest started (the backend clears its
       // cancel flag when it starts): nothing is copied.
       if (cancelRequested.current) return;
-      noteTool("ingest");
+      noteTool('ingest');
       const results = await invoke<ImportResult[]>(Invokes.SessionIngest, {
         directory: session.directory,
         sources: files,
-        mode: adding ? "add" : "copy",
+        mode: adding ? 'add' : 'copy',
         template,
         sequenceStart,
         backup,
@@ -1520,7 +1672,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         separateJpeg,
         metadata,
         // Kept with the ingest job, so a resumed import fills the album too.
-        album: album?.id ?? null,
+        album: album?.id ?? null
       });
       let albumError: string | null = null;
       if (album) {
@@ -1530,7 +1682,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           .map((r) => r.destination as string);
         if (paths.length)
           try {
-            await invoke(Invokes.SessionAlbumAdd, { directory: session.directory, id: album.id, paths });
+            await invoke(Invokes.SessionAlbumAdd, {
+              directory: session.directory,
+              id: album.id,
+              paths
+            });
             window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
           } catch (e) {
             albumError = String(e);
@@ -1540,7 +1696,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         adding,
         cancelled: results.length < files.length,
         album: album?.name ?? null,
-        albumError,
+        albumError
       });
       await refresh();
       // Lightroom shows the new photographs after Import; a dated destination
@@ -1563,12 +1719,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
 
   // Where the ingest copies to: the full path, so a folder on another drive
   // is plain to see, and that drive's name.
-  const libraryRoot = session?.directory.replace(/[\\/]+$/, "") ?? "";
-  const destinationPath = target.folder ?? (session ? sessionFolderPath(session, "capture") : `${libraryRoot}/Capture`);
-  const insideLibrary = Boolean(libraryRoot) && destinationPath.startsWith(`${libraryRoot}`) &&
+  const libraryRoot = session?.directory.replace(/[\\/]+$/, '') ?? '';
+  const destinationPath = target.folder ?? (session ? sessionFolderPath(session, 'capture') : `${libraryRoot}/Capture`);
+  const insideLibrary =
+    Boolean(libraryRoot) &&
+    destinationPath.startsWith(`${libraryRoot}`) &&
     /[\\/]/.test(destinationPath.charAt(libraryRoot.length));
   const destinationLabel = insideLibrary
-    ? [session?.manifest.name, ...destinationPath.slice(libraryRoot.length + 1).split(/[\\/]/)].join(" / ")
+    ? [session?.manifest.name, ...destinationPath.slice(libraryRoot.length + 1).split(/[\\/]/)].join(' / ')
     : fileName(destinationPath);
   const destinationVolume = volumeOf(destinationPath);
 
@@ -1579,7 +1737,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           identity plate and module picker on a single row. */}
       <div className="session-bar" data-tauri-drag-region={nativeTitlebar || undefined}>
         <div className="session-bar-start" data-tauri-drag-region={nativeTitlebar || undefined}>
-          <span className="session-mark" title={t("session.bar.markTitle")} aria-hidden>
+          <span className="session-mark" title={t('session.bar.markTitle')} aria-hidden>
             <RawtonicMark size={18} />
           </span>
           <button
@@ -1588,79 +1746,90 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               const rect = e.currentTarget.getBoundingClientRect();
               showContextMenu(rect.left, rect.bottom + 4, [
                 {
-                  label: t("session.menu.open"),
+                  label: t('session.menu.open'),
                   icon: FolderOpen,
-                  onClick: () => void openSession(),
+                  onClick: () => void openSession()
                 },
                 {
-                  label: t("session.menu.new"),
+                  label: t('session.menu.new'),
                   icon: FolderPlus,
                   onClick: () => {
                     setImportAfterCreate(false);
-                    setForm("create");
-                  },
+                    setForm('create');
+                  }
                 },
                 {
-                  label: t("session.menu.importFrom"),
+                  label: t('session.menu.importFrom'),
                   icon: Import,
-                  onClick: startImport,
+                  onClick: startImport
                 },
                 {
-                  label: t("session.sync.menu"),
+                  label: t('session.sync.menu'),
                   icon: RefreshCcw,
                   disabled: !session,
-                  onClick: () => void chooseFolderToSync(),
+                  onClick: () => void chooseFolderToSync()
                 },
                 {
                   // Every folder of the library, drives not connected included
                   // (their photographs are listed as not available).
-                  label: t("session.sync.menuLibrary"),
+                  label: t('session.sync.menuLibrary'),
                   icon: RefreshCcw,
                   disabled: !session,
-                  onClick: () => setSyncing({ folder: null }),
+                  onClick: () => setSyncing({ folder: null })
                 },
                 {
                   // Capture, Selects and Output, inside or outside the session (G38).
-                  label: t("session.folders.menu"),
+                  label: t('session.folders.menu'),
                   icon: FolderOpen,
-                  disabled: session?.manifest.mode !== "session",
-                  onClick: () => setFoldersOpen(true),
+                  disabled: session?.manifest.mode !== 'session',
+                  onClick: () => setFoldersOpen(true)
                 },
                 {
                   // The selection, or what the folder or album shows (G39).
-                  label: t("session.catalogExport.menu"),
+                  label: t('session.catalogExport.menu'),
                   icon: Database,
                   disabled: !session,
                   onClick: () => {
                     const { multiSelectedPaths, imageList } = useLibraryStore.getState();
-                    setCatalogExport({ selected: [...multiSelectedPaths], shown: imageList.map((image) => image.path) });
-                  },
+                    setCatalogExport({
+                      selected: [...multiSelectedPaths],
+                      shown: imageList.map((image) => image.path)
+                    });
+                  }
                 },
                 {
                   // Into catalogs only: a session stays self-contained (G40).
-                  label: t("session.catalogImport.menu"),
+                  label: t('session.catalogImport.menu'),
                   icon: Import,
-                  disabled: session?.manifest.mode !== "catalog",
-                  onClick: () => setCatalogImport(true),
+                  disabled: session?.manifest.mode !== 'catalog',
+                  onClick: () => setCatalogImport(true)
                 },
-                { label: t("session.transfer.transfer"), icon: FolderOpen, disabled: !session || !!hotFolder,
-                  onClick: () => setTransfer("transfer") },
-                { label: t("session.transfer.backup"), icon: Database, disabled: !session || !!hotFolder,
-                  onClick: () => setTransfer("backup") },
-                { label: t("session.transfer.restore"), icon: FolderOpen, disabled: !!hotFolder,
-                  onClick: () => setTransfer("restore") },
+                {
+                  label: t('session.transfer.transfer'),
+                  icon: FolderOpen,
+                  disabled: !session || !!hotFolder,
+                  onClick: () => setTransfer('transfer')
+                },
+                {
+                  label: t('session.transfer.backup'),
+                  icon: Database,
+                  disabled: !session || !!hotFolder,
+                  onClick: () => setTransfer('backup')
+                },
+                {
+                  label: t('session.transfer.restore'),
+                  icon: FolderOpen,
+                  disabled: !!hotFolder,
+                  onClick: () => setTransfer('restore')
+                }
               ]);
             }}
             disabled={busy || importing}
             aria-haspopup="menu"
-            title={session?.directory || t("session.bar.identityTitle")}
+            title={session?.directory || t('session.bar.identityTitle')}
           >
-            {session?.manifest.mode === "catalog" ? (
-              <Database size={15} />
-            ) : (
-              <FolderOpen size={15} />
-            )}
-            <span>{session?.manifest.name || t("session.bar.noSession")}</span>
+            {session?.manifest.mode === 'catalog' ? <Database size={15} /> : <FolderOpen size={15} />}
+            <span>{session?.manifest.name || t('session.bar.noSession')}</span>
             <ChevronDown size={12} />
           </button>
           {session && (
@@ -1670,82 +1839,98 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               // Cut off in a narrow window: the full count as a tooltip.
               onMouseEnter={(e) => {
                 const count = e.currentTarget;
-                count.title = count.scrollWidth > count.clientWidth ? (count.textContent ?? "") : "";
+                count.title = count.scrollWidth > count.clientWidth ? (count.textContent ?? '') : '';
               }}
             >
               <span className="session-count-total">
-              {t("session.bar.photos", {
-                count: session.assets,
-                formatted: session.assets.toLocaleString(),
-              })}
-              {session.picked > 0 && ` · ${t("session.bar.picked", { count: session.picked })}`}
+                {t('session.bar.photos', {
+                  count: session.assets,
+                  formatted: session.assets.toLocaleString()
+                })}
+                {session.picked > 0 && ` · ${t('session.bar.picked', { count: session.picked })}`}
               </span>
               {(session.missing ?? 0) > 0 && (
-                <span className="session-count-offline" role="img"
-                  aria-label={t("offline.sessionCount", { count: session.missing })}
-                  title={t("offline.sessionCountTitle")}>
-                  <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
+                <span
+                  className="session-count-offline"
+                  role="img"
+                  aria-label={t('offline.sessionCount', {
+                    count: session.missing
+                  })}
+                  title={t('offline.sessionCountTitle')}
+                >
+                  <span
+                    className="session-count-status-text"
+                    aria-hidden
+                  >{` · ${t('offline.sessionCount', { count: session.missing })}`}</span>
                 </span>
               )}
-              <SessionXmpStatus key={session.directory} directory={session.directory} count={session.xmp_pending}
-                onChanged={() => refresh().catch(() => {})} />
+              <SessionXmpStatus
+                key={session.directory}
+                directory={session.directory}
+                count={session.xmp_pending}
+                onChanged={() => refresh().catch(() => {})}
+              />
             </span>
           )}
           <ActivityCentre />
         </div>
-        <div
-          className="session-bar-center"
-          ref={setCenterSlot}
-        />
+        <div className="session-bar-center" ref={setCenterSlot} />
         <div className="session-bar-end" data-tauri-drag-region={nativeTitlebar || undefined}>
           <button
             className="session-action"
             disabled={!session || importing}
-            title={t("session.bar.ingestTitle")}
+            title={t('session.bar.ingestTitle')}
             onClick={() => openIngest()}
           >
             <ArrowDownToLine size={14} />
-            <span>{t("session.bar.ingest")}</span>
+            <span>{t('session.bar.ingest')}</span>
           </button>
           <button
-            className={`session-action${hotFolder ? " is-active" : ""}`}
+            className={`session-action${hotFolder ? ' is-active' : ''}`}
             disabled={!session}
             aria-pressed={!!hotFolder}
             title={
               hotFolder?.missing
-                ? t("session.bar.hotFolderMissingTitle", { folder: hotFolder.folder })
+                ? t('session.bar.hotFolderMissingTitle', {
+                    folder: hotFolder.folder
+                  })
                 : hotFolder
-                  ? t("session.bar.hotFolderWatching", {
+                  ? t('session.bar.hotFolderWatching', {
                       folder: hotFolder.folder,
-                      count: hotFolder.imported,
+                      count: hotFolder.imported
                     })
-                  : t("session.bar.hotFolderTitle")
+                  : t('session.bar.hotFolderTitle')
             }
             onClick={() => void openHotFolder()}
           >
             <FolderSync size={14} />
             <span>
               {hotFolder?.missing
-                ? t("session.bar.hotFolderMissing")
+                ? t('session.bar.hotFolderMissing')
                 : hotFolder
-                  ? t("session.bar.hotFolderCount", { imported: hotFolder.imported })
-                  : t("session.bar.hotFolder")}
+                  ? t('session.bar.hotFolderCount', {
+                      imported: hotFolder.imported
+                    })
+                  : t('session.bar.hotFolder')}
             </span>
           </button>
           <button
-            className={`session-action${tether ? " is-active" : ""}`}
+            className={`session-action${tether ? ' is-active' : ''}`}
             disabled={!session}
             aria-pressed={tetherOpen}
-            title={tether ? t("session.bar.tetherConnected", { camera: tether.camera.model }) : t("session.bar.tetherTitle")}
+            title={
+              tether
+                ? t('session.bar.tetherConnected', {
+                    camera: tether.camera.model
+                  })
+                : t('session.bar.tetherTitle')
+            }
             onClick={() => setTetherOpen((open) => !open)}
           >
             <Camera size={14} />
-            <span>{tether ? tether.camera.model : t("session.bar.tether")}</span>
+            <span>{tether ? tether.camera.model : t('session.bar.tether')}</span>
           </button>
-          <div
-            className="session-bar-slot"
-            ref={setEndSlot}
-          />
+          <div className="session-bar-slot" ref={setEndSlot} />
           {windowControls}
         </div>
       </div>
@@ -1764,67 +1949,68 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       {!session && imageList.length === 0 && roots.length === 0 && (
         <div className="session-welcome">
           <RawtonicMark size={48} />
-          <h1>{t("session.welcome.title")}</h1>
-          <p>{t("session.welcome.body")}</p>
+          <h1>{t('session.welcome.title')}</h1>
+          <p>{t('session.welcome.body')}</p>
           <FirstStartToolsSide />
           <div className="session-welcome-modes">
             <button
               className="session-welcome-mode"
-              aria-label={t("session.welcome.create")}
+              aria-label={t('session.welcome.create')}
               aria-describedby="welcome-session-description"
               onClick={() => {
                 setCatalog(false);
                 setImportAfterCreate(false);
-                setForm("create");
+                setForm('create');
               }}
             >
               <FolderOpen size={24} aria-hidden />
-              <strong>{t("session.create.session")}</strong>
-              <span className="session-mode-purpose">{t("session.create.sessionHint")}</span>
+              <strong>{t('session.create.session')}</strong>
+              <span className="session-mode-purpose">{t('session.create.sessionHint')}</span>
               <span id="welcome-session-description" className="session-mode-description">
-                {t("session.create.sessionDescription")}
+                {t('session.create.sessionDescription')}
               </span>
-              <span className="session-mode-cta">{t("session.welcome.create")} <ArrowRight size={15} aria-hidden /></span>
+              <span className="session-mode-cta">
+                {t('session.welcome.create')} <ArrowRight size={15} aria-hidden />
+              </span>
             </button>
             <button
               className="session-welcome-mode"
-              aria-label={t("session.welcome.createCatalog")}
+              aria-label={t('session.welcome.createCatalog')}
               aria-describedby="welcome-catalog-description"
               onClick={() => {
                 setCatalog(true);
                 setImportAfterCreate(false);
-                setForm("create");
+                setForm('create');
               }}
             >
               <Database size={24} aria-hidden />
-              <strong>{t("session.create.catalog")}</strong>
-              <span className="session-mode-purpose">{t("session.create.catalogHint")}</span>
+              <strong>{t('session.create.catalog')}</strong>
+              <span className="session-mode-purpose">{t('session.create.catalogHint')}</span>
               <span id="welcome-catalog-description" className="session-mode-description">
-                {t("session.create.catalogDescription")}
+                {t('session.create.catalogDescription')}
               </span>
-              <span className="session-mode-cta">{t("session.welcome.createCatalog")} <ArrowRight size={15} aria-hidden /></span>
+              <span className="session-mode-cta">
+                {t('session.welcome.createCatalog')} <ArrowRight size={15} aria-hidden />
+              </span>
             </button>
           </div>
           <div className="session-welcome-existing">
-            <button
-              className="session-action"
-              onClick={() => void openSession()}
-            >
+            <button className="session-action" onClick={() => void openSession()}>
               <FolderOpen size={16} aria-hidden />
-              {t("session.welcome.open")}
+              {t('session.welcome.open')}
             </button>
             <button className="session-welcome-import" onClick={startImport}>
-              {t("session.welcome.importFrom")}
+              {t('session.welcome.importFrom')}
             </button>
           </div>
-          <span>{t("session.welcome.tagline")}</span>
+          <span>{t('session.welcome.tagline')}</span>
         </div>
       )}
-      {fileDrag && session && !importing && !syncing && !transfer && (!form || form === "ingest") && (
+      {fileDrag && session && !importing && !syncing && !transfer && (!form || form === 'ingest') && (
         <div className="session-drop-overlay" aria-hidden>
           <span>
             <ArrowDownToLine size={18} />
-            {t("session.drop.overlay", { name: session.manifest.name })}
+            {t('session.drop.overlay', { name: session.manifest.name })}
           </span>
         </div>
       )}
@@ -1850,17 +2036,25 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           onChanged={() => void refreshFolders(session.directory)}
         />
       )}
-      {catalogExport && session && <CatalogExportDialog directory={session.directory} name={session.manifest.name}
-        selected={catalogExport.selected} shown={catalogExport.shown}
-        onClose={() => setCatalogExport(null)} onOpen={async (directory) => {
-          await switchLibraryAfterSaves(async () =>
-            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
-        }} />}
+      {catalogExport && session && (
+        <CatalogExportDialog
+          directory={session.directory}
+          name={session.manifest.name}
+          selected={catalogExport.selected}
+          shown={catalogExport.shown}
+          onClose={() => setCatalogExport(null)}
+          onOpen={async (directory) => {
+            await switchLibraryAfterSaves(async () =>
+              navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }))
+            );
+          }}
+        />
+      )}
       {addFolder && session && (
         <AddFolderDialog
           folder={addFolder.folder}
           directory={session.directory}
-          catalog={session.manifest.mode === "catalog"}
+          catalog={session.manifest.mode === 'catalog'}
           onClose={() => setAddFolder(null)}
           onShow={() => {
             setAddFolder(null);
@@ -1882,28 +2076,42 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 album: null,
                 separateJpeg: false,
                 metadata: null,
-                destination: addFolder.folder,
+                destination: addFolder.folder
               });
             })();
           }}
         />
       )}
-      {catalogImport && session && <CatalogImportDialog directory={session.directory}
-        onClose={() => setCatalogImport(false)} onDone={async () => {
-          const directory = session.directory;
-          await switchLibraryAfterSaves(async () =>
-            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
-          // New photos form an import batch: Previous Import shows them.
-          window.dispatchEvent(new Event(IMPORTS_CHANGED));
-        }} />}
-      {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
-        onClose={() => setTransfer(null)} onOpen={async (directory) => {
-          await switchLibraryAfterSaves(async () =>
-            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
-        }} />}
+      {catalogImport && session && (
+        <CatalogImportDialog
+          directory={session.directory}
+          onClose={() => setCatalogImport(false)}
+          onDone={async () => {
+            const directory = session.directory;
+            await switchLibraryAfterSaves(async () =>
+              navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }))
+            );
+            // New photos form an import batch: Previous Import shows them.
+            window.dispatchEvent(new Event(IMPORTS_CHANGED));
+          }}
+        />
+      )}
+      {transfer && (
+        <LibraryTransferDialog
+          purpose={transfer}
+          directory={session?.directory}
+          name={session?.manifest.name}
+          onClose={() => setTransfer(null)}
+          onOpen={async (directory) => {
+            await switchLibraryAfterSaves(async () =>
+              navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }))
+            );
+          }}
+        />
+      )}
       <dialog
         ref={dialog}
-        className={`session-dialog ${form === "ingest" ? "session-ingest-dialog" : ""}`}
+        className={`session-dialog ${form === 'ingest' ? 'session-ingest-dialog' : ''}`}
         onCancel={(e) => {
           if (busy) e.preventDefault();
           else setForm(null);
@@ -1917,46 +2125,46 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         <div className="session-dialog-header">
           <div>
             <h2 id="session-dialog-title">
-              {form === "create"
+              {form === 'create'
                 ? importAfterCreate
-                  ? t("session.create.importTitle")
-                  : t("session.create.title")
-                : form === "hotfolder"
-                  ? t("session.hotFolder.title")
-                  : form === "import"
-                    ? t("session.import.title")
-                    : t("session.ingest.title")}
+                  ? t('session.create.importTitle')
+                  : t('session.create.title')
+                : form === 'hotfolder'
+                  ? t('session.hotFolder.title')
+                  : form === 'import'
+                    ? t('session.import.title')
+                    : t('session.ingest.title')}
             </h2>
             <p>
-              {form === "create"
+              {form === 'create'
                 ? importAfterCreate
-                  ? t("session.create.importSubtitle")
-                  : t("session.create.subtitle")
-                : form === "hotfolder"
-                  ? t("session.hotFolder.subtitle")
-                  : form === "import"
-                    ? t("session.import.subtitle")
-                    : t("session.ingest.subtitle")}
+                  ? t('session.create.importSubtitle')
+                  : t('session.create.subtitle')
+                : form === 'hotfolder'
+                  ? t('session.hotFolder.subtitle')
+                  : form === 'import'
+                    ? t('session.import.subtitle')
+                    : t('session.ingest.subtitle')}
             </p>
           </div>
           <button
             className="session-icon-button"
-            aria-label={t("session.dialogs.close")}
+            aria-label={t('session.dialogs.close')}
             disabled={busy}
             onClick={() => setForm(null)}
           >
             <X size={19} />
           </button>
         </div>
-        {form === "import" ? (
+        {form === 'import' ? (
           <form onSubmit={(e) => void runImport(e)}>
             <label className="session-field">
-              {t("session.import.source")}
+              {t('session.import.source')}
               <div className="session-backup">
                 <input
-                  aria-label={t("session.import.sourceAria")}
+                  aria-label={t('session.import.sourceAria')}
                   value={importSource}
-                  placeholder={t("session.import.sourcePlaceholder")}
+                  placeholder={t('session.import.sourcePlaceholder')}
                   spellCheck={false}
                   required
                   onChange={(e) => {
@@ -1967,19 +2175,19 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <button
                   type="button"
                   className="session-icon-button"
-                  aria-label={t("session.import.chooseSource")}
+                  aria-label={t('session.import.chooseSource')}
                   onClick={() =>
                     void openDialog({
                       multiple: false,
                       directory: false,
                       filters: [
                         {
-                          name: t("session.import.filterName"),
-                          extensions: ["lrcat", "cosessiondb"],
-                        },
-                      ],
+                          name: t('session.import.filterName'),
+                          extensions: ['lrcat', 'cosessiondb']
+                        }
+                      ]
                     }).then((value) => {
-                      if (typeof value === "string") {
+                      if (typeof value === 'string') {
                         setImportSource(value);
                         setImportPreview(null);
                       }
@@ -1994,40 +2202,55 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               <div className="session-import-preview" role="status">
                 <p>
                   <strong>{importPreview.name}</strong>
-                  {t("session.import.preview", {
+                  {t('session.import.preview', {
                     items: [
-                      t("session.import.photos", { count: importPreview.photos }),
-                      t("session.import.edited", { count: importPreview.edited }),
-                      t("session.import.albums", { count: importPreview.albums }),
+                      t('session.import.photos', {
+                        count: importPreview.photos
+                      }),
+                      t('session.import.edited', {
+                        count: importPreview.edited
+                      }),
+                      t('session.import.albums', {
+                        count: importPreview.albums
+                      }),
                       importPreview.copies
-                        ? t("session.import.copies", { count: importPreview.copies })
-                        : null,
-                      importPreview.notRead.smartAlbums
-                        ? t("session.import.smartAlbumsNotImported", {
-                            count: importPreview.notRead.smartAlbums,
+                        ? t('session.import.copies', {
+                            count: importPreview.copies
                           })
                         : null,
+                      importPreview.notRead.smartAlbums
+                        ? t('session.import.smartAlbumsNotImported', {
+                            count: importPreview.notRead.smartAlbums
+                          })
+                        : null
                     ]
                       .filter(Boolean)
-                      .join(t("session.import.separator")),
+                      .join(t('session.import.separator'))
                   })}
                 </p>
                 <ul>
                   {importPreview.roots.map((root) => (
                     <li key={root.folder}>
                       <span title={root.folder}>
-                        {t("session.import.rootFound", {
-                          folder: root.folder.split(/[\\/]/).slice(-2).join("/"),
+                        {t('session.import.rootFound', {
+                          folder: root.folder.split(/[\\/]/).slice(-2).join('/'),
                           found: root.found,
-                          count: root.photos,
+                          count: root.photos
                         })}
                       </span>
                       {root.found < root.photos && (
                         <input
-                          aria-label={t("session.import.relinkAria", { folder: root.folder })}
-                          placeholder={t("session.import.relinkPlaceholder")}
-                          value={relinks[root.folder] ?? ""}
-                          onChange={(e) => setRelinks({ ...relinks, [root.folder]: e.target.value })}
+                          aria-label={t('session.import.relinkAria', {
+                            folder: root.folder
+                          })}
+                          placeholder={t('session.import.relinkPlaceholder')}
+                          value={relinks[root.folder] ?? ''}
+                          onChange={(e) =>
+                            setRelinks({
+                              ...relinks,
+                              [root.folder]: e.target.value
+                            })
+                          }
                           onBlur={() => void previewImport()}
                         />
                       )}
@@ -2048,27 +2271,25 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 disabled={!importSource.trim() || busy}
                 onClick={() => void previewImport()}
               >
-                {t("session.import.check")}
+                {t('session.import.check')}
               </button>
-              <button
-                type="submit"
-                className="session-action session-primary"
-                disabled={!importPreview || busy}
-              >
+              <button type="submit" className="session-action session-primary" disabled={!importPreview || busy}>
                 <Import size={16} />
-                {t("session.import.submit", { name: session?.manifest.name ?? "" })}
+                {t('session.import.submit', {
+                  name: session?.manifest.name ?? ''
+                })}
               </button>
             </div>
           </form>
-        ) : form === "hotfolder" ? (
+        ) : form === 'hotfolder' ? (
           <form onSubmit={(e) => void startHotFolder(e)}>
             <label className="session-field">
-              {t("session.hotFolder.folder")}
+              {t('session.hotFolder.folder')}
               <div className="session-backup">
                 <input
-                  aria-label={t("session.hotFolder.folder")}
+                  aria-label={t('session.hotFolder.folder')}
                   value={hotPath}
-                  placeholder={t("session.hotFolder.folderPlaceholder")}
+                  placeholder={t('session.hotFolder.folderPlaceholder')}
                   spellCheck={false}
                   required
                   onChange={(e) => setHotPath(e.target.value)}
@@ -2076,7 +2297,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <button
                   type="button"
                   className="session-icon-button"
-                  aria-label={t("session.hotFolder.chooseFolder")}
+                  aria-label={t('session.hotFolder.chooseFolder')}
                   onClick={() => void chooseFolder(setHotPath)}
                 >
                   <FolderOpen size={16} />
@@ -2089,10 +2310,15 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 checked={includeSubfolders}
                 onChange={(e) => setIncludeSubfolders(e.target.checked)}
               />
-              {t("session.hotFolder.includeSubfolders")}
+              {t('session.hotFolder.includeSubfolders')}
             </label>
-            <NamingEditor mode="ingest" value={template} onChange={setTemplate}
-              label={t("session.fields.filenameTemplate")} job={session?.manifest.name} />
+            <NamingEditor
+              mode="ingest"
+              value={template}
+              onChange={setTemplate}
+              label={t('session.fields.filenameTemplate')}
+              job={session?.manifest.name}
+            />
 
             <NextCaptureFields value={nextCaptureForm} onChange={setNextCaptureForm} presets={presets} />
             <div className="session-copy-note">
@@ -2100,7 +2326,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               <span>
                 <Trans
                   i18nKey="session.hotFolder.copyNote"
-                  values={{ target: `${session?.manifest.name ?? ""} / Capture` }}
+                  values={{
+                    target: `${session?.manifest.name ?? ''} / Capture`
+                  }}
                   components={{ strong: <strong /> }}
                 />
               </span>
@@ -2112,54 +2340,50 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             )}
             <div className="session-dialog-footer">
               {hotFolder ? (
-                <button
-                  type="button"
-                  className="session-action"
-                  onClick={() => void stopHotFolder()}
-                >
-                  {t("session.hotFolder.stop")}
+                <button type="button" className="session-action" onClick={() => void stopHotFolder()}>
+                  {t('session.hotFolder.stop')}
                 </button>
               ) : (
-                <span>{t("session.hotFolder.resumesOnOpen")}</span>
+                <span>{t('session.hotFolder.resumesOnOpen')}</span>
               )}
               <button
                 type="submit"
                 className="session-action session-primary"
-                disabled={!hotPath.trim() || !validNamingTemplate(template, "ingest")}
+                disabled={!hotPath.trim() || !validNamingTemplate(template, 'ingest')}
               >
                 <FolderSync size={16} />
-                {hotFolder ? t("session.hotFolder.switch") : t("session.hotFolder.start")}
+                {hotFolder ? t('session.hotFolder.switch') : t('session.hotFolder.start')}
               </button>
             </div>
           </form>
-        ) : form === "create" ? (
+        ) : form === 'create' ? (
           <form onSubmit={(e) => void create(e)}>
             {!importAfterCreate && (
               <fieldset className="session-mode">
-                <legend>{t("session.create.modeLabel")}</legend>
+                <legend>{t('session.create.modeLabel')}</legend>
                 <label>
                   <input type="radio" name="mode" checked={!catalog} onChange={() => setCatalog(false)} />
                   <span>
-                    <strong>{t("session.create.session")}</strong>
-                    <small>{t("session.create.sessionHint")}</small>
+                    <strong>{t('session.create.session')}</strong>
+                    <small>{t('session.create.sessionHint')}</small>
                   </span>
                 </label>
                 <label>
                   <input type="radio" name="mode" checked={catalog} onChange={() => setCatalog(true)} />
                   <span>
-                    <strong>{t("session.create.catalog")}</strong>
-                    <small>{t("session.create.catalogHint")}</small>
+                    <strong>{t('session.create.catalog')}</strong>
+                    <small>{t('session.create.catalogHint')}</small>
                   </span>
                 </label>
               </fieldset>
             )}
             <p className="session-create-description">
               {catalog || importAfterCreate
-                ? t("session.create.catalogDescription")
-                : t("session.create.sessionDescription")}
+                ? t('session.create.catalogDescription')
+                : t('session.create.sessionDescription')}
             </p>
             <label className="session-field">
-              {catalog || importAfterCreate ? t("session.create.catalogName") : t("session.create.name")}
+              {catalog || importAfterCreate ? t('session.create.catalogName') : t('session.create.name')}
               <input
                 autoFocus
                 required
@@ -2169,20 +2393,18 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 pattern={'[^/\\\\:*?"<>|]+'}
                 placeholder={
                   catalog || importAfterCreate
-                    ? t("session.create.catalogPlaceholder")
-                    : t("session.create.namePlaceholder", { date: localDateStamp() })
+                    ? t('session.create.catalogPlaceholder')
+                    : t('session.create.namePlaceholder', {
+                        date: localDateStamp()
+                      })
                 }
               />
             </label>
             <label className="session-field">
-              {t("session.create.location")}
-              <button
-                type="button"
-                className="session-path"
-                onClick={() => void chooseFolder(setParent)}
-              >
+              {t('session.create.location')}
+              <button type="button" className="session-path" onClick={() => void chooseFolder(setParent)}>
                 <FolderOpen size={17} />
-                <span>{parent || t("session.create.chooseParent")}</span>
+                <span>{parent || t('session.create.chooseParent')}</span>
               </button>
             </label>
             <div className="session-folder-preview">
@@ -2190,9 +2412,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               <span>
                 {name.trim() ||
                   (catalog || importAfterCreate
-                    ? t("session.create.catalogPlaceholder")
-                    : t("session.create.namePreview"))}
-                {catalog || importAfterCreate ? ".catalog" : ""}
+                    ? t('session.create.catalogPlaceholder')
+                    : t('session.create.namePreview'))}
+                {catalog || importAfterCreate ? '.catalog' : ''}
               </span>
               {catalog || importAfterCreate ? <code>Photos / Output</code> : <code>Capture / Selects / Output</code>}
             </div>
@@ -2202,20 +2424,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               </p>
             )}
             <div className="session-dialog-footer">
-              <span>{t("session.create.originalsUntouched")}</span>
+              <span>{t('session.create.originalsUntouched')}</span>
               <button
                 type="submit"
                 className="session-action session-primary"
                 disabled={busy || !name.trim() || !parent}
               >
-                {busy ? (
-                  <LoaderCircle size={16} className="animate-spin" />
-                ) : (
-                  <FolderPlus size={16} />
-                )}
-                {catalog || importAfterCreate
-                  ? t("session.create.createCatalog")
-                  : t("session.create.createSession")}
+                {busy ? <LoaderCircle size={16} className="animate-spin" /> : <FolderPlus size={16} />}
+                {catalog || importAfterCreate ? t('session.create.createCatalog') : t('session.create.createSession')}
               </button>
             </div>
           </form>
@@ -2223,14 +2439,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           <form className="session-ingest-form" onSubmit={(e) => void ingest(e)}>
             <section className="session-ingest-source">
               <div className="session-ingest-source-head">
-                <h3>{t("naming.source")}</h3>
+                <h3>{t('naming.source')}</h3>
                 <button type="button" className="session-action" onClick={() => void chooseSources(false)}>
                   <FolderOpen size={15} />
-                  {t("session.ingest.addFiles")}
+                  {t('session.ingest.addFiles')}
                 </button>
                 <button type="button" className="session-action" onClick={() => void chooseSources(true)}>
                   <FolderAdd size={15} />
-                  {t("session.ingest.addFolder")}
+                  {t('session.ingest.addFolder')}
                 </button>
               </div>
               {sources.length ? (
@@ -2240,134 +2456,156 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   {scanning ? (
                     <>
                       <LoaderCircle size={16} className="animate-spin" />
-                      {t("session.ingest.scanning")}
+                      {t('session.ingest.scanning')}
                     </>
                   ) : (
-                    t("session.ingest.dropHint")
+                    t('session.ingest.dropHint')
                   )}
                 </div>
               )}
             </section>
             <section className="session-ingest-backup">
-              <h3>{t("naming.destination")}</h3>
+              <h3>{t('naming.destination')}</h3>
               {modeChoice.showSwitch && (
-                <div className="session-ingest-mode" role="radiogroup" aria-label={t("session.ingest.modeLabel")}>
+                <div className="session-ingest-mode" role="radiogroup" aria-label={t('session.ingest.modeLabel')}>
                   <label>
                     <input
                       type="radio"
                       name="ingest-mode"
-                      checked={ingestMode === "copy"}
-                      onChange={() => setMode("copy")}
+                      checked={ingestMode === 'copy'}
+                      onChange={() => setMode('copy')}
                     />
-                    <span>{t("session.ingest.modeCopy", { destination: destinationLabel })}</span>
+                    <span>
+                      {t('session.ingest.modeCopy', {
+                        destination: destinationLabel
+                      })}
+                    </span>
                   </label>
                   <label
-                    className={modeChoice.canAdd ? undefined : "is-disabled"}
-                    title={modeChoice.canAdd ? undefined : t("session.ingest.addFromCard")}
+                    className={modeChoice.canAdd ? undefined : 'is-disabled'}
+                    title={modeChoice.canAdd ? undefined : t('session.ingest.addFromCard')}
                   >
                     <input
                       type="radio"
                       name="ingest-mode"
-                      checked={ingestMode === "add"}
+                      checked={ingestMode === 'add'}
                       disabled={!modeChoice.canAdd}
-                      onChange={() => setMode("add")}
+                      onChange={() => setMode('add')}
                     />
-                    <span>{t("session.ingest.modeAdd")}</span>
+                    <span>{t('session.ingest.modeAdd')}</span>
                   </label>
-                  {!modeChoice.canAdd && <small>{t("session.ingest.addFromCard")}</small>}
+                  {!modeChoice.canAdd && <small>{t('session.ingest.addFromCard')}</small>}
                 </div>
               )}
-              {ingestMode === "copy" ? (
+              {ingestMode === 'copy' ? (
                 <>
-            <div className="session-ingest-target">
-              <strong>{destinationLabel}</strong>
-              <code className="session-ingest-path" title={destinationPath}>
-                {destinationPath}
-              </code>
-              {session?.manifest.mode === "catalog" && !target.folder && <small>{t("session.ingest.dateFolders")}</small>}
-              {destinationVolume && (
-                <small className="session-ingest-volume">
-                  <HardDrive size={12} />
-                  {t("session.ingest.onVolume", { name: destinationVolume })}
-                </small>
-              )}
-              {target.folder && (
-                <button type="button" className="session-link-button" onClick={() => setTarget({ ...target, folder: null })}>
-                  {t("session.ingest.useCapture", { folder: session ? sessionFolderPath(session, "capture").split(/[\\/]/).pop() : "Capture" })}
-                </button>
-              )}
-              {target.album && (
-                <label className="session-ingest-album">
-                  <input type="checkbox" checked={addToAlbum} onChange={(e) => setAddToAlbum(e.target.checked)} />
-                  {t("session.ingest.addToAlbum", { name: target.album.name })}
-                </label>
-              )}
-            </div>
-            <label className="session-field">
-              <span>
-                {t("session.ingest.secondCopy")}{" "}
-                <span className="session-optional">{t("session.ingest.optional")}</span>
-              </span>
-              <div className="session-backup">
-                <button
-                  type="button"
-                  className="session-path"
-                  onClick={() => void chooseFolder(setBackup)}
-                >
-                  <FolderOpen size={17} />
-                  <span>{backup || t("session.ingest.chooseBackup")}</span>
-                </button>
-                {backup && (
-                  <button
-                    type="button"
-                    className="session-icon-button"
-                    aria-label={t("session.ingest.removeBackup")}
-                    onClick={() => setBackup(null)}
-                  >
-                    <X size={16} />
-                  </button>
-                )}
-              </div>
-            </label>
+                  <div className="session-ingest-target">
+                    <strong>{destinationLabel}</strong>
+                    <code className="session-ingest-path" title={destinationPath}>
+                      {destinationPath}
+                    </code>
+                    {session?.manifest.mode === 'catalog' && !target.folder && (
+                      <small>{t('session.ingest.dateFolders')}</small>
+                    )}
+                    {destinationVolume && (
+                      <small className="session-ingest-volume">
+                        <HardDrive size={12} />
+                        {t('session.ingest.onVolume', {
+                          name: destinationVolume
+                        })}
+                      </small>
+                    )}
+                    {target.folder && (
+                      <button
+                        type="button"
+                        className="session-link-button"
+                        onClick={() => setTarget({ ...target, folder: null })}
+                      >
+                        {t('session.ingest.useCapture', {
+                          folder: session ? sessionFolderPath(session, 'capture').split(/[\\/]/).pop() : 'Capture'
+                        })}
+                      </button>
+                    )}
+                    {target.album && (
+                      <label className="session-ingest-album">
+                        <input type="checkbox" checked={addToAlbum} onChange={(e) => setAddToAlbum(e.target.checked)} />
+                        {t('session.ingest.addToAlbum', {
+                          name: target.album.name
+                        })}
+                      </label>
+                    )}
+                  </div>
+                  <label className="session-field">
+                    <span>
+                      {t('session.ingest.secondCopy')}{' '}
+                      <span className="session-optional">{t('session.ingest.optional')}</span>
+                    </span>
+                    <div className="session-backup">
+                      <button type="button" className="session-path" onClick={() => void chooseFolder(setBackup)}>
+                        <FolderOpen size={17} />
+                        <span>{backup || t('session.ingest.chooseBackup')}</span>
+                      </button>
+                      {backup && (
+                        <button
+                          type="button"
+                          className="session-icon-button"
+                          aria-label={t('session.ingest.removeBackup')}
+                          onClick={() => setBackup(null)}
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+                  </label>
                 </>
               ) : (
                 target.album && (
                   <label className="session-ingest-album">
                     <input type="checkbox" checked={addToAlbum} onChange={(e) => setAddToAlbum(e.target.checked)} />
-                    {t("session.ingest.addToAlbum", { name: target.album.name })}
+                    {t('session.ingest.addToAlbum', {
+                      name: target.album.name
+                    })}
                   </label>
                 )
               )}
               {pairsChosen && (
                 <label className="session-ingest-album">
                   <input type="checkbox" checked={separateJpeg} onChange={(e) => setSeparateJpeg(e.target.checked)} />
-                  {t("session.ingest.separateJpeg")}
+                  {t('session.ingest.separateJpeg')}
                 </label>
               )}
             </section>
-            {ingestMode === "copy" && (
-            <section className="session-ingest-naming">
-              <h3>{t("naming.title")}</h3>
-              <NamingEditor mode="ingest" value={template} onChange={setTemplate}
-                label={t("session.fields.filenameTemplate")} original={sources.find((file) => chosen.has(file.path))?.path ?? sources[0]?.path} job={session?.manifest.name} total={chosen.size}
-                sequenceStart={sequenceStart} onSequenceStartChange={setSequenceStart}
-                preview={namePreview?.key === previewKey ? namePreview.result : null} />
-            </section>
+            {ingestMode === 'copy' && (
+              <section className="session-ingest-naming">
+                <h3>{t('naming.title')}</h3>
+                <NamingEditor
+                  mode="ingest"
+                  value={template}
+                  onChange={setTemplate}
+                  label={t('session.fields.filenameTemplate')}
+                  original={sources.find((file) => chosen.has(file.path))?.path ?? sources[0]?.path}
+                  job={session?.manifest.name}
+                  total={chosen.size}
+                  sequenceStart={sequenceStart}
+                  onSequenceStartChange={setSequenceStart}
+                  preview={namePreview?.key === previewKey ? namePreview.result : null}
+                />
+              </section>
             )}
-            <IngestMetadata adding={ingestMode === "add"} value={importMetadata} onChange={setImportMetadata} />
+            <IngestMetadata adding={ingestMode === 'add'} value={importMetadata} onChange={setImportMetadata} />
             <div className="session-copy-note">
               <Check size={16} />
               <span>
-                {ingestMode === "add" ? (
-                  t("session.ingest.addNote")
+                {ingestMode === 'add' ? (
+                  t('session.ingest.addNote')
                 ) : (
-                <Trans
-                  i18nKey="session.ingest.copyNote"
-                  values={{
-                    target: destinationLabel,
-                  }}
-                  components={{ strong: <strong /> }}
-                />
+                  <Trans
+                    i18nKey="session.ingest.copyNote"
+                    values={{
+                      target: destinationLabel
+                    }}
+                    components={{ strong: <strong /> }}
+                  />
                 )}
               </span>
             </div>
@@ -2377,23 +2615,23 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               </p>
             )}
             <div className="session-dialog-footer">
-              <span>{t("session.ingest.keepEditing")}</span>
+              <span>{t('session.ingest.keepEditing')}</span>
               <button
                 type="submit"
                 className="session-action session-primary"
                 disabled={
                   !chosen.size ||
                   scanning ||
-                  (ingestMode === "copy" &&
-                    (!validNamingTemplate(template, "ingest") || !validSequenceStart(sequenceStart)))
+                  (ingestMode === 'copy' &&
+                    (!validNamingTemplate(template, 'ingest') || !validSequenceStart(sequenceStart)))
                 }
               >
                 <ArrowDownToLine size={16} />
                 {!chosen.size
-                  ? t("session.ingest.submitNone")
-                  : ingestMode === "add"
-                    ? t("session.ingest.submitAdd", { count: chosen.size })
-                    : t("session.ingest.submit", { count: chosen.size })}
+                  ? t('session.ingest.submitNone')
+                  : ingestMode === 'add'
+                    ? t('session.ingest.submitAdd', { count: chosen.size })
+                    : t('session.ingest.submit', { count: chosen.size })}
               </button>
             </div>
           </form>

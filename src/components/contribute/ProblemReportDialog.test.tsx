@@ -5,27 +5,46 @@ import ProblemReportDialog from './ProblemReportDialog';
 import type { ContributionChannel, PreparedContribution } from './relay';
 import type { ReportContext, Screenshot } from './reports';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.reject(new Error('no IPC in tests'))) }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.reject(new Error('no IPC in tests')))
+}));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
 
 const context: ReportContext = {
-  app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '26.5', arch: 'aarch64' },
+  app: {
+    version: '0.1.0-alpha.4',
+    os: 'macos',
+    osVersion: '26.5',
+    arch: 'aarch64'
+  },
   gpu: { vendor: 'apple', name: 'Apple M5 Pro' },
   logTail: 'opening <path>.NEF\nexport failed',
-  screenshotAvailable: true,
+  screenshotAvailable: true
 };
-const screenshot: Screenshot = { mime: 'image/jpeg', data: 'AAAA', width: 2, height: 1 };
+const screenshot: Screenshot = {
+  mime: 'image/jpeg',
+  data: 'AAAA',
+  width: 2,
+  height: 1
+};
 
 // Stands in for the app's scrubbing: the body that is shown and sent.
 const prepare = vi.fn((channel: ContributionChannel, payload: Record<string, unknown>) =>
-  Promise.resolve<PreparedContribution>({ channel, body: JSON.stringify(payload, null, 2), digest: 'd'.repeat(64) }),
+  Promise.resolve<PreparedContribution>({
+    channel,
+    body: JSON.stringify(payload, null, 2),
+    digest: 'd'.repeat(64)
+  })
 );
 
 let clipboard: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   prepare.mockClear();
   clipboard = vi.fn((_text: string) => Promise.resolve());
-  Object.defineProperty(navigator, 'clipboard', { value: { writeText: clipboard }, configurable: true });
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: clipboard },
+    configurable: true
+  });
 });
 afterEach(cleanup);
 
@@ -34,8 +53,13 @@ const props = {
   onClose: () => {},
   context,
   screenshot,
-  photo: { make: 'NIKON', model: 'Z 6', fileType: 'NEF', path: '/private/DSC_1.NEF' },
-  prepare,
+  photo: {
+    make: 'NIKON',
+    model: 'Z 6',
+    fileType: 'NEF',
+    path: '/private/DSC_1.NEF'
+  },
+  prepare
 };
 
 describe('Report a problem', () => {
@@ -44,9 +68,13 @@ describe('Report a problem', () => {
     render(<ProblemReportDialog {...props} available={() => Promise.resolve(false)} openUrl={openUrl} />);
     await screen.findByText(/cannot send reports itself/);
     expect(screen.queryByRole('button', { name: 'Review and send…' })).toBeNull();
-    const copy = screen.getByRole('button', { name: /Copy report/ }) as HTMLButtonElement;
+    const copy = screen.getByRole('button', {
+      name: /Copy report/
+    }) as HTMLButtonElement;
     expect(copy.disabled).toBe(true);
-    fireEvent.change(screen.getByPlaceholderText(/the export stops/), { target: { value: 'Export stops at photo 3' } });
+    fireEvent.change(screen.getByPlaceholderText(/the export stops/), {
+      target: { value: 'Export stops at photo 3' }
+    });
     fireEvent.click(copy);
     await waitFor(() => expect(clipboard).toHaveBeenCalledTimes(1));
     const copied = clipboard.mock.calls[0][0] as string;
@@ -69,8 +97,12 @@ describe('Report a problem', () => {
   it('reviews exactly the chosen parts, goes back to change them, and sends only on Send', async () => {
     const send = vi.fn(() => Promise.resolve({ id: 'abcdefghijklmnopqrstuvwxyz', ref: '0123abcd' }));
     render(<ProblemReportDialog {...props} available={() => Promise.resolve(true)} send={send} />);
-    const review = await screen.findByRole('button', { name: 'Review and send…' });
-    fireEvent.change(screen.getByPlaceholderText(/the export stops/), { target: { value: 'Crops vanish' } });
+    const review = await screen.findByRole('button', {
+      name: 'Review and send…'
+    });
+    fireEvent.change(screen.getByPlaceholderText(/the export stops/), {
+      target: { value: 'Crops vanish' }
+    });
     // Screenshot off by default; log on; the user turns the log off and the screenshot on.
     fireEvent.click(screen.getByRole('checkbox', { name: /Last lines of Rawtonic's log/ }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Screenshot of the window/ }));
@@ -83,7 +115,7 @@ describe('Report a problem', () => {
       app: context.app,
       gpu: context.gpu,
       text: 'Crops vanish',
-      screenshot: { mime: 'image/jpeg', data: 'AAAA' },
+      screenshot: { mime: 'image/jpeg', data: 'AAAA' }
     });
     expect(body.textContent).toContain('"text": "Crops vanish"');
     expect(send).not.toHaveBeenCalled();
@@ -98,14 +130,24 @@ describe('Report a problem', () => {
 
   it('attaches the photo file only when ticked, with its warning', async () => {
     render(<ProblemReportDialog {...props} available={() => Promise.resolve(true)} send={vi.fn()} />);
-    const review = await screen.findByRole('button', { name: 'Review and send…' });
-    fireEvent.change(screen.getByPlaceholderText(/the export stops/), { target: { value: 'Colours wrong' } });
-    const file = screen.getByRole('checkbox', { name: /Attach the photo file itself \(NEF/ }) as HTMLInputElement;
+    const review = await screen.findByRole('button', {
+      name: 'Review and send…'
+    });
+    fireEvent.change(screen.getByPlaceholderText(/the export stops/), {
+      target: { value: 'Colours wrong' }
+    });
+    const file = screen.getByRole('checkbox', {
+      name: /Attach the photo file itself \(NEF/
+    }) as HTMLInputElement;
     expect(file.checked).toBe(false);
     expect(screen.queryByText(/serial number/)).toBeNull();
     fireEvent.click(review);
     await screen.findByLabelText('What will be sent');
-    expect((prepare.mock.calls.at(-1)?.[1] as { photo: object }).photo).toEqual({ make: 'NIKON', model: 'Z 6', fileType: 'NEF' });
+    expect((prepare.mock.calls.at(-1)?.[1] as { photo: object }).photo).toEqual({
+      make: 'NIKON',
+      model: 'Z 6',
+      fileType: 'NEF'
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Attach the photo file itself/ }));
     expect(screen.getByRole('note').textContent).toMatch(/serial number.*GPS/);
@@ -115,7 +157,7 @@ describe('Report a problem', () => {
       make: 'NIKON',
       model: 'Z 6',
       fileType: 'NEF',
-      path: '/private/DSC_1.NEF',
+      path: '/private/DSC_1.NEF'
     });
   });
 
@@ -123,12 +165,18 @@ describe('Report a problem', () => {
     const openUrl = vi.fn((_url: string) => Promise.resolve());
     render(<ProblemReportDialog {...props} available={() => Promise.resolve(true)} openUrl={openUrl} />);
     await screen.findByRole('button', { name: 'Review and send…' });
-    fireEvent.change(screen.getByPlaceholderText(/the export stops/), { target: { value: 'Colours wrong' } });
+    fireEvent.change(screen.getByPlaceholderText(/the export stops/), {
+      target: { value: 'Colours wrong' }
+    });
     fireEvent.click(screen.getByRole('checkbox', { name: /Attach the photo file itself/ }));
     prepare.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /Copy report/ }));
     await waitFor(() => expect(clipboard).toHaveBeenCalledTimes(1));
-    expect((prepare.mock.calls[0][1] as { photo: object }).photo).toEqual({ make: 'NIKON', model: 'Z 6', fileType: 'NEF' });
+    expect((prepare.mock.calls[0][1] as { photo: object }).photo).toEqual({
+      make: 'NIKON',
+      model: 'Z 6',
+      fileType: 'NEF'
+    });
     expect(clipboard.mock.calls[0][0] as string).toMatch(/Photo file:\*\* not included/);
     fireEvent.click(screen.getByRole('button', { name: /Open on GitHub/ }));
     const shown = await screen.findByLabelText('Text for GitHub');
@@ -139,17 +187,26 @@ describe('Report a problem', () => {
   it('drops a preparation that arrives after the text changed', async () => {
     let finish: (body: PreparedContribution) => void = () => {};
     const slow = vi.fn(
-      () => new Promise<PreparedContribution>((resolve) => {
-        finish = resolve;
-      }),
+      () =>
+        new Promise<PreparedContribution>((resolve) => {
+          finish = resolve;
+        })
     );
     render(<ProblemReportDialog {...props} prepare={slow} available={() => Promise.resolve(true)} send={vi.fn()} />);
-    const review = await screen.findByRole('button', { name: 'Review and send…' });
+    const review = await screen.findByRole('button', {
+      name: 'Review and send…'
+    });
     const text = screen.getByPlaceholderText(/the export stops/);
     fireEvent.change(text, { target: { value: 'first' } });
     fireEvent.click(review);
     fireEvent.change(text, { target: { value: 'first, then more' } });
-    await act(async () => finish({ channel: 'report', body: '{"schema":1,"text":"first"}', digest: 'd'.repeat(64) }));
+    await act(async () =>
+      finish({
+        channel: 'report',
+        body: '{"schema":1,"text":"first"}',
+        digest: 'd'.repeat(64)
+      })
+    );
     expect(screen.queryByLabelText('What will be sent')).toBeNull();
     expect((screen.getByPlaceholderText(/the export stops/) as HTMLTextAreaElement).value).toBe('first, then more');
   });
@@ -161,11 +218,15 @@ describe('Report a problem', () => {
       <ReviewSendDialog
         isOpen
         title="Report"
-        prepared={{ channel: 'report', body: '{"schema":1}', digest: 'd'.repeat(64) }}
+        prepared={{
+          channel: 'report',
+          body: '{"schema":1}',
+          digest: 'd'.repeat(64)
+        }}
         onClose={() => {}}
         send={() => Promise.resolve({ id: 'abcdefghijklmnopqrstuvwxyz' })}
         remove={remove}
-      />,
+      />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Delete this report now' }));

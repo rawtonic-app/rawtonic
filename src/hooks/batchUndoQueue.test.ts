@@ -7,7 +7,13 @@ import { resetActivityStore, useActivityStore } from '../store/useActivityStore'
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { debouncedSave, debouncedSetHistory, flushRecipeSaves, useEditorActions, waitForPendingMetadataSave } from './useEditorActions';
+import {
+  debouncedSave,
+  debouncedSetHistory,
+  flushRecipeSaves,
+  useEditorActions,
+  waitForPendingMetadataSave
+} from './useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
@@ -16,9 +22,17 @@ import { redo, undo, useCatalogUndoStore } from '../utils/appUndo';
 import { PHOTO_WRITES_SETTLED, type PhotoWritesSettled } from '../utils/photoWrites';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), isActive: vi.fn(), update: vi.fn() } }));
+vi.mock('../activity/notify', () => ({
+  notify: { error: vi.fn(), info: vi.fn(), isActive: vi.fn(), update: vi.fn() }
+}));
 
-type Pending = { command: string; args: unknown; resolve(value?: unknown): void; reject(error: unknown): void; settled?: boolean };
+type Pending = {
+  command: string;
+  args: unknown;
+  resolve(value?: unknown): void;
+  reject(error: unknown): void;
+  settled?: boolean;
+};
 let pending: Pending[];
 const commands = () => pending.map(({ command }) => command);
 const answer = async (command: string, value?: unknown, fail = false) => {
@@ -31,10 +45,19 @@ const answer = async (command: string, value?: unknown, fail = false) => {
 };
 
 const photos = ['/a.dng', '/b.dng', '/c.dng'];
-const before = (path: string) => ({ ...INITIAL_ADJUSTMENTS, exposure: photos.indexOf(path) });
+const before = (path: string) => ({
+  ...INITIAL_ADJUSTMENTS,
+  exposure: photos.indexOf(path)
+});
 const after = (path: string) => ({ ...before(path), contrast: 20 });
 /** The Sync's answer: every photograph changed. */
-const synced = { changes: photos.map((path) => ({ path, before: before(path), after: after(path) })) };
+const synced = {
+  changes: photos.map((path) => ({
+    path,
+    before: before(path),
+    after: after(path)
+  }))
+};
 let settled: PhotoWritesSettled[];
 const onSettled = (event: Event) => settled.push((event as CustomEvent<PhotoWritesSettled>).detail);
 
@@ -43,7 +66,10 @@ async function sync() {
   const { result } = renderHook(useEditorActions);
   let done!: Promise<unknown>;
   act(() => {
-    done = result.current.applyAdjustmentsToPaths({ contrast: 20 }, photos, { pasteFrom: '/open.dng', label: 'sync' })!;
+    done = result.current.applyAdjustmentsToPaths({ contrast: 20 }, photos, {
+      pasteFrom: '/open.dng',
+      label: 'sync'
+    })!;
   });
   await answer(Invokes.ApplyAdjustmentsToPaths, synced);
   await act(async () => {
@@ -56,14 +82,27 @@ beforeEach(() => {
   settled = [];
   window.addEventListener(PHOTO_WRITES_SETTLED, onSettled);
   vi.mocked(invoke).mockImplementation(
-    (command, args) => new Promise((resolve, reject) => pending.push({ command, args, resolve, reject })),
+    (command, args) => new Promise((resolve, reject) => pending.push({ command, args, resolve, reject }))
   );
   const adjustments = { ...INITIAL_ADJUSTMENTS };
   useEditorStore.setState({
-    selectedImage: { path: '/open.dng', isReady: true, isRaw: true, width: 4000, height: 3000, exif: {}, thumbnailUrl: '' } as never,
-    adjustments, history: [adjustments], historyIndex: 0,
+    selectedImage: {
+      path: '/open.dng',
+      isReady: true,
+      isRaw: true,
+      width: 4000,
+      height: 3000,
+      exif: {},
+      thumbnailUrl: ''
+    } as never,
+    adjustments,
+    history: [adjustments],
+    historyIndex: 0
   });
-  useLibraryStore.setState({ libraryActivePath: '/open.dng', multiSelectedPaths: ['/open.dng'] });
+  useLibraryStore.setState({
+    libraryActivePath: '/open.dng',
+    multiSelectedPaths: ['/open.dng']
+  });
   useCatalogUndoStore.setState({ past: [], future: [] });
 });
 afterEach(async () => {
@@ -86,9 +125,17 @@ it('undoes a Sync over three photographs in one step through their write queues,
   expect(useCatalogUndoStore.getState().past).toHaveLength(1);
   settled = [];
   const undone = act(() => undo());
-  const restore = await answer(Invokes.ReplaceRecipes, { changes: synced.changes.map(({ path, after: a, before: b }) => ({ path, before: a, after: b })) });
+  const restore = await answer(Invokes.ReplaceRecipes, {
+    changes: synced.changes.map(({ path, after: a, before: b }) => ({
+      path,
+      before: a,
+      after: b
+    }))
+  });
   await undone;
-  expect(restore.args).toEqual({ changes: photos.map((path) => ({ path, adjustments: before(path) })) });
+  expect(restore.args).toEqual({
+    changes: photos.map((path) => ({ path, adjustments: before(path) }))
+  });
   // One write of the queue for all three, tagged with the step.
   expect(settled).toEqual([expect.objectContaining({ kind: 'restore', paths: photos, failed: [] })]);
   expect(settled[0].step).toEqual(expect.any(Number));
@@ -98,7 +145,9 @@ it('undoes a Sync over three photographs in one step through their write queues,
   const redone = act(() => redo());
   const again = await answer(Invokes.ReplaceRecipes, synced);
   await redone;
-  expect(again.args).toEqual({ changes: photos.map((path) => ({ path, adjustments: after(path) })) });
+  expect(again.args).toEqual({
+    changes: photos.map((path) => ({ path, adjustments: after(path) }))
+  });
   expect(useCatalogUndoStore.getState().past).toHaveLength(1);
 });
 
@@ -128,7 +177,7 @@ it('reports a restore that failed for one photograph and keeps it unsaved for qu
   const undone = act(() => undo());
   await answer(Invokes.ReplaceRecipes, {
     changes: synced.changes.filter(({ path }) => path !== '/b.dng'),
-    failure: { message: 'disk full', failed: ['/b.dng'] },
+    failure: { message: 'disk full', failed: ['/b.dng'] }
   });
   await undone;
   expect(settled).toEqual([expect.objectContaining({ kind: 'restore', failed: ['/b.dng'] })]);
@@ -154,7 +203,9 @@ it('makes a photograph opened meanwhile wait for a batch still waiting for an ea
   const undone = act(() => undo());
   act(() => result.current.handleResetAdjustments(['/b.dng']));
   let read = false;
-  void waitForPendingMetadataSave('/b.dng')!.then(() => { read = true; });
+  void waitForPendingMetadataSave('/b.dng')!.then(() => {
+    read = true;
+  });
   await answer(Invokes.ReplaceRecipes, { changes: synced.changes });
   await undone;
   await act(async () => {});
@@ -170,16 +221,28 @@ it('keeps a failed restore of a never-edited recipe unsaved and tries it again w
   act(() => {
     done = result.current.applyAdjustmentsToPaths({ contrast: 20 }, ['/new.dng'], { pasteFrom: '/open.dng' })!;
   });
-  await answer(Invokes.ApplyAdjustmentsToPaths, { changes: [{ path: '/new.dng', before: null, after: after('/new.dng') }] });
-  await act(async () => { await done; });
+  await answer(Invokes.ApplyAdjustmentsToPaths, {
+    changes: [{ path: '/new.dng', before: null, after: after('/new.dng') }]
+  });
+  await act(async () => {
+    await done;
+  });
   const undone = act(() => undo());
-  await answer(Invokes.ReplaceRecipes, { changes: [], failure: { message: 'disk full', failed: ['/new.dng'] } });
+  await answer(Invokes.ReplaceRecipes, {
+    changes: [],
+    failure: { message: 'disk full', failed: ['/new.dng'] }
+  });
   await undone;
   let unsaved!: Promise<string[]>;
   await act(async () => {
     unsaved = flushRecipeSaves();
   });
-  const retry = await answer(Invokes.ReplaceRecipes, { changes: [], failure: { message: 'disk full', failed: ['/new.dng'] } });
-  expect(retry.args).toEqual({ changes: [{ path: '/new.dng', adjustments: null }] });
+  const retry = await answer(Invokes.ReplaceRecipes, {
+    changes: [],
+    failure: { message: 'disk full', failed: ['/new.dng'] }
+  });
+  expect(retry.args).toEqual({
+    changes: [{ path: '/new.dng', adjustments: null }]
+  });
   expect(await unsaved).toEqual(['/new.dng']);
 });

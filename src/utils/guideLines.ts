@@ -9,7 +9,11 @@ export const MAX_GUIDES_PER_AXIS = 2;
 
 /** Vertical and horizontal guides are told apart by colour; a guide that
  * cannot be added is red. */
-export const GUIDE_COLORS = { vertical: '#38bdf8', horizontal: '#f5a524', invalid: '#ef4444' } as const;
+export const GUIDE_COLORS = {
+  vertical: '#38bdf8',
+  horizontal: '#f5a524',
+  invalid: '#ef4444'
+} as const;
 
 /** The axis of a guide drawn from (0, 0) to (dx, dy) on screen, or null when
  * it is too far from both. */

@@ -12,7 +12,9 @@ import { followRenamedPaths } from '../utils/pathKeyedState';
 import { useDuplicatesDialog } from '../utils/duplicates';
 import '../i18n';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => undefined) }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(async () => undefined)
+}));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>();
@@ -26,7 +28,7 @@ const job = (part: Partial<ExportJob>): ExportJob => ({
   done: 0,
   failed: 0,
   failures: [],
-  ...part,
+  ...part
 });
 let stop: () => void;
 
@@ -38,7 +40,11 @@ beforeEach(() => {
     handlers.set(event, handler as (event: { payload: unknown }) => void);
     return () => handlers.delete(event);
   });
-  useProcessStore.setState({ exportQueue: [], exportQueueHeld: false, activeAiTasks: {} });
+  useProcessStore.setState({
+    exportQueue: [],
+    exportQueueHeld: false,
+    activeAiTasks: {}
+  });
   stop = startActivityBridges();
 });
 afterEach(() => {
@@ -52,7 +58,7 @@ it('shows a running export with its progress and Cancel', async () => {
     status: 'running',
     source: 'export',
     title: 'Exporting 3 photos as JPG',
-    progress: { done: 1, total: 3 },
+    progress: { done: 1, total: 3 }
   });
   await entry('export:j1')!.cancel!();
   expect(invoke).toHaveBeenCalledWith(Invokes.ExportQueueCancel, { job: 'j1' });
@@ -61,9 +67,16 @@ it('shows a running export with its progress and Cancel', async () => {
 it('keeps an export failure under Needs attention with Try again and the photographs, until dismissed', async () => {
   useProcessStore.getState().setExportQueue({ jobs: [job({})], held: false });
   const failures = [{ path: '/s/A.NEF', error: 'disk full' }];
-  useProcessStore.getState().setExportQueue({ jobs: [job({ state: 'failed', done: 2, failed: 1, failures })], held: false });
+  useProcessStore.getState().setExportQueue({
+    jobs: [job({ state: 'failed', done: 2, failed: 1, failures })],
+    held: false
+  });
   const failure = entry('export:j1')!;
-  expect(failure).toMatchObject({ status: 'failure', title: '1 photo did not export: 3 photos as JPG', paths: ['/s/A.NEF'] });
+  expect(failure).toMatchObject({
+    status: 'failure',
+    title: '1 photo did not export: 3 photos as JPG',
+    paths: ['/s/A.NEF']
+  });
   expect(failure.detail).toBe('A.NEF: disk full');
   expect(failure.actions?.map((a) => a.label)).toEqual(['Try again']);
   await failure.actions![0].run();
@@ -71,17 +84,25 @@ it('keeps an export failure under Needs attention with Try again and the photogr
 
   // Dismissed: the same snapshot again does not bring it back.
   useActivityStore.getState().dismiss('export:j1');
-  useProcessStore.getState().setExportQueue({ jobs: [job({ state: 'failed', done: 2, failed: 1, failures })], held: true });
+  useProcessStore.getState().setExportQueue({
+    jobs: [job({ state: 'failed', done: 2, failed: 1, failures })],
+    held: true
+  });
   expect(entry('export:j1')).toBeUndefined();
 });
 
 it('offers no Try again for a failed Edit With render: it is never resumed', () => {
   const failures = [{ path: '/s/A.NEF', error: 'disk full' }];
-  useProcessStore
-    .getState()
-    .setExportQueue({ jobs: [job({ state: 'failed', total: 1, failed: 1, failures })], held: false, editWith: ['j1'] });
+  useProcessStore.getState().setExportQueue({
+    jobs: [job({ state: 'failed', total: 1, failed: 1, failures })],
+    held: false,
+    editWith: ['j1']
+  });
   expect(useProcessStore.getState().exportQueue[0].editWith).toBe(true);
-  expect(entry('export:j1')).toMatchObject({ status: 'failure', paths: ['/s/A.NEF'] });
+  expect(entry('export:j1')).toMatchObject({
+    status: 'failure',
+    paths: ['/s/A.NEF']
+  });
   expect(entry('export:j1')!.actions).toBeUndefined();
 });
 
@@ -92,16 +113,25 @@ it('ends the task of an export that finished well (its files are reported once w
 });
 
 it('keeps a failed paste until dismissed: a later paste of other values says nothing about it', async () => {
-  await submitPhotoWrite(['/a.dng', '/b.dng'], async () => ['/b.dng'], { kind: 'paste', failedOf: (failed) => failed });
+  await submitPhotoWrite(['/a.dng', '/b.dng'], async () => ['/b.dng'], {
+    kind: 'paste',
+    failedOf: (failed) => failed
+  });
   await act(async () => {});
   expect(entry('write:not-saved')).toMatchObject({
     status: 'failure',
     source: 'write',
     title: 'Changes to 1 photo were not saved',
-    paths: ['/b.dng'],
+    paths: ['/b.dng']
   });
-  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'paste', failedOf: (failed: string[]) => failed });
-  await submitPhotoWrite(['/b.dng'], async () => [], { kind: 'recipe', failedOf: (failed: string[]) => failed });
+  await submitPhotoWrite(['/b.dng'], async () => [], {
+    kind: 'paste',
+    failedOf: (failed: string[]) => failed
+  });
+  await submitPhotoWrite(['/b.dng'], async () => [], {
+    kind: 'recipe',
+    failedOf: (failed: string[]) => failed
+  });
   await act(async () => {});
   expect(entry('write:not-saved')).toMatchObject({ paths: ['/b.dng'] });
   useActivityStore.getState().dismiss('write:not-saved');
@@ -109,24 +139,42 @@ it('keeps a failed paste until dismissed: a later paste of other values says not
 });
 
 it('resolves a failed rating or edit once a later one of the same kind is saved, also after a rename', async () => {
-  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], { kind: Invokes.SetRatingForPaths, failedOf: (failed) => failed });
-  await submitPhotoWrite(['/c.dng'], async () => ['/c.dng'], { kind: 'recipe', failedOf: (failed) => failed });
+  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], {
+    kind: Invokes.SetRatingForPaths,
+    failedOf: (failed) => failed
+  });
+  await submitPhotoWrite(['/c.dng'], async () => ['/c.dng'], {
+    kind: 'recipe',
+    failedOf: (failed) => failed
+  });
   await act(async () => {});
   expect(entry('write:not-saved')?.paths).toEqual(['/a.dng', '/c.dng']);
   // A rating saved later says nothing about the edit not saved.
-  await submitPhotoWrite(['/c.dng'], async () => [], { kind: Invokes.SetRatingForPaths, failedOf: (failed: string[]) => failed });
+  await submitPhotoWrite(['/c.dng'], async () => [], {
+    kind: Invokes.SetRatingForPaths,
+    failedOf: (failed: string[]) => failed
+  });
   await act(async () => {});
   expect(entry('write:not-saved')?.paths).toEqual(['/a.dng', '/c.dng']);
   followRenamedPaths(['/a.dng'], ['/Wedding-001.dng']);
   expect(entry('write:not-saved')?.paths?.slice().sort()).toEqual(['/Wedding-001.dng', '/c.dng']);
-  await submitPhotoWrite(['/Wedding-001.dng'], async () => [], { kind: Invokes.SetRatingForPaths, failedOf: (failed: string[]) => failed });
-  await submitPhotoWrite(['/c.dng'], async () => [], { kind: 'recipe', failedOf: (failed: string[]) => failed });
+  await submitPhotoWrite(['/Wedding-001.dng'], async () => [], {
+    kind: Invokes.SetRatingForPaths,
+    failedOf: (failed: string[]) => failed
+  });
+  await submitPhotoWrite(['/c.dng'], async () => [], {
+    kind: 'recipe',
+    failedOf: (failed: string[]) => failed
+  });
   await act(async () => {});
   expect(entry('write:not-saved')).toBeUndefined();
 });
 
 it('gives the write failure the reason a caller learns after the queue settled, as one entry', async () => {
-  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], { kind: Invokes.SetRatingForPaths, failedOf: (failed) => failed });
+  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], {
+    kind: Invokes.SetRatingForPaths,
+    failedOf: (failed) => failed
+  });
   await act(async () => {});
   noteWriteError('Failed to apply rating: Permission denied', ['/a.dng']);
   const failures = useActivityStore.getState().entries.filter((e) => e.status === 'failure');
@@ -141,14 +189,26 @@ it('shows AI tasks while they run, with Generative fill progress', async () => {
   await act(async () => {});
   useProcessStore.getState().registerAiTask('mask-1', 'sky');
   useProcessStore.getState().registerAiTask('patch-1', 'inpaint');
-  expect(entry('ai:task:mask-1')).toMatchObject({ status: 'running', source: 'ai', title: 'AI mask: Sky' });
-  handlers.get('ai-fill-progress')!({ payload: { taskId: 'patch-1', done: 2, total: 8 } });
-  expect(entry('ai:task:patch-1')).toMatchObject({ title: 'Generative fill', progress: { done: 2, total: 8 } });
+  expect(entry('ai:task:mask-1')).toMatchObject({
+    status: 'running',
+    source: 'ai',
+    title: 'AI mask: Sky'
+  });
+  handlers.get('ai-fill-progress')!({
+    payload: { taskId: 'patch-1', done: 2, total: 8 }
+  });
+  expect(entry('ai:task:patch-1')).toMatchObject({
+    title: 'Generative fill',
+    progress: { done: 2, total: 8 }
+  });
   useProcessStore.getState().unregisterAiTask('mask-1');
   expect(entry('ai:task:mask-1')).toBeUndefined();
 
   useEditorStore.setState({ aiDenoiseBusy: true });
-  expect(entry('ai:denoise')).toMatchObject({ status: 'running', title: 'AI Denoise' });
+  expect(entry('ai:denoise')).toMatchObject({
+    status: 'running',
+    title: 'AI Denoise'
+  });
   useEditorStore.setState({ aiDenoiseBusy: false });
   expect(entry('ai:denoise')).toBeUndefined();
 });
@@ -156,11 +216,13 @@ it('shows AI tasks while they run, with Generative fill progress', async () => {
 it('shows a model download with its progress', async () => {
   await act(async () => {});
   handlers.get('ai-model-download-start')!({ payload: 'sky-v2' });
-  handlers.get('ai-model-download-progress')!({ payload: { model: 'sky-v2', received: 50, total: 200 } });
+  handlers.get('ai-model-download-progress')!({
+    payload: { model: 'sky-v2', received: 50, total: 200 }
+  });
   expect(entry('download:ai-model')).toMatchObject({
     source: 'download',
     title: 'Downloading sky-v2',
-    progress: { done: 50, total: 200 },
+    progress: { done: 50, total: 200 }
   });
   handlers.get('ai-model-download-finish')!({ payload: 'sky-v2' });
   expect(entry('download:ai-model')).toBeUndefined();
@@ -171,11 +233,15 @@ it('shows a batch command photo by photo', async () => {
   const written = submitPhotoWrite(
     ['/a.dng', '/b.dng'],
     () => new Promise<string[]>((resolve) => (release = () => resolve([]))),
-    { kind: 'auto', failedOf: (failed) => failed, batch: true },
+    { kind: 'auto', failedOf: (failed) => failed, batch: true }
   );
   await act(async () => {});
   const batch = useActivityStore.getState().entries.find((e) => e.source === 'batch')!;
-  expect(batch).toMatchObject({ status: 'running', title: 'Auto adjustments: 2 photos', progress: { done: 0, total: 2 } });
+  expect(batch).toMatchObject({
+    status: 'running',
+    title: 'Auto adjustments: 2 photos',
+    progress: { done: 0, total: 2 }
+  });
   release();
   await written;
   await act(async () => {});
@@ -184,22 +250,36 @@ it('shows a batch command photo by photo', async () => {
 
 it('shows the duplicate comparison with Stop, then what it read with Review', async () => {
   await act(async () => {});
-  handlers.get('duplicates-progress')!({ payload: { run: 4, directory: '/jobs/A', done: 10, total: 40 } });
+  handlers.get('duplicates-progress')!({
+    payload: { run: 4, directory: '/jobs/A', done: 10, total: 40 }
+  });
   expect(entry('duplicates:4')).toMatchObject({
     status: 'running',
     title: 'Comparing photos for duplicates',
-    progress: { done: 10, total: 40 },
+    progress: { done: 10, total: 40 }
   });
   await entry('duplicates:4')!.cancel!();
   expect(invoke).toHaveBeenCalledWith(Invokes.DuplicatesCancel, { run: 4 });
   handlers.get('duplicates-finished')!({
-    payload: { run: 4, directory: '/jobs/A', photos: 40, hashed: 39, unreadable: ['/jobs/A/x.NEF'], cancelled: false, error: null, seconds: 1 },
+    payload: {
+      run: 4,
+      directory: '/jobs/A',
+      photos: 40,
+      hashed: 39,
+      unreadable: ['/jobs/A/x.NEF'],
+      cancelled: false,
+      error: null,
+      seconds: 1
+    }
   });
-  expect(entry('duplicates:4')).toMatchObject({ status: 'done', title: 'Compared 39 photos for duplicates' });
+  expect(entry('duplicates:4')).toMatchObject({
+    status: 'done',
+    title: 'Compared 39 photos for duplicates'
+  });
   expect(entry('duplicates:4:unreadable')).toMatchObject({
     status: 'warning',
     title: '1 photo could not be compared for duplicates',
-    paths: ['/jobs/A/x.NEF'],
+    paths: ['/jobs/A/x.NEF']
   });
   entry('duplicates:4')!.actions![0].run();
   expect(useDuplicatesDialog.getState().open).toBe(true);
@@ -208,28 +288,48 @@ it('shows the duplicate comparison with Stop, then what it read with Review', as
 
 it('reports a failed duplicate comparison until dismissed', async () => {
   await act(async () => {});
-  handlers.get('duplicates-progress')!({ payload: { run: 5, directory: '/jobs/A', done: 0, total: 3 } });
-  handlers.get('duplicates-finished')!({
-    payload: { run: 5, directory: '/jobs/A', photos: 0, hashed: 0, unreadable: [], cancelled: false, error: 'disk gone', seconds: 0 },
+  handlers.get('duplicates-progress')!({
+    payload: { run: 5, directory: '/jobs/A', done: 0, total: 3 }
   });
-  expect(entry('duplicates:5')).toMatchObject({ status: 'failure', title: 'Finding duplicates failed', detail: 'disk gone' });
+  handlers.get('duplicates-finished')!({
+    payload: {
+      run: 5,
+      directory: '/jobs/A',
+      photos: 0,
+      hashed: 0,
+      unreadable: [],
+      cancelled: false,
+      error: 'disk gone',
+      seconds: 0
+    }
+  });
+  expect(entry('duplicates:5')).toMatchObject({
+    status: 'failure',
+    title: 'Finding duplicates failed',
+    detail: 'disk gone'
+  });
 });
 
 it('says once what an interrupted job left and was removed, and names staging folders left in place', async () => {
   await vi.waitFor(() => expect(handlers.has('leftovers-removed')).toBe(true));
   act(() =>
     handlers.get('leftovers-removed')!({
-      payload: { tempFiles: 2, folders: 1, bytes: 2_400_000_000, kept: ['/cat/Photos/.rawtonic-import-old'] },
-    }),
+      payload: {
+        tempFiles: 2,
+        folders: 1,
+        bytes: 2_400_000_000,
+        kept: ['/cat/Photos/.rawtonic-import-old']
+      }
+    })
   );
   expect(entry('leftovers:removed')).toMatchObject({
     status: 'done',
     source: 'files',
-    title: 'Removed 2.4 GB of unfinished copies from interrupted jobs',
+    title: 'Removed 2.4 GB of unfinished copies from interrupted jobs'
   });
   expect(entry('leftovers:kept')).toMatchObject({
     status: 'warning',
     title: '1 unfinished folder of an interrupted job was left in place',
-    detail: '/cat/Photos/.rawtonic-import-old',
+    detail: '/cat/Photos/.rawtonic-import-old'
   });
 });

@@ -8,7 +8,10 @@ const loadStarts = new WeakMap<ImageFile[], number>();
 
 export function markLibraryPublication(files: ImageFile[]) {
   if (!performanceDiagnosticsEnabled) return;
-  publications.set(files, { loaded: loadStarts.get(files) ?? performance.now(), published: performance.now() });
+  publications.set(files, {
+    loaded: loadStarts.get(files) ?? performance.now(),
+    published: performance.now()
+  });
 }
 
 export function reportLibraryPresentation(files: ImageFile[], visible: number) {
@@ -19,7 +22,7 @@ export function reportLibraryPresentation(files: ImageFile[], visible: number) {
     ms: performance.now() - times.loaded,
     publish_to_frame_ms: performance.now() - times.published,
     assets: files.length,
-    visible,
+    visible
   });
 }
 
@@ -43,15 +46,23 @@ export async function loadLibraryImages(path: string, recursive: boolean, signal
   let listingId: string | null = null;
   let pages = 0;
   try {
-    let page = await invoke<ListingPage>(Invokes.BeginImageListing, { path, recursive });
+    let page = await invoke<ListingPage>(Invokes.BeginImageListing, {
+      path,
+      recursive
+    });
     listingId = page.listing_id;
     const firstPageMs = performanceDiagnosticsEnabled ? performance.now() - started : 0;
     const files: ImageFile[] = [];
     const total = page.total;
     while (true) {
       if (signal?.aborted) abortLibraryLoad();
-      if (page.total !== total || page.offset !== files.length || page.files.length > 512
-          || files.length + page.files.length > total || (page.listing_id && !page.files.length)) {
+      if (
+        page.total !== total ||
+        page.offset !== files.length ||
+        page.files.length > 512 ||
+        files.length + page.files.length > total ||
+        (page.listing_id && !page.files.length)
+      ) {
         throw new Error('Invalid library listing page');
       }
       files.push(...page.files);
@@ -61,11 +72,18 @@ export async function loadLibraryImages(path: string, recursive: boolean, signal
         listingId = null;
         break;
       }
-      page = await invoke<ListingPage>(Invokes.NextImageListingPage, { listingId, offset: files.length });
+      page = await invoke<ListingPage>(Invokes.NextImageListingPage, {
+        listingId,
+        offset: files.length
+      });
     }
-    if (performanceDiagnosticsEnabled) reportPerformance('library_listing', {
-      ms: performance.now() - started, first_page_ms: firstPageMs, assets: total, pages,
-    });
+    if (performanceDiagnosticsEnabled)
+      reportPerformance('library_listing', {
+        ms: performance.now() - started,
+        first_page_ms: firstPageMs,
+        assets: total,
+        pages
+      });
     if (performanceDiagnosticsEnabled) loadStarts.set(files, started);
     return files;
   } finally {

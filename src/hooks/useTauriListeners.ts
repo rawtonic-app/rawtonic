@@ -9,7 +9,7 @@ import {
   ExportItemProgress,
   ExportQueueSnapshot,
   ExternalEditSession,
-  useProcessStore,
+  useProcessStore
 } from '../store/useProcessStore';
 import { followsExportItems, loadExportItems } from '../components/studio/StudioExportQueue';
 import { offerInterruptedEditWith } from '../components/studio/OpenWithMenus';
@@ -36,7 +36,9 @@ type EditorState = ReturnType<typeof useEditorStore.getState>;
 // `gpu_start_error`): no photo can be developed or exported, so it stays a
 // failure in the activity centre and names what failed.
 const showGpuStartError = (details: string) =>
-  notify.error(i18n.t('errors.gpuStartFailed', { details }), { toastId: 'gpu-start-failed' });
+  notify.error(i18n.t('errors.gpuStartFailed', { details }), {
+    toastId: 'gpu-start-failed'
+  });
 
 // Event payloads, as emitted by the backend in src-tauri/src.
 interface AnalyticsUpdatePayload {
@@ -74,7 +76,6 @@ interface PathProgressPayload {
   path: string;
 }
 
-
 interface MergeCompletePayload {
   job: number;
   base64: string;
@@ -91,7 +92,7 @@ interface TauriListenerProps {
     isNewRoot?: boolean,
     preloadedImages?: ImageFile[],
     expandParents?: boolean,
-    preserveEditor?: boolean,
+    preserveEditor?: boolean
   ) => void | Promise<void>;
   refreshImageList: () => void;
   markGenerated: (path: string) => void;
@@ -132,7 +133,7 @@ function normalizedBatchWriteSettled(payload: BatchWriteSettledPayload | null | 
     tag: batch,
     path,
     ...(typeof ok === 'string' ? { ok } : {}),
-    also: Array.isArray(also) ? also.filter((each): each is string => typeof each === 'string') : [],
+    also: Array.isArray(also) ? also.filter((each): each is string => typeof each === 'string') : []
   };
 }
 
@@ -183,8 +184,13 @@ function batchWriteSettledListener(): Promise<UnlistenFn> {
       // once its write settles, while these reports still come.)
       window.dispatchEvent(
         new CustomEvent('rawtonic:batch-write-settled', {
-          detail: { tag: settled.tag, path: photo, ...(settled.ok !== undefined ? { ok: settled.ok } : {}), also: [] },
-        }),
+          detail: {
+            tag: settled.tag,
+            path: photo,
+            ...(settled.ok !== undefined ? { ok: settled.ok } : {}),
+            also: []
+          }
+        })
       );
     }
   });
@@ -206,13 +212,25 @@ export function useTauriListeners({
   handleSelectSubfolder,
   refreshImageList,
   markGenerated,
-  handleImageSelect,
+  handleImageSelect
 }: TauriListenerProps) {
-  const refs = useRef({ refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated, handleImageSelect });
+  const refs = useRef({
+    refreshAllFolderTrees,
+    handleSelectSubfolder,
+    refreshImageList,
+    markGenerated,
+    handleImageSelect
+  });
   const latestCapture = useRef(0);
 
   useEffect(() => {
-    refs.current = { refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated, handleImageSelect };
+    refs.current = {
+      refreshAllFolderTrees,
+      handleSelectSubfolder,
+      refreshImageList,
+      markGenerated,
+      handleImageSelect
+    };
   });
 
   const thumbnailBuffer = useRef<Record<string, string>>({});
@@ -230,9 +248,14 @@ export function useTauriListeners({
       destination,
       skipped,
       error,
-      session,
-    }: { destination: string | null; skipped: boolean; error: string | null; session?: string },
-    inDevelop: boolean,
+      session
+    }: {
+      destination: string | null;
+      skipped: boolean;
+      error: string | null;
+      session?: string;
+    },
+    inDevelop: boolean
   ) => {
     if (!destination || skipped || error) return;
     // A capture of another library (still arriving after a switch) does not
@@ -263,8 +286,8 @@ export function useTauriListeners({
                 false,
                 undefined,
                 true,
-                useUIStore.getState().activeView === 'editor',
-              ),
+                useUIStore.getState().activeView === 'editor'
+              )
             )
           : null;
     if (!shown) return;
@@ -273,7 +296,10 @@ export function useTauriListeners({
       // The folder change did happen (a later navigation may have cut it).
       if (useLibraryStore.getState().currentFolderPath !== folder) return;
       if (useUIStore.getState().activeView !== 'editor')
-        setLibrary({ multiSelectedPaths: [destination], libraryActivePath: destination });
+        setLibrary({
+          multiSelectedPaths: [destination],
+          libraryActivePath: destination
+        });
       else if (inDevelop) refs.current.handleImageSelect?.(destination, true);
     });
   };
@@ -322,13 +348,23 @@ export function useTauriListeners({
       if (Object.keys(pendingThumbs).length > 0) {
         useProcessStore.getState().setProcess((state) => ({
           thumbnails: { ...state.thumbnails, ...pendingThumbs },
-          mediumThumbnails: { ...state.mediumThumbnails, ...pendingMediumThumbs },
+          mediumThumbnails: {
+            ...state.mediumThumbnails,
+            ...pendingMediumThumbs
+          }
         }));
         useEditorStore.getState().setEditor((state) => {
           const image = state.selectedImage;
           const thumbnailUrl = image && pendingMediumThumbs[image.path];
-          if (!image || image.isReady || image.thumbnailSource === 'embedded' || state.hasRenderedFirstFrame || !thumbnailUrl
-              || image.thumbnailUrl === thumbnailUrl) return state;
+          if (
+            !image ||
+            image.isReady ||
+            image.thumbnailSource === 'embedded' ||
+            state.hasRenderedFirstFrame ||
+            !thumbnailUrl ||
+            image.thumbnailUrl === thumbnailUrl
+          )
+            return state;
           return { selectedImage: { ...image, thumbnailUrl } };
         });
       }
@@ -346,7 +382,7 @@ export function useTauriListeners({
             ([path, rating]) =>
               state.imageRatings[path] === undefined &&
               state.imageList[indices.get(path) ?? -1]?.rating === undefined &&
-              rating !== 0,
+              rating !== 0
           );
           const changedEdits = Object.entries(pendingEdits).filter(([path, edited]) => {
             const image = state.imageList[indices.get(path) ?? -1];
@@ -363,7 +399,7 @@ export function useTauriListeners({
             imageRatings: changedRatings.length
               ? { ...state.imageRatings, ...Object.fromEntries(changedRatings) }
               : state.imageRatings,
-            imageList,
+            imageList
           };
         });
       }
@@ -382,12 +418,11 @@ export function useTauriListeners({
       const folders = new Set(ingestFolders);
       ingestFolders.clear();
       const { currentFolderPath } = useLibraryStore.getState();
-      if (isEffectActive && currentFolderPath && folders.has(currentFolderPath))
-        await refs.current.refreshImageList();
+      if (isEffectActive && currentFolderPath && folders.has(currentFolderPath)) await refs.current.refreshImageList();
     }, INGEST_LIST_REFRESH_MS);
     const refreshIngestTree = throttleAsync(
       () => isEffectActive && refs.current.refreshAllFolderTrees(),
-      INGEST_TREE_REFRESH_MS,
+      INGEST_TREE_REFRESH_MS
     );
 
     const listeners = [
@@ -395,17 +430,18 @@ export function useTauriListeners({
       // photograph as it finishes (`batch-write-settled` in src-tauri); the
       // webview's own form follows its photographs, never on a timer.
       batchWriteSettledListener(),
-      listen<{ destination: string | null; skipped: boolean; error: string | null }>(
-        'session-ingest-imported',
-        (event) => {
-          if (!isEffectActive) return;
-          const { destination, skipped, error } = event.payload;
-          if (!destination || skipped || error) return;
-          ingestFolders.add(parentFolder(destination));
-          refreshIngestList();
-          refreshIngestTree();
-        },
-      ),
+      listen<{
+        destination: string | null;
+        skipped: boolean;
+        error: string | null;
+      }>('session-ingest-imported', (event) => {
+        if (!isEffectActive) return;
+        const { destination, skipped, error } = event.payload;
+        if (!destination || skipped || error) return;
+        ingestFolders.add(parentFolder(destination));
+        refreshIngestList();
+        refreshIngestTree();
+      }),
       listen<AnalyticsUpdatePayload>('analytics-update', (event) => {
         if (isEffectActive && event.payload.path === useEditorStore.getState().selectedImage?.path) {
           const update: Pick<Partial<EditorState>, 'histogram' | 'waveform'> = {};
@@ -444,7 +480,13 @@ export function useTauriListeners({
           // render before the save (the watcher made the new thumbnail).
           debouncedSave(selectedImage.path, adjustments, false);
           debouncedSave.flush();
-          setEditor({ selectedImage: { ...selectedImage, isDecoded: false, isReady: false } });
+          setEditor({
+            selectedImage: {
+              ...selectedImage,
+              isDecoded: false,
+              isReady: false
+            }
+          });
           const shownPath = selectedImage.path;
           const stop = useEditorStore.subscribe((state) => {
             if (state.selectedImage?.path !== shownPath) return stop();
@@ -464,9 +506,12 @@ export function useTauriListeners({
       }),
       listen<Progress>('thumbnail-progress', (event) => {
         if (isEffectActive)
-          useProcessStore
-            .getState()
-            .setProcess({ thumbnailProgress: { current: event.payload.current, total: event.payload.total } });
+          useProcessStore.getState().setProcess({
+            thumbnailProgress: {
+              current: event.payload.current,
+              total: event.payload.total
+            }
+          });
       }),
       listen('thumbnail-generation-complete', () => {
         if (isEffectActive) useProcessStore.getState().setProcess({ thumbnailProgress: { current: 0, total: 0 } });
@@ -504,7 +549,7 @@ export function useTauriListeners({
           // own form.
           const paths = await invoke<string[]>(Invokes.SessionPathsAsListed, {
             paths: ratings.map(([path]) => path),
-            listed: currentFolderPath,
+            listed: currentFolderPath
           }).catch(() => null);
           if (!isEffectActive) return;
           if (paths?.length === ratings.length) ratings = ratings.map(([, rating], i) => [paths[i], rating]);
@@ -532,18 +577,26 @@ export function useTauriListeners({
           const index = libraryImageIndex(state.imageList).get(path) ?? -1;
           const image = state.imageList[index];
           const ratingChanged = rating !== undefined && (state.imageRatings[path] ?? image?.rating ?? 0) !== rating;
-          const tagsChanged = image && tags != null &&
-            (tags.length !== (image.tags?.length ?? 0) || tags.some((tag: string, i: number) => tag !== image.tags?.[i]));
+          const tagsChanged =
+            image &&
+            tags != null &&
+            (tags.length !== (image.tags?.length ?? 0) ||
+              tags.some((tag: string, i: number) => tag !== image.tags?.[i]));
           const imageChanged = image && (Boolean(image.is_edited) !== Boolean(is_edited) || tagsChanged);
           // Opening an already indexed photo emits the same metadata again.
           // Preserve list/ratings identity so that this cannot re-query 20k files
           // on the critical path to the first developed frame.
           if (!ratingChanged && !imageChanged) return state;
           const imageList = imageChanged ? state.imageList.slice() : state.imageList;
-          if (imageChanged) imageList[index] = { ...image, is_edited, tags: tags ?? image.tags };
+          if (imageChanged)
+            imageList[index] = {
+              ...image,
+              is_edited,
+              tags: tags ?? image.tags
+            };
           return {
             imageRatings: ratingChanged ? { ...state.imageRatings, [path]: rating } : state.imageRatings,
-            imageList,
+            imageList
           };
         });
       }),
@@ -555,14 +608,20 @@ export function useTauriListeners({
       }),
       listen('indexing-started', () => {
         if (isEffectActive)
-          useProcessStore.getState().setProcess({ isIndexing: true, indexingProgress: { current: 0, total: 0 } });
+          useProcessStore.getState().setProcess({
+            isIndexing: true,
+            indexingProgress: { current: 0, total: 0 }
+          });
       }),
       listen<Progress>('indexing-progress', (event) => {
         if (isEffectActive) useProcessStore.getState().setProcess({ indexingProgress: event.payload });
       }),
       listen('indexing-finished', () => {
         if (isEffectActive) {
-          useProcessStore.getState().setProcess({ isIndexing: false, indexingProgress: { current: 0, total: 0 } });
+          useProcessStore.getState().setProcess({
+            isIndexing: false,
+            indexingProgress: { current: 0, total: 0 }
+          });
           const currentPath = useLibraryStore.getState().currentFolderPath;
           if (currentPath) {
             refs.current.refreshImageList();
@@ -574,19 +633,19 @@ export function useTauriListeners({
           useProcessStore.getState().setExportState((state) => ({
             denoising: state.denoising?.filter((path) => path !== event.payload.path),
             selecting: state.selecting?.filter((path) => path !== event.payload.path),
-            progress: event.payload,
+            progress: event.payload
           }));
       }),
       listen<string>('export-selecting', (event) => {
         if (isEffectActive)
           useProcessStore.getState().setExportState((state) => ({
-            selecting: [...(state.selecting ?? []), event.payload],
+            selecting: [...(state.selecting ?? []), event.payload]
           }));
       }),
       listen<string>('export-denoising', (event) => {
         if (isEffectActive)
           useProcessStore.getState().setExportState((state) => ({
-            denoising: [...(state.denoising ?? []), event.payload],
+            denoising: [...(state.denoising ?? []), event.payload]
           }));
       }),
       // `ids`: every job of the run (recipes sharing each photo's develop).
@@ -597,7 +656,10 @@ export function useTauriListeners({
           selecting: [],
           status: Status.Exporting,
           errorMessage: '',
-          progress: { current: event.payload.current, total: event.payload.total },
+          progress: {
+            current: event.payload.current,
+            total: event.payload.total
+          }
         });
         // The running jobs' photos, for their progress and time left.
         for (const id of event.payload.ids ?? (event.payload.id ? [event.payload.id] : [])) void loadExportItems(id);
@@ -616,33 +678,53 @@ export function useTauriListeners({
       // Only while the job still runs: a finished job never shows Pausing.
       listen<string>('export-job-pausing', (event) => {
         if (isEffectActive)
-          useProcessStore.getState().setProcess((state) =>
-            state.exportQueue.some((job) => job.id === event.payload && job.state === 'running')
-              ? { exportPausing: [...state.exportPausing, event.payload] }
-              : {},
-          );
+          useProcessStore
+            .getState()
+            .setProcess((state) =>
+              state.exportQueue.some((job) => job.id === event.payload && job.state === 'running')
+                ? { exportPausing: [...state.exportPausing, event.payload] }
+                : {}
+            );
       }),
       listen('export-paused', () => {
         if (isEffectActive)
-          useProcessStore.getState().setExportState({ status: Status.Idle, denoising: [], selecting: [], progress: { current: 0, total: 0 } });
+          useProcessStore.getState().setExportState({
+            status: Status.Idle,
+            denoising: [],
+            selecting: [],
+            progress: { current: 0, total: 0 }
+          });
       }),
-      listen<{ destination: string | null; skipped: boolean; error: string | null }>('hot-folder-imported', (event) => {
+      listen<{
+        destination: string | null;
+        skipped: boolean;
+        error: string | null;
+      }>('hot-folder-imported', (event) => {
         if (isEffectActive) showCapture(event.payload, false);
       }),
       // A tethered capture is shown at once, in Develop too (Capture One
       // follows the newest capture in its viewer).
-      listen<{ destination: string | null; skipped: boolean; error: string | null; session: string; cameraName: string }>(
-        'tether-captured',
-        (event) => {
-          if (!isEffectActive) return;
-          const { error, cameraName } = event.payload;
-          // Said here, not in the tether panel: also with no panel shown
-          // (fullscreen).
-          if (error) notify.error(i18n.t('session.tether.importFailed', { file: cameraName, error }), { source: 'tether' });
-          showCapture(event.payload, true);
-        },
-      ),
-      listen<{ kind?: string; message: string; request?: number | null; exposure?: number | null }>('tether-capture-failed', (event) => {
+      listen<{
+        destination: string | null;
+        skipped: boolean;
+        error: string | null;
+        session: string;
+        cameraName: string;
+      }>('tether-captured', (event) => {
+        if (!isEffectActive) return;
+        const { error, cameraName } = event.payload;
+        // Said here, not in the tether panel: also with no panel shown
+        // (fullscreen).
+        if (error)
+          notify.error(i18n.t('session.tether.importFailed', { file: cameraName, error }), { source: 'tether' });
+        showCapture(event.payload, true);
+      }),
+      listen<{
+        kind?: string;
+        message: string;
+        request?: number | null;
+        exposure?: number | null;
+      }>('tether-capture-failed', (event) => {
         if (!isEffectActive) return;
         const { text, sticky } = notDeliveredToast(event.payload);
         if (sticky) notify.warning(text, { source: 'tether' });
@@ -659,7 +741,7 @@ export function useTauriListeners({
           notify.warning(
             `${event.payload.label}: the files were changed, but the catalog could not be updated ` +
               `(${event.payload.error}). Rawtonic will retry with the next file operation or start.`,
-            { autoClose: false },
+            { autoClose: false }
           );
       }),
       // The catalog caught up on such an operation (file_operations.rs
@@ -696,7 +778,7 @@ export function useTauriListeners({
         if (isEffectActive)
           useProcessStore.getState().setExportState({
             status: Status.Error,
-            errorMessage: typeof event.payload === 'string' ? event.payload : 'Unknown error',
+            errorMessage: typeof event.payload === 'string' ? event.payload : 'Unknown error'
           });
       }),
       listen('export-cancelling', () => {
@@ -707,13 +789,19 @@ export function useTauriListeners({
       }),
       listen<{ path: string }>('wgpu-frame-ready', (event) => {
         if (isEffectActive && event.payload?.path === useEditorStore.getState().selectedImage?.path) {
-          useEditorStore.getState().setEditor({ hasRenderedFirstFrame: true, holdingNativeFrame: false, stillPreview: null });
+          useEditorStore.getState().setEditor({
+            hasRenderedFirstFrame: true,
+            holdingNativeFrame: false,
+            stillPreview: null
+          });
         }
       }),
       // Closing the window or Quit: save what is pending first.
       listen<{ requestId: number }>('app-quit-requested', (event) => {
         if (isEffectActive) {
-          handleQuitRequest(confirmQuitWithUnsaved, event.payload?.requestId).catch((err) => console.error('Quitting failed:', err));
+          handleQuitRequest(confirmQuitWithUnsaved, event.payload?.requestId).catch((err) =>
+            console.error('Quitting failed:', err)
+          );
         }
       }),
       listen<{ requestId: number; reason: string }>('app-quit-cancelled', (event) => {
@@ -724,7 +812,9 @@ export function useTauriListeners({
       // Merge events of a run the dialog no longer waits for are ignored.
       listen<{ job: number; message: string }>('merge-progress', (event) => {
         if (isEffectActive) {
-          setMergeStateFor(event.payload.job, () => ({ progressMessage: event.payload.message }));
+          setMergeStateFor(event.payload.job, () => ({
+            progressMessage: event.payload.message
+          }));
         }
       }),
       listen<MergeCompletePayload>('merge-complete', (event) => {
@@ -735,7 +825,11 @@ export function useTauriListeners({
             overlayBase64: event.payload.overlay ?? null,
             previewBase64: event.payload.base64,
             progressMessage: null,
-            report: { ...event.payload.report, width: event.payload.width, height: event.payload.height },
+            report: {
+              ...event.payload.report,
+              width: event.payload.width,
+              height: event.payload.height
+            }
           }));
         }
       }),
@@ -745,7 +839,7 @@ export function useTauriListeners({
             error: String(event.payload.error),
             isProcessing: false,
             previewBase64: null,
-            progressMessage: null,
+            progressMessage: null
           }));
         }
       }),
@@ -755,37 +849,52 @@ export function useTauriListeners({
             cullingModalState: {
               ...state.cullingModalState,
               isOpen: true,
-              progress: { current: 0, total: event.payload, stage: 'Initializing...' },
+              progress: {
+                current: 0,
+                total: event.payload,
+                stage: 'Initializing...'
+              },
               suggestions: null,
-              error: null,
-            },
+              error: null
+            }
           }));
         }
       }),
       listen<{ current: number; total: number; stage: string }>('culling-progress', (event) => {
         if (isEffectActive) {
-          useUIStore
-            .getState()
-            .setUI((state) => ({ cullingModalState: { ...state.cullingModalState, progress: event.payload } }));
+          useUIStore.getState().setUI((state) => ({
+            cullingModalState: {
+              ...state.cullingModalState,
+              progress: event.payload
+            }
+          }));
         }
       }),
       listen<CullingSuggestions>('culling-complete', (event) => {
         if (isEffectActive) {
           useUIStore.getState().setUI((state) => ({
-            cullingModalState: { ...state.cullingModalState, progress: null, suggestions: event.payload },
+            cullingModalState: {
+              ...state.cullingModalState,
+              progress: null,
+              suggestions: event.payload
+            }
           }));
         }
       }),
       listen<unknown>('culling-error', (event) => {
         if (isEffectActive) {
           useUIStore.getState().setUI((state) => ({
-            cullingModalState: { ...state.cullingModalState, progress: null, error: String(event.payload) },
+            cullingModalState: {
+              ...state.cullingModalState,
+              progress: null,
+              error: String(event.payload)
+            }
           }));
         }
       }),
       listen<string>('gpu-start-failed', (event) => {
         if (isEffectActive) showGpuStartError(event.payload);
-      }),
+      })
     ];
     // The GPU may have failed before this window listened: asked once the
     // listeners are registered, so the event or the answer carries it.

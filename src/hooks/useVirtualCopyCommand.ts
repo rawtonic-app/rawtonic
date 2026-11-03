@@ -41,7 +41,10 @@ export function useVirtualCopyCommand(refreshImageList: () => Promise<void>) {
                 const unsaved = await flushBeforeQuit();
                 if (unsaved.length) throw new Error(unsaved.join(', '));
                 await photoWritesSettled(source);
-                await invoke(Invokes.CreateVirtualCopy, { sourceVirtualPath: source, targetAlbumId: albumId || null });
+                await invoke(Invokes.CreateVirtualCopy, {
+                  sourceVirtualPath: source,
+                  targetAlbumId: albumId || null
+                });
                 // In an album the copy joins it: its membership first, then
                 // the list (as the thumbnail menu's Virtual copy).
                 if (albumId) {
@@ -53,9 +56,9 @@ export function useVirtualCopyCommand(refreshImageList: () => Promise<void>) {
                 notify.error(i18n.t('contextMenus.toasts.failedCreateVirtualCopy', { err }));
               }
             })();
-          },
-        },
+          }
+        }
       }),
-    [],
+    []
   );
 }

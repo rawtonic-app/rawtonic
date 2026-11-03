@@ -6,7 +6,7 @@ export function withLiveMaskContainer(adjustments: Adjustments, container: MaskC
   if (!adjustments.masks?.some((mask) => mask.id === container.id)) return adjustments;
   return {
     ...adjustments,
-    masks: adjustments.masks.map((mask) => (mask.id === container.id ? container : mask)),
+    masks: adjustments.masks.map((mask) => (mask.id === container.id ? container : mask))
   };
 }
 
@@ -57,13 +57,28 @@ let strokeSent: { id: number; points: number } | null = null;
 /** What the next live frame of `stroke` sends: the recipe once, then only the
  * points added since the previous frame, so a frame's payload does not grow
  * with the stroke or the layers. Frames go out in this order. */
-export function liveStrokeFrame(stroke: LiveStroke): { withRecipe: boolean; args: LiveStrokeArgs } {
+export function liveStrokeFrame(stroke: LiveStroke): {
+  withRecipe: boolean;
+  args: LiveStrokeArgs;
+} {
   const sent = strokeSent?.id === stroke.id && strokeSent.points <= stroke.points.length ? strokeSent.points : null;
   strokeSent = { id: stroke.id, points: stroke.points.length };
   const { id, maskId, subMaskId } = stroke;
   return sent === null
-    ? { withRecipe: true, args: { id, maskId, subMaskId, from: stroke.points.length, points: [] } }
-    : { withRecipe: false, args: { id, maskId, subMaskId, from: sent, points: stroke.points.slice(sent) } };
+    ? {
+        withRecipe: true,
+        args: { id, maskId, subMaskId, from: stroke.points.length, points: [] }
+      }
+    : {
+        withRecipe: false,
+        args: {
+          id,
+          maskId,
+          subMaskId,
+          from: sent,
+          points: stroke.points.slice(sent)
+        }
+      };
 }
 
 /** The native side no longer holds the stroke's recipe (it refused points,

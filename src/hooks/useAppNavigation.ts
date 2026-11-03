@@ -41,17 +41,21 @@ type ImageCacheEntry = Parameters<typeof globalImageCache.set>[1];
 export interface AppNavigationProps {
   clearThumbnailQueue: () => void;
   refs: {
-    transformWrapperRef: React.RefObject<{ resetTransform(time?: number): void } | null>;
+    transformWrapperRef: React.RefObject<{
+      resetTransform(time?: number): void;
+    } | null>;
     cachedEditStateRef: React.RefObject<ImageCacheEntry | null>;
     selectedImagePathRef: React.RefObject<string | null>;
     isBackendReadyRef: React.RefObject<boolean>;
     latestRenderedJobIdRef: React.RefObject<number>;
     previewJobIdRef: React.RefObject<number>;
     currentResRef: React.RefObject<number>;
-    prevAdjustmentsRef: React.RefObject<{ path: string; adjustments: Adjustments } | null>;
+    prevAdjustmentsRef: React.RefObject<{
+      path: string;
+      adjustments: Adjustments;
+    } | null>;
   };
 }
-
 
 /** Another folder or album opens: the photo shown in Develop closes (its
  * pending edits saved first), so the file details, metadata and export
@@ -61,7 +65,12 @@ function closeEditorImage() {
   if (!selectedImage) return;
   debouncedSave.flush();
   debouncedSetHistory.flush();
-  setEditor({ selectedImage: null, finalPreviewUrl: null, uncroppedAdjustedPreviewUrl: null, histogram: null });
+  setEditor({
+    selectedImage: null,
+    finalPreviewUrl: null,
+    uncroppedAdjustedPreviewUrl: null,
+    histogram: null
+  });
   setEditor({ adjustments: INITIAL_ADJUSTMENTS });
   resetHistory(INITIAL_ADJUSTMENTS);
   useEditorStore.getState().patchesSentToBackend.clear();
@@ -78,7 +87,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     latestRenderedJobIdRef,
     previewJobIdRef,
     currentResRef,
-    prevAdjustmentsRef,
+    prevAdjustmentsRef
   } = refs;
 
   const handleGoHome = useCallback(() => {
@@ -93,7 +102,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       multiSelectedPaths: [],
       libraryActivePath: null,
       expandedFolders: new Set(),
-      isViewLoading: false,
+      isViewLoading: false
     });
   }, []);
 
@@ -112,7 +121,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       zoom: 1,
       showOriginal: false,
       toolBefore: null,
-      previewOverride: null,
+      previewOverride: null
     });
 
     debouncedSave.flush();
@@ -148,14 +157,14 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       if (performanceDiagnosticsEnabled) {
         reportPerformance('activate_decision', {
           wasInEditor: wasInEditor ? 1 : 0,
-          shown: frameShown ? 1 : 0,
+          shown: frameShown ? 1 : 0
         });
       }
       useEditorStore.getState().setEditor({ stillPreview: null });
       if (wasInEditor && frameShown) {
         void invoke<Activation>(Invokes.ActivatePhoto, {
           path,
-          adjustments: globalImageCache.get(path)?.adjustments ?? null,
+          adjustments: globalImageCache.get(path)?.adjustments ?? null
         })
           .then((shown) => {
             // Its thumbnail is on screen natively: held (instead of the
@@ -192,7 +201,12 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       // Stepping from a ready photograph (arrows, filmstrip, multi view):
       // the panels keep showing its values until the next one's arrive.
       const panelsHeld = wasInEditor && Boolean(selectedImage?.isReady);
-      setEditor({ hasRenderedFirstFrame: false, nativeCropFrame: false, holdingNativeFrame, panelsHeld });
+      setEditor({
+        hasRenderedFirstFrame: false,
+        nativeCropFrame: false,
+        holdingNativeFrame,
+        panelsHeld
+      });
       if (panelsHeld) {
         setTimeout(() => {
           const now = useEditorStore.getState();
@@ -218,7 +232,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       setLibrary({
         multiSelectedPaths: newMultiSelectedPaths,
         libraryActivePath: path,
-        selectionAnchorPath: path,
+        selectionAnchorPath: path
       });
 
       setEditor({
@@ -231,7 +245,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         layerSolo: null,
         activeColorRangeId: null,
         toolBefore: null,
-        previewOverride: null,
+        previewOverride: null
       });
 
       setUI({ compactEditorPanelHeightOverride: null });
@@ -244,14 +258,14 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
             isDecoded: false,
             isPreviewReady: false,
             thumbnailUrl: cachedMedium || cached.selectedImage.thumbnailUrl,
-            thumbnailSource: cachedMedium ? undefined : cached.selectedImage.thumbnailSource,
+            thumbnailSource: cachedMedium ? undefined : cached.selectedImage.thumbnailSource
           },
           originalSize: cached.originalSize,
           previewSize: cached.previewSize,
           histogram: cached.histogram,
           waveform: cached.waveform,
           finalPreviewUrl: cached.finalPreviewUrl,
-          uncroppedAdjustedPreviewUrl: cached.uncroppedPreviewUrl,
+          uncroppedAdjustedPreviewUrl: cached.uncroppedPreviewUrl
         });
 
         setEditor({ adjustments: cached.adjustments });
@@ -282,13 +296,13 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           metadata: null,
           path,
           thumbnailUrl: cachedMedium,
-          width: 0,
+          width: 0
         },
         originalSize: { width: 0, height: 0 },
         previewSize: { width: 0, height: 0 },
         // Held panels keep the last histogram until the next one arrives.
         ...(panelsHeld ? {} : { histogram: null, waveform: null }),
-        uncroppedAdjustedPreviewUrl: null,
+        uncroppedAdjustedPreviewUrl: null
       });
 
       setLibrary({ isViewLoading: true });
@@ -317,8 +331,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       latestRenderedJobIdRef,
       prevAdjustmentsRef,
       previewJobIdRef,
-      selectedImagePathRef,
-    ],
+      selectedImagePathRef
+    ]
   );
 
   const handleSelectSubfolder = useCallback(
@@ -328,7 +342,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       preloadedImages?: ImageFile[],
       expandParents = true,
       preserveEditor = false,
-      skipHistory = false,
+      skipHistory = false
     ) => {
       libraryLoad.current?.abort();
       const load = new AbortController();
@@ -351,7 +365,11 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         await invoke(Invokes.CancelThumbnailGeneration);
         if (load.signal.aborted) return;
         clearThumbnailQueue();
-        setLibrary({ isViewLoading: true, activeAlbumId: null, libraryScrollTop: 0 });
+        setLibrary({
+          isViewLoading: true,
+          activeAlbumId: null,
+          libraryScrollTop: 0
+        });
         setProcess({ thumbnails: {} });
         globalImageCache.clear();
         setUI({ activeView: 'library' });
@@ -392,7 +410,13 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         setLibrary({
           currentFolderPath: path,
           expandedFolders: newExpandedFolders,
-          ...(preserveEditor ? {} : { imageList: [], multiSelectedPaths: [], libraryActivePath: null }),
+          ...(preserveEditor
+            ? {}
+            : {
+                imageList: [],
+                multiSelectedPaths: [],
+                libraryActivePath: null
+              })
         });
 
         if (!preserveEditor) closeEditorImage();
@@ -404,7 +428,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           files = await loadLibraryImages(
             path,
             showsSubfolders(path, appSettings, useLibraryStore.getState().subfolderDefaultRoot),
-            load.signal,
+            load.signal
           );
         }
         if (load.signal.aborted) return;
@@ -419,9 +443,11 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         markLibraryPublication(files);
         setLibrary({ imageRatings: initialRatings, imageList: files });
         noteListedOffline(files);
-        if (performanceDiagnosticsEnabled) reportPerformance('library_publish', {
-          ms: performance.now() - publishStarted, assets: files.length,
-        });
+        if (performanceDiagnosticsEnabled)
+          reportPerformance('library_publish', {
+            ms: performance.now() - publishStarted,
+            assets: files.length
+          });
 
         if (!preserveEditor) {
           invoke(Invokes.StartBackgroundIndexing, { folderPath: path }).catch((err) => {
@@ -438,7 +464,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         if (!load.signal.aborted) useLibraryStore.getState().setLibrary({ isViewLoading: false });
       }
     },
-    [clearThumbnailQueue, handleGoHome],
+    [clearThumbnailQueue, handleGoHome]
   );
 
   const handleSelectAlbum = useCallback(
@@ -450,7 +476,12 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       const { setUI } = useUIStore.getState();
 
       if (!skipHistory) {
-        useLibraryStore.getState().pushNavHistory({ type: 'album', path: albumId, albumName, images: imagePaths });
+        useLibraryStore.getState().pushNavHistory({
+          type: 'album',
+          path: albumId,
+          albumName,
+          images: imagePaths
+        });
       }
 
       if (!preserveEditor) {
@@ -468,13 +499,15 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         isViewLoading: true,
         currentFolderPath: albumFolderPath,
         activeAlbumId: albumId,
-        ...(preserveEditor ? {} : { multiSelectedPaths: [], libraryActivePath: null }),
+        ...(preserveEditor ? {} : { multiSelectedPaths: [], libraryActivePath: null })
       });
       // As for folders: the previous photo is not left as the edit and export target.
       if (!preserveEditor) closeEditorImage();
 
       try {
-        const files: ImageFile[] = await invoke(Invokes.GetAlbumImages, { paths: imagePaths });
+        const files: ImageFile[] = await invoke(Invokes.GetAlbumImages, {
+          paths: imagePaths
+        });
         if (load.signal.aborted) return;
 
         const initialRatings: Record<string, number> = {};
@@ -486,7 +519,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         setLibrary({
           imageRatings: initialRatings,
           imageList: files,
-          ...(preserveEditor ? {} : { multiSelectedPaths: [], libraryActivePath: null }),
+          ...(preserveEditor ? {} : { multiSelectedPaths: [], libraryActivePath: null })
         });
       } catch (err) {
         if (load.signal.aborted) return;
@@ -496,7 +529,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         if (!load.signal.aborted) setLibrary({ isViewLoading: false });
       }
     },
-    [clearThumbnailQueue],
+    [clearThumbnailQueue]
   );
 
   const handleNavBack = useCallback(async () => {
@@ -532,43 +565,55 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
   }, [handleSelectSubfolder, handleSelectAlbum]);
 
   /** Lists `selectedPath` in the Folders panel (a browse root) and shows it. */
-  const showFolder = useCallback(async (selectedPath: string) => {
-    const { appSettings, handleSettingsChange } = useSettingsStore.getState();
-    const { rootPaths, folderTrees, setLibrary } = useLibraryStore.getState();
-    if (!rootPaths.includes(selectedPath)) {
-      const newRootPaths = [...rootPaths, selectedPath];
-      setLibrary({ rootPaths: newRootPaths });
+  const showFolder = useCallback(
+    async (selectedPath: string) => {
+      const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+      const { rootPaths, folderTrees, setLibrary } = useLibraryStore.getState();
+      if (!rootPaths.includes(selectedPath)) {
+        const newRootPaths = [...rootPaths, selectedPath];
+        setLibrary({ rootPaths: newRootPaths });
 
-      if (appSettings) {
-        handleSettingsChange({ ...appSettings, rootFolders: newRootPaths });
-      }
+        if (appSettings) {
+          handleSettingsChange({ ...appSettings, rootFolders: newRootPaths });
+        }
 
-      setLibrary({ isTreeLoading: true });
-      try {
-        const newTree = await invoke<FolderTree>(Invokes.GetFolderTree, {
-          path: selectedPath,
-          expandedFolders: [selectedPath],
-          showImageCounts:
-            appSettings?.enableFolderImageCounts || appSettings?.folderTreeSort?.key === 'imageCount',
-        });
-        setLibrary({ folderTrees: [...folderTrees, newTree] });
-      } catch (e) {
-        notify.error(`Failed to load folder tree: ${e}`);
-      } finally {
-        setLibrary({ isTreeLoading: false });
+        setLibrary({ isTreeLoading: true });
+        try {
+          const newTree = await invoke<FolderTree>(Invokes.GetFolderTree, {
+            path: selectedPath,
+            expandedFolders: [selectedPath],
+            showImageCounts: appSettings?.enableFolderImageCounts || appSettings?.folderTreeSort?.key === 'imageCount'
+          });
+          setLibrary({ folderTrees: [...folderTrees, newTree] });
+        } catch (e) {
+          notify.error(`Failed to load folder tree: ${e}`);
+        } finally {
+          setLibrary({ isTreeLoading: false });
+        }
       }
-    }
-    await handleSelectSubfolder(selectedPath, true);
-  }, [handleSelectSubfolder]);
+      await handleSelectSubfolder(selectedPath, true);
+    },
+    [handleSelectSubfolder]
+  );
 
   /** Folders › "Add Folder…": with a library open its dialog decides what
    * the folder becomes (a catalog adds its photographs where they are, a
    * session only shows it; addFolder.ts); else the folder is shown. */
   const handleOpenFolder = useCallback(async () => {
     try {
-      const selected = await openDialog({ directory: true, multiple: false, defaultPath: await homeDir() });
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        defaultPath: await homeDir()
+      });
       if (typeof selected !== 'string' || !selected) return;
-      if (!requestAddFolder({ folder: selected, show: () => showFolder(selected) })) await showFolder(selected);
+      if (
+        !requestAddFolder({
+          folder: selected,
+          show: () => showFolder(selected)
+        })
+      )
+        await showFolder(selected);
     } catch (err) {
       console.error('Failed to open directory dialog:', err);
       notify.error('Failed to open folder selection dialog.');
@@ -583,6 +628,6 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     handleSelectAlbum,
     handleOpenFolder,
     handleNavBack,
-    handleNavForward,
+    handleNavForward
   };
 }

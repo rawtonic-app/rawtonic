@@ -12,11 +12,33 @@ const presets = shipped.presets as unknown as Preset[];
 /** The parameters of the tools that have a preset menu (as in their headers). */
 const TOOL_KEYS = {
   grain: ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'],
-  vignette: ['vignetteAmount', 'vignetteMidpoint', 'vignetteRoundness', 'vignetteFeather', 'vignetteStyle', 'vignetteHighlights'],
+  vignette: [
+    'vignetteAmount',
+    'vignetteMidpoint',
+    'vignetteRoundness',
+    'vignetteFeather',
+    'vignetteStyle',
+    'vignetteHighlights'
+  ],
   grading: ['colorGrading'],
   bw: ['blackAndWhite', 'grayMixer'],
-  sharpening: ['sharpness', 'sharpenRadius', 'sharpenDetail', 'sharpenMasking', 'sharpnessThreshold', 'sharpnessFalloff'],
-  noise: ['aiDenoise', 'lumaNoiseReduction', 'lumaNoiseDetail', 'lumaNoiseContrast', 'colorNoiseReduction', 'colorNoiseDetail', 'colorNoiseSmoothness'],
+  sharpening: [
+    'sharpness',
+    'sharpenRadius',
+    'sharpenDetail',
+    'sharpenMasking',
+    'sharpnessThreshold',
+    'sharpnessFalloff'
+  ],
+  noise: [
+    'aiDenoise',
+    'lumaNoiseReduction',
+    'lumaNoiseDetail',
+    'lumaNoiseContrast',
+    'colorNoiseReduction',
+    'colorNoiseDetail',
+    'colorNoiseSmoothness'
+  ]
 };
 
 describe('built-in presets resource', () => {
@@ -46,9 +68,13 @@ describe('built-in presets resource', () => {
       // Grain presets are film grain fitted to film scans (notes: reference/grain.md
       // "Presets"), complete so applying one replaces the photo's whole grain.
       if (preset.id.startsWith('grain-'))
-        expect(Object.keys(preset.adjustments).sort(), preset.id).toEqual(
-          ['grainAmount', 'grainColor', 'grainRoughness', 'grainSize', 'grainVersion'],
-        );
+        expect(Object.keys(preset.adjustments).sort(), preset.id).toEqual([
+          'grainAmount',
+          'grainColor',
+          'grainRoughness',
+          'grainSize',
+          'grainVersion'
+        ]);
       // Lowered Highlights also render by the tone-slider response (shader.wgsl).
       if (((preset.adjustments.highlights as number | undefined) ?? 0) < 0)
         expect(preset.adjustments, `${preset.id}: highlights needs toneVersion`).toHaveProperty('toneVersion');

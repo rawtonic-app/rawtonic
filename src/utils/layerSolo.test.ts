@@ -10,7 +10,7 @@ const layer = (id: string, patch: Partial<MaskContainer> = {}): MaskContainer =>
   id,
   name: id,
   subMasks: [],
-  ...patch,
+  ...patch
 });
 
 describe('applyLayerSolo', () => {
@@ -24,14 +24,20 @@ describe('applyLayerSolo', () => {
 
   it('shows one component alone, adding, and keeps the luma range', () => {
     const subject = createSubMask(Mask.AiSubject, size);
-    const erase = { ...createSubMask(Mask.Brush, size), mode: SubMaskMode.Subtractive };
+    const erase = {
+      ...createSubMask(Mask.Brush, size),
+      mode: SubMaskMode.Subtractive
+    };
     const luma = createSubMask(Mask.LumaRange, size);
     const masks = [layer('a', { subMasks: [subject, erase, luma] })];
-    const [solo] = applyLayerSolo(masks, { layerId: 'a', componentId: erase.id });
+    const [solo] = applyLayerSolo(masks, {
+      layerId: 'a',
+      componentId: erase.id
+    });
     expect(solo.subMasks.map((s) => [s.visible, s.mode])).toEqual([
       [false, subject.mode],
       [true, SubMaskMode.Additive],
-      [luma.visible, luma.mode],
+      [luma.visible, luma.mode]
     ]);
   });
 
@@ -47,14 +53,23 @@ describe('solo clicks and selection', () => {
     const solo = toggleLayerSolo(null, 'a');
     expect(solo).toEqual({ layerId: 'a', componentId: null });
     expect(toggleLayerSolo(solo, 'a')).toBeNull();
-    expect(toggleLayerSolo(solo, 'b')).toEqual({ layerId: 'b', componentId: null });
-    expect(toggleLayerSolo(solo, 'a', 'm1')).toEqual({ layerId: 'a', componentId: 'm1' });
+    expect(toggleLayerSolo(solo, 'b')).toEqual({
+      layerId: 'b',
+      componentId: null
+    });
+    expect(toggleLayerSolo(solo, 'a', 'm1')).toEqual({
+      layerId: 'a',
+      componentId: 'm1'
+    });
   });
 
   it('follows the selection while on and ends on the Background', () => {
     expect(soloAfterSelect(null, 'b')).toBeNull();
     const solo = { layerId: 'a', componentId: null };
-    expect(soloAfterSelect(solo, 'b')).toEqual({ layerId: 'b', componentId: null });
+    expect(soloAfterSelect(solo, 'b')).toEqual({
+      layerId: 'b',
+      componentId: null
+    });
     expect(soloAfterSelect(solo, null)).toBeNull();
   });
 });

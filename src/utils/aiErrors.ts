@@ -38,7 +38,10 @@ export function aiErrorMessage(error: unknown, fallback?: string): string {
 export function toastAiError(error: unknown, fallback: string) {
   if (isAiTaskCancelled(error)) return;
   if (isAiRuntimeError(error)) {
-    notify.error(aiErrorMessage(error), { toastId: RUNTIME_TOAST_ID, source: 'ai' });
+    notify.error(aiErrorMessage(error), {
+      toastId: RUNTIME_TOAST_ID,
+      source: 'ai'
+    });
     return;
   }
   notify.error(fallback, { source: 'ai' });
@@ -49,7 +52,10 @@ export function toastAiError(error: unknown, fallback: string) {
 export function noteBackgroundAiError(error: unknown) {
   if (!isAiRuntimeError(error) || backgroundRuntimeNoticeShown) return;
   backgroundRuntimeNoticeShown = true;
-  notify.error(aiErrorMessage(error), { toastId: RUNTIME_TOAST_ID, source: 'ai' });
+  notify.error(aiErrorMessage(error), {
+    toastId: RUNTIME_TOAST_ID,
+    source: 'ai'
+  });
 }
 
 /** Forgets the session's notices (tests). */

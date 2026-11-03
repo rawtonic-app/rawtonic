@@ -1,11 +1,11 @@
 import { Invokes } from '../ui/AppProperties';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { Check } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { formatBytes } from "../../utils/previews";
-import type { Medium } from "./ingestMode";
-import IngestLoupe, { type LargePreview } from "./IngestLoupe";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { formatBytes } from '../../utils/previews';
+import type { Medium } from './ingestMode';
+import IngestLoupe, { type LargePreview } from './IngestLoupe';
 
 /** Mirrors `session_bridge::IngestCandidate`. */
 export interface IngestCandidate {
@@ -23,7 +23,7 @@ export async function loadIngestThumbnail(path: string): Promise<string | null> 
   const bytes = await invoke<ArrayBuffer | number[]>(Invokes.SessionIngestThumbnail, { path });
   const data = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes ?? []).buffer;
   if (!data.byteLength) return null;
-  return URL.createObjectURL(new Blob([data], { type: "image/jpeg" }));
+  return URL.createObjectURL(new Blob([data], { type: 'image/jpeg' }));
 }
 
 /** Previews are made a few at a time (each reads one file), visible tiles
@@ -55,13 +55,13 @@ export function createThumbnailQueue(load: (path: string) => Promise<string | nu
     release(path: string) {
       const index = waiting.findIndex((job) => job.path === path);
       if (index >= 0) waiting.splice(index, 1);
-    },
+    }
   };
 }
 
 /** Tile sizes of the thumbnail size slider (small, medium, large). */
 export const TILE_SIZES = [88, 112, 168] as const;
-const TILE_SIZE_KEY = "rawtonic.ingestTileSize";
+const TILE_SIZE_KEY = 'rawtonic.ingestTileSize';
 const NAME = 22;
 const GAP = 8;
 /** Rows drawn above and below the visible ones. */
@@ -94,13 +94,7 @@ const storedTileSize = () => {
  * Arrow keys move between photographs; a double-click or Enter opens the
  * focused one large (`IngestLoupe`). Only the visible rows are drawn, so
  * hundreds of files stay light. */
-export default function IngestPreviewGrid({
-  files,
-  selected,
-  onSelectedChange,
-  loadThumbnail,
-  loadPreview,
-}: Props) {
+export default function IngestPreviewGrid({ files, selected, onSelectedChange, loadThumbnail, loadPreview }: Props) {
   const { t } = useTranslation();
   const scroller = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ top: 0, width: 0, height: 0 });
@@ -112,18 +106,19 @@ export default function IngestPreviewGrid({
   /** A tile to focus once it is drawn (after scrolling to it). */
   const pendingFocus = useRef<number | null>(null);
   const [, redraw] = useState(0);
-  const queue = useMemo(
-    () => createThumbnailQueue(loadThumbnail ?? loadIngestThumbnail),
-    [loadThumbnail],
-  );
+  const queue = useMemo(() => createThumbnailQueue(loadThumbnail ?? loadIngestThumbnail), [loadThumbnail]);
 
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
     const measure = () =>
-      setView({ top: element.scrollTop, width: element.clientWidth, height: element.clientHeight });
+      setView({
+        top: element.scrollTop,
+        width: element.clientWidth,
+        height: element.clientHeight
+      });
     measure();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
@@ -157,7 +152,7 @@ export default function IngestPreviewGrid({
       });
       return () => queue.release(path);
     },
-    [queue],
+    [queue]
   );
 
   useLayoutEffect(() => {
@@ -218,23 +213,23 @@ export default function IngestPreviewGrid({
     <div className="session-ingest-preview">
       <div className="session-ingest-preview-bar">
         <span role="status">
-          {t("session.ingest.selectedOf", {
+          {t('session.ingest.selectedOf', {
             count: files.length,
             selected: chosen.length.toLocaleString(),
             total: files.length.toLocaleString(),
-            size: formatBytes(bytes),
+            size: formatBytes(bytes)
           })}
-          {duplicates > 0 && ` · ${t("session.ingest.duplicates", { count: duplicates })}`}
+          {duplicates > 0 && ` · ${t('session.ingest.duplicates', { count: duplicates })}`}
         </span>
         <button
           type="button"
           className="session-link-button"
           onClick={() => onSelectedChange(new Set(files.map((file) => file.path)))}
         >
-          {t("session.ingest.selectAll")}
+          {t('session.ingest.selectAll')}
         </button>
         <button type="button" className="session-link-button" onClick={() => onSelectedChange(new Set())}>
-          {t("session.ingest.selectNone")}
+          {t('session.ingest.selectNone')}
         </button>
         <input
           type="range"
@@ -243,8 +238,8 @@ export default function IngestPreviewGrid({
           max={TILE_SIZES.length - 1}
           step={1}
           value={tileSize}
-          aria-label={t("session.ingest.thumbnailSize")}
-          title={t("session.ingest.thumbnailSize")}
+          aria-label={t('session.ingest.thumbnailSize')}
+          title={t('session.ingest.thumbnailSize')}
           onChange={(e) => {
             const size = Number(e.target.value);
             setTileSize(size);
@@ -260,19 +255,24 @@ export default function IngestPreviewGrid({
         ref={scroller}
         className="session-ingest-grid"
         role="group"
-        aria-label={t("session.ingest.gridLabel")}
-        style={{ ["--ingest-tile" as string]: `${TILE}px` }}
+        aria-label={t('session.ingest.gridLabel')}
+        style={{ ['--ingest-tile' as string]: `${TILE}px` }}
         onKeyDown={(e) => {
-          const tile = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
+          const tile = (e.target as HTMLElement).closest<HTMLElement>('[data-index]');
           if (!tile || e.metaKey || e.ctrlKey || e.altKey) return;
           const index = Number(tile.dataset.index);
-          if (e.key === "Enter") {
+          if (e.key === 'Enter') {
             e.preventDefault();
             setLoupe(index);
             return;
           }
           const by = (
-            { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns } as Record<string, number>
+            {
+              ArrowLeft: -1,
+              ArrowRight: 1,
+              ArrowUp: -columns,
+              ArrowDown: columns
+            } as Record<string, number>
           )[e.key];
           if (by === undefined) return;
           e.preventDefault();
@@ -284,12 +284,12 @@ export default function IngestPreviewGrid({
           setView((current) => (current.top === top ? current : { ...current, top }));
         }}
       >
-        <div style={{ height: rows * ROW, position: "relative" }}>
+        <div style={{ height: rows * ROW, position: 'relative' }}>
           <div
             className="session-ingest-tiles"
             style={{
               transform: `translateY(${first * ROW}px)`,
-              gridTemplateColumns: `repeat(${columns}, ${TILE}px)`,
+              gridTemplateColumns: `repeat(${columns}, ${TILE}px)`
             }}
           >
             {shown.map((file, i) => (
@@ -337,7 +337,7 @@ function IngestTile({
   loaded,
   want,
   onToggle,
-  onOpen,
+  onOpen
 }: {
   file: IngestCandidate;
   index: number;
@@ -351,7 +351,7 @@ function IngestTile({
   const { t } = useTranslation();
   const name = fileName(file.path);
   useEffect(() => (loaded ? undefined : want(file.path)), [file.path, loaded, want]);
-  const extension = name.includes(".") ? name.split(".").pop()!.toUpperCase() : "";
+  const extension = name.includes('.') ? name.split('.').pop()!.toUpperCase() : '';
   return (
     <button
       type="button"
@@ -359,17 +359,17 @@ function IngestTile({
       aria-checked={checked}
       aria-label={name}
       data-index={index}
-      title={`${file.path}\n${formatBytes(file.size)}${file.duplicate ? `\n${t("session.ingest.inLibraryTitle")}` : ""}\n${t("session.ingest.viewLargeHint")}`}
-      className={`session-ingest-tile${checked ? " is-checked" : ""}${file.duplicate ? " is-duplicate" : ""}`}
+      title={`${file.path}\n${formatBytes(file.size)}${file.duplicate ? `\n${t('session.ingest.inLibraryTitle')}` : ''}\n${t('session.ingest.viewLargeHint')}`}
+      className={`session-ingest-tile${checked ? ' is-checked' : ''}${file.duplicate ? ' is-duplicate' : ''}`}
       onClick={(e) => onToggle(index, e.shiftKey)}
       onDoubleClick={() => onOpen(index)}
     >
       <span className="session-ingest-thumb">
-        {thumb ? <img src={thumb} alt="" draggable={false} /> : <span>{loaded ? extension : ""}</span>}
+        {thumb ? <img src={thumb} alt="" draggable={false} /> : <span>{loaded ? extension : ''}</span>}
         <span className="session-ingest-check" aria-hidden>
           {checked && <Check size={12} strokeWidth={3} />}
         </span>
-        {file.duplicate && <span className="session-ingest-badge">{t("session.ingest.inLibrary")}</span>}
+        {file.duplicate && <span className="session-ingest-badge">{t('session.ingest.inLibrary')}</span>}
       </span>
       <span className="session-ingest-name">{name}</span>
     </button>

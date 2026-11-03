@@ -28,7 +28,11 @@ function parseBlocks(lines: string[]): Block[] {
   const blocks: Block[] = [];
   let paragraph: string[] = [];
   const flush = () => {
-    if (paragraph.length) blocks.push({ kind: 'paragraph', children: parseInline(paragraph.join(' ')) });
+    if (paragraph.length)
+      blocks.push({
+        kind: 'paragraph',
+        children: parseInline(paragraph.join(' '))
+      });
     paragraph = [];
   };
   let i = 0;
@@ -51,7 +55,11 @@ function parseBlocks(lines: string[]): Block[] {
     } else if (/^#{1,6}\s/.test(trimmed)) {
       flush();
       const [, hashes, text] = /^(#{1,6})\s+(.*?)\s*#*$/.exec(trimmed)!;
-      blocks.push({ kind: 'heading', level: hashes.length, children: parseInline(text) });
+      blocks.push({
+        kind: 'heading',
+        level: hashes.length,
+        children: parseInline(text)
+      });
       i++;
     } else if (/^([-*_])(\s*\1){2,}$/.test(trimmed)) {
       flush();
@@ -125,12 +133,19 @@ export function parseInline(text: string): Inline[] {
       else children.forEach(push);
       i += m[0].length;
     } else if ((m = /^<(https?:\/\/[^>\s]+)>/i.exec(rest))) {
-      push({ kind: 'link', href: m[1], children: [{ kind: 'text', text: m[1] }] });
+      push({
+        kind: 'link',
+        href: m[1],
+        children: [{ kind: 'text', text: m[1] }]
+      });
       i += m[0].length;
     } else if ((m = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1/.exec(rest))) {
       push({ kind: 'strong', children: parseInline(m[2]) });
       i += m[0].length;
-    } else if ((m = /^(\*|_)(?=\S)([\s\S]*?\S)\1(?![\w*])/.exec(rest)) && !(m[1] === '_' && /\w/.test(text[i - 1] ?? ''))) {
+    } else if (
+      (m = /^(\*|_)(?=\S)([\s\S]*?\S)\1(?![\w*])/.exec(rest)) &&
+      !(m[1] === '_' && /\w/.test(text[i - 1] ?? ''))
+    ) {
       push({ kind: 'em', children: parseInline(m[2]) });
       i += m[0].length;
     } else {

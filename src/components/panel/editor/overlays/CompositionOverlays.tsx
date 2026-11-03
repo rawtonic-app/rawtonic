@@ -20,7 +20,7 @@ export default function CompositionOverlays({
   rotation,
   color = 'rgba(255, 255, 255, 0.7)',
   opacity = 0.7,
-  denseVisible = false,
+  denseVisible = false
 }: CompositionOverlaysProps) {
   if (width <= 0 || height <= 0) return null;
 
@@ -28,14 +28,14 @@ export default function CompositionOverlays({
     stroke: color,
     strokeWidth: '1.5',
     fill: 'none',
-    vectorEffect: 'non-scaling-stroke',
+    vectorEffect: 'non-scaling-stroke'
   };
 
   const renderThirds = () => (
     <g
       style={{
         opacity: mode === 'thirds' ? opacity : 0,
-        transition: 'opacity 300ms ease-in-out',
+        transition: 'opacity 300ms ease-in-out'
       }}
     >
       <line x1={width * 0.333} y1={0} x2={width * 0.333} y2={height} {...strokeProps} />
@@ -49,7 +49,7 @@ export default function CompositionOverlays({
     <g
       style={{
         opacity: denseVisible ? opacity : 0,
-        transition: 'opacity 300ms ease-in-out',
+        transition: 'opacity 300ms ease-in-out'
       }}
     >
       {[...Array(17)].map((_, i) => (
@@ -78,7 +78,12 @@ export default function CompositionOverlays({
   );
 
   const renderDiagonal = () => (
-    <g style={{ opacity: mode === 'diagonal' ? opacity : 0, transition: 'opacity 300ms ease-in-out' }}>
+    <g
+      style={{
+        opacity: mode === 'diagonal' ? opacity : 0,
+        transition: 'opacity 300ms ease-in-out'
+      }}
+    >
       <line x1={0} y1={0} x2={width * 0.666} y2={height} {...strokeProps} />
       <line x1={width * 0.333} y1={0} x2={width} y2={height} {...strokeProps} />
       <line x1={width} y1={0} x2={width * 0.333} y2={height} {...strokeProps} />
@@ -87,7 +92,12 @@ export default function CompositionOverlays({
   );
 
   const renderCenter = () => (
-    <g style={{ opacity: mode === 'center' ? opacity : 0, transition: 'opacity 300ms ease-in-out' }}>
+    <g
+      style={{
+        opacity: mode === 'center' ? opacity : 0,
+        transition: 'opacity 300ms ease-in-out'
+      }}
+    >
       <line x1={width / 2} y1={0} x2={width / 2} y2={height} {...strokeProps} />
       <line x1={0} y1={height / 2} x2={width} y2={height / 2} {...strokeProps} />
     </g>
@@ -97,7 +107,12 @@ export default function CompositionOverlays({
     const p1 = 0.382;
     const p2 = 0.618;
     return (
-      <g style={{ opacity: mode === 'phiGrid' ? opacity : 0, transition: 'opacity 300ms ease-in-out' }}>
+      <g
+        style={{
+          opacity: mode === 'phiGrid' ? opacity : 0,
+          transition: 'opacity 300ms ease-in-out'
+        }}
+      >
         <line x1={width * p1} y1={0} x2={width * p1} y2={height} {...strokeProps} />
         <line x1={width * p2} y1={0} x2={width * p2} y2={height} {...strokeProps} />
         <line x1={0} y1={height * p1} x2={width} y2={height * p1} {...strokeProps} />
@@ -137,12 +152,20 @@ export default function CompositionOverlays({
     const x_int = (m1 * mainStart.x - mainStart.y - m2 * recipStart.x + recipStart.y) / (m1 - m2);
     const y_int = m1 * (x_int - mainStart.x) + mainStart.y;
 
-    const recipStart2 = { x: Math.abs(width - recipStart.x), y: Math.abs(height - recipStart.y) };
+    const recipStart2 = {
+      x: Math.abs(width - recipStart.x),
+      y: Math.abs(height - recipStart.y)
+    };
     const x_int2 = (m1 * mainStart.x - mainStart.y - m2 * recipStart2.x + recipStart2.y) / (m1 - m2);
     const y_int2 = m1 * (x_int2 - mainStart.x) + mainStart.y;
 
     return (
-      <g style={{ opacity: mode === 'goldenTriangle' ? opacity : 0, transition: 'opacity 300ms ease-in-out' }}>
+      <g
+        style={{
+          opacity: mode === 'goldenTriangle' ? opacity : 0,
+          transition: 'opacity 300ms ease-in-out'
+        }}
+      >
         <line x1={mainStart.x} y1={mainStart.y} x2={mainEnd.x} y2={mainEnd.y} {...strokeProps} />
         <line x1={recipStart.x} y1={recipStart.y} x2={x_int} y2={y_int} {...strokeProps} />
         <line x1={recipStart2.x} y1={recipStart2.y} x2={x_int2} y2={y_int2} {...strokeProps} />
@@ -162,7 +185,12 @@ export default function CompositionOverlays({
     const dashedStrokeProps = { ...strokeProps, strokeDasharray: '5 5' };
 
     return (
-      <g style={{ opacity: mode === 'armature' ? opacity : 0, transition: 'opacity 300ms ease-in-out' }}>
+      <g
+        style={{
+          opacity: mode === 'armature' ? opacity : 0,
+          transition: 'opacity 300ms ease-in-out'
+        }}
+      >
         <line x1={0} y1={0} x2={width} y2={height} {...strokeProps} />
         <line x1={width} y1={0} x2={0} y2={height} {...strokeProps} />
         <line x1={width} y1={0} x2={0} y2={height / (m * m)} {...strokeProps} />
@@ -182,11 +210,17 @@ export default function CompositionOverlays({
     const PHI = (1 + Math.sqrt(5)) / 2;
     const baseW = 1000;
     const baseH = baseW / PHI;
-    const pathData = 'M 0 618.03 A 618.03 618.03 0 0 1 618.03 0 A 381.97 381.97 0 0 1 1000 381.97 A 236.06 236.06 0 0 1 763.94 618.03 A 145.91 145.91 0 0 1 618.03 472.12 A 90.15 90.15 0 0 1 708.18 381.97 A 55.76 55.76 0 0 1 763.94 437.73 A 34.39 34.39 0 0 1 729.55 472.12 A 21.37 21.37 0 0 1 708.18 450.75 A 13.12 13.12 0 0 1 721.30 437.77 A 8.11 8.11 0 0 1 729.41 445.88 A 5.01 5.01 0 0 1 724.40 450.89';
+    const pathData =
+      'M 0 618.03 A 618.03 618.03 0 0 1 618.03 0 A 381.97 381.97 0 0 1 1000 381.97 A 236.06 236.06 0 0 1 763.94 618.03 A 145.91 145.91 0 0 1 618.03 472.12 A 90.15 90.15 0 0 1 708.18 381.97 A 55.76 55.76 0 0 1 763.94 437.73 A 34.39 34.39 0 0 1 729.55 472.12 A 21.37 21.37 0 0 1 708.18 450.75 A 13.12 13.12 0 0 1 721.30 437.77 A 8.11 8.11 0 0 1 729.41 445.88 A 5.01 5.01 0 0 1 724.40 450.89';
     const transform = `translate(${width / 2} ${height / 2}) rotate(${r * 90}) scale(${r % 2 === 0 ? width / baseW : height / baseW}, ${r % 2 === 0 ? height / baseH : width / baseH}) translate(${-baseW / 2} ${-baseH / 2})`;
 
     return (
-      <g style={{ opacity: mode === 'goldenSpiral' ? opacity : 0, transition: 'opacity 300ms ease-in-out' }}>
+      <g
+        style={{
+          opacity: mode === 'goldenSpiral' ? opacity : 0,
+          transition: 'opacity 300ms ease-in-out'
+        }}
+      >
         <path d={pathData} {...strokeProps} strokeLinecap="round" strokeLinejoin="round" transform={transform} />
       </g>
     );
@@ -201,7 +235,7 @@ export default function CompositionOverlays({
         top: 0,
         left: 0,
         pointerEvents: 'none',
-        zIndex: 50,
+        zIndex: 50
       }}
     >
       {renderThirds()}

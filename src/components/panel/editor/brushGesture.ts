@@ -26,20 +26,20 @@ export function brushGestureValues(
   dx: number,
   dy: number,
   shift: boolean,
-  screenPixelsPerImagePixel = 1,
+  screenPixelsPerImagePixel = 1
 ): BrushGestureValues {
   if (shift) {
     return {
       ...start,
       opacity: clamp(start.opacity + dx * PERCENT_PER_PIXEL, 1, 100),
-      flow: clamp(start.flow - dy * PERCENT_PER_PIXEL, 1, 100),
+      flow: clamp(start.flow - dy * PERCENT_PER_PIXEL, 1, 100)
     };
   }
   const imagePixels = (2 * dx) / Math.max(1e-6, screenPixelsPerImagePixel);
   return {
     ...start,
     size: clamp(start.size + imagePixels, BRUSH_SIZE_MIN, BRUSH_SIZE_MAX),
-    hardness: clamp(start.hardness - dy * PERCENT_PER_PIXEL, 0, 100),
+    hardness: clamp(start.hardness - dy * PERCENT_PER_PIXEL, 0, 100)
   };
 }
 
@@ -63,7 +63,7 @@ export function useBrushGesture(
   active: boolean,
   settings: BrushSettings | null | undefined,
   screenPixelsPerImagePixel: number,
-  apply: (values: BrushGestureValues) => void,
+  apply: (values: BrushGestureValues) => void
 ) {
   const [gesture, setGesture] = useState<BrushGestureState | null>(null);
   const latest = useRef({ settings, apply, screenPixelsPerImagePixel });
@@ -82,11 +82,15 @@ export function useBrushGesture(
         size: current?.size ?? DEFAULT_BRUSH_SIZE,
         hardness: current?.hardness ?? 50,
         opacity: current?.opacity ?? 100,
-        flow: current?.flow ?? 100,
+        flow: current?.flow ?? 100
       };
       const box = element.getBoundingClientRect();
       const origin = { x: event.clientX, y: event.clientY };
-      setGesture({ x: event.clientX - box.left, y: event.clientY - box.top, values: start });
+      setGesture({
+        x: event.clientX - box.left,
+        y: event.clientY - box.top,
+        values: start
+      });
       // Moves are applied once per frame: the canvas re-renders with each
       // change, and a 120 Hz mouse would otherwise queue renders behind it.
       let frame = 0;
@@ -99,7 +103,7 @@ export function useBrushGesture(
           pending.clientX - origin.x,
           pending.clientY - origin.y,
           pending.shiftKey,
-          latest.current.screenPixelsPerImagePixel,
+          latest.current.screenPixelsPerImagePixel
         );
         pending = null;
         latest.current.apply(values);

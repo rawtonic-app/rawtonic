@@ -9,7 +9,10 @@
  * colour editor's range view, `2 + range index` (at most eight ranges), so
  * the both-sides value stays 1 and the single sides take two values beyond
  * any range index. */
-export const SHOW_CLIPPING_SIDES = { highlights: 0x4000_0001, shadows: 0x4000_0002 } as const;
+export const SHOW_CLIPPING_SIDES = {
+  highlights: 0x4000_0001,
+  shadows: 0x4000_0002
+} as const;
 
 /** What the renderer is sent for the two warnings. */
 export function showClippingValue(highlights: boolean, shadows: boolean): number {
@@ -33,11 +36,14 @@ export function nextClipSides(current: { highlights: boolean; shadows: boolean }
  * smoothed (a value near an end reaches the end's bin). A histogram without
  * the flags lights neither side.
  */
-export function histogramClipping(histogram: unknown): { shadows: boolean; highlights: boolean } {
+export function histogramClipping(histogram: unknown): {
+  shadows: boolean;
+  highlights: boolean;
+} {
   const flags = (histogram ?? {}) as Record<string, unknown>;
   return {
     shadows: flags.clippedShadows === true,
-    highlights: flags.clippedHighlights === true,
+    highlights: flags.clippedHighlights === true
   };
 }
 

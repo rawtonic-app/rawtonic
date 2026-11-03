@@ -10,15 +10,32 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/path', () => ({ homeDir: vi.fn() }));
 const history = vi.hoisted(() => ({ cancel: vi.fn(), flush: vi.fn() }));
 vi.mock('./useEditorActions', () => ({
-  debouncedSave: { flush: vi.fn() }, debouncedSetHistory: history,
+  debouncedSave: { flush: vi.fn() },
+  debouncedSetHistory: history
 }));
 const scans = new Map<string, (page: unknown) => void>();
 // Every ref starts empty (null), including the boolean and number ones, so the fixture bridges via unknown.
-const refs = () => Object.fromEntries([
-  'transformWrapperRef', 'cachedEditStateRef', 'selectedImagePathRef',
-  'isBackendReadyRef', 'latestRenderedJobIdRef', 'previewJobIdRef', 'currentResRef', 'prevAdjustmentsRef',
-].map((key) => [key, { current: null }])) as unknown as AppNavigationProps['refs'];
-const file = (path: string) => ({ path, rating: 0, is_raw: true, tags: null, exif: null, modified: 0 });
+const refs = () =>
+  Object.fromEntries(
+    [
+      'transformWrapperRef',
+      'cachedEditStateRef',
+      'selectedImagePathRef',
+      'isBackendReadyRef',
+      'latestRenderedJobIdRef',
+      'previewJobIdRef',
+      'currentResRef',
+      'prevAdjustmentsRef'
+    ].map((key) => [key, { current: null }])
+  ) as unknown as AppNavigationProps['refs'];
+const file = (path: string) => ({
+  path,
+  rating: 0,
+  is_raw: true,
+  tags: null,
+  exif: null,
+  modified: 0
+});
 
 beforeEach(() => {
   scans.clear();
@@ -26,7 +43,12 @@ beforeEach(() => {
     if (command === 'begin_image_listing') return new Promise((resolve) => scans.set(args.path, resolve));
     return Promise.resolve(undefined);
   });
-  useLibraryStore.getState().setLibrary({ imageList: [], currentFolderPath: null, rootPaths: [], imageRatings: {} });
+  useLibraryStore.getState().setLibrary({
+    imageList: [],
+    currentFolderPath: null,
+    rootPaths: [],
+    imageRatings: {}
+  });
   useEditorStore.getState().setEditor({ selectedImage: null });
 });
 afterEach(cleanup);
@@ -35,20 +57,36 @@ it('does not let a previous folder response replace the newest folder or its loa
   const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
   let old!: Promise<void>;
   let latest!: Promise<void>;
-  await act(async () => { old = result.current.handleSelectSubfolder('/old'); });
-  await act(async () => { latest = result.current.handleSelectSubfolder('/new'); });
+  await act(async () => {
+    old = result.current.handleSelectSubfolder('/old');
+  });
+  await act(async () => {
+    latest = result.current.handleSelectSubfolder('/new');
+  });
   expect(scans.has('/old')).toBe(true);
   expect(scans.has('/new')).toBe(true);
   await act(async () => {
-    scans.get('/old')!({ listing_id: 'old-snapshot', offset: 0, total: 700, files: [] });
+    scans.get('/old')!({
+      listing_id: 'old-snapshot',
+      offset: 0,
+      total: 700,
+      files: []
+    });
     await old;
   });
   expect(useLibraryStore.getState().currentFolderPath).toBe('/new');
   expect(useLibraryStore.getState().isViewLoading).toBe(true);
   expect(useLibraryStore.getState().imageList).toEqual([]);
-  expect(invoke).toHaveBeenCalledWith('cancel_image_listing', { listingId: 'old-snapshot' });
+  expect(invoke).toHaveBeenCalledWith('cancel_image_listing', {
+    listingId: 'old-snapshot'
+  });
   await act(async () => {
-    scans.get('/new')!({ listing_id: null, offset: 0, total: 1, files: [file('/new/photo.dng')] });
+    scans.get('/new')!({
+      listing_id: null,
+      offset: 0,
+      total: 1,
+      files: [file('/new/photo.dng')]
+    });
     await latest;
   });
   expect(useLibraryStore.getState().imageList.map((f) => f.path)).toEqual(['/new/photo.dng']);
@@ -58,10 +96,17 @@ it('does not let a previous folder response replace the newest folder or its loa
 it('leaves Home empty when an outstanding folder scan finishes later', async () => {
   const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
   let pending!: Promise<void>;
-  await act(async () => { pending = result.current.handleSelectSubfolder('/old'); });
+  await act(async () => {
+    pending = result.current.handleSelectSubfolder('/old');
+  });
   act(() => result.current.handleGoHome());
   await act(async () => {
-    scans.get('/old')!({ listing_id: null, offset: 0, total: 1, files: [file('/old/photo.dng')] });
+    scans.get('/old')!({
+      listing_id: null,
+      offset: 0,
+      total: 1,
+      files: [file('/old/photo.dng')]
+    });
     await pending;
   });
   expect(useLibraryStore.getState().imageList).toEqual([]);
@@ -72,12 +117,12 @@ it('leaves Home empty when an outstanding folder scan finishes later', async () 
 it('closes the previous photo when an album opens, so it is no longer the edit or export target', async () => {
   const { debouncedSave } = await import('./useEditorActions');
   invoke.mockImplementation((command) =>
-    Promise.resolve(command === 'get_album_images' ? [file('/album/other.png')] : undefined),
+    Promise.resolve(command === 'get_album_images' ? [file('/album/other.png')] : undefined)
   );
   useEditorStore.getState().setEditor({ selectedImage: { path: '/shoot/photo.dng' } as never });
   useLibraryStore.getState().setLibrary({
     multiSelectedPaths: ['/shoot/photo.dng'],
-    libraryActivePath: '/shoot/photo.dng',
+    libraryActivePath: '/shoot/photo.dng'
   });
   const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
   await act(async () => {
@@ -92,7 +137,7 @@ it('closes the previous photo when an album opens, so it is no longer the edit o
 
 it('keeps the photo in Develop when an album only refreshes in place', async () => {
   invoke.mockImplementation((command) =>
-    Promise.resolve(command === 'get_album_images' ? [file('/album/other.png')] : undefined),
+    Promise.resolve(command === 'get_album_images' ? [file('/album/other.png')] : undefined)
   );
   useEditorStore.getState().setEditor({ selectedImage: { path: '/album/other.png' } as never });
   const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
@@ -125,13 +170,11 @@ describe('stepping to a photograph without a preview proxy', () => {
   const stepFromReady = async (activation: string) => {
     const { useUIStore } = await import('../store/useUIStore');
     useUIStore.getState().setUI({ activeView: 'editor' });
-    invoke.mockImplementation((command) =>
-      Promise.resolve(command === 'activate_photo' ? activation : undefined),
-    );
+    invoke.mockImplementation((command) => Promise.resolve(command === 'activate_photo' ? activation : undefined));
     useEditorStore.getState().setEditor({
       selectedImage: { path: '/s/a.NEF', isReady: true } as never,
       hasRenderedFirstFrame: true,
-      stillPreview: null,
+      stillPreview: null
     });
     const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
     await act(async () => {
@@ -151,7 +194,13 @@ describe('stepping to a photograph without a preview proxy', () => {
     expect(useEditorStore.getState().holdingNativeFrame).toBe(true);
     // The first developed frame replaces it in place (useTauriListeners'
     // wgpu-frame-ready).
-    act(() => useEditorStore.getState().setEditor({ hasRenderedFirstFrame: true, holdingNativeFrame: false, stillPreview: null }));
+    act(() =>
+      useEditorStore.getState().setEditor({
+        hasRenderedFirstFrame: true,
+        holdingNativeFrame: false,
+        stillPreview: null
+      })
+    );
     expect(useEditorStore.getState().stillPreview).toBeNull();
   });
 
@@ -167,7 +216,9 @@ describe('stepping to a photograph without a preview proxy', () => {
     vi.useFakeTimers({ toFake: ['setTimeout'] });
     await stepFromReady('still');
     expect(useEditorStore.getState().stillPreview).toBe('/s/b.NEF');
-    useEditorStore.getState().setEditor({ selectedImage: { path: '/s/b.NEF', isReady: false } as never });
+    useEditorStore.getState().setEditor({
+      selectedImage: { path: '/s/b.NEF', isReady: false } as never
+    });
     invoke.mockClear();
     const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
     await act(async () => {
@@ -185,12 +236,16 @@ describe('stepping to a photograph without a preview proxy', () => {
     const { useUIStore } = await import('../store/useUIStore');
     useUIStore.getState().setUI({ activeView: 'editor' });
     invoke.mockImplementation((command) =>
-      command === 'activate_photo' ? new Promise((resolve) => { answer = resolve; }) : Promise.resolve(undefined),
+      command === 'activate_photo'
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : Promise.resolve(undefined)
     );
     useEditorStore.getState().setEditor({
       selectedImage: { path: '/s/a.NEF', isReady: true } as never,
       hasRenderedFirstFrame: true,
-      stillPreview: null,
+      stillPreview: null
     });
     const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
     await act(async () => {

@@ -1,28 +1,28 @@
-import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { useShallow } from "zustand/react/shallow";
-import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeftRight, Eye, EyeOff, Loader2, Trash2 } from "lucide-react";
-import AdjustmentControl from "./AdjustmentControl";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useProcessStore } from "../../store/useProcessStore";
-import { syncDustToPaths, updateAdjustments } from "../../hooks/useEditorActions";
-import { Invokes } from "../ui/AppProperties";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { shortcutHint } from "../../utils/keyboardUtils";
-import type { Spot } from "../../utils/adjustments";
-import { spotItems, withoutSpotItems, withSpotItemsVisible, type SpotItemKind } from "../../utils/spotItems";
-import { flipSpotItem } from "../../utils/spotFill";
-import StudioRedEyeControls from "./StudioRedEyeControls";
-import { useStudioTools } from "./useStudioTools";
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
+import { invoke } from '@tauri-apps/api/core';
+import { ArrowLeftRight, Eye, EyeOff, Loader2, Trash2 } from 'lucide-react';
+import AdjustmentControl from './AdjustmentControl';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useProcessStore } from '../../store/useProcessStore';
+import { syncDustToPaths, updateAdjustments } from '../../hooks/useEditorActions';
+import { Invokes } from '../ui/AppProperties';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { shortcutHint } from '../../utils/keyboardUtils';
+import type { Spot } from '../../utils/adjustments';
+import { spotItems, withoutSpotItems, withSpotItemsVisible, type SpotItemKind } from '../../utils/spotItems';
+import { flipSpotItem } from '../../utils/spotFill';
+import StudioRedEyeControls from './StudioRedEyeControls';
+import { useStudioTools } from './useStudioTools';
 
-type Settings = ReturnType<typeof useEditorStore.getState>["spotSettings"];
+type Settings = ReturnType<typeof useEditorStore.getState>['spotSettings'];
 
 /** The settings new spots get at first (the panels' reset). */
 export const resetSpotSettings = () =>
   useEditorStore.getState().setEditor({
-    spotSettings: { mode: "heal", size: 60, feather: 0, opacity: 100 },
+    spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 }
   });
 
 /** The spot tool in the Retouch tab, as Lightroom's Remove panel: the
@@ -34,9 +34,9 @@ export function StudioSpotPanel() {
   const { activeTool, selectTool, ready } = useStudioTools();
   const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
   const osPlatform = useSettingsStore((s) => s.osPlatform);
-  const key = shortcutHint("tool_spot", keybinds, osPlatform);
-  const active = activeTool === "spot";
-  const label = t(active ? "studio.spot.done" : "studio.spot.start");
+  const key = shortcutHint('tool_spot', keybinds, osPlatform);
+  const active = activeTool === 'spot';
+  const label = t(active ? 'studio.spot.done' : 'studio.spot.start');
   return (
     <>
       <button
@@ -44,9 +44,9 @@ export function StudioSpotPanel() {
         className="studio-text-button"
         disabled={!ready}
         aria-pressed={active}
-        onClick={() => selectTool("spot")}
+        onClick={() => selectTool('spot')}
       >
-        {key ? t("studio.spot.withShortcut", { text: label, key }) : label}
+        {key ? t('studio.spot.withShortcut', { text: label, key }) : label}
       </button>
       <StudioSpotControls />
       <StudioFindDust />
@@ -55,7 +55,10 @@ export function StudioSpotPanel() {
   );
 }
 
-type FoundDust = { spots: Array<Record<string, unknown>>; facesChecked: boolean };
+type FoundDust = {
+  spots: Array<Record<string, unknown>>;
+  facesChecked: boolean;
+};
 
 /** File name of a path, for naming skipped photos. */
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
@@ -78,7 +81,15 @@ export function StudioFindDust() {
   // What the found spots depend on: the spots, the geometry and the crop.
   const placeKey = useEditorStore((s) => {
     const a = s.adjustments;
-    return JSON.stringify([a.spots, a.aiPatches?.length, a.crop, a.rotation, a.orientationSteps, a.flipHorizontal, a.flipVertical]);
+    return JSON.stringify([
+      a.spots,
+      a.aiPatches?.length,
+      a.crop,
+      a.rotation,
+      a.orientationSteps,
+      a.flipHorizontal,
+      a.flipVertical
+    ]);
   });
   const dustSpots = useEditorStore((s) => (s.adjustments.spots ?? []).filter((spot) => spot.dust).length);
   const multiSelected = useLibraryStore((s) => s.multiSelectedPaths);
@@ -92,7 +103,7 @@ export function StudioFindDust() {
   // spot tool: switching to them or ending the tool ends it.
   const toolOn = useEditorStore((s) => s.isSpotToolActive);
   useEffect(() => {
-    if (mode === "remove" || mode === "redEye" || !toolOn) setEditor({ dustPreview: null });
+    if (mode === 'remove' || mode === 'redEye' || !toolOn) setEditor({ dustPreview: null });
   }, [mode, toolOn, setEditor]);
 
   // Another photo: the preview and the last message belong to the old one.
@@ -108,19 +119,27 @@ export function StudioFindDust() {
     let live = true;
     const timer = window.setTimeout(() => {
       const { adjustments } = useEditorStore.getState();
-      invoke<FoundDust>(Invokes.FindDust, { sensitivity: visualize.sensitivity, apply: false, jsAdjustments: adjustments })
+      invoke<FoundDust>(Invokes.FindDust, {
+        sensitivity: visualize.sensitivity,
+        apply: false,
+        jsAdjustments: adjustments
+      })
         .then((found) => {
           if (!live || useEditorStore.getState().dustPreview === null) return;
           setEditor({
             dustPreview: {
-              spots: found.spots as Array<{ x: number; y: number; radius: number }>,
+              spots: found.spots as Array<{
+                x: number;
+                y: number;
+                radius: number;
+              }>,
               facesChecked: found.facesChecked,
-              busy: false,
-            },
+              busy: false
+            }
           });
         })
         .catch((error) => {
-          console.error("Find dust failed:", error);
+          console.error('Find dust failed:', error);
           if (live) setEditor({ dustPreview: null });
         });
     }, 120);
@@ -130,7 +149,7 @@ export function StudioFindDust() {
     };
   }, [on, ready, visualize.sensitivity, placeKey, path, setEditor]);
 
-  if (mode === "remove" || mode === "redEye") return null;
+  if (mode === 'remove' || mode === 'redEye') return null;
 
   const start = () => {
     startSpotTool();
@@ -145,24 +164,35 @@ export function StudioFindDust() {
       const found = await invoke<FoundDust>(Invokes.FindDust, {
         sensitivity: visualize.sensitivity,
         apply: true,
-        jsAdjustments: adjustments,
+        jsAdjustments: adjustments
       });
       if (useEditorStore.getState().selectedImage?.path !== at) return;
       const spots = found.spots.map((spot) => ({
         id: crypto.randomUUID(),
-        mode: "heal" as const,
+        mode: 'heal' as const,
         feather: spotSettings.feather,
         opacity: 100,
-        ...(spot as { x: number; y: number; radius: number; sourceX: number; sourceY: number; dust: { x: number; y: number } }),
-        visible: true,
+        ...(spot as {
+          x: number;
+          y: number;
+          radius: number;
+          sourceX: number;
+          sourceY: number;
+          dust: { x: number; y: number };
+        }),
+        visible: true
       }));
       // One undo step for the whole run.
-      if (spots.length > 0) updateAdjustments((prev) => ({ ...prev, spots: [...(prev.spots ?? []), ...spots] }));
+      if (spots.length > 0)
+        updateAdjustments((prev) => ({
+          ...prev,
+          spots: [...(prev.spots ?? []), ...spots]
+        }));
       setEditor({ dustPreview: null });
-      setMessage(t("spotRemoval.dust.applied", { number: spots.length }));
+      setMessage(t('spotRemoval.dust.applied', { number: spots.length }));
     } catch (error) {
-      console.error("Find dust failed:", error);
-      setMessage(t("spotRemoval.dust.failed"));
+      console.error('Find dust failed:', error);
+      setMessage(t('spotRemoval.dust.failed'));
     }
   };
   const sync = async () => {
@@ -171,17 +201,34 @@ export function StudioFindDust() {
     try {
       const { failed, skipped } = await syncDustToPaths(path, others, useEditorStore.getState().adjustments);
       const done = others.length - failed.length - skipped.length;
-      const parts = [t("spotRemoval.dust.synced", { number: Math.max(0, done) })];
+      const parts = [t('spotRemoval.dust.synced', { number: Math.max(0, done) })];
       const named = (reason: string) =>
-        skipped.filter((s) => s.reason === reason).map((s) => fileName(s.path)).join(", ");
-      if (named("otherCamera")) parts.push(t("spotRemoval.dust.skippedOtherCamera", { names: named("otherCamera") }));
-      if (named("unknownCamera"))
-        parts.push(t("spotRemoval.dust.skippedUnknownCamera", { names: named("unknownCamera") }));
-      if (named("otherFrame")) parts.push(t("spotRemoval.dust.skippedOtherFrame", { names: named("otherFrame") }));
-      setMessage(parts.join(" "));
+        skipped
+          .filter((s) => s.reason === reason)
+          .map((s) => fileName(s.path))
+          .join(', ');
+      if (named('otherCamera'))
+        parts.push(
+          t('spotRemoval.dust.skippedOtherCamera', {
+            names: named('otherCamera')
+          })
+        );
+      if (named('unknownCamera'))
+        parts.push(
+          t('spotRemoval.dust.skippedUnknownCamera', {
+            names: named('unknownCamera')
+          })
+        );
+      if (named('otherFrame'))
+        parts.push(
+          t('spotRemoval.dust.skippedOtherFrame', {
+            names: named('otherFrame')
+          })
+        );
+      setMessage(parts.join(' '));
     } catch (error) {
-      console.error("Sync dust failed:", error);
-      setMessage(t("spotRemoval.dust.failed"));
+      console.error('Sync dust failed:', error);
+      setMessage(t('spotRemoval.dust.failed'));
     } finally {
       setSyncing(false);
     }
@@ -193,26 +240,32 @@ export function StudioFindDust() {
         // One wrapping row: Find dust and Sync dust stay two buttons with a
         // gap, also in a narrow panel (they ran together as one label).
         <div className="studio-inline studio-inline-wrap">
-          <button type="button" className="studio-text-button" disabled={!ready} title={t("spotRemoval.dust.hint")} onClick={start}>
-            {t("spotRemoval.dust.find")}
+          <button
+            type="button"
+            className="studio-text-button"
+            disabled={!ready}
+            title={t('spotRemoval.dust.hint')}
+            onClick={start}
+          >
+            {t('spotRemoval.dust.find')}
           </button>
           {dustSpots > 0 && others.length > 0 && (
             <button
               type="button"
               className="studio-text-button"
               disabled={syncing}
-              title={t("spotRemoval.dust.syncHint")}
+              title={t('spotRemoval.dust.syncHint')}
               onClick={() => void sync()}
             >
-              {t("spotRemoval.dust.sync", { number: others.length })}
+              {t('spotRemoval.dust.sync', { number: others.length })}
             </button>
           )}
         </div>
       ) : (
         <>
           <AdjustmentControl
-            label={t("spotRemoval.sensitivity")}
-            ariaLabel={t("spotRemoval.sensitivityAria")}
+            label={t('spotRemoval.sensitivity')}
+            ariaLabel={t('spotRemoval.sensitivityAria')}
             value={visualize.sensitivity}
             min={0}
             max={100}
@@ -220,8 +273,10 @@ export function StudioFindDust() {
             onChange={(sensitivity) => setEditor({ spotVisualize: { ...visualize, sensitivity } })}
           />
           <p className="studio-hint" role="status">
-            {preview.busy ? t("spotRemoval.dust.searching") : t("spotRemoval.dust.found", { number: preview.spots.length })}
-            {!preview.busy && !preview.facesChecked && ` ${t("spotRemoval.dust.facesNotChecked")}`}
+            {preview.busy
+              ? t('spotRemoval.dust.searching')
+              : t('spotRemoval.dust.found', { number: preview.spots.length })}
+            {!preview.busy && !preview.facesChecked && ` ${t('spotRemoval.dust.facesNotChecked')}`}
           </p>
           <div className="studio-inline">
             <button
@@ -230,15 +285,19 @@ export function StudioFindDust() {
               disabled={preview.busy || preview.spots.length === 0}
               onClick={() => void apply()}
             >
-              {t("spotRemoval.dust.apply")}
+              {t('spotRemoval.dust.apply')}
             </button>
             <button type="button" className="studio-text-button" onClick={cancel}>
-              {t("spotRemoval.cancel")}
+              {t('spotRemoval.cancel')}
             </button>
           </div>
         </>
       )}
-      {message && <p className="studio-hint" role="status">{message}</p>}
+      {message && (
+        <p className="studio-hint" role="status">
+          {message}
+        </p>
+      )}
     </div>
   );
 }
@@ -252,14 +311,14 @@ export function StudioFindDust() {
 export function StudioSpotList() {
   const { t } = useTranslation();
   const { startSpotTool } = useStudioTools();
-  const redEye = useEditorStore((s) => s.spotSettings.mode === "redEye");
+  const redEye = useEditorStore((s) => s.spotSettings.mode === 'redEye');
   // The item lists only: the photo's other values change on every edit.
   const { spots, aiPatches, redEyes } = useEditorStore(
     useShallow((s) => ({
       spots: s.adjustments.spots,
       aiPatches: s.adjustments.aiPatches,
-      redEyes: s.adjustments.redEyes,
-    })),
+      redEyes: s.adjustments.redEyes
+    }))
   );
   const items = spotItems({ spots, aiPatches, redEyes }, redEye);
   const activeSpotId = useEditorStore((s) => s.activeSpotId);
@@ -283,12 +342,12 @@ export function StudioSpotList() {
   return (
     <div className="studio-spot-list">
       <div className="studio-spot-list-header">
-        <span>{t("spotRemoval.list.count", { number: items.length })}</span>
+        <span>{t('spotRemoval.list.count', { number: items.length })}</span>
         <button
           type="button"
           className="studio-row-icon"
-          aria-label={t(anyShown ? "spotRemoval.list.hideAll" : "spotRemoval.list.showAll")}
-          title={t(anyShown ? "spotRemoval.list.hideAll" : "spotRemoval.list.showAll")}
+          aria-label={t(anyShown ? 'spotRemoval.list.hideAll' : 'spotRemoval.list.showAll')}
+          title={t(anyShown ? 'spotRemoval.list.hideAll' : 'spotRemoval.list.showAll')}
           onClick={() => show(all, !anyShown)}
         >
           {anyShown ? <Eye size={12} /> : <EyeOff size={12} />}
@@ -296,51 +355,55 @@ export function StudioSpotList() {
         <button
           type="button"
           className="studio-row-icon"
-          aria-label={t("spotRemoval.list.deleteAll")}
-          title={t("spotRemoval.list.deleteAll")}
+          aria-label={t('spotRemoval.list.deleteAll')}
+          title={t('spotRemoval.list.deleteAll')}
           onClick={() => remove(all)}
         >
           <Trash2 size={12} />
         </button>
       </div>
-      <div className="studio-layer-list" role="list" aria-label={t("spotRemoval.list.aria")}>
+      <div className="studio-layer-list" role="list" aria-label={t('spotRemoval.list.aria')}>
         {items.map((item) => {
           const number = (numbers.get(item.kind) ?? 0) + 1;
           numbers.set(item.kind, number);
           const kind =
-            item.kind === "red" || item.kind === "pet"
+            item.kind === 'red' || item.kind === 'pet'
               ? t(`spotRemoval.redEye.kinds.${item.kind}`)
               : t(`spotRemoval.modes.${item.kind}`);
-          const name = t("spotRemoval.list.item", { kind, number });
+          const name = t('spotRemoval.list.item', { kind, number });
           const selected = item.id === activeSpotId;
           return (
             <div
               key={item.id}
               role="listitem"
-              className={`studio-layer ${selected ? "is-selected" : ""} ${item.visible ? "" : "is-hidden"}`}
+              className={`studio-layer ${selected ? 'is-selected' : ''} ${item.visible ? '' : 'is-hidden'}`}
             >
               <button
                 type="button"
                 className="studio-layer-name"
-                aria-label={t("spotRemoval.list.select", { name })}
-                aria-current={selected ? "true" : undefined}
+                aria-label={t('spotRemoval.list.select', { name })}
+                aria-current={selected ? 'true' : undefined}
                 onClick={() => select(item.id)}
               >
                 <span className="studio-layer-label">{name}</span>
               </button>
-              {(item.kind === "heal" || item.kind === "fill") &&
+              {(item.kind === 'heal' || item.kind === 'fill') &&
                 (busy[item.id] ? (
-                  <span className="studio-row-icon" role="status" aria-label={t("spotRemoval.list.switching", { name })}>
+                  <span
+                    className="studio-row-icon"
+                    role="status"
+                    aria-label={t('spotRemoval.list.switching', { name })}
+                  >
                     <Loader2 size={12} className="animate-spin" />
                   </span>
                 ) : (
                   <button
                     type="button"
                     className="studio-row-icon"
-                    aria-label={t(item.kind === "heal" ? "spotRemoval.list.useFill" : "spotRemoval.list.useHeal", {
-                      name,
+                    aria-label={t(item.kind === 'heal' ? 'spotRemoval.list.useFill' : 'spotRemoval.list.useHeal', {
+                      name
                     })}
-                    title={t(item.kind === "heal" ? "spotRemoval.list.useFill" : "spotRemoval.list.useHeal", { name })}
+                    title={t(item.kind === 'heal' ? 'spotRemoval.list.useFill' : 'spotRemoval.list.useHeal', { name })}
                     onClick={() => void flipSpotItem(item.id)}
                   >
                     <ArrowLeftRight size={12} />
@@ -349,7 +412,7 @@ export function StudioSpotList() {
               <button
                 type="button"
                 className="studio-row-icon"
-                aria-label={t("spotRemoval.list.toggle", { name })}
+                aria-label={t('spotRemoval.list.toggle', { name })}
                 aria-pressed={item.visible}
                 onClick={() => show(new Set([item.id]), !item.visible)}
               >
@@ -358,7 +421,7 @@ export function StudioSpotList() {
               <button
                 type="button"
                 className="studio-row-icon studio-row-delete"
-                aria-label={t("spotRemoval.list.delete", { name })}
+                aria-label={t('spotRemoval.list.delete', { name })}
                 onClick={() => remove(new Set([item.id]))}
               >
                 <Trash2 size={12} />
@@ -387,31 +450,30 @@ export default function StudioSpotControls() {
   const setVisualize = (patch: Partial<typeof visualize>) =>
     useEditorStore.getState().setEditor({ spotVisualize: { ...visualize, ...patch } });
   // Removals (the AI patches Remove made): shown unless all are hidden.
-  const hasRemovals = useEditorStore((s) => Boolean(s.adjustments.aiPatches?.some((p) => p.name === "Remove")));
+  const hasRemovals = useEditorStore((s) => Boolean(s.adjustments.aiPatches?.some((p) => p.name === 'Remove')));
   const removalsShown = useEditorStore((s) =>
-    Boolean(s.adjustments.aiPatches?.some((p) => p.name === "Remove" && p.visible !== false)),
+    Boolean(s.adjustments.aiPatches?.some((p) => p.name === 'Remove' && p.visible !== false))
   );
-  const activeSpot = useEditorStore((s) =>
-    s.adjustments.spots?.find((spot) => spot.id === s.activeSpotId),
-  );
-  const redEye = settings.mode === "redEye";
-  const shown: Settings = activeSpot && !redEye
-    ? {
-        mode: activeSpot.mode,
-        size: Math.round(activeSpot.radius),
-        feather: activeSpot.feather,
-        opacity: activeSpot.opacity,
-      }
-    : settings;
-  const detectObjects = shown.mode === "remove" && Boolean(settings.detectObjects);
-  const objectSelect = settings.objectSelect ?? "brush";
-  const objectsKey = shortcutHint("remove_objects", keybinds, osPlatform);
+  const activeSpot = useEditorStore((s) => s.adjustments.spots?.find((spot) => spot.id === s.activeSpotId));
+  const redEye = settings.mode === 'redEye';
+  const shown: Settings =
+    activeSpot && !redEye
+      ? {
+          mode: activeSpot.mode,
+          size: Math.round(activeSpot.radius),
+          feather: activeSpot.feather,
+          opacity: activeSpot.opacity
+        }
+      : settings;
+  const detectObjects = shown.mode === 'remove' && Boolean(settings.detectObjects);
+  const objectSelect = settings.objectSelect ?? 'brush';
+  const objectsKey = shortcutHint('remove_objects', keybinds, osPlatform);
   const { startSpotTool } = useStudioTools();
   // The selected spot, removal or red eye correction (Delete removes it).
   const selectedId = useEditorStore((s) =>
     s.activeSpotId && spotItems(s.adjustments, redEye).some((item) => item.id === s.activeSpotId)
       ? s.activeSpotId
-      : null,
+      : null
   );
 
   const set = (patch: Partial<Settings>) => {
@@ -420,34 +482,29 @@ export default function StudioSpotControls() {
     if (patch.mode !== undefined || patch.detectObjects) startSpotTool();
     const { setEditor, spotSettings } = useEditorStore.getState();
     // Into or out of Red eye: the selection belongs to the other mode.
-    const switching =
-      patch.mode !== undefined && (patch.mode === "redEye") !== (spotSettings.mode === "redEye");
+    const switching = patch.mode !== undefined && (patch.mode === 'redEye') !== (spotSettings.mode === 'redEye');
     setEditor({
       spotSettings: { ...spotSettings, ...patch },
-      ...(switching && { activeSpotId: null }),
+      ...(switching && { activeSpotId: null })
     });
     if (!activeSpot || switching) return;
     // A spot stays heal or clone; Remove makes new removals only.
     const spotPatch: Partial<Spot> = {
-      ...(patch.mode &&
-        patch.mode !== "remove" &&
-        patch.mode !== "redEye" && { mode: patch.mode }),
+      ...(patch.mode && patch.mode !== 'remove' && patch.mode !== 'redEye' && { mode: patch.mode }),
       ...(patch.size !== undefined && { radius: patch.size }),
       ...(patch.feather !== undefined && { feather: patch.feather }),
-      ...(patch.opacity !== undefined && { opacity: patch.opacity }),
+      ...(patch.opacity !== undefined && { opacity: patch.opacity })
     };
     updateAdjustments((prev) => ({
       ...prev,
-      spots: (prev.spots ?? []).map((s) =>
-        s.id === activeSpot.id ? { ...s, ...spotPatch } : s,
-      ),
+      spots: (prev.spots ?? []).map((s) => (s.id === activeSpot.id ? { ...s, ...spotPatch } : s))
     }));
   };
 
   return (
     <div className="studio-spot-controls">
-      <div className="studio-segments" role="radiogroup" aria-label={t("spotRemoval.mode")}>
-        {(["remove", "heal", "clone", "redEye"] as const).map((mode) => (
+      <div className="studio-segments" role="radiogroup" aria-label={t('spotRemoval.mode')}>
+        {(['remove', 'heal', 'clone', 'redEye'] as const).map((mode) => (
           <button
             key={mode}
             type="button"
@@ -460,44 +517,36 @@ export default function StudioSpotControls() {
         ))}
       </div>
       {redEye && <StudioRedEyeControls />}
-      {shown.mode === "heal" && !activeSpot && (
-        <label className="studio-inline studio-check" title={t("spotRemoval.fillAcrossEdgesHint")}>
+      {shown.mode === 'heal' && !activeSpot && (
+        <label className="studio-inline studio-check" title={t('spotRemoval.fillAcrossEdgesHint')}>
           <input
             type="checkbox"
             checked={settings.fillAcrossEdges !== false}
             onChange={(e) => set({ fillAcrossEdges: e.target.checked })}
           />
-          {t("spotRemoval.fillAcrossEdges")}
+          {t('spotRemoval.fillAcrossEdges')}
         </label>
       )}
-      {shown.mode === "remove" && (
+      {shown.mode === 'remove' && (
         <label
           className="studio-inline studio-check"
           title={
             objectsKey
-              ? t("studio.spot.withShortcut", {
-                  text: t("spotRemoval.detectObjectsHint"),
-                  key: objectsKey,
+              ? t('studio.spot.withShortcut', {
+                  text: t('spotRemoval.detectObjectsHint'),
+                  key: objectsKey
                 })
-              : t("spotRemoval.detectObjectsHint")
+              : t('spotRemoval.detectObjectsHint')
           }
         >
-          <input
-            type="checkbox"
-            checked={detectObjects}
-            onChange={(e) => set({ detectObjects: e.target.checked })}
-          />
-          {t("spotRemoval.detectObjects")}
+          <input type="checkbox" checked={detectObjects} onChange={(e) => set({ detectObjects: e.target.checked })} />
+          {t('spotRemoval.detectObjects')}
         </label>
       )}
       {redEye ? null : detectObjects ? (
         <>
-          <div
-            className="studio-segments"
-            role="radiogroup"
-            aria-label={t("spotRemoval.objectSelect")}
-          >
-            {(["brush", "box"] as const).map((way) => (
+          <div className="studio-segments" role="radiogroup" aria-label={t('spotRemoval.objectSelect')}>
+            {(['brush', 'box'] as const).map((way) => (
               <button
                 key={way}
                 type="button"
@@ -509,10 +558,10 @@ export default function StudioSpotControls() {
               </button>
             ))}
           </div>
-          {objectSelect === "brush" && (
+          {objectSelect === 'brush' && (
             <AdjustmentControl
-              label={t("spotRemoval.size")}
-              ariaLabel={t("spotRemoval.sizeAria")}
+              label={t('spotRemoval.size')}
+              ariaLabel={t('spotRemoval.sizeAria')}
               value={shown.size}
               min={2}
               max={1000}
@@ -523,19 +572,15 @@ export default function StudioSpotControls() {
             />
           )}
           <p className="studio-hint">
-            {t(
-              objectSelect === "brush"
-                ? "spotRemoval.detectObjectsHint"
-                : "spotRemoval.detectObjectsBoxHint",
-            )}{" "}
-            {t("spotRemoval.detectObjectsRefineHint")}
+            {t(objectSelect === 'brush' ? 'spotRemoval.detectObjectsHint' : 'spotRemoval.detectObjectsBoxHint')}{' '}
+            {t('spotRemoval.detectObjectsRefineHint')}
           </p>
         </>
       ) : (
         <>
           <AdjustmentControl
-            label={t("spotRemoval.size")}
-            ariaLabel={t("spotRemoval.sizeAria")}
+            label={t('spotRemoval.size')}
+            ariaLabel={t('spotRemoval.sizeAria')}
             value={shown.size}
             min={2}
             max={1000}
@@ -544,11 +589,11 @@ export default function StudioSpotControls() {
             unit=" px"
             onChange={(size) => set({ size })}
           />
-          {shown.mode !== "remove" && (
+          {shown.mode !== 'remove' && (
             <>
               <AdjustmentControl
-                label={t("spotRemoval.feather")}
-                ariaLabel={t("spotRemoval.featherAria")}
+                label={t('spotRemoval.feather')}
+                ariaLabel={t('spotRemoval.featherAria')}
                 value={shown.feather}
                 min={0}
                 max={100}
@@ -556,8 +601,8 @@ export default function StudioSpotControls() {
                 onChange={(feather) => set({ feather })}
               />
               <AdjustmentControl
-                label={t("spotRemoval.opacity")}
-                ariaLabel={t("spotRemoval.opacityAria")}
+                label={t('spotRemoval.opacity')}
+                ariaLabel={t('spotRemoval.opacityAria')}
                 value={shown.opacity}
                 min={0}
                 max={100}
@@ -572,13 +617,13 @@ export default function StudioSpotControls() {
         <button
           type="button"
           className="studio-text-button"
-          title={t("spotRemoval.deleteSelectedHint")}
+          title={t('spotRemoval.deleteSelectedHint')}
           onClick={() => {
             updateAdjustments((prev) => withoutSpotItems(prev, new Set([selectedId])));
             useEditorStore.getState().setEditor({ activeSpotId: null });
           }}
         >
-          {t("spotRemoval.deleteSelected")}
+          {t('spotRemoval.deleteSelected')}
         </button>
       )}
       {!redEye && hasRemovals && (
@@ -592,27 +637,23 @@ export default function StudioSpotControls() {
               const visible = e.target.checked;
               updateAdjustments((prev) => ({
                 ...prev,
-                aiPatches: (prev.aiPatches ?? []).map((p) => (p.name === "Remove" ? { ...p, visible } : p)),
+                aiPatches: (prev.aiPatches ?? []).map((p) => (p.name === 'Remove' ? { ...p, visible } : p))
               }));
             }}
           />
-          {t("spotRemoval.showRemovals")}
+          {t('spotRemoval.showRemovals')}
         </label>
       )}
       {!redEye && (
         <label className="studio-inline studio-check">
-          <input
-            type="checkbox"
-            checked={visualize.on}
-            onChange={(e) => setVisualize({ on: e.target.checked })}
-          />
-          {t("spotRemoval.visualize")}
+          <input type="checkbox" checked={visualize.on} onChange={(e) => setVisualize({ on: e.target.checked })} />
+          {t('spotRemoval.visualize')}
         </label>
       )}
       {!redEye && visualize.on && (
         <AdjustmentControl
-          label={t("spotRemoval.sensitivity")}
-          ariaLabel={t("spotRemoval.sensitivityAria")}
+          label={t('spotRemoval.sensitivity')}
+          ariaLabel={t('spotRemoval.sensitivityAria')}
           value={visualize.sensitivity}
           min={0}
           max={100}

@@ -35,7 +35,12 @@ const retouchBasis = (a: Adjustments) => {
 /** The Subject and Sky masks computed ahead (`precompute_ai_foreground_mask`,
  * then `precompute_ai_sky_mask`): the photo and geometry asked for, the task
  * that runs now, and whether the run is still going. */
-let maskPrecompute: { key: string; taskId: string; running: boolean; cancelled: boolean } | null = null;
+let maskPrecompute: {
+  key: string;
+  taskId: string;
+  running: boolean;
+  cancelled: boolean;
+} | null = null;
 
 /** What an Object selection request checks it still stands on: whether
  * the component is there, its mask, its prompts and a recipe's one box. */
@@ -55,7 +60,7 @@ function objectSelection(subMaskId: string): ObjectSelection {
     exists: Boolean(params),
     mask: params?.maskDataBase64 ?? null,
     prompts: JSON.stringify(params?.prompts ?? null),
-    bounds: JSON.stringify([params?.startX, params?.startY, params?.endX, params?.endY]),
+    bounds: JSON.stringify([params?.startX, params?.startY, params?.endX, params?.endY])
   };
 }
 
@@ -188,7 +193,7 @@ export function warmUpAiMaskModels() {
   warmUpAsked = true;
   const taskId = `mask-warm-up-${crypto.randomUUID()}`;
   invoke(Invokes.WarmUpAiMaskModels, { taskId }).catch((err) =>
-    console.error('Failed to build the mask models ahead:', err),
+    console.error('Failed to build the mask models ahead:', err)
   );
 }
 
@@ -220,10 +225,19 @@ export function precomputeAiMasks() {
   const key = `${path}\n${JSON.stringify(jsAdjustments)}`;
   if (maskPrecompute?.key === key) return;
   cancelAiMaskPrecompute();
-  const run = { key, taskId: `subject-precompute-${crypto.randomUUID()}`, running: true, cancelled: false };
+  const run = {
+    key,
+    taskId: `subject-precompute-${crypto.randomUUID()}`,
+    running: true,
+    cancelled: false
+  };
   maskPrecompute = run;
   let failed = false;
-  invoke(Invokes.PrecomputeAiForegroundMask, { jsAdjustments, path, taskId: run.taskId })
+  invoke(Invokes.PrecomputeAiForegroundMask, {
+    jsAdjustments,
+    path,
+    taskId: run.taskId
+  })
     .catch((err) => {
       console.error('Failed to precompute the subject mask:', err);
       failed = true;
@@ -233,7 +247,11 @@ export function precomputeAiMasks() {
       // Subject ran for a photo that stayed open: the models are warm.
       firstPhotoOfVisit = false;
       run.taskId = `sky-precompute-${crypto.randomUUID()}`;
-      return invoke(Invokes.PrecomputeAiSkyMask, { jsAdjustments, path, taskId: run.taskId });
+      return invoke(Invokes.PrecomputeAiSkyMask, {
+        jsAdjustments,
+        path,
+        taskId: run.taskId
+      });
     })
     .catch((err) => {
       console.error('Failed to precompute the sky mask:', err);
@@ -244,7 +262,12 @@ export function precomputeAiMasks() {
     .then(() => {
       if (run.cancelled) return;
       run.taskId = `sam-precompute-${crypto.randomUUID()}`;
-      return invoke(Invokes.PrecomputeAiSubjectMask, { jsAdjustments, path, background: true, taskId: run.taskId });
+      return invoke(Invokes.PrecomputeAiSubjectMask, {
+        jsAdjustments,
+        path,
+        background: true,
+        taskId: run.taskId
+      });
     })
     .catch((err) => console.error('Failed to precompute the object mask encoding:', err))
     .finally(() => {
@@ -269,7 +292,7 @@ export function cancelAiMaskPrecompute() {
   if (run?.running) {
     run.cancelled = true;
     invoke(Invokes.CancelAiTask, { taskId: run.taskId }).catch((err) =>
-      console.error('Failed to cancel the mask precompute:', err),
+      console.error('Failed to cancel the mask precompute:', err)
     );
   }
 }
@@ -340,11 +363,11 @@ export function useAiMasking() {
         ...prev,
         masks: prev.masks.map((c: MaskContainer) => ({
           ...c,
-          subMasks: c.subMasks.map((sm: SubMask) => (sm.id === subMaskId ? { ...sm, ...updatedData } : sm)),
-        })),
+          subMasks: c.subMasks.map((sm: SubMask) => (sm.id === subMaskId ? { ...sm, ...updatedData } : sm))
+        }))
       }));
     },
-    [setAdjustments],
+    [setAdjustments]
   );
 
   /** Puts a finished AI mask into its component, over the settings it holds
@@ -357,7 +380,7 @@ export function useAiMasking() {
     path: string,
     subMaskId: string,
     result: Record<string, unknown>,
-    keep: readonly string[] = [],
+    keep: readonly string[] = []
   ): boolean => {
     const { selectedImage, patchesSentToBackend } = useEditorStore.getState();
     // A photo opened again but still loading takes no edits yet.
@@ -375,14 +398,18 @@ export function useAiMasking() {
             if (sm.id !== subMaskId) return sm;
             const parameters = sm.parameters || {};
             const own = Object.fromEntries(
-              keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]),
+              keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]])
             );
             // Detected on this photograph: no longer waiting (pasted ones;
             // an Object selection when the object is pointed at again).
-            const { [DETECT_PENDING]: _pending, ...rest } = { ...parameters, ...result, ...own } as Record<string, unknown>;
+            const { [DETECT_PENDING]: _pending, ...rest } = {
+              ...parameters,
+              ...result,
+              ...own
+            } as Record<string, unknown>;
             return { ...sm, parameters: rest };
-          }),
-        })),
+          })
+        }))
       };
     });
     return true;
@@ -397,7 +424,7 @@ export function useAiMasking() {
     subMaskId: string,
     startPoint: Coord,
     endPoint: Coord,
-    prompts?: ObjectPrompt[],
+    prompts?: ObjectPrompt[]
   ): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
@@ -419,7 +446,7 @@ export function useAiMasking() {
         prompts: prompts ?? null,
         rotation: adjustments.rotation,
         startPoint: [startPoint.x, startPoint.y],
-        taskId: subMaskId,
+        taskId: subMaskId
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return true;
       // A slider owns its draft until release. Applying here would put the
@@ -475,7 +502,7 @@ export function useAiMasking() {
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
         rotation: adjustments.rotation,
-        taskId: subMaskId,
+        taskId: subMaskId
       });
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
@@ -510,7 +537,7 @@ export function useAiMasking() {
         orientationSteps: adjustments.orientationSteps,
         rotation: adjustments.rotation,
         subjectVersion,
-        taskId: subMaskId,
+        taskId: subMaskId
       });
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
@@ -538,7 +565,7 @@ export function useAiMasking() {
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
         rotation: adjustments.rotation,
-        taskId: subMaskId,
+        taskId: subMaskId
       });
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
@@ -555,7 +582,7 @@ export function useAiMasking() {
   const handleGenerateAiPeopleMask = async (
     subMaskId: string,
     parts: string[],
-    person: number | null,
+    person: number | null
   ): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
@@ -571,7 +598,7 @@ export function useAiMasking() {
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
         rotation: adjustments.rotation,
-        taskId: subMaskId,
+        taskId: subMaskId
       });
       // The parts or the person may have changed meanwhile: keep the newer
       // request's choice, which computes again.
@@ -626,7 +653,7 @@ export function useAiMasking() {
       .filter(
         (sub: SubMask) =>
           (sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized &&
-          !requestedPlacements.current.has(`${path}:${sub.id}`),
+          !requestedPlacements.current.has(`${path}:${sub.id}`)
       );
     if (unplaced.length === 0) return;
     // Per photo: copied settings keep component ids.
@@ -643,7 +670,7 @@ export function useAiMasking() {
       path,
       adjustments: { masks: [{ subMasks: unplaced }] },
       width: selectedImage.width,
-      height: selectedImage.height,
+      height: selectedImage.height
     })
       .then((placed) => {
         const now = useEditorStore.getState();
@@ -655,7 +682,7 @@ export function useAiMasking() {
         const placedParameters = new Map(
           (placed.masks?.[0]?.subMasks ?? [])
             .filter((sub) => !(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized)
-            .map((sub) => [sub.id, sub.parameters]),
+            .map((sub) => [sub.id, sub.parameters])
         );
         if (placedParameters.size === 0) return;
         /** `adjustments` with the asked components, where still as asked, placed. */
@@ -684,7 +711,10 @@ export function useAiMasking() {
         now.setEditor((state) =>
           state.selectedImage?.path !== path
             ? state
-            : { adjustments: placeIn(state.adjustments), history: state.history.map(placeIn) },
+            : {
+                adjustments: placeIn(state.adjustments),
+                history: state.history.map(placeIn)
+              }
         );
       })
       .catch((error) => console.error('Placing Lightroom masks failed:', error));
@@ -698,7 +728,11 @@ export function useAiMasking() {
       // A People mask computes again whenever its parts or person change
       // (the panel clears its data then).
       if (sub.type === 'ai-people') {
-        const p = (sub.parameters ?? {}) as { parts?: string[]; person?: number | null; maskDataBase64?: string | null };
+        const p = (sub.parameters ?? {}) as {
+          parts?: string[];
+          person?: number | null;
+          maskDataBase64?: string | null;
+        };
         const parts = p.parts ?? [];
         const key = `${selectedImage?.path}:${sub.id}:${JSON.stringify(parts)}:${p.person ?? ''}`;
         if (p.maskDataBase64 || parts.length === 0 || requestedAutoMasks.current.has(key)) continue;
@@ -720,7 +754,9 @@ export function useAiMasking() {
       if (!pending || requestedAutoMasks.current.has(key)) continue;
       requestedAutoMasks.current.add(key);
       if (sub.type !== 'ai-depth' && (!sub.parameters || Object.keys(sub.parameters).length === 0)) {
-        updateSubMask(sub.id, { parameters: { maskDataBase64: null, grow: 0, feather: 0 } });
+        updateSubMask(sub.id, {
+          parameters: { maskDataBase64: null, grow: 0, feather: 0 }
+        });
       }
       const run =
         sub.type === 'ai-depth'
@@ -762,7 +798,10 @@ export function useAiMasking() {
   useEffect(() => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImageDecoded || !selectedImage || !retouchBasisKey) return;
-    const sent = { spots: adjustments.spots ?? [], redEyes: adjustments.redEyes ?? [] };
+    const sent = {
+      spots: adjustments.spots ?? [],
+      redEyes: adjustments.redEyes ?? []
+    };
     const sentBasis = retouchBasis(adjustments);
     const path = selectedImage.path;
     const key = `${path}\n${sentBasis}`;
@@ -781,10 +820,13 @@ export function useAiMasking() {
       let next = 0;
       return current.map((item) => (isUnplacedRetouch(item) ? placed[next++] : item));
     };
-    void invoke<{ spots?: Adjustments['spots']; redEyes?: Adjustments['redEyes'] } | null>(
-      Invokes.PlaceLightroomRetouch,
-      { path, jsAdjustments: adjustments },
-    )
+    void invoke<{
+      spots?: Adjustments['spots'];
+      redEyes?: Adjustments['redEyes'];
+    } | null>(Invokes.PlaceLightroomRetouch, {
+      path,
+      jsAdjustments: adjustments
+    })
       .then((placed) => {
         const now = useEditorStore.getState();
         if (
@@ -808,8 +850,8 @@ export function useAiMasking() {
             : {
                 ...prev,
                 spots: merged(prev.spots ?? [], sent.spots, placed.spots),
-                redEyes: merged(prev.redEyes ?? [], sent.redEyes, placed.redEyes),
-              },
+                redEyes: merged(prev.redEyes ?? [], sent.redEyes, placed.redEyes)
+              }
         );
       })
       .catch((error) => {
@@ -832,7 +874,7 @@ export function useAiMasking() {
   });
   // The spot removal tool's Remove with Detect objects selects with SAM too.
   const removeObjectsActive = useEditorStore(
-    (s) => s.isSpotToolActive && s.spotSettings.mode === 'remove' && Boolean(s.spotSettings.detectObjects),
+    (s) => s.isSpotToolActive && s.spotSettings.mode === 'remove' && Boolean(s.spotSettings.detectObjects)
   );
   const selectedImagePathKey = useEditorStore((s) => s.selectedImage?.path);
 
@@ -844,7 +886,7 @@ export function useAiMasking() {
       invoke(Invokes.PrecomputeAiSubjectMask, {
         jsAdjustments: getTransformAdjustments(adjustments),
         path: selectedImage.path,
-        background,
+        background
       }).catch((err) => {
         console.error('Failed to precompute AI subject mask:', err);
         noteBackgroundAiError(err);

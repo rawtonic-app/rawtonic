@@ -26,7 +26,11 @@ export async function checkEyes(directory: string) {
   const { appSettings, handleSettingsChange } = useSettingsStore.getState();
   if (appSettings && !appSettings.eyeCheck) await handleSettingsChange({ ...appSettings, eyeCheck: true });
   try {
-    await invoke(Invokes.StartEyeCheck, { directory, download: true, resume: true });
+    await invoke(Invokes.StartEyeCheck, {
+      directory,
+      download: true,
+      resume: true
+    });
   } catch (error) {
     notify.error(i18n.t('studio.eyes.startFailed', { error: String(error) }));
   }
@@ -50,10 +54,20 @@ export function useEyeCheck() {
   // the check is turned off.
   useEffect(() => {
     if (!directory || !enabled) return;
-    invoke(Invokes.StartEyeCheck, { directory, download: false, resume: true }).catch((error) => {
+    invoke(Invokes.StartEyeCheck, {
+      directory,
+      download: false,
+      resume: true
+    }).catch((error) => {
       if (String(error) === MODELS_MISSING)
         notify.warn(i18n.t('studio.eyes.modelsMissing'), {
-          actions: [{ label: i18n.t('studio.eyes.download'), run: () => checkEyes(directory), settles: true }],
+          actions: [
+            {
+              label: i18n.t('studio.eyes.download'),
+              run: () => checkEyes(directory),
+              settles: true
+            }
+          ]
         });
       else notify.warn(i18n.t('studio.eyes.startFailed', { error: String(error) }));
     });
@@ -71,7 +85,11 @@ export function useEyeCheck() {
   useEffect(() => {
     if (!directory || !enabled) return;
     const timer = setInterval(() => {
-      invoke(Invokes.StartEyeCheck, { directory, download: false, resume: false }).catch(() => {});
+      invoke(Invokes.StartEyeCheck, {
+        directory,
+        download: false,
+        resume: false
+      }).catch(() => {});
     }, BACKLOG_CHECK_MS);
     return () => clearInterval(timer);
   }, [directory, enabled]);
@@ -83,7 +101,11 @@ export function useEyeCheck() {
     }
     if (!directory || !enabled) return;
     const timer = setTimeout(() => {
-      invoke(Invokes.StartEyeCheck, { directory, download: false, resume: false }).catch(() => {});
+      invoke(Invokes.StartEyeCheck, {
+        directory,
+        download: false,
+        resume: false
+      }).catch(() => {});
     }, RESTART_DELAY_MS);
     return () => clearTimeout(timer);
     // `directory` and `enabled` start it above; only a new list asks here.
@@ -119,7 +141,12 @@ export function useEyeCheck() {
       return;
     }
     const timer = setTimeout(() => {
-      store.load(directory, imageList.map((image) => image.path)).catch(() => {});
+      store
+        .load(
+          directory,
+          imageList.map((image) => image.path)
+        )
+        .catch(() => {});
     }, SUMMARY_DELAY_MS);
     return () => clearTimeout(timer);
   }, [directory, enabled, imageList, generation]);

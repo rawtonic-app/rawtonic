@@ -10,7 +10,7 @@ const OPTIONS: Array<OptionItem<string>> = [
   { label: 'Apple', value: 'apple' },
   { label: 'Banana', value: 'banana', disabled: true },
   { label: 'Cherry', value: 'cherry' },
-  { label: 'Date', value: 'date' },
+  { label: 'Date', value: 'date' }
 ];
 
 function Harness({ initial = null, onChange }: { initial?: string | null; onChange?: (v: string) => void }) {
@@ -94,7 +94,7 @@ it('closes with Escape without letting the key reach the dialog around it', asyn
   render(
     <div onKeyDown={(e) => e.key === 'Escape' && outer()}>
       <Harness initial="apple" />
-    </div>,
+    </div>
   );
   trigger().focus();
   await user.keyboard('{ArrowDown}');

@@ -3,7 +3,12 @@ import { useLibraryExif } from './useLibraryExif';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import {
-  RawStatus, EditedStatus, SortDirection, ImageFile, GroupingMode, type SortCriteria,
+  RawStatus,
+  EditedStatus,
+  SortDirection,
+  ImageFile,
+  GroupingMode,
+  type SortCriteria
 } from '../components/ui/AppProperties';
 import { buildImageGroups, GroupBadgeInfo, GroupId } from '../utils/imageGrouping';
 import { flagName, imageFlag, type FlagCounts } from '../utils/culling';
@@ -74,37 +79,45 @@ export interface GroupedLibrary {
   stackMarks?: Map<string, StackMark>;
 }
 
-export type LibraryQueryState = Pick<ReturnType<typeof useLibraryStore.getState>,
-  'imageList' | 'imageRatings' | 'filterCriteria' | 'searchCriteria' | 'sortCriteria'> & {
-    imageFlags?: Record<string, number>;
-    catalogMatches?: Set<string> | null;
-    catalogKnown?: Set<string> | null;
-    /** Stack members by path; with `stackView`, stacks collapse. */
-    stacks?: Map<string, StackEntry> | null;
-    /** A folder or the whole session/catalog is shown (not an album, a
-     * smart album or another view, which list stack members singly). */
-    stackView?: boolean;
-  };
+export type LibraryQueryState = Pick<
+  ReturnType<typeof useLibraryStore.getState>,
+  'imageList' | 'imageRatings' | 'filterCriteria' | 'searchCriteria' | 'sortCriteria'
+> & {
+  imageFlags?: Record<string, number>;
+  catalogMatches?: Set<string> | null;
+  catalogKnown?: Set<string> | null;
+  /** Stack members by path; with `stackView`, stacks collapse. */
+  stacks?: Map<string, StackEntry> | null;
+  /** A folder or the whole session/catalog is shown (not an album, a
+   * smart album or another view, which list stack members singly). */
+  stackView?: boolean;
+};
 interface QuerySettings {
   appSettings?: { grouping?: GroupingMode; groupEditedFiles?: boolean } | null;
 }
 
 // Filtering/flagging does not change filename order. Retain one ordering for each
 // immutable source list, with weak keys so leaving a folder releases its records.
-const orderings = new WeakMap<ImageFile[], {
+const orderings = new WeakMap<
+  ImageFile[],
+  {
     key: SortCriteria['key'];
     order: SortCriteria['order'];
     ratings: Record<string, number> | null;
     files: ImageFile[];
-  }>();
+  }
+>();
 
 function cachedOrdering(
-  images: ImageFile[], imageRatings: Record<string, number>, sort: SortCriteria,
+  images: ImageFile[],
+  imageRatings: Record<string, number>,
+  sort: SortCriteria
 ): ImageFile[] | undefined {
   const cached = orderings.get(images);
   const ratings = sort.key === 'rating' ? imageRatings : null;
   return cached && cached.key === sort.key && cached.order === sort.order && cached.ratings === ratings
-    ? cached.files : undefined;
+    ? cached.files
+    : undefined;
 }
 
 function orderedImages(images: ImageFile[], imageRatings: Record<string, number>, sort: SortCriteria): ImageFile[] {
@@ -113,7 +126,14 @@ function orderedImages(images: ImageFile[], imageRatings: Record<string, number>
   const cached = cachedOrdering(images, imageRatings, sort);
   if (cached) return cached;
   const isNameSort = ![
-    'date_taken', 'iso', 'shutter_speed', 'aperture', 'focal_length', 'date', 'rating', 'edited',
+    'date_taken',
+    'iso',
+    'shutter_speed',
+    'aperture',
+    'focal_length',
+    'date',
+    'rating',
+    'edited'
   ].includes(key);
 
   // Prepare numeric and filename keys once, rather than parsing EXIF or looking
@@ -164,8 +184,16 @@ function orderedImages(images: ImageFile[], imageRatings: Record<string, number>
 
 export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsState: QuerySettings): GroupedLibrary {
   const {
-    imageList, imageRatings, imageFlags = {}, filterCriteria, searchCriteria, sortCriteria, catalogMatches = null,
-    catalogKnown = null, stacks = null, stackView = false,
+    imageList,
+    imageRatings,
+    imageFlags = {},
+    filterCriteria,
+    searchCriteria,
+    sortCriteria,
+    catalogMatches = null,
+    catalogKnown = null,
+    stacks = null,
+    stackView = false
   } = libraryState;
   const { appSettings } = settingsState;
 
@@ -208,7 +236,13 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     const match = tag.match(ADVANCED_QUERY_REGEX);
     if (match) {
       const operator = match[2] || '=';
-      return { type: 'query' as const, field: match[1].toLowerCase(), operator, value: match[3].toLowerCase(), raw: tag };
+      return {
+        type: 'query' as const,
+        field: match[1].toLowerCase(),
+        operator,
+        value: match[3].toLowerCase(),
+        raw: tag
+      };
     }
     return { type: 'normal' as const, value: tag.toLowerCase(), raw: tag };
   });
@@ -251,7 +285,7 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
         imgStr = `${image.exif?.Make || ''} ${image.exif?.Model || ''}`.toLowerCase();
       } else if (field === 'lens') {
         imgStr = String(
-          `${image.exif?.LensModel || ''} ${image.exif?.Lens || ''} ${image.exif?.LensMake || ''}`,
+          `${image.exif?.LensModel || ''} ${image.exif?.Lens || ''} ${image.exif?.LensMake || ''}`
         ).toLowerCase();
       } else if (field === 'color') {
         imgStr = (image.tags || []).find((t: string) => t.startsWith('color:'))?.substring(6) || '';
@@ -336,7 +370,12 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
   const groupPrimaries = cached && isGroupingActive ? new Set(processedList) : null;
   // Counts reflect the other active filters, so each number describes exactly
   // what choosing that flag will reveal. Filter the cached ordering in one pass.
-  const flagCounts: FlagCounts = { all: 0, picked: 0, unflagged: 0, rejected: 0 };
+  const flagCounts: FlagCounts = {
+    all: 0,
+    picked: 0,
+    unflagged: 0,
+    rejected: 0
+  };
   const flagFilter = filterCriteria.flag ?? 'all';
   const list: ImageFile[] = [];
   for (const image of ordered) {
@@ -386,29 +425,51 @@ export function useSortedLibrary() {
   const appSettings = useSettingsStore((state) => state.appSettings);
   const grouping = appSettings?.grouping;
   const groupEditedFiles = appSettings?.groupEditedFiles;
-  const needsExif = ['date_taken', 'iso', 'shutter_speed', 'aperture', 'focal_length'].includes(sortCriteria.key)
-    || searchCriteria.tags.some((tag) => /^(iso|aperture|f|shutter|s|focal|mm|camera|make|model|lens)\s*(?::)?\s*(>=|<=|>|<|=)?\s*(.+)$/i.test(tag));
+  const needsExif =
+    ['date_taken', 'iso', 'shutter_speed', 'aperture', 'focal_length'].includes(sortCriteria.key) ||
+    searchCriteria.tags.some((tag) =>
+      /^(iso|aperture|f|shutter|s|focal|mm|camera|make|model|lens)\s*(?::)?\s*(>=|<=|>|<|=)?\s*(.+)$/i.test(tag)
+    );
   useLibraryExif(needsExif);
-
 
   const result = useMemo(() => {
     const started = performanceDiagnosticsEnabled ? performance.now() : 0;
     const result = computeGroupedLibrary(
-      { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria, catalogMatches,
-        catalogKnown, stacks, stackView },
-      { appSettings: { grouping, groupEditedFiles } },
+      {
+        imageList,
+        imageRatings,
+        imageFlags,
+        filterCriteria,
+        searchCriteria,
+        sortCriteria,
+        catalogMatches,
+        catalogKnown,
+        stacks,
+        stackView
+      },
+      { appSettings: { grouping, groupEditedFiles } }
     );
     if (performanceDiagnosticsEnabled) {
       reportPerformance('library_query', {
         ms: performance.now() - started,
         assets: imageList.length,
-        visible: result.displayList.length,
+        visible: result.displayList.length
       });
     }
     return result;
   }, [
-    imageList, sortCriteria, imageRatings, imageFlags, filterCriteria, searchCriteria, catalogMatches,
-    catalogKnown, grouping, groupEditedFiles, stacks, stackView,
+    imageList,
+    sortCriteria,
+    imageRatings,
+    imageFlags,
+    filterCriteria,
+    searchCriteria,
+    catalogMatches,
+    catalogKnown,
+    grouping,
+    groupEditedFiles,
+    stacks,
+    stackView
   ]);
 
   return result;

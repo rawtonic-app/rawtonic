@@ -17,7 +17,7 @@ export const TETHER_CAMERAS_URL = 'https://github.com/rawtonic-app/rawtonic/blob
 export default function TetheringSettings({
   appSettings,
   onSettingsChange,
-  openUrl = open,
+  openUrl = open
 }: {
   appSettings: AppSettings;
   onSettingsChange(settings: AppSettings): void | Promise<void>;
@@ -60,7 +60,12 @@ export default function TetheringSettings({
           checked={on}
           id="tether-experimental-canon"
           label={t('settings.tethering.canonSwitch')}
-          onChange={(checked) => void onSettingsChange({ ...appSettings, tetherExperimentalCanon: checked })}
+          onChange={(checked) =>
+            void onSettingsChange({
+              ...appSettings,
+              tetherExperimentalCanon: checked
+            })
+          }
         />
       </div>
     </div>

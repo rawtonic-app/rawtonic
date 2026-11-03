@@ -20,5 +20,5 @@ root.render(
     <ErrorBoundary name="Rawtonic" fullScreen>
       <App />
     </ErrorBoundary>
-  </React.StrictMode>,
+  </React.StrictMode>
 );

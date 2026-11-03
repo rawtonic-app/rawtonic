@@ -59,7 +59,7 @@ export function sortStoredTags(tags: string[]): string[] | null {
 export function withTagDelta(
   tags: string[] | null | undefined,
   tag: string,
-  change: 'add' | 'remove',
+  change: 'add' | 'remove'
 ): string[] | null {
   const current = tags ?? [];
   if (change === 'add') return current.includes(tag) ? sortStoredTags(current) : sortStoredTags([...current, tag]);
@@ -98,18 +98,23 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     });
 
     noteTool('culling');
-    void catalogAction("rating", async ({ resolvePaths }) => {
-      pathsWritten = resolvePaths(pathsToRate);
-      previousAtWrite = Object.fromEntries(
-        pathsToRate.map((path, index) => [
-          pathsWritten[index],
-          previousRatings[path],
-        ]),
-      );
-      const changes = await invokeInOrder<CullingChange[]>(Invokes.SetRatingForPaths, { paths: pathsWritten, rating: finalRating, ...(directory ? { directory } : {}) });
-      if (useLibraryStore.getState().sessionDirectory === directory && changes) showCullingChanges(changes);
-      return changes;
-    }, pathsToRate).catch((err) => {
+    void catalogAction(
+      'rating',
+      async ({ resolvePaths }) => {
+        pathsWritten = resolvePaths(pathsToRate);
+        previousAtWrite = Object.fromEntries(
+          pathsToRate.map((path, index) => [pathsWritten[index], previousRatings[path]])
+        );
+        const changes = await invokeInOrder<CullingChange[]>(Invokes.SetRatingForPaths, {
+          paths: pathsWritten,
+          rating: finalRating,
+          ...(directory ? { directory } : {})
+        });
+        if (useLibraryStore.getState().sessionDirectory === directory && changes) showCullingChanges(changes);
+        return changes;
+      },
+      pathsToRate
+    ).catch((err) => {
       if (useLibraryStore.getState().sessionDirectory !== directory) return;
       console.error(err);
       // Photos whose rating was not saved show their previous one again
@@ -161,13 +166,21 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
             return { ...image, tags: newTags };
           }
           return image;
-        }),
+        })
       }));
     try {
-      await catalogAction("color", ({ resolvePaths }) => {
-        pathsWritten = resolvePaths(pathsToUpdate);
-        return invokeInOrder<CullingChange[]>(Invokes.SetColorLabelForPaths, { paths: pathsWritten, color: finalColor, ...(directory ? { directory } : {}) });
-      }, pathsToUpdate);
+      await catalogAction(
+        'color',
+        ({ resolvePaths }) => {
+          pathsWritten = resolvePaths(pathsToUpdate);
+          return invokeInOrder<CullingChange[]>(Invokes.SetColorLabelForPaths, {
+            paths: pathsWritten,
+            color: finalColor,
+            ...(directory ? { directory } : {})
+          });
+        },
+        pathsToUpdate
+      );
       if (useLibraryStore.getState().sessionDirectory === directory) applyLabel(pathsWritten);
     } catch (err) {
       if (useLibraryStore.getState().sessionDirectory !== directory) return;
@@ -194,8 +207,8 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
 
     useLibraryStore.getState().setLibrary((state) => ({
       imageList: state.imageList.map((image) =>
-        pathsToUpdate.includes(image.path) ? { ...image, tags: tagsWith(image.tags, newTags) } : image,
-      ),
+        pathsToUpdate.includes(image.path) ? { ...image, tags: tagsWith(image.tags, newTags) } : image
+      )
     }));
     // (The menu's own promise, not the store's state, decides which photos
     // this is; see `TaggingSubMenu`.)
@@ -211,8 +224,8 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const targets = new Set(paths);
     useLibraryStore.getState().setLibrary((state) => ({
       imageList: state.imageList.map((image) =>
-        targets.has(image.path) ? { ...image, tags: withTagDelta(image.tags, tag, change) } : image,
-      ),
+        targets.has(image.path) ? { ...image, tags: withTagDelta(image.tags, tag, change) } : image
+      )
     }));
   }, []);
 
@@ -234,13 +247,26 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const physicalPathsArray = Array.from(physicalPathsSet);
 
     try {
-      await submitPhotoWrite(physicalPathsArray, () => invoke(Invokes.UpdateExifFields, { paths: physicalPathsArray, updates }), {
-        kind: 'exif',
-      });
+      await submitPhotoWrite(
+        physicalPathsArray,
+        () =>
+          invoke(Invokes.UpdateExifFields, {
+            paths: physicalPathsArray,
+            updates
+          }),
+        {
+          kind: 'exif'
+        }
+      );
 
       setEditor((state) => {
         if (!state.selectedImage || !physicalPathsSet.has(state.selectedImage.path.split('?vc=')[0])) return state;
-        return { selectedImage: { ...state.selectedImage, exif: { ...(state.selectedImage.exif || {}), ...updates } } };
+        return {
+          selectedImage: {
+            ...state.selectedImage,
+            exif: { ...(state.selectedImage.exif || {}), ...updates }
+          }
+        };
       });
 
       setLibrary((state) => ({
@@ -249,7 +275,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
             return { ...img, exif: { ...(img.exif || {}), ...updates } };
           }
           return img;
-        }),
+        })
       }));
 
       pathsToUpdate.forEach((p) => {
@@ -257,7 +283,10 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         if (cached && cached.selectedImage) {
           globalImageCache.set(p, {
             ...cached,
-            selectedImage: { ...cached.selectedImage, exif: { ...(cached.selectedImage.exif || {}), ...updates } },
+            selectedImage: {
+              ...cached.selectedImage,
+              exif: { ...(cached.selectedImage.exif || {}), ...updates }
+            }
           });
         }
       });
@@ -274,13 +303,13 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       useLibraryStore.getState().setLibrary({
         multiSelectedPaths: [selectedImage.path],
         libraryActivePath: selectedImage.path,
-        selectionAnchorPath: selectedImage.path,
+        selectionAnchorPath: selectedImage.path
       });
     } else {
       useLibraryStore.getState().setLibrary({
         multiSelectedPaths: [],
         libraryActivePath: null,
-        selectionAnchorPath: null,
+        selectionAnchorPath: null
       });
 
       useEditorStore.getState().setEditor({
@@ -295,7 +324,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         colorPickerTarget: null,
         colorRangeShow: null,
         layerSolo: null,
-        activeColorRangeId: null,
+        activeColorRangeId: null
       });
     }
   }, []);
@@ -308,7 +337,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         onSimpleClick(p: string, isAlreadySelected: boolean): void;
         updateLibraryActivePath: boolean;
         shiftAnchor: string | null;
-      },
+      }
     ) => {
       const libraryState = useLibraryStore.getState();
       const { multiSelectedPaths, setLibrary } = libraryState;
@@ -322,8 +351,12 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         // The range the grid shows: a collapsed stack's hidden members are
         // not in it.
         const sortedImageList = computeSortedLibrary(
-          { ...libraryState, stacks: useStackStore.getState().byPath, stackView: libraryState.activeAlbumId === null },
-          useSettingsStore.getState(),
+          {
+            ...libraryState,
+            stacks: useStackStore.getState().byPath,
+            stackView: libraryState.activeAlbumId === null
+          },
+          useSettingsStore.getState()
         );
         const anchorIndex = sortedImageList.findIndex((f) => f.path === shiftAnchor);
         const currentIndex = sortedImageList.findIndex((f) => f.path === path);
@@ -335,7 +368,10 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
           const baseSelection = isCtrlPressed ? multiSelectedPaths : [];
           const newSelection = Array.from(new Set([...baseSelection, ...range]));
 
-          setLibrary({ multiSelectedPaths: newSelection, selectionAnchorPath: path });
+          setLibrary({
+            multiSelectedPaths: newSelection,
+            selectionAnchorPath: path
+          });
           if (updateLibraryActivePath) setLibrary({ libraryActivePath: path });
         }
       } else if (isCtrlPressed) {
@@ -344,19 +380,24 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         else newSelection.add(path);
 
         const newSelectionArray = Array.from(newSelection);
-        setLibrary({ multiSelectedPaths: newSelectionArray, selectionAnchorPath: path });
+        setLibrary({
+          multiSelectedPaths: newSelectionArray,
+          selectionAnchorPath: path
+        });
 
         if (updateLibraryActivePath) {
           if (newSelectionArray.includes(path)) setLibrary({ libraryActivePath: path });
           else if (newSelectionArray.length > 0)
-            setLibrary({ libraryActivePath: newSelectionArray[newSelectionArray.length - 1] });
+            setLibrary({
+              libraryActivePath: newSelectionArray[newSelectionArray.length - 1]
+            });
           else setLibrary({ libraryActivePath: null });
         }
       } else {
         onSimpleClick(path, isAlreadySelected);
       }
     },
-    [],
+    []
   );
 
   const handleLibraryImageSingleClick = useCallback(
@@ -369,15 +410,19 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
           if (isAlreadySelected) {
             setLibrary({ libraryActivePath: p, selectionAnchorPath: p });
           } else {
-            setLibrary({ multiSelectedPaths: [p], libraryActivePath: p, selectionAnchorPath: p });
+            setLibrary({
+              multiSelectedPaths: [p],
+              libraryActivePath: p,
+              selectionAnchorPath: p
+            });
           }
           if (handleImageSelect) {
             handleImageSelect(p, false);
           }
-        },
+        }
       });
     },
-    [handleMultiSelectClick, handleImageSelect],
+    [handleMultiSelectClick, handleImageSelect]
   );
 
   const handleImageClick = useCallback(
@@ -395,10 +440,10 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
           }
           if (handleImageSelect) handleImageSelect(p);
           setLibrary({ selectionAnchorPath: p });
-        },
+        }
       });
     },
-    [handleMultiSelectClick, handleImageSelect],
+    [handleMultiSelectClick, handleImageSelect]
   );
 
   const refreshAllFolderTrees = useCallback(async () => {
@@ -410,13 +455,17 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const expandedArray = Array.from(expandedFolders);
 
     try {
-      const updates: { folderTrees?: FolderTree[]; pinnedFolderTrees?: FolderTree[]; catalogTrees?: FolderTree[] } = {};
+      const updates: {
+        folderTrees?: FolderTree[];
+        pinnedFolderTrees?: FolderTree[];
+        catalogTrees?: FolderTree[];
+      } = {};
 
       if (rootPaths && rootPaths.length > 0) {
         const treesData = await invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
           paths: rootPaths,
           expandedFolders: expandedArray,
-          showImageCounts,
+          showImageCounts
         });
         updates.folderTrees = treesData;
       } else {
@@ -427,7 +476,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         const pinnedTreesData = await invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
           paths: pinnedFolders,
           expandedFolders: expandedArray,
-          showImageCounts,
+          showImageCounts
         });
         updates.pinnedFolderTrees = pinnedTreesData;
       } else {
@@ -440,7 +489,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         updates.catalogTrees = await invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
           paths: catalogTrees.map((tree) => tree.path),
           expandedFolders: expandedArray,
-          showImageCounts: true,
+          showImageCounts: true
         });
       }
 
@@ -469,7 +518,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       const trees = await invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
         paths: newPins,
         expandedFolders: Array.from(expandedFolders),
-        showImageCounts: appSettings.enableFolderImageCounts ?? false,
+        showImageCounts: appSettings.enableFolderImageCounts ?? false
       });
       setLibrary({ pinnedFolderTrees: trees });
     } catch (err) {
@@ -496,9 +545,9 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
             imageList: [],
             libraryActivePath: null,
             multiSelectedPaths: [],
-            selectionAnchorPath: null,
+            selectionAnchorPath: null
           }
-        : {}),
+        : {})
     });
     if (inside) onLeaveFolder?.();
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
@@ -525,6 +574,6 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     handleImageClick,
     refreshAllFolderTrees,
     handleTogglePinFolder,
-    handleRemoveRootFolder,
+    handleRemoveRootFolder
   };
 }

@@ -15,7 +15,7 @@ beforeEach(() => {
     sessionDirectory: '/job',
     imageFlags: {},
     imageRatings: {},
-    selectionAnchorPath: null,
+    selectionAnchorPath: null
   });
   useProcessStore.setState({ thumbnails: {} });
 });
@@ -24,13 +24,21 @@ it('moves keys of renamed photographs and their virtual copies, and nothing else
   const moves = new Map([['/job/Capture/A.RAF', '/job/Capture/Pier.RAF']]);
   expect(
     remapPathKeys(
-      { '/job/Capture/A.RAF': 1, '/job/Capture/A.RAF?vc=2': 3, '/job/Capture/B.RAF': -1 },
-      moves,
-    ),
-  ).toEqual({ '/job/Capture/Pier.RAF': 1, '/job/Capture/Pier.RAF?vc=2': 3, '/job/Capture/B.RAF': -1 });
+      {
+        '/job/Capture/A.RAF': 1,
+        '/job/Capture/A.RAF?vc=2': 3,
+        '/job/Capture/B.RAF': -1
+      },
+      moves
+    )
+  ).toEqual({
+    '/job/Capture/Pier.RAF': 1,
+    '/job/Capture/Pier.RAF?vc=2': 3,
+    '/job/Capture/B.RAF': -1
+  });
   // A stale entry at the new place gives way to the renamed photograph's.
   expect(remapPathKeys({ '/job/Capture/Pier.RAF': 0, '/job/Capture/A.RAF': 1 }, moves)).toEqual({
-    '/job/Capture/Pier.RAF': 1,
+    '/job/Capture/Pier.RAF': 1
   });
   const untouched = { '/job/Capture/B.RAF': 1 };
   expect(remapPathKeys(untouched, moves)).toBe(untouched);
@@ -39,25 +47,35 @@ it('moves keys of renamed photographs and their virtual copies, and nothing else
 it('keeps picks, ratings, thumbnails and the selection anchor with renamed photographs', () => {
   useLibraryStore.setState({
     imageFlags: { '/job/Capture/chart0.png': 1 },
-    imageRatings: { '/job/Capture/chart0.png': 4, '/job/Capture/chart0.png?vc=1': 2 },
-    selectionAnchorPath: '/job/Capture/chart0.png?vc=1',
+    imageRatings: {
+      '/job/Capture/chart0.png': 4,
+      '/job/Capture/chart0.png?vc=1': 2
+    },
+    selectionAnchorPath: '/job/Capture/chart0.png?vc=1'
   });
-  useProcessStore.setState({ thumbnails: { '/job/Capture/chart0.png': 'blob:thumb' } });
+  useProcessStore.setState({
+    thumbnails: { '/job/Capture/chart0.png': 'blob:thumb' }
+  });
   followRenamedPaths(
     ['/job/Capture/chart0.png', '/job/Capture/chart0.png?vc=1'],
-    ['/job/Capture/renamed.png', '/job/Capture/renamed.png?vc=1'],
+    ['/job/Capture/renamed.png', '/job/Capture/renamed.png?vc=1']
   );
   const library = useLibraryStore.getState();
   expect(library.imageFlags).toEqual({ '/job/Capture/renamed.png': 1 });
-  expect(library.imageRatings).toEqual({ '/job/Capture/renamed.png': 4, '/job/Capture/renamed.png?vc=1': 2 });
+  expect(library.imageRatings).toEqual({
+    '/job/Capture/renamed.png': 4,
+    '/job/Capture/renamed.png?vc=1': 2
+  });
   expect(library.selectionAnchorPath).toBe('/job/Capture/renamed.png?vc=1');
-  expect(useProcessStore.getState().thumbnails).toEqual({ '/job/Capture/renamed.png': 'blob:thumb' });
+  expect(useProcessStore.getState().thumbnails).toEqual({
+    '/job/Capture/renamed.png': 'blob:thumb'
+  });
 });
 
 it('moves everything in a moved folder with it, and nothing beside it', () => {
   const moves = new Map([
     ['/job/Day 1', '/job/Day 2'],
-    ['C:\\Shoot\\In', 'C:\\Shoot\\Out'],
+    ['C:\\Shoot\\In', 'C:\\Shoot\\Out']
   ]);
   expect(movedPath('/job/Day 1', moves)).toBe('/job/Day 2');
   expect(movedPath('/job/Day 1/A.RAF', moves)).toBe('/job/Day 2/A.RAF');
@@ -70,16 +88,21 @@ it('moves everything in a moved folder with it, and nothing beside it', () => {
 it('follows a move with the selection, the shown folder, pins and the open photograph', () => {
   const handleSettingsChange = vi.fn(() => Promise.resolve());
   useSettingsStore.setState({
-    appSettings: { pinnedFolders: ['/job/Day 1/Best', '/other'], rootFolders: ['/job'] } as never,
-    handleSettingsChange,
+    appSettings: {
+      pinnedFolders: ['/job/Day 1/Best', '/other'],
+      rootFolders: ['/job']
+    } as never,
+    handleSettingsChange
   });
   useLibraryStore.setState({
     currentFolderPath: '/job/Day 1',
     rootPaths: ['/job'],
     multiSelectedPaths: ['/job/Day 1/A.RAF', '/job/Day 1/A.RAF?vc=1', '/job/B.RAF'],
-    libraryActivePath: '/job/Day 1/A.RAF?vc=1',
+    libraryActivePath: '/job/Day 1/A.RAF?vc=1'
   });
-  useEditorStore.setState({ selectedImage: { path: '/job/Day 1/A.RAF?vc=1' } as never });
+  useEditorStore.setState({
+    selectedImage: { path: '/job/Day 1/A.RAF?vc=1' } as never
+  });
   const { openPhoto } = followPathMoves([{ from: '/job/Day 1', to: '/job/Day 2' }]);
   expect(openPhoto).toBe('/job/Day 2/A.RAF?vc=1');
   const library = useLibraryStore.getState();
@@ -88,7 +111,10 @@ it('follows a move with the selection, the shown folder, pins and the open photo
   expect(library.multiSelectedPaths).toEqual(['/job/Day 2/A.RAF', '/job/Day 2/A.RAF?vc=1', '/job/B.RAF']);
   expect(library.libraryActivePath).toBe('/job/Day 2/A.RAF?vc=1');
   expect(handleSettingsChange).toHaveBeenCalledWith(
-    expect.objectContaining({ pinnedFolders: ['/job/Day 2/Best', '/other'], rootFolders: ['/job'] }),
+    expect.objectContaining({
+      pinnedFolders: ['/job/Day 2/Best', '/other'],
+      rootFolders: ['/job']
+    })
   );
 
   // Nothing open moved: nothing to open again.
@@ -101,8 +127,12 @@ it('reads the picks again from the catalog after paths changed', async () => {
   useLibraryStore.setState({ imageFlags: { '/job/Capture/A.RAF': 1 } });
   mockInvoke.mockResolvedValue({ '/job/Selects/A.RAF': 1 });
   await reloadSessionFlags();
-  expect(mockInvoke).toHaveBeenCalledWith('session_flags', { directory: '/job' });
-  expect(useLibraryStore.getState().imageFlags).toEqual({ '/job/Selects/A.RAF': 1 });
+  expect(mockInvoke).toHaveBeenCalledWith('session_flags', {
+    directory: '/job'
+  });
+  expect(useLibraryStore.getState().imageFlags).toEqual({
+    '/job/Selects/A.RAF': 1
+  });
 });
 
 it('keeps a flag set while the picks are read, and ignores another session', async () => {
@@ -114,7 +144,10 @@ it('keeps a flag set while the picks are read, and ignores another session', asy
   useLibraryStore.setState({ imageFlags: { '/job/Capture/A.RAF': -1 } });
   answer({ '/job/Capture/A.RAF': 1, '/job/Capture/B.RAF': 1 });
   await reload;
-  expect(useLibraryStore.getState().imageFlags).toEqual({ '/job/Capture/A.RAF': -1, '/job/Capture/B.RAF': 1 });
+  expect(useLibraryStore.getState().imageFlags).toEqual({
+    '/job/Capture/A.RAF': -1,
+    '/job/Capture/B.RAF': 1
+  });
 
   mockInvoke.mockReturnValue(new Promise((resolve) => (answer = resolve)));
   const stale = reloadSessionFlags();

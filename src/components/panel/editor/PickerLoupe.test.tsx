@@ -10,12 +10,14 @@ import { usePointerSampleStore, type PreviewPatch } from '../../../utils/pointer
 import type { AppSettings } from '../../ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-const frameReady = vi.hoisted(() => ({ handler: null as null | ((event: { payload: { path: string } }) => void) }));
+const frameReady = vi.hoisted(() => ({
+  handler: null as null | ((event: { payload: { path: string } }) => void)
+}));
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((_name: string, handler: (event: { payload: { path: string } }) => void) => {
     frameReady.handler = handler;
     return Promise.resolve(() => {});
-  }),
+  })
 }));
 
 const patch: PreviewPatch = {
@@ -26,7 +28,7 @@ const patch: PreviewPatch = {
   pixels: Array.from({ length: 121 * 3 }, () => 128),
   center: [5, 5],
   mean: [127.5, 51, 255],
-  frame: [400, 300],
+  frame: [400, 300]
 };
 
 function Viewer({ enabled, picker, preview = null }: { enabled: boolean; picker: boolean; preview?: string | null }) {
@@ -44,7 +46,17 @@ function Viewer({ enabled, picker, preview = null }: { enabled: boolean; picker:
 }
 
 const rect = (left: number, top: number, width: number, height: number) =>
-  ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+  ({
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({})
+  }) as DOMRect;
 
 beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', (run: () => void) => {
@@ -55,10 +67,13 @@ beforeEach(() => {
   vi.mocked(invoke).mockResolvedValue(patch);
   usePointerSampleStore.setState({ sample: null });
   useSettingsStore.setState({
-    appSettings: { pointerReadout: true, pointerReadoutUnit: 'rgb255' } as AppSettings,
+    appSettings: {
+      pointerReadout: true,
+      pointerReadoutUnit: 'rgb255'
+    } as AppSettings,
     handleSettingsChange: vi.fn(async (next: AppSettings) => {
       useSettingsStore.setState({ appSettings: next });
-    }),
+    })
   } as never);
 });
 
@@ -79,9 +94,17 @@ const setup = (enabled = true, picker = true, preview: string | null = null) => 
 it('samples the shown photograph under the pointer and shows the loupe beside it', async () => {
   setup();
   await act(async () => {
-    fireEvent.pointerMove(screen.getByTestId('root'), { clientX: 300, clientY: 125, buttons: 0 });
+    fireEvent.pointerMove(screen.getByTestId('root'), {
+      clientX: 300,
+      clientY: 125,
+      buttons: 0
+    });
   });
-  expect(invoke).toHaveBeenCalledWith('sample_preview_patch', { path: '/a.raw', normalizedX: 0.5, normalizedY: 0.25 });
+  expect(invoke).toHaveBeenCalledWith('sample_preview_patch', {
+    path: '/a.raw',
+    normalizedX: 0.5,
+    normalizedY: 0.25
+  });
   const loupe = await screen.findByTestId('picker-loupe');
   expect(loupe.textContent).toContain('R 128');
   expect(loupe.textContent).toContain('G 51');
@@ -148,7 +171,11 @@ it('hides on a press over the photograph and does not sample until the next move
 it('samples again when a new frame is shown under a resting pointer', async () => {
   setup();
   await act(async () => {
-    fireEvent.pointerMove(screen.getByTestId('root'), { clientX: 300, clientY: 125, buttons: 0 });
+    fireEvent.pointerMove(screen.getByTestId('root'), {
+      clientX: 300,
+      clientY: 125,
+      buttons: 0
+    });
   });
   expect(invoke).toHaveBeenCalledTimes(1);
   await act(async () => {
@@ -165,7 +192,11 @@ it('samples the browser-rendered preview without a native display', async () => 
   frameReady.handler = null;
   setup(true, true, 'blob:preview');
   await act(async () => {
-    fireEvent.pointerMove(screen.getByTestId('root'), { clientX: 300, clientY: 125, buttons: 0 });
+    fireEvent.pointerMove(screen.getByTestId('root'), {
+      clientX: 300,
+      clientY: 125,
+      buttons: 0
+    });
   });
   // jsdom has no canvas: the loupe shows, without values, and nothing
   // went to the native renderer.
@@ -178,7 +209,11 @@ it('samples the browser-rendered preview without a native display', async () => 
 it('does nothing while off', async () => {
   setup(false);
   await act(async () => {
-    fireEvent.pointerMove(screen.getByTestId('root'), { clientX: 300, clientY: 125, buttons: 0 });
+    fireEvent.pointerMove(screen.getByTestId('root'), {
+      clientX: 300,
+      clientY: 125,
+      buttons: 0
+    });
   });
   expect(invoke).not.toHaveBeenCalled();
   expect(screen.queryByTestId('picker-loupe')).toBeNull();
@@ -196,6 +231,10 @@ it('shows the readout in the viewer bar and switches its unit on click', async (
   expect(screen.getByTestId('pointer-readout').textContent).toBe('R50.0G20.0B100.0%');
   act(() => usePointerSampleStore.setState({ sample: null }));
   expect(screen.getByTestId('pointer-readout').textContent).toBe('R–G–B–%');
-  act(() => useSettingsStore.setState({ appSettings: { pointerReadout: false } as AppSettings }));
+  act(() =>
+    useSettingsStore.setState({
+      appSettings: { pointerReadout: false } as AppSettings
+    })
+  );
   expect(screen.queryByTestId('pointer-readout')).toBeNull();
 });

@@ -7,11 +7,17 @@ import { watchXmpSidecars } from './xmpCheck';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 const checks = () =>
-  vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.SessionXmpCheck).map(([, args]) => args);
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === Invokes.SessionXmpCheck)
+    .map(([, args]) => args);
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useLibraryStore.setState({ sessionDirectory: '/lib', currentFolderPath: null });
+  useLibraryStore.setState({
+    sessionDirectory: '/lib',
+    currentFolderPath: null
+  });
   vi.mocked(invoke).mockResolvedValue(0);
 });
 afterEach(() => {
@@ -55,7 +61,7 @@ it('checks a folder when it is shown, not a view that is no folder', async () =>
   await vi.advanceTimersByTimeAsync(0);
   expect(checks()).toEqual([
     { directory: '/lib', folder: null },
-    { directory: '/lib', folder: '/lib/Capture' },
+    { directory: '/lib', folder: '/lib/Capture' }
   ]);
   useLibraryStore.setState({ currentFolderPath: 'Album: Picks' });
   await vi.advanceTimersByTimeAsync(2000);

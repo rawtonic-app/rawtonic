@@ -175,8 +175,18 @@ export default function GlobalTooltip() {
         <motion.div
           ref={tooltipRef}
           key={tooltip.content}
-          initial={{ opacity: 0, scale: 0.9, y: tooltip.isAbove ? 5 : -5, x: '-50%' }}
-          animate={{ opacity: 1, scale: 1, y: tooltip.isAbove ? -10 : 0, x: '-50%' }}
+          initial={{
+            opacity: 0,
+            scale: 0.9,
+            y: tooltip.isAbove ? 5 : -5,
+            x: '-50%'
+          }}
+          animate={{
+            opacity: 1,
+            scale: 1,
+            y: tooltip.isAbove ? -10 : 0,
+            x: '-50%'
+          }}
           exit={{ opacity: 0, scale: 0.9, x: '-50%' }}
           transition={{ duration: 0.15, ease: 'easeOut' }}
           style={{ top: tooltip.y, left }}
@@ -185,7 +195,7 @@ export default function GlobalTooltip() {
             'bg-surface/80 backdrop-blur-xs',
             'border border-text-secondary/10 shadow-xl rounded-md',
             'px-2.5 py-1.5 whitespace-nowrap',
-            tooltip.isAbove && '-translate-y-full',
+            tooltip.isAbove && '-translate-y-full'
           )}
         >
           <Text variant={TextVariants.small} color={TextColors.primary} weight={TextWeights.medium}>
@@ -194,6 +204,6 @@ export default function GlobalTooltip() {
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    document.body
   );
 }

@@ -22,7 +22,7 @@ it('renders the menu inside an open modal dialog so it stays on top and usable',
   render(
     <ContextMenuProvider>
       <Opener />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
   act(() => show(10, 10, [{ label: 'Add Radial', onClick: () => {} }]));
   expect(dialog.contains(screen.getByRole('menu'))).toBe(true);
@@ -33,9 +33,12 @@ it('keeps a long menu inside the window so its first entries stay reachable', ()
   render(
     <ContextMenuProvider>
       <Opener />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
-  const options = Array.from({ length: 30 }, (_, i) => ({ label: `Entry ${i}`, onClick: () => {} }));
+  const options = Array.from({ length: 30 }, (_, i) => ({
+    label: `Entry ${i}`,
+    onClick: () => {}
+  }));
   act(() => show(10, 170, options));
   const top = parseFloat((screen.getByRole('menu').parentElement as HTMLElement).style.top);
   expect(top).toBeGreaterThanOrEqual(5);
@@ -45,7 +48,7 @@ it('renders the menu in the document body without a dialog', () => {
   render(
     <ContextMenuProvider>
       <Opener />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
   act(() => show(10, 10, [{ label: 'Add Radial', onClick: () => {} }]));
   const menu = screen.getByRole('menu');
@@ -57,14 +60,20 @@ it('closes on Escape without passing the key on to the app shortcuts', async () 
   render(
     <ContextMenuProvider>
       <Opener />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
   act(() => show(10, 10, [{ label: 'Add Radial', onClick: () => {} }]));
   let reachedApp = false;
   const appShortcuts = () => (reachedApp = true);
   window.addEventListener('keydown', appShortcuts);
   act(() => {
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        code: 'Escape',
+        bubbles: true
+      })
+    );
   });
   window.removeEventListener('keydown', appShortcuts);
   expect(reachedApp).toBe(false);
@@ -77,18 +86,21 @@ it('opens a submenu on a click as well as on hover', async () => {
     class {
       observe() {}
       disconnect() {}
-    },
+    }
   );
   let built = false;
   render(
     <ContextMenuProvider>
       <Opener />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
   act(() =>
     show(10, 10, [
-      { label: 'Previews', submenu: [{ label: 'Build Standard Previews', onClick: () => (built = true) }] },
-    ]),
+      {
+        label: 'Previews',
+        submenu: [{ label: 'Build Standard Previews', onClick: () => (built = true) }]
+      }
+    ])
   );
   expect(screen.queryByText('Build Standard Previews')).toBeNull();
   act(() => screen.getByText('Previews').click());
@@ -101,13 +113,13 @@ it('shows group captions that are not selectable entries', () => {
   render(
     <ContextMenuProvider>
       <Opener />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
   act(() =>
     show(10, 10, [
       { type: OPTION_HEADER, label: 'Draw' },
-      { label: 'Brush', onClick: () => {} },
-    ]),
+      { label: 'Brush', onClick: () => {} }
+    ])
   );
   const menu = screen.getByRole('menu');
   expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Brush']);

@@ -5,14 +5,16 @@ import {
   deadPixelAdjacent,
   highlightRatios,
   unbiasedBlack,
-  type Adjustments,
+  type Adjustments
 } from './adjustments';
 
 /** A recipe's AI Denoise amount (0 … 100) as the backend reads it
  * (`ai_denoise_amount`): off with Detail or its Noise reduction tool
  * switched off. */
 export function aiDenoiseAmount(
-  adjustments: Pick<Adjustments, 'aiDenoise'> & { sectionVisibility?: Record<string, boolean | undefined> },
+  adjustments: Pick<Adjustments, 'aiDenoise'> & {
+    sectionVisibility?: Record<string, boolean | undefined>;
+  }
 ): number {
   const visibility = adjustments.sectionVisibility ?? {};
   const switchedOff = visibility.details === false || visibility.noiseReduction === false;
@@ -33,7 +35,7 @@ export function aiDenoiseToApply(
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> & {
     sectionVisibility?: Record<string, boolean | undefined>;
   },
-  dragging: boolean,
+  dragging: boolean
 ): number | null {
   if (!image?.isDecoded || !image.isRaw || dragging) return null;
   const wanted = aiDenoiseAmount(adjustments);
@@ -104,7 +106,7 @@ export function sourceDevelopToApply(
     Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
-  dragging: boolean,
+  dragging: boolean
 ): SourceDevelop | null {
   if (!image?.isDecoded || !image.isRaw || dragging) return null;
   const aiDenoise = aiDenoiseToApply(image, adjustments, dragging);
@@ -147,7 +149,7 @@ export function sourceDevelopToApply(
     deadPixelAdjacent: dead,
     unbiasedBlack: black,
     borderBlack: border,
-    highlightRatios: ratios,
+    highlightRatios: ratios
   };
 }
 
@@ -162,7 +164,7 @@ export function developmentSignature(
     Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
-  isRaw: boolean,
+  isRaw: boolean
 ): string {
   if (!isRaw) return '';
   const amount = aiDenoiseAmount(adjustments);
@@ -172,6 +174,6 @@ export function developmentSignature(
     colorNoiseMultiscale(adjustments, true),
     deadPixelAdjacent(adjustments),
     unbiasedBlack(adjustments),
-    borderBlack(adjustments),
+    borderBlack(adjustments)
   ]);
 }

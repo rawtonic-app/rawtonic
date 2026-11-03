@@ -20,7 +20,7 @@ function open(confirmVariant?: string) {
       confirmVariant={confirmVariant}
       onConfirm={onConfirm}
       onClose={onClose}
-    />,
+    />
   );
   return { onConfirm, onClose };
 }
@@ -29,9 +29,13 @@ describe('ConfirmModal', () => {
   it('uses the studio dialog and buttons', () => {
     open();
     expect(classes(screen.getByRole('dialog').firstElementChild)).toEqual(expect.arrayContaining(['studio-dialog']));
-    expect(classes(screen.getByRole('heading', { name: 'Empty the Session Trash?' }))).toEqual(expect.arrayContaining(['studio-dialog-title']));
+    expect(classes(screen.getByRole('heading', { name: 'Empty the Session Trash?' }))).toEqual(
+      expect.arrayContaining(['studio-dialog-title'])
+    );
     expect(classes(screen.getByRole('button', { name: 'Cancel' }))).toEqual(expect.arrayContaining(['studio-button']));
-    expect(classes(screen.getByRole('button', { name: 'Delete Permanently' }))).toEqual(expect.arrayContaining(['studio-button', 'is-primary']));
+    expect(classes(screen.getByRole('button', { name: 'Delete Permanently' }))).toEqual(
+      expect.arrayContaining(['studio-button', 'is-primary'])
+    );
   });
 
   it('confirms an ordinary confirmation with Enter', () => {
@@ -65,15 +69,29 @@ describe('ConfirmModal', () => {
 
   it('closes with Escape without confirming', () => {
     const { onConfirm, onClose } = open('destructive');
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), {
+      key: 'Escape'
+    });
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('offers a third choice and tells a cancel apart from a choice', () => {
-    const choice = { onConfirm: vi.fn(), onSecondary: vi.fn(), onCancel: vi.fn(), onClose: vi.fn() };
+    const choice = {
+      onConfirm: vi.fn(),
+      onSecondary: vi.fn(),
+      onCancel: vi.fn(),
+      onClose: vi.fn()
+    };
     render(
-      <ConfirmModal isOpen title="Edits Not Saved" confirmText="Retry" secondaryText="Discard" cancelText="Cancel" {...choice} />,
+      <ConfirmModal
+        isOpen
+        title="Edits Not Saved"
+        confirmText="Retry"
+        secondaryText="Discard"
+        cancelText="Cancel"
+        {...choice}
+      />
     );
     const discard = screen.getByRole('button', { name: 'Discard' });
     discard.focus();

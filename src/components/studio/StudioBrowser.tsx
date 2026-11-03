@@ -1,44 +1,31 @@
+import { memo, useEffect, useLayoutEffect, useRef, useState, useMemo, type MouseEvent, type PointerEvent } from 'react';
+import { Image as ImageIcon, Star, SlidersHorizontal, Flag, X, Unlink, Layers } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { useProcessStore } from '../../store/useProcessStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useUIStore } from '../../store/useUIStore';
+import { EditedStatus, RawStatus, type ImageFile } from '../ui/AppProperties';
+import { selectionCount } from '../../utils/librarySearch';
+import { imageFlag } from '../../utils/culling';
 import {
-  memo,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useMemo,
-  type MouseEvent,
-  type PointerEvent,
-} from "react";
-import { Image as ImageIcon, Star, SlidersHorizontal, Flag, X, Unlink, Layers } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { useProcessStore } from "../../store/useProcessStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useUIStore } from "../../store/useUIStore";
-import { EditedStatus, RawStatus, type ImageFile } from "../ui/AppProperties";
-import { selectionCount } from "../../utils/librarySearch";
-import { imageFlag } from "../../utils/culling";
-import { PerfProfiler, performanceDiagnosticsEnabled, reportForcedLayout, reportPerformance } from '../../hooks/usePerformanceDiagnostics';
-import CachedThumbnail from "../ui/CachedThumbnail";
-import { startTileDrag } from "./tileDrag";
+  PerfProfiler,
+  performanceDiagnosticsEnabled,
+  reportForcedLayout,
+  reportPerformance
+} from '../../hooks/usePerformanceDiagnostics';
+import CachedThumbnail from '../ui/CachedThumbnail';
+import { startTileDrag } from './tileDrag';
 import { reportLibraryPresentation } from '../../utils/libraryListing';
 import { offlineTitle } from '../../utils/offline';
-import { PhotoEyesBadge } from "./StudioEyes";
-import type { StackMark } from "../../store/useStackStore";
-import { toggleStacks } from "../../utils/stacks";
+import { PhotoEyesBadge } from './StudioEyes';
+import type { StackMark } from '../../store/useStackStore';
+import { toggleStacks } from '../../utils/stacks';
 
-export function visibleRange(
-  count: number,
-  offset: number,
-  viewport: number,
-  extent: number,
-  columns = 1,
-) {
+export function visibleRange(count: number, offset: number, viewport: number, extent: number, columns = 1) {
   const start = Math.max(0, (Math.floor(offset / extent) - 1) * columns);
   return {
     start,
-    end: Math.min(
-      count,
-      (Math.ceil((offset + viewport) / extent) + 1) * columns,
-    ),
+    end: Math.min(count, (Math.ceil((offset + viewport) / extent) + 1) * columns)
   };
 }
 /** Pointer travel (px) up to which a press and release is a click. */
@@ -47,7 +34,7 @@ const CLICK_SLOP = 4;
 /** Whether a press at (x, y) on `target` inside the browser `el` is on its
  * empty space: not on a photograph and not on a scroll bar. */
 export function isEmptySpace(el: HTMLElement, target: Element | null, x: number, y: number) {
-  if (!target || !el.contains(target) || target.closest(".studio-photo, button")) return false;
+  if (!target || !el.contains(target) || target.closest('.studio-photo, button')) return false;
   const rect = el.getBoundingClientRect();
   // Scroll bars lie outside the client area (classic, always-shown ones).
   return x - rect.left < el.clientLeft + el.clientWidth && y - rect.top < el.clientTop + el.clientHeight;
@@ -62,7 +49,7 @@ const Tile = memo(function Tile({
   onRate,
   onContextMenu,
   film,
-  stack,
+  stack
 }: {
   file: ImageFile;
   selected: boolean;
@@ -77,32 +64,39 @@ const Tile = memo(function Tile({
 }) {
   const { t } = useTranslation();
   const url = useProcessStore((s) => s.thumbnails[file.path]);
-  const firstLoad = useRef({ started: performanceDiagnosticsEnabled ? performance.now() : 0, cached: Boolean(url), reported: false });
-  const rating = useLibraryStore(
-    (s) => s.imageRatings[file.path] ?? file.rating,
-  );
+  const firstLoad = useRef({
+    started: performanceDiagnosticsEnabled ? performance.now() : 0,
+    cached: Boolean(url),
+    reported: false
+  });
+  const rating = useLibraryStore((s) => s.imageRatings[file.path] ?? file.rating);
   const flag = useLibraryStore((s) => imageFlag(s.imageFlags, file.path));
-  const color = file.tags?.find((tag) => tag.startsWith("color:"))?.slice(6).toLowerCase();
+  const color = file.tags
+    ?.find((tag) => tag.startsWith('color:'))
+    ?.slice(6)
+    .toLowerCase();
   // A virtual copy's path carries "?vc=<id>"; show the file name and say it is a copy.
   // Library paths use either separator (Windows listings mix them).
-  const fileName = file.path.split("?vc=")[0].split(/[\\/]/).pop() ?? "";
-  const copyId = file.path.split("?vc=")[1];
-  const label = copyId ? t("studio.library.browser.virtualCopyName", { name: fileName }) : fileName;
+  const fileName = file.path.split('?vc=')[0].split(/[\\/]/).pop() ?? '';
+  const copyId = file.path.split('?vc=')[1];
+  const label = copyId ? t('studio.library.browser.virtualCopyName', { name: fileName }) : fileName;
   const colorLabels = {
-    red: t("studio.library.colorLabels.red"),
-    yellow: t("studio.library.colorLabels.yellow"),
-    green: t("studio.library.colorLabels.green"),
-    blue: t("studio.library.colorLabels.blue"),
-    purple: t("studio.library.colorLabels.purple"),
+    red: t('studio.library.colorLabels.red'),
+    yellow: t('studio.library.colorLabels.yellow'),
+    green: t('studio.library.colorLabels.green'),
+    blue: t('studio.library.colorLabels.blue'),
+    purple: t('studio.library.colorLabels.purple')
   } as Record<string, string>;
   const colorNames: Record<string, string> = {
-    red: t("studio.library.colors.red"), yellow: t("studio.library.colors.yellow"),
-    green: t("studio.library.colors.green"), blue: t("studio.library.colors.blue"),
-    purple: t("studio.library.colors.purple"),
+    red: t('studio.library.colors.red'),
+    yellow: t('studio.library.colors.yellow'),
+    green: t('studio.library.colors.green'),
+    blue: t('studio.library.colors.blue'),
+    purple: t('studio.library.colors.purple')
   };
   return (
     <div
-      className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""}${stack ? ` is-stacked is-stack-${stack.position}${stack.collapsed ? " is-stack-collapsed" : ""}` : ""}`}
+      className={`studio-photo ${selected ? 'is-selected' : ''} ${current ? 'is-current' : ''} ${flag === -1 ? 'is-rejected' : ''} ${file.is_offline ? 'is-offline' : ''}${stack ? ` is-stacked is-stack-${stack.position}${stack.collapsed ? ' is-stack-collapsed' : ''}` : ''}`}
       data-stack={stack?.stackId}
       role="option"
       aria-selected={selected}
@@ -121,61 +115,95 @@ const Tile = memo(function Tile({
       >
         <span className="studio-photo-image">
           {url ? (
-            <CachedThumbnail sourcePath={file.path} src={url} alt="" draggable={false} decoding="async" onLoad={() => {
-              if (!performanceDiagnosticsEnabled || firstLoad.current.reported) return;
-              firstLoad.current.reported = true;
-              reportPerformance('library_thumbnail_load', {
-                ms: performance.now() - firstLoad.current.started,
-                cached: Number(firstLoad.current.cached), film: Number(film),
-              });
-            }} />
+            <CachedThumbnail
+              sourcePath={file.path}
+              src={url}
+              alt=""
+              draggable={false}
+              decoding="async"
+              onLoad={() => {
+                if (!performanceDiagnosticsEnabled || firstLoad.current.reported) return;
+                firstLoad.current.reported = true;
+                reportPerformance('library_thumbnail_load', {
+                  ms: performance.now() - firstLoad.current.started,
+                  cached: Number(firstLoad.current.cached),
+                  film: Number(film)
+                });
+              }}
+            />
           ) : (
             <ImageIcon size={24} />
           )}
-          <span className="studio-photo-type">
-            {file.is_raw ? "RAW" : fileName.split(".").pop()?.toUpperCase()}
-          </span>
-          {file.is_edited && (
-            <SlidersHorizontal className="studio-photo-edited" size={12} />
-          )}
+          <span className="studio-photo-type">{file.is_raw ? 'RAW' : fileName.split('.').pop()?.toUpperCase()}</span>
+          {file.is_edited && <SlidersHorizontal className="studio-photo-edited" size={12} />}
           <PhotoEyesBadge path={file.path} compact={film} />
           {stack && !stack.top && (
             // Expanded: its place in the stack, "3 of 5" on hover
             // (Lightroom); the top carries the badge.
-            <span className="studio-photo-stack-place" role="img"
-              aria-label={t("stacks.badge.place", { index: stack.index + 1, total: stack.count })}
-              title={t("stacks.badge.place", { index: stack.index + 1, total: stack.count })} />
+            <span
+              className="studio-photo-stack-place"
+              role="img"
+              aria-label={t('stacks.badge.place', {
+                index: stack.index + 1,
+                total: stack.count
+              })}
+              title={t('stacks.badge.place', {
+                index: stack.index + 1,
+                total: stack.count
+              })}
+            />
           )}
           {file.is_offline && (
             // The file is missing or its drive is disconnected (Lightroom's
             // "!" badge); right-click › Locate photo relinks it.
-            <span className="studio-photo-offline" role="img" aria-label={t("offline.badge")}
-              title={offlineTitle(t, file)}>
+            <span
+              className="studio-photo-offline"
+              role="img"
+              aria-label={t('offline.badge')}
+              title={offlineTitle(t, file)}
+            >
               <Unlink size={11} />
-              {!film && <span>{t("offline.badge")}</span>}
+              {!film && <span>{t('offline.badge')}</span>}
             </span>
           )}
           {flag !== 0 && (
-            <span className="studio-photo-flag" role="img" aria-label={flag === 1 ? t("studio.library.browser.picked") : t("studio.library.browser.rejected")}
-              title={flag === 1 ? `${t("studio.library.browser.picked")} · P` : `${t("studio.library.browser.rejected")} · X`}>
+            <span
+              className="studio-photo-flag"
+              role="img"
+              aria-label={flag === 1 ? t('studio.library.browser.picked') : t('studio.library.browser.rejected')}
+              title={
+                flag === 1 ? `${t('studio.library.browser.picked')} · P` : `${t('studio.library.browser.rejected')} · X`
+              }
+            >
               {flag === 1 ? <Flag size={12} fill="currentColor" /> : <X size={13} />}
             </span>
           )}
           {film && rating > 0 && (
             // The filmstrip shows thumbnails only (Lightroom); a rating stays
             // visible as a small badge.
-            <span className="studio-photo-stars" role="img" aria-label={t("studio.library.browser.stars", { count: rating })}>
-              {"★".repeat(rating)}
+            <span
+              className="studio-photo-stars"
+              role="img"
+              aria-label={t('studio.library.browser.stars', { count: rating })}
+            >
+              {'★'.repeat(rating)}
             </span>
           )}
           {film && color && colorLabels[color] && (
-            <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]}>{colorNames[color]}</span>
+            <span
+              className={`studio-photo-color is-${color}`}
+              role="img"
+              aria-label={colorLabels[color]}
+              title={colorLabels[color]}
+            >
+              {colorNames[color]}
+            </span>
           )}
         </span>
         {!film && (
           <span className="studio-photo-name">
             {fileName}
-            {copyId && <span className="studio-photo-copy">{` · ${t("studio.library.browser.virtualCopy")}`}</span>}
+            {copyId && <span className="studio-photo-copy">{` · ${t('studio.library.browser.virtualCopy')}`}</span>}
           </span>
         )}
       </button>
@@ -184,8 +212,8 @@ const Tile = memo(function Tile({
         <button
           type="button"
           className="studio-photo-stack"
-          aria-label={t(stack.collapsed ? "stacks.badge.expand" : "stacks.badge.collapse", { count: stack.count })}
-          title={`${t(stack.collapsed ? "stacks.badge.expand" : "stacks.badge.collapse", { count: stack.count })} · S`}
+          aria-label={t(stack.collapsed ? 'stacks.badge.expand' : 'stacks.badge.collapse', { count: stack.count })}
+          title={`${t(stack.collapsed ? 'stacks.badge.expand' : 'stacks.badge.collapse', { count: stack.count })} · S`}
           aria-expanded={!stack.collapsed}
           onClick={() => void toggleStacks([file.path])}
         >
@@ -194,24 +222,31 @@ const Tile = memo(function Tile({
         </button>
       )}
       {!film && (
-      <div className="studio-photo-rating" aria-label={t("studio.library.browser.rating")}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            aria-label={t("studio.library.browser.rate", { name: label, count: n })}
-            aria-pressed={rating >= n}
-            onClick={() => onRate(rating === n ? 0 : n, [file.path])}
-          >
-            <Star
-              size={film ? 9 : 11}
-              fill={rating >= n ? "currentColor" : "none"}
-            />
-          </button>
-        ))}
-        {color && colorLabels[color] && (
-          <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]}>{colorNames[color]}</span>
-        )}
-      </div>
+        <div className="studio-photo-rating" aria-label={t('studio.library.browser.rating')}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              aria-label={t('studio.library.browser.rate', {
+                name: label,
+                count: n
+              })}
+              aria-pressed={rating >= n}
+              onClick={() => onRate(rating === n ? 0 : n, [file.path])}
+            >
+              <Star size={film ? 9 : 11} fill={rating >= n ? 'currentColor' : 'none'} />
+            </button>
+          ))}
+          {color && colorLabels[color] && (
+            <span
+              className={`studio-photo-color is-${color}`}
+              role="img"
+              aria-label={colorLabels[color]}
+              title={colorLabels[color]}
+            >
+              {colorNames[color]}
+            </span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -229,7 +264,7 @@ export default function StudioBrowser({
   onImport,
   size = 190,
   listing,
-  stackMarks,
+  stackMarks
 }: {
   files: ImageFile[];
   /** Photos shown as part of a stack, by path. */
@@ -256,9 +291,17 @@ export default function StudioBrowser({
     const el = ref.current;
     if (!film || !el) return;
     const onWheel = (event: WheelEvent) => {
-      if (event.defaultPrevented || !event.cancelable || event.shiftKey || event.ctrlKey || event.metaKey
-        || Math.abs(event.deltaY) <= Math.abs(event.deltaX)
-        || el.scrollHeight > el.clientHeight || el.scrollWidth <= el.clientWidth) return;
+      if (
+        event.defaultPrevented ||
+        !event.cancelable ||
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        Math.abs(event.deltaY) <= Math.abs(event.deltaX) ||
+        el.scrollHeight > el.clientHeight ||
+        el.scrollWidth <= el.clientWidth
+      )
+        return;
       let unit = 1;
       if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
         const style = getComputedStyle(el);
@@ -271,8 +314,8 @@ export default function StudioBrowser({
       el.scrollLeft = Math.max(0, Math.min(el.scrollWidth - el.clientWidth, el.scrollLeft + event.deltaY * unit));
     };
     // React's delegated wheel listener is passive; cancellation belongs here.
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
   }, [film]);
   const [box, setBox] = useState({ width: 800, height: 500 });
   const [offset, setOffset] = useState(0);
@@ -281,13 +324,26 @@ export default function StudioBrowser({
   const search = useLibraryStore((s) => s.searchCriteria);
   const sessionDirectory = useLibraryStore((s) => s.sessionDirectory);
   const loading = useLibraryStore((s) => s.isViewLoading);
-  const filtered = (filter.flag ?? "all") !== "all" || filter.rating !== 0 || filter.colors.length > 0 ||
-    filter.rawStatus !== RawStatus.All || (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
-    search.text.trim() !== "" || search.tags.length > 0 || selectionCount(filter.metadata) > 0;
+  const filtered =
+    (filter.flag ?? 'all') !== 'all' ||
+    filter.rating !== 0 ||
+    filter.colors.length > 0 ||
+    filter.rawStatus !== RawStatus.All ||
+    (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
+    search.text.trim() !== '' ||
+    search.tags.length > 0 ||
+    selectionCount(filter.metadata) > 0;
   const clearFilters = () => {
     const store = useLibraryStore.getState();
-    store.setFilterCriteria({ flag: "all", rating: 0, colors: [], rawStatus: RawStatus.All, editedStatus: EditedStatus.All, metadata: {} });
-    store.setSearchCriteria({ text: "", tags: [] });
+    store.setFilterCriteria({
+      flag: 'all',
+      rating: 0,
+      colors: [],
+      rawStatus: RawStatus.All,
+      editedStatus: EditedStatus.All,
+      metadata: {}
+    });
+    store.setSearchCriteria({ text: '', tags: [] });
   };
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   // Where a press on empty space started; a click (press and release
@@ -331,27 +387,21 @@ export default function StudioBrowser({
     const observer = new ResizeObserver(([entry]) =>
       setBox({
         width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      }),
+        height: entry.contentRect.height
+      })
     );
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
   const columns = film ? 1 : Math.max(1, Math.floor(box.width / size));
   const extent = film ? 112 : Math.round((box.width / columns) * 0.72) + 57;
-  const range = visibleRange(
-    files.length,
-    offset,
-    film ? box.width : box.height,
-    extent,
-    columns,
-  );
+  const range = visibleRange(files.length, offset, film ? box.width : box.height, extent, columns);
   const mountedTiles = range.end - range.start;
   const measuredTiles = useRef(0);
   useLayoutEffect(() => {
     if (!performanceDiagnosticsEnabled || film || Math.abs(mountedTiles - measuredTiles.current) < 20) return;
     measuredTiles.current = mountedTiles;
-    reportForcedLayout("grid_layout", { tiles: mountedTiles });
+    reportForcedLayout('grid_layout', { tiles: mountedTiles });
   }, [film, mountedTiles]);
   useEffect(() => {
     requestThumbnails(files.slice(range.start, range.end).map((f) => f.path));
@@ -380,7 +430,7 @@ export default function StudioBrowser({
     () => () => {
       if (!film) useUIStore.setState({ gridColumns: 0 });
     },
-    [film],
+    [film]
   );
   // A photograph picked by key (or a capture arriving) is scrolled into view:
   // the grid mounts only the tiles in view. Only when the photograph changes,
@@ -395,78 +445,79 @@ export default function StudioBrowser({
     if (index < 0) return;
     const top = Math.floor(index / columns) * extent;
     if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + extent > el.scrollTop + el.clientHeight)
-      el.scrollTop = Math.max(0, top + extent - el.clientHeight);
+    else if (top + extent > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + extent - el.clientHeight);
     else return;
     setOffset(el.scrollTop);
   }, [currentPath, film]);
   return (
-    <PerfProfiler id={film ? "filmstrip" : "grid"}>
-    <div
-      ref={ref}
-      className={`studio-browser ${film ? "is-filmstrip" : "is-grid"}`}
-      role="listbox"
-      aria-label={film ? t("studio.library.browser.filmstrip") : t("studio.library.browser.photographs")}
-      aria-multiselectable="true"
-      onPointerDown={onBackgroundDown}
-      onPointerUp={onBackgroundUp}
-      onScroll={(e) =>
-        setOffset(film ? e.currentTarget.scrollLeft : e.currentTarget.scrollTop)
-      }
-    >
-      {!files.length ? (
-        <div className="studio-empty">
-          <ImageIcon size={30} />
-          <strong>{t("studio.library.browser.emptyTitle")}</strong>
-          {!film && !loading && filtered ? (
-            <button type="button" className="studio-empty-action" onClick={clearFilters}>{t("studio.library.filters.clearFilters")}</button>
-          ) : !film && !loading && sessionDirectory && onImport ? (
-            <button type="button" className="studio-empty-action" onClick={onImport}>{t("settings.keybinds.actions.import_photos")}</button>
-          ) : <span>{t("studio.library.browser.emptyHint")}</span>}
-        </div>
-      ) : (
-        <div
-          style={{
-            position: "relative",
-            width: film ? files.length * extent : "100%",
-            height: film ? "100%" : Math.ceil(files.length / columns) * extent,
-          }}
-        >
-          {files.slice(range.start, range.end).map((file, i) => {
-            const index = range.start + i;
-            return (
-              <div
-                key={file.path}
-                style={{
-                  position: "absolute",
-                  left: film
-                    ? index * extent
-                    : `${((index % columns) * 100) / columns}%`,
-                  top: film ? 0 : Math.floor(index / columns) * extent,
-                  width: film ? extent : `${100 / columns}%`,
-                  height: film ? "100%" : extent,
-                  padding: film ? "6px 2px" : "8px",
-                }}
-              >
-                <Tile
-                  file={file}
-                  // In the grid the open photograph is outlined only while
-                  // selected: an emptied selection shows no photograph marked.
-                  current={file.path === currentPath && (film || selectedSet.has(file.path))}
-                  selected={selectedSet.has(file.path)}
-                  onSelect={onSelect}
-                  onOpen={onOpen}
-                  onRate={onRate}
-                  onContextMenu={onContextMenu}
-                  film={film}
-                  stack={stackMarks?.get(file.path)}
-                />
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <PerfProfiler id={film ? 'filmstrip' : 'grid'}>
+      <div
+        ref={ref}
+        className={`studio-browser ${film ? 'is-filmstrip' : 'is-grid'}`}
+        role="listbox"
+        aria-label={film ? t('studio.library.browser.filmstrip') : t('studio.library.browser.photographs')}
+        aria-multiselectable="true"
+        onPointerDown={onBackgroundDown}
+        onPointerUp={onBackgroundUp}
+        onScroll={(e) => setOffset(film ? e.currentTarget.scrollLeft : e.currentTarget.scrollTop)}
+      >
+        {!files.length ? (
+          <div className="studio-empty">
+            <ImageIcon size={30} />
+            <strong>{t('studio.library.browser.emptyTitle')}</strong>
+            {!film && !loading && filtered ? (
+              <button type="button" className="studio-empty-action" onClick={clearFilters}>
+                {t('studio.library.filters.clearFilters')}
+              </button>
+            ) : !film && !loading && sessionDirectory && onImport ? (
+              <button type="button" className="studio-empty-action" onClick={onImport}>
+                {t('settings.keybinds.actions.import_photos')}
+              </button>
+            ) : (
+              <span>{t('studio.library.browser.emptyHint')}</span>
+            )}
+          </div>
+        ) : (
+          <div
+            style={{
+              position: 'relative',
+              width: film ? files.length * extent : '100%',
+              height: film ? '100%' : Math.ceil(files.length / columns) * extent
+            }}
+          >
+            {files.slice(range.start, range.end).map((file, i) => {
+              const index = range.start + i;
+              return (
+                <div
+                  key={file.path}
+                  style={{
+                    position: 'absolute',
+                    left: film ? index * extent : `${((index % columns) * 100) / columns}%`,
+                    top: film ? 0 : Math.floor(index / columns) * extent,
+                    width: film ? extent : `${100 / columns}%`,
+                    height: film ? '100%' : extent,
+                    padding: film ? '6px 2px' : '8px'
+                  }}
+                >
+                  <Tile
+                    file={file}
+                    // In the grid the open photograph is outlined only while
+                    // selected: an emptied selection shows no photograph marked.
+                    current={file.path === currentPath && (film || selectedSet.has(file.path))}
+                    selected={selectedSet.has(file.path)}
+                    onSelect={onSelect}
+                    onOpen={onOpen}
+                    onRate={onRate}
+                    onContextMenu={onContextMenu}
+                    film={film}
+                    stack={stackMarks?.get(file.path)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </PerfProfiler>
   );
 }

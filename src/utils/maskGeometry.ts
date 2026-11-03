@@ -18,7 +18,7 @@ export function frameGeometry(source: Partial<Record<keyof FrameGeometry, unknow
     rotation: typeof source?.rotation === 'number' ? source.rotation : 0,
     flipHorizontal: source?.flipHorizontal === true,
     flipVertical: source?.flipVertical === true,
-    orientationSteps: ((Number(source?.orientationSteps) || 0) % 4 + 4) % 4,
+    orientationSteps: (((Number(source?.orientationSteps) || 0) % 4) + 4) % 4
   };
 }
 
@@ -102,7 +102,13 @@ export function photoToShown(point: Point, geometry: FrameGeometry, width: numbe
 
 /** A point drawn on the photo shown in `from`, where it is shown in `to`
  * (the same spot of the photo). */
-export function reframePoint(point: Point, from: FrameGeometry, to: FrameGeometry, width: number, height: number): Point {
+export function reframePoint(
+  point: Point,
+  from: FrameGeometry,
+  to: FrameGeometry,
+  width: number,
+  height: number
+): Point {
   if (sameFrameGeometry(from, to)) return point;
   return photoToShown(shownToPhoto(point, from, width, height), to, width, height);
 }
@@ -133,7 +139,7 @@ export interface SizedFrame extends FrameGeometry {
 export function shapeFrame(
   geometry: Partial<Record<keyof FrameGeometry, unknown>> | null | undefined,
   width: number | undefined,
-  height: number | undefined,
+  height: number | undefined
 ): SizedFrame | undefined {
   if (!(width && width > 0 && height && height > 0)) return undefined;
   return { ...frameGeometry(geometry), width, height };
@@ -204,7 +210,7 @@ function placement(geometry: FrameGeometry, width: number, height: number) {
       const dx = x - w / 2;
       const dy = y - h / 2;
       return { x: w / 2 + dx * cos - dy * sin, y: h / 2 + dx * sin + dy * cos };
-    },
+    }
   };
 }
 
@@ -275,8 +281,13 @@ export function shapeAsShown<T extends Params>(type: string, params: T, now: Siz
       const map = shapeMap(storedFrame(line?.frame), now);
       if (!map || !Array.isArray(line.points)) return line;
       moved = true;
-      const resized = { ...line, points: line.points.map(map.point), frame: now };
-      if (map.resized && typeof line.brushSize === 'number') resized.brushSize = line.brushSize * Math.sqrt(map.areaScale);
+      const resized = {
+        ...line,
+        points: line.points.map(map.point),
+        frame: now
+      };
+      if (map.resized && typeof line.brushSize === 'number')
+        resized.brushSize = line.brushSize * Math.sqrt(map.areaScale);
       return resized;
     });
     return moved ? { ...params, lines: shown } : params;
@@ -294,7 +305,7 @@ export function shapeAsShown<T extends Params>(type: string, params: T, now: Siz
       centerX: centre.x,
       centerY: centre.y,
       rotation: (Math.atan2(axis.y, axis.x) * 180) / Math.PI,
-      frame: now,
+      frame: now
     };
     if (map.resized) {
       // The first axis as it is carried along; the second keeps the
@@ -310,7 +321,14 @@ export function shapeAsShown<T extends Params>(type: string, params: T, now: Siz
   // Mirrored, the start (100%) side would fall on the other side of the
   // line through start and end: swapping them keeps every side in place.
   const [a, b] = map.mirrors ? [end, start] : [start, end];
-  const shown: Params = { ...params, startX: a.x, startY: a.y, endX: b.x, endY: b.y, frame: now };
+  const shown: Params = {
+    ...params,
+    startX: a.x,
+    startY: a.y,
+    endX: b.x,
+    endY: b.y,
+    frame: now
+  };
   if (map.resized) {
     // Distances from the central line scale as areas over lengths along it.
     const dx = num('endX') - num('startX');
@@ -321,7 +339,11 @@ export function shapeAsShown<T extends Params>(type: string, params: T, now: Siz
     shown.range = (typeof params.range === 'number' ? params.range : 50) * factor;
     if (typeof params.rangeEnd === 'number') shown.rangeEnd = params.rangeEnd * factor;
     const band = params.band as { width: number; feather: number } | undefined;
-    if (band) shown.band = { width: band.width * factor, feather: band.feather * factor };
+    if (band)
+      shown.band = {
+        width: band.width * factor,
+        feather: band.feather * factor
+      };
   }
   return shown as T;
 }
@@ -338,7 +360,7 @@ function stampFrames<C extends FramedContainer>(
   containers: C[] | undefined,
   frame: ShapeFrame,
   fillSizes: boolean,
-  accept: (params: Params) => boolean = () => true,
+  accept: (params: Params) => boolean = () => true
 ): C[] | undefined {
   if (!containers) return containers;
   const sized = fillSizes && frame.width !== undefined && frame.height !== undefined;
@@ -346,7 +368,9 @@ function stampFrames<C extends FramedContainer>(
     if (!value) return frame;
     if (!sized || typeof value !== 'object') return null;
     const stored = value as ShapeFrame;
-    return stored.width == null && stored.height == null ? { ...stored, width: frame.width, height: frame.height } : null;
+    return stored.width == null && stored.height == null
+      ? { ...stored, width: frame.width, height: frame.height }
+      : null;
   };
   const framed = (params: Params, type: string): Params => {
     if (!params || !accept(params)) return params;
@@ -391,7 +415,10 @@ function stampFrames<C extends FramedContainer>(
  * mask_generation.rs), where the masks left alone are those whose
  * parameters did not change; here they are the very same objects. */
 export function keepDrawnMasksOnPhoto<
-  T extends Partial<FrameGeometry> & { masks?: FramedContainer[]; aiPatches?: FramedContainer[] },
+  T extends Partial<FrameGeometry> & {
+    masks?: FramedContainer[];
+    aiPatches?: FramedContainer[];
+  }
 >(previous: T, next: T, width: number | undefined, height: number | undefined): T {
   const geometry = frameGeometry(previous);
   if (sameFrameGeometry(geometry, frameGeometry(next))) return next;
@@ -416,7 +443,7 @@ export function frameDrawnMasks<C extends FramedContainer>(
   containers: C[] | undefined,
   geometry: Partial<Record<keyof FrameGeometry, unknown>> | null | undefined,
   width: number | undefined,
-  height: number | undefined,
+  height: number | undefined
 ): C[] | undefined {
   return stampFrames(containers, shapeFrame(geometry, width, height) ?? frameGeometry(geometry), true);
 }

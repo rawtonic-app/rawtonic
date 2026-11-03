@@ -16,7 +16,7 @@ export default function CreateFolderModal({
   onSave,
   title,
   placeholder,
-  buttonText,
+  buttonText
 }: FolderModalProps) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
@@ -58,7 +58,7 @@ export default function CreateFolderModal({
         onClose();
       }
     },
-    [handleSave, onClose],
+    [handleSave, onClose]
   );
 
   if (!isMounted) {
@@ -78,9 +78,7 @@ export default function CreateFolderModal({
         }`}
         onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
       >
-        <h2 className="studio-dialog-title">
-          {title || t('modals.createFolder.title')}
-        </h2>
+        <h2 className="studio-dialog-title">{title || t('modals.createFolder.title')}</h2>
         <input
           autoFocus
           className="w-full px-2 py-1.5"
@@ -91,17 +89,10 @@ export default function CreateFolderModal({
           value={name}
         />
         <div className="studio-dialog-footer">
-          <button
-            className="studio-button"
-            onClick={onClose}
-          >
+          <button className="studio-button" onClick={onClose}>
             {t('modals.createFolder.cancel')}
           </button>
-          <button
-            className="studio-button is-primary"
-            disabled={!name.trim()}
-            onClick={handleSave}
-          >
+          <button className="studio-button is-primary" disabled={!name.trim()} onClick={handleSave}>
             {buttonText || t('modals.createFolder.create')}
           </button>
         </div>

@@ -7,7 +7,7 @@ import {
   MAX_LAYER_COLOR_RANGES,
   newColorRange,
   type Adjustments,
-  type ColorRange,
+  type ColorRange
 } from './adjustments';
 import { srgbToOklch } from './oklab';
 
@@ -30,7 +30,7 @@ export function applyColorPick(
   limit: number,
   hue: number,
   chroma: number,
-  lightness: number,
+  lightness: number
 ): { ranges: ColorRange[]; id: string | null } {
   const skin = target === 'skin' ? skinRangeOf(ranges) : undefined;
   const id = skin?.id ?? target;
@@ -41,7 +41,7 @@ export function applyColorPick(
   }
   return {
     ranges: ranges.map((range) => (range.id === id ? { ...range, hue, chroma, lightness } : range)),
-    id,
+    id
   };
 }
 
@@ -69,15 +69,11 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   const rgb = await invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
     path,
     normalizedX: x,
-    normalizedY: y,
+    normalizedY: y
   });
   const state = useEditorStore.getState();
   if (!rgb || state.selectedImage?.path !== path) return false;
-  if (
-    generation !== pickGeneration ||
-    state.colorPickerTarget !== armed ||
-    state.colorPickerLayer !== layer
-  )
+  if (generation !== pickGeneration || state.colorPickerTarget !== armed || state.colorPickerLayer !== layer)
     return false;
   const { hue, chroma, lightness } = srgbToOklch(rgb);
   let activeId: string | null = target;
@@ -96,14 +92,18 @@ export async function pickColorRange(path: string, target: string, x: number, y:
                   ...mask,
                   adjustments: {
                     ...mask.adjustments,
-                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_LAYER_COLOR_RANGES),
-                  },
+                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_LAYER_COLOR_RANGES)
+                  }
                 }
-              : mask,
-          ),
+              : mask
+          )
         }
-      : { ...prev, colorRanges: next(colorRangesOf(prev), MAX_COLOR_RANGES) },
+      : { ...prev, colorRanges: next(colorRangesOf(prev), MAX_COLOR_RANGES) }
   );
-  useEditorStore.getState().setEditor({ colorPickerTarget: null, colorPickerLayer: null, activeColorRangeId: activeId });
+  useEditorStore.getState().setEditor({
+    colorPickerTarget: null,
+    colorPickerLayer: null,
+    activeColorRangeId: activeId
+  });
   return true;
 }

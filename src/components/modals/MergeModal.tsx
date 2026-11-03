@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { CheckCircle, Loader2, XCircle } from "lucide-react";
-import CachedThumbnail from "../ui/CachedThumbnail";
-import { useEscapeToClose } from "../../hooks/useEscapeToClose";
-import type { MergeKind, MergeModalState } from "../../store/useUIStore";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { CheckCircle, Loader2, XCircle } from 'lucide-react';
+import CachedThumbnail from '../ui/CachedThumbnail';
+import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import type { MergeKind, MergeModalState } from '../../store/useUIStore';
 
-export type Deghost = "off" | "low" | "medium" | "high";
-export type Projection =
-  "auto" | "spherical" | "cylindrical" | "perspective" | "panini";
+export type Deghost = 'off' | 'low' | 'medium' | 'high';
+export type Projection = 'auto' | 'spherical' | 'cylindrical' | 'perspective' | 'panini';
 
 export interface MergeOptions {
   hdr: { align: boolean; deghost: Deghost };
@@ -16,9 +15,9 @@ export interface MergeOptions {
 }
 
 export const DEFAULT_MERGE_OPTIONS: MergeOptions = {
-  hdr: { align: true, deghost: "off" },
-  panorama: { projection: "auto", boundaryWarp: 0, autoCrop: true },
-  focusStack: { align: true },
+  hdr: { align: true, deghost: 'off' },
+  panorama: { projection: 'auto', boundaryWarp: 0, autoCrop: true },
+  focusStack: { align: true }
 };
 
 interface MergeModalProps {
@@ -28,7 +27,7 @@ interface MergeModalProps {
   onOpenFile(path: string): void;
   onRun(kind: MergeKind, options: unknown): void;
   /** Panoramas: new boundary warp or crop on the stitched canvas. */
-  onRefinish(options: MergeOptions["panorama"]): Promise<void>;
+  onRefinish(options: MergeOptions['panorama']): Promise<void>;
   onSave(autoSettings: boolean, fillEdges: boolean): Promise<string>;
 }
 
@@ -57,20 +56,11 @@ export default function MergeModal({
   onOpenFile,
   onRun,
   onRefinish,
-  onSave,
+  onSave
 }: MergeModalProps) {
   const { t } = useTranslation();
-  const {
-    isOpen,
-    kind,
-    sourcePaths,
-    isProcessing,
-    progressMessage,
-    previewBase64,
-    overlayBase64,
-    report,
-    error,
-  } = state;
+  const { isOpen, kind, sourcePaths, isProcessing, progressMessage, previewBase64, overlayBase64, report, error } =
+    state;
   const [options, setOptions] = useState<MergeOptions>(DEFAULT_MERGE_OPTIONS);
   const [ranWith, setRanWith] = useState<string | null>(null);
   const [showOverlay, setShowOverlay] = useState(false);
@@ -79,7 +69,7 @@ export default function MergeModal({
     hdr: true,
     panorama: true,
     hdrPanorama: true,
-    focusStack: false,
+    focusStack: false
   });
   // Fill edges (AI): only for panoramas kept uncropped; a saving option.
   const [fillEdges, setFillEdges] = useState(false);
@@ -88,52 +78,29 @@ export default function MergeModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const started = useRef(false);
 
-  const isPano = kind === "panorama" || kind === "hdrPanorama";
-  const hasHdr = kind === "hdr" || kind === "hdrPanorama";
+  const isPano = kind === 'panorama' || kind === 'hdrPanorama';
+  const hasHdr = kind === 'hdr' || kind === 'hdrPanorama';
   // An HDR panorama takes both the HDR and the panorama options.
-  const current: unknown =
-    kind === "hdrPanorama"
-      ? { hdr: options.hdr, panorama: options.panorama }
-      : options[kind];
+  const current: unknown = kind === 'hdrPanorama' ? { hdr: options.hdr, panorama: options.panorama } : options[kind];
   const currentKey = JSON.stringify(current);
-  const stale =
-    previewBase64 !== null && ranWith !== null && ranWith !== currentKey;
+  const stale = previewBase64 !== null && ranWith !== null && ranWith !== currentKey;
 
   const run = useCallback(() => {
-    const previous = ranWith
-      ? (JSON.parse(ranWith) as Record<string, unknown>)
-      : null;
+    const previous = ranWith ? (JSON.parse(ranWith) as Record<string, unknown>) : null;
     setRanWith(currentKey);
     setSavedPath(null);
     setSaveError(null);
     // Boundary warp and crop apply to the stitched canvas: no new stitch
     // (an HDR panorama also needs its HDR settings unchanged).
-    const previousPano = (
-      kind === "hdrPanorama" ? previous?.panorama : previous
-    ) as Partial<MergeOptions["panorama"]> | undefined;
-    const hdrUnchanged =
-      kind !== "hdrPanorama" ||
-      JSON.stringify(previous?.hdr) === JSON.stringify(options.hdr);
-    if (
-      isPano &&
-      previewBase64 !== null &&
-      hdrUnchanged &&
-      previousPano?.projection === options.panorama.projection
-    ) {
+    const previousPano = (kind === 'hdrPanorama' ? previous?.panorama : previous) as
+      Partial<MergeOptions['panorama']> | undefined;
+    const hdrUnchanged = kind !== 'hdrPanorama' || JSON.stringify(previous?.hdr) === JSON.stringify(options.hdr);
+    if (isPano && previewBase64 !== null && hdrUnchanged && previousPano?.projection === options.panorama.projection) {
       onRefinish(options.panorama).catch(() => onRun(kind, current));
       return;
     }
     onRun(kind, current);
-  }, [
-    current,
-    currentKey,
-    kind,
-    onRefinish,
-    onRun,
-    options.panorama,
-    previewBase64,
-    ranWith,
-  ]);
+  }, [current, currentKey, kind, onRefinish, onRun, options.panorama, previewBase64, ranWith]);
 
   // The first preview starts as soon as the dialog opens (Lightroom does
   // the same); later ones on request.
@@ -160,12 +127,7 @@ export default function MergeModal({
     setIsSaving(true);
     setSaveError(null);
     try {
-      setSavedPath(
-        await onSave(
-          autoSettings[kind],
-          isPano && !options.panorama.autoCrop && fillEdges,
-        ),
-      );
+      setSavedPath(await onSave(autoSettings[kind], isPano && !options.panorama.autoCrop && fillEdges));
     } catch (e) {
       setSaveError(String(e));
     } finally {
@@ -173,33 +135,28 @@ export default function MergeModal({
     }
   };
 
-  const set = <K extends keyof MergeOptions>(
-    k: K,
-    patch: Partial<MergeOptions[K]>,
-  ) => setOptions((o) => ({ ...o, [k]: { ...o[k], ...patch } }));
+  const set = <K extends keyof MergeOptions>(k: K, patch: Partial<MergeOptions[K]>) =>
+    setOptions((o) => ({ ...o, [k]: { ...o[k], ...patch } }));
 
   const title = t(`modals.merge.title.${kind}`);
-  const overlayLabel =
-    kind === "hdr" ? t("modals.merge.showGhosts") : t("modals.merge.showDepth");
+  const overlayLabel = kind === 'hdr' ? t('modals.merge.showGhosts') : t('modals.merge.showDepth');
 
   const summary = useMemo(() => {
     if (!report) return null;
-    if (kind === "hdr") {
+    if (kind === 'hdr') {
       const frames = (report.frames as HdrFrame[] | undefined) ?? [];
       return frames.map((f) => (
         <li key={f.path}>
           <span>{fileName(f.path)}</span>
           <span>
-            {f.relativeEv >= 0 ? "+" : ""}
+            {f.relativeEv >= 0 ? '+' : ''}
             {f.relativeEv.toFixed(2)} EV
             {f.alignFailed
-              ? ` · ${t("modals.merge.notAligned")}`
+              ? ` · ${t('modals.merge.notAligned')}`
               : f.shiftPx > 0
                 ? ` · ${f.shiftPx.toFixed(1)} px`
-                : ""}
-            {f.ghostFraction > 0.001
-              ? ` · ${t("modals.merge.ghosts")} ${(f.ghostFraction * 100).toFixed(1)} %`
-              : ""}
+                : ''}
+            {f.ghostFraction > 0.001 ? ` · ${t('modals.merge.ghosts')} ${(f.ghostFraction * 100).toFixed(1)} %` : ''}
           </span>
         </li>
       ));
@@ -211,11 +168,7 @@ export default function MergeModal({
         <>
           {fov && (
             <li>
-              <span>
-                {t(
-                  `modals.merge.projection.${report.projection as Projection}`,
-                )}
-              </span>
+              <span>{t(`modals.merge.projection.${report.projection as Projection}`)}</span>
               <span>
                 {fov[0].toFixed(0)}° × {fov[1].toFixed(0)}°
               </span>
@@ -224,11 +177,7 @@ export default function MergeModal({
           {frames.map((f) => (
             <li key={f.path}>
               <span>{fileName(f.path)}</span>
-              <span>
-                {f.used
-                  ? `${f.gainEv >= 0 ? "+" : ""}${f.gainEv.toFixed(2)} EV`
-                  : t("modals.merge.notUsed")}
-              </span>
+              <span>{f.used ? `${f.gainEv >= 0 ? '+' : ''}${f.gainEv.toFixed(2)} EV` : t('modals.merge.notUsed')}</span>
             </li>
           ))}
         </>
@@ -244,17 +193,11 @@ export default function MergeModal({
     values: readonly T[],
     value: T,
     onChange: (v: T) => void,
-    label: (v: T) => string,
+    label: (v: T) => string
   ) => (
     <div className="studio-segments merge-segments" role="group">
       {values.map((v) => (
-        <button
-          key={v}
-          type="button"
-          aria-pressed={v === value}
-          disabled={busy}
-          onClick={() => onChange(v)}
-        >
+        <button key={v} type="button" aria-pressed={v === value} disabled={busy} onClick={() => onChange(v)}>
           {label(v)}
         </button>
       ))}
@@ -262,36 +205,22 @@ export default function MergeModal({
   );
 
   return (
-    <div
-      className="merge-backdrop"
-      onMouseDown={(e) => e.target === e.currentTarget && handleClose()}
-    >
-      <div
-        className="merge-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
+    <div className="merge-backdrop" onMouseDown={(e) => e.target === e.currentTarget && handleClose()}>
+      <div className="merge-dialog" role="dialog" aria-modal="true" aria-label={title}>
         <div className="merge-preview">
           {previewBase64 ? (
             <div className="merge-preview-frame">
               <img src={previewBase64} alt={title} />
               {showOverlay && overlayBase64 && (
                 <img
-                  className={
-                    kind === "hdr"
-                      ? "merge-overlay"
-                      : "merge-overlay merge-overlay-depth"
-                  }
+                  className={kind === 'hdr' ? 'merge-overlay' : 'merge-overlay merge-overlay-depth'}
                   src={overlayBase64}
                   alt=""
                 />
               )}
               {(isProcessing || stale) && (
                 <div className="merge-preview-state">
-                  {isProcessing
-                    ? progressMessage || t("modals.merge.working")
-                    : t("modals.merge.stale")}
+                  {isProcessing ? progressMessage || t('modals.merge.working') : t('modals.merge.stale')}
                 </div>
               )}
             </div>
@@ -303,19 +232,22 @@ export default function MergeModal({
           ) : (
             <div className="merge-message">
               {thumbnail && (
-                <CachedThumbnail sourcePath={sourcePaths[Math.floor(sourcePaths.length / 2)]} className="merge-source" src={thumbnail} alt="" />
+                <CachedThumbnail
+                  sourcePath={sourcePaths[Math.floor(sourcePaths.length / 2)]}
+                  className="merge-source"
+                  src={thumbnail}
+                  alt=""
+                />
               )}
               <Loader2 className="animate-spin" size={20} />
-              <p>{progressMessage || t("modals.merge.working")}</p>
+              <p>{progressMessage || t('modals.merge.working')}</p>
             </div>
           )}
         </div>
 
         <aside className="merge-side">
           <h2>{title}</h2>
-          <p className="merge-count">
-            {t("modals.merge.photos", { count: sourcePaths.length })}
-          </p>
+          <p className="merge-count">{t('modals.merge.photos', { count: sourcePaths.length })}</p>
 
           {hasHdr && (
             <>
@@ -324,48 +256,44 @@ export default function MergeModal({
                   type="checkbox"
                   checked={options.hdr.align}
                   disabled={busy}
-                  onChange={(e) => set("hdr", { align: e.target.checked })}
+                  onChange={(e) => set('hdr', { align: e.target.checked })}
                 />
-                {t("modals.merge.align")}
+                {t('modals.merge.align')}
               </label>
-              <span className="merge-label">{t("modals.merge.deghost")}</span>
+              <span className="merge-label">{t('modals.merge.deghost')}</span>
               {segments(
-                ["off", "low", "medium", "high"] as const,
+                ['off', 'low', 'medium', 'high'] as const,
                 options.hdr.deghost,
-                (deghost) => set("hdr", { deghost }),
-                (v) => t(`modals.merge.amount.${v}`),
+                (deghost) => set('hdr', { deghost }),
+                (v) => t(`modals.merge.amount.${v}`)
               )}
             </>
           )}
 
           {isPano && (
             <>
-              <span className="merge-label">
-                {t("modals.merge.projectionLabel")}
-              </span>
+              <span className="merge-label">{t('modals.merge.projectionLabel')}</span>
               <div className="merge-projections">
                 {segments(
-                  ["auto", "spherical", "cylindrical"] as const,
-                  options.panorama.projection === "perspective" ||
-                    options.panorama.projection === "panini"
-                    ? ("" as "auto")
+                  ['auto', 'spherical', 'cylindrical'] as const,
+                  options.panorama.projection === 'perspective' || options.panorama.projection === 'panini'
+                    ? ('' as 'auto')
                     : options.panorama.projection,
-                  (projection) => set("panorama", { projection }),
-                  (v) => t(`modals.merge.projection.${v}`),
+                  (projection) => set('panorama', { projection }),
+                  (v) => t(`modals.merge.projection.${v}`)
                 )}
                 {segments(
-                  ["perspective", "panini"] as const,
-                  options.panorama.projection === "perspective" ||
-                    options.panorama.projection === "panini"
+                  ['perspective', 'panini'] as const,
+                  options.panorama.projection === 'perspective' || options.panorama.projection === 'panini'
                     ? options.panorama.projection
-                    : ("" as "panini"),
-                  (projection) => set("panorama", { projection }),
-                  (v) => t(`modals.merge.projection.${v}`),
+                    : ('' as 'panini'),
+                  (projection) => set('panorama', { projection }),
+                  (v) => t(`modals.merge.projection.${v}`)
                 )}
               </div>
               <label className="merge-slider">
                 <span>
-                  {t("modals.merge.boundaryWarp")}
+                  {t('modals.merge.boundaryWarp')}
                   <output>{options.panorama.boundaryWarp}</output>
                 </span>
                 <input
@@ -374,9 +302,7 @@ export default function MergeModal({
                   max={100}
                   value={options.panorama.boundaryWarp}
                   disabled={busy}
-                  onChange={(e) =>
-                    set("panorama", { boundaryWarp: Number(e.target.value) })
-                  }
+                  onChange={(e) => set('panorama', { boundaryWarp: Number(e.target.value) })}
                 />
               </label>
               <label className="studio-check merge-check">
@@ -384,11 +310,9 @@ export default function MergeModal({
                   type="checkbox"
                   checked={options.panorama.autoCrop}
                   disabled={busy}
-                  onChange={(e) =>
-                    set("panorama", { autoCrop: e.target.checked })
-                  }
+                  onChange={(e) => set('panorama', { autoCrop: e.target.checked })}
                 />
-                {t("modals.merge.autoCrop")}
+                {t('modals.merge.autoCrop')}
               </label>
               {!options.panorama.autoCrop && (
                 <label className="studio-check merge-check">
@@ -398,31 +322,27 @@ export default function MergeModal({
                     disabled={isSaving}
                     onChange={(e) => setFillEdges(e.target.checked)}
                   />
-                  {t("modals.merge.fillEdges")}
+                  {t('modals.merge.fillEdges')}
                 </label>
               )}
             </>
           )}
 
-          {kind === "focusStack" && (
+          {kind === 'focusStack' && (
             <label className="studio-check merge-check">
               <input
                 type="checkbox"
                 checked={options.focusStack.align}
                 disabled={busy}
-                onChange={(e) => set("focusStack", { align: e.target.checked })}
+                onChange={(e) => set('focusStack', { align: e.target.checked })}
               />
-              {t("modals.merge.align")}
+              {t('modals.merge.align')}
             </label>
           )}
 
           {overlayBase64 && !isPano && (
             <label className="studio-check merge-check">
-              <input
-                type="checkbox"
-                checked={showOverlay}
-                onChange={(e) => setShowOverlay(e.target.checked)}
-              />
+              <input type="checkbox" checked={showOverlay} onChange={(e) => setShowOverlay(e.target.checked)} />
               {overlayLabel}
             </label>
           )}
@@ -432,15 +352,13 @@ export default function MergeModal({
               type="checkbox"
               checked={autoSettings[kind]}
               disabled={isSaving}
-              onChange={(e) =>
-                setAutoSettings((a) => ({ ...a, [kind]: e.target.checked }))
-              }
+              onChange={(e) => setAutoSettings((a) => ({ ...a, [kind]: e.target.checked }))}
             />
-            {t("modals.merge.autoSettings")}
+            {t('modals.merge.autoSettings')}
           </label>
 
           {summary && <ul className="merge-summary">{summary}</ul>}
-          {typeof report?.width === "number" && (
+          {typeof report?.width === 'number' && (
             <p className="merge-size">
               {report.width as number} × {report.height as number} px · DNG
             </p>
@@ -453,7 +371,7 @@ export default function MergeModal({
                   <CheckCircle size={14} /> {fileName(savedPath)}
                 </p>
                 <button type="button" onClick={handleClose}>
-                  {t("modals.merge.close")}
+                  {t('modals.merge.close')}
                 </button>
                 <button
                   type="button"
@@ -463,7 +381,7 @@ export default function MergeModal({
                     handleClose();
                   }}
                 >
-                  {t("modals.merge.open")}
+                  {t('modals.merge.open')}
                 </button>
               </>
             ) : (
@@ -474,16 +392,10 @@ export default function MergeModal({
                   </p>
                 )}
                 <button type="button" onClick={handleClose} disabled={isSaving}>
-                  {t("modals.merge.cancel")}
+                  {t('modals.merge.cancel')}
                 </button>
-                <button
-                  type="button"
-                  onClick={run}
-                  disabled={
-                    busy || (!stale && !error && previewBase64 !== null)
-                  }
-                >
-                  {t("modals.merge.update")}
+                <button type="button" onClick={run} disabled={busy || (!stale && !error && previewBase64 !== null)}>
+                  {t('modals.merge.update')}
                 </button>
                 <button
                   type="button"
@@ -491,10 +403,8 @@ export default function MergeModal({
                   onClick={save}
                   disabled={busy || stale || previewBase64 === null}
                 >
-                  {isSaving ? (
-                    <Loader2 className="animate-spin" size={12} />
-                  ) : null}
-                  {t("modals.merge.merge")}
+                  {isSaving ? <Loader2 className="animate-spin" size={12} /> : null}
+                  {t('modals.merge.merge')}
                 </button>
               </>
             )}

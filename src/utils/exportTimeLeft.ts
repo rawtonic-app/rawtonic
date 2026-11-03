@@ -22,7 +22,11 @@ export function exportTimeLeft(items: ExportItem[], now: number): number | null 
 }
 
 /** Whole seconds, minutes or hours and minutes, for "… left". */
-export function splitTimeLeft(ms: number): { hours: number; minutes: number; seconds: number } {
+export function splitTimeLeft(ms: number): {
+  hours: number;
+  minutes: number;
+  seconds: number;
+} {
   // Rounded up to 5 s so the last seconds do not read "0 s".
   const total = Math.max(5, Math.ceil(ms / 5000) * 5);
   if (total < 60) return { hours: 0, minutes: 0, seconds: total };

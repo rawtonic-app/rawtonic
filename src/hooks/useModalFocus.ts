@@ -1,25 +1,24 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, type RefObject } from 'react';
 
 const FOCUSABLE = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled]):not([type=hidden])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "summary",
-  "[contenteditable=true]",
-  "[tabindex]",
-].join(",");
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type=hidden])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'summary',
+  '[contenteditable=true]',
+  '[tabindex]'
+].join(',');
 
 /** Tab stops inside `root`, in document order. */
 export function tabStops(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
     (el) =>
       el.tabIndex >= 0 &&
-      !el.closest("[inert]") &&
+      !el.closest('[inert]') &&
       // jsdom has no layout; real engines skip what is not rendered.
-      (typeof el.checkVisibility !== "function" ||
-        el.checkVisibility({ visibilityProperty: true })),
+      (typeof el.checkVisibility !== 'function' || el.checkVisibility({ visibilityProperty: true }))
   );
 }
 
@@ -35,42 +34,32 @@ const KEEP_LIVE = '.app-notices, .Toastify, [aria-modal="true"], dialog[open]';
  * had it before. Escape stays with the caller (the shortcut handler closes
  * Preferences).
  */
-export function useModalFocus(
-  ref: RefObject<HTMLElement | null>,
-  open: boolean,
-) {
+export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean) {
   useEffect(() => {
     const root = ref.current;
     if (!open || !root) return;
-    const opener =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     // Everything but the dialog's ancestors becomes inert, so neither the
     // pointer nor Tab nor assistive technology reaches the workspace behind.
     const madeInert: Element[] = [];
     for (let node: Element = root; node.parentElement; node = node.parentElement) {
       for (const sibling of Array.from(node.parentElement.children)) {
-        if (
-          sibling === node ||
-          sibling.hasAttribute("inert") ||
-          sibling.matches(`script, style, ${KEEP_LIVE}`)
-        )
+        if (sibling === node || sibling.hasAttribute('inert') || sibling.matches(`script, style, ${KEEP_LIVE}`))
           continue;
-        sibling.setAttribute("inert", "");
+        sibling.setAttribute('inert', '');
         madeInert.push(sibling);
       }
       if (node.parentElement === document.body) break;
     }
 
     if (!root.contains(document.activeElement)) {
-      const first =
-        root.querySelector<HTMLElement>("[autofocus], [data-autofocus]") ??
-        tabStops(root)[0];
+      const first = root.querySelector<HTMLElement>('[autofocus], [data-autofocus]') ?? tabStops(root)[0];
       (first ?? root).focus({ preventScroll: true });
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || event.defaultPrevented) return;
+      if (event.key !== 'Tab' || event.defaultPrevented) return;
       const stops = tabStops(root);
       const active = document.activeElement;
       if (!stops.length) {
@@ -89,12 +78,12 @@ export function useModalFocus(
         first.focus();
       }
     };
-    root.addEventListener("keydown", onKeyDown);
+    root.addEventListener('keydown', onKeyDown);
 
     return () => {
-      root.removeEventListener("keydown", onKeyDown);
-      for (const el of madeInert) el.removeAttribute("inert");
-      if (opener?.isConnected && !opener.closest("[inert]")) {
+      root.removeEventListener('keydown', onKeyDown);
+      for (const el of madeInert) el.removeAttribute('inert');
+      if (opener?.isConnected && !opener.closest('[inert]')) {
         opener.focus({ preventScroll: true });
       }
     };

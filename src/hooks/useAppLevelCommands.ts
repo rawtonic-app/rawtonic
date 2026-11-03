@@ -22,7 +22,8 @@ export function finderTarget(): string | null {
   return selected.length === 1 ? selected[0] : null;
 }
 
-const openPreferences = (category: string) => useUIStore.getState().setUI({ isSettingsOpen: true, settingsCategory: category });
+const openPreferences = (category: string) =>
+  useUIStore.getState().setUI({ isSettingsOpen: true, settingsCategory: category });
 
 /** Commands of the app as a whole (About, updates, help, selection), for the
  * menu bar and their keys; each runs what its button in the app runs. */
@@ -38,13 +39,15 @@ export function useAppLevelCommands(): void {
           run: () => {
             openPreferences('general');
             void useUpdateStore.getState().check(true);
-          },
+          }
         },
         website: { run: () => void open(SOURCE_URL) },
-        report_problem: { run: () => useUIStore.getState().setProblemReportOpen(true) },
+        report_problem: {
+          run: () => useUIStore.getState().setProblemReportOpen(true)
+        },
         select_none: {
           enabled: () => useLibraryStore.getState().multiSelectedPaths.length > 0,
-          run: clearLibrarySelection,
+          run: clearLibrarySelection
         },
         show_in_finder: {
           enabled: () => finderTarget() !== null,
@@ -52,11 +55,11 @@ export function useAppLevelCommands(): void {
             const path = finderTarget();
             if (!path) return;
             invoke(Invokes.ShowInFinder, { path }).catch((err) =>
-              notify.error(i18n.t('contextMenus.toasts.couldNotShowExplorer', { err })),
+              notify.error(i18n.t('contextMenus.toasts.couldNotShowExplorer', { err }))
             );
-          },
-        },
+          }
+        }
       }),
-    [],
+    []
   );
 }

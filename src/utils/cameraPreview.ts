@@ -114,7 +114,10 @@ let live: number | null = null;
  * cannot be shown); resolves once it is on, or found missing (no camera
  * JPEG in the file).
  */
-export async function showCameraPreview(): Promise<{ shown: boolean; missing: boolean }> {
+export async function showCameraPreview(): Promise<{
+  shown: boolean;
+  missing: boolean;
+}> {
   const path = cameraPreviewTarget();
   if (!path) return { shown: false, missing: false };
   if (cameraPreviewShown(path)) return { shown: true, missing: false };
@@ -123,7 +126,7 @@ export async function showCameraPreview(): Promise<{ shown: boolean; missing: bo
   // Optional view: a read that failed shows the edit.
   const shown = await invoke<boolean>(Invokes.ShowCameraPreview, { path }).then(
     (answer) => answer === true,
-    () => false,
+    () => false
   );
   if (asked !== request) {
     // Voided. Its cover only goes when no newer show is wanted: a newer one

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 /** How long the pointer has to stay on a window-edge strip (12 px) before
  * its hidden side panel comes in: about one frame, so that a pointer
@@ -13,7 +13,7 @@ export const PEEK_HOLD_MS = 20;
  * over its border does not close it (Lightroom: 130-180 ms). */
 export const PEEK_LEAVE_MS = 150;
 
-export type PeekSide = "left" | "right";
+export type PeekSide = 'left' | 'right';
 
 const insidePanel = (target: EventTarget | null, side: PeekSide) =>
   target instanceof Element && Boolean(target.closest(`[data-peek="${side}"]`));
@@ -79,13 +79,13 @@ export function useEdgePeek(resetKey: unknown) {
     onPointerLeave: (e: ReactPointerEvent) => {
       clear(showTimer);
       if (peek === side && !insidePanel(e.relatedTarget, side)) endSoon();
-    },
+    }
   });
 
   const panelProps = (side: PeekSide) =>
     peek === side
       ? {
-          "data-peek": side,
+          'data-peek': side,
           onPointerEnter: () => clear(hideTimer),
           onPointerLeave: (e: ReactPointerEvent) => {
             if (insideEdge(e.relatedTarget, side) || insidePanel(e.relatedTarget, side)) return;
@@ -100,9 +100,9 @@ export function useEdgePeek(resetKey: unknown) {
               const over = document.elementFromPoint(up.clientX, up.clientY);
               if (!insidePanel(over, side) && !insideEdge(over, side)) endSoon();
             };
-            window.addEventListener("pointerup", onUp, true);
-            release.current = () => window.removeEventListener("pointerup", onUp, true);
-          },
+            window.addEventListener('pointerup', onUp, true);
+            release.current = () => window.removeEventListener('pointerup', onUp, true);
+          }
         }
       : {};
 

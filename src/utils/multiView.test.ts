@@ -20,7 +20,7 @@ import {
   panCell,
   cycleCellZoom,
   fitScaleOf,
-  MAX_CELL_ZOOM,
+  MAX_CELL_ZOOM
 } from './multiView';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 
@@ -41,12 +41,18 @@ describe('packGrid', () => {
 
   it('packs four photographs 2 × 2 in a 3:2 viewer and twelve 4 × 3', () => {
     expect(packGrid(4, 1500, 1000, 1.5)).toMatchObject({ columns: 2, rows: 2 });
-    expect(packGrid(12, 1500, 1000, 1.5)).toMatchObject({ columns: 4, rows: 3 });
+    expect(packGrid(12, 1500, 1000, 1.5)).toMatchObject({
+      columns: 4,
+      rows: 3
+    });
   });
 
   it('chooses the rows and columns that show the photographs largest', () => {
     // Portrait photographs fill more of a wide viewer in one row.
-    expect(packGrid(3, 1500, 700, 2 / 3)).toMatchObject({ columns: 3, rows: 1 });
+    expect(packGrid(3, 1500, 700, 2 / 3)).toMatchObject({
+      columns: 3,
+      rows: 1
+    });
     // Wide panoramas stack.
     expect(packGrid(3, 1000, 1000, 3)).toMatchObject({ columns: 1, rows: 3 });
   });
@@ -91,7 +97,12 @@ describe('packGrid', () => {
 });
 
 describe('captions', () => {
-  const exif = { PhotographicSensitivity: '400', ExposureTime: '1/250', FNumber: '2.8', FocalLength: '35' };
+  const exif = {
+    PhotographicSensitivity: '400',
+    ExposureTime: '1/250',
+    FNumber: '2.8',
+    FocalLength: '35'
+  };
 
   it('grow with the cell width', () => {
     expect(captionLevel(200)).toBe('narrow');
@@ -122,7 +133,10 @@ describe('cellsFor', () => {
   const many = Array.from({ length: 15 }, (_, i) => `p${i}`);
 
   it('shows every photograph up to twelve', () => {
-    expect(cellsFor(many.slice(0, 12), 'p0')).toEqual({ shown: many.slice(0, 12), more: 0 });
+    expect(cellsFor(many.slice(0, 12), 'p0')).toEqual({
+      shown: many.slice(0, 12),
+      more: 0
+    });
   });
 
   it('keeps the last cell for "+N more" and the primary always visible', () => {
@@ -154,7 +168,12 @@ describe('primary navigation', () => {
 describe('changedCopyableKeys', () => {
   it('takes the copyable keys an edit changed, with their new values', () => {
     const before = { ...INITIAL_ADJUSTMENTS } as Adjustments;
-    const after = { ...before, exposure: 0.7, contrast: 12, crop: { x: 1, y: 2, width: 3, height: 4 } } as Adjustments;
+    const after = {
+      ...before,
+      exposure: 0.7,
+      contrast: 12,
+      crop: { x: 1, y: 2, width: 3, height: 4 }
+    } as Adjustments;
     const changed = changedCopyableKeys(before, after);
     expect(changed).toMatchObject({ exposure: 0.7, contrast: 12 });
     // The crop belongs to each photograph only if it is copyable.
@@ -172,8 +191,14 @@ describe('reference photograph', () => {
   const many = Array.from({ length: 15 }, (_, i) => `p${i}`);
 
   it('comes first and is not counted twice', () => {
-    expect(cellsFor(['a', 'b'], 'a', 'r')).toEqual({ shown: ['r', 'a', 'b'], more: 0 });
-    expect(cellsFor(['a', 'r', 'b'], 'a', 'r')).toEqual({ shown: ['r', 'a', 'b'], more: 0 });
+    expect(cellsFor(['a', 'b'], 'a', 'r')).toEqual({
+      shown: ['r', 'a', 'b'],
+      more: 0
+    });
+    expect(cellsFor(['a', 'r', 'b'], 'a', 'r')).toEqual({
+      shown: ['r', 'a', 'b'],
+      more: 0
+    });
   });
 
   it('takes one of the twelve cells; the primary stays visible', () => {
@@ -188,7 +213,14 @@ describe('reference photograph', () => {
 describe('sharedZoomOf', () => {
   // A 6000 × 4000 photograph fitted to 600 × 400 CSS px in a 600 × 500
   // container (offset 50 px down), at 2× device pixels.
-  const fit = { width: 600, height: 400, offsetX: 0, offsetY: 50, containerWidth: 600, containerHeight: 500 };
+  const fit = {
+    width: 600,
+    height: 400,
+    offsetX: 0,
+    offsetY: 50,
+    containerWidth: 600,
+    containerHeight: 500
+  };
   const shown = { width: 6000, height: 4000 };
 
   it('is nothing at fit', () => {
@@ -262,7 +294,14 @@ describe('per-cell zoom (zoom lock off)', () => {
   });
 
   it("gives the editor the transform that shows a cell's zoom", () => {
-    const fit = { width: 600, height: 400, offsetX: 0, offsetY: 50, containerWidth: 600, containerHeight: 500 };
+    const fit = {
+      width: 600,
+      height: 400,
+      offsetX: 0,
+      offsetY: 50,
+      containerWidth: 600,
+      containerHeight: 500
+    };
     const zoom = { scale: 1, center: [0.25, 0.75] as [number, number] };
     const transform = transformOfZoom(zoom, fit, shown, 2)!;
     expect(transform.scale).toBeCloseTo(5);

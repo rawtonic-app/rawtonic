@@ -46,7 +46,10 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
   const boxesKey = faces ? JSON.stringify(faces.map((f) => f.bbox)) : '';
   // Every face's outline, asked when the faces or the geometry change, so
   // moving from face to face shows its box at once.
-  const [shown, setShown] = useState<{ key: string; outlines: ([number, number][] | null)[] } | null>(null);
+  const [shown, setShown] = useState<{
+    key: string;
+    outlines: ([number, number][] | null)[];
+  } | null>(null);
   const key = `${path}\n${width}x${height}\n${geometryKey}\n${boxesKey}`;
   useEffect(() => {
     if (!path || !boxesKey || !width || !height) return;
@@ -56,7 +59,7 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
       jsAdjustments: useEditorStore.getState().adjustments,
       width,
       height,
-      boxes: JSON.parse(boxesKey),
+      boxes: JSON.parse(boxesKey)
     })
       .then((outlines) => current && setShown({ key, outlines }))
       .catch((error) => console.error('Showing the face box failed:', error));
@@ -75,7 +78,10 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
   const Icon = EYE_ICONS[state];
   const points = outlineOnPhoto(outline, cropX, cropY, scale);
   const label = labelPlace(points, LABEL_HEIGHT / zoom);
-  const text = t('studio.eyes.faceLabel', { n: index + 1, state: stateLabel(t, state) });
+  const text = t('studio.eyes.faceLabel', {
+    n: index + 1,
+    state: stateLabel(t, state)
+  });
   return (
     <div
       className={`face-box-overlay is-${state}`}
@@ -88,7 +94,7 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
         height: rect.height,
         overflow: 'hidden',
         pointerEvents: 'none',
-        zIndex: 4,
+        zIndex: 4
       }}
     >
       <svg width={rect.width} height={rect.height} style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
@@ -108,7 +114,7 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
         style={{
           left: label.x,
           top: label.y,
-          transform: `scale(${1 / zoom}) translateY(${label.below ? '2px' : 'calc(-100% - 2px)'})`,
+          transform: `scale(${1 / zoom}) translateY(${label.below ? '2px' : 'calc(-100% - 2px)'})`
         }}
       >
         <Icon size={12} />

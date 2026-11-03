@@ -1,21 +1,21 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { recipeWrite, useEditorActions } from "../../hooks/useEditorActions";
-import { Invokes } from "../ui/AppProperties";
+import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { recipeWrite, useEditorActions } from '../../hooks/useEditorActions';
+import { Invokes } from '../ui/AppProperties';
 import type {
   Adjustments,
   FaceProtectStroke,
   FaceRetouch,
   FaceRetouchSettings,
-  RetouchFace,
-} from "../../utils/adjustments";
-import { aiErrorMessage } from "../../utils/aiErrors";
-import AdjustmentControl from "./AdjustmentControl";
-import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../utils/geometryKeys";
-import { frameGeometry as shownGeometry, reframePoint } from "../../utils/maskGeometry";
+  RetouchFace
+} from '../../utils/adjustments';
+import { aiErrorMessage } from '../../utils/aiErrors';
+import AdjustmentControl from './AdjustmentControl';
+import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../utils/geometryKeys';
+import { frameGeometry as shownGeometry, reframePoint } from '../../utils/maskGeometry';
 
 /** Geometry keys that correct colour, not where a pixel is (the engine's
  * `face_retouch::COLOUR_ONLY_KEYS`): faces stay valid when they change. */
@@ -28,7 +28,7 @@ const COLOUR_ONLY_KEYS: ReadonlySet<string> = new Set([
   'lensTcaEnabled',
   'autoChromaticAberration',
   'autoCaVersion',
-  'fringeVersion',
+  'fringeVersion'
 ]);
 
 /** What decides the mask frame the faces are found in: orientation,
@@ -38,7 +38,7 @@ const COLOUR_ONLY_KEYS: ReadonlySet<string> = new Set([
  * geometry change makes the stored faces stale. */
 export const FACE_FRAME_KEYS = [
   ...ORIENTATION_KEYS,
-  ...GEOMETRY_KEYS.filter((key) => !COLOUR_ONLY_KEYS.has(key)),
+  ...GEOMETRY_KEYS.filter((key) => !COLOUR_ONLY_KEYS.has(key))
 ] as const;
 
 /** The keys of a frame without the engine's `2:` prefix (faces found
@@ -48,13 +48,12 @@ const FIRST_FACE_FRAME_KEYS = [...ORIENTATION_KEYS, ...GEOMETRY_KEYS] as const;
 /** The geometry the faces are found in (the mask frame, without the crop). */
 export function faceRetouchGeometry(
   adjustments: Adjustments,
-  keys: ReadonlyArray<(typeof FIRST_FACE_FRAME_KEYS)[number]> = FACE_FRAME_KEYS,
+  keys: ReadonlyArray<(typeof FIRST_FACE_FRAME_KEYS)[number]> = FACE_FRAME_KEYS
 ) {
   return Object.fromEntries(
-    keys.filter((key) => adjustments[key] !== undefined && adjustments[key] !== null).map((key) => [
-      key,
-      adjustments[key],
-    ]),
+    keys
+      .filter((key) => adjustments[key] !== undefined && adjustments[key] !== null)
+      .map((key) => [key, adjustments[key]])
   );
 }
 
@@ -66,7 +65,7 @@ export function faceRetouchIsCurrent(retouch: FaceRetouch | null | undefined, ad
 
 /** The panel's `geometry` for faces of `frame`, by that frame's rule. */
 function frameGeometry(adjustments: Adjustments, frame: string | undefined) {
-  const keys = frame?.startsWith("2:") ? FACE_FRAME_KEYS : FIRST_FACE_FRAME_KEYS;
+  const keys = frame?.startsWith('2:') ? FACE_FRAME_KEYS : FIRST_FACE_FRAME_KEYS;
   return JSON.stringify(faceRetouchGeometry(adjustments, keys));
 }
 
@@ -89,7 +88,10 @@ function analyse(path: string, geometry: string, download = false): Promise<Anal
   const key = `${path}\n${geometry}`;
   let pending = analyses.get(key);
   if (!pending) {
-    pending = invoke<Analysis>(Invokes.AnalyzeFaceRetouch, { jsAdjustments: JSON.parse(geometry), download });
+    pending = invoke<Analysis>(Invokes.AnalyzeFaceRetouch, {
+      jsAdjustments: JSON.parse(geometry),
+      download
+    });
     pending.catch(() => analyses.delete(key));
     analyses.set(key, pending);
   }
@@ -126,7 +128,7 @@ export function reframeProtection(
   from: string,
   to: Adjustments,
   width: number | undefined,
-  height: number | undefined,
+  height: number | undefined
 ): FaceProtectStroke[] | undefined {
   if (!strokes?.length || !width || !height) return strokes;
   let before: Record<string, unknown>;
@@ -138,7 +140,7 @@ export function reframeProtection(
   const [a, b] = [shownGeometry(before), shownGeometry(to)];
   return strokes.map((stroke) => ({
     ...stroke,
-    points: stroke.points.map((p) => reframePoint(p, a, b, width, height)),
+    points: stroke.points.map((p) => reframePoint(p, a, b, width, height))
   }));
 }
 
@@ -159,11 +161,8 @@ export function healedBlemishes(face: RetouchFace, all: FaceRetouchSettings): Se
   const added = face.added ?? [];
   return new Set(
     face.blemishes
-      .filter(
-        (b) =>
-          (b.score >= threshold || added.includes(b.id)) && !face.kept.includes(b.id) && (neck || !b.neck),
-      )
-      .map((b) => b.id),
+      .filter((b) => (b.score >= threshold || added.includes(b.id)) && !face.kept.includes(b.id) && (neck || !b.neck))
+      .map((b) => b.id)
   );
 }
 
@@ -172,16 +171,21 @@ export function removedBlemishes(face: RetouchFace, all: FaceRetouchSettings) {
   return healedBlemishes(face, all).size;
 }
 
-type SliderKey = Exclude<keyof FaceRetouchSettings, "includeNeck">;
+type SliderKey = Exclude<keyof FaceRetouchSettings, 'includeNeck'>;
 const SLIDERS = [
-  { key: "impact", min: 0, max: 100, initial: 100 },
-  { key: "blemishes", min: 0, max: 100, initial: 0 },
-  { key: "evenSkin", min: 0, max: 100, initial: 0 },
-  { key: "texture", min: -100, max: 100, initial: 0 },
-  { key: "darkCircles", min: 0, max: 100, initial: 0 },
-  { key: "shine", min: 0, max: 100, initial: 0 },
-  { key: "contouring", min: 0, max: 100, initial: 0 },
-] as const satisfies ReadonlyArray<{ key: SliderKey; min: number; max: number; initial: number }>;
+  { key: 'impact', min: 0, max: 100, initial: 100 },
+  { key: 'blemishes', min: 0, max: 100, initial: 0 },
+  { key: 'evenSkin', min: 0, max: 100, initial: 0 },
+  { key: 'texture', min: -100, max: 100, initial: 0 },
+  { key: 'darkCircles', min: 0, max: 100, initial: 0 },
+  { key: 'shine', min: 0, max: 100, initial: 0 },
+  { key: 'contouring', min: 0, max: 100, initial: 0 }
+] as const satisfies ReadonlyArray<{
+  key: SliderKey;
+  min: number;
+  max: number;
+  initial: number;
+}>;
 
 /**
  * Face retouch (Capture One's Retouch Faces Skin tool): all faces or one,
@@ -198,7 +202,11 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const geometry = JSON.stringify(faceRetouchGeometry(adjustments));
   const stored = adjustments.faceRetouch ?? null;
   const current = faceRetouchIsCurrent(stored, adjustments) ? stored : null;
-  const [found, setFound] = useState<{ key: string; analysis?: Analysis; error?: string } | null>(null);
+  const [found, setFound] = useState<{
+    key: string;
+    analysis?: Analysis;
+    error?: string;
+  } | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const showBlemishes = useEditorStore((s) => s.showFaceBlemishes);
   const multiSelected = useLibraryStore((s) => s.multiSelectedPaths);
@@ -214,8 +222,11 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
     const [w, h] = turned ? [selected.height, selected.width] : [selected.width, selected.height];
     const faceSettings = current.faces
       .filter((f) => Object.keys(f.settings).length > 0)
-      .map((f) => ({ center: [(f.box[0] + f.box[2] / 2) / w, (f.box[1] + f.box[3] / 2) / h], settings: f.settings }));
-    setApplying(t("studio.faceRetouch.applying", { count: others.length }));
+      .map((f) => ({
+        center: [(f.box[0] + f.box[2] / 2) / w, (f.box[1] + f.box[3] / 2) / h],
+        settings: f.settings
+      }));
+    setApplying(t('studio.faceRetouch.applying', { count: others.length }));
     try {
       // A long command (faces found in each photo): it reports each photo's
       // write, which quitting counts.
@@ -226,13 +237,17 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
             paths: others,
             settings: current.settings,
             faceSettings,
-            ...(batch ? { batch } : {}),
+            ...(batch ? { batch } : {})
           }),
         /** It answers how many it wrote; short of all it failed with the
          * photos not written (a single one: any may have failed). */
-        { kind: "faceRetouch", failedOf: (written) => (written < others.length ? others : []), batch: true },
+        {
+          kind: 'faceRetouch',
+          failedOf: (written) => (written < others.length ? others : []),
+          batch: true
+        }
       );
-      setApplying(t("studio.faceRetouch.applied", { done, total: others.length }));
+      setApplying(t('studio.faceRetouch.applied', { done, total: others.length }));
     } catch (e) {
       setApplying(aiErrorMessage(e));
     }
@@ -246,9 +261,12 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       setEditor({
         showFaceBlemishes: false,
         showFaceProtection: false,
-        faceProtect: { ...useEditorStore.getState().faceProtect, painting: false },
+        faceProtect: {
+          ...useEditorStore.getState().faceProtect,
+          painting: false
+        }
       }),
-    [setEditor],
+    [setEditor]
   );
   const key = `${path}\n${geometry}`;
 
@@ -274,12 +292,19 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
               frame: analysis.frame,
               geometry: frameGeometry(prev, analysis.frame),
               faces: carryOver(old.faces, analysis.faces),
-              ...(protect && { protect }),
-            },
+              ...(protect && { protect })
+            }
           };
         });
       })
-      .catch((error) => live && setFound({ key: `${path}\n${geometry}`, error: aiErrorMessage(error) }));
+      .catch(
+        (error) =>
+          live &&
+          setFound({
+            key: `${path}\n${geometry}`,
+            error: aiErrorMessage(error)
+          })
+      );
     return () => {
       live = false;
     };
@@ -297,7 +322,12 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         prev.faceRetouch && faceRetouchIsCurrent(prev.faceRetouch, prev)
           ? prev.faceRetouch
           : analysis
-            ? { settings: {}, faces: analysis.faces, frame: analysis.frame, geometry: frameGeometry(prev, analysis.frame) }
+            ? {
+                settings: {},
+                faces: analysis.faces,
+                frame: analysis.frame,
+                geometry: frameGeometry(prev, analysis.frame)
+              }
             : null;
       return base ? { ...prev, faceRetouch: change(base) } : prev;
     });
@@ -306,9 +336,9 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       face
         ? {
             ...r,
-            faces: r.faces.map((f) => (f.id === face.id ? { ...f, settings: { ...f.settings, [key]: value } } : f)),
+            faces: r.faces.map((f) => (f.id === face.id ? { ...f, settings: { ...f.settings, [key]: value } } : f))
           }
-        : { ...r, settings: { ...r.settings, [key]: value } },
+        : { ...r, settings: { ...r.settings, [key]: value } }
     );
   const valueOf = (key: SliderKey, initial: number) => face?.settings[key] ?? settings[key] ?? initial;
   const busy = !current && !analysis && !(found?.key === key && found.error);
@@ -319,14 +349,14 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   return (
     <div className="studio-face-retouch">
       {faces.length > 0 && (
-        <div className="studio-people-list" role="radiogroup" aria-label={t("studio.faceRetouch.facesAria")}>
+        <div className="studio-people-list" role="radiogroup" aria-label={t('studio.faceRetouch.facesAria')}>
           <button
             role="radio"
             aria-checked={face === null}
             className="studio-people-everyone"
             onClick={() => setTarget(null)}
           >
-            {t("studio.faceRetouch.allFaces")}
+            {t('studio.faceRetouch.allFaces')}
           </button>
           {faces.map((f, i) => (
             <button
@@ -335,25 +365,25 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
               aria-checked={face?.id === f.id}
               title={
                 Object.keys(f.settings).length
-                  ? t("studio.faceRetouch.faceOwn", { n: i + 1 })
-                  : t("studio.faceRetouch.face", { n: i + 1 })
+                  ? t('studio.faceRetouch.faceOwn', { n: i + 1 })
+                  : t('studio.faceRetouch.face', { n: i + 1 })
               }
-              className={Object.keys(f.settings).length ? "has-own" : undefined}
+              className={Object.keys(f.settings).length ? 'has-own' : undefined}
               onClick={() => setTarget(f.id)}
             >
               {f.thumbnail ? (
-                <img src={f.thumbnail} alt={t("studio.faceRetouch.face", { n: i + 1 })} />
+                <img src={f.thumbnail} alt={t('studio.faceRetouch.face', { n: i + 1 })} />
               ) : (
-                t("studio.faceRetouch.face", { n: i + 1 })
+                t('studio.faceRetouch.face', { n: i + 1 })
               )}
             </button>
           ))}
         </div>
       )}
-      {busy && <p className="studio-hint">{t("studio.faceRetouch.finding")}</p>}
+      {busy && <p className="studio-hint">{t('studio.faceRetouch.finding')}</p>}
       {modelsMissing && (
         <div className="studio-hint" role="note">
-          <p>{t("studio.faceRetouch.modelsMissing")}</p>
+          <p>{t('studio.faceRetouch.modelsMissing')}</p>
           <button
             type="button"
             className="studio-text-button"
@@ -362,7 +392,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
               setDownload((n) => n + 1);
             }}
           >
-            {t("studio.faceRetouch.downloadModels")}
+            {t('studio.faceRetouch.downloadModels')}
           </button>
         </div>
       )}
@@ -373,7 +403,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       )}
       {!busy && !failure && faces.length === 0 && (
         <p className="studio-hint" role="note">
-          {t("studio.faceRetouch.noFaces")}
+          {t('studio.faceRetouch.noFaces')}
         </p>
       )}
       {faces.length > 0 &&
@@ -394,11 +424,11 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         <label className="studio-check">
           <input
             type="checkbox"
-            aria-label={t("studio.faceRetouch.includeNeck")}
+            aria-label={t('studio.faceRetouch.includeNeck')}
             checked={face?.settings.includeNeck ?? settings.includeNeck ?? false}
-            onChange={(e) => set("includeNeck", e.target.checked)}
+            onChange={(e) => set('includeNeck', e.target.checked)}
           />
-          {t("studio.faceRetouch.includeNeck")}
+          {t('studio.faceRetouch.includeNeck')}
         </label>
       )}
       {faces.length > 0 && (
@@ -412,7 +442,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
               setEditor({ showFaceBlemishes: e.target.checked });
             }}
           />
-          {t("studio.faceRetouch.showBlemishes")}
+          {t('studio.faceRetouch.showBlemishes')}
         </label>
       )}
       {faces.length > 0 && (
@@ -420,26 +450,26 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           <div
             className="studio-segments"
             role="radiogroup"
-            aria-label={t("studio.faceRetouch.protect.brush")}
-            title={t("studio.faceRetouch.protect.hint")}
+            aria-label={t('studio.faceRetouch.protect.brush')}
+            title={t('studio.faceRetouch.protect.hint')}
           >
-            {(["off", "paint", "erase"] as const).map((mode) => {
-              const on = protectBrush.painting && (mode === "erase") === protectBrush.erase;
+            {(['off', 'paint', 'erase'] as const).map((mode) => {
+              const on = protectBrush.painting && (mode === 'erase') === protectBrush.erase;
               return (
                 <button
                   key={mode}
                   type="button"
                   role="radio"
-                  aria-checked={mode === "off" ? !protectBrush.painting : on}
+                  aria-checked={mode === 'off' ? !protectBrush.painting : on}
                   onClick={() => {
                     // The brush paints on the recipe's faces: keep them there.
-                    if (mode !== "off" && !current) update((r) => r);
+                    if (mode !== 'off' && !current) update((r) => r);
                     setEditor({
                       faceProtect: {
                         ...protectBrush,
-                        painting: mode !== "off",
-                        erase: mode === "erase",
-                      },
+                        painting: mode !== 'off',
+                        erase: mode === 'erase'
+                      }
                     });
                   }}
                 >
@@ -451,28 +481,40 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           {protectBrush.painting && (
             <>
               <AdjustmentControl
-                label={t("studio.faceRetouch.protect.size")}
-                ariaLabel={t("studio.faceRetouch.protect.sizeAria")}
+                label={t('studio.faceRetouch.protect.size')}
+                ariaLabel={t('studio.faceRetouch.protect.sizeAria')}
                 min={2}
                 max={500}
                 step={1}
                 unit=" px"
                 value={protectBrush.size}
                 defaultValue={30}
-                onChange={(size) => setEditor({ faceProtect: { ...useEditorStore.getState().faceProtect, size } })}
+                onChange={(size) =>
+                  setEditor({
+                    faceProtect: {
+                      ...useEditorStore.getState().faceProtect,
+                      size
+                    }
+                  })
+                }
               />
               <AdjustmentControl
-                label={t("studio.faceRetouch.protect.feather")}
-                ariaLabel={t("studio.faceRetouch.protect.featherAria")}
+                label={t('studio.faceRetouch.protect.feather')}
+                ariaLabel={t('studio.faceRetouch.protect.featherAria')}
                 min={0}
                 max={100}
                 value={protectBrush.feather}
                 defaultValue={50}
                 onChange={(feather) =>
-                  setEditor({ faceProtect: { ...useEditorStore.getState().faceProtect, feather } })
+                  setEditor({
+                    faceProtect: {
+                      ...useEditorStore.getState().faceProtect,
+                      feather
+                    }
+                  })
                 }
               />
-              <p className="studio-hint">{t("studio.faceRetouch.protect.hint")}</p>
+              <p className="studio-hint">{t('studio.faceRetouch.protect.hint')}</p>
             </>
           )}
           <label className="studio-check">
@@ -482,7 +524,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
               disabled={protectBrush.painting}
               onChange={(e) => setEditor({ showFaceProtection: e.target.checked })}
             />
-            {t("studio.faceRetouch.protect.show")}
+            {t('studio.faceRetouch.protect.show')}
           </label>
           {(current?.protect?.length ?? 0) > 0 && (
             <button
@@ -495,7 +537,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
                 })
               }
             >
-              {t("studio.faceRetouch.protect.clear")}
+              {t('studio.faceRetouch.protect.clear')}
             </button>
           )}
         </div>
@@ -504,13 +546,13 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         const n = (face ? [face] : faces).reduce((sum, f) => sum + removedBlemishes(f, settings), 0);
         return n > 0 ? (
           <p className="studio-hint" role="status">
-            {t("studio.faceRetouch.healed", { count: n })}
+            {t('studio.faceRetouch.healed', { count: n })}
           </p>
         ) : null;
       })()}
       {current && others.length > 0 && (
         <button type="button" className="studio-text-button" onClick={() => void applyToOthers()}>
-          {t("studio.faceRetouch.applyTo", { count: others.length })}
+          {t('studio.faceRetouch.applyTo', { count: others.length })}
         </button>
       )}
       {applying && (
@@ -523,11 +565,13 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           type="button"
           className="studio-text-button"
           onClick={() =>
-            update((r) => ({ ...r, faces: r.faces.map((f) => (f.id === face.id ? { ...f, settings: {} } : f)) }))
+            update((r) => ({
+              ...r,
+              faces: r.faces.map((f) => (f.id === face.id ? { ...f, settings: {} } : f))
+            }))
           }
         >
-          {t("studio.faceRetouch.useAll")}
-
+          {t('studio.faceRetouch.useAll')}
         </button>
       )}
     </div>

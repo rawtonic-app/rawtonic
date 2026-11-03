@@ -3,7 +3,13 @@ import { act, cleanup, fireEvent, render, renderHook } from '@testing-library/re
 import { createElement } from 'react';
 import { notify as toast, type NotifyOptions } from '../activity/notify';
 import { invoke } from '@tauri-apps/api/core';
-import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, editAllNotSaved, livePatch, useEditAllSelected } from './useEditAllSelected';
+import {
+  EDIT_ALL_LIVE_MS,
+  EDIT_ALL_SETTLE_MS,
+  editAllNotSaved,
+  livePatch,
+  useEditAllSelected
+} from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
 import { flushRecipeSaves, waitForPendingMetadataSave } from './useEditorActions';
 import '../i18n';
@@ -14,8 +20,12 @@ import { Invokes } from '../components/ui/AppProperties';
 import { switchLibraryAfterSaves, type UnsavedChoice } from '../utils/quit';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() } }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.resolve())
+}));
+vi.mock('../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() }
+}));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 
 const selection = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3'];
@@ -24,7 +34,10 @@ const pasted = () =>
     .mocked(invoke)
     .mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)
     .map(([, args]) => {
-      const { paths, adjustments } = args as { paths: string[]; adjustments: Partial<Adjustments> };
+      const { paths, adjustments } = args as {
+        paths: string[];
+        adjustments: Partial<Adjustments>;
+      };
       return { paths, adjustments };
     });
 /** Where each write said its settings come from. */
@@ -42,7 +55,9 @@ const live = () =>
 
 function edit(change: Partial<Adjustments>) {
   act(() =>
-    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, ...change } as Adjustments })),
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, ...change } as Adjustments
+    }))
   );
 }
 
@@ -57,8 +72,13 @@ beforeEach(() => {
   useSettingsStore.setState({ osPlatform: 'macos' });
   useLibraryStore.setState({ multiSelectedPaths: selection });
   useEditorStore.setState({
-    selectedImage: { path: '/s/b.CR3', isReady: true, width: 6000, height: 4000 } as never,
-    adjustments: { ...INITIAL_ADJUSTMENTS } as Adjustments,
+    selectedImage: {
+      path: '/s/b.CR3',
+      isReady: true,
+      width: 6000,
+      height: 4000
+    } as never,
+    adjustments: { ...INITIAL_ADJUSTMENTS } as Adjustments
   });
 });
 afterEach(() => {
@@ -73,7 +93,9 @@ describe('Edit all selected', () => {
     renderHook(() => useEditAllSelected(true, selection));
     edit({ exposure: 0.5 });
     expect(live()).toEqual([]);
-    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    await act(async () => {
+      vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+    });
     expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.5 } }]);
     expect(useMultiViewStore.getState().recipeRevision).toBe(before + 1);
     expect(live()).toEqual([]);
@@ -85,7 +107,10 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([]);
     act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
     expect(pasted()).toEqual([
-      { paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.8, contrast: 10 } },
+      {
+        paths: ['/s/a.CR3', '/s/c.CR3'],
+        adjustments: { exposure: 0.8, contrast: 10 }
+      }
     ]);
     // The primary keeps its own edit (and its own history).
     expect(useEditorStore.getState().adjustments.exposure).toBe(0.8);
@@ -95,35 +120,89 @@ describe('Edit all selected', () => {
 
   it('does not send an AI detection made on the primary to the others', () => {
     const sky = (data: string | null, pending: boolean) => ({
-      id: 'l', name: 'Sky', visible: true, invert: false, opacity: 100, adjustments: {},
-      subMasks: [{ id: 's', type: 'ai-sky', visible: true, invert: false, opacity: 100, mode: 'additive',
-        parameters: { maskDataBase64: data, ...(pending ? { detectPending: true } : {}) } }],
+      id: 'l',
+      name: 'Sky',
+      visible: true,
+      invert: false,
+      opacity: 100,
+      adjustments: {},
+      subMasks: [
+        {
+          id: 's',
+          type: 'ai-sky',
+          visible: true,
+          invert: false,
+          opacity: 100,
+          mode: 'additive',
+          parameters: {
+            maskDataBase64: data,
+            ...(pending ? { detectPending: true } : {})
+          }
+        }
+      ]
     });
-    act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, masks: [sky(null, true)] as never } }));
+    act(() =>
+      useEditorStore.setState({
+        adjustments: {
+          ...useEditorStore.getState().adjustments,
+          masks: [sky(null, true)] as never
+        }
+      })
+    );
     renderHook(() => useEditAllSelected(true, selection));
     edit({ masks: [sky('data:own', false)] as never });
     act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
     expect(pasted()).toEqual([]);
   });
 
-  it("sends an AI detection made on the primary to its virtual copies, which share its pixels", () => {
+  it('sends an AI detection made on the primary to its virtual copies, which share its pixels', () => {
     const sky = (data: string | null) => ({
-      id: 'l', name: 'Sky', visible: true, invert: false, opacity: 100, adjustments: {},
-      subMasks: [{ id: 's', type: 'ai-sky', visible: true, invert: false, opacity: 100, mode: 'additive',
-        parameters: { maskDataBase64: data } }],
+      id: 'l',
+      name: 'Sky',
+      visible: true,
+      invert: false,
+      opacity: 100,
+      adjustments: {},
+      subMasks: [
+        {
+          id: 's',
+          type: 'ai-sky',
+          visible: true,
+          invert: false,
+          opacity: 100,
+          mode: 'additive',
+          parameters: { maskDataBase64: data }
+        }
+      ]
     });
-    act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, masks: [sky(null)] as never } }));
+    act(() =>
+      useEditorStore.setState({
+        adjustments: {
+          ...useEditorStore.getState().adjustments,
+          masks: [sky(null)] as never
+        }
+      })
+    );
     renderHook(() => useEditAllSelected(true, [...selection, '/s/b.CR3?vc=c0ffee']));
     edit({ masks: [sky('data:own')] as never });
     act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
-    expect(pasted()).toEqual([{ paths: ['/s/b.CR3?vc=c0ffee'], adjustments: { masks: [sky('data:own')] } }]);
+    expect(pasted()).toEqual([
+      {
+        paths: ['/s/b.CR3?vc=c0ffee'],
+        adjustments: { masks: [sky('data:own')] }
+      }
+    ]);
   });
 
   it('takes away from the others a setting the primary no longer has', () => {
     act(() =>
       useEditorStore.setState({
-        adjustments: { ...useEditorStore.getState().adjustments, whiteBalance: 'custom', wbTemperature: 2850 } as never,
-      }),
+        adjustments: {
+          ...useEditorStore.getState().adjustments,
+          whiteBalance: 'custom',
+          wbTemperature: 2850
+        } as never
+      })
     );
     renderHook(() => useEditAllSelected(true, selection));
     const asShot = { ...useEditorStore.getState().adjustments } as Record<string, unknown>;
@@ -131,7 +210,10 @@ describe('Edit all selected', () => {
     delete asShot.wbTemperature;
     act(() => useEditorStore.setState({ adjustments: asShot as never }));
     act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
-    expect(pasted()[0].adjustments).toMatchObject({ whiteBalance: null, wbTemperature: null });
+    expect(pasted()[0].adjustments).toMatchObject({
+      whiteBalance: null,
+      wbTemperature: null
+    });
   });
 
   it('has the other cells developed again once their recipes are written', async () => {
@@ -155,14 +237,14 @@ describe('Edit all selected', () => {
     act(() =>
       useEditorStore.setState({
         selectedImage: { path: '/s/a.CR3', isReady: false } as never,
-        adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2 } as Adjustments,
-      }),
+        adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2 } as Adjustments
+      })
     );
     act(() =>
       useEditorStore.setState({
         selectedImage: { path: '/s/a.CR3', isReady: true } as never,
-        adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } as Adjustments,
-      }),
+        adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } as Adjustments
+      })
     );
     act(() => vi.advanceTimersByTime(1000));
     expect(pasted()).toEqual([]);
@@ -172,9 +254,14 @@ describe('Edit all selected', () => {
     renderHook(() => useEditAllSelected(true, selection));
     act(() =>
       useEditorStore.setState((state) => ({
-        selectedImage: { ...state.selectedImage!, width: 6024, height: 4020, isDecoded: true },
-        adjustments: { ...state.adjustments, aspectRatio: 6024 / 4020 },
-      })),
+        selectedImage: {
+          ...state.selectedImage!,
+          width: 6024,
+          height: 4020,
+          isDecoded: true
+        },
+        adjustments: { ...state.adjustments, aspectRatio: 6024 / 4020 }
+      }))
     );
     act(() => vi.advanceTimersByTime(1000));
     expect(pasted()).toEqual([]);
@@ -190,7 +277,7 @@ describe('Edit all selected', () => {
 
   it('writes what was gathered when it is switched off', () => {
     const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), {
-      initialProps: { on: true },
+      initialProps: { on: true }
     });
     edit({ saturation: 20 });
     rerender({ on: false });
@@ -200,7 +287,11 @@ describe('Edit all selected', () => {
   it('writes a gathered edit to all the others when the primary switches to one of them', () => {
     renderHook(() => useEditAllSelected(true, selection));
     edit({ exposure: 0.5 });
-    act(() => useEditorStore.setState({ selectedImage: { path: '/s/a.CR3', isReady: false } as never }));
+    act(() =>
+      useEditorStore.setState({
+        selectedImage: { path: '/s/a.CR3', isReady: false } as never
+      })
+    );
     expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.5 } }]);
     // The new primary reads its recipe after that write.
     expect(waitForPendingMetadataSave('/s/a.CR3')).toBeDefined();
@@ -210,50 +301,95 @@ describe('Edit all selected', () => {
 
   it('writes to the photographs selected when the edit was made, though the selection changed', () => {
     const { rerender } = renderHook(({ on, paths }) => useEditAllSelected(on, paths), {
-      initialProps: { on: true, paths: selection },
+      initialProps: { on: true, paths: selection }
     });
     edit({ exposure: 0.5 });
     rerender({ on: false, paths: ['/s/b.CR3'] });
     expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.5 } }]);
   });
 
-  it('sends the primary\'s sharpening response with sharpening edits, and response 1 for an undo to none', async () => {
-    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, sharpenVersion: 2 } as Adjustments }));
+  it("sends the primary's sharpening response with sharpening edits, and response 1 for an undo to none", async () => {
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, sharpenVersion: 2 } as Adjustments
+    }));
     renderHook(() => useEditAllSelected(true, selection));
     edit({ sharpness: 80 });
     // Live and written alike, so cells of response-1 photographs do not jump.
     expect(live()).toEqual([{ sharpness: 80, sharpenVersion: 2 }]);
-    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
-    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { sharpness: 80, sharpenVersion: 2 } }]);
+    await act(async () => {
+      vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+    });
+    expect(pasted()).toEqual([
+      {
+        paths: ['/s/a.CR3', '/s/c.CR3'],
+        adjustments: { sharpness: 80, sharpenVersion: 2 }
+      }
+    ]);
     // Undo to a recipe from before the key: the others go back to response 1 too.
     edit({ sharpenVersion: undefined });
-    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
-    await act(async () => { await Promise.resolve(); });
-    expect(pasted().at(-1)).toEqual({ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { sharpenVersion: 1 } });
+    await act(async () => {
+      vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(pasted().at(-1)).toEqual({
+      paths: ['/s/a.CR3', '/s/c.CR3'],
+      adjustments: { sharpenVersion: 1 }
+    });
   });
 
-  it('sends the primary\'s Clarity response with Clarity edits', async () => {
-    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, clarityVersion: 2 } as Adjustments }));
+  it("sends the primary's Clarity response with Clarity edits", async () => {
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, clarityVersion: 2 } as Adjustments
+    }));
     renderHook(() => useEditAllSelected(true, selection));
     edit({ clarity: 30 });
     expect(live()).toEqual([{ clarity: 30, clarityVersion: 2 }]);
-    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
-    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { clarity: 30, clarityVersion: 2 } }]);
+    await act(async () => {
+      vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+    });
+    expect(pasted()).toEqual([
+      {
+        paths: ['/s/a.CR3', '/s/c.CR3'],
+        adjustments: { clarity: 30, clarityVersion: 2 }
+      }
+    ]);
   });
 
-  it('sends the primary\'s B&W mix response with mix edits', async () => {
-    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, bwVersion: 2 } as Adjustments }));
+  it("sends the primary's B&W mix response with mix edits", async () => {
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, bwVersion: 2 } as Adjustments
+    }));
     renderHook(() => useEditAllSelected(true, selection));
-    const mix = { red: 0, orange: 0, yellow: 0, green: 0, aqua: 0, blue: -30, purple: 0, magenta: 0 };
+    const mix = {
+      red: 0,
+      orange: 0,
+      yellow: 0,
+      green: 0,
+      aqua: 0,
+      blue: -30,
+      purple: 0,
+      magenta: 0
+    };
     edit({ grayMixer: mix });
     expect(live()).toEqual([{ grayMixer: mix, bwVersion: 2 }]);
-    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
-    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { grayMixer: mix, bwVersion: 2 } }]);
+    await act(async () => {
+      vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+    });
+    expect(pasted()).toEqual([
+      {
+        paths: ['/s/a.CR3', '/s/c.CR3'],
+        adjustments: { grayMixer: mix, bwVersion: 2 }
+      }
+    ]);
   });
 
   it('does not send a sharpening response live for a mask-only edit', () => {
     renderHook(() => useEditAllSelected(true, selection));
-    edit({ masks: [{ id: 'm', adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>);
+    edit({
+      masks: [{ id: 'm', adjustments: { sharpness: 30 }, subMasks: [] }]
+    } as unknown as Partial<Adjustments>);
     // Drawn masks are written framed, not shown live: nothing to send.
     expect(live().filter((patch) => patch && 'sharpenVersion' in patch)).toEqual([]);
   });
@@ -278,7 +414,7 @@ describe('Edit all selected', () => {
           ? new Promise((resolve) => {
               written = () => resolve({ changes: [] });
             })
-          : Promise.resolve(),
+          : Promise.resolve()
       );
       renderHook(() => useEditAllSelected(true, selection));
       edit({ exposure: 0.5 });
@@ -296,7 +432,7 @@ describe('Edit all selected', () => {
 
     it('clears the live changes when it is switched off and they are written', async () => {
       const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), {
-        initialProps: { on: true },
+        initialProps: { on: true }
       });
       edit({ exposure: 0.4 });
       rerender({ on: false });
@@ -367,9 +503,17 @@ describe('Edit all selected', () => {
           null,
           createElement('p', null, text),
           ...(options.actions ?? []).map((action) =>
-            createElement('button', { key: action.label, type: 'button', onClick: () => action.run() }, action.label),
-          ),
-        ),
+            createElement(
+              'button',
+              {
+                key: action.label,
+                type: 'button',
+                onClick: () => action.run()
+              },
+              action.label
+            )
+          )
+        )
       );
     };
     async function failedWrite() {
@@ -414,7 +558,7 @@ describe('Edit all selected', () => {
       expect(editAllNotSaved()).toEqual([]);
       expect(pasted().map(({ paths, adjustments }) => [paths, adjustments.exposure])).toEqual([
         [['/s/a.CR3', '/s/c.CR3'], 0.5],
-        [['/s/a.CR3', '/s/c.CR3'], 0.5],
+        [['/s/a.CR3', '/s/c.CR3'], 0.5]
       ]);
       expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']);
     });
@@ -466,7 +610,12 @@ describe('Edit all selected', () => {
 
     it('Try again keeps the processing version the remaining settings were made with', async () => {
       act(() =>
-        useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, sharpenVersion: 6 } as Adjustments })),
+        useEditorStore.setState((state) => ({
+          adjustments: {
+            ...state.adjustments,
+            sharpenVersion: 6
+          } as Adjustments
+        }))
       );
       const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
       failing = true;

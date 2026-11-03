@@ -93,14 +93,22 @@ export function catalogTreePaths(view: CatalogFoldersView | null, rootPaths: str
   if (!view?.catalog) return [];
   return view.volumes.flatMap((volume) =>
     volumeTops(volume).filter(
-      (top) => !rootPaths.includes(top) && volume.folders.some((folder) => folder.path === top && folder.exists),
-    ),
+      (top) => !rootPaths.includes(top) && volume.folders.some((folder) => folder.path === top && folder.exists)
+    )
   );
 }
 
 /** A folder known only from the library (not on disk now). */
 export function missingNode(path: string, imageCount?: number): FolderTree {
-  return { path, name: baseName(path), isDir: true, children: [], imageCount, hasSubdirs: false, missing: true };
+  return {
+    path,
+    name: baseName(path),
+    isDir: true,
+    children: [],
+    imageCount,
+    hasSubdirs: false,
+    missing: true
+  };
 }
 
 /** What is known of a folder gone from disk: registered photographs (catalog
@@ -124,7 +132,10 @@ export function graftMissing(node: FolderTree, folder: MissingFolder): FolderTre
   const children = node.children ?? [];
   const holder = children.find((child) => child.path === folder.path || isBelow(folder.path, child.path));
   if (holder) {
-    return { ...node, children: children.map((child) => (child === holder ? graftMissing(child, folder) : child)) };
+    return {
+      ...node,
+      children: children.map((child) => (child === holder ? graftMissing(child, folder) : child))
+    };
   }
   // The next level towards the folder: the folder itself or a missing parent.
   const sep = separatorOf(node.path);
@@ -132,9 +143,7 @@ export function graftMissing(node: FolderTree, folder: MissingFolder): FolderTre
   const first = rest.split(/[\\/]/)[0];
   const childPath = node.path.endsWith(sep) ? node.path + first : node.path + sep + first;
   const child =
-    childPath === folder.path
-      ? missingNode(childPath, folder.count)
-      : graftMissing(missingNode(childPath), folder);
+    childPath === folder.path ? missingNode(childPath, folder.count) : graftMissing(missingNode(childPath), folder);
   return { ...node, hasSubdirs: true, children: [...children, child] };
 }
 
@@ -144,7 +153,7 @@ export function withMissingFolders(trees: FolderTree[], missing: MissingFolder[]
     missing
       .filter((folder) => isBelow(folder.path, tree.path))
       .sort((a, b) => a.path.localeCompare(b.path))
-      .reduce(graftMissing, tree),
+      .reduce(graftMissing, tree)
   );
 }
 
@@ -171,25 +180,30 @@ export function missingFolders(view: CatalogFoldersView | null, offline: Offline
 export function volumeSections(
   view: CatalogFoldersView | null,
   trees: FolderTree[],
-  offline: OfflineFolder[],
+  offline: OfflineFolder[]
 ): VolumeSection[] {
   if (!view?.catalog) return [];
   const missing = missingFolders(view, offline);
-  const rank = (volume: VolumeFolders) => volume.kind === 'startup' ? 0 : volume.kind === 'network' ? 2 : 1;
-  return [...view.volumes].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key)).map((volume) => {
-    const paths = volumeTops(volume);
-    // Named as Lightroom names top-level folders; by their path on the
-    // drive where two would read the same.
-    const names = paths.map(baseName);
-    const tops = paths.map((top, index) => {
-      const onDisk = trees.find((tree) => tree.path === top);
-      const registered = volume.folders.find((folder) => folder.path === top);
-      const node = onDisk ?? missingNode(top, registered?.photos);
-      const clash = names.indexOf(names[index]) !== names.lastIndexOf(names[index]);
-      return { ...node, label: clash ? labelOnVolume(top, volume.mount_point) : baseName(top) };
+  const rank = (volume: VolumeFolders) => (volume.kind === 'startup' ? 0 : volume.kind === 'network' ? 2 : 1);
+  return [...view.volumes]
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
+    .map((volume) => {
+      const paths = volumeTops(volume);
+      // Named as Lightroom names top-level folders; by their path on the
+      // drive where two would read the same.
+      const names = paths.map(baseName);
+      const tops = paths.map((top, index) => {
+        const onDisk = trees.find((tree) => tree.path === top);
+        const registered = volume.folders.find((folder) => folder.path === top);
+        const node = onDisk ?? missingNode(top, registered?.photos);
+        const clash = names.indexOf(names[index]) !== names.lastIndexOf(names[index]);
+        return {
+          ...node,
+          label: clash ? labelOnVolume(top, volume.mount_point) : baseName(top)
+        };
+      });
+      return { volume, trees: withMissingFolders(tops, missing) };
     });
-    return { volume, trees: withMissingFolders(tops, missing) };
-  });
 }
 
 /** A size in decimal units, as the system's file manager shows it. */

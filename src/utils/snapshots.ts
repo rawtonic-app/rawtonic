@@ -25,7 +25,10 @@ export function restoreSnapshot(snapshot: Snapshot): boolean {
 
 /** A new snapshot's name: when it was taken, as Lightroom names them. */
 export function defaultSnapshotName(now: Date, language: string): string {
-  return now.toLocaleString(language, { dateStyle: 'short', timeStyle: 'medium' });
+  return now.toLocaleString(language, {
+    dateStyle: 'short',
+    timeStyle: 'medium'
+  });
 }
 
 /** Takes a snapshot of `adjustments` (the current edit or a history step's)

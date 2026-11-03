@@ -6,7 +6,9 @@ import { Invokes } from '../components/ui/AppProperties';
 import { formatBytes, previewTargetResolution, previewsMenu, viewerDimHint } from './previews';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), info: vi.fn() } }));
+vi.mock('../activity/notify', () => ({
+  notify: { error: vi.fn(), info: vi.fn() }
+}));
 
 /** Returns the key and its options, so the test sees what was asked for. */
 const t = ((key: string, options?: Record<string, unknown>) =>
@@ -58,7 +60,7 @@ it('renders a grain preview at the display device pixels, other previews with he
     dpr: 2,
     fullDpi: false,
     zoomMultiplier: 1,
-    original: { width: 5796, height: 3870 },
+    original: { width: 5796, height: 3870 }
   };
   // Without grain: 1035 × 1.25 in 256 px steps (1536), or with full DPI 2070 × 1.25 (2816).
   expect(previewTargetResolution({ ...fit, grain: false })).toBe(1536);
@@ -67,6 +69,18 @@ it('renders a grain preview at the display device pixels, other previews with he
   expect(previewTargetResolution({ ...fit, grain: true })).toBe(2070);
   expect(previewTargetResolution({ ...fit, fullDpi: true, grain: true })).toBe(2070);
   // Never above the photograph's own size (100 % = the export).
-  expect(previewTargetResolution({ ...fit, display: { width: 4000, height: 2670 }, grain: true })).toBe(5796);
-  expect(previewTargetResolution({ ...fit, display: { width: 4000, height: 2670 }, grain: false })).toBe(5796);
+  expect(
+    previewTargetResolution({
+      ...fit,
+      display: { width: 4000, height: 2670 },
+      grain: true
+    })
+  ).toBe(5796);
+  expect(
+    previewTargetResolution({
+      ...fit,
+      display: { width: 4000, height: 2670 },
+      grain: false
+    })
+  ).toBe(5796);
 });

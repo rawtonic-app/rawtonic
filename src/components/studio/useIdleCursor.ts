@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
 /** How long the pointer rests before it hides over the full screen. */
 export const IDLE_CURSOR_MS = 1500;
@@ -18,12 +18,12 @@ export function useIdleCursor(active: boolean): boolean {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => setIdle(true), IDLE_CURSOR_MS);
     };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerdown", onMove);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerdown', onMove);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerdown", onMove);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerdown', onMove);
     };
   }, [active]);
   return idle;

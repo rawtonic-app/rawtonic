@@ -7,10 +7,17 @@ import {
   radialLines,
   toImage,
   toLocal,
-  type RadialParams,
+  type RadialParams
 } from './radialMask';
 
-const base: RadialParams = { centerX: 400, centerY: 300, radiusX: 200, radiusY: 100, rotation: 0, feather: 0.5 };
+const base: RadialParams = {
+  centerX: 400,
+  centerY: 300,
+  radiusX: 200,
+  radiusY: 100,
+  rotation: 0,
+  feather: 0.5
+};
 const near = (value: number, expected: number) => expect(value).toBeCloseTo(expected, 6);
 
 // The engine's radial coverage (mask_generation.rs) at a point in the mask frame.
@@ -76,7 +83,10 @@ describe('dragging the feather lines', () => {
   });
 
   it('scales a fully feathered mask with the outer line', () => {
-    const next = dragRadialLine({ ...base, feather: 1 }, 'outer', { x: 300, y: 0 });
+    const next = dragRadialLine({ ...base, feather: 1 }, 'outer', {
+      x: 300,
+      y: 0
+    });
     near(next.radiusX, 300);
     near(next.radiusY, 150);
     expect(next.feather).toBe(1);
@@ -88,7 +98,7 @@ describe('dragging the feather lines', () => {
       ['inner', { x: 120, y: 0 }],
       ['outer', { x: 0, y: 95 }],
       ['inner', { x: 0, y: 10 }],
-      ['outer', { x: 290, y: 0 }],
+      ['outer', { x: 290, y: 0 }]
     ] as const) {
       const next = dragRadialLine(base, line, point, true);
       near(radialLines(next).central.x, central.x);
@@ -124,7 +134,12 @@ describe('dragging the shape handles', () => {
   it('keeps the opposite handle in place with Alt', () => {
     const before = radialHandlePositions({ ...base, rotation: 20 });
     const rotated = { ...base, rotation: 20 };
-    const next = dragRadialHandle(rotated, 'bottom', { x: 0, y: radialLines(rotated).central.y + 40 }, { lockOpposite: true });
+    const next = dragRadialHandle(
+      rotated,
+      'bottom',
+      { x: 0, y: radialLines(rotated).central.y + 40 },
+      { lockOpposite: true }
+    );
     const after = radialHandlePositions(next);
     near(after.top.x, before.top.x);
     near(after.top.y, before.top.y);

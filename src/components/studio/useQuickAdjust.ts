@@ -1,23 +1,23 @@
-import { useEffect, useRef, useState } from "react";
-import i18n from "i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
-import { Panel } from "../ui/AppProperties";
-import type { Adjustments } from "../../utils/adjustments";
-import { swallowNextClick } from "../../utils/swallowClick";
-import { draftFor } from "../../utils/sliderDraft";
+import { useEffect, useRef, useState } from 'react';
+import i18n from 'i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useUIStore } from '../../store/useUIStore';
+import { useEditorActions } from '../../hooks/useEditorActions';
+import { Panel } from '../ui/AppProperties';
+import type { Adjustments } from '../../utils/adjustments';
+import { swallowNextClick } from '../../utils/swallowClick';
+import { draftFor } from '../../utils/sliderDraft';
 
 type QuickAdjustLabel =
-  | "studio.develop.sliders.exposure"
-  | "studio.develop.sliders.contrast"
-  | "studio.develop.sliders.brightness"
-  | "adjustments.color.saturation"
-  | "studio.develop.sliders.highlights"
-  | "studio.develop.sliders.shadows"
-  | "studio.develop.sliders.whites"
-  | "studio.develop.sliders.blacks"
-  | "adjustments.details.clarity";
+  | 'studio.develop.sliders.exposure'
+  | 'studio.develop.sliders.contrast'
+  | 'studio.develop.sliders.brightness'
+  | 'adjustments.color.saturation'
+  | 'studio.develop.sliders.highlights'
+  | 'studio.develop.sliders.shadows'
+  | 'studio.develop.sliders.whites'
+  | 'studio.develop.sliders.blacks'
+  | 'adjustments.details.clarity';
 
 /** Capture One's Quick Adjust: hold a key and scroll or drag over the photo
  * to change one control (keys from Capture One 16's defaults). */
@@ -33,20 +33,83 @@ export const QUICK_ADJUST: Record<
     pixel: number;
   }
 > = {
-  q: { key: "exposure", label: "studio.develop.sliders.exposure", min: -5, max: 5, wheel: 0.05, pixel: 0.005 },
-  w: { key: "contrast", label: "studio.develop.sliders.contrast", min: -100, max: 100, wheel: 1, pixel: 0.25 },
-  e: { key: "brightness", label: "studio.develop.sliders.brightness", min: -5, max: 5, wheel: 0.05, pixel: 0.005 },
-  r: { key: "saturation", label: "adjustments.color.saturation", min: -100, max: 100, wheel: 1, pixel: 0.25 },
-  a: { key: "highlights", label: "studio.develop.sliders.highlights", min: -100, max: 100, wheel: 1, pixel: 0.25 },
-  s: { key: "shadows", label: "studio.develop.sliders.shadows", min: -100, max: 100, wheel: 1, pixel: 0.25 },
-  d: { key: "whites", label: "studio.develop.sliders.whites", min: -100, max: 100, wheel: 1, pixel: 0.25 },
-  f: { key: "blacks", label: "studio.develop.sliders.blacks", min: -100, max: 100, wheel: 1, pixel: 0.25 },
-  z: { key: "clarity", label: "adjustments.details.clarity", min: -100, max: 100, wheel: 1, pixel: 0.25 },
+  q: {
+    key: 'exposure',
+    label: 'studio.develop.sliders.exposure',
+    min: -5,
+    max: 5,
+    wheel: 0.05,
+    pixel: 0.005
+  },
+  w: {
+    key: 'contrast',
+    label: 'studio.develop.sliders.contrast',
+    min: -100,
+    max: 100,
+    wheel: 1,
+    pixel: 0.25
+  },
+  e: {
+    key: 'brightness',
+    label: 'studio.develop.sliders.brightness',
+    min: -5,
+    max: 5,
+    wheel: 0.05,
+    pixel: 0.005
+  },
+  r: {
+    key: 'saturation',
+    label: 'adjustments.color.saturation',
+    min: -100,
+    max: 100,
+    wheel: 1,
+    pixel: 0.25
+  },
+  a: {
+    key: 'highlights',
+    label: 'studio.develop.sliders.highlights',
+    min: -100,
+    max: 100,
+    wheel: 1,
+    pixel: 0.25
+  },
+  s: {
+    key: 'shadows',
+    label: 'studio.develop.sliders.shadows',
+    min: -100,
+    max: 100,
+    wheel: 1,
+    pixel: 0.25
+  },
+  d: {
+    key: 'whites',
+    label: 'studio.develop.sliders.whites',
+    min: -100,
+    max: 100,
+    wheel: 1,
+    pixel: 0.25
+  },
+  f: {
+    key: 'blacks',
+    label: 'studio.develop.sliders.blacks',
+    min: -100,
+    max: 100,
+    wheel: 1,
+    pixel: 0.25
+  },
+  z: {
+    key: 'clarity',
+    label: 'adjustments.details.clarity',
+    min: -100,
+    max: 100,
+    wheel: 1,
+    pixel: 0.25
+  }
 };
 
 /** Marks the key event replayed after a plain tap, so it reaches the key's
  * usual action (a tool, full screen, …). */
-const REPLAYED = Symbol("quick-adjust-replay");
+const REPLAYED = Symbol('quick-adjust-replay');
 
 export interface QuickAdjustReadout {
   label: string;
@@ -56,7 +119,7 @@ export interface QuickAdjustReadout {
 }
 
 function inViewer(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest(".studio-viewer"));
+  return target instanceof Element && Boolean(target.closest('.studio-viewer'));
 }
 
 /** Active in Develop. Returns the readout to show beside the pointer. */
@@ -98,12 +161,22 @@ export function useQuickAdjust(active: boolean) {
           ? {
               ...prev,
               masks: prev.masks.map((m) =>
-                m.id === layer.id ? { ...m, adjustments: { ...m.adjustments, [spec.key]: next } } : m,
-              ),
+                m.id === layer.id
+                  ? {
+                      ...m,
+                      adjustments: { ...m.adjustments, [spec.key]: next }
+                    }
+                  : m
+              )
             }
-          : { ...prev, [spec.key]: next },
+          : { ...prev, [spec.key]: next }
       );
-      setReadout({ label: i18n.t(spec.label), value: next, x: pointer.x, y: pointer.y });
+      setReadout({
+        label: i18n.t(spec.label),
+        value: next,
+        x: pointer.x,
+        y: pointer.y
+      });
     };
     const finish = () => {
       if (held?.used) useEditorStore.getState().setEditor({ isSliderDragging: false });
@@ -143,12 +216,12 @@ export function useQuickAdjust(active: boolean) {
       const { used, event } = held;
       finish();
       if (!used) {
-        const replay = new KeyboardEvent("keydown", {
+        const replay = new KeyboardEvent('keydown', {
           key: event.key,
           code: event.code,
           shiftKey: event.shiftKey,
           bubbles: true,
-          cancelable: true,
+          cancelable: true
         });
         (replay as KeyboardEvent & { [REPLAYED]?: boolean })[REPLAYED] = true;
         (event.target instanceof EventTarget ? event.target : window).dispatchEvent(replay);
@@ -189,22 +262,25 @@ export function useQuickAdjust(active: boolean) {
       drag = null;
     };
 
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
-    window.addEventListener("blur", onBlur);
-    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
-    window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("pointermove", onPointerMove, true);
-    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('wheel', onWheel, {
+      capture: true,
+      passive: false
+    });
+    window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('pointermove', onPointerMove, true);
+    window.addEventListener('pointerup', onPointerUp, true);
     return () => {
       finish();
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-      window.removeEventListener("blur", onBlur);
-      window.removeEventListener("wheel", onWheel, true);
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("pointermove", onPointerMove, true);
-      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('wheel', onWheel, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('pointermove', onPointerMove, true);
+      window.removeEventListener('pointerup', onPointerUp, true);
     };
   }, [active]);
 

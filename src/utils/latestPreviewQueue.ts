@@ -11,7 +11,7 @@ export class LatestPreviewQueue<T> {
 
   constructor(
     private readonly render: (value: T) => Promise<void>,
-    private readonly maxInFlight = 1,
+    private readonly maxInFlight = 1
   ) {}
 
   submit(value: T) {

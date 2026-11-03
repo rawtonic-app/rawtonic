@@ -8,10 +8,21 @@ import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 const photo: SelectedImage = {
-  path: '/a.cr3', isReady: true, isRaw: true, width: 6000, height: 4000, exif: {},
-  thumbnailUrl: '', thumbnailSource: 'embedded',
+  path: '/a.cr3',
+  isReady: true,
+  isRaw: true,
+  width: 6000,
+  height: 4000,
+  exif: {},
+  thumbnailUrl: '',
+  thumbnailSource: 'embedded'
 };
-const layer = { id: 'L1', name: 'L', adjustments: { colorRanges: [] }, subMasks: [] } as unknown as MaskContainer;
+const layer = {
+  id: 'L1',
+  name: 'L',
+  adjustments: { colorRanges: [] },
+  subMasks: []
+} as unknown as MaskContainer;
 
 beforeEach(() => {
   useEditorStore.setState({
@@ -19,7 +30,7 @@ beforeEach(() => {
     adjustments: { ...INITIAL_ADJUSTMENTS, masks: [layer] },
     colorPickerTarget: 'new',
     colorPickerLayer: null,
-    activeColorRangeId: null,
+    activeColorRangeId: null
   });
   vi.mocked(invoke).mockReset();
 });
@@ -27,7 +38,11 @@ beforeEach(() => {
 it('adds a range for the sampled display colour and ends the picker', async () => {
   vi.mocked(invoke).mockResolvedValue([255, 0, 0]);
   expect(await pickColorRange('/a.cr3', 'new', 0.5, 0.5)).toBe(true);
-  expect(invoke).toHaveBeenCalledWith(Invokes.SamplePreviewColor, { path: '/a.cr3', normalizedX: 0.5, normalizedY: 0.5 });
+  expect(invoke).toHaveBeenCalledWith(Invokes.SamplePreviewColor, {
+    path: '/a.cr3',
+    normalizedX: 0.5,
+    normalizedY: 0.5
+  });
   const state = useEditorStore.getState();
   const ranges = state.adjustments.colorRanges!;
   expect(ranges).toHaveLength(1);
@@ -82,13 +97,19 @@ it('picks skin into one skin tone range and moves it on the next pick', async ()
 
 it('adds no range beyond the limit', () => {
   const full = Array.from({ length: 4 }, () => applyColorPick([], 'new', 4, 10, 0.1, 0.5).ranges[0]);
-  expect(applyColorPick(full, 'skin', 4, 50, 0.06, 0.6)).toEqual({ ranges: full, id: null });
+  expect(applyColorPick(full, 'skin', 4, 50, 0.06, 0.6)).toEqual({
+    ranges: full,
+    id: null
+  });
 });
 
 it('drops a sample whose pick was finished meanwhile (e.g. on the range wheel)', async () => {
   let resolve!: (rgb: [number, number, number]) => void;
   vi.mocked(invoke).mockReturnValue(new Promise((r) => (resolve = r)));
-  useEditorStore.setState({ colorPickerTarget: 'skin', colorPickerLayer: 'L1' });
+  useEditorStore.setState({
+    colorPickerTarget: 'skin',
+    colorPickerLayer: 'L1'
+  });
   const pending = pickColorRange('/a.cr3', 'skin', 0.5, 0.5);
   useEditorStore.setState({ colorPickerTarget: null, colorPickerLayer: null });
   resolve([200, 150, 120]);

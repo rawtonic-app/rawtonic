@@ -9,14 +9,19 @@ import {
   reportMarkdown,
   reportPayload,
   type CrashRecord,
-  type ReportContext,
+  type ReportContext
 } from './reports';
 
 const context: ReportContext = {
-  app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '26.5', arch: 'aarch64' },
+  app: {
+    version: '0.1.0-alpha.4',
+    os: 'macos',
+    osVersion: '26.5',
+    arch: 'aarch64'
+  },
   gpu: { vendor: 'apple', name: 'Apple M5 Pro' },
   logTail: 'line 1\nline 2',
-  screenshotAvailable: true,
+  screenshotAvailable: true
 };
 
 const record: CrashRecord = {
@@ -29,14 +34,27 @@ const record: CrashRecord = {
   location: 'decode.rs:12:5',
   backtrace: '0: rawdecode::open (decode.rs:12:5)',
   logTail: 'opening <path>.CR3',
-  asked: false,
+  asked: false
 };
 
 describe('report payloads', () => {
   it('holds only what the user chose', () => {
-    const shot = { mime: 'image/jpeg' as const, data: 'AAAA', width: 2, height: 1 };
+    const shot = {
+      mime: 'image/jpeg' as const,
+      data: 'AAAA',
+      width: 2,
+      height: 1
+    };
     expect(
-      reportPayload({ text: ' It froze ', context, includeSystem: false, logTail: null, photo: null, photoFile: false, screenshot: null }),
+      reportPayload({
+        text: ' It froze ',
+        context,
+        includeSystem: false,
+        logTail: null,
+        photo: null,
+        photoFile: false,
+        screenshot: null
+      })
     ).toEqual({ schema: 2, app: context.app, text: 'It froze' });
     expect(
       reportPayload({
@@ -44,10 +62,15 @@ describe('report payloads', () => {
         context,
         includeSystem: true,
         logTail: 'edited',
-        photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF', path: '/p/DSC_1.NEF' },
+        photo: {
+          make: 'Nikon',
+          model: 'Z 6',
+          fileType: 'NEF',
+          path: '/p/DSC_1.NEF'
+        },
         photoFile: false,
-        screenshot: shot,
-      }),
+        screenshot: shot
+      })
     ).toEqual({
       schema: 2,
       app: context.app,
@@ -55,7 +78,7 @@ describe('report payloads', () => {
       text: 'It froze',
       logTail: 'edited',
       photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF' },
-      screenshot: { mime: 'image/jpeg', data: 'AAAA' },
+      screenshot: { mime: 'image/jpeg', data: 'AAAA' }
     });
     // The photo's file goes by its path, which the app turns into an upload.
     expect(
@@ -64,11 +87,21 @@ describe('report payloads', () => {
         context,
         includeSystem: false,
         logTail: null,
-        photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF', path: '/p/DSC_1.NEF' },
+        photo: {
+          make: 'Nikon',
+          model: 'Z 6',
+          fileType: 'NEF',
+          path: '/p/DSC_1.NEF'
+        },
         photoFile: true,
-        screenshot: null,
-      }).photo,
-    ).toEqual({ make: 'Nikon', model: 'Z 6', fileType: 'NEF', path: '/p/DSC_1.NEF' });
+        screenshot: null
+      }).photo
+    ).toEqual({
+      make: 'Nikon',
+      model: 'Z 6',
+      fileType: 'NEF',
+      path: '/p/DSC_1.NEF'
+    });
   });
 
   it('builds a crash payload with the backtrace and log removable', () => {
@@ -78,9 +111,13 @@ describe('report payloads', () => {
       gpu: record.gpu,
       message: 'index out of bounds',
       location: 'decode.rs:12:5',
-      crashedOn: '2026-10-23',
+      crashedOn: '2026-10-23'
     });
-    const full = crashPayload(record, { includeBacktrace: true, logTail: 'mine', message: 'index out of <redacted>' });
+    const full = crashPayload(record, {
+      includeBacktrace: true,
+      logTail: 'mine',
+      message: 'index out of <redacted>'
+    });
     expect(full.message).toBe('index out of <redacted>');
     expect(full.backtrace).toBe(record.backtrace);
     expect(full.logTail).toBe('mine');
@@ -90,16 +127,29 @@ describe('report payloads', () => {
     expect(plainName('NIKON CORPORATION\n')).toBe('NIKON CORPORATION');
     expect(plainName('Canon™ <EOS> R5')).toBe('Canon EOS R5');
     expect(plainName('™')).toBeNull();
-    expect(photoInfo({ path: '/Users/anna/Pictures/DSC_1.nef', exif: { Make: 'NIKON', Model: 'Z 6' } })).toEqual({
+    expect(
+      photoInfo({
+        path: '/Users/anna/Pictures/DSC_1.nef',
+        exif: { Make: 'NIKON', Model: 'Z 6' }
+      })
+    ).toEqual({
       make: 'NIKON',
       model: 'Z 6',
       fileType: 'NEF',
-      path: '/Users/anna/Pictures/DSC_1.nef',
+      path: '/Users/anna/Pictures/DSC_1.nef'
     });
-    const copy = photoInfo({ path: 'C:\\p\\IMG_1.CR3?vc=2', exif: { Make: 'Canon', Model: 'EOS R5' } });
+    const copy = photoInfo({
+      path: 'C:\\p\\IMG_1.CR3?vc=2',
+      exif: { Make: 'Canon', Model: 'EOS R5' }
+    });
     expect(copy?.fileType).toBe('CR3');
     expect(copy?.path).toBe('C:\\p\\IMG_1.CR3');
-    expect(photoInfo({ path: '/x/no-extension', exif: { Make: 'Canon', Model: 'EOS R5' } })).toBeNull();
+    expect(
+      photoInfo({
+        path: '/x/no-extension',
+        exif: { Make: 'Canon', Model: 'EOS R5' }
+      })
+    ).toBeNull();
     expect(photoInfo({ path: '/x/a.jpg', exif: null })).toBeNull();
     expect(photoInfo(null)).toBeNull();
   });
@@ -114,7 +164,7 @@ describe('the no-relay fallbacks', () => {
       text: 'Broken',
       logTail: 'a ``` b',
       photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF', file },
-      screenshot: { mime: 'image/jpeg', ...file },
+      screenshot: { mime: 'image/jpeg', ...file }
     });
     const text = reportMarkdown(body);
     expect(text).toContain('Broken');
@@ -129,10 +179,17 @@ describe('the no-relay fallbacks', () => {
 
   it('fits GitHub links within the limit, dropping the oldest log lines first', () => {
     const log = Array.from({ length: 400 }, (_, n) => `log line ${n} ${'x'.repeat(40)}`).join('\n');
-    const body = JSON.stringify({ schema: 1, app: context.app, text: 'Export stops', logTail: log });
+    const body = JSON.stringify({
+      schema: 1,
+      app: context.app,
+      text: 'Export stops',
+      logTail: log
+    });
     const { url, body: shownBody } = githubIssue(body);
     expect(url.length).toBeLessThanOrEqual(MAX_URL);
-    expect(url.startsWith('https://github.com/rawtonic-app/rawtonic/issues/new?title=Problem%3A%20Export%20stops&body=')).toBe(true);
+    expect(
+      url.startsWith('https://github.com/rawtonic-app/rawtonic/issues/new?title=Problem%3A%20Export%20stops&body=')
+    ).toBe(true);
     const shown = new URL(url).searchParams.get('body') ?? '';
     expect(shown).toContain('Export stops');
     expect(shown).toContain('log line 399');
@@ -141,14 +198,18 @@ describe('the no-relay fallbacks', () => {
     // What the review shows is what the link carries.
     expect(shown).toBe(shownBody);
     // A short report is not shortened.
-    const short = new URL(githubIssue(JSON.stringify({ schema: 1, app: context.app, text: 'Hi' })).url).searchParams.get('body');
+    const short = new URL(
+      githubIssue(JSON.stringify({ schema: 1, app: context.app, text: 'Hi' })).url
+    ).searchParams.get('body');
     expect(short).not.toContain('Shortened');
     // Even a text at the relay's cap fits.
     const long = githubIssue(JSON.stringify({ schema: 1, app: context.app, text: 'é'.repeat(10_000) })).url;
     expect(long.length).toBeLessThanOrEqual(MAX_URL);
     // A crash keeps its place, date and system when its message is shortened.
     const crash = githubIssue(
-      JSON.stringify(crashPayload({ ...record, message: '異'.repeat(2_000) }, { includeBacktrace: true, logTail: 'x\ny' })),
+      JSON.stringify(
+        crashPayload({ ...record, message: '異'.repeat(2_000) }, { includeBacktrace: true, logTail: 'x\ny' })
+      )
     );
     expect(crash.url.length).toBeLessThanOrEqual(MAX_URL);
     expect(crash.body).toContain('at `decode.rs:12:5`');
@@ -161,9 +222,14 @@ describe('the no-relay fallbacks', () => {
 describe('the camera test result', () => {
   const body = (report: string) =>
     JSON.stringify(
-      { schema: 1, app: context.app, camera: { make: 'Sony', model: 'Sony Alpha-A7 III', firmware: '4.01' }, report },
+      {
+        schema: 1,
+        app: context.app,
+        camera: { make: 'Sony', model: 'Sony Alpha-A7 III', firmware: '4.01' },
+        report
+      },
       null,
-      2,
+      2
     );
 
   it('copies as its own report and opens the camera report form with it', () => {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { pointPressure, pressureChanged, pressureKeys, pressureMapping, usePenAvailable, withPressure } from './penPressure';
+import {
+  pointPressure,
+  pressureChanged,
+  pressureKeys,
+  pressureMapping,
+  usePenAvailable,
+  withPressure
+} from './penPressure';
 
 const both = { size: true, flow: true };
 
@@ -20,8 +27,13 @@ describe('pen pressure', () => {
     expect(JSON.stringify(mouse[0])).toBe('{"x":1,"y":2}');
     expect(pressureKeys(mouse, both)).toEqual({});
     const pen = [withPressure({ x: 1, y: 2 }, 0.4)];
-    expect(pressureKeys(pen, pressureMapping(null))).toEqual({ pressureSize: true });
-    expect(pressureKeys(pen, both)).toEqual({ pressureSize: true, pressureFlow: true });
+    expect(pressureKeys(pen, pressureMapping(null))).toEqual({
+      pressureSize: true
+    });
+    expect(pressureKeys(pen, both)).toEqual({
+      pressureSize: true,
+      pressureFlow: true
+    });
   });
 });
 

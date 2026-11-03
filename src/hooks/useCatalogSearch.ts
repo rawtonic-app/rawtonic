@@ -6,13 +6,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { folderViewMode } from '../utils/subfolderView';
-import {
-  photographPath,
-  scopeRule,
-  searchLibrary,
-  searchRule,
-  type Rule,
-} from '../utils/librarySearch';
+import { photographPath, scopeRule, searchLibrary, searchRule, type Rule } from '../utils/librarySearch';
 
 /** How long typing pauses before the catalog is asked. */
 export const SEARCH_DELAY_MS = 80;
@@ -87,10 +81,7 @@ export function useCatalogSearch() {
         const current = () =>
           !cancelled && mine === generation && useLibraryStore.getState().sessionDirectory === directory;
         const paths = (asked: Promise<string[]>) => asked.then((list) => new Set(list.map(photographPath)));
-        Promise.all([
-          paths(search(rule)),
-          paths(search(scope ?? { combine: 'all', rules: [] })),
-        ])
+        Promise.all([paths(search(rule)), paths(search(scope ?? { combine: 'all', rules: [] }))])
           .then(([matches, known]) => {
             if (!current()) return;
             setLibrary({ catalogMatches: matches, catalogKnown: known });

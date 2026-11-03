@@ -6,16 +6,20 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 import { hotFolderCommand } from './hotFolderCommands';
 
 it('sends each hot folder command only after the one before finished, also a failed one', async () => {
-  const answers: Array<{ command: string; resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
+  const answers: Array<{
+    command: string;
+    resolve: (v: unknown) => void;
+    reject: (e: unknown) => void;
+  }> = [];
   invoke.mockImplementation(
-    (command: string) => new Promise((resolve, reject) => answers.push({ command, resolve, reject })),
+    (command: string) => new Promise((resolve, reject) => answers.push({ command, resolve, reject }))
   );
   // Leaving A, opening B, back to A.
   const sent = [
     hotFolderCommand('hot_folder_suspend', { directory: '/A' }),
     hotFolderCommand('hot_folder_resume', { directory: '/B' }),
     hotFolderCommand('hot_folder_suspend', { directory: '/B' }),
-    hotFolderCommand('hot_folder_resume', { directory: '/A' }),
+    hotFolderCommand('hot_folder_resume', { directory: '/A' })
   ];
   const settle = () => new Promise((r) => setTimeout(r, 0));
   await settle();
@@ -32,7 +36,7 @@ it('sends each hot folder command only after the one before finished, also a fai
     'hot_folder_suspend',
     'hot_folder_resume',
     'hot_folder_suspend',
-    'hot_folder_resume',
+    'hot_folder_resume'
   ]);
   expect(invoke.mock.calls[3][1]).toEqual({ directory: '/A' });
   answers[3].resolve({ folder: '/hot' });

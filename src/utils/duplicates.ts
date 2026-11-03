@@ -94,8 +94,12 @@ export const hasOwnWork = (member: DuplicateMember): boolean =>
   member.companion !== null;
 
 /** The review's open state; the activity centre's Review opens it too. */
-export const useDuplicatesDialog = create<{ open: boolean; show(): void; close(): void }>((set) => ({
+export const useDuplicatesDialog = create<{
+  open: boolean;
+  show(): void;
+  close(): void;
+}>((set) => ({
   open: false,
   show: () => set({ open: true }),
-  close: () => set({ open: false }),
+  close: () => set({ open: false })
 }));

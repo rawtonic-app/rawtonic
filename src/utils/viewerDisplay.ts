@@ -20,7 +20,7 @@ export const VIEWER_BACKGROUND_LEVELS: Record<ViewerBackground, number> = {
   dark: 38,
   medium: 119,
   light: 200,
-  white: 255,
+  white: 255
 };
 
 interface ViewerBackgroundSettings {
@@ -64,7 +64,7 @@ export const MIN_PROOF_MARGIN_PX = 24;
 export function proofMarginPx(
   containerWidth: number,
   containerHeight: number,
-  percent: number = DEFAULT_PROOF_MARGIN_PERCENT,
+  percent: number = DEFAULT_PROOF_MARGIN_PERCENT
 ): number {
   const shorter = Math.min(containerWidth, containerHeight);
   if (!(shorter > 0)) return 0;
@@ -99,7 +99,7 @@ export function cropModeBox(
   containerHeight: number,
   frameWidth: number,
   frameHeight: number,
-  proofMargin = 0,
+  proofMargin = 0
 ): { width: number; height: number } {
   if (!(frameWidth > 0 && frameHeight > 0)) return { width: 0, height: 0 };
   const margin = cropModeMarginPx(containerWidth, containerHeight, proofMargin);
@@ -121,7 +121,7 @@ export function fitInViewer(
   containerHeight: number,
   imageWidth: number,
   imageHeight: number,
-  margin = 0,
+  margin = 0
 ): FittedSize {
   const availableWidth = Math.max(containerWidth - 2 * margin, 0);
   const availableHeight = Math.max(containerHeight - 2 * margin, 0);
@@ -144,7 +144,7 @@ export function fitInViewer(
     height,
     offsetX: (containerWidth - width) / 2,
     offsetY: (containerHeight - height) / 2,
-    scale: width / imageWidth,
+    scale: width / imageWidth
   };
 }
 
@@ -167,7 +167,7 @@ export function fitZoomValue(
   imageHeight: number,
   fittedWidth: number,
   fittedHeight: number,
-  dpr = 1,
+  dpr = 1
 ): number | null {
   if (!(imageWidth > 0 && imageHeight > 0 && fittedWidth > 0 && fittedHeight > 0)) return null;
   const perPixel =
@@ -203,12 +203,12 @@ export function isOutsidePhoto(x: number, y: number, photo: ScreenRect): boolean
 export function photoScreenRect(
   viewer: { left: number; top: number },
   transform: { scale: number; positionX: number; positionY: number },
-  fitted: { width: number; height: number; offsetX: number; offsetY: number },
+  fitted: { width: number; height: number; offsetX: number; offsetY: number }
 ): ScreenRect {
   return {
     left: viewer.left + transform.positionX + fitted.offsetX * transform.scale,
     top: viewer.top + transform.positionY + fitted.offsetY * transform.scale,
     width: fitted.width * transform.scale,
-    height: fitted.height * transform.scale,
+    height: fitted.height * transform.scale
   };
 }

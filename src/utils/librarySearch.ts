@@ -80,7 +80,7 @@ export const FACET_FIELDS = [
   'focalLength',
   'aperture',
   'ai',
-  'sourceType',
+  'sourceType'
 ] as const;
 export type FacetField = (typeof FACET_FIELDS)[number];
 /** Values chosen per list ("" = no value: no keyword, unknown camera, …;
@@ -104,7 +104,7 @@ export const AI_FACTS = [
   'aiDenoise',
   'pendingDetection',
   'missingFill',
-  'olderDenoise',
+  'olderDenoise'
 ] as const;
 
 /** IPTC Digital Source Types (their codes) the Library names; a file may
@@ -125,7 +125,7 @@ export const SOURCE_TYPES = [
   'positiveFilm',
   'print',
   'screenCapture',
-  'virtualRecording',
+  'virtualRecording'
 ] as const;
 
 const NUMERIC: ReadonlySet<FacetField> = new Set(['iso', 'focalLength', 'aperture']);
@@ -142,7 +142,12 @@ function monthEnd(month: string): string {
 /** One chosen value of a list as a condition. */
 function valueRule(field: FacetField, value: string): Rule {
   if (value === '') return { field, op: 'empty' };
-  if (field === 'captureDate' && /^\d{4}$/.test(value)) return { field, op: 'between', value: [`${value}-01-01`, `${value}-12-31`] };
+  if (field === 'captureDate' && /^\d{4}$/.test(value))
+    return {
+      field,
+      op: 'between',
+      value: [`${value}-01-01`, `${value}-12-31`]
+    };
   if (field === 'captureDate') return { field, op: 'between', value: [`${value}-01`, monthEnd(value)] };
   if (field === 'fileType') return { field, op: 'is', value };
   if (NUMERIC.has(field)) return { field, op: 'is', value: Number(value) };
@@ -193,14 +198,22 @@ export function cullingRules(filter: FilterCriteria): Rule[] {
 export function scopeRule(
   folder: string | null,
   albumId: string | null,
-  viewMode: LibraryViewMode | undefined,
+  viewMode: LibraryViewMode | undefined
 ): Rule | null {
   if (albumId === PREVIOUS_IMPORT_VIEW_ID) return { field: 'previousImport', op: 'is', value: true };
   if (albumId === MISSING_VIEW_ID) return { field: 'offline', op: 'is', value: true };
   if (albumId?.startsWith('session-album:'))
-    return { field: 'album', op: 'is', value: albumId.slice('session-album:'.length) };
+    return {
+      field: 'album',
+      op: 'is',
+      value: albumId.slice('session-album:'.length)
+    };
   if (albumId || !folder) return null;
-  return { field: 'folder', op: viewMode === LibraryViewMode.Recursive ? 'contains' : 'is', value: folder };
+  return {
+    field: 'folder',
+    op: viewMode === LibraryViewMode.Recursive ? 'contains' : 'is',
+    value: folder
+  };
 }
 
 /** The search box, the chosen values and the eye filter as one rule (null:
@@ -208,7 +221,7 @@ export function scopeRule(
 export function searchRule(
   text: string,
   selection: MetadataSelection | undefined,
-  eyes?: FilterCriteria['eyes'],
+  eyes?: FilterCriteria['eyes']
 ): Rule | null {
   const rules = [...textRules(text), ...selectionRules(selection), ...eyesRules(eyes)];
   return rules.length ? all(rules) : null;
@@ -234,7 +247,7 @@ export function filterAsRule(
   text: string,
   selection: MetadataSelection | undefined,
   filter: FilterCriteria,
-  tags: string[] = [],
+  tags: string[] = []
 ): Group | null {
   if ((filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All || tags.length > 0) return null;
   const raw = rawRules(filter);
@@ -245,8 +258,8 @@ export function filterAsRule(
       ...textRules(text),
       ...selectionRules(selection),
       ...cullingRules(filter),
-      ...raw,
-    ],
+      ...raw
+    ]
   };
 }
 
@@ -265,8 +278,16 @@ export const searchLibrary = (directory: string, rule: Rule, listed: string | nu
 };
 
 /** Each list's values with counts within `base` and the other lists' choices. */
-export function libraryFacets(directory: string, base: Rule[], selection: MetadataSelection | undefined, listed: string | null = null) {
-  const requests = FACET_FIELDS.map((field) => ({ field, rule: all([...base, ...selectionRules(selection, field)]) }));
+export function libraryFacets(
+  directory: string,
+  base: Rule[],
+  selection: MetadataSelection | undefined,
+  listed: string | null = null
+) {
+  const requests = FACET_FIELDS.map((field) => ({
+    field,
+    rule: all([...base, ...selectionRules(selection, field)])
+  }));
   return invoke<Facets>(Invokes.SessionFacets, { directory, requests, listed });
 }
 

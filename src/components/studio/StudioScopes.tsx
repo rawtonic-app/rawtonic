@@ -1,11 +1,11 @@
-import { memo, useEffect, useMemo, useRef } from "react";
-import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import type { WaveformData } from "../ui/AppProperties";
+import { memo, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import type { WaveformData } from '../ui/AppProperties';
 
 /** The scope modes, as `calculate_waveform_from_image` (scopes.rs) names them. */
-export const SCOPE_MODES = ["luma", "rgb", "parade", "vectorscope"] as const;
+export const SCOPE_MODES = ['luma', 'rgb', 'parade', 'vectorscope'] as const;
 export type ScopeMode = (typeof SCOPE_MODES)[number];
 
 /** Size of the scope images (`SCOPE_SIZE`). */
@@ -15,7 +15,7 @@ const STRIP = 82;
 const GAP = 5;
 
 export function scopeMode(value: unknown): ScopeMode {
-  return SCOPE_MODES.includes(value as ScopeMode) ? (value as ScopeMode) : "luma";
+  return SCOPE_MODES.includes(value as ScopeMode) ? (value as ScopeMode) : 'luma';
 }
 
 /** The y of a code (0–255) in the scope image: row 0 is 255, centres at +0.5. */
@@ -24,10 +24,7 @@ export function waveformY(percent: number): number {
 }
 
 /** The RGBA bytes of one scope image, or null when it was not computed. */
-export function scopePixels(
-  waveform: WaveformData | null,
-  mode: ScopeMode,
-): Uint8ClampedArray<ArrayBuffer> | null {
+export function scopePixels(waveform: WaveformData | null, mode: ScopeMode): Uint8ClampedArray<ArrayBuffer> | null {
   const encoded = waveform?.[mode];
   if (!encoded || waveform.width !== SIZE || waveform.height !== SIZE) return null;
   const binary = atob(encoded);
@@ -78,12 +75,7 @@ function VectorscopeGraticule({ waveform }: { waveform: WaveformData | null }) {
               height={half * 2}
             />
             {t.percent === 100 && (
-              <text
-                x={c + (t.x - c) * 1.09}
-                y={c + (t.y - c) * 1.09}
-                textAnchor="middle"
-                dominantBaseline="middle"
-              >
+              <text x={c + (t.x - c) * 1.09} y={c + (t.y - c) * 1.09} textAnchor="middle" dominantBaseline="middle">
                 {t.name}
               </text>
             )}
@@ -105,7 +97,7 @@ export default memo(function StudioScopes() {
   const pixels = useMemo(() => scopePixels(waveform, mode), [waveform, mode]);
 
   useEffect(() => {
-    const context = canvas.current?.getContext("2d");
+    const context = canvas.current?.getContext('2d');
     if (!context) return;
     context.clearRect(0, 0, SIZE, SIZE);
     if (pixels) context.putImageData(new ImageData(pixels, SIZE, SIZE), 0, 0);
@@ -116,19 +108,19 @@ export default memo(function StudioScopes() {
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
     if (appSettings) handleSettingsChange({ ...appSettings, activeWaveformChannel: next });
   };
-  const vectorscope = mode === "vectorscope";
+  const vectorscope = mode === 'vectorscope';
   const labels: Record<ScopeMode, [string, string]> = {
-    luma: [t("studio.scopes.luma"), t("studio.scopes.lumaAria")],
-    rgb: [t("studio.scopes.rgb"), t("studio.scopes.rgbAria")],
-    parade: [t("studio.scopes.parade"), t("studio.scopes.paradeAria")],
-    vectorscope: [t("studio.scopes.vectorscope"), t("studio.scopes.vectorscopeAria")],
+    luma: [t('studio.scopes.luma'), t('studio.scopes.lumaAria')],
+    rgb: [t('studio.scopes.rgb'), t('studio.scopes.rgbAria')],
+    parade: [t('studio.scopes.parade'), t('studio.scopes.paradeAria')],
+    vectorscope: [t('studio.scopes.vectorscope'), t('studio.scopes.vectorscopeAria')]
   };
 
   return (
-    <section className="studio-scopes" aria-label={t("studio.scopes.aria")}>
+    <section className="studio-scopes" aria-label={t('studio.scopes.aria')}>
       <div className="studio-section-caption">
-        <span>{t("studio.scopes.title")}</span>
-        <span className="studio-scope-modes" role="group" aria-label={t("studio.scopes.mode")}>
+        <span>{t('studio.scopes.title')}</span>
+        <span className="studio-scope-modes" role="group" aria-label={t('studio.scopes.mode')}>
           {SCOPE_MODES.map((m) => (
             <button
               key={m}
@@ -139,7 +131,7 @@ export default memo(function StudioScopes() {
               onKeyDown={(event) => {
                 // Space would otherwise reach the global zoom shortcut
                 // (window keydown): keep native activation for Space/Enter.
-                if (event.key === " " || event.key === "Enter") event.stopPropagation();
+                if (event.key === ' ' || event.key === 'Enter') event.stopPropagation();
               }}
             >
               {labels[m][0]}
@@ -147,18 +139,18 @@ export default memo(function StudioScopes() {
           ))}
         </span>
       </div>
-      <div className={`studio-scope-plot${vectorscope ? " is-vectorscope" : ""}`}>
+      <div className={`studio-scope-plot${vectorscope ? ' is-vectorscope' : ''}`}>
         <canvas ref={canvas} width={SIZE} height={SIZE} aria-hidden="true" />
         <svg
           viewBox={`0 0 ${SIZE} ${SIZE}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={pixels ? labels[mode][1] : t("studio.scopes.empty")}
+          aria-label={pixels ? labels[mode][1] : t('studio.scopes.empty')}
         >
           {vectorscope ? (
             <VectorscopeGraticule waveform={waveform} />
           ) : (
-            <WaveformGraticule parade={mode === "parade"} />
+            <WaveformGraticule parade={mode === 'parade'} />
           )}
         </svg>
         {!vectorscope && (
@@ -174,4 +166,3 @@ export default memo(function StudioScopes() {
     </section>
   );
 });
-

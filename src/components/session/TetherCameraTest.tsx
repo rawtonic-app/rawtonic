@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { getVersion } from "@tauri-apps/api/app";
-import { arch, platform, version } from "@tauri-apps/plugin-os";
-import { Check, CircleHelp, LoaderCircle, Minus, Send, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { Invokes } from "../ui/AppProperties";
-import { useUIStore } from "../../store/useUIStore";
-import ReportDialog from "../contribute/ReportDialog";
-import { contributionAvailable } from "../contribute/relay";
-import type { AppInfo } from "../contribute/reports";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { getVersion } from '@tauri-apps/api/app';
+import { arch, platform, version } from '@tauri-apps/plugin-os';
+import { Check, CircleHelp, LoaderCircle, Minus, Send, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Invokes } from '../ui/AppProperties';
+import { useUIStore } from '../../store/useUIStore';
+import ReportDialog from '../contribute/ReportDialog';
+import { contributionAvailable } from '../contribute/relay';
+import type { AppInfo } from '../contribute/reports';
 import {
   STEPS,
   buildReport,
@@ -18,9 +18,9 @@ import {
   settingToChange,
   type ReportInfo,
   type StepId,
-  type StepResult,
-} from "./cameraTest";
-import { shotNotReceived } from "./tether";
+  type StepResult
+} from './cameraTest';
+import { shotNotReceived } from './tether';
 
 /** What the test needs of the connected camera (`TetherStatus`). */
 export interface TestedCamera {
@@ -72,7 +72,7 @@ interface Heard {
   foreign?: boolean;
 }
 
-const EVENTS = ["tether-captured", "tether-capture-failed", "tether-state", "tether-released", "wgpu-frame-ready"];
+const EVENTS = ['tether-captured', 'tether-capture-failed', 'tether-state', 'tether-released', 'wgpu-frame-ready'];
 /** The helper reports a shot that did not arrive after 60 s. */
 const SHOT_WAIT_MS = 75_000;
 const SCREEN_WAIT_MS = 10_000;
@@ -87,16 +87,16 @@ const now = () => performance.now();
 const sameFile = (a: string, b: string) => a === b || a.startsWith(`${b}?`);
 const captured = (h: Heard) => h.payload as Captured;
 /** A shot requested from the app: its first file in (RAW+JPEG come as two). */
-const appExposure = (h: Heard) => h.name === "tether-captured" && captured(h).requested && h.exposure === true;
+const appExposure = (h: Heard) => h.name === 'tether-captured' && captured(h).requested && h.exposure === true;
 /** The first file of the app request `request`, or its failure (a shot that
  * never came, or the first file of its exposure failing). */
 const answers = (h: Heard, request: number | null) => {
   if (request === null) return appExposure(h) || ownFailure(h);
   if ((h.payload as { request?: number | null }).request !== request) return false;
-  return h.name === "tether-captured" ? h.exposure === true : ownFailure(h);
+  return h.name === 'tether-captured' ? h.exposure === true : ownFailure(h);
 };
 /** Thrown into a running step when the test is closed. */
-const CLOSED = "the camera test was closed";
+const CLOSED = 'the camera test was closed';
 
 /** Why something failed: `reason` is the test's own words (it goes into
  * the report), `detail` the camera's or the app's message (shown here
@@ -105,42 +105,55 @@ interface Failure {
   reason: string;
   detail?: string;
 }
-const refused = (e: unknown): Failure => ({ reason: "refused by the camera or the helper", detail: String(e) });
+const refused = (e: unknown): Failure => ({
+  reason: 'refused by the camera or the helper',
+  detail: String(e)
+});
 const notDelivered = (payload: unknown): Failure => {
   const { kind, message } = payload as { kind?: string; message?: string };
   // The helper's timeout: no photo, which on a body is mostly a shot not
   // taken (no focus with autofocus), sometimes one not handed over.
-  if (kind === "timeout") return { reason: "no photo within 60 s of the shot (not taken, or not handed over)", detail: message };
-  return { reason: `shot not delivered (${/^[a-zA-Z]+$/.test(kind ?? "") ? kind : "other"})`, detail: message };
+  if (kind === 'timeout')
+    return {
+      reason: 'no photo within 60 s of the shot (not taken, or not handed over)',
+      detail: message
+    };
+  return {
+    reason: `shot not delivered (${/^[a-zA-Z]+$/.test(kind ?? '') ? kind : 'other'})`,
+    detail: message
+  };
 };
-const notAdded = (error: string): Failure => ({ reason: "photo not added to the library", detail: error });
-const NO_PHOTO: Failure = { reason: "no photo arrived" };
+const notAdded = (error: string): Failure => ({
+  reason: 'photo not added to the library',
+  detail: error
+});
+const NO_PHOTO: Failure = { reason: 'no photo arrived' };
 /** Steps that take photos, and how long after one its last files may come. */
-const PHOTO_STEPS: StepId[] = ["shots", "burst", "bodyShot", "replug"];
+const PHOTO_STEPS: StepId[] = ['shots', 'burst', 'bodyShot', 'replug'];
 const SETTLE_MS = 1000;
 /** A file not added to the library or a shot the helper reports as not
  * delivered (also the second file of a RAW+JPEG exposure). */
 const isFailure = (h: Heard) =>
-  (h.name === "tether-captured" && Boolean(captured(h).error)) || h.name === "tether-capture-failed";
-const LATE_FAILURE = "a file of its photos failed after the step";
+  (h.name === 'tether-captured' && Boolean(captured(h).error)) || h.name === 'tether-capture-failed';
+const LATE_FAILURE = 'a file of its photos failed after the step';
 /** A photo step whose counts cannot be trusted: the camera reused a file
  * name and its RAW and JPEG files could not be told apart by exposure (the
  * camera library gives no exposure identity). Never pass or fail then. */
 const inconclusive = (result: StepResult): StepResult => ({
   ...result,
-  state: "inconclusive",
-  reason: "the camera reused a file name, so its RAW and JPEG files could not be matched to shots",
+  state: 'inconclusive',
+  reason: 'the camera reused a file name, so its RAW and JPEG files could not be matched to shots'
 });
 /** A failure that ends a shot of the step running: a shot that never came
  * (no exposure) or the first file of a new exposure failing. A failed
  * second file of an exposure already in ends none (it is still recorded). */
-const ownFailure = (h: Heard) => h.name === "tether-capture-failed" && !h.foreign && h.exposure === true;
+const ownFailure = (h: Heard) => h.name === 'tether-capture-failed' && !h.foreign && h.exposure === true;
 
 const systemName = () => {
   try {
     return `${platform()} ${version()} (${arch()})`;
   } catch {
-    return "unknown";
+    return 'unknown';
   }
 };
 
@@ -155,7 +168,7 @@ export default function TetherCameraTest({
   camera,
   connectMs,
   freeCameraCopies,
-  onClose,
+  onClose
 }: {
   camera: TestedCamera;
   /** How long the panel's connect took, when the panel connected it. */
@@ -165,12 +178,12 @@ export default function TetherCameraTest({
 }) {
   const { t } = useTranslation();
   const [results, setResults] = useState<Partial<Record<StepId, StepResult>>>(() => ({
-    connect: connectMs === null ? { state: "passed" } : { state: "passed", ms: connectMs },
+    connect: connectMs === null ? { state: 'passed' } : { state: 'passed', ms: connectMs }
   }));
   const [running, setRunning] = useState<StepId | null>(null);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState('');
   const [shotCount, setShotCount] = useState(10);
-  const [appVersion, setAppVersion] = useState("unknown");
+  const [appVersion, setAppVersion] = useState('unknown');
   const [app, setApp] = useState<AppInfo | null>(null);
   const [relay, setRelay] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -215,7 +228,7 @@ export default function TetherCameraTest({
     freed: 0,
     notFreed: 0,
     early: 0,
-    errors: [] as string[],
+    errors: [] as string[]
   });
 
   useEffect(() => {
@@ -257,19 +270,19 @@ export default function TetherCameraTest({
       // else its request's.
       let owner: StepId | null = asked === undefined ? running : asked;
       const key = connection == null || exposure == null ? null : `${connection}/${exposure}`;
-      if (name === "tether-captured" || name === "tether-capture-failed") {
+      if (name === 'tether-captured' || name === 'tether-capture-failed') {
         // One exposure as RAW and JPEG counts once, whichever of its files
         // comes or fails first: the helper gives both its number.
         h.exposure = key === null || !exposures.current.has(key);
         if (key !== null && !exposures.current.has(key)) exposures.current.set(key, owner);
       }
       if (key !== null && exposures.current.has(key)) owner = exposures.current.get(key) ?? null;
-      else if (name === "tether-capture-failed" && owner === null && asked === undefined) owner = lastPhotoStep.current;
+      else if (name === 'tether-capture-failed' && owner === null && asked === undefined) owner = lastPhotoStep.current;
       h.foreign = owner !== running;
       heard.current.push(h);
       const candidates = (payload as { ambiguous?: number[] }).ambiguous ?? [];
       const ambiguous = candidates.length > 0;
-      if ((name === "tether-captured" || name === "tether-capture-failed") && ambiguous) {
+      if ((name === 'tether-captured' || name === 'tether-capture-failed') && ambiguous) {
         // Every step it may belong to cannot be told: the one it was given,
         // the one running (it may be a new exposure) and those of the other
         // exposures it may belong to.
@@ -293,7 +306,7 @@ export default function TetherCameraTest({
       // A failure of an ambiguous file is counted, but it cannot be told
       // whose it is: its step is inconclusive (above), not failed.
       if (isFailure(h)) setFailures((n) => n + 1);
-      if (name === "tether-capture-failed" && shotNotReceived(payload as { kind?: string; exposure?: number | null }))
+      if (name === 'tether-capture-failed' && shotNotReceived(payload as { kind?: string; exposure?: number | null }))
         setNotReceived((n) => n + 1);
       if (isFailure(h) && !ambiguous) {
         if (owner) failuresOf.current.set(owner, [...(failuresOf.current.get(owner) ?? []), h]);
@@ -302,8 +315,11 @@ export default function TetherCameraTest({
         if (late)
           setResults((current) => {
             const result = current[late];
-            if (!result || result.state !== "passed") return current;
-            return { ...current, [late]: { ...result, state: "failed", reason: LATE_FAILURE } };
+            if (!result || result.state !== 'passed') return current;
+            return {
+              ...current,
+              [late]: { ...result, state: 'failed', reason: LATE_FAILURE }
+            };
           });
       }
       if (heard.current.length > 500) heard.current.splice(0, 250);
@@ -319,20 +335,27 @@ export default function TetherCameraTest({
         // fails it.
         if (early || release.error || !release.freed)
           setResults((current) =>
-            current.release?.state === "passed"
-              ? { ...current, release: { ...current.release, state: "failed", reason: "a later release failed" } }
-              : current,
+            current.release?.state === 'passed'
+              ? {
+                  ...current,
+                  release: {
+                    ...current.release,
+                    state: 'failed',
+                    reason: 'a later release failed'
+                  }
+                }
+              : current
           );
       };
       // Photos left from an earlier run (no connection) are not freed.
-      if (name === "tether-captured" && file !== null) {
+      if (name === 'tether-captured' && file !== null) {
         const c = payload as Captured;
         const early = r.releasedEarly.get(file);
         if (early) {
           r.releasedEarly.delete(file);
           released(early, true);
         } else if (!c.error && (c.assetId || c.skipped)) r.pending.push(file);
-      } else if (name === "tether-released" && file !== null) {
+      } else if (name === 'tether-released' && file !== null) {
         const release = payload as { freed: boolean; error: string | null };
         const at = r.pending.indexOf(file);
         if (at < 0) r.releasedEarly.set(file, release);
@@ -376,7 +399,7 @@ export default function TetherCameraTest({
         }, ms);
         waiters.current.add(waiter);
       }),
-    [],
+    []
   );
 
   /** Asks the camera for something, unless the test was closed. */
@@ -384,7 +407,6 @@ export default function TetherCameraTest({
     if (closed.current) return Promise.reject(new Error(CLOSED));
     return invoke<T>(command, args);
   }, []);
-
 
   /** Fires the shutter for the step running; its request number, when the
    * helper gives one, is the test's. */
@@ -402,49 +424,65 @@ export default function TetherCameraTest({
 
   /** One shot from the app: request → photo in the library → its first
    * Develop frame (when `screen`: Develop shows the captures). */
-  const shoot = useCallback(async (screen: boolean) => {
-    const since = now();
-    const after = seq.current;
-    let request: number | null;
-    try {
-      request = await fire();
-    } catch (e) {
-      return { error: refused(e) };
-    }
-    // This request's photo (its first file) or its failure, never another
-    // shot's (one fired before the test, say).
-    const photo = await next((h) => answers(h, request), SHOT_WAIT_MS, after);
-    if (!photo) return { error: NO_PHOTO };
-    if (photo.name === "tether-capture-failed") return { error: notDelivered(photo.payload) };
-    const c = captured(photo);
-    if (c.error) return { error: notAdded(c.error) };
-    const inLibrary = Math.round(photo.at - since);
-    const destination = c.destination;
-    const frame =
-      screen && destination
-        ? await next(
-            (h) => h.name === "wgpu-frame-ready" && sameFile((h.payload as { path: string }).path, destination),
-            SCREEN_WAIT_MS,
-            photo.seq,
-          )
-        : null;
-    return { inLibrary, onScreen: frame ? Math.round(frame.at - since) : undefined };
-  }, [fire, next]);
+  const shoot = useCallback(
+    async (screen: boolean) => {
+      const since = now();
+      const after = seq.current;
+      let request: number | null;
+      try {
+        request = await fire();
+      } catch (e) {
+        return { error: refused(e) };
+      }
+      // This request's photo (its first file) or its failure, never another
+      // shot's (one fired before the test, say).
+      const photo = await next((h) => answers(h, request), SHOT_WAIT_MS, after);
+      if (!photo) return { error: NO_PHOTO };
+      if (photo.name === 'tether-capture-failed') return { error: notDelivered(photo.payload) };
+      const c = captured(photo);
+      if (c.error) return { error: notAdded(c.error) };
+      const inLibrary = Math.round(photo.at - since);
+      const destination = c.destination;
+      const frame =
+        screen && destination
+          ? await next(
+              (h) => h.name === 'wgpu-frame-ready' && sameFile((h.payload as { path: string }).path, destination),
+              SCREEN_WAIT_MS,
+              photo.seq
+            )
+          : null;
+      return {
+        inLibrary,
+        onScreen: frame ? Math.round(frame.at - since) : undefined
+      };
+    },
+    [fire, next]
+  );
 
   const runners: Record<StepId, () => Promise<StepResult>> = {
-    connect: async () => ({ state: "passed" }),
+    connect: async () => ({ state: 'passed' }),
     settings: async () => {
       const started = now();
       const settings = await ask<Setting[]>(Invokes.TetherSettings);
       const ms = Math.round(now() - started);
       const changeable = settings.filter((s) => !s.readOnly && s.choices.length > 1).length;
       return settings.length > 0
-        ? { state: "passed", ms, settings: settings.length, changeable }
-        : { state: "failed", ms, settings: 0, changeable: 0, reason: "no settings read" };
+        ? { state: 'passed', ms, settings: settings.length, changeable }
+        : {
+            state: 'failed',
+            ms,
+            settings: 0,
+            changeable: 0,
+            reason: 'no settings read'
+          };
     },
     setSetting: async () => {
       const pick = settingToChange(await ask<Setting[]>(Invokes.TetherSettings));
-      if (!pick) return { state: "skipped", reason: "no changeable setting with two values" };
+      if (!pick)
+        return {
+          state: 'skipped',
+          reason: 'no changeable setting with two values'
+        };
       const { setting, other } = pick;
       const from = setting.value;
       // The value the camera reports after a set (the helper reads it back
@@ -479,20 +517,25 @@ export default function TetherCameraTest({
             : there === from
               ? `${label}: the camera kept ${from} when set to ${other}`
               : `${label}: set to ${other} (from ${from}), the camera chose ${there}`;
-        return { state: "failed", ms, reason };
+        return { state: 'failed', ms, reason };
       }
       if (back !== from)
         return {
-          state: "failed",
+          state: 'failed',
           ms,
-          reason: `${label}: changed to ${other}, not set back to ${from} (the camera has ${back ?? "nothing readable"})`,
+          reason: `${label}: changed to ${other}, not set back to ${from} (the camera has ${back ?? 'nothing readable'})`
         };
-      return { state: "passed", ms, setting: label, change: { from, to: other } };
+      return {
+        state: 'passed',
+        ms,
+        setting: label,
+        change: { from, to: other }
+      };
     },
     autofocus: async () => {
       const started = now();
       await ask(Invokes.TetherAutofocus);
-      return { state: "passed", ms: Math.round(now() - started) };
+      return { state: 'passed', ms: Math.round(now() - started) };
     },
     shots: async () => {
       const inLibrary: number[] = [];
@@ -500,10 +543,10 @@ export default function TetherCameraTest({
       const errors: Failure[] = [];
       // Photos on screen are timed in Develop only (new photos show there);
       // with no frame of a photo that came, the others are not waited for.
-      let screen = useUIStore.getState().activeView === "editor";
-      let screenNote = screen ? undefined : "photo on screen not timed: Develop was not showing";
+      let screen = useUIStore.getState().activeView === 'editor';
+      let screenNote = screen ? undefined : 'photo on screen not timed: Develop was not showing';
       for (let i = 1; i <= shotCount && !closed.current; i += 1) {
-        setPrompt(t("session.tether.test.shotOf", { n: i, total: shotCount }));
+        setPrompt(t('session.tether.test.shotOf', { n: i, total: shotCount }));
         const shot = await shoot(screen);
         if (screen && !shot.error && shot.onScreen === undefined) {
           screen = false;
@@ -514,20 +557,20 @@ export default function TetherCameraTest({
         if (shot.onScreen !== undefined) onScreen.push(shot.onScreen);
       }
       return {
-        state: errors.length === 0 ? "passed" : "failed",
+        state: errors.length === 0 ? 'passed' : 'failed',
         asked: shotCount,
         arrived: inLibrary.length,
         inLibrary,
         onScreen,
         screenNote,
-        ...errors[0],
+        ...errors[0]
       };
     },
     burst: async () => {
       const since = now();
       let after = seq.current;
       const errors: Failure[] = [];
-      setPrompt(t("session.tether.test.bursting", { shots: BURST }));
+      setPrompt(t('session.tether.test.bursting', { shots: BURST }));
       // The burst's own requests, each ended once by its answer.
       const requests = new Set<number | null>();
       for (let i = 0; i < BURST; i += 1) {
@@ -555,21 +598,21 @@ export default function TetherCameraTest({
         after = photo.seq;
         last = photo.at;
         open.delete((photo.payload as { request?: number }).request ?? -1);
-        if (photo.name === "tether-capture-failed") {
+        if (photo.name === 'tether-capture-failed') {
           errors.push(notDelivered(photo.payload));
           ended += 1;
         } else {
           ended += 1;
-          if (captured(photo).error) errors.push(notAdded(captured(photo).error ?? ""));
+          if (captured(photo).error) errors.push(notAdded(captured(photo).error ?? ''));
           else arrived += 1;
         }
       }
       return {
-        state: errors.length === 0 && arrived === BURST ? "passed" : "failed",
+        state: errors.length === 0 && arrived === BURST ? 'passed' : 'failed',
         asked: BURST,
         arrived,
         ms: Math.round(last - since),
-        ...errors[0],
+        ...errors[0]
       };
     },
     bodyShot: async () => {
@@ -577,97 +620,126 @@ export default function TetherCameraTest({
       // Newer than every exposure heard before (a late file of an earlier
       // exposure is no shot of now).
       const before = new Map(newest.current);
-      setPrompt(t("session.tether.test.pressShutter"));
+      setPrompt(t('session.tether.test.pressShutter'));
       const photo = await next(
         // A photo of this connection (one left from an earlier run has no
         // exposure and is no shot of now).
         (h) =>
-          h.name === "tether-captured" &&
+          h.name === 'tether-captured' &&
           !captured(h).requested &&
           h.exposure === true &&
           captured(h).exposure != null &&
           captured(h).connection != null &&
           (captured(h).exposure ?? 0) > (before.get(captured(h).connection ?? -1) ?? 0),
         BODY_SHOT_WAIT_MS,
-        after,
+        after
       );
-      if (!photo) return { state: "failed", asked: 1, arrived: 0, reason: "no photo within 30 s" };
+      if (!photo)
+        return {
+          state: 'failed',
+          asked: 1,
+          arrived: 0,
+          reason: 'no photo within 30 s'
+        };
       const c = captured(photo);
-      if (c.error) return { state: "failed", asked: 1, arrived: 0, ...notAdded(c.error) };
-      return { state: "passed", asked: 1, arrived: 1 };
+      if (c.error) return { state: 'failed', asked: 1, arrived: 0, ...notAdded(c.error) };
+      return { state: 'passed', asked: 1, arrived: 1 };
     },
     replug: async () => {
-      setPrompt(t("session.tether.test.pullCable"));
+      setPrompt(t('session.tether.test.pullCable'));
       const gone = await next(
-        (h) => h.name === "tether-state" && !(h.payload as { connected: boolean }).connected,
+        (h) => h.name === 'tether-state' && !(h.payload as { connected: boolean }).connected,
         UNPLUG_WAIT_MS,
-        seq.current,
+        seq.current
       );
-      if (!gone) return { state: "failed", reason: "the cable pull was not noticed within 60 s" };
-      setPrompt(t("session.tether.test.plugBack"));
+      if (!gone)
+        return {
+          state: 'failed',
+          reason: 'the cable pull was not noticed within 60 s'
+        };
+      setPrompt(t('session.tether.test.plugBack'));
       const back = await next(
-        (h) => h.name === "tether-state" && (h.payload as { connected: boolean }).connected,
+        (h) => h.name === 'tether-state' && (h.payload as { connected: boolean }).connected,
         REPLUG_WAIT_MS,
-        gone.seq,
+        gone.seq
       );
-      if (!back) return { state: "failed", reason: "not connected again within 3 minutes" };
+      if (!back)
+        return {
+          state: 'failed',
+          reason: 'not connected again within 3 minutes'
+        };
       const ms = Math.round(back.at - gone.at);
-      setPrompt(t("session.tether.test.shotAfterReplug"));
+      setPrompt(t('session.tether.test.shotAfterReplug'));
       const shot = await shoot(false);
       return shot.error
-        ? { state: "failed", ms, asked: 1, arrived: 0, ...shot.error }
+        ? { state: 'failed', ms, asked: 1, arrived: 0, ...shot.error }
         : {
-            state: "passed",
+            state: 'passed',
             ms,
             asked: 1,
             arrived: 1,
-            reason: "time from the cable pull noticed to connected again, the replug included",
+            reason: 'time from the cable pull noticed to connected again, the replug included'
           };
     },
     release: async () => {
-      if (!camera.transferQueue) return { state: "skipped", reason: "the camera keeps no transfer queue" };
-      if (!freeCameraCopies) return { state: "skipped", reason: "freeing photos on the camera is turned off" };
+      if (!camera.transferQueue)
+        return {
+          state: 'skipped',
+          reason: 'the camera keeps no transfer queue'
+        };
+      if (!freeCameraCopies)
+        return {
+          state: 'skipped',
+          reason: 'freeing photos on the camera is turned off'
+        };
       const r = releases.current;
       const waitUntil = now() + RELEASE_WAIT_MS;
       while (r.pending.length > 0 && now() < waitUntil) await new Promise((done) => window.setTimeout(done, 200));
       if (r.freed + r.notFreed + r.errors.length === 0 && r.pending.length === 0)
-        return { state: "skipped", reason: "no photo taken in the test yet" };
+        return { state: 'skipped', reason: 'no photo taken in the test yet' };
       const problems = [
-        r.pending.length ? `${r.pending.length} not freed` : "",
-        r.notFreed ? `${r.notFreed} kept by the camera` : "",
-        r.early ? `${r.early} freed before their commit` : "",
-        r.errors.length ? `${r.errors.length} releases failed` : "",
+        r.pending.length ? `${r.pending.length} not freed` : '',
+        r.notFreed ? `${r.notFreed} kept by the camera` : '',
+        r.early ? `${r.early} freed before their commit` : '',
+        r.errors.length ? `${r.errors.length} releases failed` : ''
       ].filter(Boolean);
       return problems.length
-        ? { state: "failed", freed: r.freed, reason: problems.join(", "), detail: r.errors[0] }
-        : { state: "passed", freed: r.freed };
-    },
+        ? {
+            state: 'failed',
+            freed: r.freed,
+            reason: problems.join(', '),
+            detail: r.errors[0]
+          }
+        : { state: 'passed', freed: r.freed };
+    }
   };
 
   const run = async (id: StepId) => {
     runningStep.current = id;
     failuresOf.current.set(id, []);
     setRunning(id);
-    setPrompt("");
+    setPrompt('');
     let result: StepResult;
     try {
       result = await runners[id]();
     } catch (e) {
-      result = { state: "failed", ...refused(e) };
+      result = { state: 'failed', ...refused(e) };
     }
     if (PHOTO_STEPS.includes(id) && !closed.current) {
       // Every file of the step's photos counts, also the second file of a
       // RAW+JPEG exposure (counted once above), and one a moment late.
       await new Promise((done) => window.setTimeout(done, SETTLE_MS));
       const failed = failuresOf.current.get(id) ?? [];
-      if (failed.length > 0 && result.state !== "failed") {
+      if (failed.length > 0 && result.state !== 'failed') {
         const first = failed[0];
         result = {
           ...result,
-          state: "failed",
+          state: 'failed',
           reason: `${failed.length} files not added or shots not delivered`,
           detail:
-            first.name === "tether-capture-failed" ? notDelivered(first.payload).detail : (captured(first).error ?? undefined),
+            first.name === 'tether-capture-failed'
+              ? notDelivered(first.payload).detail
+              : (captured(first).error ?? undefined)
         };
       }
     }
@@ -675,12 +747,15 @@ export default function TetherCameraTest({
     if (PHOTO_STEPS.includes(id)) lastPhotoStep.current = id;
     runningStep.current = null;
     setResults((current) => ({ ...current, [id]: result }));
-    setPrompt("");
+    setPrompt('');
     setRunning(null);
   };
 
   const skip = (id: StepId) =>
-    setResults((current) => ({ ...current, [id]: { state: "skipped", reason: "skipped by the user" } }));
+    setResults((current) => ({
+      ...current,
+      [id]: { state: 'skipped', reason: 'skipped by the user' }
+    }));
 
   const info: ReportInfo = {
     appVersion,
@@ -688,85 +763,90 @@ export default function TetherCameraTest({
     model: camera.model,
     firmware: camera.firmware ?? null,
     library: camera.library ?? null,
-    transport: camera.transport ?? "mock",
+    transport: camera.transport ?? 'mock',
     transferQueue: camera.transferQueue ?? false,
     freeCameraCopies,
     failures,
     experimental: camera.experimental === true,
-    notReceived,
+    notReceived
   };
   const report = buildReport(info, results);
   const payload = useMemo(() => (app ? cameraTestPayload(app, camera, report) : null), [app, camera, report]);
   const stepNames: Record<StepId, string> = {
-    connect: t("session.tether.test.steps.connect"),
-    settings: t("session.tether.test.steps.settings"),
-    setSetting: t("session.tether.test.steps.setSetting"),
-    autofocus: t("session.tether.test.steps.autofocus"),
-    shots: t("session.tether.test.steps.shots"),
-    burst: t("session.tether.test.steps.burst"),
-    bodyShot: t("session.tether.test.steps.bodyShot"),
-    replug: t("session.tether.test.steps.replug"),
-    release: t("session.tether.test.steps.release"),
+    connect: t('session.tether.test.steps.connect'),
+    settings: t('session.tether.test.steps.settings'),
+    setSetting: t('session.tether.test.steps.setSetting'),
+    autofocus: t('session.tether.test.steps.autofocus'),
+    shots: t('session.tether.test.steps.shots'),
+    burst: t('session.tether.test.steps.burst'),
+    bodyShot: t('session.tether.test.steps.bodyShot'),
+    replug: t('session.tether.test.steps.replug'),
+    release: t('session.tether.test.steps.release')
   };
   const stepHows: Record<StepId, string> = {
-    connect: "",
-    settings: t("session.tether.test.how.settings"),
-    setSetting: t("session.tether.test.how.setSetting"),
-    autofocus: t("session.tether.test.how.autofocus"),
-    shots: t("session.tether.test.how.shots"),
-    burst: t("session.tether.test.how.burst", { shots: BURST }),
-    bodyShot: t("session.tether.test.how.bodyShot"),
-    replug: t("session.tether.test.how.replug"),
-    release: t("session.tether.test.how.release"),
+    connect: '',
+    settings: t('session.tether.test.how.settings'),
+    setSetting: t('session.tether.test.how.setSetting'),
+    autofocus: t('session.tether.test.how.autofocus'),
+    shots: t('session.tether.test.how.shots'),
+    burst: t('session.tether.test.how.burst', { shots: BURST }),
+    bodyShot: t('session.tether.test.how.bodyShot'),
+    replug: t('session.tether.test.how.replug'),
+    release: t('session.tether.test.how.release')
   };
-  const states: Record<StepResult["state"], string> = {
-    inconclusive: t("session.tether.test.state.inconclusive"),
-    passed: t("session.tether.test.state.passed"),
-    failed: t("session.tether.test.state.failed"),
-    skipped: t("session.tether.test.state.skipped"),
+  const states: Record<StepResult['state'], string> = {
+    inconclusive: t('session.tether.test.state.inconclusive'),
+    passed: t('session.tether.test.state.passed'),
+    failed: t('session.tether.test.state.failed'),
+    skipped: t('session.tether.test.state.skipped')
   };
   const current = STEPS.find((id) => !results[id]);
 
   return (
-    <section className="tether-test" aria-label={t("session.tether.test.title")}>
+    <section className="tether-test" aria-label={t('session.tether.test.title')}>
       <div className="tether-test-head">
-        <h3>{t("session.tether.test.title")}</h3>
-        <button type="button" className="session-icon-button" aria-label={t("session.tether.test.close")} onClick={onClose}>
+        <h3>{t('session.tether.test.title')}</h3>
+        <button
+          type="button"
+          className="session-icon-button"
+          aria-label={t('session.tether.test.close')}
+          onClick={onClose}
+        >
           <X size={14} />
         </button>
       </div>
       {camera.experimental ? (
         <div className="tether-experimental" role="note">
-          <strong>{t("session.tether.test.canonGuide.title")}</strong>
+          <strong>{t('session.tether.test.canonGuide.title')}</strong>
           <ol className="tether-test-guide">
-            <li>{t("session.tether.test.canonGuide.card")}</li>
-            <li>{t("session.tether.test.canonGuide.steps")}</li>
-            <li>{t("session.tether.test.canonGuide.missing")}</li>
+            <li>{t('session.tether.test.canonGuide.card')}</li>
+            <li>{t('session.tether.test.canonGuide.steps')}</li>
+            <li>{t('session.tether.test.canonGuide.missing')}</li>
             <li>
-              {t("session.tether.test.canonGuide.send", {
-                button: relay ? t("session.tether.test.send") : t("session.tether.test.share"),
+              {t('session.tether.test.canonGuide.send', {
+                button: relay ? t('session.tether.test.send') : t('session.tether.test.share')
               })}
             </li>
           </ol>
         </div>
       ) : (
-        <p className="tether-note">{t("session.tether.test.intro")}</p>
+        <p className="tether-note">{t('session.tether.test.intro')}</p>
       )}
       <ol className="tether-test-steps">
         {STEPS.map((id) => {
           const result = results[id];
           const active = running === id;
           return (
-            <li key={id} data-state={result?.state ?? (active ? "running" : "pending")}>
+            <li key={id} data-state={result?.state ?? (active ? 'running' : 'pending')}>
               <div className="tether-test-step">
                 <span className="tether-test-mark" aria-hidden>
                   {active ? (
                     <LoaderCircle size={12} className="animate-spin" />
-                  ) : result?.state === "passed" ? (
+                  ) : result?.state === 'passed' ? (
                     <Check size={12} />
-                  ) : result?.state === "inconclusive" ? (
+                  ) : result?.state === 'inconclusive' ? (
                     <CircleHelp size={12} />
-                  ) : result?.state === "failed" ? (
+                  ) : result?.state === 'failed' ? (
                     <X size={12} />
                   ) : result ? (
                     <Minus size={12} />
@@ -782,9 +862,9 @@ export default function TetherCameraTest({
                   <small>{active && prompt ? prompt : stepHows[id]}</small>
                   {!active && (
                     <div className="tether-actions">
-                      {id === "shots" && (
+                      {id === 'shots' && (
                         <select
-                          aria-label={t("session.tether.test.shotCount")}
+                          aria-label={t('session.tether.test.shotCount')}
                           value={shotCount}
                           onChange={(e) => setShotCount(Number(e.target.value))}
                         >
@@ -796,10 +876,10 @@ export default function TetherCameraTest({
                         </select>
                       )}
                       <button type="button" className="session-action session-primary" onClick={() => void run(id)}>
-                        {t("session.tether.test.run")}
+                        {t('session.tether.test.run')}
                       </button>
                       <button type="button" className="session-action" onClick={() => skip(id)}>
-                        {t("session.tether.test.skip")}
+                        {t('session.tether.test.skip')}
                       </button>
                     </div>
                   )}
@@ -810,9 +890,9 @@ export default function TetherCameraTest({
         })}
       </ol>
       <label className="session-field tether-test-report">
-        {t("session.tether.test.report")}
-        <textarea readOnly rows={10} value={report} aria-label={t("session.tether.test.report")} />
-        <small>{t("session.tether.test.reportHint")}</small>
+        {t('session.tether.test.report')}
+        <textarea readOnly rows={10} value={report} aria-label={t('session.tether.test.report')} />
+        <small>{t('session.tether.test.reportHint')}</small>
       </label>
       <div className="tether-actions tether-test-report-actions">
         <button
@@ -822,20 +902,20 @@ export default function TetherCameraTest({
           onClick={() => setSharing(true)}
         >
           <Send size={14} />
-          <span>{relay ? t("session.tether.test.send") : t("session.tether.test.share")}</span>
+          <span>{relay ? t('session.tether.test.send') : t('session.tether.test.share')}</span>
         </button>
       </div>
       <ReportDialog
         isOpen={sharing}
-        title={t("session.tether.test.sendTitle")}
+        title={t('session.tether.test.sendTitle')}
         channel="cameraTest"
         payload={payload}
         onClose={() => setSharing(false)}
       >
-        <p className="text-sm">{t("session.tether.test.sendIntro")}</p>
-        {camera.experimental && <p className="text-sm">{t("session.tether.test.canonGuide.sendNote")}</p>}
+        <p className="text-sm">{t('session.tether.test.sendIntro')}</p>
+        {camera.experimental && <p className="text-sm">{t('session.tether.test.canonGuide.sendNote')}</p>}
         <pre
-          aria-label={t("session.tether.test.report")}
+          aria-label={t('session.tether.test.report')}
           className="min-h-0 overflow-auto rounded bg-bg-primary p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
           tabIndex={0}
         >

@@ -1,11 +1,11 @@
-import type { MaskContainer } from "./adjustments";
+import type { MaskContainer } from './adjustments';
 
 /** The engine renders at most this many layers (`MAX_MASKS` in
  * crates/engine/src/image_processing.rs); later ones are kept but ignored by
  * previews and exports. */
 export const MAX_RENDERED_LAYERS = 32;
 
-type LayerLike = Pick<MaskContainer, "id" | "visible" | "subMasks">;
+type LayerLike = Pick<MaskContainer, 'id' | 'visible' | 'subMasks'>;
 
 /** A layer the engine renders: visible with at least one component (the
  * engine's `produces_bitmap`). */

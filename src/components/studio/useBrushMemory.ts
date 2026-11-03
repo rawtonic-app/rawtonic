@@ -1,9 +1,9 @@
-import { useEffect } from "react";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import type { AppSettings, BrushSettings } from "../ui/AppProperties";
+import { useEffect } from 'react';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import type { AppSettings, BrushSettings } from '../ui/AppProperties';
 
-const KEYS = ["size", "hardness", "opacity", "flow"] as const;
+const KEYS = ['size', 'hardness', 'opacity', 'flow'] as const;
 /** Saving waits for the end of a slider drag or a run of [ ] presses. */
 const SAVE_DELAY_MS = 600;
 

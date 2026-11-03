@@ -35,8 +35,15 @@ export function featherOf(params: RadialParams): number {
 /** Radii of the inner (100%), central (50%) and outer (0%) lines. */
 export function radialLines(params: RadialParams) {
   const feather = featherOf(params);
-  const scaled = (factor: number) => ({ x: params.radiusX * factor, y: params.radiusY * factor });
-  return { inner: scaled(1 - feather), central: scaled(1 - feather / 2), outer: scaled(1) };
+  const scaled = (factor: number) => ({
+    x: params.radiusX * factor,
+    y: params.radiusY * factor
+  });
+  return {
+    inner: scaled(1 - feather),
+    central: scaled(1 - feather / 2),
+    outer: scaled(1)
+  };
 }
 
 function angle(params: RadialParams) {
@@ -48,7 +55,10 @@ export function toLocal(params: RadialParams, x: number, y: number): LocalPoint 
   const t = angle(params);
   const dx = x - params.centerX;
   const dy = y - params.centerY;
-  return { x: dx * Math.cos(t) + dy * Math.sin(t), y: -dx * Math.sin(t) + dy * Math.cos(t) };
+  return {
+    x: dx * Math.cos(t) + dy * Math.sin(t),
+    y: -dx * Math.sin(t) + dy * Math.cos(t)
+  };
 }
 
 /** The mask's rotated frame back to image coordinates. */
@@ -56,7 +66,7 @@ export function toImage(params: RadialParams, point: LocalPoint): LocalPoint {
   const t = angle(params);
   return {
     x: params.centerX + point.x * Math.cos(t) - point.y * Math.sin(t),
-    y: params.centerY + point.x * Math.sin(t) + point.y * Math.cos(t),
+    y: params.centerY + point.x * Math.sin(t) + point.y * Math.cos(t)
   };
 }
 
@@ -67,7 +77,7 @@ export function radialHandlePositions(params: RadialParams): Record<RadialHandle
     right: toImage(params, { x: central.x, y: 0 }),
     left: toImage(params, { x: -central.x, y: 0 }),
     bottom: toImage(params, { x: 0, y: central.y }),
-    top: toImage(params, { x: 0, y: -central.y }),
+    top: toImage(params, { x: 0, y: -central.y })
   };
 }
 
@@ -81,7 +91,7 @@ function withRadii(params: RadialParams, outerX: number, outerY: number, feather
     ...params,
     radiusX: Math.max(MIN_RADIUS, outerX),
     radiusY: Math.max(MIN_RADIUS, outerY),
-    feather: clamp(feather, 0, MAX_FEATHER),
+    feather: clamp(feather, 0, MAX_FEATHER)
   };
 }
 
@@ -95,7 +105,7 @@ export function dragRadialLine(
   params: RadialParams,
   line: RadialLine,
   point: LocalPoint,
-  symmetric = false,
+  symmetric = false
 ): RadialParams {
   const feather = featherOf(params);
   const { inner, central, outer } = radialLines(params);
@@ -131,7 +141,7 @@ export function dragRadialHandle(
   params: RadialParams,
   handle: RadialHandle,
   point: LocalPoint,
-  options: { uniform?: boolean; lockOpposite?: boolean } = {},
+  options: { uniform?: boolean; lockOpposite?: boolean } = {}
 ): RadialParams {
   const feather = featherOf(params);
   const { central } = radialLines(params);

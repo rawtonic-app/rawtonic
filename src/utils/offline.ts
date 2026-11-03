@@ -9,7 +9,7 @@ import {
   type ImageFile,
   type OfflineEntry,
   type Option,
-  type RelinkReport,
+  type RelinkReport
 } from '../components/ui/AppProperties';
 import { openDialog } from './fileDialog';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -131,7 +131,7 @@ export async function openMissingView(
   directory: string,
   name: string,
   select: SelectView,
-  preserveEditor = false,
+  preserveEditor = false
 ): Promise<number> {
   const asked = useLibraryStore.getState().sessionDirectory;
   const entries = await offlinePhotographs(directory);
@@ -169,20 +169,21 @@ function announce(t: TFunction, report: RelinkReport) {
 
 /** Asks for the photograph's file and relinks it, with the other offline
  * photographs of its folder found beside it. Null when cancelled. */
-export async function locatePhotograph(
-  t: TFunction,
-  directory: string,
-  path: string,
-): Promise<RelinkReport | null> {
+export async function locatePhotograph(t: TFunction, directory: string, path: string): Promise<RelinkReport | null> {
   const source = path.split('?vc=')[0];
   const picked = await openDialog({
     title: t('offline.dialog.locateFile', { name: fileNameOf(source) }),
     defaultPath: folderOf(source) || undefined,
     multiple: false,
-    directory: false,
+    directory: false
   });
   if (typeof picked !== 'string') return null;
-  const report = await invoke<RelinkReport>(Invokes.SessionRelink, { directory, path: source, to: picked, nearby: true });
+  const report = await invoke<RelinkReport>(Invokes.SessionRelink, {
+    directory,
+    path: source,
+    to: picked,
+    nearby: true
+  });
   announce(t, report);
   return report;
 }
@@ -200,10 +201,14 @@ export async function locateFolderOf(t: TFunction, directory: string, from: stri
   const picked = await openDialog({
     title: t('offline.dialog.locateFolder', { folder: from }),
     multiple: false,
-    directory: true,
+    directory: true
   });
   if (typeof picked !== 'string') return null;
-  const report = await invoke<RelinkReport>(Invokes.SessionRelinkFolder, { directory, from, to: picked });
+  const report = await invoke<RelinkReport>(Invokes.SessionRelinkFolder, {
+    directory,
+    from,
+    to: picked
+  });
   announce(t, report);
   return report;
 }
@@ -221,7 +226,7 @@ export function offlineMenu(
     /** After a relink (also one that found nothing), with what it did. */
     onRelinked: (report: RelinkReport) => void;
     onShowMissing?: () => void;
-  },
+  }
 ): Option[] {
   const { directory, selection, onRelinked, onShowMissing } = options;
   const offline = selection.filter((file) => file.is_offline);
@@ -232,21 +237,33 @@ export function offlineMenu(
       .then((report) => {
         if (report) onRelinked(report);
       })
-      .catch((err) => notify.error(t('offline.toasts.failed', { err: String(err) }), { autoClose: false }));
+      .catch((err) =>
+        notify.error(t('offline.toasts.failed', { err: String(err) }), {
+          autoClose: false
+        })
+      );
   };
   return [
     {
       label: t('offline.menu.locate'),
       icon: FileSearch,
       disabled: offline.length !== 1,
-      onClick: run(() => locatePhotograph(t, directory, first.path)),
+      onClick: run(() => locatePhotograph(t, directory, first.path))
     },
     {
       label: t('offline.menu.locateFolder'),
       icon: FolderSearch,
-      onClick: run(() => locateFolder(t, directory, first.path)),
+      onClick: run(() => locateFolder(t, directory, first.path))
     },
-    ...(onShowMissing ? [{ label: t('offline.menu.showMissing'), icon: Unlink, onClick: onShowMissing }] : []),
+    ...(onShowMissing
+      ? [
+          {
+            label: t('offline.menu.showMissing'),
+            icon: Unlink,
+            onClick: onShowMissing
+          }
+        ]
+      : [])
   ];
 }
 
@@ -291,7 +308,12 @@ export function offlineFolders(entries: OfflineEntry[]): OfflineFolder[] {
   const folders = new Map<string, OfflineFolder>();
   for (const entry of entries) {
     const path = folderOf(entry.path);
-    const folder = folders.get(path) ?? { path, count: 0, missing: entry.folder_missing, volume: entry.volume };
+    const folder = folders.get(path) ?? {
+      path,
+      count: 0,
+      missing: entry.folder_missing,
+      volume: entry.volume
+    };
     folder.count += 1;
     folders.set(path, folder);
   }
@@ -301,6 +323,8 @@ export function offlineFolders(entries: OfflineEntry[]): OfflineFolder[] {
 /** How many offline photographs are in `path` or below it. */
 export function offlineBelow(folders: OfflineFolder[], path: string): number {
   return folders
-    .filter((folder) => folder.path === path || folder.path.startsWith(`${path}/`) || folder.path.startsWith(`${path}\\`))
+    .filter(
+      (folder) => folder.path === path || folder.path.startsWith(`${path}/`) || folder.path.startsWith(`${path}\\`)
+    )
     .reduce((sum, folder) => sum + folder.count, 0);
 }

@@ -16,7 +16,10 @@ interface Kept {
 }
 /** A recipe without the lens stamp its save adds (`lensProfileFor`,
  * `lens_recipe::lens_profile_stamp`): the same edit before and after saving. */
-const withoutLensStamp = (recipe: Adjustments) => ({ ...recipe, lensProfileFor: undefined });
+const withoutLensStamp = (recipe: Adjustments) => ({
+  ...recipe,
+  lensProfileFor: undefined
+});
 
 /** Photographs whose History is kept (least recently left dropped first). */
 const KEPT_PHOTOS = 100;
@@ -42,7 +45,7 @@ export function registerWrittenSteps(steps: (path: string) => number[]) {
 export function historyFor(
   path: string,
   shown: Adjustments,
-  batches: { order: number; recipe: Adjustments }[] = [],
+  batches: { order: number; recipe: Adjustments }[] = []
 ): { history: Adjustments[]; historyIndex: number } {
   const entry = kept.get(path);
   if (!entry) return { history: [shown], historyIndex: 0 };
@@ -57,11 +60,9 @@ export function historyFor(
   const history = [
     ...entry.history.slice(0, entry.index + 1),
     ...steps.slice(0, -1).map((step) => step.recipe),
-    shown,
+    shown
   ].slice(-HISTORY_LIMIT);
-  const orders = [...entry.orders.slice(0, entry.index + 1), ...steps.map((step) => step.order)].slice(
-    -HISTORY_LIMIT,
-  );
+  const orders = [...entry.orders.slice(0, entry.index + 1), ...steps.map((step) => step.order)].slice(-HISTORY_LIMIT);
   setHistoryOrders(history, orders);
   return { history, historyIndex: history.length - 1 };
 }
@@ -78,7 +79,12 @@ export function travelKeptHistory(path: string, order: number, direction: 'undo'
 
 function keep(path: string, history: Adjustments[], index: number) {
   kept.delete(path);
-  kept.set(path, { history, index, orders: historyOrders(history), written: new Set(writtenSteps(path)) });
+  kept.set(path, {
+    history,
+    index,
+    orders: historyOrders(history),
+    written: new Set(writtenSteps(path))
+  });
   while (kept.size > KEPT_PHOTOS) kept.delete(kept.keys().next().value!);
 }
 

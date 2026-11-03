@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
-import { Invokes } from "../ui/AppProperties";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useActivityStore } from "../../store/useActivityStore";
-import { isBelow } from "../../utils/catalogFolders";
-import { IMPORTS_CHANGED } from "../../utils/folderSync";
-import { bannerDismissed, dismissBanner, requestAddFolder, type FolderPlan } from "./addFolder";
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useActivityStore } from '../../store/useActivityStore';
+import { isBelow } from '../../utils/catalogFolders';
+import { IMPORTS_CHANGED } from '../../utils/folderSync';
+import { bannerDismissed, dismissBanner, requestAddFolder, type FolderPlan } from './addFolder';
 
 /**
  * A catalog's listed folder (a browse root added before Add Folder… added
@@ -23,9 +23,7 @@ export default function UnaddedFolderBanner() {
   const roots = useLibraryStore((s) => s.rootPaths);
   const current = useLibraryStore((s) => s.currentFolderPath);
   // While an import runs its count is stale; it is read again when it ends.
-  const importing = useActivityStore((s) =>
-    s.entries.some((e) => e.source === "import" && e.status === "running"),
-  );
+  const importing = useActivityStore((s) => s.entries.some((e) => e.source === 'import' && e.status === 'running'));
   const root =
     library && catalog && current
       ? (roots.find((r) => r !== library && !isBelow(r, library) && (r === current || isBelow(current, r))) ?? null)
@@ -38,7 +36,11 @@ export default function UnaddedFolderBanner() {
     if (!library || !root || bannerDismissed(library, root)) return;
     let live = true;
     const scan = () =>
-      invoke<FolderPlan>(Invokes.CatalogAddFolderScan, { directory: library, folder: root, subfolders: true })
+      invoke<FolderPlan>(Invokes.CatalogAddFolderScan, {
+        directory: library,
+        folder: root,
+        subfolders: true
+      })
         .then((plan) => live && setFound({ root, count: plan.photographs }))
         .catch(() => live && setFound(null));
     void scan();
@@ -50,16 +52,20 @@ export default function UnaddedFolderBanner() {
   }, [library, root, dismissed]);
 
   if (importing || !library || !root || found?.root !== root || !found.count) return null;
-  const name = root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || root;
+  const name =
+    root
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() || root;
   return (
     <div className="studio-unadded-banner" role="status">
-      <p>{t("session.addFolder.banner", { count: found.count, name })}</p>
+      <p>{t('session.addFolder.banner', { count: found.count, name })}</p>
       <button
         type="button"
         className="is-primary"
         onClick={() => requestAddFolder({ folder: root, show: async () => {} })}
       >
-        {t("session.addFolder.bannerAdd")}
+        {t('session.addFolder.bannerAdd')}
       </button>
       <button
         type="button"
@@ -68,7 +74,7 @@ export default function UnaddedFolderBanner() {
           setDismissed((n) => n + 1);
         }}
       >
-        {t("session.addFolder.bannerLater")}
+        {t('session.addFolder.bannerLater')}
       </button>
     </div>
   );

@@ -19,9 +19,12 @@ export function outlineOnPhoto(
   outline: ReadonlyArray<readonly [number, number]>,
   cropX: number,
   cropY: number,
-  scale: number,
+  scale: number
 ): Point[] {
-  return outline.map(([x, y]) => ({ x: (x - cropX) * scale, y: (y - cropY) * scale }));
+  return outline.map(([x, y]) => ({
+    x: (x - cropX) * scale,
+    y: (y - cropY) * scale
+  }));
 }
 
 /** SVG `points` of an outline. */
@@ -37,7 +40,7 @@ export function labelPlace(points: Point[], labelHeight: number): Point & { belo
   const minX = Math.min(...points.map((p) => p.x));
   const minY = Math.min(...points.map((p) => p.y));
   const corner = points.reduce((best, p) =>
-    Math.hypot(p.x - minX, p.y - minY) < Math.hypot(best.x - minX, best.y - minY) ? p : best,
+    Math.hypot(p.x - minX, p.y - minY) < Math.hypot(best.x - minX, best.y - minY) ? p : best
   );
   const below = corner.y < labelHeight;
   return { x: corner.x, y: corner.y, below };

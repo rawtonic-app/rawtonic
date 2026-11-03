@@ -5,7 +5,7 @@ import {
   DONE_KEPT,
   DONE_KEPT_MS,
   resetActivityStore,
-  useActivityStore,
+  useActivityStore
 } from './useActivityStore';
 
 const store = () => useActivityStore.getState();
@@ -21,8 +21,16 @@ afterEach(() => {
 });
 
 it('keeps a failure until it is resolved or dismissed, however long', () => {
-  store().report('failure', { id: 'f', source: 'export', title: '2 photos did not export' });
-  store().report('warning', { id: 'w', source: 'xmp', title: '3 XMP not updated' });
+  store().report('failure', {
+    id: 'f',
+    source: 'export',
+    title: '2 photos did not export'
+  });
+  store().report('warning', {
+    id: 'w',
+    source: 'xmp',
+    title: '3 XMP not updated'
+  });
   vi.advanceTimersByTime(DONE_KEPT_MS * 10);
   store().expire();
   expect(entry('f')?.status).toBe('failure');
@@ -54,9 +62,17 @@ it('keeps at most DONE_KEPT results, dropping the oldest', () => {
 
 it('runs a task with progress and Cancel; it cannot be dismissed, only cancelled or finished', () => {
   const cancel = vi.fn();
-  const id = store().start({ source: 'export', title: 'Exporting', progress: { done: 0, total: 4 }, cancel });
+  const id = store().start({
+    source: 'export',
+    title: 'Exporting',
+    progress: { done: 0, total: 4 },
+    cancel
+  });
   store().update(id, { progress: { done: 2, total: 4 } });
-  expect(entry(id)).toMatchObject({ status: 'running', progress: { done: 2, total: 4 } });
+  expect(entry(id)).toMatchObject({
+    status: 'running',
+    progress: { done: 2, total: 4 }
+  });
   store().dismiss(id);
   expect(entry(id)).toBeTruthy();
   entry(id)!.cancel!();
@@ -66,16 +82,28 @@ it('runs a task with progress and Cancel; it cannot be dismissed, only cancelled
   expect(entry(id)).toBeUndefined();
   const other = store().start({ source: 'import', title: 'Importing' });
   store().finish(other, { title: 'Imported 12 photos' });
-  expect(entry(other)).toMatchObject({ status: 'done', source: 'import', title: 'Imported 12 photos' });
+  expect(entry(other)).toMatchObject({
+    status: 'done',
+    source: 'import',
+    title: 'Imported 12 photos'
+  });
 });
 
 it('replaces an entry reported again under its id, keeping when it started', () => {
   vi.setSystemTime(1000);
   store().start({ id: 'export:j', source: 'export', title: 'Exporting' });
   vi.setSystemTime(5000);
-  store().report('failure', { id: 'export:j', source: 'export', title: '1 photo did not export' });
+  store().report('failure', {
+    id: 'export:j',
+    source: 'export',
+    title: '1 photo did not export'
+  });
   expect(store().entries).toHaveLength(1);
-  expect(entry('export:j')).toMatchObject({ status: 'failure', createdAt: 1000, updatedAt: 5000 });
+  expect(entry('export:j')).toMatchObject({
+    status: 'failure',
+    createdAt: 1000,
+    updatedAt: 5000
+  });
 });
 
 it('sorts the sections: failures before warnings, running oldest first, done newest first', () => {
@@ -100,7 +128,7 @@ it('copies the title, detail and the photographs it is about', () => {
     source: 'write',
     title: 'Changes to 1 photo were not saved',
     detail: 'disk full',
-    paths: ['/a/B.dng?vc=2'],
+    paths: ['/a/B.dng?vc=2']
   });
   expect(activityDetails(entry(id)!)).toBe('Changes to 1 photo were not saved\ndisk full\n\n/a/B.dng');
 });

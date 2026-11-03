@@ -151,7 +151,7 @@ function walk(values: Recipe, before: object, after: object, path: string[], out
       out.push({
         path: at,
         ...(b !== undefined ? { from: structuredClone(b) } : {}),
-        ...(a !== undefined ? { to: structuredClone(a) } : {}),
+        ...(a !== undefined ? { to: structuredClone(a) } : {})
       });
   }
 }
@@ -171,7 +171,7 @@ export const PHOTO_OWN_KEYS = [
   'lensDistortionParams',
   'lensProfileFor',
   'masks',
-  'relightLights',
+  'relightLights'
 ];
 
 const withoutPhotoOwn = (values: object): Recipe =>
@@ -185,7 +185,10 @@ const withoutPhotoOwn = (values: object): Recipe =>
 export function recordStyle<T extends object>(before: object, after: T, values: object, id: string, amount = 100): T {
   const changes: StyleChange[] = [];
   walk(withoutPhotoOwn(values), before, after, [], changes);
-  return { ...after, [APPLIED_STYLE]: { id, amount, changes } satisfies AppliedStyle };
+  return {
+    ...after,
+    [APPLIED_STYLE]: { id, amount, changes } satisfies AppliedStyle
+  };
 }
 
 /** Lightroom's Amount for one setting (`blendPreset`): numbers move part of
@@ -208,7 +211,7 @@ export function withStyleAmount<T extends object>(
   base: object,
   values: object,
   amount: number,
-  defaults: object = {},
+  defaults: object = {}
 ): T {
   const applied = appliedStyleOf(recipe);
   if (!applied) return recipe;
@@ -231,8 +234,11 @@ export function withStyleAmount<T extends object>(
     changes.push({
       ...rest,
       ...(to !== undefined ? { to: structuredClone(to) } : {}),
-      ...(full !== undefined ? { full: structuredClone(full) } : {}),
+      ...(full !== undefined ? { full: structuredClone(full) } : {})
     });
   }
-  return { ...out, [APPLIED_STYLE]: { ...applied, amount, changes } satisfies AppliedStyle } as T;
+  return {
+    ...out,
+    [APPLIED_STYLE]: { ...applied, amount, changes } satisfies AppliedStyle
+  } as T;
 }

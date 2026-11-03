@@ -7,7 +7,10 @@ import { setCrashReportsEnabled } from '../contribute/reports';
 /** Whether a crash is recorded and offered as a report on the next start
  * (ADR 0017); turning it off deletes the records kept so far and stops
  * recording at once. */
-export default function CrashReportSettings({ appSettings, onSettingsChange }: {
+export default function CrashReportSettings({
+  appSettings,
+  onSettingsChange
+}: {
   appSettings: AppSettings;
   onSettingsChange(settings: AppSettings): void | Promise<void>;
 }) {

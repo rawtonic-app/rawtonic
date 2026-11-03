@@ -32,7 +32,7 @@ export function applyLayerSolo(masks: MaskContainer[], solo: LayerSolo | null): 
         if (sub.type === Mask.LumaRange) return sub;
         if (sub.id === component) return { ...sub, visible: true, mode: SubMaskMode.Additive };
         return sub.visible ? { ...sub, visible: false } : sub;
-      }),
+      })
     };
   });
 }

@@ -13,7 +13,7 @@ const CONSOLE_LEVEL_MAP: Array<[keyof Console, FrontendLogLevel]> = [
   ['info', 'info'],
   ['warn', 'warn'],
   ['error', 'error'],
-  ['log', 'info'],
+  ['log', 'info']
 ];
 
 const originalConsole = new Map<keyof Console, ConsoleMethod>();
@@ -35,11 +35,11 @@ function isViteLikeError(value: unknown): value is Record<string, unknown> {
 
   return Boolean(
     getRecordField<string>(value, 'message') ||
-      getRecordField<string>(value, 'stack') ||
-      getRecordField<string>(value, 'frame') ||
-      getRecordField<string>(value, 'plugin') ||
-      getRecordField<string>(value, 'id') ||
-      getRecordField<Record<string, unknown>>(value, 'loc'),
+    getRecordField<string>(value, 'stack') ||
+    getRecordField<string>(value, 'frame') ||
+    getRecordField<string>(value, 'plugin') ||
+    getRecordField<string>(value, 'id') ||
+    getRecordField<Record<string, unknown>>(value, 'loc')
   );
 }
 
@@ -100,10 +100,7 @@ function extractViteDetails(args: unknown[]): string | null {
 
 function shouldIgnoreMessage(message: string): boolean {
   const normalized = message.toLowerCase();
-  if (
-    normalized.includes('[vite] failed to reload') &&
-    normalized.includes('see errors above')
-  ) {
+  if (normalized.includes('[vite] failed to reload') && normalized.includes('see errors above')) {
     return true;
   }
 
@@ -128,11 +125,7 @@ function shouldDropDuplicate(level: FrontendLogLevel, message: string): boolean 
   return false;
 }
 
-function serializeValue(
-  value: unknown,
-  depth: number,
-  seen: WeakSet<object>,
-): unknown {
+function serializeValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (value === null || value === undefined) {
     return value;
   }
@@ -150,9 +143,9 @@ function serializeValue(
       ...Object.fromEntries(
         Object.getOwnPropertyNames(value).map((key) => [
           key,
-          serializeValue((value as unknown as Record<string, unknown>)[key], depth + 1, seen),
-        ]),
-      ),
+          serializeValue((value as unknown as Record<string, unknown>)[key], depth + 1, seen)
+        ])
+      )
     };
   }
 
@@ -162,15 +155,11 @@ function serializeValue(
 
   if (value instanceof Event) {
     const eventRecord: Record<string, unknown> = {
-      type: value.type,
+      type: value.type
     };
 
     for (const key of Object.getOwnPropertyNames(value)) {
-      eventRecord[key] = serializeValue(
-        (value as unknown as Record<string, unknown>)[key],
-        depth + 1,
-        seen,
-      );
+      eventRecord[key] = serializeValue((value as unknown as Record<string, unknown>)[key], depth + 1, seen);
     }
 
     return eventRecord;
@@ -183,16 +172,9 @@ function serializeValue(
     seen.add(value);
 
     const output: Record<string, unknown> = {};
-    const keys = new Set<string>([
-      ...Object.keys(value),
-      ...Object.getOwnPropertyNames(value),
-    ]);
+    const keys = new Set<string>([...Object.keys(value), ...Object.getOwnPropertyNames(value)]);
     for (const key of keys) {
-      output[key] = serializeValue(
-        (value as Record<string, unknown>)[key],
-        depth + 1,
-        seen,
-      );
+      output[key] = serializeValue((value as Record<string, unknown>)[key], depth + 1, seen);
     }
     return output;
   }
@@ -244,7 +226,7 @@ function sendToBackend(level: FrontendLogLevel, args: unknown[]): void {
 
   void invoke(Invokes.FrontendLog, {
     level,
-    message,
+    message
   }).catch(() => {
     // Prevent recursion if backend logging channel is unavailable.
   });
@@ -278,8 +260,8 @@ export function installFrontendLogBridge(): void {
       event.error ?? undefined,
       {
         type: event.type,
-        timeStamp: event.timeStamp,
-      },
+        timeStamp: event.timeStamp
+      }
     ].filter(Boolean);
 
     sendToBackend('error', payload);
@@ -289,11 +271,14 @@ export function installFrontendLogBridge(): void {
     sendToBackend('error', ['Unhandled promise rejection', event.reason]);
   });
 
-  const hot = (import.meta as ImportMeta & { hot?: { on: (event: string, cb: (payload: unknown) => void) => void } })
-    .hot;
+  const hot = (
+    import.meta as ImportMeta & {
+      hot?: { on: (event: string, cb: (payload: unknown) => void) => void };
+    }
+  ).hot;
   if (hot?.on) {
     hot.on('vite:error', (payload: unknown) => {
-      const err = isPlainRecord(payload) ? getRecordField<unknown>(payload, 'err') ?? payload : payload;
+      const err = isPlainRecord(payload) ? (getRecordField<unknown>(payload, 'err') ?? payload) : payload;
       sendToBackend('error', ['[vite:error:event]', err]);
     });
   }

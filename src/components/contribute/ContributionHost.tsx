@@ -6,19 +6,19 @@
 // all records and stops keeping them (Preferences can turn it back on).
 // "Help support this camera" (channel 3) lives here too: its "Report a
 // problem with this file" opens the problem report for that file.
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { listen } from "@tauri-apps/api/event";
-import { useTranslation } from "react-i18next";
-import { useModalFocus } from "../../hooks/useModalFocus";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useUIStore } from "../../store/useUIStore";
-import Button from "../ui/Button";
-import Text from "../ui/Text";
-import CameraHelpDialog from "./CameraHelpDialog";
-import CrashReportDialog from "./CrashReportDialog";
-import ProblemReportDialog from "./ProblemReportDialog";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { listen } from '@tauri-apps/api/event';
+import { useTranslation } from 'react-i18next';
+import { useModalFocus } from '../../hooks/useModalFocus';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
+import Button from '../ui/Button';
+import Text from '../ui/Text';
+import CameraHelpDialog from './CameraHelpDialog';
+import CrashReportDialog from './CrashReportDialog';
+import ProblemReportDialog from './ProblemReportDialog';
 import {
   filePhoto,
   markCrashReportAsked,
@@ -31,11 +31,11 @@ import {
   type CrashRecord,
   type PhotoInfo,
   type ReportContext,
-  type Screenshot,
-} from "./reports";
+  type Screenshot
+} from './reports';
 
 /** The native Help menu's "Report a Problem…" (src-tauri/src/app_quit.rs). */
-export const REPORT_PROBLEM_EVENT = "report-problem-requested";
+export const REPORT_PROBLEM_EVENT = 'report-problem-requested';
 
 /** Lets a menu that was just clicked fade out (0.1 s) before the window is
  * captured. */
@@ -45,7 +45,7 @@ function CrashQuestion({
   record,
   onReview,
   onNotNow,
-  onNever,
+  onNever
 }: {
   record: CrashRecord;
   onReview(): void;
@@ -61,7 +61,7 @@ function CrashQuestion({
       aria-modal="true"
       className="studio-dialog-backdrop"
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
+        if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
           onNotNow();
@@ -69,24 +69,20 @@ function CrashQuestion({
       }}
       role="dialog"
     >
-      <div
-        className="studio-dialog"
-        ref={panel}
-        tabIndex={-1}
-      >
+      <div className="studio-dialog" ref={panel} tabIndex={-1}>
         <h2 className="studio-dialog-title" id="crash-question-title">
-          {t("contribute.crash.question")}
+          {t('contribute.crash.question')}
         </h2>
-        <Text color="secondary">{t("contribute.crash.questionDetail", { date: record.crashedOn })}</Text>
+        <Text color="secondary">{t('contribute.crash.questionDetail', { date: record.crashedOn })}</Text>
         <div className="studio-dialog-footer">
           <Button variant="ghost" onClick={onNever}>
-            {t("contribute.crash.never")}
+            {t('contribute.crash.never')}
           </Button>
           <div className="studio-dialog-footer-end">
             <Button variant="ghost" onClick={onNotNow} data-autofocus>
-              {t("contribute.crash.notNow")}
+              {t('contribute.crash.notNow')}
             </Button>
-            <Button onClick={onReview}>{t("contribute.crash.review")}</Button>
+            <Button onClick={onReview}>{t('contribute.crash.review')}</Button>
           </div>
         </div>
       </div>
@@ -104,7 +100,9 @@ export default function ContributionHost() {
   // The report camera help opened, for its file (it may not be the open
   // photo: a RAW that failed to load leaves none open), with that file's
   // camera or none when it is not known — never the open photo's.
-  const [helpReport, setHelpReport] = useState<{ photo: PhotoInfo | null } | null>(null);
+  const [helpReport, setHelpReport] = useState<{
+    photo: PhotoInfo | null;
+  } | null>(null);
   const settingsLoaded = useSettingsStore((s) => s.appSettings !== null);
   const [context, setContext] = useState<ReportContext | null>(null);
   const [screenshot, setScreenshot] = useState<Screenshot | null>(null);
@@ -160,7 +158,7 @@ export default function ContributionHost() {
           console.error(e);
           return null;
         }),
-        pendingCrashReports().catch(() => [] as CrashRecord[]),
+        pendingCrashReports().catch(() => [] as CrashRecord[])
       ]);
       if (!live) return;
       setContext(ctx);

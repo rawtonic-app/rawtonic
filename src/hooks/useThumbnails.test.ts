@@ -2,8 +2,13 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { createThumbnailQueue, useThumbnails } from './useThumbnails';
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue(undefined)
+}));
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 describe('visible thumbnail queue', () => {
   it('sends the first viewport immediately and coalesces in-flight scroll requests to the latest one', async () => {
@@ -24,8 +29,14 @@ describe('visible thumbnail queue', () => {
 
   it('clears obsolete pending work and permits regeneration after a folder refresh', async () => {
     let finish!: () => void;
-    const send = vi.fn<(paths: string[]) => Promise<void>>()
-      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+    const send = vi
+      .fn<(paths: string[]) => Promise<void>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      )
       .mockResolvedValue(undefined);
     const queue = createThumbnailQueue(send);
     queue.request(['old']);
@@ -59,11 +70,15 @@ describe('visible thumbnail queue', () => {
       result.current.requestThumbnails(['visible', 'ready']);
       result.current.markGenerated('ready');
     });
-    expect(invoke).toHaveBeenLastCalledWith('update_thumbnail_queue', { paths: ['visible'] });
+    expect(invoke).toHaveBeenLastCalledWith('update_thumbnail_queue', {
+      paths: ['visible']
+    });
     const calls = vi.mocked(invoke).mock.calls.length;
     await act(async () => result.current.requestThumbnails(['visible', 'ready']));
     expect(invoke).toHaveBeenCalledTimes(calls);
     await act(async () => result.current.requestThumbnails([]));
-    expect(invoke).toHaveBeenLastCalledWith('update_thumbnail_queue', { paths: [] });
+    expect(invoke).toHaveBeenLastCalledWith('update_thumbnail_queue', {
+      paths: []
+    });
   });
 });

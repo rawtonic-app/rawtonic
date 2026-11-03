@@ -6,7 +6,14 @@ import { GEOMETRY_KEYS } from './geometryKeys';
  * (`start == end`), and render from their stored mask as before. */
 export type ObjectPrompt =
   | { type: 'point'; x: number; y: number; exclude?: boolean }
-  | { type: 'box'; startX: number; startY: number; endX: number; endY: number; exclude?: boolean };
+  | {
+      type: 'box';
+      startX: number;
+      startY: number;
+      endX: number;
+      endY: number;
+      exclude?: boolean;
+    };
 
 interface Coord {
   x: number;
@@ -37,7 +44,7 @@ function canonical(value: unknown): unknown {
     return Object.fromEntries(
       Object.keys(value as Record<string, unknown>)
         .sort()
-        .map((key) => [key, canonical((value as Record<string, unknown>)[key])]),
+        .map((key) => [key, canonical((value as Record<string, unknown>)[key])])
     );
   return value;
 }
@@ -53,7 +60,7 @@ const CONTENT_STAYS: ReadonlySet<string> = new Set([
   'lensTcaEnabled',
   'autoChromaticAberration',
   'autoCaVersion',
-  'fringeVersion',
+  'fringeVersion'
 ]);
 
 /** The lens and transform warps of `adjustments` that move content, as the
@@ -62,8 +69,8 @@ function warpOf(adjustments: Frame) {
   return Object.fromEntries(
     GEOMETRY_KEYS.filter((key) => !CONTENT_STAYS.has(key) && adjustments[key] != null).map((key) => [
       key,
-      adjustments[key],
-    ]),
+      adjustments[key]
+    ])
   );
 }
 
@@ -76,8 +83,8 @@ export function promptFrameKey(adjustments: Frame): string {
       Boolean(adjustments.flipHorizontal),
       Boolean(adjustments.flipVertical),
       Number(adjustments.orientationSteps ?? 0),
-      warpOf(adjustments),
-    ]),
+      warpOf(adjustments)
+    ])
   );
 }
 
@@ -93,7 +100,13 @@ export function promptOf(start: Coord, end: Coord, exclude = false): ObjectPromp
   const prompt: ObjectPrompt =
     start.x === end.x && start.y === end.y
       ? { type: 'point', x: start.x, y: start.y }
-      : { type: 'box', startX: start.x, startY: start.y, endX: end.x, endY: end.y };
+      : {
+          type: 'box',
+          startX: start.x,
+          startY: start.y,
+          endX: end.x,
+          endY: end.y
+        };
   return exclude ? { ...prompt, exclude: true } : prompt;
 }
 
@@ -121,7 +134,11 @@ const includes = (prompts: ObjectPrompt[]) => prompts.some((p) => !p.exclude);
 
 /** The prompts after a press: null when it changes nothing (taking out of
  * an empty selection). */
-export function nextPrompts(current: ObjectPrompt[], prompt: ObjectPrompt, gesture: PromptGesture): ObjectPrompt[] | null {
+export function nextPrompts(
+  current: ObjectPrompt[],
+  prompt: ObjectPrompt,
+  gesture: PromptGesture
+): ObjectPrompt[] | null {
   const { exclude: _exclude, ...included } = prompt;
   if (gesture === 'replace') return [included as ObjectPrompt];
   if (gesture === 'add') return [...current, included as ObjectPrompt];
@@ -136,5 +153,8 @@ export function promptBounds(prompts: ObjectPrompt[]): { start: Coord; end: Coor
   if (!first) return null;
   return first.type === 'point'
     ? { start: { x: first.x, y: first.y }, end: { x: first.x, y: first.y } }
-    : { start: { x: first.startX, y: first.startY }, end: { x: first.endX, y: first.endY } };
+    : {
+        start: { x: first.startX, y: first.startY },
+        end: { x: first.endX, y: first.endY }
+      };
 }

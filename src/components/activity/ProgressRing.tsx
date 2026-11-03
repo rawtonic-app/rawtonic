@@ -9,7 +9,13 @@ export function ProgressRing({ fraction, size = 16 }: { fraction: number | null;
   const r = 6;
   const length = 2 * Math.PI * r;
   return (
-    <svg className={`activity-ring${fraction === null ? ' is-indeterminate' : ''}`} width={size} height={size} viewBox="0 0 16 16" aria-hidden>
+    <svg
+      className={`activity-ring${fraction === null ? ' is-indeterminate' : ''}`}
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      aria-hidden
+    >
       <circle className="activity-ring-track" cx="8" cy="8" r={r} />
       <circle
         className="activity-ring-value"

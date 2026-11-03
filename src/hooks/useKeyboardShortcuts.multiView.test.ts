@@ -9,26 +9,37 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { Invokes, type AppSettings, type ImageFile } from '../components/ui/AppProperties';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.resolve())
+}));
+vi.mock('../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() }
+}));
 
-const list = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3', '/s/d.CR3', '/s/e.CR3'].map(
-  (path) => ({ path }) as ImageFile,
-);
+const list = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3', '/s/d.CR3', '/s/e.CR3'].map((path) => ({ path }) as ImageFile);
 const props = {
   sortedImageList: list,
   handleBackToLibrary: vi.fn(),
   handleDeleteSelected: vi.fn(),
   handleImageSelect: vi.fn(),
   handlePasteFiles: vi.fn(),
-  handleZoomChange: vi.fn(),
+  handleZoomChange: vi.fn()
 };
 const press = (code: string, init: KeyboardEventInit = {}) =>
-  window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true, ...init }));
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      code,
+      bubbles: true,
+      cancelable: true,
+      ...init
+    })
+  );
 
 function develop(primary: string, selection: string[], active: boolean) {
   useLibraryStore.setState({ multiSelectedPaths: selection, imageRatings: {} });
-  useEditorStore.setState({ selectedImage: { path: primary, isReady: true } as never });
+  useEditorStore.setState({
+    selectedImage: { path: primary, isReady: true } as never
+  });
   useMultiViewStore.setState({ active, enabled: true, unavailable: false });
 }
 
@@ -36,7 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useSettingsStore.setState({
     appSettings: { keybinds: {} } as unknown as AppSettings,
-    osPlatform: 'macos',
+    osPlatform: 'macos'
   });
   useUIStore.setState({ activeView: 'editor', isSettingsOpen: false });
   renderHook(() => useKeyboardShortcuts(props));
@@ -46,9 +57,16 @@ afterEach(() => cleanup());
 describe('multi view keys', () => {
   it('opens survey from the Library grid on the active selection', () => {
     useUIStore.setState({ activeView: 'library', libraryLoupe: false });
-    useLibraryStore.setState({ libraryActivePath: '/s/b.CR3', multiSelectedPaths: ['/s/b.CR3', '/s/d.CR3'] });
+    useLibraryStore.setState({
+      libraryActivePath: '/s/b.CR3',
+      multiSelectedPaths: ['/s/b.CR3', '/s/d.CR3']
+    });
     useEditorStore.setState({ selectedImage: null });
-    useMultiViewStore.setState({ enabled: false, libraryEnabled: false, unavailable: false });
+    useMultiViewStore.setState({
+      enabled: false,
+      libraryEnabled: false,
+      unavailable: false
+    });
     press('KeyN');
     expect(props.handleImageSelect).toHaveBeenCalledWith('/s/b.CR3', false);
     expect(useUIStore.getState().libraryLoupe).toBe(true);
@@ -59,9 +77,18 @@ describe('multi view keys', () => {
 
   it('N toggles the Library loupe survey without changing the Develop preference', () => {
     useUIStore.setState({ activeView: 'library', libraryLoupe: true });
-    useLibraryStore.setState({ libraryActivePath: '/s/b.CR3', multiSelectedPaths: ['/s/b.CR3', '/s/d.CR3'] });
-    useEditorStore.setState({ selectedImage: { path: '/s/b.CR3', isReady: true } as never });
-    useMultiViewStore.setState({ enabled: false, libraryEnabled: false, unavailable: false });
+    useLibraryStore.setState({
+      libraryActivePath: '/s/b.CR3',
+      multiSelectedPaths: ['/s/b.CR3', '/s/d.CR3']
+    });
+    useEditorStore.setState({
+      selectedImage: { path: '/s/b.CR3', isReady: true } as never
+    });
+    useMultiViewStore.setState({
+      enabled: false,
+      libraryEnabled: false,
+      unavailable: false
+    });
     press('KeyN');
     expect(useMultiViewStore.getState().libraryEnabled).toBe(true);
     expect(useMultiViewStore.getState().enabled).toBe(false);
@@ -71,7 +98,9 @@ describe('multi view keys', () => {
 
   it('keeps the selection when auto-advance fires in a Library survey', async () => {
     const { requestAutoAdvance } = await import('../utils/photoStepping');
-    useSettingsStore.setState({ appSettings: { keybinds: {}, autoAdvance: true } as unknown as AppSettings });
+    useSettingsStore.setState({
+      appSettings: { keybinds: {}, autoAdvance: true } as unknown as AppSettings
+    });
     useUIStore.setState({ activeView: 'library', libraryLoupe: true });
     develop('/s/b.CR3', ['/s/b.CR3', '/s/d.CR3'], true);
     requestAutoAdvance('/s/b.CR3');
@@ -136,8 +165,8 @@ describe('multi view keys', () => {
     await vi.waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.SetRatingForPaths, {
         paths: ['/s/b.CR3'],
-        rating: 3,
-      }),
+        rating: 3
+      })
     );
   });
 

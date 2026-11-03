@@ -1,35 +1,36 @@
-import "../../i18n";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { notify as toast } from "../../activity/notify";
-import { invoke } from "@tauri-apps/api/core";
-import StudioNavigation from "./StudioNavigation";
-import { useEditorStore } from "../../store/useEditorStore";
-import { ContextMenuProvider } from "../../context/ContextMenuContext";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useProcessStore } from "../../store/useProcessStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useLibraryActions } from "../../hooks/useLibraryActions";
-import { SortDirection, type AppSettings, type SelectedImage } from "../ui/AppProperties";
+import '../../i18n';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { notify as toast } from '../../activity/notify';
+import { invoke } from '@tauri-apps/api/core';
+import StudioNavigation from './StudioNavigation';
+import { useEditorStore } from '../../store/useEditorStore';
+import { ContextMenuProvider } from '../../context/ContextMenuContext';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useProcessStore } from '../../store/useProcessStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
+import { useLibraryActions } from '../../hooks/useLibraryActions';
+import { SortDirection, type AppSettings, type SelectedImage } from '../ui/AppProperties';
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.resolve())
+}));
+vi.mock('../../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn() }
+}));
 const mockInvoke = vi.mocked(invoke);
 
 const folder = (path: string, imageCount = 0, children: object[] = [], extra = {}) => ({
-  name: path.split("/").pop(),
+  name: path.split('/').pop(),
   path,
   isDir: true,
   imageCount,
   hasSubdirs: children.length > 0,
   children,
-  ...extra,
+  ...extra
 });
-const tree = folder("/job", 0, [
-  folder("/job/Capture", 2),
-  folder("/job/Selects", 0, [folder("/job/Selects/Day 1")]),
-]);
+const tree = folder('/job', 0, [folder('/job/Capture', 2), folder('/job/Selects', 0, [folder('/job/Selects/Day 1')])]);
 
 const actions = {
   moveHere: vi.fn(),
@@ -37,33 +38,35 @@ const actions = {
   trash: vi.fn(),
   addFolder: vi.fn(),
   removeFromLibrary: vi.fn(),
-  paste: vi.fn(),
+  paste: vi.fn()
 };
 const settings = (extra: Partial<AppSettings> = {}) =>
-  useSettingsStore.setState({ appSettings: { pinnedFolders: [], ...extra } as AppSettings });
+  useSettingsStore.setState({
+    appSettings: { pinnedFolders: [], ...extra } as AppSettings
+  });
 
 const renderNavigation = () =>
   render(
     <ContextMenuProvider>
       <StudioNavigation onNavigate={vi.fn()} folderActions={actions} />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
 
 beforeEach(() => {
   vi.clearAllMocks();
   // Tree commands always answer with a list.
-  mockInvoke.mockImplementation(async (command) => (command === "get_pinned_folder_trees" ? [] : undefined));
+  mockInvoke.mockImplementation(async (command) => (command === 'get_pinned_folder_trees' ? [] : undefined));
   settings();
   useProcessStore.setState({ copiedFilePaths: [] });
   useLibraryStore.setState({
-    sessionDirectory: "/job",
-    rootPaths: ["/job"],
-    currentFolderPath: "/job/Capture",
-    multiSelectedPaths: ["/job/Capture/A.RAF", "/job/Capture/A.RAF?vc=abc123"],
+    sessionDirectory: '/job',
+    rootPaths: ['/job'],
+    currentFolderPath: '/job/Capture',
+    multiSelectedPaths: ['/job/Capture/A.RAF', '/job/Capture/A.RAF?vc=abc123'],
     folderTrees: [tree] as never,
     pinnedFolderTrees: [],
-    expandedFolders: new Set(["/job", "/job/Selects"]),
-    isTreeLoading: false,
+    expandedFolders: new Set(['/job', '/job/Selects']),
+    isTreeLoading: false
   });
 });
 afterEach(() => cleanup());
@@ -72,246 +75,289 @@ afterEach(() => cleanup());
 const row = (path: string) => screen.getAllByTitle(path)[0].parentElement!;
 const openMenu = (path: string) => fireEvent.contextMenu(row(path));
 /** The newest menu's item (closing menus fade out). */
-const item = (name: RegExp | string) => screen.getAllByRole("menuitem", { name }).at(-1)!;
+const item = (name: RegExp | string) => screen.getAllByRole('menuitem', { name }).at(-1)!;
 const shownFolders = () =>
-  [...document.querySelectorAll(".studio-folder > button:last-child")].map((button) => button.getAttribute("title"));
+  [...document.querySelectorAll('.studio-folder > button:last-child')].map((button) => button.getAttribute('title'));
 
-describe("folder menu", () => {
+describe('folder menu', () => {
   beforeEach(renderNavigation);
 
-  it("imports into a folder of the session: its menu opens the ingest dialog there, and files dropped on it go there", () => {
+  it('imports into a folder of the session: its menu opens the ingest dialog there, and files dropped on it go there', () => {
     // The session folder itself is no destination.
-    expect(row("/job").dataset.folderDrop).toBeUndefined();
-    openMenu("/job");
-    expect(screen.queryAllByRole("menuitem", { name: /Import into this folder/ })).toHaveLength(0);
+    expect(row('/job').dataset.folderDrop).toBeUndefined();
+    openMenu('/job');
+    expect(screen.queryAllByRole('menuitem', { name: /Import into this folder/ })).toHaveLength(0);
     const opened = vi.fn();
-    window.addEventListener("rawtonic-open-ingest", opened);
-    openMenu("/job/Selects/Day 1");
+    window.addEventListener('rawtonic-open-ingest', opened);
+    openMenu('/job/Selects/Day 1');
     fireEvent.click(item(/Import into this folder/));
-    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ folder: "/job/Selects/Day 1" });
-    window.removeEventListener("rawtonic-open-ingest", opened);
-    expect(row("/job/Selects/Day 1").dataset.folderDrop).toBe("/job/Selects/Day 1");
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      folder: '/job/Selects/Day 1'
+    });
+    window.removeEventListener('rawtonic-open-ingest', opened);
+    expect(row('/job/Selects/Day 1').dataset.folderDrop).toBe('/job/Selects/Day 1');
   });
 
-  it("synchronizes a folder of the session from its menu", () => {
+  it('synchronizes a folder of the session from its menu', () => {
     const requested = vi.fn();
     const listener = (e: Event) => requested((e as CustomEvent).detail);
-    window.addEventListener("rawtonic:open-folder-sync", listener);
-    openMenu("/job/Selects/Day 1");
-    fireEvent.click(item("Synchronize Folder…"));
-    expect(requested).toHaveBeenCalledWith({ folder: "/job/Selects/Day 1" });
-    window.removeEventListener("rawtonic:open-folder-sync", listener);
+    window.addEventListener('rawtonic:open-folder-sync', listener);
+    openMenu('/job/Selects/Day 1');
+    fireEvent.click(item('Synchronize Folder…'));
+    expect(requested).toHaveBeenCalledWith({ folder: '/job/Selects/Day 1' });
+    window.removeEventListener('rawtonic:open-folder-sync', listener);
   });
 
   it("keeps the session's own folders from being renamed or trashed", () => {
-    openMenu("/job/Selects");
-    expect(item(/Rename Folder/)).toHaveProperty("disabled", true);
-    expect(item(/Move Folder to Trash/)).toHaveProperty("disabled", true);
-    expect(item("Move Folder…")).toHaveProperty("disabled", true);
+    openMenu('/job/Selects');
+    expect(item(/Rename Folder/)).toHaveProperty('disabled', true);
+    expect(item(/Move Folder to Trash/)).toHaveProperty('disabled', true);
+    expect(item('Move Folder…')).toHaveProperty('disabled', true);
   });
 
-  it("moves a user folder with everything in it from its menu", () => {
-    openMenu("/job/Selects/Day 1");
-    fireEvent.click(item("Move Folder…"));
-    expect(actions.moveFolder).toHaveBeenCalledWith("/job/Selects/Day 1");
+  it('moves a user folder with everything in it from its menu', () => {
+    openMenu('/job/Selects/Day 1');
+    fireEvent.click(item('Move Folder…'));
+    expect(actions.moveFolder).toHaveBeenCalledWith('/job/Selects/Day 1');
   });
 
-  it("moves the selection into another folder and trashes user folders", () => {
-    openMenu("/job/Selects/Day 1");
-    fireEvent.click(item("Move 2 Selected Photos Here"));
+  it('moves the selection into another folder and trashes user folders', () => {
+    openMenu('/job/Selects/Day 1');
+    fireEvent.click(item('Move 2 Selected Photos Here'));
     expect(actions.moveHere).toHaveBeenCalledWith(
-      ["/job/Capture/A.RAF", "/job/Capture/A.RAF?vc=abc123"],
-      "/job/Selects/Day 1",
+      ['/job/Capture/A.RAF', '/job/Capture/A.RAF?vc=abc123'],
+      '/job/Selects/Day 1'
     );
-    openMenu("/job/Selects/Day 1");
+    openMenu('/job/Selects/Day 1');
     fireEvent.click(item(/Move Folder to Trash/));
-    expect(actions.trash).toHaveBeenCalledWith("/job/Selects/Day 1");
-    openMenu("/job/Selects/Day 1");
+    expect(actions.trash).toHaveBeenCalledWith('/job/Selects/Day 1');
+    openMenu('/job/Selects/Day 1');
     fireEvent.click(item(/Rename Folder/));
     expect(useUIStore.getState()).toMatchObject({
-      folderActionTarget: "/job/Selects/Day 1",
-      isRenameFolderModalOpen: true,
+      folderActionTarget: '/job/Selects/Day 1',
+      isRenameFolderModalOpen: true
     });
   });
 
-  it("offers no move into the folder the photos are already in", () => {
-    openMenu("/job/Capture");
-    expect(screen.queryByRole("menuitem", { name: /Selected Photo/ })).toBeNull();
+  it('offers no move into the folder the photos are already in', () => {
+    openMenu('/job/Capture');
+    expect(screen.queryByRole('menuitem', { name: /Selected Photo/ })).toBeNull();
   });
 
-  it("pastes photos copied with ⌘C into a folder, as copies or moved", () => {
-    openMenu("/job/Capture");
-    expect(screen.queryByRole("menuitem", { name: /Paste/ })).toBeNull();
+  it('pastes photos copied with ⌘C into a folder, as copies or moved', () => {
+    openMenu('/job/Capture');
+    expect(screen.queryByRole('menuitem', { name: /Paste/ })).toBeNull();
     // A virtual copy is the same file.
-    useProcessStore.setState({ copiedFilePaths: ["/old/x.arw", "/old/x.arw?vc=1", "/old/y.arw"] });
-    openMenu("/job/Capture");
-    fireEvent.click(item("Paste Copies of 2 Photos Here"));
-    expect(actions.paste).toHaveBeenLastCalledWith("copy", "/job/Capture");
-    openMenu("/job/Capture");
-    fireEvent.click(item("Move 2 Copied Photos Here"));
-    expect(actions.paste).toHaveBeenLastCalledWith("move", "/job/Capture");
-  });
-
-  it("shows the folder in Finder and refreshes the folders", async () => {
-    mockInvoke.mockImplementation(async (command) => (command === "get_pinned_folder_trees" ? [tree] : undefined));
-    openMenu("/job/Capture");
-    fireEvent.click(item(/Show in/));
-    expect(mockInvoke).toHaveBeenCalledWith("show_in_finder", { path: "/job/Capture" });
-    openMenu("/job/Capture");
-    await act(async () => {
-      fireEvent.click(item("Refresh Folders"));
+    useProcessStore.setState({
+      copiedFilePaths: ['/old/x.arw', '/old/x.arw?vc=1', '/old/y.arw']
     });
-    expect(mockInvoke).toHaveBeenCalledWith("get_pinned_folder_trees", expect.objectContaining({ paths: ["/job"] }));
-    expect(shownFolders()).toContain("/job/Capture");
+    openMenu('/job/Capture');
+    fireEvent.click(item('Paste Copies of 2 Photos Here'));
+    expect(actions.paste).toHaveBeenLastCalledWith('copy', '/job/Capture');
+    openMenu('/job/Capture');
+    fireEvent.click(item('Move 2 Copied Photos Here'));
+    expect(actions.paste).toHaveBeenLastCalledWith('move', '/job/Capture');
   });
 
-  it("never offers to remove the session itself from the library", () => {
-    openMenu("/job");
-    expect(screen.queryByRole("menuitem", { name: "Remove from Library" })).toBeNull();
+  it('shows the folder in Finder and refreshes the folders', async () => {
+    mockInvoke.mockImplementation(async (command) => (command === 'get_pinned_folder_trees' ? [tree] : undefined));
+    openMenu('/job/Capture');
+    fireEvent.click(item(/Show in/));
+    expect(mockInvoke).toHaveBeenCalledWith('show_in_finder', {
+      path: '/job/Capture'
+    });
+    openMenu('/job/Capture');
+    await act(async () => {
+      fireEvent.click(item('Refresh Folders'));
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('get_pinned_folder_trees', expect.objectContaining({ paths: ['/job'] }));
+    expect(shownFolders()).toContain('/job/Capture');
+  });
+
+  it('never offers to remove the session itself from the library', () => {
+    openMenu('/job');
+    expect(screen.queryByRole('menuitem', { name: 'Remove from Library' })).toBeNull();
   });
 });
 
-describe("folders in the library", () => {
-  it("adds folders and removes top-level folders from the list only", () => {
-    useLibraryStore.setState({ sessionDirectory: null, rootPaths: ["/job"] });
+describe('folders in the library', () => {
+  it('adds folders and removes top-level folders from the list only', () => {
+    useLibraryStore.setState({ sessionDirectory: null, rootPaths: ['/job'] });
     renderNavigation();
-    fireEvent.click(screen.getByLabelText("Add folder"));
+    fireEvent.click(screen.getByLabelText('Add folder'));
     expect(actions.addFolder).toHaveBeenCalledTimes(1);
-    openMenu("/job/Capture");
-    expect(screen.queryByRole("menuitem", { name: "Remove from Library" })).toBeNull();
-    openMenu("/job");
-    fireEvent.click(item("Remove from Library"));
-    expect(actions.removeFromLibrary).toHaveBeenCalledWith("/job");
+    openMenu('/job/Capture');
+    expect(screen.queryByRole('menuitem', { name: 'Remove from Library' })).toBeNull();
+    openMenu('/job');
+    fireEvent.click(item('Remove from Library'));
+    expect(actions.removeFromLibrary).toHaveBeenCalledWith('/job');
     expect(actions.trash).not.toHaveBeenCalled();
   });
 
-  it("takes a removed folder off the list and the settings without touching disk", () => {
+  it('takes a removed folder off the list and the settings without touching disk', () => {
     useLibraryStore.setState({
       sessionDirectory: null,
-      rootPaths: ["/job", "/photos"],
-      folderTrees: [tree, folder("/photos")] as never,
-      currentFolderPath: "/job/Capture",
+      rootPaths: ['/job', '/photos'],
+      folderTrees: [tree, folder('/photos')] as never,
+      currentFolderPath: '/job/Capture'
     });
-    settings({ rootFolders: ["/job", "/photos"], lastRootPath: "/job" });
+    settings({ rootFolders: ['/job', '/photos'], lastRootPath: '/job' });
     const left = vi.fn();
     const { result } = renderHook(() => useLibraryActions());
-    act(() => result.current.handleRemoveRootFolder("/job", left));
-    expect(useLibraryStore.getState()).toMatchObject({ rootPaths: ["/photos"], currentFolderPath: null, imageList: [] });
-    expect(useLibraryStore.getState().folderTrees.map((t) => t.path)).toEqual(["/photos"]);
-    expect(useSettingsStore.getState().appSettings).toMatchObject({ rootFolders: ["/photos"], lastRootPath: "/photos" });
+    act(() => result.current.handleRemoveRootFolder('/job', left));
+    expect(useLibraryStore.getState()).toMatchObject({
+      rootPaths: ['/photos'],
+      currentFolderPath: null,
+      imageList: []
+    });
+    expect(useLibraryStore.getState().folderTrees.map((t) => t.path)).toEqual(['/photos']);
+    expect(useSettingsStore.getState().appSettings).toMatchObject({
+      rootFolders: ['/photos'],
+      lastRootPath: '/photos'
+    });
     expect(left).toHaveBeenCalled();
     // Only the settings are saved; no file command runs.
-    expect(mockInvoke.mock.calls.map(([command]) => command)).toEqual(["save_settings"]);
+    expect(mockInvoke.mock.calls.map(([command]) => command)).toEqual(['save_settings']);
   });
 
   it("loads a folder's next level when it is expanded and collapses it again", async () => {
-    useLibraryStore.setState({ catalogFolders: null, folderTrees: [folder("/job", 0, [folder("/job/Capture", 2, [], { hasSubdirs: true })])] as never });
+    useLibraryStore.setState({
+      catalogFolders: null,
+      folderTrees: [folder('/job', 0, [folder('/job/Capture', 2, [], { hasSubdirs: true })])] as never
+    });
     mockInvoke.mockImplementation(async (command) =>
-      command === "get_folder_children" ? [folder("/job/Capture/Day 2", 4)] : undefined,
+      command === 'get_folder_children' ? [folder('/job/Capture/Day 2', 4)] : undefined
     );
     renderNavigation();
-    expect(shownFolders()).toEqual(["/job", "/job/Capture"]);
+    expect(shownFolders()).toEqual(['/job', '/job/Capture']);
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Expand Capture"));
+      fireEvent.click(screen.getByLabelText('Expand Capture'));
     });
-    expect(mockInvoke).toHaveBeenCalledWith("get_folder_children", { path: "/job/Capture", showImageCounts: false });
-    expect(shownFolders()).toEqual(["/job", "/job/Capture", "/job/Capture/Day 2"]);
-    expect(useLibraryStore.getState().expandedFolders.has("/job/Capture")).toBe(true);
+    expect(mockInvoke).toHaveBeenCalledWith('get_folder_children', {
+      path: '/job/Capture',
+      showImageCounts: false
+    });
+    expect(shownFolders()).toEqual(['/job', '/job/Capture', '/job/Capture/Day 2']);
+    expect(useLibraryStore.getState().expandedFolders.has('/job/Capture')).toBe(true);
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Collapse Capture"));
+      fireEvent.click(screen.getByLabelText('Collapse Capture'));
     });
-    expect(shownFolders()).toEqual(["/job", "/job/Capture"]);
+    expect(shownFolders()).toEqual(['/job', '/job/Capture']);
   });
 
-  it("filters folder names, showing matches inside collapsed parents", () => {
-    useLibraryStore.setState({ expandedFolders: new Set(["/job"]) });
+  it('filters folder names, showing matches inside collapsed parents', () => {
+    useLibraryStore.setState({ expandedFolders: new Set(['/job']) });
     renderNavigation();
-    expect(shownFolders()).not.toContain("/job/Selects/Day 1");
-    const find = screen.getByLabelText("Find folders");
+    expect(shownFolders()).not.toContain('/job/Selects/Day 1');
+    const find = screen.getByLabelText('Find folders');
     // One letter does not filter yet.
-    fireEvent.change(find, { target: { value: "d" } });
-    expect(shownFolders()).toContain("/job/Capture");
-    fireEvent.change(find, { target: { value: "day" } });
-    expect(shownFolders()).toEqual(["/job", "/job/Selects", "/job/Selects/Day 1"]);
-    fireEvent.change(find, { target: { value: "beach" } });
+    fireEvent.change(find, { target: { value: 'd' } });
+    expect(shownFolders()).toContain('/job/Capture');
+    fireEvent.change(find, { target: { value: 'day' } });
+    expect(shownFolders()).toEqual(['/job', '/job/Selects', '/job/Selects/Day 1']);
+    fireEvent.change(find, { target: { value: 'beach' } });
     expect(shownFolders()).toEqual([]);
     expect(screen.getByText(/No folder names contain/)).toBeTruthy();
-    fireEvent.keyDown(find, { key: "Escape" });
-    expect(shownFolders()).toContain("/job/Capture");
+    fireEvent.keyDown(find, { key: 'Escape' });
+    expect(shownFolders()).toContain('/job/Capture');
   });
 
-  it("sorts folders by the stored sort and saves a new one", () => {
+  it('sorts folders by the stored sort and saves a new one', () => {
     useLibraryStore.setState({
-      folderTrees: [folder("/job", 0, [folder("/job/A", 5), folder("/job/B", 9), folder("/job/C", 1)])] as never,
+      folderTrees: [folder('/job', 0, [folder('/job/A', 5), folder('/job/B', 9), folder('/job/C', 1)])] as never
     });
-    settings({ folderTreeSort: { key: "name", order: SortDirection.Descending } });
+    settings({
+      folderTreeSort: { key: 'name', order: SortDirection.Descending }
+    });
     renderNavigation();
-    expect(shownFolders()).toEqual(["/job", "/job/C", "/job/B", "/job/A"]);
-    fireEvent.click(screen.getByLabelText("Sort folders"));
-    fireEvent.click(item("Photo count"));
+    expect(shownFolders()).toEqual(['/job', '/job/C', '/job/B', '/job/A']);
+    fireEvent.click(screen.getByLabelText('Sort folders'));
+    fireEvent.click(item('Photo count'));
     expect(useSettingsStore.getState().appSettings?.folderTreeSort).toEqual({
-      key: "imageCount",
-      order: SortDirection.Descending,
+      key: 'imageCount',
+      order: SortDirection.Descending
     });
-    expect(shownFolders()).toEqual(["/job", "/job/B", "/job/A", "/job/C"]);
+    expect(shownFolders()).toEqual(['/job', '/job/B', '/job/A', '/job/C']);
   });
 
-  it("shows photo counts in sessions and elsewhere only when asked for", () => {
+  it('shows photo counts in sessions and elsewhere only when asked for', () => {
     renderNavigation();
-    expect(row("/job/Capture").textContent).toContain("2");
+    expect(row('/job/Capture').textContent).toContain('2');
     cleanup();
     useLibraryStore.setState({ sessionDirectory: null });
     renderNavigation();
-    expect(row("/job/Capture").textContent).not.toContain("2");
+    expect(row('/job/Capture').textContent).not.toContain('2');
     cleanup();
     settings({ enableFolderImageCounts: true });
     renderNavigation();
-    expect(row("/job/Capture").textContent).toContain("2");
+    expect(row('/job/Capture').textContent).toContain('2');
   });
 });
 
-describe("favourite folders", () => {
-  it("lists favourites on top, from the settings key the folder tree used", async () => {
-    settings({ pinnedFolders: ["/photos/Trip"] });
-    useLibraryStore.setState({ pinnedFolderTrees: [folder("/photos/Trip", 3)] as never });
+describe('favourite folders', () => {
+  it('lists favourites on top, from the settings key the folder tree used', async () => {
+    settings({ pinnedFolders: ['/photos/Trip'] });
+    useLibraryStore.setState({
+      pinnedFolderTrees: [folder('/photos/Trip', 3)] as never
+    });
     renderNavigation();
-    expect(screen.getByText("Favorites")).toBeTruthy();
-    expect(shownFolders()[0]).toBe("/photos/Trip");
-    openMenu("/photos/Trip");
+    expect(screen.getByText('Favorites')).toBeTruthy();
+    expect(shownFolders()[0]).toBe('/photos/Trip');
+    openMenu('/photos/Trip');
     await act(async () => {
-      fireEvent.click(item("Remove from Favorites"));
+      fireEvent.click(item('Remove from Favorites'));
     });
     expect(useSettingsStore.getState().appSettings?.pinnedFolders).toEqual([]);
-    expect(screen.queryByText("Favorites")).toBeNull();
+    expect(screen.queryByText('Favorites')).toBeNull();
   });
 
-  it("adds a folder to the favourites and loads its tree", async () => {
+  it('adds a folder to the favourites and loads its tree', async () => {
     mockInvoke.mockImplementation(async (command) =>
-      command === "get_pinned_folder_trees" ? [folder("/job/Selects")] : undefined,
+      command === 'get_pinned_folder_trees' ? [folder('/job/Selects')] : undefined
     );
     renderNavigation();
-    openMenu("/job/Selects");
+    openMenu('/job/Selects');
     await act(async () => {
-      fireEvent.click(item("Add to Favorites"));
+      fireEvent.click(item('Add to Favorites'));
     });
-    expect(useSettingsStore.getState().appSettings?.pinnedFolders).toEqual(["/job/Selects"]);
-    expect(useLibraryStore.getState().pinnedFolderTrees.map((t) => t.path)).toEqual(["/job/Selects"]);
-    expect(screen.getByText("Favorites")).toBeTruthy();
+    expect(useSettingsStore.getState().appSettings?.pinnedFolders).toEqual(['/job/Selects']);
+    expect(useLibraryStore.getState().pinnedFolderTrees.map((t) => t.path)).toEqual(['/job/Selects']);
+    expect(screen.getByText('Favorites')).toBeTruthy();
   });
 });
 
-describe("offline photographs in the Folders tool", () => {
-  it("marks folders holding offline photographs and lists folders gone from disk at their place", async () => {
+describe('offline photographs in the Folders tool', () => {
+  it('marks folders holding offline photographs and lists folders gone from disk at their place', async () => {
     mockInvoke.mockImplementation(async (command) => {
-      if (command === "get_pinned_folder_trees") return [];
-      if (command === "session_offline")
+      if (command === 'get_pinned_folder_trees') return [];
+      if (command === 'session_offline')
         return [
-          { path: "/job/Capture/B.RAF", volume: null, mtime: 1, folder_missing: false },
-          { path: "/job/Day 2/C.RAF", volume: null, mtime: 1, folder_missing: true },
-          { path: "/job/Day 2/D.RAF", volume: null, mtime: 1, folder_missing: true },
-          { path: "/elsewhere/E.RAF", volume: null, mtime: 1, folder_missing: true },
+          {
+            path: '/job/Capture/B.RAF',
+            volume: null,
+            mtime: 1,
+            folder_missing: false
+          },
+          {
+            path: '/job/Day 2/C.RAF',
+            volume: null,
+            mtime: 1,
+            folder_missing: true
+          },
+          {
+            path: '/job/Day 2/D.RAF',
+            volume: null,
+            mtime: 1,
+            folder_missing: true
+          },
+          {
+            path: '/elsewhere/E.RAF',
+            volume: null,
+            mtime: 1,
+            folder_missing: true
+          }
         ];
-      if (command === "catalog_folders") return { catalog: false, volumes: [] };
+      if (command === 'catalog_folders') return { catalog: false, volumes: [] };
       return undefined;
     });
     const navigate = vi.fn();
@@ -319,36 +365,36 @@ describe("offline photographs in the Folders tool", () => {
     render(
       <ContextMenuProvider>
         <StudioNavigation onNavigate={navigate} folderActions={{ ...actions, locateFolder: locate }} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
     await act(async () => {});
     // Capture holds one; the session root three below it (not the one elsewhere).
-    expect(screen.getAllByText("?1")).toHaveLength(2); // Capture, and the folder outside the session
-    expect(screen.getByText("?3")).toBeTruthy();
+    expect(screen.getAllByText('?1')).toHaveLength(2); // Capture, and the folder outside the session
+    expect(screen.getByText('?3')).toBeTruthy();
     // The renamed folder stays in the session's tree, marked, and opens its listing.
-    const missing = screen.getByText("Day 2").closest("button")!;
-    expect(missing.textContent).toContain("?2");
-    expect(missing.getAttribute("title")).toBe(
-      "/job/Day 2 is missing (renamed, moved or deleted). Its photos keep their edits; right-click one › Locate Folder…",
+    const missing = screen.getByText('Day 2').closest('button')!;
+    expect(missing.textContent).toContain('?2');
+    expect(missing.getAttribute('title')).toBe(
+      '/job/Day 2 is missing (renamed, moved or deleted). Its photos keep their edits; right-click one › Locate Folder…'
     );
-    expect(missing.closest(".studio-folder")!.className).toContain("is-offline");
+    expect(missing.closest('.studio-folder')!.className).toContain('is-offline');
     fireEvent.click(missing);
-    expect(navigate).toHaveBeenCalledWith("/job/Day 2");
+    expect(navigate).toHaveBeenCalledWith('/job/Day 2');
     // Its menu offers to locate it or synchronize it, nothing that would touch disk.
     fireEvent.contextMenu(missing);
-    expect(screen.queryByText("Rename Folder…")).toBeNull();
-    fireEvent.click(screen.getByText("Locate Folder…"));
-    expect(locate).toHaveBeenCalledWith("/job/Day 2");
+    expect(screen.queryByText('Rename Folder…')).toBeNull();
+    fireEvent.click(screen.getByText('Locate Folder…'));
+    expect(locate).toHaveBeenCalledWith('/job/Day 2');
     const requested = vi.fn();
     const listener = (e: Event) => requested((e as CustomEvent).detail);
-    window.addEventListener("rawtonic:open-folder-sync", listener);
+    window.addEventListener('rawtonic:open-folder-sync', listener);
     fireEvent.contextMenu(missing);
-    fireEvent.click(item("Synchronize Folder…"));
-    expect(requested).toHaveBeenCalledWith({ folder: "/job/Day 2" });
-    window.removeEventListener("rawtonic:open-folder-sync", listener);
+    fireEvent.click(item('Synchronize Folder…'));
+    expect(requested).toHaveBeenCalledWith({ folder: '/job/Day 2' });
+    window.removeEventListener('rawtonic:open-folder-sync', listener);
     // A folder outside every listed one is listed under Missing.
-    expect(screen.getByText("Missing")).toBeTruthy();
-    expect(screen.getByText("elsewhere")).toBeTruthy();
+    expect(screen.getByText('Missing')).toBeTruthy();
+    expect(screen.getByText('elsewhere')).toBeTruthy();
   });
 });
 
@@ -357,135 +403,170 @@ describe("a catalog's folders by drive", () => {
     catalog: true,
     volumes: [
       {
-        key: "id:CARD",
-        id: "CARD",
-        name: "Card",
-        mount_point: "/Volumes/Card",
+        key: 'id:CARD',
+        id: 'CARD',
+        name: 'Card',
+        mount_point: '/Volumes/Card',
         online: false,
         free_bytes: null,
         total_bytes: null,
-        folders: [{ path: "/Volumes/Card/2026", photos: 3, offline: 3, exists: false }],
-        roots: [],
+        folders: [{ path: '/Volumes/Card/2026', photos: 3, offline: 3, exists: false }],
+        roots: []
       },
       {
-        key: "id:SYS",
-        id: "SYS",
-        name: "Macintosh HD",
-        mount_point: "/",
+        key: 'id:SYS',
+        id: 'SYS',
+        name: 'Macintosh HD',
+        mount_point: '/',
         online: true,
         free_bytes: 200e9,
         total_bytes: 1000e9,
-        folders: [{ path: "/Users/me/Relinked", photos: 1, offline: 0, exists: true }],
-        roots: ["/job"],
-      },
-    ],
+        folders: [{ path: '/Users/me/Relinked', photos: 1, offline: 0, exists: true }],
+        roots: ['/job']
+      }
+    ]
   };
 
-  it("groups folders under their drive with its state and free space", async () => {
+  it('groups folders under their drive with its state and free space', async () => {
     mockInvoke.mockImplementation(async (command, args) => {
-      if (command === "get_pinned_folder_trees") {
+      if (command === 'get_pinned_folder_trees') {
         const paths = (args as { paths: string[] }).paths;
-        return paths.includes("/Users/me/Relinked") ? [folder("/Users/me/Relinked", 1)] : [];
+        return paths.includes('/Users/me/Relinked') ? [folder('/Users/me/Relinked', 1)] : [];
       }
-      if (command === "session_offline")
-        return [{ path: "/Volumes/Card/2026/A.NEF", volume: "Card", mtime: 1, folder_missing: true }];
-      if (command === "catalog_folders") return view;
+      if (command === 'session_offline')
+        return [
+          {
+            path: '/Volumes/Card/2026/A.NEF',
+            volume: 'Card',
+            mtime: 1,
+            folder_missing: true
+          }
+        ];
+      if (command === 'catalog_folders') return view;
       return undefined;
     });
     const navigate = vi.fn();
     render(
       <ContextMenuProvider>
         <StudioNavigation onNavigate={navigate} folderActions={actions} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
     await act(async () => {});
     await act(async () => {});
-    expect(mockInvoke).toHaveBeenCalledWith("catalog_folders", { directory: "/job", roots: ["/job"] });
+    expect(mockInvoke).toHaveBeenCalledWith('catalog_folders', {
+      directory: '/job',
+      roots: ['/job']
+    });
     // The disconnected drive and its folder, known from the catalog.
     const card = document.querySelector('[data-volume="id:CARD"]')!;
-    expect(card.getAttribute("data-online")).toBe("false");
-    expect(card.textContent).toContain("Offline");
-    const offlineFolder = screen.getByText("2026").closest("button")!;
-    expect(offlineFolder.getAttribute("title")).toBe("/Volumes/Card/2026 is on “Card”, which is not connected.");
-    expect(offlineFolder.textContent).toContain("?1");
+    expect(card.getAttribute('data-online')).toBe('false');
+    expect(card.textContent).toContain('Offline');
+    const offlineFolder = screen.getByText('2026').closest('button')!;
+    expect(offlineFolder.getAttribute('title')).toBe('/Volumes/Card/2026 is on “Card”, which is not connected.');
+    expect(offlineFolder.textContent).toContain('?1');
     fireEvent.click(offlineFolder);
-    expect(navigate).toHaveBeenCalledWith("/Volumes/Card/2026");
+    expect(navigate).toHaveBeenCalledWith('/Volumes/Card/2026');
     // Synchronizing it lists its photographs as not available.
     const requested = vi.fn();
     const listener = (e: Event) => requested((e as CustomEvent).detail);
-    window.addEventListener("rawtonic:open-folder-sync", listener);
+    window.addEventListener('rawtonic:open-folder-sync', listener);
     fireEvent.contextMenu(offlineFolder);
-    fireEvent.click(item("Synchronize Folder…"));
-    expect(requested).toHaveBeenCalledWith({ folder: "/Volumes/Card/2026" });
-    window.removeEventListener("rawtonic:open-folder-sync", listener);
+    fireEvent.click(item('Synchronize Folder…'));
+    expect(requested).toHaveBeenCalledWith({ folder: '/Volumes/Card/2026' });
+    window.removeEventListener('rawtonic:open-folder-sync', listener);
     // The connected drive: free space, the library folder and the folder a
     // photograph was relinked to.
     const system = document.querySelector('[data-volume="id:SYS"]')!;
-    expect(system.textContent).toContain("200 GB / 1 TB");
-    expect(screen.getByText("Relinked")).toBeTruthy();
-    expect(screen.getByText("job")).toBeTruthy();
+    expect(system.textContent).toContain('200 GB / 1 TB');
+    expect(screen.getByText('Relinked')).toBeTruthy();
+    expect(screen.getByText('job')).toBeTruthy();
     // A drive folds away.
-    fireEvent.click(screen.getByLabelText("Collapse Card"));
-    expect(screen.queryByText("2026")).toBeNull();
-    fireEvent.click(screen.getByLabelText("Expand Card"));
-    expect(screen.getByText("2026")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Collapse Card'));
+    expect(screen.queryByText('2026')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Expand Card'));
+    expect(screen.getByText('2026')).toBeTruthy();
   });
 });
 
-it("shows startup first and identifies an offline network share with one root", async () => {
+it('shows startup first and identifies an offline network share with one root', async () => {
   mockInvoke.mockImplementation(async (command) => {
-    if (command === "session_offline") return [];
-    if (command === "catalog_folders") return {
-      catalog: true,
-      volumes: [
-        { key: "share", id: "share", name: "Team", kind: "network", mount_point: "/srv/team", online: false,
-          free_bytes: null, total_bytes: null, folders: [], roots: ["/srv/team/Jobs"] },
-        { key: "startup", id: "startup", name: "Macintosh HD", kind: "startup", mount_point: "/", online: true,
-          free_bytes: null, total_bytes: null, folders: [], roots: ["/job"] },
-      ],
-    };
+    if (command === 'session_offline') return [];
+    if (command === 'catalog_folders')
+      return {
+        catalog: true,
+        volumes: [
+          {
+            key: 'share',
+            id: 'share',
+            name: 'Team',
+            kind: 'network',
+            mount_point: '/srv/team',
+            online: false,
+            free_bytes: null,
+            total_bytes: null,
+            folders: [],
+            roots: ['/srv/team/Jobs']
+          },
+          {
+            key: 'startup',
+            id: 'startup',
+            name: 'Macintosh HD',
+            kind: 'startup',
+            mount_point: '/',
+            online: true,
+            free_bytes: null,
+            total_bytes: null,
+            folders: [],
+            roots: ['/job']
+          }
+        ]
+      };
     return [];
   });
-  render(<ContextMenuProvider><StudioNavigation onNavigate={vi.fn()} folderActions={actions} /></ContextMenuProvider>);
+  render(
+    <ContextMenuProvider>
+      <StudioNavigation onNavigate={vi.fn()} folderActions={actions} />
+    </ContextMenuProvider>
+  );
   await act(async () => {});
-  const headings = [...document.querySelectorAll("[data-volume]")];
-  expect(headings.map((node) => node.getAttribute("data-volume"))).toEqual(["startup", "share"]);
-  expect(headings[1].textContent).toContain("Team · Network share");
-  expect(headings[1].textContent).toContain("Offline");
-  expect(screen.getByText("Jobs")).toBeTruthy();
+  const headings = [...document.querySelectorAll('[data-volume]')];
+  expect(headings.map((node) => node.getAttribute('data-volume'))).toEqual(['startup', 'share']);
+  expect(headings[1].textContent).toContain('Team · Network share');
+  expect(headings[1].textContent).toContain('Offline');
+  expect(screen.getByText('Jobs')).toBeTruthy();
 });
 
 describe("the panel beside Develop's tools", () => {
   const tools = () =>
-    [...document.querySelectorAll("[data-tool-title]")].map((el) => el.getAttribute("data-tool-title"));
+    [...document.querySelectorAll('[data-tool-title]')].map((el) => el.getAttribute('data-tool-title'));
   const renderAs = (develop: boolean) =>
     render(
       <ContextMenuProvider>
         <StudioNavigation onNavigate={vi.fn()} onSelectAlbum={vi.fn()} folderActions={actions} develop={develop} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
 
-  it("keeps what switches photographs and leaves keywords and metadata to the Library", () => {
+  it('keeps what switches photographs and leaves keywords and metadata to the Library', () => {
     renderAs(true);
-    expect(tools()).toEqual(["Navigator", "Folders", "Albums"]);
-    expect(screen.getByRole("heading", { name: "Browse" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Browse" })).toBeTruthy();
+    expect(tools()).toEqual(['Navigator', 'Folders', 'Albums']);
+    expect(screen.getByRole('heading', { name: 'Browse' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Browse' })).toBeTruthy();
   });
 
-  it("shows the Library its full column", () => {
+  it('shows the Library its full column', () => {
     renderAs(false);
-    expect(tools()).toEqual(["Navigator", "Folders", "Albums", "Keywords", "Metadata", "EXIF"]);
-    expect(screen.queryByRole("heading", { name: "Browse" })).toBeNull();
+    expect(tools()).toEqual(['Navigator', 'Folders', 'Albums', 'Keywords', 'Metadata', 'EXIF']);
+    expect(screen.queryByRole('heading', { name: 'Browse' })).toBeNull();
   });
 
   it("remembers its tools' open states apart from the Library's", () => {
     renderAs(true);
     const folders = document.querySelector("[data-tool-title='Folders']") as HTMLDetailsElement;
     folders.open = false;
-    fireEvent(folders, new Event("toggle"));
+    fireEvent(folders, new Event('toggle'));
     const open = useSettingsStore.getState().appSettings?.toolLayout?.open ?? {};
-    expect(open["develop:browse/Folders"]).toBe(false);
-    expect(open["library/Folders"]).toBeUndefined();
+    expect(open['develop:browse/Folders']).toBe(false);
+    expect(open['library/Folders']).toBeUndefined();
   });
 });
 
@@ -494,54 +575,70 @@ describe("the session's Trash folder", () => {
     const emptyTrash = vi.fn();
     useLibraryStore.setState({
       folderTrees: [
-        folder("/job", 0, [folder("/job/Capture", 2), folder("/job/Trash", 1, [folder("/job/Trash/Capture", 1)])]),
+        folder('/job', 0, [folder('/job/Capture', 2), folder('/job/Trash', 1, [folder('/job/Trash/Capture', 1)])])
       ] as never,
-      expandedFolders: new Set(["/job", "/job/Trash"]),
+      expandedFolders: new Set(['/job', '/job/Trash'])
     });
     render(
       <ContextMenuProvider>
         <StudioNavigation onNavigate={vi.fn()} folderActions={{ ...actions, emptyTrash }} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
-    openMenu("/job/Trash");
-    fireEvent.click(item("Empty Trash…"));
+    openMenu('/job/Trash');
+    fireEvent.click(item('Empty Trash…'));
     expect(emptyTrash).toHaveBeenCalledOnce();
-    for (const other of ["/job/Capture", "/job/Trash/Capture"]) {
+    for (const other of ['/job/Capture', '/job/Trash/Capture']) {
       openMenu(other);
       // The newest menu is this folder's.
-      const names = screen.getAllByRole("menu").at(-1)!.textContent;
-      expect(names).toContain("New Folder");
-      expect(names).not.toContain("Empty Trash");
+      const names = screen.getAllByRole('menu').at(-1)!.textContent;
+      expect(names).toContain('New Folder');
+      expect(names).not.toContain('Empty Trash');
     }
   });
 });
 
-it("reports catalog folder persistence failures and retains the last readable groups", async () => {
+it('reports catalog folder persistence failures and retains the last readable groups', async () => {
   const previous = { catalog: true, volumes: [] };
   useLibraryStore.setState({ catalogFolders: previous });
   mockInvoke.mockImplementation(async (command) => {
-    if (command === "catalog_folders") throw new Error("cache persistence failed");
+    if (command === 'catalog_folders') throw new Error('cache persistence failed');
     return [];
   });
   renderNavigation();
   await act(async () => {});
-  expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("cache persistence failed"));
+  expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cache persistence failed'));
   expect(useLibraryStore.getState().catalogFolders).toBe(previous);
 });
 
-it("marks only the session Trash folder with a trash icon, selected or closed", () => {
-  useLibraryStore.setState({ catalogFolders: null, folderTrees: [folder("/job", 0, [folder("/job/Trash"), folder("/job/Selects", 0, [folder("/job/Selects/Trash")])])] as never });
+it('marks only the session Trash folder with a trash icon, selected or closed', () => {
+  useLibraryStore.setState({
+    catalogFolders: null,
+    folderTrees: [
+      folder('/job', 0, [folder('/job/Trash'), folder('/job/Selects', 0, [folder('/job/Selects/Trash')])])
+    ] as never
+  });
   const { rerender } = renderNavigation();
-  expect(row("/job/Trash").querySelector(".lucide-trash-2")).toBeTruthy();
-  expect(row("/job/Selects/Trash").querySelector(".lucide-trash-2")).toBeNull();
-  act(() => useLibraryStore.setState({ currentFolderPath: "/job/Trash" }));
-  rerender(<ContextMenuProvider><StudioNavigation onNavigate={vi.fn()} folderActions={actions} /></ContextMenuProvider>);
-  expect(row("/job/Trash").querySelector(".lucide-trash-2")).toBeTruthy();
+  expect(row('/job/Trash').querySelector('.lucide-trash-2')).toBeTruthy();
+  expect(row('/job/Selects/Trash').querySelector('.lucide-trash-2')).toBeNull();
+  act(() => useLibraryStore.setState({ currentFolderPath: '/job/Trash' }));
+  rerender(
+    <ContextMenuProvider>
+      <StudioNavigation onNavigate={vi.fn()} folderActions={actions} />
+    </ContextMenuProvider>
+  );
+  expect(row('/job/Trash').querySelector('.lucide-trash-2')).toBeTruthy();
 });
 
 describe("the navigator's photograph", () => {
   const navigatorName = (path: string) => {
-    act(() => useProcessStore.setState({ thumbnails: { ...useProcessStore.getState().thumbnails, [path]: "asset://thumb.jpg" } }));
+    act(() =>
+      useProcessStore.setState({
+        thumbnails: {
+          ...useProcessStore.getState().thumbnails,
+          [path]: 'asset://thumb.jpg'
+        }
+      })
+    );
     useEditorStore.setState({
       selectedImage: {
         path,
@@ -549,26 +646,35 @@ describe("the navigator's photograph", () => {
         height: 4000,
         isRaw: true,
         isReady: true,
-        exif: null,
-      } as unknown as SelectedImage,
+        exif: null
+      } as unknown as SelectedImage
     });
     const view = renderNavigation();
-    const caption = view.container.querySelector(".studio-nav-caption")!.textContent;
-    const alt = view.container.querySelector(".studio-navigator img")?.getAttribute("alt");
+    const caption = view.container.querySelector('.studio-nav-caption')!.textContent;
+    const alt = view.container.querySelector('.studio-navigator img')?.getAttribute('alt');
     view.unmount();
     return { caption, alt };
   };
 
-  it("names the file of a Unix or Windows path, mixed separators too, without the copy suffix", () => {
-    expect(navigatorName("/job/Capture/A.RAF")).toEqual({ caption: "A.RAF", alt: "A.RAF" });
-    expect(navigatorName("C:\\Photos\\Capture\\A.CR2")).toEqual({
-      caption: "A.CR2",
-      alt: "A.CR2",
+  it('names the file of a Unix or Windows path, mixed separators too, without the copy suffix', () => {
+    expect(navigatorName('/job/Capture/A.RAF')).toEqual({
+      caption: 'A.RAF',
+      alt: 'A.RAF'
     });
-    expect(navigatorName("C:/Photos/Capture\\A.CR2")).toEqual({ caption: "A.CR2", alt: "A.CR2" });
+    expect(navigatorName('C:\\Photos\\Capture\\A.CR2')).toEqual({
+      caption: 'A.CR2',
+      alt: 'A.CR2'
+    });
+    expect(navigatorName('C:/Photos/Capture\\A.CR2')).toEqual({
+      caption: 'A.CR2',
+      alt: 'A.CR2'
+    });
   });
 
-  it("shows the physical file of a virtual copy, not its ?vc= suffix", () => {
-    expect(navigatorName("/job/Capture/A.RAF?vc=abc123")).toEqual({ caption: "A.RAF", alt: "A.RAF" });
+  it('shows the physical file of a virtual copy, not its ?vc= suffix', () => {
+    expect(navigatorName('/job/Capture/A.RAF?vc=abc123')).toEqual({
+      caption: 'A.RAF',
+      alt: 'A.RAF'
+    });
   });
 });

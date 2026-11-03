@@ -5,7 +5,15 @@ import { CONFIRMATION_MS, notify, plainText } from './notify';
 import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
 import '../i18n';
 
-vi.mock('react-toastify', () => ({ toast: { success: vi.fn(), info: vi.fn(), error: vi.fn(), warn: vi.fn(), dismiss: vi.fn() } }));
+vi.mock('react-toastify', () => ({
+  toast: {
+    success: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    dismiss: vi.fn()
+  }
+}));
 
 const entries = () => useActivityStore.getState().entries;
 
@@ -17,7 +25,7 @@ it('puts a failure under Needs attention and shows no toast for it', () => {
   notify.warn('3 XMP files were changed by another program');
   expect(entries().map((e) => [e.status, e.title])).toEqual([
     ['failure', 'Failed to move 2 files: disk full'],
-    ['warning', '3 XMP files were changed by another program'],
+    ['warning', '3 XMP files were changed by another program']
   ]);
   expect(toast.error).not.toHaveBeenCalled();
   expect(toast.warn).not.toHaveBeenCalled();
@@ -25,7 +33,10 @@ it('puts a failure under Needs attention and shows no toast for it', () => {
 
 it('confirms the user’s own action with a short toast, also logged under Done', () => {
   notify.success('Renamed 3 photos');
-  expect(toast.success).toHaveBeenCalledWith('Renamed 3 photos', expect.objectContaining({ autoClose: CONFIRMATION_MS }));
+  expect(toast.success).toHaveBeenCalledWith(
+    'Renamed 3 photos',
+    expect.objectContaining({ autoClose: CONFIRMATION_MS })
+  );
   expect(entries()).toEqual([expect.objectContaining({ status: 'done', title: 'Renamed 3 photos' })]);
 });
 
@@ -46,17 +57,29 @@ it('settles an entry by its id: dismiss, isActive and update', () => {
 
 it('carries the actions and photographs of a failure', () => {
   const run = vi.fn();
-  notify.error('2 photos not saved', { source: 'write', paths: ['/a.dng'], actions: [{ label: 'Try again', run }] });
+  notify.error('2 photos not saved', {
+    source: 'write',
+    paths: ['/a.dng'],
+    actions: [{ label: 'Try again', run }]
+  });
   expect(entries()[0]).toMatchObject({ source: 'write', paths: ['/a.dng'] });
   entries()[0].actions![0].run();
   expect(run).toHaveBeenCalledOnce();
 });
 
 it('reads a rich notice’s words without its buttons', () => {
-  const content = createElement('span', null, 'Copies kept on Backup ', createElement('button', null, 'Show in Finder'));
+  const content = createElement(
+    'span',
+    null,
+    'Copies kept on Backup ',
+    createElement('button', null, 'Show in Finder')
+  );
   expect(plainText(content).trim()).toBe('Copies kept on Backup');
   notify.warn(content);
-  expect(entries()[0]).toMatchObject({ title: 'Copies kept on Backup', body: content });
+  expect(entries()[0]).toMatchObject({
+    title: 'Copies kept on Backup',
+    body: content
+  });
 });
 
 it('never titles a notice "[object Object]": a component without words gets a generic line', () => {

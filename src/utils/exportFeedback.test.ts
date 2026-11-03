@@ -8,7 +8,17 @@ import { exportJobLabel, notifyExportOutputs, outputFolder } from './exportFeedb
 
 describe('export queue labels', () => {
   it('distinguishes recipes, size, format and destination', () => {
-    const label = exportJobLabel('Fast (Web)', { ...DEFAULT_RECIPE_DRAFT, resize: true, resizeMode: 'longEdge', resizeValue: 1600 }, 'jpg', '/delivery/web');
+    const label = exportJobLabel(
+      'Fast (Web)',
+      {
+        ...DEFAULT_RECIPE_DRAFT,
+        resize: true,
+        resizeMode: 'longEdge',
+        resizeValue: 1600
+      },
+      'jpg',
+      '/delivery/web'
+    );
     expect(label).toContain('Fast (Web)');
     expect(label).toContain('1600');
     expect(label).toContain('JPG');
@@ -17,7 +27,12 @@ describe('export queue labels', () => {
     expect(withSource).toBe('a.CR3 · Web · JPG · Full resolution · /out');
   });
   it('uses the size actually sent to the export engine', () => {
-    const draft = { ...DEFAULT_RECIPE_DRAFT, resize: true, resizeMode: 'longEdge' as const, resizeValue: 9999999 };
+    const draft = {
+      ...DEFAULT_RECIPE_DRAFT,
+      resize: true,
+      resizeMode: 'longEdge' as const,
+      resizeValue: 9999999
+    };
     const actual = exportSettingsFromDraft(draft).settings.resize!.value;
     expect(exportJobLabel('Web', draft, 'jpg', '/out')).toContain(String(actual));
   });
@@ -32,10 +47,16 @@ describe('export queue labels', () => {
   });
 });
 
-
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('../activity/notify', () => ({ notify: { success: vi.fn(), error: vi.fn() } }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue(undefined)
+}));
+vi.mock('../activity/notify', () => ({
+  notify: { success: vi.fn(), error: vi.fn() }
+}));
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 it('shows one notification for a run with a reveal action for each output folder', () => {
   notifyExportOutputs(['/delivery/web/a.jpg', '/delivery/web/b.jpg', '/delivery/print/a.tif']);
@@ -47,7 +68,9 @@ it('shows one notification for a run with a reveal action for each output folder
   const buttons = screen.getAllByRole('button');
   expect(buttons).toHaveLength(2);
   fireEvent.click(buttons[0]);
-  expect(invoke).toHaveBeenCalledWith('show_in_finder', { path: '/delivery/web/a.jpg' });
+  expect(invoke).toHaveBeenCalledWith('show_in_finder', {
+    path: '/delivery/web/a.jpg'
+  });
 });
 
 it('handles native output folder roots', () => {

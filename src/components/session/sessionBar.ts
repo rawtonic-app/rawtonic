@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
 /** Shares the one top bar between the session (left: job, ingest) and the
  * workspace (middle: Library/Develop, right: export, preferences), and lets
@@ -9,12 +9,12 @@ interface SessionBarState {
   /** Pick (1), reject (-1) or clear (0) the targeted photographs, or
    * `paths` (a multi view cell's hover flag). */
   mark: ((flag: number, paths?: string[]) => Promise<void> | undefined) | null;
-  set(patch: Partial<Omit<SessionBarState, "set">>): void;
+  set(patch: Partial<Omit<SessionBarState, 'set'>>): void;
 }
 
 export const useSessionBar = create<SessionBarState>((set) => ({
   center: null,
   end: null,
   mark: null,
-  set: (patch) => set(patch),
+  set: (patch) => set(patch)
 }));

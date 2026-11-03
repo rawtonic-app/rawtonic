@@ -10,7 +10,10 @@ export interface PanBounds {
  * fit view both: dragging there must not shift it, as in Lightroom and
  * Capture One). */
 export function lockedAxes(bounds: PanBounds) {
-  return { x: bounds.maxX - bounds.minX < 0.5, y: bounds.maxY - bounds.minY < 0.5 };
+  return {
+    x: bounds.maxX - bounds.minX < 0.5,
+    y: bounds.maxY - bounds.minY < 0.5
+  };
 }
 
 /** One pan step from (`x`, `y`) by the pointer's (`dx`, `dy`): nothing on a
@@ -21,6 +24,6 @@ export function panStep(bounds: PanBounds, x: number, y: number, dx: number, dy:
     (pos < min && d < 0) || (pos > max && d > 0) ? d * 0.35 : d;
   return {
     dx: locked.x ? 0 : resist(x, dx, bounds.minX, bounds.maxX),
-    dy: locked.y ? 0 : resist(y, dy, bounds.minY, bounds.maxY),
+    dy: locked.y ? 0 : resist(y, dy, bounds.minY, bounds.maxY)
   };
 }

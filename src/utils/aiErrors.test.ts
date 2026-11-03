@@ -5,17 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn() } }));
 vi.mock('../activity/notify', () => ({ notify: toast }));
 
-import {
-  aiErrorMessage,
-  isAiRuntimeError,
-  noteBackgroundAiError,
-  resetAiErrorNotices,
-  toastAiError,
-} from './aiErrors';
+import { aiErrorMessage, isAiRuntimeError, noteBackgroundAiError, resetAiErrorNotices, toastAiError } from './aiErrors';
 
 /** The backend's error for a broken runtime (rawtonic_onnx::RuntimeError). */
-const runtimeError =
-  'AI runtime unavailable: /app/resources/libonnxruntime.dylib could not be loaded: dlopen failed';
+const runtimeError = 'AI runtime unavailable: /app/resources/libonnxruntime.dylib could not be loaded: dlopen failed';
 
 beforeEach(() => {
   toast.error.mockReset();
@@ -45,7 +38,10 @@ describe('AI errors', () => {
     for (const [text, options] of toast.error.mock.calls) {
       expect(text).toMatch(/^The AI runtime could not be loaded/);
       // The same id: react-toastify keeps a single toast.
-      expect(options).toEqual({ toastId: 'ai-runtime-unavailable', source: 'ai' });
+      expect(options).toEqual({
+        toastId: 'ai-runtime-unavailable',
+        source: 'ai'
+      });
     }
     toastAiError('out of memory', 'AI Sky Mask Failed: out of memory');
     expect(toast.error).toHaveBeenLastCalledWith('AI Sky Mask Failed: out of memory', { source: 'ai' });

@@ -15,19 +15,27 @@ export interface SpotItem {
  * mode, else the spots, then the removals, each in the order made. */
 export function spotItems(
   adjustments: Pick<Adjustments, 'spots' | 'aiPatches' | 'redEyes'>,
-  redEye: boolean,
+  redEye: boolean
 ): SpotItem[] {
   if (redEye)
-    return (adjustments.redEyes ?? []).map((eye) => ({ id: eye.id, kind: eye.kind, visible: eye.visible !== false }));
+    return (adjustments.redEyes ?? []).map((eye) => ({
+      id: eye.id,
+      kind: eye.kind,
+      visible: eye.visible !== false
+    }));
   return [
-    ...(adjustments.spots ?? []).map((spot) => ({ id: spot.id, kind: spot.mode, visible: spot.visible !== false })),
+    ...(adjustments.spots ?? []).map((spot) => ({
+      id: spot.id,
+      kind: spot.mode,
+      visible: spot.visible !== false
+    })),
     ...(adjustments.aiPatches ?? [])
       .filter((patch) => patch.name === 'Remove')
       .map((patch) => ({
         id: patch.id,
         kind: patch.fromHeal ? ('fill' as const) : ('remove' as const),
-        visible: patch.visible !== false,
-      })),
+        visible: patch.visible !== false
+      }))
   ];
 }
 
@@ -37,7 +45,9 @@ export function withoutSpotItems(prev: Adjustments, ids: ReadonlySet<string>): A
     ...prev,
     spots: prev.spots?.filter((spot) => !ids.has(spot.id)),
     aiPatches: prev.aiPatches?.filter((patch) => patch.name !== 'Remove' || !ids.has(patch.id)),
-    ...(prev.redEyes && { redEyes: prev.redEyes.filter((eye) => !ids.has(eye.id)) }),
+    ...(prev.redEyes && {
+      redEyes: prev.redEyes.filter((eye) => !ids.has(eye.id))
+    })
   };
 }
 
@@ -48,8 +58,10 @@ export function withSpotItemsVisible(prev: Adjustments, ids: ReadonlySet<string>
     ...prev,
     spots: prev.spots?.map((spot) => (ids.has(spot.id) ? { ...spot, visible } : spot)),
     aiPatches: prev.aiPatches?.map((patch) =>
-      patch.name === 'Remove' && ids.has(patch.id) ? { ...patch, visible } : patch,
+      patch.name === 'Remove' && ids.has(patch.id) ? { ...patch, visible } : patch
     ),
-    ...(prev.redEyes && { redEyes: prev.redEyes.map((eye) => (ids.has(eye.id) ? { ...eye, visible } : eye)) }),
+    ...(prev.redEyes && {
+      redEyes: prev.redEyes.map((eye) => (ids.has(eye.id) ? { ...eye, visible } : eye))
+    })
   };
 }

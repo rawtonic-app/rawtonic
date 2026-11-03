@@ -9,7 +9,10 @@ describe('crop gestures', () => {
     result.current.start();
     expect(cropGestures().active).toBe(true);
     unmount();
-    expect(cropGestures()).toEqual({ started: before.started + 1, active: false });
+    expect(cropGestures()).toEqual({
+      started: before.started + 1,
+      active: false
+    });
     // A late end after unmount changes nothing.
     result.current.end();
     expect(cropGestures().active).toBe(false);

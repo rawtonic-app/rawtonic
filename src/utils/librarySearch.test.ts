@@ -7,7 +7,7 @@ import {
   scopeRule,
   searchRule,
   selectionCount,
-  selectionRules,
+  selectionRules
 } from './librarySearch';
 import { MISSING_VIEW_ID } from './offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from './folderSync';
@@ -16,33 +16,49 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 describe('library search rules', () => {
   it('chooses any value of a list and every list', () => {
-    const rules = selectionRules({ camera: ['ILCE-7RM4', 'X-T4'], iso: ['3200'], lens: [] });
+    const rules = selectionRules({
+      camera: ['ILCE-7RM4', 'X-T4'],
+      iso: ['3200'],
+      lens: []
+    });
     expect(rules).toEqual([
       {
         combine: 'any',
         rules: [
           { field: 'camera', op: 'is', value: 'ILCE-7RM4' },
-          { field: 'camera', op: 'is', value: 'X-T4' },
-        ],
+          { field: 'camera', op: 'is', value: 'X-T4' }
+        ]
       },
-      { field: 'iso', op: 'is', value: 3200 },
+      { field: 'iso', op: 'is', value: 3200 }
     ]);
     // A list's own counts leave out its own choice.
     expect(selectionRules({ camera: ['X-T4'], iso: ['3200'] }, 'camera')).toEqual([
-      { field: 'iso', op: 'is', value: 3200 },
+      { field: 'iso', op: 'is', value: 3200 }
     ]);
     expect(selectionCount({ camera: ['a', 'b'], keyword: ['c'] })).toBe(3);
   });
 
   it('turns months and missing values into conditions', () => {
     expect(selectionRules({ captureDate: ['2024-02'] })).toEqual([
-      { field: 'captureDate', op: 'between', value: ['2024-02-01', '2024-02-29'] },
+      {
+        field: 'captureDate',
+        op: 'between',
+        value: ['2024-02-01', '2024-02-29']
+      }
     ]);
     expect(selectionRules({ captureDate: ['2024'] })).toEqual([
-      { field: 'captureDate', op: 'between', value: ['2024-01-01', '2024-12-31'] },
+      {
+        field: 'captureDate',
+        op: 'between',
+        value: ['2024-01-01', '2024-12-31']
+      }
     ]);
     expect(selectionRules({ captureDate: ['2023-12'] })).toEqual([
-      { field: 'captureDate', op: 'between', value: ['2023-12-01', '2023-12-31'] },
+      {
+        field: 'captureDate',
+        op: 'between',
+        value: ['2023-12-01', '2023-12-31']
+      }
     ]);
     expect(selectionRules({ keyword: [''] })).toEqual([{ field: 'keyword', op: 'empty' }]);
     expect(selectionRules({ fileType: ['jpeg'] })).toEqual([{ field: 'fileType', op: 'is', value: 'jpeg' }]);
@@ -50,13 +66,22 @@ describe('library search rules', () => {
   });
 
   it('keeps AI and source-type choices as codes, including absent facts', () => {
-    expect(selectionRules({ ai: ['generated', ''], sourceType: ['trainedAlgorithmicMedia'] })).toEqual([
-      { combine: 'any', rules: [{ field: 'ai', op: 'is', value: 'generated' }, { field: 'ai', op: 'empty' }] },
-      { field: 'sourceType', op: 'is', value: 'trainedAlgorithmicMedia' },
+    expect(
+      selectionRules({
+        ai: ['generated', ''],
+        sourceType: ['trainedAlgorithmicMedia']
+      })
+    ).toEqual([
+      {
+        combine: 'any',
+        rules: [
+          { field: 'ai', op: 'is', value: 'generated' },
+          { field: 'ai', op: 'empty' }
+        ]
+      },
+      { field: 'sourceType', op: 'is', value: 'trainedAlgorithmicMedia' }
     ]);
-    expect(selectionRules({ ai: ['aiMask'], sourceType: [''] }, 'ai')).toEqual([
-      { field: 'sourceType', op: 'empty' },
-    ]);
+    expect(selectionRules({ ai: ['aiMask'], sourceType: [''] }, 'ai')).toEqual([{ field: 'sourceType', op: 'empty' }]);
   });
 
   it('writes the culling filters as the filter bar applies them', () => {
@@ -64,10 +89,17 @@ describe('library search rules', () => {
     expect(cullingRules(filter)).toEqual([]);
     expect(cullingRules({ ...filter, rating: -1 })).toEqual([{ field: 'rating', op: 'empty' }]);
     expect(cullingRules({ ...filter, rating: 5 })).toEqual([{ field: 'rating', op: 'is', value: 5 }]);
-    expect(cullingRules({ ...filter, rating: 3, colors: ['red', 'none'], flag: 'picked' })).toEqual([
+    expect(
+      cullingRules({
+        ...filter,
+        rating: 3,
+        colors: ['red', 'none'],
+        flag: 'picked'
+      })
+    ).toEqual([
       { field: 'rating', op: 'ge', value: 3 },
       { field: 'label', op: 'is', value: ['red', 'none'] },
-      { field: 'flag', op: 'is', value: 'picked' },
+      { field: 'flag', op: 'is', value: 'picked' }
     ]);
     // Eyes: closed (uncertain never counts) or needing a check.
     expect(cullingRules({ ...filter, eyes: 'closed' })).toEqual([{ field: 'eyes', op: 'is', value: 'closed' }]);
@@ -79,16 +111,24 @@ describe('library search rules', () => {
     expect(scopeRule('/job/Capture', null, LibraryViewMode.Flat)).toEqual({
       field: 'folder',
       op: 'is',
-      value: '/job/Capture',
+      value: '/job/Capture'
     });
     expect(scopeRule('/job/Capture', null, LibraryViewMode.Recursive)).toMatchObject({ op: 'contains' });
-    expect(scopeRule('Album: Picks', 'session-album:p', undefined)).toEqual({ field: 'album', op: 'is', value: 'p' });
+    expect(scopeRule('Album: Picks', 'session-album:p', undefined)).toEqual({
+      field: 'album',
+      op: 'is',
+      value: 'p'
+    });
     expect(scopeRule(null, PREVIOUS_IMPORT_VIEW_ID, undefined)).toEqual({
       field: 'previousImport',
       op: 'is',
-      value: true,
+      value: true
     });
-    expect(scopeRule(null, MISSING_VIEW_ID, undefined)).toEqual({ field: 'offline', op: 'is', value: true });
+    expect(scopeRule(null, MISSING_VIEW_ID, undefined)).toEqual({
+      field: 'offline',
+      op: 'is',
+      value: true
+    });
     // The app-wide albums outside a library have no catalog.
     expect(scopeRule('Album: x', 'local-album-id', undefined)).toBeNull();
   });
@@ -99,36 +139,52 @@ describe('library search rules', () => {
       combine: 'all',
       rules: [
         { field: 'text', op: 'contains', value: 'bride' },
-        { field: 'camera', op: 'is', value: 'X-T4' },
-      ],
+        { field: 'camera', op: 'is', value: 'X-T4' }
+      ]
     });
-    expect(searchRule('bride', undefined)).toEqual({ field: 'text', op: 'contains', value: 'bride' });
+    expect(searchRule('bride', undefined)).toEqual({
+      field: 'text',
+      op: 'contains',
+      value: 'bride'
+    });
     // The eye filter alone is a search the catalog answers.
-    expect(searchRule('', undefined, 'closed')).toEqual({ field: 'eyes', op: 'is', value: 'closed' });
+    expect(searchRule('', undefined, 'closed')).toEqual({
+      field: 'eyes',
+      op: 'is',
+      value: 'closed'
+    });
     expect(searchRule('', undefined, 'all')).toBeNull();
     const scope = scopeRule('/job/Capture', null, LibraryViewMode.Flat);
     expect(
-      filterAsRule(scope, 'bride', { lens: ['FE 85mm F1.4 GM'] }, { colors: [], rating: 4, rawStatus: RawStatus.All }),
+      filterAsRule(scope, 'bride', { lens: ['FE 85mm F1.4 GM'] }, { colors: [], rating: 4, rawStatus: RawStatus.All })
     ).toEqual({
       combine: 'all',
       rules: [
         scope,
         { field: 'text', op: 'contains', value: 'bride' },
         { field: 'lens', op: 'is', value: 'FE 85mm F1.4 GM' },
-        { field: 'rating', op: 'ge', value: 4 },
-      ],
+        { field: 'rating', op: 'ge', value: 4 }
+      ]
     });
   });
 
   it('saves RAW / not RAW and refuses filters rules cannot say', () => {
     const filter = { colors: [], rating: 0, rawStatus: RawStatus.RawOnly };
     expect(filterAsRule(null, '', undefined, filter)?.rules).toEqual([
-      { field: 'fileType', op: 'is', value: ['raw', 'dng'] },
+      { field: 'fileType', op: 'is', value: ['raw', 'dng'] }
     ]);
-    expect(filterAsRule(null, '', undefined, { ...filter, rawStatus: RawStatus.NonRawOnly })?.rules).toEqual([
-      { field: 'fileType', op: 'isNot', value: ['raw', 'dng'] },
-    ]);
-    expect(filterAsRule(null, '', undefined, { ...filter, editedStatus: EditedStatus.EditedOnly })).toBeNull();
+    expect(
+      filterAsRule(null, '', undefined, {
+        ...filter,
+        rawStatus: RawStatus.NonRawOnly
+      })?.rules
+    ).toEqual([{ field: 'fileType', op: 'isNot', value: ['raw', 'dng'] }]);
+    expect(
+      filterAsRule(null, '', undefined, {
+        ...filter,
+        editedStatus: EditedStatus.EditedOnly
+      })
+    ).toBeNull();
     expect(filterAsRule(null, '', undefined, filter, ['iso>800'])).toBeNull();
   });
 

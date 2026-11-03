@@ -19,7 +19,7 @@ import {
   EditedStatus,
   ThumbnailSize,
   ThumbnailAspectRatio,
-  SupportedTypes,
+  SupportedTypes
 } from '../components/ui/AppProperties';
 import type { FolderTree } from '../utils/folderTree';
 import { useTranslation } from 'react-i18next';
@@ -75,33 +75,27 @@ export const useAppInitialization = ({
   thumbnailAspectRatio,
   setThumbnailAspectRatio,
   libraryViewMode,
-  setLibraryViewMode,
+  setLibraryViewMode
 }: UseAppInitializationProps) => {
   const isInitialMount = useRef(true);
   const { i18n } = useTranslation();
 
-  const {
-    appSettings,
-    setAppSettings,
-    setSupportedTypes,
-    initPlatform,
-    handleSettingsChange,
-  } = useSettingsStore(
+  const { appSettings, setAppSettings, setSupportedTypes, initPlatform, handleSettingsChange } = useSettingsStore(
     useShallow((state) => ({
       appSettings: state.appSettings,
       setAppSettings: state.setAppSettings,
       setSupportedTypes: state.setSupportedTypes,
       initPlatform: state.initPlatform,
-      handleSettingsChange: state.handleSettingsChange,
-    })),
+      handleSettingsChange: state.handleSettingsChange
+    }))
   );
 
   const { uiVisibility, collapsibleSectionsState, setUI } = useUIStore(
     useShallow((state) => ({
       uiVisibility: state.uiVisibility,
       collapsibleSectionsState: state.collapsibleSectionsState,
-      setUI: state.setUI,
-    })),
+      setUI: state.setUI
+    }))
   );
 
   const workspaceProps = useUIStore(
@@ -112,8 +106,8 @@ export const useAppInitialization = ({
       rightTopHeight: state.rightTopHeight,
       panelLayout: state.panelLayout,
       activePanels: state.activePanels,
-      panelSwitcherPlacement: state.panelSwitcherPlacement,
-    })),
+      panelSwitcherPlacement: state.panelSwitcherPlacement
+    }))
   );
 
   const {
@@ -125,7 +119,7 @@ export const useAppInitialization = ({
     expandedAlbumGroups,
     setSortCriteria,
     setFilterCriteria,
-    setLibrary,
+    setLibrary
   } = useLibraryStore(
     useShallow((state) => ({
       sortCriteria: state.sortCriteria,
@@ -136,14 +130,14 @@ export const useAppInitialization = ({
       expandedAlbumGroups: state.expandedAlbumGroups,
       setSortCriteria: state.setSortCriteria,
       setFilterCriteria: state.setFilterCriteria,
-      setLibrary: state.setLibrary,
-    })),
+      setLibrary: state.setLibrary
+    }))
   );
 
   const { setEditor } = useEditorStore(
     useShallow((state) => ({
-      setEditor: state.setEditor,
-    })),
+      setEditor: state.setEditor
+    }))
   );
 
   const defaultThumbnailSize = ThumbnailSize.Medium;
@@ -169,7 +163,10 @@ export const useAppInitialization = ({
           settings.copyPasteSettings.includedAdjustments.length === 0
         ) {
           // knownAdjustments and autoSync are left to the backend's serde defaults.
-          settings.copyPasteSettings = { mode: 'merge', includedAdjustments: COPYABLE_ADJUSTMENT_KEYS } as CopyPasteSettings;
+          settings.copyPasteSettings = {
+            mode: 'merge',
+            includedAdjustments: COPYABLE_ADJUSTMENT_KEYS
+          } as CopyPasteSettings;
         }
 
         if (!settings.language) {
@@ -181,7 +178,10 @@ export const useAppInitialization = ({
         if (savedRawStatus === 'groupVariants' || savedRawStatus === 'rawOverNonRaw') {
           const legacyPref = settings?.groupPreferredType === 'jpeg' ? 'jpeg' : 'raw';
           settings.grouping = legacyPref;
-          settings.filterCriteria = { ...settings.filterCriteria!, rawStatus: RawStatus.All };
+          settings.filterCriteria = {
+            ...settings.filterCriteria!,
+            rawStatus: RawStatus.All
+          };
           handleSettingsChange(settings);
         }
 
@@ -199,17 +199,22 @@ export const useAppInitialization = ({
             ...settings.filterCriteria,
             rawStatus: settings.filterCriteria!.rawStatus || RawStatus.All,
             editedStatus: settings.filterCriteria!.editedStatus || EditedStatus.All,
-            colors: settings.filterCriteria!.colors || [],
+            colors: settings.filterCriteria!.colors || []
           }));
         }
 
         if (settings?.uiVisibility) {
-          setUI((state) => ({ uiVisibility: { ...state.uiVisibility, ...settings.uiVisibility } }));
+          setUI((state) => ({
+            uiVisibility: { ...state.uiVisibility, ...settings.uiVisibility }
+          }));
         }
 
         if (settings?.adjustmentLayout?.openSections) {
           setUI((state) => ({
-            collapsibleSectionsState: { ...state.collapsibleSectionsState, ...settings.adjustmentLayout!.openSections },
+            collapsibleSectionsState: {
+              ...state.collapsibleSectionsState,
+              ...settings.adjustmentLayout!.openSections
+            }
           }));
         }
 
@@ -220,7 +225,7 @@ export const useAppInitialization = ({
           rightTopHeight: reconciledWorkspace.rightTopHeight,
           panelLayout: reconciledWorkspace.panelLayout,
           activePanels: reconciledWorkspace.activePanels,
-          panelSwitcherPlacement: reconciledWorkspace.panelSwitcherPlacement,
+          panelSwitcherPlacement: reconciledWorkspace.panelSwitcherPlacement
         });
 
         if (settings?.isWaveformVisible !== undefined) setEditor({ isWaveformVisible: settings.isWaveformVisible });
@@ -236,7 +241,7 @@ export const useAppInitialization = ({
             const trees = await invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
               paths: settings.pinnedFolders,
               expandedFolders: settings.lastFolderState?.expandedFolders || [],
-              showImageCounts: settings.enableFolderImageCounts || settings.folderTreeSort?.key === 'imageCount',
+              showImageCounts: settings.enableFolderImageCounts || settings.folderTreeSort?.key === 'imageCount'
             });
             setLibrary({ pinnedFolderTrees: trees });
           } catch (err) {
@@ -260,14 +265,14 @@ export const useAppInitialization = ({
             // eager full image scan here was usually unused and could stall the
             // native UI before that restore even started. Continue Session loads
             // its chosen folder through the same bounded listing as navigation.
-            images: undefined,
+            images: undefined
           };
         }
 
         if (settings?.lastFolderState) {
           setLibrary({
             expandedFolders: new Set(settings.lastFolderState.expandedFolders || []),
-            expandedAlbumGroups: new Set(settings.lastFolderState.expandedAlbumGroups || []),
+            expandedAlbumGroups: new Set(settings.lastFolderState.expandedAlbumGroups || [])
           });
         }
 
@@ -286,7 +291,7 @@ export const useAppInitialization = ({
         setAppSettings({
           lastRootPath: null,
           thumbnailSize: defaultThumbnailSize,
-          libraryViewMode: defaultLibraryViewMode,
+          libraryViewMode: defaultLibraryViewMode
         });
       })
       .finally(() => {
@@ -306,7 +311,7 @@ export const useAppInitialization = ({
     setLibraryViewMode,
     setThumbnailSize,
     setThumbnailAspectRatio,
-    handleSettingsChange,
+    handleSettingsChange
   ]);
 
   useEffect(() => {
@@ -334,7 +339,11 @@ export const useAppInitialization = ({
   useEffect(() => {
     if (isInitialMount.current || !appSettings) return;
     if (JSON.stringify(appSettings.adjustmentLayout?.openSections) !== JSON.stringify(collapsibleSectionsState)) {
-      handleSettingsChange(withAdjustmentLayout(appSettings, { openSections: collapsibleSectionsState }));
+      handleSettingsChange(
+        withAdjustmentLayout(appSettings, {
+          openSections: collapsibleSectionsState
+        })
+      );
     }
   }, [collapsibleSectionsState, appSettings, handleSettingsChange]);
 
@@ -392,7 +401,7 @@ export const useAppInitialization = ({
       currentFolderPath: null,
       expandedFolders: [],
       activeAlbumId: null,
-      expandedAlbumGroups: [],
+      expandedAlbumGroups: []
     };
 
     const pathChanged = prevFolderState.currentFolderPath !== currentFolderPath;
@@ -408,8 +417,8 @@ export const useAppInitialization = ({
           currentFolderPath,
           expandedFolders: currentExpanded,
           activeAlbumId,
-          expandedAlbumGroups: currentExpandedAlbums,
-        },
+          expandedAlbumGroups: currentExpandedAlbums
+        }
       });
     }
   }, [currentFolderPath, expandedFolders, activeAlbumId, expandedAlbumGroups, appSettings, handleSettingsChange]);
@@ -418,7 +427,7 @@ export const useAppInitialization = ({
     if (!appSettings) return;
 
     const needsImageCounts = Boolean(
-      appSettings.enableFolderImageCounts || appSettings.folderTreeSort?.key === 'imageCount',
+      appSettings.enableFolderImageCounts || appSettings.folderTreeSort?.key === 'imageCount'
     );
 
     if (prevImageCountsNeed.current === undefined) {
@@ -447,8 +456,8 @@ export const useAppInitialization = ({
           invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
             paths: pinnedFolders,
             expandedFolders: currentExpanded,
-            showImageCounts: needsImageCounts,
-          }).then((trees) => ({ type: 'pinned', trees })),
+            showImageCounts: needsImageCounts
+          }).then((trees) => ({ type: 'pinned', trees }))
         );
       }
 
@@ -457,8 +466,8 @@ export const useAppInitialization = ({
           invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
             paths: rootFolders,
             expandedFolders: currentExpanded,
-            showImageCounts: needsImageCounts,
-          }).then((trees) => ({ type: 'root', trees })),
+            showImageCounts: needsImageCounts
+          }).then((trees) => ({ type: 'root', trees }))
         );
       }
 

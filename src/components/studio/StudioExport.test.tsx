@@ -1,67 +1,58 @@
-import "../../i18n";
-import i18n from "i18next";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  within,
-} from "@testing-library/react";
-import { invoke } from "@tauri-apps/api/core";
-import StudioExport, { describeExportJob } from "./StudioExport";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useProcessStore, type ExportJob } from "../../store/useProcessStore";
-import { Status } from "../ui/ExportImportProperties";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import {
-  DEFAULT_RECIPE_DRAFT,
-  presetFromDraft,
-} from "../../utils/exportRecipes";
-import type { AppSettings } from "../ui/AppProperties";
+import '../../i18n';
+import i18n from 'i18next';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
+import StudioExport, { describeExportJob } from './StudioExport';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useProcessStore, type ExportJob } from '../../store/useProcessStore';
+import { Status } from '../ui/ExportImportProperties';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { DEFAULT_RECIPE_DRAFT, presetFromDraft } from '../../utils/exportRecipes';
+import type { AppSettings } from '../ui/AppProperties';
 
-vi.mock("@tauri-apps/api/core", () => ({
+vi.mock('@tauri-apps/api/core', () => ({
   // The session's Output folder (G38) is where the session keeps it.
   invoke: vi.fn((command: string, args?: { directory?: string }) =>
-    Promise.resolve(command === "session_usable_folder" ? `${args?.directory}/Output` : undefined),
-  ),
+    Promise.resolve(command === 'session_usable_folder' ? `${args?.directory}/Output` : undefined)
+  )
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(() => Promise.resolve("/out")),
-  save: vi.fn(() => Promise.resolve("/out/a.jpg")),
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: vi.fn(() => Promise.resolve('/out')),
+  save: vi.fn(() => Promise.resolve('/out/a.jpg'))
 }));
-vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+vi.mock('react-toastify', () => ({
+  toast: { error: vi.fn(), success: vi.fn() }
 }));
 
 /** The exports the form queued: one request per recipe, queued together. */
 const exported = () =>
   vi
     .mocked(invoke)
-    .mock.calls.filter((c) => c[0] === "export_images_batch")
+    .mock.calls.filter((c) => c[0] === 'export_images_batch')
     .flatMap((c) => (c[1] as { requests: Record<string, unknown>[] }).requests);
 
 const job = (part: Partial<ExportJob>): ExportJob => ({
-  id: "j1",
-  label: "30 photos as JPG",
-  state: "interrupted",
-  createdAt: "",
+  id: 'j1',
+  label: '30 photos as JPG',
+  state: 'interrupted',
+  createdAt: '',
   total: 30,
   done: 12,
   failed: 0,
   failures: [],
-  ...part,
+  ...part
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
-  localStorage.removeItem("rawtonic.export.recipes");
+  localStorage.removeItem('rawtonic.export.recipes');
   useSettingsStore.setState({ appSettings: null });
   useLibraryStore.setState({
-    multiSelectedPaths: ["/p/a.RAF", "/p/b.RAF"],
-    sessionDirectory: null,
+    multiSelectedPaths: ['/p/a.RAF', '/p/b.RAF'],
+    sessionDirectory: null
   });
   useProcessStore.setState({
     exportQueue: [],
@@ -70,999 +61,970 @@ beforeEach(() => {
     exportPausing: [],
     exportState: {
       status: Status.Idle,
-      errorMessage: "",
-      progress: { current: 0, total: 0 },
-    },
+      errorMessage: '',
+      progress: { current: 0, total: 0 }
+    }
   });
 });
 afterEach(() => cleanup());
 
-it("describes what each queued export is waiting for", () => {
-  expect(describeExportJob(job({}))).toBe("Interrupted (12 of 30 exported)");
-  expect(describeExportJob(job({ state: "failed", failed: 3 }))).toBe(
-    "3 of 30 failed",
-  );
-  expect(describeExportJob(job({ state: "queued", done: 0 }))).toBe("Waiting");
-  expect(describeExportJob(job({ state: "cancelled" }))).toBe(
-    "Cancelled (12 of 30 exported)",
-  );
+it('describes what each queued export is waiting for', () => {
+  expect(describeExportJob(job({}))).toBe('Interrupted (12 of 30 exported)');
+  expect(describeExportJob(job({ state: 'failed', failed: 3 }))).toBe('3 of 30 failed');
+  expect(describeExportJob(job({ state: 'queued', done: 0 }))).toBe('Waiting');
+  expect(describeExportJob(job({ state: 'cancelled' }))).toBe('Cancelled (12 of 30 exported)');
 });
 
-it("lists why each photo of a failed export did not export", async () => {
+it('lists why each photo of a failed export did not export', async () => {
   useProcessStore.setState({
     exportQueue: [
       job({
-        state: "failed",
+        state: 'failed',
         failed: 2,
         failures: [
           {
-            path: "/p/big.RAF?vc=2",
-            error:
-              "The image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
+            path: '/p/big.RAF?vc=2',
+            error: 'The image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).'
           },
-          { path: "/p/b.RAF", error: "Decoder said no" },
-        ],
-      }),
-    ],
+          { path: '/p/b.RAF', error: 'Decoder said no' }
+        ]
+      })
+    ]
   });
   render(<StudioExport />);
-  const failures = screen.getByRole("list", {
-    name: "Photos that did not export",
+  const failures = screen.getByRole('list', {
+    name: 'Photos that did not export'
   });
-  const items = within(failures).getAllByRole("listitem");
+  const items = within(failures).getAllByRole('listitem');
   expect(items.map((item) => item.textContent)).toEqual([
-    "big.RAFThe photo (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
-    "b.RAFDecoder said no",
+    'big.RAFThe photo (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).',
+    'b.RAFDecoder said no'
   ]);
-  const i18n = (await import("i18next")).default;
-  await i18n.changeLanguage("de");
+  const i18n = (await import('i18next')).default;
+  await i18n.changeLanguage('de');
   try {
     await vi.waitFor(() =>
-      expect(within(failures).getAllByRole("listitem")[0].textContent).toBe(
-        "big.RAFDas Bild (40000 × 9000 px) ist größer, als diese Grafikkarte rendern kann (16384 px pro Seite).",
-      ),
+      expect(within(failures).getAllByRole('listitem')[0].textContent).toBe(
+        'big.RAFDas Bild (40000 × 9000 px) ist größer, als diese Grafikkarte rendern kann (16384 px pro Seite).'
+      )
     );
   } finally {
-    await i18n.changeLanguage("en");
+    await i18n.changeLanguage('en');
   }
 });
 
-it("resumes and removes interrupted exports", () => {
+it('resumes and removes interrupted exports', () => {
   useProcessStore.setState({
-    exportQueue: [job({}), job({ id: "j2", state: "done" })],
+    exportQueue: [job({}), job({ id: 'j2', state: 'done' })]
   });
   render(<StudioExport />);
-  const queue = screen.getByRole("region", { name: "Export queue" });
-  expect(within(queue).getAllByRole("listitem")).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Resume" }));
-  expect(invoke).toHaveBeenCalledWith("export_queue_resume", { job: "j1" });
-  fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-  expect(invoke).toHaveBeenCalledWith("export_queue_remove", { job: "j1" });
+  const queue = screen.getByRole('region', { name: 'Export queue' });
+  expect(within(queue).getAllByRole('listitem')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+  expect(invoke).toHaveBeenCalledWith('export_queue_resume', { job: 'j1' });
+  fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+  expect(invoke).toHaveBeenCalledWith('export_queue_remove', { job: 'j1' });
 });
 
-it("queues another export while one runs instead of refusing it", async () => {
+it('queues another export while one runs instead of refusing it', async () => {
   useProcessStore.setState({
     exportState: {
       status: Status.Exporting,
-      errorMessage: "",
-      progress: { current: 3, total: 10 },
-    },
+      errorMessage: '',
+      progress: { current: 3, total: 10 }
+    }
   });
   render(<StudioExport />);
-  expect(screen.getByRole("button", { name: "Cancel export" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+  expect(screen.getByRole('button', { name: 'Cancel export' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
   await vi.waitFor(() =>
-    expect(exported()).toContainEqual(expect.objectContaining({ paths: ["/p/a.RAF", "/p/b.RAF"] }),
-    ),
+    expect(exported()).toContainEqual(expect.objectContaining({ paths: ['/p/a.RAF', '/p/b.RAF'] }))
   );
   // The running export's progress stays on screen.
   expect(useProcessStore.getState().exportState.progress).toEqual({
     current: 3,
-    total: 10,
+    total: 10
   });
 });
 
-it("exports a session into its Output folder without asking, like Capture One", async () => {
-  useLibraryStore.setState({ sessionDirectory: "/job" });
+it('exports a session into its Output folder without asking, like Capture One', async () => {
+  useLibraryStore.setState({ sessionDirectory: '/job' });
   render(<StudioExport />);
-  fireEvent.click(screen.getByRole("button", { name: "Export" }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
   await vi.waitFor(() =>
-    expect(exported()).toContainEqual(expect.objectContaining({
-        outputFolderOrFile: "/job/Output",
-        isExplicitFilePath: false,
-      }),
-    ),
+    expect(exported()).toContainEqual(
+      expect.objectContaining({
+        outputFolderOrFile: '/job/Output',
+        isExplicitFilePath: false
+      })
+    )
   );
-  const { open, save } = await import("@tauri-apps/plugin-dialog");
+  const { open, save } = await import('@tauri-apps/plugin-dialog');
   expect(open).not.toHaveBeenCalled();
   expect(save).not.toHaveBeenCalled();
 });
 
-it("asks for the export folder when it is chosen, not again on Export", async () => {
-  const { open, save } = await import("@tauri-apps/plugin-dialog");
+it('asks for the export folder when it is chosen, not again on Export', async () => {
+  const { open, save } = await import('@tauri-apps/plugin-dialog');
   vi.mocked(open).mockClear();
   vi.mocked(save).mockClear();
   render(<StudioExport />);
   // Without a session the form starts on "Choose a folder…": its button asks now.
-  fireEvent.click(screen.getByRole("button", { name: "Choose a folder…" }));
-  await vi.waitFor(() =>
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true })),
-  );
-  await vi.waitFor(() =>
-    expect(screen.getByRole("option", { name: "out" })).toBeTruthy(),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Choose a folder…' }));
+  await vi.waitFor(() => expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true })));
+  await vi.waitFor(() => expect(screen.getByRole('option', { name: 'out' })).toBeTruthy());
   vi.mocked(open).mockClear();
-  fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
+  fireEvent.click(document.querySelector('.studio-export-submit') as HTMLButtonElement);
   await vi.waitFor(() =>
     expect(exported()).toContainEqual(
-      expect.objectContaining({ outputFolderOrFile: "/out", isExplicitFilePath: false }),
-    ),
+      expect.objectContaining({
+        outputFolderOrFile: '/out',
+        isExplicitFilePath: false
+      })
+    )
   );
   expect(open).not.toHaveBeenCalled();
   expect(save).not.toHaveBeenCalled();
 });
 
-it("keeps the destination when the folder dialog is cancelled", async () => {
-  const { open } = await import("@tauri-apps/plugin-dialog");
+it('keeps the destination when the folder dialog is cancelled', async () => {
+  const { open } = await import('@tauri-apps/plugin-dialog');
   vi.mocked(open).mockResolvedValueOnce(null);
   render(<StudioExport />);
-  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
-    target: { value: "original" },
+  fireEvent.change(screen.getByRole('combobox', { name: 'Export destination' }), {
+    target: { value: 'original' }
   });
-  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
-    target: { value: "choose" },
+  fireEvent.change(screen.getByRole('combobox', { name: 'Export destination' }), {
+    target: { value: 'choose' }
   });
   await vi.waitFor(() => expect(open).toHaveBeenCalled());
   expect(
-    (screen.getByRole("combobox", { name: "Export destination" }) as HTMLSelectElement).value,
-  ).toBe("original");
+    (
+      screen.getByRole('combobox', {
+        name: 'Export destination'
+      }) as HTMLSelectElement
+    ).value
+  ).toBe('original');
 });
 
 it("sends the open photograph's recipe only once it is that photograph's", async () => {
   // Switching from a to b: b is not ready yet and the store still holds a's adjustments.
   const previous = useEditorStore.getState();
   useEditorStore.setState({
-    selectedImage: { path: "/p/b.RAF", isReady: false } as never,
-    adjustments: { exposure: 1.5 } as never,
+    selectedImage: { path: '/p/b.RAF', isReady: false } as never,
+    adjustments: { exposure: 1.5 } as never
   });
-  useLibraryStore.setState({ sessionDirectory: "/job" });
+  useLibraryStore.setState({ sessionDirectory: '/job' });
   try {
     render(<StudioExport />);
-    fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
+    fireEvent.click(document.querySelector('.studio-export-submit') as HTMLButtonElement);
     await vi.waitFor(() =>
-      expect(exported()).toContainEqual(expect.objectContaining({ currentEditPath: null, currentEditAdjustments: null }),
-      ),
+      expect(exported()).toContainEqual(
+        expect.objectContaining({
+          currentEditPath: null,
+          currentEditAdjustments: null
+        })
+      )
     );
     cleanup();
     vi.mocked(invoke).mockClear();
-    useEditorStore.setState({ selectedImage: { path: "/p/b.RAF", isReady: true } as never });
+    useEditorStore.setState({
+      selectedImage: { path: '/p/b.RAF', isReady: true } as never
+    });
     render(<StudioExport />);
-    fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
+    fireEvent.click(document.querySelector('.studio-export-submit') as HTMLButtonElement);
     await vi.waitFor(() =>
-      expect(exported()).toContainEqual(expect.objectContaining({ currentEditPath: "/p/b.RAF", currentEditAdjustments: { exposure: 1.5 } }),
-      ),
+      expect(exported()).toContainEqual(
+        expect.objectContaining({
+          currentEditPath: '/p/b.RAF',
+          currentEditAdjustments: { exposure: 1.5 }
+        })
+      )
     );
   } finally {
-    useEditorStore.setState({ selectedImage: previous.selectedImage, adjustments: previous.adjustments });
+    useEditorStore.setState({
+      selectedImage: previous.selectedImage,
+      adjustments: previous.adjustments
+    });
   }
 });
 
-it("closes once the export is queued, the progress staying on the top bar", async () => {
-  useLibraryStore.setState({ sessionDirectory: "/job" });
+it('closes once the export is queued, the progress staying on the top bar', async () => {
+  useLibraryStore.setState({ sessionDirectory: '/job' });
   const onStarted = vi.fn();
   render(<StudioExport onStarted={onStarted} />);
-  fireEvent.click(screen.getByRole("button", { name: "Export" }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
   await vi.waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
   expect(exported()).not.toHaveLength(0);
 });
 
-it("stays open when no destination was chosen", async () => {
-  const { open } = await import("@tauri-apps/plugin-dialog");
+it('stays open when no destination was chosen', async () => {
+  const { open } = await import('@tauri-apps/plugin-dialog');
   vi.mocked(open).mockImplementation(() => Promise.resolve(null));
   try {
     const onStarted = vi.fn();
     render(<StudioExport onStarted={onStarted} />);
-    const submit = document.querySelector(".studio-export-submit") as HTMLButtonElement;
+    const submit = document.querySelector('.studio-export-submit') as HTMLButtonElement;
     fireEvent.click(submit);
     await vi.waitFor(() => expect(open).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 0));
     expect(onStarted).not.toHaveBeenCalled();
     expect(exported()).toHaveLength(0);
   } finally {
-    vi.mocked(open).mockImplementation(() => Promise.resolve("/out"));
+    vi.mocked(open).mockImplementation(() => Promise.resolve('/out'));
   }
 });
 
 it("cancels the whole export when the first ticked recipe's folder is cancelled", async () => {
-  const { open } = await import("@tauri-apps/plugin-dialog");
+  const { open } = await import('@tauri-apps/plugin-dialog');
   vi.mocked(open).mockImplementation(() => Promise.resolve(null));
   try {
     const handleSettingsChange = vi.fn(async () => {});
     const recipe = (id: string, name: string) =>
-      presetFromDraft(
-        { ...DEFAULT_RECIPE_DRAFT, where: "choose", folder: undefined },
-        id,
-        name,
-      );
+      presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, where: 'choose', folder: undefined }, id, name);
     useSettingsStore.setState({
       appSettings: {
-        exportPresets: [recipe("web", "Web"), recipe("print", "Print")],
+        exportPresets: [recipe('web', 'Web'), recipe('print', 'Print')]
       } as unknown as AppSettings,
-      handleSettingsChange,
+      handleSettingsChange
     });
     const onStarted = vi.fn();
     render(<StudioExport onStarted={onStarted} />);
-    const submit = document.querySelector(
-      ".studio-export-submit",
-    ) as HTMLButtonElement;
-    fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Export with Print" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Export with 2 recipes" }),
-    );
+    const submit = document.querySelector('.studio-export-submit') as HTMLButtonElement;
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Web' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Print' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export with 2 recipes' }));
     await vi.waitFor(() => expect(open).toHaveBeenCalled());
-    await vi.waitFor(() =>
-      expect(submit.disabled).toBe(false),
-    );
+    await vi.waitFor(() => expect(submit.disabled).toBe(false));
     // The whole export stopped: nothing queued, the second folder never
     // asked for, no error, and the dialog did not close as a started export does.
     expect(exported()).toHaveLength(0);
     expect(open).toHaveBeenCalledTimes(1);
     expect(useProcessStore.getState().exportState).toMatchObject({
       status: Status.Idle,
-      errorMessage: "",
+      errorMessage: ''
     });
     expect(onStarted).not.toHaveBeenCalled();
     // The cancelled recipe's folder is not remembered as chosen.
     expect(handleSettingsChange).not.toHaveBeenCalled();
   } finally {
-    vi.mocked(open).mockImplementation(() => Promise.resolve("/out"));
+    vi.mocked(open).mockImplementation(() => Promise.resolve('/out'));
   }
 });
 
-it("starts a waiting export that a cancel held", () => {
+it('starts a waiting export that a cancel held', () => {
   useProcessStore.setState({
-    exportQueue: [job({ state: "queued", done: 0 })],
-    exportQueueHeld: false,
+    exportQueue: [job({ state: 'queued', done: 0 })],
+    exportQueueHeld: false
   });
   const { unmount } = render(<StudioExport />);
   // Not held: it starts by itself after the running one.
-  expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
   unmount();
   useProcessStore.setState({ exportQueueHeld: true });
   render(<StudioExport />);
-  fireEvent.click(screen.getByRole("button", { name: "Start" }));
-  expect(invoke).toHaveBeenCalledWith("export_queue_resume", { job: "j1" });
+  fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+  expect(invoke).toHaveBeenCalledWith('export_queue_resume', { job: 'j1' });
 });
 
-it("exports once per ticked recipe, each with its own settings and place", async () => {
+it('exports once per ticked recipe, each with its own settings and place', async () => {
   const web = presetFromDraft(
     {
       ...DEFAULT_RECIPE_DRAFT,
-      format: "jpg",
+      format: 'jpg',
       quality: 70,
       depth: 16,
       resize: true,
       resizeValue: 2048,
       metadata: true,
       stripGps: true,
-      template: "{original_filename}_web",
-      where: "output",
+      template: '{original_filename}_web',
+      where: 'output'
     },
-    "web",
-    "Web",
+    'web',
+    'Web'
   );
   const print = presetFromDraft(
     {
       ...DEFAULT_RECIPE_DRAFT,
-      format: "tiff",
+      format: 'tiff',
       quality: 90,
       depth: 16,
       resize: false,
       resizeValue: 3000,
       metadata: true,
       stripGps: false,
-      template: "{original_filename}",
-      where: "choose",
-      folder: "/print",
+      template: '{original_filename}',
+      where: 'choose',
+      folder: '/print'
     },
-    "print",
-    "Print",
+    'print',
+    'Print'
   );
   const handleSettingsChange = vi.fn(async () => {});
   useSettingsStore.setState({
     appSettings: { exportPresets: [web, print] } as unknown as AppSettings,
-    handleSettingsChange,
+    handleSettingsChange
   });
-  useLibraryStore.setState({ sessionDirectory: "/job" });
-  localStorage.removeItem("rawtonic.export.recipes");
+  useLibraryStore.setState({ sessionDirectory: '/job' });
+  localStorage.removeItem('rawtonic.export.recipes');
   render(<StudioExport />);
-  fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "Export with Print" }));
-  fireEvent.click(
-    screen.getByRole("button", { name: "Export with 2 recipes" }),
-  );
-  await vi.waitFor(() =>
-    expect(
-      exported(),
-    ).toHaveLength(2),
-  );
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Web' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Print' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export with 2 recipes' }));
+  await vi.waitFor(() => expect(exported()).toHaveLength(2));
   // Queued in one call, so they run together: each photo developed once.
-  expect(
-    vi.mocked(invoke).mock.calls.filter((c) => c[0] === "export_images_batch"),
-  ).toHaveLength(1);
+  expect(vi.mocked(invoke).mock.calls.filter((c) => c[0] === 'export_images_batch')).toHaveLength(1);
   const calls = exported();
-  expect(calls[0].displayLabel).toContain("Web · JPG · Long edge 2048 px · /job/Output");
-  expect(calls[1].displayLabel).toContain("Print · TIFF · Full resolution · /print");
+  expect(calls[0].displayLabel).toContain('Web · JPG · Long edge 2048 px · /job/Output');
+  expect(calls[1].displayLabel).toContain('Print · TIFF · Full resolution · /print');
   expect(calls[0]).toMatchObject({
-    outputFolderOrFile: "/job/Output",
-    outputFormat: "jpg",
+    outputFolderOrFile: '/job/Output',
+    outputFormat: 'jpg'
   });
   expect((calls[0].exportSettings as { resize: unknown }).resize).toEqual({
-    mode: "longEdge",
+    mode: 'longEdge',
     value: 2048,
-    dontEnlarge: true,
+    dontEnlarge: true
   });
   expect(calls[1]).toMatchObject({
-    outputFolderOrFile: "/print",
-    outputFormat: "tiff",
+    outputFolderOrFile: '/print',
+    outputFormat: 'tiff'
   });
 });
 
-it("remembers the folder chosen for each of several recipes", async () => {
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  vi.mocked(open)
-    .mockResolvedValueOnce("/out/web")
-    .mockResolvedValueOnce("/out/print");
+it('remembers the folder chosen for each of several recipes', async () => {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  vi.mocked(open).mockResolvedValueOnce('/out/web').mockResolvedValueOnce('/out/print');
   const recipe = (id: string, name: string) =>
-    presetFromDraft(
-      { ...DEFAULT_RECIPE_DRAFT, where: "choose", folder: undefined },
-      id,
-      name,
-    );
+    presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, where: 'choose', folder: undefined }, id, name);
   // Like the real store: the new settings are there at once.
   const handleSettingsChange = vi.fn(async (settings: AppSettings) =>
-    useSettingsStore.setState({ appSettings: settings }),
+    useSettingsStore.setState({ appSettings: settings })
   );
   useSettingsStore.setState({
     appSettings: {
-      exportPresets: [recipe("web", "Web"), recipe("print", "Print")],
+      exportPresets: [recipe('web', 'Web'), recipe('print', 'Print')]
     } as unknown as AppSettings,
-    handleSettingsChange,
+    handleSettingsChange
   });
   render(<StudioExport />);
-  fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "Export with Print" }));
-  fireEvent.click(
-    screen.getByRole("button", { name: "Export with 2 recipes" }),
-  );
-  await vi.waitFor(() =>
-    expect(
-      exported(),
-    ).toHaveLength(2),
-  );
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Web' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Print' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export with 2 recipes' }));
+  await vi.waitFor(() => expect(exported()).toHaveLength(2));
   const saved = useSettingsStore.getState().appSettings?.exportPresets ?? [];
-  expect(
-    Object.fromEntries(saved.map((p) => [p.id, p.lastExportPath])),
-  ).toEqual({ web: "/out/web", print: "/out/print" });
+  expect(Object.fromEntries(saved.map((p) => [p.id, p.lastExportPath]))).toEqual({
+    web: '/out/web',
+    print: '/out/print'
+  });
 });
 
-it("saves the form as a new recipe", () => {
+it('saves the form as a new recipe', () => {
   const handleSettingsChange = vi.fn(async () => {});
   useSettingsStore.setState({
     appSettings: { exportPresets: [] } as unknown as AppSettings,
-    handleSettingsChange,
+    handleSettingsChange
   });
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("New recipe name"), {
-    target: { value: "Client JPEG" },
+  fireEvent.change(screen.getByLabelText('New recipe name'), {
+    target: { value: 'Client JPEG' }
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save as recipe" }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save as recipe' }));
   expect(handleSettingsChange).toHaveBeenCalledWith(
     expect.objectContaining({
-      exportPresets: [
-        expect.objectContaining({ name: "Client JPEG", fileFormat: "jpeg" }),
-      ],
-    }),
+      exportPresets: [expect.objectContaining({ name: 'Client JPEG', fileFormat: 'jpeg' })]
+    })
   );
 });
 
-it("saves the recipe on Return in its name field instead of exporting", () => {
+it('saves the recipe on Return in its name field instead of exporting', () => {
   const handleSettingsChange = vi.fn(async () => {});
   useSettingsStore.setState({
     appSettings: { exportPresets: [] } as unknown as AppSettings,
-    handleSettingsChange,
+    handleSettingsChange
   });
   render(<StudioExport />);
-  const name = screen.getByLabelText("New recipe name");
-  fireEvent.change(name, { target: { value: "Client JPEG" } });
+  const name = screen.getByLabelText('New recipe name');
+  fireEvent.change(name, { target: { value: 'Client JPEG' } });
   // false: the key's default (submitting the form, i.e. exporting) was prevented.
-  expect(fireEvent.keyDown(name, { key: "Enter", code: "Enter" })).toBe(false);
+  expect(fireEvent.keyDown(name, { key: 'Enter', code: 'Enter' })).toBe(false);
   expect(handleSettingsChange).toHaveBeenCalledWith(
     expect.objectContaining({
-      exportPresets: [expect.objectContaining({ name: "Client JPEG" })],
-    }),
+      exportPresets: [expect.objectContaining({ name: 'Client JPEG' })]
+    })
   );
   expect(exported()).toHaveLength(0);
 });
 
-it("does not capitalise or correct a typed subfolder name", () => {
+it('does not capitalise or correct a typed subfolder name', () => {
   render(<StudioExport />);
-  const subfolder = screen.getByLabelText("Put in subfolder");
-  expect(subfolder.getAttribute("autocapitalize")).toBe("off");
-  expect(subfolder.getAttribute("autocorrect")).toBe("off");
-  expect(subfolder.getAttribute("spellcheck")).toBe("false");
+  const subfolder = screen.getByLabelText('Put in subfolder');
+  expect(subfolder.getAttribute('autocapitalize')).toBe('off');
+  expect(subfolder.getAttribute('autocorrect')).toBe('off');
+  expect(subfolder.getAttribute('spellcheck')).toBe('false');
 });
 
-it("shows a subfolder name of spaces only as no subfolder, without a slash", () => {
+it('shows a subfolder name of spaces only as no subfolder, without a slash', () => {
   render(<StudioExport />);
-  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
-    target: { value: "original" },
+  fireEvent.change(screen.getByRole('combobox', { name: 'Export destination' }), {
+    target: { value: 'original' }
   });
-  const plan = () =>
-    document.querySelector(".studio-export-plan li span")?.textContent ?? "";
+  const plan = () => document.querySelector('.studio-export-plan li span')?.textContent ?? '';
   const before = plan();
-  expect(before).not.toContain(" / ");
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), {
-    target: { value: "   " },
+  expect(before).not.toContain(' / ');
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: '   ' }
   });
   expect(plan()).toBe(before);
-  expect(plan()).not.toContain(" / ");
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), {
-    target: { value: " Web " },
+  expect(plan()).not.toContain(' / ');
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: ' Web ' }
   });
-  expect(plan()).toContain("Next to the originals / Web");
+  expect(plan()).toContain('Next to the originals / Web');
 });
 
 /** Sets every export setting the inherited panel had through the Studio form. */
 async function fillEverything() {
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  vi.mocked(open).mockResolvedValueOnce("/marks/logo.png");
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  vi.mocked(open).mockResolvedValueOnce('/marks/logo.png');
   const change = (label: string, value: string) =>
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   const tick = (label: string) => fireEvent.click(screen.getByLabelText(label));
-  change("Format", "webp");
-  change("WebP quality", "72");
-  change("Put in subfolder", "Web/small");
-  tick("Keep the folder structure");
-  tick("Date files with the capture time");
-  tick("Resize to fit");
-  change("Resize mode", "megapixels");
-  change("Megapixels (MP)", "2.5");
-  tick("Don’t enlarge");
-  tick("Add a watermark");
-  fireEvent.click(
-    screen.getByRole("button", { name: "Choose watermark image" }),
-  );
-  await screen.findByText("logo.png");
-  fireEvent.click(screen.getByRole("radio", { name: "Top left" }));
-  change("Width (% of short edge)", "15");
-  change("Inset (% of short edge)", "2");
-  change("Opacity (%)", "50");
-  fireEvent.click(screen.getByText("More"));
-  tick("Add a border");
-  change("Border measured on", "eachEdge");
-  change("Left and right (%)", "3");
-  change("Top and bottom (%)", "1.5");
-  change("Border color", "#000000");
-  tick("Pad to an aspect ratio");
-  change("Ratio width", "4");
-  change("Ratio height", "5");
-  change("Canvas color", "#eeeeee");
-  tick("Also export each mask");
+  change('Format', 'webp');
+  change('WebP quality', '72');
+  change('Put in subfolder', 'Web/small');
+  tick('Keep the folder structure');
+  tick('Date files with the capture time');
+  tick('Resize to fit');
+  change('Resize mode', 'megapixels');
+  change('Megapixels (MP)', '2.5');
+  tick('Don’t enlarge');
+  tick('Add a watermark');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose watermark image' }));
+  await screen.findByText('logo.png');
+  fireEvent.click(screen.getByRole('radio', { name: 'Top left' }));
+  change('Width (% of short edge)', '15');
+  change('Inset (% of short edge)', '2');
+  change('Opacity (%)', '50');
+  fireEvent.click(screen.getByText('More'));
+  tick('Add a border');
+  change('Border measured on', 'eachEdge');
+  change('Left and right (%)', '3');
+  change('Top and bottom (%)', '1.5');
+  change('Border color', '#000000');
+  tick('Pad to an aspect ratio');
+  change('Ratio width', '4');
+  change('Ratio height', '5');
+  change('Canvas color', '#eeeeee');
+  tick('Also export each mask');
 }
 
 const everyExportSetting = {
   jpegQuality: 72,
   preserveTimestamps: false,
-  resize: { mode: "megapixels", value: 2.5, dontEnlarge: false },
+  resize: { mode: 'megapixels', value: 2.5, dontEnlarge: false },
   border: {
-    basis: "eachEdge",
+    basis: 'eachEdge',
     horizontalPercent: 3,
     verticalPercent: 1.5,
-    color: "#000000",
+    color: '#000000'
   },
-  pad: { ratioWidth: 4, ratioHeight: 5, color: "#eeeeee" },
+  pad: { ratioWidth: 4, ratioHeight: 5, color: '#eeeeee' },
   watermark: {
-    path: "/marks/logo.png",
-    anchor: "topLeft",
+    path: '/marks/logo.png',
+    anchor: 'topLeft',
     scale: 15,
     spacing: 2,
-    opacity: 50,
+    opacity: 50
   },
   exportMasks: true,
   preserveFolders: true,
-  destinationType: "customFolder",
-  subfolder: "Web/small",
+  destinationType: 'customFolder',
+  subfolder: 'Web/small'
 };
 
-it("exports with every setting of the former advanced panel", async () => {
+it('exports with every setting of the former advanced panel', async () => {
   render(<StudioExport />);
   await fillEverything();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Choose destination & export" }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Choose destination & export' }));
   await vi.waitFor(() =>
-    expect(exported()).toContainEqual(expect.objectContaining({
-        outputFolderOrFile: "/out",
+    expect(exported()).toContainEqual(
+      expect.objectContaining({
+        outputFolderOrFile: '/out',
         isExplicitFilePath: false,
-        outputFormat: "webp",
-        exportSettings: expect.objectContaining(everyExportSetting),
-      }),
-    ),
+        outputFormat: 'webp',
+        exportSettings: expect.objectContaining(everyExportSetting)
+      })
+    )
   );
 });
 
-it("saves every setting in a recipe and exports it again from the recipe", async () => {
+it('saves every setting in a recipe and exports it again from the recipe', async () => {
   const handleSettingsChange = vi.fn(async () => {});
   useSettingsStore.setState({
     appSettings: { exportPresets: [] } as unknown as AppSettings,
-    handleSettingsChange,
+    handleSettingsChange
   });
   const { unmount } = render(<StudioExport />);
   await fillEverything();
-  fireEvent.change(screen.getByLabelText("New recipe name"), {
-    target: { value: "Web" },
+  fireEvent.change(screen.getByLabelText('New recipe name'), {
+    target: { value: 'Web' }
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save as recipe" }));
-  const saved = (
-    handleSettingsChange.mock.calls[0] as unknown as [AppSettings]
-  )[0].exportPresets![0];
+  fireEvent.click(screen.getByRole('button', { name: 'Save as recipe' }));
+  const saved = (handleSettingsChange.mock.calls[0] as unknown as [AppSettings])[0].exportPresets![0];
   expect(saved).toMatchObject({
-    fileFormat: "webp",
+    fileFormat: 'webp',
     jpegQuality: 72,
-    resizeMode: "megapixels",
+    resizeMode: 'megapixels',
     resizeValue: 2.5,
     dontEnlarge: false,
-    subfolder: "Web/small",
+    subfolder: 'Web/small',
     preserveFolders: true,
     preserveTimestamps: false,
     exportMasks: true,
     enableWatermark: true,
-    watermarkPath: "/marks/logo.png",
-    watermarkAnchor: "topLeft",
+    watermarkPath: '/marks/logo.png',
+    watermarkAnchor: 'topLeft',
     watermarkScale: 15,
     watermarkSpacing: 2,
     watermarkOpacity: 50,
     enableBorder: true,
-    borderBasis: "eachEdge",
+    borderBasis: 'eachEdge',
     borderHorizontalPercent: 3,
     borderVerticalPercent: 1.5,
-    borderColor: "#000000",
+    borderColor: '#000000',
     enablePad: true,
     padRatioWidth: 4,
     padRatioHeight: 5,
-    padColor: "#eeeeee",
+    padColor: '#eeeeee'
   });
   unmount();
   // A fresh form, the recipe ticked: its settings reach the export.
   useSettingsStore.setState({
-    appSettings: { exportPresets: [saved] } as unknown as AppSettings,
+    appSettings: { exportPresets: [saved] } as unknown as AppSettings
   });
-  localStorage.removeItem("rawtonic.export.recipes");
+  localStorage.removeItem('rawtonic.export.recipes');
   render(<StudioExport />);
-  fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
-  fireEvent.click(screen.getByRole("button", { name: "Export with Web" }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Web' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export with Web' }));
   await vi.waitFor(() =>
-    expect(exported()).toContainEqual(expect.objectContaining({
-        outputFormat: "webp",
-        exportSettings: expect.objectContaining(everyExportSetting),
-      }),
-    ),
+    expect(exported()).toContainEqual(
+      expect.objectContaining({
+        outputFormat: 'webp',
+        exportSettings: expect.objectContaining(everyExportSetting)
+      })
+    )
   );
   // Showing the recipe fills the form with it.
-  fireEvent.click(screen.getByRole("button", { name: "Web" }));
-  expect((screen.getByLabelText("Format") as HTMLSelectElement).value).toBe(
-    "webp",
-  );
-  expect(
-    (screen.getByLabelText("Megapixels (MP)") as HTMLInputElement).value,
-  ).toBe("2.5");
-  expect(
-    (screen.getByRole("radio", { name: "Top left" }) as HTMLInputElement)
-      .checked,
-  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Web' }));
+  expect((screen.getByLabelText('Format') as HTMLSelectElement).value).toBe('webp');
+  expect((screen.getByLabelText('Megapixels (MP)') as HTMLInputElement).value).toBe('2.5');
+  expect((screen.getByRole('radio', { name: 'Top left' }) as HTMLInputElement).checked).toBe(true);
 });
 
 it("saves a shown recipe's changes to it, so a ticked recipe exports what it shows", async () => {
-  const web = presetFromDraft(
-    { ...DEFAULT_RECIPE_DRAFT, quality: 80 },
-    "web",
-    "Web",
-  );
+  const web = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, quality: 80 }, 'web', 'Web');
   const handleSettingsChange = vi.fn(async (settings: AppSettings) => {
     useSettingsStore.setState({ appSettings: settings });
   });
   useSettingsStore.setState({
     appSettings: { exportPresets: [web] } as unknown as AppSettings,
-    handleSettingsChange,
+    handleSettingsChange
   });
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("JPEG quality"), {
-    target: { value: "70" },
+  fireEvent.change(screen.getByLabelText('JPEG quality'), {
+    target: { value: '70' }
   });
-  fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Web' }));
   // The unsaved settings are named as such, and not exported now.
-  expect(
-    screen.getByText(
-      "Current settings. The ticked recipes export with their own settings.",
-    ),
-  ).toBeTruthy();
-  const plan = screen.getByRole("region", { name: "This export" });
-  expect(plan.textContent).toContain("Web");
-  expect(plan.textContent).toContain("quality 80");
+  expect(screen.getByText('Current settings. The ticked recipes export with their own settings.')).toBeTruthy();
+  const plan = screen.getByRole('region', { name: 'This export' });
+  expect(plan.textContent).toContain('Web');
+  expect(plan.textContent).toContain('quality 80');
   // Showing the recipe and changing it changes the plan at once and the
   // saved recipe shortly after; no separate update step.
-  fireEvent.click(screen.getByRole("button", { name: "Web" }));
-  expect(screen.getByText("Editing the recipe Web. Changes are saved to it.")).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("JPEG quality"), {
-    target: { value: "100" },
+  fireEvent.click(screen.getByRole('button', { name: 'Web' }));
+  expect(screen.getByText('Editing the recipe Web. Changes are saved to it.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('JPEG quality'), {
+    target: { value: '100' }
   });
-  expect(plan.textContent).toContain("quality 100");
-  await vi.waitFor(() =>
-    expect(
-      useSettingsStore.getState().appSettings?.exportPresets?.[0].jpegQuality,
-    ).toBe(100),
-  );
+  expect(plan.textContent).toContain('quality 100');
+  await vi.waitFor(() => expect(useSettingsStore.getState().appSettings?.exportPresets?.[0].jpegQuality).toBe(100));
   // Current settings come back as they were left.
-  fireEvent.click(screen.getByRole("button", { name: "Current settings" }));
-  expect((screen.getByLabelText("JPEG quality") as HTMLInputElement).value).toBe(
-    "70",
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Current settings' }));
+  expect((screen.getByLabelText('JPEG quality') as HTMLInputElement).value).toBe('70');
 });
 
-it("offers every image format the export writes", () => {
+it('offers every image format the export writes', () => {
   render(<StudioExport />);
-  const formats = Array.from(
-    (screen.getByLabelText("Format") as HTMLSelectElement).options,
-  ).map((o) => o.value);
-  expect(formats).toEqual([
-    "jpg",
-    "tiff",
-    "png",
-    "webp",
-    "jxl",
-    "avif",
-    "cube",
-  ]);
-  fireEvent.change(screen.getByLabelText("Format"), {
-    target: { value: "jxl" },
+  const formats = Array.from((screen.getByLabelText('Format') as HTMLSelectElement).options).map((o) => o.value);
+  expect(formats).toEqual(['jpg', 'tiff', 'png', 'webp', 'jxl', 'avif', 'cube']);
+  fireEvent.change(screen.getByLabelText('Format'), {
+    target: { value: 'jxl' }
   });
-  expect(screen.getByText("Quality 100 is lossless.")).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("Format"), {
-    target: { value: "avif" },
+  expect(screen.getByText('Quality 100 is lossless.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Format'), {
+    target: { value: 'avif' }
   });
-  expect(screen.getByLabelText("AVIF quality")).toBeTruthy();
+  expect(screen.getByLabelText('AVIF quality')).toBeTruthy();
 });
 
-it("resizes by long edge, short edge, width, height, megapixels or percentage", async () => {
+it('resizes by long edge, short edge, width, height, megapixels or percentage', async () => {
   render(<StudioExport />);
-  fireEvent.click(screen.getByLabelText("Resize to fit"));
-  const modes = Array.from(
-    (screen.getByLabelText("Resize mode") as HTMLSelectElement).options,
-  ).map((o) => o.value);
-  expect(modes).toEqual([
-    "longEdge",
-    "shortEdge",
-    "width",
-    "height",
-    "dimensions",
-    "megapixels",
-    "percentage",
-  ]);
-  fireEvent.change(screen.getByLabelText("Resize mode"), {
-    target: { value: "percentage" },
+  fireEvent.click(screen.getByLabelText('Resize to fit'));
+  const modes = Array.from((screen.getByLabelText('Resize mode') as HTMLSelectElement).options).map((o) => o.value);
+  expect(modes).toEqual(['longEdge', 'shortEdge', 'width', 'height', 'dimensions', 'megapixels', 'percentage']);
+  fireEvent.change(screen.getByLabelText('Resize mode'), {
+    target: { value: 'percentage' }
   });
   // Another unit starts from a sensible value instead of 3000 %.
-  expect(
-    (screen.getByLabelText("Percentage (%)") as HTMLInputElement).value,
-  ).toBe("50");
-  fireEvent.click(
-    screen.getByRole("button", { name: "Choose destination & export" }),
-  );
+  expect((screen.getByLabelText('Percentage (%)') as HTMLInputElement).value).toBe('50');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose destination & export' }));
   await vi.waitFor(() =>
-    expect(exported()).toContainEqual(expect.objectContaining({
+    expect(exported()).toContainEqual(
+      expect.objectContaining({
         exportSettings: expect.objectContaining({
-          resize: { mode: "percentage", value: 50, dontEnlarge: true },
-        }),
-      }),
-    ),
+          resize: { mode: 'percentage', value: 50, dontEnlarge: true }
+        })
+      })
+    )
   );
 });
 
-it("holds the export until a watermark image is chosen or a subfolder is valid", () => {
+it('holds the export until a watermark image is chosen or a subfolder is valid', () => {
   render(<StudioExport />);
   const submit = () =>
-    screen.getByRole("button", {
-      name: "Choose destination & export",
+    screen.getByRole('button', {
+      name: 'Choose destination & export'
     }) as HTMLButtonElement;
-  fireEvent.click(screen.getByLabelText("Add a watermark"));
-  expect(screen.getByRole("alert").textContent).toMatch(
-    /Choose a watermark image/,
-  );
+  fireEvent.click(screen.getByLabelText('Add a watermark'));
+  expect(screen.getByRole('alert').textContent).toMatch(/Choose a watermark image/);
   expect(submit().disabled).toBe(true);
-  fireEvent.click(screen.getByLabelText("Add a watermark"));
+  fireEvent.click(screen.getByLabelText('Add a watermark'));
   expect(submit().disabled).toBe(false);
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), {
-    target: { value: "../elsewhere" },
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: '../elsewhere' }
   });
-  expect(screen.getByRole("alert").textContent).toMatch(
-    /inside the destination/,
-  );
+  expect(screen.getByRole('alert').textContent).toMatch(/inside the destination/);
   expect(submit().disabled).toBe(true);
 });
 
-it("shows the estimated file size for the current settings", async () => {
+it('shows the estimated file size for the current settings', async () => {
   vi.mocked(invoke).mockImplementation(
-    (command: string) =>
-      Promise.resolve(
-        command === "estimate_export_sizes" ? 12_400_000 : undefined,
-      ) as never,
+    (command: string) => Promise.resolve(command === 'estimate_export_sizes' ? 12_400_000 : undefined) as never
   );
   render(<StudioExport />);
   expect(
-    await screen.findByText(
-      "Estimated size: about 12.4 MB (6.2 MB per file)",
-      {},
-      { timeout: 2000 },
-    ),
+    await screen.findByText('Estimated size: about 12.4 MB (6.2 MB per file)', {}, { timeout: 2000 })
   ).toBeTruthy();
   expect(invoke).toHaveBeenCalledWith(
-    "estimate_export_sizes",
+    'estimate_export_sizes',
     expect.objectContaining({
-      paths: ["/p/a.RAF", "/p/b.RAF"],
-      outputFormat: "jpg",
-    }),
+      paths: ['/p/a.RAF', '/p/b.RAF'],
+      outputFormat: 'jpg'
+    })
   );
   vi.mocked(invoke).mockImplementation(() => Promise.resolve() as never);
 });
 
-it("offers output sharpening for screen and for print", () => {
+it('offers output sharpening for screen and for print', () => {
   render(<StudioExport />);
-  expect(screen.queryByLabelText("Sharpening amount")).toBeNull();
-  fireEvent.change(screen.getByLabelText("Sharpen for"), {
-    target: { value: "screen" },
+  expect(screen.queryByLabelText('Sharpening amount')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Sharpen for'), {
+    target: { value: 'screen' }
   });
-  expect(
-    (screen.getByLabelText("Sharpening radius") as HTMLInputElement).value,
-  ).toBe("0.8");
-  fireEvent.change(screen.getByLabelText("Sharpen for"), {
-    target: { value: "print" },
+  expect((screen.getByLabelText('Sharpening radius') as HTMLInputElement).value).toBe('0.8');
+  fireEvent.change(screen.getByLabelText('Sharpen for'), {
+    target: { value: 'print' }
   });
-  expect(screen.queryByLabelText("Sharpening radius")).toBeNull();
-  fireEvent.change(screen.getByLabelText("Viewing distance (cm)"), {
-    target: { value: "100" },
+  expect(screen.queryByLabelText('Sharpening radius')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Viewing distance (cm)'), {
+    target: { value: '100' }
   });
   expect(screen.getByText(/Radius 3\.4 px/)).toBeTruthy();
 });
 
-it("resizes to a box turned to each photo", () => {
+it('resizes to a box turned to each photo', () => {
   render(<StudioExport />);
-  fireEvent.click(screen.getByLabelText("Resize to fit"));
-  fireEvent.change(screen.getByLabelText("Resize mode"), {
-    target: { value: "dimensions" },
+  fireEvent.click(screen.getByLabelText('Resize to fit'));
+  fireEvent.change(screen.getByLabelText('Resize mode'), {
+    target: { value: 'dimensions' }
   });
-  expect(
-    (screen.getByLabelText("Dimensions (px)") as HTMLInputElement).value,
-  ).toBe("3000");
-  expect(
-    (screen.getByLabelText("Dimensions other side (px)") as HTMLInputElement)
-      .value,
-  ).toBe("2000");
+  expect((screen.getByLabelText('Dimensions (px)') as HTMLInputElement).value).toBe('3000');
+  expect((screen.getByLabelText('Dimensions other side (px)') as HTMLInputElement).value).toBe('2000');
   expect(screen.getByText(/turned to each photo's orientation/)).toBeTruthy();
 });
 
-it("makes a text watermark in an installed font", async () => {
+it('makes a text watermark in an installed font', async () => {
   vi.mocked(invoke).mockImplementation(
     (name: string) =>
-      Promise.resolve(
-        name === "list_font_families"
-          ? ["Avenir Next", "Helvetica Neue"]
-          : undefined,
-      ) as never,
+      Promise.resolve(name === 'list_font_families' ? ['Avenir Next', 'Helvetica Neue'] : undefined) as never
   );
   render(<StudioExport />);
-  fireEvent.click(screen.getByLabelText("Add a watermark"));
-  fireEvent.change(screen.getByLabelText("Watermark kind"), {
-    target: { value: "text" },
+  fireEvent.click(screen.getByLabelText('Add a watermark'));
+  fireEvent.change(screen.getByLabelText('Watermark kind'), {
+    target: { value: 'text' }
   });
-  const font = (
-    await screen.findByRole("option", { name: "Avenir Next" })
-  ).closest("select")!;
-  fireEvent.change(font, { target: { value: "Avenir Next" } });
-  fireEvent.change(screen.getByLabelText("Watermark text"), {
-    target: { value: "" },
+  const font = (await screen.findByRole('option', { name: 'Avenir Next' })).closest('select')!;
+  fireEvent.change(font, { target: { value: 'Avenir Next' } });
+  fireEvent.change(screen.getByLabelText('Watermark text'), {
+    target: { value: '' }
   });
-  expect(
-    screen.getByText("Enter the watermark text or turn the watermark off."),
-  ).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("Watermark text"), {
-    target: { value: "© Studio" },
+  expect(screen.getByText('Enter the watermark text or turn the watermark off.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Watermark text'), {
+    target: { value: '© Studio' }
   });
-  expect(
-    screen.queryByText("Enter the watermark text or turn the watermark off."),
-  ).toBeNull();
+  expect(screen.queryByText('Enter the watermark text or turn the watermark off.')).toBeNull();
 });
 
-it("exports into a wide colour space in every image format", async () => {
-  useLibraryStore.setState({ sessionDirectory: "/job" });
+it('exports into a wide colour space in every image format', async () => {
+  useLibraryStore.setState({ sessionDirectory: '/job' });
   render(<StudioExport />);
-  const space = screen.getByLabelText("Color space") as HTMLSelectElement;
-  expect(space.value).toBe("srgb");
-  fireEvent.change(space, { target: { value: "proPhoto" } });
+  const space = screen.getByLabelText('Color space') as HTMLSelectElement;
+  expect(space.value).toBe('srgb');
+  fireEvent.change(space, { target: { value: 'proPhoto' } });
   expect(screen.getByText(/ProPhoto RGB needs 16-bit TIFF/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Export" }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
   await vi.waitFor(() =>
-    expect(exported()).toContainEqual(expect.objectContaining({
-        exportSettings: expect.objectContaining({ colorSpace: "proPhoto" }),
-      }),
-    ),
+    expect(exported()).toContainEqual(
+      expect.objectContaining({
+        exportSettings: expect.objectContaining({ colorSpace: 'proPhoto' })
+      })
+    )
   );
-  fireEvent.change(screen.getByLabelText("Format"), {
-    target: { value: "avif" },
+  fireEvent.change(screen.getByLabelText('Format'), {
+    target: { value: 'avif' }
   });
   expect(space.disabled).toBe(false);
-  expect(space.value).toBe("proPhoto");
+  expect(space.value).toBe('proPhoto');
 });
 
 it("offers a single photo's file the name the export engine gives it", async () => {
-  useLibraryStore.setState({ multiSelectedPaths: ["/p/a.RAF"] });
+  useLibraryStore.setState({ multiSelectedPaths: ['/p/a.RAF'] });
   vi.mocked(invoke).mockImplementation(((command: string) =>
-    Promise.resolve(command === "export_naming_preview" ? { folder: "", name: "20261011_a.jpg" } : undefined)) as never);
+    Promise.resolve(
+      command === 'export_naming_preview' ? { folder: '', name: '20261011_a.jpg' } : undefined
+    )) as never);
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Naming preset"), { target: { value: "builtin:1" } });
-  fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
-  const { save } = await import("@tauri-apps/plugin-dialog");
-  await vi.waitFor(() =>
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: "20261011_a.jpg" })),
-  );
+  fireEvent.change(screen.getByLabelText('Naming preset'), {
+    target: { value: 'builtin:1' }
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose destination & export' }));
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  await vi.waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: '20261011_a.jpg' })));
   expect(invoke).toHaveBeenCalledWith(
-    "export_naming_preview",
+    'export_naming_preview',
     expect.objectContaining({
-      path: "/p/a.RAF",
-      exportSettings: expect.objectContaining({ nameTemplate: "{date:yyyymmdd}_{orig_base}" }),
-    }),
+      path: '/p/a.RAF',
+      exportSettings: expect.objectContaining({
+        nameTemplate: '{date:yyyymmdd}_{orig_base}'
+      })
+    })
   );
 });
 
-it("sends a custom counter start to batch exports and uses it in the single-file save dialog", async () => {
+it('sends a custom counter start to batch exports and uses it in the single-file save dialog', async () => {
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Filename template"), { target: { value: "Image_{seq}" } });
-  fireEvent.change(screen.getByLabelText("Counter starts at"), { target: { value: "98" } });
-  fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
-  await vi.waitFor(() => expect(exported()).toContainEqual(expect.objectContaining({
-    exportSettings: expect.objectContaining({ sequenceStart: 98 }),
-  })));
+  fireEvent.change(screen.getByLabelText('Filename template'), {
+    target: { value: 'Image_{seq}' }
+  });
+  fireEvent.change(screen.getByLabelText('Counter starts at'), {
+    target: { value: '98' }
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose destination & export' }));
+  await vi.waitFor(() =>
+    expect(exported()).toContainEqual(
+      expect.objectContaining({
+        exportSettings: expect.objectContaining({ sequenceStart: 98 })
+      })
+    )
+  );
   cleanup();
-  useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } });
-  useLibraryStore.setState({ multiSelectedPaths: ["/p/a.RAF"] });
+  useProcessStore.setState({
+    exportState: {
+      status: Status.Idle,
+      errorMessage: '',
+      progress: { current: 0, total: 0 }
+    }
+  });
+  useLibraryStore.setState({ multiSelectedPaths: ['/p/a.RAF'] });
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Filename template"), { target: { value: "Image_{seq}" } });
-  fireEvent.change(screen.getByLabelText("Counter starts at"), { target: { value: "0" } });
-  fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
-  const { save } = await import("@tauri-apps/plugin-dialog");
+  fireEvent.change(screen.getByLabelText('Filename template'), {
+    target: { value: 'Image_{seq}' }
+  });
+  fireEvent.change(screen.getByLabelText('Counter starts at'), {
+    target: { value: '0' }
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose destination & export' }));
+  const { save } = await import('@tauri-apps/plugin-dialog');
   // The name offered is the one the backend gives the photo with that start.
   await vi.waitFor(() =>
     expect(invoke).toHaveBeenCalledWith(
-      "export_naming_preview",
-      expect.objectContaining({ exportSettings: expect.objectContaining({ nameTemplate: "Image_{seq}", sequenceStart: 0 }) }),
-    ),
+      'export_naming_preview',
+      expect.objectContaining({
+        exportSettings: expect.objectContaining({
+          nameTemplate: 'Image_{seq}',
+          sequenceStart: 0
+        })
+      })
+    )
   );
   await vi.waitFor(() => expect(save).toHaveBeenCalled());
 });
 
-it("shows a translated summary with backend export details as secondary text", () => {
-  useProcessStore.setState({ exportState: { status: Status.Error, errorMessage: "EIO: cannot write", progress: { current: 0, total: 0 } } });
+it('shows a translated summary with backend export details as secondary text', () => {
+  useProcessStore.setState({
+    exportState: {
+      status: Status.Error,
+      errorMessage: 'EIO: cannot write',
+      progress: { current: 0, total: 0 }
+    }
+  });
   render(<StudioExport />);
-  const alert = screen.getByRole("alert");
-  expect(within(alert).getByText("The operation could not be completed.")).toBeTruthy();
-  expect(within(alert).getByText("EIO: cannot write").tagName).toBe("SMALL");
+  const alert = screen.getByRole('alert');
+  expect(within(alert).getByText('The operation could not be completed.')).toBeTruthy();
+  expect(within(alert).getByText('EIO: cannot write').tagName).toBe('SMALL');
 });
 
-
-it("retains specific German translations for known export failures", async () => {
-  await i18n.changeLanguage("de");
+it('retains specific German translations for known export failures', async () => {
+  await i18n.changeLanguage('de');
   try {
-    useProcessStore.setState({ exportState: { status: Status.Error, errorMessage: "3 of 12 exports failed", progress: { current: 0, total: 0 } } });
+    useProcessStore.setState({
+      exportState: {
+        status: Status.Error,
+        errorMessage: '3 of 12 exports failed',
+        progress: { current: 0, total: 0 }
+      }
+    });
     render(<StudioExport />);
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Der Vorgang konnte nicht abgeschlossen werden.");
-    expect(within(alert).getByText("3 von 12 Exporten fehlgeschlagen").tagName).toBe("SMALL");
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('Der Vorgang konnte nicht abgeschlossen werden.');
+    expect(within(alert).getByText('3 von 12 Exporten fehlgeschlagen').tagName).toBe('SMALL');
   } finally {
-    await i18n.changeLanguage("en");
+    await i18n.changeLanguage('en');
   }
 });
 
-it("discloses copyright retention and offers opt-in contact retention when stripping metadata", () => {
-  useSettingsStore.setState({ appSettings: { exportPresets: [] } as unknown as AppSettings });
+it('discloses copyright retention and offers opt-in contact retention when stripping metadata', () => {
+  useSettingsStore.setState({
+    appSettings: { exportPresets: [] } as unknown as AppSettings
+  });
   render(<StudioExport />);
-  fireEvent.click(screen.getByLabelText("Include metadata"));
-  expect(screen.getByText(/Stripped exports retain creator, copyright/).textContent).toContain("postal address");
-  const include = screen.getByLabelText("Include creator contact details") as HTMLInputElement;
+  fireEvent.click(screen.getByLabelText('Include metadata'));
+  expect(screen.getByText(/Stripped exports retain creator, copyright/).textContent).toContain('postal address');
+  const include = screen.getByLabelText('Include creator contact details') as HTMLInputElement;
   expect(include.disabled).toBe(false);
   expect(include.checked).toBe(false);
   fireEvent.click(include);
   expect(include.checked).toBe(true);
 });
 
-it("keeps a visible edge on its footer buttons in Windows contrast themes", () => {
+it('keeps a visible edge on its footer buttons in Windows contrast themes', () => {
   useProcessStore.setState({
-    exportState: { status: Status.Exporting, errorMessage: "", progress: { current: 1, total: 2 } },
+    exportState: {
+      status: Status.Exporting,
+      errorMessage: '',
+      progress: { current: 1, total: 2 }
+    }
   });
   render(<StudioExport />);
-  const footer = document.querySelector(".studio-export-form footer");
+  const footer = document.querySelector('.studio-export-form footer');
   expect(footer).toBeTruthy();
   // Cancel and Export are plain buttons; the forced-colours rule of
   // studio.css (checked by forcedColors.test.ts) gives them their edge.
-  const buttons = [...footer!.querySelectorAll("button")];
+  const buttons = [...footer!.querySelectorAll('button')];
   expect(buttons.length).toBeGreaterThan(1);
-  expect(buttons.every((button) => !button.classList.contains("studio-button"))).toBe(true);
-  expect(buttons.map((button) => button.textContent)).toEqual(["Cancel export", "Add to queue"]);
+  expect(buttons.every((button) => !button.classList.contains('studio-button'))).toBe(true);
+  expect(buttons.map((button) => button.textContent)).toEqual(['Cancel export', 'Add to queue']);
 });
 
-it("sends the job name and a folder template, and remembers the job name for the library", async () => {
-  useLibraryStore.setState({ sessionDirectory: "/Shoots/Wedding", multiSelectedPaths: ["/p/a.RAF", "/p/b.RAF"] });
-  localStorage.removeItem("rawtonic.export.job:/Shoots/Wedding");
+it('sends the job name and a folder template, and remembers the job name for the library', async () => {
+  useLibraryStore.setState({
+    sessionDirectory: '/Shoots/Wedding',
+    multiSelectedPaths: ['/p/a.RAF', '/p/b.RAF']
+  });
+  localStorage.removeItem('rawtonic.export.job:/Shoots/Wedding');
   render(<StudioExport />);
-  const job = screen.getByLabelText("Job name") as HTMLInputElement;
+  const job = screen.getByLabelText('Job name') as HTMLInputElement;
   // Unset, the job is the library's name, as {job} on import.
-  expect(job.value).toBe("Wedding");
-  fireEvent.change(job, { target: { value: "Acme" } });
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/{date}/{format}" } });
-  fireEvent.click(screen.getByRole("button", { name: "Export" }));
+  expect(job.value).toBe('Wedding');
+  fireEvent.change(job, { target: { value: 'Acme' } });
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: '{job}/{date}/{format}' }
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
   await vi.waitFor(() =>
     expect(exported()).toContainEqual(
       expect.objectContaining({
-        exportSettings: expect.objectContaining({ jobName: "Acme", subfolder: "{job}/{date}/{format}" }),
-      }),
-    ),
+        exportSettings: expect.objectContaining({
+          jobName: 'Acme',
+          subfolder: '{job}/{date}/{format}'
+        })
+      })
+    )
   );
   cleanup();
-  useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } });
+  useProcessStore.setState({
+    exportState: {
+      status: Status.Idle,
+      errorMessage: '',
+      progress: { current: 0, total: 0 }
+    }
+  });
   render(<StudioExport />);
-  expect((screen.getByLabelText("Job name") as HTMLInputElement).value).toBe("Acme");
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/../x" } });
-  expect((screen.getByRole("button", { name: "Export" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Job name') as HTMLInputElement).value).toBe('Acme');
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: '{job}/../x' }
+  });
+  expect((screen.getByRole('button', { name: 'Export' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-it("remembers the last form settings per library and starts the next dialog there", () => {
-  useLibraryStore.setState({ sessionDirectory: "/Shoots/Wedding" });
+it('remembers the last form settings per library and starts the next dialog there', () => {
+  useLibraryStore.setState({ sessionDirectory: '/Shoots/Wedding' });
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Format"), { target: { value: "tiff" } });
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/{format}" } });
+  fireEvent.change(screen.getByLabelText('Format'), {
+    target: { value: 'tiff' }
+  });
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: '{job}/{format}' }
+  });
   cleanup();
   render(<StudioExport />);
-  expect((screen.getByLabelText("Format") as HTMLSelectElement).value).toBe("tiff");
-  expect((screen.getByLabelText("Put in subfolder") as HTMLInputElement).value).toBe("{job}/{format}");
+  expect((screen.getByLabelText('Format') as HTMLSelectElement).value).toBe('tiff');
+  expect((screen.getByLabelText('Put in subfolder') as HTMLInputElement).value).toBe('{job}/{format}');
   // Another library keeps its own, starting from the defaults.
   cleanup();
-  useLibraryStore.setState({ sessionDirectory: "/Shoots/Other" });
+  useLibraryStore.setState({ sessionDirectory: '/Shoots/Other' });
   render(<StudioExport />);
-  expect((screen.getByLabelText("Format") as HTMLSelectElement).value).toBe("jpg");
-  expect((screen.getByLabelText("Put in subfolder") as HTMLInputElement).value).toBe("");
+  expect((screen.getByLabelText('Format') as HTMLSelectElement).value).toBe('jpg');
+  expect((screen.getByLabelText('Put in subfolder') as HTMLInputElement).value).toBe('');
 });
 
 it("shows the footer's destination with the subfolder rendered for the first photo", async () => {
   vi.mocked(invoke).mockImplementation(((command: string) =>
-    Promise.resolve(command === "export_naming_preview" ? { folder: "Acme/2026-10-11/jpg", name: "a.jpg" } : undefined)) as never);
-  useLibraryStore.setState({ sessionDirectory: "/Shoots/Wedding" });
+    Promise.resolve(
+      command === 'export_naming_preview' ? { folder: 'Acme/2026-10-11/jpg', name: 'a.jpg' } : undefined
+    )) as never);
+  useLibraryStore.setState({ sessionDirectory: '/Shoots/Wedding' });
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{job}/{date}/{format}" } });
-  const plan = () => document.querySelector(".studio-export-plan li span")?.textContent ?? "";
-  await vi.waitFor(() => expect(plan()).toContain("Acme/2026-10-11/jpg"));
-  expect(plan()).not.toContain("{job}");
-  expect(invoke).toHaveBeenCalledWith(
-    "export_naming_preview",
-    expect.objectContaining({ path: "/p/a.RAF" }),
-  );
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: '{job}/{date}/{format}' }
+  });
+  const plan = () => document.querySelector('.studio-export-plan li span')?.textContent ?? '';
+  await vi.waitFor(() => expect(plan()).toContain('Acme/2026-10-11/jpg'));
+  expect(plan()).not.toContain('{job}');
+  expect(invoke).toHaveBeenCalledWith('export_naming_preview', expect.objectContaining({ path: '/p/a.RAF' }));
 });
 
-it("shows the destination without a subfolder when the template renders empty for the photo", async () => {
+it('shows the destination without a subfolder when the template renders empty for the photo', async () => {
   vi.mocked(invoke).mockImplementation(((command: string) =>
-    Promise.resolve(command === "export_naming_preview" ? { folder: "", name: "a.jpg" } : undefined)) as never);
+    Promise.resolve(command === 'export_naming_preview' ? { folder: '', name: 'a.jpg' } : undefined)) as never);
   render(<StudioExport />);
-  fireEvent.change(screen.getByLabelText("Put in subfolder"), { target: { value: "{title}" } });
-  const plan = () => document.querySelector(".studio-export-plan li span")?.textContent ?? "";
-  await vi.waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("export_naming_preview", expect.anything()));
-  await vi.waitFor(() => expect(plan()).not.toContain("{title}"));
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), {
+    target: { value: '{title}' }
+  });
+  const plan = () => document.querySelector('.studio-export-plan li span')?.textContent ?? '';
+  await vi.waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith('export_naming_preview', expect.anything()));
+  await vi.waitFor(() => expect(plan()).not.toContain('{title}'));
 });

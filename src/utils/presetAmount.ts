@@ -10,13 +10,22 @@
 export function blendPreset(
   base: Record<string, unknown>,
   preset: Record<string, unknown>,
-  amount: number,
+  amount: number
 ): Record<string, unknown> {
   const a = Math.min(1, Math.max(0, amount));
   const blend = (from: unknown, to: unknown): unknown => {
     if (typeof to === 'number' && typeof from === 'number') return from + a * (to - from);
-    if (to && typeof to === 'object' && !Array.isArray(to) && from && typeof from === 'object' && !Array.isArray(from)) {
-      const out: Record<string, unknown> = { ...(from as Record<string, unknown>) };
+    if (
+      to &&
+      typeof to === 'object' &&
+      !Array.isArray(to) &&
+      from &&
+      typeof from === 'object' &&
+      !Array.isArray(from)
+    ) {
+      const out: Record<string, unknown> = {
+        ...(from as Record<string, unknown>)
+      };
       for (const [key, value] of Object.entries(to as Record<string, unknown>)) {
         out[key] = blend((from as Record<string, unknown>)[key], value);
       }
@@ -27,7 +36,7 @@ export function blendPreset(
   return Object.fromEntries(
     Object.entries(preset).map(([key, value]) => [
       key,
-      key.endsWith('Version') || key === 'curves' ? (a >= 0.5 ? value : base[key]) : blend(base[key], value),
-    ]),
+      key.endsWith('Version') || key === 'curves' ? (a >= 0.5 ? value : base[key]) : blend(base[key], value)
+    ])
   );
 }

@@ -6,7 +6,7 @@ import {
   CullingSuggestions,
   PanelRegion,
   WorkspaceState,
-  CollapsibleSectionsState,
+  CollapsibleSectionsState
 } from '../components/ui/AppProperties';
 import { useEditorStore } from './useEditorStore';
 import {
@@ -18,7 +18,7 @@ import {
   readModuleLayout,
   requestGroups,
   setPanelGroups,
-  togglePanelGroups,
+  togglePanelGroups
 } from '../utils/panelLayout';
 
 export type SwitcherPlacement = 'bottom' | 'right' | 'left' | 'top';
@@ -76,7 +76,7 @@ export const CLOSED_MERGE_MODAL: MergeModalState = {
   previewBase64: null,
   progressMessage: null,
   report: null,
-  sourcePaths: [],
+  sourcePaths: []
 };
 
 interface NegativeConversionModalState {
@@ -99,7 +99,7 @@ const ALL_PANELS: Panel[] = [
   Panel.Adjustments,
   Panel.Crop,
   Panel.Masks,
-  Panel.Presets,
+  Panel.Presets
 ];
 
 const DEFAULT_PANEL_DEFAULT_REGIONS: Record<Panel, PanelRegion> = {
@@ -109,7 +109,7 @@ const DEFAULT_PANEL_DEFAULT_REGIONS: Record<Panel, PanelRegion> = {
   [Panel.Adjustments]: 'rightTop',
   [Panel.Crop]: 'rightTop',
   [Panel.Masks]: 'rightTop',
-  [Panel.Presets]: 'rightTop',
+  [Panel.Presets]: 'rightTop'
 };
 
 export const DEFAULT_PANEL_WIDTH = 350;
@@ -128,20 +128,20 @@ export function reconcileWorkspace(savedWorkspace: WorkspaceState | undefined): 
       leftTop: [Panel.Metadata, Panel.FolderTree, Panel.Export],
       leftBottom: [],
       rightTop: [Panel.Adjustments, Panel.Crop, Panel.Masks, Panel.Presets],
-      rightBottom: [],
+      rightBottom: []
     },
     activePanels: {
       leftTop: Panel.FolderTree,
       leftBottom: null,
       rightTop: Panel.Adjustments,
-      rightBottom: null,
+      rightBottom: null
     },
     panelSwitcherPlacement: {
       leftTop: 'bottom',
       leftBottom: 'bottom',
       rightTop: 'right',
-      rightBottom: 'right',
-    },
+      rightBottom: 'right'
+    }
   };
 
   if (!savedWorkspace || !savedWorkspace.panelLayout) {
@@ -153,7 +153,7 @@ export function reconcileWorkspace(savedWorkspace: WorkspaceState | undefined): 
     leftTop: [],
     leftBottom: [],
     rightTop: [],
-    rightBottom: [],
+    rightBottom: []
   };
 
   (['leftTop', 'leftBottom', 'rightTop', 'rightBottom'] as PanelRegion[]).forEach((region) => {
@@ -178,7 +178,7 @@ export function reconcileWorkspace(savedWorkspace: WorkspaceState | undefined): 
     leftTop: null,
     leftBottom: null,
     rightTop: null,
-    rightBottom: null,
+    rightBottom: null
   };
 
   (['leftTop', 'leftBottom', 'rightTop', 'rightBottom'] as PanelRegion[]).forEach((region) => {
@@ -199,8 +199,8 @@ export function reconcileWorkspace(savedWorkspace: WorkspaceState | undefined): 
     activePanels: sanitizedActive,
     panelSwitcherPlacement: {
       ...defaultWorkspace.panelSwitcherPlacement,
-      ...(savedWorkspace.panelSwitcherPlacement || {}),
-    },
+      ...(savedWorkspace.panelSwitcherPlacement || {})
+    }
   };
 }
 
@@ -318,7 +318,7 @@ export function isAnyModalOpen(state: UIState): boolean {
   return Object.entries(state).some(
     ([key, value]) =>
       (/^is\w+ModalOpen$/.test(key) && value === true) ||
-      (key.endsWith('ModalState') && (value as { isOpen?: boolean } | null)?.isOpen === true),
+      (key.endsWith('ModalState') && (value as { isOpen?: boolean } | null)?.isOpen === true)
   );
 }
 
@@ -331,7 +331,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   isWindowFullScreen: false,
   isInstantTransition: false,
   isLayoutReady: false,
-  uiVisibility: { filmstrip: true, leftPanel: true, rightPanel: true, quickFilter: false },
+  uiVisibility: {
+    filmstrip: true,
+    leftPanel: true,
+    rightPanel: true,
+    quickFilter: false
+  },
   isSettingsOpen: false,
   settingsCategory: null,
   isProblemReportOpen: false,
@@ -350,13 +355,13 @@ export const useUIStore = create<UIState>((set, get) => ({
     leftTop: [Panel.Metadata, Panel.FolderTree, Panel.Export],
     leftBottom: [],
     rightTop: [Panel.Adjustments, Panel.Crop, Panel.Masks, Panel.Presets],
-    rightBottom: [],
+    rightBottom: []
   },
   activePanels: {
     leftTop: Panel.FolderTree,
     leftBottom: null,
     rightTop: Panel.Adjustments,
-    rightBottom: null,
+    rightBottom: null
   },
   activeLayoutDragItem: null,
 
@@ -364,17 +369,26 @@ export const useUIStore = create<UIState>((set, get) => ({
     leftTop: 'bottom',
     leftBottom: 'bottom',
     rightTop: 'right',
-    rightBottom: 'right',
+    rightBottom: 'right'
   },
   setPanelSwitcherPlacement: (region, placement) =>
     set((state) => ({
-      panelSwitcherPlacement: { ...state.panelSwitcherPlacement, [region]: placement },
+      panelSwitcherPlacement: {
+        ...state.panelSwitcherPlacement,
+        [region]: placement
+      }
     })),
 
   activePanel: Panel.Adjustments,
   renderedPanel: Panel.Adjustments,
   slideDirection: 1,
-  collapsibleSectionsState: { basic: true, color: false, curves: true, details: false, effects: false },
+  collapsibleSectionsState: {
+    basic: true,
+    color: false,
+    curves: true,
+    details: false,
+    effects: false
+  },
   cropSectionsState: { transform: false, lens: false },
 
   isCreateFolderModalOpen: false,
@@ -388,7 +402,13 @@ export const useUIStore = create<UIState>((set, get) => ({
   quitSaving: null,
   mergeModalState: CLOSED_MERGE_MODAL,
   negativeModalState: { isOpen: false, targetPaths: [] },
-  cullingModalState: { isOpen: false, suggestions: null, progress: null, error: null, pathsToCull: [] },
+  cullingModalState: {
+    isOpen: false,
+    suggestions: null,
+    progress: null,
+    error: null,
+    pathsToCull: []
+  },
   collageModalState: { isOpen: false, sourceImages: [] },
 
   setUI: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
@@ -401,7 +421,7 @@ export const useUIStore = create<UIState>((set, get) => ({
         leftTop: [...state.panelLayout.leftTop],
         leftBottom: [...state.panelLayout.leftBottom],
         rightTop: [...state.panelLayout.rightTop],
-        rightBottom: [...state.panelLayout.rightBottom],
+        rightBottom: [...state.panelLayout.rightBottom]
       };
       const active = { ...state.activePanels };
 
@@ -426,7 +446,7 @@ export const useUIStore = create<UIState>((set, get) => ({
         activePanels: active,
         activeLayoutDragItem: null,
         activePanel: panel,
-        renderedPanel: panel,
+        renderedPanel: panel
       };
     }),
 
@@ -436,7 +456,7 @@ export const useUIStore = create<UIState>((set, get) => ({
         leftTop: [...state.panelLayout.leftTop],
         leftBottom: [...state.panelLayout.leftBottom],
         rightTop: [...state.panelLayout.rightTop],
-        rightBottom: [...state.panelLayout.rightBottom],
+        rightBottom: [...state.panelLayout.rightBottom]
       };
       const active = { ...state.activePanels };
 
@@ -461,7 +481,7 @@ export const useUIStore = create<UIState>((set, get) => ({
         activePanels: active,
         activeLayoutDragItem: null,
         activePanel: panel,
-        renderedPanel: panel,
+        renderedPanel: panel
       };
     }),
 
@@ -471,7 +491,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       const updates: Partial<UIState> = {
         activePanels: { ...state.activePanels, [region]: panel },
         activePanel: panel,
-        renderedPanel: panel,
+        renderedPanel: panel
       };
 
       const isLeft = region === 'leftTop' || region === 'leftBottom';
@@ -537,9 +557,14 @@ export const useUIStore = create<UIState>((set, get) => ({
       panelLayout: defaultWorkspace.panelLayout,
       activePanels: defaultWorkspace.activePanels,
       panelSwitcherPlacement: defaultWorkspace.panelSwitcherPlacement,
-      uiVisibility: { filmstrip: true, leftPanel: true, rightPanel: true, quickFilter: false },
+      uiVisibility: {
+        filmstrip: true,
+        leftPanel: true,
+        rightPanel: true,
+        quickFilter: false
+      },
       activePanel: defaultWorkspace.activePanels.rightTop || null,
-      renderedPanel: defaultWorkspace.activePanels.rightTop || null,
+      renderedPanel: defaultWorkspace.activePanels.rightTop || null
     });
     return defaultWorkspace;
   },
@@ -562,12 +587,22 @@ export const useUIStore = create<UIState>((set, get) => ({
       const groups = requestGroups(request, presentGroups(module, state.studioToolLayout, isNarrowWindow()));
       if (!groups.length) return state;
       const layout = togglePanelGroups(readModuleLayout(state.uiVisibility.modules, module), groups);
-      return { uiVisibility: { ...state.uiVisibility, modules: { ...state.uiVisibility.modules, [module]: layout } } };
+      return {
+        uiVisibility: {
+          ...state.uiVisibility,
+          modules: { ...state.uiVisibility.modules, [module]: layout }
+        }
+      };
     }),
   showPanels: (groups) =>
     set((state) => {
       const module = moduleOf(state.activeView);
       const layout = setPanelGroups(readModuleLayout(state.uiVisibility.modules, module), groups, true);
-      return { uiVisibility: { ...state.uiVisibility, modules: { ...state.uiVisibility.modules, [module]: layout } } };
-    }),
+      return {
+        uiVisibility: {
+          ...state.uiVisibility,
+          modules: { ...state.uiVisibility.modules, [module]: layout }
+        }
+      };
+    })
 }));

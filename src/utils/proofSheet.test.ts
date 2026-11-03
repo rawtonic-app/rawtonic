@@ -6,7 +6,7 @@ import {
   sheetFromDraft,
   sheetPhotos,
   sheetSharpening,
-  writeProofDraft,
+  writeProofDraft
 } from './proofSheet';
 
 afterEach(() => localStorage.clear());
@@ -16,13 +16,24 @@ describe('proof sheet form', () => {
     expect(pageSize(DEFAULT_PROOF_DRAFT)).toEqual([210, 297]);
     expect(pageSize({ ...DEFAULT_PROOF_DRAFT, landscape: true })).toEqual([297, 210]);
     expect(pageSize({ ...DEFAULT_PROOF_DRAFT, paper: 'letter' })).toEqual([215.9, 279.4]);
-    expect(pageSize({ ...DEFAULT_PROOF_DRAFT, paper: 'custom', customWidthMm: 5, customHeightMm: Number.NaN })).toEqual([
-      20, 297,
-    ]);
+    expect(
+      pageSize({
+        ...DEFAULT_PROOF_DRAFT,
+        paper: 'custom',
+        customWidthMm: 5,
+        customHeightMm: Number.NaN
+      })
+    ).toEqual([20, 297]);
   });
 
   it('sends the backend a layout it can lay out', () => {
-    const sheet = sheetFromDraft({ ...DEFAULT_PROOF_DRAFT, columns: 4.4, rows: 0, caption: '  ', header: '{job}' });
+    const sheet = sheetFromDraft({
+      ...DEFAULT_PROOF_DRAFT,
+      columns: 4.4,
+      rows: 0,
+      caption: '  ',
+      header: '{job}'
+    });
     expect(sheet).toMatchObject({
       pageWidthMm: 210,
       pageHeightMm: 297,
@@ -33,7 +44,7 @@ describe('proof sheet form', () => {
       header: '{job}',
       ppi: 300,
       pdf: true,
-      jpeg: false,
+      jpeg: false
     });
     expect(sheetSharpening({ ...DEFAULT_PROOF_DRAFT, sharpen: false })).toBeNull();
     // Standard is the amount sheets always had; Low and High scale it.
@@ -45,10 +56,20 @@ describe('proof sheet form', () => {
   });
 
   it('is remembered per library and ignores what it does not know', () => {
-    writeProofDraft('/jobs/A', { ...DEFAULT_PROOF_DRAFT, columns: 6, folder: '/out' });
-    expect(readProofDraft('/jobs/A')).toMatchObject({ columns: 6, folder: '/out' });
+    writeProofDraft('/jobs/A', {
+      ...DEFAULT_PROOF_DRAFT,
+      columns: 6,
+      folder: '/out'
+    });
+    expect(readProofDraft('/jobs/A')).toMatchObject({
+      columns: 6,
+      folder: '/out'
+    });
     expect(readProofDraft('/jobs/B').columns).toBe(4);
-    localStorage.setItem('rawtonic.proofSheet.form:/jobs/C', JSON.stringify({ columns: 'many', paper: 'b5', extra: 1 }));
+    localStorage.setItem(
+      'rawtonic.proofSheet.form:/jobs/C',
+      JSON.stringify({ columns: 'many', paper: 'b5', extra: 1 })
+    );
     const stale = readProofDraft('/jobs/C');
     expect(stale.columns).toBe(4);
     expect(stale.paper).toBe('a4');

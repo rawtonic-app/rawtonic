@@ -1,17 +1,17 @@
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from "react";
-import { useTranslation } from "react-i18next";
-import { LayoutGrid, List, Star } from "lucide-react";
-import { Invokes } from "../ui/AppProperties";
-import OperationError from "../ui/OperationError";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
-import { loadBuiltinPresets, presetName, useBuiltinPresets } from "../../utils/builtinPresets";
-import type { Adjustments } from "../../utils/adjustments";
-import AdjustmentControl from "./AdjustmentControl";
-import { reportPerformance } from "../../hooks/usePerformanceDiagnostics";
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
+import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { LayoutGrid, List, Star } from 'lucide-react';
+import { Invokes } from '../ui/AppProperties';
+import OperationError from '../ui/OperationError';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useEditorActions } from '../../hooks/useEditorActions';
+import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/builtinPresets';
+import type { Adjustments } from '../../utils/adjustments';
+import AdjustmentControl from './AdjustmentControl';
+import { reportPerformance } from '../../hooks/usePerformanceDiagnostics';
 
 interface LutEntry {
   name: string;
@@ -28,7 +28,7 @@ export interface CameraProfileEntry {
   camera: string;
 }
 
-export type ProfileKind = "camera" | "look" | "bw";
+export type ProfileKind = 'camera' | 'look' | 'bw';
 
 /** One choice of the browser: what it renders and applies. */
 export interface ProfileTile {
@@ -47,12 +47,12 @@ export interface ProfileTile {
 
 // Built-in looks: file names are recipe identifiers, the names shown our own.
 const LOOK_NAMES: Record<string, string> = {
-  "Portrait 400": "softPortrait",
-  "Cinema 250D": "warmCinema",
-  "Cinema 500T": "coolCinema",
-  "Pastel 400": "pastel",
-  "Vivid 100": "vivid",
-  "Warm 200": "warm",
+  'Portrait 400': 'softPortrait',
+  'Cinema 250D': 'warmCinema',
+  'Cinema 500T': 'coolCinema',
+  'Pastel 400': 'pastel',
+  'Vivid 100': 'vivid',
+  'Warm 200': 'warm'
 };
 
 const TILE_POINTS = 160;
@@ -65,16 +65,22 @@ const sameMixer = (a: unknown, b: unknown) =>
 /** A tile's keys over `adjustments`: a look turns the Effects section on,
  * as applying it does (`handleLutSelect`), so tile, preview and result
  * agree. */
-export function tileKeys(tile: Pick<ProfileTile, "kind" | "variant">, adjustments: Adjustments): Record<string, unknown> {
-  if (tile.kind !== "look" || !tile.variant.lutPath) return tile.variant;
-  return { ...tile.variant, sectionVisibility: { ...adjustments.sectionVisibility, effects: true } };
+export function tileKeys(
+  tile: Pick<ProfileTile, 'kind' | 'variant'>,
+  adjustments: Adjustments
+): Record<string, unknown> {
+  if (tile.kind !== 'look' || !tile.variant.lutPath) return tile.variant;
+  return {
+    ...tile.variant,
+    sectionVisibility: { ...adjustments.sectionVisibility, effects: true }
+  };
 }
 
 /** The recipe with a tile's keys (the hover preview). */
 export function withVariant(adjustments: Adjustments, variant: Record<string, unknown>): Adjustments {
   const out = { ...adjustments } as Record<string, unknown>;
   for (const [key, value] of Object.entries(variant)) {
-    if (value === null && key === "cameraProfile") delete out[key];
+    if (value === null && key === 'cameraProfile') delete out[key];
     else out[key] = value;
   }
   return out as unknown as Adjustments;
@@ -88,7 +94,7 @@ export function splitTiles(buffer: ArrayBuffer, count: number): (Blob | null)[] 
   for (let i = 0; i < count && at + 4 <= buffer.byteLength; i++) {
     const length = view.getUint32(at, true);
     at += 4;
-    out.push(length > 0 ? new Blob([buffer.slice(at, at + length)], { type: "image/jpeg" }) : null);
+    out.push(length > 0 ? new Blob([buffer.slice(at, at + length)], { type: 'image/jpeg' }) : null);
     at += length;
   }
   return out;
@@ -105,7 +111,7 @@ let generations = 0;
  * the recipe's `lutIntensity`); camera profiles and mixes have none. */
 export default function StudioProfileBrowser({
   disabled,
-  onInteraction,
+  onInteraction
 }: {
   disabled: boolean;
   onInteraction(active: boolean): void;
@@ -125,8 +131,8 @@ export default function StudioProfileBrowser({
   const builtins = useBuiltinPresets((s) => s.presets);
 
   const [opened, setOpened] = useState(false);
-  const [layout, setLayout] = useState<"grid" | "list">("grid");
-  const [query, setQuery] = useState("");
+  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
+  const [query, setQuery] = useState('');
   const [profiles, setProfiles] = useState<CameraProfileEntry[]>([]);
   const [luts, setLuts] = useState<LutEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -157,68 +163,108 @@ export default function StudioProfileBrowser({
 
   const lookName = (entry: LutEntry, language?: string) =>
     entry.isBuiltIn && LOOK_NAMES[entry.name]
-      ? t(`studio.lut.names.${LOOK_NAMES[entry.name] as "warm"}`, { lng: language })
+      ? t(`studio.lut.names.${LOOK_NAMES[entry.name] as 'warm'}`, {
+          lng: language
+        })
       : entry.name;
 
   const tiles = useMemo<ProfileTile[]>(() => {
     const list: ProfileTile[] = [];
     if (isRaw) {
-      const camera = t("studio.profileBrowser.groups.camera");
-      list.push({ key: "camera:", kind: "camera", group: camera, name: "Rawtonic", variant: { cameraProfile: null }, selected: !cameraProfile });
+      const camera = t('studio.profileBrowser.groups.camera');
+      list.push({
+        key: 'camera:',
+        kind: 'camera',
+        group: camera,
+        name: 'Rawtonic',
+        variant: { cameraProfile: null },
+        selected: !cameraProfile
+      });
       if (cameraProfile && !profiles.some((p) => p.value === cameraProfile))
         list.push({
           key: `camera:${cameraProfile}`,
-          kind: "camera",
+          kind: 'camera',
           group: camera,
           name: cameraProfile.split(/[\\/]/).pop() ?? cameraProfile,
           variant: { cameraProfile },
-          selected: true,
+          selected: true
         });
       for (const p of profiles)
-        list.push({ key: `camera:${p.value}`, kind: "camera", group: camera, name: p.name, variant: { cameraProfile: p.value }, selected: p.value === cameraProfile });
+        list.push({
+          key: `camera:${p.value}`,
+          kind: 'camera',
+          group: camera,
+          name: p.name,
+          variant: { cameraProfile: p.value },
+          selected: p.value === cameraProfile
+        });
     }
-    const looks = t("studio.profileBrowser.groups.looks");
+    const looks = t('studio.profileBrowser.groups.looks');
     list.push({
-      key: "look:",
-      kind: "look",
+      key: 'look:',
+      kind: 'look',
       group: looks,
-      name: t("studio.lut.none"),
+      name: t('studio.lut.none'),
       variant: { lutPath: null, lutIntensity: 100, lutIsSceneReferred: false },
-      selected: !lutPath,
+      selected: !lutPath
     });
     const look = (entry: LutEntry, group: string): ProfileTile => ({
       // A built-in's path is the app's install folder: its name stays.
       key: entry.isBuiltIn ? `look:builtin:${entry.name}` : `look:${entry.path}`,
-      kind: "look",
+      kind: 'look',
       group,
       name: lookName(entry),
-      variant: { lutPath: entry.path, lutIntensity: 100, lutIsSceneReferred: entry.isBuiltIn },
+      variant: {
+        lutPath: entry.path,
+        lutIntensity: 100,
+        lutIsSceneReferred: entry.isBuiltIn
+      },
       selected: entry.path === lutPath,
-      lut: entry,
+      lut: entry
     });
     for (const entry of luts) if (entry.isBuiltIn) list.push(look(entry, looks));
-    const bw = t("studio.profileBrowser.groups.bw");
-    list.push({ key: "bw:", kind: "bw", group: bw, name: t("studio.profileBrowser.colour"), variant: { blackAndWhite: false }, selected: !blackAndWhite });
+    const bw = t('studio.profileBrowser.groups.bw');
+    list.push({
+      key: 'bw:',
+      kind: 'bw',
+      group: bw,
+      name: t('studio.profileBrowser.colour'),
+      variant: { blackAndWhite: false },
+      selected: !blackAndWhite
+    });
     if (showBuiltins)
-      for (const preset of builtins.filter((p) => p.presetType === "tool" && p.id.startsWith("bw-mix-")))
+      for (const preset of builtins.filter((p) => p.presetType === 'tool' && p.id.startsWith('bw-mix-')))
         list.push({
           key: `bw:${preset.id}`,
-          kind: "bw",
+          kind: 'bw',
           group: bw,
           name: presetName(t, preset),
-          variant: { blackAndWhite: true, grayMixer: (preset.adjustments as Adjustments).grayMixer },
-          selected: blackAndWhite && sameMixer(grayMixer, (preset.adjustments as Adjustments).grayMixer),
+          variant: {
+            blackAndWhite: true,
+            grayMixer: (preset.adjustments as Adjustments).grayMixer
+          },
+          selected: blackAndWhite && sameMixer(grayMixer, (preset.adjustments as Adjustments).grayMixer)
         });
     // Imported looks under their pack's (folder's) name, single files first.
     const imported = luts.filter((e) => !e.isBuiltIn);
     const single = imported.filter((e) => !e.group);
-    for (const entry of single) list.push(look(entry, t("studio.profileBrowser.groups.imported")));
+    for (const entry of single) list.push(look(entry, t('studio.profileBrowser.groups.imported')));
     const packs = [...new Set(imported.flatMap((e) => (e.group ? [e.group] : [])))].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
     );
-    for (const pack of packs) for (const entry of imported.filter((e) => e.group === pack)) list.push(look(entry, pack));
+    for (const pack of packs)
+      for (const entry of imported.filter((e) => e.group === pack)) list.push(look(entry, pack));
     if (lutPath && !luts.some((e) => e.path === lutPath))
-      list.push(look({ name: lutPath.split(/[\\/]/).pop() ?? lutPath, path: lutPath, isBuiltIn: false }, t("studio.profileBrowser.groups.imported")));
+      list.push(
+        look(
+          {
+            name: lutPath.split(/[\\/]/).pop() ?? lutPath,
+            path: lutPath,
+            isBuiltIn: false
+          },
+          t('studio.profileBrowser.groups.imported')
+        )
+      );
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRaw, cameraProfile, profiles, lutPath, luts, blackAndWhite, grayMixer, builtins, showBuiltins, t]);
@@ -227,8 +273,10 @@ export default function StudioProfileBrowser({
   const shown = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     const matching = needle ? tiles.filter((tile) => tile.name.toLocaleLowerCase().includes(needle)) : tiles;
-    const favouriteGroup = t("studio.profileBrowser.groups.favourites");
-    const favs = matching.filter((tile) => favouriteSet.has(tile.key)).map((tile) => ({ ...tile, group: favouriteGroup }));
+    const favouriteGroup = t('studio.profileBrowser.groups.favourites');
+    const favs = matching
+      .filter((tile) => favouriteSet.has(tile.key))
+      .map((tile) => ({ ...tile, group: favouriteGroup }));
     const groups = new Map<string, ProfileTile[]>();
     for (const tile of [...favs, ...matching]) groups.set(tile.group, [...(groups.get(tile.group) ?? []), tile]);
     return [...groups];
@@ -236,11 +284,11 @@ export default function StudioProfileBrowser({
 
   const selectedCamera = profiles.find((p) => p.value === cameraProfile);
   const current = [
-    isRaw ? (tiles.find((tile) => tile.kind === "camera" && tile.selected)?.name ?? "Rawtonic") : null,
-    lutPath ? tiles.find((tile) => tile.kind === "look" && tile.selected)?.name : null,
+    isRaw ? (tiles.find((tile) => tile.kind === 'camera' && tile.selected)?.name ?? 'Rawtonic') : null,
+    lutPath ? tiles.find((tile) => tile.kind === 'look' && tile.selected)?.name : null
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(' · ');
 
   // Hover/focus preview: the renderer shows the override, nothing applied.
   const previewing = useRef(false);
@@ -254,7 +302,9 @@ export default function StudioProfileBrowser({
     if (!selectedImage?.isReady || disabled) return;
     previewing.current = true;
     timeHoverFrame();
-    setEditor({ previewOverride: withVariant(adjustments, tileKeys(tile, adjustments)) });
+    setEditor({
+      previewOverride: withVariant(adjustments, tileKeys(tile, adjustments))
+    });
   };
   useEffect(() => endPreview, []);
   useEffect(() => {
@@ -265,11 +315,19 @@ export default function StudioProfileBrowser({
     endPreview();
     const selectedImage = useEditorStore.getState().selectedImage;
     if (!selectedImage?.isReady || disabled) return;
-    if (tile.kind === "camera") {
+    if (tile.kind === 'camera') {
       const value = tile.variant.cameraProfile as string | null;
-      setAdjustments((prev) => ({ ...prev, cameraProfile: value || undefined }));
-    } else if (tile.kind === "look") {
-      if (tile.lut) void handleLutSelect(tile.lut.path, tile.lut.isBuiltIn, tile.lut.isBuiltIn ? lookName(tile.lut, "en") : undefined);
+      setAdjustments((prev) => ({
+        ...prev,
+        cameraProfile: value || undefined
+      }));
+    } else if (tile.kind === 'look') {
+      if (tile.lut)
+        void handleLutSelect(
+          tile.lut.path,
+          tile.lut.isBuiltIn,
+          tile.lut.isBuiltIn ? lookName(tile.lut, 'en') : undefined
+        );
       else
         setAdjustments((prev) => ({
           ...prev,
@@ -278,15 +336,15 @@ export default function StudioProfileBrowser({
           lutData: null,
           lutSize: 0,
           lutIntensity: 100,
-          lutIsSceneReferred: false,
+          lutIsSceneReferred: false
         }));
     } else {
       // A mix sets only these two keys: one step on the open photo.
-      const mixer = tile.variant.grayMixer as Adjustments["grayMixer"] | undefined;
+      const mixer = tile.variant.grayMixer as Adjustments['grayMixer'] | undefined;
       setAdjustments((prev) => ({
         ...prev,
         blackAndWhite: Boolean(tile.variant.blackAndWhite),
-        ...(mixer ? { grayMixer: { ...mixer } } : {}),
+        ...(mixer ? { grayMixer: { ...mixer } } : {})
       }));
     }
   };
@@ -302,8 +360,11 @@ export default function StudioProfileBrowser({
   const importProfile = async () => {
     if (!imagePath) return;
     try {
-      const source = await open({ multiple: false, filters: [{ name: t("studio.profile.dcpFilter"), extensions: ["dcp", "DCP"] }] });
-      if (typeof source !== "string") return;
+      const source = await open({
+        multiple: false,
+        filters: [{ name: t('studio.profile.dcpFilter'), extensions: ['dcp', 'DCP'] }]
+      });
+      if (typeof source !== 'string') return;
       const entry = await invoke<CameraProfileEntry>(Invokes.ImportCameraProfile, { source, imagePath });
       setError(null);
       setProfiles((list) => (list.some((p) => p.value === entry.value) ? list : [...list, entry]));
@@ -320,9 +381,9 @@ export default function StudioProfileBrowser({
   // box enters them), Enter applies, Esc restores the photo and then
   // closes the browser.
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const buttons = [...(grid.current?.querySelectorAll<HTMLButtonElement>("button.studio-profile-tile") ?? [])];
+    const buttons = [...(grid.current?.querySelectorAll<HTMLButtonElement>('button.studio-profile-tile') ?? [])];
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
       if (previewing.current) endPreview();
@@ -331,7 +392,7 @@ export default function StudioProfileBrowser({
     }
     if (at < 0) {
       // From the search box down into the tiles.
-      if (e.key === "ArrowDown" && buttons.length > 0 && (e.target as HTMLElement).tagName === "INPUT") {
+      if (e.key === 'ArrowDown' && buttons.length > 0 && (e.target as HTMLElement).tagName === 'INPUT') {
         e.preventDefault();
         e.stopPropagation();
         buttons[0].focus();
@@ -340,19 +401,21 @@ export default function StudioProfileBrowser({
     }
     let next = at;
     const box = buttons[at].getBoundingClientRect();
-    if (e.key === "ArrowRight") next = Math.min(buttons.length - 1, at + 1);
-    else if (e.key === "ArrowLeft") next = Math.max(0, at - 1);
-    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      const down = e.key === "ArrowDown";
+    if (e.key === 'ArrowRight') next = Math.min(buttons.length - 1, at + 1);
+    else if (e.key === 'ArrowLeft') next = Math.max(0, at - 1);
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const down = e.key === 'ArrowDown';
       const candidates = buttons
         .map((button, index) => ({ index, r: button.getBoundingClientRect() }))
         .filter(({ r }) => (down ? r.top > box.top + 1 : r.top < box.top - 1));
-      const rowTop = down ? Math.min(...candidates.map(({ r }) => r.top)) : Math.max(...candidates.map(({ r }) => r.top));
+      const rowTop = down
+        ? Math.min(...candidates.map(({ r }) => r.top))
+        : Math.max(...candidates.map(({ r }) => r.top));
       const row = candidates.filter(({ r }) => Math.abs(r.top - rowTop) < 1);
       const nearest = row.sort((a, b) => Math.abs(a.r.left - box.left) - Math.abs(b.r.left - box.left))[0];
       if (nearest) next = nearest.index;
-    } else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = buttons.length - 1;
+    } else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = buttons.length - 1;
     else return;
     // The browser's keys, not the photo navigation's.
     e.preventDefault();
@@ -363,27 +426,27 @@ export default function StudioProfileBrowser({
   return (
     <>
       <div className="studio-inline">
-        <span>{t("studio.profile.label")}</span>
+        <span>{t('studio.profile.label')}</span>
         <button
           type="button"
           className="studio-profile-current"
           aria-expanded={opened}
-          aria-label={t("studio.profileBrowser.open")}
-          title={t("studio.profileBrowser.openTitle")}
+          aria-label={t('studio.profileBrowser.open')}
+          title={t('studio.profileBrowser.openTitle')}
           disabled={disabled}
           onClick={() => setOpened((value) => !value)}
         >
-          <span>{current || t("studio.lut.none")}</span>
+          <span>{current || t('studio.lut.none')}</span>
           <LayoutGrid size={12} />
         </button>
       </div>
       {selectedCamera?.camera && (
-        <div className="studio-hint">{t("studio.profile.forCamera", { camera: selectedCamera.camera })}</div>
+        <div className="studio-hint">{t('studio.profile.forCamera', { camera: selectedCamera.camera })}</div>
       )}
       {lutPath && (
         <AdjustmentControl
-          label={t("studio.lut.amount")}
-          ariaLabel={t("studio.profileBrowser.amount")}
+          label={t('studio.lut.amount')}
+          ariaLabel={t('studio.profileBrowser.amount')}
           min={0}
           max={200}
           value={intensity}
@@ -397,7 +460,7 @@ export default function StudioProfileBrowser({
         <div
           className={`studio-profile-browser studio-profile-${layout}`}
           role="region"
-          aria-label={t("studio.profileBrowser.title")}
+          aria-label={t('studio.profileBrowser.title')}
           onKeyDown={onKeyDown}
         >
           <div className="studio-profile-bar">
@@ -406,8 +469,8 @@ export default function StudioProfileBrowser({
               // Down enters the tiles.
               autoFocus
               type="search"
-              aria-label={t("studio.profileBrowser.search")}
-              placeholder={t("studio.profileBrowser.search")}
+              aria-label={t('studio.profileBrowser.search')}
+              placeholder={t('studio.profileBrowser.search')}
               value={query}
               onChange={(e) => {
                 // Filtering may remove the previewed tile.
@@ -417,19 +480,19 @@ export default function StudioProfileBrowser({
             />
             <button
               type="button"
-              aria-pressed={layout === "grid"}
-              aria-label={t("studio.profileBrowser.grid")}
-              title={t("studio.profileBrowser.grid")}
-              onClick={() => setLayout("grid")}
+              aria-pressed={layout === 'grid'}
+              aria-label={t('studio.profileBrowser.grid')}
+              title={t('studio.profileBrowser.grid')}
+              onClick={() => setLayout('grid')}
             >
               <LayoutGrid size={12} />
             </button>
             <button
               type="button"
-              aria-pressed={layout === "list"}
-              aria-label={t("studio.profileBrowser.list")}
-              title={t("studio.profileBrowser.list")}
-              onClick={() => setLayout("list")}
+              aria-pressed={layout === 'list'}
+              aria-label={t('studio.profileBrowser.list')}
+              title={t('studio.profileBrowser.list')}
+              onClick={() => setLayout('list')}
             >
               <List size={12} />
             </button>
@@ -440,11 +503,13 @@ export default function StudioProfileBrowser({
             onMouseLeave={endPreview}
             // Focus leaving the tiles ends their preview, as the pointer does.
             onBlur={(e) => {
-              if (!(e.relatedTarget instanceof HTMLElement && e.relatedTarget.classList.contains("studio-profile-tile")))
+              if (!(
+                e.relatedTarget instanceof HTMLElement && e.relatedTarget.classList.contains('studio-profile-tile')
+              ))
                 endPreview();
             }}
           >
-            {shown.length === 0 && <div className="studio-hint">{t("studio.profileBrowser.noMatch")}</div>}
+            {shown.length === 0 && <div className="studio-hint">{t('studio.profileBrowser.noMatch')}</div>}
             {shown.map(([group, list]) => (
               <section key={group} aria-label={group}>
                 <h4>{group}</h4>
@@ -472,12 +537,18 @@ export default function StudioProfileBrowser({
                           type="button"
                           className="studio-profile-star"
                           aria-pressed={favourite}
-                          aria-label={t(favourite ? "studio.profileBrowser.unfavourite" : "studio.profileBrowser.favourite", { name: tile.name })}
-                          title={t(favourite ? "studio.profileBrowser.unfavourite" : "studio.profileBrowser.favourite", { name: tile.name })}
+                          aria-label={t(
+                            favourite ? 'studio.profileBrowser.unfavourite' : 'studio.profileBrowser.favourite',
+                            { name: tile.name }
+                          )}
+                          title={t(
+                            favourite ? 'studio.profileBrowser.unfavourite' : 'studio.profileBrowser.favourite',
+                            { name: tile.name }
+                          )}
                           tabIndex={-1}
                           onClick={() => toggleFavourite(tile)}
                         >
-                          <Star size={12} fill={favourite ? "currentColor" : "none"} />
+                          <Star size={12} fill={favourite ? 'currentColor' : 'none'} />
                         </button>
                       </div>
                     );
@@ -489,7 +560,7 @@ export default function StudioProfileBrowser({
           {isRaw && (
             <div className="studio-inline">
               <button type="button" disabled={disabled} onClick={() => void importProfile()}>
-                {t("studio.profile.importDcp")}
+                {t('studio.profile.importDcp')}
               </button>
             </div>
           )}
@@ -511,14 +582,16 @@ function timeHoverFrame() {
   const stop = useEditorStore.subscribe((state) => {
     if (state.previewFrames === frames) return;
     stop();
-    if (state.previewOverride) recordTiming("hoverFrame", performance.now() - started);
+    if (state.previewOverride) recordTiming('hoverFrame', performance.now() - started);
   });
   setTimeout(stop, 5000);
 }
 
 /** A timing record (`[PERF]` in the app log of profiling builds). */
 function recordTiming(stage: string, ms: number) {
-  reportPerformance(`profile_browser_${stage}`, { ms: Math.round(ms * 10) / 10 });
+  reportPerformance(`profile_browser_${stage}`, {
+    ms: Math.round(ms * 10) / 10
+  });
 }
 
 /**
@@ -528,7 +601,10 @@ function recordTiming(stage: string, ms: number) {
  * Closing cancels what is still rendering and frees the tiles.
  */
 function useTileThumbnails(
-  opened: boolean, tiles: ProfileTile[], imagePath: string | undefined, displayed: [string, ProfileTile[]][],
+  opened: boolean,
+  tiles: ProfileTile[],
+  imagePath: string | undefined,
+  displayed: [string, ProfileTile[]][]
 ) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const urls = useRef(new Map<string, string>());
@@ -566,8 +642,8 @@ function useTileThumbnails(
     let observer: IntersectionObserver | null = null;
     let raf = 0;
     const watch = () => {
-      const root = document.querySelector(".studio-profile-browser");
-      if (!root || typeof IntersectionObserver === "undefined") {
+      const root = document.querySelector('.studio-profile-browser');
+      if (!root || typeof IntersectionObserver === 'undefined') {
         // No observer (tests): every tile counts as shown.
         setVisible(new Set(tilesRef.current.map((tile) => tile.key)));
         return;
@@ -581,7 +657,7 @@ function useTileThumbnails(
         }
         setVisible(new Set(seen));
       });
-      root.querySelectorAll<HTMLElement>("[data-tile]").forEach((cell) => observer?.observe(cell));
+      root.querySelectorAll<HTMLElement>('[data-tile]').forEach((cell) => observer?.observe(cell));
     };
     raf = requestAnimationFrame(watch);
     return () => {
@@ -597,9 +673,12 @@ function useTileThumbnails(
     let retry: ReturnType<typeof setTimeout> | null = null;
     const run = async () => {
       const state = useEditorStore.getState();
-      if (gone || state.isSliderDragging || !state.selectedImage?.isReady || state.selectedImage.path !== imagePath) return;
+      if (gone || state.isSliderDragging || !state.selectedImage?.isReady || state.selectedImage.path !== imagePath)
+        return;
       const recipe = state.adjustments;
-      const want = tilesRef.current.filter((tile) => visible.has(tile.key) && renderedFor.current.get(tile.key) !== recipe);
+      const want = tilesRef.current.filter(
+        (tile) => visible.has(tile.key) && renderedFor.current.get(tile.key) !== recipe
+      );
       if (want.length === 0) return;
       const size = Math.round(TILE_POINTS * Math.min(2, window.devicePixelRatio || 1));
       for (let at = 0; at < want.length && !gone; at += BATCH) {
@@ -612,10 +691,10 @@ function useTileThumbnails(
             adjustments: recipe,
             variants: batch.map((tile) => tileKeys(tile, recipe)),
             size,
-            generation,
+            generation
           });
         } catch (error) {
-          console.error("Profile thumbnails failed:", error);
+          console.error('Profile thumbnails failed:', error);
           return;
         }
         if (gone) return;
@@ -635,7 +714,7 @@ function useTileThumbnails(
         redraw();
       }
       if (!gone && openedAt.current && visible.size > 0 && [...visible].every((key) => urls.current.has(key))) {
-        recordTiming("openToVisibleTiles", performance.now() - openedAt.current);
+        recordTiming('openToVisibleTiles', performance.now() - openedAt.current);
         openedAt.current = 0;
       }
     };

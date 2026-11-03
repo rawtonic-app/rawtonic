@@ -1,10 +1,10 @@
 import { Invokes } from '../ui/AppProperties';
-import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronLeft, ChevronRight, LoaderCircle, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { formatBytes } from "../../utils/previews";
-import type { IngestCandidate } from "./IngestPreviewGrid";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { Check, ChevronLeft, ChevronRight, LoaderCircle, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { formatBytes } from '../../utils/previews';
+import type { IngestCandidate } from './IngestPreviewGrid';
 
 /** Mirrors `file_management::SourceCaptureInfo`. */
 export interface CaptureInfo {
@@ -30,22 +30,25 @@ const previewSize = () =>
       1280,
       Math.round(
         Math.max(window.screen?.width ?? 0, window.screen?.height ?? 0, window.innerWidth) *
-          (window.devicePixelRatio || 1),
-      ),
-    ),
+          (window.devicePixelRatio || 1)
+      )
+    )
   );
 
 /** A source photograph's large preview and capture info, both read from the
  * file off the UI thread by the backend. */
 export async function loadIngestPreview(path: string): Promise<LargePreview> {
   const [bytes, info] = await Promise.all([
-    invoke<ArrayBuffer | number[]>(Invokes.SessionIngestPreview, { path, maxSize: previewSize() }),
-    invoke<CaptureInfo>(Invokes.SessionIngestCaptureInfo, { path }).catch(() => null),
+    invoke<ArrayBuffer | number[]>(Invokes.SessionIngestPreview, {
+      path,
+      maxSize: previewSize()
+    }),
+    invoke<CaptureInfo>(Invokes.SessionIngestCaptureInfo, { path }).catch(() => null)
   ]);
   const data = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes ?? []).buffer;
   return {
-    url: data.byteLength ? URL.createObjectURL(new Blob([data], { type: "image/jpeg" })) : null,
-    info,
+    url: data.byteLength ? URL.createObjectURL(new Blob([data], { type: 'image/jpeg' })) : null,
+    info
   };
 }
 
@@ -56,7 +59,7 @@ export async function loadIngestPreview(path: string): Promise<LargePreview> {
 export function createLargePreviewCache(
   load: (path: string) => Promise<LargePreview>,
   onLoaded: (path: string) => void,
-  concurrency = 2,
+  concurrency = 2
 ) {
   const done = new Map<string, LargePreview>();
   const running = new Set<string>();
@@ -97,7 +100,7 @@ export function createLargePreviewCache(
     want,
     get: (path: string) => done.get(path),
     /** Drops everything; previews still loading are discarded on arrival. */
-    clear: () => want([]),
+    clear: () => want([])
   };
 }
 
@@ -128,21 +131,19 @@ export default function IngestLoupe({
   onIndexChange,
   onToggle,
   onClose,
-  load,
+  load
 }: Props) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
   const [, setLoaded] = useState(0);
   const cache = useMemo(
     () => createLargePreviewCache(load ?? loadIngestPreview, () => setLoaded((n) => n + 1)),
-    [load],
+    [load]
   );
   const file = files[index];
 
   useEffect(() => {
-    const paths = NEIGHBOURS.map((offset) => files[index + offset]?.path).filter(
-      (path): path is string => !!path,
-    );
+    const paths = NEIGHBOURS.map((offset) => files[index + offset]?.path).filter((path): path is string => !!path);
     cache.want(paths);
   }, [cache, files, index]);
   useEffect(() => () => cache.clear(), [cache]);
@@ -153,15 +154,15 @@ export default function IngestLoupe({
     // take it as its own cancel. The key's default is prevented below; this
     // also stops a cancel the webview might still send for it (kept a moment
     // after closing, as that cancel can arrive after the view is gone).
-    const dialog = root.current?.closest("dialog");
+    const dialog = root.current?.closest('dialog');
     if (!dialog) return;
     const swallow = (e: Event) => {
       e.preventDefault();
       e.stopImmediatePropagation();
     };
-    dialog.addEventListener("cancel", swallow, true);
+    dialog.addEventListener('cancel', swallow, true);
     return () => {
-      window.setTimeout(() => dialog.removeEventListener("cancel", swallow, true), 250);
+      window.setTimeout(() => dialog.removeEventListener('cancel', swallow, true), 250);
     };
   }, []);
 
@@ -170,7 +171,7 @@ export default function IngestLoupe({
   const checked = selected.has(file.path);
   const name = file.path.split(/[\\/]/).pop() ?? file.path;
   const info = preview?.info;
-  const capture = [info?.iso, info?.exposure, info?.aperture, info?.focalLength].filter(Boolean).join(" · ");
+  const capture = [info?.iso, info?.exposure, info?.aperture, info?.focalLength].filter(Boolean).join(' · ');
   const step = (by: number) => {
     const next = Math.min(files.length - 1, Math.max(0, index + by));
     if (next !== index) onIndexChange(next);
@@ -182,27 +183,27 @@ export default function IngestLoupe({
       ref={root}
       className="session-ingest-loupe"
       role="region"
-      aria-label={t("session.ingest.largeView")}
+      aria-label={t('session.ingest.largeView')}
       tabIndex={-1}
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         switch (e.key) {
-          case "ArrowRight":
-          case "ArrowDown":
+          case 'ArrowRight':
+          case 'ArrowDown':
             step(1);
             break;
-          case "ArrowLeft":
-          case "ArrowUp":
+          case 'ArrowLeft':
+          case 'ArrowUp':
             step(-1);
             break;
-          case "Home":
+          case 'Home':
             step(-files.length);
             break;
-          case "End":
+          case 'End':
             step(files.length);
             break;
-          case " ":
-          case "Escape":
+          case ' ':
+          case 'Escape':
             onClose();
             break;
           default:
@@ -213,7 +214,7 @@ export default function IngestLoupe({
       }}
       onKeyUp={(e) => {
         // Space would otherwise click whichever button has the focus.
-        if (e.key === " ") e.preventDefault();
+        if (e.key === ' ') e.preventDefault();
       }}
     >
       <div className="session-ingest-loupe-bar">
@@ -221,19 +222,19 @@ export default function IngestLoupe({
           type="button"
           role="checkbox"
           aria-checked={checked}
-          className={`session-ingest-loupe-check${checked ? " is-checked" : ""}`}
+          className={`session-ingest-loupe-check${checked ? ' is-checked' : ''}`}
           onClick={() => onToggle(file.path)}
         >
           <span className="session-ingest-check" aria-hidden>
             {checked && <Check size={12} strokeWidth={3} />}
           </span>
-          {t("session.ingest.include")}
+          {t('session.ingest.include')}
         </button>
         <div className="session-ingest-loupe-title">
           <strong title={file.path}>{name}</strong>
           <span>
-            {[capture, formatBytes(file.size)].filter(Boolean).join(" · ")}
-            {file.duplicate && ` · ${t("session.ingest.inLibrary")}`}
+            {[capture, formatBytes(file.size)].filter(Boolean).join(' · ')}
+            {file.duplicate && ` · ${t('session.ingest.inLibrary')}`}
           </span>
         </div>
         <span className="session-ingest-loupe-count">
@@ -242,7 +243,7 @@ export default function IngestLoupe({
         <button
           type="button"
           className="session-icon-button"
-          aria-label={t("session.ingest.previous")}
+          aria-label={t('session.ingest.previous')}
           disabled={index === 0}
           onClick={() => step(-1)}
         >
@@ -251,7 +252,7 @@ export default function IngestLoupe({
         <button
           type="button"
           className="session-icon-button"
-          aria-label={t("session.ingest.next")}
+          aria-label={t('session.ingest.next')}
           disabled={index === files.length - 1}
           onClick={() => step(1)}
         >
@@ -260,8 +261,8 @@ export default function IngestLoupe({
         <button
           type="button"
           className="session-icon-button"
-          aria-label={t("session.ingest.backToGrid")}
-          title={t("session.ingest.backToGrid")}
+          aria-label={t('session.ingest.backToGrid')}
+          title={t('session.ingest.backToGrid')}
           onClick={onClose}
         >
           <X size={16} />
@@ -274,14 +275,12 @@ export default function IngestLoupe({
             src={image}
             alt={name}
             draggable={false}
-            className={preview?.url ? undefined : "is-placeholder"}
+            className={preview?.url ? undefined : 'is-placeholder'}
           />
         ) : preview ? (
-          <span>{t("session.ingest.noPreview")}</span>
+          <span>{t('session.ingest.noPreview')}</span>
         ) : null}
-        {!preview && (
-          <LoaderCircle size={18} className="session-ingest-loupe-spinner animate-spin" aria-hidden />
-        )}
+        {!preview && <LoaderCircle size={18} className="session-ingest-loupe-spinner animate-spin" aria-hidden />}
       </div>
     </div>
   );

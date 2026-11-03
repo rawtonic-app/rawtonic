@@ -21,7 +21,7 @@ export function shapeFromDrag(
   params: SubMask['parameters'],
   from: Point,
   to: Point,
-  { scale, handle, snap = false, drawing = false }: { scale: number; handle: number; snap?: boolean; drawing?: boolean },
+  { scale, handle, snap = false, drawing = false }: { scale: number; handle: number; snap?: boolean; drawing?: boolean }
 ): SubMask['parameters'] | null {
   if (!drawing && Math.hypot(to.x - from.x, to.y - from.y) < SHAPE_DRAG_THRESHOLD / scale) return null;
   if (type === Mask.Radial) {
@@ -31,7 +31,7 @@ export function shapeFromDrag(
       centerY: from.y,
       radiusX: Math.max(1, Math.abs(to.x - from.x)),
       radiusY: Math.max(1, Math.abs(to.y - from.y)),
-      rotation: 0,
+      rotation: 0
     };
   }
   if (type === Mask.Linear) return linearFromDrag(params as LinearParams, from, to, handle, snap);
@@ -71,7 +71,7 @@ export interface ShapeDragState {
 export function restoreAfterShapeDrag<A extends { masks: { subMasks: { id: string }[] }[] }>(
   drag: ShapeDragState,
   recipe: A,
-  { renderLive, showLayer }: { renderLive(recipe: A): void; showLayer(layer: A['masks'][number]): void },
+  { renderLive, showLayer }: { renderLive(recipe: A): void; showLayer(layer: A['masks'][number]): void }
 ) {
   const layer = recipe.masks.find((m) => m.subMasks.some((sub) => sub.id === drag.id));
   if (drag.renderedLive) renderLive(recipe);

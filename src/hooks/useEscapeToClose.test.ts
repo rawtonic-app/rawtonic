@@ -3,7 +3,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { useEscapeToClose } from './useEscapeToClose';
 
 const escape = () => {
-  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  const event = new KeyboardEvent('keydown', {
+    key: 'Escape',
+    bubbles: true,
+    cancelable: true
+  });
   window.dispatchEvent(event);
   return event;
 };

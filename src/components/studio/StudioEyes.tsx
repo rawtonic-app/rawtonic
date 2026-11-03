@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
-import { invoke } from "@tauri-apps/api/core";
-import { CircleQuestionMark, Eye, EyeClosed, Glasses } from "lucide-react";
-import { notify } from "../../activity/notify";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { CircleQuestionMark, Eye, EyeClosed, Glasses } from 'lucide-react';
+import { notify } from '../../activity/notify';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
 import {
   effectiveEyes,
   markedFace,
@@ -15,9 +15,9 @@ import {
   type EyeCall,
   type EyeState,
   type EyeSummary,
-  type PhotoEyes,
-} from "../../store/useEyesStore";
-import { Invokes } from "../ui/AppProperties";
+  type PhotoEyes
+} from '../../store/useEyesStore';
+import { Invokes } from '../ui/AppProperties';
 
 /**
  * Eyes per face for culling (`face_eyes`): a badge on each photograph with
@@ -31,31 +31,35 @@ export const EYE_ICONS: Record<EyeState, typeof Eye> = {
   open: Eye,
   closed: EyeClosed,
   notVisible: Glasses,
-  uncertain: CircleQuestionMark,
+  uncertain: CircleQuestionMark
 };
 
 export function stateLabel(t: TFunction, state: EyeState) {
   switch (state) {
-    case "open":
-      return t("studio.eyes.state.open");
-    case "closed":
-      return t("studio.eyes.state.closed");
-    case "notVisible":
-      return t("studio.eyes.state.notVisible");
+    case 'open':
+      return t('studio.eyes.state.open');
+    case 'closed':
+      return t('studio.eyes.state.closed');
+    case 'notVisible':
+      return t('studio.eyes.state.notVisible');
     default:
-      return t("studio.eyes.state.uncertain");
+      return t('studio.eyes.state.uncertain');
   }
 }
 
 /** "Faces 14 · eyes closed 2 · check 3 · not visible 1", what applies. */
 export function eyeSummaryText(t: TFunction, summary: EyeSummary): string {
-  if (summary.faces === 0) return t("studio.eyes.noFaces");
-  const parts = [t("studio.eyes.summary.faces", { n: summary.faces.toLocaleString() })];
-  if (summary.closed) parts.push(t("studio.eyes.summary.closed", { n: summary.closed.toLocaleString() }));
-  if (summary.uncertain) parts.push(t("studio.eyes.summary.check", { n: summary.uncertain.toLocaleString() }));
+  if (summary.faces === 0) return t('studio.eyes.noFaces');
+  const parts = [t('studio.eyes.summary.faces', { n: summary.faces.toLocaleString() })];
+  if (summary.closed) parts.push(t('studio.eyes.summary.closed', { n: summary.closed.toLocaleString() }));
+  if (summary.uncertain) parts.push(t('studio.eyes.summary.check', { n: summary.uncertain.toLocaleString() }));
   if (summary.notVisible)
-    parts.push(t("studio.eyes.summary.notVisible", { n: summary.notVisible.toLocaleString() }));
-  return parts.join(" · ");
+    parts.push(
+      t('studio.eyes.summary.notVisible', {
+        n: summary.notVisible.toLocaleString()
+      })
+    );
+  return parts.join(' · ');
 }
 
 /** A grid tile's or compare cell's badge: closed eyes (amber, "2/14") or,
@@ -69,10 +73,10 @@ export function PhotoEyesBadge({ path, compact }: { path: string; compact?: bool
   const text = eyeSummaryText(t, summary);
   return (
     <span
-      className={`studio-eyes-badge ${closed ? "is-closed" : "is-uncertain"}`}
+      className={`studio-eyes-badge ${closed ? 'is-closed' : 'is-uncertain'}`}
       role="img"
       aria-label={text}
-      title={`${text}\n${t("studio.eyes.suggestion")}`}
+      title={`${text}\n${t('studio.eyes.suggestion')}`}
     >
       <Icon size={11} />
       {!compact && <span>{closed ? `${summary.closed}/${summary.faces}` : summary.uncertain}</span>}
@@ -110,17 +114,24 @@ export function LoupeFaces({ path }: { path?: string }) {
   const [crops, setCrops] = useState<{ key: string; urls: string[] } | null>(null);
   // The open call menu: its face and where it opens (above the button: the
   // strip sits at the bottom of the Loupe).
-  const [menu, setMenu] = useState<{ index: number; left: number; bottom: number } | null>(null);
+  const [menu, setMenu] = useState<{
+    index: number;
+    left: number;
+    bottom: number;
+  } | null>(null);
   const strip = useRef<HTMLDivElement>(null);
   // Crops follow the boxes, not the calls: a call keeps its picture.
   const key = useMemo(
-    () => (path && faces?.length ? `${path}\n${JSON.stringify(faces.map((f) => f.bbox))}` : ""),
-    [path, faces],
+    () => (path && faces?.length ? `${path}\n${JSON.stringify(faces.map((f) => f.bbox))}` : ''),
+    [path, faces]
   );
   useEffect(() => {
     if (!key || !path || !faces) return;
     let current = true;
-    invoke<string[]>(Invokes.FaceEyeCrops, { path, boxes: faces.map((f) => f.bbox) })
+    invoke<string[]>(Invokes.FaceEyeCrops, {
+      path,
+      boxes: faces.map((f) => f.bbox)
+    })
       .then((urls) => current && setCrops({ key, urls }))
       .catch(() => current && setCrops({ key, urls: [] }));
     return () => {
@@ -143,7 +154,7 @@ export function LoupeFaces({ path }: { path?: string }) {
     () => () => {
       if (path && useEyesStore.getState().faceMark?.path === path) showFaces(path, null);
     },
-    [path, showFaces],
+    [path, showFaces]
   );
   const pinned = useEyesStore((s) => (s.faceMark && s.faceMark.path === path ? s.faceMark.pinned : null));
   const marked = useEyesStore((s) => (s.faceMark?.path === path ? markedFace(s.faceMark) : null));
@@ -153,19 +164,19 @@ export function LoupeFaces({ path }: { path?: string }) {
     // The keys take over from a pointer still resting on another crop.
     hoverFace(path, null);
     pinFace(path, index);
-    strip.current?.querySelectorAll<HTMLButtonElement>(".studio-loupe-face-crop")[index]?.focus();
+    strip.current?.querySelectorAll<HTMLButtonElement>('.studio-loupe-face-crop')[index]?.focus();
   };
   const summary: EyeSummary = {
     faces: faces.length,
-    closed: faces.filter((f) => effectiveEyes(f) === "closed").length,
-    notVisible: faces.filter((f) => effectiveEyes(f) === "notVisible").length,
-    uncertain: faces.filter((f) => effectiveEyes(f) === "uncertain").length,
+    closed: faces.filter((f) => effectiveEyes(f) === 'closed').length,
+    notVisible: faces.filter((f) => effectiveEyes(f) === 'notVisible').length,
+    uncertain: faces.filter((f) => effectiveEyes(f) === 'uncertain').length
   };
   const urls = crops?.key === key ? crops.urls : [];
   const call = (face: number, state: EyeCall | null) => {
     setMenu(null);
     setFaceEyes(read.directory, path, face, state).catch((error) =>
-      notify.error(t("studio.eyes.callFailed", { error: String(error) })),
+      notify.error(t('studio.eyes.callFailed', { error: String(error) }))
     );
   };
   return (
@@ -173,12 +184,12 @@ export function LoupeFaces({ path }: { path?: string }) {
       className="studio-loupe-faces"
       ref={strip}
       role="group"
-      aria-label={t("studio.eyes.faces")}
+      aria-label={t('studio.eyes.faces')}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && menu !== null) {
+        if (e.key === 'Escape' && menu !== null) {
           e.stopPropagation();
           setMenu(null);
-        } else if (e.key === "Escape" && pinned !== null) {
+        } else if (e.key === 'Escape' && pinned !== null) {
           e.stopPropagation();
           pinFace(path, null);
         }
@@ -188,7 +199,7 @@ export function LoupeFaces({ path }: { path?: string }) {
         if (!strip.current?.contains(e.relatedTarget as Node | null)) setMenu(null);
       }}
     >
-      <span className="studio-loupe-faces-summary" title={t("studio.eyes.suggestion")}>
+      <span className="studio-loupe-faces-summary" title={t('studio.eyes.suggestion')}>
         {eyeSummaryText(t, summary)}
       </span>
       <div className="studio-loupe-faces-list" role="list">
@@ -197,28 +208,30 @@ export function LoupeFaces({ path }: { path?: string }) {
           const Icon = EYE_ICONS[state];
           const label = stateLabel(t, state);
           const title = face.overrideState
-            ? t("studio.eyes.yourCall", { state: label, read: stateLabel(t, face.state) })
-            : t("studio.eyes.asRead", { state: label });
+            ? t('studio.eyes.yourCall', {
+                state: label,
+                read: stateLabel(t, face.state)
+              })
+            : t('studio.eyes.asRead', { state: label });
           return (
             <div
               key={face.face}
               role="listitem"
-              className={`studio-loupe-face is-${state}${marked === index ? " is-marked" : ""}${pinned === index ? " is-pinned" : ""}`}
+              className={`studio-loupe-face is-${state}${marked === index ? ' is-marked' : ''}${pinned === index ? ' is-pinned' : ''}`}
             >
               {/* Hover shows the face's box on the photograph, a click keeps
                   it shown (again, Esc or another face lets go); the arrow
                   keys move it from face to face. */}
               <button
                 className="studio-loupe-face-crop"
-                aria-label={t("studio.eyes.showFace", { n: index + 1 })}
-                title={t("studio.eyes.showFace", { n: index + 1 })}
+                aria-label={t('studio.eyes.showFace', { n: index + 1 })}
+                title={t('studio.eyes.showFace', { n: index + 1 })}
                 aria-pressed={pinned === index}
                 onMouseEnter={() => hoverFace(path, index)}
                 onMouseLeave={() => hoverFace(path, null)}
                 onClick={() => pinFace(path, pinned === index ? null : index)}
                 onKeyDown={(e) => {
-                  const next =
-                    e.key === "ArrowRight" ? index + 1 : e.key === "ArrowLeft" ? index - 1 : null;
+                  const next = e.key === 'ArrowRight' ? index + 1 : e.key === 'ArrowLeft' ? index - 1 : null;
                   if (next === null) return;
                   // Not the photograph navigation on the same keys.
                   e.preventDefault();
@@ -226,11 +239,18 @@ export function LoupeFaces({ path }: { path?: string }) {
                   if (next >= 0 && next < faces.length) step(next);
                 }}
               >
-                {urls[index] ? <img src={urls[index]} alt="" draggable={false} /> : <span className="studio-loupe-face-empty" />}
+                {urls[index] ? (
+                  <img src={urls[index]} alt="" draggable={false} />
+                ) : (
+                  <span className="studio-loupe-face-empty" />
+                )}
               </button>
               <button
-                className={`studio-eye-call is-${state} ${face.overrideState ? "is-own" : ""}`}
-                aria-label={t("studio.eyes.faceLabel", { n: index + 1, state: label })}
+                className={`studio-eye-call is-${state} ${face.overrideState ? 'is-own' : ''}`}
+                aria-label={t('studio.eyes.faceLabel', {
+                  n: index + 1,
+                  state: label
+                })}
                 aria-haspopup="menu"
                 aria-expanded={menu?.index === index}
                 title={title}
@@ -239,7 +259,11 @@ export function LoupeFaces({ path }: { path?: string }) {
                   setMenu(
                     menu?.index === index
                       ? null
-                      : { index, left: rect.left, bottom: window.innerHeight - rect.top + 6 },
+                      : {
+                          index,
+                          left: rect.left,
+                          bottom: window.innerHeight - rect.top + 6
+                        }
                   );
                 }}
               >
@@ -249,10 +273,10 @@ export function LoupeFaces({ path }: { path?: string }) {
                 <div
                   className="studio-eye-menu"
                   role="menu"
-                  aria-label={t("studio.eyes.callMenu")}
+                  aria-label={t('studio.eyes.callMenu')}
                   style={{ left: menu.left, bottom: menu.bottom }}
                 >
-                  {(["open", "closed", "notVisible"] as const).map((option) => {
+                  {(['open', 'closed', 'notVisible'] as const).map((option) => {
                     const OptionIcon = EYE_ICONS[option];
                     return (
                       <button
@@ -271,7 +295,9 @@ export function LoupeFaces({ path }: { path?: string }) {
                     aria-checked={face.overrideState === null}
                     onClick={() => call(face.face, null)}
                   >
-                    {t("studio.eyes.useReading", { state: stateLabel(t, face.state) })}
+                    {t('studio.eyes.useReading', {
+                      state: stateLabel(t, face.state)
+                    })}
                   </button>
                 </div>
               )}

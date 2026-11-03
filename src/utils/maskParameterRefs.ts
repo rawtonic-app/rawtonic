@@ -50,7 +50,10 @@ function tokenFor(subMask: SubMask): string | null {
  * become references, the others carry a token naming them for later. Only
  * the containers on the way are copied; `sent` lists the new tokens.
  */
-export function withParameterReferences(adjustments: Adjustments): { adjustments: Adjustments; sent: string[] } {
+export function withParameterReferences(adjustments: Adjustments): {
+  adjustments: Adjustments;
+  sent: string[];
+} {
   const sent: string[] = [];
   if (!Array.isArray(adjustments.masks)) return { adjustments, sent };
   let changed = false;
@@ -69,7 +72,10 @@ export function withParameterReferences(adjustments: Adjustments): { adjustments
     changed = true;
     return { ...mask, subMasks };
   });
-  return { adjustments: changed ? { ...adjustments, masks } : adjustments, sent };
+  return {
+    adjustments: changed ? { ...adjustments, masks } : adjustments,
+    sent
+  };
 }
 
 /** The backend received these tokens' parameters. */

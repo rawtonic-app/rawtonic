@@ -9,7 +9,12 @@ export type ModuleLayout = Record<PanelGroup, boolean>;
 export type PanelRequest = 'sides' | 'all' | 'left' | 'right' | 'filmstrip';
 
 export const PANEL_GROUPS: PanelGroup[] = ['left', 'right', 'filmstrip', 'bars'];
-export const SHOWN_LAYOUT: ModuleLayout = { left: true, right: true, filmstrip: true, bars: true };
+export const SHOWN_LAYOUT: ModuleLayout = {
+  left: true,
+  right: true,
+  filmstrip: true,
+  bars: true
+};
 
 /** Tools on the left (`tools-left`), or Develop's tools on the right with the
  * Library tools on the left (`split-tools`). */
@@ -36,13 +41,13 @@ export function readModuleLayout(stored: unknown, module: WorkspaceModule): Modu
  * Develop's right-hand tools are dropped below 1200 px (`narrow`). */
 export function presentGroups(module: WorkspaceModule, toolLayout: ToolLayout, narrow = false): PanelGroup[] {
   if (module === 'library') return ['left', 'bars'];
-  if (toolLayout === 'split-tools') return narrow ? ['right', 'filmstrip', 'bars'] : ['left', 'right', 'filmstrip', 'bars'];
+  if (toolLayout === 'split-tools')
+    return narrow ? ['right', 'filmstrip', 'bars'] : ['left', 'right', 'filmstrip', 'bars'];
   return ['left', 'filmstrip', 'bars'];
 }
 
 export function requestGroups(request: PanelRequest, present: PanelGroup[]): PanelGroup[] {
-  const wanted: PanelGroup[] =
-    request === 'sides' ? ['left', 'right'] : request === 'all' ? PANEL_GROUPS : [request];
+  const wanted: PanelGroup[] = request === 'sides' ? ['left', 'right'] : request === 'all' ? PANEL_GROUPS : [request];
   return wanted.filter((group) => present.includes(group));
 }
 

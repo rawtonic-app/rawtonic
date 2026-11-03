@@ -16,7 +16,7 @@ const photo = (from: string, to: string, extra: Partial<RenamePlan['photos'][num
   files: from === to ? [] : [{ from, to, role: 'photo' as const }],
   notes: [],
   problems: [],
-  ...extra,
+  ...extra
 });
 
 function open(paths: string[], plan: RenamePlan) {
@@ -34,17 +34,17 @@ it('previews the final names, sidecars and notes and saves exactly that plan', a
         files: [
           { from: '/s/A.NEF', to: '/s/Job_1.NEF', role: 'photo' },
           { from: '/s/A.JPG', to: '/s/Job_1.JPG', role: 'companion' },
-          { from: '/s/A.xmp', to: '/s/Job_1.xmp', role: 'xmp' },
-        ],
+          { from: '/s/A.xmp', to: '/s/Job_1.xmp', role: 'xmp' }
+        ]
       }),
       photo('/s/B.NEF', '/s/Job_2.NEF', {
         files: [
           { from: '/s/B.NEF', to: '/s/Job_2.NEF', role: 'photo' },
-          { from: '/s/B.xmp', to: '/s/Job_2.xmp', role: 'xmp' },
+          { from: '/s/B.xmp', to: '/s/Job_2.xmp', role: 'xmp' }
         ],
-        notes: [{ kind: 'xmpWithRaw', xmp: '/s/B.xmp', others: ['/s/B.JPG'] }],
-      }),
-    ],
+        notes: [{ kind: 'xmpWithRaw', xmp: '/s/B.xmp', others: ['/s/B.JPG'] }]
+      })
+    ]
   };
   const { onSave } = open(['/s/A.NEF', '/s/B.NEF'], plan);
   // A batch is named in the naming editor of import and export.
@@ -55,7 +55,7 @@ it('previews the final names, sidecars and notes and saves exactly that plan', a
     paths: ['/s/A.NEF', '/s/B.NEF'],
     nameTemplate: 'Job',
     sequenceStart: 1,
-    refresh: true,
+    refresh: true
   });
   const rows = within(list).getAllByRole('listitem');
   expect(rows[0].textContent).toContain('A.NEF→Job_1.NEF');
@@ -71,19 +71,25 @@ it('previews the final names, sidecars and notes and saves exactly that plan', a
       paths: ['/s/A.NEF', '/s/B.NEF'],
       nameTemplate: 'Job2',
       sequenceStart: 1,
-      refresh: false,
-    }),
+      refresh: false
+    })
   );
 });
 
 it('shows why a name cannot be taken and does not save', async () => {
   const { onSave } = open(['/s/A.NEF'], {
-    photos: [photo('/s/A.NEF', '/s/B.NEF', { problems: [{ kind: 'occupied', path: '/s/B.NEF' }] })],
+    photos: [
+      photo('/s/A.NEF', '/s/B.NEF', {
+        problems: [{ kind: 'occupied', path: '/s/B.NEF' }]
+      })
+    ]
   });
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'B' } });
   expect(await screen.findByText('B.NEF already exists.')).toBeTruthy();
   expect(screen.getByText('Nothing can be renamed until every problem above is solved.')).toBeTruthy();
-  const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+  const save = screen.getByRole('button', {
+    name: 'Save'
+  }) as HTMLButtonElement;
   expect(save.disabled).toBe(true);
   fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
   expect(onSave).not.toHaveBeenCalled();
@@ -98,7 +104,9 @@ it('lists the first rows of a large batch and counts the rest', async () => {
 });
 
 it('cannot save when no name changes', async () => {
-  open(['/s/A.NEF', '/s/B.NEF'], { photos: [photo('/s/A.NEF', '/s/A.NEF'), photo('/s/B.NEF', '/s/B.NEF')] });
+  open(['/s/A.NEF', '/s/B.NEF'], {
+    photos: [photo('/s/A.NEF', '/s/A.NEF'), photo('/s/B.NEF', '/s/B.NEF')]
+  });
   expect(await screen.findByText('No name changes.')).toBeTruthy();
   expect(screen.getAllByText('keeps its name')).toHaveLength(2);
   await waitFor(() => expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true));

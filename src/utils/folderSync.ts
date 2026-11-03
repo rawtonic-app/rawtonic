@@ -63,7 +63,13 @@ export interface SyncPlan {
 }
 
 export type SyncAction =
-  | { kind: 'move'; assetId: string; from: string; to: string; identity: FileIdentity }
+  | {
+      kind: 'move';
+      assetId: string;
+      from: string;
+      to: string;
+      identity: FileIdentity;
+    }
   | { kind: 'add'; path: string; identity: FileIdentity }
   | { kind: 'remove'; assetId: string; path: string };
 
@@ -131,7 +137,7 @@ export function unresolved(plan: SyncPlan, choices: Map<string, ContestedChoice>
 export function syncActions(
   plan: SyncPlan,
   selected: ReadonlySet<string>,
-  choices: Map<string, ContestedChoice>,
+  choices: Map<string, ContestedChoice>
 ): SyncAction[] {
   const actions: SyncAction[] = [];
   const move = (m: SyncMove): SyncAction => ({
@@ -139,7 +145,7 @@ export function syncActions(
     assetId: m.assetId,
     from: m.from,
     to: m.to,
-    identity: m.identity,
+    identity: m.identity
   });
   for (const group of SYNC_GROUPS) {
     for (const row of groupRows(plan, group)) {
@@ -147,7 +153,11 @@ export function syncActions(
       if (group === 'verifiedMoves' || group === 'probableMoves') actions.push(move(row as SyncMove));
       else if (group === 'removed') {
         const missing = row as SyncMissing;
-        actions.push({ kind: 'remove', assetId: missing.assetId, path: missing.path });
+        actions.push({
+          kind: 'remove',
+          assetId: missing.assetId,
+          path: missing.path
+        });
       } else {
         const file = row as SyncNewFile;
         actions.push({ kind: 'add', path: file.path, identity: file.identity });
@@ -158,7 +168,11 @@ export function syncActions(
     const choice = choices.get(contested.path);
     if (!choice || choice === 'skip') continue;
     if (choice === 'add') {
-      actions.push({ kind: 'add', path: contested.path, identity: contested.identity });
+      actions.push({
+        kind: 'add',
+        path: contested.path,
+        identity: contested.identity
+      });
       continue;
     }
     const chosen = contested.moves.find((m) => m.assetId === choice.move);
@@ -180,7 +194,10 @@ export function shownPath(folders: readonly string[], path: string): string {
 }
 
 // Natural order, as the folder list sorts names: copy_2 before copy_10.
-const naturalOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const naturalOrder = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base'
+});
 const byPath = (a: string, b: string) => naturalOrder.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
 
 /** `plan` with every group's rows in natural order of the paths the review
@@ -196,7 +213,7 @@ export function sortPlan(plan: SyncPlan): SyncPlan {
     contested: sorted(plan.contested, (c) => c.path),
     removed: sorted(plan.removed, (m) => m.path),
     unavailable: sorted(plan.unavailable, (m) => m.path),
-    errors: sorted(plan.errors, (e) => e.path),
+    errors: sorted(plan.errors, (e) => e.path)
   };
 }
 
@@ -212,7 +229,11 @@ export interface OpenFolderSyncDetail {
   folder: string | null;
 }
 export function requestFolderSync(folder: string | null) {
-  window.dispatchEvent(new CustomEvent<OpenFolderSyncDetail>(OPEN_FOLDER_SYNC_EVENT, { detail: { folder } }));
+  window.dispatchEvent(
+    new CustomEvent<OpenFolderSyncDetail>(OPEN_FOLDER_SYNC_EVENT, {
+      detail: { folder }
+    })
+  );
 }
 
 /** Fired after a synchronization applied changes (`detail`: the
@@ -249,7 +270,7 @@ export async function openPreviousImport(
   directory: string,
   name: string,
   select: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void,
-  preserveEditor = false,
+  preserveEditor = false
 ): Promise<number> {
   const { paths } = await previousImport(directory);
   select(PREVIOUS_IMPORT_VIEW_ID, name, paths, preserveEditor);

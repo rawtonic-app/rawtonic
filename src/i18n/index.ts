@@ -35,12 +35,12 @@ i18n.use(initReactI18next).init({
     ja: { translation: ja },
     ko: { translation: ko },
     ru: { translation: ru },
-    ca: { translation: ca },
+    ca: { translation: ca }
   },
   lng: 'en',
   fallbackLng: 'en',
   returnEmptyString: false,
   interpolation: {
-    escapeValue: false,
-  },
+    escapeValue: false
+  }
 });

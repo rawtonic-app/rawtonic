@@ -49,5 +49,5 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     } catch (err) {
       console.error('Failed to save settings:', err);
     }
-  },
+  }
 }));

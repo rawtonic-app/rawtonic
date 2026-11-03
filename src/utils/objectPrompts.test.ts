@@ -7,11 +7,16 @@ import {
   promptOf,
   promptsFrameChanged,
   storedPrompts,
-  type ObjectPrompt,
+  type ObjectPrompt
 } from './objectPrompts';
 
 const at = (x: number, y: number) => ({ x, y });
-const upright = { rotation: 0, flipHorizontal: false, flipVertical: false, orientationSteps: 0 };
+const upright = {
+  rotation: 0,
+  flipHorizontal: false,
+  flipVertical: false,
+  orientationSteps: 0
+};
 // As the backend stores it: the lens and transform adjustments the mask was made in.
 const warp = { transformVertical: 0, lensCorrectionMode: 'auto' };
 const shown = { ...upright, ...warp, exposure: 1 };
@@ -32,7 +37,7 @@ describe('Object selection prompts', () => {
       startY: 6,
       endX: 50,
       endY: 60,
-      exclude: true,
+      exclude: true
     });
   });
 
@@ -45,7 +50,7 @@ describe('Object selection prompts', () => {
     expect(prompts).toEqual([
       { type: 'point', x: 10, y: 10 },
       { type: 'box', startX: 100, startY: 100, endX: 200, endY: 180 },
-      { type: 'point', x: 150, y: 150, exclude: true },
+      { type: 'point', x: 150, y: 150, exclude: true }
     ]);
     expect(nextPrompts(prompts, promptOf(at(1, 2), at(1, 2)), 'replace')).toEqual([{ type: 'point', x: 1, y: 2 }]);
   });
@@ -59,21 +64,41 @@ describe('Object selection prompts', () => {
       promptBounds([
         { type: 'point', x: 3, y: 3, exclude: true },
         { type: 'box', startX: 1, startY: 2, endX: 3, endY: 4 },
-        { type: 'point', x: 9, y: 9 },
-      ]),
+        { type: 'point', x: 9, y: 9 }
+      ])
     ).toEqual({ start: at(1, 2), end: at(3, 4) });
-    expect(promptBounds([{ type: 'point', x: 7, y: 8 }])).toEqual({ start: at(7, 8), end: at(7, 8) });
+    expect(promptBounds([{ type: 'point', x: 7, y: 8 }])).toEqual({
+      start: at(7, 8),
+      end: at(7, 8)
+    });
   });
 
   it("builds on a recipe's one box or click from before", () => {
-    const params = { maskDataBase64: 'png', startX: 1, startY: 2, endX: 30, endY: 40, ...upright, warp };
+    const params = {
+      maskDataBase64: 'png',
+      startX: 1,
+      startY: 2,
+      endX: 30,
+      endY: 40,
+      ...upright,
+      warp
+    };
     expect(storedPrompts(params, shown)).toEqual([{ type: 'box', startX: 1, startY: 2, endX: 30, endY: 40 }]);
     expect(storedPrompts({ ...params, endX: 1, endY: 2 }, shown)).toEqual([{ type: 'point', x: 1, y: 2 }]);
   });
 
   it('builds on nothing without a mask (pasted, waiting) or after the photo was turned or warped', () => {
     const prompts: ObjectPrompt[] = [{ type: 'point', x: 1, y: 1 }];
-    const params = { maskDataBase64: 'png', prompts, startX: 1, startY: 1, endX: 1, endY: 1, ...upright, warp };
+    const params = {
+      maskDataBase64: 'png',
+      prompts,
+      startX: 1,
+      startY: 1,
+      endX: 1,
+      endY: 1,
+      ...upright,
+      warp
+    };
     expect(storedPrompts(params, shown)).toEqual(prompts);
     expect(storedPrompts({ ...params, maskDataBase64: null }, shown)).toEqual([]);
     expect(storedPrompts(params, { ...shown, orientationSteps: 1 })).toEqual([]);
@@ -89,7 +114,13 @@ describe('Object selection prompts', () => {
   it('keeps the prompts across lens corrections that move nothing; refuses adding after a turn or warp', () => {
     const prompts: ObjectPrompt[] = [{ type: 'point', x: 1, y: 1 }];
     const params = { maskDataBase64: 'png', prompts, ...upright, warp };
-    expect(storedPrompts(params, { ...shown, lensVignetteAmount: 50, lensTcaEnabled: false })).toEqual(prompts);
+    expect(
+      storedPrompts(params, {
+        ...shown,
+        lensVignetteAmount: 50,
+        lensTcaEnabled: false
+      })
+    ).toEqual(prompts);
     expect(promptsFrameChanged(params, { ...shown, lensVignetteAmount: 50 })).toBe(false);
     expect(promptsFrameChanged(params, { ...shown, flipHorizontal: true })).toBe(true);
     expect(promptsFrameChanged(params, { ...shown, transformXOffset: 3 })).toBe(true);
@@ -99,7 +130,7 @@ describe('Object selection prompts', () => {
 
   it('gives the same frame key for the same frame whatever the key order, another for a changed warp', () => {
     expect(promptFrameKey({ ...upright, guidedPerspective: { a: 1, b: [2, 3] } })).toBe(
-      promptFrameKey({ guidedPerspective: { b: [2, 3], a: 1 }, ...upright }),
+      promptFrameKey({ guidedPerspective: { b: [2, 3], a: 1 }, ...upright })
     );
     expect(promptFrameKey(shown)).not.toBe(promptFrameKey({ ...shown, transformXOffset: 5 }));
   });

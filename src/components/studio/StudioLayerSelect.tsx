@@ -1,10 +1,10 @@
-import { useTranslation } from "react-i18next";
-import { useShallow } from "zustand/react/shallow";
-import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
-import { useUIStore } from "../../store/useUIStore";
-import { Panel } from "../ui/AppProperties";
+import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
+import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
+import { useUIStore } from '../../store/useUIStore';
+import { Panel } from '../ui/AppProperties';
 
-const BACKGROUND = "";
+const BACKGROUND = '';
 
 /** The layer the adjustment tools act on, in the viewer bar as in Capture
  * One. Choosing a layer opens Layers with the select tool; Background
@@ -16,20 +16,19 @@ export default function StudioLayerSelect() {
       masks: s.adjustments.masks,
       activeMaskContainerId: s.activeMaskContainerId,
       ready: panelsShowReady(s),
-      setEditor: s.setEditor,
-    })),
+      setEditor: s.setEditor
+    }))
   );
   const activePanel = useUIStore((s) => s.activePanel);
   const current =
-    activePanel === Panel.Masks &&
-    masks.some((m) => m.id === activeMaskContainerId)
+    activePanel === Panel.Masks && masks.some((m) => m.id === activeMaskContainerId)
       ? (activeMaskContainerId as string)
       : BACKGROUND;
   return (
     <select
       className="studio-layer-select"
-      aria-label={t("studio.layers.select.aria")}
-      title={t("studio.layers.select.title")}
+      aria-label={t('studio.layers.select.aria')}
+      title={t('studio.layers.select.title')}
       value={current}
       disabled={!ready}
       onChange={(e) => {
@@ -39,7 +38,7 @@ export default function StudioLayerSelect() {
           activeMaskContainerId: id || null,
           activeMaskId: null,
           focusedMaskComponentId: null,
-          isWbPickerActive: false,
+          isWbPickerActive: false
         });
         if (id) useUIStore.getState().setPanel(Panel.Masks);
       }}
@@ -50,8 +49,7 @@ export default function StudioLayerSelect() {
           {mask.name}
         </option>
       ))}
-      <option value={BACKGROUND}>{t("studio.layers.select.background")}</option>
-
+      <option value={BACKGROUND}>{t('studio.layers.select.background')}</option>
     </select>
   );
 }

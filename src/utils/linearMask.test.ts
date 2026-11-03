@@ -6,7 +6,7 @@ import {
   rangesOf,
   rotateLinear,
   signedDistance,
-  type LinearParams,
+  type LinearParams
 } from './linearMask';
 
 const near = (value: number, expected: number, digits = 6) => expect(value).toBeCloseTo(expected, digits);
@@ -19,7 +19,13 @@ function coverage(params: LinearParams, point: { x: number; y: number }) {
 }
 
 // Central line along y = 100 from x 0 → 200: the start (100%) side is y < 100.
-const base: LinearParams = { startX: 0, startY: 100, endX: 200, endY: 100, range: 20 };
+const base: LinearParams = {
+  startX: 0,
+  startY: 100,
+  endX: 200,
+  endY: 100,
+  range: 20
+};
 const lineAt = (params: LinearParams, line: 'start' | 'end') => {
   // Points on the line, measured along the normal from the old central line.
   return linearLineOffsets(params)[line] + signedDistance(base, { x: params.startX, y: params.startY });
@@ -111,12 +117,14 @@ describe('rotating', () => {
   });
 });
 
-
 describe('two-sided bands', () => {
   const band = { ...base, rangeEnd: 30, band: { width: 40, feather: 10 } };
   it('places the fully covered edges symmetrically and resizes from either side', () => {
     expect(linearLineOffsets(band)).toEqual({ start: -20, end: 20 });
-    for (const [line, y] of [['start', 60], ['end', 140]] as const) {
+    for (const [line, y] of [
+      ['start', 60],
+      ['end', 140]
+    ] as const) {
       const next = dragLinearLine(band, line, { x: 60, y });
       expect(next.band).toEqual({ width: 80, feather: 10 });
       expect(next.startY).toBe(100);
@@ -124,10 +132,19 @@ describe('two-sided bands', () => {
     }
   });
   it('edits outward feather independently of width, including hard edges', () => {
-    for (const [line, y] of [['featherStart', 50], ['featherEnd', 150]] as const) {
-      expect(dragLinearLine(band, line, { x: 80, y }).band).toEqual({ width: 40, feather: 30 });
+    for (const [line, y] of [
+      ['featherStart', 50],
+      ['featherEnd', 150]
+    ] as const) {
+      expect(dragLinearLine(band, line, { x: 80, y }).band).toEqual({
+        width: 40,
+        feather: 30
+      });
     }
-    expect(dragLinearLine(band, 'featherEnd', { x: 80, y: 110 }).band).toEqual({ width: 40, feather: 0 });
+    expect(dragLinearLine(band, 'featherEnd', { x: 80, y: 110 }).band).toEqual({
+      width: 40,
+      feather: 0
+    });
   });
   it('covers the whole dragged span when a band is drawn', () => {
     const from = { x: 300, y: 100 };

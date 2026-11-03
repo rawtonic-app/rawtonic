@@ -8,7 +8,7 @@ import {
   useState,
   CSSProperties,
   ReactNode,
-  RefObject,
+  RefObject
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -16,7 +16,6 @@ import { Check, ChevronRight } from 'lucide-react';
 import { Option, OPTION_HEADER, OPTION_SEPARATOR } from '../components/ui/AppProperties';
 import clsx from 'clsx';
 import { overlayHost } from '../utils/topLayer';
-
 
 interface ContextMenuProviderProps {
   children: ReactNode;
@@ -171,10 +170,7 @@ function SubMenu({ cancelCloseSubmenu, closeSubmenu, hideContextMenu, options, p
         style={style}
         transition={{ duration: 0.1, ease: 'easeOut' }}
       >
-        <div
-          className={clsx('rawtonic-menu', !CustomComponent && 'rawtonic-menu-list min-w-56')}
-          role="menu"
-        >
+        <div className={clsx('rawtonic-menu', !CustomComponent && 'rawtonic-menu-list min-w-56')} role="menu">
           {CustomComponent && customOption ? (
             <CustomComponent {...customOption.customProps} hideContextMenu={hideContextMenu} />
           ) : (
@@ -201,7 +197,7 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
     () => () => {
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     },
-    [],
+    []
   );
 
   const isSubmenuOpen =
@@ -254,7 +250,7 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
         className={clsx(
           'rawtonic-menu-item',
           option.isDestructive && 'is-destructive',
-          option.disabled && 'is-disabled',
+          option.disabled && 'is-disabled'
         )}
         disabled={option.disabled}
         onClick={() => {
@@ -288,7 +284,9 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
             ) : (
               <span className="w-3.5 shrink-0" aria-hidden="true" />
             ))}
-          {option.color && <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: option.color }}></div>}
+          {option.color && (
+            <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: option.color }}></div>
+          )}
           {option.icon && <option.icon size={14} className="shrink-0" />}
           <span
             className="truncate"
@@ -360,12 +358,17 @@ function ContextMenu() {
         </motion.div>
       )}
     </AnimatePresence>,
-    overlayHost(),
+    overlayHost()
   );
 }
 
 export function ContextMenuProvider({ children }: ContextMenuProviderProps) {
-  const [menuState, setMenuState] = useState<MenuState>({ isVisible: false, x: 0, y: 0, options: [] });
+  const [menuState, setMenuState] = useState<MenuState>({
+    isVisible: false,
+    x: 0,
+    y: 0,
+    options: []
+  });
   const [activeSubmenu, setActiveSubmenu] = useState<number[] | null>(null);
   const [menuId, setMenuId] = useState<number>(0);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -376,15 +379,20 @@ export function ContextMenuProvider({ children }: ContextMenuProviderProps) {
     const menuWidth = 256;
     const menuHeight =
       options.reduce(
-        (acc: number, opt: Option) =>
-          acc + (opt.type === OPTION_SEPARATOR ? 9 : opt.type === OPTION_HEADER ? 22 : 40),
-        0,
+        (acc: number, opt: Option) => acc + (opt.type === OPTION_SEPARATOR ? 9 : opt.type === OPTION_HEADER ? 22 : 40),
+        0
       ) + 16;
     const adjustedX = x + menuWidth > window.innerWidth ? window.innerWidth - menuWidth - 10 : x;
     // Never above the window: a long menu's first entries must stay reachable.
     const adjustedY = Math.max(5, y + menuHeight > window.innerHeight ? window.innerHeight - menuHeight - 10 : y);
 
-    setMenuState({ isVisible: true, x: adjustedX, y: adjustedY, requested: { x, y }, options });
+    setMenuState({
+      isVisible: true,
+      x: adjustedX,
+      y: adjustedY,
+      requested: { x, y },
+      options
+    });
     setMenuId((id) => id + 1);
     setActiveSubmenu(null);
   }, []);
@@ -461,7 +469,7 @@ export function ContextMenuProvider({ children }: ContextMenuProviderProps) {
     menuRef,
     menuState,
     openSubmenu,
-    showContextMenu,
+    showContextMenu
   };
 
   return (

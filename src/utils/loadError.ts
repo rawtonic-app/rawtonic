@@ -12,7 +12,10 @@ export function loadErrorText(error: unknown, path: string): string {
   if (isUnreadableError(text)) {
     return i18next.t('studio.loadError.unreadable', { name });
   }
-  return i18next.t('studio.loadError.failed', { name, error: text.replace(/^Error:\s*/, '') });
+  return i18next.t('studio.loadError.failed', {
+    name,
+    error: text.replace(/^Error:\s*/, '')
+  });
 }
 
 /** Whether a load error is the decoder's: a file it cannot read (rawler's

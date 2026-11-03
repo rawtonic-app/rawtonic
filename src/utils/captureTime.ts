@@ -40,9 +40,7 @@ export interface CapturePreview {
 }
 
 export type PlanRequest =
-  | { kind: 'shift'; parts: ShiftParts }
-  | { kind: 'reference'; assetId: string; corrected: string }
-  | { kind: 'reset' };
+  { kind: 'shift'; parts: ShiftParts } | { kind: 'reference'; assetId: string; corrected: string } | { kind: 'reset' };
 
 export interface PlannedChange {
   assetId: string;
@@ -84,7 +82,7 @@ function exifFields(time: CaptureTime): Record<string, string | null> {
   return {
     DateTimeOriginal: time.local,
     SubSecTimeOriginal: time.subsec ?? null,
-    OffsetTimeOriginal: time.offset ?? null,
+    OffsetTimeOriginal: time.offset ?? null
   };
 }
 
@@ -107,19 +105,27 @@ export function showCaptureTimes(changes: PlannedChange[]) {
     imageList: state.imageList.map((image) => {
       const time = timeOf(image.path);
       return time && image.exif ? { ...image, exif: withTime(image.exif, time) } : image;
-    }),
+    })
   }));
   useEditorStore.getState().setEditor((state) => {
     const time = state.selectedImage && timeOf(state.selectedImage.path);
     if (!state.selectedImage || !time || !state.selectedImage.exif) return state;
-    return { selectedImage: { ...state.selectedImage, exif: withTime(state.selectedImage.exif, time) } };
+    return {
+      selectedImage: {
+        ...state.selectedImage,
+        exif: withTime(state.selectedImage.exif, time)
+      }
+    };
   });
   for (const change of changes) {
     const cached = globalImageCache.get(change.path);
     if (cached?.selectedImage?.exif)
       globalImageCache.set(change.path, {
         ...cached,
-        selectedImage: { ...cached.selectedImage, exif: withTime(cached.selectedImage.exif, change.after) },
+        selectedImage: {
+          ...cached.selectedImage,
+          exif: withTime(cached.selectedImage.exif, change.after)
+        }
       });
   }
 }
@@ -131,15 +137,14 @@ export async function writeCaptureTimes(library: string, changes: PlannedChange[
   const applied = await invokeInOrder<Applied>(Invokes.CaptureTimeApply, {
     library,
     changes,
-    paths: changes.map((change) => change.path),
+    paths: changes.map((change) => change.path)
   });
   // Photographs of another library are not listed: nothing to show there.
   if (!applied.conflicts.length) showCaptureTimes(changes);
   return applied;
 }
 
-export const previewCaptureTimes = (paths: string[]) =>
-  invoke<CapturePreview>(Invokes.CaptureTimePreview, { paths });
+export const previewCaptureTimes = (paths: string[]) => invoke<CapturePreview>(Invokes.CaptureTimePreview, { paths });
 
 export const planCaptureTimes = (items: PreviewItem[], request: PlanRequest) =>
   invoke<Plan>(Invokes.CaptureTimePlan, { items, request });

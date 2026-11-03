@@ -31,7 +31,11 @@ export function cropGestures(): { started: number; active: boolean } {
 /** A component's crop drags: `start`/`end` count them; `endAll` ends those
  * still open (the crop tool closed or the photo changed mid-drag, where the
  * crop component reports no end), as unmounting does. */
-export function useCropGestures(): { start: () => void; end: () => void; endAll: () => void } {
+export function useCropGestures(): {
+  start: () => void;
+  end: () => void;
+  endAll: () => void;
+} {
   const open = useRef(0);
   const start = useCallback(() => {
     open.current += 1;
@@ -55,7 +59,10 @@ export function useCropGestures(): { start: () => void; end: () => void; endAll:
 /** The gesture of a tool that can be switched off mid-drag (the straighten
  * line: Escape removes its layer before the release): ended then, as on
  * unmount. */
-export function useToolGesture(active: boolean): { start: () => void; end: () => void } {
+export function useToolGesture(active: boolean): {
+  start: () => void;
+  end: () => void;
+} {
   const { start, end, endAll } = useCropGestures();
   useEffect(() => {
     if (!active) endAll();

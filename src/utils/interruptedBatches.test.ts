@@ -6,21 +6,27 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { offerInterruptedBatches, resetInterruptedBatches, type InterruptedBatch } from './interruptedBatches';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), warn: vi.fn() } }));
+vi.mock('../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), warn: vi.fn() }
+}));
 
 const paste: InterruptedBatch = {
   id: 'run-1-0',
   batch: { kind: 'paste' },
   command: 'apply_adjustments_to_paths',
-  args: { adjustments: { exposure: 1 }, paste: { source: '/job/Capture/x.ARW' }, style: null },
+  args: {
+    adjustments: { exposure: 1 },
+    paste: { source: '/job/Capture/x.ARW' },
+    style: null
+  },
   startedMs: 1,
   total: 4,
   applied: 2,
   undo: [
     { path: '/job/Capture/a.ARW', before: { exposure: 0 } },
-    { path: '/job/Capture/b.ARW', before: null },
+    { path: '/job/Capture/b.ARW', before: null }
   ],
-  rest: ['/job/Capture/c.ARW', '/job/Capture/d.ARW'],
+  rest: ['/job/Capture/c.ARW', '/job/Capture/d.ARW']
 };
 
 function answer(batches: InterruptedBatch[], calls: [string, unknown][]) {
@@ -77,9 +83,9 @@ describe('interrupted batches', () => {
       {
         changes: [
           { path: '/job/Capture/a.ARW', adjustments: { exposure: 0 } },
-          { path: '/job/Capture/b.ARW', adjustments: null },
-        ],
-      },
+          { path: '/job/Capture/b.ARW', adjustments: null }
+        ]
+      }
     ]);
     expect(calls.at(-1)).toEqual(['dismiss_interrupted_batch', { id: paste.id }]);
   });
@@ -95,8 +101,8 @@ describe('interrupted batches', () => {
       undo: [
         { path: '/a', before: 1 },
         { path: '/b', before: 0 },
-        { path: '/c', before: 1 },
-      ],
+        { path: '/c', before: 1 }
+      ]
     };
     answer([rating], calls);
     await offerInterruptedBatches('/job');
@@ -105,7 +111,7 @@ describe('interrupted batches', () => {
     const rated = calls.filter(([command]) => command === 'set_rating_for_paths').map(([, args]) => args);
     expect(rated).toEqual([
       { paths: ['/a', '/c'], rating: 1, directory: '/job' },
-      { paths: ['/b'], rating: 0, directory: '/job' },
+      { paths: ['/b'], rating: 0, directory: '/job' }
     ]);
   });
 
@@ -113,11 +119,19 @@ describe('interrupted batches', () => {
     const calls: [string, unknown][] = [];
     answer([paste], calls);
     await offerInterruptedBatches('/job');
-    const now = { ...paste, applied: 3, undo: [...paste.undo, { path: '/job/Capture/c.ARW', before: null }], rest: ['/job/Capture/d.ARW'] };
+    const now = {
+      ...paste,
+      applied: 3,
+      undo: [...paste.undo, { path: '/job/Capture/c.ARW', before: null }],
+      rest: ['/job/Capture/d.ARW']
+    };
     vi.mocked(invoke).mockImplementation(async (command: string) => {
       calls.push([command, null]);
       if (command === 'apply_adjustments_to_paths')
-        return { changes: [{ path: '/job/Capture/c.ARW', before: null, after: {} }], failure: { message: 'disk', failed: ['/job/Capture/d.ARW'] } };
+        return {
+          changes: [{ path: '/job/Capture/c.ARW', before: null, after: {} }],
+          failure: { message: 'disk', failed: ['/job/Capture/d.ARW'] }
+        };
       if (command === 'interrupted_batches') return [now];
       return null;
     });

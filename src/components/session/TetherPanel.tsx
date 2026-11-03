@@ -1,28 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { Aperture, Camera, ClipboardCheck, Focus, LoaderCircle, RefreshCcw, Unplug, Video, X } from "lucide-react";
-import { notify } from "../../activity/notify";
-import { Trans, useTranslation } from "react-i18next";
-import i18n from "i18next";
-import { Invokes } from "../ui/AppProperties";
-import NamingEditor from "../ui/NamingEditor";
-import NextCaptureFields from "./NextCaptureFields";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { Aperture, Camera, ClipboardCheck, Focus, LoaderCircle, RefreshCcw, Unplug, Video, X } from 'lucide-react';
+import { notify } from '../../activity/notify';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from 'i18next';
+import { Invokes } from '../ui/AppProperties';
+import NamingEditor from '../ui/NamingEditor';
+import NextCaptureFields from './NextCaptureFields';
 import {
   DEFAULT_NEXT_CAPTURE,
   flattenPresets,
   nextCaptureOf,
   type NextCaptureForm,
   type PresetChoice,
-  type PresetItemJson,
-} from "./nextCapture";
-import { TETHER_CAPTURE_EVENT, panelHandlesCapture, setTetherConnected, setTetherExperimental } from "./tether";
-import TetherCameraTest, { type TestedCamera } from "./TetherCameraTest";
-import { compatibilityOf } from "./cameraTest";
-import "./tether.css";
-import { noteTool } from "../contribute/usageStats";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useUIStore } from "../../store/useUIStore";
+  type PresetItemJson
+} from './nextCapture';
+import { TETHER_CAPTURE_EVENT, panelHandlesCapture, setTetherConnected, setTetherExperimental } from './tether';
+import TetherCameraTest, { type TestedCamera } from './TetherCameraTest';
+import { compatibilityOf } from './cameraTest';
+import './tether.css';
+import { noteTool } from '../contribute/usageStats';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
 
 /** Mirrors `rawtonic_tether::protocol::CameraInfo`. */
 interface CameraInfo {
@@ -99,10 +99,10 @@ const CAMERA_POLL_MS = 2000;
 
 /** Whether photos are freed on cameras with a transfer queue (on unless
  * the user turned it off; only ever after the verified library commit). */
-const FREE_COPIES_KEY = "rawtonic.tether.freeCameraCopies";
+const FREE_COPIES_KEY = 'rawtonic.tether.freeCameraCopies';
 const storedFreeCopies = () => {
   try {
-    return localStorage.getItem(FREE_COPIES_KEY) !== "0";
+    return localStorage.getItem(FREE_COPIES_KEY) !== '0';
   } catch {
     return true;
   }
@@ -112,8 +112,8 @@ const storedFreeCopies = () => {
  * "Save to" names RAM but no card): a photo exists only until it is on
  * this computer. */
 export const ramOnly = (settings: { key: string; value: string }[]) => {
-  const target = settings.find((s) => s.key === "capturetarget")?.value.toLowerCase() ?? "";
-  return target.includes("ram") && !target.includes("card");
+  const target = settings.find((s) => s.key === 'capturetarget')?.value.toLowerCase() ?? '';
+  return target.includes('ram') && !target.includes('card');
 };
 
 /** What the compatibility list (tetherCameras.json) says of a camera
@@ -123,18 +123,21 @@ function Compatibility({ model }: { model: string }) {
   const { t } = useTranslation();
   const entry = compatibilityOf(model);
   const level = !entry
-    ? t("session.tether.level.unlisted")
-    : entry.level === "tested"
-      ? t("session.tether.level.tested", { systems: entry.systems?.join(", ") ?? "", date: entry.tested ?? "" })
-      : entry.level === "reported"
-        ? t("session.tether.level.reported")
-        : entry.level === "experimental"
-          ? t("session.tether.level.experimental")
-          : t("session.tether.level.notSupported");
+    ? t('session.tether.level.unlisted')
+    : entry.level === 'tested'
+      ? t('session.tether.level.tested', {
+          systems: entry.systems?.join(', ') ?? '',
+          date: entry.tested ?? ''
+        })
+      : entry.level === 'reported'
+        ? t('session.tether.level.reported')
+        : entry.level === 'experimental'
+          ? t('session.tether.level.experimental')
+          : t('session.tether.level.notSupported');
   return (
-    <p className="tether-note" data-level={entry?.level ?? "unlisted"}>
+    <p className="tether-note" data-level={entry?.level ?? 'unlisted'}>
       {level}
-      {entry?.notes && entry.level !== "experimental" && <> {entry.notes}</>}
+      {entry?.notes && entry.level !== 'experimental' && <> {entry.notes}</>}
     </p>
   );
 }
@@ -142,8 +145,8 @@ function Compatibility({ model }: { model: string }) {
 /** The panel's naming template and next-capture choice, kept across its
  * unmounting (the connection keeps using them). */
 let remembered: { template: string; nextCapture: NextCaptureForm } = {
-  template: "{orig}",
-  nextCapture: DEFAULT_NEXT_CAPTURE,
+  template: '{orig}',
+  nextCapture: DEFAULT_NEXT_CAPTURE
 };
 
 const sameCameras = (a: CameraInfo[], b: CameraInfo[]) =>
@@ -159,7 +162,7 @@ export default function TetherPanel({
   jobName,
   status,
   onStatus,
-  onClose,
+  onClose
 }: {
   hidden?: boolean;
   directory: string;
@@ -170,9 +173,9 @@ export default function TetherPanel({
 }) {
   const { t } = useTranslation();
   const [cameras, setCameras] = useState<CameraInfo[] | null>(null);
-  const [port, setPort] = useState("");
+  const [port, setPort] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   // The camera went away; the backend connects it again when it is back.
   const [waiting, setWaiting] = useState(false);
   const [template, setTemplate] = useState(remembered.template);
@@ -195,12 +198,12 @@ export default function TetherPanel({
   }, [hidden]);
 
   const findCameras = useCallback(async () => {
-    setError("");
+    setError('');
     setCameras(null);
     try {
       const found = await invoke<TetherCameras>(Invokes.TetherCameras);
       setCameras(found.cameras);
-      setPort((current) => (found.cameras.some((c) => c.port === current) ? current : (found.cameras[0]?.port ?? "")));
+      setPort((current) => (found.cameras.some((c) => c.port === current) ? current : (found.cameras[0]?.port ?? '')));
     } catch (e) {
       setCameras([]);
       setError(String(e));
@@ -213,11 +216,9 @@ export default function TetherPanel({
     const timer = window.setInterval(() => {
       void invoke<TetherCameras>(Invokes.TetherCameras)
         .then((found) => {
-          setCameras((current) =>
-            current !== null && sameCameras(current, found.cameras) ? current : found.cameras,
-          );
+          setCameras((current) => (current !== null && sameCameras(current, found.cameras) ? current : found.cameras));
           setPort((current) =>
-            found.cameras.some((c) => c.port === current) ? current : (found.cameras[0]?.port ?? ""),
+            found.cameras.some((c) => c.port === current) ? current : (found.cameras[0]?.port ?? '')
           );
         })
         .catch(() => undefined);
@@ -260,32 +261,36 @@ export default function TetherPanel({
     const stops = [
       // Failures are said app-wide (useTauriListeners), also with no
       // panel mounted; here only the panel's own state follows.
-      listen<TetherCaptured>("tether-captured", (event) => {
+      listen<TetherCaptured>('tether-captured', (event) => {
         setLast(event.payload);
         setCapturing((n) => Math.max(0, n - 1));
       }),
-      listen<TetherError>("tether-capture-failed", () => {
+      listen<TetherError>('tether-capture-failed', () => {
         setCapturing((n) => Math.max(0, n - 1));
       }),
-      listen("tether-settings-changed", () => void readSettings()),
-      listen<{ connected: boolean; error?: TetherError; status?: TetherStatus }>("tether-state", (event) => {
+      listen('tether-settings-changed', () => void readSettings()),
+      listen<{
+        connected: boolean;
+        error?: TetherError;
+        status?: TetherStatus;
+      }>('tether-state', (event) => {
         if (event.payload.connected) {
           // Connected again after the camera came back.
-          setError("");
+          setError('');
           setWaiting(false);
           void readSettings();
           return;
         }
         onStatus(null);
-        setWaiting(event.payload.error?.kind === "disconnected");
+        setWaiting(event.payload.error?.kind === 'disconnected');
         setLiveView(false);
         setCapturing(0);
         if (event.payload.error) setError(event.payload.error.message);
       }),
-      listen<TetherError>("tether-live-view-stopped", (event) => {
+      listen<TetherError>('tether-live-view-stopped', (event) => {
         setLiveView(false);
         setError(event.payload.message);
-      }),
+      })
     ];
     return () => stops.forEach((stop) => void stop.then((fn) => fn()));
   }, [onStatus, readSettings]);
@@ -301,7 +306,7 @@ export default function TetherPanel({
       try {
         const bytes = await invoke<ArrayBuffer>(Invokes.TetherLiveViewFrame);
         if (!stopped && bytes.byteLength > 0) {
-          const url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
           if (frameUrl.current) URL.revokeObjectURL(frameUrl.current);
           frameUrl.current = url;
           setFrame(url);
@@ -321,22 +326,22 @@ export default function TetherPanel({
     () => () => {
       if (frameUrl.current) URL.revokeObjectURL(frameUrl.current);
     },
-    [],
+    []
   );
 
   const connect = async () => {
     setBusy(true);
-    setError("");
+    setError('');
     setWaiting(false);
     const started = performance.now();
     try {
-      noteTool("tether");
+      noteTool('tether');
       const status = await invoke<TetherStatus>(Invokes.TetherConnect, {
         directory,
         port: port || null,
         template,
         ...nextCaptureOf(nextCapture, presets),
-        freeCameraCopies: freeCopies,
+        freeCameraCopies: freeCopies
       });
       setConnectMs(Math.round(performance.now() - started));
       onStatus(status);
@@ -362,7 +367,7 @@ export default function TetherPanel({
   const hiddenRef = useRef(hidden);
   hiddenRef.current = hidden;
   const capture = useCallback(async () => {
-    setError("");
+    setError('');
     setCapturing((n) => n + 1);
     try {
       await invoke(Invokes.TetherCapture);
@@ -370,7 +375,8 @@ export default function TetherPanel({
       setCapturing((n) => Math.max(0, n - 1));
       setError(String(e));
       // The panel may be closed (it still handles the shortcut).
-      if (hiddenRef.current) notify.error(i18n.t("session.tether.captureFailed", { error: String(e) }), { source: "tether" });
+      if (hiddenRef.current)
+        notify.error(i18n.t('session.tether.captureFailed', { error: String(e) }), { source: 'tether' });
     }
   }, []);
 
@@ -386,7 +392,7 @@ export default function TetherPanel({
   }, [connected, capture]);
 
   const focus = async () => {
-    setError("");
+    setError('');
     try {
       await invoke(Invokes.TetherAutofocus);
     } catch (e) {
@@ -396,7 +402,7 @@ export default function TetherPanel({
 
   const liveViewStarting = useRef(false);
   const toggleLiveView = async () => {
-    setError("");
+    setError('');
     // A start still on its way counts as on for the unmount below.
     if (!liveView) liveViewStarting.current = true;
     try {
@@ -429,11 +435,11 @@ export default function TetherPanel({
       if (liveViewOn.current || liveViewStarting.current)
         void invoke(Invokes.TetherLiveView, { on: false }).catch(() => undefined);
     },
-    [],
+    []
   );
 
   const setSetting = async (key: string, value: string) => {
-    setError("");
+    setError('');
     try {
       await invoke(Invokes.TetherSetSetting, { key, value });
     } catch (e) {
@@ -449,7 +455,7 @@ export default function TetherPanel({
       await invoke(Invokes.TetherNextCapture, {
         template,
         ...nextCaptureOf(form, presets),
-        freeCameraCopies: freeCopies,
+        freeCameraCopies: freeCopies
       });
     } catch (e) {
       setError(String(e));
@@ -459,7 +465,7 @@ export default function TetherPanel({
   const changeFreeCopies = async (on: boolean) => {
     setFreeCopies(on);
     try {
-      localStorage.setItem(FREE_COPIES_KEY, on ? "1" : "0");
+      localStorage.setItem(FREE_COPIES_KEY, on ? '1' : '0');
     } catch {
       // Not kept for the next time; this connection still uses it.
     }
@@ -468,7 +474,7 @@ export default function TetherPanel({
       await invoke(Invokes.TetherNextCapture, {
         template,
         ...nextCaptureOf(nextCapture, presets),
-        freeCameraCopies: on,
+        freeCameraCopies: on
       });
     } catch (e) {
       setError(String(e));
@@ -479,14 +485,14 @@ export default function TetherPanel({
   // A camera on an experimental path connects only with the opt-in in
   // Preferences > Tethering: said before the connect, in the user's words.
   const canonOptIn = useSettingsStore((state) => state.appSettings?.tetherExperimentalCanon === true);
-  const needsOptIn = selected !== undefined && compatibilityOf(selected.model)?.level === "experimental" && !canonOptIn;
+  const needsOptIn = selected !== undefined && compatibilityOf(selected.model)?.level === 'experimental' && !canonOptIn;
 
   return (
-    <aside className="tether-panel" hidden={hidden} aria-label={t("session.tether.title")}>
+    <aside className="tether-panel" hidden={hidden} aria-label={t('session.tether.title')}>
       <header className="tether-header">
         <Camera size={15} />
-        <h2>{t("session.tether.title")}</h2>
-        <button type="button" className="session-icon-button" aria-label={t("session.dialogs.close")} onClick={onClose}>
+        <h2>{t('session.tether.title')}</h2>
+        <button type="button" className="session-icon-button" aria-label={t('session.dialogs.close')} onClick={onClose}>
           <X size={15} />
         </button>
       </header>
@@ -502,16 +508,16 @@ export default function TetherPanel({
       ) : !connected ? (
         <div className="tether-body">
           <label className="session-field">
-            {t("session.tether.camera")}
+            {t('session.tether.camera')}
             <div className="session-backup">
               <select
-                aria-label={t("session.tether.camera")}
+                aria-label={t('session.tether.camera')}
                 value={port}
                 disabled={!cameras || cameras.length === 0}
                 onChange={(e) => setPort(e.target.value)}
               >
-                {cameras === null && <option value="">{t("session.tether.looking")}</option>}
-                {cameras?.length === 0 && <option value="">{t("session.tether.noCamera")}</option>}
+                {cameras === null && <option value="">{t('session.tether.looking')}</option>}
+                {cameras?.length === 0 && <option value="">{t('session.tether.noCamera')}</option>}
                 {cameras?.map((c) => (
                   <option key={c.port} value={c.port}>
                     {c.model}
@@ -521,33 +527,41 @@ export default function TetherPanel({
               <button
                 type="button"
                 className="session-icon-button"
-                aria-label={t("session.tether.refresh")}
+                aria-label={t('session.tether.refresh')}
                 onClick={() => void findCameras()}
               >
                 <RefreshCcw size={15} />
               </button>
             </div>
-            <small>{t("session.tether.usbHint")}</small>
+            <small>{t('session.tether.usbHint')}</small>
           </label>
           {selected && <Compatibility model={selected.model} />}
           {needsOptIn && (
             <div className="tether-experimental" role="note">
-              <p>{t("session.tether.canon.optInNeeded")}</p>
+              <p>{t('session.tether.canon.optInNeeded')}</p>
               <button
                 type="button"
                 className="session-action"
                 onClick={() => {
                   // The floating panel would cover the Preferences page.
                   onClose();
-                  useUIStore.getState().setUI({ isSettingsOpen: true, settingsCategory: "tethering" });
+                  useUIStore.getState().setUI({
+                    isSettingsOpen: true,
+                    settingsCategory: 'tethering'
+                  });
                 }}
               >
-                {t("session.tether.canon.openPreferences")}
+                {t('session.tether.canon.openPreferences')}
               </button>
             </div>
           )}
-          <NamingEditor mode="ingest" value={template} onChange={setTemplate}
-            label={t("session.fields.filenameTemplate")} job={jobName} />
+          <NamingEditor
+            mode="ingest"
+            value={template}
+            onChange={setTemplate}
+            label={t('session.fields.filenameTemplate')}
+            job={jobName}
+          />
           <NextCaptureFields value={nextCapture} onChange={(form) => void changeNextCapture(form)} presets={presets} />
           <p className="tether-note">
             <Trans
@@ -561,7 +575,7 @@ export default function TetherPanel({
               {error}
             </p>
           )}
-          {waiting && <p className="tether-note">{t("session.tether.reconnecting")}</p>}
+          {waiting && <p className="tether-note">{t('session.tether.reconnecting')}</p>}
           <button
             type="button"
             className="session-action session-primary tether-wide"
@@ -569,22 +583,20 @@ export default function TetherPanel({
             onClick={() => void connect()}
           >
             {busy ? <LoaderCircle size={14} className="animate-spin" /> : <Camera size={14} />}
-            <span>{busy ? t("session.tether.connecting") : t("session.tether.connect")}</span>
+            <span>{busy ? t('session.tether.connecting') : t('session.tether.connect')}</span>
           </button>
         </div>
       ) : (
         <div className="tether-body">
           <div className="tether-camera">
             <strong>{status.camera.model}</strong>
-            {status.camera.experimental && <span className="tether-badge">{t("session.tether.canon.badge")}</span>}
-            {status.camera.battery && (
-              <span>{t("session.tether.battery", { level: status.camera.battery })}</span>
-            )}
+            {status.camera.experimental && <span className="tether-badge">{t('session.tether.canon.badge')}</span>}
+            {status.camera.battery && <span>{t('session.tether.battery', { level: status.camera.battery })}</span>}
           </div>
           <Compatibility model={status.camera.model} />
           {status.camera.experimental && (
             <p className="tether-experimental" role="note">
-              {t("session.tether.canon.connectedNote")}
+              {t('session.tether.canon.connectedNote')}
             </p>
           )}
           <div className="tether-actions">
@@ -592,39 +604,46 @@ export default function TetherPanel({
               type="button"
               className="session-action session-primary tether-capture"
               disabled={!status.camera.canCapture}
-              title={t("session.tether.captureTitle")}
+              title={t('session.tether.captureTitle')}
               onClick={() => void capture()}
             >
               {capturing > 0 ? <LoaderCircle size={15} className="animate-spin" /> : <Aperture size={15} />}
-              <span>{t("session.tether.capture")}</span>
+              <span>{t('session.tether.capture')}</span>
             </button>
             <button type="button" className="session-action" onClick={() => void focus()}>
               <Focus size={14} />
-              <span>{t("session.tether.focus")}</span>
+              <span>{t('session.tether.focus')}</span>
             </button>
             <button
               type="button"
-              className={`session-action${liveView ? " is-active" : ""}`}
+              className={`session-action${liveView ? ' is-active' : ''}`}
               aria-pressed={liveView}
               disabled={!status.camera.canPreview}
               onClick={() => void toggleLiveView()}
             >
               <Video size={14} />
-              <span>{t("session.tether.liveView")}</span>
+              <span>{t('session.tether.liveView')}</span>
             </button>
           </div>
           {liveView && (
             <div className="tether-live-view">
-              {frame ? <img src={frame} alt={t("session.tether.liveView")} /> : <LoaderCircle className="animate-spin" />}
+              {frame ? (
+                <img src={frame} alt={t('session.tether.liveView')} />
+              ) : (
+                <LoaderCircle className="animate-spin" />
+              )}
             </div>
           )}
           {last && (
             <p className="tether-last" role="status">
               {last.error
-                ? t("session.tether.lastFailed", { file: last.cameraName })
+                ? t('session.tether.lastFailed', { file: last.cameraName })
                 : last.requested && last.msToIngested !== null
-                  ? t("session.tether.lastTiming", { file: last.cameraName, ms: last.msToIngested })
-                  : t("session.tether.lastIn", { file: last.cameraName })}
+                  ? t('session.tether.lastTiming', {
+                      file: last.cameraName,
+                      ms: last.msToIngested
+                    })
+                  : t('session.tether.lastIn', { file: last.cameraName })}
             </p>
           )}
           {settings.length > 0 && (
@@ -633,7 +652,7 @@ export default function TetherPanel({
                 <label key={s.key}>
                   <span>{s.label}</span>
                   {s.readOnly || s.choices.length === 0 ? (
-                    <output title={s.readOnly ? t("session.tether.setOnBody") : undefined}>{s.value}</output>
+                    <output title={s.readOnly ? t('session.tether.setOnBody') : undefined}>{s.value}</output>
                   ) : (
                     <select
                       aria-label={s.label}
@@ -652,21 +671,21 @@ export default function TetherPanel({
               ))}
             </div>
           )}
-          {ramOnly(settings) && <p className="tether-note">{t("session.tether.ramOnly")}</p>}
+          {ramOnly(settings) && <p className="tether-note">{t('session.tether.ramOnly')}</p>}
           {status.camera.transferQueue && (
             <label className="tether-free-copies">
-              <input
-                type="checkbox"
-                checked={freeCopies}
-                onChange={(e) => void changeFreeCopies(e.target.checked)}
-              />
-              <span>{t("session.tether.freeCopies")}</span>
-              <small>{t("session.tether.freeCopiesHint")}</small>
+              <input type="checkbox" checked={freeCopies} onChange={(e) => void changeFreeCopies(e.target.checked)} />
+              <span>{t('session.tether.freeCopies')}</span>
+              <small>{t('session.tether.freeCopiesHint')}</small>
             </label>
           )}
           <details className="tether-next">
-            <summary>{t("session.tether.nextCapture")}</summary>
-            <NextCaptureFields value={nextCapture} onChange={(form) => void changeNextCapture(form)} presets={presets} />
+            <summary>{t('session.tether.nextCapture')}</summary>
+            <NextCaptureFields
+              value={nextCapture}
+              onChange={(form) => void changeNextCapture(form)}
+              presets={presets}
+            />
           </details>
           {error && (
             <p className="session-error" role="alert">
@@ -676,17 +695,21 @@ export default function TetherPanel({
           <button
             type="button"
             className="session-action tether-wide"
-            title={t("session.tether.test.buttonTitle")}
+            title={t('session.tether.test.buttonTitle')}
             onClick={() =>
-              setTesting({ ...status.camera, library: status.library ?? null, transport: status.transport ?? "mock" })
+              setTesting({
+                ...status.camera,
+                library: status.library ?? null,
+                transport: status.transport ?? 'mock'
+              })
             }
           >
             <ClipboardCheck size={14} />
-            <span>{t("session.tether.test.button")}</span>
+            <span>{t('session.tether.test.button')}</span>
           </button>
           <button type="button" className="session-action tether-wide" onClick={() => void disconnect()}>
             <Unplug size={14} />
-            <span>{t("session.tether.disconnect")}</span>
+            <span>{t('session.tether.disconnect')}</span>
           </button>
         </div>
       )}

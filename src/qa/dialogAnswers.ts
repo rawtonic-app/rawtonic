@@ -33,7 +33,7 @@ export function takeDialogAnswer(options: OpenDialogOptions): DialogAnswer | und
     defaultPath: options.defaultPath ?? null,
     directory: Boolean(options.directory),
     multiple: Boolean(options.multiple),
-    answer: answer === undefined ? 'native' : answer,
+    answer: answer === undefined ? 'native' : answer
   });
   if (asked.length > 50) asked.shift();
   return answer;

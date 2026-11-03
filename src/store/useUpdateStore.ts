@@ -24,12 +24,18 @@ interface UpdateState {
   dismiss(): void;
 }
 export const useUpdateStore = create<UpdateState>((set, get) => ({
-  update: null, checking: false, checked: false, failed: false, started: false,
+  update: null,
+  checking: false,
+  checked: false,
+  failed: false,
+  started: false,
   check: async (manual) => {
     if (get().checking || (!manual && get().started)) return;
     set({ checking: true, started: true, checked: false, failed: false });
     try {
-      const update = await invoke<UpdateInfo | null>(Invokes.CheckUpdates, { manual });
+      const update = await invoke<UpdateInfo | null>(Invokes.CheckUpdates, {
+        manual
+      });
       set({ update, checked: manual && update === null });
     } catch (error) {
       console.debug('Update check failed:', error);
@@ -38,5 +44,5 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       set({ checking: false });
     }
   },
-  dismiss: () => set({ update: null }),
+  dismiss: () => set({ update: null })
 }));

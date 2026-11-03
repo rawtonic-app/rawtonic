@@ -97,8 +97,7 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
   const template = nameTemplate.trim();
   // A batch's template is checked here first; a single name is the name.
   const ready =
-    !!template &&
-    (isSingleFile || (validNamingTemplate(template, 'rename') && validSequenceStart(sequenceStart)));
+    !!template && (isSingleFile || (validNamingTemplate(template, 'rename') && validSequenceStart(sequenceStart)));
   const planKey = `${sequenceStart}:${template}`;
   useEffect(() => {
     if (!isOpen || !ready || !filesToRename.length) return;
@@ -106,7 +105,12 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
     const timer = setTimeout(() => {
       const refresh = fresh.current;
       fresh.current = false;
-      invoke<RenamePlan>(Invokes.PreviewRename, { paths: filesToRename, nameTemplate: template, sequenceStart, refresh })
+      invoke<RenamePlan>(Invokes.PreviewRename, {
+        paths: filesToRename,
+        nameTemplate: template,
+        sequenceStart,
+        refresh
+      })
         .then((next) => {
           if (id !== request.current) return;
           setPlan(next);
@@ -147,24 +151,36 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
         onClose();
       }
     },
-    [handleSave, onClose],
+    [handleSave, onClose]
   );
 
   const describeNote = (note: Note) =>
     note.kind === 'xmpWithRaw'
-      ? t('modals.renameFile.noteXmpWithRaw', { xmp: nameOf(note.xmp), others: note.others.map(nameOf).join(', ') })
-      : t('modals.renameFile.noteXmpStays', { xmp: nameOf(note.xmp), owner: nameOf(note.owner) });
+      ? t('modals.renameFile.noteXmpWithRaw', {
+          xmp: nameOf(note.xmp),
+          others: note.others.map(nameOf).join(', ')
+        })
+      : t('modals.renameFile.noteXmpStays', {
+          xmp: nameOf(note.xmp),
+          owner: nameOf(note.owner)
+        });
 
   const describeProblem = (problem: Problem) => {
     switch (problem.kind) {
       case 'notFound':
         return t('modals.renameFile.problemNotFound');
       case 'invalidName':
-        return t('modals.renameFile.problemInvalidName', { name: problem.name });
+        return t('modals.renameFile.problemInvalidName', {
+          name: problem.name
+        });
       case 'occupied':
-        return t('modals.renameFile.problemOccupied', { name: nameOf(problem.path) });
+        return t('modals.renameFile.problemOccupied', {
+          name: nameOf(problem.path)
+        });
       case 'sameTarget':
-        return t('modals.renameFile.problemSameTarget', { name: nameOf(problem.path) });
+        return t('modals.renameFile.problemSameTarget', {
+          name: nameOf(problem.path)
+        });
     }
   };
 
@@ -173,9 +189,7 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
   }
 
   // The first rows, and every later one with a problem (it stops Save).
-  const shown = current
-    ? current.photos.filter((photo, i) => i < PREVIEW_ROWS || photo.problems.length > 0)
-    : [];
+  const shown = current ? current.photos.filter((photo, i) => i < PREVIEW_ROWS || photo.problems.length > 0) : [];
   const hidden = current ? current.photos.length - shown.length : 0;
   const renamedPhotos = current ? current.photos.filter((photo) => photo.files.length > 0).length : 0;
 
@@ -256,7 +270,9 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
                       </div>
                       {others.length > 0 && (
                         <div className="text-xs text-text-secondary truncate">
-                          {t('modals.renameFile.withFiles', { files: others.map((file) => nameOf(file.to)).join(', ') })}
+                          {t('modals.renameFile.withFiles', {
+                            files: others.map((file) => nameOf(file.to)).join(', ')
+                          })}
                         </div>
                       )}
                       {photo.notes.map((note, i) => (
@@ -280,7 +296,10 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
                 {blocked
                   ? t('modals.renameFile.blocked')
                   : files.length
-                    ? t('modals.renameFile.summary', { photos: renamedPhotos, files: files.length })
+                    ? t('modals.renameFile.summary', {
+                        photos: renamedPhotos,
+                        files: files.length
+                      })
                     : t('modals.renameFile.nothingChanges')}
               </p>
             </>
@@ -288,17 +307,10 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
         </div>
 
         <div className="studio-dialog-footer">
-          <button
-            className="studio-button"
-            onClick={onClose}
-          >
+          <button className="studio-button" onClick={onClose}>
             {t('modals.renameFile.cancel')}
           </button>
-          <button
-            className="studio-button is-primary"
-            disabled={!canSave}
-            onClick={handleSave}
-          >
+          <button className="studio-button is-primary" disabled={!canSave} onClick={handleSave}>
             {t('modals.renameFile.save')}
           </button>
         </div>

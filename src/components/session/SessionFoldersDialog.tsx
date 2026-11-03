@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
-import { Invokes } from "../ui/AppProperties";
-import { openDialog } from "../../utils/fileDialog";
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import { openDialog } from '../../utils/fileDialog';
 import {
   FOLDER_ROLES,
   folderRefusalMessage,
@@ -12,16 +12,16 @@ import {
   sessionFoldersOrDefault,
   moveFolderContents,
   type FolderRole,
-  type SessionFolder,
-} from "../../utils/sessionFolders";
+  type SessionFolder
+} from '../../utils/sessionFolders';
 
 /** Why a folder that is not there is not (G38): one the app made with the
  * session is made again when work goes into it; any other missing folder is
  * never made at its old path — a folder inside the session whose parent was
  * renamed, a removed folder, a drive that is away. */
-function awayReason(folder: SessionFolder): "renamed" | "removed" | "drive" {
-  if (!folder.inside) return "drive";
-  return folder.recreated ? "removed" : "renamed";
+function awayReason(folder: SessionFolder): 'renamed' | 'removed' | 'drive' {
+  if (!folder.inside) return 'drive';
+  return folder.recreated ? 'removed' : 'renamed';
 }
 
 /** What `session_set_folder` returns. */
@@ -45,7 +45,7 @@ export interface FolderChange {
 export default function SessionFoldersDialog({
   directory,
   onChanged,
-  onClose,
+  onClose
 }: {
   directory: string;
   /** After a folder changed (the summary and the Folders panel follow). */
@@ -54,24 +54,24 @@ export default function SessionFoldersDialog({
 }) {
   const { t } = useTranslation();
   const roleName: Record<FolderRole, string> = {
-    capture: t("session.folders.role.capture"),
-    selects: t("session.folders.role.selects"),
-    output: t("session.folders.role.output"),
+    capture: t('session.folders.role.capture'),
+    selects: t('session.folders.role.selects'),
+    output: t('session.folders.role.output')
   };
   const whenAway: Record<FolderRole, string> = {
-    capture: t("session.folders.unavailableUse.capture"),
-    selects: t("session.folders.unavailableUse.selects"),
-    output: t("session.folders.unavailableUse.output"),
+    capture: t('session.folders.unavailableUse.capture'),
+    selects: t('session.folders.unavailableUse.selects'),
+    output: t('session.folders.unavailableUse.output')
   };
   const madeAgain: Record<FolderRole, string> = {
-    capture: t("session.folders.madeAgainUse.capture"),
-    selects: t("session.folders.madeAgainUse.selects"),
-    output: t("session.folders.madeAgainUse.output"),
+    capture: t('session.folders.madeAgainUse.capture'),
+    selects: t('session.folders.madeAgainUse.selects'),
+    output: t('session.folders.madeAgainUse.output')
   };
-  const reason: Record<"renamed" | "removed" | "drive", string> = {
-    renamed: t("session.folders.awayRenamed"),
-    removed: t("session.folders.awayRemoved"),
-    drive: t("session.folders.awayDrive"),
+  const reason: Record<'renamed' | 'removed' | 'drive', string> = {
+    renamed: t('session.folders.awayRenamed'),
+    removed: t('session.folders.awayRemoved'),
+    drive: t('session.folders.awayDrive')
   };
   const dialog = useRef<HTMLDivElement>(null);
   const [folders, setFolders] = useState<SessionFolder[] | null>(null);
@@ -104,9 +104,9 @@ export default function SessionFoldersDialog({
       directory: true,
       multiple: false,
       defaultPath: openableFolderPath(folders ?? undefined, role, directory) ?? directory,
-      title: t("session.folders.choose", { folder: roleName[role] }),
+      title: t('session.folders.choose', { folder: roleName[role] })
     });
-    if (typeof picked !== "string") return;
+    if (typeof picked !== 'string') return;
     setBusy(role);
     setError(null);
     setNotice(null);
@@ -115,7 +115,7 @@ export default function SessionFoldersDialog({
         directory,
         role,
         path: picked,
-        moveContents,
+        moveContents
       });
       setFolders((list) => (list ?? []).map((f) => (f.role === role ? change.folder : f)));
       onChanged(change);
@@ -123,8 +123,8 @@ export default function SessionFoldersDialog({
       // undoable file operation (nothing moves without the option).
       if (moveContents && change.previous.available && change.previous.path !== change.folder.path) {
         const moved = await moveFolderContents(change.previous.path, change.folder.path);
-        if (moved.error) setError(t("session.folders.moveFailed", { error: moved.error }));
-        else if (moved.items) setNotice(t("session.folders.moved", { count: moved.items }));
+        if (moved.error) setError(t('session.folders.moveFailed', { error: moved.error }));
+        else if (moved.items) setNotice(t('session.folders.moved', { count: moved.items }));
         onChanged(change);
       }
     } catch (e) {
@@ -135,7 +135,7 @@ export default function SessionFoldersDialog({
       // The Output folder named is the current one and there; otherwise it
       // is a former one, which held the exports.
       const named = parseFolderRefusal(message)?.output;
-      const output = (folders ?? []).find((f) => f.role === "output");
+      const output = (folders ?? []).find((f) => f.role === 'output');
       const refusal = folderRefusalMessage(t, message, !!output && output.path === named && output.available);
       setError(refusal ?? message);
     } finally {
@@ -145,9 +145,9 @@ export default function SessionFoldersDialog({
 
   const keys = (e: KeyboardEvent) => {
     e.stopPropagation();
-    if (e.key === "Escape") onClose();
+    if (e.key === 'Escape') onClose();
   };
-  const title = t("session.folders.title");
+  const title = t('session.folders.title');
 
   return createPortal(
     <div className="studio-settings studio-smart-album-backdrop" onKeyDown={keys}>
@@ -160,7 +160,7 @@ export default function SessionFoldersDialog({
         tabIndex={-1}
       >
         <h2>{title}</h2>
-        <p className="studio-help">{t("session.folders.intro")}</p>
+        <p className="studio-help">{t('session.folders.intro')}</p>
         {folders ? (
           <dl className="studio-session-folders-list">
             {FOLDER_ROLES.map((role) => {
@@ -178,8 +178,8 @@ export default function SessionFoldersDialog({
                       {!folder.available
                         ? reason[awayReason(folder)]
                         : folder.inside
-                          ? t("session.folders.inside")
-                          : t("session.folders.outside")}
+                          ? t('session.folders.inside')
+                          : t('session.folders.outside')}
                     </span>
                     {!folder.available && (
                       <span className="studio-capture-time-error" role="alert">
@@ -189,10 +189,12 @@ export default function SessionFoldersDialog({
                     <button
                       type="button"
                       disabled={busy !== null}
-                      aria-label={t("session.folders.chooseFor", { folder: label })}
+                      aria-label={t('session.folders.chooseFor', {
+                        folder: label
+                      })}
                       onClick={() => void choose(role)}
                     >
-                      {busy === role ? t("session.folders.working") : t("session.folders.change")}
+                      {busy === role ? t('session.folders.working') : t('session.folders.change')}
                     </button>
                   </dd>
                 </div>
@@ -200,7 +202,7 @@ export default function SessionFoldersDialog({
             })}
           </dl>
         ) : (
-          !error && <p>{t("session.folders.reading")}</p>
+          !error && <p>{t('session.folders.reading')}</p>
         )}
         <label className="studio-auto-stack-camera">
           <input
@@ -209,10 +211,10 @@ export default function SessionFoldersDialog({
             disabled={busy !== null}
             onChange={(e) => setMoveContents(e.target.checked)}
           />
-          <span>{t("session.folders.moveContents")}</span>
+          <span>{t('session.folders.moveContents')}</span>
         </label>
         <p className="studio-help">
-          {moveContents ? t("session.folders.moveContentsHelp") : t("session.folders.nothingMoves")}
+          {moveContents ? t('session.folders.moveContentsHelp') : t('session.folders.nothingMoves')}
         </p>
         {notice && (
           <p className="studio-help" role="status">
@@ -226,11 +228,11 @@ export default function SessionFoldersDialog({
         )}
         <footer>
           <button type="button" className="is-primary" onClick={onClose} disabled={busy !== null}>
-            {t("session.folders.done")}
+            {t('session.folders.done')}
           </button>
         </footer>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

@@ -10,10 +10,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
-import { historyOrders,
-  setHistoryOrders,
-  inheritHistoryOrders,
-  newEditOrder } from '../utils/undoOrder';
+import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
 
 export interface InteractivePatch {
@@ -128,7 +125,11 @@ interface EditorState {
   /** Find Dust's preview (Lightroom's Dust > Apply): the dust spots found
    * at the spot sensitivity, drawn on the photo until Apply or Cancel; null
    * when off. `facesChecked`: faces were left out (face models installed). */
-  dustPreview: { spots: Array<{ x: number; y: number; radius: number }>; facesChecked: boolean; busy: boolean } | null;
+  dustPreview: {
+    spots: Array<{ x: number; y: number; radius: number }>;
+    facesChecked: boolean;
+    busy: boolean;
+  } | null;
   /** Red eye mode of the spot tool: what new corrections get (and the
    * selected one shows). `size`: radius of the circle a click searches
    * (a drag sizes it), mask-frame pixels. */
@@ -144,7 +145,12 @@ interface EditorState {
   /** The face retouch's protection brush (Retouch tab): painting on the
    * photograph, erasing, and what new strokes get (`size`: radius in
    * mask-frame pixels; `feather`: 0–100 % of it). */
-  faceProtect: { painting: boolean; erase: boolean; size: number; feather: number };
+  faceProtect: {
+    painting: boolean;
+    erase: boolean;
+    size: number;
+    feather: number;
+  };
   /** The protected areas shown on the photograph (always while painting). */
   showFaceProtection: boolean;
   /** Colour editor picker: 'new' adds a range, an id re-samples that range. */
@@ -205,7 +211,11 @@ interface EditorState {
   /** The native display shows the uncropped crop-editing frame. */
   nativeCropFrame: boolean;
   /** One tool's copied values (Capture One's per-tool copy/apply). */
-  toolClipboard: { tool: string; source: string; values: Partial<Adjustments> } | null;
+  toolClipboard: {
+    tool: string;
+    source: string;
+    values: Partial<Adjustments>;
+  } | null;
   /** The mask overlay the native display draws with each preview. */
   nativeMaskOverlay: NativeMaskOverlay | null;
   /** M with the select tool shows the selected layer's mask (mask tools show
@@ -263,7 +273,10 @@ export const panelsShowReady = (state: Pick<EditorState, 'selectedImage' | 'pane
  * only a ready photograph names itself; the export then reads saved recipes. */
 export const currentEditForExport = (state: Pick<EditorState, 'selectedImage' | 'adjustments'>) =>
   state.selectedImage?.isReady
-    ? { currentEditPath: state.selectedImage.path, currentEditAdjustments: state.adjustments }
+    ? {
+        currentEditPath: state.selectedImage.path,
+        currentEditAdjustments: state.adjustments
+      }
     : { currentEditPath: null, currentEditAdjustments: null };
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -300,7 +313,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   zoom: 1,
   displaySize: { width: 0, height: 0 },
   previewSize: { width: 0, height: 0 },
-  baseRenderSize: { width: 0, height: 0, offsetX: 0, offsetY: 0, containerWidth: 0, containerHeight: 0 },
+  baseRenderSize: {
+    width: 0,
+    height: 0,
+    offsetX: 0,
+    offsetY: 0,
+    containerWidth: 0,
+    containerHeight: 0
+  },
   originalSize: { width: 0, height: 0 },
 
   isRotationActive: false,
@@ -319,7 +339,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 },
   spotVisualize: { on: false, sensitivity: 50 },
   dustPreview: null,
-  redEyeSettings: { kind: 'red', size: 40, pupilSize: 50, darken: 50, catchlight: true },
+  redEyeSettings: {
+    kind: 'red',
+    size: 40,
+    pupilSize: 50,
+    darken: 50,
+    catchlight: true
+  },
   showFaceBlemishes: false,
   faceProtect: { painting: false, erase: false, size: 30, feather: 50 },
   showFaceProtection: false,
@@ -337,7 +363,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   liveRotation: null,
   autoStraightened: null,
 
-  brushSettings: { size: DEFAULT_BRUSH_SIZE, feather: 50, tool: ToolType.Brush },
+  brushSettings: {
+    size: DEFAULT_BRUSH_SIZE,
+    feather: 50,
+    tool: ToolType.Brush
+  },
   copiedAdjustments: null,
   copiedFrom: null,
   previousPhoto: null,
@@ -365,7 +395,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTatTarget: (target) =>
     set((state) =>
-      state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 },
+      state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 }
     ),
 
   pushHistory: (newAdj, batchOrder) => {
@@ -377,16 +407,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);
-      const orders = [
-        ...historyOrders(state.history).slice(0, state.historyIndex + 1),
-        order,
-      ];
+      const orders = [...historyOrders(state.history).slice(0, state.historyIndex + 1), order];
       if (newHistory.length > 50) {
         newHistory.shift();
         orders.shift();
       }
       setHistoryOrders(newHistory, orders);
-      return { history: newHistory, historyIndex: newHistory.length - 1, historyPending: false };
+      return {
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
+        historyPending: false
+      };
     });
   },
 
@@ -420,7 +451,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       history: [initialState],
       historyIndex: 0,
       historyPending: false,
-      adjustments: initialState,
+      adjustments: initialState
     });
   },
 
@@ -438,13 +469,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // Record returning to it, retaining the just-committed edit for Undo.
       const order = newEditOrder();
       const history = [...state.history, target].slice(-50);
-      setHistoryOrders(
-        history,
-        [...historyOrders(state.history), order].slice(-50),
-      );
+      setHistoryOrders(history, [...historyOrders(state.history), order].slice(-50));
       return { history, historyIndex: history.length - 1, adjustments: target };
     });
-  },
+  }
 }));
 
 // The store owns pending history so every navigation path can settle it.
@@ -465,8 +493,7 @@ export const debouncedSetHistory = Object.assign(
       heldHistory = null;
       scheduledHistory(adjustments);
     }
-    if (!useEditorStore.getState().historyPending)
-      useEditorStore.setState({ historyPending: true });
+    if (!useEditorStore.getState().historyPending) useEditorStore.setState({ historyPending: true });
   },
   {
     flush: () => {
@@ -476,24 +503,22 @@ export const debouncedSetHistory = Object.assign(
     cancel: () => {
       scheduledHistory.cancel();
       heldHistory = null;
-      if (useEditorStore.getState().historyPending)
-        useEditorStore.setState({ historyPending: false });
-    },
-  },
+      if (useEditorStore.getState().historyPending) useEditorStore.setState({ historyPending: false });
+    }
+  }
 );
 
 /** The photograph open last (`previousPhoto`) and its size. */
-let lastOpened: { path: string; size: { width: number; height: number } | null } | null = null;
+let lastOpened: {
+  path: string;
+  size: { width: number; height: number } | null;
+} | null = null;
 
 // View state that follows the edits (one place, so every way of editing a
 // layer counts: sliders, typed values, presets, undo).
 useEditorStore.subscribe((state, previous) => {
   if (state.history !== previous.history)
-    inheritHistoryOrders(
-      previous.history,
-      state.history,
-      state.selectedImage?.path === previous.selectedImage?.path,
-    );
+    inheritHistoryOrders(previous.history, state.history, state.selectedImage?.path === previous.selectedImage?.path);
   const patch: Partial<EditorState> = {};
   if (state.selectedImage?.path !== previous.selectedImage?.path) {
     debouncedSetHistory.cancel();
@@ -520,7 +545,10 @@ useEditorStore.subscribe((state, previous) => {
     state.selectedImage.width > 0 &&
     state.selectedImage.height > 0
   ) {
-    lastOpened.size = { width: state.selectedImage.width, height: state.selectedImage.height };
+    lastOpened.size = {
+      width: state.selectedImage.width,
+      height: state.selectedImage.height
+    };
   }
   // Lightroom's automatic overlay (notes: reference/layers-panel-c1-lr.md):
   // shown while a mask is made or painted, off at the layer's first
@@ -532,7 +560,7 @@ useEditorStore.subscribe((state, previous) => {
           state.maskOverlayAuto,
           previous.adjustments.masks,
           state.adjustments.masks,
-          state.activeMaskContainerId,
+          state.activeMaskContainerId
         );
   if (overlay !== state.maskOverlayAuto) patch.maskOverlayAuto = overlay;
   // The luma range eyedropper belongs to the layer and component it was

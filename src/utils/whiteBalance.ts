@@ -26,12 +26,18 @@ function sampleRenderedImage(url: string, x: number, y: number): Promise<Rgb | n
         const top = Math.max(0, centerY - 5);
         const width = Math.min(image.width, centerX + 6) - left;
         const height = Math.min(image.height, centerY + 6) - top;
-        if (width <= 0 || height <= 0) { resolve(null); return; }
+        if (width <= 0 || height <= 0) {
+          resolve(null);
+          return;
+        }
         const canvas = document.createElement('canvas');
         canvas.width = 11;
         canvas.height = 11;
         const context = canvas.getContext('2d', { willReadFrequently: true });
-        if (!context) { resolve(null); return; }
+        if (!context) {
+          resolve(null);
+          return;
+        }
         context.drawImage(image, left, top, width, height, 0, 0, width, height);
         const data = context.getImageData(0, 0, width, height).data;
         const sum: Rgb = [0, 0, 0];
@@ -41,8 +47,10 @@ function sampleRenderedImage(url: string, x: number, y: number): Promise<Rgb | n
           sum[2] += data[index + 2];
         }
         const count = data.length / 4;
-        resolve(count ? sum.map((channel) => channel / count) as Rgb : null);
-      } catch (error) { reject(error); }
+        resolve(count ? (sum.map((channel) => channel / count) as Rgb) : null);
+      } catch (error) {
+        reject(error);
+      }
     };
     image.onerror = () => reject(new Error('Could not read the developed preview.'));
     image.src = url;
@@ -71,7 +79,12 @@ export function neutralWhiteBalance([r, g, b]: Rgb) {
  * noise, and does not fit the value field). */
 export function neutralSliders(rgb: Rgb) {
   const exact = neutralWhiteBalance(rgb);
-  return exact && { temperature: Math.round(exact.temperature), tint: Math.round(exact.tint) };
+  return (
+    exact && {
+      temperature: Math.round(exact.temperature),
+      tint: Math.round(exact.tint)
+    }
+  );
 }
 
 /** Auto white balance for `image`, as recipe values. RAWs: the Kelvin and
@@ -82,47 +95,68 @@ export function neutralSliders(rgb: Rgb) {
 export async function autoWhiteBalance(image: SelectedImage): Promise<Partial<Adjustments> | null> {
   if (image.isRaw) {
     const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
-      path: image.path,
+      path: image.path
     });
     if (kelvin) {
-      return { whiteBalance: 'auto', wbTemperature: kelvin.temperature, wbTint: kelvin.tint, temperature: 0, tint: 0 };
+      return {
+        whiteBalance: 'auto',
+        wbTemperature: kelvin.temperature,
+        wbTint: kelvin.tint,
+        temperature: 0,
+        tint: 0
+      };
     }
   }
-  const grey = await invoke<Rgb | null>(Invokes.SamplePreviewGreyWorld, { path: image.path });
+  const grey = await invoke<Rgb | null>(Invokes.SamplePreviewGreyWorld, {
+    path: image.path
+  });
   return grey && neutralSliders(grey);
 }
 
 export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
   const stillCurrent = () => {
     const current = useEditorStore.getState();
-    return current.selectedImage === request.image && current.selectedImage?.isReady &&
-      current.adjustments === request.adjustments;
+    return (
+      current.selectedImage === request.image &&
+      current.selectedImage?.isReady &&
+      current.adjustments === request.adjustments
+    );
   };
-  if (!stillCurrent() || !Number.isFinite(request.normalizedX) || !Number.isFinite(request.normalizedY) ||
-      request.normalizedX < 0 || request.normalizedX > 1 || request.normalizedY < 0 || request.normalizedY > 1) return null;
+  if (
+    !stillCurrent() ||
+    !Number.isFinite(request.normalizedX) ||
+    !Number.isFinite(request.normalizedY) ||
+    request.normalizedX < 0 ||
+    request.normalizedX > 1 ||
+    request.normalizedY < 0 ||
+    request.normalizedY > 1
+  )
+    return null;
 
   // The native display: sample the preview's linear input before any
   // adjustment and solve exactly (sampling the developed pixels let contrast,
   // saturation and curves exaggerate the cast).
   if (request.useWgpu) {
     const linear = await invoke<Rgb | null>(Invokes.SamplePreviewWhiteBalance, {
-      path: request.image.path, normalizedX: request.normalizedX, normalizedY: request.normalizedY,
+      path: request.image.path,
+      normalizedX: request.normalizedX,
+      normalizedY: request.normalizedY
     });
     if (!linear || !stillCurrent()) return null;
     // RAWs: the white balance in Kelvin and tint, from the camera's own
     // calibration (Lightroom's eyedropper); the relative sliders go to zero.
     if (request.image.isRaw) {
-      const kelvin = await invoke<{ temperature: number; tint: number } | null>(
-        Invokes.WhiteBalanceFromSample,
-        { imagePath: request.image.path, rgb: linear },
-      ).catch(() => null);
+      const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.WhiteBalanceFromSample, {
+        imagePath: request.image.path,
+        rgb: linear
+      }).catch(() => null);
       if (kelvin && Number.isFinite(kelvin.temperature) && Number.isFinite(kelvin.tint) && stillCurrent()) {
         return {
           whiteBalance: 'custom' as const,
           wbTemperature: kelvin.temperature,
           wbTint: kelvin.tint,
           temperature: 0,
-          tint: 0,
+          tint: 0
         };
       }
     }
@@ -139,7 +173,7 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
   if (!correction) return null;
   return {
     temperature: Math.round(clamp100((request.adjustments.temperature ?? 0) + correction.temperature)),
-    tint: Math.round(clamp100((request.adjustments.tint ?? 0) + correction.tint)),
+    tint: Math.round(clamp100((request.adjustments.tint ?? 0) + correction.tint))
   };
 }
 
@@ -151,12 +185,12 @@ export const WHITE_BALANCE_PRESETS = {
   shade: { label: 'Shade', temperature: 7500, tint: 10 },
   tungsten: { label: 'Tungsten', temperature: 2850, tint: 0 },
   fluorescent: { label: 'Fluorescent', temperature: 3800, tint: 21 },
-  flash: { label: 'Flash', temperature: 5500, tint: 0 },
+  flash: { label: 'Flash', temperature: 5500, tint: 0 }
 } as const;
 
 /** The Kelvin slider runs in mireds, so warm light gets more travel, as in
  * Lightroom. */
 export const KELVIN_SCALE = {
   toTrack: (kelvin: number) => -1e6 / Math.max(kelvin, 1),
-  fromTrack: (position: number) => Math.round(-1e6 / Math.min(position, -1)),
+  fromTrack: (position: number) => Math.round(-1e6 / Math.min(position, -1))
 };

@@ -1,9 +1,9 @@
-import "../../i18n";
-import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, render } from "@testing-library/react";
-import StudioBrowser from "./StudioBrowser";
-import { computeGroupedLibrary, type LibraryQueryState } from "../../hooks/useSortedLibrary";
-import { RawStatus, SortDirection, type ImageFile } from "../ui/AppProperties";
+import '../../i18n';
+import { afterEach, expect, it, vi } from 'vitest';
+import { act, cleanup, render } from '@testing-library/react';
+import StudioBrowser from './StudioBrowser';
+import { computeGroupedLibrary, type LibraryQueryState } from '../../hooks/useSortedLibrary';
+import { RawStatus, SortDirection, type ImageFile } from '../ui/AppProperties';
 
 /**
  * The grid side of the library search at 50,000 photographs (G37): applying
@@ -18,16 +18,16 @@ afterEach(cleanup);
 
 const PHOTOS = 50_000;
 const files: ImageFile[] = Array.from({ length: PHOTOS }, (_, i) => ({
-  path: `/lib/Capture/2023-${String((i % 12) + 1).padStart(2, "0")}/DSC${String(i).padStart(5, "0")}.ARW`,
+  path: `/lib/Capture/2023-${String((i % 12) + 1).padStart(2, '0')}/DSC${String(i).padStart(5, '0')}.ARW`,
   is_edited: false,
   modified: i,
   rating: i % 6,
-  tags: i % 5 ? null : ["color:red"],
+  tags: i % 5 ? null : ['color:red'],
   exif: null,
   is_virtual_copy: false,
   is_cloud_placeholder: false,
   is_raw: true,
-  group_id: null,
+  group_id: null
 }));
 
 function median(work: () => void, runs = 15): number {
@@ -41,32 +41,43 @@ function median(work: () => void, runs = 15): number {
   return Math.round(times[Math.floor(runs / 2)] * 100) / 100;
 }
 
-run("applies a catalog answer and commits the grid for 50,000 photographs", async () => {
-  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+run('applies a catalog answer and commits the grid for 50,000 photographs', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
   const quarter = new Set(files.filter((_, i) => i % 4 === 0).map((f) => f.path));
   const few = new Set(files.filter((_, i) => i % 1000 === 0).map((f) => f.path));
   const state = (catalogMatches: Set<string> | null, rating = 0): LibraryQueryState => ({
     imageList: files,
     imageRatings: {},
     imageFlags: {},
-    filterCriteria: { colors: [], rating, rawStatus: RawStatus.All, flag: "all" },
-    searchCriteria: { text: catalogMatches ? "x" : "", tags: [], mode: "OR" },
-    sortCriteria: { key: "name", order: SortDirection.Ascending },
-    catalogMatches,
+    filterCriteria: {
+      colors: [],
+      rating,
+      rawStatus: RawStatus.All,
+      flag: 'all'
+    },
+    searchCriteria: { text: catalogMatches ? 'x' : '', tags: [], mode: 'OR' },
+    sortCriteria: { key: 'name', order: SortDirection.Ascending },
+    catalogMatches
   });
   computeGroupedLibrary(state(null), {}); // the folder's ordering, once
   const filterMs = {
     none: median(() => computeGroupedLibrary(state(null), {})),
     quarter: median(() => computeGroupedLibrary(state(quarter), {})),
     fifty: median(() => computeGroupedLibrary(state(few), {})),
-    quarterAndRating: median(() => computeGroupedLibrary(state(quarter, 3), {})),
+    quarterAndRating: median(() => computeGroupedLibrary(state(quarter, 3), {}))
   };
   const props = {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
     onRate: vi.fn(),
     onContextMenu: vi.fn(),
-    requestThumbnails: vi.fn(),
+    requestThumbnails: vi.fn()
   };
   const lists = [quarter, few, null].map((m) => computeGroupedLibrary(state(m), {}).displayList);
   const view = render(<StudioBrowser files={files} {...props} />);
@@ -81,11 +92,11 @@ run("applies a catalog answer and commits the grid for 50,000 photographs", asyn
   console.log(
     JSON.stringify({
       photos: PHOTOS,
-      environment: "node + jsdom (no layout, paint or WebKit)",
+      environment: 'node + jsdom (no layout, paint or WebKit)',
       filter_ms_median: filterMs,
       grid_commit_ms_median: Math.round(commitMs[7] * 100) / 100,
-      grid_commit_ms_max: Math.round(commitMs[14] * 100) / 100,
-    }),
+      grid_commit_ms_max: Math.round(commitMs[14] * 100) / 100
+    })
   );
   expect(lists[0]).toHaveLength(PHOTOS / 4);
 });

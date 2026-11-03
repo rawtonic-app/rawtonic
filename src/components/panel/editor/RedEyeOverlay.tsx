@@ -1,13 +1,13 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { useTranslation } from "react-i18next";
-import { notify } from "../../../activity/notify";
-import { updateAdjustments } from "../../../hooks/useEditorActions";
-import { useEditorStore } from "../../../store/useEditorStore";
-import type { RedEye } from "../../../utils/adjustments";
-import { withoutSpotItems } from "../../../utils/spotItems";
-import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../../utils/geometryKeys";
-import { Invokes } from "../../ui/AppProperties";
+import { invoke } from '@tauri-apps/api/core';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { notify } from '../../../activity/notify';
+import { updateAdjustments } from '../../../hooks/useEditorActions';
+import { useEditorStore } from '../../../store/useEditorStore';
+import type { RedEye } from '../../../utils/adjustments';
+import { withoutSpotItems } from '../../../utils/spotItems';
+import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../../utils/geometryKeys';
+import { Invokes } from '../../ui/AppProperties';
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -25,15 +25,15 @@ type Point = { x: number; y: number };
 /** An ellipse (`red_eye::Pupil`): as the detector finds and corrections
  * keep it, in the photo as decoded (units of its long edge); as
  * `red_eyes_shown` returns it, in mask-frame pixels. */
-type Pupil = Pick<RedEye, "x" | "y" | "radiusX" | "radiusY" | "angle">;
+type Pupil = Pick<RedEye, 'x' | 'y' | 'radiusX' | 'radiusY' | 'angle'>;
 
 /** A correction where the photo shows it. */
 type Shown = { eye: RedEye; ellipse: Pupil };
 
 type Drag =
-  | { kind: "search"; start: Point; radius: number }
-  | { kind: "move"; id: string; start: Point; offset: Point }
-  | { kind: "delete"; id: string };
+  | { kind: 'search'; start: Point; radius: number }
+  | { kind: 'move'; id: string; start: Point; offset: Point }
+  | { kind: 'delete'; id: string };
 
 /** Screen pixels a press must travel to size the search circle. */
 const DRAG_MIN = 4;
@@ -51,23 +51,13 @@ const SHOWN_KEYS = [...GEOMETRY_KEYS, ...ORIENTATION_KEYS] as const;
 const pupilScale = (pupilSize: number) => 0.6 + 0.8 * (pupilSize / 100);
 
 /** Whether (x, y) lies inside an ellipse scaled by `size` (grown by `margin`). */
-function insideEllipse(
-  e: Pupil,
-  size: number,
-  x: number,
-  y: number,
-  margin = 0,
-) {
+function insideEllipse(e: Pupil, size: number, x: number, y: number, margin = 0) {
   const a = (e.angle * Math.PI) / 180;
   const dx = x - e.x;
   const dy = y - e.y;
   const u = dx * Math.cos(a) + dy * Math.sin(a);
   const v = -dx * Math.sin(a) + dy * Math.cos(a);
-  return (
-    (u / (e.radiusX * size + margin)) ** 2 +
-      (v / (e.radiusY * size + margin)) ** 2 <=
-    1
-  );
+  return (u / (e.radiusX * size + margin)) ** 2 + (v / (e.radiusY * size + margin)) ** 2 <= 1;
 }
 
 /**
@@ -80,22 +70,14 @@ function insideEllipse(
  * or an Alt-click removes one, a right-click selects it for the tool's
  * settings popover, [ and ] change the search circle, Escape deselects.
  */
-export default function RedEyeOverlay({
-  rect,
-  cropX,
-  cropY,
-  scale,
-  zoom,
-}: Props) {
+export default function RedEyeOverlay({ rect, cropX, cropY, scale, zoom }: Props) {
   const { t } = useTranslation();
   const eyes = useEditorStore((s) => s.adjustments.redEyes ?? []);
   const activeId = useEditorStore((s) => s.activeSpotId);
   const settings = useEditorStore((s) => s.redEyeSettings);
   const [shown, setShown] = useState<Shown[]>([]);
   // The selected correction's drag offset (mask-frame pixels).
-  const [draft, setDraft] = useState<{ id: string; offset: Point } | null>(
-    null,
-  );
+  const [draft, setDraft] = useState<{ id: string; offset: Point } | null>(null);
   const [search, setSearch] = useState<{
     x: number;
     y: number;
@@ -106,13 +88,12 @@ export default function RedEyeOverlay({
   const drag = useRef<Drag | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  const toBox = (x: number, y: number) =>
-    [(x - cropX) * scale, (y - cropY) * scale] as const;
+  const toBox = (x: number, y: number) => [(x - cropX) * scale, (y - cropY) * scale] as const;
   const toImage = (clientX: number, clientY: number) => {
     const b = ref.current!.getBoundingClientRect();
     return {
       x: ((clientX - b.left) / b.width) * (rect.width / scale) + cropX,
-      y: ((clientY - b.top) / b.height) * (rect.height / scale) + cropY,
+      y: ((clientY - b.top) / b.height) * (rect.height / scale) + cropY
     };
   };
   // One screen pixel in mask pixels.
@@ -121,9 +102,7 @@ export default function RedEyeOverlay({
   // Where the photo shows its corrections, asked again when they or the
   // geometry change.
   const eyesKey = JSON.stringify(eyes);
-  const geometryKey = useEditorStore((s) =>
-    JSON.stringify(SHOWN_KEYS.map((key) => s.adjustments[key])),
-  );
+  const geometryKey = useEditorStore((s) => JSON.stringify(SHOWN_KEYS.map((key) => s.adjustments[key])));
   useEffect(() => {
     const { adjustments } = useEditorStore.getState();
     const asked = adjustments.redEyes ?? [];
@@ -133,7 +112,7 @@ export default function RedEyeOverlay({
     }
     let cancelled = false;
     invoke<(Pupil | null)[]>(Invokes.RedEyesShown, {
-      jsAdjustments: adjustments,
+      jsAdjustments: adjustments
     })
       .then((ellipses) => {
         if (cancelled) return;
@@ -141,12 +120,10 @@ export default function RedEyeOverlay({
           asked.flatMap((eye, i) => {
             const ellipse = ellipses[i];
             return ellipse ? [{ eye, ellipse }] : [];
-          }),
+          })
         );
       })
-      .catch((error) =>
-        console.error("Showing red eye corrections failed:", error),
-      );
+      .catch((error) => console.error('Showing red eye corrections failed:', error));
     return () => {
       cancelled = true;
     };
@@ -154,8 +131,7 @@ export default function RedEyeOverlay({
 
   /** Searches the circle for a pupil and adds the correction it finds. */
   const place = async (x: number, y: number, radius: number) => {
-    const { selectedImage, adjustments, redEyeSettings, setEditor } =
-      useEditorStore.getState();
+    const { selectedImage, adjustments, redEyeSettings, setEditor } = useEditorStore.getState();
     if (!selectedImage?.isReady) return;
     const path = selectedImage.path;
     setSearch({ x, y, radius, pending: true });
@@ -165,17 +141,11 @@ export default function RedEyeOverlay({
         y,
         radius,
         kind: redEyeSettings.kind,
-        jsAdjustments: adjustments,
+        jsAdjustments: adjustments
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
       if (!pupil) {
-        notify.info(
-          t(
-            redEyeSettings.kind === "pet"
-              ? "spotRemoval.redEye.noPetEye"
-              : "spotRemoval.redEye.noRedEye",
-          ),
-        );
+        notify.info(t(redEyeSettings.kind === 'pet' ? 'spotRemoval.redEye.noPetEye' : 'spotRemoval.redEye.noRedEye'));
         return;
       }
       const eye: RedEye = {
@@ -185,18 +155,18 @@ export default function RedEyeOverlay({
         ...pupil,
         pupilSize: redEyeSettings.pupilSize,
         darken: redEyeSettings.darken,
-        catchlight: redEyeSettings.kind === "pet" && redEyeSettings.catchlight,
+        catchlight: redEyeSettings.kind === 'pet' && redEyeSettings.catchlight,
         catchlightX: DEFAULT_CATCHLIGHT.x,
         catchlightY: DEFAULT_CATCHLIGHT.y,
-        visible: true,
+        visible: true
       };
       updateAdjustments((prev) => ({
         ...prev,
-        redEyes: [...(prev.redEyes ?? []), eye],
+        redEyes: [...(prev.redEyes ?? []), eye]
       }));
       setEditor({ activeSpotId: eye.id });
     } catch (error) {
-      console.error("Red eye detection failed:", error);
+      console.error('Red eye detection failed:', error);
     } finally {
       setSearch(null);
     }
@@ -211,17 +181,15 @@ export default function RedEyeOverlay({
       const [ix, iy] = await invoke<[number, number]>(Invokes.RedEyePoint, {
         x,
         y,
-        jsAdjustments: adjustments,
+        jsAdjustments: adjustments
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
       updateAdjustments((prev) => ({
         ...prev,
-        redEyes: (prev.redEyes ?? []).map((eye) =>
-          eye.id === id ? { ...eye, x: ix, y: iy } : eye,
-        ),
+        redEyes: (prev.redEyes ?? []).map((eye) => (eye.id === id ? { ...eye, x: ix, y: iy } : eye))
       }));
     } catch (error) {
-      console.error("Moving the red eye correction failed:", error);
+      console.error('Moving the red eye correction failed:', error);
     } finally {
       setDraft(null);
     }
@@ -232,12 +200,8 @@ export default function RedEyeOverlay({
     // The selected correction first, then the others from the top.
     const hit = [...shown]
       .reverse()
-      .sort(
-        (a, b) => Number(b.eye.id === activeId) - Number(a.eye.id === activeId),
-      )
-      .find(({ eye, ellipse }) =>
-        insideEllipse(ellipse, pupilScale(eye.pupilSize), p.x, p.y, 3 * pixel),
-      );
+      .sort((a, b) => Number(b.eye.id === activeId) - Number(a.eye.id === activeId))
+      .find(({ eye, ellipse }) => insideEllipse(ellipse, pupilScale(eye.pupilSize), p.x, p.y, 3 * pixel));
     // A right-click selects; the viewer then opens the settings popover.
     if (e.button === 2) {
       if (hit) useEditorStore.getState().setEditor({ activeSpotId: hit.eye.id });
@@ -252,20 +216,20 @@ export default function RedEyeOverlay({
     }
     // Alt: the correction under the press is deleted on release.
     if (e.altKey) {
-      if (hit) drag.current = { kind: "delete", id: hit.eye.id };
+      if (hit) drag.current = { kind: 'delete', id: hit.eye.id };
       return;
     }
     if (hit) {
       useEditorStore.getState().setEditor({ activeSpotId: hit.eye.id });
       drag.current = {
-        kind: "move",
+        kind: 'move',
         id: hit.eye.id,
         start: p,
-        offset: { x: 0, y: 0 },
+        offset: { x: 0, y: 0 }
       };
       return;
     }
-    drag.current = { kind: "search", start: p, radius: settings.size };
+    drag.current = { kind: 'search', start: p, radius: settings.size };
     setSearch({ x: p.x, y: p.y, radius: settings.size, pending: false });
   };
 
@@ -276,11 +240,11 @@ export default function RedEyeOverlay({
       setHover(p);
       return;
     }
-    if (d.kind === "move") {
+    if (d.kind === 'move') {
       // Kept on the drag too: the release may come before a render.
       d.offset = { x: p.x - d.start.x, y: p.y - d.start.y };
       setDraft({ id: d.id, offset: d.offset });
-    } else if (d.kind === "search") {
+    } else if (d.kind === 'search') {
       const travelled = Math.hypot(p.x - d.start.x, p.y - d.start.y);
       // A drag sizes the circle from its centre.
       if (travelled >= DRAG_MIN * pixel) d.radius = Math.max(2, travelled);
@@ -288,7 +252,7 @@ export default function RedEyeOverlay({
         x: d.start.x,
         y: d.start.y,
         radius: d.radius,
-        pending: false,
+        pending: false
       });
     }
   };
@@ -297,34 +261,33 @@ export default function RedEyeOverlay({
     const d = drag.current;
     drag.current = null;
     try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId))
-        e.currentTarget.releasePointerCapture(e.pointerId);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       // See setPointerCapture.
     }
     // A cancelled press (the system took the pointer) changes nothing.
-    if (e.type === "pointercancel") {
+    if (e.type === 'pointercancel') {
       setSearch(null);
       setDraft(null);
       return;
     }
-    if (d?.kind === "delete") {
+    if (d?.kind === 'delete') {
       updateAdjustments((prev) => withoutSpotItems(prev, new Set([d.id])));
       const { activeSpotId, setEditor } = useEditorStore.getState();
       if (activeSpotId === d.id) setEditor({ activeSpotId: null });
       return;
     }
-    if (d?.kind === "search") {
+    if (d?.kind === 'search') {
       const { setEditor, redEyeSettings } = useEditorStore.getState();
       if (d.radius !== redEyeSettings.size) {
         setEditor({
-          redEyeSettings: { ...redEyeSettings, size: Math.round(d.radius) },
+          redEyeSettings: { ...redEyeSettings, size: Math.round(d.radius) }
         });
       }
       void place(d.start.x, d.start.y, d.radius);
       return;
     }
-    if (d?.kind === "move") {
+    if (d?.kind === 'move') {
       const at = shown.find((item) => item.eye.id === d.id);
       if (at && (d.offset.x !== 0 || d.offset.y !== 0)) {
         void move(d.id, at.ellipse.x + d.offset.x, at.ellipse.y + d.offset.y);
@@ -339,48 +302,35 @@ export default function RedEyeOverlay({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      )
-        return;
-      const {
-        activeSpotId: id,
-        redEyeSettings,
-        setEditor,
-        adjustments,
-      } = useEditorStore.getState();
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      const { activeSpotId: id, redEyeSettings, setEditor, adjustments } = useEditorStore.getState();
       const selected = adjustments.redEyes?.some((eye) => eye.id === id);
-      if ((e.key === "Delete" || e.key === "Backspace") && selected) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
         e.preventDefault();
         e.stopImmediatePropagation();
         updateAdjustments((prev) => ({
           ...prev,
-          redEyes: (prev.redEyes ?? []).filter((eye) => eye.id !== id),
+          redEyes: (prev.redEyes ?? []).filter((eye) => eye.id !== id)
         }));
         setEditor({ activeSpotId: null });
-      } else if (e.key === "[" || e.key === "]") {
+      } else if (e.key === '[' || e.key === ']') {
         e.preventDefault();
         e.stopImmediatePropagation();
         // 15 % a press, and at least a pixel.
         const size = redEyeSettings.size;
         const next =
-          e.key === "]"
-            ? Math.max(size + 1, Math.round(size * 1.15))
-            : Math.min(size - 1, Math.round(size / 1.15));
+          e.key === ']' ? Math.max(size + 1, Math.round(size * 1.15)) : Math.min(size - 1, Math.round(size / 1.15));
         setEditor({
-          redEyeSettings: { ...redEyeSettings, size: Math.max(2, next) },
+          redEyeSettings: { ...redEyeSettings, size: Math.max(2, next) }
         });
-      } else if (e.key === "Escape" && id) {
+      } else if (e.key === 'Escape' && id) {
         e.preventDefault();
         e.stopImmediatePropagation();
         setEditor({ activeSpotId: null });
       }
     };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, []);
 
   const line = 1.5 * pixel * scale;
@@ -388,14 +338,7 @@ export default function RedEyeOverlay({
     const [bx, by] = toBox(at.x, at.y);
     return (
       <g key={key}>
-        <circle
-          cx={bx}
-          cy={by}
-          r={r * scale}
-          fill="none"
-          stroke="rgba(0,0,0,0.6)"
-          strokeWidth={line * 2.4}
-        />
+        <circle cx={bx} cy={by} r={r * scale} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={line * 2.4} />
         <circle
           cx={bx}
           cy={by}
@@ -412,17 +355,17 @@ export default function RedEyeOverlay({
   return (
     <div
       ref={ref}
-      aria-label={t("spotRemoval.redEye.overlay")}
+      aria-label={t('spotRemoval.redEye.overlay')}
       data-testid="red-eye-overlay"
       style={{
-        position: "absolute",
+        position: 'absolute',
         left: rect.left,
         top: rect.top,
         width: rect.width,
         height: rect.height,
         zIndex: 6,
-        cursor: "crosshair",
-        touchAction: "none",
+        cursor: 'crosshair',
+        touchAction: 'none'
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -434,10 +377,10 @@ export default function RedEyeOverlay({
         width={rect.width}
         height={rect.height}
         style={{
-          position: "absolute",
+          position: 'absolute',
           inset: 0,
-          overflow: "visible",
-          pointerEvents: "none",
+          overflow: 'visible',
+          pointerEvents: 'none'
         }}
       >
         {shown.map(({ eye, ellipse }) => {
@@ -453,42 +396,22 @@ export default function RedEyeOverlay({
               key={eye.id}
               data-testid="red-eye"
               style={{
-                color: active ? "var(--studio-accent, #9cc2e0)" : "#fff",
+                color: active ? 'var(--studio-accent, #9cc2e0)' : '#fff'
               }}
               // A hidden correction stays there to select.
               opacity={eye.visible === false ? 0.4 : undefined}
               transform={`rotate(${ellipse.angle} ${cx} ${cy})`}
             >
-              <ellipse
-                cx={cx}
-                cy={cy}
-                rx={rx}
-                ry={ry}
-                fill="none"
-                stroke="rgba(0,0,0,0.6)"
-                strokeWidth={line * 2.4}
-              />
-              <ellipse
-                cx={cx}
-                cy={cy}
-                rx={rx}
-                ry={ry}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={line}
-              />
+              <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={line * 2.4} />
+              <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke="currentColor" strokeWidth={line} />
             </g>
           );
         })}
         {search && (
-          <g style={{ color: search.pending ? "#f0c060" : "#fff" }}>
-            {circle("search", search, search.radius, true)}
-          </g>
+          <g style={{ color: search.pending ? '#f0c060' : '#fff' }}>{circle('search', search, search.radius, true)}</g>
         )}
         {!search && hover && !drag.current && (
-          <g style={{ color: "rgba(255,255,255,0.7)" }}>
-            {circle("hover", hover, settings.size, true)}
-          </g>
+          <g style={{ color: 'rgba(255,255,255,0.7)' }}>{circle('hover', hover, settings.size, true)}</g>
         )}
       </svg>
     </div>

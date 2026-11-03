@@ -6,7 +6,7 @@ import {
   VariantConfig,
   TEXT_WEIGHT_KEYS,
   TEXT_COLOR_KEYS,
-  TextVariants,
+  TextVariants
 } from '../../types/typography';
 
 interface TextProps extends React.HTMLAttributes<HTMLElement> {
@@ -29,14 +29,14 @@ const Text = forwardRef<HTMLElement, TextProps>(
           TEXT_WEIGHT_KEYS[weight ?? variant.defaultWeight],
           TEXT_COLOR_KEYS[color ?? variant.defaultColor],
           variant.extraClasses,
-          className,
+          className
         )}
         {...props}
       >
         {children}
       </Component>
     );
-  },
+  }
 );
 
 Text.displayName = 'Text';

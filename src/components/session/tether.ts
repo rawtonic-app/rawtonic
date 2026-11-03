@@ -1,11 +1,11 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { notify } from "../../activity/notify";
-import i18n from "i18next";
-import { Invokes } from "../ui/AppProperties";
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { notify } from '../../activity/notify';
+import i18n from 'i18next';
+import { Invokes } from '../ui/AppProperties';
 
 /** Fires the tethered camera (the Capture shortcut, Capture One's ⌘K). */
-export const TETHER_CAPTURE_EVENT = "rawtonic:tether-capture";
+export const TETHER_CAPTURE_EVENT = 'rawtonic:tether-capture';
 
 let connected = false;
 /** Tether panels listening for the shortcut (they fire it themselves). */
@@ -31,7 +31,7 @@ export const setTetherExperimental = (value: boolean) => {
  * no exposure): not a download that failed or timed out, which names the
  * exposure it belongs to and keeps its own message. */
 export const shotNotReceived = (payload: { kind?: string; exposure?: number | null }) =>
-  payload.kind === "timeout" && payload.exposure == null;
+  payload.kind === 'timeout' && payload.exposure == null;
 
 /** The message for a shot that was not delivered (`tether-capture-failed`):
  * on an experimental path a timed-out shot is on the memory card, said in
@@ -43,8 +43,18 @@ export const notDeliveredToast = (payload: {
   exposure?: number | null;
 }) =>
   shotNotReceived(payload) && experimental
-    ? { text: i18n.t("session.tether.canon.notReceived", { n: payload.request ?? "?" }), sticky: true }
-    : { text: i18n.t("session.tether.captureFailed", { error: payload.message }), sticky: false };
+    ? {
+        text: i18n.t('session.tether.canon.notReceived', {
+          n: payload.request ?? '?'
+        }),
+        sticky: true
+      }
+    : {
+        text: i18n.t('session.tether.captureFailed', {
+          error: payload.message
+        }),
+        sticky: false
+      };
 
 /** A tether panel handles the shortcut while it is mounted; returns its
  * release. */
@@ -61,15 +71,15 @@ export const panelHandlesCapture = () => {
 // the first panel (every connection starts in one).
 let installed = false;
 const install = () => {
-  if (installed || typeof window === "undefined" || !isTauri()) return;
+  if (installed || typeof window === 'undefined' || !isTauri()) return;
   installed = true;
-  void listen<{ connected: boolean }>("tether-state", (event) => {
+  void listen<{ connected: boolean }>('tether-state', (event) => {
     connected = event.payload.connected;
   });
   window.addEventListener(TETHER_CAPTURE_EVENT, () => {
     if (panels > 0 || !connected) return;
     invoke(Invokes.TetherCapture).catch((e) =>
-      notify.error(i18n.t("session.tether.captureFailed", { error: String(e) }), { source: "tether" }),
+      notify.error(i18n.t('session.tether.captureFailed', { error: String(e) }), { source: 'tether' })
     );
   });
 };

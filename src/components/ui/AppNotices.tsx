@@ -7,7 +7,11 @@ import { CONFIRMATION_MS } from '../../activity/notify';
 
 /** A short fade, as the studio has no decorative motion (DESIGN.md); with
  * reduced motion the CSS makes it instant. */
-const Fade = cssTransition({ enter: 'app-notice-enter', exit: 'app-notice-exit', collapseDuration: 120 });
+const Fade = cssTransition({
+  enter: 'app-notice-enter',
+  exit: 'app-notice-exit',
+  collapseDuration: 120
+});
 
 function CloseButton({ closeToast }: { closeToast(): void }) {
   const { t } = useTranslation();
@@ -42,7 +46,9 @@ export default function AppNotices({ children }: { children?: ReactNode }) {
         transition={Fade}
         closeButton={CloseButton}
         aria-label={t('notifications.region')}
-        toastClassName={(context) => `${context?.defaultClassName ?? ''} app-notice app-notice--${context?.type ?? 'default'}`}
+        toastClassName={(context) =>
+          `${context?.defaultClassName ?? ''} app-notice app-notice--${context?.type ?? 'default'}`
+        }
       />
       {children}
     </div>

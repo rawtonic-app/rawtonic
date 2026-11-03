@@ -11,9 +11,17 @@ vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, args?: { version: string }) => (args ? `${key} ${args.version}` : key) }) }));
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, args?: { version: string }) => (args ? `${key} ${args.version}` : key)
+  })
+}));
 
-const saved = () => vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === Invokes.SaveSettings).map(([, args]) => (args as { settings: AppSettings }).settings);
+const saved = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([cmd]) => cmd === Invokes.SaveSettings)
+    .map(([, args]) => (args as { settings: AppSettings }).settings);
 
 async function start(version: string, settings: AppSettings) {
   vi.mocked(getVersion).mockResolvedValue(version);
@@ -36,7 +44,10 @@ it('a first install records the version and shows nothing', async () => {
 });
 
 it('the first start of a newer version shows its bundled CHANGELOG section once', async () => {
-  await start('0.1.0-alpha.7.1', { lastRunVersion: '0.1.0-alpha.7', theme: 'dark' } as AppSettings);
+  await start('0.1.0-alpha.7.1', {
+    lastRunVersion: '0.1.0-alpha.7',
+    theme: 'dark'
+  } as AppSettings);
   const dialog = await screen.findByRole('dialog');
   expect(screen.getByText('updates.notesTitle 0.1.0-alpha.7.1')).toBeTruthy();
   expect(dialog.textContent).toContain('AI masks show on the first open of a photo.');
@@ -53,19 +64,24 @@ it('the first start of a newer version shows its bundled CHANGELOG section once'
 });
 
 it('"Don\'t show after updates" turns the preference off', async () => {
-  await start('0.1.0-alpha.7.1', { lastRunVersion: '0.1.0-alpha.6.1' } as AppSettings);
+  await start('0.1.0-alpha.7.1', {
+    lastRunVersion: '0.1.0-alpha.6.1'
+  } as AppSettings);
   await screen.findByRole('dialog');
   fireEvent.click(screen.getByLabelText('updates.dontShowAgain'));
   fireEvent.click(screen.getAllByText('updates.close').at(-1)!);
   await act(async () => {});
-  expect(saved().at(-1)).toEqual({ lastRunVersion: '0.1.0-alpha.7.1', showWhatsNew: false });
+  expect(saved().at(-1)).toEqual({
+    lastRunVersion: '0.1.0-alpha.7.1',
+    showWhatsNew: false
+  });
 });
 
 it('stays quiet when turned off, after a downgrade and for a version without a section', async () => {
   for (const [version, settings] of [
     ['0.1.0-alpha.7.1', { lastRunVersion: '0.1.0-alpha.7', showWhatsNew: false }],
     ['0.1.0-alpha.7', { lastRunVersion: '0.1.0-alpha.7.1' }],
-    ['9.0.0', { lastRunVersion: '0.1.0-alpha.7.1' }],
+    ['9.0.0', { lastRunVersion: '0.1.0-alpha.7.1' }]
   ] as const) {
     vi.mocked(invoke).mockClear();
     await start(version, settings as AppSettings);

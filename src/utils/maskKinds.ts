@@ -33,7 +33,7 @@ export const MASK_KIND_LABELS: Record<MaskKind, string> = {
   people: 'People',
   color: 'Color range',
   luminance: 'Luminance range',
-  depth: 'Depth range',
+  depth: 'Depth range'
 };
 
 /** Parts of a People mask (`rawtonic_faces::Part` names), in Lightroom's order. */
@@ -47,16 +47,27 @@ export const PEOPLE_PARTS = [
   { part: 'lips', label: 'Lips' },
   { part: 'teeth', label: 'Teeth' },
   { part: 'hair', label: 'Hair' },
-  { part: 'clothes', label: 'Clothes' },
+  { part: 'clothes', label: 'Clothes' }
 ] as const;
 export type PeoplePart = (typeof PEOPLE_PARTS)[number]['part'];
 
 /** A new People mask: everyone, entire person (Lightroom's default). */
-export const DEFAULT_PEOPLE_MASK = { parts: ['entirePerson'] as PeoplePart[], person: null, grow: 0, feather: 0 };
+export const DEFAULT_PEOPLE_MASK = {
+  parts: ['entirePerson'] as PeoplePart[],
+  person: null,
+  grow: 0,
+  feather: 0
+};
 
 /** Lightroom's colour range (measured in Camera Raw): Refine 50, no feather. */
 export const DEFAULT_COLOR_RANGE = { refine: 50, grow: 0, feather: 0 };
-export const DEFAULT_DEPTH_RANGE = { minDepth: 50, maxDepth: 100, minFade: 15, maxFade: 15, feather: 10 };
+export const DEFAULT_DEPTH_RANGE = {
+  minDepth: 50,
+  maxDepth: 100,
+  minFade: 15,
+  maxFade: 15,
+  feather: 10
+};
 
 /** The components (sub-masks) a new layer or component of `kind` starts
  * with: one, or for a luminance range the whole photo and its range. */
@@ -70,24 +81,44 @@ export function createComponents(kind: MaskKind, image: ImageDimensions, mode = 
       return one(Mask.Brush);
     case 'linear':
       return one(Mask.Linear, {
-        range: Math.min(image?.width || 1000, image?.height || 1000) * 0.1,
+        range: Math.min(image?.width || 1000, image?.height || 1000) * 0.1
       });
     case 'radial':
       return one(Mask.Radial);
     case 'subject':
-      return one(Mask.AiForeground, { maskDataBase64: null, grow: 0, feather: 0, subjectVersion: SUBJECT_VERSION });
+      return one(Mask.AiForeground, {
+        maskDataBase64: null,
+        grow: 0,
+        feather: 0,
+        subjectVersion: SUBJECT_VERSION
+      });
     case 'background':
-      return one(Mask.AiForeground, { maskDataBase64: null, grow: 0, feather: 0, subjectVersion: SUBJECT_VERSION }, true);
+      return one(
+        Mask.AiForeground,
+        {
+          maskDataBase64: null,
+          grow: 0,
+          feather: 0,
+          subjectVersion: SUBJECT_VERSION
+        },
+        true
+      );
     case 'sky':
       return one(Mask.AiSky, { maskDataBase64: null, grow: 0, feather: 0 });
     case 'object':
       return one(Mask.AiSubject, { maskDataBase64: null, grow: 0, feather: 0 });
     case 'people':
-      return one(Mask.AiPeople, { maskDataBase64: null, ...structuredClone(DEFAULT_PEOPLE_MASK) });
+      return one(Mask.AiPeople, {
+        maskDataBase64: null,
+        ...structuredClone(DEFAULT_PEOPLE_MASK)
+      });
     case 'color':
       return one(Mask.Color, { ...DEFAULT_COLOR_RANGE });
     case 'depth':
-      return one(Mask.AiDepth, { maskDataBase64: null, ...DEFAULT_DEPTH_RANGE });
+      return one(Mask.AiDepth, {
+        maskDataBase64: null,
+        ...DEFAULT_DEPTH_RANGE
+      });
     case 'luminance':
       // The whole photo, limited to its luma range (the range stays last).
       return [...one(Mask.All), createSubMask(Mask.LumaRange, image)];

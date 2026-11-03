@@ -2,7 +2,12 @@ import type { KeyboardEvent } from 'react';
 
 /** A two-way choice in a preference row, as the studio's segmented control
  * (Develop tools Left | Right): one Tab stop, arrow keys move and choose. */
-export default function PrefSegments<T extends string>({ label, onChange, options, value }: {
+export default function PrefSegments<T extends string>({
+  label,
+  onChange,
+  options,
+  value
+}: {
   label: string;
   onChange(value: T): void;
   options: { label: string; value: T }[];

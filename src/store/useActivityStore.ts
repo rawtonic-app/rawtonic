@@ -17,16 +17,7 @@ export type ActivityStatus = 'running' | 'done' | 'warning' | 'failure';
 
 /** Where an entry comes from (its icon and Copy details' heading). */
 export type ActivitySource =
-  | 'export'
-  | 'import'
-  | 'ai'
-  | 'download'
-  | 'tether'
-  | 'write'
-  | 'files'
-  | 'xmp'
-  | 'batch'
-  | 'app';
+  'export' | 'import' | 'ai' | 'download' | 'tether' | 'write' | 'files' | 'xmp' | 'batch' | 'app';
 
 export interface ActivityAction {
   label: string;
@@ -103,7 +94,7 @@ function trim(entries: ActivityEntry[]): ActivityEntry[] {
   if (done.length <= DONE_KEPT && attention.length <= ATTENTION_KEPT) return entries;
   const drop = new Set([
     ...done.sort((a, b) => a.updatedAt - b.updatedAt).slice(0, Math.max(0, done.length - DONE_KEPT)),
-    ...attention.sort((a, b) => a.updatedAt - b.updatedAt).slice(0, Math.max(0, attention.length - ATTENTION_KEPT)),
+    ...attention.sort((a, b) => a.updatedAt - b.updatedAt).slice(0, Math.max(0, attention.length - ATTENTION_KEPT))
   ]);
   return entries.filter((entry) => !drop.has(entry));
 }
@@ -121,14 +112,24 @@ export const useActivityStore = create<ActivityState>((set, get) => {
   const schedule = () => {
     if (expiryTimer) clearTimeout(expiryTimer);
     expiryTimer = null;
-    const oldest = Math.min(...get().entries.filter((e) => e.status === 'done').map((e) => e.updatedAt));
+    const oldest = Math.min(
+      ...get()
+        .entries.filter((e) => e.status === 'done')
+        .map((e) => e.updatedAt)
+    );
     if (!Number.isFinite(oldest)) return;
     expiryTimer = setTimeout(() => get().expire(), Math.max(0, oldest + DONE_KEPT_MS - Date.now()) + 50);
   };
   const entry = (status: ActivityStatus, input: ActivityInput): ActivityEntry => {
     const now = Date.now();
     const { id, ...rest } = input;
-    return { ...rest, id: id ?? `activity-${nextId++}`, status, createdAt: now, updatedAt: now };
+    return {
+      ...rest,
+      id: id ?? `activity-${nextId++}`,
+      status,
+      createdAt: now,
+      updatedAt: now
+    };
   };
   return {
     entries: [],
@@ -140,7 +141,7 @@ export const useActivityStore = create<ActivityState>((set, get) => {
     },
     update(id, patch) {
       set((state) => ({
-        entries: state.entries.map((e) => (e.id === id ? { ...e, ...patch, updatedAt: Date.now() } : e)),
+        entries: state.entries.map((e) => (e.id === id ? { ...e, ...patch, updatedAt: Date.now() } : e))
       }));
       schedule();
     },
@@ -150,7 +151,11 @@ export const useActivityStore = create<ActivityState>((set, get) => {
         get().resolve(id);
         return;
       }
-      const done = entry('done', { source: running?.source ?? 'app', ...result, id });
+      const done = entry('done', {
+        source: running?.source ?? 'app',
+        ...result,
+        id
+      });
       set((state) => ({ entries: put(state.entries, done) }));
       schedule();
     },
@@ -162,25 +167,34 @@ export const useActivityStore = create<ActivityState>((set, get) => {
     },
     dismiss(id) {
       const dismissed = get().entries.find((e) => e.id === id && e.status !== 'running');
-      set((state) => ({ entries: state.entries.filter((e) => e.id !== id || e.status === 'running') }));
-      if (dismissed?.onDismiss) void Promise.resolve().then(() => dismissed.onDismiss!()).catch(() => {});
+      set((state) => ({
+        entries: state.entries.filter((e) => e.id !== id || e.status === 'running')
+      }));
+      if (dismissed?.onDismiss)
+        void Promise.resolve()
+          .then(() => dismissed.onDismiss!())
+          .catch(() => {});
     },
     resolve(id) {
       set((state) => ({ entries: state.entries.filter((e) => e.id !== id) }));
     },
     clearDone() {
-      set((state) => ({ entries: state.entries.filter((e) => e.status !== 'done') }));
+      set((state) => ({
+        entries: state.entries.filter((e) => e.status !== 'done')
+      }));
       schedule();
     },
     expire(now = Date.now()) {
       set((state) => ({
-        entries: state.entries.filter((e) => e.status !== 'done' || now - e.updatedAt < DONE_KEPT_MS),
+        entries: state.entries.filter((e) => e.status !== 'done' || now - e.updatedAt < DONE_KEPT_MS)
       }));
       schedule();
     },
     setOpen(open) {
-      set((state) => ({ open: typeof open === 'function' ? open(state.open) : open }));
-    },
+      set((state) => ({
+        open: typeof open === 'function' ? open(state.open) : open
+      }));
+    }
   };
 });
 
@@ -193,7 +207,7 @@ export function activitySections(entries: ActivityEntry[]) {
       // Failures before warnings.
       .sort((a, b) => (a.status === b.status ? newest(a, b) : a.status === 'failure' ? -1 : 1)),
     running: entries.filter((e) => e.status === 'running').sort((a, b) => a.createdAt - b.createdAt),
-    done: entries.filter((e) => e.status === 'done').sort(newest),
+    done: entries.filter((e) => e.status === 'done').sort(newest)
   };
 }
 

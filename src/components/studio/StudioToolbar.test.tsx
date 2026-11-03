@@ -1,48 +1,48 @@
-import "../../i18n";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import StudioWorkspace from "./StudioWorkspace";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import type { AppSettings, SelectedImage } from "../ui/AppProperties";
+import '../../i18n';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import StudioWorkspace from './StudioWorkspace';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useUIStore } from '../../store/useUIStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import type { AppSettings, SelectedImage } from '../ui/AppProperties';
 
-vi.mock("../panel/Editor", () => ({ default: () => null }));
-vi.mock("./StudioDevelop", () => ({
+vi.mock('../panel/Editor', () => ({ default: () => null }));
+vi.mock('./StudioDevelop', () => ({
   default: () => null,
-  ToolGroup: () => null,
+  ToolGroup: () => null
 }));
-vi.mock("./StudioNavigation", () => ({ default: () => null }));
+vi.mock('./StudioNavigation', () => ({ default: () => null }));
 
 beforeEach(() => {
   HTMLDialogElement.prototype.close = vi.fn();
   HTMLDialogElement.prototype.showModal = vi.fn();
   vi.stubGlobal(
-    "ResizeObserver",
+    'ResizeObserver',
     class {
       observe() {}
       disconnect() {}
-    },
+    }
   );
-  useUIStore.setState({ activeView: "editor" });
+  useUIStore.setState({ activeView: 'editor' });
   useEditorStore.setState({
     selectedImage: {
-      path: "/qa/current.dng",
+      path: '/qa/current.dng',
       width: 6000,
       height: 4000,
       isRaw: true,
-      isReady: true,
-    } as SelectedImage,
+      isReady: true
+    } as SelectedImage
   });
-  useLibraryStore.setState({ multiSelectedPaths: ["/qa/other.dng"] });
+  useLibraryStore.setState({ multiSelectedPaths: ['/qa/other.dng'] });
 });
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-it("sends the open photo to Paste and Reset instead of the click event or old Library selection", () => {
+it('sends the open photo to Paste and Reset instead of the click event or old Library selection', () => {
   const paste = vi.fn(),
     reset = vi.fn(),
     copy = vi.fn(),
@@ -67,25 +67,32 @@ it("sends the open photo to Paste and Reset instead of the click event or old Li
       requestThumbnails={noop}
       settings={null}
       onSettings={noop}
-    />,
+    />
   );
-  fireEvent.click(screen.getByRole("button", { name: "Reset all adjustments" }));
-  fireEvent.click(screen.getByRole("button", { name: "Paste adjustments" }));
-  fireEvent.click(screen.getByRole("button", { name: "Copy adjustments" }));
-  expect(reset).toHaveBeenCalledExactlyOnceWith(["/qa/current.dng"]);
-  expect(paste).toHaveBeenCalledExactlyOnceWith(["/qa/current.dng"]);
+  fireEvent.click(screen.getByRole('button', { name: 'Reset all adjustments' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Paste adjustments' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Copy adjustments' }));
+  expect(reset).toHaveBeenCalledExactlyOnceWith(['/qa/current.dng']);
+  expect(paste).toHaveBeenCalledExactlyOnceWith(['/qa/current.dng']);
   expect(copy).toHaveBeenCalledExactlyOnceWith(undefined, { quick: false });
-  act(() => useEditorStore.setState((state) => ({ selectedImage: { ...state.selectedImage!, isReady: false } })));
-  fireEvent.click(screen.getByRole("button", { name: "Reset all adjustments" }));
-  fireEvent.click(screen.getByRole("button", { name: "Paste adjustments" }));
-  fireEvent.click(screen.getByRole("button", { name: "Copy adjustments" }));
+  act(() =>
+    useEditorStore.setState((state) => ({
+      selectedImage: { ...state.selectedImage!, isReady: false }
+    }))
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Reset all adjustments' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Paste adjustments' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Copy adjustments' }));
   expect(reset).toHaveBeenCalledTimes(1);
   expect(paste).toHaveBeenCalledTimes(1);
   expect(copy).toHaveBeenCalledTimes(1);
 });
 
-it("has one Before/After button: it toggles the split and names both keys", () => {
-  useSettingsStore.setState({ appSettings: { keybinds: {} } as unknown as AppSettings, osPlatform: "macos" });
+it('has one Before/After button: it toggles the split and names both keys', () => {
+  useSettingsStore.setState({
+    appSettings: { keybinds: {} } as unknown as AppSettings,
+    osPlatform: 'macos'
+  });
   useEditorStore.setState({ splitView: false, showOriginal: false });
   const noop = vi.fn();
   render(
@@ -108,24 +115,29 @@ it("has one Before/After button: it toggles the split and names both keys", () =
       requestThumbnails={noop}
       settings={null}
       onSettings={noop}
-    />,
+    />
   );
-  expect(screen.queryByRole("button", { name: "Before" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Split" })).toBeNull();
-  const button = screen.getByRole("button", { name: "Before/After" });
-  expect(button.title).toBe("Before/After (Y) · hold \\ for the whole photo before");
+  expect(screen.queryByRole('button', { name: 'Before' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Split' })).toBeNull();
+  const button = screen.getByRole('button', { name: 'Before/After' });
+  expect(button.title).toBe('Before/After (Y) · hold \\ for the whole photo before');
   fireEvent.click(button);
   expect(useEditorStore.getState().splitView).toBe(true);
-  expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect(button.getAttribute('aria-pressed')).toBe('true');
   fireEvent.click(button);
   expect(useEditorStore.getState().splitView).toBe(false);
 });
 
 it("shows the export's progress in a still ring and names AI Denoise while a photo waits for it", async () => {
-  const { useProcessStore } = await import("../../store/useProcessStore");
-  const { Status } = await import("../ui/ExportImportProperties");
+  const { useProcessStore } = await import('../../store/useProcessStore');
+  const { Status } = await import('../ui/ExportImportProperties');
   useProcessStore.setState({
-    exportState: { status: Status.Exporting, errorMessage: "", progress: { current: 0, total: 1 }, denoising: ["/qa/current.dng"] },
+    exportState: {
+      status: Status.Exporting,
+      errorMessage: '',
+      progress: { current: 0, total: 1 },
+      denoising: ['/qa/current.dng']
+    }
   });
   const noop = vi.fn();
   render(
@@ -148,33 +160,66 @@ it("shows the export's progress in a still ring and names AI Denoise while a pho
       requestThumbnails={noop}
       settings={null}
       onSettings={noop}
-    />,
+    />
   );
-  const button = screen.getByRole("button", { name: "Exporting 0 / 1 · AI Denoise…" });
+  const button = screen.getByRole('button', {
+    name: 'Exporting 0 / 1 · AI Denoise…'
+  });
   // A turning icon composites the window on every display frame and slows
   // the export's GPU passes; the ring moves only as files are written.
-  expect(button.querySelector(".animate-spin")).toBeNull();
-  const ring = () => button.querySelector(".activity-ring");
-  expect(ring()?.classList.contains("is-indeterminate")).toBe(false);
-  const offset = () => Number(button.querySelector(".activity-ring-value")?.getAttribute("stroke-dashoffset"));
+  expect(button.querySelector('.animate-spin')).toBeNull();
+  const ring = () => button.querySelector('.activity-ring');
+  expect(ring()?.classList.contains('is-indeterminate')).toBe(false);
+  const offset = () => Number(button.querySelector('.activity-ring-value')?.getAttribute('stroke-dashoffset'));
   const empty = offset();
-  act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, denoising: [], selecting: ["/qa/import.orf"] } })));
-  expect(screen.getByRole("button", { name: "Exporting 0 / 1 · AI selections…" })).toBe(button);
-  act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, selecting: [], progress: { current: 1, total: 1 } } })));
-  expect(screen.getByRole("button", { name: "Exporting 1 / 1" })).toBe(button);
+  act(() =>
+    useProcessStore.setState((s) => ({
+      exportState: {
+        ...s.exportState,
+        denoising: [],
+        selecting: ['/qa/import.orf']
+      }
+    }))
+  );
+  expect(screen.getByRole('button', { name: 'Exporting 0 / 1 · AI selections…' })).toBe(button);
+  act(() =>
+    useProcessStore.setState((s) => ({
+      exportState: {
+        ...s.exportState,
+        selecting: [],
+        progress: { current: 1, total: 1 }
+      }
+    }))
+  );
+  expect(screen.getByRole('button', { name: 'Exporting 1 / 1' })).toBe(button);
   expect(empty).toBeGreaterThan(0);
   expect(offset()).toBe(0);
-  act(() => useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } }));
+  act(() =>
+    useProcessStore.setState({
+      exportState: {
+        status: Status.Idle,
+        errorMessage: '',
+        progress: { current: 0, total: 0 }
+      }
+    })
+  );
 });
 
-it("opens the export queue from the top bar beside the work, counting what is not finished", async () => {
-  const { useProcessStore } = await import("../../store/useProcessStore");
-  const job = { label: "2 photos as JPG", createdAt: "", total: 2, done: 0, failed: 0, failures: [] };
+it('opens the export queue from the top bar beside the work, counting what is not finished', async () => {
+  const { useProcessStore } = await import('../../store/useProcessStore');
+  const job = {
+    label: '2 photos as JPG',
+    createdAt: '',
+    total: 2,
+    done: 0,
+    failed: 0,
+    failures: []
+  };
   useProcessStore.setState({
     exportQueue: [
-      { ...job, id: "a", state: "running" },
-      { ...job, id: "b", state: "done", done: 2 },
-    ],
+      { ...job, id: 'a', state: 'running' },
+      { ...job, id: 'b', state: 'done', done: 2 }
+    ]
   });
   const noop = vi.fn();
   render(
@@ -197,37 +242,56 @@ it("opens the export queue from the top bar beside the work, counting what is no
       requestThumbnails={noop}
       settings={null}
       onSettings={noop}
-    />,
+    />
   );
-  const button = screen.getByRole("button", { name: "Queue (1)" });
+  const button = screen.getByRole('button', { name: 'Queue (1)' });
   fireEvent.click(button);
   // Not a modal dialog: Develop stays usable while the panel is open.
-  const panel = screen.getByRole("complementary", { name: "Export queue" });
-  expect(panel.closest("dialog")).toBeNull();
-  expect(screen.getAllByRole("listitem", { hidden: false }).length).toBeGreaterThanOrEqual(2);
-  fireEvent.click(screen.getByRole("button", { name: "Close export queue" }));
-  expect(screen.queryByRole("complementary", { name: "Export queue" })).toBeNull();
+  const panel = screen.getByRole('complementary', { name: 'Export queue' });
+  expect(panel.closest('dialog')).toBeNull();
+  expect(screen.getAllByRole('listitem', { hidden: false }).length).toBeGreaterThanOrEqual(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Close export queue' }));
+  expect(screen.queryByRole('complementary', { name: 'Export queue' })).toBeNull();
   act(() => useProcessStore.setState({ exportQueue: [] }));
 });
 
-
-it("keeps the Library controls in their own row above the grid at every width", () => {
+it('keeps the Library controls in their own row above the grid at every width', () => {
   // The top bar is the same in Library, loupe and Develop (O-08): labeled
   // actions there, filters in their own row.
-  useUIStore.setState({ activeView: "library" });
-  useLibraryStore.setState({ sessionDirectory: "/qa/library" });
-  useSettingsStore.setState({ appSettings: { uiScale: 1, keybinds: {} } as AppSettings });
-  Object.defineProperty(window, "innerWidth", { value: 1728, configurable: true });
+  useUIStore.setState({ activeView: 'library' });
+  useLibraryStore.setState({ sessionDirectory: '/qa/library' });
+  useSettingsStore.setState({
+    appSettings: { uiScale: 1, keybinds: {} } as AppSettings
+  });
+  Object.defineProperty(window, 'innerWidth', {
+    value: 1728,
+    configurable: true
+  });
   const noop = vi.fn();
-  const view = render(<StudioWorkspace
-    files={[]} flagCounts={{ all: 120, picked: 12, rejected: 3, unflagged: 105 }}
-    transformWrapperRef={{ current: null }} onSelect={noop} onFilmSelect={noop}
-    onOpen={noop} onNavigate={noop} onBack={noop} onRate={noop}
-    onContextMenu={noop} onEditorContextMenu={noop} onCopy={noop} onPaste={noop}
-    onReset={noop} onZoom={noop} requestThumbnails={noop} settings={null} onSettings={noop}
-  />);
-  const toolbar = view.container.querySelector(".studio-library-toolbar")!;
-  expect(toolbar.contains(screen.getByRole("searchbox"))).toBe(true);
-  expect(toolbar.classList.contains("is-in-header")).toBe(false);
+  const view = render(
+    <StudioWorkspace
+      files={[]}
+      flagCounts={{ all: 120, picked: 12, rejected: 3, unflagged: 105 }}
+      transformWrapperRef={{ current: null }}
+      onSelect={noop}
+      onFilmSelect={noop}
+      onOpen={noop}
+      onNavigate={noop}
+      onBack={noop}
+      onRate={noop}
+      onContextMenu={noop}
+      onEditorContextMenu={noop}
+      onCopy={noop}
+      onPaste={noop}
+      onReset={noop}
+      onZoom={noop}
+      requestThumbnails={noop}
+      settings={null}
+      onSettings={noop}
+    />
+  );
+  const toolbar = view.container.querySelector('.studio-library-toolbar')!;
+  expect(toolbar.contains(screen.getByRole('searchbox'))).toBe(true);
+  expect(toolbar.classList.contains('is-in-header')).toBe(false);
   view.unmount();
 });

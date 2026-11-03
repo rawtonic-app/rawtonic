@@ -31,7 +31,11 @@ import { editorRecipe, neverEdited, newSaved, savedSourceFrame } from '../utils/
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 
-const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
+const env = (
+  globalThis as unknown as {
+    process: { env: Record<string, string | undefined> };
+  }
+).process.env;
 const FIXTURE_FILE = `${(globalThis as unknown as { process: { cwd(): string } }).process.cwd()}/src/hooks/__fixtures__/recipeWorkflow.expected.json`;
 const RECORD = env.WF_RECORD === '1';
 const SCRATCH: string = env.WF_SCRATCH ?? `${homedir()}/rawtonic-scratch/arch-wf`;
@@ -43,7 +47,14 @@ const FIXTURES: Record<string, unknown> = {
   'lens-profile-only': { lensProfileFor: 'Some Lens 50mm f/1.8' },
   'legacy-no-versions': { exposure: 0.7, contrast: 20 },
   'old-partial': { exposure: 0.2, toneVersion: 5, renderVersion: 2 },
-  'explicit-nulls': { exposure: null, contrast: null, crop: null, lensProfileFor: null, toneVersion: null, renderVersion: null },
+  'explicit-nulls': {
+    exposure: null,
+    contrast: null,
+    crop: null,
+    lensProfileFor: null,
+    toneVersion: null,
+    renderVersion: null
+  },
   'nested-unknown': {
     exposure: 0.5,
     futureTool: { a: { b: [1, 2, { c: 'x' }] }, enabled: true },
@@ -51,12 +62,23 @@ const FIXTURES: Record<string, unknown> = {
       {
         id: 'm1',
         futureMaskField: 7,
-        subMasks: [{ id: 's1', type: 'radial', futureSub: true, parameters: { cx: 1, futureParam: 2 } }],
-        adjustments: { exposure: 0.2, futureAdj: 5 },
-      },
-    ],
+        subMasks: [
+          {
+            id: 's1',
+            type: 'radial',
+            futureSub: true,
+            parameters: { cx: 1, futureParam: 2 }
+          }
+        ],
+        adjustments: { exposure: 0.2, futureAdj: 5 }
+      }
+    ]
   },
-  'future-version': { exposure: 0.1, renderVersion: 999, unknownKey: { keep: 'me' } },
+  'future-version': {
+    exposure: 0.1,
+    renderVersion: 999,
+    unknownKey: { keep: 'me' }
+  }
 };
 
 const PATH = '/photo.x';
@@ -67,7 +89,7 @@ const sortKeys = (value: unknown): unknown =>
       ? Object.fromEntries(
           Object.keys(value as object)
             .sort()
-            .map((k) => [k, sortKeys((value as Record<string, unknown>)[k])]),
+            .map((k) => [k, sortKeys((value as Record<string, unknown>)[k])])
         )
       : value;
 
@@ -82,9 +104,26 @@ beforeEach(() => {
 
 async function run(stored: unknown, isRaw: boolean) {
   const opened = editorRecipe(stored, isRaw, 4000, 3000, null);
-  const photo = { path: PATH, isReady: true, isRaw, width: 4000, height: 3000, exif: {}, thumbnailUrl: '' };
-  useEditorStore.setState({ selectedImage: photo, adjustments: opened, history: [opened], historyIndex: 0 });
-  useLibraryStore.setState({ libraryActivePath: PATH, multiSelectedPaths: [PATH], libraryActiveAdjustments: opened });
+  const photo = {
+    path: PATH,
+    isReady: true,
+    isRaw,
+    width: 4000,
+    height: 3000,
+    exif: {},
+    thumbnailUrl: ''
+  };
+  useEditorStore.setState({
+    selectedImage: photo,
+    adjustments: opened,
+    history: [opened],
+    historyIndex: 0
+  });
+  useLibraryStore.setState({
+    libraryActivePath: PATH,
+    multiSelectedPaths: [PATH],
+    libraryActiveAdjustments: opened
+  });
   const exposure = Math.round((opened.exposure + 0.3) * 100) / 100;
   act(() => updateAdjustments({ exposure }));
   const edited = useEditorStore.getState().adjustments as Adjustments;
@@ -99,7 +138,7 @@ async function run(stored: unknown, isRaw: boolean) {
     savedJson: sortKeys(JSON.parse(JSON.stringify(saved[0]))),
     treatedAsNewEdit: newSaved(stored),
     neverEdited: neverEdited(stored),
-    requestedFrame: savedSourceFrame(stored),
+    requestedFrame: savedSourceFrame(stored)
   };
 }
 
@@ -138,7 +177,11 @@ describe('recorded behaviour worth a second look', () => {
     // changes is not shown here: export preparation already applies these defaults
     // (embedded_lens::apply_default) to recipes without lensCorrectionMode before rendering.
     // The raster twin gains lensCorrectionMode/grainVersion 3 but no RAW passes.
-    expect(saved('raw.legacy-no-versions')).toMatchObject({ fringeVersion: 6, autoCaVersion: 3, lensCorrectionMode: 'manual' });
+    expect(saved('raw.legacy-no-versions')).toMatchObject({
+      fringeVersion: 6,
+      autoCaVersion: 3,
+      lensCorrectionMode: 'manual'
+    });
     expect(saved('raster.legacy-no-versions').fringeVersion).toBeUndefined();
   });
 
@@ -153,15 +196,26 @@ describe('recorded behaviour worth a second look', () => {
   it.skipIf(RECORD)('future version and unknown keys survive; explicit nulls survive except version keys', () => {
     // FINDING: renderVersion 999 is kept (not downgraded) but toneVersion is filled with 5 beside it;
     // explicit null on a value (contrast) stays null in the saved JSON, null version keys are dropped.
-    expect(saved('raw.future-version')).toMatchObject({ renderVersion: 999, toneVersion: 5, unknownKey: { keep: 'me' } });
+    expect(saved('raw.future-version')).toMatchObject({
+      renderVersion: 999,
+      toneVersion: 5,
+      unknownKey: { keep: 'me' }
+    });
     expect(saved('raw.explicit-nulls').contrast).toBeNull();
     expect(saved('raw.explicit-nulls').renderVersion).toBeUndefined();
     expect(saved('raw.explicit-nulls').toneVersion).toBe(5);
   });
 
-  it.skipIf(RECORD)('a Reset recipe, a lens-only recipe and null all save as a new edit at the current versions', () => {
-    for (const name of ['null', 'empty', 'frame-only', 'lens-profile-only']) {
-      expect(saved(`raw.${name}`)).toMatchObject({ renderVersion: 11, sourceFrameVersion: 3, toneVersion: 10 });
+  it.skipIf(RECORD)(
+    'a Reset recipe, a lens-only recipe and null all save as a new edit at the current versions',
+    () => {
+      for (const name of ['null', 'empty', 'frame-only', 'lens-profile-only']) {
+        expect(saved(`raw.${name}`)).toMatchObject({
+          renderVersion: 11,
+          sourceFrameVersion: 3,
+          toneVersion: 10
+        });
+      }
     }
-  });
+  );
 });

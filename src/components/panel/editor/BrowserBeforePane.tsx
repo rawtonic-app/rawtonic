@@ -14,7 +14,7 @@ export default function BrowserBeforePane({
   size,
   transform,
   enabled,
-  decoded,
+  decoded
 }: {
   path: string;
   adjustments: Adjustments;
@@ -25,14 +25,23 @@ export default function BrowserBeforePane({
 }) {
   const linux = useSettingsStore((s) => s.osPlatform === 'linux');
   const active = linux && enabled && size.width > 0 && size.height > 0;
-  const { frame, error } = useBrowserBeforeFrame({ path, adjustments, size, transform, active, decoded });
+  const { frame, error } = useBrowserBeforeFrame({
+    path,
+    adjustments,
+    size,
+    transform,
+    active,
+    decoded
+  });
   if (!active) return null;
   return (
     <div
       className="absolute inset-0 origin-top-left pointer-events-none"
       data-testid="browser-before-pane"
       aria-busy={!frame && !error}
-      style={{ transform: `translate(${transform.positionX}px, ${transform.positionY}px) scale(${transform.scale})` }}
+      style={{
+        transform: `translate(${transform.positionX}px, ${transform.positionY}px) scale(${transform.scale})`
+      }}
     >
       {frame ? (
         <img
@@ -40,7 +49,12 @@ export default function BrowserBeforePane({
           src={frame.url}
           draggable={false}
           className="absolute select-none"
-          style={{ left: size.offsetX, top: size.offsetY, width: size.width, height: size.height }}
+          style={{
+            left: size.offsetX,
+            top: size.offsetY,
+            width: size.width,
+            height: size.height
+          }}
         />
       ) : (
         <div className="absolute" style={{ left: size.offsetX + 8, top: size.offsetY + 32 }}>

@@ -26,7 +26,7 @@ const DEFAULT_PARAMS: NegativeParams = {
   green_weight: 1.0,
   blue_weight: 1.0,
   contrast: 1.0,
-  exposure: 0.0,
+  exposure: 0.0
 };
 
 interface NegativeConversionModalProps {
@@ -40,7 +40,7 @@ export default function NegativeConversionModal({
   isOpen,
   onClose,
   targetPaths,
-  onSave,
+  onSave
 }: NegativeConversionModalProps) {
   const { t } = useTranslation();
   const [params, setParams] = useState<NegativeParams>(DEFAULT_PARAMS);
@@ -48,7 +48,10 @@ export default function NegativeConversionModal({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   useEscapeToClose(isOpen, () => !isSaving && onClose());
-  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
 
   const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
@@ -115,25 +118,26 @@ export default function NegativeConversionModal({
   };
 
   const updatePreview = useMemo(
-    () => throttle(async (currentParams: NegativeParams, isInitialLoad: boolean = false) => {
-      if (!selectedImagePath) return;
-      try {
-        const result: string = await invoke(Invokes.PreviewNegativeConversion, {
-          path: selectedImagePath,
-          params: currentParams,
-        });
-        setPreviewUrl(result);
-        if (isInitialLoad) {
-          setIsLoading(false);
+    () =>
+      throttle(async (currentParams: NegativeParams, isInitialLoad: boolean = false) => {
+        if (!selectedImagePath) return;
+        try {
+          const result: string = await invoke(Invokes.PreviewNegativeConversion, {
+            path: selectedImagePath,
+            params: currentParams
+          });
+          setPreviewUrl(result);
+          if (isInitialLoad) {
+            setIsLoading(false);
+          }
+        } catch (e) {
+          console.error('Negative preview failed', e);
+          if (isInitialLoad) {
+            setIsLoading(false);
+          }
         }
-      } catch (e) {
-        console.error('Negative preview failed', e);
-        if (isInitialLoad) {
-          setIsLoading(false);
-        }
-      }
-    }, 100),
-    [selectedImagePath],
+      }, 100),
+    [selectedImagePath]
   );
 
   useEffect(() => {
@@ -146,10 +150,12 @@ export default function NegativeConversionModal({
       if (selectedImagePath) {
         invoke<ArrayBuffer>(Invokes.GeneratePreviewForPath, {
           path: selectedImagePath,
-          jsAdjustments: {},
+          jsAdjustments: {}
         })
           .then((res) => {
-            const blob = new Blob([new Uint8Array(res)], { type: 'image/jpeg' });
+            const blob = new Blob([new Uint8Array(res)], {
+              type: 'image/jpeg'
+            });
             setOriginalUrl(URL.createObjectURL(blob));
           })
           .catch(console.error);
@@ -182,7 +188,7 @@ export default function NegativeConversionModal({
     try {
       const savedPaths: string[] = await invoke(Invokes.ConvertNegatives, {
         paths: targetPaths,
-        params,
+        params
       });
       onSave(savedPaths);
       onClose();
@@ -197,7 +203,7 @@ export default function NegativeConversionModal({
   const imageTransformStyle = {
     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
     transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-    transformOrigin: 'center center',
+    transformOrigin: 'center center'
   };
 
   const renderControls = () => (
@@ -313,7 +319,7 @@ export default function NegativeConversionModal({
                     target="_blank"
                     rel="noreferrer"
                     className="underline hover:text-primary transition-colors"
-                  />,
+                  />
                 ]}
               />
             </div>
@@ -334,7 +340,10 @@ export default function NegativeConversionModal({
         >
           <div
             className="absolute inset-0 opacity-20 pointer-events-none"
-            style={{ backgroundImage: 'radial-gradient(#444 1px, transparent 1px)', backgroundSize: '24px 24px' }}
+            style={{
+              backgroundImage: 'radial-gradient(#444 1px, transparent 1px)',
+              backgroundSize: '24px 24px'
+            }}
           ></div>
 
           {isLoading && (
@@ -350,7 +359,12 @@ export default function NegativeConversionModal({
                   <img
                     src={isCompareActive && originalUrl ? originalUrl : previewUrl || ''}
                     className="block object-contain"
-                    style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto' }}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      width: 'auto',
+                      height: 'auto'
+                    }}
                     alt="Preview"
                     draggable={false}
                   />
@@ -407,7 +421,7 @@ export default function NegativeConversionModal({
               onMouseLeave={() => setIsCompareActive(false)}
               className={clsx(
                 'p-2 rounded-full transition-colors select-none',
-                isCompareActive ? 'bg-accent text-button-text' : 'text-white/60 hover:bg-white/10 hover:text-white',
+                isCompareActive ? 'bg-accent text-button-text' : 'text-white/60 hover:bg-white/10 hover:text-white'
               )}
               data-tooltip={t('modals.negativeConversion.compareTooltip')}
             >
@@ -426,7 +440,7 @@ export default function NegativeConversionModal({
     <div
       className={clsx(
         'fixed inset-0 z-100 flex items-center justify-center bg-black/50 backdrop-blur-xs transition-opacity duration-300',
-        show ? 'opacity-100' : 'opacity-0',
+        show ? 'opacity-100' : 'opacity-0'
       )}
       onMouseDown={onClose}
     >
@@ -457,7 +471,7 @@ export default function NegativeConversionModal({
                     {progress && progress.total > 1
                       ? t('modals.negativeConversion.convertingProgress', {
                           current: progress.current,
-                          total: progress.total,
+                          total: progress.total
                         })
                       : t('modals.negativeConversion.converting')}
                   </>
@@ -465,7 +479,9 @@ export default function NegativeConversionModal({
                   <>
                     <Save className="mr-2" size={16} />
                     {targetPaths.length > 1
-                      ? t('modals.negativeConversion.convertAndSaveAll', { count: targetPaths.length })
+                      ? t('modals.negativeConversion.convertAndSaveAll', {
+                          count: targetPaths.length
+                        })
                       : t('modals.negativeConversion.convertAndSave')}
                   </>
                 )}

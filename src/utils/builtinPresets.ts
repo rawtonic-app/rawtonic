@@ -6,7 +6,9 @@ import { Invokes, type Preset } from '../components/ui/AppProperties';
 /** Rawtonic's own presets and styles (`resources/presets/builtin.json`),
  * read-only and apart from the user's presets: applying one copies its
  * values, so photos never depend on a built-in's later versions. */
-export const useBuiltinPresets = create<{ presets: Preset[] }>(() => ({ presets: [] }));
+export const useBuiltinPresets = create<{ presets: Preset[] }>(() => ({
+  presets: []
+}));
 
 let loading: Promise<void> | null = null;
 
@@ -15,11 +17,11 @@ export function loadBuiltinPresets(): Promise<void> {
   loading ??= invoke<Omit<Preset, 'builtin'>[]>(Invokes.LoadBuiltinPresets).then(
     (presets) =>
       useBuiltinPresets.setState({
-        presets: Array.isArray(presets) ? presets.map((preset) => ({ ...preset, builtin: true })) : [],
+        presets: Array.isArray(presets) ? presets.map((preset) => ({ ...preset, builtin: true })) : []
       }),
     (error) => {
       console.error('Failed to load built-in presets:', error);
-    },
+    }
   );
   return loading;
 }

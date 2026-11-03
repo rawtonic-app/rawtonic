@@ -12,7 +12,11 @@ let shown: ShowActivityPhotos | null = null;
 
 export function showPhotos(name: string, paths: string[]): void {
   shown = { name, paths: [...paths] };
-  window.dispatchEvent(new CustomEvent<ShowActivityPhotos>(SHOW_ACTIVITY_PHOTOS_EVENT, { detail: shown }));
+  window.dispatchEvent(
+    new CustomEvent<ShowActivityPhotos>(SHOW_ACTIVITY_PHOTOS_EVENT, {
+      detail: shown
+    })
+  );
 }
 
 /** The photographs of the activity view, at their current places. */

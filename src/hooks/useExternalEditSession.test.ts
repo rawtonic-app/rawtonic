@@ -17,7 +17,7 @@ const job = (id: string, state: ExportJob['state']): ExportJob => ({
   total: 1,
   done: state === 'done' ? 1 : 0,
   failed: state === 'failed' ? 1 : 0,
-  failures: [],
+  failures: []
 });
 
 beforeEach(() => {
@@ -26,20 +26,35 @@ beforeEach(() => {
   invoke.mockResolvedValue('mine');
   useProcessStore.setState({
     exportQueue: [],
-    externalEditSession: { source: '/a.dng', output: '/out/a.tif', format: 'tif', jpegQuality: 90 } as never,
+    externalEditSession: {
+      source: '/a.dng',
+      output: '/out/a.tif',
+      format: 'tif',
+      jpegQuality: 90
+    } as never
   });
-  useEditorStore.setState({ selectedImage: { path: '/a.dng', isReady: true } as never });
+  useEditorStore.setState({
+    selectedImage: { path: '/a.dng', isReady: true } as never
+  });
 });
 
 it('quits only when its own export is done, not when a batch queued before it completes', async () => {
   const { result } = renderHook(() => useExternalEditSession(vi.fn()));
   await act(() => result.current.finishExternalEdit());
   // The batch ahead of it finishes first.
-  act(() => useProcessStore.setState({ exportQueue: [job('batch', 'done'), job('mine', 'queued')] }));
+  act(() =>
+    useProcessStore.setState({
+      exportQueue: [job('batch', 'done'), job('mine', 'queued')]
+    })
+  );
   act(() => useProcessStore.getState().setExportState({ status: 'success' as never }));
   expect(exit).not.toHaveBeenCalled();
   expect(result.current.isFinishing).toBe(true);
-  act(() => useProcessStore.setState({ exportQueue: [job('batch', 'done'), job('mine', 'done')] }));
+  act(() =>
+    useProcessStore.setState({
+      exportQueue: [job('batch', 'done'), job('mine', 'done')]
+    })
+  );
   expect(exit).toHaveBeenCalledWith(0);
 });
 
@@ -56,7 +71,11 @@ it('can be pressed again when its waiting export was removed from the queue', as
   await act(() => result.current.finishExternalEdit());
   // Not listed yet: still waiting.
   expect(result.current.isFinishing).toBe(true);
-  act(() => useProcessStore.setState({ exportQueue: [job('batch', 'running'), job('mine', 'queued')] }));
+  act(() =>
+    useProcessStore.setState({
+      exportQueue: [job('batch', 'running'), job('mine', 'queued')]
+    })
+  );
   expect(result.current.isFinishing).toBe(true);
   act(() => useProcessStore.setState({ exportQueue: [job('batch', 'running')] }));
   expect(result.current.isFinishing).toBe(false);

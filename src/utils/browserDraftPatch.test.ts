@@ -8,7 +8,13 @@ function FakeImage() {
   image.decode = () => new Promise<void>((resolve) => decodes.set(image.src, resolve));
   return image;
 }
-const patch = (url: string) => ({ url, normX: 0, normY: 0, normW: 1, normH: 1 });
+const patch = (url: string) => ({
+  url,
+  normX: 0,
+  normY: 0,
+  normW: 1,
+  normH: 1
+});
 const shown = (host: HTMLElement) => (host.firstElementChild as HTMLImageElement | null)?.src ?? null;
 async function finish(url: string) {
   decodes.get(url)!();

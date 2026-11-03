@@ -14,7 +14,7 @@ import type { Adjustments } from './adjustments';
  * edit from before the key develops the first frame). */
 export function withSourceFrameOf<T extends Partial<Adjustments>>(
   recipe: T,
-  current: Pick<Partial<Adjustments>, 'sourceFrameVersion'>,
+  current: Pick<Partial<Adjustments>, 'sourceFrameVersion'>
 ): T {
   const out = { ...recipe };
   if (current.sourceFrameVersion === undefined || current.sourceFrameVersion === null) {
@@ -29,6 +29,9 @@ export function withSourceFrameOf<T extends Partial<Adjustments>>(
  * frame version `newEditFrame` (image_loader.rs `new_edit_frame`: set only
  * offline, on previews of an older frame than the newest, which no decode
  * replaces): edited in the frame it shows. */
-export function withNewEditFrame<T extends Partial<Adjustments>>(recipe: T, newEditFrame: number | null | undefined): T {
+export function withNewEditFrame<T extends Partial<Adjustments>>(
+  recipe: T,
+  newEditFrame: number | null | undefined
+): T {
   return newEditFrame === null || newEditFrame === undefined ? recipe : { ...recipe, sourceFrameVersion: newEditFrame };
 }

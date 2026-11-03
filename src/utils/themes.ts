@@ -13,5 +13,5 @@ export const APP_COLOR_VARIABLES: Record<string, string> = {
   '--app-text-secondary': 'rgb(158, 158, 158)',
   '--app-accent': 'rgb(255, 255, 255)',
   '--app-border-color': 'rgb(45, 45, 45)',
-  '--app-hover-color': 'rgb(255, 255, 255)',
+  '--app-hover-color': 'rgb(255, 255, 255)'
 };

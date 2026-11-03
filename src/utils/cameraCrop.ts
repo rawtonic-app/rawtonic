@@ -27,11 +27,20 @@ export function withCameraCrop<T extends Partial<Adjustments>>(
   recipe: T,
   crops: CameraCrops | undefined,
   width: number,
-  height: number,
+  height: number
 ): T {
   const crop = cameraCropFor(crops, recipe.sourceFrameVersion);
-  if (crop) return { ...recipe, crop: { ...crop }, aspectRatio: crop.width / crop.height };
-  return { ...recipe, crop: null, aspectRatio: width && height ? width / height : null };
+  if (crop)
+    return {
+      ...recipe,
+      crop: { ...crop },
+      aspectRatio: crop.width / crop.height
+    };
+  return {
+    ...recipe,
+    crop: null,
+    aspectRatio: width && height ? width / height : null
+  };
 }
 
 /** The crop and aspect ratio a crop reset returns to on the open photo
@@ -42,13 +51,19 @@ export function withCameraCrop<T extends Partial<Adjustments>>(
 export function cropResetValues(
   image: { isRaw?: boolean; cameraCrops?: CameraCrops } | null | undefined,
   frameVersion: number | null | undefined,
-  orientationSteps: number | null | undefined,
+  orientationSteps: number | null | undefined
 ): Pick<Adjustments, 'crop' | 'aspectRatio'> {
   const crop = image?.isRaw ? cameraCropFor(image.cameraCrops, frameVersion) : null;
   if (!crop) return { crop: null, aspectRatio: null };
   const turned = (orientationSteps ?? 0) % 2 === 1;
   const shown: Crop = turned
-    ? { unit: 'px', x: crop.y, y: crop.x, width: crop.height, height: crop.width }
+    ? {
+        unit: 'px',
+        x: crop.y,
+        y: crop.x,
+        width: crop.height,
+        height: crop.width
+      }
     : { ...crop };
   return { crop: shown, aspectRatio: shown.width / shown.height };
 }

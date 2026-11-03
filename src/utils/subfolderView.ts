@@ -7,7 +7,7 @@ import { type AppSettings, LibraryViewMode } from '../components/ui/AppPropertie
 export function showsSubfolders(
   folder: string,
   settings: Pick<AppSettings, 'subfolderViews' | 'libraryViewMode'> | null | undefined,
-  defaultRoot: string | null,
+  defaultRoot: string | null
 ): boolean {
   const chosen = settings?.subfolderViews?.[folder];
   if (chosen !== undefined) return chosen;
@@ -18,5 +18,8 @@ export const folderViewMode = (...args: Parameters<typeof showsSubfolders>): Lib
   showsSubfolders(...args) ? LibraryViewMode.Recursive : LibraryViewMode.Flat;
 
 export function withSubfolderView(settings: AppSettings, folder: string, on: boolean): AppSettings {
-  return { ...settings, subfolderViews: { ...settings.subfolderViews, [folder]: on } };
+  return {
+    ...settings,
+    subfolderViews: { ...settings.subfolderViews, [folder]: on }
+  };
 }

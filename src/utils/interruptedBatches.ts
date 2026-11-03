@@ -107,18 +107,29 @@ export async function undoApplied(batch: InterruptedBatch) {
     case 'paste':
     case 'style':
     case 'preset': {
-      const changes = undo.map((entry) => ({ path: entry.path, adjustments: entry.before }));
+      const changes = undo.map((entry) => ({
+        path: entry.path,
+        adjustments: entry.before
+      }));
       allWritten(await writeRecipeRepair(paths, Invokes.ReplaceRecipes, { changes }, { whole: true }));
       catalogChanged();
       return;
     }
     case 'rating':
       for (const group of byValue(undo, (before) => Number(before) || 0))
-        await invokeInOrder(Invokes.SetRatingForPaths, { paths: group.paths, rating: group.value, directory });
+        await invokeInOrder(Invokes.SetRatingForPaths, {
+          paths: group.paths,
+          rating: group.value,
+          directory
+        });
       return;
     case 'color':
       for (const group of byValue(undo, (before) => (typeof before === 'string' ? before : null)))
-        await invokeInOrder(Invokes.SetColorLabelForPaths, { paths: group.paths, color: group.value, directory });
+        await invokeInOrder(Invokes.SetColorLabelForPaths, {
+          paths: group.paths,
+          color: group.value,
+          directory
+        });
       return;
     case 'keywordAdd':
       await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag: batch.batch.tag }, 'keyword');
@@ -139,14 +150,14 @@ const offered = new Map<string, string | null>();
 export function offerInterruptedBatch(
   batch: InterruptedBatch,
   directory: string | null,
-  refresh: () => Promise<void> | void = () => {},
+  refresh: () => Promise<void> | void = () => {}
 ) {
   offered.set(batch.id, directory);
   const name = batchName(batch);
   const here = () => useLibraryStore.getState().sessionDirectory === directory;
   const forget = () =>
     invoke(Invokes.DismissInterruptedBatch, { id: batch.id }).catch((error) =>
-      console.warn('Could not forget the interrupted batch:', error),
+      console.warn('Could not forget the interrupted batch:', error)
     );
   const settle = (repair: (batch: InterruptedBatch) => Promise<void>) => async () => {
     if (!here()) {
@@ -159,7 +170,12 @@ export function offerInterruptedBatch(
       await repair(batch);
       await invoke(Invokes.DismissInterruptedBatch, { id: batch.id });
     } catch (error) {
-      notify.error(i18n.t('activity.interrupted.failed', { batch: name, error: String(error) }));
+      notify.error(
+        i18n.t('activity.interrupted.failed', {
+          batch: name,
+          error: String(error)
+        })
+      );
       // Offered again as it is now: part of the repair may have been written.
       await reoffer(batch.id, directory, refresh);
     } finally {
@@ -169,25 +185,43 @@ export function offerInterruptedBatch(
   useActivityStore.getState().report('warning', {
     id: activityId(batch),
     source: 'write',
-    title: i18n.t('activity.interrupted.title', { batch: name, applied: batch.applied, count: batch.total }),
+    title: i18n.t('activity.interrupted.title', {
+      batch: name,
+      applied: batch.applied,
+      count: batch.total
+    }),
     detail: i18n.t('activity.interrupted.detail'),
     paths: [...batch.undo.map((entry) => entry.path), ...batch.rest],
     actions: [
       ...(batch.rest.length
-        ? [{ label: i18n.t('activity.interrupted.applyRest'), settles: true, run: settle(applyToRest) }]
+        ? [
+            {
+              label: i18n.t('activity.interrupted.applyRest'),
+              settles: true,
+              run: settle(applyToRest)
+            }
+          ]
         : []),
       ...(batch.undo.length
-        ? [{ label: i18n.t('activity.interrupted.undoApplied'), settles: true, run: settle(undoApplied) }]
+        ? [
+            {
+              label: i18n.t('activity.interrupted.undoApplied'),
+              settles: true,
+              run: settle(undoApplied)
+            }
+          ]
         : []),
-      { label: i18n.t('activity.dismissShort'), settles: true, run: forget },
+      { label: i18n.t('activity.dismissShort'), settles: true, run: forget }
     ],
     // Its close button declines it as Dismiss does.
-    onDismiss: forget,
+    onDismiss: forget
   });
 }
 
 async function listed(directory: string | null): Promise<InterruptedBatch[] | null> {
-  const batches = await invoke<InterruptedBatch[]>(Invokes.InterruptedBatches, { directory }).catch((error) => {
+  const batches = await invoke<InterruptedBatch[]>(Invokes.InterruptedBatches, {
+    directory
+  }).catch((error) => {
     console.warn('Could not list interrupted batches:', error);
     return null;
   });

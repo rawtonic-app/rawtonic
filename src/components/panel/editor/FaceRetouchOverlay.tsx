@@ -82,7 +82,7 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
     const b = ref.current!.getBoundingClientRect();
     return {
       x: ((clientX - b.left) / b.width) * (rect.width / scale) + cropX,
-      y: ((clientY - b.top) / b.height) * (rect.height / scale) + cropY,
+      y: ((clientY - b.top) / b.height) * (rect.height / scale) + cropY
     };
   };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -98,7 +98,7 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
       points: [toImage(e.clientX, e.clientY)],
       radius: brush.size,
       feather: brush.feather,
-      ...(erase && { erase: true }),
+      ...(erase && { erase: true })
     };
     setStroke(drag.current);
   };
@@ -122,7 +122,10 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
     updateAdjustments((prev: Adjustments) => {
       const r = prev.faceRetouch;
       if (!r) return prev;
-      return { ...prev, faceRetouch: { ...r, protect: [...(r.protect ?? []), d] } };
+      return {
+        ...prev,
+        faceRetouch: { ...r, protect: [...(r.protect ?? []), d] }
+      };
     });
   };
 
@@ -131,7 +134,10 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
   // for a dab), its soft edge as a blur of the feathered share.
   const strokePath = (s: FaceProtectStroke, i: number) => {
     if (s.points.length === 0) return null;
-    const points = s.points.map((p) => ({ x: (p.x - cropX) * scale, y: (p.y - cropY) * scale }));
+    const points = s.points.map((p) => ({
+      x: (p.x - cropX) * scale,
+      y: (p.y - cropY) * scale
+    }));
     const pts = points.map((p) => `${p.x},${p.y}`);
     const d = pts.length === 1 ? `M${pts[0]} l0.01,0` : `M${pts.join(' L')}`;
     const r = s.radius * scale;
@@ -139,10 +145,15 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
     const blur = soft > 0.5 ? `${maskId}-soft-${i}` : undefined;
     // Object-bounding-box filters disappear on horizontal/vertical paths
     // and clip the cap of short strokes. Include the brush and blur reach.
-    const bounds = points.reduce((b, p) => ({
-      x0: Math.min(b.x0, p.x), y0: Math.min(b.y0, p.y),
-      x1: Math.max(b.x1, p.x), y1: Math.max(b.y1, p.y),
-    }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+    const bounds = points.reduce(
+      (b, p) => ({
+        x0: Math.min(b.x0, p.x),
+        y0: Math.min(b.y0, p.y),
+        x1: Math.max(b.x1, p.x),
+        y1: Math.max(b.y1, p.y)
+      }),
+      { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+    );
     return (
       <g key={i}>
         {blur && (
@@ -180,7 +191,7 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
         width: rect.width,
         height: rect.height,
         pointerEvents: brush.painting ? 'all' : 'none',
-        cursor: brush.painting ? 'none' : undefined,
+        cursor: brush.painting ? 'none' : undefined
       }}
       aria-label="Face retouch"
       onPointerDown={brush.painting ? onPointerDown : undefined}
@@ -192,7 +203,12 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
       <svg
         width={rect.width}
         height={rect.height}
-        style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          overflow: 'visible',
+          pointerEvents: 'none'
+        }}
       >
         {showProtection && strokes.length > 0 && (
           <g aria-label="Protected areas">
@@ -230,7 +246,10 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
                   strokeWidth={line}
                   strokeDasharray={isKept ? `${4 * line} ${3 * line}` : undefined}
                   // While painting, the brush takes the clicks.
-                  style={{ cursor: 'pointer', pointerEvents: brush.painting ? 'none' : 'all' }}
+                  style={{
+                    cursor: 'pointer',
+                    pointerEvents: brush.painting ? 'none' : 'all'
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     toggle(face, b.id, isHealed);

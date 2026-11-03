@@ -1,8 +1,8 @@
-import compatibility from "./tetherCameras.json";
-import { plainName, type AppInfo } from "../contribute/reports";
+import compatibility from './tetherCameras.json';
+import { plainName, type AppInfo } from '../contribute/reports';
 
 /** How well tethering works with a camera (tetherCameras.json). */
-export type SupportLevel = "tested" | "reported" | "experimental" | "notSupported";
+export type SupportLevel = 'tested' | 'reported' | 'experimental' | 'notSupported';
 
 export interface CompatibilityEntry {
   name: string;
@@ -29,32 +29,24 @@ export const compatibilityOf = (model: string, list: CompatibilityEntry[] = COMP
   list.find((entry) => entry.matchPrefix !== undefined && model.startsWith(entry.matchPrefix));
 
 export type StepId =
-  | "connect"
-  | "settings"
-  | "setSetting"
-  | "autofocus"
-  | "shots"
-  | "burst"
-  | "bodyShot"
-  | "replug"
-  | "release";
+  'connect' | 'settings' | 'setSetting' | 'autofocus' | 'shots' | 'burst' | 'bodyShot' | 'replug' | 'release';
 
 /** The guided test's steps, in order. */
 export const STEPS: StepId[] = [
-  "connect",
-  "settings",
-  "setSetting",
-  "autofocus",
-  "shots",
-  "burst",
-  "bodyShot",
-  "replug",
-  "release",
+  'connect',
+  'settings',
+  'setSetting',
+  'autofocus',
+  'shots',
+  'burst',
+  'bodyShot',
+  'replug',
+  'release'
 ];
 
 /** `inconclusive`: the step's photos could not be counted for sure (a
  * reused camera file name); neither pass nor fail. */
-export type StepState = "passed" | "failed" | "skipped" | "inconclusive";
+export type StepState = 'passed' | 'failed' | 'skipped' | 'inconclusive';
 
 /** A finished step: what it measured (numbers in ms unless named
  * otherwise). The report takes only values the test made itself, never a
@@ -121,32 +113,32 @@ export interface ReportInfo {
 }
 
 const TRANSPORTS: Record<string, string> = {
-  imageCaptureCore: "ImageCaptureCore (macOS camera service)",
-  usb: "libusb",
-  mock: "mock camera (no camera library)",
+  imageCaptureCore: 'ImageCaptureCore (macOS camera service)',
+  usb: 'libusb',
+  mock: 'mock camera (no camera library)'
 };
 
 const LEVELS: Record<SupportLevel, string> = {
-  tested: "tested",
-  reported: "reported working",
-  experimental: "experimental, testers wanted",
-  notSupported: "not supported",
+  tested: 'tested',
+  reported: 'reported working',
+  experimental: 'experimental, testers wanted',
+  notSupported: 'not supported'
 };
 
 const STEP_NAMES: Record<StepId, string> = {
-  connect: "Connect",
-  settings: "Read settings",
-  setSetting: "Change a setting",
-  autofocus: "Autofocus",
-  shots: "Shots from Rawtonic",
-  burst: "Burst from Rawtonic",
-  bodyShot: "Shot on the camera",
-  replug: "Cable out and back in",
-  release: "Transfer queue freed after commit",
+  connect: 'Connect',
+  settings: 'Read settings',
+  setSetting: 'Change a setting',
+  autofocus: 'Autofocus',
+  shots: 'Shots from Rawtonic',
+  burst: 'Burst from Rawtonic',
+  bodyShot: 'Shot on the camera',
+  replug: 'Cable out and back in',
+  release: 'Transfer queue freed after commit'
 };
 
 /** Steps whose photos are matched to shots (`buildReport`'s "not certain"). */
-const PHOTO_STEPS: StepId[] = ["shots", "burst", "bodyShot", "replug"];
+const PHOTO_STEPS: StepId[] = ['shots', 'burst', 'bodyShot', 'replug'];
 
 const timings = (name: string, values: number[] | undefined) => {
   if (!values?.length) return null;
@@ -160,17 +152,17 @@ export const describe = (result: StepResult) => {
   if (result.settings !== undefined) parts.push(`${result.settings} read, ${result.changeable ?? 0} changeable`);
   if (result.setting)
     parts.push(
-      `${result.setting} ${result.change ? `${result.change.from} → ${result.change.to} ` : ""}changed, read back and set back`,
+      `${result.setting} ${result.change ? `${result.change.from} → ${result.change.to} ` : ''}changed, read back and set back`
     );
   if (result.freed !== undefined) parts.push(`${result.freed} freed`);
-  const screen = timings("photo on screen", result.onScreen);
+  const screen = timings('photo on screen', result.onScreen);
   if (screen) parts.push(screen);
   if (result.screenNote) parts.push(result.screenNote);
-  const library = timings("in library", result.inLibrary);
+  const library = timings('in library', result.inLibrary);
   if (library) parts.push(library);
   if (result.ms !== undefined) parts.push(`${result.ms} ms`);
   if (result.reason) parts.push(result.reason);
-  return parts.join("; ");
+  return parts.join('; ');
 };
 
 /** The anonymous report the user copies (Markdown, for the issue
@@ -183,62 +175,67 @@ export const buildReport = (info: ReportInfo, results: Partial<Record<StepId, St
     ? `libgphoto2 ${info.library} via ${TRANSPORTS[info.transport] ?? info.transport}`
     : (TRANSPORTS[info.transport] ?? info.transport);
   const lines = [
-    "### Rawtonic camera test",
-    "",
+    '### Rawtonic camera test',
+    '',
     `- Rawtonic: ${info.appVersion}`,
     `- System: ${info.system}`,
     `- Camera: ${info.model}`,
-    `- Firmware: ${info.firmware ?? "not reported"}`,
+    `- Firmware: ${info.firmware ?? 'not reported'}`,
     `- Camera driver: ${driver}`,
-    `- Transfer queue: ${info.transferQueue ? `yes (freeing ${info.freeCameraCopies ? "on" : "off"})` : "no"}`,
-    `- Compatibility list: ${entry ? LEVELS[entry.level] : "not listed"}`,
+    `- Transfer queue: ${info.transferQueue ? `yes (freeing ${info.freeCameraCopies ? 'on' : 'off'})` : 'no'}`,
+    `- Compatibility list: ${entry ? LEVELS[entry.level] : 'not listed'}`,
     `- Files not added or shots not delivered during the test: ${info.failures}`,
     ...(info.experimental
       ? [
           "- Driver path: experimental (Canon EOS, the user's opt-in; Save to on the memory card, nothing freed on the camera)",
-          `- Shots not received (on the memory card if the camera took them): ${info.notReceived ?? 0}`,
+          `- Shots not received (on the memory card if the camera took them): ${info.notReceived ?? 0}`
         ]
       : []),
-    "",
-    "| Step | Result | Measured |",
-    "|---|---|---|",
+    '',
+    '| Step | Result | Measured |',
+    '|---|---|---|'
   ];
   for (const id of STEPS) {
     const result = results[id];
     const state = result
-      ? info.experimental && result.state === "passed" && PHOTO_STEPS.includes(id)
-        ? "pass (not certain)"
-        : { passed: "pass", failed: "FAIL", skipped: "skipped", inconclusive: "inconclusive" }[result.state]
-      : "not run";
-    const measured = result ? describe(result).replace(/\|/g, "/") : "";
+      ? info.experimental && result.state === 'passed' && PHOTO_STEPS.includes(id)
+        ? 'pass (not certain)'
+        : {
+            passed: 'pass',
+            failed: 'FAIL',
+            skipped: 'skipped',
+            inconclusive: 'inconclusive'
+          }[result.state]
+      : 'not run';
+    const measured = result ? describe(result).replace(/\|/g, '/') : '';
     lines.push(`| ${STEP_NAMES[id]} | ${state} | ${measured} |`);
   }
   if (info.experimental)
     lines.push(
-      "",
+      '',
       "Not certain: on the experimental path photos are matched to shots in the order they come, and a photo's " +
-        "notice can be lost; a photo taken on the camera meanwhile can then stand in for a missing one. Compare the " +
-        "photos on the memory card with the library.",
+        'notice can be lost; a photo taken on the camera meanwhile can then stand in for a missing one. Compare the ' +
+        'photos on the memory card with the library.'
     );
   lines.push(
-    "",
+    '',
     "Photo on screen: from the test's shutter request to the first Develop frame of the new photo rendered " +
-      "(the display's own delay not included). In library: from the request to the photo verified in the library.",
+      "(the display's own delay not included). In library: from the request to the photo verified in the library."
   );
-  return lines.join("\n");
+  return lines.join('\n');
 };
 
 /** The setting the test changes and sets back: the first changeable one of
  * these with another choice (never Save to or the image quality). */
-const SETTING_ORDER = ["iso", "whitebalance", "exposurecompensation", "shutterspeed", "aperture"];
+const SETTING_ORDER = ['iso', 'whitebalance', 'exposurecompensation', 'shutterspeed', 'aperture'];
 
 export const settingToChange = <S extends { key: string; value: string; choices: string[]; readOnly: boolean }>(
-  settings: S[],
+  settings: S[]
 ) => {
   for (const key of SETTING_ORDER) {
     const setting = settings.find((s) => s.key === key && !s.readOnly && s.choices.length > 1);
     if (!setting) continue;
-    if (key === "iso") {
+    if (key === 'iso') {
       const other = otherIso(setting.value, setting.choices);
       if (other !== undefined) return { setting, other };
       continue;
@@ -280,11 +277,16 @@ const otherIso = (value: string, choices: string[]) => {
 export const cameraTestPayload = (
   app: AppInfo,
   camera: { model: string; firmware?: string | null },
-  report: string,
+  report: string
 ): Record<string, unknown> | null => {
   const model = plainName(camera.model);
   if (!model) return null;
-  const make = model.includes(" ") ? model.split(" ")[0] : "unknown";
+  const make = model.includes(' ') ? model.split(' ')[0] : 'unknown';
   const firmware = plainName(camera.firmware ?? undefined);
-  return { schema: 1, app, camera: firmware ? { make, model, firmware } : { make, model }, report };
+  return {
+    schema: 1,
+    app,
+    camera: firmware ? { make, model, firmware } : { make, model },
+    report
+  };
 };

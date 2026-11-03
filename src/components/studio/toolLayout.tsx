@@ -11,15 +11,15 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
-  type ReactNode,
-} from "react";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, RotateCcw } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useContextMenu } from "../../context/ContextMenuContext";
-import { OPTION_SEPARATOR, type ToolLayout } from "../ui/AppProperties";
-import { createDragGhost } from "./dragGhost";
+  type ReactNode
+} from 'react';
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, RotateCcw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { OPTION_SEPARATOR, type ToolLayout } from '../ui/AppProperties';
+import { createDragGhost } from './dragGhost';
 
 /** The tool column a tool group belongs to ("library", "develop:color", …);
  * open state and order are remembered per column. */
@@ -30,7 +30,7 @@ const ToolColumnContext = createContext<{
   solo?: boolean;
   /** Opens `title` and closes the column's other tools. */
   openOnly?(title: string): void;
-}>({ scope: "tools" });
+}>({ scope: 'tools' });
 
 /** The tool slot (`scope/id`) a press went down in, until it is released. */
 let pressedSlot: string | null = null;
@@ -40,14 +40,12 @@ const releasePress = () => {
 // Releases end the press wherever they happen, and a new press anywhere
 // forgets the last one first: a press outside any tool (the photo, a
 // shortcut) freezes nothing. One registration shared by all columns.
-const PRESS_EVENTS = ["pointerup", "pointercancel", "pointerdown"] as const;
+const PRESS_EVENTS = ['pointerup', 'pointercancel', 'pointerdown'] as const;
 let pressWatchers = 0;
 function watchPresses() {
-  if (pressWatchers++ === 0)
-    for (const type of PRESS_EVENTS) window.addEventListener(type, releasePress, true);
+  if (pressWatchers++ === 0) for (const type of PRESS_EVENTS) window.addEventListener(type, releasePress, true);
   return () => {
-    if (--pressWatchers === 0)
-      for (const type of PRESS_EVENTS) window.removeEventListener(type, releasePress, true);
+    if (--pressWatchers === 0) for (const type of PRESS_EVENTS) window.removeEventListener(type, releasePress, true);
   };
 }
 
@@ -63,7 +61,7 @@ const ToolSlotContent = memo(
   function ToolSlotContent({ children }: { children: ReactNode; frozen: boolean }) {
     return <>{children}</>;
   },
-  (_, next) => next.frozen,
+  (_, next) => next.frozen
 );
 
 /** Pointer travel before a press on a tool header becomes a drag. */
@@ -72,7 +70,10 @@ const DRAG_THRESHOLD = 5;
 function saveLayout(update: (layout: ToolLayout) => ToolLayout) {
   const { appSettings, handleSettingsChange } = useSettingsStore.getState();
   if (!appSettings) return;
-  void handleSettingsChange({ ...appSettings, toolLayout: update(appSettings.toolLayout ?? {}) });
+  void handleSettingsChange({
+    ...appSettings,
+    toolLayout: update(appSettings.toolLayout ?? {})
+  });
 }
 
 /** Whether a tool is open: the remembered state of this column, else
@@ -89,7 +90,11 @@ export function useToolOpen(title: string, defaultOpen: boolean) {
   const setOpen = (next: boolean) => {
     setLocal(next);
     if (next && solo && openOnly) openOnly(title);
-    else saveLayout((layout) => ({ ...layout, open: { ...layout.open, [key]: next } }));
+    else
+      saveLayout((layout) => ({
+        ...layout,
+        open: { ...layout.open, [key]: next }
+      }));
   };
   return [open, setOpen] as const;
 }
@@ -146,32 +151,26 @@ export function keepAbsentTools(order: string[], stored?: string[]) {
   return result;
 }
 
-const toolId = (child: ReactElement) => String(child.key).replace(/^\.\$/, "");
+const toolId = (child: ReactElement) => String(child.key).replace(/^\.\$/, '');
 
 /** A column of tool groups (keyed children) the user can reorder by dragging
  * a tool header or from its context menu, as in Capture One's tool tabs.
  * Open state and order are saved in the app settings per `scope`. */
-export function ToolColumn({
-  scope,
-  className,
-  children,
-}: {
-  scope: string;
-  className?: string;
-  children: ReactNode;
-}) {
+export function ToolColumn({ scope, className, children }: { scope: string; className?: string; children: ReactNode }) {
   const { t } = useTranslation();
   const items = Children.toArray(children).filter(isValidElement) as ReactElement[];
   const byId = new Map(items.map((child) => [toolId(child), child]));
   const stored = useSettingsStore((s) => s.appSettings?.toolLayout?.order?.[scope]);
   const order = mergeToolOrder([...byId.keys()], stored);
   const ref = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<{ id: string; before: string | null } | null>(null);
+  const [drag, setDrag] = useState<{
+    id: string;
+    before: string | null;
+  } | null>(null);
   const { showContextMenu } = useContextMenu();
   const sliderDragging = useEditorStore((s) => s.isSliderDragging);
   useEffect(watchPresses, []);
-  const frozen = (id: string) =>
-    sliderDragging && pressedSlot !== null && pressedSlot !== `${scope}/${id}`;
+  const frozen = (id: string) => sliderDragging && pressedSlot !== null && pressedSlot !== `${scope}/${id}`;
 
   const saveOrder = (next: string[] | null) =>
     saveLayout((layout) => {
@@ -187,8 +186,8 @@ export function ToolColumn({
   };
   const solo = useSettingsStore((s) => !!s.appSettings?.toolLayout?.solo?.[scope]);
   const columnTitles = () =>
-    [...(ref.current?.querySelectorAll<HTMLElement>("[data-tool-title]") ?? [])]
-      .filter((el) => el.closest("[data-tool-column]") === ref.current)
+    [...(ref.current?.querySelectorAll<HTMLElement>('[data-tool-title]') ?? [])]
+      .filter((el) => el.closest('[data-tool-column]') === ref.current)
       .map((el) => el.dataset.toolTitle!);
   /** Every tool of the column open or closed, or only `only` open. */
   const setAllOpen = (open: boolean, only?: string) =>
@@ -196,20 +195,21 @@ export function ToolColumn({
       const next = { ...layout.open };
       // Opening one alone also closes the column's remembered tools that are
       // not shown right now (they may come back after a photo switch).
-      if (only !== undefined)
-        for (const key of Object.keys(next)) if (key.startsWith(`${scope}/`)) next[key] = false;
-      for (const title of columnTitles())
-        next[`${scope}/${title}`] = only === undefined ? open : title === only;
+      if (only !== undefined) for (const key of Object.keys(next)) if (key.startsWith(`${scope}/`)) next[key] = false;
+      for (const title of columnTitles()) next[`${scope}/${title}`] = only === undefined ? open : title === only;
       return { ...layout, open: next };
     });
   const setSolo = (on: boolean, title: string | undefined) => {
-    saveLayout((layout) => ({ ...layout, solo: { ...layout.solo, [scope]: on } }));
+    saveLayout((layout) => ({
+      ...layout,
+      solo: { ...layout.solo, [scope]: on }
+    }));
     // Turning it on leaves the tool whose header was clicked open alone.
     if (on && title) setAllOpen(true, title);
   };
 
   const slotOf = (el: Element | null) => {
-    const slot = el?.closest<HTMLElement>("[data-tool-slot]");
+    const slot = el?.closest<HTMLElement>('[data-tool-slot]');
     return slot && slot.parentElement === ref.current ? slot : null;
   };
   const menu = (e: React.MouseEvent) => {
@@ -217,44 +217,43 @@ export function ToolColumn({
     if (!id) return;
     e.preventDefault();
     const at = order.indexOf(id);
-    const title = (e.currentTarget as Element).closest<HTMLElement>("[data-tool-title]")?.dataset
-      .toolTitle;
+    const title = (e.currentTarget as Element).closest<HTMLElement>('[data-tool-title]')?.dataset.toolTitle;
     showContextMenu(e.clientX, e.clientY, [
       {
-        label: t("studio.develop.layout.moveUp"),
+        label: t('studio.develop.layout.moveUp'),
         icon: ArrowUp,
         disabled: at <= 0,
-        onClick: () => move(id, at - 1),
+        onClick: () => move(id, at - 1)
       },
       {
-        label: t("studio.develop.layout.moveDown"),
+        label: t('studio.develop.layout.moveDown'),
         icon: ArrowDown,
         disabled: at >= order.length - 1,
-        onClick: () => move(id, at + 1),
+        onClick: () => move(id, at + 1)
       },
       { type: OPTION_SEPARATOR },
       {
-        label: t("studio.develop.layout.expandAll"),
+        label: t('studio.develop.layout.expandAll'),
         icon: ChevronsUpDown,
-        onClick: () => setAllOpen(true),
+        onClick: () => setAllOpen(true)
       },
       {
-        label: t("studio.develop.layout.collapseAll"),
+        label: t('studio.develop.layout.collapseAll'),
         icon: ChevronsDownUp,
-        onClick: () => setAllOpen(false),
+        onClick: () => setAllOpen(false)
       },
       {
-        label: t("studio.develop.layout.oneOpen"),
+        label: t('studio.develop.layout.oneOpen'),
         checked: solo,
-        onClick: () => setSolo(!solo, title),
+        onClick: () => setSolo(!solo, title)
       },
       { type: OPTION_SEPARATOR },
       {
-        label: t("studio.develop.layout.restoreOrderMenu"),
+        label: t('studio.develop.layout.restoreOrderMenu'),
         icon: RotateCcw,
         disabled: !stored,
-        onClick: () => saveOrder(null),
-      },
+        onClick: () => saveOrder(null)
+      }
     ]);
   };
 
@@ -272,11 +271,11 @@ export function ToolColumn({
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target as Element;
-    const summary = target.closest("summary");
-    if (!summary || target.closest("button, input, select, textarea")) return;
+    const summary = target.closest('summary');
+    if (!summary || target.closest('button, input, select, textarea')) return;
     const slot = slotOf(summary);
     const id = slot?.dataset.toolSlot;
-    if (!slot || !id || slot.querySelector("summary") !== summary) return;
+    if (!slot || !id || slot.querySelector('summary') !== summary) return;
     const pointer = e.pointerId;
     const start = { x: e.clientX, y: e.clientY };
     let ghost: ReturnType<typeof createDragGhost> | null = null;
@@ -285,7 +284,10 @@ export function ToolColumn({
       if (ev.pointerId !== pointer) return;
       if (!ghost) {
         if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < DRAG_THRESHOLD) return;
-        ghost = createDragGhost({ label: summary.querySelector("span")?.textContent ?? id, kind: "tool" });
+        ghost = createDragGhost({
+          label: summary.querySelector('span')?.textContent ?? id,
+          kind: 'tool'
+        });
       }
       ghost.move(ev.clientX, ev.clientY);
       before = beforeAt(ev.clientY, id);
@@ -293,23 +295,23 @@ export function ToolColumn({
     };
     const end = (ev: PointerEvent) => {
       if (ev.pointerId !== pointer) return;
-      document.removeEventListener("pointermove", moveTo, true);
-      document.removeEventListener("pointerup", end, true);
-      document.removeEventListener("pointercancel", end, true);
+      document.removeEventListener('pointermove', moveTo, true);
+      document.removeEventListener('pointerup', end, true);
+      document.removeEventListener('pointercancel', end, true);
       if (!ghost) return;
       ghost.remove();
       setDrag(null);
       // The press ended a drag, not a click that opens or closes the tool.
       swallowDragClick();
-      if (ev.type !== "pointerup") return;
+      if (ev.type !== 'pointerup') return;
       const rest = order.filter((other) => other !== id);
       const at = before === null ? rest.length : rest.indexOf(before);
       rest.splice(at, 0, id);
       if (rest.some((other, i) => other !== order[i])) saveOrder(rest);
     };
-    document.addEventListener("pointermove", moveTo, true);
-    document.addEventListener("pointerup", end, true);
-    document.addEventListener("pointercancel", end, true);
+    document.addEventListener('pointermove', moveTo, true);
+    document.addEventListener('pointerup', end, true);
+    document.addEventListener('pointercancel', end, true);
   };
 
   // While dragging, the tools already take their new places, so the column
@@ -332,15 +334,15 @@ export function ToolColumn({
       scope,
       menu: (e: React.MouseEvent) => menuRef.current(e),
       solo,
-      openOnly: (title: string) => openOnlyRef.current(title),
+      openOnly: (title: string) => openOnlyRef.current(title)
     }),
-    [scope, solo],
+    [scope, solo]
   );
   return (
     <ToolColumnContext.Provider value={context}>
       <div
         ref={ref}
-        className={`studio-tool-column ${className ?? ""} ${drag ? "is-sorting" : ""}`}
+        className={`studio-tool-column ${className ?? ''} ${drag ? 'is-sorting' : ''}`}
         data-tool-column={scope}
         onPointerDown={onPointerDown}
         onPointerDownCapture={(e) => {
@@ -349,11 +351,7 @@ export function ToolColumn({
         }}
       >
         {shown.map((id) => (
-          <div
-            key={id}
-            data-tool-slot={id}
-            className={`studio-tool-slot ${drag?.id === id ? "is-dragged" : ""}`}
-          >
+          <div key={id} data-tool-slot={id} className={`studio-tool-slot ${drag?.id === id ? 'is-dragged' : ''}`}>
             <ToolSlotContent frozen={frozen(id)}>{byId.get(id)}</ToolSlotContent>
           </div>
         ))}
@@ -361,11 +359,11 @@ export function ToolColumn({
           <button
             type="button"
             className="studio-text-button studio-tool-order-reset"
-            title={t("studio.develop.layout.restoreOrderTitle")}
+            title={t('studio.develop.layout.restoreOrderTitle')}
             onClick={() => saveOrder(null)}
           >
             <RotateCcw size={11} />
-            {t("studio.develop.layout.restoreOrder")}
+            {t('studio.develop.layout.restoreOrder')}
           </button>
         )}
       </div>

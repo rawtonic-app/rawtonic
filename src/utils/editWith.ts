@@ -50,14 +50,14 @@ const builtIn = (id: string, colorSpace: 'adobeRgb' | 'proPhoto'): EditRecipe =>
     depth: 16,
     colorSpace,
     stripGps: false,
-    preserveTimestamps: false,
-  }),
+    preserveTimestamps: false
+  })
 });
 
 export const EDIT_RECIPE_TIFF_ADOBE = 'builtin-tiff16-adobe';
 export const BUILT_IN_EDIT_RECIPES: EditRecipe[] = [
   builtIn(EDIT_RECIPE_TIFF_ADOBE, 'adobeRgb'),
-  builtIn('builtin-tiff16-prophoto', 'proPhoto'),
+  builtIn('builtin-tiff16-prophoto', 'proPhoto')
 ];
 
 /** The built-in recipes, then the saved export recipes that write an image
@@ -66,8 +66,12 @@ export function editRecipes(presets: ExportPreset[] | undefined): EditRecipe[] {
   return [
     ...BUILT_IN_EDIT_RECIPES,
     ...savedRecipes(presets)
-      .map((preset) => ({ id: preset.id, name: preset.name, ...exportSettingsFromPreset(preset) }))
-      .filter((recipe) => recipe.outputFormat !== 'cube'),
+      .map((preset) => ({
+        id: preset.id,
+        name: preset.name,
+        ...exportSettingsFromPreset(preset)
+      }))
+      .filter((recipe) => recipe.outputFormat !== 'cube')
   ];
 }
 
@@ -104,7 +108,7 @@ export function editRequest(recipe: EditRecipe) {
     destinationType: 'customFolder',
     subfolder: '',
     filenameTemplate: null,
-    exportMasks: false,
+    exportMasks: false
   };
   return {
     paths: [] as string[],
@@ -114,7 +118,7 @@ export function editRequest(recipe: EditRecipe) {
     exportSettings,
     outputFormat: recipe.outputFormat,
     ...currentEditForExport(useEditorStore.getState()),
-    library: submittedFrom(useLibraryStore.getState().sessionDirectory),
+    library: submittedFrom(useLibraryStore.getState().sessionDirectory)
   };
 }
 
@@ -178,15 +182,24 @@ export async function runEditWith(paths: string[], recipe: EditRecipe, program: 
   const unsaved = new Set(await written);
   const notSaved = paths.filter((path) => unsaved.has(path));
   if (notSaved.length) throw new Error(`Edits not saved: ${notSaved.join(', ')}`);
-  const { targets, jobs } = await invoke<{ targets: EditTarget[]; jobs: string[] }>(Invokes.EditWithStart, {
+  const { targets, jobs } = await invoke<{
+    targets: EditTarget[];
+    jobs: string[];
+  }>(Invokes.EditWithStart, {
     paths,
     recipe: request,
-    program,
+    program
   });
   const done = await waitForJobs(jobs);
   const rendered = targets.filter((_, i) => done.has(jobs[i]));
-  const counts = { rendered: rendered.length, failed: targets.length - rendered.length };
+  const counts = {
+    rendered: rendered.length,
+    failed: targets.length - rendered.length
+  };
   if (!rendered.length) return { ...counts, linked: 0, problems: [] };
-  const result = await invoke<EditWithResult>(Invokes.EditWithFinish, { items: rendered, program });
+  const result = await invoke<EditWithResult>(Invokes.EditWithFinish, {
+    items: rendered,
+    program
+  });
   return { ...counts, ...result };
 }

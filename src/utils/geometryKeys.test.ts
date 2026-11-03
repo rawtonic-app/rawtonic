@@ -10,9 +10,9 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 
 describe('geometry keys', () => {
   it('are the engine’s GEOMETRY_KEYS', () => {
-    const engine = [...(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g)].map(
-      (match) => match[1],
-    );
+    const engine = [
+      ...(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g)
+    ].map((match) => match[1]);
     expect(engine.length).toBeGreaterThan(20);
     expect([...GEOMETRY_KEYS]).toEqual(engine);
   });

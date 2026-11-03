@@ -21,7 +21,10 @@ export interface FolderTree {
   label?: string;
 }
 
-export const DEFAULT_FOLDER_TREE_SORT: FolderTreeSort = { key: 'name', order: SortDirection.Ascending };
+export const DEFAULT_FOLDER_TREE_SORT: FolderTreeSort = {
+  key: 'name',
+  order: SortDirection.Ascending
+};
 
 /** `node` with `newChildren` (a lazily loaded level) put under `targetPath`;
  * children already loaded below them are kept. */
@@ -34,7 +37,10 @@ export function insertChildrenIntoTree(node: FolderTree, targetPath: string, new
     return { ...node, children };
   }
   if (node.children?.length) {
-    return { ...node, children: node.children.map((child) => insertChildrenIntoTree(child, targetPath, newChildren)) };
+    return {
+      ...node,
+      children: node.children.map((child) => insertChildrenIntoTree(child, targetPath, newChildren))
+    };
   }
   return node;
 }
@@ -53,14 +59,18 @@ export function filterFolderTree(node: FolderTree, query: string): FolderTree | 
 export function sortFolderTree(nodes: FolderTree[], sort: FolderTreeSort): FolderTree[] {
   const sorted = [...(nodes ?? [])].sort((a, b) => {
     let comparison = 0;
-    if (sort.key === 'name') comparison = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    if (sort.key === 'name')
+      comparison = a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: 'base'
+      });
     else if (sort.key === 'modified') comparison = (a.modified || 0) - (b.modified || 0);
     else if (sort.key === 'created') comparison = (a.created || 0) - (b.created || 0);
     else if (sort.key === 'imageCount') comparison = (a.imageCount || 0) - (b.imageCount || 0);
     return sort.order === SortDirection.Ascending ? comparison : -comparison;
   });
   return sorted.map((node) =>
-    node.children?.length ? { ...node, children: sortFolderTree(node.children, sort) } : node,
+    node.children?.length ? { ...node, children: sortFolderTree(node.children, sort) } : node
   );
 }
 
@@ -81,12 +91,12 @@ export async function toggleFolder(path: string, load = true) {
     const settings = useSettingsStore.getState().appSettings;
     const children = await invoke<FolderTree[]>(Invokes.GetFolderChildren, {
       path,
-      showImageCounts: Boolean(settings?.enableFolderImageCounts || settings?.folderTreeSort?.key === 'imageCount'),
+      showImageCounts: Boolean(settings?.enableFolderImageCounts || settings?.folderTreeSort?.key === 'imageCount')
     });
     setLibrary((state) => ({
       folderTrees: state.folderTrees.map((tree) => insertChildrenIntoTree(tree, path, children)),
       pinnedFolderTrees: state.pinnedFolderTrees.map((tree) => insertChildrenIntoTree(tree, path, children)),
-      catalogTrees: state.catalogTrees.map((tree) => insertChildrenIntoTree(tree, path, children)),
+      catalogTrees: state.catalogTrees.map((tree) => insertChildrenIntoTree(tree, path, children))
     }));
   } catch (err) {
     notify.error(`The folder could not be read: ${err}`);

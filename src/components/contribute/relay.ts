@@ -3,15 +3,15 @@
 // src-tauri/src/contribute.rs). Nothing here runs on its own: a channel
 // prepares a body, the user reviews it in ReviewSendDialog, and only the
 // dialog's Send button sends it.
-import { invoke } from "@tauri-apps/api/core";
-import { Invokes } from "../ui/AppProperties";
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
 
-export type ContributionChannel = "report" | "crash" | "cameraTest" | "stats";
+export type ContributionChannel = 'report' | 'crash' | 'cameraTest' | 'stats';
 
 /** A file sent after the body, as it is; the body names its size and
  * SHA-256. */
 export interface ContributionAttachment {
-  slot: "screenshot" | "photo";
+  slot: 'screenshot' | 'photo';
   size: number;
   sha256: string;
   /** A screenshot's bytes, base64. */
@@ -35,22 +35,19 @@ export interface ContributionReceipt {
   ref?: string | null;
   /** Announced files whose upload was not confirmed (one may still have
    * arrived; it goes with the report). */
-  notUploaded?: ContributionAttachment["slot"][];
+  notUploaded?: ContributionAttachment['slot'][];
 }
 
 /** Error codes the send and delete commands answer with. */
-export type ContributionError =
-  | "not-configured"
-  | "unapproved"
-  | "rate-limited"
-  | "not-found"
-  | "refused"
-  | "network";
+export type ContributionError = 'not-configured' | 'unapproved' | 'rate-limited' | 'not-found' | 'refused' | 'network';
 
 export const contributionAvailable = () => invoke<boolean>(Invokes.ContributionAvailable);
 
 export const prepareContribution = (channel: ContributionChannel, payload: Record<string, unknown>) =>
-  invoke<PreparedContribution>(Invokes.ContributionPrepare, { channel, payload });
+  invoke<PreparedContribution>(Invokes.ContributionPrepare, {
+    channel,
+    payload
+  });
 
 export const sendContribution = (prepared: PreparedContribution) =>
   invoke<ContributionReceipt>(Invokes.ContributionSend, { prepared });
@@ -60,16 +57,19 @@ export const deleteContribution = (id: string) => invoke<void>(Invokes.Contribut
 /** The files the dialog shows below the body: the screenshot as an image,
  * the photo's file by its size. */
 export const attachmentsView = (
-  prepared: PreparedContribution,
-): { screenshot?: { src: string; bytes: number }; photo?: { bytes: number } } => {
+  prepared: PreparedContribution
+): {
+  screenshot?: { src: string; bytes: number };
+  photo?: { bytes: number };
+} => {
   const view: ReturnType<typeof attachmentsView> = {};
   for (const a of prepared.attachments ?? []) {
-    if (a.slot === "photo") view.photo = { bytes: a.size };
-    if (a.slot === "screenshot" && a.data) {
-      let mime = "image/png";
+    if (a.slot === 'photo') view.photo = { bytes: a.size };
+    if (a.slot === 'screenshot' && a.data) {
+      let mime = 'image/png';
       try {
         const announced = (JSON.parse(prepared.body) as { screenshot?: { mime?: unknown } }).screenshot?.mime;
-        if (announced === "image/jpeg") mime = announced;
+        if (announced === 'image/jpeg') mime = announced;
       } catch {
         // The body is shown as it is either way.
       }

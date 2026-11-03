@@ -1,10 +1,10 @@
-import { useTranslation } from "react-i18next";
-import { Ellipsis } from "lucide-react";
-import { useContextMenu } from "../../context/ContextMenuContext";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { menuCommandEnabled } from "../../hooks/useAppMenu";
-import { hasOverflowMenu, overflowCommands } from "../../utils/commandPalette";
-import { type Translate } from "../../utils/appMenu";
+import { useTranslation } from 'react-i18next';
+import { Ellipsis } from 'lucide-react';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { menuCommandEnabled } from '../../hooks/useAppMenu';
+import { hasOverflowMenu, overflowCommands } from '../../utils/commandPalette';
+import { type Translate } from '../../utils/appMenu';
 
 export default function AppOverflowMenu() {
   const { t } = useTranslation();
@@ -17,15 +17,15 @@ export default function AppOverflowMenu() {
   return (
     <button
       className="studio-bar-icon"
-      title={t("studio.workspace.more")}
-      aria-label={t("studio.workspace.more")}
+      title={t('studio.workspace.more')}
+      aria-label={t('studio.workspace.more')}
       aria-haspopup="menu"
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
         showContextMenu(
           rect.left,
           rect.bottom,
-          overflowCommands(platform, t as unknown as Translate, keybinds, menuCommandEnabled),
+          overflowCommands(platform, t as unknown as Translate, keybinds, menuCommandEnabled)
         );
       }}
     >

@@ -11,18 +11,41 @@ import { beforeSnapshot, beforeSnapshotAdjustments, compareWithSnapshot } from '
 import { Invokes } from '../components/ui/AppProperties';
 import { CACHED_BITMAP } from './bitmapIds';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.resolve(true))
+}));
 
 const PHOTO = '/p.dng';
-const subject = { id: 'subject', type: 'ai-subject', visible: true, mode: 'additive', parameters: { maskDataBase64: 'old' } };
+const subject = {
+  id: 'subject',
+  type: 'ai-subject',
+  visible: true,
+  mode: 'additive',
+  parameters: { maskDataBase64: 'old' }
+};
 const radial = {
   id: 'radial',
   type: 'radial',
   visible: true,
   mode: 'additive',
-  parameters: { centerX: 100, centerY: 200, radiusX: 50, radiusY: 50, rotation: 0, feather: 0.5 },
+  parameters: {
+    centerX: 100,
+    centerY: 200,
+    radiusX: 50,
+    radiusY: 50,
+    rotation: 0,
+    feather: 0.5
+  }
 };
-const layer = (subMasks: unknown[]) => ({ id: 'layer', name: 'Layer', visible: true, invert: false, opacity: 100, adjustments: {}, subMasks });
+const layer = (subMasks: unknown[]) => ({
+  id: 'layer',
+  name: 'Layer',
+  visible: true,
+  invert: false,
+  opacity: 100,
+  adjustments: {},
+  subMasks
+});
 
 /** A snapshot framed and developed as the edit, with a drawn mask and an AI
  * mask whose id the edit reuses for a newer bitmap. */
@@ -33,22 +56,36 @@ const snapshot: Snapshot = {
   adjustments: {
     ...INITIAL_ADJUSTMENTS,
     exposure: 1,
-    masks: [layer([subject, radial])],
-  } as unknown as Adjustments,
+    masks: [layer([subject, radial])]
+  } as unknown as Adjustments
 };
 
 beforeEach(() => {
   vi.mocked(invoke).mockClear();
-  useSettingsStore.setState({ osPlatform: 'macos', appSettings: { useWgpuRenderer: true } as never });
+  useSettingsStore.setState({
+    osPlatform: 'macos',
+    appSettings: { useWgpuRenderer: true } as never
+  });
   useSnapshotStore.setState({ path: PHOTO, snapshots: [snapshot] });
   useEditorStore.setState({
-    selectedImage: { path: PHOTO, isReady: true, isDecoded: true, isRaw: true, width: 6000, height: 4000, aiDenoise: 0 } as never,
-    adjustments: { ...INITIAL_ADJUSTMENTS, masks: [layer([{ ...subject, parameters: { maskDataBase64: 'new' } }])] } as never,
+    selectedImage: {
+      path: PHOTO,
+      isReady: true,
+      isDecoded: true,
+      isRaw: true,
+      width: 6000,
+      height: 4000,
+      aiDenoise: 0
+    } as never,
+    adjustments: {
+      ...INITIAL_ADJUSTMENTS,
+      masks: [layer([{ ...subject, parameters: { maskDataBase64: 'new' } }])]
+    } as never,
     splitView: true,
     showOriginal: false,
     previewOverride: null,
     patchesSentToBackend: new Set<string>(),
-    splitBeforeShows: null,
+    splitBeforeShows: null
   });
   compareWithSnapshot(snapshot);
 });
@@ -74,20 +111,30 @@ it('is the before only while it frames the photograph as the edit does', () => {
   // The edit turned a quarter: the snapshot's spots, drawn masks, relight
   // and face retouch belong to its own framing, so the before is the
   // unedited photograph again.
-  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, orientationSteps: 1 } as never });
+  useEditorStore.setState({
+    adjustments: { ...INITIAL_ADJUSTMENTS, orientationSteps: 1 } as never
+  });
   expect(beforeSnapshot()).toBeNull();
-  expect(originalPreviewAdjustments(useEditorStore.getState().adjustments, beforeSnapshotAdjustments()).exposure).toBe(0);
+  expect(originalPreviewAdjustments(useEditorStore.getState().adjustments, beforeSnapshotAdjustments()).exposure).toBe(
+    0
+  );
   // Framed alike again, it is compared with again.
-  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, orientationSteps: 0 } as never });
+  useEditorStore.setState({
+    adjustments: { ...INITIAL_ADJUSTMENTS, orientationSteps: 0 } as never
+  });
   expect(beforeSnapshot()?.id).toBe('s');
 });
 
 it('is the before only while it develops the RAW as the edit does', () => {
   // AI Denoise on in the edit: the snapshot would need a source of its own.
-  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 40 } as never });
+  useEditorStore.setState({
+    adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 40 } as never
+  });
   expect(beforeSnapshot()).toBeNull();
   // The multi-scale colour noise filter (decoded without the chroma clean-up): the same.
-  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: 9 } as never });
+  useEditorStore.setState({
+    adjustments: { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: 9 } as never
+  });
   expect(beforeSnapshot()).toBeNull();
   useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS } as never });
   expect(beforeSnapshot()?.id).toBe('s');
@@ -96,14 +143,22 @@ it('is the before only while it develops the RAW as the edit does', () => {
 it('renders the split before and the held peek from the snapshot', () => {
   requestSplitBefore(1200);
   const call = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.RenderSplitBefore);
-  expect(call?.[1]).toMatchObject({ path: PHOTO, jsAdjustments: { exposure: 1 } });
+  expect(call?.[1]).toMatchObject({
+    path: PHOTO,
+    jsAdjustments: { exposure: 1 }
+  });
   expect(call?.[1]).not.toHaveProperty('sourceDevelop');
   expect(startBeforePeek()).toBe(true);
   expect(useEditorStore.getState().previewOverride?.exposure).toBe(1);
 });
 
 it('names the snapshot whose before is in place, not one still on its way', async () => {
-  const other: Snapshot = { ...snapshot, id: 'o', name: 'Other', adjustments: { ...snapshot.adjustments, exposure: -1 } };
+  const other: Snapshot = {
+    ...snapshot,
+    id: 'o',
+    name: 'Other',
+    adjustments: { ...snapshot.adjustments, exposure: -1 }
+  };
   useSnapshotStore.setState({ snapshots: [snapshot, other] });
   const place: Array<(placed: boolean) => void> = [];
   vi.mocked(invoke).mockImplementation(() => new Promise((resolve) => place.push(resolve as never)));
@@ -143,9 +198,14 @@ it('sends the snapshot bitmaps with the first split request only', async () => {
 });
 
 it('is no before on Linux for a snapshot with AI Denoise, whose browser split decodes without it', () => {
-  const denoised: Snapshot = { ...snapshot, adjustments: { ...snapshot.adjustments, aiDenoise: 40 } };
+  const denoised: Snapshot = {
+    ...snapshot,
+    adjustments: { ...snapshot.adjustments, aiDenoise: 40 }
+  };
   useSnapshotStore.setState({ snapshots: [denoised] });
-  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 40 } as never });
+  useEditorStore.setState({
+    adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 40 } as never
+  });
   expect(beforeSnapshot()?.id).toBe('s');
   useSettingsStore.setState({ osPlatform: 'linux' });
   expect(beforeSnapshot()).toBeNull();

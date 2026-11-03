@@ -1,12 +1,12 @@
 import { Invokes } from '../ui/AppProperties';
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { notify } from "../../activity/notify";
-import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
-import AdjustmentControl from "./AdjustmentControl";
+import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
+import { notify } from '../../activity/notify';
+import { useTranslation } from 'react-i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useEditorActions } from '../../hooks/useEditorActions';
+import AdjustmentControl from './AdjustmentControl';
 
 interface LutEntry {
   name: string;
@@ -32,36 +32,36 @@ interface LutImport {
 
 /** The kinds this version translates (`studio.lut.skipReasons`). */
 const SKIP_KINDS = [
-  "badLine",
-  "copyFailed",
-  "domainOrder",
-  "folderUnreadable",
-  "haldShape",
-  "incomplete",
-  "noTable",
-  "notACube",
-  "readDifferently",
-  "tableSize",
-  "tooDeep",
-  "unreadable",
+  'badLine',
+  'copyFailed',
+  'domainOrder',
+  'folderUnreadable',
+  'haldShape',
+  'incomplete',
+  'noTable',
+  'notACube',
+  'readDifferently',
+  'tableSize',
+  'tooDeep',
+  'unreadable'
 ] as const;
 type SkipKind = (typeof SKIP_KINDS)[number];
 
 /** Kinds whose English reason adds what the translation cannot say (the
  * system's error). */
-const WITH_DETAIL = new Set(["unreadable", "folderUnreadable", "copyFailed"]);
+const WITH_DETAIL = new Set(['unreadable', 'folderUnreadable', 'copyFailed']);
 
 // File names are stable recipe identifiers; only the displayed names change.
-const BUILT_IN_NAMES: Record<string, "softPortrait" | "warmCinema" | "coolCinema" | "pastel" | "vivid" | "warm"> = {
-  "Portrait 400": "softPortrait",
-  "Cinema 250D": "warmCinema",
-  "Cinema 500T": "coolCinema",
-  "Pastel 400": "pastel",
-  "Vivid 100": "vivid",
-  "Warm 200": "warm",
+const BUILT_IN_NAMES: Record<string, 'softPortrait' | 'warmCinema' | 'coolCinema' | 'pastel' | 'vivid' | 'warm'> = {
+  'Portrait 400': 'softPortrait',
+  'Cinema 250D': 'warmCinema',
+  'Cinema 500T': 'coolCinema',
+  'Pastel 400': 'pastel',
+  'Vivid 100': 'vivid',
+  'Warm 200': 'warm'
 };
 
-const EXTENSIONS = ["cube", "3dl", "png", "jpg", "jpeg", "tiff"];
+const EXTENSIONS = ['cube', '3dl', 'png', 'jpg', 'jpeg', 'tiff'];
 
 /** The imported LUTs by pack, single files first; groups by name. */
 function importedGroups(entries: LutEntry[]): [string | null, LutEntry[]][] {
@@ -72,7 +72,7 @@ function importedGroups(entries: LutEntry[]): [string | null, LutEntry[]][] {
     groups.set(key, [...(groups.get(key) ?? []), entry]);
   }
   return [...groups].sort(([a], [b]) =>
-    a === null ? -1 : b === null ? 1 : a.localeCompare(b, undefined, { sensitivity: "base" }),
+    a === null ? -1 : b === null ? 1 : a.localeCompare(b, undefined, { sensitivity: 'base' })
   );
 }
 
@@ -85,14 +85,16 @@ function importedGroups(entries: LutEntry[]): [string | null, LutEntry[]][] {
  */
 export default function StudioLut({
   disabled,
-  onInteraction,
+  onInteraction
 }: {
   disabled: boolean;
   onInteraction(active: boolean): void;
 }) {
   const { t } = useTranslation();
-  const label = (entry: LutEntry, language?: string) => entry.isBuiltIn && BUILT_IN_NAMES[entry.name]
-    ? t(`studio.lut.names.${BUILT_IN_NAMES[entry.name]}`, { lng: language }) : entry.name;
+  const label = (entry: LutEntry, language?: string) =>
+    entry.isBuiltIn && BUILT_IN_NAMES[entry.name]
+      ? t(`studio.lut.names.${BUILT_IN_NAMES[entry.name]}`, { lng: language })
+      : entry.name;
   const skipReason = ({ reason, issue }: SkippedLut) => {
     const kind = issue?.kind as SkipKind | undefined;
     if (!issue || !kind || !SKIP_KINDS.includes(kind)) return reason;
@@ -108,7 +110,7 @@ export default function StudioLut({
     let active = true;
     invoke<LutEntry[]>(Invokes.ListLuts)
       .then((list) => active && setEntries(list ?? []))
-      .catch((error) => console.error("Listing LUTs failed:", error));
+      .catch((error) => console.error('Listing LUTs failed:', error));
     return () => {
       active = false;
     };
@@ -122,7 +124,7 @@ export default function StudioLut({
       lutData: null,
       lutSize: 0,
       lutIntensity: 100,
-      lutIsSceneReferred: false,
+      lutIsSceneReferred: false
     }));
 
   const importLuts = async (folder: boolean) => {
@@ -131,23 +133,36 @@ export default function StudioLut({
         ? await open({ directory: true, multiple: true })
         : await open({
             multiple: true,
-            filters: [{ name: "LUT", extensions: [...EXTENSIONS, ...EXTENSIONS.map((e) => e.toUpperCase())] }],
+            filters: [
+              {
+                name: 'LUT',
+                extensions: [...EXTENSIONS, ...EXTENSIONS.map((e) => e.toUpperCase())]
+              }
+            ]
           });
       const sourcePaths = Array.isArray(selected) ? selected : selected ? [selected] : [];
       if (sourcePaths.length === 0) return;
-      const result = await invoke<LutImport>(Invokes.ImportLuts, { sourcePaths });
+      const result = await invoke<LutImport>(Invokes.ImportLuts, {
+        sourcePaths
+      });
       setEntries(result?.luts ?? []);
       const skipped = result?.skipped ?? [];
       if (skipped.length > 0) {
         const lines = skipped.slice(0, 10).map((s) => `${s.file}: ${skipReason(s)}`);
-        const files = [...lines, ...(skipped.length > 10 ? ["…"] : [])].join("\n");
-        notify.warn(t("studio.lut.toasts.skipped", { count: skipped.length, imported: result.imported, files }));
+        const files = [...lines, ...(skipped.length > 10 ? ['…'] : [])].join('\n');
+        notify.warn(
+          t('studio.lut.toasts.skipped', {
+            count: skipped.length,
+            imported: result.imported,
+            files
+          })
+        );
       } else if (result && result.imported === 0) {
-        notify.info(t("studio.lut.toasts.noneFound"));
+        notify.info(t('studio.lut.toasts.noneFound'));
       }
     } catch (error) {
-      console.error("Importing LUTs failed:", error);
-      notify.error(t("studio.lut.toasts.importFailed"));
+      console.error('Importing LUTs failed:', error);
+      notify.error(t('studio.lut.toasts.importFailed'));
     }
   };
 
@@ -159,8 +174,8 @@ export default function StudioLut({
       setEntries(list ?? []);
       clear();
     } catch (error) {
-      console.error("Removing the LUT failed:", error);
-      notify.error(t("studio.lut.toasts.removeFailed"));
+      console.error('Removing the LUT failed:', error);
+      notify.error(t('studio.lut.toasts.removeFailed'));
     }
   };
   const known = entries.some((e) => e.path === lutPath);
@@ -173,18 +188,18 @@ export default function StudioLut({
           LUT
           <select
             aria-label="LUT"
-            value={lutPath ?? ""}
+            value={lutPath ?? ''}
             disabled={disabled}
             onChange={(e) => {
               const entry = entries.find((x) => x.path === e.target.value);
               if (!entry) clear();
-              else void handleLutSelect(entry.path, entry.isBuiltIn, entry.isBuiltIn ? label(entry, "en") : undefined);
+              else void handleLutSelect(entry.path, entry.isBuiltIn, entry.isBuiltIn ? label(entry, 'en') : undefined);
             }}
           >
-            <option value="">{t("studio.lut.none")}</option>
+            <option value="">{t('studio.lut.none')}</option>
             {lutPath && !known && <option value={lutPath}>{lutPath.split(/[\\/]/).pop()}</option>}
             {builtIn.length > 0 && (
-              <optgroup label={t("studio.lut.builtIn")}>
+              <optgroup label={t('studio.lut.builtIn')}>
                 {builtIn.map((e) => (
                   <option key={e.path} value={e.path}>
                     {label(e)}
@@ -193,7 +208,7 @@ export default function StudioLut({
               </optgroup>
             )}
             {importedGroups(entries).map(([group, list]) => (
-              <optgroup key={group ?? ""} label={group ?? t("studio.lut.imported")}>
+              <optgroup key={group ?? ''} label={group ?? t('studio.lut.imported')}>
                 {list.map((e) => (
                   <option key={e.path} value={e.path}>
                     {label(e)}
@@ -203,22 +218,22 @@ export default function StudioLut({
             ))}
           </select>
         </label>
-        <button title={t("studio.lut.importTitle")} disabled={disabled} onClick={() => void importLuts(false)}>
-          {t("studio.lut.import")}
+        <button title={t('studio.lut.importTitle')} disabled={disabled} onClick={() => void importLuts(false)}>
+          {t('studio.lut.import')}
         </button>
-        <button title={t("studio.lut.importFolderTitle")} disabled={disabled} onClick={() => void importLuts(true)}>
-          {t("studio.lut.importFolder")}
+        <button title={t('studio.lut.importFolderTitle')} disabled={disabled} onClick={() => void importLuts(true)}>
+          {t('studio.lut.importFolder')}
         </button>
         {imported && (
-          <button title={t("studio.lut.removeTitle")} onClick={() => void removeLut(imported.path)}>
-            {t("studio.lut.remove")}
+          <button title={t('studio.lut.removeTitle')} onClick={() => void removeLut(imported.path)}>
+            {t('studio.lut.remove')}
           </button>
         )}
       </div>
       {lutPath && (
         <AdjustmentControl
-          label={t("studio.lut.amount")}
-          ariaLabel={t("studio.lut.aria.amount")}
+          label={t('studio.lut.amount')}
+          ariaLabel={t('studio.lut.aria.amount')}
           min={0}
           max={200}
           value={intensity}

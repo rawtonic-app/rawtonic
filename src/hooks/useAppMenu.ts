@@ -4,8 +4,21 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { Invokes } from '../components/ui/AppProperties';
-import { appCommandEnabled, COMMAND_DIALOG_SELECTOR, appMenuCommands, onAppCommandsChanged, runAppCommand } from '../utils/appCommands';
-import { buildMenuSpec, MENU_ID_PREFIX, type BuiltMenu, type MenuItemState, menuItemStates, type Translate } from '../utils/appMenu';
+import {
+  appCommandEnabled,
+  COMMAND_DIALOG_SELECTOR,
+  appMenuCommands,
+  onAppCommandsChanged,
+  runAppCommand
+} from '../utils/appCommands';
+import {
+  buildMenuSpec,
+  MENU_ID_PREFIX,
+  type BuiltMenu,
+  type MenuItemState,
+  menuItemStates,
+  type Translate
+} from '../utils/appMenu';
 import { normalizeCombo } from '../utils/keyboardUtils';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { isAnyModalOpen, useUIStore } from '../store/useUIStore';
@@ -30,7 +43,11 @@ export const APP_MENU_COMMAND_EVENT = 'app-menu-command';
 export const KEY_ECHO_MS = 2000;
 
 /** Edit commands that act on a focused text field instead of the app. */
-const TEXT_ACTIONS: Record<string, string> = { undo: 'undo', redo: 'redo', select_all: 'selectAll' };
+const TEXT_ACTIONS: Record<string, string> = {
+  undo: 'undo',
+  redo: 'redo',
+  select_all: 'selectAll'
+};
 
 const TEXT_INPUTS = ['text', 'search', 'email', 'url', 'tel', 'password', 'number', ''];
 
@@ -75,18 +92,16 @@ export function menuCommandEnabled(command: string, chooser = false): boolean {
 }
 
 /** Runs a command chosen in the menu bar: the handler its key runs, once. */
-export function dispatchMenuCommand(
-  command: string,
-  dispatch: MenuDispatch,
-  now = performance.now(),
-): void {
+export function dispatchMenuCommand(command: string, dispatch: MenuDispatch, now = performance.now()): void {
   const combo = dispatch.menu?.combos.get(command);
   dispatch.keys = dispatch.keys.filter((key) => now - key.at < KEY_ECHO_MS);
   const owed = dispatch.keys.findIndex((key) => key.combo === combo && !key.event.defaultPrevented);
   const echo = owed >= 0;
   if (echo) dispatch.keys.splice(owed, 1);
   if (command in TEXT_ACTIONS && textFieldFocused(command)) {
-    void invoke(Invokes.AppMenuTextAction, { action: TEXT_ACTIONS[command] }).catch(() => {});
+    void invoke(Invokes.AppMenuTextAction, {
+      action: TEXT_ACTIONS[command]
+    }).catch(() => {});
     return;
   }
   if (echo || !menuCommandEnabled(command)) return;
@@ -98,7 +113,12 @@ export function dispatchMenuCommand(
  * what changed). Other platforms keep their behaviour (no menu bar). */
 export function useAppMenu(): void {
   const { t, i18n } = useTranslation();
-  const signature = () => JSON.stringify(['recent', 'recipes'].flatMap((group) => appMenuCommands(group as 'recent' | 'recipes').map(([id, command]) => [id, command.menu!.label])));
+  const signature = () =>
+    JSON.stringify(
+      ['recent', 'recipes'].flatMap((group) =>
+        appMenuCommands(group as 'recent' | 'recipes').map(([id, command]) => [id, command.menu!.label])
+      )
+    );
   const [commandsRevision, setCommandsRevision] = useState(signature);
   useEffect(() => onAppCommandsChanged(() => setCommandsRevision(signature())), []);
   const osPlatform = useSettingsStore((s) => s.osPlatform);
@@ -109,11 +129,17 @@ export function useAppMenu(): void {
     if (!enabled) return;
     const historyLabels = () => ({
       undo: textFieldFocused('undo') ? t('appMenu.items.undo') : getUndoLabel(),
-      redo: textFieldFocused('redo') ? t('appMenu.items.redo') : getRedoLabel(),
+      redo: textFieldFocused('redo') ? t('appMenu.items.redo') : getRedoLabel()
     });
-    const dispatch: MenuDispatch = { menu: buildMenuSpec(t as unknown as Translate, keybinds, menuCommandEnabled, 'Rawtonic', historyLabels()), keys: [], shown: new Map() };
+    const dispatch: MenuDispatch = {
+      menu: buildMenuSpec(t as unknown as Translate, keybinds, menuCommandEnabled, 'Rawtonic', historyLabels()),
+      keys: [],
+      shown: new Map()
+    };
     // The state the tree was built with; changes are sent from there.
-    const sent = new Map<string, MenuItemState>(menuItemStates(dispatch.menu!, menuCommandEnabled, historyLabels()).map((state) => [state.id, state]));
+    const sent = new Map<string, MenuItemState>(
+      menuItemStates(dispatch.menu!, menuCommandEnabled, historyLabels()).map((state) => [state.id, state])
+    );
     const show = (state: MenuItemState) => dispatch.shown.set(state.id.slice(MENU_ID_PREFIX.length), state.enabled);
     sent.forEach(show);
     // The command each key equivalent belongs to.
@@ -131,7 +157,12 @@ export function useAppMenu(): void {
       if (disposed) return;
       const changed = menuItemStates(menu, menuCommandEnabled, historyLabels()).filter((state) => {
         const before = sent.get(state.id);
-        return !before || before.enabled !== state.enabled || before.checked !== state.checked || before.label !== state.label;
+        return (
+          !before ||
+          before.enabled !== state.enabled ||
+          before.checked !== state.checked ||
+          before.label !== state.label
+        );
       });
       if (changed.length === 0) return;
       changed.forEach((state) => {
@@ -151,14 +182,19 @@ export function useAppMenu(): void {
       useMultiViewStore.subscribe(schedule),
       useSettingsStore.subscribe(schedule),
       useUpdateStore.subscribe(schedule),
-      onAppCommandsChanged(schedule),
+      onAppCommandsChanged(schedule)
     ];
     // Text focus (Edit's Undo/Redo/Select All) and dialogs opening or
     // closing change what is available without a store change.
     window.addEventListener('focusin', schedule);
     window.addEventListener('focusout', schedule);
     const dialogs = new MutationObserver(schedule);
-    dialogs.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] });
+    dialogs.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['open', 'aria-modal']
+    });
 
     // Capture: seen before any handler can stop the key.
     const onKeyDown = (event: KeyboardEvent) => {

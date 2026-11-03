@@ -17,7 +17,10 @@ const isFolder = (path: string | null): path is string => !!path && /^(\/|[A-Za-
 export function watchXmpSidecars(directory: string, found: () => void): () => void {
   let stopped = false;
   const check = async (folder: string | null) => {
-    const marked = await invoke<number>(Invokes.SessionXmpCheck, { directory, folder });
+    const marked = await invoke<number>(Invokes.SessionXmpCheck, {
+      directory,
+      folder
+    });
     if (!stopped && marked > 0 && useLibraryStore.getState().sessionDirectory === directory) found();
   };
   const library = throttleAsync(() => check(null), 1000);

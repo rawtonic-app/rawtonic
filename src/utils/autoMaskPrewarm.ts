@@ -8,7 +8,7 @@ import type { SelectedImage } from '../components/ui/AppProperties';
 export function autoMaskPrewarmPath(
   isMasking: boolean,
   autoMask: boolean | undefined,
-  image: Pick<SelectedImage, 'path' | 'isReady' | 'isDecoded'> | null | undefined,
+  image: Pick<SelectedImage, 'path' | 'isReady' | 'isDecoded'> | null | undefined
 ): string | null {
   if (!isMasking || !autoMask || !image?.isReady || !image.isDecoded) return null;
   return image.path || null;

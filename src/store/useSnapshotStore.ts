@@ -54,7 +54,10 @@ async function developThumbnails() {
       const revision = revisions.get(next.id) ?? 0;
       let url = '';
       try {
-        const bytes = await invoke<ArrayBuffer>(Invokes.SnapshotThumbnail, { path, adjustments: next.adjustments });
+        const bytes = await invoke<ArrayBuffer>(Invokes.SnapshotThumbnail, {
+          path,
+          adjustments: next.adjustments
+        });
         url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
       } catch (error) {
         console.error('Snapshot thumbnail failed:', error);
@@ -74,7 +77,9 @@ async function developThumbnails() {
         continue;
       }
       // A failed one stays empty (a placeholder) rather than being retried.
-      useSnapshotStore.setState((current) => ({ thumbnails: { ...current.thumbnails, [next.id]: url } }));
+      useSnapshotStore.setState((current) => ({
+        thumbnails: { ...current.thumbnails, [next.id]: url }
+      }));
     }
   } finally {
     if (developing === mine) developing = null;
@@ -87,7 +92,11 @@ async function developThumbnails() {
  * sidecar); a list (`write` false) only reads after the writes before it. */
 let requests: Promise<unknown> = Promise.resolve();
 function inTurn<T>(path: string, request: () => Promise<T>, write = true): Promise<T> {
-  const next = submitPhotoWrite([path], request, { kind: 'snapshot', after: requests, announce: write });
+  const next = submitPhotoWrite([path], request, {
+    kind: 'snapshot',
+    after: requests,
+    announce: write
+  });
   requests = next.catch(() => undefined);
   return next;
 }
@@ -150,5 +159,5 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
 
   remove: async (path, id) => {
     show(path, await inTurn(path, () => invoke<unknown>(Invokes.SnapshotDelete, { path, id })));
-  },
+  }
 }));

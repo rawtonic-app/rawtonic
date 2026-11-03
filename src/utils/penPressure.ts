@@ -14,7 +14,10 @@ export interface PressureMapping {
 }
 
 export function pressureMapping(settings: { pressureSize?: boolean; pressureFlow?: boolean } | null | undefined) {
-  return { size: settings?.pressureSize ?? true, flow: !!settings?.pressureFlow };
+  return {
+    size: settings?.pressureSize ?? true,
+    flow: !!settings?.pressureFlow
+  };
 }
 
 /** The pressure a point stores: a pen's, to three decimals, while a mapping
@@ -22,7 +25,7 @@ export function pressureMapping(settings: { pressureSize?: boolean; pressureFlow
  * decision D3: no simulated pressure). */
 export function pointPressure(
   event: Pick<PointerEvent, 'pointerType' | 'pressure'> | null | undefined,
-  mapping: PressureMapping,
+  mapping: PressureMapping
 ): number | undefined {
   if (!event || event.pointerType !== 'pen' || !(mapping.size || mapping.flow)) return undefined;
   const pressure = Number.isFinite(event.pressure) ? Math.min(1, Math.max(0, event.pressure)) : 1;
@@ -39,7 +42,7 @@ export function pressureKeys(points: StrokePoint[], mapping: PressureMapping) {
   if (!points.some((point) => point.p !== undefined)) return {};
   return {
     ...(mapping.size ? { pressureSize: true as const } : {}),
-    ...(mapping.flow ? { pressureFlow: true as const } : {}),
+    ...(mapping.flow ? { pressureFlow: true as const } : {})
   };
 }
 
@@ -82,6 +85,6 @@ export function usePenAvailable() {
   return useSyncExternalStore(
     subscribePen,
     () => penSeen,
-    () => false,
+    () => false
   );
 }

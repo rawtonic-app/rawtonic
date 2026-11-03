@@ -14,7 +14,7 @@ import {
   splitPositionAt,
   splitScreenX,
   splitViewAvailable,
-  browserSplitWidth,
+  browserSplitWidth
 } from './beforeAfter';
 import editorPreview from '../../src-tauri/src/editor_preview.rs?raw';
 import cacheUtils from '../../crates/engine/src/cache_utils.rs?raw';
@@ -38,7 +38,7 @@ describe('before/after', () => {
       orientationSteps: 1,
       flipHorizontal: true,
       lensDistortionAmount: 80,
-      transformVertical: -12,
+      transformVertical: -12
     };
     const original = originalPreviewAdjustments(edited);
     expect(original.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
@@ -55,7 +55,12 @@ describe('before/after', () => {
 
   it("keeps the photo's render version, so before and after differ by the edit only", () => {
     for (const renderVersion of [undefined, 2]) {
-      const edited = { ...INITIAL_ADJUSTMENTS, exposure: 1, rotation: 2.5, renderVersion };
+      const edited = {
+        ...INITIAL_ADJUSTMENTS,
+        exposure: 1,
+        rotation: 2.5,
+        renderVersion
+      };
       expect(originalPreviewAdjustments(edited).renderVersion).toBe(renderVersion);
     }
   });
@@ -68,10 +73,7 @@ describe('before/after', () => {
   });
 
   it('copies every key the native split compares', () => {
-    const native = [
-      ...rustKeys(editorPreview, 'SPLIT_FRAMING_KEYS'),
-      ...rustKeys(cacheUtils, 'GEOMETRY_KEYS'),
-    ];
+    const native = [...rustKeys(editorPreview, 'SPLIT_FRAMING_KEYS'), ...rustKeys(cacheUtils, 'GEOMETRY_KEYS')];
     expect(native.length).toBeGreaterThan(20);
     for (const key of native) expect(BEFORE_FRAMING_KEYS).toContain(key);
   });
@@ -144,8 +146,22 @@ describe('keepMagnification', () => {
   it('keeps 100 % on the same detail when the before pane halves the viewer', () => {
     // 8000 px photo: fit 1000 px wide in a 1000 px viewer, zoomed to 100 % (×8),
     // the photo point (0.25, 0.5) at the centre.
-    const wide = { width: 1000, height: 500, offsetX: 0, offsetY: 250, containerWidth: 1000, containerHeight: 1000 };
-    const half = { width: 500, height: 250, offsetX: 0, offsetY: 375, containerWidth: 500, containerHeight: 1000 };
+    const wide = {
+      width: 1000,
+      height: 500,
+      offsetX: 0,
+      offsetY: 250,
+      containerWidth: 1000,
+      containerHeight: 1000
+    };
+    const half = {
+      width: 500,
+      height: 250,
+      offsetX: 0,
+      offsetY: 375,
+      containerWidth: 500,
+      containerHeight: 1000
+    };
     const next = keepMagnification(wide, half, 8, 0.25, 0.5);
     expect(next.scale).toBe(16);
     // The centre of the narrower viewer shows the same photo point.
@@ -161,8 +177,22 @@ describe('keepMagnification', () => {
 describe('keepMagnification for a portrait fitted by height', () => {
   it('keeps the centred detail although the fitted width stays the same', () => {
     // 4000×6000 portrait: fit 533×800 in a 1200×800 viewer and in a 600×800 pane.
-    const wide = { width: 533.33, height: 800, offsetX: 333.33, offsetY: 0, containerWidth: 1200, containerHeight: 800 };
-    const pane = { width: 533.33, height: 800, offsetX: 33.33, offsetY: 0, containerWidth: 600, containerHeight: 800 };
+    const wide = {
+      width: 533.33,
+      height: 800,
+      offsetX: 333.33,
+      offsetY: 0,
+      containerWidth: 1200,
+      containerHeight: 800
+    };
+    const pane = {
+      width: 533.33,
+      height: 800,
+      offsetX: 33.33,
+      offsetY: 0,
+      containerWidth: 600,
+      containerHeight: 800
+    };
     const next = keepMagnification(wide, pane, 7.5, 0.5, 0.5);
     expect(next.scale).toBeCloseTo(7.5);
     expect(((pane.containerWidth / 2 - next.x) / next.scale - pane.offsetX) / pane.width).toBeCloseTo(0.5);

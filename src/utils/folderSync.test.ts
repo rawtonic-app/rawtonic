@@ -7,7 +7,7 @@ import {
   sortPlan,
   syncActions,
   unresolved,
-  type ContestedChoice,
+  type ContestedChoice
 } from './folderSync';
 import { identity, samplePlan } from './folderSync.fixture';
 
@@ -33,20 +33,26 @@ describe('Synchronize Folder review', () => {
         assetId: 'a',
         from: '/lib/Capture/A.ARW',
         to: '/lib/Capture/Day 2/A.ARW',
-        identity: identity(1),
+        identity: identity(1)
       },
-      { kind: 'add', path: '/lib/Capture/N.ARW', identity: identity(2) },
+      { kind: 'add', path: '/lib/Capture/N.ARW', identity: identity(2) }
     ]);
     choices.set('/lib/Capture/X.ARW', { move: 'x' });
     expect(unresolved(plan, choices)).toBe(0);
     const selected = new Set([rowKey('removed', plan.removed[0])]);
     expect(syncActions(plan, selected, choices)).toEqual([
       { kind: 'remove', assetId: 'r', path: '/lib/Capture/R.ARW' },
-      { kind: 'move', assetId: 'x', from: '/lib/Capture/old/X.ARW', to: '/lib/Capture/X.ARW', identity: identity(1) },
+      {
+        kind: 'move',
+        assetId: 'x',
+        from: '/lib/Capture/old/X.ARW',
+        to: '/lib/Capture/X.ARW',
+        identity: identity(1)
+      }
     ]);
     choices.set('/lib/Capture/X.ARW', 'add');
     expect(syncActions(plan, new Set(), choices)).toEqual([
-      { kind: 'add', path: '/lib/Capture/X.ARW', identity: identity(4) },
+      { kind: 'add', path: '/lib/Capture/X.ARW', identity: identity(4) }
     ]);
     choices.set('/lib/Capture/X.ARW', 'skip');
     expect(syncActions(plan, new Set(), choices)).toEqual([]);
@@ -63,8 +69,8 @@ describe('Synchronize Folder review', () => {
         newFiles: [],
         copies: [],
         contested: [],
-        removed: [],
-      }),
+        removed: []
+      })
     ).toBe(true);
   });
 });
@@ -83,12 +89,24 @@ describe('sortPlan', () => {
   it('lists rows in natural order', () => {
     const plan = samplePlan();
     const names = ['copy_10', 'copy_2', 'Copy_1', 'copy_100', 'copy_9'];
-    const file = (name: string, n: number) => ({ path: `/lib/Capture/${name}.ARW`, identity: identity(n), copyOf: [] });
+    const file = (name: string, n: number) => ({
+      path: `/lib/Capture/${name}.ARW`,
+      identity: identity(n),
+      copyOf: []
+    });
     const sorted = sortPlan({
       ...plan,
       newFiles: names.map(file),
-      removed: names.map((name, n) => ({ assetId: `${n}`, path: `/lib/Capture/${name}.ARW`, volume: null })),
-      verifiedMoves: names.map((name, n) => ({ ...plan.verifiedMoves[0], assetId: `${n}`, to: `/lib/Capture/${name}.ARW` })),
+      removed: names.map((name, n) => ({
+        assetId: `${n}`,
+        path: `/lib/Capture/${name}.ARW`,
+        volume: null
+      })),
+      verifiedMoves: names.map((name, n) => ({
+        ...plan.verifiedMoves[0],
+        assetId: `${n}`,
+        to: `/lib/Capture/${name}.ARW`
+      }))
     });
     const order = ['Copy_1', 'copy_2', 'copy_9', 'copy_10', 'copy_100'].map((name) => `/lib/Capture/${name}.ARW`);
     expect(sorted.newFiles.map((f) => f.path)).toEqual(order);
@@ -96,7 +114,10 @@ describe('sortPlan', () => {
     expect(sorted.verifiedMoves.map((m) => m.to)).toEqual(order);
     // Folders before deeper names the same way: Day 2 before Day 10.
     expect(
-      sortPlan({ ...plan, newFiles: [file('Day 10/A', 1), file('Day 2/A', 2)] }).newFiles.map((f) => f.path),
+      sortPlan({
+        ...plan,
+        newFiles: [file('Day 10/A', 1), file('Day 2/A', 2)]
+      }).newFiles.map((f) => f.path)
     ).toEqual(['/lib/Capture/Day 2/A.ARW', '/lib/Capture/Day 10/A.ARW']);
     // The scan's plan is left as it was.
     expect(plan.newFiles[0].path).toBe('/lib/Capture/N.ARW');

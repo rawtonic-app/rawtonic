@@ -11,7 +11,7 @@ const OFFLINE = /^(.+) is offline: exporting needs the RAW file$/;
 const WRITE_FAILED = /^Failed to write file to '(.+)': (.+)$/s;
 const KNOWN: Record<string, () => string> = {
   'Export task terminated unexpectedly': () => i18n.t('studio.export.errors.terminated'),
-  'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest'),
+  'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest')
 };
 
 function fileName(path: string): string {
@@ -25,7 +25,11 @@ export function renderErrorMessage(error: unknown): string {
   const limit = TEXTURE_LIMIT.exec(message);
   if (limit) {
     const [, width, height, max] = limit;
-    return i18n.t('studio.export.errors.textureLimit', { width, height, limit: max });
+    return i18n.t('studio.export.errors.textureLimit', {
+      width,
+      height,
+      limit: max
+    });
   }
   const batch = BATCH_FAILED.exec(message);
   if (batch) {
@@ -33,11 +37,17 @@ export function renderErrorMessage(error: unknown): string {
     return i18n.t('studio.export.errors.batchFailed', { failed, total });
   }
   const offline = OFFLINE.exec(message);
-  if (offline) return i18n.t('studio.export.errors.offline', { file: fileName(offline[1]) });
+  if (offline)
+    return i18n.t('studio.export.errors.offline', {
+      file: fileName(offline[1])
+    });
   const write = WRITE_FAILED.exec(message);
   if (write) {
     const [, path, reason] = write;
-    return i18n.t('studio.export.errors.writeFailed', { file: fileName(path), error: reason });
+    return i18n.t('studio.export.errors.writeFailed', {
+      file: fileName(path),
+      error: reason
+    });
   }
   return Object.hasOwn(KNOWN, message) ? KNOWN[message]() : message;
 }

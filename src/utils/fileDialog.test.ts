@@ -25,17 +25,41 @@ it('returns queued answers in QA builds, then falls back to the native dialog', 
   vi.stubEnv('VITE_RAWTONIC_QA', '1');
   vi.mocked(open).mockResolvedValue('/native.NEF');
   queueDialogAnswers(['/Volumes/QA/A.NEF', null]);
-  expect(await openDialog({ title: 'Locate A', defaultPath: '/old', directory: false })).toBe('/Volumes/QA/A.NEF');
+  expect(
+    await openDialog({
+      title: 'Locate A',
+      defaultPath: '/old',
+      directory: false
+    })
+  ).toBe('/Volumes/QA/A.NEF');
   expect(await openDialog({ title: 'Locate folder', directory: true })).toBeNull();
   expect(await openDialog({ title: 'Third' })).toBe('/native.NEF');
   expect(open).toHaveBeenCalledTimes(1);
   expect(dialogState()).toEqual({
     pending: 0,
     asked: [
-      { title: 'Locate A', defaultPath: '/old', directory: false, multiple: false, answer: '/Volumes/QA/A.NEF' },
-      { title: 'Locate folder', defaultPath: null, directory: true, multiple: false, answer: null },
-      { title: 'Third', defaultPath: null, directory: false, multiple: false, answer: 'native' },
-    ],
+      {
+        title: 'Locate A',
+        defaultPath: '/old',
+        directory: false,
+        multiple: false,
+        answer: '/Volumes/QA/A.NEF'
+      },
+      {
+        title: 'Locate folder',
+        defaultPath: null,
+        directory: true,
+        multiple: false,
+        answer: null
+      },
+      {
+        title: 'Third',
+        defaultPath: null,
+        directory: false,
+        multiple: false,
+        answer: 'native'
+      }
+    ]
   });
 });
 
@@ -54,8 +78,8 @@ async function bundle(qa: boolean): Promise<string> {
         write: false,
         minify: false,
         lib: { entry: file('./fileDialog.ts'), formats: ['es'] },
-        rollupOptions: { external: [/^@tauri-apps\//] },
-      },
+        rollupOptions: { external: [/^@tauri-apps\//] }
+      }
     });
     const results = Array.isArray(output) ? output : [output];
     return results

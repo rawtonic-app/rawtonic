@@ -16,7 +16,7 @@ import {
   Bandage,
   Spline,
   MopSparkles,
-  type LucideIcon,
+  type LucideIcon
 } from 'lucide-react';
 import i18n from 'i18next';
 import type { ShapeFrame } from '../../../utils/maskGeometry';
@@ -41,13 +41,13 @@ export enum Mask {
   Clone = 'clone',
   Heal = 'heal',
   Liquify = 'liquify',
-  Retouch = 'retouch',
+  Retouch = 'retouch'
 }
 
 export enum SubMaskMode {
   Additive = 'additive',
   Subtractive = 'subtractive',
-  Intersect = 'intersect',
+  Intersect = 'intersect'
 }
 
 export enum ToolType {
@@ -55,7 +55,7 @@ export enum ToolType {
   Brush = 'brush',
   Eraser = 'eraser',
   GenerativeReplace = 'generative-replace',
-  SelectSubject = 'select-subject',
+  SelectSubject = 'select-subject'
 }
 
 /** A painted stroke in image coordinates (`BrushLine` / `FlowLine` in mask_generation.rs). */
@@ -191,5 +191,5 @@ export const MASK_ICON_MAP: Record<Mask, LucideIcon> = {
   [Mask.Clone]: Stamp,
   [Mask.Heal]: Bandage,
   [Mask.Liquify]: Spline,
-  [Mask.Retouch]: MopSparkles,
+  [Mask.Retouch]: MopSparkles
 };

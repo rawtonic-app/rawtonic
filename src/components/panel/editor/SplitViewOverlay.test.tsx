@@ -3,21 +3,42 @@ import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import SplitViewOverlay, { ViewerBeforeBadge } from './SplitViewOverlay';
 import { useEditorStore } from '../../../store/useEditorStore';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: { tool?: string }) => (options?.tool ? `${key}:${options.tool}` : key) }) }));
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: { tool?: string }) => (options?.tool ? `${key}:${options.tool}` : key)
+  })
+}));
 
 beforeAll(() => {
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.hasPointerCapture = () => true;
   Element.prototype.releasePointerCapture = () => {};
 });
-beforeEach(() => useEditorStore.setState({ splitView: true, splitOrientation: 'left-right', splitPosition: 0.5, showOriginal: false, toolBefore: null }));
+beforeEach(() =>
+  useEditorStore.setState({
+    splitView: true,
+    splitOrientation: 'left-right',
+    splitPosition: 0.5,
+    showOriginal: false,
+    toolBefore: null
+  })
+);
 afterEach(cleanup);
 
 /** The viewer spans x 100…900 on screen. */
 const placeViewer = () => {
   const root = screen.getByTestId('split-view-overlay');
   root.getBoundingClientRect = () =>
-    ({ left: 100, top: 0, width: 800, height: 600, right: 900, bottom: 600, x: 100, y: 0 }) as DOMRect;
+    ({
+      left: 100,
+      top: 0,
+      width: 800,
+      height: 600,
+      right: 900,
+      bottom: 600,
+      x: 100,
+      y: 0
+    }) as DOMRect;
 };
 
 it('shows nothing while the split view is off', () => {
@@ -65,9 +86,13 @@ it('keeps the drag from reaching the viewer beneath', () => {
   render(
     <div onPointerDown={viewerDown}>
       <SplitViewOverlay />
-    </div>,
+    </div>
   );
-  fireEvent.pointerDown(screen.getByRole('slider'), { button: 0, clientX: 500, pointerId: 1 });
+  fireEvent.pointerDown(screen.getByRole('slider'), {
+    button: 0,
+    clientX: 500,
+    pointerId: 1
+  });
   expect(viewerDown).not.toHaveBeenCalled();
 });
 
@@ -88,14 +113,21 @@ it('names the snapshot whose before is shown on the before side', async () => {
   const { INITIAL_ADJUSTMENTS } = await import('../../../utils/adjustments');
   useSnapshotStore.setState({
     path: '/p.dng',
-    snapshots: [{ id: 'a', name: 'Bright', createdAt: '2026-10-21T08:00:00Z', adjustments: INITIAL_ADJUSTMENTS }],
+    snapshots: [
+      {
+        id: 'a',
+        name: 'Bright',
+        createdAt: '2026-10-21T08:00:00Z',
+        adjustments: INITIAL_ADJUSTMENTS
+      }
+    ]
   });
   useEditorStore.setState({
     selectedImage: { path: '/p.dng', isReady: true, isRaw: true } as never,
     // Framed and developed as the snapshot (beforeSnapshot).
     adjustments: INITIAL_ADJUSTMENTS,
     beforeSnapshot: { path: '/p.dng', id: 'a' },
-    splitBeforeShows: null,
+    splitBeforeShows: null
   });
   // The native display: named once its before is in place.
   useSettingsStore.setState({ osPlatform: 'macos' });
@@ -111,7 +143,9 @@ it('names the snapshot whose before is shown on the before side', async () => {
   expect(screen.getByText('studio.workspace.viewer.splitBeforeSnapshot')).toBeTruthy();
   // Another photograph shown: the unedited before again.
   cleanup();
-  useEditorStore.setState({ selectedImage: { path: '/q.dng', isReady: true } as never });
+  useEditorStore.setState({
+    selectedImage: { path: '/q.dng', isReady: true } as never
+  });
   render(<SplitViewOverlay />);
   expect(screen.getByText('studio.workspace.viewer.splitBefore')).toBeTruthy();
   useSettingsStore.setState({ osPlatform: null as never });
@@ -119,7 +153,10 @@ it('names the snapshot whose before is shown on the before side', async () => {
 });
 
 it('moves the top/bottom divider vertically with pointer and keyboard', () => {
-  useEditorStore.setState({ splitOrientation: 'top-bottom', splitPosition: 0.3 });
+  useEditorStore.setState({
+    splitOrientation: 'top-bottom',
+    splitPosition: 0.3
+  });
   render(<SplitViewOverlay />);
   placeViewer();
   const divider = screen.getByRole('slider');

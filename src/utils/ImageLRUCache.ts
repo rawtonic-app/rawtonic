@@ -43,7 +43,14 @@ class ImageLRUCache {
     // them for twenty photographs could keep large browser decode surfaces
     // alive alongside the bounded native preview/source caches.
     if (entry.selectedImage?.thumbnailSource === 'embedded') {
-      entry = { ...entry, selectedImage: { ...entry.selectedImage, thumbnailUrl: '', thumbnailSource: undefined } };
+      entry = {
+        ...entry,
+        selectedImage: {
+          ...entry.selectedImage,
+          thumbnailUrl: '',
+          thumbnailSource: undefined
+        }
+      };
     }
     if (this.cache.has(key)) {
       this.cleanupEntry(this.cache.get(key)!, entry);

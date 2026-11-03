@@ -18,8 +18,7 @@ import { usableSessionFolder } from './sessionFolders';
 
 /** The library an export is submitted from, as `export_images` takes it:
  * always stated, so an export from no library never takes one opened later. */
-export const submittedFrom = (library: string | null) =>
-  library ? { library } : 'noLibrary';
+export const submittedFrom = (library: string | null) => (library ? { library } : 'noLibrary');
 
 export interface PlannedExport {
   recipe: ExportPreset | null;
@@ -52,55 +51,60 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
     if (!store.appSettings) return;
     const current = savedRecipes(store.appSettings.exportPresets);
     const kept = (store.appSettings.exportPresets ?? []).filter((p) => !current.some((r) => r.id === p.id));
-    void store.handleSettingsChange({ ...store.appSettings, exportPresets: [...kept, ...change(current)] });
+    void store.handleSettingsChange({
+      ...store.appSettings,
+      exportPresets: [...kept, ...change(current)]
+    });
   };
   const destinationFor = async (
     job: RecipeDraft,
     extension: string,
     name: string,
-    single: boolean,
+    single: boolean
   ): Promise<{ path: string; isFile: boolean } | null> => {
-    if (job.where === "output" && session) {
+    if (job.where === 'output' && session) {
       // The session's Output folder, wherever it is set (G38); one outside
       // the session whose drive is away stops the export, naming it.
       const shown =
-        useLibraryStore.getState().sessionFolders.find((f) => f.role === "output")?.path ?? `${session}/Output`;
-      const path = await usableSessionFolder(session, "output").catch(() => {
-        throw new Error(t("session.folders.outputUnavailable", { folder: shown }));
+        useLibraryStore.getState().sessionFolders.find((f) => f.role === 'output')?.path ?? `${session}/Output`;
+      const path = await usableSessionFolder(session, 'output').catch(() => {
+        throw new Error(t('session.folders.outputUnavailable', { folder: shown }));
       });
       return { path, isFile: false };
     }
-    if (job.where === "original")
-      return { path: "originalFolderDummy", isFile: false };
+    if (job.where === 'original') return { path: 'originalFolderDummy', isFile: false };
     if (job.folder) return { path: job.folder, isFile: false };
     // One photograph asks for a file name, unless folders are made for it;
     // the name offered is the one its template gives it.
     if (single && !job.preserveFolders && !subfolderName(job.subfolder)) {
       const { settings } = exportSettingsFromDraft(job);
-      const stem = paths[0].split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
+      const stem = paths[0]
+        .split(/[\\/]/)
+        .pop()!
+        .replace(/\.[^.]+$/, '');
       const named = await invoke<{ name: string } | undefined>(Invokes.ExportNamingPreview, {
         path: paths[0],
         exportSettings: { ...settings, jobName },
         outputFormat: extension,
         total: 1,
-        library: submittedFrom(session),
+        library: submittedFrom(session)
       }).catch(() => undefined);
       const file = await save({
-        title: t("studio.export.dialogs.exportFile", { name }),
+        title: t('studio.export.dialogs.exportFile', { name }),
         defaultPath: named?.name ?? `${stem}.${extension}`,
-        filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+        filters: [{ name: extension.toUpperCase(), extensions: [extension] }]
       });
-      return typeof file === "string" ? { path: file, isFile: true } : null;
+      return typeof file === 'string' ? { path: file, isFile: true } : null;
     }
     const chosen = await open({
-      title: t("studio.export.dialogs.exportFolder", {
+      title: t('studio.export.dialogs.exportFolder', {
         count: paths.length,
-        name,
+        name
       }),
       directory: true,
-      multiple: false,
+      multiple: false
     });
-    return typeof chosen === "string" ? { path: chosen, isFile: false } : null;
+    return typeof chosen === 'string' ? { path: chosen, isFile: false } : null;
   };
 
   try {
@@ -109,9 +113,9 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
     const unsaved = (await flushing).filter((path) => paths.includes(path));
     if (unsaved.length)
       throw new Error(
-        t("studio.export.toasts.unsavedEdits", {
-          names: unsaved.map((path) => path.split(/[\\/]/).pop()).join(", "),
-        }),
+        t('studio.export.toasts.unsavedEdits', {
+          names: unsaved.map((path) => path.split(/[\\/]/).pop()).join(', ')
+        })
       );
     // Queued together, the recipes run as one export: each photograph is
     // developed once for all of them.
@@ -120,31 +124,37 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
       const destination = await destinationFor(
         job.draft,
         job.outputFormat,
-        job.recipe?.name ?? t("studio.export.dialogs.customName"),
-        paths.length === 1 && !job.recipe,
+        job.recipe?.name ?? t('studio.export.dialogs.customName'),
+        paths.length === 1 && !job.recipe
       );
       // The photographer stopped: no export at all, and none of the later
       // recipes' folders are asked for either, nor remembered.
       if (!destination) return 0;
       // A recipe keeps the folder chosen for it, as Capture One's do.
-      if (job.recipe && job.draft.where === "choose" && !job.draft.folder) {
+      if (job.recipe && job.draft.where === 'choose' && !job.draft.folder) {
         const { id } = job.recipe;
-        changeRecipes((current) =>
-          current.map((r) =>
-            r.id === id ? { ...r, lastExportPath: destination.path } : r,
-          ),
-        );
+        changeRecipes((current) => current.map((r) => (r.id === id ? { ...r, lastExportPath: destination.path } : r)));
       }
       requests.push({
         paths,
-        displayLabel: exportJobLabel(job.recipe?.name ?? t("studio.export.dialogs.customName"), job.draft, job.outputFormat, destination.path, paths),
+        displayLabel: exportJobLabel(
+          job.recipe?.name ?? t('studio.export.dialogs.customName'),
+          job.draft,
+          job.outputFormat,
+          destination.path,
+          paths
+        ),
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
         baseOriginFolders: originFolders,
-        exportSettings: { ...job.settings, jobName, recipeName: job.recipe?.name ?? "" },
+        exportSettings: {
+          ...job.settings,
+          jobName,
+          recipeName: job.recipe?.name ?? ''
+        },
         outputFormat: job.outputFormat,
         ...openEdit,
-        library: submittedFrom(session),
+        library: submittedFrom(session)
       });
     }
     const started = requests.length;
@@ -152,25 +162,21 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
       if (!queued)
         useProcessStore.getState().setExportState({
           status: Status.Exporting,
-          errorMessage: "",
-          progress: { current: 0, total: paths.length * started },
+          errorMessage: '',
+          progress: { current: 0, total: paths.length * started }
         });
       await invoke(Invokes.ExportImagesBatch, { requests });
-      noteTool("export");
-      if (paths.length > 1) noteTool("batchExport");
+      noteTool('export');
+      if (paths.length > 1) noteTool('batchExport');
     }
 
     if (started && (queued || started > 1))
       notify.success(
-        started > 1
-          ? t("studio.export.toasts.queuedMany", { count: started })
-          : t("studio.export.toasts.queuedOne"),
+        started > 1 ? t('studio.export.toasts.queuedMany', { count: started }) : t('studio.export.toasts.queuedOne')
       );
     return started;
   } catch (error) {
-    useProcessStore
-      .getState()
-      .setExportState({ status: Status.Error, errorMessage: String(error) });
+    useProcessStore.getState().setExportState({ status: Status.Error, errorMessage: String(error) });
     return 0;
   }
 }

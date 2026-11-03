@@ -43,7 +43,7 @@ export default function AppModals(props: AppModalsProps) {
     negativeModalState,
     cullingModalState,
     collageModalState,
-    setUI,
+    setUI
   } = useUIStore(
     useShallow((state) => ({
       isCreateFolderModalOpen: state.isCreateFolderModalOpen,
@@ -56,24 +56,26 @@ export default function AppModals(props: AppModalsProps) {
       negativeModalState: state.negativeModalState,
       cullingModalState: state.cullingModalState,
       collageModalState: state.collageModalState,
-      setUI: state.setUI,
-    })),
+      setUI: state.setUI
+    }))
   );
 
   const { thumbnails } = useProcessStore(
     useShallow((state) => ({
-      thumbnails: state.thumbnails,
-    })),
+      thumbnails: state.thumbnails
+    }))
   );
 
   const { selectedImage } = useEditorStore(
     useShallow((state) => ({
-      selectedImage: state.selectedImage,
-    })),
+      selectedImage: state.selectedImage
+    }))
   );
 
   const closeConfirmModal = () => {
-    setUI((state) => ({ confirmModalState: { ...state.confirmModalState, isOpen: false } }));
+    setUI((state) => ({
+      confirmModalState: { ...state.confirmModalState, isOpen: false }
+    }));
   };
 
   return (
@@ -93,7 +95,11 @@ export default function AppModals(props: AppModalsProps) {
       />
       <NegativeConversionModal
         isOpen={negativeModalState.isOpen}
-        onClose={() => setUI((state) => ({ negativeModalState: { ...state.negativeModalState, isOpen: false } }))}
+        onClose={() =>
+          setUI((state) => ({
+            negativeModalState: { ...state.negativeModalState, isOpen: false }
+          }))
+        }
         targetPaths={negativeModalState.targetPaths}
         onSave={(savedPaths) => {
           props.refreshImageList().then(() => {
@@ -128,7 +134,13 @@ export default function AppModals(props: AppModalsProps) {
         isOpen={cullingModalState.isOpen}
         onClose={() =>
           setUI({
-            cullingModalState: { isOpen: false, progress: null, suggestions: null, error: null, pathsToCull: [] },
+            cullingModalState: {
+              isOpen: false,
+              progress: null,
+              suggestions: null,
+              error: null,
+              pathsToCull: []
+            }
           })
         }
         progress={cullingModalState.progress}
@@ -145,11 +157,23 @@ export default function AppModals(props: AppModalsProps) {
             props.executeDelete(paths, { includeAssociated: false });
           }
           setUI({
-            cullingModalState: { isOpen: false, progress: null, suggestions: null, error: null, pathsToCull: [] },
+            cullingModalState: {
+              isOpen: false,
+              progress: null,
+              suggestions: null,
+              error: null,
+              pathsToCull: []
+            }
           });
         }}
         onError={(err) => {
-          setUI((state) => ({ cullingModalState: { ...state.cullingModalState, error: err, progress: null } }));
+          setUI((state) => ({
+            cullingModalState: {
+              ...state.cullingModalState,
+              error: err,
+              progress: null
+            }
+          }));
         }}
       />
       <CollageModal

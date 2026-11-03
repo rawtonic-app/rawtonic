@@ -5,10 +5,15 @@ import { DEFAULT_RECIPE_DRAFT, type RecipeDraft } from './exportRecipes';
  * every export of a shoot, from the dialog or the File menu, uses it. A
  * library without one uses its folder's name, as `{job}` on import holds
  * the library's name. */
-const key = (library: string | null) => `rawtonic.export.job:${library ?? ""}`;
+const key = (library: string | null) => `rawtonic.export.job:${library ?? ''}`;
 // A catalog's folder carries ".catalog" after its name (`SessionWorkspace`).
 const libraryName = (library: string | null) =>
-  ((library ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "").replace(/\.catalog$/i, "");
+  (
+    (library ?? '')
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() ?? ''
+  ).replace(/\.catalog$/i, '');
 
 export function readJobName(library: string | null): string {
   try {
@@ -31,7 +36,7 @@ export function writeJobName(library: string | null, name: string): void {
 /** The Export form's last settings, remembered per library like the job
  * name, so reopening the dialog starts where the last export left off. Only
  * keys the form knows are taken back, so a stale entry cannot add fields. */
-const formKey = (library: string | null) => `rawtonic.export.form:${library ?? ""}`;
+const formKey = (library: string | null) => `rawtonic.export.form:${library ?? ''}`;
 
 export function readFormDraft(library: string | null): RecipeDraft | null {
   try {
@@ -42,7 +47,10 @@ export function readFormDraft(library: string | null): RecipeDraft | null {
       if (!(name in saved)) continue;
       // A setting that defaults to nothing (a watermark's file or font) is
       // a string once chosen.
-      const same = fallback === null || fallback === undefined ? typeof saved[name] === 'string' : typeof saved[name] === typeof fallback;
+      const same =
+        fallback === null || fallback === undefined
+          ? typeof saved[name] === 'string'
+          : typeof saved[name] === typeof fallback;
       if (same) draft[name] = saved[name];
     }
     if (typeof saved.folder === 'string') draft.folder = saved.folder;
@@ -56,7 +64,12 @@ export function readFormDraft(library: string | null): RecipeDraft | null {
  * defaults with the library's Output folder as destination (Capture One
  * sessions export there by default). */
 export function startFormDraft(library: string | null): RecipeDraft {
-  return readFormDraft(library) ?? { ...DEFAULT_RECIPE_DRAFT, where: library ? 'output' : 'choose' };
+  return (
+    readFormDraft(library) ?? {
+      ...DEFAULT_RECIPE_DRAFT,
+      where: library ? 'output' : 'choose'
+    }
+  );
 }
 
 export function writeFormDraft(library: string | null, draft: RecipeDraft): void {

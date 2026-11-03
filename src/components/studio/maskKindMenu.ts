@@ -1,4 +1,4 @@
-import type { TFunction } from "i18next";
+import type { TFunction } from 'i18next';
 import {
   Brush,
   Circle,
@@ -13,19 +13,25 @@ import {
   Sun,
   User,
   Users,
-  type LucideIcon,
-} from "lucide-react";
-import { OPTION_HEADER, OPTION_SEPARATOR, type Option } from "../ui/AppProperties";
-import { Mask, type SubMask } from "../panel/right/Masks";
-import { erasesFromLayer, kindOf, type MaskKind } from "../../utils/maskKinds";
+  type LucideIcon
+} from 'lucide-react';
+import { OPTION_HEADER, OPTION_SEPARATOR, type Option } from '../ui/AppProperties';
+import { Mask, type SubMask } from '../panel/right/Masks';
+import { erasesFromLayer, kindOf, type MaskKind } from '../../utils/maskKinds';
 
 /** Everything a layer or a component can be made from, in three groups as in
  * Lightroom's Create New Mask menu: drawn shapes, automatic selections and
  * ranges. Captions are `studio.develop.layers.groups.<group>`. */
-export const MASK_KIND_GROUPS: { group: "draw" | "select" | "range"; kinds: MaskKind[] }[] = [
-  { group: "draw", kinds: ["brush", "linear", "radial"] },
-  { group: "select", kinds: ["subject", "sky", "background", "object", "people"] },
-  { group: "range", kinds: ["color", "luminance", "depth"] },
+export const MASK_KIND_GROUPS: {
+  group: 'draw' | 'select' | 'range';
+  kinds: MaskKind[];
+}[] = [
+  { group: 'draw', kinds: ['brush', 'linear', 'radial'] },
+  {
+    group: 'select',
+    kinds: ['subject', 'sky', 'background', 'object', 'people']
+  },
+  { group: 'range', kinds: ['color', 'luminance', 'depth'] }
 ];
 
 /** One icon per kind, shared by the new-layer menu and grid, the layer rows
@@ -41,7 +47,7 @@ export const MASK_KIND_ICONS: Record<MaskKind, LucideIcon> = {
   people: Users,
   color: Pipette,
   luminance: Sun,
-  depth: Mountain,
+  depth: Mountain
 };
 
 /** The icon of a component (the whole photo has none of the kinds; a brush
@@ -59,19 +65,22 @@ export function componentIcon(sub: SubMask | undefined, layerInverted = false): 
 export function maskKindMenu(
   t: TFunction,
   pick: (kind: MaskKind) => void,
-  allowed: (kind: MaskKind) => boolean = () => true,
+  allowed: (kind: MaskKind) => boolean = () => true
 ): Option[] {
   return MASK_KIND_GROUPS.flatMap(({ group, kinds }, index) => {
     const shown = kinds.filter(allowed);
     if (shown.length === 0) return [];
     return [
       ...(index > 0 ? [{ type: OPTION_SEPARATOR }] : []),
-      { type: OPTION_HEADER, label: t(`studio.develop.layers.groups.${group}`) },
+      {
+        type: OPTION_HEADER,
+        label: t(`studio.develop.layers.groups.${group}`)
+      },
       ...shown.map((kind) => ({
         label: t(`studio.masks.kinds.${kind}`),
         icon: MASK_KIND_ICONS[kind],
-        onClick: () => pick(kind),
-      })),
+        onClick: () => pick(kind)
+      }))
     ];
   });
 }

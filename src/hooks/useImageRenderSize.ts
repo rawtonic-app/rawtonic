@@ -26,7 +26,7 @@ const DEFAULT_SIZE: RenderSize = {
   offsetY: 0,
   containerWidth: 0,
   containerHeight: 0,
-  margin: 0,
+  margin: 0
 };
 
 /** Proof margin of the viewer: on/off and its size in % of the shorter side. */
@@ -38,7 +38,7 @@ export interface ProofMargin {
 export const useImageRenderSize = (
   containerRef: React.RefObject<HTMLElement | null>,
   imageDimensions: ImageDimensions | null,
-  proofMargin?: ProofMargin,
+  proofMargin?: ProofMargin
 ) => {
   const [renderSize, setRenderSize] = useState<RenderSize>(DEFAULT_SIZE);
   const imgWidth = imageDimensions?.width;

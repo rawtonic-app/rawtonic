@@ -1,30 +1,33 @@
 export const MAX_RELIGHT_LIGHTS = 4;
 /** Built-in patterns, in GPU order (crates/engine/src/relight.rs `PATTERNS`). */
 export const RELIGHT_PATTERNS = [
-  "none",
-  "blinds",
-  "window",
-  "strip",
-  "foliage",
-  "grid",
-  "palm",
-  "branches",
-  "checkerboard",
-  "dots",
-  "horizontal",
-  "diagonal",
-  "weave",
-  "noise",
-  "crosshatch",
+  'none',
+  'blinds',
+  'window',
+  'strip',
+  'foliage',
+  'grid',
+  'palm',
+  'branches',
+  'checkerboard',
+  'dots',
+  'horizontal',
+  'diagonal',
+  'weave',
+  'noise',
+  'crosshatch'
 ] as const;
 /** Every pattern id the renderer knows: the built-ins and an imported image. */
-export const RELIGHT_PATTERN_IDS = [...RELIGHT_PATTERNS, "custom"] as const;
+export const RELIGHT_PATTERN_IDS = [...RELIGHT_PATTERNS, 'custom'] as const;
 export type RelightPattern = (typeof RELIGHT_PATTERN_IDS)[number];
 
 /** Scene values when the recipe has none (the renderer's defaults). */
 export const RELIGHT_SCENE_DEFAULTS = { originalLight: 100, depthAmount: 60 };
 /** Scene values the first light starts with, unless already set. */
-export const RELIGHT_FIRST_LIGHT_SCENE = { originalLight: 60, depthAmount: 100 };
+export const RELIGHT_FIRST_LIGHT_SCENE = {
+  originalLight: 60,
+  depthAmount: 100
+};
 
 export interface RelightCustomPattern {
   /** Names the immutable bitmap; the renderer caches it by this id. */
@@ -39,7 +42,7 @@ export interface RelightLight {
   /** Stable display number ("Light 2" stays Light 2 when Light 1 goes). */
   number?: number;
   enabled: boolean;
-  type: "sun" | "spot";
+  type: 'sun' | 'spot';
   color: string;
   intensity: number;
   elevation: number;
@@ -94,15 +97,19 @@ export function relightWithCurrentRanges(light: RelightLight): RelightLight {
   if (version >= 2) return { ...light, rangeVersion: RELIGHT_RANGE_VERSION };
   const gain = (light.intensity / 100) * 3;
   const intensity = 100 * Math.min(1, gain / RANGE_2_MAX_GAIN) ** (1 / RANGE_2_EXPONENT);
-  return { ...light, intensity: Math.round(intensity * 10) / 10, rangeVersion: RELIGHT_RANGE_VERSION };
+  return {
+    ...light,
+    intensity: Math.round(intensity * 10) / 10,
+    rangeVersion: RELIGHT_RANGE_VERSION
+  };
 }
 // Absent fields render with these values (crates/engine/src/relight.rs
 // `DEFAULT_*`; parity tested in relight.test.ts).
 export const createRelightLight = (): RelightLight => ({
   id: crypto.randomUUID(),
   enabled: true,
-  type: "sun",
-  color: "#fff1db",
+  type: 'sun',
+  color: '#fff1db',
   intensity: 25,
   elevation: 45,
   x: 50,
@@ -117,9 +124,9 @@ export const createRelightLight = (): RelightLight => ({
   softness: 30,
   diffusion: 25,
   shadows: 100,
-  pattern: "none",
+  pattern: 'none',
   invert: false,
-  rangeVersion: RELIGHT_RANGE_VERSION,
+  rangeVersion: RELIGHT_RANGE_VERSION
 });
 
 export interface RelightDepth {
@@ -129,8 +136,13 @@ export interface RelightDepth {
   version?: number;
   faces?: number[][][] | null;
   camera?: {
-    fx: number; fy: number; cx: number; cy: number;
-    inverseMin: number; inverseMax: number; reference: number;
+    fx: number;
+    fy: number;
+    cx: number;
+    cy: number;
+    inverseMin: number;
+    inverseMax: number;
+    reference: number;
   };
   /** Names this analysis so the renderer receives its bitmap once. */
   cacheKey?: string;
@@ -147,8 +159,7 @@ export interface RelightDepth {
 }
 
 /** The pattern's own rotation; legacy lights turn it with the light. */
-export const relightPatternRotation = (light: RelightLight) =>
-  light.patternRotation ?? light.rotation;
+export const relightPatternRotation = (light: RelightLight) => light.patternRotation ?? light.rotation;
 
 /** The lowest display number no other light uses. */
 export function nextRelightNumber(lights: RelightLight[]): number {
@@ -171,7 +182,7 @@ const hashString = (text: string) => {
  */
 export function normalizeRelight(
   lights: RelightLight[] | undefined,
-  depth: RelightDepth | undefined,
+  depth: RelightDepth | undefined
 ): { relightLights?: RelightLight[]; relightDepth?: RelightDepth } {
   const migrated = lights?.map((light, i) => {
     const source = relightSource(light, 1, 1);
@@ -181,15 +192,18 @@ export function normalizeRelight(
       sourceX: light.sourceX ?? source.x,
       sourceY: light.sourceY ?? source.y,
       patternRotation: relightPatternRotation(light),
-      distance: light.distance ?? 60,
+      distance: light.distance ?? 60
     };
   });
   return {
     relightLights: migrated,
     relightDepth:
       depth && !depth.cacheKey && depth.data
-        ? { ...depth, cacheKey: `${depth.data.length}-${hashString(depth.data)}` }
-        : depth,
+        ? {
+            ...depth,
+            cacheKey: `${depth.data.length}-${hashString(depth.data)}`
+          }
+        : depth
   };
 }
 
@@ -200,7 +214,7 @@ export function normalizeRelight(
  */
 export function stripSentRelightData(
   payload: { relightLights?: RelightLight[]; relightDepth?: RelightDepth },
-  sent: Set<string>,
+  sent: Set<string>
 ): string[] {
   const sending: string[] = [];
   const depth = payload.relightDepth;
@@ -211,7 +225,7 @@ export function stripSentRelightData(
         ...depth,
         data: null,
         faces: null,
-        ...(depth.subject ? { subject: null } : {}),
+        ...(depth.subject ? { subject: null } : {})
       };
     } else sending.push(name);
   }
@@ -233,27 +247,30 @@ export function stripSentRelightData(
 export function kelvinToHex(kelvin: number): string {
   const t = Math.min(40000, Math.max(1000, kelvin)) / 100;
   const r = t <= 66 ? 255 : 329.699 * (t - 60) ** -0.1332;
-  const g =
-    t <= 66 ? 99.4708 * Math.log(t) - 161.1196 : 288.122 * (t - 60) ** -0.0755;
+  const g = t <= 66 ? 99.4708 * Math.log(t) - 161.1196 : 288.122 * (t - 60) ** -0.0755;
   const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177 * Math.log(t - 10) - 305.0448;
   return `#${[r, g, b]
-    .map((c) => Math.round(Math.min(255, Math.max(0, c))).toString(16).padStart(2, "0"))
-    .join("")}`;
+    .map((c) =>
+      Math.round(Math.min(255, Math.max(0, c)))
+        .toString(16)
+        .padStart(2, '0')
+    )
+    .join('')}`;
 }
 
 export const RELIGHT_TEMPERATURES = [1900, 2700, 3500, 4500, 5500, 6500, 8000];
 
 /** Classic portrait and scene lighting setups, by what they do. */
 export const RELIGHT_PRESETS = [
-  "side",
-  "loop",
-  "split",
-  "butterfly",
-  "edge",
-  "window",
-  "evening",
-  "fill",
-  "blinds",
+  'side',
+  'loop',
+  'split',
+  'butterfly',
+  'edge',
+  'window',
+  'evening',
+  'fill',
+  'blinds'
 ] as const;
 export type RelightPreset = (typeof RELIGHT_PRESETS)[number];
 
@@ -297,7 +314,7 @@ export function relightFaceAnchor(depth: RelightDepth | undefined): RelightAncho
       y: Math.round((y0 + y1) * 500) / 10,
       turn: Math.abs(offset) < 0.06 ? 0 : Math.sign(offset),
       size: (x1 - x0) * Math.max(1, aspect),
-      aspect,
+      aspect
     };
   }
   return best;
@@ -310,7 +327,11 @@ export function relightPresetAnchor(depth: RelightDepth | undefined): RelightAnc
   if (face) return face;
   const center = depth?.subjectCenter;
   return center && center.every(Number.isFinite)
-    ? { x: Math.round(center[0] * 1000) / 10, y: Math.round(center[1] * 1000) / 10, turn: 0 }
+    ? {
+        x: Math.round(center[0] * 1000) / 10,
+        y: Math.round(center[1] * 1000) / 10,
+        turn: 0
+      }
     : null;
 }
 
@@ -333,21 +354,94 @@ type PresetSettings = Partial<RelightLight> & {
 // by about 2 L* on the face. Original light sets how far the setup's own
 // direction replaces the photo's.
 const PRESETS: Record<RelightPreset, PresetSettings> = {
-  side: { rotation: 95, elevation: 30, intensity: 37, temperature: 6500, softness: 35, diffusion: 15, originalLight: 35 },
-  loop: { rotation: 140, elevation: 50, intensity: 27, temperature: 6500, softness: 45, diffusion: 20, originalLight: 45 },
-  split: { rotation: 90, elevation: 8, intensity: 75, temperature: 6500, softness: 20, diffusion: 5, originalLight: 25 },
-  butterfly: { rotation: 180, elevation: 65, intensity: 23, temperature: 6500, softness: 45, diffusion: 20, originalLight: 55 },
-  edge: { rotation: 100, elevation: 5, intensity: 15, temperature: 6500, softness: 15, diffusion: 0, originalLight: 100 },
+  side: {
+    rotation: 95,
+    elevation: 30,
+    intensity: 37,
+    temperature: 6500,
+    softness: 35,
+    diffusion: 15,
+    originalLight: 35
+  },
+  loop: {
+    rotation: 140,
+    elevation: 50,
+    intensity: 27,
+    temperature: 6500,
+    softness: 45,
+    diffusion: 20,
+    originalLight: 45
+  },
+  split: {
+    rotation: 90,
+    elevation: 8,
+    intensity: 75,
+    temperature: 6500,
+    softness: 20,
+    diffusion: 5,
+    originalLight: 25
+  },
+  butterfly: {
+    rotation: 180,
+    elevation: 65,
+    intensity: 23,
+    temperature: 6500,
+    softness: 45,
+    diffusion: 20,
+    originalLight: 55
+  },
+  edge: {
+    rotation: 100,
+    elevation: 5,
+    intensity: 15,
+    temperature: 6500,
+    softness: 15,
+    diffusion: 0,
+    originalLight: 100
+  },
   window: {
-    rotation: 120, elevation: 30, intensity: 38, temperature: 6500, softness: 65, diffusion: 25,
-    pattern: "window", scale: 120, patternFaces: 2.5, inPane: true, originalLight: 50,
+    rotation: 120,
+    elevation: 30,
+    intensity: 38,
+    temperature: 6500,
+    softness: 65,
+    diffusion: 25,
+    pattern: 'window',
+    scale: 120,
+    patternFaces: 2.5,
+    inPane: true,
+    originalLight: 50
   },
-  evening: { rotation: 105, elevation: 12, intensity: 74, temperature: 2700, softness: 35, diffusion: 15, originalLight: 40 },
-  fill: { rotation: 180, elevation: 80, intensity: 9, temperature: 6500, softness: 80, diffusion: 60, originalLight: 100 },
+  evening: {
+    rotation: 105,
+    elevation: 12,
+    intensity: 74,
+    temperature: 2700,
+    softness: 35,
+    diffusion: 15,
+    originalLight: 40
+  },
+  fill: {
+    rotation: 180,
+    elevation: 80,
+    intensity: 9,
+    temperature: 6500,
+    softness: 80,
+    diffusion: 60,
+    originalLight: 100
+  },
   blinds: {
-    rotation: 110, elevation: 35, intensity: 75, temperature: 2700, softness: 20, diffusion: 15,
-    pattern: "blinds", scale: 18, patternFaces: 0.25, originalLight: 55,
-  },
+    rotation: 110,
+    elevation: 35,
+    intensity: 75,
+    temperature: 2700,
+    softness: 20,
+    diffusion: 15,
+    pattern: 'blinds',
+    scale: 18,
+    patternFaces: 0.25,
+    originalLight: 55
+  }
 };
 
 /**
@@ -358,7 +452,7 @@ const PRESETS: Record<RelightPreset, PresetSettings> = {
  */
 export function relightPresetLight(
   preset: RelightPreset,
-  anchor: RelightAnchor | null = null,
+  anchor: RelightAnchor | null = null
 ): { light: RelightLight; originalLight: number } {
   const { originalLight, patternFaces, inPane, ...settings } = PRESETS[preset];
   const light: RelightLight = { ...createRelightLight(), ...settings };
@@ -389,7 +483,10 @@ export function relightPresetLight(
   delete light.sourceX;
   delete light.sourceY;
   const source = relightSource(light, 1, 1);
-  return { light: { ...light, sourceX: source.x, sourceY: source.y }, originalLight };
+  return {
+    light: { ...light, sourceX: source.x, sourceY: source.y },
+    originalLight
+  };
 }
 
 /**
@@ -407,8 +504,8 @@ export function relightBallPoint(light: RelightLight): RelightPoint {
 /** Rotation and elevation for a point of the direction ball (clamped to it). */
 export function relightBallPatch(
   light: RelightLight,
-  point: RelightPoint,
-): Pick<RelightLight, "rotation" | "elevation"> {
+  point: RelightPoint
+): Pick<RelightLight, 'rotation' | 'elevation'> {
   const r = Math.min(1, Math.hypot(point.x, point.y));
   const patch = {
     // At the centre the direction is undefined: keep the light's.
@@ -417,53 +514,42 @@ export function relightBallPatch(
         ? // Light from straight above reads 180, as in the presets.
           Math.round(relightAngle((Math.atan2(-point.x, point.y) * 180) / Math.PI) * 10) / 10 + 0
         : light.rotation,
-    elevation: Math.round(clampRelight((Math.acos(r) * 180) / Math.PI, 5, 90) * 10) / 10,
+    elevation: Math.round(clampRelight((Math.acos(r) * 180) / Math.PI, 5, 90) * 10) / 10
   };
   if (patch.rotation === -180) patch.rotation = 180;
   return patch;
 }
 
 /** Why a control cannot act on this light now (an i18n key), or null. */
-export type RelightReason =
-  | "needsAnalysis"
-  | "needsFace"
-  | "frontalLight"
-  | "spotDirection"
-  | "needsPatternOrSubject";
+export type RelightReason = 'needsAnalysis' | 'needsFace' | 'frontalLight' | 'spotDirection' | 'needsPatternOrSubject';
 export function relightControlReason(
-  control: "direction" | "elevation" | "diffusion" | "skinReflections" | "depthAmount" | "shadows",
+  control: 'direction' | 'elevation' | 'diffusion' | 'skinReflections' | 'depthAmount' | 'shadows',
   light: RelightLight | undefined,
-  depth: { valid: boolean; faces: number; subject?: boolean },
+  depth: { valid: boolean; faces: number; subject?: boolean }
 ): RelightReason | null {
   if (!light) return null;
-  const patterned = light.pattern !== "none";
+  const patterned = light.pattern !== 'none';
   switch (control) {
-    case "direction":
-      if (light.type === "spot") return "spotDirection";
+    case 'direction':
+      if (light.type === 'spot') return 'spotDirection';
       // Without surfaces a sun only steers its pattern's projection.
-      return depth.valid || patterned ? null : "needsAnalysis";
-    case "elevation":
-    case "depthAmount":
-      return depth.valid ? null : "needsAnalysis";
-    case "skinReflections":
-      return !depth.valid ? "needsAnalysis" : depth.faces ? null : "needsFace";
-    case "diffusion":
+      return depth.valid || patterned ? null : 'needsAnalysis';
+    case 'elevation':
+    case 'depthAmount':
+      return depth.valid ? null : 'needsAnalysis';
+    case 'skinReflections':
+      return !depth.valid ? 'needsAnalysis' : depth.faces ? null : 'needsFace';
+    case 'diffusion':
       // In the first ranges Diffusion widens the terminator and lifts a
       // pattern's shadows: a frontal light without a pattern already
       // reaches every surface facing the camera. From range 2 it mixes the
       // response towards an even share at any direction.
-      return (light.rangeVersion ?? 1) < 2 &&
-        depth.valid &&
-        !patterned &&
-        light.type === "sun" &&
-        light.elevation >= 70
-        ? "frontalLight"
+      return (light.rangeVersion ?? 1) < 2 && depth.valid && !patterned && light.type === 'sun' && light.elevation >= 70
+        ? 'frontalLight'
         : null;
-    case "shadows":
+    case 'shadows':
       // A pattern's shadows, a face's own, or the subject's on its background.
-      return patterned || (depth.valid && (depth.faces || depth.subject))
-        ? null
-        : "needsPatternOrSubject";
+      return patterned || (depth.valid && (depth.faces || depth.subject)) ? null : 'needsPatternOrSubject';
   }
 }
 
@@ -471,55 +557,39 @@ export function relightControlReason(
 // depend on JavaScript insertion order (notably guidedPerspective).
 export function matchesRelightGeometry(
   adjustments: Record<string, unknown>,
-  geometry: Record<string, unknown>,
+  geometry: Record<string, unknown>
 ): boolean {
-  if (adjustments.crop != null && !("crop" in geometry)) return false;
-  if (Number(adjustments.rotation ?? 0) !== 0 && !("rotation" in geometry))
-    return false;
+  if (adjustments.crop != null && !('crop' in geometry)) return false;
+  if (Number(adjustments.rotation ?? 0) !== 0 && !('rotation' in geometry)) return false;
   const canonical = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(canonical);
-    if (value !== null && typeof value === "object")
+    if (value !== null && typeof value === 'object')
       return Object.fromEntries(
         Object.entries(value)
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([key, child]) => [key, canonical(child)]),
+          .map(([key, child]) => [key, canonical(child)])
       );
     return value ?? null;
   };
   return Object.entries(geometry).every(
-    ([key, value]) =>
-      JSON.stringify(canonical(adjustments[key])) ===
-      JSON.stringify(canonical(value)),
+    ([key, value]) => JSON.stringify(canonical(adjustments[key])) === JSON.stringify(canonical(value))
   );
 }
 
 /** `elevation`: the sun's source handle dragged with Alt (up = higher);
  * `direction`: the direction ball on the photo. */
-export type RelightHandle =
-  | "direction"
-  | "source"
-  | "move"
-  | "rotate"
-  | "scale"
-  | "radius"
-  | "elevation";
+export type RelightHandle = 'direction' | 'source' | 'move' | 'rotate' | 'scale' | 'radius' | 'elevation';
 export type RelightPoint = { x: number; y: number };
-const clampRelight = (n: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, n));
-export const relightAngle = (angle: number) =>
-  ((((angle + 180) % 360) + 360) % 360) - 180;
+const clampRelight = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+export const relightAngle = (angle: number) => ((((angle + 180) % 360) + 360) % 360) - 180;
 
 /** Percent coordinates in the developed frame; isotropic distances use its short side. */
-export function relightSource(
-  light: RelightLight,
-  width: number,
-  height: number,
-): RelightPoint {
+export function relightSource(light: RelightLight, width: number, height: number): RelightPoint {
   const a = (light.rotation * Math.PI) / 180;
-  const reach = light.type === "sun" ? Math.min(width, height) * 35 : 0;
+  const reach = light.type === 'sun' ? Math.min(width, height) * 35 : 0;
   return {
     x: light.sourceX ?? light.x - (Math.sin(a) * reach) / width,
-    y: light.sourceY ?? light.y + (Math.cos(a) * reach) / height,
+    y: light.sourceY ?? light.y + (Math.cos(a) * reach) / height
   };
 }
 
@@ -531,24 +601,24 @@ export function relightDragPatch(
   width: number,
   height: number,
   /** The direction ball's centre (percent) and radius (pixels). */
-  ring?: { x: number; y: number; radius: number },
+  ring?: { x: number; y: number; radius: number }
 ): Partial<RelightLight> {
-  if (handle === "direction")
+  if (handle === 'direction')
     return ring
       ? relightBallPatch(light, {
           x: ((now.x - ring.x) * width) / 100 / ring.radius,
-          y: ((now.y - ring.y) * height) / 100 / ring.radius,
+          y: ((now.y - ring.y) * height) / 100 / ring.radius
         })
       : {};
   const dx = now.x - start.x,
     dy = now.y - start.y;
   const source = relightSource(light, width, height);
-  if (handle === "elevation")
+  if (handle === 'elevation')
     // One degree per percent of the frame's height.
     return {
-      elevation: clampRelight(light.elevation - (dy * height) / Math.min(width, height), 5, 90),
+      elevation: clampRelight(light.elevation - (dy * height) / Math.min(width, height), 5, 90)
     };
-  if (handle === "source") {
+  if (handle === 'source') {
     const sourceX = clampRelight(source.x + dx, -100, 200);
     const sourceY = clampRelight(source.y + dy, -100, 200);
     const angle = (x: number, y: number) => {
@@ -563,32 +633,31 @@ export function relightDragPatch(
     return {
       sourceX,
       sourceY,
-      ...(light.type === "sun" && from !== null && to !== null
+      ...(light.type === 'sun' && from !== null && to !== null
         ? { rotation: relightAngle(light.rotation + to - from) }
-        : {}),
+        : {})
     };
   }
-  if (handle === "move") {
+  if (handle === 'move') {
     const x = clampRelight(light.x + dx, -100, 200),
       y = clampRelight(light.y + dy, -100, 200);
     return { x, y, sourceX: source.x, sourceY: source.y };
   }
-  const center = handle === "radius" ? source : light;
+  const center = handle === 'radius' ? source : light;
   const vector = (p: RelightPoint) => ({
     x: ((p.x - center.x) * width) / 100,
-    y: ((p.y - center.y) * height) / 100,
+    y: ((p.y - center.y) * height) / 100
   });
   const a = vector(start),
     b = vector(now);
-  if (handle === "rotate")
+  if (handle === 'rotate')
     return {
       patternRotation: relightAngle(
-        relightPatternRotation(light) +
-          ((Math.atan2(b.y, b.x) - Math.atan2(a.y, a.x)) * 180) / Math.PI,
-      ),
+        relightPatternRotation(light) + ((Math.atan2(b.y, b.x) - Math.atan2(a.y, a.x)) * 180) / Math.PI
+      )
     };
   const ratio = Math.hypot(b.x, b.y) / Math.max(1, Math.hypot(a.x, a.y));
-  return handle === "radius"
+  return handle === 'radius'
     ? { size: clampRelight(light.size * ratio, 5, 200) }
     : { scale: clampRelight(light.scale * ratio, 5, 300) };
 }

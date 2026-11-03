@@ -7,7 +7,9 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, RawStatus, type AppSettings, type ImageFile } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(() => Promise.resolve(() => {}))
+}));
 const mockInvoke = vi.mocked(invoke);
 
 const photo = (path: string) => ({ path }) as ImageFile;
@@ -20,7 +22,12 @@ beforeEach(() => {
   useLibraryStore.setState({
     sessionDirectory: '/A',
     imageList: [photo('/A/1.arw')],
-    filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All, eyes: 'closed' },
+    filterCriteria: {
+      colors: [],
+      rating: 0,
+      rawStatus: RawStatus.All,
+      eyes: 'closed'
+    }
   });
   useSettingsStore.setState({ appSettings: { eyeCheck: true } as AppSettings });
 });
@@ -31,10 +38,18 @@ afterEach(() => {
 
 it('starts for the open library, again for photographs added later, and stops only its own pass', async () => {
   const { unmount } = renderHook(() => useEyeCheck());
-  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StartEyeCheck, { directory: '/A', download: false, resume: true });
+  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StartEyeCheck, {
+    directory: '/A',
+    download: false,
+    resume: true
+  });
   expect(starts()).toBe(1);
   // An import adds photographs after the pass finished: it is asked again.
-  act(() => useLibraryStore.setState({ imageList: [photo('/A/1.arw'), photo('/A/2.arw')] }));
+  act(() =>
+    useLibraryStore.setState({
+      imageList: [photo('/A/1.arw'), photo('/A/2.arw')]
+    })
+  );
   await act(async () => vi.advanceTimersByTimeAsync(2500));
   expect(starts()).toBe(2);
   // An import into a folder not shown (the list stays as it is), tethering
@@ -42,21 +57,39 @@ it('starts for the open library, again for photographs added later, and stops on
   await act(async () => vi.advanceTimersByTimeAsync(BACKLOG_CHECK_MS));
   expect(starts()).toBe(3);
   // The looks for new photographs never lift a Cancel (`resume`).
-  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StartEyeCheck, { directory: '/A', download: false, resume: false });
+  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StartEyeCheck, {
+    directory: '/A',
+    download: false,
+    resume: false
+  });
   expect(mockInvoke).not.toHaveBeenCalledWith(Invokes.StopEyeCheck, expect.anything());
   // Another library: A's pass is stopped by name, B's started.
   act(() => useLibraryStore.setState({ sessionDirectory: '/B' }));
-  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StopEyeCheck, { directory: '/A' });
-  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StartEyeCheck, { directory: '/B', download: false, resume: true });
+  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StopEyeCheck, {
+    directory: '/A'
+  });
+  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StartEyeCheck, {
+    directory: '/B',
+    download: false,
+    resume: true
+  });
   unmount();
-  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StopEyeCheck, { directory: '/B' });
+  expect(mockInvoke).toHaveBeenLastCalledWith(Invokes.StopEyeCheck, {
+    directory: '/B'
+  });
 });
 
 it('turned off, stops the pass and shows every photograph again', () => {
   renderHook(() => useEyeCheck());
   expect(useLibraryStore.getState().filterCriteria.eyes).toBe('closed');
-  act(() => useSettingsStore.setState({ appSettings: { eyeCheck: false } as AppSettings }));
-  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StopEyeCheck, { directory: '/A' });
+  act(() =>
+    useSettingsStore.setState({
+      appSettings: { eyeCheck: false } as AppSettings
+    })
+  );
+  expect(mockInvoke).toHaveBeenCalledWith(Invokes.StopEyeCheck, {
+    directory: '/A'
+  });
   expect(useLibraryStore.getState().filterCriteria.eyes).toBe('all');
 });
 

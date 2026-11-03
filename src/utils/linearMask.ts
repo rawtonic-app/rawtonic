@@ -38,7 +38,10 @@ export function linearFrame(params: LinearParams) {
   const vx = params.endX - params.startX;
   const vy = params.endY - params.startY;
   const length = Math.hypot(vx, vy) || 1;
-  return { along: { x: vx / length, y: vy / length }, normal: { x: -vy / length, y: vx / length } };
+  return {
+    along: { x: vx / length, y: vy / length },
+    normal: { x: -vy / length, y: vx / length }
+  };
 }
 
 /** Signed distance from the central line; negative on the start (100%) side. */
@@ -49,7 +52,11 @@ export function signedDistance(params: LinearParams, point: Point) {
 
 /** Offsets of the start and end lines from the central line along the normal. */
 export function linearLineOffsets(params: LinearParams) {
-  if (params.band) return { start: -Math.max(0, params.band.width) / 2, end: Math.max(0, params.band.width) / 2 };
+  if (params.band)
+    return {
+      start: -Math.max(0, params.band.width) / 2,
+      end: Math.max(0, params.band.width) / 2
+    };
   const { start, end } = rangesOf(params);
   return { start: -start, end };
 }
@@ -61,7 +68,7 @@ function shifted(params: LinearParams, offset: number): LinearParams {
     startX: params.startX + normal.x * offset,
     startY: params.startY + normal.y * offset,
     endX: params.endX + normal.x * offset,
-    endY: params.endY + normal.y * offset,
+    endY: params.endY + normal.y * offset
   };
 }
 
@@ -80,24 +87,37 @@ function withRanges(params: LinearParams, start: number, end: number): LinearPar
  * changes only the dragged zone; 'symmetric' (Shift) keeps the central line
  * and gives both zones the dragged width.
  */
-export function dragLinearLine(params: LinearParams, line: LinearLine, point: Point, mode: LinearLineDrag = 'opposite') {
+export function dragLinearLine(
+  params: LinearParams,
+  line: LinearLine,
+  point: Point,
+  mode: LinearLineDrag = 'opposite'
+) {
   const distance = signedDistance(params, point);
   if (params.band) {
     const reach = Math.abs(distance);
     const featherLine = line === 'featherStart' || line === 'featherEnd';
-    return { ...params, band: featherLine
-      ? { ...params.band, feather: Math.max(0, reach - params.band.width / 2) }
-      : { ...params.band, width: reach * 2 } };
+    return {
+      ...params,
+      band: featherLine
+        ? {
+            ...params.band,
+            feather: Math.max(0, reach - params.band.width / 2)
+          }
+        : { ...params.band, width: reach * 2 }
+    };
   }
   if (line === 'featherStart' || line === 'featherEnd') return params;
   const { start, end } = rangesOf(params);
   // How far the dragged line lies from the central line, on its own side.
   const reach = Math.max(MIN_RANGE, line === 'start' ? -distance : distance);
-  if (mode === 'independent') return line === 'start' ? withRanges(params, reach, end) : withRanges(params, start, reach);
+  if (mode === 'independent')
+    return line === 'start' ? withRanges(params, reach, end) : withRanges(params, start, reach);
   if (mode === 'symmetric') return withRanges(params, reach, reach);
   // Keep the other line where it is; the central line keeps its relative place.
   const fixed = line === 'start' ? end : -start;
-  const moving = line === 'start' ? Math.min(distance, fixed - 2 * MIN_RANGE) : Math.max(distance, fixed + 2 * MIN_RANGE);
+  const moving =
+    line === 'start' ? Math.min(distance, fixed - 2 * MIN_RANGE) : Math.max(distance, fixed + 2 * MIN_RANGE);
   const total = Math.abs(fixed - moving);
   const startShare = start / (start + end);
   const nextStart = total * startShare;
@@ -121,11 +141,17 @@ export function rotateLinear(params: LinearParams, pivot: Point, from: Point, to
   const sin = Math.sin(delta);
   const turn = (x: number, y: number) => ({
     x: pivot.x + (x - pivot.x) * cos - (y - pivot.y) * sin,
-    y: pivot.y + (x - pivot.x) * sin + (y - pivot.y) * cos,
+    y: pivot.y + (x - pivot.x) * sin + (y - pivot.y) * cos
   });
   const start = turn(params.startX, params.startY);
   const end = turn(params.endX, params.endY);
-  return { ...params, startX: start.x, startY: start.y, endX: end.x, endY: end.y };
+  return {
+    ...params,
+    startX: start.x,
+    startY: start.y,
+    endX: end.x,
+    endY: end.y
+  };
 }
 
 /**
@@ -134,7 +160,13 @@ export function rotateLinear(params: LinearParams, pivot: Point, from: Point, to
  * (Shift) locks the drag direction to 45° steps. `handle` sets how far the
  * stored start/end points lie from the middle (they only orient the line).
  */
-export function linearFromDrag(params: LinearParams, from: Point, to: Point, handle: number, snap = false): LinearParams {
+export function linearFromDrag(
+  params: LinearParams,
+  from: Point,
+  to: Point,
+  handle: number,
+  snap = false
+): LinearParams {
   let dx = to.x - from.x;
   let dy = to.y - from.y;
   let length = Math.hypot(dx, dy);
@@ -145,7 +177,10 @@ export function linearFromDrag(params: LinearParams, from: Point, to: Point, han
   }
   length = Math.max(length, 2 * MIN_RANGE);
   const unit = Math.hypot(dx, dy) > 0 ? { x: dx / Math.hypot(dx, dy), y: dy / Math.hypot(dx, dy) } : { x: 0, y: 1 };
-  const middle = { x: from.x + (unit.x * length) / 2, y: from.y + (unit.y * length) / 2 };
+  const middle = {
+    x: from.x + (unit.x * length) / 2,
+    y: from.y + (unit.y * length) / 2
+  };
   // The engine's normal points towards the end side: start → end runs along
   // (unit.y, −unit.x) so that its left normal equals `unit`.
   const along = { x: unit.y, y: -unit.x };
@@ -155,7 +190,7 @@ export function linearFromDrag(params: LinearParams, from: Point, to: Point, han
     startY: middle.y - along.y * handle,
     endX: middle.x + along.x * handle,
     endY: middle.y + along.y * handle,
-    range: length / 2,
+    range: length / 2
   };
   delete next.rangeEnd;
   // A band covers the dragged span fully; its outward feather stays as set.

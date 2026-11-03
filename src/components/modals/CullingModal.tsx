@@ -79,7 +79,7 @@ export default function CullingModal({
   imagePaths,
   thumbnails,
   onApply,
-  onError,
+  onError
 }: CullingModalProps) {
   useEscapeToClose(isOpen, onClose);
   const { t } = useTranslation();
@@ -91,7 +91,7 @@ export default function CullingModal({
     groupSimilar: true,
     similarityThreshold: 28,
     filterBlurry: true,
-    blurThreshold: 100.0,
+    blurThreshold: 100.0
   });
 
   const [selectedRejects, setSelectedRejects] = useState<Set<string>>(new Set());
@@ -103,12 +103,20 @@ export default function CullingModal({
       {
         value: 'reject' as const,
         label: t('modals.culling.actionReject'),
-        icon: <Tag size={16} className="text-red-500" />,
+        icon: <Tag size={16} className="text-red-500" />
       },
-      { value: 'rate_zero' as const, label: t('modals.culling.actionRateZero'), icon: <Star size={16} /> },
-      { value: 'delete' as const, label: t('modals.culling.actionDelete'), icon: <Trash2 size={16} /> },
+      {
+        value: 'rate_zero' as const,
+        label: t('modals.culling.actionRateZero'),
+        icon: <Star size={16} />
+      },
+      {
+        value: 'delete' as const,
+        label: t('modals.culling.actionDelete'),
+        icon: <Trash2 size={16} />
+      }
     ],
-    [t],
+    [t]
   );
 
   useEffect(() => {
@@ -200,7 +208,12 @@ export default function CullingModal({
                 step={1}
                 value={settings.similarityThreshold}
                 defaultValue={28}
-                onChange={(e) => setSettings((s) => ({ ...s, similarityThreshold: Number(e.target.value) }))}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    similarityThreshold: Number(e.target.value)
+                  }))
+                }
                 fillOrigin="min"
               />
               <Text variant={TextVariants.small} className="mt-1">
@@ -224,7 +237,12 @@ export default function CullingModal({
                 step={25}
                 value={settings.blurThreshold}
                 defaultValue={100.0}
-                onChange={(e) => setSettings((s) => ({ ...s, blurThreshold: Number(e.target.value) }))}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    blurThreshold: Number(e.target.value)
+                  }))
+                }
                 fillOrigin="min"
               />
               <Text variant={TextVariants.small} className="mt-1">
@@ -254,7 +272,9 @@ export default function CullingModal({
         <div className="w-full bg-surface rounded-full h-2.5 mt-2">
           <div
             className="bg-accent h-2.5 rounded-full"
-            style={{ width: `${((progress.current ?? 0) / progress.total) * 100}%` }}
+            style={{
+              width: `${((progress.current ?? 0) / progress.total) * 100}%`
+            }}
           />
         </div>
       )}
@@ -365,13 +385,17 @@ export default function CullingModal({
                               color={TextColors.white}
                               className="absolute bottom-0 left-0 right-0 p-1 bg-black/60"
                             >
-                              {t('modals.culling.score', { score: group.representative.qualityScore.toFixed(2) })}
+                              {t('modals.culling.score', {
+                                score: group.representative.qualityScore.toFixed(2)
+                              })}
                             </Text>
                           </div>
                         </div>
                         <div>
                           <Text variant={TextVariants.label} className="mb-1">
-                            {t('modals.culling.duplicatesHeader', { count: group.duplicates.length })}
+                            {t('modals.culling.duplicatesHeader', {
+                              count: group.duplicates.length
+                            })}
                           </Text>
                           <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                             {group.duplicates.map((dup) => (
@@ -382,7 +406,9 @@ export default function CullingModal({
                                 isSelected={selectedRejects.has(dup.path)}
                                 onToggle={() => handleToggleReject(dup.path)}
                               >
-                                {t('modals.culling.score', { score: dup.qualityScore.toFixed(2) })}
+                                {t('modals.culling.score', {
+                                  score: dup.qualityScore.toFixed(2)
+                                })}
                               </ImageThumbnail>
                             ))}
                           </div>
@@ -402,7 +428,9 @@ export default function CullingModal({
                       isSelected={selectedRejects.has(img.path)}
                       onToggle={() => handleToggleReject(img.path)}
                     >
-                      {t('modals.culling.sharpness', { sharpness: img.sharpnessMetric.toFixed(0) })}
+                      {t('modals.culling.sharpness', {
+                        sharpness: img.sharpnessMetric.toFixed(0)
+                      })}
                     </ImageThumbnail>
                   ))}
                 </div>
@@ -414,7 +442,10 @@ export default function CullingModal({
         <div className="flex justify-between items-center gap-3 mt-6">
           <div className="flex-1">
             <Dropdown
-              options={CULL_ACTIONS.map(({ value, label }) => ({ value, label }))}
+              options={CULL_ACTIONS.map(({ value, label }) => ({
+                value,
+                label
+              }))}
               value={action}
               onChange={(newValue: CullAction) => setAction(newValue)}
               className="w-full"

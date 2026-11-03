@@ -13,7 +13,7 @@ import {
   resolveViewerBackground,
   viewerBackgroundCss,
   viewerBackgroundRgba,
-  zoomPresetsAboveFit,
+  zoomPresetsAboveFit
 } from './viewerDisplay';
 
 describe('zoom floor', () => {
@@ -68,7 +68,10 @@ describe('proof margin', () => {
   });
 
   it('shows nothing before the viewer is laid out', () => {
-    expect(fitInViewer(0, 0, 6000, 4000, 0)).toMatchObject({ width: 0, height: 0 });
+    expect(fitInViewer(0, 0, 6000, 4000, 0)).toMatchObject({
+      width: 0,
+      height: 0
+    });
   });
 });
 
@@ -78,7 +81,12 @@ describe('viewer background', () => {
     expect(resolveViewerBackground({})).toBe('dark');
     expect(resolveViewerBackground({ editorNeutralGreyBg: false })).toBe('dark');
     expect(resolveViewerBackground({ editorNeutralGreyBg: true })).toBe('medium');
-    expect(resolveViewerBackground({ editorNeutralGreyBg: true, viewerBackground: 'white' })).toBe('white');
+    expect(
+      resolveViewerBackground({
+        editorNeutralGreyBg: true,
+        viewerBackground: 'white'
+      })
+    ).toBe('white');
     expect(resolveViewerBackground({ viewerBackground: 'nonsense' })).toBe('dark');
   });
 
@@ -109,7 +117,12 @@ it('finds the photograph on screen after pan and zoom, so the proof margin count
   // Fitted with a 60 px margin in a viewer at (200, 40), zoomed 2× and panned.
   const fitted = fitInViewer(1600, 1000, 6000, 4000, 60);
   const atFit = photoScreenRect({ left: 200, top: 40 }, { scale: 1, positionX: 0, positionY: 0 }, fitted);
-  expect(atFit).toEqual({ left: 340, top: 100, width: fitted.width, height: fitted.height });
+  expect(atFit).toEqual({
+    left: 340,
+    top: 100,
+    width: fitted.width,
+    height: fitted.height
+  });
   // A click in the margin is beside the photograph; one just inside is on it.
   expect(isOutsidePhoto(330, 500, atFit)).toBe(true);
   expect(isOutsidePhoto(345, 500, atFit)).toBe(false);
@@ -130,7 +143,7 @@ describe('crop mode margin', () => {
       [1600, 1000, 4000, 6000], // portrait photo
       [700, 1200, 6000, 4000], // portrait viewer
       [700, 1200, 4000, 6000],
-      [2560, 1400, 6000, 6000], // full screen, square
+      [2560, 1400, 6000, 6000] // full screen, square
     ]) {
       const box = cropModeBox(cw, ch, w, h);
       expect(roomAround(cw, ch, box)).toBeGreaterThanOrEqual(CROP_ROTATE_BAND_PX - 1e-9);

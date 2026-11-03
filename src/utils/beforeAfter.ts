@@ -40,15 +40,19 @@ export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
   'lensVignetteEnabled',
   'guidedPerspective',
   // The frame of the RAW (ADR 0020): both sides show the same source.
-  'sourceFrameVersion',
+  'sourceFrameVersion'
 ];
 
 /** Stable JSON of a value: object keys sorted, undefined as null. */
 const stable = (value: unknown): string =>
   JSON.stringify(value ?? null, (_, v) =>
     v && typeof v === 'object' && !Array.isArray(v)
-      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k] ?? null]))
-      : (v ?? null),
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, v[k] ?? null])
+        )
+      : (v ?? null)
   );
 
 /** How a recipe frames the photograph (its `BEFORE_FRAMING_KEYS`), as a
@@ -121,11 +125,16 @@ export function splitScreenX(rect: { left: number; width: number }, position: nu
 export function browserSplitWidth(
   position: number,
   size: { containerWidth: number; offsetX: number; width: number },
-  transform: { scale: number; positionX: number },
+  transform: { scale: number; positionX: number }
 ): number {
   if (!(transform.scale > 0)) return 0;
-  return Math.max(0, Math.min(size.width,
-    (clampSplitPosition(position) * size.containerWidth - transform.positionX) / transform.scale - size.offsetX));
+  return Math.max(
+    0,
+    Math.min(
+      size.width,
+      (clampSplitPosition(position) * size.containerWidth - transform.positionX) / transform.scale - size.offsetX
+    )
+  );
 }
 
 /**
@@ -134,13 +143,18 @@ export function browserSplitWidth(
  */
 export function splitViewAvailable(
   useWgpuRenderer: boolean | undefined | null,
-  osPlatform: string | null | undefined,
+  osPlatform: string | null | undefined
 ): boolean {
   return osPlatform === 'linux' || useWgpuRenderer !== false;
 }
 
 /** Arrow keys move a focused divider by a small step, Shift by a larger one. */
-export function nudgeSplitPosition(position: number, key: string, shift: boolean, orientation: SplitOrientation = 'left-right'): number | null {
+export function nudgeSplitPosition(
+  position: number,
+  key: string,
+  shift: boolean,
+  orientation: SplitOrientation = 'left-right'
+): number | null {
   // Side by side has no divider to move.
   if (orientation === 'side-by-side') return null;
   const step = shift ? 0.1 : 0.01;
@@ -161,7 +175,14 @@ export function nudgeSplitPosition(position: number, key: string, shift: boolean
 }
 
 /** A fitted photograph in its viewer (useImageRenderSize's RenderSize). */
-type FitSize = { width: number; height: number; offsetX: number; offsetY: number; containerWidth: number; containerHeight: number };
+type FitSize = {
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  containerWidth: number;
+  containerHeight: number;
+};
 
 /**
  * The transform that shows the photograph at the same magnification (CSS
@@ -178,6 +199,6 @@ export function anchoredAt(fit: FitSize, scale: number, a: number, b: number) {
   return {
     scale,
     x: fit.containerWidth / 2 - scale * (fit.offsetX + a * fit.width),
-    y: fit.containerHeight / 2 - scale * (fit.offsetY + b * fit.height),
+    y: fit.containerHeight / 2 - scale * (fit.offsetY + b * fit.height)
   };
 }

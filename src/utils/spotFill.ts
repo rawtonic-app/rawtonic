@@ -62,12 +62,12 @@ export function removalPatch(points: Point[], radius: number, fromHeal?: HealLoo
               brushSize: radius * 2,
               feather: Math.max(REMOVE_FEATHER, (fromHeal?.feather ?? 0) / 100),
               tool: ToolType.Brush,
-              ...(frame && { frame }),
-            },
-          ],
-        },
-      },
-    ],
+              ...(frame && { frame })
+            }
+          ]
+        }
+      }
+    ]
   };
 }
 
@@ -85,7 +85,10 @@ export function removalArea(patch: AiPatch, now: SizedFrame | undefined): { poin
 function healLookOf(patch: AiPatch): HealLook {
   const sub = patch.subMasks[0];
   const line = (sub?.parameters?.lines as { feather?: number }[] | undefined)?.[0];
-  return { opacity: sub?.opacity ?? 100, feather: Math.round((line?.feather ?? REMOVE_FEATHER) * 100) };
+  return {
+    opacity: sub?.opacity ?? 100,
+    feather: Math.round((line?.feather ?? REMOVE_FEATHER) * 100)
+  };
 }
 
 /** Fills `patch` (a removal) from the open photo as `adjustments` render
@@ -97,10 +100,14 @@ export async function fillRemoval(patch: AiPatch, adjustments: object, taskId: s
   const json = await invoke<string>(Invokes.InvokeGenerativeReplaseWithMaskDef, {
     currentAdjustments: adjustments,
     patchDefinition: patch,
-    taskId,
+    taskId
   });
   if (useEditorStore.getState().selectedImage?.path !== path) return null;
-  return { ...patch, patchData: JSON.parse(json) as AiPatchData, isLoading: false };
+  return {
+    ...patch,
+    patchData: JSON.parse(json) as AiPatchData,
+    isLoading: false
+  };
 }
 
 /** Turns a heal spot into Remove's fill of the same area, or a fill the
@@ -120,15 +127,25 @@ export async function flipSpotItem(id: string): Promise<void> {
     if (spot) {
       const points = (spot.points?.length ?? 0) >= 2 ? spot.points! : [{ x: spot.x, y: spot.y }];
       // The fill starts from the photo without the heal it replaces.
-      const without = { ...adjustments, spots: (adjustments.spots ?? []).filter((s) => s.id !== id) };
+      const without = {
+        ...adjustments,
+        spots: (adjustments.spots ?? []).filter((s) => s.id !== id)
+      };
       const look = { opacity: spot.opacity, feather: spot.feather };
-      const patch = { ...removalPatch(points, spot.radius, look), visible: spot.visible !== false };
+      const patch = {
+        ...removalPatch(points, spot.radius, look),
+        visible: spot.visible !== false
+      };
       const done = await fillRemoval(patch, without, id);
       if (!done) return;
       updateAdjustments((prev) =>
         prev.spots?.some((s) => s.id === id)
-          ? { ...prev, spots: prev.spots.filter((s) => s.id !== id), aiPatches: [...(prev.aiPatches ?? []), done] }
-          : prev,
+          ? {
+              ...prev,
+              spots: prev.spots.filter((s) => s.id !== id),
+              aiPatches: [...(prev.aiPatches ?? []), done]
+            }
+          : prev
       );
       if (useEditorStore.getState().activeSpotId === id) useEditorStore.getState().setEditor({ activeSpotId: done.id });
       return;
@@ -136,7 +153,10 @@ export async function flipSpotItem(id: string): Promise<void> {
     const now = shapeFrame(adjustments, selectedImage.width, selectedImage.height);
     const area = fill && removalArea(fill, now);
     if (!area) return;
-    const without = { ...adjustments, aiPatches: (adjustments.aiPatches ?? []).filter((p) => p.id !== id) };
+    const without = {
+      ...adjustments,
+      aiPatches: (adjustments.aiPatches ?? []).filter((p) => p.id !== id)
+    };
     const [first] = area.points;
     const plan = await invoke<SpotPlan>(Invokes.FindSpotSource, {
       x: first.x,
@@ -144,7 +164,7 @@ export async function flipSpotItem(id: string): Promise<void> {
       radius: area.radius,
       points: area.points.length >= 2 ? area.points : null,
       jsAdjustments: without,
-      fillAcrossEdges: false,
+      fillAcrossEdges: false
     });
     if (useEditorStore.getState().selectedImage?.path !== path || !plan.source) return;
     const healed: Spot = {
@@ -157,12 +177,16 @@ export async function flipSpotItem(id: string): Promise<void> {
       sourceY: plan.source[1],
       ...(fill!.fromHeal ? healLookOf(fill!) : { feather: settings.feather, opacity: settings.opacity }),
       visible: fill!.visible !== false,
-      ...(area.points.length >= 2 && { points: area.points }),
+      ...(area.points.length >= 2 && { points: area.points })
     };
     updateAdjustments((prev) =>
       prev.aiPatches?.some((p) => p.id === id)
-        ? { ...prev, aiPatches: prev.aiPatches.filter((p) => p.id !== id), spots: [...(prev.spots ?? []), healed] }
-        : prev,
+        ? {
+            ...prev,
+            aiPatches: prev.aiPatches.filter((p) => p.id !== id),
+            spots: [...(prev.spots ?? []), healed]
+          }
+        : prev
     );
     if (useEditorStore.getState().activeSpotId === id) useEditorStore.getState().setEditor({ activeSpotId: healed.id });
   } catch (error) {

@@ -9,7 +9,10 @@ export function changelogSection(changelog: string, version: string): string | n
   });
   if (start < 0) return null;
   const end = lines.findIndex((line, i) => i > start && /^##\s/.test(line));
-  const body = lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trim();
+  const body = lines
+    .slice(start + 1, end < 0 ? undefined : end)
+    .join('\n')
+    .trim();
   return body || null;
 }
 

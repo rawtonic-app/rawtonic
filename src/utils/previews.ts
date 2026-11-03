@@ -17,7 +17,11 @@ export function viewerDimHint(): number {
 
 /** Builds the Standard previews of `paths` in the background (with `full`, their 1:1 previews too). */
 export function buildPreviews(paths: string[], full: boolean): Promise<PreviewBuildProgress> {
-  return invoke<PreviewBuildProgress>(Invokes.BuildPreviews, { paths, full, viewerDim: viewerDimHint() });
+  return invoke<PreviewBuildProgress>(Invokes.BuildPreviews, {
+    paths,
+    full,
+    viewerDim: viewerDimHint()
+  });
 }
 
 /** Discards the 1:1 previews of `paths` (with `fullOnly` false, their Standard previews too). */
@@ -57,12 +61,21 @@ export function previewsMenu(t: TFunction, paths: string[]): Option {
     submenu: [
       {
         label: withCount(t('previews.menu.buildStandard')),
-        onClick: run(() => buildPreviews(paths, false)),
+        onClick: run(() => buildPreviews(paths, false))
       },
-      { label: withCount(t('previews.menu.buildFull')), onClick: run(() => buildPreviews(paths, true)) },
-      { label: withCount(t('previews.menu.discardFull')), onClick: discard(true) },
-      { label: withCount(t('previews.menu.discardAll')), onClick: discard(false) },
-    ],
+      {
+        label: withCount(t('previews.menu.buildFull')),
+        onClick: run(() => buildPreviews(paths, true))
+      },
+      {
+        label: withCount(t('previews.menu.discardFull')),
+        onClick: discard(true)
+      },
+      {
+        label: withCount(t('previews.menu.discardAll')),
+        onClick: discard(false)
+      }
+    ]
   };
 }
 
@@ -82,7 +95,7 @@ export function previewTargetResolution({
   fullDpi,
   zoomMultiplier,
   original,
-  grain,
+  grain
 }: {
   display: { width: number; height: number };
   dpr: number;

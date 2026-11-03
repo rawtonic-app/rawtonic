@@ -15,14 +15,25 @@ import { menuCommands } from '../utils/appMenu';
 import { appCommand, registerAppCommands } from '../utils/appCommands';
 
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.resolve())
+}));
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((name: string, callback: (event: { payload: unknown }) => void) => {
     listeners.set(name, callback);
     return Promise.resolve(() => listeners.delete(name));
-  }),
+  })
 }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn(), update: vi.fn(), isActive: vi.fn(() => false) } }));
+vi.mock('../activity/notify', () => ({
+  notify: {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
+    update: vi.fn(),
+    isActive: vi.fn(() => false)
+  }
+}));
 
 const props = {
   sortedImageList: [],
@@ -32,14 +43,20 @@ const props = {
   handleRedoFileOperation: vi.fn(),
   handleImageSelect: vi.fn(),
   handlePasteFiles: vi.fn(),
-  handleZoomChange: vi.fn(),
+  handleZoomChange: vi.fn()
 };
 
 /** A key as WebKit hands it to the page, before the menu sees it. */
 const press = (key: string, modifiers: KeyboardEventInit = {}) =>
   act(() => {
     (document.activeElement ?? window).dispatchEvent(
-      new KeyboardEvent('keydown', { key, code: `Key${key.toUpperCase()}`, bubbles: true, cancelable: true, ...modifiers }),
+      new KeyboardEvent('keydown', {
+        key,
+        code: `Key${key.toUpperCase()}`,
+        bubbles: true,
+        cancelable: true,
+        ...modifiers
+      })
     );
   });
 /** The menu item AppKit chose (app_menu.rs sends its command). */
@@ -53,9 +70,16 @@ beforeEach(async () => {
   useEditorStore.setState(useEditorStore.getInitialState());
   clock = 1_000;
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
-  useSettingsStore.setState({ appSettings: { keybinds: {} } as unknown as AppSettings, osPlatform: 'macos' });
+  useSettingsStore.setState({
+    appSettings: { keybinds: {} } as unknown as AppSettings,
+    osPlatform: 'macos'
+  });
   useLibraryStore.setState({ imageList: [], multiSelectedPaths: [] });
-  useUIStore.setState({ activeView: 'library', isSettingsOpen: false, activePanel: Panel.Adjustments });
+  useUIStore.setState({
+    activeView: 'library',
+    isSettingsOpen: false,
+    activePanel: Panel.Adjustments
+  });
   renderHook(() => {
     useAppMenu();
     useKeyboardShortcuts(props);
@@ -72,27 +96,52 @@ afterEach(() => {
 describe('the macOS menu bar', () => {
   it('updates Undo/Redo action labels and availability as metadata history changes', async () => {
     act(() => useUIStore.setState({ activeView: 'editor' }));
-    const latest = (id: string) => vi.mocked(invoke).mock.calls
-      .filter(([name]) => name === Invokes.SetAppMenuState)
-      .flatMap(([, args]) => (args as { items: { id: string; enabled: boolean; label?: string }[] }).items)
-      .filter((item) => item.id === id).at(-1);
+    const latest = (id: string) =>
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(([name]) => name === Invokes.SetAppMenuState)
+        .flatMap(
+          ([, args]) =>
+            (
+              args as {
+                items: { id: string; enabled: boolean; label?: string }[];
+              }
+            ).items
+        )
+        .filter((item) => item.id === id)
+        .at(-1);
     await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
     expect(latest('cmd:undo')).toMatchObject({ enabled: false });
-    await act(async () => catalogAction('rating', async () => [{
-      path: '/a.nef', before: { kind: 'rating', value: 0 }, after: { kind: 'rating', value: 4 },
-    }]));
+    await act(async () =>
+      catalogAction('rating', async () => [
+        {
+          path: '/a.nef',
+          before: { kind: 'rating', value: 0 },
+          after: { kind: 'rating', value: 4 }
+        }
+      ])
+    );
     await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
-    expect(latest('cmd:undo')).toMatchObject({ enabled: true, label: getUndoLabel() });
+    expect(latest('cmd:undo')).toMatchObject({
+      enabled: true,
+      label: getUndoLabel()
+    });
     vi.mocked(invoke).mockResolvedValueOnce([]);
     await act(async () => undo());
     await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
     expect(latest('cmd:undo')).toMatchObject({ enabled: false });
-    expect(latest('cmd:redo')).toMatchObject({ enabled: true, label: getRedoLabel() });
+    expect(latest('cmd:redo')).toMatchObject({
+      enabled: true,
+      label: getRedoLabel()
+    });
     const field = document.createElement('input');
     document.body.append(field);
     act(() => field.focus());
     await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
-    expect(latest('cmd:redo')).toMatchObject({ enabled: true, label: i18n.t('appMenu.items.redo') });
+    expect(latest('cmd:redo')).toMatchObject({
+      enabled: true,
+      label: i18n.t('appMenu.items.redo')
+    });
   });
 
   it('sends the tree built from the shortcut table', () => {
@@ -163,9 +212,13 @@ describe('the macOS menu bar', () => {
     press('z', { metaKey: true });
     choose('undo');
     expect(props.handleUndoFileOperation).not.toHaveBeenCalled();
-    expect(invoke).toHaveBeenCalledWith(Invokes.AppMenuTextAction, { action: 'undo' });
+    expect(invoke).toHaveBeenCalledWith(Invokes.AppMenuTextAction, {
+      action: 'undo'
+    });
     choose('select_all');
-    expect(invoke).toHaveBeenCalledWith(Invokes.AppMenuTextAction, { action: 'selectAll' });
+    expect(invoke).toHaveBeenCalledWith(Invokes.AppMenuTextAction, {
+      action: 'selectAll'
+    });
     // A read-only text (a report to copy) can be selected, not undone.
     document.body.innerHTML = '<dialog open><textarea readonly>report</textarea></dialog>';
     document.querySelector('textarea')!.focus();
@@ -218,7 +271,9 @@ describe('the macOS menu bar', () => {
     // The commands registered after the tree was built.
     await wait();
     expect(updates()).toHaveLength(1);
-    expect(updates()[0][1]).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ id: 'cmd:undo', enabled: true })]) });
+    expect(updates()[0][1]).toMatchObject({
+      items: expect.arrayContaining([expect.objectContaining({ id: 'cmd:undo', enabled: true })])
+    });
     useUIStore.setState({ isSettingsOpen: true });
     await wait();
     expect(updates()).toHaveLength(2);
@@ -238,25 +293,50 @@ describe('the macOS menu bar', () => {
     choose('toggle_split_view');
     await wait();
     const update = vi.mocked(invoke).mock.calls.find(([name]) => name === Invokes.SetAppMenuState);
-    expect(update?.[1]).toEqual({ items: [{ id: 'cmd:toggle_split_view', enabled: false, checked: false }] });
+    expect(update?.[1]).toEqual({
+      items: [{ id: 'cmd:toggle_split_view', enabled: false, checked: false }]
+    });
   });
 
   it('builds the tree with the state it then keeps up to date', () => {
     // Registered and enabled on its own, but held behind Preferences.
-    const stop = registerAppCommands({ view_grid: { run: () => {} }, about: { run: () => {} } });
+    const stop = registerAppCommands({
+      view_grid: { run: () => {} },
+      about: { run: () => {} }
+    });
     useUIStore.setState({ isSettingsOpen: true });
     cleanup();
     vi.mocked(invoke).mockClear();
     renderHook(() => useAppMenu());
     const call = vi.mocked(invoke).mock.calls.find(([name]) => name === Invokes.SetAppMenu)!;
     const items = JSON.stringify(call[1]);
-    expect(items).toContain(JSON.stringify({ kind: 'item', id: 'cmd:view_grid', label: i18n.t('appMenu.items.view_grid'), enabled: false, checked: false }));
-    expect(items).toContain(JSON.stringify({ kind: 'item', id: 'cmd:about', label: i18n.t('appMenu.items.about', { app: 'Rawtonic' }), enabled: true }));
+    expect(items).toContain(
+      JSON.stringify({
+        kind: 'item',
+        id: 'cmd:view_grid',
+        label: i18n.t('appMenu.items.view_grid'),
+        enabled: false,
+        checked: false
+      })
+    );
+    expect(items).toContain(
+      JSON.stringify({
+        kind: 'item',
+        id: 'cmd:about',
+        label: i18n.t('appMenu.items.about', { app: 'Rawtonic' }),
+        enabled: true
+      })
+    );
     stop();
   });
 
   it('rebuilds live submenus when registered entries change', async () => {
-    const stop = registerAppCommands({ 'recipe:web': { run: () => {}, menu: { group: 'recipes', label: 'Web JPEG' } } });
+    const stop = registerAppCommands({
+      'recipe:web': {
+        run: () => {},
+        menu: { group: 'recipes', label: 'Web JPEG' }
+      }
+    });
     await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
     const trees = () => vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.SetAppMenu);
     expect(JSON.stringify(trees().at(-1))).toContain('Web JPEG');
@@ -267,16 +347,48 @@ describe('the macOS menu bar', () => {
 
   it('has a handler for every shortcut-table command it places', () => {
     // The rest register in their owners (appMenu.test.ts checks them).
-    const owners = new Set(['command_palette', 'about', 'check_updates', 'keyboard_shortcuts', 'website', 'report_problem', 'select_none',
-      'clear_recent', 'show_in_finder', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
-      'view_grid', 'view_loupe', 'view_develop', 'match_light', 'shift_capture_time', 'show_activity', 'open_with', 'edit_with', 'find_duplicates',
+    const owners = new Set([
+      'command_palette',
+      'about',
+      'check_updates',
+      'keyboard_shortcuts',
+      'website',
+      'report_problem',
+      'select_none',
+      'clear_recent',
+      'show_in_finder',
+      'new_session',
+      'open_session',
+      'import_photos',
+      'flag_pick',
+      'flag_unflag',
+      'flag_reject',
+      'view_grid',
+      'view_loupe',
+      'view_develop',
+      'match_light',
+      'shift_capture_time',
+      'show_activity',
+      'open_with',
+      'edit_with',
+      'find_duplicates',
       // studio/ProofSheetDialog (ProofSheetDialogHost).
       'proof_sheet',
       // utils/stacks (useStackCommands).
-      'stack_group', 'stack_unstack', 'stack_remove', 'stack_move_top', 'stack_toggle', 'stack_collapse_all', 'stack_expand_all',
-      'stack_split', 'stack_move_up', 'stack_move_down', 'auto_stack',
+      'stack_group',
+      'stack_unstack',
+      'stack_remove',
+      'stack_move_top',
+      'stack_toggle',
+      'stack_collapse_all',
+      'stack_expand_all',
+      'stack_split',
+      'stack_move_up',
+      'stack_move_down',
+      'auto_stack',
       // hooks/useVirtualCopyCommand.
-      'virtual_copy']);
+      'virtual_copy'
+    ]);
     const missing = menuCommands().filter((command) => !owners.has(command) && !appCommand(command));
     expect(missing).toEqual([]);
   });
@@ -284,12 +396,20 @@ describe('the macOS menu bar', () => {
 
 describe('table-driven view and flag keys', () => {
   it.each([
-    ['view_grid', 'g'], ['view_loupe', 'e'], ['view_develop', 'd'],
-    ['flag_pick', 'p'], ['flag_unflag', 'u'], ['flag_reject', 'x'],
+    ['view_grid', 'g'],
+    ['view_loupe', 'e'],
+    ['view_develop', 'd'],
+    ['flag_pick', 'p'],
+    ['flag_unflag', 'u'],
+    ['flag_reject', 'x']
   ])('uses the rebound command handler for %s', (action, original) => {
     const run = vi.fn();
     const stop = registerAppCommands({ [action]: { run } });
-    useSettingsStore.setState({ appSettings: { keybinds: { [action]: ['ctrl', 'alt', 'KeyK'] } } as AppSettings });
+    useSettingsStore.setState({
+      appSettings: {
+        keybinds: { [action]: ['ctrl', 'alt', 'KeyK'] }
+      } as AppSettings
+    });
     press(original, action === 'flag_reject' ? { shiftKey: true } : {});
     expect(run).not.toHaveBeenCalled();
     press('k', { metaKey: true, altKey: true });

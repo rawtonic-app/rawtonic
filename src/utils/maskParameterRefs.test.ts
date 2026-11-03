@@ -1,15 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Adjustments } from './adjustments';
-import {
-  acknowledgeParameters,
-  forgetParameterReferences,
-  withParameterReferences,
-} from './maskParameterRefs';
+import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from './maskParameterRefs';
 
 const stroke = (n: number, x0 = 0) => ({
   tool: 'brush',
   brushSize: 50,
-  points: Array.from({ length: n }, (_, i) => ({ x: x0 + i, y: i })),
+  points: Array.from({ length: n }, (_, i) => ({ x: x0 + i, y: i }))
 });
 
 type Line = ReturnType<typeof stroke>;
@@ -26,11 +22,11 @@ const recipe = (lines: Line[], extra: object = {}): Loose =>
         adjustments: { exposure: 1 },
         subMasks: [
           { id: 'brush-1', type: 'brush', parameters: { lines } },
-          { id: 'radial-1', type: 'radial', parameters: { centerX: 1 } },
+          { id: 'radial-1', type: 'radial', parameters: { centerX: 1 } }
         ],
-        ...extra,
-      },
-    ],
+        ...extra
+      }
+    ]
   }) as unknown as Adjustments;
 
 describe('withParameterReferences', () => {
@@ -49,10 +45,15 @@ describe('withParameterReferences', () => {
 
     acknowledgeParameters(first.sent);
     // A slider move: the layer's adjustments change, its strokes do not.
-    const moved = { ...adjustments, masks: [{ ...adjustments.masks[0], adjustments: { exposure: 2 } }] };
+    const moved = {
+      ...adjustments,
+      masks: [{ ...adjustments.masks[0], adjustments: { exposure: 2 } }]
+    };
     const second = withParameterReferences(moved);
     expect(second.sent).toEqual([]);
-    expect(second.adjustments.masks[0].subMasks[0].parameters).toEqual({ $paramsRef: token });
+    expect(second.adjustments.masks[0].subMasks[0].parameters).toEqual({
+      $paramsRef: token
+    });
     expect(second.adjustments.masks[0].adjustments).toEqual({ exposure: 2 });
     // Other components are passed through as they are.
     expect(second.adjustments.masks[0].subMasks[1]).toBe(adjustments.masks[0].subMasks[1]);
@@ -73,7 +74,10 @@ describe('withParameterReferences', () => {
     const adjustments = recipe([stroke(80)]);
     const first = withParameterReferences(adjustments);
     acknowledgeParameters(first.sent);
-    adjustments.masks[0].subMasks[0].parameters.lines[0].points.push({ x: 999, y: 1 });
+    adjustments.masks[0].subMasks[0].parameters.lines[0].points.push({
+      x: 999,
+      y: 1
+    });
     const second = withParameterReferences(adjustments);
     expect(second.sent).toHaveLength(1);
     expect((second.adjustments.masks[0].subMasks[0] as Loose).paramsToken).toBe(second.sent[0]);
@@ -81,7 +85,10 @@ describe('withParameterReferences', () => {
 
   it('leaves small strokes and recipes without brush layers alone', () => {
     const small = recipe([stroke(5)]);
-    expect(withParameterReferences(small)).toEqual({ adjustments: small, sent: [] });
+    expect(withParameterReferences(small)).toEqual({
+      adjustments: small,
+      sent: []
+    });
     const none = { exposure: 1 } as Loose;
     expect(withParameterReferences(none).adjustments).toBe(none);
   });

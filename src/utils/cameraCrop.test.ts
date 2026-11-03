@@ -6,7 +6,13 @@ import { editorRecipe } from './neverEdited';
 import { pasteInto } from './settingsClipboard';
 
 // Samsung EX2F 16:9 on its 4000 × 3000 sensor (crates/rawdecode/src/camera_crop.rs).
-const sixteenNine: Crop = { unit: 'px', x: 0, y: 376, width: 4000, height: 2248 };
+const sixteenNine: Crop = {
+  unit: 'px',
+  x: 0,
+  y: 376,
+  width: 4000,
+  height: 2248
+};
 const crops: CameraCrops = [sixteenNine, sixteenNine, sixteenNine, sixteenNine];
 
 describe('the aspect ratio set in the camera as the crop new edits start with', () => {
@@ -38,7 +44,11 @@ describe('the aspect ratio set in the camera as the crop new edits start with', 
   });
 
   it('starts a paste onto a new recipe from it; a pasted crop replaces it', () => {
-    const options = { samePhoto: false, replaceLayers: true, cameraCrop: sixteenNine };
+    const options = {
+      samePhoto: false,
+      replaceLayers: true,
+      cameraCrop: sixteenNine
+    };
     expect(pasteInto(null, { exposure: 1 }, options)?.crop).toEqual(sixteenNine);
     const other: Crop = { unit: 'px', x: 0, y: 0, width: 300, height: 300 };
     expect(pasteInto(null, { crop: other }, options)?.crop).toEqual(other);
@@ -48,14 +58,20 @@ describe('the aspect ratio set in the camera as the crop new edits start with', 
 
   it('resets a crop to the camera frame, turned with the photo', () => {
     const image = { isRaw: true, cameraCrops: crops };
-    expect(cropResetValues(image, 1, 0)).toEqual({ crop: sixteenNine, aspectRatio: 4000 / 2248 });
+    expect(cropResetValues(image, 1, 0)).toEqual({
+      crop: sixteenNine,
+      aspectRatio: 4000 / 2248
+    });
     // A quarter turn: the centred frame on the turned photo (3000 × 4000).
     expect(cropResetValues(image, 1, 1)).toEqual({
       crop: { unit: 'px', x: 376, y: 0, width: 2248, height: 4000 },
-      aspectRatio: 2248 / 4000,
+      aspectRatio: 2248 / 4000
     });
     expect(cropResetValues(image, 1, 2).crop).toEqual(sixteenNine);
     expect(cropResetValues({ isRaw: false, cameraCrops: crops }, 1, 0)).toEqual({ crop: null, aspectRatio: null });
-    expect(cropResetValues(null, 1, 0)).toEqual({ crop: null, aspectRatio: null });
+    expect(cropResetValues(null, 1, 0)).toEqual({
+      crop: null,
+      aspectRatio: null
+    });
   });
 });

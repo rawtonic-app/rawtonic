@@ -7,7 +7,7 @@ export enum FileFormats {
   Webp = 'webp',
   Jxl = 'jxl',
   Avif = 'avif',
-  Cube = 'cube',
+  Cube = 'cube'
 }
 
 export const FILE_FORMATS: Array<FileFormat> = [
@@ -17,7 +17,7 @@ export const FILE_FORMATS: Array<FileFormat> = [
   { id: FileFormats.Webp, name: 'WebP', extensions: ['webp'] },
   { id: FileFormats.Jxl, name: 'JPEG XL', extensions: ['jxl'] },
   { id: FileFormats.Avif, name: 'AVIF', extensions: ['avif'] },
-  { id: FileFormats.Cube, name: 'CUBE LUT', extensions: ['cube'] },
+  { id: FileFormats.Cube, name: 'CUBE LUT', extensions: ['cube'] }
 ];
 
 export const FILENAME_VARIABLES: Array<string> = [
@@ -27,7 +27,7 @@ export const FILENAME_VARIABLES: Array<string> = [
   '{MM}',
   '{DD}',
   '{hh}',
-  '{mm}',
+  '{mm}'
 ];
 
 export type TiffBitDepth = 8 | 16;
@@ -75,7 +75,11 @@ export interface ExportSettings {
   destinationType?: string;
   subfolder?: string;
   /** Unsharp mask on the output's lightness after the resize. */
-  outputSharpening?: { amount: number; radius: number; threshold: number } | null;
+  outputSharpening?: {
+    amount: number;
+    radius: number;
+    threshold: number;
+  } | null;
 }
 
 /** A recipe's output sharpening: for screen with a radius, for print from the viewing distance. */
@@ -91,7 +95,7 @@ export interface OutputSharpeningRecipe {
 export enum BorderBasis {
   LongEdge = 'longEdge',
   ShortEdge = 'shortEdge',
-  EachEdge = 'eachEdge',
+  EachEdge = 'eachEdge'
 }
 
 export enum WatermarkAnchor {
@@ -103,7 +107,7 @@ export enum WatermarkAnchor {
   CenterRight = 'centerRight',
   BottomLeft = 'bottomLeft',
   BottomCenter = 'bottomCenter',
-  BottomRight = 'bottomRight',
+  BottomRight = 'bottomRight'
 }
 
 interface WatermarkSettings {
@@ -113,7 +117,12 @@ interface WatermarkSettings {
   spacing: number;
   opacity: number;
   /** A text watermark instead of the image. */
-  text?: { text: string; fontFamily: string | null; color: string; shadow: boolean } | null;
+  text?: {
+    text: string;
+    fontFamily: string | null;
+    color: string;
+    shadow: boolean;
+  } | null;
 }
 
 export interface ExportState {
@@ -139,7 +148,7 @@ export enum Status {
   Exporting = 'exporting',
   Error = 'error',
   Idle = 'idle',
-  Success = 'success',
+  Success = 'success'
 }
 
 export interface ExportPreset {
