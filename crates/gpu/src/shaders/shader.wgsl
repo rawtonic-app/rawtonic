@@ -1886,13 +1886,23 @@ fn cr_whites_gain(x: f32, amount: f32) -> f32 {
 // 15 % of the tables' lift and stretches the display luminance above
 // WHITES_V8_KNEE so that WHITES_V8_WHITE_POINT reaches white at +100
 // (1 − amount² of the way there, so +50 clips about as little as both
-// editors): near-white tones go to white as in both editors, while bright
-// saturated colours approach their largest channel's limit without reaching
-// it (WHITES_V8_CHROMA_KNEE), so they keep their gradation.
+// editors): near-white tones go to white as in both editors, while the
+// share of the room to white that the stretch adds to a bright saturated
+// colour's largest channel rolls off above WHITES_V8_CHROMA_KNEE, so such
+// colours keep their gradation.
 const WHITES_V8_TABLE_SCALE: f32 = 0.15;
 const WHITES_V8_WHITE_POINT: f32 = 0.9;
 const WHITES_V8_KNEE: f32 = 0.4;
 const WHITES_V8_CHROMA_KNEE: f32 = 0.8;
+
+// The chroma share's roll-off above WHITES_V8_CHROMA_KNEE, towards 1.
+fn whites_v8_chroma_roll(share: f32) -> f32 {
+    if (share <= WHITES_V8_CHROMA_KNEE) {
+        return share;
+    }
+    let room = 1.0 - WHITES_V8_CHROMA_KNEE;
+    return WHITES_V8_CHROMA_KNEE + room * (1.0 - exp(-(share - WHITES_V8_CHROMA_KNEE) / room));
+}
 
 // Version 8's white point on the tone-mapped (display linear) colour;
 // `amount` is Whites / 100, above 0.
@@ -1908,18 +1918,20 @@ fn whites_v8_white_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     if (target_y >= 1.0) {
         return vec3<f32>(1.0);
     }
-    var out = rgb * (target_y / y);
+    let out = rgb * (target_y / y);
     // The largest channel's distance from the luminance, as a share of the
-    // room up to white: above the chroma knee it rolls off towards 1 (the
-    // saturation falls, the luminance stays).
-    let largest = max(out.r, max(out.g, out.b));
-    let share = (largest - target_y) / (1.0 - target_y);
-    if (share > WHITES_V8_CHROMA_KNEE) {
-        let room = 1.0 - WHITES_V8_CHROMA_KNEE;
-        let rolled = WHITES_V8_CHROMA_KNEE + room * (1.0 - exp(-(share - WHITES_V8_CHROMA_KNEE) / room));
-        out = vec3<f32>(target_y) + (out - vec3<f32>(target_y)) * (rolled / share);
+    // room up to white, before and after the stretch: only the share the
+    // stretch adds rolls off (above the chroma knee, towards 1; the
+    // saturation falls, the luminance stays), so a colour is unchanged
+    // where nothing is stretched (Whites near 0, at the knee) and already
+    // saturated bright colours do not jump when Whites leaves 0.
+    let share_before = (max(rgb.r, max(rgb.g, rgb.b)) - y) / (1.0 - y);
+    let share = (max(out.r, max(out.g, out.b)) - target_y) / (1.0 - target_y);
+    if (share <= WHITES_V8_CHROMA_KNEE || share <= share_before) {
+        return out;
     }
-    return out;
+    let limited = share_before + whites_v8_chroma_roll(share) - whites_v8_chroma_roll(share_before);
+    return vec3<f32>(target_y) + (out - vec3<f32>(target_y)) * (limited / share);
 }
 
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {

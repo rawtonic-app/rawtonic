@@ -9985,6 +9985,106 @@ fn tone_version_8_whites_sets_the_white_point() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; raised Whites of tone version 8 on saturated colour ramps"]
+fn tone_version_8_whites_keeps_colour_ramps_smooth() {
+    let context = context();
+    // Four saturated hues (orange, sky blue, red, green), four rows each,
+    // scene level from 2^-10 to 2^2 across the columns.
+    let hues = [
+        [1.0f32, 0.45, 0.12],
+        [0.25, 0.55, 1.0],
+        [1.0, 0.15, 0.1],
+        [0.3, 1.0, 0.2],
+    ];
+    let (width, height) = (2048u32, 4 * hues.len() as u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let level = (2.0f32).powf(-10.0 + 12.0 * x as f32 / (width - 1) as f32);
+            let hue = hues[(y / 4) as usize];
+            [
+                f16::from_f32(level * hue[0]),
+                f16::from_f32(level * hue[1]),
+                f16::from_f32(level * hue[2]),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Colour ramps"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |whites: i32| {
+        render_raw_look(
+            &processor,
+            &view,
+            (width, height),
+            &json!({ "whites": whites, "toneVersion": 8 }),
+            (3, 2.0),
+        )
+    };
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    let neutral = render(0);
+    let barely = render(1);
+    let columns = 64..(width - 64) as usize;
+    for (band, hue) in hues.iter().enumerate() {
+        let row = ((band as u32 * 4 + 2) * width) as usize;
+        // Whites +1 changes no colour by more than 64 codes (0.1 %): the
+        // white point and its chroma roll-off start from nothing, so a
+        // feathered Whites mask leaves no edge.
+        let jump = columns
+            .clone()
+            .flat_map(|x| (0..3).map(move |c| (x, c)))
+            .map(|(x, c)| (barely[row + x][c] as i32 - neutral[row + x][c] as i32).abs())
+            .max()
+            .unwrap();
+        assert!(
+            jump <= 64,
+            "{hue:?}: Whites +1 moved a channel by {jump} codes"
+        );
+        // Along the ramp a brighter scene tone never ends darker (by more
+        // than 0.01 EV or two 16-bit codes, as the tone-order sweep).
+        for whites in [50, 100] {
+            let toned = render(whites);
+            for x in columns.clone().skip(24) {
+                for k in 1..=24 {
+                    let (a, b) = (&toned[row + x - k], &toned[row + x]);
+                    let codes = (0..3).map(|c| a[c] as i32 - b[c] as i32).max().unwrap();
+                    assert!(
+                        luma(b) >= luma(a) * (2.0f64).powf(-0.01) || codes <= 2,
+                        "{hue:?} Whites {whites}: column {x} {b:?} below column {} {a:?}",
+                        x - k
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; raised Whites of tone version 8 against version 7: GPU time of a preview render per drag step"]
 fn tone_version_8_whites_drag_render_time() {
     // As `tone_version_7_highlights_drag_render_time`, with Whites stepped up.
