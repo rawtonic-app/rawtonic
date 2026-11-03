@@ -114,19 +114,12 @@ pub const MULTISCALE_VERSION: u64 = 2;
 /// The recipe's colour noise version (1 = the cross-bilateral filter),
 /// never newer than this renderer knows.
 pub fn version(adjustments: &serde_json::Value, is_raw: bool) -> u64 {
-    match adjustments
-        .get(VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-    {
-        Some(version) => version.clamp(1, VERSION),
-        None if is_raw && adjustments.get("colorNoiseReduction").is_none() => VERSION,
-        None => 1,
-    }
+    crate::recipe_versions::ColorNoiseVersion::of(adjustments, is_raw).get()
 }
 
 /// Whether a recipe's colour noise reduction is this filter.
 pub fn multiscale(adjustments: &serde_json::Value, is_raw: bool) -> bool {
-    version(adjustments, is_raw) >= MULTISCALE_VERSION
+    crate::recipe_versions::ColorNoiseVersion::of(adjustments, is_raw).multiscale()
 }
 
 /// Detail levels with their own threshold; the level below them (1/32 of
@@ -417,75 +410,53 @@ impl Tuning {
     /// The constants of colour noise version `version` (2 or newer; older
     /// versions are not this filter and get version 2's).
     pub fn for_version(version: u64) -> Self {
-        let v2 = Self::version2();
-        if version <= 2 {
-            return v2;
-        }
-        let v3 = Self {
-            quiet: [0.012, 2.5, 2.75],
-            quiet_from: 3,
-            coarse_noise_fall: 1.7,
-            coarse_noise_from: 3,
-            ..v2
-        };
-        if version == 3 {
-            return v3;
-        }
-        let v4 = Self {
-            linear_means: true,
-            ..v3
-        };
-        if version == 4 {
-            return v4;
-        }
-        let v5 = Self {
-            guide: Guide::Switch(1.0),
-            guide_finest: true,
-            ..v4
-        };
-        if version == 5 {
-            return v5;
-        }
-        let v6 = Self {
-            finest_detail_aware: true,
-            ..v5
-        };
-        if version == 6 {
-            return v6;
-        }
-        let v7 = Self {
-            speck_swap: SPECK_SWAP,
-            ..v6
-        };
-        if version == 7 {
-            return v7;
-        }
-        let v8 = Self {
-            speck_luma_after_nr: true,
-            ..v7
-        };
-        if version == 8 {
-            return v8;
-        }
-        let v9 = Self {
-            range_clamp: RANGE_CLAMP,
-            ..v8
-        };
-        if version == 9 {
-            return v9;
-        }
-        let v10 = Self {
-            range_clamp: RANGE_CLAMP_PLAIN,
-            range_plain: true,
-            ..v9
-        };
-        if version == 10 {
-            return v10;
-        }
-        Self {
-            gpu_pyramid: true,
-            ..v10
-        }
+        crate::recipe_versions::delta_chain(
+            version,
+            Self::version2(),
+            &[
+                (3, |t| Self {
+                    quiet: [0.012, 2.5, 2.75],
+                    quiet_from: 3,
+                    coarse_noise_fall: 1.7,
+                    coarse_noise_from: 3,
+                    ..t
+                }),
+                (4, |t| Self {
+                    linear_means: true,
+                    ..t
+                }),
+                (5, |t| Self {
+                    guide: Guide::Switch(1.0),
+                    guide_finest: true,
+                    ..t
+                }),
+                (6, |t| Self {
+                    finest_detail_aware: true,
+                    ..t
+                }),
+                (7, |t| Self {
+                    speck_swap: SPECK_SWAP,
+                    ..t
+                }),
+                (8, |t| Self {
+                    speck_luma_after_nr: true,
+                    ..t
+                }),
+                (9, |t| Self {
+                    range_clamp: RANGE_CLAMP,
+                    ..t
+                }),
+                (10, |t| Self {
+                    range_clamp: RANGE_CLAMP_PLAIN,
+                    range_plain: true,
+                    ..t
+                }),
+                (11, |t| Self {
+                    gpu_pyramid: true,
+                    ..t
+                }),
+            ],
+        )
     }
 
     /// Version 2 (2026-10-13 … 2026-10-16).

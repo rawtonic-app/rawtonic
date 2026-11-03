@@ -4,7 +4,7 @@
 //! fabricated preview). One call renders a batch of tiles on one downscaled
 //! base; a newer batch or closing the browser cancels the rest.
 
-use crate::adjustment_utils::hydrate_adjustments;
+use crate::adjustment_utils::normalize_editor_recipe;
 use crate::app_state::AppState;
 use crate::cache_utils::calculate_transform_hash;
 use crate::editor_preview::{preview_mask_bitmaps, preview_source};
@@ -115,7 +115,7 @@ fn render_tiles(
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    hydrate_adjustments(&develop, &mut recipe);
+    normalize_editor_recipe(&develop, &mut recipe);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
         return Ok(Vec::new());
@@ -157,7 +157,7 @@ fn render_tiles(
             continue;
         }
         let mut tile = tile_recipe(&recipe, variant);
-        hydrate_adjustments(&develop, &mut tile);
+        normalize_editor_recipe(&develop, &mut tile);
         let mut probe = get_all_adjustments_with_masks(
             &tile,
             loaded_image.is_raw,

@@ -201,7 +201,8 @@ fn sub_mask_coverage(
                 // Version 4: grown and feathered on the grid with the photo
                 // around it that the two reach, so coverage just outside the
                 // crop grows and feathers into it as in the uncropped photo.
-                let margin = if mask_version.is_some_and(|version| version >= 4) {
+                let margin = if crate::recipe_versions::MaskVersion::new(mask_version).beyond_crop()
+                {
                     PhotoMargin::reaching(
                         geometry,
                         scale,
@@ -628,7 +629,7 @@ impl RefineTuning {
 
     pub(super) fn for_version(version: Option<u32>) -> Self {
         Self {
-            both_sides: version.is_some_and(|v| v >= 3),
+            both_sides: crate::recipe_versions::MaskVersion::new(version).refine_both_sides(),
             ..Self::DEFAULT
         }
     }

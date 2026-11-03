@@ -336,7 +336,12 @@ fn recipe_of(path: &str) -> serde_json::Value {
     if !recipe.is_object() {
         recipe = serde_json::json!({});
     }
-    let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut recipe, &source_path);
+    let _ = rawtonic_export::normalize::normalize(
+        &mut recipe,
+        &rawtonic_export::normalize::RecipeSource::file(&source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
     recipe
 }
 

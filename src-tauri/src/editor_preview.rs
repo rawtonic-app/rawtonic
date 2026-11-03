@@ -2,7 +2,7 @@
 //! variants, the interactive preview pipeline (workers, jobs, native
 //! presentation) and the commands that drive it. Moved out of `lib.rs`.
 use crate::adjustment_utils::apply_all_transformations;
-use crate::adjustment_utils::hydrate_adjustments;
+use crate::adjustment_utils::normalize_editor_recipe;
 use crate::app_state::AnalyticsJob;
 use crate::app_state::AppState;
 use crate::app_state::CachedPreview;
@@ -227,7 +227,10 @@ pub(crate) fn reduced_preview_scale(
 /// (`lateral_ca::share_estimate`).
 fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &serde_json::Value) {
     let params = crate::image_processing::get_geometry_params_from_json(adjustments);
-    if !params.auto_ca || params.auto_ca_version < 2 {
+    if !params.auto_ca
+        || !rawtonic_engine::recipe_versions::AutoCaVersion::from_raw(params.auto_ca_version)
+            .refined()
+    {
         return;
     }
     if let (Some(full), Some(reduced)) = (full.as_rgb32f(), reduced.as_rgb32f())
@@ -1341,7 +1344,7 @@ fn render_probe(
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    hydrate_adjustments(&develop, &mut recipe);
+    normalize_editor_recipe(&develop, &mut recipe);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
         return Ok(None);
@@ -1511,7 +1514,7 @@ pub(crate) fn process_preview_job(
     #[cfg(feature = "performance-profiling")]
     let setup_stage = crate::performance::PerformanceStage::new("preview_setup");
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    hydrate_adjustments(&develop, &mut adjustments_json);
+    normalize_editor_recipe(&develop, &mut adjustments_json);
     let adjustments_clone = adjustments_json;
 
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
@@ -2404,7 +2407,12 @@ fn activation_recipe(
         recipe = serde_json::json!({});
     }
     let new = rawtonic_engine::image_processing::is_new_recipe(&recipe);
-    let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut recipe, source_path);
+    let _ = rawtonic_export::normalize::normalize(
+        &mut recipe,
+        &rawtonic_export::normalize::RecipeSource::file(source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
     if new && let Some(map) = recipe.as_object_mut() {
         map.entry(rawtonic_engine::image_processing::LUMA_NOISE_VERSION_KEY)
             .or_insert(serde_json::json!(
@@ -2840,7 +2848,7 @@ fn render_split_before_blocking(
     let Some(current_key) = display_key(&context) else {
         return Ok(false);
     };
-    hydrate_adjustments(&develop, &mut adjustments);
+    normalize_editor_recipe(&develop, &mut adjustments);
     let load_generation = state.load_image_generation.load(Ordering::SeqCst);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
@@ -3124,7 +3132,7 @@ pub(crate) async fn generate_uncropped_preview(
     let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let context = get_or_init_gpu_context(&state, &app_handle)?;
     let mut adjustments_clone = js_adjustments.clone();
-    hydrate_adjustments(&develop, &mut adjustments_clone);
+    normalize_editor_recipe(&develop, &mut adjustments_clone);
 
     let loaded_image = crate::image_loader::original_image(&state).await?;
 

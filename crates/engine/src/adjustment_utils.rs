@@ -219,7 +219,7 @@ pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
     image: I,
     adjustments: &serde_json::Value,
 ) -> (Cow<'a, DynamicImage>, (f32, f32)) {
-    let keep_negative = crate::image_processing::render_version(adjustments) >= 2;
+    let keep_negative = crate::recipe_versions::RenderVersion::of(adjustments).keeps_negative();
     let steps = SpatialSteps::of(adjustments);
     let reorients = steps.reorients();
     let SpatialSteps {

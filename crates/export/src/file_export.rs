@@ -3,14 +3,12 @@
 //! as JSON or none. It reads no editor sidecars; kept metadata and the
 //! capture date come from the source file, catalog metadata from the caller.
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
-use crate::adjustment_utils::hydrate_adjustments_from_cache;
 use crate::exif_processing::{capture_date_with, read_exif_data_from_bytes};
 use crate::export_processing::{
     ExportOutput, ExportSettings, RenderEnv, prepare_export_source, render_and_save,
@@ -168,8 +166,13 @@ impl FileExporter {
         let source_path_str = job.source.to_string_lossy().to_string();
 
         let mut js_adjustments = job.recipe.clone().unwrap_or(Value::Null);
-        hydrate_adjustments_from_cache(&mut HashMap::new(), &mut js_adjustments);
-        crate::exif_processing::prepare_recipe_lens(&mut js_adjustments, job.source)?;
+        crate::normalize::normalize(
+            &mut js_adjustments,
+            &crate::normalize::RecipeSource::file(job.source),
+            crate::normalize::Bitmaps::Own,
+            crate::normalize::Defaults::Render,
+        )
+        .lens?;
         let is_raw = is_raw_file(&source_path_str);
 
         // The recipe's colour noise filter decides the decode-time chroma

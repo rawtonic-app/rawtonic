@@ -63,7 +63,7 @@ impl MaskDefinition {
 
     /// The mask is computed at 16 bits (`maskVersion` 2).
     pub fn precise(&self) -> bool {
-        self.mask_version.is_some_and(|version| version >= 2)
+        crate::recipe_versions::MaskVersion::new(self.mask_version).precise()
     }
 
     /// The Refine edge radius in full-resolution pixels, when it applies.

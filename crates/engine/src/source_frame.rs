@@ -104,8 +104,8 @@ pub fn frames(path: &str) -> Option<Vec<u32>> {
 /// file and its previews tell nothing (an offline photograph from before
 /// frames were recorded).
 pub fn effective(path: &str, version: u32) -> u32 {
-    if version == 0 {
-        return 0;
+    if version == crate::recipe_versions::ORIGINAL_SOURCE_FRAME {
+        return crate::recipe_versions::ORIGINAL_SOURCE_FRAME;
     }
     frames(path).map_or(version, |frames| {
         effective_in(&frames, version, &extension_of(path))

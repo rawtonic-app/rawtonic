@@ -98,16 +98,18 @@ pub const RANGE_3_FLAG: u32 = 256;
 /// burning skin (notes: benchmark-results/rls-relight-side-2026-11-03).
 pub const RANGE_4_FLAG: u32 = 512;
 
+use crate::recipe_versions::light_range;
+
 /// The ranges a light's values mean; absent = 1 (lights before 2026-10-31).
 fn range_version(light: &Value) -> u64 {
-    light["rangeVersion"].as_u64().unwrap_or(1)
+    light[light_range::KEY].as_u64().unwrap_or(1)
 }
 
 /// The light's gain for its Intensity (0–100). Lights without
 /// `rangeVersion` keep the first range, linear up to 3.
 fn intensity_gain(light: &Value, intensity: f32) -> f32 {
     let t = intensity / 100.;
-    if range_version(light) >= 2 {
+    if range_version(light) >= light_range::SECOND {
         RANGE_2_MAX_GAIN * t.powf(RANGE_2_EXPONENT)
     } else {
         t * 3.
@@ -184,17 +186,17 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
         // version 4 (with bits 7 and 8).
         let flags = u32::from(light["invert"].as_bool() == Some(true))
             | (mask << 1)
-            | if range_version(light) >= 2 {
+            | if range_version(light) >= light_range::SECOND {
                 RANGE_2_FLAG
             } else {
                 0
             }
-            | if range_version(light) >= 3 {
+            | if range_version(light) >= light_range::THIRD {
                 RANGE_3_FLAG
             } else {
                 0
             }
-            | if range_version(light) >= 4 {
+            | if range_version(light) >= light_range::FOURTH {
                 RANGE_4_FLAG
             } else {
                 0

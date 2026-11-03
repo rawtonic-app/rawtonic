@@ -415,7 +415,13 @@ pub async fn apply_face_retouch_to_paths(
                 if !recipe.is_object() {
                     recipe = serde_json::json!({});
                 }
-                rawtonic_export::exif_processing::prepare_recipe_lens(&mut recipe, &source_path)?;
+                rawtonic_export::normalize::normalize(
+                    &mut recipe,
+                    &rawtonic_export::normalize::RecipeSource::file(&source_path),
+                    rawtonic_export::normalize::Bitmaps::None,
+                    rawtonic_export::normalize::Defaults::Render,
+                )
+                .lens?;
                 let bytes = std::fs::read(&source_path).map_err(|e| e.to_string())?;
                 let name = source_path.to_string_lossy();
                 let is_raw = rawtonic_engine::formats::is_raw_file(&source_path);

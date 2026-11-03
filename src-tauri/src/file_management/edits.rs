@@ -563,8 +563,8 @@ fn pasted_into(
     let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
     // A photo without an edit starts one: the camera's crop and the current
     // render version, as the editor's new edits (a pasted crop replaces it).
+    // (`camera_crop::apply_default` also stamps the render versions.)
     rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
-    crate::image_processing::apply_render_default(&mut new_adjustments);
     // Its processing versions are a new edit's own.
     if new_edit
         && let (Some(responses), Some(map)) = (
@@ -777,7 +777,6 @@ pub async fn apply_auto_lens_correction_to_paths(
                     &mut existing_metadata.adjustments,
                     source_path,
                 );
-                crate::image_processing::apply_render_default(&mut existing_metadata.adjustments);
 
                 if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
                     obj.insert("lensCorrectionMode".to_string(), serde_json::json!("auto"));
@@ -842,7 +841,6 @@ pub async fn set_recipe_values(
                 let values = by_path.get(path).ok_or("no values")?;
                 let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
                 rawtonic_engine::camera_crop::apply_default(&mut metadata.adjustments, source_path);
-                crate::image_processing::apply_render_default(&mut metadata.adjustments);
                 let old = set_values(&mut metadata.adjustments, values)?;
                 written.lock().unwrap().push(RecipeValues {
                     path: path.to_string(),
@@ -1008,9 +1006,6 @@ pub async fn apply_auto_adjustments_to_paths(
                     rawtonic_engine::camera_crop::apply_default(
                         &mut existing_metadata.adjustments,
                         &source_path,
-                    );
-                    crate::image_processing::apply_render_default(
-                        &mut existing_metadata.adjustments,
                     );
                     let previous = existing_metadata.adjustments.clone();
                     crate::auto_adjust::merge_auto_adjustments(

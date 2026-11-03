@@ -98,10 +98,10 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
     if amount <= 0.0 {
         return None;
     }
-    let version = adjustments["aiDenoiseVersion"]
-        .as_u64()
-        .map_or(1, |v| v.clamp(1, AI_DENOISE_LATEST as u64) as u8);
-    Some(if version == 1 {
+    let version = crate::recipe_versions::AiDenoiseVersion::of(adjustments);
+    let blend_only = version.blend_only();
+    let version = version.get();
+    Some(if blend_only {
         AiDenoiseSettings {
             version,
             blend: amount,
@@ -131,7 +131,9 @@ impl AiDenoiseSettings {
     /// app rendered every version 2 edit with the first one (the macOS CLI
     /// refused such recipes instead).
     pub fn model(&self) -> usize {
-        usize::from(self.version >= 3)
+        usize::from(
+            crate::recipe_versions::AiDenoiseVersion::from_raw(self.version).mixed_precision(),
+        )
     }
 }
 
@@ -215,14 +217,10 @@ pub const HIGHLIGHT_RENDER_VERSION: u64 = 9;
 /// `image_processing::apply_render_default`).
 pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
     let is_raw = crate::formats::is_raw_file(source);
-    let render_version = if crate::image_processing::is_new_recipe(adjustments) {
-        crate::image_processing::RENDER_VERSION
-    } else {
-        crate::image_processing::render_version(adjustments)
-    };
+    let render = crate::recipe_versions::RenderVersion::effective(adjustments);
     DecodeVariant {
-        multiscale: crate::color_noise::multiscale(adjustments, is_raw),
-        dead_test: if render_version >= DEAD_TEST_RENDER_VERSION {
+        multiscale: crate::recipe_versions::ColorNoiseVersion::of(adjustments, is_raw).multiscale(),
+        dead_test: if render.adjacent_dead_test() {
             DeadTest::Adjacent
         } else {
             DeadTest::SameColour
@@ -232,14 +230,14 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
         } else {
             0
         },
-        black: if render_version >= BORDER_BLACK_RENDER_VERSION {
+        black: if render.border_black() {
             BlackLevels::UnbiasedBorder
-        } else if render_version >= BLACK_RENDER_VERSION {
+        } else if render.unbiased_black() {
             BlackLevels::Unbiased
         } else {
             BlackLevels::Clipped
         },
-        highlights: if render_version >= HIGHLIGHT_RENDER_VERSION {
+        highlights: if render.highlight_rebuild() {
             HighlightRebuild::Ratios
         } else {
             HighlightRebuild::Offsets

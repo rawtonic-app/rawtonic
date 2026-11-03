@@ -13,6 +13,9 @@ use std::borrow::Cow;
 use std::f32::consts::PI;
 
 use crate::masks::MaskDefinition;
+use crate::recipe_versions::{
+    AutoCaVersion, DefringeVersion, FringeVersion, RecipeVersions, RenderVersion,
+};
 
 pub trait IntoCowImage<'a> {
     fn into_cow(self) -> Cow<'a, DynamicImage>;
@@ -284,6 +287,7 @@ impl Default for GeometryParams {
 }
 
 pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> GeometryParams {
+    let render = RenderVersion::of(adjustments);
     let lens_params = adjustments
         .get("lensDistortionParams")
         .and_then(|v| v.as_object());
@@ -398,11 +402,11 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
                 .and_then(|v| v.as_bool())
                 != Some(false),
         auto_ca: false,
-        auto_ca_version: crate::lateral_ca::version_of(adjustments),
+        auto_ca_version: AutoCaVersion::of(adjustments).get(),
         auto_ca_versus_own: false,
-        keep_negative: render_version(adjustments) >= 2,
-        f32_warp: render_version(adjustments) >= F32_WARP_RENDER_VERSION,
-        gpu_warp: render_version(adjustments) >= GPU_WARP_RENDER_VERSION,
+        keep_negative: render.keeps_negative(),
+        f32_warp: render.f32_warp(),
+        gpu_warp: render.gpu_warp(),
         srgb_base: false,
         manual_vignette_amount: adjustments[crate::manual_vignette::AMOUNT_KEY]
             .as_f64()
@@ -3569,7 +3573,7 @@ impl MeasuredCa {
     /// longer than the rest of such a frame (0.4 s of a 2080 px draft on a
     /// Ryzen 5 3600X). Version 1 measures each image itself, as before.
     fn interim(params: &GeometryParams, reduced: &Rgb32FImage) -> Option<Self> {
-        if !params.auto_ca || params.auto_ca_version < 2 {
+        if !params.auto_ca || !AutoCaVersion::from_raw(params.auto_ca_version).refined() {
             return Self::of_params(params, Some(reduced));
         }
         let own = params.auto_ca_versus_own.then(|| own_tca_model(params));
@@ -3650,12 +3654,12 @@ impl RegionMeasures {
     pub fn inputs_key(adjustments: &Value) -> Option<u64> {
         use std::hash::{Hash, Hasher};
         let params = get_geometry_params_from_json(adjustments);
-        let fringe = crate::edge_fringe::version_of(adjustments);
-        if !params.auto_ca && fringe == 0 {
+        let fringe = FringeVersion::of(adjustments);
+        if !params.auto_ca && !fringe.enabled() {
             return None;
         }
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        fringe.hash(&mut hasher);
+        fringe.get().hash(&mut hasher);
         if params.auto_ca {
             params.auto_ca_version.hash(&mut hasher);
             if params.auto_ca_versus_own {
@@ -3723,7 +3727,7 @@ impl SpatialSteps {
             rotation_degrees,
             crop,
             fused: reorients || rotation_degrees % 360.0 != 0.0,
-            keep_negative: render_version(adjustments) >= 2,
+            keep_negative: RenderVersion::of(adjustments).keeps_negative(),
         }
     }
 
@@ -3781,7 +3785,7 @@ pub fn plan_transformed_region_with(
     if warp && params.auto_ca && estimate.is_none() {
         return None;
     }
-    let fringe = if crate::edge_fringe::version_of(adjustments) > 0 {
+    let fringe = if FringeVersion::of(adjustments).enabled() {
         Some(measures?.fringe?)
     } else {
         None
@@ -5121,6 +5125,7 @@ fn get_global_adjustments_from_json(
     is_raw: bool,
     tonemapper_override: Option<u32>,
 ) -> GlobalAdjustments {
+    let versions = RecipeVersions::of(js_adjustments, is_raw);
     let visibility = js_adjustments.get("sectionVisibility");
     let is_visible = |section: &str| -> bool {
         visibility
@@ -5216,7 +5221,7 @@ fn get_global_adjustments_from_json(
 
     // The Classic and AgX looks' inherited grading and calibration follow
     // their tool switches from `renderVersion` 2 (the other looks always did).
-    let switches = render_version(js_adjustments) >= 2;
+    let switches = versions.render.look_tool_switches();
     let classic_grading = is_visible("color") && (!switches || tool_on("colorGrading"));
     let classic_calibration = is_visible("color") && (!switches || tool_on("colorCalibration"));
     let color_cal_settings = if classic_calibration {
@@ -5284,7 +5289,7 @@ fn get_global_adjustments_from_json(
         vibrance: get_val("color", "vibrance", SCALES.vibrance, None),
         hue: get_val("color", "hue", 1.0, None),
         color_noise_speck: 0.0,
-        luma_speck: if luma_noise_version(js_adjustments) >= 2 {
+        luma_speck: if versions.luma_noise.removes_specks() {
             1.0
         } else {
             0.0
@@ -5362,7 +5367,7 @@ fn get_global_adjustments_from_json(
         lut_is_scene_referred,
         image_key: 0.0,
         image_key_low: 0.0,
-        tone_version: tone_version_of(js_adjustments) as f32,
+        tone_version: versions.tone.uniform(),
 
         baseline_exposure: 0.0,
         noise_level: 0.0,
@@ -5408,7 +5413,7 @@ fn get_global_adjustments_from_json(
         bw_enabled: if is_visible("color")
             && js_adjustments["blackAndWhite"].as_bool().unwrap_or(false)
         {
-            bw_version(js_adjustments) as u32
+            versions.bw.get() as u32
         } else {
             0
         },
@@ -5454,10 +5459,7 @@ fn get_global_adjustments_from_json(
         defringe: if is_visible("details") {
             defringe_settings(js_adjustments)
         } else {
-            [
-                [0.0, 0.0, 0.0, defringe_version(js_adjustments) as f32],
-                [0.0; 4],
-            ]
+            [[0.0, 0.0, 0.0, versions.defringe.get() as f32], [0.0; 4]]
         },
         color_ranges: [[0.0; 4]; 32],
         color_range_count: [0; 4],
@@ -5496,7 +5498,7 @@ fn get_global_adjustments_from_json(
             // Diffraction correction requested (its version); diffraction.rs
             // fills y/z.
             crate::diffraction::requested_flag(js_adjustments),
-            sharpen_version(js_adjustments) as f32,
+            versions.sharpen.get() as f32,
         ],
         camera_profile: [
             crate::camera_profile::register(js_adjustments["cameraProfile"].as_str().unwrap_or("")),
@@ -5526,34 +5528,20 @@ fn get_global_adjustments_from_json(
         relight_depth: [0; 4],
         relight_camera: crate::relight::Camera::uniforms(js_adjustments).0,
         relight_geometry: crate::relight::Camera::uniforms(js_adjustments).1,
-        color_noise: [
-            match crate::color_noise::version(js_adjustments, is_raw) {
-                version if version >= crate::color_noise::MULTISCALE_VERSION => {
-                    (version - 1) as f32
-                }
-                _ => 0.0,
-            },
-            0.0,
-            0.0,
-            0.0,
-        ],
+        color_noise: [versions.color_noise.uniform(), 0.0, 0.0, 0.0],
         color_noise_window: [0; 4],
         luma_noise_profile: [[0.0; 4]; 2],
         relight_source: crate::relight::source_uniforms(js_adjustments),
         luminance_curve: convert_points_to_aligned(luminance_points.clone()),
         luminance_curve_count: luminance_points.len().min(16) as u32,
-        grain_version: grain_version(js_adjustments) as u32,
-        clarity_version: clarity_version(js_adjustments) as u32,
+        grain_version: versions.grain.uniform(),
+        clarity_version: versions.clarity.uniform(),
         image_key_median: 0.0,
-        gamut_mapping: u32::from(render_version(js_adjustments) >= GAMUT_MAPPING_RENDER_VERSION),
+        gamut_mapping: u32::from(versions.render.gamut_mapping()),
         grain_color: (js_adjustments["grainColor"].as_f64().unwrap_or(0.0) / 100.0).clamp(0.0, 1.0)
             as f32,
-        capture_gain: u32::from(
-            render_version(js_adjustments) >= crate::baseline_exposure::CAPTURE_GAIN_RENDER_VERSION,
-        ),
-        scene_black: u32::from(
-            render_version(js_adjustments) >= crate::baseline_exposure::SCENE_BLACK_RENDER_VERSION,
-        ),
+        capture_gain: u32::from(versions.render.capture_gain()),
+        scene_black: u32::from(versions.render.scene_black()),
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -5904,7 +5892,7 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
         60.0,
         190.0,
     );
-    let version = defringe_version(adjustments) as f32;
+    let version = DefringeVersion::of(adjustments).get() as f32;
     [[purple, p_lo, p_hi, version], [green, g_lo, g_hi, 0.0]]
 }
 
@@ -5954,11 +5942,7 @@ pub const SHARPEN_VERSION: u64 = 7;
 /// The recipe's sharpening response, 1 when missing, never newer than this
 /// renderer knows.
 pub fn sharpen_version(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(SHARPEN_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, SHARPEN_VERSION)
+    crate::recipe_versions::SharpenVersion::of(adjustments).get()
 }
 
 /// The recipe key naming the luminance noise reduction a recipe was made with.
@@ -5979,11 +5963,7 @@ pub const LUMA_NOISE_VERSION: u64 = 2;
 /// The recipe's luminance noise reduction, 1 when missing, never newer than
 /// this renderer knows.
 pub fn luma_noise_version(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(LUMA_NOISE_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, LUMA_NOISE_VERSION)
+    crate::recipe_versions::LumaNoiseVersion::of(adjustments).get()
 }
 
 /// The recipe key naming the render pipeline's fixes a recipe was made
@@ -6056,11 +6036,7 @@ pub const SPECIALIZED_EXPORT_RENDER_VERSION: u64 = 5;
 /// The recipe's render pipeline version, 1 when missing, never newer than
 /// this renderer knows.
 pub fn render_version(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(RENDER_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, RENDER_VERSION)
+    crate::recipe_versions::RenderVersion::of(adjustments).get()
 }
 
 /// The colour label a library writes into each recipe it reads
@@ -6092,11 +6068,7 @@ pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
 /// The render version a recipe develops with: a new recipe's is the
 /// current one (`apply_render_default`), a saved one keeps its own.
 pub fn effective_render_version(adjustments: &serde_json::Value) -> u64 {
-    if is_new_recipe(adjustments) {
-        RENDER_VERSION
-    } else {
-        render_version(adjustments)
-    }
+    crate::recipe_versions::RenderVersion::effective(adjustments).get()
 }
 
 pub fn apply_render_default(adjustments: &mut serde_json::Value) {
@@ -6136,11 +6108,7 @@ pub const DEFRINGE_VERSION: u64 = 2;
 /// The recipe's Defringe detector, 1 when missing, never newer than this
 /// renderer knows.
 pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(DEFRINGE_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, DEFRINGE_VERSION)
+    crate::recipe_versions::DefringeVersion::of(adjustments).get()
 }
 
 /// The recipe key naming the B&W mix response a recipe was made with.
@@ -6158,11 +6126,7 @@ pub const BW_VERSION: u64 = 2;
 /// The recipe's B&W mix response, 1 when missing, never newer than this
 /// renderer knows.
 pub fn bw_version(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(BW_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, BW_VERSION)
+    crate::recipe_versions::BwVersion::of(adjustments).get()
 }
 
 /// Lightroom's B&W mix (`grayMixer`, −100…100 per channel) as slider / 100
@@ -6182,7 +6146,7 @@ fn gray_mixer(mixer: &serde_json::Value) -> [[f32; 4]; 2] {
 fn get_mask_adjustments_from_json(
     adj: &serde_json::Value,
     tonemapper_mode: u32,
-    render_version: u64,
+    render: RenderVersion,
 ) -> MaskAdjustments {
     if adj.is_null() {
         return MaskAdjustments::default();
@@ -6198,7 +6162,8 @@ fn get_mask_adjustments_from_json(
 
     let tool_on = |key: &str| tool_switch(key).is_none_or(&is_visible);
     // As for the photo (`get_global_adjustments_from_json`).
-    let classic_grading = is_visible("color") && (render_version < 2 || tool_on("colorGrading"));
+    let classic_grading =
+        is_visible("color") && (!render.look_tool_switches() || tool_on("colorGrading"));
     let get_val = |section: &str, key: &str, scale: f32| -> f32 {
         if is_visible(section) && tool_on(key) {
             adj[key].as_f64().unwrap_or(0.0) as f32 / scale
@@ -6437,7 +6402,7 @@ pub fn get_all_adjustments_with_masks(
     if curve_table.is_some() {
         global.region_curve_active[1] = 1;
     }
-    let version = render_version(js_adjustments);
+    let render = RenderVersion::of(js_adjustments);
     let mut mask_adjustments = [MaskAdjustments::default(); MAX_MASKS];
     let mut mask_count = 0;
 
@@ -6448,7 +6413,7 @@ pub fn get_all_adjustments_with_masks(
         .enumerate()
     {
         mask_adjustments[i] =
-            get_mask_adjustments_from_json(&mask_def.adjustments, global.tonemapper_mode, version);
+            get_mask_adjustments_from_json(&mask_def.adjustments, global.tonemapper_mode, render);
         mask_adjustments[i].exposure *= exposure_scale;
         mask_count += 1;
     }
@@ -6456,8 +6421,8 @@ pub fn get_all_adjustments_with_masks(
     PreparedAdjustments {
         relight_surface,
         relight_patterns,
-        whole_blur_radius: version >= 2,
-        specialized_export: version >= SPECIALIZED_EXPORT_RENDER_VERSION,
+        whole_blur_radius: render.whole_blur_radius(),
+        specialized_export: render.specialized_export(),
         curve_table,
         uniforms: AllAdjustments {
             global,
@@ -7290,11 +7255,7 @@ pub const GRAIN_VERSION: u64 = 3;
 /// The recipe's grain version, 1 when missing, never newer than this
 /// renderer knows.
 pub fn grain_version(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(GRAIN_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, GRAIN_VERSION)
+    crate::recipe_versions::GrainVersion::of(adjustments).get()
 }
 
 /// The recipe key naming the Clarity response it was made with.
@@ -7313,11 +7274,7 @@ pub const CLARITY_VERSION: u64 = 2;
 /// The recipe's Clarity version, 1 when missing, never newer than this
 /// renderer knows.
 pub fn clarity_version(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(CLARITY_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, CLARITY_VERSION)
+    crate::recipe_versions::ClarityVersion::of(adjustments).get()
 }
 
 /// Recipe `grainStructure` names as the shader's grain structure. Missing
@@ -7376,10 +7333,7 @@ pub const TONE_VERSION: u64 = 10;
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
 pub fn tone_version_of(adjustments: &serde_json::Value) -> u64 {
-    adjustments[TONE_VERSION_KEY]
-        .as_u64()
-        .unwrap_or(1)
-        .clamp(1, TONE_VERSION)
+    crate::recipe_versions::ToneVersion::of(adjustments).get()
 }
 
 /// Recipe `baseCurve` names as the shader's curve index. Unknown names use

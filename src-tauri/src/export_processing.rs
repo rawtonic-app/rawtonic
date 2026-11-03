@@ -33,7 +33,7 @@ use crate::mask_generation::{
     MaskBitmap, MaskDefinition, PhotoGeometry, generate_mask_bitmap, prepare_parametric_mask_source,
 };
 
-use crate::adjustment_utils::{apply_all_transformations, hydrate_adjustments};
+use crate::adjustment_utils::{apply_all_transformations, normalize_editor_recipe};
 use crate::cache_utils::{calculate_full_job_hash, calculate_transform_hash};
 use crate::editor_preview::generate_transformed_preview;
 use crate::export_queue::Stage;
@@ -1397,11 +1397,15 @@ fn export_photo(
     };
     let mut js_adjustments = std::mem::take(&mut pinned.adjustments);
 
-    hydrate_adjustments(&develop, &mut js_adjustments);
     // A never-edited photo exports with the camera's lens data,
     // as Develop shows it (profile corrections on by default).
-    if let Err(e) =
-        rawtonic_export::exif_processing::prepare_recipe_lens(&mut js_adjustments, &source_path)
+    if let Err(e) = rawtonic_export::normalize::normalize(
+        &mut js_adjustments,
+        &rawtonic_export::normalize::RecipeSource::file(&source_path),
+        rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
+        rawtonic_export::normalize::Defaults::Render,
+    )
+    .lens
     {
         return fail_all(e);
     }
@@ -2138,7 +2142,7 @@ fn estimate_sizes(
             .clone()
             .ok_or("No original image loaded")?;
         let mut adjustments_clone = current_edit_adjustments.clone().unwrap();
-        hydrate_adjustments(&develop, &mut adjustments_clone);
+        normalize_editor_recipe(&develop, &mut adjustments_clone);
 
         let new_transform_hash = calculate_transform_hash(&adjustments_clone);
         let cached_preview_lock = develop.cached_preview.lock().unwrap();
@@ -2274,9 +2278,11 @@ fn estimate_sizes(
         let mut js_adjustments = metadata.adjustments;
         // An estimate: a lens that cannot be resolved yet only leaves it
         // without the correction.
-        let _ = rawtonic_export::exif_processing::prepare_recipe_lens(
+        let _ = rawtonic_export::normalize::normalize(
             &mut js_adjustments,
-            Path::new(&source_path_str),
+            &rawtonic_export::normalize::RecipeSource::file(Path::new(&source_path_str)),
+            rawtonic_export::normalize::Bitmaps::None,
+            rawtonic_export::normalize::Defaults::Render,
         );
 
         const ESTIMATE_DIM: u32 = 1280;

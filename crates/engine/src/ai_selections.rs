@@ -47,7 +47,7 @@ impl AutoSelection {
 /// `rawtonic_segment::SUBJECT_VERSION` for new ones.
 pub fn subject_version(parameters: &Value) -> u32 {
     parameters
-        .get("subjectVersion")
+        .get(crate::recipe_versions::SUBJECT_VERSION_KEY)
         .and_then(Value::as_u64)
         .map_or(1, |v| v.min(u32::MAX as u64) as u32)
 }
