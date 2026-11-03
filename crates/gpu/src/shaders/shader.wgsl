@@ -2074,6 +2074,8 @@ const SHADOWS_LOWER: f32 = 1.2;
 const SH_V6_CAP: f32 = 2.0;
 const SH_V6_SPAN: f32 = 1.0;
 const SH_V6_FLOOR: f32 = 0.01;
+// Renderer value (slider / 100) by which version 6 is fully faded in.
+const SH_V6_FADE: f32 = 0.1;
 
 // The wide level: luminance in input space (before exposure).
 fn shadows_v6_level(coords: vec2<u32>) -> f32 {
@@ -2173,13 +2175,19 @@ fn apply_tonal_adjustments(
         var level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
         let v6 = sh > 0.0 && adjustments.global.tone_version > 5.5;
         let tonal_level = level_luma;
+        // Faded in (quadratically) over Shadows 0 … +SH_V6_FADE, so raising
+        // Shadows from 0 does not switch the level of Blacks' (shared) gain
+        // at once.
+        let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
+        let fade = ramp * ramp;
         if (v6) {
-            level_luma = max(wide_luma_input_space * whites_ratio, 0.0001);
+            let wide = max(wide_luma_input_space * whites_ratio, 0.0001);
+            level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));
         }
         let gain = camera_raw_shadows_blacks_gain(level_luma * exposure_gain, sh, bl);
         rgb *= gain;
         if (v6) {
-            rgb *= shadows_v6_texture(tonal_level, level_luma, gain, exposure_gain);
+            rgb *= pow(shadows_v6_texture(tonal_level, level_luma, gain, exposure_gain), fade);
         }
     } else if (sh != 0.0 || bl != 0.0) {
         let t_pixel = pow(safe_pixel_luma, 0.4545);

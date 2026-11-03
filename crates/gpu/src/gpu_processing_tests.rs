@@ -9591,6 +9591,24 @@ fn tone_version_6_keeps_texture_in_lifted_shadows() {
             + 0.7152 * srgb_code_to_linear(p[1])
             + 0.0722 * srgb_code_to_linear(p[2])
     };
+    // Raising Shadows from 0 with Blacks set changes as little as in version
+    // 5 (version 6 fades in over Shadows 0 … +10; switching at once moved
+    // Blacks' shared gain).
+    for blacks in [-50, 50] {
+        let step = |version: u64| {
+            let off = render(with(&json!({ "blacks": blacks }), version));
+            let on = render(with(&json!({ "blacks": blacks, "shadows": 1 }), version));
+            off.iter()
+                .zip(&on)
+                .flat_map(|(a, b)| (0..3).map(move |c| (a[c] as f64 - b[c] as f64).abs()))
+                .fold(0.0f64, f64::max)
+        };
+        let (fifth, sixth) = (step(5), step(6));
+        assert!(
+            sixth <= fifth + 64.0,
+            "Blacks {blacks}: Shadows 0 → +1 moves a channel {sixth} codes (version 5: {fifth})"
+        );
+    }
     let neutral = render(with(&json!({}), 6));
     for amount in [100, 50] {
         let recipe = json!({ "shadows": amount });

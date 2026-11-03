@@ -5347,7 +5347,7 @@ fn get_global_adjustments_from_json(
         lut_is_scene_referred,
         image_key: 0.0,
         image_key_low: 0.0,
-        tone_version: rendered_tone_version(js_adjustments) as f32,
+        tone_version: tone_version_of(js_adjustments) as f32,
 
         baseline_exposure: 0.0,
         noise_level: 0.0,
@@ -7309,26 +7309,6 @@ pub fn tone_version_of(adjustments: &serde_json::Value) -> u64 {
         .clamp(1, TONE_VERSION)
 }
 
-/// The tone-slider version the renderer runs a recipe with: its own, except
-/// that version 6 renders as 5 where nothing raises Shadows (on the photo or
-/// a layer). Version 6 only changes raised Shadows, but it also stores the
-/// small blur's mean log luminance more precisely, which Clarity reads too:
-/// without this, Clarity in new edits would differ from version 5 by up to
-/// 1 % of a channel (shader.wgsl `small_blur_mean_log`).
-pub fn rendered_tone_version(adjustments: &serde_json::Value) -> u64 {
-    let version = tone_version_of(adjustments);
-    let raised = |values: &serde_json::Value| values["shadows"].as_f64().unwrap_or(0.0) > 0.0;
-    let raises_shadows = raised(adjustments)
-        || adjustments["masks"]
-            .as_array()
-            .is_some_and(|masks| masks.iter().any(|mask| raised(&mask["adjustments"])));
-    if version >= 6 && !raises_shadows {
-        5
-    } else {
-        version
-    }
-}
-
 /// Recipe `baseCurve` names as the shader's curve index. Unknown names use
 /// the standard curve.
 pub fn base_curve_index(name: Option<&str>) -> u32 {
@@ -7815,15 +7795,8 @@ mod tone_version_tests {
             version(json!({"shadows": 20, "toneVersion": 9})),
             TONE_VERSION as f32
         );
-        // Version 6 changes raised Shadows only (on the photo or a layer);
-        // without them it renders as 5.
+        // Version 6 (raised Shadows keeps lifted texture) is known.
         assert_eq!(version(json!({"shadows": 20, "toneVersion": 6})), 6.0);
-        assert_eq!(
-            version(json!({"masks": [{"adjustments": {"shadows": 30}}], "toneVersion": 6})),
-            6.0
-        );
-        assert_eq!(version(json!({"clarity": 50, "toneVersion": 6})), 5.0);
-        assert_eq!(version(json!({"shadows": -40, "toneVersion": 6})), 5.0);
     }
 }
 

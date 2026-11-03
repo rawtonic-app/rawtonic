@@ -1740,16 +1740,19 @@ const loadedAiDenoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): n
 };
 
 /** The tone-slider response of a saved recipe: its own; else the current
- * one when nothing in it renders differently with it (no raised Shadows and
- * no lowered Highlights on the photo or a layer), the earlier one otherwise
- * (missing key). */
+ * one when nothing in it renders differently with it (no raised Shadows, no
+ * lowered Highlights and no Clarity on the photo or a layer), the earlier one
+ * otherwise (missing key). */
 const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => {
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
-  // Versions 2 to 6 change raised Shadows and lowered Highlights only.
-  const differs = (values: { shadows?: unknown; highlights?: unknown } | undefined) =>
-    ((values?.shadows as number | undefined) ?? 0) > 0 || ((values?.highlights as number | undefined) ?? 0) < 0;
+  // Versions 2 to 6 change raised Shadows and lowered Highlights; 6 also
+  // reads Clarity's base more precisely (a rounding-level change).
+  const differs = (values: { shadows?: unknown; highlights?: unknown; clarity?: unknown } | undefined) =>
+    ((values?.shadows as number | undefined) ?? 0) > 0 ||
+    ((values?.highlights as number | undefined) ?? 0) < 0 ||
+    ((values?.clarity as number | undefined) ?? 0) !== 0;
   const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
   return rendersDifferently ? undefined : TONE_VERSION;
 };

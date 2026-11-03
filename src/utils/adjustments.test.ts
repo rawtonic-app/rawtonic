@@ -255,6 +255,9 @@ describe('RAW detail defaults', () => {
     // Any raised Shadows renders differently from version 6 on.
     const raised = { shadows: 20 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(raised, true).toneVersion).toBeUndefined();
+    // Version 6 reads Clarity's base more precisely: keep the saved response.
+    const clarity = { masks: [{ adjustments: { clarity: -20 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(clarity, true).toneVersion).toBeUndefined();
     const versioned = { shadows: 80, toneVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).toneVersion).toBe(2);
     const old = { shadows: 80, toneVersion: 1 } as unknown as Adjustments;
