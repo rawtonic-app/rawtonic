@@ -9953,8 +9953,8 @@ fn tone_sliders_together_stay_finite_and_in_range_on_bright_dark_and_mid_frames(
 }
 
 #[test]
-#[ignore = "requires a native GPU; tone versions 5 to 9 render as their predecessor where the change cannot act"]
-fn tone_versions_5_to_9_render_as_their_predecessor_where_their_change_cannot_act() {
+#[ignore = "requires a native GPU; tone versions 5 to 10 render as their predecessor where the change cannot act"]
+fn tone_versions_5_to_10_render_as_their_predecessor_where_their_change_cannot_act() {
     let context = context();
     let (width, height) = (2048u32, 8u32);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
@@ -9999,6 +9999,10 @@ fn tone_versions_5_to_9_render_as_their_predecessor_where_their_change_cannot_ac
         (8, 7, "whites", 1.0, keys.to_vec()),
         // 9: lowered Blacks' display black point.
         (9, 8, "blacks", -1.0, keys.to_vec()),
+        // 10: lowered Whites at an edge-aware local base, which acts only
+        // under the Camera Raw look (`base_look_is_camera_raw`): the frames
+        // render its lowered Whites as 9 under Standard.
+        (10, 9, "whites", -1.0, keys.to_vec()),
     ];
     let sliders = [
         "highlights",
