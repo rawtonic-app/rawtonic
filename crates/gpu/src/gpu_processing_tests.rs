@@ -5127,7 +5127,7 @@ fn the_flag_rows_feed_the_clipping_marks_but_not_the_scopes() {
     // Two picture rows of mid grey, one strip row whose alpha marks a
     // clipped highlight (bit 1).
     let mut pixels = vec![128u8; 2 * 2 * 4 * 2];
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0.iter_mut() {
         pixel[3] = 0;
     }
     pixels.extend_from_slice(&[255, 255, 255, 2, 0, 0, 0, 0]);
