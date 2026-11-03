@@ -789,7 +789,7 @@ pub fn run() {
             contribute::usage_stats_note_tools,
             contribute::usage_stats_preview,
             app_settings::command::load_settings,
-            app_settings::command::save_settings,
+            app_settings::save_settings,
             ai_commands::generate_ai_depth_mask,
             file_management::delete_files_from_disk,
             file_management::delete_files_with_associated,

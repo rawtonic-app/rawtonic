@@ -12,16 +12,32 @@ use std::path::Path;
 /// (command, why it may run on the main thread)
 const SYNC_COMMANDS: &[(&str, &str)] = &[
     (
+        "save_settings",
+        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
+    ),
+    (
+        "add_to_album",
+        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
+    ),
+    (
+        "save_albums",
+        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
+    ),
+    (
+        "save_presets",
+        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
+    ),
+    (
         "handle_import_presets_from_files",
-        "read-modify-write of the whole preset library: stays ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
+        "read-modify-write of the whole preset library, ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
     ),
     (
         "handle_import_legacy_presets_from_file",
-        "read-modify-write of the whole preset library: stays ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
+        "read-modify-write of the whole preset library, ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
     ),
     (
         "handle_import_presets_from_file",
-        "read-modify-write of the whole preset library: stays ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
+        "read-modify-write of the whole preset library, ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
     ),
     (
         "app_menu_text_action",
@@ -99,23 +115,23 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "export_queue_cancel",
-        "sets a cancel flag or wakes a worker; no I/O",
+        "flags the running render, then a SQLite queue operation; still runs on the main thread, to move off once measured (follow-up)",
     ),
     (
         "export_queue_hold",
-        "in-memory state behind a short lock; no I/O",
+        "queue operation with SQLite reads or writes (remove also deletes staging files); still runs on the main thread, to move off once measured (follow-up)",
     ),
     (
         "export_queue_pause",
-        "in-memory state behind a short lock; no I/O",
+        "queue operation with SQLite reads or writes (remove also deletes staging files); still runs on the main thread, to move off once measured (follow-up)",
     ),
     (
         "export_queue_remove",
-        "in-memory state behind a short lock; no I/O",
+        "queue operation with SQLite reads or writes (remove also deletes staging files); still runs on the main thread, to move off once measured (follow-up)",
     ),
     (
         "export_queue_resume",
-        "in-memory state behind a short lock; no I/O",
+        "queue operation with SQLite reads or writes (remove also deletes staging files); still runs on the main thread, to move off once measured (follow-up)",
     ),
     (
         "finish_quit",

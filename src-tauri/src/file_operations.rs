@@ -12,7 +12,7 @@
 //! to another drive copies, verifies and then trashes the originals (ADR
 //! 0016); its progress goes to the Library, which can stop it.
 use crate::file_management::{
-    AlbumItem, add_to_album_blocking, get_albums_blocking, sync_album_path_changes,
+    AlbumItem, add_to_album, get_albums_blocking, sync_album_path_changes,
 };
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
@@ -882,7 +882,7 @@ fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
             .and_then(|a| serde_json::from_value::<HashMap<String, Vec<String>>>(a.clone()).ok())
         {
             for (album, images) in albums {
-                let _ = add_to_album_blocking(album, images, app.clone());
+                let _ = add_to_album(album, images, app.clone());
             }
         }
     }

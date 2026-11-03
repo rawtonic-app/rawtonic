@@ -1142,6 +1142,7 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
+#[tauri::command]
 pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
     let _guard = SETTINGS_LOCK
         .lock()
@@ -1580,13 +1581,6 @@ pub mod command {
     #[tauri::command]
     pub async fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         tauri::async_runtime::spawn_blocking(move || super::load_settings(app_handle))
-            .await
-            .map_err(|e| e.to_string())?
-    }
-
-    #[tauri::command]
-    pub async fn save_settings(settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
-        tauri::async_runtime::spawn_blocking(move || super::save_settings(settings, app_handle))
             .await
             .map_err(|e| e.to_string())?
     }
