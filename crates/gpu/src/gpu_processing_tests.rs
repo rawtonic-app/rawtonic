@@ -413,6 +413,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
             profile["lumaNoiseDetail"] = json!(70);
         }
+        if expected & SHARPEN_V7_FEATURE != 0 {
+            profile["sharpenMasking"] = json!(50);
+            profile["sharpenVersion"] = json!(7);
+        }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         assert_eq!(preview_features(&adjustments), expected, "{profile}");
         if expected & 8 != 0 {
@@ -424,7 +428,8 @@ fn preview_features_preserve_global_and_local_effects() {
                     & (RELIGHT_PREVIEW_FEATURE
                         | RELIGHT_RANGE2_FEATURE
                         | RELIGHT_RANGE3_FEATURE
-                        | RELIGHT_RANGE4_FEATURE)
+                        | RELIGHT_RANGE4_FEATURE
+                        | SHARPEN_V7_FEATURE)
             );
             continue;
         }
@@ -2029,6 +2034,77 @@ fn sharpen_version_6_reaches_further_on_non_raw_photos() {
             "Amount {amount}: change ×{ratio} against response 5, expected ×{expected}"
         );
     }
+}
+
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 6 and 7"]
+fn sharpen_version_7_masks_bright_flat_noise() {
+    // Left half: a bright flat area with noise (σ 0.02 in square-root
+    // luminance, a fixed pseudo-random pattern); right half: mid-grey
+    // texture (a 6 px pattern, ±20 %) with the same noise.
+    let (width, height) = (128u32, 128u32);
+    let noise_level = 0.02f32;
+    let pixels: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let (x, y) = (i % width, i / width);
+            let hash = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)).wrapping_mul(2_654_435_761);
+            let noise = (hash >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0;
+            let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
+            let base = if x < width / 2 { 0.85f32 } else { 0.4 * (1.0 + 0.2 * phase(x) * phase(y)) };
+            // Uniform noise of σ 0.02 in the square-root encoding.
+            let p = base.sqrt() + noise * noise_level * 3f32.sqrt();
+            let v = f16::from_f32(p * p);
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &pixels);
+    let render = |profile: serde_json::Value, is_raw: bool| {
+        let mut adjustments = get_all_adjustments_from_json(&profile, is_raw, Some(1));
+        adjustments.global.noise_level = noise_level;
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest { adjustments, mask_bitmaps: &[], lut: None, roi: None },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let recipe = |masking: f64, version: u64| {
+        json!({"sharpness": 80, "sharpenMasking": masking, "lumaNoiseReduction": 0,
+            "colorNoiseReduction": 0, "sharpenVersion": version})
+    };
+    // Without Masking, and on non-RAW photos, response 6 bit for bit.
+    assert_eq!(render(recipe(0.0, 7), true), render(recipe(0.0, 6), true));
+    assert_eq!(render(recipe(50.0, 7), false), render(recipe(50.0, 6), false));
+    // Sharpening change per half against the unsharpened render.
+    let flat = render(json!({"sharpness": 0, "lumaNoiseReduction": 0, "colorNoiseReduction": 0}), true);
+    let change = |version: u64| {
+        let pixels = render(recipe(50.0, version), true);
+        let mut sums = [0.0f64; 2];
+        for y in 8..height - 8 {
+            for x in (8..width / 2 - 8).chain(width / 2 + 8..width - 8) {
+                let i = ((y * width + x) * 4) as usize;
+                sums[usize::from(x >= width / 2)] += (pixels[i] as f64 - flat[i] as f64).abs();
+            }
+        }
+        sums
+    };
+    let (v6, v7) = (change(6), change(7));
+    // Masking 50 tells the texture from the bright flat noise far better:
+    // the texture keeps more of its sharpening relative to the noise.
+    let (r6, r7) = (v6[1] / v6[0], v7[1] / v7[0]);
+    eprintln!("flat {} / {}, texture {} / {}, texture per noise {r6:.2} / {r7:.2}", v6[0], v7[0], v6[1], v7[1]);
+    assert!(v7[0] < 0.5 * v6[0], "bright flat noise: {} against {}", v7[0], v6[0]);
+    assert!(r7 > 2.0 * r6, "texture per flat noise: {r7} against {r6}");
 }
 
 /// The default adapter of the backends `WGPU_BACKEND` names (all when unset),

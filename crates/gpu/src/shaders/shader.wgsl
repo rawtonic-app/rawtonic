@@ -44,6 +44,10 @@ override LONG_CURVES: bool = false;
 // Display frames whose layer slider sums come from one pass (layer_sums.wgsl)
 // instead of the per-layer loop (gpu_processing.rs `layer_sums_buffer`).
 override LAYER_SUMS: bool = false;
+// Masking of sharpening response 7 (`apply_sharpen_v7`): compiled only into
+// pipelines for recipes that use it, so other recipes' exports keep their
+// bits (gpu_processing.rs `SHARPEN_V7_FEATURE`).
+override SHARPEN_V7: bool = false;
 
 struct CurveSegment {
     endpoints: vec4<f32>,
@@ -3794,7 +3798,7 @@ fn apply_sharpen(
     // Response 4 differs from 3 only below Radius 1 or with Masking.
     // Response 5 differs from 4 only with Masking.
     // Response 7 differs from 6 only with Masking, on RAW photos.
-    if (response >= 7.0 && adjustments.global.sharpen_masking > 0.0 && is_raw == 1u) {
+    if (SHARPEN_V7 && response >= 7.0 && adjustments.global.sharpen_masking > 0.0 && is_raw == 1u) {
         return apply_sharpen_v7(color, coords_i, amount, threshold, is_raw);
     }
     if (response >= 5.0 && adjustments.global.sharpen_masking > 0.0) {
