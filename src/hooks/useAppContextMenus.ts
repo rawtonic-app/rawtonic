@@ -75,7 +75,7 @@ import {
   COLOR_LABELS,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
-  withPresetClarityVersion,
+  withPresetVersions,
 } from '../utils/adjustments';
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
@@ -204,7 +204,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       onClick: () => {
         // A style replaces each photo's last applied one, as in the styles list.
         const style = preset.presetType !== 'tool' ? { style: { id: preset.id } } : undefined;
-        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths, style);
+        applyAdjustmentsToPaths(withPresetVersions(structuredClone(preset.adjustments) as never), paths, style);
         noteTool('presets');
       },
     });

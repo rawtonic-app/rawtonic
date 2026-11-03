@@ -63,6 +63,17 @@ describe("targeted adjustment", () => {
     expect(patch.grayMixer!.red).toBe(0);
   });
 
+  it("weighs the mix channels with the recipe's mix response", () => {
+    // An orange between version 1's orange and yellow windows: version 2's
+    // narrower orange window gives yellow a larger share.
+    const orange = linearFromSrgb([230, 160, 40]);
+    const v1 = startTargetedAdjustment("grayMixer", { ...base(), bwVersion: 1 }, orange, null)!;
+    const v2 = startTargetedAdjustment("grayMixer", { ...base(), bwVersion: 2 }, orange, null)!;
+    expect(v1.weights).not.toEqual(v2.weights);
+    // Without the key: version 1, as the renderer.
+    expect(startTargetedAdjustment("grayMixer", { ...base(), bwVersion: undefined }, orange, null)!.weights).toEqual(v1.weights);
+  });
+
   it("adds a curve point at the level under the pointer and then moves it", () => {
     const start = startTargetedAdjustment("curve", base(), null, [
       linearFromSrgb([100, 100, 100]),

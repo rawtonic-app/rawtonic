@@ -4299,7 +4299,8 @@ pub struct GlobalAdjustments {
     /// 1 when `grading_lut` holds Lightroom-style colour grading
     /// (color_grading.rs); the legacy fields above are then zero.
     pub grading_active: u32,
-    /// 1 when the photo is converted to black and white (`bw_mix`).
+    /// The B&W mix response (`bw_version`) when the photo is converted to
+    /// black and white (`bw_mix`), 0 in colour.
     pub bw_enabled: u32,
 
     pub color_calibration: ColorCalibrationSettings,
@@ -5390,9 +5391,13 @@ fn get_global_adjustments_from_json(
             0.0
         },
         grading_active: 0,
-        bw_enabled: u32::from(
-            is_visible("color") && js_adjustments["blackAndWhite"].as_bool().unwrap_or(false),
-        ),
+        bw_enabled: if is_visible("color")
+            && js_adjustments["blackAndWhite"].as_bool().unwrap_or(false)
+        {
+            bw_version(js_adjustments) as u32
+        } else {
+            0
+        },
 
         color_calibration: color_cal_settings,
 
@@ -6107,6 +6112,28 @@ pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1)
         .clamp(1, DEFRINGE_VERSION)
+}
+
+/// The recipe key naming the B&W mix response a recipe was made with.
+pub const BW_VERSION_KEY: &str = "bwVersion";
+/// The newest B&W mix response: 2 (2026-11-03) lowers more strongly the
+/// further a slider is pulled, as Lightroom's and Capture One's mixes do
+/// (−100 darkens about 2.3 times as much as −50, against 1.8 times in
+/// version 1), with channel windows and gains fitted to Camera Raw on 15
+/// photographs (gains × 1.1 to match Lightroom's own B&W on Rawtonic's
+/// colour); the conversion with all sliders at 0 is version 1's (notes:
+/// benchmark-results/bw2-black-white-2026-11-03). Recipes that converted
+/// to black and white without the key keep version 1.
+pub const BW_VERSION: u64 = 2;
+
+/// The recipe's B&W mix response, 1 when missing, never newer than this
+/// renderer knows.
+pub fn bw_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(BW_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, BW_VERSION)
 }
 
 /// Lightroom's B&W mix (`grayMixer`, −100…100 per channel) as slider / 100
@@ -8067,6 +8094,28 @@ mod editing_tool_tests {
         let colour =
             get_global_adjustments_from_json(&json!({"grayMixer": {"red": 20}}), true, None);
         assert_eq!(colour.bw_enabled, 0);
+    }
+
+    #[test]
+    fn black_and_white_carries_its_mix_response() {
+        let enabled = |recipe: serde_json::Value| {
+            get_global_adjustments_from_json(&recipe, true, None).bw_enabled
+        };
+        // Recipes without the key keep the first response.
+        assert_eq!(enabled(json!({"blackAndWhite": true})), 1);
+        assert_eq!(enabled(json!({"blackAndWhite": true, "bwVersion": 2})), 2);
+        // Never newer than the renderer knows.
+        assert_eq!(
+            enabled(json!({"blackAndWhite": true, "bwVersion": 9})),
+            BW_VERSION as u32
+        );
+        assert_eq!(enabled(json!({"blackAndWhite": false, "bwVersion": 2})), 0);
+        assert_eq!(
+            enabled(
+                json!({"blackAndWhite": true, "bwVersion": 2, "sectionVisibility": {"color": false}})
+            ),
+            0
+        );
     }
 
     #[test]

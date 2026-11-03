@@ -543,6 +543,7 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
             json!(rawtonic_engine::color_noise::VERSION);
         base[ip::LUMA_NOISE_VERSION_KEY] = json!(ip::LUMA_NOISE_VERSION);
         base[ip::DEFRINGE_VERSION_KEY] = json!(ip::DEFRINGE_VERSION);
+        base[ip::BW_VERSION_KEY] = json!(ip::BW_VERSION);
         base[ip::GRAIN_VERSION_KEY] = json!(ip::GRAIN_VERSION);
         if is_raw {
             base["aiDenoiseVersion"] = json!(rawtonic_engine::image_loader::AI_DENOISE_VERSION);
@@ -1184,6 +1185,10 @@ mod tests {
             (
                 rawtonic_engine::image_processing::GRAIN_VERSION_KEY,
                 rawtonic_engine::image_processing::GRAIN_VERSION,
+            ),
+            (
+                rawtonic_engine::image_processing::BW_VERSION_KEY,
+                rawtonic_engine::image_processing::BW_VERSION,
             ),
         ] {
             assert_eq!(a[key].as_u64(), Some(version), "{key}");

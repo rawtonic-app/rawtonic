@@ -17,7 +17,8 @@
           "blue": 0,
           "purple": 0,
           "magenta": 0
-        }
+        },
+        "bwVersion": 2
       }
     },
     {
@@ -37,6 +38,7 @@
           "purple": 0,
           "magenta": 0
         },
+        "bwVersion": 2,
         "contrast": 25,
         "whites": 15,
         "blacks": -8,
@@ -61,6 +63,7 @@
           "purple": 0,
           "magenta": 0
         },
+        "bwVersion": 2,
         "contrast": -18,
         "highlights": -25,
         "shadows": 20,
@@ -84,6 +87,7 @@
           "purple": 0,
           "magenta": 0
         },
+        "bwVersion": 2,
         "contrast": -12,
         "highlights": -15,
         "levels": {
@@ -141,6 +145,7 @@
           "purple": -10,
           "magenta": 0
         },
+        "bwVersion": 2,
         "contrast": 10
       }
     },
@@ -161,6 +166,7 @@
           "purple": 0,
           "magenta": 0
         },
+        "bwVersion": 2,
         "contrast": 5
       }
     },
@@ -181,6 +187,7 @@
           "purple": 0,
           "magenta": 0
         },
+        "bwVersion": 2,
         "colorGrading": {
           "balance": 0,
           "blending": 50,
@@ -706,7 +713,8 @@
           "blue": 0,
           "purple": 0,
           "magenta": 0
-        }
+        },
+        "bwVersion": 2
       }
     },
     {
@@ -725,7 +733,8 @@
           "blue": -40,
           "purple": -10,
           "magenta": 0
-        }
+        },
+        "bwVersion": 2
       }
     },
     {
@@ -744,7 +753,8 @@
           "blue": -70,
           "purple": -25,
           "magenta": 0
-        }
+        },
+        "bwVersion": 2
       }
     },
     {
@@ -763,7 +773,8 @@
           "blue": -15,
           "purple": 0,
           "magenta": 0
-        }
+        },
+        "bwVersion": 2
       }
     },
     {
@@ -782,7 +793,8 @@
           "blue": 0,
           "purple": 0,
           "magenta": 0
-        }
+        },
+        "bwVersion": 2
       }
     },
     {

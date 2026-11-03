@@ -1248,6 +1248,64 @@ fn camera_profile_matrix_and_tables_act_on_the_gpu() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; B&W mix responses"]
+fn bw_mix_version_2_keeps_the_conversion_and_lowers_further() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 256, 128).unwrap();
+    let view = input(&context, 256, 128, 3);
+    let render = |profile: serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(2));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                256,
+                128,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U8(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let bw = |version: u64, mix: serde_json::Value| {
+        render(json!({"blackAndWhite": true, "bwVersion": version, "grayMixer": mix}))
+    };
+    // Every slider at 0: both responses convert alike.
+    assert_eq!(bw(1, json!({})), bw(2, json!({})));
+    // Darkening (sum of the drop below the neutral grey) at -50 and -100.
+    let drop = |version: u64, value: i32| -> f64 {
+        let neutral = bw(version, json!({}));
+        let pulled = bw(
+            version,
+            json!({"blue": value, "orange": value, "green": value}),
+        );
+        neutral
+            .iter()
+            .zip(&pulled)
+            .map(|(&a, &b)| (a as f64 - b as f64).max(0.0))
+            .sum()
+    };
+    let (v1, v2) = (drop(1, -100) / drop(1, -50), drop(2, -100) / drop(2, -50));
+    assert!(
+        v2 > v1 + 0.1,
+        "-100/-50 darkening: version 1 {v1:.2}, version 2 {v2:.2}"
+    );
+    // Recipes without the key render version 1.
+    assert_eq!(
+        render(json!({"blackAndWhite": true, "grayMixer": {"blue": -60}})),
+        bw(1, json!({"blue": -60}))
+    );
+}
+
+#[test]
 #[ignore = "requires a native GPU; exercises individual Develop controls and brightness response"]
 fn develop_controls_change_pixels_and_reset_exactly() {
     let context = context();
@@ -1472,6 +1530,12 @@ fn develop_controls_change_pixels_and_reset_exactly() {
                 json!({"blackAndWhite": true, "grayMixer": {channel: value}}),
                 json!({"blackAndWhite": true, "grayMixer": {channel: 0}}),
                 json!({"blackAndWhite": true}),
+            ));
+            profiles.push((
+                format!("bwVersion2.grayMixer.{channel}={value}"),
+                json!({"blackAndWhite": true, "bwVersion": 2, "grayMixer": {channel: value}}),
+                json!({"blackAndWhite": true, "bwVersion": 2, "grayMixer": {channel: 0}}),
+                json!({"blackAndWhite": true, "bwVersion": 2}),
             ));
         }
     }

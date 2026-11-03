@@ -9,6 +9,7 @@ import {
   initialAdjustmentsFor,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withBwVersion,
   withClarityVersion,
   withGrainVersion,
   withLumaNoiseVersion,
@@ -39,13 +40,23 @@ export function collectPresetAdjustments(
   for (const key of COPYABLE_ADJUSTMENT_KEYS) {
     if (!includeMasks && MASK_KEYS.includes(key)) continue;
     if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
-    if (key === 'sharpenVersion' || key === 'lumaNoiseVersion' || key === 'grainVersion' || key === 'clarityVersion') continue;
+    if (
+      key === 'sharpenVersion' ||
+      key === 'lumaNoiseVersion' ||
+      key === 'grainVersion' ||
+      key === 'clarityVersion' ||
+      key === 'bwVersion'
+    )
+      continue;
     if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
     const currentValue = current[key as keyof Adjustments];
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  const versioned = withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current), current);
+  const versioned = withBwVersion(
+    withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current), current),
+    current,
+  );
   // Film grain's Colour goes with its grain even at its default (missing = 0),
   // so applying the preset does not keep another photo's Colour.
   const grainSaved = ['grainAmount', 'grainSize', 'grainRoughness'].some((key) => key in versioned);
