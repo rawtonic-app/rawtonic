@@ -242,7 +242,7 @@ fn write_stage_marker(path: &Path, marker_path: &Path, data: &Marker) -> Result<
         file_identity(&keeper)? == file_identity(temp.as_file())?,
         "Marker identity changed"
     );
-    rawtonic_metadata::no_clobber::persist_in_own_folder(temp, marker_path)?;
+    rawtonic_fs::no_clobber::persist_in_own_folder(temp, marker_path)?;
     #[cfg(test)]
     marker_crash_point("published", &keeper)?;
     // persist closed the original file object. Cancel its pending deletion on

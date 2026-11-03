@@ -13,7 +13,7 @@ use crate::{
     manifest_name, prune_blobs,
 };
 use anyhow::{Context, Result, ensure};
-use rawtonic_metadata::atomic_write;
+use rawtonic_fs::atomic_write;
 use rusqlite::{TransactionBehavior, params};
 use std::{fs, path::Path};
 use uuid::Uuid;

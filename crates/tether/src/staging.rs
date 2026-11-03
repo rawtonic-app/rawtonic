@@ -128,7 +128,7 @@ impl Partial {
         }
         // The slot is this download's own (`new_slot`), so a volume without
         // an exclusive rename still gets an atomic one: a complete file only.
-        rawtonic_metadata::no_clobber::persist_in_own_folder(self.temp, &self.path)?;
+        rawtonic_fs::no_clobber::persist_in_own_folder(self.temp, &self.path)?;
         sync_dir(self.path.parent().unwrap())?;
         Ok(self.path)
     }
@@ -218,7 +218,7 @@ pub fn write_record(root: &Path, path: &Path, record: &serde_json::Value) -> io:
     temp.write_all(&serde_json::to_vec(record).map_err(io::Error::other)?)?;
     temp.as_file().sync_all()?;
     // The slot's only writer is the session's one ingest.
-    match rawtonic_metadata::no_clobber::persist_in_own_folder(temp, &slot.join(RECORD)) {
+    match rawtonic_fs::no_clobber::persist_in_own_folder(temp, &slot.join(RECORD)) {
         Ok(_) => sync_dir(slot),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(e),

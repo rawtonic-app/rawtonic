@@ -359,7 +359,7 @@ fn write_copy(dir: &Path, item: &ImportItem, extension: &str, bytes: &[u8]) -> a
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("LUT");
-    let mut temp = rawtonic_metadata::temp::file_for(&folder.join(format!("{stem}.{extension}")))?;
+    let mut temp = rawtonic_fs::temp::file_for(&folder.join(format!("{stem}.{extension}")))?;
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
     for suffix in 0..1000 {
@@ -372,7 +372,7 @@ fn write_copy(dir: &Path, item: &ImportItem, extension: &str, bytes: &[u8]) -> a
         if path.symlink_metadata().is_ok() {
             continue;
         }
-        match rawtonic_metadata::no_clobber::persist(temp, &path) {
+        match rawtonic_fs::no_clobber::persist(temp, &path) {
             Ok(_) => {
                 #[cfg(unix)]
                 std::fs::File::open(&folder)?.sync_all()?;
@@ -380,7 +380,7 @@ fn write_copy(dir: &Path, item: &ImportItem, extension: &str, bytes: &[u8]) -> a
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 // Taken meanwhile; `persist` has used up the temporary file.
-                temp = rawtonic_metadata::temp::file_for(&path)?;
+                temp = rawtonic_fs::temp::file_for(&path)?;
                 temp.write_all(bytes)?;
                 temp.as_file().sync_all()?;
             }

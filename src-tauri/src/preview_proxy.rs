@@ -1161,7 +1161,7 @@ fn store(
         before_band,
     );
     fs::create_dir_all(path.parent().ok_or("No parent")?).map_err(|e| e.to_string())?;
-    rawtonic_metadata::atomic_write(&path, bytes).map_err(|e| e.to_string())?;
+    rawtonic_fs::atomic_write(&path, bytes).map_err(|e| e.to_string())?;
     Ok(key)
 }
 
@@ -1339,7 +1339,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
-    rawtonic_metadata::no_clobber::persist(temp, path)?;
+    rawtonic_fs::no_clobber::persist(temp, path)?;
     Ok(())
 }
 
@@ -1394,7 +1394,7 @@ fn relabel(path: &Path, label: &str) -> Result<(), String> {
     out.extend_from_slice(&header);
     out.extend_from_slice(&bytes[image_at..]);
     let used = fs::metadata(path).and_then(|m| m.modified()).ok();
-    rawtonic_metadata::atomic_write(path, out).map_err(|e| e.to_string())?;
+    rawtonic_fs::atomic_write(path, out).map_err(|e| e.to_string())?;
     if let Some(used) = used {
         mark_used_at(path, used);
     }

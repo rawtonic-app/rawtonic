@@ -9,7 +9,7 @@
 //! each chunk goes to every copy and the hash, and the copies and the
 //! source read again are checked against that hash. Nothing is published
 //! before every copy and the source passed; each copy is published without
-//! replacing a file (`rawtonic_metadata::no_clobber`).
+//! replacing a file (`rawtonic_fs::no_clobber`).
 //!
 //! Durability: files and folders are synced as they are written; the drive
 //! cache is flushed by [`Barrier::flush`], once per volume for everything
@@ -364,8 +364,8 @@ impl Verified {
             .parent()
             .context("Destination has no parent")?
             .to_path_buf();
-        if let rawtonic_metadata::no_clobber::Persisted::Copied(mut copy) =
-            rawtonic_metadata::no_clobber::persist(temp, &destination)?
+        if let rawtonic_fs::no_clobber::Persisted::Copied(mut copy) =
+            rawtonic_fs::no_clobber::persist(temp, &destination)?
         {
             // The volume had no exclusive rename: check the copy through its
             // handle (the name may already be another file's, so a bad copy
@@ -445,7 +445,7 @@ fn copy_verified_from(
     for destination in destinations {
         ensure!(destination.parent().is_some(), "Destination has no parent");
         temps.push((
-            rawtonic_metadata::temp::file_for(destination)?,
+            rawtonic_fs::temp::file_for(destination)?,
             destination.to_path_buf(),
         ));
     }

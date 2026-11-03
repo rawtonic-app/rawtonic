@@ -22,7 +22,7 @@ pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::
     use std::io::Write;
     let path = path.as_ref();
     let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
-    let prefix = rawtonic_metadata::temp::prefix_for(path);
+    let prefix = rawtonic_fs::temp::prefix_for(path);
     let mut builder = tempfile::Builder::new();
     builder.prefix(&prefix);
     #[cfg(unix)]
@@ -33,7 +33,7 @@ pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::
     let mut temp = builder.tempfile_in(parent)?;
     temp.write_all(bytes.as_ref())?;
     temp.as_file().sync_all()?;
-    rawtonic_metadata::no_clobber::persist(temp, path)?;
+    rawtonic_fs::no_clobber::persist(temp, path)?;
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(())

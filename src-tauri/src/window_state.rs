@@ -28,7 +28,7 @@ pub fn flush() {
     }
     match serde_json::to_string(&state) {
         Ok(json) => {
-            if let Err(e) = rawtonic_metadata::atomic_write(&path, json) {
+            if let Err(e) = rawtonic_fs::atomic_write(&path, json) {
                 log::warn!("Could not save the window state: {e}");
             }
         }

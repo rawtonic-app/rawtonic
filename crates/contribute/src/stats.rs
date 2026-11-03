@@ -232,7 +232,7 @@ impl StatsStore {
         let result = serde_json::to_vec_pretty(file)
             .map_err(|e| e.to_string())
             .and_then(|bytes| {
-                rawtonic_metadata::atomic_write(&self.path, bytes).map_err(|e| e.to_string())
+                rawtonic_fs::atomic_write(&self.path, bytes).map_err(|e| e.to_string())
             });
         if let Err(e) = &result {
             log::warn!("Usage statistics not saved: {e}");

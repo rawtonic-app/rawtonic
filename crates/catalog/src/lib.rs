@@ -1,8 +1,9 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
 pub mod portable;
 use anyhow::{Context, Result, bail, ensure};
+use rawtonic_fs::atomic_write;
 use rawtonic_metadata::culling::{Flag, Rating, RatingOutOfRange};
-use rawtonic_metadata::{Metadata, atomic_write, labels};
+use rawtonic_metadata::{Metadata, labels};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

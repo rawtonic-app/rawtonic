@@ -1,16 +1,14 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
 pub mod culling;
 pub mod labels;
-pub mod no_clobber;
 pub mod photo_ref;
 pub mod provenance;
 pub mod resources;
-pub mod staging;
-pub mod temp;
 use anyhow::{Context, Result, ensure};
+use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, io::Write, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 pub const XMP: &str = "http://ns.adobe.com/xap/1.0/";
 pub const DC: &str = "http://purl.org/dc/elements/1.1/";
@@ -244,29 +242,6 @@ pub fn digest(bytes: &[u8]) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
-}
-
-/// Same-directory temporary file, fsync, atomic replace. Reject symlink targets.
-/// A replaced file keeps its permissions (the temporary file's are private).
-pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
-    let parent = path.parent().context("File needs a parent directory")?;
-    let replaced = fs::symlink_metadata(path).ok();
-    if let Some(meta) = &replaced {
-        ensure!(
-            meta.is_file() && !meta.file_type().is_symlink(),
-            "Refusing to replace a symlink or non-file"
-        );
-    }
-    let mut file = temp::file_for(path)?;
-    file.write_all(bytes.as_ref())?;
-    file.as_file().sync_all()?;
-    if let Some(meta) = &replaced {
-        file.as_file().set_permissions(meta.permissions())?;
-    }
-    file.persist(path).map_err(|e| e.error)?;
-    #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
-    Ok(())
 }
 
 fn escape(text: &str) -> String {
@@ -1058,20 +1033,6 @@ pub fn write_xmp_announced(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
-    #[test]
-    fn a_replaced_file_keeps_its_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("a.xmp");
-        std::fs::write(&path, "old").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        super::atomic_write(&path, "new").unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
-        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o644);
-    }
-
     use super::*;
     #[test]
     fn a_changed_sidecar_is_a_typed_conflict_and_stays_as_it_is() {
@@ -1370,18 +1331,6 @@ mod tests {
         assert_eq!(fs::read_to_string(&p).unwrap(), "external");
         assert!(write_xmp(&p, &Metadata::default(), None, None).is_err());
     }
-    #[cfg(unix)]
-    #[test]
-    fn symlink_target_is_never_overwritten() {
-        let dir = tempfile::tempdir().unwrap();
-        let original = dir.path().join("a.arw");
-        let sidecar = dir.path().join("a.xmp");
-        fs::write(&original, b"sacred").unwrap();
-        std::os::unix::fs::symlink(&original, &sidecar).unwrap();
-        assert!(atomic_write(&sidecar, "changed").is_err());
-        assert_eq!(fs::read(original).unwrap(), b"sacred");
-    }
-
     /// An IPTC block as Lightroom writes it (attributes, an Alt, the contact
     /// structure as a resource).
     const LIGHTROOM_IPTC: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">

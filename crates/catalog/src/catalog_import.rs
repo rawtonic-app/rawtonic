@@ -593,7 +593,7 @@ impl Library {
         record.origin = other.manifest.id.clone();
         record.stacks = Some(stacks);
         std::fs::create_dir_all(self.directory.join(IMPORT_BASELINES))?;
-        rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
+        rawtonic_fs::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
         Ok(())
     }
 
@@ -677,7 +677,7 @@ impl Library {
             }
         }
         std::fs::create_dir_all(self.directory.join(IMPORT_BASELINES))?;
-        rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
+        rawtonic_fs::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
         if let Some(parent) = exported
             && !theirs_parent.is_empty()
             && let Some(file) = import_record(&self.directory, &parent.origin)
@@ -690,7 +690,7 @@ impl Library {
                 common.insert(RECORDED.into(), recorded.clone());
                 record.photos.insert(id, common);
             }
-            rawtonic_metadata::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
+            rawtonic_fs::atomic_write(&file, serde_json::to_vec_pretty(&record)?)?;
         }
         Ok(())
     }

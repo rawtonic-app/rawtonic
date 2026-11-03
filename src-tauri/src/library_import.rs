@@ -876,10 +876,10 @@ fn import_copy(
 /// under that name only if nothing is there.
 fn publish_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
-    let mut file = rawtonic_metadata::temp::file_for(path)?;
+    let mut file = rawtonic_fs::temp::file_for(path)?;
     file.write_all(bytes)?;
     file.as_file().sync_all()?;
-    rawtonic_metadata::no_clobber::persist(file, path)?;
+    rawtonic_fs::no_clobber::persist(file, path)?;
     #[cfg(unix)]
     if let Some(parent) = path.parent() {
         std::fs::File::open(parent)?.sync_all()?;

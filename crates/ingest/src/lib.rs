@@ -827,7 +827,7 @@ pub(crate) struct ImportOptions<'a> {
     pub read_ahead: Option<&'a copy::ReadAhead>,
     /// The leftovers this import removed are added here (the bytes a
     /// resumed job freed, its log, G66).
-    pub leftovers_taken: Option<&'a std::sync::Mutex<rawtonic_metadata::temp::Removed>>,
+    pub leftovers_taken: Option<&'a std::sync::Mutex<rawtonic_fs::temp::Removed>>,
 }
 
 /// What importing a photograph with a companion did: the photograph's
@@ -1155,15 +1155,15 @@ pub(crate) fn import_pair(
                 .flatten()
                 .any(|base| is_copy_name_of(base, companion_extension, target))
         };
-        let mut removed = rawtonic_metadata::temp::Removed::default();
+        let mut removed = rawtonic_fs::temp::Removed::default();
         if let Some(library_folder) = planned.parent() {
-            removed.add(rawtonic_metadata::temp::remove_leftovers_matching(
+            removed.add(rawtonic_fs::temp::remove_leftovers_matching(
                 library_folder,
                 ours,
             ));
         }
         if let Some(backup_folder) = options.backup {
-            removed.add(rawtonic_metadata::temp::remove_leftovers_matching(
+            removed.add(rawtonic_fs::temp::remove_leftovers_matching(
                 backup_folder,
                 ours,
             ));

@@ -287,9 +287,9 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             }
             let version = lib.version_for(&asset.id, Some(&copy)).map_err(io_error)?;
             let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)?;
-            return rawtonic_metadata::atomic_write(path, &*bytes).map_err(io_error);
+            return rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error);
         }
-        return rawtonic_metadata::atomic_write(path, bytes).map_err(io_error);
+        return rawtonic_fs::atomic_write(path, bytes).map_err(io_error);
     }
     if let Some(source) = source_for_sidecar(path)
         && let Some(dir) = library_for(&source)
@@ -307,7 +307,7 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             .map_err(io_error);
         }
         // A virtual copy's sidecar or an unregistered file: a plain file.
-        rawtonic_metadata::atomic_write(path, bytes).map_err(io_error)
+        rawtonic_fs::atomic_write(path, bytes).map_err(io_error)
     } else if let Some(source) = source_for_sidecar(path)
         && let Some(dir) = library_for(&source)
     {
@@ -323,7 +323,7 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
         let version = lib.primary_version(&asset.id).map_err(io_error)?;
         let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)?;
         // SQLite committed first. A failed derived write can be retried without losing edits.
-        rawtonic_metadata::atomic_write(path, &*bytes).map_err(io_error)?;
+        rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error)?;
         if let Err(e) = lib.sync_xmp(&asset.id) {
             log::warn!(
                 "Edit saved in database; XMP pending for {}: {e}",
@@ -332,7 +332,7 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
         }
         Ok(())
     } else {
-        rawtonic_metadata::atomic_write(path, bytes).map_err(io_error)
+        rawtonic_fs::atomic_write(path, bytes).map_err(io_error)
     }
 }
 
@@ -542,7 +542,7 @@ fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     register_outside_folders(dir);
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
-    rawtonic_metadata::atomic_write(
+    rawtonic_fs::atomic_write(
         &cache.join("last-library.json"),
         serde_json::to_vec(&dir).map_err(|e| e.to_string())?,
     )
@@ -1917,7 +1917,7 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     };
     if current.as_ref() != Some(&state)
         && let Ok(bytes) = serde_json::to_vec_pretty(&state)
-        && let Err(e) = rawtonic_metadata::atomic_write(&sidecar, bytes)
+        && let Err(e) = rawtonic_fs::atomic_write(&sidecar, bytes)
     {
         log::warn!("Editor sidecar pending for {}: {e}", asset.path.display());
     }
@@ -1953,7 +1953,7 @@ fn rederive_copies(lib: &Library, id: &str) {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok());
         if current.as_ref() != Some(&state)
             && let Ok(bytes) = serde_json::to_vec_pretty(&state)
-            && let Err(e) = rawtonic_metadata::atomic_write(&sidecar, bytes)
+            && let Err(e) = rawtonic_fs::atomic_write(&sidecar, bytes)
         {
             log::warn!("Editor sidecar pending for {}: {e}", sidecar.display());
         }
@@ -2024,10 +2024,10 @@ pub async fn session_relink_folder(
 /// Encode generated images into a temporary file without ever replacing a source.
 pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Result<()> {
     let parent = output_folder(path).ok_or_else(|| anyhow::anyhow!("No output folder"))?;
-    let mut temp = rawtonic_metadata::temp::file_for(path)?;
+    let mut temp = rawtonic_fs::temp::file_for(path)?;
     image.write_to(temp.as_file_mut(), image::ImageFormat::from_path(path)?)?;
     temp.as_file().sync_all()?;
-    rawtonic_metadata::no_clobber::persist(temp, path)?;
+    rawtonic_fs::no_clobber::persist(temp, path)?;
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(())

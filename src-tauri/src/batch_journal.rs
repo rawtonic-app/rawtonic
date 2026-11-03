@@ -222,7 +222,7 @@ pub(crate) fn begin_in(
         photos,
     };
     let file = dir.join(format!("{id}.json"));
-    rawtonic_metadata::atomic_write(&file, serde_json::to_vec(&job)?)?;
+    rawtonic_fs::atomic_write(&file, serde_json::to_vec(&job)?)?;
     Ok(Recorded(file))
 }
 

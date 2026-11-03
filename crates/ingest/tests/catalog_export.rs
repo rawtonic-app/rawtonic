@@ -428,7 +428,7 @@ fn the_next_export_removes_what_a_killed_export_left() {
     let killed = root.join(".rawtonic-export-KiLLed");
     fs::create_dir_all(killed.join("Photos/Shoot")).unwrap();
     fs::write(
-        killed.join(rawtonic_metadata::staging::MARKER),
+        killed.join(rawtonic_fs::staging::MARKER),
         b"Export as Catalog",
     )
     .unwrap();
@@ -455,10 +455,7 @@ fn the_next_export_removes_what_a_killed_export_left() {
     assert!(unmarked.exists());
     assert!(root.join("Job/catalog.sqlite").exists());
     assert!(
-        !root
-            .join("Job")
-            .join(rawtonic_metadata::staging::MARKER)
-            .exists(),
+        !root.join("Job").join(rawtonic_fs::staging::MARKER).exists(),
         "the published catalog carries no marker"
     );
 }

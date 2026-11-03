@@ -2,18 +2,18 @@
 //! (G66 app kill test):
 //! - temporary files of sidecar writes, exports into Output, ingest copies
 //!   and cached previews: only files with Rawtonic's temporary-file prefix
-//!   older than `rawtonic_metadata::temp::STALE_AGE`;
+//!   older than `rawtonic_fs::temp::STALE_AGE`;
 //! - those too directly in the backup folders of unfinished ingest jobs,
 //!   wherever they are: a backup copy is named after the photograph being
 //!   imported (`DSC_0001.ARW`, though the library's copy is `DSC_0001_1.ARW`),
 //!   so a resumed job never recognises the stale leaves of a backup it kept;
 //! - abandoned staging folders of Import from Catalog (its copied originals
 //!   and its snapshot of the other catalog): only marked ones no job holds
-//!   (`rawtonic_metadata::staging`).
+//!   (`rawtonic_fs::staging`).
 
 use crate::Library;
 use anyhow::Result;
-use rawtonic_metadata::{staging, temp};
+use rawtonic_fs::{staging, temp};
 use std::{
     fs,
     path::{Path, PathBuf},

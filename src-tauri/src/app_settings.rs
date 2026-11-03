@@ -1138,7 +1138,7 @@ pub(crate) fn load_settings_file(path: &Path) -> Result<AppSettings, String> {
     if migrate_settings(&mut settings)
         && let Ok(json_string) = serde_json::to_string_pretty(&settings)
     {
-        let _ = rawtonic_metadata::atomic_write(path, json_string);
+        let _ = rawtonic_fs::atomic_write(path, json_string);
     }
     Ok(settings)
 }
@@ -1174,7 +1174,7 @@ fn take_frontend_snapshot(saved: &mut AppSettings, mut snapshot: AppSettings) {
 pub(crate) fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
     may_replace_settings(path)?;
-    rawtonic_metadata::atomic_write(path, json).map_err(|e| e.to_string())
+    rawtonic_fs::atomic_write(path, json).map_err(|e| e.to_string())
 }
 
 /// Saves the usage-statistics choice on its own (ADR 0017): the switch
@@ -1513,7 +1513,7 @@ mod tests {
             theme: Some("light".into()),
             ..Default::default()
         };
-        rawtonic_metadata::atomic_write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        rawtonic_fs::atomic_write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
         assert!(
             reserve_update_check_at(&path, false, 100)
                 .unwrap()
@@ -1590,7 +1590,7 @@ mod tests {
             check_for_updates: Some(false),
             ..Default::default()
         };
-        rawtonic_metadata::atomic_write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        rawtonic_fs::atomic_write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
         // As the app finds it: migrated once at start-up.
         load_settings_file(&path).unwrap();
         let original = std::fs::read(&path).unwrap();

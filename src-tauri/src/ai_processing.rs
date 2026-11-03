@@ -313,7 +313,7 @@ fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
         )
     })?;
     fs::create_dir_all(parent)?;
-    rawtonic_metadata::atomic_write(dest, bytes)
+    rawtonic_fs::atomic_write(dest, bytes)
 }
 
 /// The download URL of a file of the model pack.
@@ -504,7 +504,7 @@ mod verified_files {
             .collect();
         lines.sort();
         let text = lines.join("\n") + "\n";
-        if let Err(e) = rawtonic_metadata::atomic_write(&dir.join(FILE_NAME), text) {
+        if let Err(e) = rawtonic_fs::atomic_write(&dir.join(FILE_NAME), text) {
             log::warn!("AI: {FILE_NAME} not saved in {}: {e}", dir.display());
         }
     }
@@ -2981,7 +2981,7 @@ mod tool_tests {
             std::io::Write::write_all(&mut temp, &png).unwrap();
             temp.as_file().sync_all().unwrap();
             let target = out.join(format!("step{}.png", step + 1));
-            rawtonic_metadata::no_clobber::persist(temp, &target)
+            rawtonic_fs::no_clobber::persist(temp, &target)
                 .unwrap_or_else(|e| panic!("{}: {e}", target.display()));
         }
     }

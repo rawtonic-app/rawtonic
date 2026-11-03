@@ -88,7 +88,7 @@ fn carry_over_directory(former: &Path, current: &Path) -> Result<Option<(usize, 
     fs::create_dir_all(current)?;
     let (mut copied, mut kept) = (0, 0);
     copy_tree(former, current, &mut copied, &mut kept)?;
-    rawtonic_metadata::atomic_write(&current.join(MARKER), format!("{}\n", former.display()))?;
+    rawtonic_fs::atomic_write(&current.join(MARKER), format!("{}\n", former.display()))?;
     Ok(Some((copied, kept)))
 }
 

@@ -76,8 +76,8 @@ pub struct Receipt {
     /// Photographs left out because another library owns them.
     pub left_out: usize,
     /// What earlier, interrupted exports into the same folder left and this
-    /// one removed (`rawtonic_metadata::staging`).
-    pub abandoned: rawtonic_metadata::staging::Removed,
+    /// one removed (`rawtonic_fs::staging`).
+    pub abandoned: rawtonic_fs::staging::Removed,
 }
 
 /// A chosen photograph whose file lies inside another library's folder (a
@@ -165,13 +165,11 @@ pub fn export_catalog(
     ensure!(!unique.is_empty(), "Choose at least one photograph");
     check(cancel)?;
     // What an export killed here before left (G66), then this one's stage.
-    let abandoned = rawtonic_metadata::staging::remove_abandoned(
+    let abandoned =
+        rawtonic_fs::staging::remove_abandoned(&parent, rawtonic_fs::staging::CATALOG_EXPORT);
+    let staged = rawtonic_fs::staging::Staging::new_in(
         &parent,
-        rawtonic_metadata::staging::CATALOG_EXPORT,
-    );
-    let staged = rawtonic_metadata::staging::Staging::new_in(
-        &parent,
-        rawtonic_metadata::staging::CATALOG_EXPORT,
+        rawtonic_fs::staging::CATALOG_EXPORT,
         &format!("Export as Catalog from {}", source.display()),
     )?;
     let stage_root = staged.path().canonicalize()?;
@@ -400,7 +398,7 @@ pub fn export_catalog(
     // in common: Import from Catalog tells by it which side changed a
     // photograph since (and so what it may replace).
     let origin = rawtonic_catalog::subset::read_manifest(&source)?.id;
-    rawtonic_metadata::atomic_write(
+    rawtonic_fs::atomic_write(
         &stage_root.join(rawtonic_catalog::catalog_import::EXPORT_BASELINE),
         serde_json::to_vec_pretty(&catalog.export_baseline(&origin, &source, source_stacks)?)?,
     )?;

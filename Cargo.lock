@@ -5389,6 +5389,7 @@ dependencies = [
  "rawtonic-export",
  "rawtonic-faces",
  "rawtonic-fileops",
+ "rawtonic-fs",
  "rawtonic-gpu",
  "rawtonic-ingest",
  "rawtonic-interop",
@@ -5443,6 +5444,7 @@ dependencies = [
  "proptest",
  "rawtonic-catalog",
  "rawtonic-fileops",
+ "rawtonic-fs",
  "rawtonic-metadata",
  "rusqlite",
  "same-file",
@@ -5491,7 +5493,7 @@ dependencies = [
  "libc",
  "log",
  "proptest",
- "rawtonic-metadata",
+ "rawtonic-fs",
  "regex",
  "reqwest",
  "serde",
@@ -5544,6 +5546,7 @@ dependencies = [
  "rav1d",
  "rav1e",
  "rawler",
+ "rawtonic-fs",
  "rawtonic-metadata",
  "rawtonic-rawdecode",
  "rawtonic-runtime",
@@ -5582,6 +5585,7 @@ dependencies = [
  "png 0.18.1",
  "rawler",
  "rawtonic-engine",
+ "rawtonic-fs",
  "rawtonic-gpu",
  "rawtonic-metadata",
  "rawtonic-naming",
@@ -5611,7 +5615,7 @@ dependencies = [
  "image",
  "ndarray",
  "ort",
- "rawtonic-metadata",
+ "rawtonic-fs",
  "rawtonic-onnx",
  "rayon",
  "serde",
@@ -5633,6 +5637,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rawtonic-fs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "rawtonic-gpu"
 version = "0.1.0"
 dependencies = [
@@ -5643,7 +5657,7 @@ dependencies = [
  "log",
  "pollster",
  "rawtonic-engine",
- "rawtonic-metadata",
+ "rawtonic-fs",
  "rawtonic-rawdecode",
  "rawtonic-runtime",
  "rayon",
@@ -5666,6 +5680,7 @@ dependencies = [
  "rawler",
  "rawtonic-catalog",
  "rawtonic-fileops",
+ "rawtonic-fs",
  "rawtonic-merge",
  "rawtonic-metadata",
  "rawtonic-naming",
@@ -5715,7 +5730,7 @@ name = "rawtonic-metadata"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "libc",
+ "rawtonic-fs",
  "roxmltree",
  "serde",
  "serde_json",
@@ -5795,7 +5810,7 @@ dependencies = [
  "gphoto2",
  "libc",
  "log",
- "rawtonic-metadata",
+ "rawtonic-fs",
  "serde",
  "serde_json",
  "tempfile",

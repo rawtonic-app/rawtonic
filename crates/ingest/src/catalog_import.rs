@@ -33,7 +33,7 @@ use std::{
 /// The other library, read through a snapshot of its database.
 pub struct Source {
     /// Holds the snapshot; removed when dropped.
-    _temp: rawtonic_metadata::staging::Staging,
+    _temp: rawtonic_fs::staging::Staging,
     pub snapshot: Library,
     /// The other library's folder.
     pub directory: PathBuf,
@@ -55,14 +55,14 @@ pub fn open_source(target: &Library, other: &Path) -> Result<Source> {
     let mut manifest = read_manifest(&other)?;
     let cache = target.directory.join(".cache");
     fs::create_dir_all(&cache)?;
-    let temp = rawtonic_metadata::staging::Staging::new_in(
+    let temp = rawtonic_fs::staging::Staging::new_in(
         &cache,
-        rawtonic_metadata::staging::CATALOG_SNAPSHOT,
+        rawtonic_fs::staging::CATALOG_SNAPSHOT,
         &format!("Import from Catalog of {}", other.display()),
     )?;
     snapshot_database(&other, &manifest, temp.path())?;
     manifest.mode = Mode::Catalog;
-    rawtonic_metadata::atomic_write(
+    rawtonic_fs::atomic_write(
         &temp.path().join("catalog.json"),
         serde_json::to_vec_pretty(&manifest)?,
     )?;
@@ -533,7 +533,7 @@ fn write_report(target: &Library, source: &Source, report: &Report) -> Result<Pa
     let mut temp = tempfile::NamedTempFile::new_in(&folder)?;
     std::io::Write::write_all(&mut temp, &bytes)?;
     temp.as_file().sync_all()?;
-    rawtonic_metadata::no_clobber::persist(temp, &file)?;
+    rawtonic_fs::no_clobber::persist(temp, &file)?;
     Ok(file)
 }
 
@@ -542,7 +542,7 @@ fn write_report(target: &Library, source: &Source, report: &Report) -> Result<Pa
 /// unless the import is kept.
 #[derive(Default)]
 struct Placed {
-    stage: Option<rawtonic_metadata::staging::Staging>,
+    stage: Option<rawtonic_fs::staging::Staging>,
     moves: Vec<(PathBuf, PathBuf)>,
 }
 
@@ -611,9 +611,9 @@ fn copy_originals(
         missing.len(),
         missing.join("\n")
     );
-    let stage = rawtonic_metadata::staging::Staging::new_in(
+    let stage = rawtonic_fs::staging::Staging::new_in(
         &folder,
-        rawtonic_metadata::staging::CATALOG_IMPORT,
+        rawtonic_fs::staging::CATALOG_IMPORT,
         &format!("Import from Catalog into {}", target.directory.display()),
     )?;
     let stage_root = stage.path().to_path_buf();
