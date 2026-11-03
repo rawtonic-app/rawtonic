@@ -55,6 +55,9 @@ pub struct RafDecoder<'a> {
   ifd: IFD,
   makernotes: IFD,
   camera: Camera,
+  /// Rawtonic patch (from rawler 0.8.0): the camera's `compressed` mode
+  /// (its own active area), used for lossless/lossy compressed RAFs.
+  camera_compressed: Option<Camera>,
 }
 
 /// Check if file has RAF signature
@@ -211,6 +214,9 @@ impl<'a> RafDecoder<'a> {
   pub fn new(file: &RawSource, rawloader: &'a RawLoader) -> Result<RafDecoder<'a>> {
     let ifd = parse_raf(file)?;
     let camera = rawloader.check_supported(&ifd)?;
+    // Rawtonic patch (from rawler 0.8.0): compressed RAFs of some bodies
+    // (X-T2, X-Pro2, X-E3, X-T20) have a different active area.
+    let camera_compressed = rawloader.check_supported_with_mode(&ifd, "compressed").ok();
     let makernotes = if let Some(exif) = ifd.find_first_ifd_with_tag(ExifTag::MakerNotes) {
       exif.parse_makernote(&mut file.reader(), OffsetMode::Absolute, &[])?
     } else {
@@ -223,6 +229,7 @@ impl<'a> RafDecoder<'a> {
       makernotes,
       rawloader,
       camera,
+      camera_compressed,
     })
   }
 }
@@ -276,6 +283,10 @@ impl<'a> Decoder for RafDecoder<'a> {
 
     log::debug!("BPS: {}, width: {}, height: {}, offset: {}", bps, width, height, offset);
 
+    // Rawtonic patch (from rawler 0.8.0): replaced by the `compressed` mode
+    // for compressed data.
+    let mut camera = self.camera.clone();
+
     let image = if self.camera.find_hint("double_width") {
       // Some fuji SuperCCD cameras include a second raw image next to the first one
       // that is identical but darker to the first. The two combined can produce
@@ -291,6 +302,9 @@ impl<'a> Decoder for RafDecoder<'a> {
       assert_eq!(bps, 16);
       dbp::decode_dbp(&src, width, height, dummy)?
     } else if src.len() < bps * width * height / 8 {
+      if let Some(cam_compr) = self.camera_compressed.clone() {
+        camera = cam_compr;
+      }
       if !dummy {
         decompress_fuji(&src, width, height, bps, &corrected_cfa)?
       } else {
@@ -334,7 +348,6 @@ impl<'a> Decoder for RafDecoder<'a> {
         self.rotate_image(image.pixels(), &self.camera, width, height, dummy)?
       };
 
-      let mut camera = self.camera.clone();
       camera.cfa = corrected_cfa;
       let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&camera));
       let mut image = RawImage::new(
@@ -365,7 +378,6 @@ impl<'a> Decoder for RafDecoder<'a> {
     } else {
       //ok_image(self.camera.clone(), width, height, cpp, self.get_wb()?, image.into_inner())
 
-      let mut camera = self.camera.clone();
       camera.cfa = corrected_cfa;
       let whitelevel = if self.camera.whitelevel.is_none() {
         match bps {
@@ -753,4 +765,30 @@ pub fn fuji_raw_rotate(img: &PixU16, dummy: bool) -> PixU16 {
     }
   }
   out
+}
+
+/// Rawtonic patch: camera entries taken from rawler 0.8.0 (RAWTONIC_PATCHES.md).
+#[cfg(test)]
+mod rawtonic_tests {
+  /// The four bodies whose compressed RAFs use their own active area, which
+  /// `RafDecoder::raw_image` now selects.
+  #[test]
+  fn compressed_modes_have_their_own_active_area() {
+    let cameras = crate::global_loader().get_cameras();
+    for model in ["X-T2", "X-Pro2", "X-E3", "X-T20"] {
+      let base = cameras.get(&("FUJIFILM".into(), model.into(), String::new())).expect("base mode");
+      let compressed = cameras.get(&("FUJIFILM".into(), model.into(), "compressed".into())).expect("compressed mode");
+      assert_eq!(compressed.active_area, Some([0, 5, 16, 1]), "{model}");
+      assert_ne!(base.active_area, compressed.active_area, "{model}");
+    }
+  }
+
+  #[test]
+  fn canon_eos_c50_is_known() {
+    let cameras = crate::global_loader().get_cameras();
+    for mode in ["", "raw", "craw"] {
+      let c50 = cameras.get(&("Canon".into(), "Canon EOS C50".into(), mode.into())).expect("EOS C50");
+      assert_eq!(c50.clean_model, "EOS C50");
+    }
+  }
 }

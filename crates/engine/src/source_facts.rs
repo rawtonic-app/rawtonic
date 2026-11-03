@@ -261,16 +261,22 @@ impl SourceFacts {
 
     /// Whether `camera_lens_for(geometry, frame)` is the data the file
     /// gives, for a file whose lens data a frame version may read
-    /// differently (`by_frame`: a Sony ARW): always for frame 0 and for
-    /// other files; for a later frame only at the newest geometry version,
-    /// in facts that keep `camera_lens_frames`, or facts that do not know
-    /// the file's frames (their previews show whatever frame they show).
+    /// differently (`by_frame`: a Sony ARW, a RAF): always for frame 0 and
+    /// for other files; for a later frame only at the newest geometry
+    /// version, in facts that keep `camera_lens_frames` and list that frame
+    /// (a RAF's facts from before frame version 3 list three frames), or
+    /// facts that do not know the file's frames (their previews show
+    /// whatever frame they show).
     pub fn camera_lens_known(&self, geometry: u64, frame: u32, by_frame: bool) -> bool {
         frame == 0
             || !by_frame
             || self.frames.is_none()
             || (self.version >= CAMERA_LENS_FRAMES
-                && geometry == crate::embedded_lens::facts_geometry_version(self.version))
+                && geometry == crate::embedded_lens::facts_geometry_version(self.version)
+                && self
+                    .frames
+                    .as_ref()
+                    .is_some_and(|frames| frames.len() > frame as usize))
     }
 
     /// The measured image key ([10th, 90th, 50th] percentile, as
@@ -452,6 +458,9 @@ mod tests {
         // Older geometry on a later frame, or facts from before version 18:
         // not known for a Sony ARW, so a recipe keeps its own parameters.
         assert!(!facts.camera_lens_known(0, 2, true));
+        // A frame the facts' list does not reach (a RAF's facts from
+        // before frame version 3): not known.
+        assert!(!facts.camera_lens_known(newest, 3, true));
         let older = SourceFacts {
             version: 17,
             ..facts.clone()
