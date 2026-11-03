@@ -827,7 +827,9 @@ fn read_back(
     });
     wait_for(device, &receiver)?.map_err(|e| format!("Edge fringe readback failed: {e}"))?;
     {
-        let mapped = slice.get_mapped_range();
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|e| format!("Edge fringe readback failed: {e}"))?;
         let pixels: &[f32] = bytemuck::cast_slice(&mapped);
         data[y0 * w * stride..y1 * w * stride]
             .par_chunks_mut(w * stride)

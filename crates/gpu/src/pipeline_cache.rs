@@ -283,7 +283,8 @@ mod tests {
             backend: wgpu::Backend::Vulkan,
             subgroup_min_size: 32,
             subgroup_max_size: 32,
-            transient_saves_memory: false,
+            transient_saves_memory: Some(false),
+            limit_bucket: None,
         };
         let first = file_name(&info("617.42"), "0.1.0").unwrap();
         assert!(first.starts_with("wgpu-pipelines-vulkan_"), "{first}");

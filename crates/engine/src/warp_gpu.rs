@@ -513,7 +513,12 @@ fn map<T>(
             let _ = sender.send(result);
         });
     wait_for(device, &mapped)?.map_err(|e| format!("Warp readback failed: {e}"))?;
-    let value = read(&buffer.slice(..).get_mapped_range());
+    let value = read(
+        &buffer
+            .slice(..)
+            .get_mapped_range()
+            .map_err(|e| format!("Warp readback failed: {e}"))?,
+    );
     buffer.unmap();
     Ok(value)
 }
@@ -676,7 +681,11 @@ impl<'a> Prepared<'a> {
             wait_for(device, &mapped)?.map_err(|e| format!("Warp readback failed: {e}"))?;
             let bytes = u64::from(rows) * row_bytes;
             {
-                let view = slot.readback.slice(..bytes).get_mapped_range();
+                let view = slot
+                    .readback
+                    .slice(..bytes)
+                    .get_mapped_range()
+                    .map_err(|e| format!("Warp readback failed: {e}"))?;
                 let start = row0 as usize * row_floats;
                 result[start..start + rows as usize * row_floats]
                     .copy_from_slice(bytemuck::cast_slice(&view));

@@ -702,7 +702,10 @@ impl GpuPyramid {
             });
         wait_without_blocking(&context.device, &mapped)?.map_err(|e| e.to_string())?;
         let measured = {
-            let data = readback.slice(..).get_mapped_range();
+            let data = readback
+                .slice(..)
+                .get_mapped_range()
+                .map_err(|e| e.to_string())?;
             let values: &[[f32; 4]] = bytemuck::cast_slice(&data);
             let per_level: [Vec<[f32; 4]>; color_noise::LEVELS] = std::array::from_fn(|l| {
                 let (_, sw, sh) = grids[l];
@@ -2878,7 +2881,7 @@ impl WgpuDisplay {
             primary,
         );
         queue.submit(Some(encoder.finish()));
-        output.present();
+        queue.present(output);
         // Handed to the window server, not yet on screen. Pointer
         // sessions in the webview log join these by wall-clock time.
         #[cfg(feature = "performance-profiling")]
@@ -3148,7 +3151,9 @@ fn finish_texture_readback_with<R>(
     let _copy_stage = crate::performance::PerformanceStage::new("gpu_readback_copy");
 
     let buffer_slice = buffer.slice(..);
-    let mapped = buffer_slice.get_mapped_range();
+    let mapped = buffer_slice
+        .get_mapped_range()
+        .map_err(|e| e.to_string())?;
     let rows = (padded_bytes_per_row * height) as usize;
     let pixels = consume(
         &mapped[..rows],
@@ -3986,7 +3991,10 @@ fn complete_analytics_readback(device: &wgpu::Device, job: AnalyticsReadbackJob)
     if mapped.is_err() {
         return;
     }
-    let mapped = buffer_slice.get_mapped_range();
+    let Ok(mapped) = buffer_slice.get_mapped_range() else {
+        job.buffer.unmap();
+        return;
+    };
     let unpadded_bytes_per_row = job.width as usize * 4;
     let pixels = if job.padded_bytes_per_row as usize == unpadded_bytes_per_row {
         mapped.to_vec()

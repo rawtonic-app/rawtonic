@@ -19,7 +19,7 @@ rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
-wgpu = "29.0"
+wgpu = "30.0"
 bytemuck = { version = "1.25", features = ["derive"] }
 half = { version = "2.7.1", features = ["bytemuck"] }
 image = "0.25.10"
