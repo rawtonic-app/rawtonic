@@ -672,8 +672,7 @@ pub async fn session_last(app: tauri::AppHandle) -> Result<Option<Summary>, Stri
         .map(Some)
 }
 /// The remembered session folder, without opening it (for messages while it opens).
-#[tauri::command]
-pub fn session_last_directory(app: tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+pub fn session_last_directory_blocking(app: tauri::AppHandle) -> Result<Option<PathBuf>, String> {
     let path = app
         .path()
         .app_config_dir()
@@ -686,6 +685,14 @@ pub fn session_last_directory(app: tauri::AppHandle) -> Result<Option<PathBuf>, 
         .map(Some)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn session_last_directory(app: tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    tauri::async_runtime::spawn_blocking(move || session_last_directory_blocking(app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn session_summary(directory: String) -> Result<Summary, String> {
     tauri::async_runtime::spawn_blocking(move || {

@@ -5,8 +5,7 @@ use tauri::Manager;
 
 /// THIRD_PARTY_LICENSES.txt from the app's licenses folder, written by
 /// `scripts/third_party_licenses.py` before every `tauri build`.
-#[tauri::command]
-pub fn third_party_licenses(app_handle: tauri::AppHandle) -> Result<String, String> {
+pub fn third_party_licenses_blocking(app_handle: tauri::AppHandle) -> Result<String, String> {
     let path = app_handle
         .path()
         .resolve(
@@ -17,4 +16,11 @@ pub fn third_party_licenses(app_handle: tauri::AppHandle) -> Result<String, Stri
     std::fs::read_to_string(&path).map_err(|_| {
         "The license texts are generated for release builds (npm run licenses).".to_string()
     })
+}
+
+#[tauri::command]
+pub async fn third_party_licenses(app_handle: tauri::AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || third_party_licenses_blocking(app_handle))
+        .await
+        .map_err(|e| e.to_string())?
 }

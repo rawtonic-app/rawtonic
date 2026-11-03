@@ -112,14 +112,20 @@ pub(crate) fn get_presets_path(app_handle: &AppHandle) -> Result<std::path::Path
     Ok(presets_dir.join("presets.json"))
 }
 
-#[tauri::command]
-pub fn load_presets(app_handle: AppHandle) -> Result<Vec<PresetItem>, String> {
+pub fn load_presets_blocking(app_handle: AppHandle) -> Result<Vec<PresetItem>, String> {
     let path = get_presets_path(&app_handle)?;
     if !path.exists() {
         return Ok(Vec::new());
     }
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_presets(app_handle: AppHandle) -> Result<Vec<PresetItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || load_presets_blocking(app_handle))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// One of Rawtonic's own presets or styles, shipped read-only with the app
@@ -174,8 +180,7 @@ pub(crate) fn parse_builtin_presets(content: &str) -> Result<Vec<BuiltinPreset>,
 
 /// Rawtonic's own presets and styles from the app's resources, apart from
 /// the user's presets (a missing or broken presets.json leaves them).
-#[tauri::command]
-pub fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPreset>, String> {
+pub fn load_builtin_presets_blocking(app_handle: AppHandle) -> Result<Vec<BuiltinPreset>, String> {
     let path = app_handle
         .path()
         .resolve("resources/presets/builtin.json", BaseDirectory::Resource)
@@ -186,10 +191,26 @@ pub fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPreset>,
 }
 
 #[tauri::command]
-pub fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(), String> {
+pub async fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPreset>, String> {
+    tauri::async_runtime::spawn_blocking(move || load_builtin_presets_blocking(app_handle))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+pub fn save_presets_blocking(
+    presets: Vec<PresetItem>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
     let path = get_presets_path(&app_handle)?;
     let json_string = serde_json::to_string_pretty(&presets).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(&path, json_string).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || save_presets_blocking(presets, app_handle))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 pub(crate) fn preset_file_display_name(file_path: &str) -> String {
@@ -313,16 +334,15 @@ pub(crate) fn import_preset_file_into_library(
 ) -> Result<Vec<PresetItem>, String> {
     let imported = parse_preset_file(file_path)?;
 
-    let mut current_presets = load_presets(app_handle.clone())?;
+    let mut current_presets = load_presets_blocking(app_handle.clone())?;
     let mut taken_names = collect_top_level_preset_names(&current_presets);
     merge_imported_items(&mut current_presets, &mut taken_names, imported);
 
-    save_presets(current_presets.clone(), app_handle)?;
+    save_presets_blocking(current_presets.clone(), app_handle)?;
     Ok(current_presets)
 }
 
-#[tauri::command]
-pub fn handle_import_presets_from_file(
+pub fn handle_import_presets_from_file_blocking(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
@@ -330,7 +350,18 @@ pub fn handle_import_presets_from_file(
 }
 
 #[tauri::command]
-pub fn handle_import_legacy_presets_from_file(
+pub async fn handle_import_presets_from_file(
+    file_path: String,
+    app_handle: AppHandle,
+) -> Result<Vec<PresetItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        handle_import_presets_from_file_blocking(file_path, app_handle)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub fn handle_import_legacy_presets_from_file_blocking(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
@@ -338,11 +369,22 @@ pub fn handle_import_legacy_presets_from_file(
 }
 
 #[tauri::command]
-pub fn handle_import_presets_from_files(
+pub async fn handle_import_legacy_presets_from_file(
+    file_path: String,
+    app_handle: AppHandle,
+) -> Result<Vec<PresetItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        handle_import_legacy_presets_from_file_blocking(file_path, app_handle)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub fn handle_import_presets_from_files_blocking(
     file_paths: Vec<String>,
     app_handle: AppHandle,
 ) -> Result<PresetImportResult, String> {
-    let mut current_presets = load_presets(app_handle.clone())?;
+    let mut current_presets = load_presets_blocking(app_handle.clone())?;
     let mut taken_names = collect_top_level_preset_names(&current_presets);
 
     let mut failures: Vec<PresetImportFailure> = Vec::new();
@@ -364,7 +406,7 @@ pub fn handle_import_presets_from_files(
     }
 
     if library_changed {
-        save_presets(current_presets.clone(), app_handle)?;
+        save_presets_blocking(current_presets.clone(), app_handle)?;
     }
 
     Ok(PresetImportResult {
@@ -375,7 +417,18 @@ pub fn handle_import_presets_from_files(
 }
 
 #[tauri::command]
-pub fn handle_export_presets_to_file(
+pub async fn handle_import_presets_from_files(
+    file_paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<PresetImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        handle_import_presets_from_files_blocking(file_paths, app_handle)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub fn handle_export_presets_to_file_blocking(
     presets_to_export: Vec<PresetItem>,
     file_path: String,
 ) -> Result<(), String> {
@@ -388,6 +441,18 @@ pub fn handle_export_presets_to_file(
         .map_err(|e| format!("Failed to serialize presets: {}", e))?;
     rawtonic_metadata::atomic_write(Path::new(&file_path), json_string)
         .map_err(|e| format!("Failed to write preset file: {}", e))
+}
+
+#[tauri::command]
+pub async fn handle_export_presets_to_file(
+    presets_to_export: Vec<PresetItem>,
+    file_path: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        handle_export_presets_to_file_blocking(presets_to_export, file_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

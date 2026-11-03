@@ -68,8 +68,7 @@ pub fn sort_album_tree(items: &mut [AlbumItem]) {
     }
 }
 
-#[tauri::command]
-pub fn get_albums(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String> {
+pub fn get_albums_blocking(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String> {
     let path = get_albums_path(&app_handle)?;
     if !path.exists() {
         return Ok(Vec::new());
@@ -81,7 +80,13 @@ pub fn get_albums(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String> {
 }
 
 #[tauri::command]
-pub fn save_albums(mut tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<(), String> {
+pub async fn get_albums(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || get_albums_blocking(app_handle))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+pub fn save_albums_blocking(mut tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<(), String> {
     let path = get_albums_path(&app_handle)?;
     sort_album_tree(&mut tree);
     let json_string = serde_json::to_string_pretty(&tree).map_err(|e| e.to_string())?;
@@ -89,12 +94,18 @@ pub fn save_albums(mut tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<()
 }
 
 #[tauri::command]
-pub fn add_to_album(
+pub async fn save_albums(tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || save_albums_blocking(tree, app_handle))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+pub fn add_to_album_blocking(
     album_id: String,
     paths: Vec<String>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    let mut tree = get_albums(app_handle.clone())?;
+    let mut tree = get_albums_blocking(app_handle.clone())?;
 
     fn add_recursive(items: &mut [AlbumItem], target_id: &str, paths_to_add: &Vec<String>) -> bool {
         for item in items.iter_mut() {
@@ -120,9 +131,20 @@ pub fn add_to_album(
     }
 
     if add_recursive(&mut tree, &album_id, &paths) {
-        save_albums(tree, app_handle)?;
+        save_albums_blocking(tree, app_handle)?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn add_to_album(
+    album_id: String,
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || add_to_album_blocking(album_id, paths, app_handle))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 pub(crate) fn sync_album_path_changes(
@@ -131,7 +153,7 @@ pub(crate) fn sync_album_path_changes(
     deletions: Option<&HashSet<String>>,
     folder_rename: Option<(&str, &str)>,
 ) {
-    if let Ok(mut tree) = get_albums(app_handle.clone()) {
+    if let Ok(mut tree) = get_albums_blocking(app_handle.clone()) {
         let mut changed = false;
 
         fn process_nodes(
@@ -214,7 +236,7 @@ pub(crate) fn sync_album_path_changes(
         process_nodes(&mut tree, renames, deletions, folder_rename, &mut changed);
 
         if changed {
-            let _ = save_albums(tree, app_handle.clone());
+            let _ = save_albums_blocking(tree, app_handle.clone());
         }
     }
 }

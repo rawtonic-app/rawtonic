@@ -509,14 +509,26 @@ pub async fn open_with_open(
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub fn open_with_prefs(app: AppHandle) -> OpenWithPrefs {
+pub fn open_with_prefs_blocking(app: AppHandle) -> OpenWithPrefs {
     read_prefs(&app)
 }
 
 #[tauri::command]
-pub fn edit_with_set_recipe(recipe: String, app: AppHandle) -> Result<(), String> {
+pub async fn open_with_prefs(app: AppHandle) -> OpenWithPrefs {
+    tauri::async_runtime::spawn_blocking(move || open_with_prefs_blocking(app))
+        .await
+        .expect("open_with_prefs task panicked")
+}
+
+pub fn edit_with_set_recipe_blocking(recipe: String, app: AppHandle) -> Result<(), String> {
     update_prefs(&app, |prefs| prefs.edit_recipe = Some(recipe))
+}
+
+#[tauri::command]
+pub async fn edit_with_set_recipe(recipe: String, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || edit_with_set_recipe_blocking(recipe, app))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// What `edit_with_start` queued: each render's file and its export job.
