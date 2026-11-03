@@ -1,0 +1,26 @@
+[
+  { "text": "/p/a.raf", "source": "/p/a.raf", "copy": null },
+  { "text": "/p/a.raf?vc=0f1e2d", "source": "/p/a.raf", "copy": "0f1e2d" },
+  { "text": "/s/Capture/A.ARW?vc=a1b2c3", "source": "/s/Capture/A.ARW", "copy": "a1b2c3" },
+  { "text": "N.RAF?vc=2", "source": "N.RAF", "copy": "2" },
+  { "text": "/s/Capture/A.ARW?vc=copy", "source": "/s/Capture/A.ARW", "copy": "copy" },
+  { "text": "C:\\Photos\\a.NEF", "source": "C:\\Photos\\a.NEF", "copy": null },
+  { "text": "C:\\Photos\\a.NEF?vc=1a2b3c", "source": "C:\\Photos\\a.NEF", "copy": "1a2b3c" },
+  { "text": "\\\\server\\share\\Job\\a.NEF?vc=abc123", "source": "\\\\server\\share\\Job\\a.NEF", "copy": "abc123" },
+  { "text": "/p/a.raf?vc=", "source": "/p/a.raf", "copy": "" },
+  { "text": "", "source": "", "copy": null },
+  { "text": "?vc=abc", "source": "", "copy": "abc" },
+  { "text": "/p/what?.raf", "source": "/p/what?.raf", "copy": null },
+  { "text": "/p/what?.raf?vc=c0ffee", "source": "/p/what?.raf", "copy": "c0ffee" },
+  { "text": "/p/Shoot?vc/a.raf", "source": "/p/Shoot?vc/a.raf", "copy": null },
+  { "text": "/p/a?vc=b.raf?vc=0a0b0c", "source": "/p/a?vc=b.raf", "copy": "0a0b0c" },
+  {
+    "text": "/p/a?vc=b.raf",
+    "source": "/p/a",
+    "copy": "b.raf",
+    "note": "a primary photo whose file name holds ?vc= reads as a copy: the stored form is ambiguous there (unchanged behaviour)"
+  },
+  { "text": "/p/a.raf?vc=1a2b3c&x=1", "source": "/p/a.raf", "copy": "1a2b3c&x=1" },
+  { "text": "/p/Grün ä/Ü 1.raf?vc=c0ffee", "source": "/p/Grün ä/Ü 1.raf", "copy": "c0ffee" },
+  { "text": "/p/a.raf/", "source": "/p/a.raf/", "copy": null }
+]

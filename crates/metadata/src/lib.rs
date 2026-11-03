@@ -1,6 +1,7 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
 pub mod labels;
 pub mod no_clobber;
+pub mod photo_ref;
 pub mod provenance;
 pub mod resources;
 pub mod staging;
