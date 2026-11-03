@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { useImageProcessing } from "./useImageProcessing";
+import { nextAnalyticsTime, useImageProcessing } from "./useImageProcessing";
 import { useEditorStore } from "../store/useEditorStore";
 import { useUIStore } from "../store/useUIStore";
 import { useSettingsStore } from "../store/useSettingsStore";
@@ -515,5 +515,30 @@ describe("grain at the viewer's size", () => {
     });
     mount();
     expect(target(0)).toBe(1000);
+  });
+});
+
+describe("nextAnalyticsTime", () => {
+  it("asks ten times a second on a fixed cadence while frames come every 16.7 ms", () => {
+    let last = 0;
+    let asked = 0;
+    for (let i = 1; i <= 600; i++) {
+      const now = 1000 + i * (1000 / 60);
+      const next = nextAnalyticsTime(last, now);
+      if (next !== null) {
+        asked++;
+        last = next;
+      }
+    }
+    // 10 s of frames: ten a second (the first starts the cadence).
+    expect(asked).toBeGreaterThanOrEqual(99);
+    expect(asked).toBeLessThanOrEqual(101);
+  });
+
+  it("never asks twice within 100 ms and restarts after a pause", () => {
+    expect(nextAnalyticsTime(1000, 1099)).toBeNull();
+    expect(nextAnalyticsTime(1000, 1117)).toBe(1100);
+    expect(nextAnalyticsTime(1000, 1500)).toBe(1500);
+    expect(nextAnalyticsTime(0, 5000)).toBe(5000);
   });
 });

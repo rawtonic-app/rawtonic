@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use image::DynamicImage;
@@ -526,6 +526,17 @@ pub struct AppState {
     /// The recipe of the brush stroke being drawn (live_stroke.rs).
     pub live_stroke: Mutex<crate::live_stroke::LiveStrokeRecipe>,
     pub analytics_worker_tx: Mutex<Option<LatestJobSender<AnalyticsJob>>>,
+    /// The last generation of analytics requests
+    /// (`scope_analytics::next_generation`), and the last one a frame
+    /// carried itself (not a zoomed drag's scope render).
+    pub analytics_generation: AtomicU64,
+    pub full_frame_analytics_generation: AtomicU64,
+    /// The zoomed drag's scope renders of the whole frame (scope_analytics.rs),
+    /// the small copy of the preview base they read and its GPU upload.
+    pub scope_analytics_tx:
+        Mutex<Option<LatestJobSender<crate::scope_analytics::ScopeAnalyticsJob>>>,
+    pub scope_proxy: Mutex<Option<crate::scope_analytics::ScopeProxy>>,
+    pub scope_gpu_cache: Mutex<Option<GpuImageCache>>,
     pub mask_cache: Mutex<MaskBitmapCache>,
     /// Masks drawn for the layer list's thumbnails, apart from the
     /// preview's so they never evict its full-size masks.
@@ -596,6 +607,11 @@ impl Default for AppState {
             preview_jobs: Default::default(),
             live_stroke: Default::default(),
             analytics_worker_tx: Mutex::new(None),
+            analytics_generation: AtomicU64::new(0),
+            full_frame_analytics_generation: AtomicU64::new(0),
+            scope_analytics_tx: Mutex::new(None),
+            scope_proxy: Mutex::new(None),
+            scope_gpu_cache: Mutex::new(None),
             mask_cache: Mutex::new(Default::default()),
             mask_thumbnail_cache: Mutex::new(Default::default()),
             patch_cache: Mutex::new(HashMap::new()),
