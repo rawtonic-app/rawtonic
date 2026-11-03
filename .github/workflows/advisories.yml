@@ -2,6 +2,14 @@
 # merge into main, so a new advisory shows up as a failed run even when nobody
 # is working on the code. Merges are gated on vulnerabilities only
 # (scripts/check.sh, ci.yml); releases need this full check green (ADR 0005).
+#
+# The `report` job is the weekly dependency report (user request 2026-11-03):
+# npm security (a finding in shipped code fails the run, dev-only findings are
+# listed), available updates for npm, Rust, the vendored rawler and the
+# toolchain, collected by scripts/dependency_report.mjs into one Markdown
+# report. It creates or updates the single open issue titled "Weekly dependency
+# report" and never opens a PR or pushes: every update goes through
+# scripts/ship.sh with its second-model review.
 name: Dependency advisories
 on:
   push:
@@ -9,6 +17,8 @@ on:
   schedule:
     - cron: "17 5 * * 1"
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   advisories:
     runs-on: ubuntu-24.04
@@ -21,3 +31,91 @@ jobs:
         with:
           tool: cargo-deny@0.20.2
       - run: cargo deny check advisories
+
+  report:
+    # Schedule and manual runs only: after a merge the report would repeat the
+    # state the previous Monday already reported.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - run: npm ci
+      - name: Previous report from the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_TITLE: Weekly dependency report
+        run: |
+          issue=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --limit 50 \
+            --json number,title --jq '[.[] | select(.title == env.ISSUE_TITLE)] | sort_by(.number) | .[0].number // empty')
+          if [ -n "$issue" ]; then
+            gh issue view "$issue" --json body --jq .body > previous-issue.md
+          else
+            : > previous-issue.md
+          fi
+      - name: Collect the report
+        id: collect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Exits 1 on a security finding in shipped code or on inputs that
+          # could not be collected; the body is written from the sections that
+          # could be collected (see the error: lines in the log).
+          set +e
+          node scripts/dependency_report.mjs --out dependency-report.md --issue-body previous-issue.md 2>&1 | tee dependency-report.log
+          exit "${PIPESTATUS[0]}"
+      - name: Create or update the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_TITLE: Weekly dependency report
+        run: |
+          if [ ! -s dependency-report.md ]; then
+            echo "no report body was written" >&2
+            exit 1
+          fi
+          # A run whose inputs failed says so; the previous report stays.
+          # (A security finding in shipped code is a complete report: it is
+          # published, and the failed job is the alarm.)
+          if grep -q '^\*\*Not collected\*\*' dependency-report.md; then
+            echo "the report could not be collected completely; the issue keeps the previous report" >&2
+            exit 1
+          fi
+          # The canonically titled open issue, the oldest if a duplicate exists.
+          issue=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --limit 50 \
+            --json number,title --jq '[.[] | select(.title == env.ISSUE_TITLE)] | sort_by(.number) | .[0].number // empty')
+          if [ -n "$issue" ]; then
+            gh issue edit "$issue" --body-file dependency-report.md
+            echo "updated https://github.com/$GITHUB_REPOSITORY/issues/$issue"
+          else
+            gh label create dependencies --color 0e8a16 \
+              --description "dependency updates and security reports" --force >/dev/null 2>&1 || true
+            gh issue create --title "$ISSUE_TITLE" --label dependencies --body-file dependency-report.md
+          fi
+      - name: Comment the run on the issue
+        if: failure() && hashFiles('dependency-report.log') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_TITLE: Weekly dependency report
+        run: |
+          issue=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --limit 50 \
+            --json number,title --jq '[.[] | select(.title == env.ISSUE_TITLE)] | sort_by(.number) | .[0].number // empty')
+          if [ -n "$issue" ]; then
+            printf 'The report run of %s failed.\n\n```\n%s\n```\n' \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "$(cat dependency-report.log)" \
+              | gh issue comment "$issue" --body-file -
+          fi
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f dependency-report.md ]; then cat dependency-report.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f dependency-report.log ]; then echo '```' >> "$GITHUB_STEP_SUMMARY"; cat dependency-report.log >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"; fi
