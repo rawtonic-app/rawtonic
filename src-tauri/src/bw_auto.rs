@@ -12,7 +12,7 @@
 //! the 5–95 % range of its Oklab lightness. The step is a fixed linear map
 //! of the four slopes, fitted to Lightroom's Auto on 73 photos; on held-out
 //! halves the grey differs from Lightroom's by 0.16 and 0.21 Oklab L × 100
-//! on average, where the earlier range-maximising Auto gave 0.55 and 0.29,
+//! on average, where the earlier range-maximising Auto gave 0.29 and 0.55,
 //! and no photo got worse by more than 0.2 (notes:
 //! benchmark-results/bwa-bw-auto-2026-11-03/REPORT.md).
 
