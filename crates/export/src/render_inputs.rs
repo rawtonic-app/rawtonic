@@ -84,6 +84,15 @@ impl RenderInputs {
             .insert(key.to_string(), value);
     }
 
+    /// Forgets what was recorded: called when an export starts, so a
+    /// recorder reused for several exports holds only the last one's.
+    pub fn clear(&self) {
+        self.entries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+
     /// The inputs recorded so far, keys sorted.
     pub fn snapshot(&self) -> Value {
         sorted(&Value::Object(
@@ -232,5 +241,30 @@ impl RenderInputs {
                 "color_space": format!("{color_space:?}"),
             }),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reused_recorder_holds_only_the_last_exports_inputs() {
+        let inputs = RenderInputs::new();
+        let mask = MaskBitmap::from_coverage(2, 1, &[0.0, 1.0]);
+        inputs.mask_bitmap(0, &mask);
+        inputs.mask_bitmap(1, &mask);
+        assert_eq!(
+            inputs.snapshot()["mask_bitmaps"].as_object().unwrap().len(),
+            2
+        );
+        inputs.clear();
+        inputs.mask_bitmap(0, &mask);
+        assert_eq!(
+            inputs.snapshot()["mask_bitmaps"].as_object().unwrap().len(),
+            1
+        );
+        inputs.clear();
+        assert_eq!(inputs.snapshot(), json!({}));
     }
 }

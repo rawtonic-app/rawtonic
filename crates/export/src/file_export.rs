@@ -162,6 +162,9 @@ impl FileExporter {
     }
 
     pub fn export(&self, job: &FileExport) -> Result<(), String> {
+        if let Some(inputs) = &self.render_inputs {
+            inputs.clear();
+        }
         let source_path_str = job.source.to_string_lossy().to_string();
 
         let mut js_adjustments = job.recipe.clone().unwrap_or(Value::Null);
