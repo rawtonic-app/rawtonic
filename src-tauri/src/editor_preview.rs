@@ -664,6 +664,7 @@ pub(crate) fn cancel_thumbnail_generation(
     state
         .thumbnail_cancellation_token
         .store(true, Ordering::SeqCst);
+    state.thumbnail_manager.queue.lock().unwrap().clear();
 
     let mut tracker = state.thumbnail_progress.lock().unwrap();
     tracker.total = 0;

@@ -1088,6 +1088,19 @@ pub(crate) fn prefetch_source_file(path_str: &str) {
     }
 }
 
+/// The next queued photo, or `None` (and the rest of the queue dropped) once
+/// thumbnail generation was cancelled.
+pub(crate) fn take_next_thumbnail_path(
+    queue: &mut std::collections::VecDeque<String>,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Option<String> {
+    if cancelled.load(Ordering::SeqCst) {
+        queue.clear();
+        return None;
+    }
+    queue.pop_back()
+}
+
 pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
     let state = app_handle.state::<crate::app_state::AppState>();
     let manager = state.thumbnail_manager.clone();
@@ -1105,7 +1118,13 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                     while queue.is_empty() {
                         queue = manager_clone.cvar.wait(queue).unwrap();
                     }
-                    let path = queue.pop_back().unwrap();
+                    let state = app_clone.state::<crate::app_state::AppState>();
+                    let Some(path) =
+                        take_next_thumbnail_path(&mut queue, &state.thumbnail_cancellation_token)
+                    else {
+                        // Cancelled: the queue is dropped, the progress is already reset.
+                        continue;
+                    };
 
                     let mut processing = manager_clone.processing_now.lock().unwrap();
                     if processing.contains(&path) {
@@ -1196,6 +1215,11 @@ pub fn update_thumbnail_queue(
         state.thumbnail_manager.cvar.notify_all();
         return Ok(());
     }
+
+    // A new generation starts: an earlier cancel must not stop it.
+    state
+        .thumbnail_cancellation_token
+        .store(false, Ordering::SeqCst);
 
     // This command receives a viewport snapshot, not an accumulating job list.
     // Do not spend CPU decoding images the user has already scrolled past.
@@ -2045,5 +2069,32 @@ mod thumbnail_queue_tests {
         assert_eq!(queue[0], "first");
         assert_eq!(queue[499], "498");
         assert!(visible_thumbnail_paths(Vec::new(), &processing).is_empty());
+    }
+
+    #[test]
+    fn a_cancelled_generation_stops_at_the_next_photo_and_a_new_one_runs() {
+        use std::sync::atomic::AtomicBool;
+        let cancelled = AtomicBool::new(false);
+        let mut queue: std::collections::VecDeque<String> =
+            ["c", "b", "a"].into_iter().map(String::from).collect();
+        assert_eq!(
+            take_next_thumbnail_path(&mut queue, &cancelled).as_deref(),
+            Some("a")
+        );
+
+        cancelled.store(true, Ordering::SeqCst);
+        assert_eq!(take_next_thumbnail_path(&mut queue, &cancelled), None);
+        assert!(
+            queue.is_empty(),
+            "the rest of the cancelled queue is dropped"
+        );
+
+        // update_thumbnail_queue resets the flag when a new generation starts.
+        cancelled.store(false, Ordering::SeqCst);
+        queue.push_back("d".to_string());
+        assert_eq!(
+            take_next_thumbnail_path(&mut queue, &cancelled).as_deref(),
+            Some("d")
+        );
     }
 }
