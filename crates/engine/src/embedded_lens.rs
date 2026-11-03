@@ -277,6 +277,21 @@ fn fuji_knots_on_readout(distortion: &[(f64, f64)]) -> bool {
     distortion.last().is_some_and(|&(r, _)| r > 1.01)
 }
 
+/// Whether camera geometry version `geometry_version` reads a Fujifilm
+/// distortion curve on the sensor's readout (`fuji_on_readout`, applied
+/// once): from version 9 in a crop mode (`crop_mode`, the maker note's
+/// CropMode, read only when needed), from version 10 also on normal frames
+/// where the knots reach past the frame's corner (`fuji_knots_on_readout`).
+fn fuji_reads_on_readout(
+    geometry_version: u64,
+    distortion: &[(f64, f64)],
+    crop_mode: impl FnOnce() -> Option<u16>,
+) -> bool {
+    (geometry_version >= FUJIFILM_READOUT_KNOTS_GEOMETRY && fuji_knots_on_readout(distortion))
+        || (geometry_version >= FUJIFILM_SENSOR_KNOTS_GEOMETRY
+            && crop_mode().is_some_and(|mode| mode != 0))
+}
+
 /// Fujifilm's distortion, whose knots refer to the sensor's readout
 /// width, on a developed frame that reaches `1 / reach` of it
 /// (`fuji_readout_reach`): each knot's radius times `reach` in the frame's
@@ -1315,16 +1330,10 @@ pub fn read_version(
                 return Some(data);
             }
             let frame = crate::raw_processing::sensor_and_frame(&source, 0).map(|(_, frame)| frame);
-            // Version 9 reads the knots on the readout in a crop mode,
-            // version 10 also on normal frames where they reach past the
-            // frame's corner (`fuji_knots_on_readout`).
-            let on_readout = (geometry_version >= FUJIFILM_READOUT_KNOTS_GEOMETRY
-                && fuji_knots_on_readout(&data.distortion))
-                || (geometry_version >= FUJIFILM_SENSOR_KNOTS_GEOMETRY
-                    && path
-                        .to_str()
-                        .and_then(crate::capture_info::fujifilm_crop_mode)
-                        .is_some_and(|mode| mode != 0));
+            let on_readout = fuji_reads_on_readout(geometry_version, &data.distortion, || {
+                path.to_str()
+                    .and_then(crate::capture_info::fujifilm_crop_mode)
+            });
             if on_readout
                 && let Some(reach) = frame.and_then(|[w, _]| {
                     let (_, readout) = crate::capture_info::raf_raw_size(source.buf())?;
@@ -3999,6 +4008,23 @@ mod tests {
         eleven.extend((0..=10).map(|i| -0.05 * i as f64));
         let eleven = fuji_curves(&eleven, None).unwrap();
         assert!(!fuji_knots_on_readout(&eleven.distortion));
+        // Which versions read them so: nine knots on a normal frame from 10
+        // on (not at 9, which leaves normal frames alone); the older
+        // layouts only in a crop mode (from 9); a crop mode never asks the
+        // maker note when the knots decide already.
+        let (normal, sports) = (|| Some(0), || Some(2));
+        let unasked = || -> Option<u16> { panic!("crop mode read") };
+        assert!(fuji_reads_on_readout(10, &nine.distortion, unasked));
+        assert!(!fuji_reads_on_readout(9, &nine.distortion, normal));
+        assert!(fuji_reads_on_readout(9, &nine.distortion, sports));
+        for older in [&eight.distortion, &eleven.distortion] {
+            assert!(!fuji_reads_on_readout(10, older, normal));
+            assert!(!fuji_reads_on_readout(10, older, || None));
+            assert!(fuji_reads_on_readout(10, older, sports));
+            assert!(fuji_reads_on_readout(9, older, sports));
+            assert!(!fuji_reads_on_readout(8, older, sports));
+        }
+        assert!(!fuji_reads_on_readout(8, &nine.distortion, sports));
     }
 
     #[test]
