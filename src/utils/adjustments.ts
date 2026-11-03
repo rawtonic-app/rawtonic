@@ -1604,6 +1604,7 @@ export const pastedAdjustments = (
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
+      key === 'bwVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
       continue;
@@ -1612,7 +1613,10 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied), copied);
+  return withBwVersion(
+    withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied), copied),
+    copied,
+  );
 };
 
 /** Keys whose values mean what the sharpening response makes of them. */
@@ -1715,11 +1719,31 @@ export const withClarityVersion = <T extends Partial<Adjustments>>(
   return { ...picked, clarityVersion: source?.clarityVersion ?? 1 };
 };
 
-/** A preset's settings with its Clarity response stated: the preset is its
- * own source, so Clarity on its layers alone (a preset from before the key)
- * renders with version 1 wherever it is previewed or applied. */
-export const withPresetClarityVersion = <T extends Partial<Adjustments>>(preset: T) =>
-  withClarityVersion(preset, preset);
+/** As `withSharpenVersion` for the black & white mix: wherever mix values
+ * are copied (paste, tool copy, Edit all selected, presets) the mix response
+ * goes along explicitly — the source's, else 1 (a source or preset from
+ * before the key) — so the copy renders the mix as the source does. */
+export const withBwVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'bwVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'bwVersion') && picked.bwVersion == null) {
+    return { ...picked, bwVersion: 1 };
+  }
+  if (picked.grayMixer === undefined || picked.bwVersion != null) {
+    return picked;
+  }
+  return { ...picked, bwVersion: source?.bwVersion ?? 1 };
+};
+
+/** A preset's settings with its Clarity and B&W mix responses stated: the
+ * preset is its own source, so Clarity on its layers alone or a mix from
+ * before the keys renders with version 1 wherever it is previewed or
+ * applied. */
+export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
+  withBwVersion(withClarityVersion(preset, preset), preset);
 
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;

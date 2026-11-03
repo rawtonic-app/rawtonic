@@ -22,6 +22,7 @@ import {
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withBwVersion,
   withClarityVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
@@ -1390,7 +1391,7 @@ export function useEditorActions() {
       const grain = withGrainStructure(photoFree);
       let adjustmentsToApply = asChosen
         ? grain
-        : withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))));
+        : withBwVersion(withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain)))))));
       // A style's curves as loading makes them (src/utils/appliedStyle.ts).
       if (style && !style.remove) adjustmentsToApply = withLoadedCurves(adjustmentsToApply);
       const { selectedImage, adjustments } = useEditorStore.getState();

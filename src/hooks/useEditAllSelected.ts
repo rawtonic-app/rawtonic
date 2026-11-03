@@ -15,6 +15,7 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/quit';
 import {
   sameAdjustmentValue,
+  withBwVersion,
   withClarityVersion,
   withGrainVersion,
   withLumaNoiseVersion,
@@ -213,8 +214,11 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // (inferred after drawn masks are left out of the live patch).
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
-        ? withClarityVersion(
-            withGrainVersion(withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments), source?.adjustments),
+        ? withBwVersion(
+            withClarityVersion(
+              withGrainVersion(withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments), source?.adjustments),
+              source?.adjustments,
+            ),
             source?.adjustments,
           )
         : null;
@@ -256,7 +260,15 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // be one of the others, still opening.
       // The others get the primary's layers, with their AI detections made
       // on each of them (never the primary's bitmaps).
-      const done = writeToOthers(applyRef.current, withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, from.path);
+      const done = writeToOthers(
+        applyRef.current,
+        withBwVersion(
+          withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments),
+          from.adjustments,
+        ),
+        others,
+        from.path,
+      );
       if (!done) {
         // Nothing was written: the cells show their recipes again.
         if (thisWrite === writes) inflight = shownBefore;

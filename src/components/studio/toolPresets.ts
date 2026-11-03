@@ -5,7 +5,7 @@ import {
   withGrainStructure,
   withLegacyGrainVersion,
   withLumaNoiseVersion,
-  withPresetClarityVersion,
+  withPresetVersions,
   withSharpenVersion,
   type Adjustments,
 } from "../../utils/adjustments";
@@ -75,7 +75,7 @@ export function toolPresetToSave(current: Adjustments, keys: string[]): Partial<
 export function presetValues(adjustments: Partial<Adjustments>): Partial<Adjustments> {
   const target = structuredClone(adjustments);
   if (target.masks) target.masks = target.masks.map(withPendingDetections);
-  return withPresetClarityVersion(
+  return withPresetVersions(
     withDiffractionVersion(
       withLumaNoiseVersion(
         withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(target)))),

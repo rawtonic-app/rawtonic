@@ -178,6 +178,10 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(mixed, true).bwVersion).toBeUndefined();
     expect('bwVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(mixed, true)))).toBe(false);
     expect(normalizeLoadedAdjustments({ ...mixed, bwVersion: 2 }, true).bwVersion).toBe(2);
+    // A paste of the mix states the source's response (1 for the older edit).
+    const pasted = pastedAdjustments(normalizeLoadedAdjustments(mixed, true), ['blackAndWhite', 'grayMixer', 'bwVersion'], PasteMode.Replace);
+    expect(JSON.parse(JSON.stringify(pasted)).bwVersion).toBe(1);
+    expect(pastedAdjustments({ ...mixed, bwVersion: 2 }, ['grayMixer', 'bwVersion'], PasteMode.Merge).bwVersion).toBe(2);
   });
 
   it('carry the AI Denoise version with a copied amount', () => {

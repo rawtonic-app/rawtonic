@@ -67,6 +67,23 @@ describe('Tool copy of Clarity', () => {
   });
 });
 
+describe('Tool copy of the black & white mix', () => {
+  it('carries the response of an edit made before B&W version 2', () => {
+    // An older converted edit with a mix and no key: its copy states version
+    // 1, so a photo already at version 2 renders the mix as the source.
+    const old = normalizeLoadedAdjustments(
+      { blackAndWhite: true, grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer, blue: -40 } } as unknown as Adjustments,
+      true,
+    );
+    const copied = JSON.parse(JSON.stringify(pick(old, ['grayMixer'])));
+    expect(copied.bwVersion).toBe(1);
+    const destination = { ...INITIAL_ADJUSTMENTS, bwVersion: 2 } as Adjustments;
+    expect({ ...destination, ...copied }.bwVersion).toBe(1);
+    const current = normalizeLoadedAdjustments({ blackAndWhite: true, bwVersion: 2 } as unknown as Adjustments, true);
+    expect(pick(current, ['grayMixer']).bwVersion).toBe(2);
+  });
+});
+
 describe('Tool copy of LUT', () => {
   it('carries the table and input space with the selected LUT', () => {
     const source = { ...INITIAL_ADJUSTMENTS, lutPath: '/qa/own.cube', lutName: 'Own table', lutSize: 2, lutData: "AAAAAA==", lutIsSceneReferred: true, lutIntensity: 70 } as Adjustments;
