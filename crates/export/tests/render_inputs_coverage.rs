@@ -12,7 +12,7 @@
 //!
 //! The recipe is `crates/engine/tests/fixtures/new-edit-recipe.raw.json`, kept
 //! equal to the editor's `initialAdjustmentsFor(true)` by
-//! `src/contracts/newEditRecipe.test.ts`.
+//! `src/contracts/rustContract.test.ts`.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};

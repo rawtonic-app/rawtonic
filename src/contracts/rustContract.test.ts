@@ -7,6 +7,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Invokes } from '../components/ui/AppProperties';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_ADJUSTMENTS, initialAdjustmentsFor } from '../utils/adjustments';
+import newEditRecipe from '../../crates/engine/tests/fixtures/new-edit-recipe.raw.json';
 
 const read = (path: string): string => readFileSync(path, 'utf8') as string;
 
@@ -82,5 +83,15 @@ describe('recipe', () => {
     const keys = Object.keys(INITIAL_MASK_ADJUSTMENTS);
     expect(keys.length).toBeGreaterThan(20);
     expect(keys.filter((key) => !spelled(key)).sort()).toEqual([]);
+  });
+});
+
+// The Rust render-input coverage test (crates/export/tests/render_inputs_coverage.rs)
+// perturbs every value of the editor's new-edit RAW recipe, read from a committed
+// fixture; this keeps the fixture equal to what the editor starts with. After a
+// deliberate change to `initialAdjustmentsFor`, regenerate the fixture from it.
+describe('new-edit recipe fixture', () => {
+  it('equals initialAdjustmentsFor(true)', () => {
+    expect(JSON.parse(JSON.stringify(initialAdjustmentsFor(true)))).toEqual(newEditRecipe);
   });
 });
