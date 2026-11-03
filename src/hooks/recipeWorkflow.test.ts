@@ -134,7 +134,9 @@ describe('recorded behaviour worth a second look', () => {
   it.skipIf(RECORD)('legacy RAW recipe without a lens mode gains the new-edit RAW defaults on save', () => {
     // FINDING: a legacy RAW edit (exposure/contrast only, no lensCorrectionMode) counts as
     // "never edited", so the save adds fringeVersion 6 and autoCaVersion 3 (edge-fringe pass and
-    // automatic lateral CA) and lensCorrectionMode 'manual': its render changes on first save.
+    // automatic lateral CA) and lensCorrectionMode 'manual' to the stored JSON. Whether the render
+    // changes is not shown here: export preparation already applies these defaults
+    // (embedded_lens::apply_default) to recipes without lensCorrectionMode before rendering.
     // The raster twin gains lensCorrectionMode/grainVersion 3 but no RAW passes.
     expect(saved('raw.legacy-no-versions')).toMatchObject({ fringeVersion: 6, autoCaVersion: 3, lensCorrectionMode: 'manual' });
     expect(saved('raster.legacy-no-versions').fringeVersion).toBeUndefined();
