@@ -10,6 +10,7 @@ import { Star } from 'lucide-react';
 import { ImageMetadata, Invokes } from '../ui/AppProperties';
 import { useProcessStore } from '../../store/useProcessStore';
 import { recipeAction, type RecipeValues } from '../../utils/appUndo';
+import { sourceFileName } from '../../entities/photo/photoRef';
 
 /** One photo's proposal (`rawtonic_engine::series_match::Proposal`). */
 export interface WhiteBalanceValue {
@@ -75,7 +76,7 @@ export function proposalValues(proposal: MatchProposal): Record<string, unknown>
   return values;
 }
 
-const fileName = (path: string) => path.split('?vc=')[0].split(/[\\/]/).pop() ?? path;
+const fileName = (path: string) => sourceFileName(path);
 const signed = (value: number, digits = 2) => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}`;
 
 export function SeriesMatchDialogHost() {

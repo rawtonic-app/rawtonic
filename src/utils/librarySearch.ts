@@ -3,6 +3,7 @@ import { EditedStatus, Invokes, LibraryViewMode, RawStatus, type FilterCriteria 
 import { MISSING_VIEW_ID } from './offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from './folderSync';
 import { noteTool } from '../components/contribute/usageStats';
+import { sourceOf } from '../entities/photo/photoRef';
 
 /**
  * The library's search rules (`rawtonic_catalog::query`): one model for the
@@ -253,10 +254,7 @@ export function filterAsRule(
 
 /** A library path without a virtual copy's `?vc=` suffix (the catalog finds
  * the photograph; its copies follow it). */
-export const photographPath = (path: string): string => {
-  const at = path.indexOf('?vc=');
-  return at < 0 ? path : path.slice(0, at);
-};
+export const photographPath = (path: string): string => sourceOf(path);
 
 /** `listed`: the folder the grid lists, perhaps through a symlink; the
  * answer comes in its form (the catalog holds real paths). */

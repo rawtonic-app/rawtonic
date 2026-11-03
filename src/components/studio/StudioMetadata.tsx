@@ -18,6 +18,7 @@ import { catalogChanged, invokeInOrder } from '../../utils/catalogWrites';
 import { submitPhotoWrite } from '../../utils/photoWrites';
 import { captureText } from '../../utils/captureTime';
 import { useCaptureTimeDialog } from './CaptureTimeDialog';
+import { isCopy, sourceFileName, sourceOf } from '../../entities/photo/photoRef';
 
 export interface TextMetadata {
   title: string;
@@ -127,7 +128,7 @@ interface TextMetadataCache {
   load(session: string): Promise<void>;
   merge(written: Record<string, TextMetadata>): void;
 }
-const basePath = (path: string) => path.split('?vc=')[0];
+const basePath = (path: string) => sourceOf(path);
 export const useTextMetadataCache = create<TextMetadataCache>((set, get) => ({
   session: null,
   loaded: false,
@@ -555,7 +556,7 @@ function ColorLabelPicker({ paths }: { paths: string[] }) {
 
 /** The shown photograph's file size, read once per file. */
 function useFileSize(path: string | undefined) {
-  const base = path?.split('?vc=')[0];
+  const base = path ? sourceOf(path) : path;
   const [size, setSize] = useState<{ path: string; bytes: number } | null>(null);
   useEffect(() => {
     if (!base) return;
@@ -624,14 +625,16 @@ export function StudioMetadataTool() {
     shown?.width && shown.height
       ? `${shown.width} × ${shown.height} · ${((shown.width * shown.height) / 1e6).toFixed(1)} MP`
       : '';
-  const fileName = detailsPath?.split('?vc=')[0].split(/[\\/]/).pop();
+  const fileName = detailsPath ? sourceFileName(detailsPath) : undefined;
   const extension = fileName?.includes('.') ? fileName.split('.').pop()?.toUpperCase() : undefined;
   const details: [string, string, string | undefined][] = [
     ['file', t('studio.metadata.details.file'), fileName],
     [
       'format',
       t('studio.metadata.details.format'),
-      [extension, detailsPath?.includes('?vc=') && t('studio.metadata.details.virtualCopy')].filter(Boolean).join(' · ')
+      [extension, detailsPath && isCopy(detailsPath) && t('studio.metadata.details.virtualCopy')]
+        .filter(Boolean)
+        .join(' · ')
     ],
     ['fileSize', t('studio.metadata.details.fileSize'), bytes !== null ? formatBytes(bytes) : undefined],
     ['camera', t('studio.metadata.details.camera'), camera],

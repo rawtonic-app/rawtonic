@@ -18,6 +18,7 @@ use crate::image_processing::ImageMetadata;
 use crate::load_settings;
 use crate::tagging::COLOR_TAG_PREFIX;
 use image::DynamicImage;
+use rawtonic_metadata::photo_ref::PhotoRef;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -1299,17 +1300,14 @@ fn resolve_culling_targets_with(
                 .as_ref()
                 .map_err(Clone::clone)?;
             let asset = lib.asset(id).map_err(|e| e.to_string())?;
-            let copy = write.path.rsplit_once("?vc=").map(|(_, copy)| copy);
+            let photo = PhotoRef::parse(&write.path);
+            let copy = photo.copy_id();
             if let Some(copy) = copy {
                 lib.version_for(id, Some(copy))
                     .map_err(|e| e.to_string())?
                     .ok_or_else(|| "This virtual copy no longer exists".to_string())?;
             }
-            write.path = format!(
-                "{}{}",
-                asset.path.to_string_lossy(),
-                copy.map(|id| format!("?vc={id}")).unwrap_or_default()
-            );
+            write.path = PhotoRef::of_path(&asset.path, copy).format();
             write.directory = Some(owner.to_string());
         } else if !parse_virtual_path(&write.path).0.is_file() {
             return Err("The photograph is no longer at its original location".into());

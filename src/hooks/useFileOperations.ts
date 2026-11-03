@@ -27,6 +27,7 @@ import {
 import { isBelow } from '../utils/catalogFolders';
 import { openExportQueue } from '../utils/catalogEvents';
 import type { PlannedFile } from '../components/modals/RenameFileModal';
+import { isCopy, isCopyOf, sourceOf } from '../entities/photo/photoRef';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
 export interface FileOperationSummary {
@@ -327,7 +328,7 @@ function warnAboutNote(summary: FileOperationSummary | null | undefined) {
  * could not be saved: the operation must not run, or that edit would stay
  * behind at the old place. A failed save elsewhere does not hold it up. */
 async function saveEditsFirst(moving: string[] = [], sameName = false): Promise<boolean> {
-  const physical = (path: string) => path.split('?vc=')[0];
+  const physical = (path: string) => sourceOf(path);
   const withoutExtension = (path: string) => physical(path).replace(/\.[^.\\/]*$/, '');
   let failed: string[];
   try {
@@ -541,7 +542,7 @@ export function useFileOperations(
       let nextImagePath: string | null = null;
 
       if (activePath) {
-        const physicalPath = activePath.split('?vc=')[0];
+        const physicalPath = sourceOf(activePath);
         const isActiveImageDeleted = pathsToDelete.some((p) => p === activePath || p === physicalPath);
 
         if (isActiveImageDeleted) {
@@ -585,7 +586,7 @@ export function useFileOperations(
         void recountAfterFileOperation();
 
         if (selectedImage && activeView === 'editor') {
-          const physicalPath = selectedImage.path.split('?vc=')[0];
+          const physicalPath = sourceOf(selectedImage.path);
           const isFileBeingEditedDeleted = pathsToDelete.some((p) => p === selectedImage.path || p === physicalPath);
 
           if (isFileBeingEditedDeleted) {
@@ -603,7 +604,7 @@ export function useFileOperations(
           }
 
           if (selectedImage) {
-            const physicalPath = selectedImage.path.split('?vc=')[0];
+            const physicalPath = sourceOf(selectedImage.path);
             if (pathsToDelete.some((p) => p === selectedImage.path || p === physicalPath)) {
               useEditorStore.getState().setEditor({ selectedImage: null });
             }
@@ -698,7 +699,7 @@ export function useFileOperations(
     }
     const separator = sessionDirectory.includes('\\') && !sessionDirectory.includes('/') ? '\\' : '/';
     const trashFolder = `${sessionDirectory}${separator}Trash`;
-    const inTrash = (path: string) => isBelow(path.split('?vc=')[0], trashFolder);
+    const inTrash = (path: string) => isBelow(sourceOf(path), trashFolder);
     useUIStore.getState().setUI({
       confirmModalState: {
         isOpen: true,
@@ -774,7 +775,7 @@ export function useFileOperations(
           if (summary) notify.success(describeFileOperation(summary));
           warnAboutNote(summary);
           const { selectedImage } = useEditorStore.getState();
-          if (selectedImage && paths.some((p) => p.split('?vc=')[0] === selectedImage.path.split('?vc=')[0])) {
+          if (selectedImage && paths.some((p) => sourceOf(p) === sourceOf(selectedImage.path))) {
             if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
             useEditorStore.getState().setEditor({ selectedImage: null });
           }
@@ -827,7 +828,7 @@ export function useFileOperations(
         moved.error = String(err);
       }
       const { selectedImage } = useEditorStore.getState();
-      if (selectedImage && isBelow(selectedImage.path.split('?vc=')[0], from)) {
+      if (selectedImage && isBelow(sourceOf(selectedImage.path), from)) {
         if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
         useEditorStore.getState().setEditor({ selectedImage: null });
       }
@@ -940,7 +941,7 @@ export function useFileOperations(
     const shown =
       useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ??
       `${sessionDirectory}${separator}Selects`;
-    const outside = paths.filter((p) => getParentDir(p.split('?vc=')[0]) !== shown);
+    const outside = paths.filter((p) => getParentDir(sourceOf(p)) !== shown);
     if (outside.length === 0) {
       notify.info(ops(paths.length ? 'alreadyInSelects' : 'selectForSelects'));
       return;
@@ -1009,9 +1010,7 @@ export function useFileOperations(
     const isSingle = pathsToDelete.length === 1;
 
     const selectionHasVirtualCopies =
-      isSingle &&
-      !pathsToDelete[0].includes('?vc=') &&
-      imageList.some((image) => image.path.startsWith(`${pathsToDelete[0]}?vc=`));
+      isSingle && !isCopy(pathsToDelete[0]) && imageList.some((image) => isCopyOf(image.path, pathsToDelete[0]));
 
     const hint = undoHint();
     let modalTitle = ops('trashTitle');

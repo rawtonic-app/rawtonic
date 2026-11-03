@@ -6,6 +6,7 @@ import { captureInfoParts } from '../../utils/captureInfo';
 import { imageFlag } from '../../utils/culling';
 import { keywordOf } from '../../hooks/useLibraryActions';
 import { useShownPhoto, useTextMetadataCache } from './StudioMetadata';
+import { sourceFileName, sourceOf } from '../../entities/photo/photoRef';
 
 /**
  * The photograph's facts over the viewer, read only (Lightroom's info
@@ -21,7 +22,7 @@ export default function ViewerInfoOverlay() {
   const flag = useLibraryStore((s) => (path ? imageFlag(s.imageFlags, path) : 0));
   const tags = useLibraryStore((s) => s.imageList.find((image) => image.path === path)?.tags);
   // The title as the Metadata tool last read it (no read of its own here).
-  const title = useTextMetadataCache((s) => (path ? s.byPath[path.split('?vc=')[0]]?.title : undefined));
+  const title = useTextMetadataCache((s) => (path ? s.byPath[sourceOf(path)]?.title : undefined));
   const keywords = useMemo(
     () =>
       (tags ?? [])
@@ -31,7 +32,7 @@ export default function ViewerInfoOverlay() {
     [tags]
   );
   if (!path) return null;
-  const name = path.split('?vc=')[0].split(/[\\/]/).pop();
+  const name = sourceFileName(path);
   const camera = [exif.Make, exif.Model]
     .filter(Boolean)
     .join(' ')

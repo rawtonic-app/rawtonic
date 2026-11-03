@@ -39,6 +39,7 @@ import {
   hideCameraPreview,
   toggleCameraPreview
 } from '../utils/cameraPreview';
+import { sourceOf } from '../entities/photo/photoRef';
 
 function showMaskDisplayNotice(mode: ReturnType<typeof maskDisplayOf>): void {
   notify.info(
@@ -292,7 +293,7 @@ export const useKeyboardShortcuts = ({
   }, [showInViewer, handleImageSelect]);
 
   const handleCopyImagePaths = useCallback(async (paths: Array<string>) => {
-    const physicalPaths = [...new Set(paths.map((path) => path.split('?vc=')[0]))];
+    const physicalPaths = [...new Set(paths.map((path) => sourceOf(path)))];
     if (physicalPaths.length === 0) {
       return;
     }

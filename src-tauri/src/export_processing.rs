@@ -393,7 +393,7 @@ pub(crate) fn pin_photos(
                 let saved = exif_processing::load_sidecar(&sidecar);
                 let metadata = crate::session_bridge::catalog_metadata(&source);
                 // A virtual copy is rated, labelled and tagged on its own.
-                let metadata = if path.contains("?vc=") {
+                let metadata = if rawtonic_metadata::photo_ref::is_copy(path) {
                     metadata.map(|photo| {
                         rawtonic_catalog::copy_metadata(photo, saved.rating, saved.tags.as_deref())
                     })

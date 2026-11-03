@@ -9,6 +9,7 @@ use crate::app_state::PendingMetadata;
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
 use crate::load_settings;
+use rawtonic_metadata::photo_ref::{self, CopyId, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -240,7 +241,11 @@ pub(crate) fn offline_image_files(
                         .and_then(|state| serde_json::from_value::<ImageMetadata>(state).ok())
                         .map(|state| image_file_metadata(&entry.path, state, settings))
                         .unwrap_or_else(|| unedited(&entry.path));
-                    file(format!("{source}?vc={copy}"), true, metadata)
+                    file(
+                        PhotoRef::new(source.as_str(), Some(CopyId::new(copy.as_str()))).format(),
+                        true,
+                        metadata,
+                    )
                 })
                 .collect();
             std::iter::once(file(source.clone(), false, metadata)).chain(copies)
@@ -553,17 +558,10 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
         if file_name.ends_with(".rrdata") {
             let base = &file_name[..file_name.len() - 7];
 
-            let (source_filename, copy_id) =
-                if base.len() >= 7 && base.as_bytes()[base.len() - 7] == b'.' {
-                    let id = &base[base.len() - 6..];
-                    if id.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) {
-                        (&base[..base.len() - 7], Some(id.to_string()))
-                    } else {
-                        (base, None)
-                    }
-                } else {
-                    (base, None)
-                };
+            let (source_filename, copy_id) = match photo_ref::sidecar_name_parts(&file_name) {
+                Some((file, copy)) => (file, copy.map(str::to_string)),
+                None => (base, None),
+            };
 
             sidecars_by_filename
                 .entry(source_filename.to_string())
@@ -617,7 +615,7 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
             for copy_id_opt in sidecars {
                 let (virtual_path, is_virtual_copy, sidecar_filename) = match copy_id_opt {
                     Some(id) => (
-                        format!("{}?vc={}", path_str, id),
+                        PhotoRef::new(path_str.as_str(), Some(CopyId::new(id.as_str()))).format(),
                         true,
                         format!("{}.{}.rrdata", file_name, id),
                     ),
@@ -744,7 +742,7 @@ pub fn list_images_recursive(
             for copy_id_opt in sidecars {
                 let (virtual_path, is_virtual_copy, sidecar_filename) = match copy_id_opt {
                     Some(id) => (
-                        format!("{}?vc={}", path_str, id),
+                        PhotoRef::new(path_str.as_str(), Some(CopyId::new(id.as_str()))).format(),
                         true,
                         format!("{}.{}.rrdata", file_name, id),
                     ),

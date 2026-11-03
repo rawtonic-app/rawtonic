@@ -1,3 +1,4 @@
+import { sourceOf } from '../entities/photo/photoRef';
 /**
  * The one write queue of each photograph: every write of its recipe,
  * sidecar or XMP (editor autosave, batch paste/preset/sync/reset, lens and
@@ -179,7 +180,7 @@ function nameOf(path: string): string {
 /** The photograph a path's sidecar and XMP belong to: virtual copies of one
  * file share its XMP, so they share its queue. */
 export function photoWriteKey(path: string): string {
-  return path.split('?vc=')[0];
+  return sourceOf(path);
 }
 
 const tails = new Map<string, Promise<void>>();

@@ -12,6 +12,7 @@
  */
 import { create } from 'zustand';
 import type { ReactNode } from 'react';
+import { sourceOf } from '../entities/photo/photoRef';
 
 export type ActivityStatus = 'running' | 'done' | 'warning' | 'failure';
 
@@ -200,7 +201,7 @@ export function activityDetails(entry: ActivityEntry, renderedText?: string): st
   const lines = [entry.title];
   if (entry.detail) lines.push(entry.detail);
   if (renderedText && renderedText.trim() && renderedText.trim() !== entry.title) lines.push(renderedText.trim());
-  if (entry.paths?.length) lines.push('', ...entry.paths.map((path) => path.split('?vc=')[0]));
+  if (entry.paths?.length) lines.push('', ...entry.paths.map((path) => sourceOf(path)));
   return lines.join('\n');
 }
 

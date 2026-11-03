@@ -17,6 +17,7 @@ import { renderErrorMessage } from '../../utils/renderErrors';
 import { exportTimeLeft, splitTimeLeft } from '../../utils/exportTimeLeft';
 import { Invokes } from '../ui/AppProperties';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { sourceOf } from '../../entities/photo/photoRef';
 
 /** What a queued job's state means for the photographer. */
 export function describeExportJob(job: ExportJob): string {
@@ -84,7 +85,7 @@ export function describeTimeLeft(ms: number | null): string {
 
 /** The file name of an export source (a virtual copy's path ends in `?vc=…`). */
 function exportFileName(path: string): string {
-  const file = path.split('?vc=')[0];
+  const file = sourceOf(path);
   return file.slice(Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) + 1);
 }
 

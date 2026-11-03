@@ -7,6 +7,7 @@
 use super::parse_virtual_path;
 use crate::formats::{is_raw_file, is_supported_image_file};
 use chrono::{DateTime, Utc};
+use rawtonic_metadata::photo_ref::PhotoRef;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -103,9 +104,9 @@ impl RenamePlan {
         let (photo, _) = parse_virtual_path(path);
         match (
             self.photos.iter().find(|p| p.from == photo),
-            path.rsplit_once("?vc="),
+            rawtonic_metadata::photo_ref::split(path).1,
         ) {
-            (Some(p), Some((_, id))) => format!("{}?vc={id}", p.to.to_string_lossy()),
+            (Some(p), Some(id)) => PhotoRef::of_path(&p.to, Some(id)).format(),
             (Some(p), None) => p.to.to_string_lossy().into_owned(),
             (None, _) => path.to_string(),
         }

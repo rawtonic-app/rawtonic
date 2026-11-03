@@ -3,6 +3,7 @@
 use super::add_to_album;
 use super::parse_virtual_path;
 use crate::image_processing::ImageMetadata;
+use rawtonic_metadata::photo_ref::PhotoRef;
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -999,7 +1000,7 @@ fn new_copy_path(
     mut new_id: impl FnMut() -> String,
 ) -> Result<(String, PathBuf), String> {
     for _ in 0..16 {
-        let path = format!("{}?vc={}", source.to_string_lossy(), new_id());
+        let path = PhotoRef::of_path(source, Some(&new_id())).format();
         let (_, sidecar) = parse_virtual_path(&path);
         if !taken(&sidecar) {
             return Ok((path, sidecar));

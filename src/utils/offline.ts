@@ -13,6 +13,7 @@ import {
 } from '../components/ui/AppProperties';
 import { openDialog } from './fileDialog';
 import { useLibraryStore } from '../store/useLibraryStore';
+import { formatPhotoRef, sourceOf, withSource } from '../entities/photo/photoRef';
 
 /**
  * Offline photographs: their file is missing or on a disconnected drive. The
@@ -111,7 +112,10 @@ export function watchVolumes(): () => void {
 /** The library paths of offline photographs and their virtual copies, as
  * the grid lists them. */
 export function offlinePaths(entries: OfflineEntry[]): string[] {
-  return entries.flatMap((entry) => [entry.path, ...(entry.copies ?? []).map((copy) => `${entry.path}?vc=${copy}`)]);
+  return entries.flatMap((entry) => [
+    entry.path,
+    ...(entry.copies ?? []).map((copy) => formatPhotoRef({ source: entry.path, copy }))
+  ]);
 }
 
 /**
@@ -121,7 +125,7 @@ export function offlinePaths(entries: OfflineEntry[]): string[] {
  * Returns whether it asked them to.
  */
 export function noteListedOffline(files: Pick<ImageFile, 'path' | 'is_offline'>[]): boolean {
-  const changed = files.some((file) => Boolean(file.is_offline) !== counted.has(file.path.split('?vc=')[0]));
+  const changed = files.some((file) => Boolean(file.is_offline) !== counted.has(sourceOf(file.path)));
   if (changed) window.dispatchEvent(new Event(OFFLINE_CHANGED));
   return changed;
 }
@@ -170,7 +174,7 @@ function announce(t: TFunction, report: RelinkReport) {
 /** Asks for the photograph's file and relinks it, with the other offline
  * photographs of its folder found beside it. Null when cancelled. */
 export async function locatePhotograph(t: TFunction, directory: string, path: string): Promise<RelinkReport | null> {
-  const source = path.split('?vc=')[0];
+  const source = sourceOf(path);
   const picked = await openDialog({
     title: t('offline.dialog.locateFile', { name: fileNameOf(source) }),
     defaultPath: folderOf(source) || undefined,
@@ -191,7 +195,7 @@ export async function locatePhotograph(t: TFunction, directory: string, path: st
 /** Asks where the photograph's folder is now and relinks every offline
  * photograph registered in it or below it. Null when cancelled. */
 export async function locateFolder(t: TFunction, directory: string, path: string): Promise<RelinkReport | null> {
-  return locateFolderOf(t, directory, folderOf(path.split('?vc=')[0]));
+  return locateFolderOf(t, directory, folderOf(sourceOf(path)));
 }
 
 /** Asks where the folder `from` is now (Lightroom's Find Missing Folder)
@@ -259,10 +263,8 @@ export function offlineMenu(
 export function relinkedPaths(report: RelinkReport, paths: string[]): string[] {
   const moved = new Map(report.relinked);
   return paths.map((path) => {
-    const at = path.indexOf('?vc=');
-    const source = at < 0 ? path : path.slice(0, at);
-    const to = moved.get(source);
-    return to === undefined ? path : to + (at < 0 ? '' : path.slice(at));
+    const to = moved.get(sourceOf(path));
+    return to === undefined ? path : withSource(path, to);
   });
 }
 
@@ -272,8 +274,7 @@ export function relinkedPaths(report: RelinkReport, paths: string[]): string[] {
 export function locatedPhotograph(report: RelinkReport, preferred: Array<string | null>): string | undefined {
   const moved = new Set(report.relinked.map(([, to]) => to));
   return (
-    preferred.find((path): path is string => Boolean(path && moved.has(path.split('?vc=')[0]))) ??
-    report.relinked[0]?.[1]
+    preferred.find((path): path is string => Boolean(path && moved.has(sourceOf(path)))) ?? report.relinked[0]?.[1]
   );
 }
 

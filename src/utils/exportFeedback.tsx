@@ -4,6 +4,7 @@ import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { exportSettingsFromDraft, subfolderName, type RecipeDraft } from './exportRecipes';
+import { sourceOf } from '../entities/photo/photoRef';
 
 /** A durable description of the settings chosen when the job was queued. */
 export function exportJobLabel(
@@ -18,7 +19,7 @@ export function exportJobLabel(
     ? `${i18n.t(`studio.export.sizing.modes.${draft.resizeMode}`)} ${resize.value}${resize.mode === 'dimensions' ? ` × ${resize.secondValue}` : ''} ${resize.mode === 'percentage' ? '%' : resize.mode === 'megapixels' ? 'MP' : 'px'}`
     : i18n.t('studio.export.queue.fullResolution');
   const folder = draft.where === 'original' ? i18n.t('studio.export.queue.originalFolder') : destination;
-  const sourcePath = paths[0]?.split('?vc=')[0];
+  const sourcePath = paths[0] === undefined ? undefined : sourceOf(paths[0]);
   const source =
     paths.length === 1
       ? sourcePath?.split(/[\\/]/).pop()

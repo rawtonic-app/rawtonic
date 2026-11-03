@@ -1478,7 +1478,7 @@ fn photo_metadata(
     sidecar: &std::path::Path,
 ) -> Option<rawtonic_metadata::Metadata> {
     let metadata = catalog_metadata(source)?;
-    if !photo.contains("?vc=") {
+    if !rawtonic_metadata::photo_ref::is_copy(photo) {
         return Some(metadata);
     }
     let copy = rawtonic_export::sidecars::read_sidecar_file(sidecar).0;

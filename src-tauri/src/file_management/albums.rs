@@ -9,6 +9,7 @@ use super::parse_virtual_path;
 use super::resolve_image_metadata;
 use super::resolve_xmp_path;
 use crate::load_settings;
+use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -169,11 +170,13 @@ pub(crate) fn sync_album_path_changes(
                                 if let Some(new_path) = r.get(&current_img) {
                                     current_img = new_path.clone();
                                     *changed = true;
-                                } else if let Some((base_path, vc_id)) =
-                                    current_img.rsplit_once("?vc=")
-                                    && let Some(new_base) = r.get(base_path)
+                                } else if photo_ref::is_copy(&current_img)
+                                    && let Some(new_base) =
+                                        r.get(photo_ref::source_of(&current_img))
                                 {
-                                    current_img = format!("{}?vc={}", new_base, vc_id);
+                                    current_img = PhotoRef::parse(&current_img)
+                                        .with_source(new_base.as_str())
+                                        .format();
                                     *changed = true;
                                 }
                             }
@@ -191,9 +194,8 @@ pub(crate) fn sync_album_path_changes(
                                             break;
                                         }
 
-                                        if let Some((base_path, _)) =
-                                            current_img.rsplit_once("?vc=")
-                                            && base_path == del_path_str
+                                        if photo_ref::is_copy(&current_img)
+                                            && photo_ref::source_of(&current_img) == del_path_str
                                         {
                                             is_deleted = true;
                                             break;
@@ -276,7 +278,7 @@ fn album_images(paths: Vec<String>, app_handle: AppHandle) -> Result<Vec<ImageFi
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
 
-            let is_virtual_copy = virtual_path.contains("?vc=");
+            let is_virtual_copy = photo_ref::is_copy(&virtual_path);
             let is_cloud_placeholder = is_cloud_placeholder(&source_path);
 
             let xmp_is_placeholder = enable_xmp_sync

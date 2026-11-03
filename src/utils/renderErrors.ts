@@ -1,4 +1,5 @@
 import i18n from 'i18next';
+import { sourceOf } from '../entities/photo/photoRef';
 
 /** The backend's error when a photo exceeds the GPU's texture limit
  * (`rawtonic_gpu::gpu_processing::texture_limit_error`). */
@@ -15,7 +16,7 @@ const KNOWN: Record<string, () => string> = {
 };
 
 function fileName(path: string): string {
-  const file = path.split('?vc=')[0];
+  const file = sourceOf(path);
   return file.slice(Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) + 1);
 }
 

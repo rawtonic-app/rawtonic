@@ -625,10 +625,8 @@ fn label_for(request: &ExportRequest) -> String {
     let n = request.paths.len();
     let format = request.output_format.to_uppercase();
     let source = if n == 1 {
-        let name = request.paths[0]
-            .split("?vc=")
-            .next()
-            .and_then(|p| Path::new(p).file_name())
+        let name = Path::new(rawtonic_metadata::photo_ref::source_of(&request.paths[0]))
+            .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         format!("{name} as {format}")

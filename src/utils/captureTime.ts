@@ -4,6 +4,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { globalImageCache } from './ImageLRUCache';
 import { invokeInOrder } from './catalogWrites';
+import { sourceOf } from '../entities/photo/photoRef';
 
 /** A capture time as a camera writes it (`rawtonic_catalog::capture_time`). */
 export interface CaptureTime {
@@ -98,9 +99,9 @@ function withTime(exif: Record<string, string> | null | undefined, time: Capture
 /** Shows the written times in the grid, Metadata tool and editor: every
  * virtual copy of a photograph shares its file's EXIF. */
 export function showCaptureTimes(changes: PlannedChange[]) {
-  const byFile = new Map(changes.map((change) => [change.path.split('?vc=')[0], change.after]));
+  const byFile = new Map(changes.map((change) => [sourceOf(change.path), change.after]));
   if (!byFile.size) return;
-  const timeOf = (path: string) => byFile.get(path.split('?vc=')[0]);
+  const timeOf = (path: string) => byFile.get(sourceOf(path));
   useLibraryStore.getState().setLibrary((state) => ({
     imageList: state.imageList.map((image) => {
       const time = timeOf(image.path);

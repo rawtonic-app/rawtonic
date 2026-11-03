@@ -2309,7 +2309,7 @@ impl Library {
 /// A virtual copy id as the editor makes them (six lower-case hex digits,
 /// the `<photo>.<id>.rrdata` sidecar name).
 pub fn valid_copy_id(copy: &str) -> bool {
-    copy.len() == 6 && copy.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    rawtonic_metadata::photo_ref::is_editor_id(copy)
 }
 
 /// A catalog folder as `Library::folders` reads it.
