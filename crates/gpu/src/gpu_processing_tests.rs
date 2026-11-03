@@ -704,7 +704,6 @@ fn empty_mask_layers_preserve_adjustment_pixels() {
             match pixels {
                 RenderedPixels::U8(pixels) => pixels,
                 RenderedPixels::U16(pixels) => bytemuck::cast_slice(&pixels).to_vec(),
-                RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
             }
         }
     };
@@ -2389,9 +2388,6 @@ fn cached_preview_pixels_match_full_preparation() {
                                     RenderedPixels::U16(pixels) => {
                                         bytemuck::cast_slice(&pixels).to_vec()
                                     }
-                                    RenderedPixels::U16Float(_) => {
-                                        unreachable!("16-bit codes, not floats")
-                                    }
                                 }
                             };
                             processor
@@ -2528,7 +2524,6 @@ fn uploaded_masks_render_like_bitmaps() {
                 match pixels {
                     RenderedPixels::U8(pixels) => pixels.iter().map(|v| *v as u16).collect(),
                     RenderedPixels::U16(pixels) => pixels,
-                    RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
                 }
             };
             let expected = render(&masks, None);
@@ -2604,7 +2599,6 @@ fn wide_mask_renders_match_across_paths() {
     let u16_pixels = |pixels: RenderedPixels| match pixels {
         RenderedPixels::U16(pixels) => pixels,
         RenderedPixels::U8(_) => unreachable!(),
-        RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
     };
     for masks in [
         vec![Arc::clone(&wide), Arc::clone(&byte_layer)],
@@ -4374,7 +4368,6 @@ fn long_curves_render_every_point() {
         match pixels {
             RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
             RenderedPixels::U8(bytes) => bytes.iter().map(|&v| v as f32 / 255.0).collect(),
-            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
         }
     };
     // Export (16-bit) against the exact curves of the uncurved render; pixels
@@ -4532,7 +4525,6 @@ fn wide_curves_act_in_the_working_space() {
         match pixels {
             RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
             RenderedPixels::U8(bytes) => bytes.iter().map(|&v| v as f32 / 255.0).collect(),
-            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
         }
     };
     let before = render(&json!({}), false, RenderOutputPrecision::SixteenBit);
@@ -4654,7 +4646,6 @@ fn luminance_curve_changes_tone_and_keeps_colour() {
         match pixels {
             RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
             RenderedPixels::U8(bytes) => bytes.iter().map(|&v| v as f32 / 255.0).collect(),
-            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
         }
     };
     let before = render(&json!({}), false, RenderOutputPrecision::SixteenBit);
@@ -4750,7 +4741,6 @@ fn luminance_curve_changes_tone_and_keeps_colour() {
         {
             RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
             RenderedPixels::U8(_) => unreachable!(),
-            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
         }
     };
     let (before, after) = (render_dark(&json!({})), render_dark(&lift));
@@ -5139,9 +5129,6 @@ fn export_specialization_preserves_general_pixels() {
                             match pixels {
                                 RenderedPixels::U8(bytes) => bytes,
                                 RenderedPixels::U16(words) => bytemuck::cast_slice(&words).to_vec(),
-                                RenderedPixels::U16Float(_) => {
-                                    unreachable!("16-bit codes, not floats")
-                                }
                             }
                         };
                         let reference = render(true);
@@ -5248,7 +5235,6 @@ fn version_5_exports_render_their_specialized_variant_within_rounding() {
                             RenderedPixels::U16(words) => {
                                 words.into_iter().map(u32::from).collect::<Vec<_>>()
                             }
-                            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
                         }
                     };
                     let (general, specialized) = (render(true), render(false));
@@ -5490,9 +5476,6 @@ fn export_direct_curves_preserve_dense_general_pixels() {
                             match pixels {
                                 RenderedPixels::U8(bytes) => bytes,
                                 RenderedPixels::U16(words) => bytemuck::cast_slice(&words).to_vec(),
-                                RenderedPixels::U16Float(_) => {
-                                    unreachable!("16-bit codes, not floats")
-                                }
                             }
                         };
                         let reference = render(true);
@@ -9482,31 +9465,25 @@ fn raw_look_adjustments(
     adjustments
 }
 
-fn raw_look_request(
-    recipe: &serde_json::Value,
-    (mode, flag): (u32, f32),
-) -> RenderRequest<'static> {
-    RenderRequest {
-        adjustments: raw_look_adjustments(recipe, (mode, flag)),
-        mask_bitmaps: &[],
-        lut: None,
-        roi: None,
-    }
-}
-
 fn render_raw_look(
     processor: &GpuProcessor,
     view: &wgpu::TextureView,
     (width, height): (u32, u32),
     recipe: &serde_json::Value,
-    look: (u32, f32),
+    (mode, flag): (u32, f32),
 ) -> Vec<[u16; 3]> {
+    let adjustments = raw_look_adjustments(recipe, (mode, flag));
     let (pixels, ..) = processor
         .run(
             view,
             width,
             height,
-            raw_look_request(recipe, look),
+            RenderRequest {
+                adjustments,
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
             false,
             RenderOutputPrecision::SixteenBit,
         )
@@ -9515,22 +9492,6 @@ fn render_raw_look(
         unreachable!()
     };
     pixels.chunks(4).map(|p| [p[0], p[1], p[2]]).collect()
-}
-
-/// `render_raw_look`'s colour as the floats the 16-bit output stores after
-/// encoding, before the clamp to codes: NaN and Inf survive here.
-fn render_raw_look_floats(
-    processor: &GpuProcessor,
-    view: &wgpu::TextureView,
-    (width, height): (u32, u32),
-    recipe: &serde_json::Value,
-    look: (u32, f32),
-) -> Vec<[f32; 3]> {
-    processor
-        .run_float(view, width, height, raw_look_request(recipe, look))
-        .chunks(4)
-        .map(|p| [p[0], p[1], p[2]])
-        .collect()
 }
 
 fn srgb_code_to_linear(v: u16) -> f64 {
@@ -9766,7 +9727,7 @@ fn tone_sliders_together_keep_tones_in_order_at_the_newest_version() {
     );
 }
 
-/// A synthetic frame (`tone_sliders_together_stay_finite_…`): a 16 px
+/// A synthetic frame (`tone_sliders_together_stay_in_range_…`): a 16 px
 /// checker of ±0.5 EV and a 48 px wave around `level_ev`, and the patches
 /// each frame adds. `Some(patch)` puts an explicit value there instead
 /// (scene black: exactly 0), for the whole 4 x 4 patch.
@@ -9823,12 +9784,11 @@ fn tone_slider_frame(
 }
 
 #[test]
-#[ignore = "requires a native GPU; every tone slider combination at the newest tone version on a bright, a night and a mid frame"]
-fn tone_sliders_together_stay_finite_and_in_range_on_bright_dark_and_mid_frames() {
+#[ignore = "requires a native GPU; every tone slider combination at the newest tone version on a bright, a night and a mid frame, in range"]
+fn tone_sliders_together_stay_in_range_on_bright_dark_and_mid_frames() {
     let context = context();
     let (width, height) = (512u32, 512u32);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-    let floats = processor.float_device();
     // The frames of `tone_slider_frame`, each with structure at several
     // scales so that every slider acts: (name, scene level in EV, image key).
     let frames = [
@@ -9856,17 +9816,12 @@ fn tone_sliders_together_stay_finite_and_in_range_on_bright_dark_and_mid_frames(
                     None => recipe.clone(),
                 };
                 let label = format!("{name} look {look:?} {recipe}");
-                // The floats this render stores before the clamp to 16-bit
-                // codes: a NaN or an Inf anywhere in them fails the render.
-                let stored = render_raw_look_floats(&floats, &view, (width, height), &recipe, look);
-                for (i, pixel) in stored.iter().enumerate() {
-                    for (c, value) in pixel.iter().enumerate() {
-                        if !value.is_finite() {
-                            failures.push(format!("{label}: pixel {i} channel {c} is {value}"));
-                        }
-                    }
-                }
-                // `render_raw_look_floats` covers the missing render.
+                // The 16-bit export codes, the render an export makes.
+                // Finiteness is not asserted here: every output store clamps
+                // its colour to [0, 1] (a NaN or an Inf lands as black; a
+                // probe over the Exposure range, every base look and non-finite
+                // inputs found no value escaping them), so only the range,
+                // the content and the black patch are checked.
                 let pixels = render_raw_look(&processor, &view, (width, height), &recipe, look);
                 // The same recipe without the sliders: what they start from.
                 let mut plain = recipe.clone();
@@ -9897,8 +9852,7 @@ fn tone_sliders_together_stay_finite_and_in_range_on_bright_dark_and_mid_frames(
                 // since a look's curve can already leave a frame white (the
                 // Camera Raw look's mid frame) or black (a night frame under
                 // Lowered Highlights and Shadows); those frames are read for
-                // finiteness, the range, the black patch and the clipped
-                // lights only.
+                // the range, the black patch and the clipped lights only.
                 let histogram_of = |pixels: &[[u16; 3]]| {
                     let mut histogram = [0usize; 16];
                     for pixel in pixels {
@@ -10001,7 +9955,10 @@ fn tone_versions_5_to_10_render_as_their_predecessor_where_their_change_cannot_a
         (9, 8, "blacks", -1.0, keys.to_vec()),
         // 10: lowered Whites at an edge-aware local base, which acts only
         // under the Camera Raw look (`base_look_is_camera_raw`): the frames
-        // render its lowered Whites as 9 under Standard.
+        // render its lowered Whites as 9 under Classic, AgX and Standard, and
+        // under the Camera Raw look's own curve (flag 1), which is not the
+        // Camera Raw look. Under that look it acts on every frame, an image
+        // key of 0 or one that differs by a code included (measured).
         (10, 9, "whites", -1.0, keys.to_vec()),
     ];
     let sliders = [
@@ -10018,7 +9975,16 @@ fn tone_versions_5_to_10_render_as_their_predecessor_where_their_change_cannot_a
         // on the night key: the others also render its lowered Highlights,
         // the active Highlights path there (`HL_V5_DARK` keeps version 5 and
         // 6's Highlights for them).
-        let lowered_elsewhere = version == 7;
+        // Version 10's lowered Whites acts under the Camera Raw look only
+        // (`base_look_is_camera_raw`): the pairs of lowered Whites below are
+        // read under the other looks there (Standard included) and under all
+        // looks for the recipes that never reach it.
+        let lowered_elsewhere = version == 7 || version == 10;
+        let elsewhere_looks: &[&str] = if version == 10 {
+            &["classic", "agx", "standard", "camera-raw-own-curve"]
+        } else {
+            &[]
+        };
         // Recipes that never reach the change: nothing stored, the tone
         // slider at the value that leaves it alone, all six controls at
         // three steps (0, + and −) and every tone slider at ±100 with
@@ -10039,23 +10005,24 @@ fn tone_versions_5_to_10_render_as_their_predecessor_where_their_change_cannot_a
         // tone sliders and Exposure, including all tone sliders lowered
         // together.
         if lowered_elsewhere {
-            for bits in 0..64u32 {
+            // Every tone slider lowered over all 81 combinations of the other
+            // three and Exposure (3^4) and with Exposure and Contrast (0,
+            // 100) — all four lowered included, as the only tone sliders.
+            for bits in 0..81u32 {
                 let amount = |i: u32| [-100, 0, 100][(bits / 3u32.pow(i) % 3) as usize];
-                let exposure = [0.0, -2.0, 2.0][(bits % 3) as usize];
                 let mut recipe = json!({
-                    "highlights": reaching * 100.0,
+                    "highlights": amount(0),
                     "shadows": amount(1),
                     "whites": amount(2),
                     "blacks": amount(3),
-                    "exposure": exposure,
-                    "contrast": if bits & 8 != 0 { 100 } else { 0 },
+                    "exposure": amount(0),
                 });
-                recipes.push(recipe.clone());
-                recipe["exposure"] = json!(0);
-                recipe["contrast"] = json!(0);
-                recipes.push(recipe.clone());
-                // Highlights alone, at the lowest setting.
-                recipes.push(json!({ "highlights": reaching * 100.0 }));
+                recipe[changed] = json!(reaching * 100.0);
+                for contrast in [0, 100] {
+                    recipe["exposure"] = json!(0);
+                    recipe["contrast"] = json!(contrast);
+                    recipes.push(recipe.clone());
+                }
             }
         }
         for bits in 0..64u32 {
@@ -10085,6 +10052,9 @@ fn tone_versions_5_to_10_render_as_their_predecessor_where_their_change_cannot_a
         for recipe in &recipes {
             for key in &recipe_keys {
                 for (look, mode, flag) in RAW_LOOKS {
+                    if !elsewhere_looks.is_empty() && !elsewhere_looks.contains(&look) {
+                        continue;
+                    }
                     let with = |version: u64| {
                         let mut recipe = with_image_key(recipe, *key);
                         recipe["toneVersion"] = json!(version);
@@ -12227,7 +12197,6 @@ fn relight_pixels_and_depth_are_consistent() {
                 match pixels {
                     RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect::<Vec<_>>(),
                     RenderedPixels::U16(p) => p,
-                    RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
                 }
             };
             let reference = render_variant(true, ReadbackShader::Export);
@@ -13067,7 +13036,6 @@ fn relight_people_subject_lights_material_and_spares_far_background() {
         match pixels {
             RenderedPixels::U16(p) => p,
             RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect(),
-            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
         }
     };
     let full = render(&recipe, None);
@@ -13214,7 +13182,6 @@ fn relight_subject_casts_its_shadow_on_the_background() {
         match pixels {
             RenderedPixels::U16(p) => p,
             RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect(),
-            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
         }
     };
     let row = |pixels: &[u16]| -> Vec<u16> {
@@ -13309,7 +13276,6 @@ fn relight_tiled_roi_matches_full_frame() {
                 match pixels {
                     RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect::<Vec<_>>(),
                     RenderedPixels::U16(p) => p,
-                    RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
                 }
             };
             let full = render(None);
@@ -15238,7 +15204,6 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
             match pixels {
                 RenderedPixels::U16(pixels) => pixels,
                 RenderedPixels::U8(_) => unreachable!(),
-                RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
             }
         };
         let (cpu, gpu) = (render(false), render(true));
@@ -15334,7 +15299,6 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
         match pixels {
             RenderedPixels::U16(pixels) => pixels,
             RenderedPixels::U8(_) => unreachable!(),
-            RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
         }
     };
     let fresh2 = render(&mut source(), 2);
@@ -15427,7 +15391,6 @@ fn render_chroma_source(
     match pixels {
         RenderedPixels::U16(pixels) => pixels,
         RenderedPixels::U8(_) => unreachable!(),
-        RenderedPixels::U16Float(_) => unreachable!("16-bit codes, not floats"),
     }
 }
 

@@ -3212,17 +3212,6 @@ fn store_tile(
                 }
             }
         }
-        #[cfg(test)]
-        RenderedPixels::U16Float(final_pixels) => {
-            for (row, source) in rows.enumerate() {
-                for (sample, value) in final_pixels[destination(row)]
-                    .iter_mut()
-                    .zip(source.as_chunks::<4>().0)
-                {
-                    *sample = f32::from_ne_bytes(*value);
-                }
-            }
-        }
     }
 }
 
@@ -3724,9 +3713,6 @@ struct DisplayTargets {
 
 pub struct GpuProcessor {
     context: GpuContext,
-    /// `run_float` reads its render back as floats (`RenderedPixels::U16Float`).
-    #[cfg(test)]
-    float_readback: std::sync::atomic::AtomicBool,
     blur_bgl: wgpu::BindGroupLayout,
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
@@ -3794,11 +3780,6 @@ pub struct GpuProcessor {
     high_precision_bgl: wgpu::BindGroupLayout,
     high_precision_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
     high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
-    /// `float_device`'s shader: its high-precision output stores the encoded
-    /// colour unclamped, so a NaN or an Inf in a test's render reaches the
-    /// test instead of a clamped code. `None` on every other device.
-    #[cfg(test)]
-    float_shader_source: Option<String>,
     /// [`MainOutput::Deferred`]: specialized variants by features, the
     /// general pipeline, and the tile the main pass writes.
     deferred_export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
@@ -5022,83 +5003,12 @@ struct HighPrecisionTile {
 enum RenderedPixels {
     U8(Vec<u8>),
     U16(Vec<u16>),
-    /// A 16-bit render read back as the floats it stored (tests only,
-    /// [`GpuProcessor::run_float`]): NaN and Inf reach the test, where the
-    /// clamp to 16-bit codes turns them into 0 or 1.
-    #[cfg(test)]
-    U16Float(Vec<f32>),
 }
 
 /// 16-bit exports write 32-bit floats: a float16 tile (10-bit mantissa)
 /// left them in steps of 32 codes near white.
 fn high_precision_shader_source(source: &str) -> String {
     source.replace("rgba8unorm, write>", "rgba32float, write>")
-}
-
-/// The image-processing shader for a processor that reads its 16-bit output
-/// back as floats (`GpuProcessor::run_float`): that output stores the encoded
-/// colour unclamped. It has a high-precision shader of its own too
-/// (`float_high_precision_source`), as every device has.
-#[cfg(test)]
-fn float_shader_source(source: &str) -> String {
-    float_output_store(&high_precision_shader_source(source))
-}
-
-/// The high-precision image shader for such a processor: the same floats,
-/// stored unclamped (`float_output_store`).
-#[cfg(test)]
-fn float_high_precision_source(source: &str) -> String {
-    float_output_store(&high_precision_shader_source(source))
-}
-
-/// `source` with the main pass's 16-bit output storing its floats unclamped
-/// (8-bit and deferred outputs keep their clamp). The high-precision shader
-/// has already put `select` around the clamp: both are made once.
-#[cfg(test)]
-fn float_output_store(source: &str) -> String {
-    let clamp = "clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0))";
-    if source.contains("final_rgb, HIGH_PRECISION_OUTPUT == 1u);") {
-        return source.to_string();
-    }
-    let store = format!("let output_rgb = {clamp};");
-    assert_eq!(
-        source.matches(&store).count(),
-        1,
-        "the main pass's output store"
-    );
-    source.replace(
-        &store,
-        &format!("let output_rgb = select({clamp}, final_rgb, HIGH_PRECISION_OUTPUT == 1u);"),
-    )
-}
-
-/// wgpu's error scopes for a device a test creates for one processor: they
-/// collect the errors logged while they are open, and
-/// [`Self::expect_clean`] fails a test on a shader that does not compile.
-#[cfg(test)]
-struct ErrorScopes {
-    internal: wgpu::ErrorScopeGuard,
-    validation: wgpu::ErrorScopeGuard,
-}
-
-#[cfg(test)]
-impl ErrorScopes {
-    fn new(device: &Arc<wgpu::Device>) -> Self {
-        Self {
-            validation: device.push_error_scope(wgpu::ErrorFilter::Validation),
-            internal: device.push_error_scope(wgpu::ErrorFilter::Internal),
-        }
-    }
-
-    fn expect_clean(self, what: &str) {
-        // wgpu pops the innermost scope that is open, not the one named.
-        let internal = pollster::block_on(self.internal.pop());
-        let validation = pollster::block_on(self.validation.pop());
-        assert!(
-            validation.is_none() && internal.is_none(),
-            "{what} failed: {validation:?} {internal:?}"
-        );
-    }
 }
 
 /// Runs a shader-module or pipeline creation inside error scopes. wgpu otherwise
@@ -5582,77 +5492,6 @@ impl GpuProcessor {
         shader_source: &str,
         display_variants: bool,
     ) -> Result<Self, String> {
-        Self::with_sources(
-            context,
-            max_width,
-            max_height,
-            shader_source,
-            high_precision_shader_source,
-            false,
-            display_variants,
-        )
-    }
-
-    /// `with_shader_source` with `high_precision_output_source` making the
-    /// high-precision shader from the image shader (`high_precision_shader_source`,
-    /// which turns the 8-bit storage textures into `rgba32float`); with
-    /// `float_output` the image shader itself is `float_device`'s, which
-    /// stores the floats of that output (`float_shader_source`). Every device
-    /// but `float_device`'s writes 16-bit exports clamped, as every release
-    /// has.
-    fn with_sources(
-        context: GpuContext,
-        max_width: u32,
-        max_height: u32,
-        shader_source: &str,
-        high_precision_output_source: impl Fn(&str) -> String,
-        float_output: bool,
-        display_variants: bool,
-    ) -> Result<Self, String> {
-        // A processor a test builds from its own WGSL (a deliberately invalid
-        // one included) must fail here, not silently render nothing: wgpu
-        // reports errors only to the uncaptured handler. A test's device is
-        // created once per test, so the scopes close after its construction.
-        #[cfg(test)]
-        let _scopes = ErrorScopes::new(&context.device);
-        // A float device's high-precision shader has the same store
-        // (`float_high_precision_source`).
-        let high_precision_output_source = move |source: &str| -> String {
-            #[cfg(test)]
-            if float_output {
-                return float_high_precision_source(source);
-            }
-            let _ = float_output;
-            high_precision_output_source(source)
-        };
-        // (Never in a release build: only tests pass `float_output`.)
-        #[cfg(test)]
-        let float_source = float_output.then(|| float_shader_source(shader_source));
-        #[cfg(test)]
-        let shader_source: &str = float_source.as_deref().unwrap_or(shader_source);
-        Self::with_shader_source_checked(
-            context,
-            max_width,
-            max_height,
-            shader_source,
-            high_precision_output_source,
-            float_output,
-            display_variants,
-        )
-    }
-
-    fn with_shader_source_checked(
-        context: GpuContext,
-        max_width: u32,
-        max_height: u32,
-        shader_source: &str,
-        high_precision_output_source: impl Fn(&str) -> String,
-        float_output: bool,
-        display_variants: bool,
-    ) -> Result<Self, String> {
-        // No caller (nor build) reads this without the test-only field it feeds.
-        #[cfg(not(test))]
-        let _ = float_output;
         let device = &context.device;
         const MAX_MASK_BINDINGS: u32 = 1;
 
@@ -6288,7 +6127,7 @@ impl GpuProcessor {
         let high_precision_shader = create_shader(
             device,
             "High Precision Image Processing Shader",
-            &high_precision_output_source(shader_source).replace(
+            &high_precision_shader_source(shader_source).replace(
                 "override HIGH_PRECISION_OUTPUT: u32 = 0u;",
                 "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
             ),
@@ -6501,10 +6340,6 @@ impl GpuProcessor {
             high_precision_bgl,
             high_precision_pipeline: std::sync::OnceLock::new(),
             high_precision_tile: std::sync::OnceLock::new(),
-            #[cfg(test)]
-            float_shader_source: float_output.then(|| float_shader_source(shader_source)),
-            #[cfg(test)]
-            float_readback: std::sync::atomic::AtomicBool::new(false),
             deferred_export_pipelines: variant_table(),
             deferred_pipeline,
             deferred_tile: std::sync::OnceLock::new(),
@@ -8044,73 +7879,6 @@ impl GpuProcessor {
         )
     }
 
-    /// Test shorthand for the exact export shader at 16-bit precision, with
-    /// the pixels read back as the floats the high-precision output stores
-    /// (`RenderedPixels::U16Float`), before the clamp to output codes: the
-    /// colour after encoding, as `run` encodes it, so a NaN or an Inf shows
-    /// here where `run` shows only 0 or 1. `self` must be a
-    /// [`Self::float_device`]'s processor.
-    #[cfg(test)]
-    fn run_float(
-        &self,
-        input_texture_view: &wgpu::TextureView,
-        width: u32,
-        height: u32,
-        request: RenderRequest,
-    ) -> Vec<f32> {
-        assert!(
-            self.has_float_high_precision_output(),
-            "run_float needs a float_device processor"
-        );
-        // The render picks its 16-bit target by this flag (`render_window`);
-        // it is set only for this call, so a concurrent render of `self`
-        // still reads codes. Tests hold `self` to the one render here.
-        let readback = &self.float_readback;
-        readback.store(true, std::sync::atomic::Ordering::Relaxed);
-        let rendered = self.run(
-            input_texture_view,
-            width,
-            height,
-            request,
-            false,
-            RenderOutputPrecision::SixteenBit,
-        );
-        readback.store(false, std::sync::atomic::Ordering::Relaxed);
-        let (RenderedPixels::U16Float(pixels), ..) = rendered.unwrap() else {
-            unreachable!("run_float renders on a float_device's processor")
-        };
-        pixels
-    }
-
-    /// A test device like `self`'s that writes the floats of its
-    /// high-precision output (`float_shader_source`), for [`Self::run_float`].
-    /// The first render's pipeline compilation is quick once this process has
-    /// compiled these pipelines.
-    #[cfg(test)]
-    fn float_device(&self) -> Self {
-        let device = &self.context.device;
-        let scopes = ErrorScopes::new(device);
-        let created = Self::with_sources(
-            self.context.clone(),
-            self.tile_output_size.width,
-            self.tile_output_size.height,
-            include_str!("shaders/shader.wgsl"),
-            |source| source.to_string(),
-            true,
-            false,
-        );
-        scopes.expect_clean("the float device's shader");
-        created.unwrap()
-    }
-
-    /// Whether this processor's device stores the floats of its 16-bit
-    /// output (`float_device`): then that output reads them back
-    /// (`RenderedPixels::U16Float`).
-    #[cfg(test)]
-    fn has_float_high_precision_output(&self) -> bool {
-        self.float_shader_source.is_some()
-    }
-
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     fn run_with_shader(
@@ -8733,13 +8501,6 @@ impl GpuProcessor {
             RenderOutputPrecision::EightBit => RenderedPixels::U8(vec![0u8; output_len]),
             RenderOutputPrecision::SixteenBit => RenderedPixels::U16(vec![0u16; output_len]),
         };
-        // A test's float device writes the floats of its 16-bit output
-        // (`run_float`); no other device does.
-        #[cfg(test)]
-        let float_target = output_precision == RenderOutputPrecision::SixteenBit
-            && self
-                .float_readback
-                .load(std::sync::atomic::Ordering::Relaxed);
         let mut targets = if deferred {
             outputs
                 .iter()
@@ -8773,18 +8534,10 @@ impl GpuProcessor {
                             },
                         ],
                     });
-                    #[cfg(test)]
-                    let pixels = if float_target {
-                        RenderedPixels::U16Float(vec![0.0f32; output_len])
-                    } else {
-                        pixels_of(output.precision)
-                    };
-                    #[cfg(not(test))]
-                    let pixels = pixels_of(output.precision);
                     Ok(TileTarget {
                         texture,
                         bytes_per_pixel,
-                        pixels,
+                        pixels: pixels_of(output.precision),
                         pending: None,
                         encode: Some((self.encode_pipeline(high_precision)?, bind_group, *output)),
                     })
@@ -8794,13 +8547,6 @@ impl GpuProcessor {
             vec![TileTarget {
                 texture: output_tile_texture,
                 bytes_per_pixel,
-                #[cfg(test)]
-                pixels: if float_target {
-                    RenderedPixels::U16Float(vec![0.0f32; output_len])
-                } else {
-                    pixels_of(output_precision)
-                },
-                #[cfg(not(test))]
                 pixels: pixels_of(output_precision),
                 pending: None,
                 encode: None,
@@ -10927,8 +10673,6 @@ fn rendered_image(pixels: RenderedPixels, width: u32, height: u32) -> Result<Dyn
                 .ok_or("Failed to create 16-bit image buffer from GPU data")?;
             Ok(DynamicImage::ImageRgba16(img_buf))
         }
-        #[cfg(test)]
-        RenderedPixels::U16Float(_) => unreachable!("floats are read by tests only"),
     }
 }
 
