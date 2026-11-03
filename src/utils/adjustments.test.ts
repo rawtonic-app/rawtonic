@@ -301,6 +301,17 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(versioned, true).toneVersion).toBe(2);
     const old = { shadows: 80, toneVersion: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(old, true).toneVersion).toBe(1);
+    // Newest: lowered Blacks (9); a saved recipe keeps its version however
+    // the sliders stand, also one newer than the editor knows.
+    expect(TONE_VERSION).toBe(9);
+    const blacker9 = { blacks: -30, toneVersion: 9 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(blacker9, true).toneVersion).toBe(9);
+    const white8 = { whites: 30, toneVersion: 8 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(white8, true).toneVersion).toBe(8);
+    const newer = { blacks: -30, toneVersion: 12 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(newer, true).toneVersion).toBe(12);
+    const neutral7 = { contrast: 20, toneVersion: 7 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(neutral7, true).toneVersion).toBe(7);
   });
 
   it('keep the sharpening response a saved recipe rendered with', () => {

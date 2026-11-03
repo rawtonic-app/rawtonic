@@ -9643,6 +9643,376 @@ fn tone_sliders_keep_tones_in_order_at_every_step() {
     );
 }
 
+/// Every combination of the four tone sliders in {−100, 0, +100} (81), each
+/// at Exposure 0, −1 and +1 EV, with the newest `toneVersion` written.
+fn all_tone_sliders_at_newest_version() -> Vec<serde_json::Value> {
+    let sliders = ["highlights", "shadows", "whites", "blacks"];
+    let mut recipes = Vec::new();
+    for exposure in [0.0, -1.0, 1.0] {
+        for combination in 0..81u32 {
+            let mut recipe = json!({
+                "toneVersion": rawtonic_engine::image_processing::TONE_VERSION,
+                "exposure": exposure
+            });
+            for (i, slider) in sliders.iter().enumerate() {
+                recipe[*slider] =
+                    json!([-100, 0, 100][(combination / 3u32.pow(i as u32) % 3) as usize]);
+            }
+            recipes.push(recipe);
+        }
+    }
+    recipes
+}
+
+#[test]
+#[ignore = "requires a native GPU; every tone slider combination at the newest tone version, every base look"]
+fn tone_sliders_together_keep_tones_in_order_at_the_newest_version() {
+    let context = context();
+    let (width, height) = (4096u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // As `tone_sliders_keep_tones_in_order_at_every_step`: a smooth ramp from
+    // 2^-14 to 2^4 with the steps that test uses (24 columns = 0.1 EV).
+    let (low_ev, span_ev) = (-14.0f32, 18.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let recipes = all_tone_sliders_at_newest_version();
+    let columns = 64..(width - 64) as usize;
+    let row = (height / 2 * width) as usize;
+    let mut failures = Vec::new();
+    for (look, mode, flag) in RAW_LOOKS {
+        for recipe in &recipes {
+            let pixels = render_raw_look(&processor, &view, (width, height), recipe, (mode, flag));
+            let toned = &pixels[row..row + width as usize];
+            // Version 9's black point keeps the order it is given, but under
+            // its toe it magnifies (in EV) the scene stage's f16 wobble: the
+            // recipe without Blacks must keep the limit, and with them only
+            // that render's falls may grow, to BEFORE_STAGE_ALLOWANCE times
+            // it (as in the step sweep).
+            let lowered_blacks = recipe["blacks"].as_f64().unwrap_or(0.0) < 0.0;
+            let before_stage = lowered_blacks.then(|| {
+                let mut without = recipe.clone();
+                without["blacks"] = json!(0);
+                render_raw_look(&processor, &view, (width, height), &without, (mode, flag))
+            });
+            let before_stage = before_stage.as_ref().map(|p| &p[row..row + width as usize]);
+            if let Some(before) = before_stage
+                && let Some((excess, x, k, c, ev)) =
+                    worst_tone_reversal(before, columns.clone(), 24)
+            {
+                failures.push(format!(
+                    "{look} {recipe} without Blacks: channel {c} falls {ev:.3} EV over {k} steps at column {x} ({excess:.1}× the limit)"
+                ));
+            }
+            if let Some((excess, x, k, c, ev)) =
+                worst_tone_reversal_beyond(toned, before_stage, columns.clone(), 24)
+            {
+                let scene = low_ev + span_ev * x as f32 / (width - 1) as f32;
+                failures.push(format!(
+                    "{look} {recipe}: channel {c} falls {ev:.3} EV ({} → {}) over {k} steps to scene {scene:.2} EV ({excess:.1}× the limit)",
+                    toned[x - k][c],
+                    toned[x][c]
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} renders out of order:\n{}",
+        failures.len(),
+        recipes.len() * RAW_LOOKS.len(),
+        failures.join("\n")
+    );
+}
+
+/// A synthetic frame (`tone_sliders_together_stay_finite_…`): a 16 px
+/// checker of ±0.5 EV and a 48 px wave around `level_ev`, and the patches
+/// each frame adds.
+fn tone_slider_frame(name: &str, width: u32, height: u32, level_ev: f32) -> Vec<f32> {
+    (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let checker = if (x / 16 + y / 16) % 2 == 0 {
+                0.5
+            } else {
+                -0.5
+            };
+            let mut ev =
+                level_ev + checker + 0.25 * (std::f32::consts::TAU * x as f32 / 48.0).sin();
+            match name {
+                // A dark street with a lit window and a lamp.
+                "night" => {
+                    if (64..160).contains(&x) && (200..280).contains(&y)
+                        || (16..40).contains(&x) && (16..40).contains(&y)
+                    {
+                        ev += 3.5;
+                    } else if (x + y) % 7 == 0 {
+                        ev -= 2.0;
+                    }
+                }
+                // Snow with a dark vein and a clipped light.
+                "bright" => {
+                    if (240..260).contains(&x) && y > 100 {
+                        ev -= 3.0;
+                    }
+                    if (300..340).contains(&x) && (300..340).contains(&y) {
+                        ev += 2.5;
+                    }
+                }
+                _ => {}
+            }
+            // Lights clip, black stays black (exactly).
+            (2.0f32).powf(ev).clamp(0.0, 16.0)
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "requires a native GPU; every tone slider combination at the newest tone version on a bright, a night and a mid frame"]
+fn tone_sliders_together_stay_finite_and_in_range_on_bright_dark_and_mid_frames() {
+    let context = context();
+    let (width, height) = (512u32, 512u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // The frames of `tone_slider_frame`, each with structure at several
+    // scales so that every slider acts: (name, scene level in EV, image key).
+    let frames = [
+        ("mid", -3.0f32, None),
+        ("bright", 1.5, Some(BRIGHT_KEY)),
+        ("night", -9.0, Some(NIGHT_KEY)),
+    ];
+    let recipes = all_tone_sliders_at_newest_version();
+    // The Camera Raw look, and Standard (the editor's other base look).
+    let looks = [(3, 2.0), (2, 0.0)];
+    let mut failures = Vec::new();
+    let mut renders = 0;
+    for (name, level_ev, key) in frames {
+        let levels = tone_slider_frame(name, width, height, level_ev);
+        let view = grey_texture(&context, width, height, &levels);
+        for look in looks {
+            for recipe in &recipes {
+                let recipe = match key {
+                    Some(key) => with_image_key(recipe, key),
+                    None => recipe.clone(),
+                };
+                let pixels = render_raw_look(&processor, &view, (width, height), &recipe, look);
+                renders += 1;
+                let label = format!("{name} look {look:?} {recipe}");
+                // The 16-bit frame cannot hold NaN or Inf: both are encoded
+                // as an end, 0 or 65535. A NaN on a slider's path turns every
+                // pixel it reaches white or black; the sliders alone lift
+                // (raised Shadows and Whites) or lower (lowered Highlights and
+                // Blacks) the frame they are given. So the frame with the
+                // sliders never holds both a black where the plain frame is a
+                // tone well above black and a white where it is a tone well
+                // below white: that pair is what a NaN shows. A slider
+                // moves a tone at either end by less than 0.12 of white in
+                // display EV (a code of 0.12^2 × 65535 = 944 at black, 57535
+                // at white), a NaN puts it at the end itself.
+                let mut plain = recipe.clone();
+                for slider in ["highlights", "shadows", "whites", "blacks"] {
+                    plain[slider] = json!(0);
+                }
+                let plain = render_raw_look(&processor, &view, (width, height), &plain, look);
+                let (mut black_on_tone, mut white_on_tone) = (0, 0);
+                for (pixel, plain) in pixels.iter().zip(&plain) {
+                    // A tone: 0.12 of white in display EV above black.
+                    if pixel[0] == 0 && (plain[0] as f64 / 65535.0) >= 0.12f64.sqrt() {
+                        black_on_tone += 1;
+                    }
+                    if pixel[0] == 65535 && plain[0] <= 57535 {
+                        white_on_tone += 1;
+                    }
+                }
+                if black_on_tone > 0 && white_on_tone > 0 {
+                    failures.push(format!(
+                        "{label}: {black_on_tone} pixels black where the plain frame is a tone and {white_on_tone} white the same (NaN or Inf)",
+                    ));
+                }
+                // Every code is in 0 … 1 (the 16-bit type), the black of the
+                // scene stays black and the lights stay white where neither
+                // slider reaches; a slider cannot make the frame hold fewer
+                // levels than the values it did bring into range.
+                let (content, plain_content) = (
+                    pixels.iter().filter(|p| p != &&[0; 3]).count(),
+                    plain.iter().filter(|p| p != &&[0; 3]).count(),
+                );
+                // Lowered Blacks and Highlights crush the deep darks of a
+                // night frame to black (version 9's toe keeps a trace of
+                // them), so its share of black is no measure; the mid and
+                // bright frames keep their tones.
+                if name != "night" && content == 0 && plain_content > 0 {
+                    failures.push(format!("{label}: every pixel black"));
+                }
+                if name != "night" && content < plain_content / 16 && plain_content > 100 {
+                    failures.push(format!(
+                        "{label}: {content} pixels left above black, the plain frame {plain_content}"
+                    ));
+                }
+                // The scene's black stays black under every slider, and a
+                // light the scene clips stays a bright value (lowering it
+                // reaches about 0.2 of white in display EV, never black or
+                // mid grey: a NaN or an underflow would).
+                for (i, scene) in levels.iter().enumerate() {
+                    if *scene == 0.0 && pixels[i] != [0; 3] {
+                        failures.push(format!("{label}: scene black {i} renders {}", pixels[i][0]));
+                        break;
+                    }
+                    if *scene >= 16.0 && pixels[i][0] < 57535 {
+                        failures.push(format!(
+                            "{label}: scene light {i} renders {} (the plain frame {})",
+                            pixels[i][0], plain[i][0]
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(renders, recipes.len() * frames.len() * looks.len());
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+#[ignore = "requires a native GPU; tone versions 5 to 9 render as their predecessor where the change cannot act"]
+fn tone_versions_5_to_9_render_as_their_predecessor_where_their_change_cannot_act() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // A ramp from 2^-14 to 2^2 with a texture, so every blur and the tone
+    // curve act on varying tones.
+    let (low_ev, span_ev) = (-14.0f32, 16.0f32);
+    let level = |x: u32| {
+        let ramp = low_ev + span_ev * x as f32 / (width - 1) as f32;
+        let texture = 0.3 * (std::f32::consts::TAU * x as f32 / 13.0).sin();
+        (2.0f32).powf(ramp + texture)
+    };
+    let levels: Vec<f32> = (0..height).flat_map(|_| 0..width).map(level).collect();
+    let view = grey_texture(&context, width, height, &levels);
+    // Every base look: 5 to 9 are the Camera Raw look's response, but no
+    // version may act under another look either.
+    let daylight = [0.006, 0.006 * 128.0, 0.006 * 12.0];
+    let mid_tones = [0.006, 0.006 * 32.0, 0.006 * 10.0];
+    let keys = [[0.0; 3], daylight, mid_tones, BRIGHT_KEY, NIGHT_KEY];
+    // (new version, predecessor, the slider its change acts through, where
+    // that change cannot act, the keys it renders as its predecessor on)
+    let cases = [
+        // 5: lowered Highlights' local base. The night key is the limit:
+        // there version 4's range comes back (`HL_V5_DARK`), so a night
+        // frame with Highlights at 0 (or raised) must render as version 4;
+        // lowered Highlights on other keys differ by design.
+        (5u64, 4u64, "highlights", -1.0, vec![NIGHT_KEY]),
+        // 6: raised Shadows' level and texture (and Clarity's base, a
+        // rounding-level change with its own test): every other recipe.
+        (6, 5, "shadows", 1.0, keys.to_vec()),
+        // 7: the cap on version 3's dark-frame shift: only night frames get
+        // that shift, so frames of daylight or mid-tone key render as 6.
+        (
+            7,
+            6,
+            "highlights",
+            -1.0,
+            vec![daylight, mid_tones, BRIGHT_KEY],
+        ),
+        // 8: raised Whites' white point.
+        (8, 7, "whites", 1.0, keys.to_vec()),
+        // 9: lowered Blacks' display black point.
+        (9, 8, "blacks", -1.0, keys.to_vec()),
+    ];
+    let sliders = [
+        "highlights",
+        "shadows",
+        "whites",
+        "blacks",
+        "exposure",
+        "contrast",
+    ];
+    let mut checked = 0;
+    for (version, predecessor, changed, reaching, recipe_keys) in cases {
+        // Recipes that never reach the change: nothing stored, the tone
+        // slider at the value that leaves it alone, all six controls at
+        // three steps (0, + and −) and every tone slider at ±100 with
+        // Exposure ±2.
+        let mut recipes = Vec::new();
+        for slider in sliders {
+            for amount in [-100.0, -50.0, 0.0, 60.0, 100.0, 2.0, -2.0] {
+                if slider == changed && amount * reaching > 0.0 {
+                    continue;
+                }
+                recipes.push(json!({ slider: amount }));
+            }
+        }
+        for bits in 0..64u32 {
+            let amount = |i: u32| [-100, 0, 100][(bits / 3u32.pow(i) % 3) as usize];
+            // The contrast at index 5 overflows (3^5 = 243 < 64 steps): use
+            // the sign bits left over.
+            let exposure = [0.0, -2.0, 2.0][(bits % 3) as usize];
+            let mut recipe = json!({
+                "highlights": amount(0),
+                "shadows": amount(1),
+                "whites": amount(2),
+                "blacks": amount(3),
+                "exposure": exposure,
+                "contrast": if bits & 8 != 0 { 100 } else { 0 },
+            });
+            let reaches = match changed {
+                "highlights" => recipe["highlights"].as_f64().unwrap() * reaching > 0.0,
+                "shadows" => recipe["shadows"].as_f64().unwrap() * reaching > 0.0,
+                "whites" => recipe["whites"].as_f64().unwrap() * reaching > 0.0,
+                _ => recipe["blacks"].as_f64().unwrap() * reaching > 0.0,
+            };
+            if reaches {
+                recipe[changed] = json!(0);
+            }
+            recipes.push(recipe);
+        }
+        for recipe in &recipes {
+            for key in &recipe_keys {
+                for (look, mode, flag) in RAW_LOOKS {
+                    let with = |version: u64| {
+                        let mut recipe = with_image_key(recipe, *key);
+                        recipe["toneVersion"] = json!(version);
+                        recipe
+                    };
+                    let rendered = |recipe: &serde_json::Value| {
+                        render_raw_look(&processor, &view, (width, height), recipe, (mode, flag))
+                    };
+                    assert!(
+                        rendered(&with(predecessor)) == rendered(&with(version)),
+                        "{predecessor} → {version}: {recipe} with key {key:?} under {look} differs"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        // Where the change does reach, the versions differ: the checks
+        // above would otherwise hold for a version that does nothing.
+        let reached = json!({
+            changed: reaching * 100.0,
+            "exposure": 0.0,
+            "contrast": 0,
+        });
+        let with = |version: u64| {
+            let mut recipe = with_image_key(&reached, NIGHT_KEY);
+            recipe["toneVersion"] = json!(version);
+            recipe
+        };
+        assert!(
+            render_raw_look(
+                &processor,
+                &view,
+                (width, height),
+                &with(predecessor),
+                (3, 2.0)
+            ) != render_raw_look(&processor, &view, (width, height), &with(version), (3, 2.0)),
+            "{version} renders as {predecessor} where its change reaches: {reached}"
+        );
+    }
+    assert!(checked > 5_000, "{checked} renders compared");
+    eprintln!("{checked} renders compared");
+}
+
 #[test]
 #[ignore = "requires a native GPU; Shadows of tone version 2 against version 1 on a grey ramp"]
 fn tone_version_2_reaches_further_with_strong_shadows_only() {

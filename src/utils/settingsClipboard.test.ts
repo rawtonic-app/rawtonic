@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GRAIN_VERSION, INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, withGrainStructure, type Adjustments, type MaskContainer } from './adjustments';
+import { GRAIN_VERSION, INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, TONE_VERSION, withGrainStructure, type Adjustments, type MaskContainer } from './adjustments';
 import { Mask } from '../components/panel/right/Masks';
 import {
   RESPONSE_KEYS,
@@ -79,7 +79,7 @@ describe('settings clipboard', () => {
 
   it('gives a never-edited photo the versions of a new edit', () => {
     const { raw, other } = newEditResponses();
-    expect(raw.toneVersion).toBeGreaterThan(1);
+    expect(raw.toneVersion).toBe(TONE_VERSION);
     expect('fringeVersion' in other).toBe(false);
   });
 
