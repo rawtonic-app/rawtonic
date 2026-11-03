@@ -6,8 +6,8 @@ import type { SubMask, SubMaskParameters } from '../components/panel/right/Masks
 // unchanged strokes were most of every slider move's payload: copying,
 // serialising and parsing them cost more than the frame.
 
-/** The start of the error of a request whose reference the backend lacks. */
-export const MASK_PARAMETERS_MISSING = 'MASK_PARAMETERS_MISSING';
+// A request whose reference the backend lacks is rejected with the code
+// `mask_parameters_missing`.
 const REFERENCE_KEY = '$paramsRef';
 const TOKEN_KEY = 'paramsToken';
 /** Small strokes are cheaper to send than to track. */
