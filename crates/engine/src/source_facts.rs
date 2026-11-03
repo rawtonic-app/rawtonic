@@ -52,7 +52,8 @@ use crate::lens_correction::LensDistortionParams;
 /// 17: `camera_lens` at camera geometry version 8 (Nikon Z optical centre).
 /// 18: `camera_lens_frames` (a Sony aspect frame left uncut, frame
 /// version 2, reads its lens data on the whole sensor).
-pub const VERSION: u32 = 18;
+/// 19: `camera_lens` at camera geometry version 9 (Fujifilm crop modes).
+pub const VERSION: u32 = 19;
 
 /// The facts version from which `camera_lens_frames` is kept.
 const CAMERA_LENS_FRAMES: u32 = 18;

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Fujifilm Sports Finder photos framed and corrected like the camera** (recipe `cameraGeometryVersion` 9, new edits and never-edited RAWs): in Sports Finder mode (and the electronic shutter's 1.25× crop) a Fujifilm RAF keeps only the middle of the sensor, but its lens-correction data still describe the whole sensor. Rawtonic applied them to the crop as if it were the whole sensor, so a telephoto shot's pincushion correction zoomed in 1.2 % too far. The distortion correction now reads the data at the crop's place on the sensor: an X-T5 Sports Finder photo at 222 mm matches the camera's JPEG to 0.22 px median instead of 13.7. Photos without a crop mode develop exactly as before, and edited photos keep their look.
 ### Highlights
 
 - **Highlights keeps the structure of bright areas.** Lowering Highlights flattened clouds, lit walls and other bright texture: at −100 they kept about 0.8 of their local contrast, while Camera Raw and Capture One keep all of it. New edits now keep it too (1.01 on 42 test photos, 1.01 on 46 others), still with the faintest dark rims of the three next to bright areas. Bright areas are lowered about as far as before: 0.2 L* less in the median, up to 4.5 L* less on some photos. Saved edits keep their look.
