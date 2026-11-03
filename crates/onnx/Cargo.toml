@@ -5,8 +5,11 @@ edition.workspace = true
 license.workspace = true
 description = "ONNX Runtime sessions for Rawtonic's AI models: GPU execution providers (WebGPU, CUDA) as plugin libraries with the CPU as fallback, independent of Tauri"
 
+[lints]
+workspace = true
+
 [dependencies]
-anyhow.workspace = true
 libloading = "0.8"
-log = "0.4"
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
+log = { workspace = true }
+ort = { workspace = true, features = ["std", "ndarray", "load-dynamic", "api-22"] }
+anyhow = { workspace = true }

@@ -25,13 +25,55 @@ rust-version = "1.98"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
-anyhow = "1.0"
+anyhow = "1.0.104"
+base64 = "0.23"
+blake3 = "1.8.7"
+bytemuck = "1.25"
+chrono = "0.4"
+criterion = { version = "0.8.2", default-features = false }
+flate2 = "1.1.9"
+half = "2.7.1"
+image = "0.25.10"
+imageproc = { version = "0.27.0", default-features = false }
+jxl-encoder = "0.3.1"
+jxl-oxide = "0.12.6"
+kamadak-exif = "0.6.1"
+libc = "0.2.189"
+little_exif = "0.6.23"
+log = "0.4"
+memmap2 = "0.9.11"
+mimalloc = "0.1.52"
+nalgebra = "0.35.0"
+ndarray = "0.17"
+objc2 = "0.6"
+objc2-foundation = "0.3.2"
+ort = { version = "=2.0.0-rc.12", default-features = false }
+png = "0.18.1"
+pollster = "1.0"
+proptest = "1"
+rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
+rayon = "1.12.0"
+regex = "1.13.1"
+reqwest = { version = "0.13", default-features = false }
+roxmltree = "0.21"
+rusqlite = "0.40"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-tempfile = "3"
 sha2 = "0.11"
+tempfile = "3.27.0"
+tokio = "1"
+turbojpeg = { version = "1.5", default-features = false }
+uuid = "1.25"
+walkdir = "2.5.0"
+wgpu = "30.0"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
 
 [profile.dev]
 opt-level = 1

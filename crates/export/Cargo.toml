@@ -14,6 +14,9 @@ performance-profiling = [
     "rawtonic-runtime/performance-profiling",
 ]
 
+[lints]
+workspace = true
+
 [dependencies]
 rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
@@ -21,27 +24,27 @@ rawtonic-gpu = { path = "../gpu", version = "0.1.0" }
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 rawtonic-naming = { path = "../naming", version = "0.1.0" }
-rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
-kamadak-exif = "0.6.1"
-little_exif = "0.6.23"
-chrono = "0.4"
+rawler = { workspace = true }
+kamadak-exif = { workspace = true }
+little_exif = { workspace = true }
+chrono = { workspace = true }
 crc32fast = "1.5"
-blake3 = "1.8.7"
+blake3 = { workspace = true }
 filetime = "0.2"
-walkdir = "2.5.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-image = "0.25.10"
-turbojpeg = { version = "1.5", default-features = false, features = ["cmake"] }
-png = "0.18.1"
+walkdir = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+image = { workspace = true }
+turbojpeg = { workspace = true, features = ["cmake"] }
+png = { workspace = true }
 webp = "0.3"
-jxl-encoder = "0.3.1"
-rayon = "1.12.0"
-log = "0.4"
-tempfile = "3.27.0"
-anyhow = "1.0"
-uuid = { version = "1", features = ["v4"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+jxl-encoder = { workspace = true }
+rayon = { workspace = true }
+log = { workspace = true }
+tempfile = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+rusqlite = { workspace = true, features = ["bundled"] }
 fontdb = { version = "0.24.0", default-features = false, features = ["std", "fs", "memmap"] }
 skrifa = "0.48.0"
 ab_glyph_rasterizer = "0.1.10"
@@ -51,18 +54,18 @@ harfrust = "=0.14.0"
 unicode-bidi = "0.3.18"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "require-simd"] }
+turbojpeg = { workspace = true, features = ["cmake", "require-simd"] }
 
 [dev-dependencies]
 rawtonic-segment = { path = "../segment", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }
-tempfile = "3.27.0"
-jxl-oxide = { version = "0.12.6", features = ["image"] }
-half = "2.7.1"
+tempfile = { workspace = true }
+jxl-oxide = { workspace = true, features = ["image"] }
+half = { workspace = true }
 lopdf = { version = "0.46", default-features = false }
-flate2 = "1.1.9"
+flate2 = { workspace = true }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0", features = ["test-support"] }
-criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+criterion = { workspace = true, features = ["cargo_bench_support"] }
 
 # Hot-path benchmarks (docs/DEVELOPMENT.md "Benchmarks").
 [[bench]]

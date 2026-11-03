@@ -4,14 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
-anyhow.workspace = true
-serde_json.workspace = true
-serde.workspace = true
 clap = { version = "4", features = ["derive"] }
-walkdir = "2.5.0"
-tempfile.workspace = true
-chrono.workspace = true
+walkdir = { workspace = true }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0" }
 rawtonic-ingest = { path = "../ingest", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0" }
@@ -21,22 +19,27 @@ rawtonic-denoise = { path = "../denoise", version = "0.1.0" }
 rawtonic-faces = { path = "../faces", version = "0.1.0" }
 rawtonic-segment = { path = "../segment", version = "0.1.0" }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
-image = "0.25.10"
+image = { workspace = true }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 rawtonic-merge = { path = "../merge", version = "0.1.0" }
 # search-bench: a library as an older Rawtonic left it.
-rusqlite = "0.40"
+rusqlite = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tempfile = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
-tempfile.workspace = true
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0", features = ["test-support"] }
+tempfile = { workspace = true }
 
 [[bin]]
 name = "rawtonic"
 path = "src/main.rs"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.189"
+libc = { workspace = true }
 
 [target.'cfg(not(all(target_os = "windows", target_arch = "aarch64")))'.dependencies]
-mimalloc = "0.1.52"
+mimalloc = { workspace = true }
