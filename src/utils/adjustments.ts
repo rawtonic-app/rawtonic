@@ -1417,7 +1417,7 @@ export const RENDER_VERSION = 11;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
-export const SOURCE_FRAME_VERSION = 2;
+export const SOURCE_FRAME_VERSION = 3;
 
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs

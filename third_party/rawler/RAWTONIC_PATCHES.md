@@ -394,3 +394,20 @@ Converter 18.7 (white/black levels from the DNG's raw IFD, AsShotNeutral):
   and thousands of entries each claiming the whole file each allocated it
   (both can exhaust memory, which aborts the process). Valid files are read
   as before.
+
+## Pieces of rawler 0.8.0 (2026-11-03)
+
+rawler 0.8.0 (crates.io, dnglab, LGPL-2.1, same AUTHORS) was assessed and
+not adopted as a whole (notes: benchmark-results/rwl-rawler-08-2026-11-03).
+Three pieces were taken over, each from rawler 0.8.0's sources:
+
+- `src/decoders/raf.rs` (`camera_compressed`): a compressed (lossless or
+  lossy) RAF uses the camera's `compressed` mode, whose active area the
+  tomls already held (X-T2, X-Pro2, X-E3, X-T20: `[0, 5, 16, 1]`). The
+  base mode's 128 px right border, meant for the 6160 px uncompressed
+  buffer, cut the 6048 px compressed buffer, so the recorded 6000 × 4000
+  crop developed 5904 × 4000. Raw samples are unchanged; on the
+  raw.pixls.us mirror exactly these four bodies' compressed files change
+  (active area and mode). Rawtonic keeps the old frame for edits made
+  before it (recipe `sourceFrameVersion` 3, `rawtonic-rawdecode`
+  `source_frame.rs`). Unit test `rawtonic_tests` in the same file.

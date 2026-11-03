@@ -1282,7 +1282,8 @@ pub fn read(path: &Path) -> Option<EmbeddedLensData> {
 /// The correction data as camera CA version `ca_version` and camera
 /// geometry version `geometry_version` read them, for the frame that frame
 /// version `frame_version` develops (`source_frame`: only a Sony aspect
-/// frame left uncut, version 2, reads differently).
+/// frame left uncut, version 2, and a compressed RAF's wider frame,
+/// version 3, read differently).
 pub fn read_version(
     path: &Path,
     ca_version: u64,
@@ -1329,7 +1330,12 @@ pub fn read_version(
             if geometry_version < PANASONIC_FUJIFILM_GEOMETRY {
                 return Some(data);
             }
-            let frame = crate::raw_processing::sensor_and_frame(&source, 0).map(|(_, frame)| frame);
+            // The frame the recipe develops: a compressed RAF of the X-T2,
+            // X-Pro2, X-E3 or X-T20 develops the camera's whole recorded
+            // frame from frame version 3 (`source_frame`), whose corner the
+            // knots refer to.
+            let frame = crate::raw_processing::sensor_and_frame(&source, frame_version)
+                .map(|(_, frame)| frame);
             let on_readout = fuji_reads_on_readout(geometry_version, &data.distortion, || {
                 path.to_str()
                     .and_then(crate::capture_info::fujifilm_crop_mode)
@@ -1850,12 +1856,13 @@ pub fn recipe_params_known(source: &Path, adjustments: &serde_json::Value) -> bo
 }
 
 /// Whether a frame version reads the camera lens data of `source`
-/// differently (`read_version`: a Sony ARW's aspect frame left uncut).
+/// differently (`read_version`: a Sony ARW's aspect frame left uncut, a
+/// compressed RAF's wider frame).
 fn reads_by_frame(source: &Path) -> bool {
     source
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("arw"))
+        .is_some_and(|e| e.eq_ignore_ascii_case("arw") || e.eq_ignore_ascii_case("raf"))
 }
 
 fn is_panasonic(source: &Path) -> bool {

@@ -1676,7 +1676,7 @@ mod tests {
             header.source,
             Some(
                 Path::new("Capture")
-                    .join("A.RAF")
+                    .join("A.NEF")
                     .to_string_lossy()
                     .into_owned()
             )
@@ -1722,7 +1722,7 @@ mod tests {
         for kind in [ProxyKind::Standard, ProxyKind::Full] {
             let path = proxy_path_of(&photo, kind).unwrap();
             fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(&path, format_2(&image, key.clone(), "Capture/A.RAF")).unwrap();
+            fs::write(&path, format_2(&image, key.clone(), "Capture/A.NEF")).unwrap();
         }
         // Read as linear values (no transfer to invert)...
         let read = read(&photo, &settings).unwrap().image.to_rgb32f();
@@ -1743,10 +1743,10 @@ mod tests {
         assert!(has_full(&photo, &settings));
         // A format 2 file carried over by a relink keeps its version and
         // pixels; only its label changes.
-        let other = photo.with_file_name("B.RAF");
+        let other = photo.with_file_name("B.NEF");
         fs::write(&other, b"other raw").unwrap();
         let old = proxy_path(&photo).unwrap();
-        fs::write(&old, format_2(&image, key.clone(), "Capture/A.RAF")).unwrap();
+        fs::write(&old, format_2(&image, key.clone(), "Capture/A.NEF")).unwrap();
         let pixels = image_bytes(&old);
         fs::remove_file(proxy_path_of(&photo, ProxyKind::Full).unwrap()).unwrap();
         assert_eq!(carry_over(&photo, &other), 1);
@@ -1758,7 +1758,7 @@ mod tests {
             header.source,
             Some(
                 Path::new("Capture")
-                    .join("B.RAF")
+                    .join("B.NEF")
                     .to_string_lossy()
                     .into_owned()
             )
@@ -1829,28 +1829,28 @@ mod tests {
         fs::create_dir_all(session.join("Capture")).unwrap();
         fs::write(session.join("session.json"), "{}").unwrap();
         fs::write(session.join("session.sqlite"), "").unwrap();
-        let photo = session.join("Capture").join("A.RAF");
+        let photo = session.join("Capture").join("A.NEF");
         let path = proxy_path(&photo).unwrap();
         assert!(path.starts_with(session.join(".cache").join("previews")));
         // The same relative path in a moved session gives the same name.
-        let moved = dir.path().join("Moved").join("Capture").join("A.RAF");
+        let moved = dir.path().join("Moved").join("Capture").join("A.NEF");
         fs::create_dir_all(moved.parent().unwrap()).unwrap();
         fs::write(dir.path().join("Moved").join("session.json"), "{}").unwrap();
         fs::write(dir.path().join("Moved").join("session.sqlite"), "").unwrap();
         assert_eq!(path.file_name(), proxy_path(&moved).unwrap().file_name());
-        assert!(proxy_path(&dir.path().join("loose.RAF")).is_none());
+        assert!(proxy_path(&dir.path().join("loose.NEF")).is_none());
         assert_eq!(proxy_size_for(1800), 2048);
         assert_eq!(proxy_size_for(2304), 2560);
         assert_eq!(proxy_size_for(9000), 3840);
     }
 
-    /// A session with one fake RAW (`Capture/A.RAF`, bytes `content`).
+    /// A session with one fake RAW (`Capture/A.NEF`, bytes `content`).
     fn session_with_photo(dir: &Path, content: &[u8]) -> PathBuf {
         let session = dir.join("Job");
         fs::create_dir_all(session.join("Capture")).unwrap();
         fs::write(session.join("session.json"), "{}").unwrap();
         fs::write(session.join("session.sqlite"), "").unwrap();
-        let photo = session.join("Capture").join("A.RAF");
+        let photo = session.join("Capture").join("A.NEF");
         fs::write(&photo, content).unwrap();
         photo
     }
@@ -2134,7 +2134,7 @@ mod tests {
             facts.base_look.as_mut().unwrap().capture_gain_ev = 0.0;
         });
         let key = photo.to_string_lossy().into_owned();
-        let away = dir.path().join("away.RAF");
+        let away = dir.path().join("away.NEF");
         fs::rename(&photo, &away).unwrap();
         let gain = || {
             source_facts::registered(&key)
@@ -2168,7 +2168,7 @@ mod tests {
         read(&photo, &settings).unwrap();
         assert!(source_facts::registered(&key).is_none());
         // Offline: opening registers what the preview keeps.
-        let away = dir.path().join("away.RAF");
+        let away = dir.path().join("away.NEF");
         fs::rename(&photo, &away).unwrap();
         prepare_offline(&photo);
         assert_eq!(source_facts::registered(&key).as_deref(), Some(&facts));
@@ -2203,7 +2203,7 @@ mod tests {
         write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
         assert!(source_available(&photo));
         // The volume went away (here: the file was moved out).
-        fs::rename(&photo, dir.path().join("elsewhere.RAF")).unwrap();
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
         assert!(!source_available(&photo));
         assert_eq!(read(&photo, &settings).unwrap().full_width, 80);
         assert!(has_full(&photo, &settings));
@@ -2216,7 +2216,7 @@ mod tests {
         // Previews made for another decode variant (before the never-edited
         // default moved on, or before a recipe reset) still open offline:
         // no decode can replace them.
-        fs::rename(dir.path().join("elsewhere.RAF"), &photo).unwrap();
+        fs::rename(dir.path().join("elsewhere.NEF"), &photo).unwrap();
         let before_upgrade = DecodeVariant {
             multiscale: true,
             dead_test: DeadTest::SameColour,
@@ -2235,7 +2235,7 @@ mod tests {
         .unwrap();
         write_full(&photo, &gradient(80, 60), &settings, before_upgrade, None).unwrap();
         assert!(read(&photo, &settings).is_none(), "online: decoded anew");
-        fs::rename(&photo, dir.path().join("elsewhere.RAF")).unwrap();
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
         assert_eq!(read(&photo, &settings).unwrap().full_width, 80);
         assert!(has_full(&photo, &settings));
         assert!(read(&photo, &other).is_none());
@@ -2244,7 +2244,7 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::rename(dir.path().join("elsewhere.RAF"), &photo).unwrap();
+            fs::rename(dir.path().join("elsewhere.NEF"), &photo).unwrap();
             fs::set_permissions(&photo, fs::Permissions::from_mode(0o000)).unwrap();
             if !source_available(&photo) {
                 assert_eq!(read(&photo, &settings).unwrap().full_width, 80);
@@ -2252,7 +2252,7 @@ mod tests {
                 assert!(read(&photo, &other).is_none());
             }
             fs::set_permissions(&photo, fs::Permissions::from_mode(0o644)).unwrap();
-            fs::rename(&photo, dir.path().join("elsewhere.RAF")).unwrap();
+            fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
         }
         // Nothing can be written for it.
         assert!(write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).is_err());
@@ -2370,7 +2370,7 @@ mod tests {
         let settings = AppSettings::default();
         write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
         write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
-        let moved = photo.with_file_name("Renamed.RAF");
+        let moved = photo.with_file_name("Renamed.NEF");
         fs::rename(&photo, &moved).unwrap();
         assert!(read(&moved, &settings).is_none());
         assert_eq!(carry_over(&photo, &moved), 2);
@@ -2378,7 +2378,7 @@ mod tests {
         assert!(has_full(&moved, &settings));
         assert!(read(&photo, &settings).is_none());
         // Never over previews already there.
-        let other = photo.with_file_name("Other.RAF");
+        let other = photo.with_file_name("Other.NEF");
         fs::write(&other, b"other raw").unwrap();
         write(&other, &gradient(8, 6), 4, &settings, NEW_EDIT, None).unwrap();
         assert_eq!(
@@ -2449,7 +2449,7 @@ mod tests {
             image_bytes(&standard),
             image_bytes(&proxy_path_of(&photo, ProxyKind::Full).unwrap()),
         );
-        let moved = photo.with_file_name("Renamed.RAF");
+        let moved = photo.with_file_name("Renamed.NEF");
         fs::rename(&photo, &moved).unwrap();
         assert_eq!(carry_over(&photo, &moved), 2);
         for (kind, before) in [
@@ -2462,7 +2462,7 @@ mod tests {
                 header.source,
                 Some(
                     Path::new("Capture")
-                        .join("Renamed.RAF")
+                        .join("Renamed.NEF")
                         .to_string_lossy()
                         .into_owned()
                 )
@@ -2490,7 +2490,7 @@ mod tests {
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
         write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
-        let moved = photo.with_file_name("Renamed.RAF");
+        let moved = photo.with_file_name("Renamed.NEF");
         fs::rename(&photo, &moved).unwrap();
         fs::rename(proxy_path(&photo).unwrap(), proxy_path(&moved).unwrap()).unwrap();
         let header = read_header(&proxy_path(&moved).unwrap()).unwrap();
@@ -2498,13 +2498,13 @@ mod tests {
             header.source,
             Some(
                 Path::new("Capture")
-                    .join("A.RAF")
+                    .join("A.NEF")
                     .to_string_lossy()
                     .into_owned()
             )
         );
         // A photograph really offline keeps its preview.
-        let offline = moved.with_file_name("Offline.RAF");
+        let offline = moved.with_file_name("Offline.NEF");
         fs::write(&offline, b"offline raw").unwrap();
         write(&offline, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
         fs::remove_file(&offline).unwrap();
@@ -2592,7 +2592,7 @@ mod tests {
             .unwrap()
             .to_path_buf();
         let settings = AppSettings::default();
-        let photos: Vec<PathBuf> = ["A.RAF", "B.RAF", "C.RAF", "D.RAF"]
+        let photos: Vec<PathBuf> = ["A.NEF", "B.NEF", "C.NEF", "D.NEF"]
             .iter()
             .map(|name| {
                 let photo = session.join(name);
@@ -2611,7 +2611,7 @@ mod tests {
                 .set_modified(SystemTime::now() - Duration::from_secs(3600 * (10 - i as u64)))
                 .unwrap();
         }
-        fs::rename(&photos[0], dir.path().join("away.RAF")).unwrap();
+        fs::rename(&photos[0], dir.path().join("away.NEF")).unwrap();
         let each = usage(&previews).standard_bytes / 4;
         // Within the limit: nothing goes.
         assert_eq!(enforce_standard_limit(&previews, each * 4), 0);
