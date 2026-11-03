@@ -137,7 +137,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | base64 | 0.23.1 | MIT OR Apache-2.0 |
 | bindgen | 0.71.1 | BSD-3-Clause |
 | bit-set | 0.8.0 | Apache-2.0 OR MIT |
-| bit-set | 0.9.1 | Apache-2.0 OR MIT |
+| bit-set | 0.10.0 | Apache-2.0 OR MIT |
 | bit-vec | 0.8.0 | Apache-2.0 OR MIT |
 | bit-vec | 0.9.1 | Apache-2.0 OR MIT |
 | bit_field | 0.10.3 | Apache-2.0/MIT |
@@ -285,7 +285,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | find-msvc-tools | 0.1.11 | MIT OR Apache-2.0 |
 | flate2 | 1.1.9 | MIT OR Apache-2.0 |
 | fnv | 1.0.7 | Apache-2.0 / MIT |
-| foldhash | 0.1.5 | Zlib |
 | foldhash | 0.2.0 | Zlib |
 | font-types | 0.12.7 | MIT OR Apache-2.0 |
 | fontdb | 0.24.0 | MIT |
@@ -336,22 +335,18 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | gphoto2 | 0.1.0 | MIT OR Apache-2.0 |
 | gphoto2-sys | 0.1.0 | MIT OR Apache-2.0 |
 | gpu-allocator | 0.28.0 | MIT OR Apache-2.0 |
-| gpu-descriptor | 0.3.2 | MIT OR Apache-2.0 |
-| gpu-descriptor-types | 0.2.0 | MIT OR Apache-2.0 |
 | gtk | 0.18.2 | MIT |
 | gtk-sys | 0.18.2 | MIT |
 | gtk3-macros | 0.18.2 | MIT |
 | half | 2.7.1 | MIT OR Apache-2.0 |
 | harfrust | 0.14.0 | MIT |
 | hashbrown | 0.12.3 | MIT OR Apache-2.0 |
-| hashbrown | 0.15.5 | MIT OR Apache-2.0 |
 | hashbrown | 0.16.1 | MIT OR Apache-2.0 |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 |
 | hashlink | 0.12.2 | MIT OR Apache-2.0 |
 | heck | 0.4.1 | MIT OR Apache-2.0 |
 | heck | 0.5.0 | MIT OR Apache-2.0 |
 | hex | 0.4.3 | MIT OR Apache-2.0 |
-| hexf-parse | 0.2.1 | CC0-1.0 |
 | html5ever | 0.39.0 | MIT OR Apache-2.0 |
 | http | 1.5.0 | MIT OR Apache-2.0 |
 | http-body | 1.1.0 | MIT |
@@ -481,7 +476,8 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | multiversion | 0.8.0 | MIT OR Apache-2.0 |
 | multiversion-macros | 0.8.0 | MIT OR Apache-2.0 |
 | mutate_once | 0.1.2 | BSD-2-Clause |
-| naga | 29.0.4 | MIT OR Apache-2.0 |
+| naga | 30.0.1 | MIT OR Apache-2.0 |
+| naga-types | 30.0.1 | MIT OR Apache-2.0 |
 | nalgebra | 0.35.0 | Apache-2.0 |
 | nalgebra-macros | 0.3.0 | Apache-2.0 |
 | nasm-rs | 0.3.2 | MIT OR Apache-2.0 |
@@ -851,14 +847,14 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | webview2-com-sys | 0.39.1 | MIT |
 | weezl | 0.1.12 | MIT OR Apache-2.0 |
 | weezl | 0.2.1 | MIT OR Apache-2.0 |
-| wgpu | 29.0.4 | MIT OR Apache-2.0 |
-| wgpu-core | 29.0.4 | MIT OR Apache-2.0 |
-| wgpu-core-deps-apple | 29.0.4 | MIT OR Apache-2.0 |
-| wgpu-core-deps-emscripten | 29.0.4 | MIT OR Apache-2.0 |
-| wgpu-core-deps-windows-linux-android | 29.0.4 | MIT OR Apache-2.0 |
-| wgpu-hal | 29.0.4 | MIT OR Apache-2.0 |
-| wgpu-naga-bridge | 29.0.4 | MIT OR Apache-2.0 |
-| wgpu-types | 29.0.4 | MIT OR Apache-2.0 |
+| wgpu | 30.0.1 | MIT OR Apache-2.0 |
+| wgpu-core | 30.0.1 | MIT OR Apache-2.0 |
+| wgpu-core-deps-apple | 30.0.1 | MIT OR Apache-2.0 |
+| wgpu-core-deps-emscripten | 30.0.1 | MIT OR Apache-2.0 |
+| wgpu-core-deps-windows-linux-android | 30.0.1 | MIT OR Apache-2.0 |
+| wgpu-hal | 30.0.1 | MIT OR Apache-2.0 |
+| wgpu-naga-bridge | 30.0.1 | MIT OR Apache-2.0 |
+| wgpu-types | 30.0.1 | MIT OR Apache-2.0 |
 | whereat | 0.1.5 | MIT OR Apache-2.0 |
 | wide | 1.6.1 | Zlib OR Apache-2.0 OR MIT |
 | winapi | 0.3.9 | MIT/Apache-2.0 |
