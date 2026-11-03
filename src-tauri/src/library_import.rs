@@ -1066,8 +1066,10 @@ mod tests {
         // both sources carry copies of one asset. (Without that, the two
         // sessions hold two different files and import as two assets.)
         assert!(
-            second.relink(&root.join("Trip B/Trip/Capture"), &root.join("Trip A/Trip/Capture"))
-                >= 2
+            second.relink(
+                &root.join("Trip B/Trip/Capture"),
+                &root.join("Trip A/Trip/Capture")
+            ) >= 2
         );
         // Both sources carry variant 11 of `Capture/DSCF0001.RAF` as a copy
         // of variant 10: one local key and one asset, two origins.
