@@ -705,7 +705,9 @@ export interface Adjustments {
    * to black and white before it. */
   bwVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
-   * `SHARPEN_VERSION`): 6 = 5, and for JPEGs and other non-RAW photos
+   * `SHARPEN_VERSION`): 7 = 6 with Masking reading the neighbourhood as it shows on RAW photos (the photo's noise
+   * taken out, bright flat noise no longer kept as texture; renders as 6 without Masking and on non-RAW photos);
+   * 6 = 5, and for JPEGs and other non-RAW photos
    * stronger above Amount 40 (closer to Camera Raw's; RAW photos render as 5); 5 = 4 with Masking's ramp after Camera Raw's (wider:
    * more moderate texture, no more flat noise; renders as 4 without Masking); 4 = 3 with Radius and Masking after Camera Raw's
    * (renders as 3 from Radius 1 up without Masking); 3 = 2 weighted by lightness (little sharpening in
@@ -1404,7 +1406,7 @@ export const DEFRINGE_VERSION = 2;
 export const BW_VERSION = 2;
 
 /** The sharpening response new edits start with (notes: reference/detail.md). */
-export const SHARPEN_VERSION = 6;
+export const SHARPEN_VERSION = 7;
 
 /** The luminance noise reduction new edits start with (notes: reference/luma-noise-reference.md). */
 export const LUMA_NOISE_VERSION = 2;
