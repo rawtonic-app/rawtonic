@@ -7295,10 +7295,14 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02);
 /// 6 (2026-11-03) keeps the local contrast of shadows lifted by raised
 /// Shadows through a wider base for its level (notes: G05,
-/// benchmark-results/hls-shadow-detail-2026-11-03).
+/// benchmark-results/hls-shadow-detail-2026-11-03);
+/// 7 (2026-11-03) lowers Highlights on night frames between Capture One's
+/// and Camera Raw's reach instead of beyond both: version 3's dark-frame
+/// shift is capped by the frame's 90th percentile and median (notes: G05,
+/// benchmark-results/hln-night-highlights-2026-11-03).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 6;
+pub const TONE_VERSION: u64 = 7;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -7797,6 +7801,8 @@ mod tone_version_tests {
         );
         // Version 6 (raised Shadows keeps lifted texture) is known.
         assert_eq!(version(json!({"shadows": 20, "toneVersion": 6})), 6.0);
+        // Version 7 (night frames' lowered Highlights capped) is known.
+        assert_eq!(version(json!({"highlights": -60, "toneVersion": 7})), 7.0);
     }
 }
 

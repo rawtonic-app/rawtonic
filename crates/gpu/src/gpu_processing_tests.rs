@@ -9034,7 +9034,8 @@ fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Valu
 /// (where the tone-slider versions differ), the same recipe with
 /// `toneVersion` 2, and for lowered Highlights with `toneVersion` 3 on a
 /// night frame's key, `toneVersion` 4 on a bright frame's and
-/// `toneVersion` 5 on both; for raised Shadows also `toneVersion` 6 on a
+/// `toneVersion` 5 on both and `toneVersion` 7 on the night frame's; for
+/// raised Shadows also `toneVersion` 6 on a
 /// bright frame's key and without one. (Not on the night key: there raised
 /// Shadows' key adaptation already turns tones over by up to 0.008 EV with
 /// Exposure −2 at Shadows +100 in `toneVersion` 2 to 5, which 6 keeps;
@@ -9074,6 +9075,9 @@ fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
                 fifth["toneVersion"] = json!(5);
                 versioned.push(fifth);
             }
+            let mut seventh = with_image_key(recipe, NIGHT_KEY);
+            seventh["toneVersion"] = json!(7);
+            versioned.push(seventh);
         }
     }
     recipes.extend(versioned);
@@ -9529,6 +9533,111 @@ fn tone_version_4_lowers_highlights_less_in_bright_frames_only() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; lowered Highlights of tone version 7 against version 6 on a grey ramp"]
+fn tone_version_7_lowers_night_highlights_less() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let (low_ev, span_ev) = (-14.0f32, 16.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, look)
+    };
+    let with = |recipe: &serde_json::Value, version: u64, key: [f64; 3]| {
+        let mut recipe = with_image_key(recipe, key);
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // A night frame whose lights fill a good part of it (90th percentile
+    // 6 EV over the black point, median 1 EV): version 7 leaves it no shift.
+    let lit_night = [0.006 / 32.0, 0.006 * 64.0, 0.006 * 2.0];
+    // As version 6 without a measured key, on frames of daylight key, of
+    // mid tones with a dark part and of bright key, and without lowered
+    // Highlights on a night frame.
+    let daylight = [0.006 * 2.0, 0.006 * 128.0, 0.006 * 12.0];
+    let mid_tones = [0.006, 0.006 * 32.0, 0.006 * 10.0];
+    for recipe in [
+        json!({ "highlights": -100 }),
+        json!({ "highlights": -50, "shadows": 40 }),
+        json!({ "highlights": 60, "shadows": 100 }),
+        json!({ "shadows": -100 }),
+    ] {
+        for key in [
+            [0.0; 3], daylight, mid_tones, BRIGHT_KEY, NIGHT_KEY, lit_night,
+        ] {
+            let night = key == NIGHT_KEY || key == lit_night;
+            if night && recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0 {
+                continue;
+            }
+            assert!(
+                render(with(&recipe, 6, key)) == render(with(&recipe, 7, key)),
+                "{recipe} with key {key:?} differs"
+            );
+        }
+    }
+    // On night frames' keys, −100 and −50 lower the upper tones (display
+    // −1 … −0.1 EV of the neutral render) less than version 6 and still
+    // lower them; on the lit night frame as far as version 2 (no shift);
+    // the deep shadows stay.
+    let row = (height / 2 * width) as usize;
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    for key in [NIGHT_KEY, lit_night] {
+        let neutral = render(with(&json!({}), 7, key));
+        for amount in [-100, -50] {
+            let recipe = json!({ "highlights": amount });
+            let sixth = render(with(&recipe, 6, key));
+            let seventh = render(with(&recipe, 7, key));
+            let second = render(with(&recipe, 2, key));
+            let (mut lowered_6, mut lowered_7, mut lowered_2, mut deep) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            for x in 64..(width - 64) as usize {
+                let base = luma(&neutral[row + x]).max(1e-12);
+                let display = base.max(1e-9).log2();
+                let ev = |p: &[u16; 3]| (base / luma(p).max(1e-12)).log2();
+                if (-1.0..-0.1).contains(&display) {
+                    lowered_6.push(ev(&sixth[row + x]));
+                    lowered_7.push(ev(&seventh[row + x]));
+                    lowered_2.push(ev(&second[row + x]));
+                } else if (-9.0..-7.0).contains(&display) {
+                    deep.push(ev(&seventh[row + x]) - ev(&sixth[row + x]));
+                }
+            }
+            let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+            let (six, seven, two) = (mean(&lowered_6), mean(&lowered_7), mean(&lowered_2));
+            assert!(
+                seven > 0.0 && seven < 0.8 * six,
+                "{key:?} {amount}: upper tones lowered {seven:.3} EV against version 6's {six:.3}"
+            );
+            if key == lit_night {
+                assert!(
+                    (seven - two).abs() < 0.02,
+                    "{amount}: lit night frame lowered {seven:.3} EV against version 2's {two:.3}"
+                );
+            } else {
+                assert!(
+                    seven > two + 0.02,
+                    "{amount}: night frame lowered {seven:.3} EV, version 2 {two:.3}"
+                );
+            }
+            assert!(
+                mean(&deep).abs() < 0.01,
+                "{key:?} {amount}: deep shadows {:.3} EV",
+                mean(&deep)
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; lowered Highlights of tone version 5 against version 4 on textured bright areas"]
 fn tone_version_5_keeps_detail_in_lowered_bright_areas() {
     let context = context();
@@ -9787,6 +9896,59 @@ fn tone_version_6_shadows_drag_render_time() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; lowered Highlights of tone version 7 against version 6 on a night key: GPU time of a preview render per drag step"]
+fn tone_version_7_highlights_drag_render_time() {
+    // As `tone_version_6_shadows_drag_render_time`, with Highlights stepped
+    // down on a night frame's key (where version 7 caps version 3's shift).
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 10.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 6 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = with_image_key(
+                &json!({ "highlights": -20 - 6 * step, "toneVersion": version }),
+                NIGHT_KEY,
+            );
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 6) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            6 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; Highlights on a clipped bright disc with a soft rim on a dark background"]
 fn highlights_keep_a_clipped_plateau_above_its_rim() {
     let context = context();
@@ -9830,11 +9992,15 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         (-50, 5),
                         (-100, 6),
                         (-50, 6),
+                        (-100, 7),
+                        (-50, 7),
                     ] {
                         // Version "6" here: version 5 on a night frame's key
-                        // (its narrow, version 3 range), "5" on a bright one's.
+                        // (its narrow, version 3 range), "5" on a bright one's;
+                        // 7 on a night frame's key (version 3's shift capped).
+                        let tone_version = if version == 6 { 5 } else { version };
                         let recipe = with_image_key(
-                            &json!({ "highlights": amount, "toneVersion": version.min(5) }),
+                            &json!({ "highlights": amount, "toneVersion": tone_version }),
                             if version == 4 || version == 5 {
                                 BRIGHT_KEY
                             } else {

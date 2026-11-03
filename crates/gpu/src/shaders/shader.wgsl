@@ -1373,6 +1373,21 @@ const HL_V3_RANGE: f32 = 2.0;
 // (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02).
 const HL_V5_RANGE: f32 = 1.0;
 const HL_V5_DARK: f32 = 4.0;
+// Tone version 7: version 3's dark-frame shift went 1.5–3.7 times as far
+// as Capture One's −100 and up to 1.9 times Camera Raw's on night frames
+// (murky night photos: the lights and the upper midtones darkened). The
+// shift is now at most HL_V7_SHIFT0 − HL_V7_KEY_SLOPE · 90th percentile −
+// HL_V7_MEDIAN_SLOPE · median (EV over the black point with the baseline):
+// a dark frame whose lights fill a good part of it (high 90th percentile)
+// keeps version 2's response, which already lowers them between Capture
+// One's and Camera Raw's; a night frame of small lights keeps part of the
+// shift. The local base's range still narrows by the uncapped shift
+// (tone order). Chosen on 8 dark frames against Camera Raw and Capture
+// One, checked on 11 held out (notes: G05,
+// benchmark-results/hln-night-highlights-2026-11-03).
+const HL_V7_SHIFT0: f32 = 3.8;
+const HL_V7_KEY_SLOPE: f32 = 0.65;
+const HL_V7_MEDIAN_SLOPE: f32 = 0.35;
 // Tone version 4: lowering Highlights adapts to bright frames too, as
 // Camera Raw's does. On frames of bright key (snow, overcast or bright
 // skies, white rooms) Camera Raw's −100 lowers broad bright areas only
@@ -2285,7 +2300,9 @@ fn apply_tonal_adjustments(
 // at most HL_V3_SHIFT_MAX; faded out as the 90th percentile falls from 2 EV
 // over the black point to it (none at or below it). Tone version 4 adds a
 // negative shift on frames of bright key (at most HL_V4_BRIGHT_MAX EV).
-fn hl_v3_shift() -> f32 {
+// Version 7 caps the dark shift (HL_V7_*) where `capped`; the local base's
+// range keeps following the uncapped one (see apply_highlights_adjustment).
+fn hl_v3_shift(capped: bool) -> f32 {
     let key = adjustments.global.image_key;
     let median = adjustments.global.image_key_median;
     if (key <= 0.0 || median <= 0.0) {
@@ -2296,7 +2313,11 @@ fn hl_v3_shift() -> f32 {
     let km = log2(max(median, CR_RANGE_FLOOR)) + offset;
     let kl = log2(max(adjustments.global.image_key_low, CR_RANGE_FLOOR)) + offset;
     let d = HL_V3_SHIFT0 - HL_V3_MEDIAN_SLOPE * km - HL_V3_KEY_SLOPE * k - HL_V3_LOW_SLOPE * kl;
-    let dark = clamp(d, 0.0, HL_V3_SHIFT_MAX) * smoothstep(HL_V3_BLACK_K0, HL_V3_BLACK_K1, k);
+    var dark = clamp(d, 0.0, HL_V3_SHIFT_MAX) * smoothstep(HL_V3_BLACK_K0, HL_V3_BLACK_K1, k);
+    if (capped && adjustments.global.tone_version > 6.5) {
+        let cap = HL_V7_SHIFT0 - HL_V7_KEY_SLOPE * k - HL_V7_MEDIAN_SLOPE * km;
+        dark = min(dark, clamp(cap, 0.0, HL_V3_SHIFT_MAX));
+    }
     if (adjustments.global.tone_version < 3.5) {
         return dark;
     }
@@ -2333,10 +2354,17 @@ fn apply_highlights_adjustment(
     // blend width (`pivot_unit`), so the upper midtones still darken a
     // little, as in Camera Raw.
     var key_shift = 0.0;
+    // Version 7 caps how far version 3 compresses dark frames, but the
+    // local base's range narrows as version 6's did (by the uncapped
+    // shift): with the wide range back, broad lights of a lit night frame
+    // ended up to 4.6 L* darker than the tones just below them.
+    var range_shift = 0.0;
     var pivot_unit = 1.0;
     if (v2) {
         if (adjustments.global.tone_version > 2.5) {
-            key_shift = hl_v3_shift() * pow(min(-highlights_adj / HL_K100, 1.0), HL_V3_AMOUNT_EXPONENT);
+            let fade = pow(min(-highlights_adj / HL_K100, 1.0), HL_V3_AMOUNT_EXPONENT);
+            key_shift = hl_v3_shift(true) * fade;
+            range_shift = hl_v3_shift(false) * fade;
         }
         hl_unit = exp2(adjustments.global.baseline_exposure + key_shift);
         pivot_unit = exp2(adjustments.global.baseline_exposure + max(key_shift, 0.0));
@@ -2389,8 +2417,8 @@ fn apply_highlights_adjustment(
     // (clouds, lit walls), so lowering it keeps their detail as Camera Raw
     // and Capture One do; faded back to the narrow range as version 3
     // compresses harder on dark frames, where a wide base turned rim tones over.
-    let range_factor = select(0.22, mix(0.22, HL_V5_RANGE, exp2(-HL_V5_DARK * max(key_shift, 0.0))), v5);
-    let range_tol = max(pixel_luma * range_factor, 0.03) * exp2(-HL_V3_RANGE * max(key_shift, 0.0));
+    let range_factor = select(0.22, mix(0.22, HL_V5_RANGE, exp2(-HL_V5_DARK * max(range_shift, 0.0))), v5);
+    let range_tol = max(pixel_luma * range_factor, 0.03) * exp2(-HL_V3_RANGE * max(range_shift, 0.0));
     let inv_two_range_sq = 1.0 / (2.0 * range_tol * range_tol);
 
     var sum_luma: f32 = pixel_luma;
