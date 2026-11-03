@@ -5,5 +5,5 @@
 -- this digest: the next check takes it for the library's own write (and
 -- promotes it to `xmp_hash`) instead of a change by another program. A
 -- sidecar matching neither digest is still a change elsewhere. The column
--- is added before this script runs (`Library::add_missing_columns`).
+-- is added before this script runs (`migrations::add_missing_columns`).
 PRAGMA user_version=23;
