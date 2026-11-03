@@ -1,6 +1,6 @@
 //! File operations: folders, copy, move, rename, delete, import, duplicates and virtual copies.
 //! Part of `file_management`, split by concern (ADR 0009).
-use super::add_to_album;
+use super::add_to_album_blocking;
 use super::parse_virtual_path;
 use crate::image_processing::ImageMetadata;
 use serde::Serialize;
@@ -204,7 +204,7 @@ fn duplicate_file_blocking(
     let dest_path_str = dest_path.to_string_lossy().into_owned();
 
     if let Some(album_id) = target_album_id {
-        let _ = add_to_album(album_id, vec![dest_path_str.clone()], app_handle);
+        let _ = add_to_album_blocking(album_id, vec![dest_path_str.clone()], app_handle);
     }
 
     Ok(dest_path_str)
@@ -1053,7 +1053,7 @@ fn create_virtual_copy_blocking(
     )?;
 
     if let Some(album_id) = target_album_id {
-        let _ = add_to_album(album_id, vec![new_virtual_path.clone()], app_handle);
+        let _ = add_to_album_blocking(album_id, vec![new_virtual_path.clone()], app_handle);
     }
 
     Ok(new_virtual_path)

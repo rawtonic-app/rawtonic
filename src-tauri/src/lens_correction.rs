@@ -34,7 +34,7 @@ pub fn get_lensfun_makers_blocking() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn get_lensfun_makers() -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || get_lensfun_makers_blocking())
+    tauri::async_runtime::spawn_blocking(get_lensfun_makers_blocking)
         .await
         .map_err(|e| e.to_string())?
 }

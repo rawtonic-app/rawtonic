@@ -277,7 +277,7 @@ pub fn crash_reports_pending_blocking() -> Vec<CrashRecord> {
 
 #[tauri::command]
 pub async fn crash_reports_pending() -> Vec<CrashRecord> {
-    tauri::async_runtime::spawn_blocking(move || crash_reports_pending_blocking())
+    tauri::async_runtime::spawn_blocking(crash_reports_pending_blocking)
         .await
         .unwrap_or_default()
 }

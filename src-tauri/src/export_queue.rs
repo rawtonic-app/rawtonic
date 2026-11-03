@@ -1125,7 +1125,7 @@ pub fn export_queue_jobs_blocking() -> Snapshot {
 
 #[tauri::command]
 pub async fn export_queue_jobs() -> Snapshot {
-    tauri::async_runtime::spawn_blocking(move || export_queue_jobs_blocking())
+    tauri::async_runtime::spawn_blocking(export_queue_jobs_blocking)
         .await
         .expect("export_queue_jobs task panicked")
 }
