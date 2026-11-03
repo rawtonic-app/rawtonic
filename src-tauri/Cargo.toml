@@ -156,6 +156,9 @@ rawtonic-catalog = { path = "../crates/catalog", version = "0.1.0", features = [
 rawtonic-engine = { path = "../crates/engine", version = "0.1.0", features = ["test-support"] }
 rawtonic-rawdecode = { path = "../crates/rawdecode", version = "0.1.0", features = ["test-support"] }
 pollster = "1.0"
+# Test code only: the Capture One import tests build real session files and
+# read them back through `rawtonic-interop`.
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }

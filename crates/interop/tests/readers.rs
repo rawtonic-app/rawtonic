@@ -294,13 +294,16 @@ fn an_open_lightroom_catalog_is_refused() {
     assert!(error.to_string().contains("Quit Lightroom"), "{error}");
 }
 
-#[test]
-fn capture_one_session_variants_settings_and_albums() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = dir.path().join("Shoot");
+/// A Capture One session named `<folder>/<name>` (its `.cosessiondb` is
+/// `<folder>/<name>/<name>.cosessiondb`), built with the tables and columns
+/// of a real Capture One 16 session: two variants of `Capture/DSCF0001.RAF`
+/// (the second modified), one trashed image, one image in a folder outside
+/// the session, one album, one smart album and one local adjustment layer.
+fn capture_one_session(dir: &Path, name: &str) -> std::path::PathBuf {
+    let session = dir.join(name);
     fs::create_dir_all(session.join("Capture")).unwrap();
     fs::write(session.join("Capture/DSCF0001.RAF"), b"raf").unwrap();
-    let db = session.join("Shoot.cosessiondb");
+    let db = session.join(format!("{name}.cosessiondb"));
     let conn = Connection::open(&db).unwrap();
     conn.execute_batch(
         "CREATE TABLE ZENTITIES (Z_ENT INTEGER, ZNAME VARCHAR);
@@ -381,7 +384,17 @@ fn capture_one_session_variants_settings_and_albums() {
         columns.iter().map(|c| format!("{c} VARCHAR")).collect::<Vec<_>>().join(", ")
     ))
     .unwrap();
-    drop(conn);
+    db
+}
+
+#[test]
+fn capture_one_session_variants_settings_and_albums() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = capture_one_session(dir.path(), "Shoot");
+    let session = dir.path().join("Shoot");
+    // A temporary folder may sit behind a symlink (`/tmp` on Linux PCs):
+    // a photo's identity is the session file's real path.
+    let real_db = db.canonicalize().unwrap();
     let before = fs::read(&db).unwrap();
     let lib = capture_one::read(&db).unwrap();
     assert_eq!(fs::read(&db).unwrap(), before, "session untouched");
@@ -422,11 +435,13 @@ fn capture_one_session_variants_settings_and_albums() {
     // The second variant is a copy with Capture One's defaults only (not
     // modified); orange has no Rawtonic label.
     assert_eq!(lib.photos[1].copy_of.as_deref(), Some("10"));
-    // Capture One has no global id: the session file and the variant stand in.
+    // Capture One has no global id: the session file and the variant stand in,
+    // exactly — the whole path of the file this read opened and `#<Z_PK>`.
     let uid = lib.photos[1].uid.as_deref().unwrap();
-    assert!(
-        uid.ends_with("#11") || uid.contains(".cosessiondb#"),
-        "{uid}"
+    assert_eq!(uid, format!("{}#11", real_db.display()));
+    assert_eq!(
+        lib.photos[0].uid.as_deref(),
+        Some(format!("{}#10", real_db.display()).as_str())
     );
     assert_eq!(lib.photos[1].develop, Develop::None);
     assert_eq!(lib.photos[1].metadata.label, "");
@@ -440,4 +455,55 @@ fn capture_one_session_variants_settings_and_albums() {
     );
     assert_eq!(lib.not_read.smart_albums, 1);
     assert_eq!(lib.not_read.local_adjustments, 1);
+}
+
+/// Two sessions with the same file name in different folders are two
+/// origins: the same variant id there gives another uid (the whole session
+/// file path is part of it), so a photo's provenance is never another
+/// session's.
+#[test]
+fn capture_one_sessions_with_the_same_name_in_two_folders_stay_told_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let first_db = capture_one_session(&dir.path().join("Trip A"), "Trip");
+    let second_db = capture_one_session(&dir.path().join("Trip B"), "Trip");
+    assert_eq!(first_db.file_name(), second_db.file_name());
+    assert_ne!(
+        first_db.parent().unwrap().parent(),
+        second_db.parent().unwrap().parent()
+    );
+    let (first, second) = (
+        capture_one::read(&first_db).unwrap(),
+        capture_one::read(&second_db).unwrap(),
+    );
+    let real = |db: &Path| db.canonicalize().unwrap();
+    // The same variant id in both sessions: both variants of DSCF0001.RAF.
+    for (session, db) in [(&first, &first_db), (&second, &second_db)] {
+        let uids: Vec<&str> = session
+            .photos
+            .iter()
+            .filter_map(|p| p.uid.as_deref())
+            .collect();
+        assert_eq!(uids.len(), 3, "{db:?}");
+        let uid = uids[1];
+        assert_eq!(uid, format!("{}#11", real(db).display()));
+        // Its own session's whole folder and file name, and nothing else.
+        assert_eq!(
+            uid.strip_suffix("#11"),
+            Some(real(db).to_str().unwrap()),
+            "{uid}"
+        );
+    }
+    let first_uid = first.photos[1].uid.clone().unwrap();
+    let second_uid = second.photos[1].uid.clone().unwrap();
+    assert_ne!(first_uid, second_uid);
+    assert!(!first_uid.contains(&second_db.parent().unwrap().display().to_string()));
+    assert!(!second_uid.contains(&first_db.parent().unwrap().display().to_string()));
+    assert_eq!(
+        first.photos[0].uid.as_deref(),
+        Some(format!("{}#10", real(&first_db).display()).as_str())
+    );
+    assert_eq!(
+        second.photos[0].uid.as_deref(),
+        Some(format!("{}#10", real(&second_db).display()).as_str())
+    );
 }

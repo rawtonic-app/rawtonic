@@ -929,6 +929,7 @@ mod tests {
     use super::*;
     use rawtonic_interop::Album;
     use rawtonic_metadata::Metadata;
+    use rusqlite::Connection;
     use std::fs;
 
     fn photo(key: &str, path: PathBuf, develop: Develop, copy_of: Option<&str>) -> Photo {
@@ -949,6 +950,172 @@ mod tests {
             snapshots: Vec::new(),
             uid: None,
         }
+    }
+
+    /// A Capture One session named `<folder>/<name>` (its `.cosessiondb` is
+    /// `<folder>/<name>/<name>.cosessiondb`), built with the tables and columns
+    /// of a real Capture One 16 session: two variants of `Capture/DSCF0001.RAF`
+    /// (the second modified), one trashed image, one image in a folder outside
+    /// the session, one album, one smart album and one local adjustment layer.
+    fn capture_one_session(dir: &Path, name: &str) -> std::path::PathBuf {
+        let session = dir.join(name);
+        fs::create_dir_all(session.join("Capture")).unwrap();
+        fs::write(session.join("Capture/DSCF0001.RAF"), b"raf").unwrap();
+        let db = session.join(format!("{name}.cosessiondb"));
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ZENTITIES (Z_ENT INTEGER, ZNAME VARCHAR);
+             INSERT INTO ZENTITIES VALUES(2,'AlbumCollection'),(5,'SmartCollection'),(7,'ProjectCollection'),
+               (16,'VariantLayer'),(20,'VariantCombinedLayer'),(23,'LocalAdjustmentsLayer');
+             CREATE TABLE ZPATHLOCATION (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZWINROOT VARCHAR, ZMACROOT VARCHAR,
+               ZRELATIVEPATH VARCHAR, ZISRELATIVE BOOLEAN, ZVOLUME VARCHAR);
+             INSERT INTO ZPATHLOCATION VALUES(38,1,NULL,NULL,'Capture',1,NULL),(38,2,NULL,'/','nowhere/else',0,'/');
+             CREATE TABLE ZIMAGE (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZIMAGELOCATION INTEGER,
+               ZIMAGEFILENAME VARCHAR, ZISTRASHED BOOLEAN);
+             INSERT INTO ZIMAGE VALUES(12,1,1,'DSCF0001.RAF',0),(12,2,2,'DSCF0002.RAF',0),(12,3,1,'DSCF0003.RAF',1),
+               (12,4,99,'DSCF0004.RAF',0);
+             CREATE TABLE ZVARIANT (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZINDEX INTEGER, ZIMAGE INTEGER,
+               ZCOMBINEDSETTINGS INTEGER, ZISMODIFIED BOOLEAN);
+             INSERT INTO ZVARIANT VALUES(15,10,0,1,100,1),(15,11,1,1,101,0),(15,12,0,2,NULL,0),(15,13,0,3,NULL,0),
+               (15,14,0,4,NULL,0);
+             CREATE TABLE ZVARIANTMETADATA (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZLAYER INTEGER, ZBASIC_RATING INTEGER,
+               ZCOLOR_TAG_INDEX INTEGER, ZCONTENT_KEYWORDS VARCHAR, ZSTATUS_TITLE VARCHAR, ZCONTENT_DESCRIPTION VARCHAR,
+               ZCONTACT_CREATOR VARCHAR, ZSTATUS_COPYRIGHTNOTICE VARCHAR,
+               ZCONTENT_HEADLINE VARCHAR, ZIMAGE_LOCATION VARCHAR, ZIMAGE_CITY VARCHAR, ZIMAGE_STATE VARCHAR,
+               ZIMAGE_COUNTRY VARCHAR, ZIMAGE_ISOCOUNTRYCODE VARCHAR, ZSTATUS_JOBIDENTIFIER VARCHAR, ZSTATUS_INSTRUCTIONS VARCHAR,
+               ZSTATUS_PROVIDER VARCHAR, ZSTATUS_SOURCE VARCHAR, ZSTATUS_USAGETERMS VARCHAR, ZCONTACT_CREATORSTITLE VARCHAR,
+               ZCONTACT_EMAILS VARCHAR, ZCONTACT_WEBSITES VARCHAR, ZCONTACT_PHONES VARCHAR, ZCONTACT_ADDRESS VARCHAR,
+               ZCONTACT_CITY VARCHAR, ZCONTACT_STATE_PROVINCE VARCHAR, ZCONTACT_POSTALCODE VARCHAR, ZCONTACT_COUNTRY VARCHAR);
+             INSERT INTO ZVARIANTMETADATA (Z_ENT, Z_PK, ZLAYER, ZBASIC_RATING, ZCOLOR_TAG_INDEX, ZCONTENT_KEYWORDS,
+               ZSTATUS_TITLE, ZCONTENT_DESCRIPTION, ZCONTACT_CREATOR, ZSTATUS_COPYRIGHTNOTICE, ZIMAGE_CITY, ZIMAGE_COUNTRY,
+               ZCONTACT_EMAILS)
+               VALUES(13,1,100,4,1,'beach, sunset','Sun','Evening','Alex Example','(c) A','Ascona','Switzerland','alex@example.org'),
+                     (13,2,101,2,2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+             CREATE TABLE ZCOLLECTION (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZNAME VARCHAR, ZPARENT INTEGER,
+               ZCOLLECTIONINDEX INTEGER, ZSMARTCRITERIA VARCHAR);
+             INSERT INTO ZCOLLECTION VALUES(7,1,'root',NULL,0,NULL),(2,6,'Picks',1,0,NULL),(5,7,'Five stars',1,1,'x'),
+               (5,8,'All Images',1,2,NULL);
+             CREATE TABLE ZIMAGEINCOLLECTION (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZCOLLECTION INTEGER, ZIMAGE INTEGER);
+             INSERT INTO ZIMAGEINCOLLECTION VALUES(47,1,6,1);
+             CREATE TABLE ZVARIANTINCOLLECTION (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZCOLLECTION INTEGER, ZVARIANT INTEGER);",
+        )
+        .unwrap();
+        let columns: Vec<String> = [
+            "ZEXPOSURE",
+            "ZCONTRAST",
+            "ZBRIGHTNESS",
+            "ZSATURATION",
+            "ZHIGHLIGHTRECOVERY",
+            "ZSHADOWRECOVERY",
+            "ZWHITERECOVERY",
+            "ZBLACKRECOVERY",
+            "ZDEHAZEAMOUNT",
+            "ZCLARITY",
+            "ZCLARITYSTRUCTURE",
+            "ZCOLORBALANCE",
+            "ZCOLORBALANCESHADOW",
+            "ZCOLORBALANCEMIDTONE",
+            "ZCOLORBALANCEHIGHLIGHT",
+            "ZGRADATIONCURVE",
+            "ZGRADATIONCURVEY",
+            "ZLEVELSHIGHLIGHT",
+            "ZLEVELSSHADOW",
+            "ZMIDTONE",
+            "ZLEVELSTARGETHIGHLIGHT",
+            "ZLEVELSTARGETSHADOW",
+            "ZUSMAMOUNT",
+            "ZUSMRADIUS",
+            "ZFILMGRAINAMOUNT",
+            "ZFILMGRAINGRANULARITY",
+            "ZBWENABLED",
+            "ZLENSPURPLEFRINGINGAMOUNT",
+            "ZMOIRE",
+            "ZLENSVIGNETTING",
+        ]
+        .iter()
+        .map(|c| c.to_string())
+        .collect();
+        conn.execute_batch(&format!(
+            "CREATE TABLE ZVARIANTLAYER (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZVARIANT INTEGER, {});
+             INSERT INTO ZVARIANTLAYER (Z_ENT, Z_PK, ZVARIANT, ZEXPOSURE, ZHIGHLIGHTRECOVERY, ZCOLORBALANCE)
+               VALUES(20,100,10,0.5,-100.0,'1;0.9;0.9'),(20,101,11,-0.3,0.0,NULL),(23,102,10,NULL,NULL,NULL);",
+            columns.iter().map(|c| format!("{c} VARCHAR")).collect::<Vec<_>>().join(", ")
+        ))
+        .unwrap();
+        db
+    }
+
+    /// Two Capture One sessions with the same file name in different folders
+    /// import as two origins: the same asset's virtual copy from each gets
+    /// its own copy id (the session path is part of the uid the id is
+    /// derived from), while a repeated import of one session finds the copy
+    /// it made.
+    #[test]
+    fn capture_one_copies_from_two_sessions_with_one_file_name_get_their_own_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let root = tmp.path();
+        let first = read_source(&capture_one_session(&root.join("Trip A"), "Trip"))
+            .unwrap()
+            .0;
+        let mut second = read_source(&capture_one_session(&root.join("Trip B"), "Trip"))
+            .unwrap()
+            .0;
+        // Two sessions reference one photograph (an external folder, or a
+        // session copied aside): B's photographs are relinked to A's, so
+        // both sources carry copies of one asset. (Without that, the two
+        // sessions hold two different files and import as two assets.)
+        assert!(
+            second.relink(
+                &root.join("Trip B/Trip/Capture"),
+                &root.join("Trip A/Trip/Capture")
+            ) >= 2
+        );
+        // Both sources carry variant 11 of `Capture/DSCF0001.RAF` as a copy
+        // of variant 10: one local key and one asset, two origins.
+        let (first_uid, second_uid) = (
+            first.photos[1].uid.clone().unwrap(),
+            second.photos[1].uid.clone().unwrap(),
+        );
+        assert_ne!(first_uid, second_uid);
+        let (first_origin, second_origin) = (
+            copy_origin(&first.name, &first.photos[1]),
+            copy_origin(&second.name, &second.photos[1]),
+        );
+        assert_ne!(first_origin, second_origin);
+
+        import_into(&catalog, &first).unwrap();
+        let asset = catalog.asset_at(&first.photos[0].path).unwrap().unwrap();
+        let one = catalog.copies(&asset.id).unwrap();
+        assert_eq!(one, vec![copy_id(&asset.id, &first_origin, 0)]);
+
+        // A repeated import of the same session finds that copy (its derived
+        // sidecar beside the photograph), not another beside it.
+        let again = import_into(&catalog, &first).unwrap();
+        assert_eq!((again.copies, again.errors.len()), (1, 0), "{again:?}");
+        assert_eq!(catalog.copies(&asset.id).unwrap(), one);
+
+        // The other session's copy of that asset gets its own id beside it.
+        import_into(&catalog, &second).unwrap();
+        let two = copy_id(&asset.id, &second_origin, 0);
+        assert_ne!(two, one[0]);
+        let mut both = catalog.copies(&asset.id).unwrap();
+        both.sort();
+        let mut expected = vec![one[0].clone(), two.clone()];
+        expected.sort();
+        assert_eq!(
+            both, expected,
+            "session B's copy id is not derived from its origin alone"
+        );
+        // Neither import dropped the other's copy: a repeat of either finds
+        // its own copy and adds none.
+        for source in [&first, &second] {
+            let again = import_into(&catalog, source).unwrap();
+            assert_eq!(again.errors.len(), 0, "{again:?}");
+        }
+        let mut after = catalog.copies(&asset.id).unwrap();
+        after.sort();
+        assert_eq!(after, expected);
     }
 
     #[test]
