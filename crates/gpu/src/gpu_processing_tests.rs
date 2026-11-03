@@ -2066,7 +2066,7 @@ fn cached_detail_of_sharpening_7_matches_inline_detail_and_follows_the_tone_curv
                 width,
                 height,
                 RenderRequest {
-                    adjustments: adjustments.clone().into(),
+                    adjustments: (*adjustments).into(),
                     mask_bitmaps: &[],
                     lut: None,
                     roi: None,
