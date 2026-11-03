@@ -269,36 +269,60 @@ fn crashes() -> Result<&'static CrashStore, String> {
 }
 
 /// Crash records not yet sent, newest first (older than 30 days go).
-#[tauri::command]
-pub fn crash_reports_pending() -> Vec<CrashRecord> {
+pub fn crash_reports_pending_blocking() -> Vec<CrashRecord> {
     crashes()
         .map(|store| store.pending(crash::now_secs()))
         .unwrap_or_default()
 }
 
-/// The user was asked about this crash (Not now): it is not asked again.
 #[tauri::command]
-pub fn crash_report_mark_asked(id: String) -> Result<(), String> {
+pub async fn crash_reports_pending() -> Vec<CrashRecord> {
+    tauri::async_runtime::spawn_blocking(crash_reports_pending_blocking)
+        .await
+        .unwrap_or_default()
+}
+
+/// The user was asked about this crash (Not now): it is not asked again.
+pub fn crash_report_mark_asked_blocking(id: String) -> Result<(), String> {
     crashes()?.mark_asked(&id).map_err(|e| e.to_string())
 }
 
-/// Deletes a crash record (sent, or not wanted).
 #[tauri::command]
-pub fn crash_report_remove(id: String) -> Result<(), String> {
+pub async fn crash_report_mark_asked(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crash_report_mark_asked_blocking(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Deletes a crash record (sent, or not wanted).
+pub fn crash_report_remove_blocking(id: String) -> Result<(), String> {
     crashes()?.remove(&id);
     Ok(())
 }
 
+#[tauri::command]
+pub async fn crash_report_remove(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crash_report_remove_blocking(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Turns crash records on or off for this run too (the preference, or
 /// Never); off deletes every record and this run's notes.
-#[tauri::command]
-pub fn crash_reports_set_enabled(enabled: bool) -> Result<(), String> {
+pub fn crash_reports_set_enabled_blocking(enabled: bool) -> Result<(), String> {
     let store = crashes()?;
     crash::set_recording(store, enabled);
     if !enabled {
         store.remove_all();
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn crash_reports_set_enabled(enabled: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crash_reports_set_enabled_blocking(enabled))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // --- Usage statistics (channel 4) ------------------------------------------
@@ -394,8 +418,10 @@ pub(crate) fn note_camera(exif: &std::collections::HashMap<String, String>) {
 /// the choice fails; on starts (from no kept weeks) only once the choice is
 /// saved. An error says what did not work: the switch then shows the choice
 /// as not made.
-#[tauri::command]
-pub fn usage_stats_set_enabled(app_handle: AppHandle, enabled: bool) -> Result<(), String> {
+pub fn usage_stats_set_enabled_blocking(
+    app_handle: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
     let stats = STATS.get();
     if enabled {
         crate::app_settings::persist_usage_stats(&app_handle, true)?;
@@ -413,6 +439,15 @@ pub fn usage_stats_set_enabled(app_handle: AppHandle, enabled: bool) -> Result<(
         crate::app_settings::persist_usage_stats(&app_handle, false)?;
         cleared
     }
+}
+
+#[tauri::command]
+pub async fn usage_stats_set_enabled(app_handle: AppHandle, enabled: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        usage_stats_set_enabled_blocking(app_handle, enabled)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Tools used (keys from the fixed list), while statistics are on.
@@ -443,8 +478,7 @@ pub struct UsageStatsPreview {
 }
 
 /// "Show what is sent": every body waiting to be sent, and the last one sent.
-#[tauri::command]
-pub fn usage_stats_preview(app_handle: AppHandle) -> UsageStatsPreview {
+pub fn usage_stats_preview_blocking(app_handle: AppHandle) -> UsageStatsPreview {
     let Some(stats) = STATS.get() else {
         return UsageStatsPreview {
             pending: Vec::new(),
@@ -473,4 +507,11 @@ pub fn usage_stats_preview(app_handle: AppHandle) -> UsageStatsPreview {
         pending,
         last_sent: stats.last_sent(),
     }
+}
+
+#[tauri::command]
+pub async fn usage_stats_preview(app_handle: AppHandle) -> UsageStatsPreview {
+    tauri::async_runtime::spawn_blocking(move || usage_stats_preview_blocking(app_handle))
+        .await
+        .expect("usage_stats_preview task panicked")
 }

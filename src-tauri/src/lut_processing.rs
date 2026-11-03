@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
 use crate::app_state::AppState;
 
@@ -477,8 +477,7 @@ pub fn get_or_load_lut(state: &AppState, path: &str) -> Result<Arc<Lut>, String>
     state.lut_cache.lock().unwrap().get_or_load(path)
 }
 
-#[tauri::command]
-pub fn list_luts(app_handle: AppHandle) -> Result<Vec<LutEntry>, String> {
+pub fn list_luts_blocking(app_handle: AppHandle) -> Result<Vec<LutEntry>, String> {
     let mut all_luts = Vec::new();
 
     if let Some(resource_path) = film_luts_dir(&app_handle)
@@ -500,6 +499,13 @@ pub fn list_luts(app_handle: AppHandle) -> Result<Vec<LutEntry>, String> {
     Ok(all_luts)
 }
 
+#[tauri::command]
+pub async fn list_luts(app_handle: AppHandle) -> Result<Vec<LutEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_luts_blocking(app_handle))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Async, with the walking, parsing and copying in a blocking worker: a
 /// large pack on slow storage must not hold up the window.
 #[tauri::command]
@@ -518,13 +524,12 @@ pub async fn import_luts(
         .map_err(|e| e.to_string())?;
 
     Ok(LutImport {
-        luts: list_luts(app_handle)?,
+        luts: list_luts_blocking(app_handle)?,
         ..report
     })
 }
 
-#[tauri::command]
-pub fn remove_lut(app_handle: AppHandle, path: String) -> Result<Vec<LutEntry>, String> {
+pub fn remove_lut_blocking(app_handle: AppHandle, path: String) -> Result<Vec<LutEntry>, String> {
     let data_dir = app_handle
         .path()
         .app_data_dir()
@@ -542,7 +547,14 @@ pub fn remove_lut(app_handle: AppHandle, path: String) -> Result<Vec<LutEntry>, 
     std::fs::remove_file(&target_path).map_err(|e| e.to_string())?;
     remove_empty_packs(&luts_dir, &target_path);
 
-    list_luts(app_handle)
+    list_luts_blocking(app_handle)
+}
+
+#[tauri::command]
+pub async fn remove_lut(app_handle: AppHandle, path: String) -> Result<Vec<LutEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || remove_lut_blocking(app_handle, path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Removes the pack folders a removal left empty, from the removed file's
@@ -584,8 +596,10 @@ fn user_lut_file(luts_dir: &Path, path: &Path) -> Result<PathBuf, String> {
     Ok(entry)
 }
 
-#[tauri::command]
-pub fn load_and_parse_lut(path: String, state: State<AppState>) -> Result<LutParseResult, String> {
+pub fn load_and_parse_lut_blocking(
+    path: String,
+    state: &AppState,
+) -> Result<LutParseResult, String> {
     let read = stamp(&path);
     let lut = parse_lut_file(&path).map_err(|e| e.to_string())?;
     let lut_size = lut.size;
@@ -593,6 +607,19 @@ pub fn load_and_parse_lut(path: String, state: State<AppState>) -> Result<LutPar
     state.lut_cache.lock().unwrap().insert(path, read, lut);
 
     Ok(LutParseResult { size: lut_size })
+}
+
+#[tauri::command]
+pub async fn load_and_parse_lut(
+    path: String,
+    app_handle: AppHandle,
+) -> Result<LutParseResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        load_and_parse_lut_blocking(path, &state)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

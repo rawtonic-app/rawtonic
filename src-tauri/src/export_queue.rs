@@ -1119,15 +1119,27 @@ fn new_outputs(items: Vec<Item>, pending: &HashSet<usize>) -> Vec<PathBuf> {
         .collect()
 }
 
-#[tauri::command]
-pub fn export_queue_jobs() -> Snapshot {
+pub fn export_queue_jobs_blocking() -> Snapshot {
     snapshot()
 }
 
-/// The photos of a job with their state, output, error and timing.
 #[tauri::command]
-pub fn export_queue_items(job: String) -> Result<Vec<Item>, String> {
+pub async fn export_queue_jobs() -> Snapshot {
+    tauri::async_runtime::spawn_blocking(export_queue_jobs_blocking)
+        .await
+        .expect("export_queue_jobs task panicked")
+}
+
+/// The photos of a job with their state, output, error and timing.
+pub fn export_queue_items_blocking(job: String) -> Result<Vec<Item>, String> {
     with_queue(|q| q.items(&job)).ok_or_else(|| "This export is no longer in the queue.".into())
+}
+
+#[tauri::command]
+pub async fn export_queue_items(job: String) -> Result<Vec<Item>, String> {
+    tauri::async_runtime::spawn_blocking(move || export_queue_items_blocking(job))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

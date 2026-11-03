@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Cancelling thumbnail generation now stops it**: the cancel button used to leave the queued thumbnails running; the queue is now dropped at the next photo, and a later generation starts normally.
 - **Canon RF 200-800mm with the RF1.4x or RF2x extender named with its real range**: exports' lens specification now says 280-1120 mm f/9-13 or 400-1600 mm f/13-18 instead of the bare lens's 200-800 mm f/6.3-9 (lens data from rawler 0.8.0).
 - **Canon EOS C50 RAW stills open** (camera data from rawler 0.8.0). Not yet tested on a C50 file: if one opens wrongly, please send a problem report.
 - **Compressed RAFs of the Fujifilm X-T2, X-Pro2, X-E3 and X-T20 now show the full 6000 × 4000 frame for new edits** (recipe `sourceFrameVersion` 3, new edits and never-edited RAWs): lossless and lossy compressed RAFs of these bodies were cut by 96 px on the right (5904 × 4000), because the decoder applied the uncompressed files' border to the narrower compressed data. They now develop the frame the camera records and its JPEG shows, like the same bodies' uncompressed RAFs (rawler 0.8.0's compressed-mode selection). Photos you have edited keep their frame and export exactly as before; no other file decodes differently (1969 of 1973 raw.pixls.us files unchanged).

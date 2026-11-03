@@ -1079,7 +1079,6 @@ fn processing_backend_in(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-#[tauri::command]
 pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let _guard = SETTINGS_LOCK
         .lock()
@@ -1570,5 +1569,19 @@ mod tests {
         );
         assert_eq!(std::fs::read(&path).unwrap(), original);
         assert!(reserve_update_check_at(&path, true, 100).unwrap().is_some());
+    }
+}
+
+/// The Tauri commands: file I/O and the settings lock run in a blocking
+/// worker, not on the main thread. The sync functions above stay for the Rust
+/// callers.
+pub mod command {
+    use super::{AppHandle, AppSettings};
+
+    #[tauri::command]
+    pub async fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
+        tauri::async_runtime::spawn_blocking(move || super::load_settings(app_handle))
+            .await
+            .map_err(|e| e.to_string())?
     }
 }

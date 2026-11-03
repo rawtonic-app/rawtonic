@@ -20,8 +20,7 @@ pub fn load_lensfun_db(app_handle: &tauri::AppHandle) -> LensDatabase {
     combined_db
 }
 
-#[tauri::command]
-pub fn get_lensfun_makers() -> Result<Vec<String>, String> {
+pub fn get_lensfun_makers_blocking() -> Result<Vec<String>, String> {
     let db_guard = global_lens_db();
     if let Some(db) = db_guard.as_deref() {
         let mut makers: Vec<String> = db.lenses.iter().map(|lens| lens.get_maker()).collect();
@@ -34,7 +33,13 @@ pub fn get_lensfun_makers() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn get_lensfun_lenses_for_maker(maker: String) -> Result<Vec<String>, String> {
+pub async fn get_lensfun_makers() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(get_lensfun_makers_blocking)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+pub fn get_lensfun_lenses_for_maker_blocking(maker: String) -> Result<Vec<String>, String> {
     let db_guard = global_lens_db();
     if let Some(db) = db_guard.as_deref() {
         let maker_lenses = lenses_for_maker(db, &maker);
@@ -52,7 +57,13 @@ pub fn get_lensfun_lenses_for_maker(maker: String) -> Result<Vec<String>, String
 }
 
 #[tauri::command]
-pub fn autodetect_lens(
+pub async fn get_lensfun_lenses_for_maker(maker: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || get_lensfun_lenses_for_maker_blocking(maker))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+pub fn autodetect_lens_blocking(
     maker: String,
     model: String,
     camera_model: Option<String>,
@@ -70,10 +81,22 @@ pub fn autodetect_lens(
     }
 }
 
+#[tauri::command]
+pub async fn autodetect_lens(
+    maker: String,
+    model: String,
+    camera_model: Option<String>,
+) -> Result<Option<(String, String)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        autodetect_lens_blocking(maker, model, camera_model)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The lens's profile for the photo whose EXIF map the editor holds, as a
 /// save resolves it (`lens_recipe::lens_params_for_shot`).
-#[tauri::command]
-pub fn get_lens_distortion_params(
+pub fn get_lens_distortion_params_blocking(
     maker: String,
     model: String,
     exif: Option<std::collections::HashMap<String, String>>,
@@ -82,4 +105,17 @@ pub fn get_lens_distortion_params(
     Ok(db_guard.as_deref().and_then(|db| {
         rawtonic_engine::lens_recipe::lens_params_for_shot(db, &maker, &model, exif.as_ref())
     }))
+}
+
+#[tauri::command]
+pub async fn get_lens_distortion_params(
+    maker: String,
+    model: String,
+    exif: Option<std::collections::HashMap<String, String>>,
+) -> Result<Option<LensDistortionParams>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_lens_distortion_params_blocking(maker, model, exif)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

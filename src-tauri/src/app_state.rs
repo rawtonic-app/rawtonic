@@ -17,7 +17,6 @@ pub use crate::gpu_processing::{
 };
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
-use crate::lens_correction::LensDatabase;
 use crate::lut_processing::LutCache;
 use crate::mask_generation::{FullWarpedMaskCache, MaskBitmapCache};
 
@@ -544,7 +543,6 @@ pub struct AppState {
     pub patch_cache: Mutex<HashMap<String, serde_json::Value>>,
     pub geometry_cache: Mutex<HashMap<u64, DynamicImage>>,
     pub thumbnail_geometry_cache: Mutex<HashMap<String, ThumbnailGeometryEntry>>,
-    pub lens_db: Mutex<Option<Arc<LensDatabase>>>,
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
     pub full_warped_cache: Mutex<Option<FullWarpedMaskCache>>,
@@ -617,7 +615,6 @@ impl Default for AppState {
             patch_cache: Mutex::new(HashMap::new()),
             geometry_cache: Mutex::new(HashMap::new()),
             thumbnail_geometry_cache: Mutex::new(HashMap::new()),
-            lens_db: Mutex::new(None),
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),
             full_warped_cache: Mutex::new(None),

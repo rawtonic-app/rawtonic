@@ -323,10 +323,16 @@ pub async fn interrupted_batches(
     .await
 }
 
-#[tauri::command]
-pub fn dismiss_interrupted_batch(id: String, app_handle: AppHandle) -> Result<(), String> {
+pub fn dismiss_interrupted_batch_blocking(id: String, app_handle: AppHandle) -> Result<(), String> {
     let dir = folder(&app_handle).ok_or("No app data folder")?;
     dismiss_in(&dir, &id)
+}
+
+#[tauri::command]
+pub async fn dismiss_interrupted_batch(id: String, app_handle: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || dismiss_interrupted_batch_blocking(id, app_handle))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

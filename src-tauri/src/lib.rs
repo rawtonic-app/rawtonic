@@ -344,9 +344,7 @@ pub fn run() {
                         log::error!("Loading the Lensfun database failed; lens profiles are unavailable.");
                         lens_correction::LensDatabase { cameras: Vec::new(), lenses: Vec::new() }
                     });
-                    let lens_db = Arc::new(lens_db);
-                    lens_correction::set_global_lens_db(lens_db.clone());
-                    *app_handle.state::<AppState>().lens_db.lock().unwrap() = Some(lens_db);
+                    lens_correction::set_global_lens_db(Arc::new(lens_db));
                 });
             }
 
@@ -790,7 +788,7 @@ pub fn run() {
             contribute::usage_stats_set_enabled,
             contribute::usage_stats_note_tools,
             contribute::usage_stats_preview,
-            app_settings::load_settings,
+            app_settings::command::load_settings,
             app_settings::save_settings,
             ai_commands::generate_ai_depth_mask,
             file_management::delete_files_from_disk,
