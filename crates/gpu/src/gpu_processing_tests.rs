@@ -10375,6 +10375,92 @@ fn tone_version_9_blacks_sets_the_black_point() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; lowered Blacks of tone version 9 under a scene-referred LUT"]
+fn tone_version_9_blacks_reaches_a_scene_lut() {
+    // A scene LUT reads the scene colour, which version 9's lowered Blacks
+    // no longer darkens; at 100 % its colour replaces the tone-mapped one,
+    // so the black point must act on it too.
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(-14.0 + 16.0 * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    // Identity table: the LUT's colour is its (log-encoded) input.
+    let size = 17u32;
+    let data: Vec<f32> = (0..size * size * size)
+        .flat_map(|i| {
+            let [r, g, b] = [i % size, (i / size) % size, i / (size * size)];
+            [r, g, b].map(|v| v as f32 / (size - 1) as f32)
+        })
+        .collect();
+    let lut = Arc::new(Lut {
+        size,
+        data,
+        shaper: None,
+    });
+    let render = |blacks: i32, version: u64| {
+        let recipe = json!({
+            "blacks": blacks, "toneVersion": version, "lutPath": "/look.cube",
+            "lutIntensity": 100.0, "lutIsSceneReferred": true,
+        });
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: raw_look_adjustments(&recipe, (3, 2.0)),
+                    mask_bitmaps: &[],
+                    lut: Some(lut.clone()),
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        let channels = pixels.len() / (width * height) as usize;
+        pixels
+            .chunks(channels)
+            .map(|p| [p[0], p[1], p[2]])
+            .collect::<Vec<[u16; 3]>>()
+    };
+    let lstar = |p: &[u16; 3]| {
+        let y = 0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2]);
+        if y > 0.008856 {
+            116.0 * y.cbrt() - 16.0
+        } else {
+            903.3 * y
+        }
+    };
+    let row = (height / 2 * width) as usize;
+    let (neutral, eighth, ninth) = (render(0, 9), render(-100, 8), render(-100, 9));
+    let (mut lowered_8, mut lowered_9, mut n) = (0.0, 0.0, 0);
+    for x in 64..(width - 64) as usize {
+        let base = lstar(&neutral[row + x]);
+        if base >= 30.0 {
+            assert_eq!(ninth[row + x], neutral[row + x], "L* {base:.2} moved");
+        } else if base > 8.0 && base < 25.0 {
+            lowered_8 += base - lstar(&eighth[row + x]);
+            lowered_9 += base - lstar(&ninth[row + x]);
+            n += 1;
+        }
+    }
+    let (lowered_8, lowered_9) = (lowered_8 / n as f64, lowered_9 / n as f64);
+    assert!(
+        n > 0 && lowered_9 > 3.0 && lowered_9 >= lowered_8,
+        "Blacks −100 under a scene LUT lowers L* 8–25 by {lowered_9:.2} (version 8 {lowered_8:.2})"
+    );
+}
+
+#[test]
 #[ignore = "requires a native GPU; lowered Blacks of tone version 9 against version 8: GPU time of a preview render per drag step"]
 fn tone_version_9_blacks_drag_render_time() {
     // As `tone_version_8_whites_drag_render_time`, with Blacks stepped down.

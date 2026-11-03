@@ -1381,11 +1381,13 @@ export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 export const TONE_VERSION = 9;
 
 /** The response a recipe without `toneVersion` takes when nothing in it
- * renders differently: 7, the last that leaves Whites and Blacks as they
- * were. The engine adds Whites and Blacks of its own to some phone DNGs
- * (Camera Raw's phone defaults, `baseline_exposure.rs`), which the recipe
- * does not show; versions 8 and 9 change raised Whites and lowered Blacks. */
-export const KEYLESS_TONE_VERSION = 7;
+ * renders differently: 5, the last that leaves Whites, Blacks and Clarity
+ * as they were. The engine adds Whites, Blacks and Clarity of its own to
+ * some phone DNGs (Camera Raw's phone defaults, `baseline_exposure.rs`),
+ * which the recipe does not show; version 6 reads Clarity's base more
+ * precisely, 8 and 9 change raised Whites and lowered Blacks (versions 6 and
+ * 7 otherwise change only raised Shadows and lowered Highlights). */
+export const KEYLESS_TONE_VERSION = 5;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;

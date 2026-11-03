@@ -8336,7 +8336,12 @@ fn main(
 
     if (is_scene_lut) {
         let vlog_encoded = linear_to_vlog(composite_rgb_linear);
-        let lut_color = sample_lut_tetrahedral(lut_table_input(vlog_encoded));
+        var lut_color = sample_lut_tetrahedral(lut_table_input(vlog_encoded));
+        // The LUT reads the scene colour, which version 9's lowered Blacks
+        // no longer darkens: its black point acts on the LUT's colour too.
+        if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
+            lut_color = blacks_v9_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+        }
         base_srgb = lut_amount(default_tonemapped, lut_color, adjustments.global.lut_intensity);
     } else {
         base_srgb = default_tonemapped;
