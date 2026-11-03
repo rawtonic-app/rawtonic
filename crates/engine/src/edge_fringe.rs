@@ -71,9 +71,10 @@ pub const VERSION: u64 = 6;
 /// ISO 32000: 14 → 1560 isolated specks per Mpx), so version 2 keeps 5 × 5
 /// there and renders as version 1. Version 6 keeps 7 × 7 up to
 /// `WIDE_NOISE` (about ISO 1600–6400 bodies: EOS M50 II, EOS M3, Z6 II,
-/// GM1S): there the wider window lowers the bright-edge excess and the
-/// isolated colour specks alike (M50 II 0.83 → 0.63 %, specks 2.3 → 2.5;
-/// Z6 II 0.38 → 0.18 %, specks 355 → 232 per Mpx), while from a noise of
+/// GM1S): there the wider window lowers the bright-edge excess on all four
+/// and the isolated colour specks on three (Z6 II 0.38 → 0.18 %, specks
+/// 355 → 232 per Mpx; M50 II 0.83 → 0.63 %, specks about equal, 2.3 →
+/// 2.5), while from a noise of
 /// 0.031 (K-7, D5600, EOS R50/R10, Z fc) specks rose 1.4–4.6× (notes:
 /// reference/edge-fringes.md "Version 6"). The colour lines stay on
 /// version 2's low-noise photos: on GM1S (noise 0.017) they raised the
