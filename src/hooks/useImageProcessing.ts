@@ -75,6 +75,22 @@ interface PreviewRequest {
 const PREVIEW_SEQUENCE_BASE = Date.now() * 1000;
 
 /** The recipe last handed to the renderer, and the photograph it belongs to. */
+/** Interval of the scopes' updates while a control is dragged or a stroke
+ * drawn: ten a second. */
+export const ANALYTICS_INTERVAL_MS = 100;
+
+/** The time a drag frame at `now` asks for analytics under, or null when it
+ * does not (the last request was at `last`). On a fixed 100 ms cadence, not
+ * 100 ms after whichever frame asked last: frames 16.7 ms apart then ask
+ * every 100 ms on average, instead of every 117 ms (8.6 a second). */
+export function nextAnalyticsTime(last: number, now: number): number | null {
+  const elapsed = now - last;
+  if (elapsed < ANALYTICS_INTERVAL_MS) return null;
+  // After a pause (or the first frame) the cadence starts at this frame.
+  if (last <= 0 || elapsed >= 2 * ANALYTICS_INTERVAL_MS) return now;
+  return last + ANALYTICS_INTERVAL_MS;
+}
+
 export interface PreviousAdjustments {
   path: string;
   adjustments: Adjustments;
@@ -197,10 +213,10 @@ export function useImageProcessing(
 
       let shouldRequestAnalytics = false;
       if (dragging || live) {
-        const now = performance.now();
-        if (now - lastAnalyticsTimeRef.current > 100) {
+        const next = nextAnalyticsTime(lastAnalyticsTimeRef.current, performance.now());
+        if (next !== null) {
           shouldRequestAnalytics = true;
-          lastAnalyticsTimeRef.current = now;
+          lastAnalyticsTimeRef.current = next;
         }
       } else {
         shouldRequestAnalytics = true;

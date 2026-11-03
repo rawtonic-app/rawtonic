@@ -1733,6 +1733,9 @@ pub struct AnalyticsJob {
     pub clipped: ClippedSides,
     /// The output space the image is encoded in (the shown one).
     pub space: OutputColorSpace,
+    /// The request's place in the order the frames asked for analytics
+    /// (`AnalyticsConfig::generation`).
+    pub generation: u64,
 }
 
 pub struct AnalyticsConfig {
@@ -1740,6 +1743,10 @@ pub struct AnalyticsConfig {
     pub compute_waveform: bool,
     pub active_waveform_channel: Option<String>,
     pub sender: LatestJobSender<AnalyticsJob>,
+    /// Rises with each frame that asks for analytics: a job of an older
+    /// request that arrives after a newer one's (the zoomed drag's
+    /// full-frame scope render runs beside the frames) is dropped.
+    pub generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -3899,6 +3906,26 @@ impl<T> LatestJobSender<T> {
             .unwrap_or_else(|error| error.into_inner()) = Some(job);
         let _ = self.wake.try_send(());
     }
+
+    /// [`send`](Self::send) unless the pending job is newer than `job` by
+    /// `generation`: a late older job never replaces a newer one that is
+    /// waiting for the busy worker (checked under the same lock).
+    pub fn send_unless_older(&self, job: T, generation: impl Fn(&T) -> u64) {
+        {
+            let mut pending = self
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if pending
+                .as_ref()
+                .is_some_and(|waiting| generation(waiting) > generation(&job))
+            {
+                return;
+            }
+            *pending = Some(job);
+        }
+        let _ = self.wake.try_send(());
+    }
 }
 
 pub fn start_latest_job_worker<T: Send + 'static>(
@@ -3987,14 +4014,18 @@ fn send_analytics(
 ) {
     let clipped = clipped_sides(&pixels);
     if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
-        analytics.sender.send(AnalyticsJob {
-            path: analytics.path,
-            image: Arc::new(DynamicImage::ImageRgba8(image)),
-            compute_waveform: analytics.compute_waveform,
-            active_waveform_channel: analytics.active_waveform_channel,
-            clipped,
-            space,
-        });
+        analytics.sender.send_unless_older(
+            AnalyticsJob {
+                path: analytics.path,
+                image: Arc::new(DynamicImage::ImageRgba8(image)),
+                compute_waveform: analytics.compute_waveform,
+                active_waveform_channel: analytics.active_waveform_channel,
+                clipped,
+                space,
+                generation: analytics.generation,
+            },
+            |job| job.generation,
+        );
     }
 }
 
@@ -9862,9 +9893,15 @@ pub fn foreground_rendered_within(window: std::time::Duration) -> bool {
 }
 
 /// Renders the user watches as they happen: the Develop view's frames, its
-/// JPEG fallback (e.g. on Linux) and tone targets' samples of them.
+/// JPEG fallback (e.g. on Linux), tone targets' samples of them and the
+/// scopes beside a zoomed drag's frames ([`render_scope_analytics`]; a
+/// background render would wait until the drag stops).
 fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
-    output_to_display || matches!(caller_id, "apply_adjustments" | "sample_curve_input")
+    output_to_display
+        || matches!(
+            caller_id,
+            "apply_adjustments" | "sample_curve_input" | SCOPE_ANALYTICS_CALLER
+        )
 }
 
 /// A processor for `slot`: one for exports only on a background-only slot.
@@ -10007,6 +10044,57 @@ pub fn process_and_get_dynamic_image_inner(
     }
     gpu_scoped(&context.device, render).and_then(|image| image)
 }
+
+/// Renders the analytics of a whole frame for the scopes from `proxy`, a
+/// small copy of the frame's input, while the frame itself covers only the
+/// visible region of a zoomed-in view (whose render sends none): the scopes
+/// keep describing the whole photo during the drag, as in Lightroom and
+/// Capture One. `request` is the frame's (its masks drawn at the proxy's
+/// size, no region); with `display_space` the analytics are read in the
+/// native display's space, as the display frames' are. The display
+/// arithmetic (`ReadbackShader::Display`) on `proxy`'s own upload in
+/// `image_cache` (`proxy_id` names it there: the upload and its colour noise
+/// preparation are made again only for another copy), keeping the frames'
+/// uploaded source and retained intermediates; a foreground turn
+/// between the frames ([`processor_turns`]): background renders wait until
+/// a drag pauses.
+pub fn render_scope_analytics(
+    context: &GpuContext,
+    processor_slot: &GpuProcessorSlot,
+    image_cache: &Mutex<Option<GpuImageCache>>,
+    (proxy, proxy_id): (&DynamicImage, u64),
+    mut request: RenderRequest,
+    analytics: AnalyticsConfig,
+    display_space: bool,
+) -> Result<(), String> {
+    request.roi = None;
+    if display_space {
+        let space = context.display_space;
+        request.adjustments.global.output_space[0] = space.shader_code();
+        request.adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    }
+    process_and_get_dynamic_image_inner(
+        context,
+        processor_slot,
+        image_cache,
+        RenderSource::Image {
+            image: proxy,
+            transform_hash: proxy_id,
+        },
+        request,
+        SCOPE_ANALYTICS_CALLER,
+        RenderOutputPrecision::EightBit,
+        false,
+        Some(analytics),
+        None,
+        ReadbackShader::Display,
+    )
+    .map(|_| ())
+}
+
+/// The caller id of [`render_scope_analytics`].
+const SCOPE_ANALYTICS_CALLER: &str = "scope_analytics";
 
 /// Renders a kept upload into several export outputs with one main pass
 /// (`DEFER_OUTPUT`), each encoded for its own precision and colour space:

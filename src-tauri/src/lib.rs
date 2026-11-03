@@ -88,6 +88,7 @@ mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
 mod red_eye;
+mod scope_analytics;
 mod series_match;
 mod session_bridge;
 mod session_folders;
@@ -488,6 +489,7 @@ pub fn run() {
 
             editor_preview::start_preview_worker(app_handle.clone());
             editor_preview::start_analytics_worker(app_handle.clone());
+            scope_analytics::start_scope_analytics_worker(app_handle.clone());
             file_management::start_thumbnail_workers(app_handle.clone());
             file_management::start_metadata_workers(app_handle.clone());
             session_bridge::start_mount_watch(app_handle.clone());

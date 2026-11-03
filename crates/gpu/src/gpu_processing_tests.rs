@@ -5387,6 +5387,36 @@ fn latest_analytics_worker_replaces_pending_and_drains_final() {
 }
 
 #[test]
+fn an_older_generation_never_replaces_a_newer_pending_job() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (started_tx, started_rx) = mpsc::channel();
+    let (continue_tx, continue_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let worker = start_latest_job_worker(move |job: u64| {
+        if job == 1 {
+            started_tx.send(()).unwrap();
+            continue_rx.recv().unwrap();
+        }
+        result_tx.send(job).unwrap();
+    });
+    worker.send_unless_older(1, |job| *job);
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    // The release frame's analytics (3) wait for the busy worker; a zoomed
+    // drag's scope render of request 2 arriving late must not replace them.
+    worker.send_unless_older(3, |job| *job);
+    worker.send_unless_older(2, |job| *job);
+    drop(worker);
+    continue_tx.send(()).unwrap();
+    assert_eq!(result_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
+    assert_eq!(result_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 3);
+    assert_eq!(
+        result_rx.recv_timeout(Duration::from_secs(5)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    );
+}
+
+#[test]
 #[ignore = "requires a native GPU; exact direct export curve edge cases in 8/16-bit"]
 fn export_direct_curves_preserve_dense_general_pixels() {
     let context = context();
@@ -17961,4 +17991,151 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
             rows[1]
         );
     }
+}
+
+/// Renders `image` (with `recipe`) as a zoomed drag's frame of `roi` and
+/// returns the analytics job its render sends, if any.
+fn analytics_of_render(
+    context: &GpuContext,
+    image: &DynamicImage,
+    recipe: &serde_json::Value,
+    roi: Option<Roi>,
+) -> Option<AnalyticsJob> {
+    let (sender, receive) = analytics_receiver();
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments: get_all_adjustments_from_json(recipe, true, Some(2)),
+            mask_bitmaps: &[],
+            lut: None,
+            roi,
+        },
+        "apply_adjustments",
+        RenderOutputPrecision::EightBit,
+        false,
+        Some(analytics_config(sender, 1)),
+        None,
+        ReadbackShader::Preview,
+    )
+    .unwrap();
+    receive
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .ok()
+}
+
+fn analytics_receiver() -> (
+    LatestJobSender<AnalyticsJob>,
+    std::sync::mpsc::Receiver<AnalyticsJob>,
+) {
+    let (send, receive) = std::sync::mpsc::channel();
+    let sender = start_latest_job_worker(move |job: AnalyticsJob| {
+        let _ = send.send(job);
+    });
+    (sender, receive)
+}
+
+fn analytics_config(sender: LatestJobSender<AnalyticsJob>, generation: u64) -> AnalyticsConfig {
+    AnalyticsConfig {
+        path: "frame.raw".into(),
+        compute_waveform: true,
+        active_waveform_channel: None,
+        sender,
+        generation,
+    }
+}
+
+/// Normalized luma histogram of an analytics job's image.
+fn luma_shares(job: &AnalyticsJob) -> Vec<f64> {
+    let counts = rawtonic_engine::scopes::histogram_counts(
+        &job.image,
+        rawtonic_engine::scopes::ScopeSpace::of(job.space),
+    );
+    let total: f64 = counts.luma.iter().map(|&c| c as f64).sum();
+    counts.luma.iter().map(|&c| c as f64 / total).collect()
+}
+
+#[test]
+#[ignore = "requires a native GPU; a zoomed drag's scopes describe the whole frame"]
+fn a_zoomed_drag_delivers_analytics_of_the_whole_frame() {
+    let context = context();
+    // Dark left half, bright right half, a ramp across both for the
+    // levels in between.
+    let (width, height) = (1600, 1000);
+    let frame = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let ramp = 0.3 * y as f32 / height as f32;
+        let v = if x < width / 2 {
+            0.01 + 0.05 * ramp
+        } else {
+            0.4 + ramp
+        };
+        image::Rgb([v, v * 0.9, v * 0.8])
+    }));
+    let recipe = json!({"exposure": 0.3, "contrast": 20});
+    // The full-size frame's own analytics (the release frame's).
+    let whole = analytics_of_render(&context, &frame, &recipe, None).expect("whole frame");
+    assert_eq!(whole.image.dimensions(), (width, height));
+    // A frame of the dark quarter alone describes only that region: what
+    // the scopes showed before (had it sent any).
+    let region = Roi {
+        x: 0,
+        y: 0,
+        width: width / 4,
+        height: height / 2,
+    };
+    let zoomed = analytics_of_render(&context, &frame, &recipe, Some(region)).expect("region");
+    assert_eq!(zoomed.image.dimensions(), (width / 4, height / 2));
+
+    // The scope render of a small copy of the frame's input.
+    let (w, h) = (800, 500);
+    let proxy = crate::image_processing::downscale_f32_image(&frame, w, h);
+    let (sender, receive) = analytics_receiver();
+    let processor = ProcessorSlot::new(None);
+    render_scope_analytics(
+        &context,
+        &processor,
+        &Mutex::new(None),
+        (&proxy, 1),
+        RenderRequest {
+            adjustments: get_all_adjustments_from_json(&recipe, true, Some(2)),
+            mask_bitmaps: &[],
+            lut: None,
+            // A zoomed frame's region is never the scope render's.
+            roi: Some(region),
+        },
+        analytics_config(sender, 7),
+        false,
+    )
+    .unwrap();
+    let scoped = receive
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the scope render sends analytics");
+    assert_eq!(scoped.image.dimensions(), (w, h), "the whole frame, small");
+    assert_eq!(scoped.generation, 7);
+    assert_eq!(scoped.space, whole.space);
+
+    // Its histogram is the whole frame's: total variation distance of the
+    // luma shares within 3 %, against about 50 % for the region's.
+    let distance = |a: &[f64], b: &[f64]| -> f64 {
+        a.iter().zip(b).map(|(x, y)| (x - y).abs()).sum::<f64>() / 2.0
+    };
+    // Smoothed over 4 levels: downscaling merges neighbouring levels.
+    let smooth = |v: Vec<f64>| -> Vec<f64> { v.chunks(4).map(|c| c.iter().sum()).collect() };
+    let whole_shares = smooth(luma_shares(&whole));
+    let scoped_distance = distance(&smooth(luma_shares(&scoped)), &whole_shares);
+    let region_distance = distance(&smooth(luma_shares(&zoomed)), &whole_shares);
+    assert!(
+        scoped_distance < 0.03,
+        "scope render's histogram differs from the whole frame's by {scoped_distance}"
+    );
+    assert!(region_distance > 0.4, "region {region_distance}");
+    // Highlights clipped nowhere in either; the same clipping sides.
+    assert_eq!(scoped.clipped, whole.clipped);
 }

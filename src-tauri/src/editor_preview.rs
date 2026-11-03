@@ -1787,24 +1787,58 @@ pub(crate) fn process_preview_job(
     let lut_path = adjustments_clone["lutPath"].as_str();
     let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
 
-    let wants_analytics = !(is_interactive && pixel_roi.is_some()) && request_analytics;
+    // A zoomed drag's frame covers only the visible region: the whole
+    // frame's analytics come from a scope render beside it (scope_analytics.rs).
+    let region_frame = is_interactive && pixel_roi.is_some();
+    let wants_analytics = !region_frame && request_analytics;
     let channel_filter = if is_interactive {
         active_waveform_channel.map(|s| s.to_string())
     } else {
         None
     };
 
-    let analytics_config = if wants_analytics {
+    let analytics_config = if request_analytics {
         state.analytics_worker_tx.lock().unwrap().clone().map(|tx| {
+            let generation = crate::scope_analytics::next_generation(&state);
+            if wants_analytics {
+                state
+                    .full_frame_analytics_generation
+                    .fetch_max(generation, Ordering::SeqCst);
+            }
             crate::app_state::AnalyticsConfig {
                 path: loaded_image.path.clone(),
                 compute_waveform,
                 active_waveform_channel: channel_filter,
                 sender: tx,
+                generation,
             }
         })
     } else {
         None
+    };
+    let (analytics_config, scope_analytics) = if region_frame {
+        let scope_job = analytics_config.and_then(|analytics| {
+            crate::scope_analytics::sender(&state).map(|sender| {
+                (
+                    sender,
+                    crate::scope_analytics::ScopeAnalyticsJob {
+                        source: Arc::clone(&processing_image),
+                        scale: effective_scale,
+                        unscaled_crop_offset,
+                        recipe: serde_json::Value::Null,
+                        masks: Vec::new(),
+                        adjustments: final_adjustments.clone(),
+                        lut: lut.clone(),
+                        photo: (loaded_image.clone(), source_scale, full_dims),
+                        display_space: use_wgpu_renderer,
+                        analytics,
+                    },
+                )
+            })
+        });
+        (None, scope_job)
+    } else {
+        (analytics_config, None)
     };
 
     #[cfg(feature = "performance-profiling")]
@@ -1839,7 +1873,11 @@ pub(crate) fn process_preview_job(
         }
     };
     state.rendered_source.mark(&loaded_image.image);
-    if !is_interactive {
+    if let Some((sender, mut job)) = scope_analytics {
+        job.recipe = adjustments_clone;
+        job.masks = mask_definitions;
+        sender.send(job);
+    } else if !is_interactive {
         rewarm_mask_source(app_handle, &state, &loaded_image, adjustments_clone);
     }
     if use_wgpu_renderer {
@@ -1964,7 +2002,11 @@ pub(crate) fn encode_browser_preview(
 pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
     let worker_app = app_handle.clone();
+    let mut order = crate::scope_analytics::AnalyticsOrder::default();
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
+        if !order.admits(job.generation) {
+            return;
+        }
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("analytics_compute");
         let histogram_data = scopes::calculate_histogram_from_image(

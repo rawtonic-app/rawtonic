@@ -521,6 +521,17 @@ pub fn thumbnail(image: &DynamicImage, nwidth: u32, nheight: u32) -> DynamicImag
 }
 
 pub fn downscale_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> DynamicImage {
+    downscale_f32(image, nwidth, nheight, true)
+}
+
+/// [`downscale_f32_image`] that keeps negative channels (wide-gamut colours
+/// outside the working space) instead of clamping them to zero: the scope
+/// render's copy must develop like the frames it describes.
+pub fn downscale_f32_image_signed(image: &DynamicImage, nwidth: u32, nheight: u32) -> DynamicImage {
+    downscale_f32(image, nwidth, nheight, false)
+}
+
+fn downscale_f32(image: &DynamicImage, nwidth: u32, nheight: u32, clamp: bool) -> DynamicImage {
     let start = std::time::Instant::now();
 
     let (width, height) = image.dimensions();
@@ -654,9 +665,12 @@ pub fn downscale_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> D
                     for (&w_x, chunk) in x_wts.iter().zip(src_slice.as_chunks::<3>().0) {
                         let w = w_x * w_y;
 
-                        let r = chunk[0].max(0.0);
-                        let g = chunk[1].max(0.0);
-                        let b = chunk[2].max(0.0);
+                        let [mut r, mut g, mut b] = *chunk;
+                        if clamp {
+                            r = r.max(0.0);
+                            g = g.max(0.0);
+                            b = b.max(0.0);
+                        }
 
                         r_sum += r * w;
                         g_sum += g * w;
@@ -9576,5 +9590,21 @@ mod render_version_tests {
         let (t1, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(1));
         let (t2, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(2));
         assert_eq!(t1.to_rgba32f().as_raw(), t2.to_rgba32f().as_raw());
+    }
+}
+
+#[cfg(test)]
+mod signed_downscale_tests {
+    use super::{downscale_f32_image, downscale_f32_image_signed};
+    use image::{DynamicImage, Rgb32FImage};
+
+    #[test]
+    fn the_signed_copy_keeps_wide_gamut_negatives() {
+        let image =
+            DynamicImage::ImageRgb32F(Rgb32FImage::from_pixel(8, 8, image::Rgb([-0.2, 0.5, 0.3])));
+        let signed = downscale_f32_image_signed(&image, 4, 4).to_rgb32f();
+        let clamped = downscale_f32_image(&image, 4, 4).to_rgb32f();
+        assert!((signed.get_pixel(1, 1)[0] + 0.2).abs() < 1e-6);
+        assert_eq!(clamped.get_pixel(1, 1)[0], 0.0);
     }
 }
