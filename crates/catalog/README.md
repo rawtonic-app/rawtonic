@@ -15,7 +15,8 @@ than the last step are refused.
 Adding schema 25:
 
 1. Write `migrations/0025.sql`, ending with `PRAGMA user_version=25;`. A step
-   that shipped never changes: libraries already went through it.
+   that shipped never changes what it does (only its comments may): libraries
+   already went through it.
 2. Add one line to `MIGRATIONS`:
    `Migration::sql(25, include_str!("../migrations/0025.sql")),`
    (`Migration::with_columns` when the step adds columns that must be added only
