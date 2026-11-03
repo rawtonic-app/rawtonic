@@ -1754,9 +1754,13 @@ fn cr_two_point(half: f32, full: f32, amount: f32) -> f32 {
 fn cr_whites_delta(amount: f32, g: vec2<f32>) -> f32 {
     let i = u32(g.x);
     if (amount > 0.0) {
-        return cr_two_point(
+        let raise = cr_two_point(
             mix(CR_WHITES_RAISE_50[i], CR_WHITES_RAISE_50[i + 1u], g.y),
             mix(CR_WHITES_RAISE_100[i], CR_WHITES_RAISE_100[i + 1u], g.y), amount);
+        if (adjustments.global.tone_version > 7.5) {
+            return raise * WHITES_V8_TABLE_SCALE;
+        }
+        return raise;
     }
     return cr_two_point(
         mix(CR_WHITES_LOWER_50[i], CR_WHITES_LOWER_50[i + 1u], g.y),
@@ -1870,6 +1874,64 @@ fn cr_whites_gain(x: f32, amount: f32) -> f32 {
         return gain;
     }
     return max(gain, cr_order_gain(x, knee, cr_whites_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
+}
+
+// Tone version 8: raised Whites sets the white point. The tables above were
+// measured on a Lightroom grey-ramp sweep, where its image-adaptive Whites
+// lifts the midtones by about 1 EV at +100; applied before the highlight
+// roll-off they lifted L* 40–70 by +15…+19 on photos (Camera Raw +11…+16,
+// adaptive; Capture One +2…+9), squeezed the top into the roll-off (bright
+// detail 0.85 of the neutral render's; Capture One 1.11) and never reached
+// white (notes: benchmark-results/wh-whites-2026-11-03). Version 8 keeps
+// 15 % of the tables' lift and stretches the display luminance above
+// WHITES_V8_KNEE so that WHITES_V8_WHITE_POINT reaches white at +100
+// (1 − amount² of the way there, so +50 clips about as little as both
+// editors): near-white tones go to white as in both editors, while the
+// share of the room to white that the stretch adds to a bright saturated
+// colour's largest channel rolls off above WHITES_V8_CHROMA_KNEE, so such
+// colours keep their gradation.
+const WHITES_V8_TABLE_SCALE: f32 = 0.15;
+const WHITES_V8_WHITE_POINT: f32 = 0.9;
+const WHITES_V8_KNEE: f32 = 0.4;
+const WHITES_V8_CHROMA_KNEE: f32 = 0.8;
+
+// The chroma share's roll-off above WHITES_V8_CHROMA_KNEE, towards 1.
+fn whites_v8_chroma_roll(share: f32) -> f32 {
+    if (share <= WHITES_V8_CHROMA_KNEE) {
+        return share;
+    }
+    let room = 1.0 - WHITES_V8_CHROMA_KNEE;
+    return WHITES_V8_CHROMA_KNEE + room * (1.0 - exp(-(share - WHITES_V8_CHROMA_KNEE) / room));
+}
+
+// Version 8's white point on the tone-mapped (display linear) colour;
+// `amount` is Whites / 100, above 0.
+fn whites_v8_white_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let white_point = 1.0 - amount * amount * (1.0 - WHITES_V8_WHITE_POINT);
+    let y = get_luma(max(rgb, vec3<f32>(0.0)));
+    if (y <= WHITES_V8_KNEE) {
+        return rgb;
+    }
+    // Quadratic from the knee (slope 1 there) to white at the white point.
+    let k = (1.0 - white_point) / ((white_point - WHITES_V8_KNEE) * (white_point - WHITES_V8_KNEE));
+    let target_y = y + (y - WHITES_V8_KNEE) * (y - WHITES_V8_KNEE) * k;
+    if (target_y >= 1.0) {
+        return vec3<f32>(1.0);
+    }
+    let out = rgb * (target_y / y);
+    // The largest channel's distance from the luminance, as a share of the
+    // room up to white, before and after the stretch: only the share the
+    // stretch adds rolls off (above the chroma knee, towards 1; the
+    // saturation falls, the luminance stays), so a colour is unchanged
+    // where nothing is stretched (Whites near 0, at the knee) and already
+    // saturated bright colours do not jump when Whites leaves 0.
+    let share_before = (max(rgb.r, max(rgb.g, rgb.b)) - y) / (1.0 - y);
+    let share = (max(out.r, max(out.g, out.b)) - target_y) / (1.0 - target_y);
+    if (share <= WHITES_V8_CHROMA_KNEE || share <= share_before) {
+        return out;
+    }
+    let limited = share_before + whites_v8_chroma_roll(share) - whites_v8_chroma_roll(share_before);
+    return vec3<f32>(target_y) + (out - vec3<f32>(target_y)) * (limited / share);
 }
 
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
@@ -8130,6 +8192,10 @@ fn main(
         default_tonemapped = agx_full_transform(composite_rgb_linear);
     } else if (adjustments.global.tonemapper_mode >= 2u && is_raw == 1u) {
         default_tonemapped = camera_raw_tonemap(composite_rgb_linear * exp2(adjustments.global.baseline_exposure));
+        if (ENABLE_TONE && t_whites > 0.0 && adjustments.global.tone_version > 7.5 && base_look_is_camera_raw()) {
+            // Renderer value is slider / 30.
+            default_tonemapped = whites_v8_white_point(default_tonemapped, clamp(t_whites * 0.3, 0.0, 1.0));
+        }
     } else if (is_raw == 1u) {
         var srgb_emulated = linear_to_srgb(composite_rgb_linear);
         const BRIGHTNESS_GAMMA: f32 = 1.1;

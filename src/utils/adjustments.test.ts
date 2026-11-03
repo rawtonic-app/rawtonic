@@ -272,8 +272,13 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(lowered, true).toneVersion).toBeUndefined();
     const layerLowered = { masks: [{ adjustments: { highlights: -10 }, subMasks: [] }] } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layerLowered, true).toneVersion).toBeUndefined();
-    const mild = { shadows: -50, highlights: 40, exposure: 1 } as unknown as Adjustments;
+    const mild = { shadows: -50, highlights: 40, whites: -30, exposure: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(mild, true).toneVersion).toBe(TONE_VERSION);
+    // Version 8 changes raised Whites, on the photo or a layer.
+    const whiter = { whites: 30 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(whiter, true).toneVersion).toBeUndefined();
+    const layerWhiter = { masks: [{ adjustments: { whites: 10 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layerWhiter, true).toneVersion).toBeUndefined();
     // Any raised Shadows renders differently from version 6 on.
     const raised = { shadows: 20 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(raised, true).toneVersion).toBeUndefined();

@@ -7326,10 +7326,15 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// 7 (2026-11-03) lowers Highlights on night frames between Capture One's
 /// and Camera Raw's reach instead of beyond both: version 3's dark-frame
 /// shift is capped by the frame's 90th percentile and median (notes: G05,
-/// benchmark-results/hln-night-highlights-2026-11-03).
+/// benchmark-results/hln-night-highlights-2026-11-03);
+/// 8 (2026-11-03) lets raised Whites set the white point: it keeps 15 % of
+/// the midtone lift of the tables measured on a Lightroom ramp and stretches
+/// the display luminance's top so that it reaches white, where version 7
+/// lifted L* 40–70 by up to 19 and squeezed the brightest tones into the
+/// roll-off (notes: G02, benchmark-results/wh-whites-2026-11-03).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 7;
+pub const TONE_VERSION: u64 = 8;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -7830,6 +7835,8 @@ mod tone_version_tests {
         assert_eq!(version(json!({"shadows": 20, "toneVersion": 6})), 6.0);
         // Version 7 (night frames' lowered Highlights capped) is known.
         assert_eq!(version(json!({"highlights": -60, "toneVersion": 7})), 7.0);
+        // Version 8 (raised Whites sets the white point) is known.
+        assert_eq!(version(json!({"whites": 60, "toneVersion": 8})), 8.0);
     }
 }
 
