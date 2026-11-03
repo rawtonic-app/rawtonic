@@ -1811,7 +1811,6 @@ pub(crate) fn process_preview_job(
                 active_waveform_channel: channel_filter,
                 sender: tx,
                 generation,
-                flag_rows: 0,
             }
         })
     } else {

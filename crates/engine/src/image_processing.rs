@@ -694,84 +694,6 @@ fn downscale_f32(image: &DynamicImage, nwidth: u32, nheight: u32, clamp: bool) -
     result
 }
 
-/// The per-channel maximum (or minimum) of each block of `image` that an
-/// `nwidth` x `nheight` grid covers, signed: what an averaged copy loses, a
-/// small clipped highlight or shadow.
-fn pooled_extrema_f32(image: &DynamicImage, nwidth: u32, nheight: u32, maximum: bool) -> Vec<f32> {
-    let (width, height) = image.dimensions();
-    let rgb;
-    let img = if let Some(rgb32) = image.as_rgb32f() {
-        rgb32
-    } else {
-        rgb = image.to_rgb32f();
-        &rgb
-    };
-    let src: &[f32] = img.as_raw();
-    let (nw, nh) = (nwidth as usize, nheight as usize);
-    let mut out = vec![0.0f32; nw * nh * 3];
-    out.par_chunks_exact_mut(nw * 3)
-        .enumerate()
-        .for_each(|(y_out, row)| {
-            let y0 = y_out * height as usize / nh;
-            let y1 = ((y_out + 1) * height as usize / nh)
-                .max(y0 + 1)
-                .min(height as usize);
-            for (x_out, pixel) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
-                let x0 = x_out * width as usize / nw;
-                let x1 = ((x_out + 1) * width as usize / nw)
-                    .max(x0 + 1)
-                    .min(width as usize);
-                let mut acc = [if maximum { f32::MIN } else { f32::MAX }; 3];
-                for y in y0..y1 {
-                    let line = &src[(y * width as usize + x0) * 3..(y * width as usize + x1) * 3];
-                    for c in line.as_chunks::<3>().0 {
-                        for k in 0..3 {
-                            acc[k] = if maximum {
-                                acc[k].max(c[k])
-                            } else {
-                                acc[k].min(c[k])
-                            };
-                        }
-                    }
-                }
-                *pixel = acc;
-            }
-        });
-    out
-}
-
-/// The scope render's copy of `image`: an area-averaged `nwidth` x `nheight`
-/// picture (signed channels) with, below it, a strip of extra rows (their
-/// count is returned) holding the block maxima in its left half and the
-/// block minima in its right half at half the copy's resolution. The scopes
-/// count the picture only; the strip lets the render's clipping marks see a
-/// clipped highlight or shadow the averaging would hide.
-pub fn scope_proxy_with_extrema(
-    image: &DynamicImage,
-    nwidth: u32,
-    nheight: u32,
-) -> (DynamicImage, u32) {
-    let main = downscale_f32_image_signed(image, nwidth, nheight).to_rgb32f();
-    let (w, h) = main.dimensions();
-    let (half, strip) = (w / 2, h.div_ceil(2));
-    if half == 0 || (w, h) == image.dimensions() {
-        return (DynamicImage::ImageRgb32F(main), 0);
-    }
-    let maxima = pooled_extrema_f32(image, half, strip, true);
-    let minima = pooled_extrema_f32(image, w - half, strip, false);
-    let mut out = main.into_raw();
-    out.resize((w * (h + strip) * 3) as usize, 0.0);
-    for y in 0..strip as usize {
-        let row = (h as usize + y) * w as usize * 3;
-        let left = half as usize * 3;
-        out[row..row + left].copy_from_slice(&maxima[y * left..(y + 1) * left]);
-        let right = (w - half) as usize * 3;
-        out[row + left..row + left + right].copy_from_slice(&minima[y * right..(y + 1) * right]);
-    }
-    let image = Rgb32FImage::from_raw(w, h + strip, out).expect("buffer size mismatch");
-    (DynamicImage::ImageRgb32F(image), strip)
-}
-
 /// Catmull-Rom weights for the four samples around a fractional position.
 #[inline(always)]
 fn catmull_rom_weights(t: f32) -> [f32; 4] {
@@ -9580,7 +9502,7 @@ mod render_version_tests {
 
 #[cfg(test)]
 mod signed_downscale_tests {
-    use super::{downscale_f32_image, downscale_f32_image_signed, scope_proxy_with_extrema};
+    use super::{downscale_f32_image, downscale_f32_image_signed};
     use image::{DynamicImage, Rgb32FImage};
 
     #[test]
@@ -9591,25 +9513,5 @@ mod signed_downscale_tests {
         let clamped = downscale_f32_image(&image, 4, 4).to_rgb32f();
         assert!((signed.get_pixel(1, 1)[0] + 0.2).abs() < 1e-6);
         assert_eq!(clamped.get_pixel(1, 1)[0], 0.0);
-    }
-
-    #[test]
-    fn the_extrema_strip_keeps_a_one_pixel_highlight_and_shadow() {
-        let mut base = Rgb32FImage::from_pixel(64, 64, image::Rgb([0.5, 0.5, 0.5]));
-        base.put_pixel(33, 17, image::Rgb([40.0, 40.0, 40.0]));
-        base.put_pixel(50, 50, image::Rgb([-0.3, 0.0, 0.0]));
-        let image = DynamicImage::ImageRgb32F(base);
-        let (proxy, strip) = scope_proxy_with_extrema(&image, 16, 16);
-        assert_eq!(strip, 8);
-        let proxy = proxy.to_rgb32f();
-        assert_eq!(proxy.dimensions(), (16, 24));
-        let strip_pixels: Vec<_> = (16..24)
-            .flat_map(|y| (0..16).map(move |x| (x, y)))
-            .map(|(x, y)| (x, *proxy.get_pixel(x, y)))
-            .collect();
-        assert!(strip_pixels.iter().any(|(x, p)| *x < 8 && p[0] >= 40.0));
-        assert!(strip_pixels.iter().any(|(x, p)| *x >= 8 && p[0] <= -0.3));
-        // The averaged picture hides both.
-        assert!((0..16).all(|y| (0..16).all(|x| proxy.get_pixel(x, y)[0] < 5.0)));
     }
 }
