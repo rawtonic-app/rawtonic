@@ -24,8 +24,7 @@ use crate::image_processing::ImageMetadata;
 
 /// The folder of the job files, in the app's data folder.
 const FOLDER: &str = "interrupted-batches";
-/// The colour label's tag prefix (`COLOR_TAG_PREFIX` of the writers).
-const COLOR_TAG_PREFIX: &str = "color:";
+use rawtonic_metadata::labels::EDITOR_TAG_PREFIX;
 
 /// What a batch writes.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -61,7 +60,7 @@ impl BatchKind {
             Self::Rating { .. } => json!(metadata.rating),
             Self::Color { .. } => json!(
                 tags.iter()
-                    .find_map(|tag| tag.strip_prefix(COLOR_TAG_PREFIX))
+                    .find_map(|tag| tag.strip_prefix(EDITOR_TAG_PREFIX))
                     .filter(|color| !color.is_empty())
             ),
             Self::KeywordAdd { tag } | Self::KeywordRemove { tag } => json!(tags.contains(tag)),

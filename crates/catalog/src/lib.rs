@@ -1,7 +1,8 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
 pub mod portable;
 use anyhow::{Context, Result, bail, ensure};
-use rawtonic_metadata::{Metadata, atomic_write};
+use rawtonic_metadata::culling::{Flag, Rating, RatingOutOfRange};
+use rawtonic_metadata::{Metadata, atomic_write, labels};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -837,7 +838,7 @@ impl Library {
 
     /// Commit an entire selection together, preserving ratings, keywords and edits.
     pub fn set_flags(&self, ids: &[String], flag: i8) -> Result<()> {
-        ensure!((-1..=1).contains(&flag), "Flag must be -1, 0 or 1");
+        Flag::try_from(flag)?;
         let mut seen = HashSet::new();
         let values = ids
             .iter()
@@ -859,7 +860,7 @@ impl Library {
         let mut previous = Vec::new();
         let mut seen = HashSet::new();
         for (id, flag) in values {
-            ensure!((-1..=1).contains(flag), "Flag must be -1, 0 or 1");
+            Flag::try_from(*flag)?;
             ensure!(seen.insert(id), "Duplicate asset in flag batch");
             let mut metadata = self.metadata(id)?;
             previous.push((id.clone(), metadata.flag));
@@ -1322,8 +1323,7 @@ impl Library {
         let legacy = &stored;
         let payload = json!({"schema_version":1,"process_version":"rapidraw-1.6.4","adjustments":legacy.get("adjustments").cloned().unwrap_or(Value::Null),"editor_state":legacy,"layers":[]});
         if let Some(rating) = legacy.get("rating").and_then(Value::as_u64) {
-            ensure!(rating <= 5, "Rating must be 0–5");
-            meta.rating = rating as u8;
+            meta.rating = Rating::from_stored(rating).ok_or(RatingOutOfRange)?.stars();
         }
         if let Some(tags) = legacy.get("tags") {
             set_editor_tags(
@@ -2533,12 +2533,8 @@ fn set_editor_tags<'a>(meta: &mut Metadata, tags: impl IntoIterator<Item = &'a s
     meta.keywords.clear();
     meta.label.clear();
     for tag in tags {
-        if let Some(color) = tag.strip_prefix("color:") {
-            let mut chars = color.chars();
-            meta.label = chars
-                .next()
-                .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
-                .unwrap_or_default();
+        if let Some(label) = labels::from_editor_tag(tag) {
+            meta.label = label;
         } else {
             // The editor marks keywords the user typed with `user:`;
             // the catalog and XMP store the keyword itself.
@@ -2555,7 +2551,7 @@ fn set_editor_tags<'a>(meta: &mut Metadata, tags: impl IntoIterator<Item = &'a s
 /// (the copy has none of them when it has no tags), as the library shows
 /// the copy.
 pub fn copy_metadata(mut metadata: Metadata, rating: u8, tags: Option<&[String]>) -> Metadata {
-    metadata.rating = rating.min(5);
+    metadata.rating = Rating::clamped(rating).stars();
     set_editor_tags(
         &mut metadata,
         tags.into_iter().flatten().map(String::as_str),
@@ -2594,7 +2590,7 @@ pub fn apply_editor_metadata(state: &mut Value, meta: Metadata) {
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .filter(|tag| !tag.starts_with(USER_TAG_PREFIX) && !tag.starts_with("color:"))
+        .filter(|tag| !tag.starts_with(USER_TAG_PREFIX) && !labels::is_editor_tag(tag))
         .map(str::to_string)
         .collect();
     let mut tags: Vec<String> = meta
@@ -2609,7 +2605,7 @@ pub fn apply_editor_metadata(state: &mut Value, meta: Metadata) {
         })
         .collect();
     if !meta.label.is_empty() {
-        tags.push(format!("color:{}", meta.label.to_lowercase()));
+        tags.push(labels::editor_tag(&meta.label));
     }
     state["tags"] = json!(tags);
     if let Some(a) = state.get_mut("adjustments").filter(|a| a.is_object()) {

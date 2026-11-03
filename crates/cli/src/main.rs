@@ -85,7 +85,7 @@ enum Command {
     Rate {
         library: PathBuf,
         asset: String,
-        #[arg(value_parser=clap::value_parser!(u8).range(0..=5))]
+        #[arg(value_parser=clap::value_parser!(u8).range(0..=i64::from(rawtonic_metadata::culling::Rating::MAX)))]
         rating: u8,
     },
     /// Set pick (1), reject (-1), or clear (0).

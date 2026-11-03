@@ -34,6 +34,8 @@ describe('photoRef', () => {
     expect(isCopyOf('/p/a.raf?vc=1', '/p/a.raf')).toBe(true);
     expect(isCopyOf('/p/a.raf', '/p/a.raf')).toBe(false);
     expect(isCopyOf('/p/a.raf.jpg?vc=1', '/p/a.raf')).toBe(false);
+    expect(isCopyOf('/p/a.raf?vc=b.raf?vc=abc123', '/p/a.raf')).toBe(false);
+    expect(isCopyOf('/p/a.raf?vc=b.raf?vc=abc123', '/p/a.raf?vc=b.raf')).toBe(true);
   });
 
   it('names the source file on either separator', () => {

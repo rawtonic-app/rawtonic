@@ -75,7 +75,10 @@ const EXPOSURES: &[(u32, u32)] = &[
     (2, 1),
     (30, 1),
 ];
-const LABELS: &[&str] = &["", "", "", "Red", "Yellow", "Green", "Blue", "Purple"];
+const LABELS: &[&str] = {
+    use rawtonic_metadata::labels::LABELS as L;
+    &["", "", "", L[0], L[1], L[2], L[3], L[4]]
+};
 
 fn vocabulary() -> Vec<String> {
     let base = [

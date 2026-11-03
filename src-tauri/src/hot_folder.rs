@@ -19,6 +19,7 @@
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Contents, HotFolderConfig, ImportKind, Library};
 use rawtonic_ingest::hot_folder::{DEFAULT_SETTLE, HotFolder};
+use rawtonic_metadata::culling::Rating;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -64,7 +65,7 @@ impl NextCaptureMetadata {
 
     /// Trimmed keywords without empty ones or repeats; a rating of 0–5.
     pub(crate) fn cleaned(self) -> Result<Self, String> {
-        if self.rating > 5 {
+        if Rating::new(self.rating).is_none() {
             return Err("The rating must be 0–5 stars.".into());
         }
         let mut keywords: Vec<String> = Vec::new();

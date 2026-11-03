@@ -10,6 +10,7 @@
 //! current: it is evaluated whenever it is shown or counted.
 use crate::Library;
 use anyhow::{Context, Result, bail, ensure};
+use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::provenance::{AI_FACTS, RAW_ONLY};
 use rusqlite::{
     ToSql,
@@ -896,7 +897,7 @@ impl<'a> Compiler<'a> {
                 Op::Empty => Ok("m.rating = 0".into()),
                 Op::NotEmpty => Ok("m.rating > 0".into()),
                 _ => {
-                    let check = |n: f64| (0.0..=5.0).contains(&n);
+                    let check = |n: f64| (0.0..=f64::from(Rating::MAX)).contains(&n);
                     match op {
                         Op::Between => ensure!(
                             pair(value, number).is_ok_and(|(a, b)| check(a) && check(b)),

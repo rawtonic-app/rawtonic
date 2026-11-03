@@ -23,6 +23,7 @@ import {
 } from '../../utils/librarySearch';
 import { SESSION_ALBUMS_CHANGED, childrenOf, type SessionAlbum } from './StudioAlbums';
 import { selectOnFocus } from '../../utils/selectOnFocus';
+import { COLOR_LABEL_NAMES } from '../../entities/photo/colorLabel';
 
 /** What a field's value is, which decides its operators and inputs. */
 type Kind = 'search' | 'text' | 'number' | 'date' | 'choice' | 'album' | 'folder' | 'bool';
@@ -69,7 +70,7 @@ export const OPS: Record<Kind, Op[]> = {
 
 export const CHOICES: Partial<Record<Field, string[]>> = {
   flag: ['picked', 'unflagged', 'rejected'],
-  label: ['red', 'yellow', 'green', 'blue', 'purple', 'none'],
+  label: [...COLOR_LABEL_NAMES, 'none'],
   fileType: ['raw', 'dng', 'jpeg', 'heif', 'tiff', 'png', 'other'],
   ai: [...AI_FACTS, 'none'],
   sourceType: [...SOURCE_TYPES, 'none'],

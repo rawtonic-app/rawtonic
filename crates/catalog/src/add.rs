@@ -116,7 +116,7 @@ impl Contents {
                 .with_context(|| format!("{} is not a readable XMP sidecar", xmp.display()))?;
             let mut tags = metadata.keywords.clone();
             if !metadata.label.is_empty() {
-                tags.push(format!("color:{}", metadata.label.to_lowercase()));
+                tags.push(rawtonic_metadata::labels::editor_tag(&metadata.label));
             }
             return Ok(Self {
                 editor_state: Some(

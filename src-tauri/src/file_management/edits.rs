@@ -16,8 +16,9 @@ use crate::gpu_processing;
 use crate::image_loader;
 use crate::image_processing::ImageMetadata;
 use crate::load_settings;
-use crate::tagging::COLOR_TAG_PREFIX;
 use image::DynamicImage;
+use rawtonic_metadata::culling::Rating;
+use rawtonic_metadata::labels::EDITOR_TAG_PREFIX;
 use rawtonic_metadata::photo_ref::PhotoRef;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -1470,19 +1471,17 @@ fn write_culling_sidecar(write: CullingWrite, xmp: Option<bool>) -> Result<Culli
     let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
     let before = match &write.value {
         CullingValue::Rating(rating) => {
-            if *rating > 5 {
-                return Err("Rating must be 0–5".into());
-            }
+            Rating::try_from(*rating).map_err(|e| e.to_string())?;
             CullingValue::Rating(std::mem::replace(&mut metadata.rating, *rating))
         }
         CullingValue::Color(color) => {
             let mut tags = metadata.tags.take().unwrap_or_default();
             let before = tags
                 .iter()
-                .find_map(|tag| tag.strip_prefix(COLOR_TAG_PREFIX).map(str::to_string));
-            tags.retain(|tag| !tag.starts_with(COLOR_TAG_PREFIX));
+                .find_map(|tag| tag.strip_prefix(EDITOR_TAG_PREFIX).map(str::to_string));
+            tags.retain(|tag| !tag.starts_with(EDITOR_TAG_PREFIX));
             if let Some(color) = color.as_ref().filter(|color| !color.is_empty()) {
-                tags.push(format!("{COLOR_TAG_PREFIX}{color}"));
+                tags.push(format!("{EDITOR_TAG_PREFIX}{color}"));
             }
             metadata.tags = (!tags.is_empty()).then_some(tags);
             CullingValue::Color(before)

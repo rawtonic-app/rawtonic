@@ -10,6 +10,7 @@ import { filterAsRule, scopeRule, selectionCount } from '../../utils/librarySear
 import { folderViewMode } from '../../utils/subfolderView';
 import { useSmartAlbumEditor } from './SmartAlbumEditor';
 import { checkEyes } from '../../hooks/useEyeCheck';
+import { COLOR_LABEL_NAMES } from '../../entities/photo/colorLabel';
 
 const flags = [
   { value: 'all', label: 'studio.library.flags.all', Icon: Images },
@@ -18,7 +19,7 @@ const flags = [
   { value: 'rejected', label: 'studio.library.flags.rejected', Icon: X }
 ] as const;
 
-const colors = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
+const colors = COLOR_LABEL_NAMES;
 
 /** Lightroom's filter bar in one row: flags with counts, colour labels, the
  * caller's extra filters (rating), the metadata lists' toggle, and while
