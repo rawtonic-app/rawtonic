@@ -179,7 +179,9 @@ fn proxy_of(state: &AppState, source: &Arc<DynamicImage>) -> ScopeProxy {
     let proxy = ScopeProxy {
         of: Arc::downgrade(source),
         image,
-        id: kept.as_ref().map_or(1, |previous| previous.id.wrapping_add(1)),
+        id: kept
+            .as_ref()
+            .map_or(1, |previous| previous.id.wrapping_add(1)),
     };
     *kept = Some(proxy.clone());
     proxy

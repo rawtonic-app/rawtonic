@@ -16311,7 +16311,9 @@ fn analytics_of_render(
         ReadbackShader::Preview,
     )
     .unwrap();
-    receive.recv_timeout(std::time::Duration::from_secs(10)).ok()
+    receive
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .ok()
 }
 
 fn analytics_receiver() -> (
@@ -16354,7 +16356,11 @@ fn a_zoomed_drag_delivers_analytics_of_the_whole_frame() {
     let (width, height) = (1600, 1000);
     let frame = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
         let ramp = 0.3 * y as f32 / height as f32;
-        let v = if x < width / 2 { 0.01 + 0.05 * ramp } else { 0.4 + ramp };
+        let v = if x < width / 2 {
+            0.01 + 0.05 * ramp
+        } else {
+            0.4 + ramp
+        };
         image::Rgb([v, v * 0.9, v * 0.8])
     }));
     let recipe = json!({"exposure": 0.3, "contrast": 20});
