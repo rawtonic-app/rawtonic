@@ -1,18 +1,20 @@
 //! Auto for the black & white mix (Lightroom's Auto; Capture One has none).
 //!
-//! Camera Raw's Auto mixes for 59 cameras' sample frames span essentially
-//! two directions around one typical mix (three principal components leave
+//! Camera Raw's Auto mixes span essentially two directions around one
+//! typical mix (three principal components of 59 cameras' mixes leave
 //! integer rounding): a warm/cool axis (red–yellow against aqua–purple) and
-//! a common lift. Along the warm/cool axis the step follows the image: it
-//! raises the hues of bright areas and lowers those of dark ones (blue sky
-//! over foliage: Blue +27, Yellow −30; an orange sunset sky over a dark
-//! foreground: Red +6), i.e. it widens the tonal range. Rawtonic therefore
-//! picks the point of that plane that maximises the grey image's 5–95 %
-//! range minus a penalty on the distance from the typical mix, evaluating
-//! the mix exactly as the shader renders it. Against Camera Raw's own Auto
-//! on held-out frames the grey differs by 0.21–0.38 Oklab L × 100 on
-//! average, against 0.35–0.70 for the fixed typical mix
-//! (notes: reference/black-and-white.md).
+//! a common lift. On 73 photos the best point of that plane is 0.015
+//! Oklab L × 100 from Lightroom's own Auto mix on average (at most 0.12),
+//! so Auto only has to pick the point. It takes one step from the typical mix along the slopes of two
+//! contrast measures of the grey image: the log of the standard deviation
+//! of its linear luminance (Lightroom lifts the hues that fill and light the
+//! frame: a tungsten-orange room gets Red and Orange raised, a sky Blue) and
+//! the 5–95 % range of its Oklab lightness. The step is a fixed linear map
+//! of the four slopes, fitted to Lightroom's Auto on 73 photos; on held-out
+//! halves the grey differs from Lightroom's by 0.16 and 0.21 Oklab L × 100
+//! on average, where the earlier range-maximising Auto gave 0.29 and 0.55,
+//! and no photo got worse by more than 0.2 (notes:
+//! benchmark-results/bwa-bw-auto-2026-11-03/REPORT.md).
 
 /// A B&W mix response: channel windows and gains as the shader renders
 /// them (`apply_black_and_white`, `apply_black_and_white_v2` in shader.wgsl,
@@ -65,8 +67,24 @@ const AXIS_COOL: [f32; 8] = [
 const AXIS_LIFT: [f32; 8] = [
     0.4508, 0.3049, 0.2391, 0.1188, 0.1101, 0.4719, 0.4676, 0.4232,
 ];
-/// Penalty per squared step against the gain in the 5–95 % grey range.
-const PENALTY: f32 = 5.62e-5;
+/// Half width of the central differences that measure the slopes, in steps
+/// along the axes.
+const SLOPE_SPAN: f32 = 10.0;
+/// Step (cool, lift) per unit slope of, in this order: ln σ of the linear
+/// grey luminance along cool and along lift, the 5–95 % Oklab grey range
+/// along cool and along lift. Ridge fit (λ 0.03, no intercept: a grey image
+/// keeps the typical mix) to Lightroom's Auto on 73 photos.
+const STEP: [[f32; 2]; 4] = [
+    [3430.4, 511.8],
+    [-1621.0, 1832.7],
+    [3437.4, 1558.7],
+    [1833.5, 1416.5],
+];
+/// The steps measured on Lightroom's Auto mixes stay within these bounds.
+const MAX_COOL: f32 = 60.0;
+const MAX_LIFT: f32 = 30.0;
+/// Floor of the luminance spread before the log (a flat image).
+const MIN_SPREAD: f64 = 1e-4;
 const MAX_SAMPLES: usize = 40_000;
 const BINS: usize = 2048;
 
@@ -144,12 +162,21 @@ impl Sample {
     }
 }
 
-fn tonal_range(samples: &[Sample], mix: &[f32; 8], response: &Response) -> f32 {
+/// Contrast of the grey image for a mix: ln σ of its linear luminance
+/// (Oklab L³) and the 5–95 % range of its Oklab lightness.
+fn contrast(samples: &[Sample], mix: &[f32; 8], response: &Response) -> [f32; 2] {
     let mut histogram = [0u32; BINS];
+    let (mut sum, mut sum_sq) = (0.0f64, 0.0f64);
     for sample in samples {
-        let bin = (sample.grey(mix, response) * (BINS - 1) as f32).round() as usize;
+        let grey = sample.grey(mix, response);
+        let bin = (grey * (BINS - 1) as f32).round() as usize;
         histogram[bin.min(BINS - 1)] += 1;
+        let luminance = f64::from(grey).powi(3);
+        sum += luminance;
+        sum_sq += luminance * luminance;
     }
+    let n = samples.len() as f64;
+    let variance = (sum_sq / n - (sum / n).powi(2)).max(0.0);
     let percentile = |p: f32| {
         let target = (p * samples.len() as f32).ceil().max(1.0) as u32;
         let mut seen = 0;
@@ -161,7 +188,10 @@ fn tonal_range(samples: &[Sample], mix: &[f32; 8], response: &Response) -> f32 {
         }
         1.0
     };
-    percentile(0.95) - percentile(0.05)
+    [
+        variance.sqrt().max(MIN_SPREAD).ln() as f32,
+        percentile(0.95) - percentile(0.05),
+    ]
 }
 
 fn mix_at(cool: f32, lift: f32) -> [f32; 8] {
@@ -182,31 +212,16 @@ pub fn auto_mix(pixels: &[[f32; 3]], version: u64) -> Option<[i32; 8]> {
         .step_by(stride)
         .map(|p| Sample::new(*p, response))
         .collect();
-    let score = |cool: f32, lift: f32| {
-        tonal_range(&samples, &mix_at(cool, lift), response) - PENALTY * (cool * cool + lift * lift)
-    };
-    // Coarse grid, then one-unit steps around the best point.
-    let mut best = (f32::NEG_INFINITY, 0.0, 0.0);
-    for cool in (-40..=40).step_by(5) {
-        for lift in (-20..=20).step_by(5) {
-            let (cool, lift) = (cool as f32, lift as f32);
-            let value = score(cool, lift);
-            if value > best.0 {
-                best = (value, cool, lift);
-            }
-        }
-    }
-    let (_, centre_cool, centre_lift) = best;
-    for dc in -5..=5 {
-        for dl in -5..=5 {
-            let (cool, lift) = (centre_cool + dc as f32, centre_lift + dl as f32);
-            let value = score(cool, lift);
-            if value > best.0 {
-                best = (value, cool, lift);
-            }
-        }
-    }
-    Some(mix_at(best.1, best.2).map(|v| v.round().clamp(-100.0, 100.0) as i32))
+    let at = |cool: f32, lift: f32| contrast(&samples, &mix_at(cool, lift), response);
+    let slope =
+        |plus: [f32; 2], minus: [f32; 2]| [0, 1].map(|i| (plus[i] - minus[i]) / (2.0 * SLOPE_SPAN));
+    let along_cool = slope(at(SLOPE_SPAN, 0.0), at(-SLOPE_SPAN, 0.0));
+    let along_lift = slope(at(0.0, SLOPE_SPAN), at(0.0, -SLOPE_SPAN));
+    let slopes = [along_cool[0], along_lift[0], along_cool[1], along_lift[1]];
+    let step = |axis: usize| -> f32 { (0..4).map(|i| slopes[i] * STEP[i][axis]).sum() };
+    let cool = step(0).clamp(-MAX_COOL, MAX_COOL);
+    let lift = step(1).clamp(-MAX_LIFT, MAX_LIFT);
+    Some(mix_at(cool, lift).map(|v| v.round().clamp(-100.0, 100.0) as i32))
 }
 
 /// Auto for the photo `path` with its current recipe: the cached preview
@@ -377,6 +392,23 @@ mod tests {
             let mix = auto_mix(&pixels, version).unwrap();
             assert!(mix[5] > TYPICAL[5] as i32 + 5, "{version} {mix:?}");
             assert!(mix[2] < TYPICAL[2] as i32 - 3, "{version} {mix:?}");
+        }
+    }
+
+    /// A room lit by tungsten light: the cast fills the frame, so Auto lifts
+    /// the warm hues instead of darkening them with the typical mix
+    /// (Lightroom: Red +18, Orange +6 on such a frame).
+    #[test]
+    fn a_frame_filled_with_warm_light_raises_the_warm_hues() {
+        let pixels = image(&[
+            ([235, 160, 70], 700),
+            ([180, 105, 40], 700),
+            ([95, 55, 20], 600),
+        ]);
+        for version in [1, 2] {
+            let mix = auto_mix(&pixels, version).unwrap();
+            assert!(mix[0] > TYPICAL[0] as i32 + 10, "{version} {mix:?}");
+            assert!(mix[1] > TYPICAL[1] as i32 + 10, "{version} {mix:?}");
         }
     }
 
