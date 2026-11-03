@@ -4653,6 +4653,18 @@ impl DetailKey {
 /// The large blur's vertical pass then blurs its whole radius and that many
 /// rows more at tile edges (on every render version), so the rows it reads
 /// beyond a tile are exact and tiles join.
+/// Whether raised Shadows of tone version 6 reads the small blur's mean log
+/// luminance (shader.wgsl shadows_v6_wide), on the photo or a layer.
+fn shadows_v6_used(adjustments: &AllAdjustments) -> bool {
+    adjustments.global.tone_version > 5.5
+        && (adjustments.global.shadows > 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.shadows > 0.0))
+}
+
 fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
     let g = &adjustments.global;
     let used = g.clarity != 0.0
@@ -4697,6 +4709,9 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
     let luma_nr = g.luma_noise_reduction != 0.0;
     // Clarity version 2 also weighs the small blur into its base.
     let clarity_v2 = g.clarity_version >= 2;
+    // Raised Shadows of tone version 6 takes its level from the small blur
+    // too (shader.wgsl shadows_v6_wide).
+    let shadows_v6 = g.tone_version > 5.5;
     let mut required = [
         g.sharpness != 0.0 || g.color_noise_reduction != 0.0 || luma_nr,
         g.sharpness != 0.0
@@ -4707,7 +4722,8 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
         g.structure != 0.0
             || g.centré != 0.0
             || g.halation_amount > 0.0
-            || (clarity_v2 && g.clarity != 0.0),
+            || (clarity_v2 && g.clarity != 0.0)
+            || (shadows_v6 && g.shadows > 0.0),
         g.clarity != 0.0 || g.dehaze != 0.0 || g.glow_amount > 0.0,
         luma_nr,
     ];
@@ -4722,8 +4738,10 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || m.shadows != 0.0
             || m.blacks != 0.0
             || m.color_noise_reduction != 0.0;
-        required[2] |=
-            m.structure != 0.0 || m.halation_amount > 0.0 || (clarity_v2 && m.clarity != 0.0);
+        required[2] |= m.structure != 0.0
+            || m.halation_amount > 0.0
+            || (clarity_v2 && m.clarity != 0.0)
+            || (shadows_v6 && m.shadows > 0.0);
         required[3] |= m.clarity != 0.0 || m.dehaze != 0.0 || m.glow_amount > 0.0;
         if m.luma_noise_reduction != 0.0 {
             required[1] = true;
@@ -8422,11 +8440,17 @@ impl GpuProcessor {
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
         let mut tall_ping_pong: Option<wgpu::TextureView> = None;
-        // Only Clarity version 2 reads the blurs' mean log luminance (alpha)
-        // and the large blur beyond the tile; its rows there are exact on
+        // Only Clarity version 2 and raised Shadows of tone version 6 read the
+        // blurs' mean log luminance (alpha); only Clarity the large blur
+        // beyond the tile; its rows there are exact on
         // every render version (older ones read no blur beyond the tile).
         let reach = clarity_reach(&adjustments, scale);
-        let log_alpha = reach > 0;
+        let log_alpha = reach > 0 || shadows_v6_used(&adjustments);
+        // Tone version 6 stores the small blur's mean log luminance against
+        // the log luminance of its colour (blur.wgsl, flag bit 2): in deep
+        // shadows the absolute value kept only 0.008 EV in 16 bits, which
+        // raised Shadows' level turned into steps on smooth gradients.
+        let relative_log = log_alpha && adjustments.global.tone_version > 5.5;
         let largest_beyond = ((40.0 * scale).ceil() as u32 + reach).saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
@@ -8496,7 +8520,7 @@ impl GpuProcessor {
                     input_height,
                     u32::from(whole_blur_radius),
                     reach,
-                    u32::from(log_alpha),
+                    u32::from(log_alpha) | (u32::from(relative_log) << 1),
                 ];
                 let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache.input.as_ref() != Some(input_texture_view) {
@@ -8584,7 +8608,8 @@ impl GpuProcessor {
                         rows_above,
                         blurred_rows,
                         flags: u32::from(log_alpha && (index == 2 || index == 3))
-                            | (u32::from(adjustments.global.is_raw_image != 1) << 1),
+                            | (u32::from(adjustments.global.is_raw_image != 1) << 1)
+                            | (u32::from(relative_log && index == 2) << 2),
                     };
                     queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(&params));
 

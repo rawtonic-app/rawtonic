@@ -670,7 +670,8 @@ export interface Adjustments {
    * Highlights also adapts to the image key (reaches further in dark
    * frames); 4 = and lowers less on frames of bright key (snow, overcast
    * skies, white rooms); 5 = and keeps the detail of lowered bright areas
-   * (clouds, lit walls); 1 or missing on
+   * (clouds, lit walls); 6 = and raised Shadows keeps the local contrast of
+   * the shadows it lifts; 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1365,7 +1366,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 5;
+export const TONE_VERSION = 6;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
@@ -1740,16 +1741,19 @@ const loadedAiDenoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): n
 };
 
 /** The tone-slider response of a saved recipe: its own; else the current
- * one when nothing in it renders differently with it (no Shadows above +50
- * and no lowered Highlights on the photo or a layer), the earlier one
+ * one when nothing in it renders differently with it (no raised Shadows, no
+ * lowered Highlights and no Clarity on the photo or a layer), the earlier one
  * otherwise (missing key). */
 const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => {
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
-  // Versions 2 to 4 change Shadows above +50 and lowered Highlights only.
-  const differs = (values: { shadows?: unknown; highlights?: unknown } | undefined) =>
-    ((values?.shadows as number | undefined) ?? 0) > 50 || ((values?.highlights as number | undefined) ?? 0) < 0;
+  // Versions 2 to 6 change raised Shadows and lowered Highlights; 6 also
+  // reads Clarity's base more precisely (a rounding-level change).
+  const differs = (values: { shadows?: unknown; highlights?: unknown; clarity?: unknown } | undefined) =>
+    ((values?.shadows as number | undefined) ?? 0) > 0 ||
+    ((values?.highlights as number | undefined) ?? 0) < 0 ||
+    ((values?.clarity as number | undefined) ?? 0) !== 0;
   const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
   return rendersDifferently ? undefined : TONE_VERSION;
 };

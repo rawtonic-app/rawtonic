@@ -2056,9 +2056,46 @@ const WHITES_REACH_LOWER: f32 = 2.5;
 const SHADOWS_RAISE: f32 = 1.8;
 const SHADOWS_LOWER: f32 = 1.2;
 
+// Tone version 6: raised Shadows keeps the local contrast of the shadows
+// it lifts, as Camera Raw and Capture One do (notes: G05, benchmark-results/
+// hls-shadow-detail-2026-11-03). Its level comes from the small Clarity
+// blur's mean log luminance (sigma 4 px per 1080 px of the short side,
+// about twice the tonal blur's; a mean of log luminance, so bright
+// neighbours do not pull the level up and the lift down), so texture up to
+// that scale is lifted by one gain. And that texture keeps the display
+// contrast it had: the look's curve is flatter where the lift takes it
+// (display EV per scene EV), so the texture's scene contrast (the tonal
+// blur against the wide level, at most SH_V6_SPAN EV) is raised by the
+// slope ratio, at most SH_V6_CAP. Finer detail (the pixel against the tonal
+// blur, mostly noise in lifted shadows) is lifted as before. Offsets below
+// SH_V6_FLOOR EV are smooth gradients, not texture (the two blurs differ
+// there by their sizes and 16-bit rounding): raising those reordered tones
+// on smooth ramps by up to 0.01 EV.
+const SH_V6_CAP: f32 = 2.0;
+const SH_V6_SPAN: f32 = 1.0;
+const SH_V6_FLOOR: f32 = 0.01;
+// Renderer value (slider / 100) by which version 6 is fully faded in.
+const SH_V6_FADE: f32 = 0.1;
+
+// The wide level: luminance in input space (before exposure).
+fn shadows_v6_level(coords: vec2<u32>) -> f32 {
+    return exp2(small_blur_mean_log(vec2<i32>(coords)));
+}
+
+// The texture gain on top of the wide level's lift `gain`.
+fn shadows_v6_texture(tonal_level: f32, wide_level: f32, gain: f32, exposure_gain: f32) -> f32 {
+    let before = camera_raw_level_slope(wide_level * exposure_gain).y;
+    let after = camera_raw_level_slope(wide_level * exposure_gain * gain).y;
+    let ratio = clamp(before / max(after, 1e-3), 1.0, SH_V6_CAP);
+    let offset = log2(max(tonal_level, 0.0001) / wide_level);
+    let texture = sign(offset) * clamp(abs(offset) - SH_V6_FLOOR, 0.0, SH_V6_SPAN);
+    return exp2(texture * (ratio - 1.0));
+}
+
 fn apply_tonal_adjustments(
     color: vec3<f32>,
     blurred_color_input_space: vec3<f32>,
+    wide_luma_input_space: f32,
     is_raw: u32,
     con: f32,
     sh: f32,
@@ -2075,6 +2112,8 @@ fn apply_tonal_adjustments(
         blurred_linear = srgb_to_linear(blurred_color_input_space);
     }
 
+    // Whites' luminance ratio at the pixel, which the blurred levels follow.
+    var whites_ratio = 1.0;
     if (wh != 0.0 && base_look_is_camera_raw()) {
         // Renderer value is slider / 30.
         let amount = clamp(wh * 0.3, -1.0, 1.0);
@@ -2088,6 +2127,7 @@ fn apply_tonal_adjustments(
         let ratio = max(get_luma(max(whitened, vec3<f32>(0.0))), 0.0) / luma_before;
         rgb = whitened;
         blurred_linear *= ratio;
+        whites_ratio = ratio;
     } else if (wh != 0.0) {
         // Whites moves the upper tones, as Capture One's and Lightroom's White
         // sliders do (it used to scale every tone like a white-point gain).
@@ -2113,6 +2153,7 @@ fn apply_tonal_adjustments(
         let ratio = pow(max(1.0 + k * pow(t_gain, reach), 0.05), 2.2);
         rgb *= ratio;
         blurred_linear *= ratio;
+        whites_ratio = ratio;
     }
 
     let pixel_luma = get_luma(max(rgb, vec3<f32>(0.0)));
@@ -2131,9 +2172,23 @@ fn apply_tonal_adjustments(
         // 0.013 EV at display −6.6 EV). Detail keeps the blurred level.
         let level_ratio = safe_blurred_luma / safe_pixel_luma;
         let level_snap = smoothstep(0.001, 0.004, abs(log(level_ratio)));
-        let level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        var level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        let v6 = sh > 0.0 && adjustments.global.tone_version > 5.5;
+        let tonal_level = level_luma;
+        // Faded in (quadratically) over Shadows 0 … +SH_V6_FADE, so raising
+        // Shadows from 0 does not switch the level of Blacks' (shared) gain
+        // at once.
+        let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
+        let fade = ramp * ramp;
+        if (v6) {
+            let wide = max(wide_luma_input_space * whites_ratio, 0.0001);
+            level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));
+        }
         let gain = camera_raw_shadows_blacks_gain(level_luma * exposure_gain, sh, bl);
         rgb *= gain;
+        if (v6) {
+            rgb *= pow(shadows_v6_texture(tonal_level, level_luma, gain, exposure_gain), fade);
+        }
     } else if (sh != 0.0 || bl != 0.0) {
         let t_pixel = pow(safe_pixel_luma, 0.4545);
         let t_blurred = pow(safe_blurred_luma, 0.4545);
@@ -3359,6 +3414,27 @@ const CLARITY_FINE_PRIOR: f32 = 0.12;
 // the base of its darker surroundings up (the dark halo of a plain blur).
 // The outer ring stays within the 128 px the blur tiles extend beyond their
 // tile (gpu_processing.rs TILE_OVERLAP), so tiles join exactly.
+// log2 luminance of a blur's colour as blur.wgsl's `log_luma` takes it.
+fn blur_log_luma(c: vec3<f32>) -> f32 {
+    var lin = clamp(c, vec3<f32>(-65504.0), vec3<f32>(65504.0));
+    if (adjustments.global.is_raw_image != 1u) {
+        let s = max(lin, vec3<f32>(0.0));
+        lin = select(pow((s + 0.055) / 1.055, vec3<f32>(2.4)), s / 12.92, s <= vec3<f32>(0.04045));
+    }
+    return log2(max(dot(lin, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0001));
+}
+
+// The small blur's mean log2 luminance at `coords`: tone version 6 stores it
+// against the log luminance of the blur's colour (blur.wgsl flag bit 2),
+// for its precision in deep shadows.
+fn small_blur_mean_log(coords: vec2<i32>) -> f32 {
+    let s = textureLoad(clarity_blur_texture, coords, 0);
+    if (adjustments.global.tone_version > 5.5) {
+        return s.a + blur_log_luma(s.rgb);
+    }
+    return s.a;
+}
+
 fn clarity_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
     let dims = vec2<i32>(textureDimensions(structure_blur_texture)) - vec2<i32>(1);
     let d = clamp(CLARITY_SIDE * 20.0 * scale, 1.0, 60.0);
@@ -3378,7 +3454,7 @@ fn clarity_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
             wsum += w;
         }
     }
-    let fine = textureLoad(clarity_blur_texture, coords, 0).a;
+    let fine = small_blur_mean_log(coords);
     let tf = (fine - own_log) / CLARITY_RANGE;
     let wf = CLARITY_FINE_PRIOR * exp(-0.5 * tf * tf);
     return (sum + wf * fine) / (wsum + wf);
@@ -6506,7 +6582,7 @@ fn apply_glow_bloom(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -7309,7 +7385,7 @@ fn apply_halation(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -7846,7 +7922,11 @@ fn main(
     composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
     composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);
     if (ENABLE_TONE) {
-        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+        var wide_luma = 0.0;
+        if (t_shadows > 0.0 && adjustments.global.tone_version > 5.5) {
+            wide_luma = shadows_v6_level(id.xy);
+        }
+        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
     }
     if (ENABLE_HIGHLIGHTS) {
         composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
