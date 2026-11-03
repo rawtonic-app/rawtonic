@@ -395,7 +395,7 @@ fn run(
                 .map_err(|e| e.to_string())?
                 .map_err(|e| e.to_string())?;
             {
-                let data = slice.get_mapped_range();
+                let data = slice.get_mapped_range().map_err(|e| e.to_string())?;
                 let floats: &[f32] = bytemuck::cast_slice(&data);
                 rgb[first * width..(first + rows) * width]
                     .par_iter_mut()

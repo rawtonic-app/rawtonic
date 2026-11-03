@@ -16,7 +16,7 @@ rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
 image = "0.25.10"
 rayon = "1.12.0"
-wgpu = "29.0"
+wgpu = "30.0"
 bytemuck = { version = "1.25", features = ["derive"] }
 anyhow = "1.0.104"
 kamadak-exif = "0.6.1"

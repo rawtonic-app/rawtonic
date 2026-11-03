@@ -342,6 +342,7 @@ fn configure_display(
         width: size.width.max(1),
         height: size.height.max(1),
         format: swapchain_format,
+        color_space: display_surface_color_space(),
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         present_mode,
         alpha_mode,
@@ -351,8 +352,6 @@ fn configure_display(
         desired_maximum_frame_latency: 2,
     };
     surface.configure(device, &config);
-    #[cfg(target_os = "macos")]
-    tag_display_layer_p3(&surface);
 
     WgpuDisplay::new(device, surface, config)
 }
@@ -800,31 +799,20 @@ pub async fn sample_preview_patch(
     .map_err(|error| format!("Preview patch sampling task failed: {error}"))?
 }
 
-/// Display frames are encoded in Display P3 (D65 primaries, sRGB curve), so
-/// colours beyond sRGB reach a wide-gamut panel. Tagging the Metal layer as
-/// Display P3 makes Core Animation convert the values to the display's
-/// colour space (sRGB monitors included), as WebKit does for the interface.
-/// macOS 26 assigns sRGB to a layer whose colour space was never set, and an
-/// explicit `nil` turns matching off (measured: sRGB 200,100,50 appeared as
-/// 215,93,31 on the P3 panel), so this is not left to system or wgpu
-/// defaults.
-#[cfg(target_os = "macos")]
-fn tag_display_layer_p3(surface: &wgpu::Surface) {
-    use objc2_core_graphics::{CGColorSpace, kCGColorSpaceDisplayP3};
-    let Some(space) = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceDisplayP3 })) else {
-        log::warn!("Display layer left untagged: no Display P3 colour space");
-        return;
-    };
-    // SAFETY: the Metal backend's surface is only read for its layer, which
-    // is retained by the surface for the duration of this call; setColorspace
-    // copies the colour space reference.
-    unsafe {
-        let Some(hal_surface) = surface.as_hal::<wgpu::hal::api::Metal>() else {
-            log::warn!("Display layer left untagged: surface is not Metal");
-            return;
-        };
-        let layer = hal_surface.render_layer().lock();
-        let space: *const CGColorSpace = &*space;
-        let () = objc2::msg_send![&**layer, setColorspace: space];
+/// Display frames are encoded in Display P3 (D65 primaries, sRGB curve) on
+/// macOS, so colours beyond sRGB reach a wide-gamut panel. Tagging the Metal
+/// layer as Display P3 makes Core Animation convert the values to the
+/// display's colour space (sRGB monitors included), as WebKit does for the
+/// interface. wgpu sets the tag on every `configure` (resizes included);
+/// `Srgb` would set an explicit `nil`, which turns matching off on macOS 26
+/// (measured: sRGB 200,100,50 appeared as 215,93,31 on the P3 panel), while
+/// a layer whose colour space was never set is matched as sRGB. Elsewhere
+/// frames are sRGB, as `GpuContext::display_space` says.
+#[cfg(not(target_os = "linux"))]
+fn display_surface_color_space() -> wgpu::SurfaceColorSpace {
+    if cfg!(target_os = "macos") {
+        wgpu::SurfaceColorSpace::DisplayP3
+    } else {
+        wgpu::SurfaceColorSpace::Srgb
     }
 }
