@@ -1747,6 +1747,9 @@ pub struct AnalyticsConfig {
     /// request that arrives after a newer one's (the zoomed drag's
     /// full-frame scope render runs beside the frames) is dropped.
     pub generation: u64,
+    /// Rows at the bottom of the rendered image that only contribute clipping
+    /// marks (the scope render's extrema strip); the scopes count the rest.
+    pub flag_rows: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -4002,6 +4005,9 @@ fn send_analytics(
     pixels: Vec<u8>,
 ) {
     let clipped = clipped_sides(&pixels);
+    let height = height.saturating_sub(analytics.flag_rows);
+    let mut pixels = pixels;
+    pixels.truncate(width as usize * height as usize * 4);
     if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
         analytics.sender.send_unless_older(
             AnalyticsJob {

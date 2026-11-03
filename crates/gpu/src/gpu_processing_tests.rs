@@ -5117,6 +5117,27 @@ fn latest_analytics_worker_replaces_pending_and_drains_final() {
 }
 
 #[test]
+fn the_flag_rows_feed_the_clipping_marks_but_not_the_scopes() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel();
+    let sender = start_latest_job_worker(move |job: AnalyticsJob| tx.send(job).unwrap());
+    let mut config = analytics_config(sender, 1);
+    config.flag_rows = 1;
+    // Two picture rows of mid grey, one strip row whose alpha marks a
+    // clipped highlight (bit 1).
+    let mut pixels = vec![128u8; 2 * 2 * 4 * 2];
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel[3] = 0;
+    }
+    pixels.extend_from_slice(&[255, 255, 255, 2, 0, 0, 0, 0]);
+    send_analytics(config, OutputColorSpace::Srgb, 2, 3, pixels);
+    let job = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(job.image.height(), 2);
+    assert!(job.clipped.highlights);
+}
+
+#[test]
 fn an_older_generation_never_replaces_a_newer_pending_job() {
     use std::sync::mpsc;
     use std::time::Duration;
@@ -16364,6 +16385,7 @@ fn analytics_config(sender: LatestJobSender<AnalyticsJob>, generation: u64) -> A
         active_waveform_channel: None,
         sender,
         generation,
+        flag_rows: 0,
     }
 }
 

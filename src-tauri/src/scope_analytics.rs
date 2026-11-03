@@ -7,11 +7,10 @@
 //! frame's recipe and sends its analytics
 //! (`gpu_processing::render_scope_analytics`).
 //!
-//! The drag's clipping marks come from the copy, so a highlight smaller than
-//! one copy pixel (about 12 full-resolution pixels at 26 MP) can average
-//! below the mark until the release frame sends the exact ones; like the
-//! histograms of other editors, which read a reduced preview, the drag's
-//! scopes are a sample.
+//! The copy carries below its picture a strip of per-block maxima and minima
+//! (`scope_proxy_with_extrema`): the render's clipping marks read the strip
+//! too, so a one-pixel clipped highlight or shadow still shows during the
+//! drag, while the scopes count the picture only.
 //!
 //! Why a separate small render instead of a low-resolution pass inside the
 //! frame: the frame's reply does not wait for it (the scope render runs on
@@ -28,7 +27,7 @@ use crate::gpu_processing::{self, LatestJobSender, RenderRequest};
 use crate::image_processing::get_or_init_gpu_context;
 use crate::lut_processing::Lut;
 use crate::mask_generation::MaskDefinition;
-use rawtonic_engine::image_processing::downscale_f32_image_signed;
+use rawtonic_engine::image_processing::scope_proxy_with_extrema;
 
 /// Long edge of the scope render's copy of the frame's input: 512 pixels
 /// hold about 175 000 of a 3:2 photo, some 680 per waveform column of 256
@@ -120,6 +119,11 @@ pub(crate) fn sender(state: &AppState) -> Option<LatestJobSender<ScopeAnalyticsJ
         .clone()
 }
 
+fn gpu_processing_config(mut analytics: AnalyticsConfig, flag_rows: u32) -> AnalyticsConfig {
+    analytics.flag_rows = flag_rows;
+    analytics
+}
+
 fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
     // A frame that carried its own analytics came since (the release).
@@ -155,7 +159,7 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
             lut: job.lut,
             roi: None,
         },
-        job.analytics,
+        gpu_processing_config(job.analytics, proxy.flag_rows),
         job.display_space,
     )
 }
@@ -165,6 +169,8 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
 pub(crate) struct ScopeProxy {
     of: Weak<DynamicImage>,
     image: Arc<DynamicImage>,
+    /// Rows of `image` below the picture that only feed the clipping marks.
+    flag_rows: u32,
     id: u64,
 }
 
@@ -178,14 +184,16 @@ fn proxy_of(state: &AppState, source: &Arc<DynamicImage>) -> ScopeProxy {
     }
     let (width, height) = source.dimensions();
     let (w, h) = proxy_size(width, height);
-    let image = if (w, h) == (width, height) {
-        Arc::clone(source)
+    let (image, flag_rows) = if (w, h) == (width, height) {
+        (Arc::clone(source), 0)
     } else {
-        Arc::new(downscale_f32_image_signed(source, w, h))
+        let (image, rows) = scope_proxy_with_extrema(source, w, h);
+        (Arc::new(image), rows)
     };
     let proxy = ScopeProxy {
         of: Arc::downgrade(source),
         image,
+        flag_rows,
         id: kept
             .as_ref()
             .map_or(1, |previous| previous.id.wrapping_add(1)),
@@ -199,6 +207,7 @@ impl Clone for ScopeProxy {
         Self {
             of: Weak::clone(&self.of),
             image: Arc::clone(&self.image),
+            flag_rows: self.flag_rows,
             id: self.id,
         }
     }
