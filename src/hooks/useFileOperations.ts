@@ -28,6 +28,7 @@ import { isBelow } from '../utils/catalogFolders';
 import { openExportQueue } from '../utils/catalogEvents';
 import type { PlannedFile } from '../components/modals/RenameFileModal';
 import { isCopy, isCopyOf, sourceOf } from '../entities/photo/photoRef';
+import { errorCode, errorMessage } from '../shared/ipc/errors';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
 export interface FileOperationSummary {
@@ -166,10 +167,6 @@ function offerSessionMove(offer: SessionMoveOffer) {
  * reading the list now would read the session where it no longer is. */
 const SESSION_MOVE = 'moveSession';
 
-/** `move_session`'s refusal while an export of the session waits, runs or
- * is paused (`EXPORTS_PENDING` in src-tauri/src/session_move.rs). */
-const EXPORTS_PENDING = 'Finish or cancel the exports of this session first';
-
 /** A session with exports waiting, running or paused does not move (the
  * jobs would find their photos gone): finish or cancel them first, with
  * the export queue one click away. */
@@ -211,11 +208,13 @@ async function moveSession(offer: SessionMoveOffer, folder: string) {
       notify.success(t('studio.library.fileOperations.sessionMoved', { name: offer.name, folder, hint: undoHint() }));
     warnAboutNote(summary);
   } catch (err) {
-    if (String(err).startsWith(EXPORTS_PENDING)) {
+    // An export of the session waits, runs or is paused
+    // (`EXPORTS_PENDING` in src-tauri/src/session_move.rs).
+    if (errorCode(err) === 'exports_pending') {
       askToFinishExports(offer);
       return;
     }
-    notify.error(t('studio.library.fileOperations.sessionMoveFailed', { name: offer.name, error: String(err) }));
+    notify.error(t('studio.library.fileOperations.sessionMoveFailed', { name: offer.name, error: errorMessage(err) }));
   }
 }
 

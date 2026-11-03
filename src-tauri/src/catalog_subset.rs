@@ -3,6 +3,7 @@
 //! library (a session or a catalog) become a new catalog; with "Include
 //! previews" their Standard previews go along, so they edit offline where
 //! their originals are not.
+use crate::ipc::CommandError;
 use crate::preview_proxy;
 use rawtonic_ingest::catalog_export::{Exported, Options, Receipt, export_catalog};
 use std::path::{Path, PathBuf};
@@ -26,7 +27,7 @@ pub async fn library_export_catalog(
     include_previews: bool,
     leave_out_owned_elsewhere: bool,
     app: tauri::AppHandle,
-) -> Result<Receipt, String> {
+) -> Result<Receipt, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::session_bridge::holding_import_gate(
             "Wait for the current import or library copy to finish",
@@ -73,7 +74,11 @@ pub async fn library_export_catalog(
                         &receipt.abandoned,
                     )
                 })
-                .map_err(|e| format!("{e:#}"))
+                // A failure after Cancel is the cancel, whichever step saw it.
+                .map_err(|e| {
+                    CommandError::internal(format!("{e:#}"))
+                        .or_cancelled(CANCEL_EXPORT.load(Ordering::Acquire))
+                })
             },
         )
     })
@@ -165,7 +170,7 @@ pub async fn library_import_catalog(
     other: String,
     options: rawtonic_ingest::catalog_import::Options,
     app: tauri::AppHandle,
-) -> Result<rawtonic_ingest::catalog_import::Receipt, String> {
+) -> Result<rawtonic_ingest::catalog_import::Receipt, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::session_bridge::holding_import_gate(
             "Wait for the current import or library copy to finish",
@@ -182,7 +187,11 @@ pub async fn library_import_catalog(
                         let _ = app.emit(IMPORT_PROGRESS, progress);
                     },
                 )
-                .map_err(|e| format!("{e:#}"))?;
+                // A failure after Cancel is the cancel, whichever step saw it.
+                .map_err(|e| {
+                    CommandError::internal(format!("{e:#}"))
+                        .or_cancelled(CANCEL_IMPORT.load(Ordering::Acquire))
+                })?;
                 // The editor and listings read an online photograph's
                 // edits and virtual copies from the sidecars beside it.
                 for id in &receipt.report.touched {

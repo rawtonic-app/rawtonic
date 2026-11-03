@@ -46,6 +46,10 @@ pub enum ErrorCode {
     /// Edit With refused photographs with generated areas; the message
     /// names them after `open_with::GENERATED_AREAS`.
     GeneratedAreas,
+    /// A session cannot move while an export of it waits, runs or is
+    /// paused (`session_move::EXPORTS_PENDING`); the Library offers the
+    /// export queue.
+    ExportsPending,
 }
 
 /// A command's failure: its `code` and the `message` the user sees.
@@ -222,6 +226,7 @@ mod tests {
             (ErrorCode::LiveStrokeResync, "live_stroke_resync"),
             (ErrorCode::RenderFailed, "render_failed"),
             (ErrorCode::GeneratedAreas, "generated_areas"),
+            (ErrorCode::ExportsPending, "exports_pending"),
         ];
         for (code, name) in names {
             assert_eq!(serde_json::to_value(code).unwrap(), json!(name));

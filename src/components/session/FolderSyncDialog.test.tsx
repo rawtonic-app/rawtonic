@@ -91,11 +91,11 @@ it("a group's checkbox ticks all its rows", async () => {
 
 it('closes when the scan is cancelled and shows a failed scan', async () => {
   const onClose = vi.fn();
-  vi.mocked(invoke).mockRejectedValueOnce('cancelled');
+  vi.mocked(invoke).mockRejectedValueOnce({ code: 'cancelled', message: 'cancelled' });
   render(<FolderSyncDialog directory="/lib" folder="/lib/Capture" onClose={onClose} onApplied={vi.fn()} />);
   await waitFor(() => expect(onClose).toHaveBeenCalled());
   cleanup();
-  vi.mocked(invoke).mockRejectedValueOnce('/lib/Gone is not there.');
+  vi.mocked(invoke).mockRejectedValueOnce({ code: 'internal', message: '/lib/Gone is not there.' });
   render(<FolderSyncDialog directory="/lib" folder="/lib/Gone" onClose={vi.fn()} onApplied={vi.fn()} />);
   expect((await screen.findByRole('alert')).textContent).toContain('is not there');
 });

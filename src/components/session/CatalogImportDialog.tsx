@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import i18n, { type TFunction } from 'i18next';
 import OperationError from '../ui/OperationError';
 import { Invokes } from '../ui/AppProperties';
+import { errorCode, errorMessage } from '../../shared/ipc/errors';
 import { flushBeforeQuit, registerQuitFlush } from '../../utils/quit';
 import { openDialog } from '../../utils/fileDialog';
 import { useActivityStore } from '../../store/useActivityStore';
@@ -181,10 +182,9 @@ export async function runCatalogImport(
     await onDone();
     void refreshStacks(target);
   } catch (e) {
-    const message = String(e);
     useActivityStore.getState().resolve(id);
-    if (/cancelled/i.test(message)) notify.info(t('session.catalogImport.cancelled', { name }), { source: 'import' });
-    else notify.error(t('session.catalogImport.failed', { name }), { source: 'import', detail: message });
+    if (errorCode(e) === 'cancelled') notify.info(t('session.catalogImport.cancelled', { name }), { source: 'import' });
+    else notify.error(t('session.catalogImport.failed', { name }), { source: 'import', detail: errorMessage(e) });
   } finally {
     unregister();
     stop?.();

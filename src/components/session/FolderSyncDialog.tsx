@@ -5,6 +5,7 @@ import { Check, LoaderCircle, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import OperationError from '../ui/OperationError';
 import { Invokes } from '../ui/AppProperties';
+import { errorCode, errorMessage } from '../../shared/ipc/errors';
 import {
   SYNC_GROUPS,
   SYNC_PROGRESS,
@@ -104,8 +105,8 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
       })
       .catch((e) => {
         if (!mounted.current) return;
-        if (String(e) === 'cancelled') closeRef.current();
-        else setPhase({ kind: 'failed', error: String(e) });
+        if (errorCode(e) === 'cancelled') closeRef.current();
+        else setPhase({ kind: 'failed', error: errorMessage(e) });
       });
   }, [directory, folder]);
 
