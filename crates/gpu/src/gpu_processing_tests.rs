@@ -372,6 +372,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE3_FEATURE != 0 && expected & RELIGHT_RANGE2_FEATURE == 0 {
             continue;
         }
+        // A range-4 light is a range-3 light too.
+        if expected & RELIGHT_RANGE4_FEATURE != 0 && expected & RELIGHT_RANGE3_FEATURE == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -403,6 +407,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE3_FEATURE != 0 {
             profile["relightLights"][0]["rangeVersion"] = json!(3);
         }
+        if expected & RELIGHT_RANGE4_FEATURE != 0 {
+            profile["relightLights"][0]["rangeVersion"] = json!(4);
+        }
         if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
             profile["lumaNoiseDetail"] = json!(70);
         }
@@ -414,7 +421,10 @@ fn preview_features_preserve_global_and_local_effects() {
             assert_eq!(
                 preview_features(&adjustments),
                 expected
-                    & (RELIGHT_PREVIEW_FEATURE | RELIGHT_RANGE2_FEATURE | RELIGHT_RANGE3_FEATURE)
+                    & (RELIGHT_PREVIEW_FEATURE
+                        | RELIGHT_RANGE2_FEATURE
+                        | RELIGHT_RANGE3_FEATURE
+                        | RELIGHT_RANGE4_FEATURE)
             );
             continue;
         }
@@ -7496,6 +7506,7 @@ fn pipeline_compilation_probe() {
         (f & REFINED_NR_PREVIEW_FEATURE == 0 || f & 16 != 0)
             && (f & RELIGHT_RANGE2_FEATURE == 0 || f & RELIGHT_PREVIEW_FEATURE != 0)
             && (f & RELIGHT_RANGE3_FEATURE == 0 || f & RELIGHT_RANGE2_FEATURE != 0)
+            && (f & RELIGHT_RANGE4_FEATURE == 0 || f & RELIGHT_RANGE3_FEATURE != 0)
     }) {
         let start = Instant::now();
         create_preview_pipeline(
@@ -7626,11 +7637,13 @@ fn fallback_variant_matches_specialized_display() {
         json!({"sharpness":53,"vibrance":72,"saturation":27,"brightness":0.25,
             "masks":(0..4).map(|i| local_mask(&format!("m{i}"), json!({"curves":custom_curve(),"highlights":30})))
                 .collect::<Vec<_>>()}),
-        // A version-five portrait with range-2 and range-3 lights: the
-        // all-features fallback compiles the range-3 code, which must leave
-        // the older light's backdrop, shading and edges as they are.
+        // A version-five portrait with range-2, range-3 and range-4 lights:
+        // the all-features fallback compiles the range-3 and range-4 code,
+        // which must leave the older lights' backdrop, shading and edges as
+        // they are.
         relight_portrait_profile(2),
         relight_portrait_profile(3),
+        relight_portrait_profile(4),
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         prepare_preview_pipeline(&processor, preview_features(&adjustments));
@@ -7687,7 +7700,68 @@ fn fallback_variant_matches_specialized_display() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 8);
+    assert_eq!(checked, 9);
+}
+
+#[test]
+#[ignore = "requires a native GPU; a range-4 light must not change an older light where it does not reach"]
+fn range_four_light_leaves_older_lights_where_it_does_not_reach() {
+    let context = context();
+    let (width, height) = (517, 389);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 31);
+    let older = relight_portrait_profile(3);
+    // The same recipe with a strong range-4 spot whose cone lies off the
+    // frame: it reaches no pixel.
+    let mut mixed = older.clone();
+    mixed["relightLights"][0]["intensity"] = json!(100);
+    let mut older = older;
+    older["relightLights"][0]["intensity"] = json!(100);
+    mixed["relightLights"].as_array_mut().unwrap().push(
+        json!({"type":"spot","intensity":100,"size":5,"x":-90,"y":-90,
+            "sourceX":-95,"sourceY":-95,"distance":5,"rangeVersion":4}),
+    );
+    let render = |profile: &serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    let (a, b) = (render(&older), render(&mixed));
+    let max_delta = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
+    // The same tolerance as between pipeline variants.
+    assert!(max_delta <= 1, "older light changed by {max_delta}");
+    // The same range-3 light at Strength 100 as a range-4 light does change
+    // (its gain rolls off): the comparison above can see range 4's code.
+    let mut newer = older.clone();
+    newer["relightLights"][0]["rangeVersion"] = json!(4);
+    let c = render(&newer);
+    assert!(a.iter().zip(&c).any(|(x, y)| x.abs_diff(*y) > 1));
 }
 
 /// A version-five Relight recipe (subject matte with people normals, the

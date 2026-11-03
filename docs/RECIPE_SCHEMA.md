@@ -204,6 +204,23 @@ and 2 render as before; the editor's *Use the current ranges* moves a light
 to range 3 at the same gain. A recipe with any range-3 light compiles the
 range-3 code (`RELIGHT_RANGE3`) for all its lights (notes:
 benchmark-results/rr-relight-realism-2026-11-01).
+Range 4 (2026-11-03, new lights `4`; same gain as range 2, everything of
+range 3) keeps side-lit and strongly lit faces intact: the photo's own skin
+shine stays (on side-lit faces the analysis took the lit cheek for shine and
+removing it left a grey, hard-edged mask), the new light's skin sheen fades
+out where the photo's own fitted light is below 0.5 (none at 0.2: its deep
+shadows hold no surface detail and a sheen alone painted a grey, smooth
+mask), the face mesh counts as the subject for Original light (a matte that
+missed a lit cheek cut a hard edge through the face), the lights' gain over
+the photo's own light rolls off towards 2 (`1 + (1 − e^−(g−1))`, one scale
+for all channels) and an already-rendered photo's added light rolls off
+towards 0.96 per channel instead of 1, so no channel clips (Strength 100
+burnt JPEG skin to flat orange and clipped RAW skin). These act on the
+range-4 lights' share of a pixel's added light: beside older lights a range-4
+light changes nothing where it does not reach. *Use the current ranges* moves
+a light to range 4 at the same gain; a recipe with a range-4 light compiles
+`RELIGHT_RANGE4` (notes:
+benchmark-results/rls-relight-side-2026-11-03).
 
 An analysis stays valid when a geometry key added later (2026-11-01:
 `lensManualVignetteAmount`, `lensManualVignetteMidpoint`) is absent from its
