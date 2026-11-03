@@ -7,6 +7,7 @@
 use crate::file_management::parse_virtual_path;
 use rawtonic_catalog::Library;
 use rawtonic_catalog::stacks::{AutoGroup, AutoPlan, AutoStackOptions, Member, StackChange};
+use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -29,12 +30,7 @@ pub struct StackResult {
 
 /// The webview's path of a member.
 fn web_path(path: &Path, copy: &str) -> String {
-    let path = path.to_string_lossy();
-    if copy.is_empty() {
-        path.into_owned()
-    } else {
-        format!("{path}?vc={copy}")
-    }
+    PhotoRef::of_path(path, (!copy.is_empty()).then_some(copy)).format()
 }
 
 /// The library of the first of `paths` and the members among `paths` it
@@ -43,10 +39,7 @@ fn members(paths: &[String]) -> Result<(PathBuf, Library, Vec<Member>), String> 
     let mut found: Option<(PathBuf, Library)> = None;
     let mut members = Vec::new();
     for path in paths {
-        let copy = path
-            .rsplit_once("?vc=")
-            .map(|(_, id)| id.to_string())
-            .unwrap_or_default();
+        let copy = photo_ref::split(path).1.unwrap_or_default().to_string();
         let (source, _) = parse_virtual_path(path);
         let Some(directory) = crate::session_bridge::library_dir_for(&source) else {
             continue;

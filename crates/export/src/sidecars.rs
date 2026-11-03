@@ -13,47 +13,17 @@ use walkdir::WalkDir;
 use crate::exif_processing::truncate_large_exif;
 use rawtonic_engine::formats::is_supported_image_file;
 use rawtonic_engine::image_processing::ImageMetadata;
+use rawtonic_metadata::photo_ref::{self, PhotoRef};
 
 /// The source file and editor sidecar of a (possibly virtual) photo path.
 pub fn parse_virtual_path(virtual_path: &str) -> (PathBuf, PathBuf) {
-    let (source_path_str, copy_id) = if let Some((base, id)) = virtual_path.rsplit_once("?vc=") {
-        (base.to_string(), Some(id.to_string()))
-    } else {
-        (virtual_path.to_string(), None)
-    };
-
-    let source_path = PathBuf::from(source_path_str);
-
-    let sidecar_filename = if let Some(id) = copy_id {
-        format!(
-            "{}.{}.rrdata",
-            source_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy(),
-            id
-        )
-    } else {
-        format!(
-            "{}.rrdata",
-            source_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-        )
-    };
-
-    let sidecar_path = source_path.with_file_name(sidecar_filename);
-    (source_path, sidecar_path)
+    let photo = PhotoRef::parse(virtual_path);
+    (photo.source_path().to_path_buf(), photo.sidecar_path())
 }
 
 /// The address of a source's primary photo or of one of its virtual copies.
 pub fn virtual_path(source: &Path, copy_id: Option<&str>) -> String {
-    let path = source.to_string_lossy();
-    match copy_id {
-        Some(id) => format!("{}?vc={}", path, id),
-        None => path.into_owned(),
-    }
+    PhotoRef::of_path(source, copy_id).format()
 }
 
 /// Supported images below `root` with the sidecars found next to them
@@ -73,18 +43,8 @@ pub fn sources_with_copies(root: &Path) -> Vec<(PathBuf, Vec<Option<String>>)> {
         }
 
         let file_name = entry_path.file_name().unwrap_or_default().to_string_lossy();
-        if let Some(base) = file_name.strip_suffix(".rrdata") {
-            let (source_filename, copy_id) =
-                if base.len() >= 7 && base.as_bytes()[base.len() - 7] == b'.' {
-                    let id = &base[base.len() - 6..];
-                    if id.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) {
-                        (&base[..base.len() - 7], Some(id.to_string()))
-                    } else {
-                        (base, None)
-                    }
-                } else {
-                    (base, None)
-                };
+        if let Some((source_filename, copy_id)) = photo_ref::sidecar_name_parts(&file_name) {
+            let copy_id = copy_id.map(str::to_string);
 
             if let Some(parent) = entry_path.parent() {
                 sidecars_by_path

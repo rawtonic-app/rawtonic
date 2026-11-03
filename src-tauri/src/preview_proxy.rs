@@ -1503,8 +1503,9 @@ impl ProxyMemory {
     /// Forgets the proxies of the photograph at `source` and its virtual
     /// copies (their previews were discarded).
     pub fn forget_source(&mut self, source: &str) {
-        self.entries
-            .retain(|p| p.path != source && !p.path.starts_with(&format!("{source}?vc=")));
+        self.entries.retain(|p| {
+            p.path != source && !rawtonic_metadata::photo_ref::is_copy_of(&p.path, source)
+        });
     }
 }
 

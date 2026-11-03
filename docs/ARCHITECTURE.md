@@ -26,7 +26,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | Crate | Owns | Depends on | Key modules | Tests/hooks |
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `metadata` | `lib`, `query`, `add` | `core:test` |
-| `metadata` | atomic XMP, no-clobber publish, provenance | none | `no_clobber`, `provenance`, `labels` | `core:test` |
+| `metadata` | atomic XMP, no-clobber publish, provenance, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | none | `no_clobber`, `provenance`, `labels`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | none | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fileops, metadata, naming | `copy`, `queue` | `core:test` |

@@ -328,7 +328,7 @@ pub fn stop_eye_check(directory: Option<String>) {
 /// The catalog's photograph at `path` (a virtual copy's `?vc=` path is its
 /// photograph's).
 fn asset_id(lib: &Library, path: &str) -> Result<String, String> {
-    let file = path.split("?vc=").next().unwrap_or(path);
+    let file = rawtonic_metadata::photo_ref::source_of(path);
     lib.asset_at(Path::new(file))
         .map_err(|e| e.to_string())?
         .map(|a| a.id)
@@ -467,7 +467,7 @@ pub async fn face_boxes_shown(
 #[tauri::command]
 pub async fn face_eye_crops(path: String, boxes: Vec<[f32; 4]>) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let file = path.split("?vc=").next().unwrap_or(&path).to_string();
+        let file = rawtonic_metadata::photo_ref::source_of(&path).to_string();
         let image = upright_preview(Path::new(&file))?;
         let (w, h) = (image.width() as f32, image.height() as f32);
         boxes

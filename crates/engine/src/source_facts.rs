@@ -387,7 +387,7 @@ fn registry() -> &'static Mutex<HashMap<String, Arc<SourceFacts>>> {
 
 /// The source file of `path` (a virtual copy's `?vc=` suffix removed).
 fn source_key(path: &str) -> &str {
-    path.split_once("?vc=").map_or(path, |(source, _)| source)
+    rawtonic_metadata::photo_ref::source_of(path)
 }
 
 /// The readers use `facts` for the RAW at `path` from now on (it is

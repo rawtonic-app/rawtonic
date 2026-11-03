@@ -19,6 +19,7 @@ use rawtonic_catalog::{Library, session_for};
 #[cfg(any(not(windows), test))]
 use rawtonic_fileops::SystemTrash;
 use rawtonic_fileops::{CopyObserver, Journal, KeptCopy, Operation, State, Step, Target};
+use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use serde::Serialize;
 use std::{
     cell::Cell,
@@ -345,10 +346,7 @@ fn album_key(path: &Path) -> Option<String> {
     if id.is_empty() || !is_supported_image_file(image) {
         return None;
     }
-    Some(format!(
-        "{}?vc={id}",
-        path.with_file_name(image).to_string_lossy()
-    ))
+    Some(PhotoRef::of_path(&path.with_file_name(image), Some(id)).format())
 }
 
 /// The XMP sidecar of `image` (`name.xmp`, shared by RAW+JPEG pairs).
@@ -790,8 +788,7 @@ fn album_memberships(app: &AppHandle, items: &[String]) -> HashMap<String, Vec<S
                         .iter()
                         .filter(|i| {
                             wanted.contains(i.as_str())
-                                || i.rsplit_once("?vc=")
-                                    .is_some_and(|(base, _)| wanted.contains(base))
+                                || photo_ref::is_copy(i) && wanted.contains(photo_ref::source_of(i))
                         })
                         .cloned()
                         .collect();
@@ -1185,7 +1182,7 @@ pub fn trash_photos(
     let mut images = Vec::new();
     for path in paths {
         let (source, sidecar) = crate::file_management::parse_virtual_path(path);
-        if path.contains("?vc=") {
+        if photo_ref::is_copy(path) {
             if sidecar.exists() && seen.insert(sidecar.clone()) {
                 groups.push(vec![sidecar]);
             }

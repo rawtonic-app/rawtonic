@@ -87,7 +87,7 @@ pub(crate) fn order(cells: &[String], primary: Option<&str>) -> Vec<String> {
 
 /// Virtual copies share their RAW and its 1:1 preview.
 fn source_of(path: &str) -> String {
-    path.split("?vc=").next().unwrap_or(path).to_string()
+    rawtonic_metadata::photo_ref::source_of(path).to_string()
 }
 
 /// Whether a decode may start now: `quiet` since the last interactive frame

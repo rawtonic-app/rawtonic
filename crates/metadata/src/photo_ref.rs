@@ -153,6 +153,24 @@ pub fn split(text: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// The source file name and copy id of an editor sidecar's file name:
+/// `<file>.rrdata` → `(<file>, None)`, `<file>.<editor id>.rrdata` →
+/// `(<file>, Some(id))`; `None` for a name that is not a sidecar's. A
+/// middle part that is not an editor id belongs to the file name.
+pub fn sidecar_name_parts(name: &str) -> Option<(&str, Option<&str>)> {
+    let base = name.strip_suffix(".rrdata")?;
+    Some(
+        match base
+            .len()
+            .checked_sub(7)
+            .filter(|&dot| base.as_bytes()[dot] == b'.')
+        {
+            Some(dot) if is_editor_id(&base[dot + 1..]) => (&base[..dot], Some(&base[dot + 1..])),
+            _ => (base, None),
+        },
+    )
+}
+
 /// The source file's path of a stored path.
 pub fn source_of(text: &str) -> &str {
     split(text).0
@@ -198,10 +216,16 @@ mod tests {
             assert_eq!(split(&v.text), (v.source.as_str(), v.copy.as_deref()));
             assert_eq!(source_of(&v.text), v.source);
             assert_eq!(is_copy(&v.text), v.copy.is_some());
-            assert_eq!(PhotoRef::new(v.source.clone(), v.copy.clone().map(CopyId::new)), photo);
+            assert_eq!(
+                PhotoRef::new(v.source.clone(), v.copy.clone().map(CopyId::new)),
+                photo
+            );
             if let Some(copy) = &v.copy {
                 assert!(is_copy_of(&v.text, &v.source));
-                assert_eq!(photo.with_source("/q/b.raf").format(), format!("/q/b.raf?vc={copy}"));
+                assert_eq!(
+                    photo.with_source("/q/b.raf").format(),
+                    format!("/q/b.raf?vc={copy}")
+                );
             }
         }
     }
@@ -209,7 +233,10 @@ mod tests {
     #[test]
     fn sidecars_are_named_after_the_file_and_the_copy() {
         let dir = Path::new("/p");
-        assert_eq!(PhotoRef::parse("/p/a.raf").sidecar_path(), dir.join("a.raf.rrdata"));
+        assert_eq!(
+            PhotoRef::parse("/p/a.raf").sidecar_path(),
+            dir.join("a.raf.rrdata")
+        );
         assert_eq!(
             PhotoRef::parse("/p/a.raf?vc=0f1e2d").sidecar_path(),
             dir.join("a.raf.0f1e2d.rrdata")
@@ -218,7 +245,10 @@ mod tests {
             PhotoRef::of_path(&dir.join("a.raf"), Some("0f1e2d")).format(),
             "/p/a.raf?vc=0f1e2d"
         );
-        assert_eq!(PhotoRef::of_path(&dir.join("a.raf"), None).format(), "/p/a.raf");
+        assert_eq!(
+            PhotoRef::of_path(&dir.join("a.raf"), None).format(),
+            "/p/a.raf"
+        );
     }
 
     #[test]
@@ -227,6 +257,29 @@ mod tests {
         assert!(!is_copy_of("/p/a.raf", "/p/a.raf"));
         assert!(!is_copy_of("/p/a.raf.jpg?vc=1", "/p/a.raf"));
         assert!(!is_copy_of("/p/b.raf?vc=1", "/p/a.raf"));
+    }
+
+    #[test]
+    fn sidecar_names_give_their_file_and_copy() {
+        assert_eq!(sidecar_name_parts("a.raf.rrdata"), Some(("a.raf", None)));
+        assert_eq!(
+            sidecar_name_parts("a.raf.0f1e2d.rrdata"),
+            Some(("a.raf", Some("0f1e2d")))
+        );
+        assert_eq!(
+            sidecar_name_parts("a.raf.ABCDEF.rrdata"),
+            Some(("a.raf.ABCDEF", None))
+        );
+        assert_eq!(sidecar_name_parts("0f1e2d.rrdata"), Some(("0f1e2d", None)));
+        assert_eq!(
+            sidecar_name_parts(".0f1e2d.rrdata"),
+            Some(("", Some("0f1e2d")))
+        );
+        assert_eq!(
+            sidecar_name_parts("Grün.0f1e2d.rrdata"),
+            Some(("Grün", Some("0f1e2d")))
+        );
+        assert_eq!(sidecar_name_parts("a.raf"), None);
     }
 
     #[test]

@@ -99,7 +99,7 @@ enum Job {
 }
 
 fn source_of(path: &str) -> String {
-    path.split("?vc=").next().unwrap_or(path).to_string()
+    rawtonic_metadata::photo_ref::source_of(path).to_string()
 }
 
 #[derive(Default)]
