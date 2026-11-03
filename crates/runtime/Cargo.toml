@@ -10,8 +10,11 @@ default = []
 # Stage timing written to the log (stderr without a logger); never in normal builds.
 performance-profiling = ["dep:serde_json", "dep:log", "dep:libc"]
 
+[lints]
+workspace = true
+
 [dependencies]
 serde_json = { workspace = true, optional = true }
-log = { version = "0.4", optional = true }
-libc = { version = "0.2.189", optional = true }
+log = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }

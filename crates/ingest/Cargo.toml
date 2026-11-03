@@ -4,29 +4,32 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
-anyhow.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 rawtonic-fileops = { path = "../fileops", version = "0.1.0" }
-kamadak-exif = "0.6.1"
+kamadak-exif = { workspace = true }
 memchr = "2.8.3"
-roxmltree = "0.21"
-rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
-chrono.workspace = true
-tempfile.workspace = true
-sha2.workspace = true
-log = "0.4"
+roxmltree = { workspace = true }
+rawler = { workspace = true }
+log = { workspace = true }
 rawtonic-naming = { path = "../naming", version = "0.1.0" }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+tempfile = { workspace = true }
+sha2 = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.189"
+libc = { workspace = true }
 
 [dev-dependencies]
-tempfile.workspace = true
-image = "0.25.10"
-rusqlite = { version = "0.40", features = ["bundled"] }
+image = { workspace = true }
+rusqlite = { workspace = true, features = ["bundled"] }
 rawtonic-merge = { path = "../merge", version = "0.1.0" }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0", features = ["test-support"] }
+tempfile = { workspace = true }

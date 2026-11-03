@@ -5,19 +5,22 @@ edition.workspace = true
 license.workspace = true
 description = "AI denoising of Bayer mosaics (Nonlocal MatchFilter) for Rawtonic, independent of Tauri"
 
+[lints]
+workspace = true
+
 [dependencies]
-anyhow.workspace = true
-half = "2.7.1"
+half = { workspace = true }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
+ort = { workspace = true, features = ["std", "ndarray", "load-dynamic", "api-22"] }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
-ndarray = "0.17"
-tempfile.workspace = true
+ndarray = { workspace = true }
+anyhow = { workspace = true }
+tempfile = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-foundation = { version = "0.3.2", features = ["NSBundle", "NSString", "NSURL", "NSArray", "NSValue", "NSError", "NSDictionary"] }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSBundle", "NSString", "NSURL", "NSArray", "NSValue", "NSError", "NSDictionary"] }
 objc2-core-ml = { version = "0.3.2", features = ["MLModel", "MLMultiArray", "MLFeatureProvider", "MLDictionaryFeatureProvider", "MLFeatureValue", "MLModelConfiguration", "MLModel_MLModelCompilation", "MLPredictionOptions", "MLModelDescription", "MLFeatureDescription", "MLMultiArrayConstraint", "block2"] }
 
 [dev-dependencies]
-tempfile.workspace = true
+tempfile = { workspace = true }

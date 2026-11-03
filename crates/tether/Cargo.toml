@@ -11,15 +11,18 @@ default = []
 # only into the helper binary. Needs libgphoto2 found by pkg-config.
 gphoto2 = ["dep:gphoto2"]
 
+[lints]
+workspace = true
+
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
-tempfile.workspace = true
-log = "0.4"
+log = { workspace = true }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.189"
+libc = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 gphoto2 = { git = "https://github.com/CyberTimon/libgphoto2-rs", optional = true, features = ["log"] }

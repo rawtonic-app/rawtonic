@@ -4,10 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
-anyhow.workspace = true
-chrono.workspace = true
-serde.workspace = true
+anyhow = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
 
 [dev-dependencies]
-proptest = "1"
+proptest = { workspace = true }

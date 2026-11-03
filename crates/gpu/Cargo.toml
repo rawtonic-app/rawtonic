@@ -14,21 +14,24 @@ performance-profiling = [
     "rawtonic-runtime/performance-profiling",
 ]
 
+[lints]
+workspace = true
+
 [dependencies]
 rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
-wgpu = "30.0"
-bytemuck = { version = "1.25", features = ["derive"] }
-half = { version = "2.7.1", features = ["bytemuck"] }
-image = "0.25.10"
-rayon = "1.12.0"
-serde_json = "1.0"
-log = "0.4"
-pollster = "1.0"
+wgpu = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+half = { workspace = true, features = ["bytemuck"] }
+image = { workspace = true }
+rayon = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+pollster = { workspace = true }
 
 [dev-dependencies]
-base64 = "0.23"
-tempfile.workspace = true
+base64 = { workspace = true }
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }
+tempfile = { workspace = true }

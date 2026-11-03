@@ -8,20 +8,23 @@ license.workspace = true
 # Failure injection for other crates' tests of all-or-nothing writes.
 test-support = []
 
+[lints]
+workspace = true
+
 [dependencies]
-anyhow.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-uuid.workspace = true
-rusqlite = { version = "0.40", features = ["bundled", "serde_json", "functions"] }
+rusqlite = { workspace = true, features = ["bundled", "serde_json", "functions"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
-log = "0.4"
-sha2.workspace = true
-chrono.workspace = true
+log = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+sha2 = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.189"
+libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 same-file = "1.0.6"
@@ -31,5 +34,5 @@ same-file = "1.0.6"
 rawtonic-fileops = { path = "../fileops", version = "0.1.0" }
 # `Library::fail_when_marking`: a failing write inside mark_changed_elsewhere.
 rawtonic-catalog = { path = ".", features = ["test-support"] }
-tempfile.workspace = true
-proptest = "1"
+proptest = { workspace = true }
+tempfile = { workspace = true }

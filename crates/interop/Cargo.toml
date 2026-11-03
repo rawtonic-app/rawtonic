@@ -5,14 +5,17 @@ edition.workspace = true
 license.workspace = true
 description = "Read-only readers for Lightroom Classic catalogs and Capture One sessions, independent of Tauri"
 
+[lints]
+workspace = true
+
 [dependencies]
-anyhow.workspace = true
-serde.workspace = true
-tempfile.workspace = true
-rusqlite = { version = "0.40", features = ["bundled"] }
-flate2 = "1.1.9"
+rusqlite = { workspace = true, features = ["bundled"] }
+flate2 = { workspace = true }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
-roxmltree = "0.21"
-tempfile.workspace = true
+roxmltree = { workspace = true }
+tempfile = { workspace = true }
