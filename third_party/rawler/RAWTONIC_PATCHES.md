@@ -415,3 +415,9 @@ Three pieces were taken over, each from rawler 0.8.0's sources:
   entry unchanged (colour matrices from upstream). No C50 file was
   available to test it (none in the raw.pixls.us mirror on 2026-11-03).
   Test `canon_eos_c50_is_known` in `src/decoders/raf.rs`.
+- `data/lenses/rf_mount/canon.toml`: the RF 200-800mm F6.3-9 IS USM with
+  the RF1.4x and RF2x extenders carries its CR3 lens name (`key`) and the
+  extended focal and aperture ranges (280-1120 mm f/9-13, 400-1600 mm
+  f/13-18), as in rawler 0.8.0; they listed the bare lens's 200-800 mm
+  f/6.3-9. Only lens metadata change (an export's LensSpecification), no
+  pixels. Test `resolve_rf_200_800_with_extenders` in `src/lens.rs`.
