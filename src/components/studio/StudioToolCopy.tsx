@@ -1,12 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
-import { ArrowLeftRight } from "lucide-react";
-import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
-import { usePopoverFocus } from "./usePopoverFocus";
-import { withBwVersion, withClarityVersion, withGrainVersion, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from "../../utils/adjustments";
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import { ArrowLeftRight } from 'lucide-react';
+import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useEditorActions } from '../../hooks/useEditorActions';
+import { usePopoverFocus } from './usePopoverFocus';
+import {
+  withBwVersion,
+  withClarityVersion,
+  withGrainVersion,
+  withLumaNoiseVersion,
+  withSharpenVersion,
+  type Adjustments
+} from '../../utils/adjustments';
 
 /** A tool's parameters: recipe key and (translated) label. */
 export type ToolParams = [keyof Adjustments & string, string][];
@@ -19,46 +26,49 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
  * response makes of it. */
 export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // A LUT selection includes its baked table and input space.
-  lutPath: ["lutName", "lutSize", "lutData", "lutIsSceneReferred"],
-  colorNoiseReduction: ["colorNoiseVersion"],
-  colorNoiseDetail: ["colorNoiseVersion"],
-  colorNoiseSmoothness: ["colorNoiseVersion"],
+  lutPath: ['lutName', 'lutSize', 'lutData', 'lutIsSceneReferred'],
+  colorNoiseReduction: ['colorNoiseVersion'],
+  colorNoiseDetail: ['colorNoiseVersion'],
+  colorNoiseSmoothness: ['colorNoiseVersion'],
   // The luminance amounts mean what its noise reduction version makes of them.
-  lumaNoiseReduction: ["lumaNoiseVersion"],
-  lumaNoiseDetail: ["lumaNoiseVersion"],
-  lumaNoiseContrast: ["lumaNoiseVersion"],
+  lumaNoiseReduction: ['lumaNoiseVersion'],
+  lumaNoiseDetail: ['lumaNoiseVersion'],
+  lumaNoiseContrast: ['lumaNoiseVersion'],
   // Shadows means what the recipe's tone-slider response makes of it.
-  shadows: ["toneVersion"],
+  shadows: ['toneVersion'],
   // Clarity means what the recipe's Clarity response makes of it.
-  clarity: ["clarityVersion"],
+  clarity: ['clarityVersion'],
   // The B&W mix means what the recipe's mix response makes of it.
-  blackAndWhite: ["bwVersion"],
-  grayMixer: ["bwVersion"],
+  blackAndWhite: ['bwVersion'],
+  grayMixer: ['bwVersion'],
   // Defringe means what the recipe's fringe detector makes of it.
-  defringePurpleAmount: ["defringeVersion"],
-  defringeGreenAmount: ["defringeVersion"],
+  defringePurpleAmount: ['defringeVersion'],
+  defringeGreenAmount: ['defringeVersion'],
   // The sharpening means what the recipe's sharpening response makes of it.
-  sharpness: ["sharpenVersion"],
-  sharpnessThreshold: ["sharpenVersion"],
-  sharpenRadius: ["sharpenVersion"],
-  sharpenDetail: ["sharpenVersion"],
-  sharpenMasking: ["sharpenVersion"],
-  sharpnessFalloff: ["sharpenVersion"],
+  sharpness: ['sharpenVersion'],
+  sharpnessThreshold: ['sharpenVersion'],
+  sharpenRadius: ['sharpenVersion'],
+  sharpenDetail: ['sharpenVersion'],
+  sharpenMasking: ['sharpenVersion'],
+  sharpnessFalloff: ['sharpenVersion'],
   // AI Denoise means what the recipe's AI Denoise version makes of it.
-  aiDenoise: ["aiDenoiseVersion"],
+  aiDenoise: ['aiDenoiseVersion']
 };
 
 export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
   const all = new Set(keys.flatMap((key) => [key, ...(COPIED_ALONG[key] ?? [])]));
   const picked = Object.fromEntries(
-    [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])]),
+    [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])])
   ) as Partial<Adjustments>;
   // A missing response key would vanish on the way: say it explicitly. The
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.
   return withBwVersion(
-    withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values), values),
-    values,
+    withClarityVersion(
+      withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values),
+      values
+    ),
+    values
   );
 }
 
@@ -69,7 +79,7 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
 export default function StudioToolCopy({
   tool,
   label = tool,
-  params,
+  params
 }: {
   /** Stable tool id: the copied values are offered to the same tool only. */
   tool: string;
@@ -87,13 +97,10 @@ export default function StudioToolCopy({
 
   const others = () => {
     const current = useEditorStore.getState().selectedImage?.path;
-    return useLibraryStore
-      .getState()
-      .multiSelectedPaths.filter((path) => path !== current);
+    return useLibraryStore.getState().multiSelectedPaths.filter((path) => path !== current);
   };
   const copy = (chosen: string[]) => {
-    const { adjustments, selectedImage: image, setEditor } =
-      useEditorStore.getState();
+    const { adjustments, selectedImage: image, setEditor } = useEditorStore.getState();
     if (!image) return null;
     const values = pick(adjustments, chosen);
     setEditor({ toolClipboard: { tool, source: image.path, values } });
@@ -108,8 +115,8 @@ export default function StudioToolCopy({
     <>
       <button
         type="button"
-        title={t("studio.tools.copy.buttonTitle", { tool: label })}
-        aria-label={t("studio.tools.copy.aria", { tool: label })}
+        title={t('studio.tools.copy.buttonTitle', { tool: label })}
+        aria-label={t('studio.tools.copy.aria', { tool: label })}
         disabled={!panelsReady}
         onClick={(e) => {
           e.preventDefault();
@@ -135,22 +142,14 @@ export default function StudioToolCopy({
           anchor={anchor}
           source={fileName(selectedImage.path)}
           otherCount={others().length}
-          pasteFrom={
-            clipboard &&
-            clipboard.tool === tool &&
-            clipboard.source !== selectedImage.path
-              ? clipboard
-              : null
-          }
+          pasteFrom={clipboard && clipboard.tool === tool && clipboard.source !== selectedImage.path ? clipboard : null}
           onClose={() => setAnchor(null)}
           onCopy={(chosen) => copy(chosen)}
           onApply={(chosen) => {
             const values = copy(chosen);
             if (values) applyToOthers(values);
           }}
-          onPaste={(values) =>
-            applyAdjustmentsToPaths(values, [selectedImage.path])
-          }
+          onPaste={(values) => applyAdjustmentsToPaths(values, [selectedImage.path])}
         />
       )}
     </>
@@ -167,7 +166,7 @@ function CopyPopover({
   onClose,
   onCopy,
   onApply,
-  onPaste,
+  onPaste
 }: {
   tool: string;
   params: ToolParams;
@@ -191,7 +190,7 @@ function CopyPopover({
     const margin = 8;
     setPosition({
       left: Math.max(margin, Math.min(anchor.x, window.innerWidth - box.width - margin)),
-      top: Math.max(margin, Math.min(anchor.y, window.innerHeight - box.height - margin)),
+      top: Math.max(margin, Math.min(anchor.y, window.innerHeight - box.height - margin))
     });
   }, [anchor]);
   useEffect(() => {
@@ -199,16 +198,16 @@ function CopyPopover({
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopImmediatePropagation();
       onClose();
     };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('keydown', onKeyDown, true);
     };
   }, [onClose]);
   const selected = params.map(([k]) => k).filter((k) => chosen.has(k));
@@ -218,12 +217,12 @@ function CopyPopover({
       tabIndex={-1}
       className="studio-tool-popover studio-copy-popover"
       role="dialog"
-      aria-label={t("studio.tools.copy.aria", { tool })}
+      aria-label={t('studio.tools.copy.aria', { tool })}
       style={{ left: position.left, top: position.top }}
     >
       <div className="studio-tool-popover-title">
         {tool}
-        <span>{t("studio.tools.copy.from", { source })}</span>
+        <span>{t('studio.tools.copy.from', { source })}</span>
       </div>
       {params.map(([key, label]) => (
         <label key={key} className="studio-inline studio-check">
@@ -241,7 +240,7 @@ function CopyPopover({
         </label>
       ))}
       <div className="studio-inline">
-        <button onClick={onClose}>{t("studio.tools.copy.cancel")}</button>
+        <button onClick={onClose}>{t('studio.tools.copy.cancel')}</button>
         <button
           disabled={selected.length === 0}
           onClick={() => {
@@ -249,30 +248,26 @@ function CopyPopover({
             onClose();
           }}
         >
-          {t("studio.tools.copy.copy")}
+          {t('studio.tools.copy.copy')}
         </button>
         <button
           disabled={selected.length === 0 || otherCount === 0}
           title={
-            otherCount === 0
-              ? t("studio.tools.copy.noOthers")
-              : t("studio.tools.copy.applyTo", { count: otherCount })
+            otherCount === 0 ? t('studio.tools.copy.noOthers') : t('studio.tools.copy.applyTo', { count: otherCount })
           }
           onClick={() => {
             onApply(selected);
             onClose();
           }}
         >
-          {otherCount > 0
-            ? t("studio.tools.copy.applyCount", { n: otherCount })
-            : t("studio.tools.copy.apply")}
+          {otherCount > 0 ? t('studio.tools.copy.applyCount', { n: otherCount }) : t('studio.tools.copy.apply')}
         </button>
       </div>
       {pasteFrom && (
         <div className="studio-inline">
           <span>
-            {t("studio.tools.copy.copiedFrom", {
-              source: fileName(pasteFrom.source),
+            {t('studio.tools.copy.copiedFrom', {
+              source: fileName(pasteFrom.source)
             })}
           </span>
           <button
@@ -281,11 +276,11 @@ function CopyPopover({
               onClose();
             }}
           >
-            {t("studio.tools.copy.applyHere")}
+            {t('studio.tools.copy.applyHere')}
           </button>
         </div>
       )}
     </div>,
-    document.querySelector(".studio-workspace") ?? document.body,
+    document.querySelector('.studio-workspace') ?? document.body
   );
 }

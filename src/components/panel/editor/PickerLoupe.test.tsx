@@ -15,7 +15,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((_name: string, handler: (event: { payload: { path: string } }) => void) => {
     frameReady.handler = handler;
     return Promise.resolve(() => {});
-  }),
+  })
 }));
 
 const patch: PreviewPatch = {
@@ -26,7 +26,7 @@ const patch: PreviewPatch = {
   pixels: Array.from({ length: 121 * 3 }, () => 128),
   center: [5, 5],
   mean: [127.5, 51, 255],
-  frame: [400, 300],
+  frame: [400, 300]
 };
 
 function Viewer({ enabled, picker, preview = null }: { enabled: boolean; picker: boolean; preview?: string | null }) {
@@ -44,7 +44,17 @@ function Viewer({ enabled, picker, preview = null }: { enabled: boolean; picker:
 }
 
 const rect = (left: number, top: number, width: number, height: number) =>
-  ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+  ({
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({})
+  }) as DOMRect;
 
 beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', (run: () => void) => {
@@ -58,7 +68,7 @@ beforeEach(() => {
     appSettings: { pointerReadout: true, pointerReadoutUnit: 'rgb255' } as AppSettings,
     handleSettingsChange: vi.fn(async (next: AppSettings) => {
       useSettingsStore.setState({ appSettings: next });
-    }),
+    })
   } as never);
 });
 

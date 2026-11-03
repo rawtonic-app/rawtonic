@@ -12,13 +12,13 @@ const context: ReportContext = {
   app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '26.5', arch: 'aarch64' },
   gpu: { vendor: 'apple', name: 'Apple M5 Pro' },
   logTail: 'opening <path>.NEF\nexport failed',
-  screenshotAvailable: true,
+  screenshotAvailable: true
 };
 const screenshot: Screenshot = { mime: 'image/jpeg', data: 'AAAA', width: 2, height: 1 };
 
 // Stands in for the app's scrubbing: the body that is shown and sent.
 const prepare = vi.fn((channel: ContributionChannel, payload: Record<string, unknown>) =>
-  Promise.resolve<PreparedContribution>({ channel, body: JSON.stringify(payload, null, 2), digest: 'd'.repeat(64) }),
+  Promise.resolve<PreparedContribution>({ channel, body: JSON.stringify(payload, null, 2), digest: 'd'.repeat(64) })
 );
 
 let clipboard: ReturnType<typeof vi.fn>;
@@ -35,7 +35,7 @@ const props = {
   context,
   screenshot,
   photo: { make: 'NIKON', model: 'Z 6', fileType: 'NEF', path: '/private/DSC_1.NEF' },
-  prepare,
+  prepare
 };
 
 describe('Report a problem', () => {
@@ -83,7 +83,7 @@ describe('Report a problem', () => {
       app: context.app,
       gpu: context.gpu,
       text: 'Crops vanish',
-      screenshot: { mime: 'image/jpeg', data: 'AAAA' },
+      screenshot: { mime: 'image/jpeg', data: 'AAAA' }
     });
     expect(body.textContent).toContain('"text": "Crops vanish"');
     expect(send).not.toHaveBeenCalled();
@@ -105,7 +105,11 @@ describe('Report a problem', () => {
     expect(screen.queryByText(/serial number/)).toBeNull();
     fireEvent.click(review);
     await screen.findByLabelText('What will be sent');
-    expect((prepare.mock.calls.at(-1)?.[1] as { photo: object }).photo).toEqual({ make: 'NIKON', model: 'Z 6', fileType: 'NEF' });
+    expect((prepare.mock.calls.at(-1)?.[1] as { photo: object }).photo).toEqual({
+      make: 'NIKON',
+      model: 'Z 6',
+      fileType: 'NEF'
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Attach the photo file itself/ }));
     expect(screen.getByRole('note').textContent).toMatch(/serial number.*GPS/);
@@ -115,7 +119,7 @@ describe('Report a problem', () => {
       make: 'NIKON',
       model: 'Z 6',
       fileType: 'NEF',
-      path: '/private/DSC_1.NEF',
+      path: '/private/DSC_1.NEF'
     });
   });
 
@@ -128,7 +132,11 @@ describe('Report a problem', () => {
     prepare.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /Copy report/ }));
     await waitFor(() => expect(clipboard).toHaveBeenCalledTimes(1));
-    expect((prepare.mock.calls[0][1] as { photo: object }).photo).toEqual({ make: 'NIKON', model: 'Z 6', fileType: 'NEF' });
+    expect((prepare.mock.calls[0][1] as { photo: object }).photo).toEqual({
+      make: 'NIKON',
+      model: 'Z 6',
+      fileType: 'NEF'
+    });
     expect(clipboard.mock.calls[0][0] as string).toMatch(/Photo file:\*\* not included/);
     fireEvent.click(screen.getByRole('button', { name: /Open on GitHub/ }));
     const shown = await screen.findByLabelText('Text for GitHub');
@@ -139,9 +147,10 @@ describe('Report a problem', () => {
   it('drops a preparation that arrives after the text changed', async () => {
     let finish: (body: PreparedContribution) => void = () => {};
     const slow = vi.fn(
-      () => new Promise<PreparedContribution>((resolve) => {
-        finish = resolve;
-      }),
+      () =>
+        new Promise<PreparedContribution>((resolve) => {
+          finish = resolve;
+        })
     );
     render(<ProblemReportDialog {...props} prepare={slow} available={() => Promise.resolve(true)} send={vi.fn()} />);
     const review = await screen.findByRole('button', { name: 'Review and send…' });
@@ -165,7 +174,7 @@ describe('Report a problem', () => {
         onClose={() => {}}
         send={() => Promise.resolve({ id: 'abcdefghijklmnopqrstuvwxyz' })}
         remove={remove}
-      />,
+      />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Delete this report now' }));

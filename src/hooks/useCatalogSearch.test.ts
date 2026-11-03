@@ -17,14 +17,15 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async (name: string, handler: () => void) => {
     listeners.set(name, handler);
     return () => listeners.delete(name);
-  }),
+  })
 }));
 const mockInvoke = vi.mocked(invoke);
 /** Searches asked, leaving out the question which photographs the catalog
  * knows (asked with each search, `catalogKnown`). */
 const searches = () =>
-  mockInvoke.mock.calls.filter(([, args]) => JSON.stringify((args as { rule: unknown }).rule) !== '{"combine":"all","rules":[]}')
-    .length;
+  mockInvoke.mock.calls.filter(
+    ([, args]) => JSON.stringify((args as { rule: unknown }).rule) !== '{"combine":"all","rules":[]}'
+  ).length;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -34,7 +35,7 @@ beforeEach(() => {
     sessionDirectory: '/job',
     searchCriteria: { text: '', tags: [], mode: 'OR' },
     filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All },
-    catalogMatches: null,
+    catalogMatches: null
   });
 });
 afterEach(() => {
@@ -62,7 +63,7 @@ it('asks the catalog after typing pauses and again after a catalog write', async
   expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
     listed: null,
-    rule: { field: 'text', op: 'contains', value: 'wedding' },
+    rule: { field: 'text', op: 'contains', value: 'wedding' }
   });
   expect([...(useLibraryStore.getState().catalogMatches ?? [])]).toEqual(['/job/Capture/a.arw']);
 
@@ -81,9 +82,9 @@ it('asks the catalog after typing pauses and again after a catalog write', async
       combine: 'all',
       rules: [
         { field: 'text', op: 'contains', value: 'wedding' },
-        { field: 'camera', op: 'is', value: 'X-T4' },
-      ],
-    },
+        { field: 'camera', op: 'is', value: 'X-T4' }
+      ]
+    }
   });
 
   act(() => useLibraryStore.getState().setLibrary({ sessionDirectory: null }));
@@ -173,20 +174,22 @@ it('asks for answers in the form of the folder the grid lists', async () => {
   useLibraryStore.setState({
     searchCriteria: { text: 'bride', tags: [], mode: 'OR' },
     currentFolderPath: '/alias/Capture',
-    activeAlbumId: null,
+    activeAlbumId: null
   });
   renderHook(() => useCatalogSearch());
   await settle();
   expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
     listed: '/alias/Capture',
-    rule: { field: 'text', op: 'contains', value: 'bride' },
+    rule: { field: 'text', op: 'contains', value: 'bride' }
   });
   useLibraryStore.setState({ currentFolderPath: null });
 });
 
 it('refreshes AI searches after recipe events and removes the listener on close', async () => {
-  useLibraryStore.setState({ filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All, metadata: { ai: ['generated'] } } });
+  useLibraryStore.setState({
+    filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All, metadata: { ai: ['generated'] } }
+  });
   const { unmount } = renderHook(() => useCatalogSearch());
   await settle();
   expect(useLibraryStore.getState().catalogMatches?.size).toBe(1);

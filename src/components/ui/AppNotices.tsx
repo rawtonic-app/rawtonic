@@ -42,7 +42,9 @@ export default function AppNotices({ children }: { children?: ReactNode }) {
         transition={Fade}
         closeButton={CloseButton}
         aria-label={t('notifications.region')}
-        toastClassName={(context) => `${context?.defaultClassName ?? ''} app-notice app-notice--${context?.type ?? 'default'}`}
+        toastClassName={(context) =>
+          `${context?.defaultClassName ?? ''} app-notice app-notice--${context?.type ?? 'default'}`
+        }
       />
       {children}
     </div>

@@ -38,7 +38,7 @@ import {
   withGrainVersion,
   withLegacyGrainVersion,
   GRAIN_VERSION,
-  type Adjustments,
+  type Adjustments
 } from './adjustments';
 import settings from '../../src-tauri/src/app_settings.rs?raw';
 
@@ -120,15 +120,17 @@ describe('RAW detail defaults', () => {
     expect(initialAdjustmentsFor(false).renderVersion).toBe(RENDER_VERSION);
     const saved = { ...INITIAL_ADJUSTMENTS, exposure: 0.5 } as Adjustments;
     expect('renderVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
-    expect('renderVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ exposure: 0.5 } as Adjustments, true)))).toBe(false);
+    expect(
+      'renderVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ exposure: 0.5 } as Adjustments, true)))
+    ).toBe(false);
     expect(normalizeLoadedAdjustments({ ...saved, renderVersion: 2 }, false).renderVersion).toBe(2);
     expect(COPYABLE_ADJUSTMENT_KEYS).not.toContain('renderVersion');
     // Library Reset saves an empty recipe (loading stamps only its lens
     // lookup): it renders as a new edit, here as in the backend.
     expect(normalizeLoadedAdjustments({} as Adjustments, true).renderVersion).toBe(RENDER_VERSION);
-    expect(normalizeLoadedAdjustments({ lensProfileFor: '["manual",null,null,null]' } as Adjustments, true).renderVersion).toBe(
-      RENDER_VERSION,
-    );
+    expect(
+      normalizeLoadedAdjustments({ lensProfileFor: '["manual",null,null,null]' } as Adjustments, true).renderVersion
+    ).toBe(RENDER_VERSION);
   });
 
   it('start new RAW edits with the edge-fringe pass and keep saved recipes without it', () => {
@@ -160,7 +162,9 @@ describe('RAW detail defaults', () => {
     expect('defringeVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(purple, true)))).toBe(false);
     const layer = {
       ...INITIAL_ADJUSTMENTS,
-      masks: [{ id: "m", name: "m", visible: true, invert: false, opacity: 100, subMasks: [], adjustments: { defringe: 50 } }],
+      masks: [
+        { id: 'm', name: 'm', visible: true, invert: false, opacity: 100, subMasks: [], adjustments: { defringe: 50 } }
+      ]
     } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layer, true).defringeVersion).toBeUndefined();
     expect(normalizeLoadedAdjustments({ ...purple, defringeVersion: 2 }, true).defringeVersion).toBe(2);
@@ -172,7 +176,10 @@ describe('RAW detail defaults', () => {
     expect(initialAdjustmentsFor(false).bwVersion).toBe(BW_VERSION);
     // A recipe in colour, or converted with every slider at 0, renders the
     // same with either response.
-    const colour = { ...INITIAL_ADJUSTMENTS, grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer, blue: -40 } } as Adjustments;
+    const colour = {
+      ...INITIAL_ADJUSTMENTS,
+      grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer, blue: -40 }
+    } as Adjustments;
     expect(normalizeLoadedAdjustments(colour, true).bwVersion).toBe(BW_VERSION);
     const neutral = { ...INITIAL_ADJUSTMENTS, blackAndWhite: true } as Adjustments;
     expect(normalizeLoadedAdjustments(neutral, true).bwVersion).toBe(BW_VERSION);
@@ -182,9 +189,15 @@ describe('RAW detail defaults', () => {
     expect('bwVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(mixed, true)))).toBe(false);
     expect(normalizeLoadedAdjustments({ ...mixed, bwVersion: 2 }, true).bwVersion).toBe(2);
     // A paste of the mix states the source's response (1 for the older edit).
-    const pasted = pastedAdjustments(normalizeLoadedAdjustments(mixed, true), ['blackAndWhite', 'grayMixer', 'bwVersion'], PasteMode.Replace);
+    const pasted = pastedAdjustments(
+      normalizeLoadedAdjustments(mixed, true),
+      ['blackAndWhite', 'grayMixer', 'bwVersion'],
+      PasteMode.Replace
+    );
     expect(JSON.parse(JSON.stringify(pasted)).bwVersion).toBe(1);
-    expect(pastedAdjustments({ ...mixed, bwVersion: 2 }, ['grayMixer', 'bwVersion'], PasteMode.Merge).bwVersion).toBe(2);
+    expect(pastedAdjustments({ ...mixed, bwVersion: 2 }, ['grayMixer', 'bwVersion'], PasteMode.Merge).bwVersion).toBe(
+      2
+    );
   });
 
   it('carry the AI Denoise version with a copied amount', () => {
@@ -193,7 +206,9 @@ describe('RAW detail defaults', () => {
     // Presets and recipes from before the key: version 1 above 0, the current one at 0.
     expect(withAiDenoiseVersion({ aiDenoise: 60 }).aiDenoiseVersion).toBe(1);
     expect(withAiDenoiseVersion({ aiDenoise: 0 }).aiDenoiseVersion).toBe(AI_DENOISE_VERSION);
-    expect(withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 3 }, { aiDenoiseVersion: 2 }).aiDenoiseVersion).toBe(3);
+    expect(withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 3 }, { aiDenoiseVersion: 2 }).aiDenoiseVersion).toBe(
+      3
+    );
     // Nothing to carry without an amount.
     expect('aiDenoiseVersion' in withAiDenoiseVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
   });
@@ -204,7 +219,9 @@ describe('RAW detail defaults', () => {
     expect(withDiffractionVersion({ diffractionCorrection: true }).diffractionVersion).toBe(1);
     expect(withDiffractionVersion({ diffractionCorrection: true }, {}).diffractionVersion).toBe(1);
     // The source's version goes along; an explicit one stays.
-    expect(withDiffractionVersion({ diffractionCorrection: true }, { diffractionVersion: 2 }).diffractionVersion).toBe(2);
+    expect(withDiffractionVersion({ diffractionCorrection: true }, { diffractionVersion: 2 }).diffractionVersion).toBe(
+      2
+    );
     expect(withDiffractionVersion({ diffractionCorrection: true, diffractionVersion: 2 }).diffractionVersion).toBe(2);
     // Nothing to carry when the correction is not copied on.
     expect('diffractionVersion' in withDiffractionVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
@@ -310,7 +327,10 @@ describe('RAW detail defaults', () => {
       normalizeLoadedAdjustments(recipe as unknown as Adjustments, isRaw).sharpenVersion;
     // Renders differently with the current response: the earliest response, key absent.
     expect(load({ sharpness: 80 })).toBeUndefined();
-    expect('sharpenVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ sharpness: 80 } as unknown as Adjustments, true)))).toBe(false);
+    expect(
+      'sharpenVersion' in
+        JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ sharpness: 80 } as unknown as Adjustments, true)))
+    ).toBe(false);
     expect(load({ sharpness: 40, sharpenDetail: 100 })).toBeUndefined();
     expect(load({ sharpenRadius: 2 })).toBeUndefined();
     expect(load({ sharpenMasking: 30 })).toBeUndefined();
@@ -346,8 +366,12 @@ describe('RAW detail defaults', () => {
     // the earlier filter, key absent.
     expect(load({})).toBeUndefined();
     expect(load({ lumaNoiseReduction: 30 })).toBeUndefined();
-    expect(load({ lumaNoiseReduction: 0, masks: [{ adjustments: { lumaNoiseReduction: 20 }, subMasks: [] }] })).toBeUndefined();
-    expect('lumaNoiseVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({} as Adjustments, true)))).toBe(false);
+    expect(
+      load({ lumaNoiseReduction: 0, masks: [{ adjustments: { lumaNoiseReduction: 20 }, subMasks: [] }] })
+    ).toBeUndefined();
+    expect('lumaNoiseVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({} as Adjustments, true)))).toBe(
+      false
+    );
     // No luminance noise reduction renders the same with either: the current one.
     expect(load({ lumaNoiseReduction: 0 })).toBe(LUMA_NOISE_VERSION);
     expect(load({}, false)).toBe(LUMA_NOISE_VERSION);
@@ -377,7 +401,7 @@ describe('RAW detail defaults', () => {
     const red = [
       { x: 0, y: 0 },
       { x: 128, y: 160 },
-      { x: 255, y: 255 },
+      { x: 255, y: 255 }
     ];
     // Neutral curves render alike in every version; changed ones differ
     // between display values (before 3) and the wide working space.
@@ -396,7 +420,7 @@ describe('RAW detail defaults', () => {
   it('take a neutral Luminance curve for none', () => {
     const neutral = [
       { x: 0, y: 0 },
-      { x: 255, y: 255 },
+      { x: 255, y: 255 }
     ];
     // A Luminance point added and deleted again leaves a neutral channel.
     const cleared = { ...INITIAL_ADJUSTMENTS.curves, luminance: neutral };
@@ -406,10 +430,13 @@ describe('RAW detail defaults', () => {
     const red = [
       { x: 0, y: 0 },
       { x: 128, y: 160 },
-      { x: 255, y: 255 },
+      { x: 255, y: 255 }
     ];
     const target = { ...INITIAL_ADJUSTMENTS, curves: { ...INITIAL_ADJUSTMENTS.curves, red } } as Adjustments;
-    const merged = { ...target, ...pastedAdjustments({ ...target, curves: cleared } as Adjustments, ['curves'], PasteMode.Merge) };
+    const merged = {
+      ...target,
+      ...pastedAdjustments({ ...target, curves: cleared } as Adjustments, ['curves'], PasteMode.Merge)
+    };
     expect(merged.curves.red).toEqual(red);
     // A Luminance curve that changes something counts.
     const lifted = { ...INITIAL_ADJUSTMENTS.curves, luminance: red };
@@ -424,13 +451,18 @@ describe('RAW detail defaults', () => {
     expect(pastedAdjustments(old, all, PasteMode.Merge).lumaNoiseVersion).toBe(1);
     expect(JSON.parse(JSON.stringify(pastedAdjustments(old, all, PasteMode.Merge))).lumaNoiseVersion).toBe(1);
     const now = { ...INITIAL_ADJUSTMENTS, lumaNoiseReduction: 30, lumaNoiseVersion: LUMA_NOISE_VERSION } as Adjustments;
-    expect(pastedAdjustments(now, all, PasteMode.Merge)).toMatchObject({ lumaNoiseReduction: 30, lumaNoiseVersion: LUMA_NOISE_VERSION });
+    expect(pastedAdjustments(now, all, PasteMode.Merge)).toMatchObject({
+      lumaNoiseReduction: 30,
+      lumaNoiseVersion: LUMA_NOISE_VERSION
+    });
     // Without luminance values the version stays out of the patch.
     const exposure = { ...INITIAL_ADJUSTMENTS, exposure: 0.5, lumaNoiseVersion: 1 } as Adjustments;
     expect('lumaNoiseVersion' in pastedAdjustments(exposure, all, PasteMode.Merge)).toBe(false);
     // Tool copy and Edit all selected: an undefined copied key becomes 1.
     expect(withLumaNoiseVersion({ lumaNoiseReduction: 30, lumaNoiseVersion: undefined }).lumaNoiseVersion).toBe(1);
-    expect(withLumaNoiseVersion({ lumaNoiseDetail: 70 }, { lumaNoiseVersion: 2 } as Adjustments).lumaNoiseVersion).toBe(2);
+    expect(withLumaNoiseVersion({ lumaNoiseDetail: 70 }, { lumaNoiseVersion: 2 } as Adjustments).lumaNoiseVersion).toBe(
+      2
+    );
     const layered = { masks: [{ adjustments: { lumaNoiseReduction: 20 }, subMasks: [] }] } as unknown as Adjustments;
     expect(withLumaNoiseVersion(layered, {} as Adjustments).lumaNoiseVersion).toBe(1);
     expect('lumaNoiseVersion' in withLumaNoiseVersion({ exposure: 1 }, {} as Adjustments)).toBe(false);
@@ -455,7 +487,9 @@ describe('RAW detail defaults', () => {
     // From a photo with response 1 (no key): 1, so a version-2 target renders as the source did.
     expect(withSharpenVersion({ sharpness: 80 }, { sharpness: 80 } as Adjustments).sharpenVersion).toBe(1);
     expect(withSharpenVersion({ sharpnessThreshold: 30 }, {} as Adjustments).sharpenVersion).toBe(1);
-    expect(JSON.parse(JSON.stringify(withSharpenVersion({ sharpenDetail: 100 }, {} as Adjustments))).sharpenVersion).toBe(1);
+    expect(
+      JSON.parse(JSON.stringify(withSharpenVersion({ sharpenDetail: 100 }, {} as Adjustments))).sharpenVersion
+    ).toBe(1);
     // From a photo with response 2: 2.
     expect(withSharpenVersion({ sharpness: 80 }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(2);
     // Values that carry their own key keep it.
@@ -475,7 +509,9 @@ describe('RAW detail defaults', () => {
     expect(withSharpenVersion(layered, {} as Adjustments).sharpenVersion).toBe(1);
     expect('sharpenVersion' in withSharpenVersion({ exposure: 1 }, {} as Adjustments)).toBe(false);
     // A change back to no key (undo) is response 1, explicitly.
-    expect(withSharpenVersion({ sharpenVersion: undefined }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(1);
+    expect(withSharpenVersion({ sharpenVersion: undefined }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(
+      1
+    );
   });
 });
 
@@ -503,7 +539,7 @@ describe('copy and paste', () => {
 
   it('copies every adjustment except the per-photo ones', () => {
     const forgotten = Object.keys(INITIAL_ADJUSTMENTS).filter(
-      (key) => !COPYABLE_ADJUSTMENT_KEYS.includes(key) && !NON_COPYABLE_ADJUSTMENT_KEYS.includes(key),
+      (key) => !COPYABLE_ADJUSTMENT_KEYS.includes(key) && !NON_COPYABLE_ADJUSTMENT_KEYS.includes(key)
     );
     expect(forgotten).toEqual([]);
   });
@@ -512,7 +548,7 @@ describe('copy and paste', () => {
     // The backend decides what Paste applies (settings.copyPasteSettings) and adds
     // new keys to existing settings; a key missing there is silently not pasted.
     expect(rustList(settings, /pub fn all_available_adjustments\(\)/)).toEqual(
-      [...new Set(COPYABLE_ADJUSTMENT_KEYS)].sort(),
+      [...new Set(COPYABLE_ADJUSTMENT_KEYS)].sort()
     );
     const offByDefault = [...ADJUSTMENT_GROUPS.geometry, ...ADJUSTMENT_GROUPS.masks].flatMap((group) => group.keys);
     expect(rustList(settings, /let off_by_default = /)).toEqual([...offByDefault].sort());
@@ -536,13 +572,13 @@ describe('Grain structure defaults', () => {
 
   it('gives grain turned on in a recipe without a structure the new default only', () => {
     expect(withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20 }).grainStructure).toBe(
-      'clumped',
+      'clumped'
     );
     // Changing grain that is already on keeps what it renders with.
     expect(withNewGrainStructure(old, { ...old, grainAmount: 60 }).grainStructure).toBeUndefined();
     expect(
       withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20, grainStructure: 'gritty' })
-        .grainStructure,
+        .grainStructure
     ).toBe('gritty');
   });
 });
@@ -557,13 +593,15 @@ describe('Grain version', () => {
     expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments).grainVersion).toBe(GRAIN_VERSION);
     expect(initialAdjustmentsFor(true).grainVersion).toBe(GRAIN_VERSION);
     expect(initialAdjustmentsFor(false).grainVersion).toBe(GRAIN_VERSION);
-    expect(withLegacyGrainVersion<Partial<Adjustments>>({ grainAmount: 30, grainStructure: 'soft' }).grainVersion).toBe(1);
+    expect(withLegacyGrainVersion<Partial<Adjustments>>({ grainAmount: 30, grainStructure: 'soft' }).grainVersion).toBe(
+      1
+    );
     expect(withLegacyGrainVersion({ grainAmount: 30, grainVersion: 2 }).grainVersion).toBe(2);
     // Settings chosen in the Copy/Sync picker without the processing versions
     // keep the destination's version: no stamp there.
     expect('grainVersion' in withGrainStructure({ grainAmount: 30 })).toBe(false);
     expect(withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20 }).grainVersion).toBe(
-      GRAIN_VERSION,
+      GRAIN_VERSION
     );
     // Grain already on, or turned off and on again, keeps its version.
     const loaded = normalizeLoadedAdjustments(old);
@@ -581,8 +619,8 @@ describe('Grain version', () => {
     // A Merge paste of only the version (grain values at their defaults) leaves the target's grain alone.
     const source = { ...INITIAL_ADJUSTMENTS, grainVersion: 2 } as Adjustments;
     expect(pastedAdjustments(source, ['grainAmount', 'grainSize', 'grainVersion'], PasteMode.Merge)).toEqual({});
-    expect(
-      pastedAdjustments({ ...source, grainAmount: 30 }, ['grainAmount', 'grainVersion'], PasteMode.Merge),
-    ).toEqual({ grainAmount: 30, grainVersion: 2 });
+    expect(pastedAdjustments({ ...source, grainAmount: 30 }, ['grainAmount', 'grainVersion'], PasteMode.Merge)).toEqual(
+      { grainAmount: 30, grainVersion: 2 }
+    );
   });
 });

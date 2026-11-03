@@ -53,9 +53,9 @@ export function useVirtualCopyCommand(refreshImageList: () => Promise<void>) {
                 notify.error(i18n.t('contextMenus.toasts.failedCreateVirtualCopy', { err }));
               }
             })();
-          },
-        },
+          }
+        }
       }),
-    [],
+    []
   );
 }

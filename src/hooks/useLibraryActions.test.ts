@@ -13,24 +13,24 @@ vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(
 it('reads which photos a batch save missed', () => {
   expect(saveFailure({ message: 'Could not save 1 of 2 photos', failed: ['/a.jpg'] }, ['/a.jpg', '/b.jpg'])).toEqual({
     message: 'Could not save 1 of 2 photos',
-    failed: ['/a.jpg'],
+    failed: ['/a.jpg']
   });
   expect(saveFailure('database is locked', ['/a.jpg', '/b.jpg'])).toEqual({
     message: 'database is locked',
-    failed: ['/a.jpg', '/b.jpg'],
+    failed: ['/a.jpg', '/b.jpg']
   });
 });
 
 it('a rating that was not saved shows the previous one again', async () => {
   vi.mocked(invoke).mockRejectedValueOnce({
     message: 'Could not save 1 of 2 photos: /b.jpg: database is locked',
-    failed: ['/b.jpg'],
+    failed: ['/b.jpg']
   });
   useEditorStore.setState({ selectedImage: null });
   useLibraryStore.setState({
     imageList: [],
     multiSelectedPaths: ['/a.jpg', '/b.jpg'],
-    imageRatings: { '/a.jpg': 4, '/b.jpg': 4 },
+    imageRatings: { '/a.jpg': 4, '/b.jpg': 4 }
   });
   const { result } = renderHook(() => useLibraryActions());
   result.current.handleRate(3);
@@ -75,20 +75,38 @@ it('labels nothing in the Library once the selection was emptied, the open photo
 it('a Shift-click range skips the hidden members of a collapsed stack', async () => {
   const { setStacks } = await import('../store/useStackStore');
   const file = (name: string) => ({
-    path: `/job/${name}.ARW`, rating: 0, tags: null, modified: 0, is_edited: false, is_raw: true,
-    exif: null, is_virtual_copy: false, is_cloud_placeholder: false, group_id: null,
+    path: `/job/${name}.ARW`,
+    rating: 0,
+    tags: null,
+    modified: 0,
+    is_edited: false,
+    is_raw: true,
+    exif: null,
+    is_virtual_copy: false,
+    is_cloud_placeholder: false,
+    group_id: null
   });
   useLibraryStore.setState({
-    imageList: ['a', 'b', 'c'].map(file), activeAlbumId: null, sessionDirectory: '/job',
-    multiSelectedPaths: ['/job/a.ARW'], libraryActivePath: '/job/a.ARW', selectionAnchorPath: '/job/a.ARW',
+    imageList: ['a', 'b', 'c'].map(file),
+    activeAlbumId: null,
+    sessionDirectory: '/job',
+    multiSelectedPaths: ['/job/a.ARW'],
+    libraryActivePath: '/job/a.ARW',
+    selectionAnchorPath: '/job/a.ARW',
     filterCriteria: { flag: 'all', rating: 0, colors: [], rawStatus: 'all' as never },
     searchCriteria: { text: '', tags: [], mode: 'OR' },
     sortCriteria: { key: 'name', order: 'asc' as never },
-    imageRatings: {}, imageFlags: {}, catalogMatches: null,
+    imageRatings: {},
+    imageFlags: {},
+    catalogMatches: null
   });
   setStacks('/job', [{ id: 's', collapsed: true, members: ['/job/a.ARW', '/job/b.ARW'] }]);
   const { result } = renderHook(() => useLibraryActions());
-  result.current.handleLibraryImageSingleClick('/job/c.ARW', { shiftKey: true, ctrlKey: false, metaKey: false } as never);
+  result.current.handleLibraryImageSingleClick('/job/c.ARW', {
+    shiftKey: true,
+    ctrlKey: false,
+    metaKey: false
+  } as never);
   expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/job/a.ARW', '/job/c.ARW']);
   setStacks(null, []);
 });
@@ -96,24 +114,42 @@ it('a Shift-click range skips the hidden members of a collapsed stack', async ()
 it('a Shift-click after collapsing a stack ranges from its shown top', async () => {
   const { setStacks, keepSelectionShown, indexStacks } = await import('../store/useStackStore');
   const file = (name: string) => ({
-    path: `/job/${name}.ARW`, rating: 0, tags: null, modified: 0, is_edited: false, is_raw: true,
-    exif: null, is_virtual_copy: false, is_cloud_placeholder: false, group_id: null,
+    path: `/job/${name}.ARW`,
+    rating: 0,
+    tags: null,
+    modified: 0,
+    is_edited: false,
+    is_raw: true,
+    exif: null,
+    is_virtual_copy: false,
+    is_cloud_placeholder: false,
+    group_id: null
   });
   // B (a hidden member once collapsed) was clicked while the stack was expanded.
   useLibraryStore.setState({
-    imageList: ['a', 'b', 'c', 'd'].map(file), activeAlbumId: null, sessionDirectory: '/job',
-    multiSelectedPaths: ['/job/b.ARW'], libraryActivePath: '/job/b.ARW', selectionAnchorPath: '/job/b.ARW',
+    imageList: ['a', 'b', 'c', 'd'].map(file),
+    activeAlbumId: null,
+    sessionDirectory: '/job',
+    multiSelectedPaths: ['/job/b.ARW'],
+    libraryActivePath: '/job/b.ARW',
+    selectionAnchorPath: '/job/b.ARW',
     filterCriteria: { flag: 'all', rating: 0, colors: [], rawStatus: 'all' as never },
     searchCriteria: { text: '', tags: [], mode: 'OR' },
     sortCriteria: { key: 'name', order: 'asc' as never },
-    imageRatings: {}, imageFlags: {}, catalogMatches: null,
+    imageRatings: {},
+    imageFlags: {},
+    catalogMatches: null
   });
   const collapsed = [{ id: 's', collapsed: true, members: ['/job/a.ARW', '/job/b.ARW'] }];
   keepSelectionShown(indexStacks(collapsed));
   setStacks('/job', collapsed);
   expect(useLibraryStore.getState().selectionAnchorPath).toBe('/job/a.ARW');
   const { result } = renderHook(() => useLibraryActions());
-  result.current.handleLibraryImageSingleClick('/job/d.ARW', { shiftKey: true, ctrlKey: false, metaKey: false } as never);
+  result.current.handleLibraryImageSingleClick('/job/d.ARW', {
+    shiftKey: true,
+    ctrlKey: false,
+    metaKey: false
+  } as never);
   expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/job/a.ARW', '/job/c.ARW', '/job/d.ARW']);
   setStacks(null, []);
 });

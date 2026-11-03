@@ -5,7 +5,7 @@ import {
   DONE_KEPT,
   DONE_KEPT_MS,
   resetActivityStore,
-  useActivityStore,
+  useActivityStore
 } from './useActivityStore';
 
 const store = () => useActivityStore.getState();
@@ -100,7 +100,7 @@ it('copies the title, detail and the photographs it is about', () => {
     source: 'write',
     title: 'Changes to 1 photo were not saved',
     detail: 'disk full',
-    paths: ['/a/B.dng?vc=2'],
+    paths: ['/a/B.dng?vc=2']
   });
   expect(activityDetails(entry(id)!)).toBe('Changes to 1 photo were not saved\ndisk full\n\n/a/B.dng');
 });

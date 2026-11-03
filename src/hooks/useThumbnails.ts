@@ -1,6 +1,6 @@
 import { Invokes } from '../components/ui/AppProperties';
-import { useCallback, useMemo, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useMemo, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
 // Submit the first visible range immediately. While IPC is outstanding, keep
 // only the newest range; scrolling cannot accumulate obsolete thumbnail jobs.
@@ -17,13 +17,15 @@ export function createThumbnailQueue(send: (paths: string[]) => Promise<unknown>
     dirty = false;
     failed = false;
     const paths = visible.filter((path) => !generated.has(path));
-    void send(paths).catch((error) => {
-      failed = true;
-      console.error("Failed to update thumbnail queue:", error);
-    }).finally(() => {
-      sending = false;
-      flush();
-    });
+    void send(paths)
+      .catch((error) => {
+        failed = true;
+        console.error('Failed to update thumbnail queue:', error);
+      })
+      .finally(() => {
+        sending = false;
+        flush();
+      });
   };
   return {
     request(paths: string[]) {
@@ -32,13 +34,15 @@ export function createThumbnailQueue(send: (paths: string[]) => Promise<unknown>
       dirty = true;
       flush();
     },
-    markGenerated(path: string) { generated.add(path); },
+    markGenerated(path: string) {
+      generated.add(path);
+    },
     clear() {
       generated.clear();
       visible = [];
       dirty = true;
       flush();
-    },
+    }
   };
 }
 

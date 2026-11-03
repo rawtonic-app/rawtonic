@@ -16,7 +16,7 @@ const Button = ({ children, className, size: _size, variant, ...props }: ButtonP
     className={clsx(
       'studio-button',
       variant === 'destructive' ? 'is-destructive' : variant !== 'ghost' && 'is-primary',
-      className,
+      className
     )}
     {...props}
   >

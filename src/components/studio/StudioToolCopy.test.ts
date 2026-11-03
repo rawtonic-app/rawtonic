@@ -7,7 +7,7 @@ import {
   normalizeLoadedAdjustments,
   pastedAdjustments,
   PasteMode,
-  type Adjustments,
+  type Adjustments
 } from '../../utils/adjustments';
 import { pick } from './StudioToolCopy';
 import { presetValues, toolPresetToSave } from './toolPresets';
@@ -20,10 +20,8 @@ describe('Tool copy of grain', () => {
     expect(picked).toEqual({ grainColor: 0, grainVersion: 3 });
     expect({ ...target, ...picked }.grainColor).toBe(0); // Tool sync uses this same pick.
     const clipboard = JSON.parse(JSON.stringify(picked));
-    expect(pastedAdjustments(clipboard, ['grainColor'], PasteMode.Replace))
-      .toEqual({ grainColor: 0, grainVersion: 3 });
-    expect(pick({ ...source, grainColor: 56 }, ['grainColor']))
-      .toEqual({ grainColor: 56, grainVersion: 3 });
+    expect(pastedAdjustments(clipboard, ['grainColor'], PasteMode.Replace)).toEqual({ grainColor: 0, grainVersion: 3 });
+    expect(pick({ ...source, grainColor: 56 }, ['grainColor'])).toEqual({ grainColor: 56, grainVersion: 3 });
     expect(pick(source, ['exposure'])).not.toHaveProperty('grainColor');
   });
 
@@ -73,7 +71,7 @@ describe('Tool copy of the black & white mix', () => {
     // 1, so a photo already at version 2 renders the mix as the source.
     const old = normalizeLoadedAdjustments(
       { blackAndWhite: true, grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer, blue: -40 } } as unknown as Adjustments,
-      true,
+      true
     );
     const copied = JSON.parse(JSON.stringify(pick(old, ['grayMixer'])));
     expect(copied.bwVersion).toBe(1);
@@ -86,15 +84,37 @@ describe('Tool copy of the black & white mix', () => {
 
 describe('Tool copy of LUT', () => {
   it('carries the table and input space with the selected LUT', () => {
-    const source = { ...INITIAL_ADJUSTMENTS, lutPath: '/qa/own.cube', lutName: 'Own table', lutSize: 2, lutData: "AAAAAA==", lutIsSceneReferred: true, lutIntensity: 70 } as Adjustments;
-    expect(pick(source, ['lutPath', 'lutIntensity'])).toEqual({ lutPath: source.lutPath, lutName: source.lutName, lutSize: 2, lutData: "AAAAAA==", lutIsSceneReferred: true, lutIntensity: 70 });
+    const source = {
+      ...INITIAL_ADJUSTMENTS,
+      lutPath: '/qa/own.cube',
+      lutName: 'Own table',
+      lutSize: 2,
+      lutData: 'AAAAAA==',
+      lutIsSceneReferred: true,
+      lutIntensity: 70
+    } as Adjustments;
+    expect(pick(source, ['lutPath', 'lutIntensity'])).toEqual({
+      lutPath: source.lutPath,
+      lutName: source.lutName,
+      lutSize: 2,
+      lutData: 'AAAAAA==',
+      lutIsSceneReferred: true,
+      lutIntensity: 70
+    });
   });
 });
 
 describe('Detail copy groups', () => {
   it('keeps grain settings in the Detail copy, sync and preset group', () => {
-    const grain = ADJUSTMENT_GROUPS.details.find(group => group.label === 'modals.copyPaste.groups.grain');
-    expect(grain?.keys).toEqual(['grainAmount', 'grainRoughness', 'grainSize', 'grainStructure', 'grainColor', 'grainVersion']);
-    expect(ADJUSTMENT_GROUPS.effects.some(group => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
+    const grain = ADJUSTMENT_GROUPS.details.find((group) => group.label === 'modals.copyPaste.groups.grain');
+    expect(grain?.keys).toEqual([
+      'grainAmount',
+      'grainRoughness',
+      'grainSize',
+      'grainStructure',
+      'grainColor',
+      'grainVersion'
+    ]);
+    expect(ADJUSTMENT_GROUPS.effects.some((group) => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
   });
 });

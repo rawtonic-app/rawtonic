@@ -72,14 +72,16 @@ it('opens with its shortcut command, lists the three sections and closes with Es
       source: 'export',
       title: '1 photo did not export',
       paths: ['/s/A.NEF'],
-      actions: [{ label: 'Try again', run: tryAgain, settles: true }],
+      actions: [{ label: 'Try again', run: tryAgain, settles: true }]
     });
     store().start({ id: 'r', source: 'export', title: 'Exporting', progress: { done: 1, total: 2 }, cancel });
     store().report('done', { id: 'd', source: 'app', title: 'Renamed 3 photos' });
   });
   act(() => void runAppCommand('show_activity'));
   const dialog = screen.getByRole('dialog', { name: 'Activity' });
-  const sections = within(dialog).getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+  const sections = within(dialog)
+    .getAllByRole('heading', { level: 3 })
+    .map((h) => h.textContent);
   expect(sections).toEqual(['Needs attention', 'Running', 'Done']);
   expect(within(dialog).getByRole('progressbar', { name: '50 % done' })).toBeTruthy();
 
@@ -89,7 +91,10 @@ it('opens with its shortcut command, lists the three sections and closes with Es
   const shown = vi.fn();
   window.addEventListener(SHOW_ACTIVITY_PHOTOS_EVENT, shown);
   await user.click(within(dialog).getByRole('button', { name: 'Show photos' }));
-  expect((shown.mock.calls[0][0] as CustomEvent).detail).toEqual({ name: '1 photo did not export', paths: ['/s/A.NEF'] });
+  expect((shown.mock.calls[0][0] as CustomEvent).detail).toEqual({
+    name: '1 photo did not export',
+    paths: ['/s/A.NEF']
+  });
   window.removeEventListener(SHOW_ACTIVITY_PHOTOS_EVENT, shown);
   await user.click(within(dialog).getByRole('button', { name: 'Try again' }));
   expect(tryAgain).toHaveBeenCalledOnce();
@@ -105,7 +110,16 @@ it('copies a failure’s details', async () => {
   const writeText = vi.fn(async () => {});
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   render(<ActivityCentre />);
-  act(() => void store().report('failure', { id: 'f', source: 'write', title: 'Changes to 1 photo were not saved', detail: 'disk full', paths: ['/a.dng'] }));
+  act(
+    () =>
+      void store().report('failure', {
+        id: 'f',
+        source: 'write',
+        title: 'Changes to 1 photo were not saved',
+        detail: 'disk full',
+        paths: ['/a.dng']
+      })
+  );
   // fireEvent: user-event puts its own clipboard in place.
   fireEvent.click(slot()!);
   fireEvent.click(screen.getByRole('button', { name: 'Copy details' }));

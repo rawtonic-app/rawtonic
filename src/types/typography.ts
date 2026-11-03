@@ -6,7 +6,7 @@ export const TextWeights: Record<TextWeight, TextWeight> = {
   bold: 'bold',
   semibold: 'semibold',
   medium: 'medium',
-  normal: 'normal',
+  normal: 'normal'
 };
 export const TextColors: Record<TextColor, TextColor> = {
   primary: 'primary',
@@ -16,7 +16,7 @@ export const TextColors: Record<TextColor, TextColor> = {
   info: 'info',
   success: 'success',
   error: 'error',
-  white: 'white',
+  white: 'white'
 };
 
 // Map keys to classes
@@ -24,7 +24,7 @@ export const TEXT_WEIGHT_KEYS: Record<TextWeight, string> = {
   bold: 'font-bold',
   semibold: 'font-semibold',
   medium: 'font-medium',
-  normal: 'font-normal',
+  normal: 'font-normal'
 };
 export const TEXT_COLOR_KEYS: Record<TextColor, string> = {
   primary: 'text-text-primary',
@@ -34,7 +34,7 @@ export const TEXT_COLOR_KEYS: Record<TextColor, string> = {
   info: 'text-blue-400',
   success: 'text-green-400',
   error: 'text-red-400',
-  white: 'text-white',
+  white: 'text-white'
 };
 
 export interface VariantConfig {
@@ -51,51 +51,51 @@ export const TextVariants: Record<TextVariant, VariantConfig> = {
     defaultWeight: 'bold',
     defaultColor: 'primary',
     defaultElement: 'h1',
-    extraClasses: 'text-shadow-shiny mb-4',
+    extraClasses: 'text-shadow-shiny mb-4'
   },
   display: {
     size: 'text-3xl',
     defaultWeight: 'bold',
     defaultColor: 'primary',
     defaultElement: 'h1',
-    extraClasses: 'text-shadow-shiny',
+    extraClasses: 'text-shadow-shiny'
   },
   headline: {
     size: 'text-2xl',
     defaultWeight: 'bold',
     defaultColor: 'primary',
     defaultElement: 'h1',
-    extraClasses: 'text-shadow-shiny',
+    extraClasses: 'text-shadow-shiny'
   },
   title: {
     size: 'text-xl',
     defaultWeight: 'bold',
     defaultColor: 'primary',
     defaultElement: 'h2',
-    extraClasses: 'text-shadow-shiny',
+    extraClasses: 'text-shadow-shiny'
   },
   heading: {
     size: 'text-base',
     defaultWeight: 'semibold',
     defaultColor: 'primary',
-    defaultElement: 'h3',
+    defaultElement: 'h3'
   },
   body: {
     size: 'text-sm',
     defaultWeight: 'normal',
     defaultColor: 'secondary',
-    defaultElement: 'p',
+    defaultElement: 'p'
   },
   label: {
     size: 'text-sm',
     defaultWeight: 'medium',
     defaultColor: 'secondary',
-    defaultElement: 'span',
+    defaultElement: 'span'
   },
   small: {
     size: 'text-xs',
     defaultWeight: 'normal',
     defaultColor: 'secondary',
-    defaultElement: 'p',
-  },
+    defaultElement: 'p'
+  }
 };

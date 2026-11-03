@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Copy, Minus, Square, X } from 'lucide-react';
 
 /** Linux window controls share the session bar instead of adding a second row. */
 export default function WindowControls() {
@@ -15,10 +15,13 @@ export default function WindowControls() {
       if (!disposed) setIsMaximized(maximized);
     };
     void update().catch(console.error);
-    void appWindow.onResized(() => void update().catch(console.error)).then((stop) => {
-      if (disposed) stop();
-      else unlisten = stop;
-    }).catch(console.error);
+    void appWindow
+      .onResized(() => void update().catch(console.error))
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(console.error);
     return () => {
       disposed = true;
       unlisten?.();
@@ -35,8 +38,8 @@ export default function WindowControls() {
         <Minus size={15} />
       </button>
       <button
-        aria-label={isMaximized ? "Restore window" : "Maximize window"}
-        title={isMaximized ? "Restore window" : "Maximize window"}
+        aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
+        title={isMaximized ? 'Restore window' : 'Maximize window'}
         onClick={() => void appWindow.toggleMaximize().catch(console.error)}
       >
         {isMaximized ? <Copy size={13} /> : <Square size={13} />}

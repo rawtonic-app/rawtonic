@@ -6,7 +6,7 @@ export const MASK_DISPLAY_OPTIONS: ReadonlyArray<readonly [MaskDisplay, string]>
   ['always', 'Always'],
   ['drawing', 'While drawing'],
   ['grayscale', 'Grayscale'],
-  ['never', 'Never'],
+  ['never', 'Never']
 ];
 
 /** Capture One's default Mask Color: red at 50% opacity. */
@@ -17,7 +17,7 @@ export const MASK_COLOR_PRESETS: ReadonlyArray<readonly [string, string]> = [
   ['#ff0000', 'Red'],
   ['#00ff00', 'Green'],
   ['#ffffff', 'White'],
-  ['#000000', 'Black'],
+  ['#000000', 'Black']
 ];
 
 const MODES = new Set<string>(MASK_DISPLAY_OPTIONS.map(([mode]) => mode));
@@ -36,7 +36,10 @@ function visibleRestore(settings?: MaskDisplaySettings | null): MaskDisplay {
 }
 
 /** Choose a mode directly; a visible choice is also what M later restores. */
-export function chooseMaskDisplay(settings: MaskDisplaySettings | null | undefined, next: MaskDisplay): MaskDisplaySettings {
+export function chooseMaskDisplay(
+  settings: MaskDisplaySettings | null | undefined,
+  next: MaskDisplay
+): MaskDisplaySettings {
   return { maskDisplay: next, maskDisplayRestore: next === 'never' ? visibleRestore(settings) : next };
 }
 
@@ -119,7 +122,7 @@ export function maskOverlayAfterEdit(
   current: MaskOverlayAuto,
   previous: ReadonlyArray<MaskContainer> | undefined,
   next: ReadonlyArray<MaskContainer> | undefined,
-  activeId: string | null,
+  activeId: string | null
 ): MaskOverlayAuto {
   if (previous === next || !next) return current;
   const before = new Map((previous ?? []).map((layer) => [layer.id, layer]));
@@ -128,7 +131,8 @@ export function maskOverlayAfterEdit(
   const now = activeId ? next.find((layer) => layer.id === activeId) : undefined;
   if (!was || !now || was === now) return current;
   if (was.subMasks !== now.subMasks || was.invert !== now.invert) return 'auto';
-  if (was.adjustments !== now.adjustments || was.opacity !== now.opacity) return current === 'auto' ? 'hidden' : current;
+  if (was.adjustments !== now.adjustments || was.opacity !== now.opacity)
+    return current === 'auto' ? 'hidden' : current;
   return current;
 }
 
@@ -176,7 +180,7 @@ export function drawsMaskOverlayNatively(state: {
 export function nativeMaskOverlay(
   maskId: string | null | undefined,
   shown: boolean,
-  settings?: Pick<AppSettings, 'maskDisplay' | 'maskDisplayRestore' | 'maskColor' | 'maskOpacity'> | null,
+  settings?: Pick<AppSettings, 'maskDisplay' | 'maskDisplayRestore' | 'maskColor' | 'maskOpacity'> | null
 ): NativeMaskOverlay | null {
   const display = maskDisplayOf(settings);
   if (!maskId || !shown || display === 'never') return null;
@@ -184,7 +188,7 @@ export function nativeMaskOverlay(
     maskId,
     color: maskColorRgb(maskColorOf(settings)),
     opacity: maskOpacityOf(settings),
-    grayscale: display === 'grayscale',
+    grayscale: display === 'grayscale'
   };
 }
 

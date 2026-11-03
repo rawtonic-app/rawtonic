@@ -48,7 +48,7 @@ interface StackState {
 export const useStackStore = create<StackState>(() => ({
   library: null,
   stacks: [],
-  byPath: new Map(),
+  byPath: new Map()
 }));
 
 /** One key for a path whichever separator a listing used. */
@@ -70,8 +70,7 @@ export function canMoveInStack(path: string | undefined, up: boolean): boolean {
 
 export function indexStacks(stacks: WebStack[]): Map<string, StackEntry> {
   const byPath = new Map<string, StackEntry>();
-  for (const stack of stacks)
-    stack.members.forEach((path, index) => byPath.set(stackKey(path), { stack, index }));
+  for (const stack of stacks) stack.members.forEach((path, index) => byPath.set(stackKey(path), { stack, index }));
   return byPath;
 }
 
@@ -85,21 +84,29 @@ export function setStacks(library: string | null, stacks: WebStack[]) {
 export function listingFiltered(
   filter: FilterCriteria,
   search: { text: string; tags: string[] },
-  catalogMatches: Set<string> | null = null,
+  catalogMatches: Set<string> | null = null
 ): boolean {
-  return search.text.trim() !== '' || search.tags.length > 0 || catalogMatches !== null
-    || (filter.flag ?? 'all') !== 'all' || filter.rating !== 0 || (filter.colors?.length ?? 0) > 0
-    || (filter.rawStatus ?? RawStatus.All) !== RawStatus.All
-    || (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All
-    || (filter.eyes ?? 'all') !== 'all' || selectionCount(filter.metadata) > 0;
+  return (
+    search.text.trim() !== '' ||
+    search.tags.length > 0 ||
+    catalogMatches !== null ||
+    (filter.flag ?? 'all') !== 'all' ||
+    filter.rating !== 0 ||
+    (filter.colors?.length ?? 0) > 0 ||
+    (filter.rawStatus ?? RawStatus.All) !== RawStatus.All ||
+    (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
+    (filter.eyes ?? 'all') !== 'all' ||
+    selectionCount(filter.metadata) > 0
+  );
 }
 
 /** Whether the shown listing collapses stacks: a folder or the whole
  * session/catalog (not an album, smart album or other view) without a
  * filter or search. */
 export function stacksCollapse(state = useLibraryStore.getState()): boolean {
-  return state.activeAlbumId === null
-    && !listingFiltered(state.filterCriteria, state.searchCriteria, state.catalogMatches);
+  return (
+    state.activeAlbumId === null && !listingFiltered(state.filterCriteria, state.searchCriteria, state.catalogMatches)
+  );
 }
 
 /**
@@ -123,8 +130,11 @@ export function keepSelectionShown(byPath: Map<string, StackEntry>) {
   const active = library.libraryActivePath ? visible(library.libraryActivePath) : null;
   // The Shift-click anchor too: a hidden one would start no range.
   const anchor = library.selectionAnchorPath ? visible(library.selectionAnchorPath) : null;
-  if (next.join('\n') !== library.multiSelectedPaths.join('\n') || active !== library.libraryActivePath
-    || anchor !== library.selectionAnchorPath)
+  if (
+    next.join('\n') !== library.multiSelectedPaths.join('\n') ||
+    active !== library.libraryActivePath ||
+    anchor !== library.selectionAnchorPath
+  )
     library.setLibrary({ multiSelectedPaths: next, libraryActivePath: active, selectionAnchorPath: anchor });
 }
 
@@ -162,7 +172,7 @@ export async function refreshStacks(library = useLibraryStore.getState().session
  */
 export function arrangeStacks(
   list: ImageFile[],
-  byPath: Map<string, StackEntry>,
+  byPath: Map<string, StackEntry>
 ): { list: ImageFile[]; marks: Map<string, StackMark> } {
   const marks = new Map<string, StackMark>();
   if (!byPath.size) return { list, marks };
@@ -201,7 +211,7 @@ export function arrangeStacks(
         collapsed: stack.collapsed,
         top: i === 0,
         index: i,
-        position: shown.length === 1 ? 'only' : i === 0 ? 'first' : i === shown.length - 1 ? 'last' : 'middle',
+        position: shown.length === 1 ? 'only' : i === 0 ? 'first' : i === shown.length - 1 ? 'last' : 'middle'
       });
     });
   }

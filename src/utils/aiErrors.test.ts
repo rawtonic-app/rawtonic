@@ -5,17 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn() } }));
 vi.mock('../activity/notify', () => ({ notify: toast }));
 
-import {
-  aiErrorMessage,
-  isAiRuntimeError,
-  noteBackgroundAiError,
-  resetAiErrorNotices,
-  toastAiError,
-} from './aiErrors';
+import { aiErrorMessage, isAiRuntimeError, noteBackgroundAiError, resetAiErrorNotices, toastAiError } from './aiErrors';
 
 /** The backend's error for a broken runtime (rawtonic_onnx::RuntimeError). */
-const runtimeError =
-  'AI runtime unavailable: /app/resources/libonnxruntime.dylib could not be loaded: dlopen failed';
+const runtimeError = 'AI runtime unavailable: /app/resources/libonnxruntime.dylib could not be loaded: dlopen failed';
 
 beforeEach(() => {
   toast.error.mockReset();

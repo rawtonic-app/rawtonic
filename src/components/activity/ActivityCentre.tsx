@@ -3,12 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import {
-  activityDetails,
-  activitySections,
-  useActivityStore,
-  type ActivityEntry,
-} from '../../store/useActivityStore';
+import { activityDetails, activitySections, useActivityStore, type ActivityEntry } from '../../store/useActivityStore';
 import { showPhotos } from '../../activity/showPhotos';
 import { registerAppCommands } from '../../utils/appCommands';
 import { ProgressRing } from './ProgressRing';
@@ -26,8 +21,7 @@ function Body({ entry }: { entry: ActivityEntry }) {
   const dismiss = useActivityStore((state) => state.dismiss);
   if (entry.body === undefined) return <span className="activity-entry-title">{entry.title}</span>;
   const body = entry.body;
-  const content: ReactNode =
-    typeof body === 'function' ? body({ closeToast: () => dismiss(entry.id) }) : body;
+  const content: ReactNode = typeof body === 'function' ? body({ closeToast: () => dismiss(entry.id) }) : body;
   return <div className="activity-entry-title">{content}</div>;
 }
 
@@ -44,7 +38,8 @@ function Entry({ entry }: { entry: ActivityEntry }) {
       .then(() => setCopied(true))
       .catch(() => {});
   };
-  const percent = entry.progress && entry.progress.total > 0 ? Math.round((entry.progress.done / entry.progress.total) * 100) : null;
+  const percent =
+    entry.progress && entry.progress.total > 0 ? Math.round((entry.progress.done / entry.progress.total) * 100) : null;
   return (
     <li ref={row} className={`activity-entry is-${entry.status}`}>
       <span className="activity-entry-mark" aria-hidden>
@@ -57,7 +52,11 @@ function Entry({ entry }: { entry: ActivityEntry }) {
         )}
       </span>
       <div className="activity-entry-main">
-        {attention && <span className="sr-only">{t(entry.status === "failure" ? "activity.status.failure" : "activity.status.warning")}: </span>}
+        {attention && (
+          <span className="sr-only">
+            {t(entry.status === 'failure' ? 'activity.status.failure' : 'activity.status.warning')}:{' '}
+          </span>
+        )}
         <Body entry={entry} />
         {entry.detail && <p className="activity-entry-detail">{entry.detail}</p>}
         {entry.status === 'running' && entry.progress && (
@@ -113,7 +112,19 @@ function Entry({ entry }: { entry: ActivityEntry }) {
   );
 }
 
-function Section({ id, title, entries, empty, extra }: { id: string; title: string; entries: ActivityEntry[]; empty: string; extra?: ReactNode }) {
+function Section({
+  id,
+  title,
+  entries,
+  empty,
+  extra
+}: {
+  id: string;
+  title: string;
+  entries: ActivityEntry[];
+  empty: string;
+  extra?: ReactNode;
+}) {
   return (
     <section className="activity-section" aria-labelledby={id}>
       <div className="activity-section-head">
@@ -121,7 +132,11 @@ function Section({ id, title, entries, empty, extra }: { id: string; title: stri
         {extra}
       </div>
       {entries.length ? (
-        <ul>{entries.map((entry) => <Entry key={entry.id} entry={entry} />)}</ul>
+        <ul>
+          {entries.map((entry) => (
+            <Entry key={entry.id} entry={entry} />
+          ))}
+        </ul>
       ) : (
         <p className="activity-empty">{empty}</p>
       )}
@@ -177,10 +192,10 @@ export default function ActivityCentre() {
     () =>
       registerAppCommands({
         show_activity: {
-          run: () => setOpen((shown) => !shown),
-        },
+          run: () => setOpen((shown) => !shown)
+        }
       }),
-    [setOpen],
+    [setOpen]
   );
 
   useLayoutEffect(() => {
@@ -205,7 +220,7 @@ export default function ActivityCentre() {
         event.stopPropagation();
         setOpen(false);
         (button.current && (button.current.checkVisibility?.() ?? true) ? button.current : returnFocus.current)?.focus({
-          preventScroll: true,
+          preventScroll: true
         });
         return;
       }
@@ -224,7 +239,7 @@ export default function ActivityCentre() {
   const lead = running[0] ?? attention[0];
   const summary = [
     running.length ? t('activity.slot.running', { count: running.length }) : null,
-    attention.length ? t('activity.slot.attention', { count: attention.length }) : null,
+    attention.length ? t('activity.slot.attention', { count: attention.length }) : null
   ]
     .filter(Boolean)
     .join(' · ');
@@ -253,50 +268,72 @@ export default function ActivityCentre() {
           page's own status and alert elements stay the only ones. */}
       {createPortal(
         <>
-          <span className="sr-only" aria-live="polite" aria-atomic="true">{polite}</span>
-          <span className="sr-only" aria-live="assertive" aria-atomic="true">{assertive}</span>
+          <span className="sr-only" aria-live="polite" aria-atomic="true">
+            {polite}
+          </span>
+          <span className="sr-only" aria-live="assertive" aria-atomic="true">
+            {assertive}
+          </span>
         </>,
-        document.body,
+        document.body
       )}
-      {open && createPortal(
-        <div
-          ref={panel}
-          className="activity-panel"
-          role="dialog"
-          aria-labelledby="activity-heading"
-          tabIndex={-1}
-          style={{ left: position.left, top: position.top }}
-        >
-          <div className="activity-panel-head">
-            <h2 id="activity-heading">{t('activity.title')}</h2>
-            <button
-              type="button"
-              className="activity-entry-dismiss"
-              aria-label={t('activity.close')}
-              onClick={() => {
-                setOpen(false);
-                (button.current && (button.current.checkVisibility?.() ?? true) ? button.current : returnFocus.current)?.focus({
-          preventScroll: true,
-        });
-              }}
-            >
-              <X size={13} aria-hidden />
-            </button>
-          </div>
-          <Section id="activity-attention" title={t('activity.sections.attention')} entries={attention} empty={t('activity.empty.attention')} />
-          <Section id="activity-running" title={t('activity.sections.running')} entries={running} empty={t('activity.empty.running')} />
-          <Section
-            id="activity-done"
-            title={t('activity.sections.done')}
-            entries={done}
-            empty={t('activity.empty.done')}
-            extra={done.length > 0 && (
-              <button type="button" className="activity-clear" onClick={clearDone}>{t('activity.clearDone')}</button>
-            )}
-          />
-        </div>,
-        document.body,
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={panel}
+            className="activity-panel"
+            role="dialog"
+            aria-labelledby="activity-heading"
+            tabIndex={-1}
+            style={{ left: position.left, top: position.top }}
+          >
+            <div className="activity-panel-head">
+              <h2 id="activity-heading">{t('activity.title')}</h2>
+              <button
+                type="button"
+                className="activity-entry-dismiss"
+                aria-label={t('activity.close')}
+                onClick={() => {
+                  setOpen(false);
+                  (button.current && (button.current.checkVisibility?.() ?? true)
+                    ? button.current
+                    : returnFocus.current
+                  )?.focus({
+                    preventScroll: true
+                  });
+                }}
+              >
+                <X size={13} aria-hidden />
+              </button>
+            </div>
+            <Section
+              id="activity-attention"
+              title={t('activity.sections.attention')}
+              entries={attention}
+              empty={t('activity.empty.attention')}
+            />
+            <Section
+              id="activity-running"
+              title={t('activity.sections.running')}
+              entries={running}
+              empty={t('activity.empty.running')}
+            />
+            <Section
+              id="activity-done"
+              title={t('activity.sections.done')}
+              entries={done}
+              empty={t('activity.empty.done')}
+              extra={
+                done.length > 0 && (
+                  <button type="button" className="activity-clear" onClick={clearDone}>
+                    {t('activity.clearDone')}
+                  </button>
+                )
+              }
+            />
+          </div>,
+          document.body
+        )}
     </span>
   );
 }

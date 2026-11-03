@@ -50,12 +50,22 @@ function blocks(nodes: Block[]): ReactNode[] {
       case 'paragraph':
         return <p key={i}>{inline(node.children)}</p>;
       case 'code':
-        return <pre key={i}><code>{node.text}</code></pre>;
+        return (
+          <pre key={i}>
+            <code>{node.text}</code>
+          </pre>
+        );
       case 'quote':
         return <blockquote key={i}>{blocks(node.children)}</blockquote>;
       case 'list': {
         const List = node.ordered ? 'ol' : 'ul';
-        return <List key={i}>{node.items.map((item, j) => <li key={j}>{blocks(item)}</li>)}</List>;
+        return (
+          <List key={i}>
+            {node.items.map((item, j) => (
+              <li key={j}>{blocks(item)}</li>
+            ))}
+          </List>
+        );
       }
       case 'rule':
         return <hr key={i} />;
@@ -70,7 +80,13 @@ export function Markdown({ source }: { source: string }) {
 
 /** Release notes in a modal dialog: the update notice's "What's new" and the
  * CHANGELOG section shown after an update. */
-export function ReleaseNotesDialog({ title, notes, releaseUrl, footer, onClose }: {
+export function ReleaseNotesDialog({
+  title,
+  notes,
+  releaseUrl,
+  footer,
+  onClose
+}: {
   title: string;
   notes: string;
   releaseUrl?: string;
@@ -110,9 +126,13 @@ export function ReleaseNotesDialog({ title, notes, releaseUrl, footer, onClose }
       <footer>
         {footer}
         {releaseUrl && (
-          <button type="button" onClick={() => openLink(releaseUrl)}>{t('updates.releasePage')}</button>
+          <button type="button" onClick={() => openLink(releaseUrl)}>
+            {t('updates.releasePage')}
+          </button>
         )}
-        <button type="button" className="is-primary" autoFocus onClick={onClose}>{t('updates.close')}</button>
+        <button type="button" className="is-primary" autoFocus onClick={onClose}>
+          {t('updates.close')}
+        </button>
       </footer>
     </dialog>
   );

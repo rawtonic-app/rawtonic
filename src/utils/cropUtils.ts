@@ -3,12 +3,12 @@ import { Crop, PercentCrop } from 'react-image-crop';
 export function getOrientedDimensions(
   imageWidth: number,
   imageHeight: number,
-  orientationSteps: number,
+  orientationSteps: number
 ): { width: number; height: number } {
   const isSwapped = orientationSteps === 1 || orientationSteps === 3;
   return {
     width: isSwapped ? imageHeight : imageWidth,
-    height: isSwapped ? imageWidth : imageHeight,
+    height: isSwapped ? imageWidth : imageHeight
   };
 }
 
@@ -17,7 +17,7 @@ export function calculateCenteredCrop(
   imageHeight: number,
   orientationSteps: number,
   aspectRatio: number | null,
-  rotation: number = 0,
+  rotation: number = 0
 ): Crop | null {
   if (!aspectRatio || aspectRatio <= 0) return null;
 
@@ -36,7 +36,7 @@ export function calculateCenteredCrop(
     x: Math.round((W - w_c) / 2),
     y: Math.round((H - h_c) / 2),
     width: Math.round(w_c),
-    height: Math.round(h_c),
+    height: Math.round(h_c)
   };
 }
 
@@ -50,7 +50,7 @@ export function isCropWithinBounds(crop: Crop, imageW: number, imageH: number, r
     { x: crop.x, y: crop.y },
     { x: crop.x + crop.width, y: crop.y },
     { x: crop.x, y: crop.y + crop.height },
-    { x: crop.x + crop.width, y: crop.y + crop.height },
+    { x: crop.x + crop.width, y: crop.y + crop.height }
   ];
   for (let i = 0; i < 4; i++) {
     const nx = cos * (pts[i].x - cx) - sin * (pts[i].y - cy) + cx;
@@ -66,7 +66,7 @@ export function calculateAreaPreservingCrop(
   orientationSteps: number,
   aspectRatio: number | null,
   rotation: number,
-  currentCrop: Crop | null | undefined,
+  currentCrop: Crop | null | undefined
 ): Crop | null {
   if (!aspectRatio || aspectRatio <= 0 || !currentCrop || !currentCrop.width || !currentCrop.height) return null;
 
@@ -83,7 +83,7 @@ export function calculateAreaPreservingCrop(
     x: Math.round(centerX - newW / 2),
     y: Math.round(centerY - newH / 2),
     width: Math.round(newW),
-    height: Math.round(newH),
+    height: Math.round(newH)
   };
 
   return isCropWithinBounds(candidate, W, H, rotation) ? candidate : null;
@@ -104,7 +104,7 @@ function rotateCropCenter(crop: Crop, orientedWidth: number, orientedHeight: num
     x: Math.round(cx + rx - crop.width / 2),
     y: Math.round(cy + ry - crop.height / 2),
     width: crop.width,
-    height: crop.height,
+    height: crop.height
   };
 }
 
@@ -115,7 +115,7 @@ export function calculateAutoCropForRotation(
   aspectRatio: number | null,
   newRotation: number,
   currentCrop: Crop | null = null,
-  rotationDelta: number = 0,
+  rotationDelta: number = 0
 ): Crop | null {
   const { width: W, height: H } = getOrientedDimensions(imageWidth, imageHeight, orientationSteps);
   const A = aspectRatio || (W > 0 && H > 0 ? W / H : 1);
@@ -145,7 +145,7 @@ export function calculateAutoCropForRotation(
       x: cx - nw / 2,
       y: cy - nh / 2,
       width: nw,
-      height: nh,
+      height: nh
     };
 
     if (isCropWithinBounds(testCrop, W, H, newRotation)) {
@@ -165,7 +165,7 @@ export function calculateAutoCropForRotation(
     x: Math.ceil(bestCrop.x),
     y: Math.ceil(bestCrop.y),
     width: Math.floor(bestCrop.width),
-    height: Math.floor(bestCrop.height),
+    height: Math.floor(bestCrop.height)
   };
 }
 
@@ -196,7 +196,7 @@ export function moveCropInsideBounds(
   deltaY: number,
   imageW: number,
   imageH: number,
-  rotation: number,
+  rotation: number
 ): Crop {
   const fullTarget = { ...crop, x: crop.x + deltaX, y: crop.y + deltaY };
   if (isCropWithinBounds(fullTarget, imageW, imageH, rotation)) {
@@ -234,7 +234,7 @@ export function moveCropInsideBounds(
   return {
     ...crop,
     x: Math.round(bestX),
-    y: Math.round(bestY),
+    y: Math.round(bestY)
   };
 }
 
@@ -254,7 +254,7 @@ export function fitCropTowards<T extends Crop>(from: T, to: T, isValid: (crop: T
       x: from.x + (to.x - from.x) * mid,
       y: from.y + (to.y - from.y) * mid,
       width: from.width + (to.width - from.width) * mid,
-      height: from.height + (to.height - from.height) * mid,
+      height: from.height + (to.height - from.height) * mid
     };
 
     if (isValid(testCrop)) {
@@ -315,7 +315,7 @@ export function zoomCrop(
   rotation: number,
   aspectRatio: number | null,
   mouseX?: number,
-  mouseY?: number,
+  mouseY?: number
 ): Crop {
   const A = aspectRatio || (crop.height > 0 ? crop.width / crop.height : 1);
   const MIN_SIZE = 64;
@@ -343,7 +343,7 @@ export function zoomCrop(
       x: clampedOriginX - relX * w,
       y: clampedOriginY - relY * h,
       width: w,
-      height: h,
+      height: h
     };
   };
 
@@ -382,11 +382,25 @@ export function zoomCrop(
  * orientation, the straightening and the crop itself. Auto straighten's
  * answer is only applied while these are as they were asked for. */
 export const REFRAMING_KEYS = [
-  'rotation', 'crop', 'aspectRatio', 'orientationSteps', 'flipHorizontal', 'flipVertical',
-  'transformDistortion', 'transformVertical', 'transformHorizontal', 'transformRotate',
-  'transformAspect', 'transformScale', 'transformXOffset', 'transformYOffset',
-  'lensCorrectionMode', 'lensDistortionParams', 'lensDistortionAmount', 'lensDistortionEnabled',
-  'guidedPerspective',
+  'rotation',
+  'crop',
+  'aspectRatio',
+  'orientationSteps',
+  'flipHorizontal',
+  'flipVertical',
+  'transformDistortion',
+  'transformVertical',
+  'transformHorizontal',
+  'transformRotate',
+  'transformAspect',
+  'transformScale',
+  'transformXOffset',
+  'transformYOffset',
+  'lensCorrectionMode',
+  'lensDistortionParams',
+  'lensDistortionAmount',
+  'lensDistortionEnabled',
+  'guidedPerspective'
 ] as const;
 
 export function reframingInputs(adjustments: Record<string, unknown>): string {
@@ -401,7 +415,7 @@ export const keepsCropOnEntry = (
   crop: Crop | null | undefined,
   orientedW: number,
   orientedH: number,
-  rotation: number,
+  rotation: number
 ): boolean => !!crop && crop.width > 0 && crop.height > 0 && isCropWithinBounds(crop, orientedW, orientedH, rotation);
 
 /** The pixel crop of a percentage crop of the oriented frame `baseW` ×
@@ -415,6 +429,6 @@ export function pixelCropFromPercent(pc: PercentCrop, baseW: number, baseH: numb
     x: Math.ceil((pc.x / 100) * baseW - EPS),
     y: Math.ceil((pc.y / 100) * baseH - EPS),
     width: Math.floor((pc.width / 100) * baseW + EPS),
-    height: Math.floor((pc.height / 100) * baseH + EPS),
+    height: Math.floor((pc.height / 100) * baseH + EPS)
   };
 }

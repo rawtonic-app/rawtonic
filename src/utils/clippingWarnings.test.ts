@@ -1,12 +1,7 @@
-import { expect, it } from "vitest";
-import {
-  SHOW_CLIPPING_SIDES,
-  histogramClipping,
-  nextClipSides,
-  showClippingValue,
-} from "./clippingWarnings";
+import { expect, it } from 'vitest';
+import { SHOW_CLIPPING_SIDES, histogramClipping, nextClipSides, showClippingValue } from './clippingWarnings';
 
-it("sends both flags as the old both-sides value and each side as its own", () => {
+it('sends both flags as the old both-sides value and each side as its own', () => {
   expect(showClippingValue(false, false)).toBe(0);
   expect(showClippingValue(true, true)).toBe(1);
   expect(showClippingValue(true, false)).toBe(SHOW_CLIPPING_SIDES.highlights);
@@ -20,22 +15,22 @@ it("sends both flags as the old both-sides value and each side as its own", () =
   expect(new Set([0, 1, ...Object.values(SHOW_CLIPPING_SIDES)]).size).toBe(4);
 });
 
-it("switches both warnings on unless one is on: then both off", () => {
+it('switches both warnings on unless one is on: then both off', () => {
   expect(nextClipSides({ highlights: false, shadows: false })).toEqual({
     highlights: true,
-    shadows: true,
+    shadows: true
   });
   expect(nextClipSides({ highlights: true, shadows: false })).toEqual({
     highlights: false,
-    shadows: false,
+    shadows: false
   });
   expect(nextClipSides({ highlights: false, shadows: true })).toEqual({
     highlights: false,
-    shadows: false,
+    shadows: false
   });
   expect(nextClipSides({ highlights: true, shadows: true })).toEqual({
     highlights: false,
-    shadows: false,
+    shadows: false
   });
 });
 
@@ -44,20 +39,20 @@ it("lights each side from the backend's clipping flags", () => {
   expect(histogramClipping({})).toEqual({ shadows: false, highlights: false });
   expect(histogramClipping({ clippedShadows: true })).toEqual({
     shadows: true,
-    highlights: false,
+    highlights: false
   });
   expect(histogramClipping({ clippedShadows: false, clippedHighlights: true })).toEqual({
     shadows: false,
-    highlights: true,
+    highlights: true
   });
   expect(histogramClipping({ clippedShadows: true, clippedHighlights: true })).toEqual({
     shadows: true,
-    highlights: true,
+    highlights: true
   });
   // Only the flags count; anything else (a string, a missing flag) is off.
-  expect(histogramClipping({ clippedShadows: "yes" })).toEqual({
+  expect(histogramClipping({ clippedShadows: 'yes' })).toEqual({
     shadows: false,
-    highlights: false,
+    highlights: false
   });
 });
 
@@ -68,12 +63,12 @@ it("ignores the bins' ends, which are smoothed and carry the warning colours", (
   const nearEnds = {
     red: [0.4, 0.6, 1, 1, 0.6, 0.2, 0, 0, 0.2, 0.7],
     green: { data: new Uint32Array([3, 0, 0, 0, 0, 0, 0, 0, 0, 9]) },
-    blue: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+    blue: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
   };
   expect(histogramClipping(nearEnds)).toEqual({ shadows: false, highlights: false });
   // The backend's flags alone decide, whatever the bins show.
   expect(histogramClipping({ ...nearEnds, clippedHighlights: true })).toEqual({
     shadows: false,
-    highlights: true,
+    highlights: true
   });
 });

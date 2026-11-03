@@ -15,7 +15,16 @@ it('finds a version section of the bundled CHANGELOG.md and stops at the next on
 });
 
 it('orders versions by semantic-version precedence', () => {
-  const ordered = ['0.1.0-alpha.3', '0.1.0-alpha.7', '0.1.0-alpha.7.1', '0.1.0-alpha.10', '0.1.0-beta.1', '0.1.0', '0.1.1', '1.0.0'];
+  const ordered = [
+    '0.1.0-alpha.3',
+    '0.1.0-alpha.7',
+    '0.1.0-alpha.7.1',
+    '0.1.0-alpha.10',
+    '0.1.0-beta.1',
+    '0.1.0',
+    '0.1.1',
+    '1.0.0'
+  ];
   for (let i = 0; i < ordered.length; i++) {
     for (let j = 0; j < ordered.length; j++) {
       expect(isNewerVersion(ordered[i], ordered[j]), `${ordered[i]} > ${ordered[j]}`).toBe(i > j);

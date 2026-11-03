@@ -12,7 +12,7 @@ describe('automatic mask overlay', () => {
     id,
     name: id,
     subMasks: [],
-    ...patch,
+    ...patch
   });
   const a = layer('a');
   const b = layer('b');
@@ -46,7 +46,7 @@ describe('automatic mask overlay', () => {
       drawing: false,
       shapeInteracting: false,
       toolActive: true,
-      controlHovered: false,
+      controlHovered: false
     };
     expect(maskOverlayOpacity({ ...base, autoHidden: true })).toBe(0);
     expect(maskOverlayOpacity({ ...base, autoHidden: true, drawing: true })).toBe(1);
@@ -62,7 +62,7 @@ describe('editor store: automatic overlay and luma eyedropper', () => {
   const layerOf = () => state().adjustments.masks[0];
   const setLayer = (patch: Partial<MaskContainer>) =>
     useEditorStore.setState((s) => ({
-      adjustments: { ...s.adjustments, masks: [{ ...s.adjustments.masks[0], ...patch }] },
+      adjustments: { ...s.adjustments, masks: [{ ...s.adjustments.masks[0], ...patch }] }
     }));
 
   it('follows the edits of the active layer', () => {
@@ -70,11 +70,11 @@ describe('editor store: automatic overlay and luma eyedropper', () => {
       selectedImage: image('/a.raf'),
       adjustments: { ...INITIAL_ADJUSTMENTS, masks: [] },
       activeMaskContainerId: null,
-      maskOverlayAuto: 'hidden',
+      maskOverlayAuto: 'hidden'
     });
     // A new layer (added, then selected, as the layer tools do) shows its mask.
     useEditorStore.setState((s) => ({
-      adjustments: { ...s.adjustments, masks: [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: 'l' }] },
+      adjustments: { ...s.adjustments, masks: [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: 'l' }] }
     }));
     state().setEditor({ activeMaskContainerId: 'l' });
     expect(state().maskOverlayAuto).toBe('auto');

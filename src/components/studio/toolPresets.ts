@@ -1,4 +1,4 @@
-import type { Preset } from "../ui/AppProperties";
+import type { Preset } from '../ui/AppProperties';
 import {
   withAiDenoiseVersion,
   withDiffractionVersion,
@@ -7,28 +7,28 @@ import {
   withLumaNoiseVersion,
   withPresetVersions,
   withSharpenVersion,
-  type Adjustments,
-} from "../../utils/adjustments";
-import { DETECTED_TYPES, withPendingDetections } from "../../utils/settingsClipboard";
-import { developmentSignature } from "../../utils/aiDenoise";
-import { COPIED_ALONG, pick } from "./StudioToolCopy";
-import { withStyleValues } from "../../utils/appliedStyle";
+  type Adjustments
+} from '../../utils/adjustments';
+import { DETECTED_TYPES, withPendingDetections } from '../../utils/settingsClipboard';
+import { developmentSignature } from '../../utils/aiDenoise';
+import { COPIED_ALONG, pick } from './StudioToolCopy';
+import { withStyleValues } from '../../utils/appliedStyle';
 
 /** Tools with Capture One's per-tool preset menu in their header, by tool
  * id (`ToolGroup`'s `title`). A tool opts in by its id; its presets are
  * those whose settings are all among its copy/apply parameters. */
 export const PRESET_TOOLS: ReadonlySet<string> = new Set([
-  "Grain",
-  "Vignette",
-  "Color grading",
-  "Black & white",
-  "Sharpening",
-  "Noise reduction",
+  'Grain',
+  'Vignette',
+  'Color grading',
+  'Black & white',
+  'Sharpening',
+  'Noise reduction'
 ]);
 
 /** Keys that say how a recipe reads a parameter's value, which go along
  * with it (tool copy's, and the grain version). */
-const alongOf = (key: string) => [...(COPIED_ALONG[key] ?? []), ...(key.startsWith("grain") ? ["grainVersion"] : [])];
+const alongOf = (key: string) => [...(COPIED_ALONG[key] ?? []), ...(key.startsWith('grain') ? ['grainVersion'] : [])];
 
 /** Whether a preset sets this tool's parameters and nothing else: besides
  * them only the keys that go along with them (a grain preset that also
@@ -49,7 +49,7 @@ export function presetPreview(
   current: Adjustments,
   adjustments: Partial<Adjustments>,
   isRaw: boolean,
-  style?: { base: Adjustments; style: true },
+  style?: { base: Adjustments; style: true }
 ): Adjustments | null {
   // Detection needs the target photo, can be expensive and commits a bitmap.
   // A hover override cannot run that edit safely.
@@ -64,7 +64,7 @@ export function presetPreview(
  * would vanish in JSON and the preset would render with another filter). */
 export function toolPresetToSave(current: Adjustments, keys: string[]): Partial<Adjustments> {
   const picked = pick(current, keys);
-  if ("colorNoiseVersion" in picked && picked.colorNoiseVersion == null && picked.colorNoiseReduction !== undefined)
+  if ('colorNoiseVersion' in picked && picked.colorNoiseVersion == null && picked.colorNoiseReduction !== undefined)
     picked.colorNoiseVersion = 1;
   return picked;
 }
@@ -77,9 +77,7 @@ export function presetValues(adjustments: Partial<Adjustments>): Partial<Adjustm
   if (target.masks) target.masks = target.masks.map(withPendingDetections);
   return withPresetVersions(
     withDiffractionVersion(
-      withLumaNoiseVersion(
-        withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(target)))),
-      ),
-    ),
+      withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(target)))))
+    )
   );
 }

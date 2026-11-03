@@ -1,29 +1,14 @@
-import "../../i18n";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
-import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import '../../i18n';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
-import {
-  newColorRange,
-  type Adjustments,
-  type ColorRange,
-} from "../../utils/adjustments";
-import { useEditorStore } from "../../store/useEditorStore";
-import StudioColorEditor from "./StudioColorEditor";
-import StudioColorRangeWheel, {
-  chromaOf,
-  radiusOf,
-  rangeBand,
-  wheelPoint,
-} from "./StudioColorRangeWheel";
+import { newColorRange, type Adjustments, type ColorRange } from '../../utils/adjustments';
+import { useEditorStore } from '../../store/useEditorStore';
+import StudioColorEditor from './StudioColorEditor';
+import StudioColorRangeWheel, { chromaOf, radiusOf, rangeBand, wheelPoint } from './StudioColorRangeWheel';
 
 /** The wheel is drawn 224 px wide: one view-box unit (±1.12) is 100 px. */
 const WHEEL_PX = 224;
@@ -37,7 +22,7 @@ const interaction = vi.fn();
 
 function Harness({ initial }: { initial: ColorRange[] }) {
   const [values, setValues] = useState<Partial<Adjustments>>({
-    colorRanges: initial,
+    colorRanges: initial
   });
   return (
     <StudioColorEditor
@@ -55,21 +40,19 @@ function Harness({ initial }: { initial: ColorRange[] }) {
 const lastRanges = () => changes.at(-1)!.colorRanges as ColorRange[];
 
 const wheelSvg = () => {
-  const svg = screen
-    .getByRole("group", { name: "Color range wheel" })
-    .querySelector("svg")!;
-  vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({
+  const svg = screen.getByRole('group', { name: 'Color range wheel' }).querySelector('svg')!;
+  vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
     left: 0,
     top: 0,
     width: WHEEL_PX,
-    height: WHEEL_PX,
+    height: WHEEL_PX
   } as DOMRect);
   return svg;
 };
 
 const openTool = () => {
-  if (!screen.queryByRole("tablist")) {
-    fireEvent.click(screen.getByRole("button", { name: /Color editor/ }));
+  if (!screen.queryByRole('tablist')) {
+    fireEvent.click(screen.getByRole('button', { name: /Color editor/ }));
   }
 };
 
@@ -80,7 +63,7 @@ beforeEach(() => {
     colorPickerTarget: null,
     colorPickerLayer: null,
     activeColorRangeId: null,
-    colorRangeShow: null,
+    colorRangeShow: null
   });
 });
 afterEach(cleanup);
@@ -89,11 +72,11 @@ const skinish = () => ({
   ...newColorRange(50, 0.06, 0.65),
   hueRange: 25,
   chromaRange: 50,
-  smoothness: 50,
+  smoothness: 50
 });
 
-describe("range wheel geometry", () => {
-  it("maps chroma to the radius and back", () => {
+describe('range wheel geometry', () => {
+  it('maps chroma to the radius and back', () => {
     for (const c of [0, 0.02, 0.06, 0.15, 0.32]) {
       expect(chromaOf(radiusOf(c))).toBeCloseTo(c, 6);
     }
@@ -101,7 +84,7 @@ describe("range wheel geometry", () => {
     expect(wheelPoint(90, 0.32).y).toBeCloseTo(-1, 6);
   });
 
-  it("builds the band the renderer selects", () => {
+  it('builds the band the renderer selects', () => {
     const band = rangeBand(skinish());
     expect(band.hueLo).toBe(25);
     expect(band.hueHi).toBe(75);
@@ -129,22 +112,22 @@ describe("range wheel geometry", () => {
       ...skinish(),
       chroma: 0.02,
       chromaRange: 100,
-      smoothness: 0,
+      smoothness: 0
     });
     expect(pale.core!.chromaLo).toBe(0.015);
   });
 });
 
-describe("range wheel <-> sliders", () => {
-  it("dragging a hue edge sets the Range hue slider", () => {
+describe('range wheel <-> sliders', () => {
+  it('dragging a hue edge sets the Range hue slider', () => {
     const range = skinish();
     render(<Harness initial={[range]} />);
     openTool();
     wheelSvg();
-    const edge = screen.getByRole("slider", {
-      name: "Range hue edge, counter-clockwise",
+    const edge = screen.getByRole('slider', {
+      name: 'Range hue edge, counter-clockwise'
     });
-    expect(edge.getAttribute("aria-valuenow")).toBe("25");
+    expect(edge.getAttribute('aria-valuenow')).toBe('25');
     fireEvent.pointerDown(edge, { button: 0, ...at(75, 0.06) });
     expect(interaction).toHaveBeenLastCalledWith(true);
     fireEvent.pointerMove(edge, at(90, 0.06));
@@ -153,18 +136,18 @@ describe("range wheel <-> sliders", () => {
     expect(lastRanges()[0].hueRange).toBe(40);
     expect(lastRanges()[0].hue).toBe(50);
     // The slider shows the dragged width.
-    const slider = screen.getByRole("slider", {
-      name: "Color range hue range",
+    const slider = screen.getByRole('slider', {
+      name: 'Color range hue range'
     });
-    expect((slider as HTMLInputElement).value).toBe("40");
+    expect((slider as HTMLInputElement).value).toBe('40');
   });
 
-  it("dragging the outer saturation edge sets the saturation range", () => {
+  it('dragging the outer saturation edge sets the saturation range', () => {
     render(<Harness initial={[skinish()]} />);
     openTool();
     wheelSvg();
-    const edge = screen.getByRole("slider", {
-      name: "Range outer saturation edge",
+    const edge = screen.getByRole('slider', {
+      name: 'Range outer saturation edge'
     });
     // Outer edge at c(1 + 2r) + 0.01: 0.1 → r = (0.1 − 0.01 − 0.06) / 0.12.
     fireEvent.pointerDown(edge, { button: 0, ...at(50, 0.13) });
@@ -173,11 +156,11 @@ describe("range wheel <-> sliders", () => {
     expect(lastRanges()[0].chromaRange).toBe(25);
     expect(
       (
-        screen.getByRole("slider", {
-          name: "Color range saturation range",
+        screen.getByRole('slider', {
+          name: 'Color range saturation range'
         }) as HTMLInputElement
-      ).value,
-    ).toBe("25");
+      ).value
+    ).toBe('25');
   });
 
   it("keeps a saturated range's out-of-wheel width until the edge is dragged", () => {
@@ -187,8 +170,8 @@ describe("range wheel <-> sliders", () => {
     render(<Harness initial={[range]} />);
     openTool();
     wheelSvg();
-    const edge = screen.getByRole("slider", {
-      name: "Range outer saturation edge",
+    const edge = screen.getByRole('slider', {
+      name: 'Range outer saturation edge'
     });
     fireEvent.pointerDown(edge, { button: 0, ...at(30, 0.32) });
     fireEvent.pointerMove(edge, at(30, 0.32));
@@ -203,32 +186,26 @@ describe("range wheel <-> sliders", () => {
     expect(width).toBe(55);
   });
 
-  it("draws the edge handles over the colour handle, so they stay reachable", () => {
+  it('draws the edge handles over the colour handle, so they stay reachable', () => {
     // Saturated blue: the outer edge clips to the rim right beside the
     // colour; SVG paints later elements on top, so the edges come last.
     render(<Harness initial={[newColorRange(264, 0.313, 0.45)]} />);
     openTool();
-    const colour = screen.getByRole("slider", { name: "Range color" });
-    for (const name of [
-      "Range outer saturation edge",
-      "Range inner saturation edge",
-      "Range hue edge, clockwise",
-    ]) {
-      const edge = screen.getByRole("slider", { name });
-      expect(
-        colour.compareDocumentPosition(edge) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
+    const colour = screen.getByRole('slider', { name: 'Range color' });
+    for (const name of ['Range outer saturation edge', 'Range inner saturation edge', 'Range hue edge, clockwise']) {
+      const edge = screen.getByRole('slider', { name });
+      expect(colour.compareDocumentPosition(edge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
   });
 
-  it("selecting another range mid-drag ends the drag without editing either", () => {
+  it('selecting another range mid-drag ends the drag without editing either', () => {
     const a = skinish();
     const b = { ...newColorRange(220, 0.08, 0.5), hueRange: 25 };
     render(<Harness initial={[a, b]} />);
     openTool();
     wheelSvg();
-    const edge = screen.getByRole("slider", {
-      name: "Range hue edge, counter-clockwise",
+    const edge = screen.getByRole('slider', {
+      name: 'Range hue edge, counter-clockwise'
     });
     fireEvent.pointerDown(edge, { button: 0, ...at(75, 0.06) });
     fireEvent.pointerMove(edge, at(90, 0.06));
@@ -239,40 +216,36 @@ describe("range wheel <-> sliders", () => {
     // Nothing was written: the pending frame of range A was dropped.
     expect(changes).toHaveLength(0);
     expect(
-      screen
-        .getByRole("slider", { name: "Range hue edge, counter-clockwise" })
-        .getAttribute("aria-valuenow"),
-    ).toBe("25");
+      screen.getByRole('slider', { name: 'Range hue edge, counter-clockwise' }).getAttribute('aria-valuenow')
+    ).toBe('25');
   });
 
-  it("another photograph mid-drag ends the drag (copied ranges share ids)", () => {
+  it('another photograph mid-drag ends the drag (copied ranges share ids)', () => {
     useEditorStore.setState({
-      selectedImage: { path: "/a.cr3" } as never,
+      selectedImage: { path: '/a.cr3' } as never
     });
     render(<Harness initial={[skinish()]} />);
     openTool();
     wheelSvg();
-    const edge = screen.getByRole("slider", {
-      name: "Range hue edge, counter-clockwise",
+    const edge = screen.getByRole('slider', {
+      name: 'Range hue edge, counter-clockwise'
     });
     fireEvent.pointerDown(edge, { button: 0, ...at(75, 0.06) });
     fireEvent.pointerMove(edge, at(90, 0.06));
-    act(() =>
-      useEditorStore.setState({ selectedImage: { path: "/b.cr3" } as never }),
-    );
+    act(() => useEditorStore.setState({ selectedImage: { path: '/b.cr3' } as never }));
     fireEvent.pointerMove(edge, at(100, 0.06));
     fireEvent.pointerUp(edge);
     expect(changes).toHaveLength(0);
     useEditorStore.setState({ selectedImage: null });
   });
 
-  it("a near-grey range keeps its width on a press without movement", () => {
+  it('a near-grey range keeps its width on a press without movement', () => {
     const range = { ...newColorRange(50, 0.004, 0.6), chromaRange: 50 };
     render(<Harness initial={[range]} />);
     openTool();
     wheelSvg();
-    const edge = screen.getByRole("slider", {
-      name: "Range outer saturation edge",
+    const edge = screen.getByRole('slider', {
+      name: 'Range outer saturation edge'
     });
     fireEvent.pointerDown(edge, { button: 0, ...at(50, 0.018) });
     fireEvent.pointerMove(edge, at(50, 0.018));
@@ -287,54 +260,52 @@ describe("range wheel <-> sliders", () => {
       ranges,
       active: range,
       onChange: vi.fn(),
-      onInteraction: vi.fn(),
+      onInteraction: vi.fn()
     };
     const { rerender } = render(<StudioColorRangeWheel {...props} />);
     wheelSvg();
-    const edge = () =>
-      screen.getByRole("slider", { name: "Range hue edge, counter-clockwise" });
+    const edge = () => screen.getByRole('slider', { name: 'Range hue edge, counter-clockwise' });
     fireEvent.pointerDown(edge(), { button: 0, ...at(75, 0.06) });
     fireEvent.pointerMove(edge(), at(90, 0.06));
-    expect(edge().getAttribute("aria-valuenow")).toBe("40");
+    expect(edge().getAttribute('aria-valuenow')).toBe('40');
     rerender(<StudioColorRangeWheel {...props} disabled />);
     expect(props.onInteraction).toHaveBeenLastCalledWith(false);
     rerender(<StudioColorRangeWheel {...props} />);
-    expect(edge().getAttribute("aria-valuenow")).toBe("25");
+    expect(edge().getAttribute('aria-valuenow')).toBe('25');
     expect(props.onChange).not.toHaveBeenCalled();
   });
 
-  it("follows the sliders: a new hue range moves the edge handles", () => {
+  it('follows the sliders: a new hue range moves the edge handles', () => {
     const range = skinish();
     const { rerender } = render(<Harness initial={[range]} />);
     openTool();
-    const edge = () =>
-      screen.getByRole("slider", { name: "Range hue edge, clockwise" });
-    const before = Number(edge().getAttribute("cy"));
-    const slider = screen.getByRole("slider", {
-      name: "Color range hue range",
+    const edge = () => screen.getByRole('slider', { name: 'Range hue edge, clockwise' });
+    const before = Number(edge().getAttribute('cy'));
+    const slider = screen.getByRole('slider', {
+      name: 'Color range hue range'
     });
-    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    fireEvent.keyDown(slider, { key: 'ArrowRight' });
     rerender(<Harness initial={[range]} />);
     expect(lastRanges()[0].hueRange).toBe(26);
-    expect(edge().getAttribute("aria-valuenow")).toBe("26");
+    expect(edge().getAttribute('aria-valuenow')).toBe('26');
     // The clockwise edge (hue 50 − 26) sits lower on the wheel than before.
-    expect(Number(edge().getAttribute("cy"))).toBeGreaterThan(before);
+    expect(Number(edge().getAttribute('cy'))).toBeGreaterThan(before);
   });
 
-  it("steps a handle with the arrow keys", () => {
+  it('steps a handle with the arrow keys', () => {
     render(<Harness initial={[skinish()]} />);
     openTool();
-    const edge = screen.getByRole("slider", {
-      name: "Range inner saturation edge",
+    const edge = screen.getByRole('slider', {
+      name: 'Range inner saturation edge'
     });
-    fireEvent.keyDown(edge, { key: "ArrowUp", shiftKey: true });
+    fireEvent.keyDown(edge, { key: 'ArrowUp', shiftKey: true });
     expect(lastRanges()[0].chromaRange).toBe(60);
-    const colour = screen.getByRole("slider", { name: "Range color" });
-    fireEvent.keyDown(colour, { key: "ArrowLeft" });
+    const colour = screen.getByRole('slider', { name: 'Range color' });
+    fireEvent.keyDown(colour, { key: 'ArrowLeft' });
     expect(lastRanges()[0].hue).toBe(49);
   });
 
-  it("a press beside the handles moves the range to that colour", () => {
+  it('a press beside the handles moves the range to that colour', () => {
     render(<Harness initial={[skinish()]} />);
     openTool();
     const svg = wheelSvg();
@@ -348,12 +319,10 @@ describe("range wheel <-> sliders", () => {
     expect(moved.hueRange).toBe(25);
   });
 
-  it("a pick armed for a range ends with a press on the wheel", () => {
+  it('a pick armed for a range ends with a press on the wheel', () => {
     render(<Harness initial={[skinish()]} />);
     openTool();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Pick the range color again" }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the range color again' }));
     const svg = wheelSvg();
     fireEvent.pointerDown(svg, { button: 0, ...at(120, 0.1) });
     fireEvent.pointerUp(svg);
@@ -363,18 +332,16 @@ describe("range wheel <-> sliders", () => {
     expect(useEditorStore.getState().colorPickerTarget).toBeNull();
   });
 
-  it("re-picks a range on the wheel at the range limit", () => {
+  it('re-picks a range on the wheel at the range limit', () => {
     const full = Array.from({ length: 8 }, (_, i) => ({
       ...newColorRange(i * 45, 0.08, 0.6),
-      hueRange: 10,
+      hueRange: 10
     }));
     render(<Harness initial={full} />);
     openTool();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Pick the range color again" }),
-    );
-    const group = screen.getByRole("group", { name: "Color range wheel" });
-    expect(group.className).not.toContain("is-disabled");
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the range color again' }));
+    const group = screen.getByRole('group', { name: 'Color range wheel' });
+    expect(group.className).not.toContain('is-disabled');
     const svg = wheelSvg();
     fireEvent.pointerDown(svg, { button: 0, ...at(20, 0.1) });
     expect(lastRanges()).toHaveLength(8);
@@ -383,92 +350,75 @@ describe("range wheel <-> sliders", () => {
     // Adding a ninth stays impossible.
     expect(
       (
-        screen.getByRole("button", {
-          name: "Pick a color range",
+        screen.getByRole('button', {
+          name: 'Pick a color range'
         }) as HTMLButtonElement
-      ).disabled,
+      ).disabled
     ).toBe(true);
   });
 
-  it("with the picker armed, a press on the wheel adds a range", () => {
+  it('with the picker armed, a press on the wheel adds a range', () => {
     render(<Harness initial={[skinish()]} />);
     openTool();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Pick a color range" }),
-    );
-    expect(useEditorStore.getState().colorPickerTarget).toBe("new");
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a color range' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe('new');
     const svg = wheelSvg();
     fireEvent.pointerDown(svg, { button: 0, ...at(140, 0.12) });
     expect(lastRanges()).toHaveLength(2);
     expect(lastRanges()[1].hue).toBeCloseTo(140, 0);
     expect(useEditorStore.getState().colorPickerTarget).toBeNull();
-    expect(useEditorStore.getState().activeColorRangeId).toBe(
-      lastRanges()[1].id,
-    );
+    expect(useEditorStore.getState().activeColorRangeId).toBe(lastRanges()[1].id);
   });
 });
 
-describe("skin tone mode", () => {
-  it("picks skin on the wheel into a range of its own", () => {
+describe('skin tone mode', () => {
+  it('picks skin on the wheel into a range of its own', () => {
     const other = newColorRange(240, 0.1, 0.5);
     render(<Harness initial={[other]} />);
     openTool();
-    fireEvent.click(screen.getByRole("tab", { name: "Skin tone" }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Skin tone' }));
     expect(screen.getByText(/Pick skin in the photo/)).toBeTruthy();
     // No skin range yet: the wheel shows none and a press picks skin.
-    expect(screen.queryByRole("slider", { name: "Range color" })).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Range color' })).toBeNull();
     const svg = wheelSvg();
     act(() => {
       fireEvent.pointerDown(svg, { button: 0, ...at(55, 0.07) });
     });
     const ranges = lastRanges();
     expect(ranges).toHaveLength(2);
-    const skin = ranges.find((r) => r.kind === "skin")!;
+    const skin = ranges.find((r) => r.kind === 'skin')!;
     expect(skin.hue).toBeCloseTo(55, 0);
     expect(useEditorStore.getState().activeColorRangeId).toBe(skin.id);
     // Uniformity comes first, the shifts under Amount after it.
-    const names = screen
-      .getAllByRole("slider")
-      .map((s) => s.getAttribute("aria-label"));
-    expect(names.indexOf("Color range hue uniformity")).toBeLessThan(
-      names.indexOf("Color range hue"),
-    );
-    expect(screen.getByText("Amount")).toBeTruthy();
-    fireEvent.keyDown(
-      screen.getByRole("slider", { name: "Color range saturation uniformity" }),
-      { key: "ArrowRight" },
-    );
-    expect(
-      lastRanges().find((r) => r.kind === "skin")!.saturationUniformity,
-    ).toBe(1);
+    const names = screen.getAllByRole('slider').map((s) => s.getAttribute('aria-label'));
+    expect(names.indexOf('Color range hue uniformity')).toBeLessThan(names.indexOf('Color range hue'));
+    expect(screen.getByText('Amount')).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Color range saturation uniformity' }), { key: 'ArrowRight' });
+    expect(lastRanges().find((r) => r.kind === 'skin')!.saturationUniformity).toBe(1);
     expect(lastRanges().find((r) => r.id === other.id)).toEqual(other);
   });
 
-  it("arms the photo picker for skin and keeps skin out of the range list", () => {
-    const skin = { ...newColorRange(50, 0.06, 0.6), kind: "skin" as const };
+  it('arms the photo picker for skin and keeps skin out of the range list', () => {
+    const skin = { ...newColorRange(50, 0.06, 0.6), kind: 'skin' as const };
     const other = newColorRange(240, 0.1, 0.5);
     render(<Harness initial={[skin, other]} />);
     openTool();
     // Ranges mode lists the other range only.
-    expect(
-      screen.getAllByRole("button", { name: /^Color range \d+°$/ }),
-    ).toHaveLength(1);
-    fireEvent.click(screen.getByRole("tab", { name: "Skin tone" }));
+    expect(screen.getAllByRole('button', { name: /^Color range \d+°$/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('tab', { name: 'Skin tone' }));
     expect(useEditorStore.getState().activeColorRangeId).toBe(skin.id);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Pick the range color again" }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the range color again' }));
     expect(useEditorStore.getState().colorPickerTarget).toBe(skin.id);
-    fireEvent.click(screen.getByRole("tab", { name: "Ranges" }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Ranges' }));
     expect(useEditorStore.getState().colorPickerTarget).toBeNull();
   });
 
-  it("offers the skin picker when there is no skin range", () => {
+  it('offers the skin picker when there is no skin range', () => {
     render(<Harness initial={[]} />);
     openTool();
-    fireEvent.click(screen.getByRole("tab", { name: "Skin tone" }));
-    fireEvent.click(screen.getByRole("button", { name: "Pick the skin tone" }));
-    expect(useEditorStore.getState().colorPickerTarget).toBe("skin");
-    expect(screen.getByText("Click skin in the photo.")).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Skin tone' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the skin tone' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe('skin');
+    expect(screen.getByText('Click skin in the photo.')).toBeTruthy();
   });
 });

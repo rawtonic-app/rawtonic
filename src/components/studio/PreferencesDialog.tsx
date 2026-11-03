@@ -1,6 +1,6 @@
-import { useRef, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
-import { useModalFocus } from "../../hooks/useModalFocus";
+import { useRef, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useModalFocus } from '../../hooks/useModalFocus';
 
 /**
  * Preferences over the workspace: a modal dialog that holds the keyboard
@@ -17,7 +17,7 @@ export default function PreferencesDialog({ children }: { children: ReactNode })
       className="studio-settings"
       role="dialog"
       aria-modal="true"
-      aria-label={t("studio.workspace.preferences")}
+      aria-label={t('studio.workspace.preferences')}
       tabIndex={-1}
     >
       {children}

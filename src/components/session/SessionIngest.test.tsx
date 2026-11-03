@@ -1,44 +1,44 @@
-import "../../i18n";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { invoke } from "@tauri-apps/api/core";
-import { notify as toast, type NotifyOptions } from "../../activity/notify";
-import SessionWorkspace, { type SessionSummary } from "./SessionWorkspace";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useUIStore } from "../../store/useUIStore";
-import { ContextMenuProvider } from "../../context/ContextMenuContext";
-import type { AppSettings } from "../ui/AppProperties";
-import { SHOW_PREVIOUS_IMPORT, requestFolderSync } from "../../utils/folderSync";
-import { requestAddFolder } from "./addFolder";
+import '../../i18n';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { invoke } from '@tauri-apps/api/core';
+import { notify as toast, type NotifyOptions } from '../../activity/notify';
+import SessionWorkspace, { type SessionSummary } from './SessionWorkspace';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
+import { ContextMenuProvider } from '../../context/ContextMenuContext';
+import type { AppSettings } from '../ui/AppProperties';
+import { SHOW_PREVIOUS_IMPORT, requestFolderSync } from '../../utils/folderSync';
+import { requestAddFolder } from './addFolder';
 
 type DragDropPayload =
-  | { type: "enter"; paths: string[]; position: { x: number; y: number } }
-  | { type: "drop"; paths: string[]; position: { x: number; y: number } }
-  | { type: "leave" };
+  | { type: 'enter'; paths: string[]; position: { x: number; y: number } }
+  | { type: 'drop'; paths: string[]; position: { x: number; y: number } }
+  | { type: 'leave' };
 const drag = vi.hoisted(() => ({ handler: null as null | ((event: { payload: DragDropPayload }) => void) }));
 const events = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 
-vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true, invoke: vi.fn() }));
-vi.mock("@tauri-apps/api/webview", () => ({
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({
     onDragDropEvent: async (handler: (event: { payload: DragDropPayload }) => void) => {
       drag.handler = handler;
       return () => {};
-    },
-  }),
+    }
+  })
 }));
-vi.mock("@tauri-apps/api/event", () => ({
+vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async (name: string, callback: (event: { payload: unknown }) => void) => {
     events.set(name, callback);
     return () => {};
-  }),
+  })
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
-vi.mock("@tauri-apps/api/path", () => ({ join: async (...parts: string[]) => parts.join("/") }));
-vi.mock("@tauri-apps/plugin-os", () => ({ platform: () => "macos" }));
-vi.mock("../../activity/notify", () => ({
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(async () => null) }));
+vi.mock('@tauri-apps/api/path', () => ({ join: async (...parts: string[]) => parts.join('/') }));
+vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
+vi.mock('../../activity/notify', () => ({
   notify: {
     error: vi.fn(),
     success: vi.fn(),
@@ -47,22 +47,22 @@ vi.mock("../../activity/notify", () => ({
     // Whether the launch's restore failure still shows (none in these tests).
     isActive: vi.fn(() => false),
     warning: vi.fn(),
-    warn: vi.fn(),
-  },
+    warn: vi.fn()
+  }
 }));
 
 const summary: SessionSummary = {
-  directory: "/jobs/Acme",
-  manifest: { name: "Acme", mode: "session", capture: "Capture", output: "Output" },
+  directory: '/jobs/Acme',
+  manifest: { name: 'Acme', mode: 'session', capture: 'Capture', output: 'Output' },
   assets: 0,
   picked: 0,
   rated: 0,
-  xmp_pending: 0,
+  xmp_pending: 0
 };
 const scanned = [
-  { path: "/Volumes/CARD/DCIM/A.ARW", size: 20_000_000, duplicate: false },
-  { path: "/Volumes/CARD/DCIM/B.ARW", size: 21_000_000, duplicate: true },
-  { path: "/Volumes/CARD/DCIM/C.ARW", size: 22_000_000, duplicate: false },
+  { path: '/Volumes/CARD/DCIM/A.ARW', size: 20_000_000, duplicate: false },
+  { path: '/Volumes/CARD/DCIM/B.ARW', size: 21_000_000, duplicate: true },
+  { path: '/Volumes/CARD/DCIM/C.ARW', size: 22_000_000, duplicate: false }
 ];
 let lastSession: SessionSummary | null = summary;
 
@@ -71,49 +71,58 @@ beforeEach(() => {
   events.clear();
   drag.handler = null;
   lastSession = summary;
-  document.body.innerHTML = "";
-  useUIStore.setState({ activeView: "library" });
-  useLibraryStore.setState({ rootPaths: [], imageList: [], multiSelectedPaths: [], imageFlags: {}, sessionDirectory: null });
+  document.body.innerHTML = '';
+  useUIStore.setState({ activeView: 'library' });
+  useLibraryStore.setState({
+    rootPaths: [],
+    imageList: [],
+    multiSelectedPaths: [],
+    imageFlags: {},
+    sessionDirectory: null
+  });
   useSettingsStore.setState({
     appSettings: {} as AppSettings,
     handleSettingsChange: async () => {},
-    supportedTypes: { raw: ["arw"], nonRaw: ["jpg"] },
+    supportedTypes: { raw: ['arw'], nonRaw: ['jpg'] }
   });
   HTMLDialogElement.prototype.showModal = function () {
-    this.setAttribute("open", "");
+    this.setAttribute('open', '');
   };
   HTMLDialogElement.prototype.close = function () {
-    this.removeAttribute("open");
+    this.removeAttribute('open');
   };
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     switch (command) {
-      case "session_last":
+      case 'session_last':
         return lastSession;
-      case "session_summary":
+      case 'session_summary':
         return summary;
-      case "session_flags":
+      case 'session_flags':
         return {};
-      case "session_ingest_scan":
-        return (args as { paths: string[] }).paths[0] === "/Volumes/CARD2"
-          ? { files: [scanned[0], { path: "/Volumes/CARD2/D.ARW", size: 1_000_000, duplicate: false }], truncated: false }
+      case 'session_ingest_scan':
+        return (args as { paths: string[] }).paths[0] === '/Volumes/CARD2'
+          ? {
+              files: [scanned[0], { path: '/Volumes/CARD2/D.ARW', size: 1_000_000, duplicate: false }],
+              truncated: false
+            }
           : { files: scanned, truncated: false };
-      case "session_ingest_thumbnail":
+      case 'session_ingest_thumbnail':
         return new ArrayBuffer(0);
-      case "session_ingest_preview":
+      case 'session_ingest_preview':
         return new ArrayBuffer(0);
-      case "session_ingest_capture_info":
-        return { iso: "ISO 200", exposure: "1/500 s", aperture: "f/4", focalLength: "85 mm" };
-      case "session_ingest": {
+      case 'session_ingest_capture_info':
+        return { iso: 'ISO 200', exposure: '1/500 s', aperture: 'f/4', focalLength: '85 mm' };
+      case 'session_ingest': {
         const { sources, folder } = args as { sources: string[]; folder: string | null };
         return sources.map((source) => ({
           source,
-          destination: `${folder ?? "/jobs/Acme/Capture"}/${source.split("/").pop()}`,
+          destination: `${folder ?? '/jobs/Acme/Capture'}/${source.split('/').pop()}`,
           skipped: false,
-          error: null,
+          error: null
         }));
       }
       default:
-        return { path: "/jobs/Acme", children: [] };
+        return { path: '/jobs/Acme', children: [] };
     }
   });
 });
@@ -124,9 +133,9 @@ async function open(navigate = vi.fn(async () => {})) {
   render(
     <ContextMenuProvider>
       <SessionWorkspace onNavigate={navigate} />
-    </ContextMenuProvider>,
+    </ContextMenuProvider>
   );
-  if (lastSession) await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/jobs/Acme"));
+  if (lastSession) await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe('/jobs/Acme'));
   await waitFor(() => expect(drag.handler).not.toBeNull());
   return navigate;
 }
@@ -135,278 +144,319 @@ async function open(navigate = vi.fn(async () => {})) {
 function drop(paths: string[], element: Element | null = null) {
   document.elementFromPoint = (() => element) as unknown as typeof document.elementFromPoint;
   act(() => {
-    drag.handler!({ payload: { type: "enter", paths, position: { x: 10, y: 10 } } });
+    drag.handler!({ payload: { type: 'enter', paths, position: { x: 10, y: 10 } } });
   });
   act(() => {
-    drag.handler!({ payload: { type: "drop", paths, position: { x: 10, y: 10 } } });
+    drag.handler!({ payload: { type: 'drop', paths, position: { x: 10, y: 10 } } });
   });
 }
 
-const ingestCall = () => vi.mocked(invoke).mock.calls.find(([command]) => command === "session_ingest");
+const ingestCall = () => vi.mocked(invoke).mock.calls.find(([command]) => command === 'session_ingest');
 
-describe("Dropping photographs onto the window", () => {
-  it("offers import presets only for imports that apply them", async () => {
+describe('Dropping photographs onto the window', () => {
+  it('offers import presets only for imports that apply them', async () => {
     const user = userEvent.setup();
     await open();
-    await user.click(screen.getByRole("button", { name: "Hot folder" }));
-    await screen.findByRole("heading", { name: "Hot folder" });
-    expect(screen.queryByLabelText("Metadata preset")).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Hot folder' }));
+    await screen.findByRole('heading', { name: 'Hot folder' });
+    expect(screen.queryByLabelText('Metadata preset')).toBeNull();
   });
 
-  it("passes a selected metadata preset with the import and keeps None as the default", async () => {
+  it('passes a selected metadata preset with the import and keeps None as the default', async () => {
     const user = userEvent.setup();
     await open();
-    useSettingsStore.setState({ appSettings: { ...useSettingsStore.getState().appSettings!, importMetadataPresets: [{
-      id: "rights", name: "My rights", creator: "Photographer", copyright: "© {year}", description: "",
-      iptc: { usageTerms: "Editorial" }, keywords: ["harbour"], includeCreatorContact: false, overwrite: [],
-    }] } as AppSettings });
-    drop(["/Volumes/CARD/DCIM"]);
-    const picker = await screen.findByLabelText("Metadata preset");
-    expect((picker as HTMLSelectElement).value).toBe("");
-    await user.selectOptions(picker, "rights");
-    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
+    useSettingsStore.setState({
+      appSettings: {
+        ...useSettingsStore.getState().appSettings!,
+        importMetadataPresets: [
+          {
+            id: 'rights',
+            name: 'My rights',
+            creator: 'Photographer',
+            copyright: '© {year}',
+            description: '',
+            iptc: { usageTerms: 'Editorial' },
+            keywords: ['harbour'],
+            includeCreatorContact: false,
+            overwrite: []
+          }
+        ]
+      } as AppSettings
+    });
+    drop(['/Volumes/CARD/DCIM']);
+    const picker = await screen.findByLabelText('Metadata preset');
+    expect((picker as HTMLSelectElement).value).toBe('');
+    await user.selectOptions(picker, 'rights');
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
-    expect(ingestCall()![1]).toMatchObject({ metadata: { creator: "Photographer", copyright: "© {year}", keywords: ["harbour"], includeCreatorContact: false, overwrite: [] } });
+    expect(ingestCall()![1]).toMatchObject({
+      metadata: {
+        creator: 'Photographer',
+        copyright: '© {year}',
+        keywords: ['harbour'],
+        includeCreatorContact: false,
+        overwrite: []
+      }
+    });
   });
 
   it("opens the ingest dialog with the dropped files' previews, and copies only the checked ones", async () => {
     const user = userEvent.setup();
     const navigate = await open();
-    drop(["/Volumes/CARD/DCIM"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
-    expect(invoke).toHaveBeenCalledWith("session_ingest_scan", {
-      directory: "/jobs/Acme",
-      paths: ["/Volumes/CARD/DCIM"],
+    drop(['/Volumes/CARD/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    expect(invoke).toHaveBeenCalledWith('session_ingest_scan', {
+      directory: '/jobs/Acme',
+      paths: ['/Volumes/CARD/DCIM']
     });
     // Nothing is copied before the user confirms.
     expect(ingestCall()).toBeUndefined();
-    expect(screen.getByRole("checkbox", { name: "B.ARW" }).getAttribute("aria-checked")).toBe("false");
-    await user.click(screen.getByRole("checkbox", { name: "C.ARW" }));
-    await user.click(screen.getByRole("button", { name: "Copy 1 photo" }));
+    expect(screen.getByRole('checkbox', { name: 'B.ARW' }).getAttribute('aria-checked')).toBe('false');
+    await user.click(screen.getByRole('checkbox', { name: 'C.ARW' }));
+    await user.click(screen.getByRole('button', { name: 'Copy 1 photo' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({
-      directory: "/jobs/Acme",
-      sources: ["/Volumes/CARD/DCIM/A.ARW"],
-      folder: null,
+      directory: '/jobs/Acme',
+      sources: ['/Volumes/CARD/DCIM/A.ARW'],
+      folder: null
     });
     // The grid shows the capture folder, where the photographs appear as they are copied.
-    expect(navigate).toHaveBeenLastCalledWith("/jobs/Acme/Capture");
+    expect(navigate).toHaveBeenLastCalledWith('/jobs/Acme/Capture');
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
-    expect(invoke).not.toHaveBeenCalledWith("session_album_add", expect.anything());
+    expect(invoke).not.toHaveBeenCalledWith('session_album_add', expect.anything());
   });
 
-  it("shows a photograph large inside the dialog; Escape returns to the grid and keeps the dialog open", async () => {
+  it('shows a photograph large inside the dialog; Escape returns to the grid and keeps the dialog open', async () => {
     const user = userEvent.setup();
     await open();
-    drop(["/Volumes/CARD/DCIM"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
-    await user.dblClick(screen.getByRole("checkbox", { name: "A.ARW" }));
-    const view = screen.getByRole("region", { name: "Large view" });
-    expect(invoke).toHaveBeenCalledWith("session_ingest_preview", {
-      path: "/Volumes/CARD/DCIM/A.ARW",
-      maxSize: expect.any(Number),
+    drop(['/Volumes/CARD/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    await user.dblClick(screen.getByRole('checkbox', { name: 'A.ARW' }));
+    const view = screen.getByRole('region', { name: 'Large view' });
+    expect(invoke).toHaveBeenCalledWith('session_ingest_preview', {
+      path: '/Volumes/CARD/DCIM/A.ARW',
+      maxSize: expect.any(Number)
     });
-    await waitFor(() => expect(view.textContent).toContain("ISO 200 · 1/500 s · f/4 · 85 mm"));
-    await user.keyboard("{ArrowRight}");
-    expect(view.textContent).toContain("B.ARW");
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("region", { name: "Large view" })).toBeNull();
-    expect(document.querySelector("dialog")?.hasAttribute("open")).toBe(true);
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
-    await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("B.ARW"));
+    await waitFor(() => expect(view.textContent).toContain('ISO 200 · 1/500 s · f/4 · 85 mm'));
+    await user.keyboard('{ArrowRight}');
+    expect(view.textContent).toContain('B.ARW');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('region', { name: 'Large view' })).toBeNull();
+    expect(document.querySelector('dialog')?.hasAttribute('open')).toBe(true);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(3);
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('B.ARW'));
     // The library's P/X/U flags do not act on the library behind the dialog.
-    await user.keyboard("p");
-    expect(invoke).not.toHaveBeenCalledWith("session_set_flag", expect.anything());
+    await user.keyboard('p');
+    expect(invoke).not.toHaveBeenCalledWith('session_set_flag', expect.anything());
   });
 
-  it("dropped onto an album: imports, then adds the photographs to that album", async () => {
+  it('dropped onto an album: imports, then adds the photographs to that album', async () => {
     const user = userEvent.setup();
     await open();
-    const row = document.createElement("button");
-    row.dataset.albumDrop = "album-7";
-    row.dataset.albumName = "Client picks";
+    const row = document.createElement('button');
+    row.dataset.albumDrop = 'album-7';
+    row.dataset.albumName = 'Client picks';
     document.body.append(row);
-    drop(["/Volumes/CARD/DCIM/A.ARW"], row);
-    const label = await screen.findByLabelText("Add to album “Client picks” after import");
+    drop(['/Volumes/CARD/DCIM/A.ARW'], row);
+    const label = await screen.findByLabelText('Add to album “Client picks” after import');
     expect((label as HTMLInputElement).checked).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith("session_album_add", {
-        directory: "/jobs/Acme",
-        id: "album-7",
-        paths: ["/jobs/Acme/Capture/A.ARW", "/jobs/Acme/Capture/C.ARW"],
-      }),
+      expect(invoke).toHaveBeenCalledWith('session_album_add', {
+        directory: '/jobs/Acme',
+        id: 'album-7',
+        paths: ['/jobs/Acme/Capture/A.ARW', '/jobs/Acme/Capture/C.ARW']
+      })
     );
   });
 
-  it("a RAW+JPEG pair is one photograph: the JPEG is not counted, not added to the album, and can be imported separately", async () => {
+  it('a RAW+JPEG pair is one photograph: the JPEG is not counted, not added to the album, and can be imported separately', async () => {
     const user = userEvent.setup();
     const base = vi.mocked(invoke).getMockImplementation()!;
     vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "session_ingest_scan")
+      if (command === 'session_ingest_scan')
         return {
           files: [
-            { path: "/Volumes/CARD/DCIM/A.ARW", size: 20_000_000, duplicate: false },
-            { path: "/Volumes/CARD/DCIM/A.JPG", size: 5_000_000, duplicate: false },
-            { path: "/Volumes/CARD/DCIM/C.ARW", size: 22_000_000, duplicate: false },
+            { path: '/Volumes/CARD/DCIM/A.ARW', size: 20_000_000, duplicate: false },
+            { path: '/Volumes/CARD/DCIM/A.JPG', size: 5_000_000, duplicate: false },
+            { path: '/Volumes/CARD/DCIM/C.ARW', size: 22_000_000, duplicate: false }
           ],
-          truncated: false,
+          truncated: false
         };
-      if (command === "session_ingest")
+      if (command === 'session_ingest')
         return [
-          { source: "/Volumes/CARD/DCIM/A.ARW", destination: "/jobs/Acme/Capture/A.ARW", skipped: false, error: null,
-            companion: "/jobs/Acme/Capture/A.JPG", companion_of: null },
-          { source: "/Volumes/CARD/DCIM/A.JPG", destination: "/jobs/Acme/Capture/A.JPG", skipped: false, error: null,
-            companion: null, companion_of: "/jobs/Acme/Capture/A.ARW" },
-          { source: "/Volumes/CARD/DCIM/C.ARW", destination: "/jobs/Acme/Capture/C.ARW", skipped: false, error: null },
+          {
+            source: '/Volumes/CARD/DCIM/A.ARW',
+            destination: '/jobs/Acme/Capture/A.ARW',
+            skipped: false,
+            error: null,
+            companion: '/jobs/Acme/Capture/A.JPG',
+            companion_of: null
+          },
+          {
+            source: '/Volumes/CARD/DCIM/A.JPG',
+            destination: '/jobs/Acme/Capture/A.JPG',
+            skipped: false,
+            error: null,
+            companion: null,
+            companion_of: '/jobs/Acme/Capture/A.ARW'
+          },
+          { source: '/Volumes/CARD/DCIM/C.ARW', destination: '/jobs/Acme/Capture/C.ARW', skipped: false, error: null }
         ];
       return base(command, args);
     });
     await open();
-    const row = document.createElement("button");
-    row.dataset.albumDrop = "album-7";
-    row.dataset.albumName = "Client picks";
+    const row = document.createElement('button');
+    row.dataset.albumDrop = 'album-7';
+    row.dataset.albumName = 'Client picks';
     document.body.append(row);
-    drop(["/Volumes/CARD/DCIM"], row);
-    const separate = await screen.findByLabelText("Import JPEGs next to RAW files as separate photos");
+    drop(['/Volumes/CARD/DCIM'], row);
+    const separate = await screen.findByLabelText('Import JPEGs next to RAW files as separate photos');
     expect((separate as HTMLInputElement).checked).toBe(false);
-    await user.click(screen.getByRole("button", { name: "Copy 3 photos" }));
+    await user.click(screen.getByRole('button', { name: 'Copy 3 photos' }));
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith("session_album_add", {
-        directory: "/jobs/Acme",
-        id: "album-7",
-        paths: ["/jobs/Acme/Capture/A.ARW", "/jobs/Acme/Capture/C.ARW"],
-      }),
+      expect(invoke).toHaveBeenCalledWith('session_album_add', {
+        directory: '/jobs/Acme',
+        id: 'album-7',
+        paths: ['/jobs/Acme/Capture/A.ARW', '/jobs/Acme/Capture/C.ARW']
+      })
     );
     expect(ingestCall()![1]).toMatchObject({ separateJpeg: false });
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
     const message = vi.mocked(toast.success).mock.calls[0][0] as string;
-    expect(message).toContain("2 photos copied");
-    expect(message).toContain("1 JPEGs kept with their RAWs");
+    expect(message).toContain('2 photos copied');
+    expect(message).toContain('1 JPEGs kept with their RAWs');
   });
 
-  it("opening a library finishes its interrupted ingest; photographs waiting for their card are said, not resumed", async () => {
+  it('opening a library finishes its interrupted ingest; photographs waiting for their card are said, not resumed', async () => {
     const base = vi.mocked(invoke).getMockImplementation()!;
     let jobs = [
-      { id: "job-1", total: 5, open: 2, available: 2 },
-      { id: "job-2", total: 3, open: 3, available: 0 },
+      { id: 'job-1', total: 5, open: 2, available: 2 },
+      { id: 'job-2', total: 3, open: 3, available: 0 }
     ];
     vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "session_ingest_jobs") return jobs;
-      if (command === "session_ingest_resume") {
+      if (command === 'session_ingest_jobs') return jobs;
+      if (command === 'session_ingest_resume') {
         jobs = [jobs[1]];
         return [
-          { source: "/Volumes/CARD/DCIM/D.ARW", destination: "/jobs/Acme/Capture/D.ARW", skipped: false, error: null },
-          { source: "/Volumes/CARD/DCIM/D.JPG", destination: "/jobs/Acme/Capture/D.JPG", skipped: false, error: null,
-            companion_of: "/jobs/Acme/Capture/D.ARW" },
+          { source: '/Volumes/CARD/DCIM/D.ARW', destination: '/jobs/Acme/Capture/D.ARW', skipped: false, error: null },
+          {
+            source: '/Volumes/CARD/DCIM/D.JPG',
+            destination: '/jobs/Acme/Capture/D.JPG',
+            skipped: false,
+            error: null,
+            companion_of: '/jobs/Acme/Capture/D.ARW'
+          }
         ];
       }
       return base(command, args);
     });
     await open();
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_ingest_resume", { directory: "/jobs/Acme" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('session_ingest_resume', { directory: '/jobs/Acme' }));
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "An interrupted import was finished: 1 photos · 1 JPEGs kept with their RAWs",
-      ),
+        'An interrupted import was finished: 1 photos · 1 JPEGs kept with their RAWs'
+      )
     );
     // Under the activity centre's Needs attention, with Import now and Forget.
     await waitFor(() => expect(toast.warn).toHaveBeenCalled());
     const [text, options] = vi.mocked(toast.warn).mock.calls[0] as [string, NotifyOptions];
     expect(text).toMatch(/3 photos of an interrupted import wait for their card or drive/);
-    await options.actions!.find((action) => action.label === "Forget them")!.run();
-    expect(invoke).toHaveBeenCalledWith("session_ingest_forget", { directory: "/jobs/Acme", id: "job-2" });
+    await options.actions!.find((action) => action.label === 'Forget them')!.run();
+    expect(invoke).toHaveBeenCalledWith('session_ingest_forget', { directory: '/jobs/Acme', id: 'job-2' });
   });
 
-  it("the card connected later: Import now finishes the waiting ingest without opening the library again", async () => {
+  it('the card connected later: Import now finishes the waiting ingest without opening the library again', async () => {
     const base = vi.mocked(invoke).getMockImplementation()!;
-    let jobs = [{ id: "job-2", total: 3, open: 3, available: 0 }];
+    let jobs = [{ id: 'job-2', total: 3, open: 3, available: 0 }];
     vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "session_ingest_jobs") return jobs;
-      if (command === "session_ingest_resume") {
+      if (command === 'session_ingest_jobs') return jobs;
+      if (command === 'session_ingest_resume') {
         jobs = [];
-        return [{ source: "/Volumes/CARD/DCIM/F.ARW", destination: "/jobs/Acme/Capture/F.ARW", skipped: false, error: null }];
+        return [
+          { source: '/Volumes/CARD/DCIM/F.ARW', destination: '/jobs/Acme/Capture/F.ARW', skipped: false, error: null }
+        ];
       }
       return base(command, args);
     });
     await open();
     await waitFor(() => expect(toast.warn).toHaveBeenCalled());
-    expect(invoke).not.toHaveBeenCalledWith("session_ingest_resume", expect.anything());
+    expect(invoke).not.toHaveBeenCalledWith('session_ingest_resume', expect.anything());
     const [, options] = vi.mocked(toast.warn).mock.calls[0] as [string, NotifyOptions];
-    jobs = [{ id: "job-2", total: 3, open: 3, available: 3 }];
+    jobs = [{ id: 'job-2', total: 3, open: 3, available: 3 }];
     await act(async () => {
-      await options.actions!.find((action) => action.label === "Import now")!.run();
+      await options.actions!.find((action) => action.label === 'Import now')!.run();
     });
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_ingest_resume", { directory: "/jobs/Acme" }));
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("An interrupted import was finished: 1 photos"));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('session_ingest_resume', { directory: '/jobs/Acme' }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('An interrupted import was finished: 1 photos'));
   });
 
-  it("a resumed ingest reports its failures as an ingest does", async () => {
+  it('a resumed ingest reports its failures as an ingest does', async () => {
     const base = vi.mocked(invoke).getMockImplementation()!;
-    let jobs = [{ id: "job-1", total: 2, open: 2, available: 2 }];
+    let jobs = [{ id: 'job-1', total: 2, open: 2, available: 2 }];
     vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "session_ingest_jobs") return jobs;
-      if (command === "session_ingest_resume") {
+      if (command === 'session_ingest_jobs') return jobs;
+      if (command === 'session_ingest_resume') {
         jobs = [];
         return [
-          { source: "/Volumes/CARD/DCIM/D.ARW", destination: "/jobs/Acme/Capture/D.ARW", skipped: false, error: null },
-          { source: "/Volumes/CARD/DCIM/E.ARW", destination: null, skipped: false, error: "Cannot read source" },
+          { source: '/Volumes/CARD/DCIM/D.ARW', destination: '/jobs/Acme/Capture/D.ARW', skipped: false, error: null },
+          { source: '/Volumes/CARD/DCIM/E.ARW', destination: null, skipped: false, error: 'Cannot read source' }
         ];
       }
       return base(command, args);
     });
     await open();
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
-    expect(String(vi.mocked(toast.error).mock.calls[0][0])).toContain("Cannot read source");
+    expect(String(vi.mocked(toast.error).mock.calls[0][0])).toContain('Cannot read source');
     expect(toast.success).not.toHaveBeenCalled();
   });
 
-  it("dropped onto a folder of the library: copies into that folder", async () => {
+  it('dropped onto a folder of the library: copies into that folder', async () => {
     const user = userEvent.setup();
     const navigate = await open();
-    const row = document.createElement("div");
-    row.dataset.folderDrop = "/jobs/Acme/Selects";
+    const row = document.createElement('div');
+    row.dataset.folderDrop = '/jobs/Acme/Selects';
     document.body.append(row);
-    drop(["/Volumes/CARD/DCIM"], row);
-    await screen.findByRole("button", { name: "Use Capture instead" });
-    expect(screen.getAllByText("Acme / Selects").length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
+    drop(['/Volumes/CARD/DCIM'], row);
+    await screen.findByRole('button', { name: 'Use Capture instead' });
+    expect(screen.getAllByText('Acme / Selects').length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
-    expect(ingestCall()![1]).toMatchObject({ folder: "/jobs/Acme/Selects" });
-    expect(navigate).toHaveBeenLastCalledWith("/jobs/Acme/Selects");
+    expect(ingestCall()![1]).toMatchObject({ folder: '/jobs/Acme/Selects' });
+    expect(navigate).toHaveBeenLastCalledWith('/jobs/Acme/Selects');
   });
 
-  it("after the copy the grid shows the new photographs (Previous Import), unless the user moved on or opened a photograph meanwhile", async () => {
+  it('after the copy the grid shows the new photographs (Previous Import), unless the user moved on or opened a photograph meanwhile', async () => {
     const user = userEvent.setup();
     const shown = vi.fn();
     window.addEventListener(SHOW_PREVIOUS_IMPORT, shown);
     try {
       await open();
-      drop(["/Volumes/CARD/DCIM"]);
-      await user.click(await screen.findByRole("button", { name: "Copy 2 photos" }));
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
       await waitFor(() => expect(shown).toHaveBeenCalledTimes(1));
 
       // Another folder opened while the card was copying: the view stays there.
       const base = vi.mocked(invoke).getMockImplementation()!;
       vi.mocked(invoke).mockImplementation(async (command, args) => {
-        if (command === "session_ingest") useLibraryStore.setState({ currentFolderPath: "/jobs/Acme/Selects" });
+        if (command === 'session_ingest') useLibraryStore.setState({ currentFolderPath: '/jobs/Acme/Selects' });
         return base(command, args);
       });
-      drop(["/Volumes/CARD/DCIM"]);
-      await user.click(await screen.findByRole("button", { name: "Copy 2 photos" }));
-      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "session_ingest")).toHaveLength(2));
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'session_ingest')).toHaveLength(2));
       await act(async () => {});
       expect(shown).toHaveBeenCalledTimes(1);
 
       // A photograph opened in the Library's loupe while copying stays open.
       useLibraryStore.setState({ currentFolderPath: null });
       vi.mocked(invoke).mockImplementation(async (command, args) => {
-        if (command === "session_ingest") useUIStore.setState({ libraryLoupe: true });
+        if (command === 'session_ingest') useUIStore.setState({ libraryLoupe: true });
         return base(command, args);
       });
-      drop(["/Volumes/CARD/DCIM"]);
-      await user.click(await screen.findByRole("button", { name: "Copy 2 photos" }));
-      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "session_ingest")).toHaveLength(3));
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'session_ingest')).toHaveLength(3));
       await act(async () => {});
       expect(shown).toHaveBeenCalledTimes(1);
     } finally {
@@ -415,16 +465,16 @@ describe("Dropping photographs onto the window", () => {
     }
   });
 
-  it("a folder outside the library is not a destination: the drop goes to Capture", async () => {
+  it('a folder outside the library is not a destination: the drop goes to Capture', async () => {
     const user = userEvent.setup();
     await open();
-    const row = document.createElement("div");
-    row.dataset.folderDrop = "/Users/someone/Pictures";
+    const row = document.createElement('div');
+    row.dataset.folderDrop = '/Users/someone/Pictures';
     document.body.append(row);
-    drop(["/Volumes/CARD/DCIM"], row);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
-    expect(screen.queryByRole("button", { name: "Use Capture instead" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
+    drop(['/Volumes/CARD/DCIM'], row);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    expect(screen.queryByRole('button', { name: 'Use Capture instead' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ folder: null });
   });
@@ -432,244 +482,256 @@ describe("Dropping photographs onto the window", () => {
   it("more files dropped onto the open dialog join its list, keeping the user's choices", async () => {
     const user = userEvent.setup();
     await open();
-    drop(["/Volumes/CARD/DCIM"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
-    await user.click(screen.getByRole("checkbox", { name: "A.ARW" }));
-    drop(["/Volumes/CARD2"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(4));
+    drop(['/Volumes/CARD/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    await user.click(screen.getByRole('checkbox', { name: 'A.ARW' }));
+    drop(['/Volumes/CARD2']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(4));
     // A.ARW was listed already: it stays unchecked; the new D.ARW is checked.
-    expect(screen.getByRole("checkbox", { name: "A.ARW" }).getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByRole("checkbox", { name: "D.ARW" }).getAttribute("aria-checked")).toBe("true");
-    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
+    expect(screen.getByRole('checkbox', { name: 'A.ARW' }).getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByRole('checkbox', { name: 'D.ARW' }).getAttribute('aria-checked')).toBe('true');
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
-    expect(ingestCall()![1]).toMatchObject({ sources: ["/Volumes/CARD/DCIM/C.ARW", "/Volumes/CARD2/D.ARW"] });
+    expect(ingestCall()![1]).toMatchObject({ sources: ['/Volumes/CARD/DCIM/C.ARW', '/Volumes/CARD2/D.ARW'] });
   });
 
-  it("in a catalog, a folder of its list on another drive is a destination, shown with its full path and drive", async () => {
+  it('in a catalog, a folder of its list on another drive is a destination, shown with its full path and drive', async () => {
     const user = userEvent.setup();
-    lastSession = { ...summary, directory: "/Users/me/Main.catalog", manifest: { ...summary.manifest, name: "Main", mode: "catalog" } };
+    lastSession = {
+      ...summary,
+      directory: '/Users/me/Main.catalog',
+      manifest: { ...summary.manifest, name: 'Main', mode: 'catalog' }
+    };
     vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === "session_last" || command === "session_summary") return lastSession;
-      if (command === "session_flags") return {};
-      if (command === "session_ingest_scan") return { files: scanned, truncated: false };
-      if (command === "session_ingest") return [];
-      return { path: "/Users/me/Main.catalog", children: [] };
+      if (command === 'session_last' || command === 'session_summary') return lastSession;
+      if (command === 'session_flags') return {};
+      if (command === 'session_ingest_scan') return { files: scanned, truncated: false };
+      if (command === 'session_ingest') return [];
+      return { path: '/Users/me/Main.catalog', children: [] };
     });
     render(
       <ContextMenuProvider>
         <SessionWorkspace onNavigate={vi.fn(async () => {})} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
-    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe('/Users/me/Main.catalog'));
     await waitFor(() => expect(drag.handler).not.toBeNull());
-    const row = document.createElement("div");
-    row.dataset.folderDrop = "/Volumes/Shoots/2026/Day 2";
+    const row = document.createElement('div');
+    row.dataset.folderDrop = '/Volumes/Shoots/2026/Day 2';
     document.body.append(row);
-    drop(["/Volumes/CARD/DCIM"], row);
-    await screen.findByText("/Volumes/Shoots/2026/Day 2");
-    expect(screen.getByText("On the drive “Shoots”")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
+    drop(['/Volumes/CARD/DCIM'], row);
+    await screen.findByText('/Volumes/Shoots/2026/Day 2');
+    expect(screen.getByText('On the drive “Shoots”')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
-    expect(ingestCall()![1]).toMatchObject({ folder: "/Volumes/Shoots/2026/Day 2" });
+    expect(ingestCall()![1]).toMatchObject({ folder: '/Volumes/Shoots/2026/Day 2' });
   });
 
-  it("“Import into this folder…” opens the dialog with that destination and no photographs yet", async () => {
+  it('“Import into this folder…” opens the dialog with that destination and no photographs yet', async () => {
     await open();
     act(() => {
-      window.dispatchEvent(new CustomEvent("rawtonic-open-ingest", { detail: { folder: "/jobs/Acme/Selects" } }));
+      window.dispatchEvent(new CustomEvent('rawtonic-open-ingest', { detail: { folder: '/jobs/Acme/Selects' } }));
     });
-    await screen.findByText("/jobs/Acme/Selects");
-    expect(screen.getAllByText("Acme / Selects").length).toBeGreaterThan(0);
-    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-    expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
+    await screen.findByText('/jobs/Acme/Selects');
+    expect(screen.getAllByText('Acme / Selects').length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(invoke).not.toHaveBeenCalledWith('session_ingest_scan', expect.anything());
     expect(screen.getByText(/Drop photos or folders here/)).toBeTruthy();
   });
 
-  it("does not open the ingest dialog over Synchronize Folder", async () => {
+  it('does not open the ingest dialog over Synchronize Folder', async () => {
     await open();
     act(() => requestFolderSync(null));
     act(() => {
-      drag.handler!({ payload: { type: "enter", paths: ["/Volumes/CARD/DCIM"], position: { x: 10, y: 10 } } });
+      drag.handler!({ payload: { type: 'enter', paths: ['/Volumes/CARD/DCIM'], position: { x: 10, y: 10 } } });
     });
-    expect(document.querySelector(".session-drop-overlay")).toBeNull();
-    drop(["/Volumes/CARD/DCIM"]);
-    expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
+    expect(document.querySelector('.session-drop-overlay')).toBeNull();
+    drop(['/Volumes/CARD/DCIM']);
+    expect(invoke).not.toHaveBeenCalledWith('session_ingest_scan', expect.anything());
   });
 
-  it("a Cancel pressed before the ingest reached the backend copies nothing", async () => {
+  it('a Cancel pressed before the ingest reached the backend copies nothing', async () => {
     const user = userEvent.setup();
     let arrive!: () => void;
     let hold = false;
-    await open(vi.fn(() => (hold ? new Promise<void>((resolve) => { arrive = resolve; }) : Promise.resolve())));
-    drop(["/Volumes/CARD/DCIM"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
+    await open(
+      vi.fn(() =>
+        hold
+          ? new Promise<void>((resolve) => {
+              arrive = resolve;
+            })
+          : Promise.resolve()
+      )
+    );
+    drop(['/Volumes/CARD/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
     hold = true;
-    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
     // The running import is in the activity centre, with Cancel.
     const slot = await waitFor(() => {
-      const button = document.querySelector<HTMLButtonElement>(".activity-slot-button");
+      const button = document.querySelector<HTMLButtonElement>('.activity-slot-button');
       expect(button).not.toBeNull();
       return button!;
     });
     await user.click(slot);
-    await user.click(within(screen.getByRole("dialog", { name: "Activity" })).getByRole("button", { name: "Cancel" }));
-    expect(invoke).toHaveBeenCalledWith("session_cancel_ingest");
+    await user.click(within(screen.getByRole('dialog', { name: 'Activity' })).getByRole('button', { name: 'Cancel' }));
+    expect(invoke).toHaveBeenCalledWith('session_cancel_ingest');
     await act(async () => arrive());
-    await waitFor(() => expect(document.querySelector(".activity-slot-button")).toBeNull());
+    await waitFor(() => expect(document.querySelector('.activity-slot-button')).toBeNull());
     expect(ingestCall()).toBeUndefined();
   });
 
-  it("without an open library nothing opens and nothing is copied", async () => {
+  it('without an open library nothing opens and nothing is copied', async () => {
     lastSession = null;
     await open();
-    drop(["/Volumes/CARD/DCIM"]);
+    drop(['/Volumes/CARD/DCIM']);
     expect(toast.info).toHaveBeenCalled();
-    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-    expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(invoke).not.toHaveBeenCalledWith('session_ingest_scan', expect.anything());
   });
 });
 
-describe("Copy or add where they are (catalogs)", () => {
+describe('Copy or add where they are (catalogs)', () => {
   const catalog: SessionSummary = {
     ...summary,
-    directory: "/Users/me/Main.catalog",
-    manifest: { ...summary.manifest, name: "Main", mode: "catalog" },
+    directory: '/Users/me/Main.catalog',
+    manifest: { ...summary.manifest, name: 'Main', mode: 'catalog' }
   };
   const onCard = [
-    { path: "/Volumes/EOS_DIGITAL/DCIM/100CANON/A.CR3", size: 30_000_000, duplicate: false, medium: "card" },
+    { path: '/Volumes/EOS_DIGITAL/DCIM/100CANON/A.CR3', size: 30_000_000, duplicate: false, medium: 'card' }
   ];
   const onDrive = [
-    { path: "/Volumes/Archive/2026/B.CR3", size: 30_000_000, duplicate: false, medium: "disk" },
-    { path: "/Volumes/Archive/2026/C.CR3", size: 30_000_000, duplicate: false, medium: "disk" },
+    { path: '/Volumes/Archive/2026/B.CR3', size: 30_000_000, duplicate: false, medium: 'disk' },
+    { path: '/Volumes/Archive/2026/C.CR3', size: 30_000_000, duplicate: false, medium: 'disk' }
   ];
   beforeEach(() => {
     lastSession = catalog;
     vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "session_last" || command === "session_summary") return lastSession;
-      if (command === "session_flags") return {};
-      if (command === "session_ingest_scan")
+      if (command === 'session_last' || command === 'session_summary') return lastSession;
+      if (command === 'session_flags') return {};
+      if (command === 'session_ingest_scan')
         return {
-          files: (args as { paths: string[] }).paths[0].includes("DCIM") ? onCard : onDrive,
-          truncated: false,
+          files: (args as { paths: string[] }).paths[0].includes('DCIM') ? onCard : onDrive,
+          truncated: false
         };
-      if (command === "session_ingest") return [];
-      return { path: "/Users/me/Main.catalog", children: [] };
+      if (command === 'session_ingest') return [];
+      return { path: '/Users/me/Main.catalog', children: [] };
     });
   });
-  const radio = (name: RegExp) => screen.getByRole("radio", { name }) as HTMLInputElement;
+  const radio = (name: RegExp) => screen.getByRole('radio', { name }) as HTMLInputElement;
   async function openCatalog() {
     const navigate = vi.fn(async () => {});
     render(
       <ContextMenuProvider>
         <SessionWorkspace onNavigate={navigate} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
-    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe('/Users/me/Main.catalog'));
     await waitFor(() => expect(drag.handler).not.toBeNull());
     return navigate;
   }
 
-  it("photographs on a drive default to copy; adding externally is an explicit choice", async () => {
+  it('photographs on a drive default to copy; adding externally is an explicit choice', async () => {
     const user = userEvent.setup();
     const navigate = await openCatalog();
-    drop(["/Volumes/Archive/2026"]);
+    drop(['/Volumes/Archive/2026']);
     await waitFor(() => expect(radio(/Copy to/).checked).toBe(true));
     await user.click(radio(/Add where they are/));
     expect(screen.getByText(/stay where they are/)).toBeTruthy();
     // No naming or second copy for photographs that stay where they are.
-    expect(screen.queryByText("Second copy")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Add 2 photos" }));
+    expect(screen.queryByText('Second copy')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Add 2 photos' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
-    expect(ingestCall()![1]).toMatchObject({ mode: "add", folder: null, sources: onDrive.map((f) => f.path) });
-    expect(navigate).toHaveBeenLastCalledWith("/Volumes/Archive/2026");
+    expect(ingestCall()![1]).toMatchObject({ mode: 'add', folder: null, sources: onDrive.map((f) => f.path) });
+    expect(navigate).toHaveBeenLastCalledWith('/Volumes/Archive/2026');
   });
 
-  it("photographs on a card are copied; adding them is disabled with the reason", async () => {
+  it('photographs on a card are copied; adding them is disabled with the reason', async () => {
     const user = userEvent.setup();
     await openCatalog();
-    drop(["/Volumes/EOS_DIGITAL/DCIM"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(1));
+    drop(['/Volumes/EOS_DIGITAL/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(1));
     expect(radio(/Copy to/).checked).toBe(true);
     expect(radio(/Add where they are/).disabled).toBe(true);
     expect(screen.getAllByText(/must be copied off it/).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "Copy 1 photo" }));
+    await user.click(screen.getByRole('button', { name: 'Copy 1 photo' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
-    expect(ingestCall()![1]).toMatchObject({ mode: "copy" });
+    expect(ingestCall()![1]).toMatchObject({ mode: 'copy' });
   });
 
-  it("is recomputed when the sources change: a card added to drive photographs switches to copy", async () => {
+  it('is recomputed when the sources change: a card added to drive photographs switches to copy', async () => {
     const user = userEvent.setup();
     await openCatalog();
-    drop(["/Volumes/Archive/2026"]);
+    drop(['/Volumes/Archive/2026']);
     await waitFor(() => expect(radio(/Copy to/).checked).toBe(true));
     await user.click(radio(/Add where they are/));
-    drop(["/Volumes/EOS_DIGITAL/DCIM"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
+    drop(['/Volumes/EOS_DIGITAL/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
     expect(radio(/Copy to/).checked).toBe(true);
     expect(radio(/Add where they are/).disabled).toBe(true);
     // The user's own choice is not kept across a new dialog either.
-    await user.click(screen.getByRole("button", { name: "Close" }));
-    drop(["/Volumes/Archive/2026"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    drop(['/Volumes/Archive/2026']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
     expect(radio(/Copy to/).checked).toBe(true);
   });
 
-  it("a drop onto a folder copies into it", async () => {
+  it('a drop onto a folder copies into it', async () => {
     await openCatalog();
-    const row = document.createElement("div");
-    row.dataset.folderDrop = "/Volumes/Shoots/2026";
+    const row = document.createElement('div');
+    row.dataset.folderDrop = '/Volumes/Shoots/2026';
     document.body.append(row);
-    drop(["/Volumes/Archive/2026"], row);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
+    drop(['/Volumes/Archive/2026'], row);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
     expect(radio(/Copy to/).checked).toBe(true);
     expect(radio(/Add where they are/).disabled).toBe(false);
   });
 
-  it("a session has no switch: it always copies", async () => {
+  it('a session has no switch: it always copies', async () => {
     lastSession = summary;
     vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === "session_last" || command === "session_summary") return summary;
-      if (command === "session_flags") return {};
-      if (command === "session_ingest_scan") return { files: onDrive, truncated: false };
-      return { path: "/jobs/Acme", children: [] };
+      if (command === 'session_last' || command === 'session_summary') return summary;
+      if (command === 'session_flags') return {};
+      if (command === 'session_ingest_scan') return { files: onDrive, truncated: false };
+      return { path: '/jobs/Acme', children: [] };
     });
     await open();
-    drop(["/Volumes/Archive/2026"]);
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
-    expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Copy 2 photos" })).toBeTruthy();
+    drop(['/Volumes/Archive/2026']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Copy 2 photos' })).toBeTruthy();
   });
 });
 
-describe("Folders › Add Folder… (G39 AF)", () => {
+describe('Folders › Add Folder… (G39 AF)', () => {
   const catalog: SessionSummary = {
     ...summary,
-    directory: "/Users/me/Main.catalog",
-    manifest: { ...summary.manifest, name: "Main", mode: "catalog" },
+    directory: '/Users/me/Main.catalog',
+    manifest: { ...summary.manifest, name: 'Main', mode: 'catalog' }
   };
-  const files = ["/Volumes/Archive/2026/B.CR3", "/Volumes/Archive/2026/day2/C.CR3"];
+  const files = ['/Volumes/Archive/2026/B.CR3', '/Volumes/Archive/2026/day2/C.CR3'];
   const respond = (library: SessionSummary) =>
     vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "session_last" || command === "session_summary") return library;
-      if (command === "session_flags") return {};
-      if (command === "catalog_add_folder_scan")
+      if (command === 'session_last' || command === 'session_summary') return library;
+      if (command === 'session_flags') return {};
+      if (command === 'catalog_add_folder_scan')
         return { files, photographs: 2, companions: 0, registered: 1, unreadable: [], owned: [], truncated: false };
-      if (command === "session_ingest_scan")
+      if (command === 'session_ingest_scan')
         return {
-          files: files.map((path) => ({ path, size: 1, duplicate: false, medium: "disk" })),
-          truncated: false,
+          files: files.map((path) => ({ path, size: 1, duplicate: false, medium: 'disk' })),
+          truncated: false
         };
-      if (command === "session_ingest")
+      if (command === 'session_ingest')
         return (args as { sources: string[] }).sources.map((source) => ({
           source,
           destination: source,
           skipped: false,
-          error: null,
+          error: null
         }));
       return { path: library.directory, children: [] };
     });
 
-  it("in a catalog, shows the folder and registers its photographs where they are, as one ingest", async () => {
+  it('in a catalog, shows the folder and registers its photographs where they are, as one ingest', async () => {
     const user = userEvent.setup();
     lastSession = catalog;
     respond(catalog);
@@ -677,92 +739,92 @@ describe("Folders › Add Folder… (G39 AF)", () => {
     render(
       <ContextMenuProvider>
         <SessionWorkspace onNavigate={navigate} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
-    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe('/Users/me/Main.catalog'));
     const show = vi.fn(async () => {});
     act(() => {
-      expect(requestAddFolder({ folder: "/Volumes/Archive/2026", show })).toBe(true);
+      expect(requestAddFolder({ folder: '/Volumes/Archive/2026', show })).toBe(true);
     });
-    await screen.findByText("2 photos to add");
-    expect(screen.getByText("1 file already in the catalog is skipped.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Add 2 photos" }));
+    await screen.findByText('2 photos to add');
+    expect(screen.getByText('1 file already in the catalog is skipped.')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Add 2 photos' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(show).toHaveBeenCalled();
     expect(ingestCall()![1]).toMatchObject({
-      directory: "/Users/me/Main.catalog",
-      mode: "add",
+      directory: '/Users/me/Main.catalog',
+      mode: 'add',
       sources: files,
       folder: null,
       separateJpeg: false,
       metadata: null,
-      album: null,
+      album: null
     });
-    expect(navigate).toHaveBeenLastCalledWith("/Volumes/Archive/2026");
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("2 photos added"));
+    expect(navigate).toHaveBeenLastCalledWith('/Volumes/Archive/2026');
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('2 photos added'));
   });
 
-  it("JPEGs joining RAWs already in the catalog keep the folder shown (no Previous Import)", async () => {
+  it('JPEGs joining RAWs already in the catalog keep the folder shown (no Previous Import)', async () => {
     const user = userEvent.setup();
     lastSession = catalog;
     respond(catalog);
     vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === "session_last" || command === "session_summary") return catalog;
-      if (command === "session_flags") return {};
-      if (command === "catalog_add_folder_scan")
+      if (command === 'session_last' || command === 'session_summary') return catalog;
+      if (command === 'session_flags') return {};
+      if (command === 'catalog_add_folder_scan')
         return {
-          files: ["/Volumes/Archive/A.NEF", "/Volumes/Archive/A.JPG"],
+          files: ['/Volumes/Archive/A.NEF', '/Volumes/Archive/A.JPG'],
           photographs: 0,
           companions: 1,
           registered: 1,
           unreadable: [],
           owned: [],
-          truncated: false,
+          truncated: false
         };
-      if (command === "session_ingest")
+      if (command === 'session_ingest')
         return [
-          { source: "/Volumes/Archive/A.NEF", destination: "/Volumes/Archive/A.NEF", skipped: true, error: null },
+          { source: '/Volumes/Archive/A.NEF', destination: '/Volumes/Archive/A.NEF', skipped: true, error: null },
           {
-            source: "/Volumes/Archive/A.JPG",
-            destination: "/Volumes/Archive/A.JPG",
+            source: '/Volumes/Archive/A.JPG',
+            destination: '/Volumes/Archive/A.JPG',
             skipped: false,
             error: null,
-            companion_of: "/Volumes/Archive/A.NEF",
-          },
+            companion_of: '/Volumes/Archive/A.NEF'
+          }
         ];
       return { path: catalog.directory, children: [] };
     });
     render(
       <ContextMenuProvider>
         <SessionWorkspace onNavigate={vi.fn(async () => {})} />
-      </ContextMenuProvider>,
+      </ContextMenuProvider>
     );
-    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe('/Users/me/Main.catalog'));
     const shown = vi.fn();
     window.addEventListener(SHOW_PREVIOUS_IMPORT, shown);
     act(() => {
-      requestAddFolder({ folder: "/Volumes/Archive", show: async () => {} });
+      requestAddFolder({ folder: '/Volumes/Archive', show: async () => {} });
     });
-    await user.click(await screen.findByRole("button", { name: "Keep the JPEGs with their RAWs" }));
+    await user.click(await screen.findByRole('button', { name: 'Keep the JPEGs with their RAWs' }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
     expect(shown).not.toHaveBeenCalled();
     window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
   });
 
-  it("in a project, the folder is only shown; Copy into this project… opens the verified copy import", async () => {
+  it('in a project, the folder is only shown; Copy into this project… opens the verified copy import', async () => {
     const user = userEvent.setup();
     respond(summary);
     await open();
     const show = vi.fn(async () => {});
     act(() => {
-      requestAddFolder({ folder: "/Volumes/Archive/2026", show });
+      requestAddFolder({ folder: '/Volumes/Archive/2026', show });
     });
     await screen.findByText(/projects keep their own files/);
-    await user.click(screen.getByRole("button", { name: "Copy into this project…" }));
-    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
-    expect(screen.getByRole("button", { name: "Copy 2 photos" })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Copy into this project…' }));
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
+    expect(screen.getByRole('button', { name: 'Copy 2 photos' })).toBeTruthy();
     expect(show).not.toHaveBeenCalled();
-    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === "catalog_add_folder_scan")).toBe(false);
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'catalog_add_folder_scan')).toBe(false);
   });
 });

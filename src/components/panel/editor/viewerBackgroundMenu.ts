@@ -9,7 +9,7 @@ const LABELS: Record<ViewerBackground, () => string> = {
   dark: () => i18n.t('studio.workspace.viewer.background.dark'),
   medium: () => i18n.t('studio.workspace.viewer.background.medium'),
   light: () => i18n.t('studio.workspace.viewer.background.light'),
-  white: () => i18n.t('studio.workspace.viewer.background.white'),
+  white: () => i18n.t('studio.workspace.viewer.background.white')
 };
 
 export const viewerBackgroundLabel = (background: ViewerBackground) => LABELS[background]();
@@ -27,6 +27,6 @@ export function viewerBackgroundMenu(): Option[] {
   return VIEWER_BACKGROUNDS.map((background) => ({
     label: viewerBackgroundLabel(background),
     checked: background === current,
-    onClick: () => setViewerBackground(background),
+    onClick: () => setViewerBackground(background)
   }));
 }

@@ -13,13 +13,21 @@ import { debouncedSave, flushRecipeSaves, recipeWrite } from '../hooks/useEditor
 import { INITIAL_ADJUSTMENTS } from './adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn((name) => Promise.resolve(['quit_saving', 'cancel_quit', 'finish_quit'].includes(String(name)) ? true : [])) }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn((name) =>
+    Promise.resolve(['quit_saving', 'cancel_quit', 'finish_quit'].includes(String(name)) ? true : [])
+  )
+}));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn((name, callback) => {
-  callbacks.set(name, callback);
-  return Promise.resolve(() => { callbacks.delete(name); });
-}) }));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn((name, callback) => {
+    callbacks.set(name, callback);
+    return Promise.resolve(() => {
+      callbacks.delete(name);
+    });
+  })
+}));
 
 let unmount: () => void;
 let unregister: () => void;
@@ -121,7 +129,10 @@ it('does not name a failed save a batch wrote again before changing that photo',
   const answer = vi.mocked(invoke).getMockImplementation()!;
   let saves = 0;
   vi.mocked(invoke).mockImplementation((name, args) =>
-    name === Invokes.SaveMetadataAndUpdateThumbnail && saves++ === 0 ? Promise.reject(new Error('busy')) : answer(name, args));
+    name === Invokes.SaveMetadataAndUpdateThumbnail && saves++ === 0
+      ? Promise.reject(new Error('busy'))
+      : answer(name, args)
+  );
   debouncedSave('/b.dng', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
   void debouncedSave.flush();
   // Auto on a selection with it, queued behind the save that fails: it
@@ -130,10 +141,14 @@ it('does not name a failed save a batch wrote again before changing that photo',
     const bridge = vi.mocked(listen).mock.calls.find(([name]) => name === 'batch-write-settled')![1];
     act(() => bridge({ event: 'batch-write-settled', id: 0, payload: { batch: tag, path, ok: null, also: [] } }));
   };
-  const auto = recipeWrite(['/b.dng'], async (tag) => {
-    report(tag, '/b.dng');
-    return [] as string[];
-  }, { kind: 'auto', failedOf: (failed) => failed, batch: true });
+  const auto = recipeWrite(
+    ['/b.dng'],
+    async (tag) => {
+      report(tag, '/b.dng');
+      return [] as string[];
+    },
+    { kind: 'auto', failedOf: (failed) => failed, batch: true }
+  );
   const ask = vi.fn();
   const done = quit(ask);
   await auto;
@@ -148,7 +163,11 @@ it('does not name a failed save a batch wrote again before changing that photo',
 it('waits for a catalog step still queued behind other work before it quits', async () => {
   // A rating made while a file undo runs writes once the undo is done.
   let undone!: () => void;
-  const rating = photoWorkPending(new Promise<void>((resolve) => { undone = resolve; }));
+  const rating = photoWorkPending(
+    new Promise<void>((resolve) => {
+      undone = resolve;
+    })
+  );
   const done = quit();
   await vi.waitFor(() => expect(progress()).toBe(1));
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -251,14 +270,19 @@ it('names an edit whose save failed after the recipe flush answered, while the q
   const answer = vi.mocked(invoke).getMockImplementation()!;
   // A rating queued behind a long file undo keeps the quit waiting.
   let undone!: () => void;
-  const rating = photoWorkPending(new Promise<void>((resolve) => { undone = resolve; }));
+  const rating = photoWorkPending(
+    new Promise<void>((resolve) => {
+      undone = resolve;
+    })
+  );
   const ask = vi.fn();
   const done = quit(ask);
   await vi.waitFor(() => expect(progress()).toBe(1));
   await new Promise((resolve) => setTimeout(resolve, 0));
   // Meanwhile an edit is saved, and that save fails.
   vi.mocked(invoke).mockImplementation((name, args) =>
-    name === Invokes.SaveMetadataAndUpdateThumbnail ? Promise.reject(new Error('disk full')) : answer(name, args));
+    name === Invokes.SaveMetadataAndUpdateThumbnail ? Promise.reject(new Error('disk full')) : answer(name, args)
+  );
   debouncedSave('/c.dng', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
   await debouncedSave.flush();
   undone();

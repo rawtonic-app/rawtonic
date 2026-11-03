@@ -14,7 +14,7 @@ import {
   splitPositionAt,
   splitScreenX,
   splitViewAvailable,
-  browserSplitWidth,
+  browserSplitWidth
 } from './beforeAfter';
 import editorPreview from '../../src-tauri/src/editor_preview.rs?raw';
 import cacheUtils from '../../crates/engine/src/cache_utils.rs?raw';
@@ -38,7 +38,7 @@ describe('before/after', () => {
       orientationSteps: 1,
       flipHorizontal: true,
       lensDistortionAmount: 80,
-      transformVertical: -12,
+      transformVertical: -12
     };
     const original = originalPreviewAdjustments(edited);
     expect(original.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
@@ -68,10 +68,7 @@ describe('before/after', () => {
   });
 
   it('copies every key the native split compares', () => {
-    const native = [
-      ...rustKeys(editorPreview, 'SPLIT_FRAMING_KEYS'),
-      ...rustKeys(cacheUtils, 'GEOMETRY_KEYS'),
-    ];
+    const native = [...rustKeys(editorPreview, 'SPLIT_FRAMING_KEYS'), ...rustKeys(cacheUtils, 'GEOMETRY_KEYS')];
     expect(native.length).toBeGreaterThan(20);
     for (const key of native) expect(BEFORE_FRAMING_KEYS).toContain(key);
   });
@@ -161,7 +158,14 @@ describe('keepMagnification', () => {
 describe('keepMagnification for a portrait fitted by height', () => {
   it('keeps the centred detail although the fitted width stays the same', () => {
     // 4000×6000 portrait: fit 533×800 in a 1200×800 viewer and in a 600×800 pane.
-    const wide = { width: 533.33, height: 800, offsetX: 333.33, offsetY: 0, containerWidth: 1200, containerHeight: 800 };
+    const wide = {
+      width: 533.33,
+      height: 800,
+      offsetX: 333.33,
+      offsetY: 0,
+      containerWidth: 1200,
+      containerHeight: 800
+    };
     const pane = { width: 533.33, height: 800, offsetX: 33.33, offsetY: 0, containerWidth: 600, containerHeight: 800 };
     const next = keepMagnification(wide, pane, 7.5, 0.5, 0.5);
     expect(next.scale).toBeCloseTo(7.5);

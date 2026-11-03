@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { Invokes } from "../components/ui/AppProperties";
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../components/ui/AppProperties';
 
 /** Session and catalog folders the app keeps for itself (mask bitmaps,
  * previews), not photographs. */
@@ -9,32 +9,50 @@ const INTERNAL_SESSION_FOLDERS = new Set(['masks', 'previews', 'smart-previews']
  * when the summary predates configurable folders (before G38). */
 export function sessionFoldersOrDefault(directory: string, folders: SessionFolder[] | undefined): SessionFolder[] {
   if (folders?.length) return folders;
-  const root = directory.replace(/[\\/]+$/, "");
-  const roles: Array<[FolderRole, string]> = [["capture", "Capture"], ["selects", "Selects"], ["output", "Output"]];
-  return roles.map(([role, name]) => ({ role, stored: name, path: `${root}/${name}`, inside: true, available: true, recreated: true }));
+  const root = directory.replace(/[\\/]+$/, '');
+  const roles: Array<[FolderRole, string]> = [
+    ['capture', 'Capture'],
+    ['selects', 'Selects'],
+    ['output', 'Output']
+  ];
+  return roles.map(([role, name]) => ({
+    role,
+    stored: name,
+    path: `${root}/${name}`,
+    inside: true,
+    available: true,
+    recreated: true
+  }));
 }
 
 /** Whether `name`, a folder directly inside `parent`, is one of the open
  * session's own folders that folder lists must not show. */
-export function isInternalSessionFolder(parent: string | null | undefined, name: string | undefined, sessionRoot?: string | null) {
+export function isInternalSessionFolder(
+  parent: string | null | undefined,
+  name: string | undefined,
+  sessionRoot?: string | null
+) {
   return !!sessionRoot && parent === sessionRoot && INTERNAL_SESSION_FOLDERS.has(name ?? '');
 }
 
 /** The folder trees without the session's internal folders (one level below the session root). */
 export function withoutInternalSessionFolders<T extends { path: string; name: string; children: T[] }>(
   trees: T[],
-  sessionRoot?: string | null,
+  sessionRoot?: string | null
 ): T[] {
   if (!sessionRoot) return trees;
   return trees.map((tree) =>
     tree.path === sessionRoot && tree.children?.length
-      ? { ...tree, children: tree.children.filter((child) => !isInternalSessionFolder(tree.path, child.name, sessionRoot)) }
-      : tree,
+      ? {
+          ...tree,
+          children: tree.children.filter((child) => !isInternalSessionFolder(tree.path, child.name, sessionRoot))
+        }
+      : tree
   );
 }
 
 /** A session's Capture, Selects or Output folder (G38). */
-export type FolderRole = "capture" | "selects" | "output";
+export type FolderRole = 'capture' | 'selects' | 'output';
 
 export interface SessionFolder {
   role: FolderRole;
@@ -53,7 +71,7 @@ export interface SessionFolder {
   recreated: boolean;
 }
 
-export const FOLDER_ROLES: FolderRole[] = ["capture", "selects", "output"];
+export const FOLDER_ROLES: FolderRole[] = ['capture', 'selects', 'output'];
 
 /** The folder row of `role` (the first one, so a stale row from another
  * session never wins). */
@@ -65,7 +83,11 @@ export function sessionFolderRow(folders: SessionFolder[] | undefined, role: Fol
  * anything: its folder when it is there. Otherwise, only while the app may
  * make it again (a default folder it gave the session), the default place
  * the dialog offers; any other missing folder has no place to show. */
-export function openableFolderPath(folders: SessionFolder[] | undefined, role: FolderRole, defaultPath: string): string | null {
+export function openableFolderPath(
+  folders: SessionFolder[] | undefined,
+  role: FolderRole,
+  defaultPath: string
+): string | null {
   const folder = sessionFolderRow(folders, role);
   if (!folder) return defaultPath;
   if (folder.available) return folder.path;
@@ -76,12 +98,12 @@ export function openableFolderPath(folders: SessionFolder[] | undefined, role: F
  * the summary predates configurable folders. */
 export function sessionFolderPath(
   summary: { directory: string; folders?: SessionFolder[]; manifest: { capture: string } },
-  role: FolderRole,
+  role: FolderRole
 ): string {
-  const folder = summary.folders?.find((f) => f.role === role);;
+  const folder = summary.folders?.find((f) => f.role === role);
   if (folder) return folder.path;
-  const root = summary.directory.replace(/[\\/]+$/, "");
-  const name = role === "capture" ? summary.manifest.capture : role === "selects" ? "Selects" : "Output";
+  const root = summary.directory.replace(/[\\/]+$/, '');
+  const name = role === 'capture' ? summary.manifest.capture : role === 'selects' ? 'Selects' : 'Output';
   return `${root}/${name}`;
 }
 
@@ -105,13 +127,13 @@ export function usableSessionFolder(directory: string, role: FolderRole): Promis
 }
 
 /** See `FOLDER_REFUSAL_MARKER` in `crates/catalog/src/session_folders.rs`. */
-const FOLDER_REFUSAL_MARKER = "rawtonic-refusal:";
+const FOLDER_REFUSAL_MARKER = 'rawtonic-refusal:';
 
 /** A refusal of a folder setting the backend words for the user
  * (`FolderRefusal` in `crates/catalog/src/session_folders.rs`): the folder,
  * and where an Output folder took it. */
 export interface RefusedFolder {
-  code: "inOutputFolder";
+  code: 'inOutputFolder';
   role: FolderRole;
   folder: string;
   /** The Output folder the folder is in or is. */
@@ -127,7 +149,7 @@ export function parseFolderRefusal(message: string): RefusedFolder | null {
   if (at < 0) return null;
   const rest = message.slice(at + FOLDER_REFUSAL_MARKER.length);
   // The JSON object ends at one of the closing braces; text may follow it.
-  for (let end = rest.lastIndexOf("}"); end >= 0; end = rest.lastIndexOf("}", end - 1)) {
+  for (let end = rest.lastIndexOf('}'); end >= 0; end = rest.lastIndexOf('}', end - 1)) {
     let fields: unknown;
     try {
       fields = JSON.parse(rest.slice(0, end + 1));
@@ -136,10 +158,10 @@ export function parseFolderRefusal(message: string): RefusedFolder | null {
     }
     const { code, role, folder, output } = (fields ?? {}) as Record<string, unknown>;
     if (
-      code !== "inOutputFolder" ||
-      (role !== "capture" && role !== "selects" && role !== "output") ||
-      typeof folder !== "string" ||
-      typeof output !== "string"
+      code !== 'inOutputFolder' ||
+      (role !== 'capture' && role !== 'selects' && role !== 'output') ||
+      typeof folder !== 'string' ||
+      typeof output !== 'string'
     ) {
       return null;
     }
@@ -156,22 +178,22 @@ export function folderRefusalMessage(
   // i18next's `t`, whose keys are typed to the English bundle.
   t: (key: never, options?: Record<string, unknown>) => string,
   message: string,
-  outputThere: boolean,
+  outputThere: boolean
 ): string | null {
   const refusal = parseFolderRefusal(message);
   if (!refusal) return null;
-  const key = outputThere ? "inOutputFolder" : "inOutputFolderNotThere";
+  const key = outputThere ? 'inOutputFolder' : 'inOutputFolderNotThere';
   return t(`session.folders.${key}` as never, {
     folder: refusal.folder,
     output: refusal.output,
-    role: t(`session.folders.role.${refusal.role}` as never),
+    role: t(`session.folders.role.${refusal.role}` as never)
   });
 }
 
 /** Window event that makes a folder of the folder tree the session's
  * Capture, Selects or Output folder (the folder tree's menu, G38): the
  * session workspace runs it, as it owns the session and its summary. */
-export const SET_ROLE_FOLDER_EVENT = "rawtonic-set-role-folder";
+export const SET_ROLE_FOLDER_EVENT = 'rawtonic-set-role-folder';
 export type SetRoleFolderDetail = { role: FolderRole; folder: string };
 export function requestSetRoleFolder(detail: SetRoleFolderDetail) {
   window.dispatchEvent(new CustomEvent<SetRoleFolderDetail>(SET_ROLE_FOLDER_EVENT, { detail }));
@@ -197,6 +219,6 @@ export function registerContentsMover(next: ContentsMover | null) {
 /** Moves everything in `from` into `to` through the Library's file
  * operations (Session Folders' "Move contents"). */
 export function moveFolderContents(from: string, to: string): Promise<ContentsMoved> {
-  if (!mover) return Promise.resolve({ items: 0, operations: 0, error: "The Library is not ready" });
+  if (!mover) return Promise.resolve({ items: 0, operations: 0, error: 'The Library is not ready' });
   return mover(from, to);
 }

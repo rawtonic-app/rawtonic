@@ -7,15 +7,15 @@ import fixture from '../../src-tauri/tests/fixtures/app-menu-en.json?raw';
 import keyboardShortcutsSource from '../hooks/useKeyboardShortcuts.ts?raw';
 
 const locales = Object.fromEntries(
-  Object.entries(import.meta.glob<Record<string, unknown>>('../i18n/locales/*.json', { eager: true, import: 'default' })).map(
-    ([file, translation]) => [file.replace(/^.*\/|\.json$/g, ''), translation],
-  ),
+  Object.entries(
+    import.meta.glob<Record<string, unknown>>('../i18n/locales/*.json', { eager: true, import: 'default' })
+  ).map(([file, translation]) => [file.replace(/^.*\/|\.json$/g, ''), translation])
 );
 /** Every source file, for the commands registered by name. */
 const sources = import.meta.glob<string>(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}'], {
   eager: true,
   query: '?raw',
-  import: 'default',
+  import: 'default'
 });
 /** The tree app_menu.rs's Rust tests read (`the_webview_tree_is_valid…`). */
 const FIXTURE = 'src-tauri/tests/fixtures/app-menu-en.json';
@@ -26,7 +26,7 @@ beforeAll(async () => {
     lng: 'en',
     fallbackLng: false,
     resources: Object.fromEntries(Object.entries(locales).map(([lng, translation]) => [lng, { translation }])),
-    interpolation: { escapeValue: false },
+    interpolation: { escapeValue: false }
   });
 });
 const tr = (lng: string) => i18n.getFixedT(lng) as unknown as Translate;
@@ -44,7 +44,10 @@ afterEach(() => {
 describe('the menu bar tree', () => {
   it('is the tree the Rust tests check (UPDATE_MENU_FIXTURE=1 rewrites it)', async () => {
     const json = `${JSON.stringify(buildMenuSpec(tr('en'), {}).spec, null, 2)}\n`;
-    if (import.meta.env.UPDATE_MENU_FIXTURE || (globalThis as { process?: { env: Record<string, string> } }).process?.env.UPDATE_MENU_FIXTURE) {
+    if (
+      import.meta.env.UPDATE_MENU_FIXTURE ||
+      (globalThis as { process?: { env: Record<string, string> } }).process?.env.UPDATE_MENU_FIXTURE
+    ) {
       const fs = await import(/* @vite-ignore */ 'node:fs' as string);
       fs.writeFileSync(FIXTURE, json);
       return;
@@ -55,7 +58,7 @@ describe('the menu bar tree', () => {
   it('places live recent libraries and recipes, with their handlers and state', () => {
     unregister = registerAppCommands({
       'recent:one': { run: () => {}, menu: { group: 'recent', label: 'One' } },
-      'recipe:one': { run: () => {}, enabled: () => false, menu: { group: 'recipes', label: 'JPEG' } },
+      'recipe:one': { run: () => {}, enabled: () => false, menu: { group: 'recipes', label: 'JPEG' } }
     });
     const menu = buildMenuSpec(tr('en'), {});
     expect(find(menu.spec.menus, 'recent:one')).toMatchObject({ label: 'One', enabled: true });
@@ -91,7 +94,7 @@ describe('the menu bar tree', () => {
       'Foto',
       'Darstellung',
       'Fenster',
-      'Hilfe',
+      'Hilfe'
     ]);
     expect(find(de, 'undo').label).toBe('Widerrufen');
   });
@@ -105,7 +108,15 @@ describe('the menu bar tree', () => {
     expect(find(spec.menus, 'paste_from_previous').accelerator).toBe('CmdOrCtrl+Alt+KeyV');
     expect(find(spec.menus, 'zoom_in').accelerator).toBe('CmdOrCtrl+Equal');
     expect(combos.get('copy_adjustments')).toBe('ctrl+shift+KeyC');
-    for (const command of ['rate_3', 'toggle_fullscreen', 'toggle_split_view', 'color_label_red', 'rotate_left', 'delete_selected', 'toggle_bottom_panel']) {
+    for (const command of [
+      'rate_3',
+      'toggle_fullscreen',
+      'toggle_split_view',
+      'color_label_red',
+      'rotate_left',
+      'delete_selected',
+      'toggle_bottom_panel'
+    ]) {
       expect(find(spec.menus, command).accelerator, command).toBeUndefined();
     }
     expect(menuAccelerator(['shift', 'Digit1'])).toBeNull();
@@ -129,7 +140,7 @@ describe('the menu bar tree', () => {
       // ⌘C stays Copy for text fields; the action keeps its key in the webview.
       copy_adjustments: ['ctrl', 'KeyC'],
       // Two actions on one key: the first item shows it.
-      zoom_in: ['ctrl', 'KeyK'],
+      zoom_in: ['ctrl', 'KeyK']
     });
     expect(find(spec.menus, 'toggle_export').accelerator).toBe('CmdOrCtrl+Alt+KeyE');
     expect(find(spec.menus, 'undo').accelerator).toBeUndefined();
@@ -150,7 +161,7 @@ describe('the menu bar tree', () => {
     let develop = false;
     unregister = registerAppCommands({
       view_develop: { run: () => {}, checked: () => develop },
-      rate_3: { run: () => {}, enabled: () => false },
+      rate_3: { run: () => {}, enabled: () => false }
     });
     const menu = buildMenuSpec(tr('en'), {});
     expect(find(menu.spec.menus, 'view_develop')).toMatchObject({ enabled: true, checked: false });
@@ -172,7 +183,8 @@ describe('every menu command has a handler', () => {
       if (!text.includes('registerAppCommands(')) continue;
       for (const match of text.matchAll(/^\s+([a-z_0-9]+): (?:\{|flag\()/gm)) handled.add(match[1]);
     }
-    for (const match of keyboardShortcutsSource.matchAll(/^ {6}([a-z_0-9]+): (?:\{$|zoomAction\()/gm)) handled.add(match[1]);
+    for (const match of keyboardShortcutsSource.matchAll(/^ {6}([a-z_0-9]+): (?:\{$|zoomAction\()/gm))
+      handled.add(match[1]);
     const missing = menuCommands().filter((command) => !handled.has(command));
     expect(missing).toEqual([]);
   });

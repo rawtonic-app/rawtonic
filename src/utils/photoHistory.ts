@@ -42,7 +42,7 @@ export function registerWrittenSteps(steps: (path: string) => number[]) {
 export function historyFor(
   path: string,
   shown: Adjustments,
-  batches: { order: number; recipe: Adjustments }[] = [],
+  batches: { order: number; recipe: Adjustments }[] = []
 ): { history: Adjustments[]; historyIndex: number } {
   const entry = kept.get(path);
   if (!entry) return { history: [shown], historyIndex: 0 };
@@ -57,11 +57,9 @@ export function historyFor(
   const history = [
     ...entry.history.slice(0, entry.index + 1),
     ...steps.slice(0, -1).map((step) => step.recipe),
-    shown,
+    shown
   ].slice(-HISTORY_LIMIT);
-  const orders = [...entry.orders.slice(0, entry.index + 1), ...steps.map((step) => step.order)].slice(
-    -HISTORY_LIMIT,
-  );
+  const orders = [...entry.orders.slice(0, entry.index + 1), ...steps.map((step) => step.order)].slice(-HISTORY_LIMIT);
   setHistoryOrders(history, orders);
   return { history, historyIndex: history.length - 1 };
 }

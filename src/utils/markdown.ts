@@ -130,7 +130,10 @@ export function parseInline(text: string): Inline[] {
     } else if ((m = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1/.exec(rest))) {
       push({ kind: 'strong', children: parseInline(m[2]) });
       i += m[0].length;
-    } else if ((m = /^(\*|_)(?=\S)([\s\S]*?\S)\1(?![\w*])/.exec(rest)) && !(m[1] === '_' && /\w/.test(text[i - 1] ?? ''))) {
+    } else if (
+      (m = /^(\*|_)(?=\S)([\s\S]*?\S)\1(?![\w*])/.exec(rest)) &&
+      !(m[1] === '_' && /\w/.test(text[i - 1] ?? ''))
+    ) {
       push({ kind: 'em', children: parseInline(m[2]) });
       i += m[0].length;
     } else {

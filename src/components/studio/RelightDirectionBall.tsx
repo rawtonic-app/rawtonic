@@ -1,17 +1,9 @@
-import { useEffect, useId, useRef, type KeyboardEvent, type PointerEvent } from "react";
-import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import {
-  debouncedSetHistory,
-  updateAdjustments,
-} from "../../hooks/useEditorActions";
-import { flushSliderDraft } from "../../utils/sliderDraft";
-import {
-  relightBallPatch,
-  relightBallPoint,
-  type RelightLight,
-  type RelightPoint,
-} from "../../utils/relight";
+import { useEffect, useId, useRef, type KeyboardEvent, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { debouncedSetHistory, updateAdjustments } from '../../hooks/useEditorActions';
+import { flushSliderDraft } from '../../utils/sliderDraft';
+import { relightBallPatch, relightBallPoint, type RelightLight, type RelightPoint } from '../../utils/relight';
 
 const SIZE = 112;
 const R = SIZE / 2 - 6;
@@ -25,7 +17,7 @@ const R = SIZE / 2 - 6;
 export default function RelightDirectionBall({
   light,
   disabled,
-  reason,
+  reason
 }: {
   light: RelightLight;
   disabled: boolean;
@@ -40,16 +32,14 @@ export default function RelightDirectionBall({
   const patch = (values: Partial<RelightLight>) =>
     updateAdjustments((prev) => ({
       ...prev,
-      relightLights: prev.relightLights?.map((l) =>
-        l.id === light.id ? { ...l, ...values } : l,
-      ),
+      relightLights: prev.relightLights?.map((l) => (l.id === light.id ? { ...l, ...values } : l))
     }));
   const pointAt = (e: PointerEvent): RelightPoint => {
     const box = e.currentTarget.getBoundingClientRect();
     const scale = box.width / SIZE || 1;
     return {
       x: (e.clientX - box.left - box.width / 2) / (R * scale),
-      y: (e.clientY - box.top - box.height / 2) / (R * scale),
+      y: (e.clientY - box.top - box.height / 2) / (R * scale)
     };
   };
   const finish = (cancel: boolean) => {
@@ -63,9 +53,7 @@ export default function RelightDirectionBall({
       if (cancel && d.moved)
         updateAdjustments((prev) => ({
           ...prev,
-          relightLights: prev.relightLights?.map((l) =>
-            l.id === d.before.id ? d.before : l,
-          ),
+          relightLights: prev.relightLights?.map((l) => (l.id === d.before.id ? d.before : l))
         }));
       // The restored light renders as a draft too: commit it before the
       // history is settled, so a cancelled drag leaves no step.
@@ -99,15 +87,15 @@ export default function RelightDirectionBall({
     debouncedSetHistory.cancel();
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape" && drag.current) {
+    if (e.key === 'Escape' && drag.current) {
       e.preventDefault();
       e.stopPropagation();
       finish(true);
       return;
     }
     if (inactive || e.metaKey || e.ctrlKey || e.altKey) return;
-    const dx = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-    const dy = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+    const dx = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    const dy = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
     if (!dx && !dy) return;
     e.preventDefault();
     e.stopPropagation();
@@ -118,7 +106,7 @@ export default function RelightDirectionBall({
   const p = relightBallPoint(light);
   const px = SIZE / 2 + p.x * R;
   const py = SIZE / 2 + p.y * R;
-  const label = t("studio.relight.direction");
+  const label = t('studio.relight.direction');
   return (
     <div className="studio-relight-direction">
       <div
@@ -131,7 +119,7 @@ export default function RelightDirectionBall({
         aria-valuenow={Math.round(light.rotation)}
         aria-valuemin={-180}
         aria-valuemax={180}
-        title={reason ?? t("studio.relight.directionHelp")}
+        title={reason ?? t('studio.relight.directionHelp')}
         className="studio-relight-ball"
         data-disabled={inactive || undefined}
         style={{ width: SIZE, height: SIZE }}
@@ -144,14 +132,7 @@ export default function RelightDirectionBall({
       >
         <svg width={SIZE} height={SIZE} aria-hidden="true">
           <defs>
-            <radialGradient
-              id={gradient}
-              cx={px / SIZE}
-              cy={py / SIZE}
-              r={0.9}
-              fx={px / SIZE}
-              fy={py / SIZE}
-            >
+            <radialGradient id={gradient} cx={px / SIZE} cy={py / SIZE} r={0.9} fx={px / SIZE} fy={py / SIZE}>
               <stop offset="0" stopColor={light.color} stopOpacity={0.95} />
               <stop offset="0.55" stopColor="#4a4a4a" />
               <stop offset="1" stopColor="#141414" />
@@ -168,7 +149,7 @@ export default function RelightDirectionBall({
           {reason}
         </p>
       ) : (
-        <p className="studio-relight-help">{t("studio.relight.directionHelp")}</p>
+        <p className="studio-relight-help">{t('studio.relight.directionHelp')}</p>
       )}
     </div>
   );

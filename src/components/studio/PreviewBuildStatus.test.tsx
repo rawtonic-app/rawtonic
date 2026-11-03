@@ -12,7 +12,14 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 
 let emit: (progress: PreviewBuildProgress) => void;
 const progress = (patch: Partial<PreviewBuildProgress>): PreviewBuildProgress => ({
-  done: 0, total: 0, running: false, stopped: false, skipped: 0, failedCount: 0, failed: [], ...patch,
+  done: 0,
+  total: 0,
+  running: false,
+  stopped: false,
+  skipped: 0,
+  failedCount: 0,
+  failed: [],
+  ...patch
 });
 const entry = () => useActivityStore.getState().entries.find((e) => e.id === 'previews:build');
 
@@ -23,7 +30,7 @@ beforeEach(() => {
     return Promise.resolve(() => {});
   });
   vi.mocked(invoke).mockImplementation((command) =>
-    Promise.resolve(command === Invokes.PreviewBuildProgress ? progress({}) : 0),
+    Promise.resolve(command === Invokes.PreviewBuildProgress ? progress({}) : 0)
   );
 });
 
@@ -41,7 +48,11 @@ it('runs in the activity centre with progress and Cancel, then goes when all wen
   expect(vi.mocked(invoke).mock.calls.some(([command]) => command === Invokes.ApplyPreviewLimits)).toBe(true);
 
   await act(async () => emit(progress({ running: true, done: 3, total: 10 })));
-  expect(entry()).toMatchObject({ status: 'running', title: 'Building previews 3 / 10', progress: { done: 3, total: 10 } });
+  expect(entry()).toMatchObject({
+    status: 'running',
+    title: 'Building previews 3 / 10',
+    progress: { done: 3, total: 10 }
+  });
   await act(async () => entry()!.cancel!());
   expect(invoke).toHaveBeenCalledWith(Invokes.StopPreviewBuild);
 
@@ -54,16 +65,20 @@ it('keeps what was not built under Needs attention until dismissed', async () =>
   await act(async () => {});
   vi.useFakeTimers();
   await act(async () =>
-    emit(progress({
-      done: 4, total: 4, failedCount: 1,
-      failed: [{ path: '/s/Capture/A.RAF', reason: 'The RAW file is missing (offline)' }],
-    })),
+    emit(
+      progress({
+        done: 4,
+        total: 4,
+        failedCount: 1,
+        failed: [{ path: '/s/Capture/A.RAF', reason: 'The RAW file is missing (offline)' }]
+      })
+    )
   );
   expect(entry()).toMatchObject({
     status: 'warning',
     title: 'Previews not built: 1',
     detail: 'A.RAF: The RAW file is missing (offline)',
-    paths: ['/s/Capture/A.RAF'],
+    paths: ['/s/Capture/A.RAF']
   });
   act(() => vi.advanceTimersByTime(60 * 60 * 1000));
   expect(entry()).toBeTruthy();

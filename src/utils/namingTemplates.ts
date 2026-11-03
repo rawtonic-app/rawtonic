@@ -1,48 +1,48 @@
 /** UI vocabulary of the naming tokens (`rawtonic_naming`), the one naming
  * engine of ingest, rename and export. Never offer an unsupported token. */
-export type NamingMode = "ingest" | "rename" | "export";
+export type NamingMode = 'ingest' | 'rename' | 'export';
 /** What a template names: a file, or the folders below a destination. */
-export type NamingKind = "file" | "folder";
-export type NamingGroup = "name" | "counter" | "date" | "camera" | "metadata" | "job";
+export type NamingKind = 'file' | 'folder';
+export type NamingGroup = 'name' | 'counter' | 'date' | 'camera' | 'metadata' | 'job';
 export type NamingTokenLabel =
-  | "original"
-  | "originalWithExtension"
-  | "sequence"
-  | "job"
-  | "format"
-  | "recipe"
-  | "date"
-  | "year"
-  | "month"
-  | "day"
-  | "hour"
-  | "minute"
-  | "extension"
-  | "yearShort"
-  | "monthName"
-  | "monthShort"
-  | "dayOfYear"
-  | "weekday"
-  | "second"
-  | "subsecond"
-  | "timeZone"
-  | "time"
-  | "fileNumber"
-  | "folder"
-  | "make"
-  | "model"
-  | "camera"
-  | "serial"
-  | "lens"
-  | "iso"
-  | "focalLength"
-  | "aperture"
-  | "shutter"
-  | "rating"
-  | "colorLabel"
-  | "title"
-  | "creator"
-  | "copyright";
+  | 'original'
+  | 'originalWithExtension'
+  | 'sequence'
+  | 'job'
+  | 'format'
+  | 'recipe'
+  | 'date'
+  | 'year'
+  | 'month'
+  | 'day'
+  | 'hour'
+  | 'minute'
+  | 'extension'
+  | 'yearShort'
+  | 'monthName'
+  | 'monthShort'
+  | 'dayOfYear'
+  | 'weekday'
+  | 'second'
+  | 'subsecond'
+  | 'timeZone'
+  | 'time'
+  | 'fileNumber'
+  | 'folder'
+  | 'make'
+  | 'model'
+  | 'camera'
+  | 'serial'
+  | 'lens'
+  | 'iso'
+  | 'focalLength'
+  | 'aperture'
+  | 'shutter'
+  | 'rating'
+  | 'colorLabel'
+  | 'title'
+  | 'creator'
+  | 'copyright';
 export type NamingToken = {
   /** The token as a template holds it, `{orig_base}`. */
   value: string;
@@ -52,7 +52,7 @@ export type NamingToken = {
 };
 /** Mirrors `rawtonic_naming::DateSource`: where a photo's capture date
  * came from, best first. */
-export type DateSource = "original" | "digitized" | "fileDate" | "modified" | "now";
+export type DateSource = 'original' | 'digitized' | 'fileDate' | 'modified' | 'now';
 /** Mirrors `rawtonic_ingest::NamePreview`. */
 export interface NamePreview {
   name: string;
@@ -70,126 +70,126 @@ export interface NamingPreview {
 }
 
 const TOKEN_LIST: [string, NamingTokenLabel, NamingGroup][] = [
-  ["orig_base", "original", "name"],
-  ["orig", "originalWithExtension", "name"],
-  ["orig_num", "fileNumber", "name"],
-  ["folder", "folder", "name"],
-  ["ext", "extension", "name"],
-  ["seq", "sequence", "counter"],
-  ["date", "date", "date"],
-  ["time", "time", "date"],
-  ["yyyy", "year", "date"],
-  ["yy", "yearShort", "date"],
-  ["mm", "month", "date"],
-  ["month", "monthName", "date"],
-  ["mon", "monthShort", "date"],
-  ["dd", "day", "date"],
-  ["doy", "dayOfYear", "date"],
-  ["weekday", "weekday", "date"],
-  ["hh", "hour", "date"],
-  ["MM", "minute", "date"],
-  ["ss", "second", "date"],
-  ["subsec", "subsecond", "date"],
-  ["tz", "timeZone", "date"],
-  ["camera", "camera", "camera"],
-  ["make", "make", "camera"],
-  ["model", "model", "camera"],
-  ["serial", "serial", "camera"],
-  ["lens", "lens", "camera"],
-  ["iso", "iso", "camera"],
-  ["focal", "focalLength", "camera"],
-  ["aperture", "aperture", "camera"],
-  ["shutter", "shutter", "camera"],
-  ["rating", "rating", "metadata"],
-  ["color", "colorLabel", "metadata"],
-  ["title", "title", "metadata"],
-  ["creator", "creator", "metadata"],
-  ["copyright", "copyright", "metadata"],
-  ["job", "job", "job"],
-  ["format", "format", "job"],
-  ["recipe", "recipe", "job"],
+  ['orig_base', 'original', 'name'],
+  ['orig', 'originalWithExtension', 'name'],
+  ['orig_num', 'fileNumber', 'name'],
+  ['folder', 'folder', 'name'],
+  ['ext', 'extension', 'name'],
+  ['seq', 'sequence', 'counter'],
+  ['date', 'date', 'date'],
+  ['time', 'time', 'date'],
+  ['yyyy', 'year', 'date'],
+  ['yy', 'yearShort', 'date'],
+  ['mm', 'month', 'date'],
+  ['month', 'monthName', 'date'],
+  ['mon', 'monthShort', 'date'],
+  ['dd', 'day', 'date'],
+  ['doy', 'dayOfYear', 'date'],
+  ['weekday', 'weekday', 'date'],
+  ['hh', 'hour', 'date'],
+  ['MM', 'minute', 'date'],
+  ['ss', 'second', 'date'],
+  ['subsec', 'subsecond', 'date'],
+  ['tz', 'timeZone', 'date'],
+  ['camera', 'camera', 'camera'],
+  ['make', 'make', 'camera'],
+  ['model', 'model', 'camera'],
+  ['serial', 'serial', 'camera'],
+  ['lens', 'lens', 'camera'],
+  ['iso', 'iso', 'camera'],
+  ['focal', 'focalLength', 'camera'],
+  ['aperture', 'aperture', 'camera'],
+  ['shutter', 'shutter', 'camera'],
+  ['rating', 'rating', 'metadata'],
+  ['color', 'colorLabel', 'metadata'],
+  ['title', 'title', 'metadata'],
+  ['creator', 'creator', 'metadata'],
+  ['copyright', 'copyright', 'metadata'],
+  ['job', 'job', 'job'],
+  ['format', 'format', 'job'],
+  ['recipe', 'recipe', 'job']
 ];
 
 /** The tokens a mode fills: `{job}` is the library's name on import and
  * the job name of an export (a rename has none); `{format}` and `{recipe}`
  * exist for exports only. */
 const MODE_TOKENS: Record<NamingMode, (name: string) => boolean> = {
-  ingest: (name) => name !== "format" && name !== "recipe",
-  rename: (name) => !["job", "format", "recipe"].includes(name),
-  export: () => true,
+  ingest: (name) => name !== 'format' && name !== 'recipe',
+  rename: (name) => !['job', 'format', 'recipe'].includes(name),
+  export: () => true
 };
 
-export const NAMING_GROUPS: NamingGroup[] = ["name", "counter", "date", "camera", "metadata", "job"];
+export const NAMING_GROUPS: NamingGroup[] = ['name', 'counter', 'date', 'camera', 'metadata', 'job'];
 
 export const namingTokens = (mode: NamingMode): NamingToken[] =>
   TOKEN_LIST.filter(([name]) => MODE_TOKENS[mode](name)).map(([name, label, group]) => ({
-    value: name === "seq" ? "{seq:auto}" : `{${name}}`,
+    value: name === 'seq' ? '{seq:auto}' : `{${name}}`,
     name,
     label,
-    group,
+    group
   }));
 
 /** Mirrors `rawtonic_naming::DATE_FORMATS` / `TIME_FORMATS`: the formats of
  * the one date (time) token, `{date:yyyymmdd}`; the first is `{date}`. */
 export const DATE_FORMATS = [
-  "yyyy-mm-dd",
-  "yyyymmdd",
-  "yymmdd",
-  "yyyy_mm_dd",
-  "dd-mm-yyyy",
-  "dd.mm.yyyy",
-  "ddmmyyyy",
-  "mm-dd-yyyy",
+  'yyyy-mm-dd',
+  'yyyymmdd',
+  'yymmdd',
+  'yyyy_mm_dd',
+  'dd-mm-yyyy',
+  'dd.mm.yyyy',
+  'ddmmyyyy',
+  'mm-dd-yyyy'
 ] as const;
-export const TIME_FORMATS = ["hh-MM-ss", "hhMMss", "hh.MM.ss", "hhMM"] as const;
+export const TIME_FORMATS = ['hh-MM-ss', 'hhMMss', 'hh.MM.ss', 'hhMM'] as const;
 /** Counter digits offered: `auto` fits the batch (an import, whose end is
  * not known, counts without padding then), else a fixed width. */
-export const COUNTER_DIGITS = ["auto", "1", "2", "3", "4", "5", "6"] as const;
+export const COUNTER_DIGITS = ['auto', '1', '2', '3', '4', '5', '6'] as const;
 
 /** Mirrors `rawtonic_naming::TOKENS`, every token a template may use. */
 export const INGEST_TOKEN_NAMES = [
-  "yyyy",
-  "yy",
-  "mm",
-  "month",
-  "mon",
-  "dd",
-  "doy",
-  "weekday",
-  "hh",
-  "MM",
-  "ss",
-  "subsec",
-  "tz",
-  "date",
-  "time",
-  "orig",
-  "orig_base",
-  "orig_num",
-  "folder",
-  "ext",
-  "seq",
-  "seq_start",
-  "job",
-  "session",
-  "version",
-  "user_text",
-  "make",
-  "model",
-  "camera",
-  "serial",
-  "lens",
-  "iso",
-  "focal",
-  "aperture",
-  "shutter",
-  "rating",
-  "color",
-  "title",
-  "creator",
-  "copyright",
-  "format",
-  "recipe",
+  'yyyy',
+  'yy',
+  'mm',
+  'month',
+  'mon',
+  'dd',
+  'doy',
+  'weekday',
+  'hh',
+  'MM',
+  'ss',
+  'subsec',
+  'tz',
+  'date',
+  'time',
+  'orig',
+  'orig_base',
+  'orig_num',
+  'folder',
+  'ext',
+  'seq',
+  'seq_start',
+  'job',
+  'session',
+  'version',
+  'user_text',
+  'make',
+  'model',
+  'camera',
+  'serial',
+  'lens',
+  'iso',
+  'focal',
+  'aperture',
+  'shutter',
+  'rating',
+  'color',
+  'title',
+  'creator',
+  'copyright',
+  'format',
+  'recipe'
 ] as const;
 
 /** The parts of a template: tokens (`{…}`), free text, stray braces. */
@@ -201,47 +201,44 @@ export const isToken = (part: string) => /^\{[^{}]*\}$/.test(part);
 /** A token's name, its option (counter width or date format) and
  * transforms: `{seq:4|upper}` → `seq`, `4`, `["upper"]`. */
 export function parseToken(part: string): { name: string; option?: string; transforms: string[] } {
-  const [token, ...transforms] = part.slice(1, -1).split("|");
-  const at = token.indexOf(":");
-  return at < 0
-    ? { name: token, transforms }
-    : { name: token.slice(0, at), option: token.slice(at + 1), transforms };
+  const [token, ...transforms] = part.slice(1, -1).split('|');
+  const at = token.indexOf(':');
+  return at < 0 ? { name: token, transforms } : { name: token.slice(0, at), option: token.slice(at + 1), transforms };
 }
 export function formatToken(name: string, option: string | undefined, transforms: string[]): string {
-  return `{${name}${option !== undefined ? `:${option}` : ""}${transforms.map((t) => `|${t}`).join("")}}`;
+  return `{${name}${option !== undefined ? `:${option}` : ''}${transforms.map((t) => `|${t}`).join('')}}`;
 }
 
 /** A template as the chip field edits it: free text before, between and
  * after its tokens (each possibly empty), so `text[i]` is followed by
  * `tokens[i]`. Joining them gives the template back unchanged. */
 export function templateSegments(template: string): { text: string[]; tokens: string[] } {
-  const text = [""];
+  const text = [''];
   const tokens: string[] = [];
   for (const part of splitTemplate(template)) {
     if (isToken(part)) {
       tokens.push(part);
-      text.push("");
+      text.push('');
     } else text[text.length - 1] += part;
   }
   return { text, tokens };
 }
-export const joinSegments = (text: string[], tokens: string[]) =>
-  text.map((t, i) => t + (tokens[i] ?? "")).join("");
+export const joinSegments = (text: string[], tokens: string[]) => text.map((t, i) => t + (tokens[i] ?? '')).join('');
 
 /** Mirrors `rawtonic_naming::translate_legacy_export`: an export (or
  * rename) template in the first export tokens, where `{MM}` was the month
  * and `{mm}` the minute, written with the naming tokens. */
 const LEGACY_TOKENS: [string, string][] = [
-  ["{original_filename}", "{orig_base}"],
-  ["{sequence}", "{seq:auto}"],
-  ["{YYYY}", "{yyyy}"],
-  ["{MM}", "{mm}"],
-  ["{DD}", "{dd}"],
-  ["{hh}", "{hh}"],
-  ["{mm}", "{MM}"],
+  ['{original_filename}', '{orig_base}'],
+  ['{sequence}', '{seq:auto}'],
+  ['{YYYY}', '{yyyy}'],
+  ['{MM}', '{mm}'],
+  ['{DD}', '{dd}'],
+  ['{hh}', '{hh}'],
+  ['{mm}', '{MM}']
 ];
 export function translateLegacyExport(template: string): string {
-  let output = "";
+  let output = '';
   let rest = template;
   outer: while (rest) {
     for (const [old, next] of LEGACY_TOKENS)
@@ -257,19 +254,19 @@ export function translateLegacyExport(template: string): string {
 }
 
 export function namingPresets(
-  mode: NamingMode,
-): { name: "original" | "dateOriginal" | "numbered"; template: string }[] {
+  mode: NamingMode
+): { name: 'original' | 'dateOriginal' | 'numbered'; template: string }[] {
   return [
-    { name: "original", template: mode === "ingest" ? "{orig}" : "{orig_base}" },
-    { name: "dateOriginal", template: "{date:yyyymmdd}_{orig_base}" },
+    { name: 'original', template: mode === 'ingest' ? '{orig}' : '{orig_base}' },
+    { name: 'dateOriginal', template: '{date:yyyymmdd}_{orig_base}' },
     {
-      name: "numbered",
-      template: mode === "ingest" ? "{job}_{seq:4}" : mode === "export" ? "{job}_{seq:auto}" : "{folder}_{seq:auto}",
-    },
+      name: 'numbered',
+      template: mode === 'ingest' ? '{job}_{seq:4}' : mode === 'export' ? '{job}_{seq:auto}' : '{folder}_{seq:auto}'
+    }
   ];
 }
 
-const pad2 = (n: number) => String(n).padStart(2, "0");
+const pad2 = (n: number) => String(n).padStart(2, '0');
 const EXAMPLE_DATE = new Date(2026, 9, 11, 14, 30, 0);
 function formatDate(pattern: string, date: Date): string {
   const parts: Record<string, string> = {
@@ -279,7 +276,7 @@ function formatDate(pattern: string, date: Date): string {
     dd: pad2(date.getDate()),
     hh: pad2(date.getHours()),
     MM: pad2(date.getMinutes()),
-    ss: pad2(date.getSeconds()),
+    ss: pad2(date.getSeconds())
   };
   return pattern.replace(/yyyy|yy|mm|dd|hh|MM|ss/g, (m) => parts[m]);
 }
@@ -289,15 +286,15 @@ export function namingExample(
   template: string,
   mode: NamingMode,
   original: string,
-  extension = "jpg",
-  job = "Project",
+  extension = 'jpg',
+  job = 'Project',
   sequence = 1,
   total = 1,
-  kind: NamingKind = "file",
+  kind: NamingKind = 'file'
 ): string {
-  const filename = original.split(/[\\/]/).pop() || "DSC01234.RAF";
-  const stem = filename.replace(/\.[^.]+$/, "");
-  const ext = filename.includes(".") ? filename.split(".").pop()! : "";
+  const filename = original.split(/[\\/]/).pop() || 'DSC01234.RAF';
+  const stem = filename.replace(/\.[^.]+$/, '');
+  const ext = filename.includes('.') ? filename.split('.').pop()! : '';
   const d = EXAMPLE_DATE;
   const values: Record<string, string> = {
     orig: filename,
@@ -305,76 +302,76 @@ export function namingExample(
     ext,
     seq: String(sequence),
     seq_start: String(sequence),
-    job: mode === "rename" ? "" : job,
+    job: mode === 'rename' ? '' : job,
     session: job,
-    format: extension.toLowerCase() === "jpg" ? "JPEG" : extension.toLowerCase() === "tif" ? "TIFF" : extension.toUpperCase(),
-    recipe: "Recipe",
+    format:
+      extension.toLowerCase() === 'jpg' ? 'JPEG' : extension.toLowerCase() === 'tif' ? 'TIFF' : extension.toUpperCase(),
+    recipe: 'Recipe',
     date: formatDate(DATE_FORMATS[0], d),
     time: formatDate(TIME_FORMATS[0], d),
-    yyyy: formatDate("yyyy", d),
-    mm: formatDate("mm", d),
-    dd: formatDate("dd", d),
-    hh: formatDate("hh", d),
-    MM: formatDate("MM", d),
-    ss: formatDate("ss", d),
-    yy: formatDate("yy", d),
-    month: "October",
-    mon: "Oct",
-    doy: "284",
-    weekday: "Sunday",
-    subsec: "00",
-    tz: "+0200",
-    orig_num: stem.match(/\d*$/)?.[0] ?? "",
-    folder: "100CAMERA",
-    make: "Camera",
-    model: "Model",
-    camera: "Camera Model",
-    serial: "0123456789",
-    lens: "50mm F1.8",
-    iso: "400",
-    focal: "50",
-    aperture: "2.8",
-    shutter: "1-250",
-    rating: "0",
-    color: "",
-    title: "",
-    creator: "",
-    copyright: "",
+    yyyy: formatDate('yyyy', d),
+    mm: formatDate('mm', d),
+    dd: formatDate('dd', d),
+    hh: formatDate('hh', d),
+    MM: formatDate('MM', d),
+    ss: formatDate('ss', d),
+    yy: formatDate('yy', d),
+    month: 'October',
+    mon: 'Oct',
+    doy: '284',
+    weekday: 'Sunday',
+    subsec: '00',
+    tz: '+0200',
+    orig_num: stem.match(/\d*$/)?.[0] ?? '',
+    folder: '100CAMERA',
+    make: 'Camera',
+    model: 'Model',
+    camera: 'Camera Model',
+    serial: '0123456789',
+    lens: '50mm F1.8',
+    iso: '400',
+    focal: '50',
+    aperture: '2.8',
+    shutter: '1-250',
+    rating: '0',
+    color: '',
+    title: '',
+    creator: '',
+    copyright: ''
   };
   const last = sequence + Math.max(0, total - 1);
   const rendered = template.replace(/\{([^{}]+)\}/g, (match, expression: string) => {
     const { name, option, transforms } = parseToken(`{${expression}}`);
     if (!(name in values)) return match;
     let value = values[name];
-    if (name === "seq" && option === "auto") value = value.padStart(String(last).length, "0");
-    else if (name === "seq" && option && /^\d+$/.test(option))
-      value = value.padStart(Math.min(20, Number(option)), "0");
-    else if (name === "date" && option && (DATE_FORMATS as readonly string[]).includes(option))
+    if (name === 'seq' && option === 'auto') value = value.padStart(String(last).length, '0');
+    else if (name === 'seq' && option && /^\d+$/.test(option))
+      value = value.padStart(Math.min(20, Number(option)), '0');
+    else if (name === 'date' && option && (DATE_FORMATS as readonly string[]).includes(option))
       value = formatDate(option, d);
-    else if (name === "time" && option && (TIME_FORMATS as readonly string[]).includes(option))
+    else if (name === 'time' && option && (TIME_FORMATS as readonly string[]).includes(option))
       value = formatDate(option, d);
     else if (option !== undefined) return match;
     for (const transform of transforms) {
-      if (transform === "upper") value = value.toUpperCase();
-      else if (transform === "lower") value = value.toLowerCase();
-      else if (transform === "stars") value = /^\d+$/.test(value) ? "★".repeat(Math.min(5, Number(value))) : value;
-      else if (/^pad:\d+$/.test(transform)) value = value.padStart(Math.min(20, Number(transform.slice(4))), "0");
+      if (transform === 'upper') value = value.toUpperCase();
+      else if (transform === 'lower') value = value.toLowerCase();
+      else if (transform === 'stars') value = /^\d+$/.test(value) ? '★'.repeat(Math.min(5, Number(value))) : value;
+      else if (/^pad:\d+$/.test(transform)) value = value.padStart(Math.min(20, Number(transform.slice(4))), '0');
       else return match;
     }
-    return Array.from(value, (c) => (c.charCodeAt(0) < 32 || '/\\:*?"<>|'.includes(c) ? "_" : c)).join("");
+    return Array.from(value, (c) => (c.charCodeAt(0) < 32 || '/\\:*?"<>|'.includes(c) ? '_' : c)).join('');
   });
-  if (kind === "folder")
+  if (kind === 'folder')
     return rendered
       .split(/[/\\]/)
-      .map((part) => part.trim().replace(/[. ]+$/, ""))
+      .map((part) => part.trim().replace(/[. ]+$/, ''))
       .filter(Boolean)
-      .join("/");
+      .join('/');
   // Mirrors `render_or_original`: a name its tokens leave empty is the original's.
   const name = rendered.trim() ? rendered : stem;
-  if (mode === "export") return `${name}.${extension}`;
+  if (mode === 'export') return `${name}.${extension}`;
   // Mirrors `without_extension` in the rename plan.
-  if (mode === "rename")
-    return !ext || name.toLowerCase().endsWith(`.${ext.toLowerCase()}`) ? name : `${name}.${ext}`;
+  if (mode === 'rename') return !ext || name.toLowerCase().endsWith(`.${ext.toLowerCase()}`) ? name : `${name}.${ext}`;
   // Mirrors `rawtonic_ingest::render_name`: a copy keeps its photograph's
   // extension when the template leaves it out.
   const kept = !ext || name.toLowerCase().endsWith(`.${ext.toLowerCase()}`);
@@ -384,7 +381,7 @@ export function namingExample(
 const width = (s: string) => /^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= 20;
 const RESERVED = '{}/\\:*?"<>|';
 function validText(part: string, kind: NamingKind): boolean {
-  const reserved = kind === "folder" ? RESERVED.replace("/", "").replace("\\", "") : RESERVED;
+  const reserved = kind === 'folder' ? RESERVED.replace('/', '').replace('\\', '') : RESERVED;
   return !Array.from(part).some((c) => reserved.includes(c) || c.charCodeAt(0) < 32);
 }
 function validTokenPart(part: string, mode: NamingMode): boolean {
@@ -395,26 +392,26 @@ function validTokenPart(part: string, mode: NamingMode): boolean {
   if (!(INGEST_TOKEN_NAMES as readonly string[]).includes(name) || !MODE_TOKENS[mode](name)) return false;
   if (option !== undefined) {
     const ok =
-      (name === "seq" && (option === "auto" || width(option))) ||
-      (name === "date" && (DATE_FORMATS as readonly string[]).includes(option)) ||
-      (name === "time" && (TIME_FORMATS as readonly string[]).includes(option));
+      (name === 'seq' && (option === 'auto' || width(option))) ||
+      (name === 'date' && (DATE_FORMATS as readonly string[]).includes(option)) ||
+      (name === 'time' && (TIME_FORMATS as readonly string[]).includes(option));
     if (!ok) return false;
   }
   return transforms.every(
-    (tr) => tr === "upper" || tr === "lower" || tr === "stars" || (tr.startsWith("pad:") && width(tr.slice(4))),
+    (tr) => tr === 'upper' || tr === 'lower' || tr === 'stars' || (tr.startsWith('pad:') && width(tr.slice(4)))
   );
 }
 
 /** Catch typos before a copy/export starts; final filesystem validation stays in Rust. */
-export function validNamingTemplate(template: string, mode: NamingMode, kind: NamingKind = "file"): boolean {
+export function validNamingTemplate(template: string, mode: NamingMode, kind: NamingKind = 'file'): boolean {
   if (template.length > 4096) return false;
-  if (kind === "file" && !template.trim()) return false;
+  if (kind === 'file' && !template.trim()) return false;
   for (const part of splitTemplate(template)) {
-    if (part.startsWith("{")) {
+    if (part.startsWith('{')) {
       if (!validTokenPart(part, mode)) return false;
     } else if (!validText(part, kind)) return false;
   }
-  if (kind === "folder") {
+  if (kind === 'folder') {
     // Mirrors `rawtonic_naming::render_folder`: no `..`, no drive or root.
     const trimmed = template.trim();
     if (/^[a-zA-Z]:/.test(trimmed)) return false;
@@ -432,8 +429,8 @@ export const validSequenceStart = (value: number) =>
 export function counterDigits(template: string): string | null {
   const widths = new Set(
     splitTemplate(template)
-      .filter((p) => isToken(p) && parseToken(p).name === "seq")
-      .map((p) => parseToken(p).option ?? ""),
+      .filter((p) => isToken(p) && parseToken(p).name === 'seq')
+      .map((p) => parseToken(p).option ?? '')
   );
   return widths.size === 1 ? [...widths][0] : null;
 }
@@ -443,35 +440,33 @@ export function withCounterDigits(template: string, digits: string): string {
     .map((p) => {
       if (!isToken(p)) return p;
       const { name, transforms } = parseToken(p);
-      return name === "seq" ? formatToken(name, digits || undefined, transforms) : p;
+      return name === 'seq' ? formatToken(name, digits || undefined, transforms) : p;
     })
-    .join("");
+    .join('');
 }
 
 /** Insert at a boundary in the original list, optionally moving an existing block. */
 export function dropNamingBlock(parts: string[], target: number, text: string, source?: number): string {
-  if (!Number.isInteger(target) || target < 0 || target > parts.length) return parts.join("");
+  if (!Number.isInteger(target) || target < 0 || target > parts.length) return parts.join('');
   const next = [...parts];
   if (source !== undefined) {
-    if (!Number.isInteger(source) || source < 0 || source >= parts.length) return parts.join("");
+    if (!Number.isInteger(source) || source < 0 || source >= parts.length) return parts.join('');
     text = next.splice(source, 1)[0];
     if (source < target) target--;
   }
   next.splice(target, 0, text);
-  return next.join("");
+  return next.join('');
 }
 
 /** A saved naming preset, shared by import, rename and export. */
 export type SavedNaming = { name: string; template: string; sequenceStart?: number };
-export const NAMING_PRESETS_KEY = "rawtonic.naming.presets";
+export const NAMING_PRESETS_KEY = 'rawtonic.naming.presets';
 const MAX_PRESETS = 50;
 const validSaved = (p: unknown): p is SavedNaming =>
-  !!p &&
-  typeof (p as SavedNaming).name === "string" &&
-  typeof (p as SavedNaming).template === "string";
+  !!p && typeof (p as SavedNaming).name === 'string' && typeof (p as SavedNaming).template === 'string';
 function readList(key: string): SavedNaming[] {
   try {
-    const items: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+    const items: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
     return Array.isArray(items) ? items.filter(validSaved) : [];
   } catch {
     return [];
@@ -483,14 +478,13 @@ function readList(key: string): SavedNaming[] {
 export function readNamingPresets(): SavedNaming[] {
   try {
     if (localStorage.getItem(NAMING_PRESETS_KEY) === null) {
-      const ingest = readList("rawtonic.naming.ingest");
-      const exported = readList("rawtonic.naming.export").map((p) => ({
+      const ingest = readList('rawtonic.naming.ingest');
+      const exported = readList('rawtonic.naming.export').map((p) => ({
         ...p,
-        template: translateLegacyExport(p.template),
+        template: translateLegacyExport(p.template)
       }));
       const merged = [...ingest];
-      for (const p of exported)
-        if (!merged.some((m) => m.name === p.name)) merged.push(p);
+      for (const p of exported) if (!merged.some((m) => m.name === p.name)) merged.push(p);
       if (merged.length) localStorage.setItem(NAMING_PRESETS_KEY, JSON.stringify(merged.slice(0, MAX_PRESETS)));
     }
   } catch {
@@ -551,7 +545,7 @@ export function swapTokens(template: string, index: number, direction: -1 | 1): 
  * ("Wedding_0001", not "Wedding0001"). It stays editable: once the text holds
  * more than separators, nothing is added again. */
 export function keepCounterSeparator(previous: string, typed: string, following: string | undefined): string {
-  if (!following || parseToken(following).name !== "seq") return typed;
-  if (!/^[_\-. ]+$/.test(previous) || typed === "" || /[_\-. ]$/.test(typed)) return typed;
+  if (!following || parseToken(following).name !== 'seq') return typed;
+  if (!/^[_\-. ]+$/.test(previous) || typed === '' || /[_\-. ]$/.test(typed)) return typed;
   return typed + previous.slice(-1);
 }

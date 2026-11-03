@@ -74,6 +74,6 @@ export function useToolBeforeHold(tool: string, onReset: (() => void) | undefine
         return;
       }
       resetRef.current?.();
-    },
+    }
   };
 }

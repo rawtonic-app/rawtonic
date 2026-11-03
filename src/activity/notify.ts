@@ -19,7 +19,7 @@ import {
   useActivityStore,
   type ActivityAction,
   type ActivityBody,
-  type ActivitySource,
+  type ActivitySource
 } from '../store/useActivityStore';
 
 /** A confirmation's time on screen. */
@@ -83,7 +83,7 @@ function attention(status: 'failure' | 'warning', content: ActivityBody, options
     detail: options?.detail,
     body: plain ? undefined : content,
     actions: options?.actions,
-    paths: options?.paths,
+    paths: options?.paths
   });
 }
 
@@ -96,7 +96,7 @@ function confirmation(kind: 'success' | 'info', content: ActivityBody, options?:
     detail: options?.detail,
     body: plain ? undefined : content,
     actions: options?.actions,
-    paths: options?.paths,
+    paths: options?.paths
   });
   const autoClose = typeof options?.autoClose === 'number' ? options.autoClose : CONFIRMATION_MS;
   toast[kind](content as ReactNode, { closeOnClick: options?.closeOnClick, toastId: id, autoClose });
@@ -120,5 +120,5 @@ export const notify = {
   update(id: Id, { render }: { render: ActivityBody }) {
     const plain = typeof render === 'string' || typeof render === 'number';
     useActivityStore.getState().update(String(id), { title: titleOf(render), body: plain ? undefined : render });
-  },
+  }
 };

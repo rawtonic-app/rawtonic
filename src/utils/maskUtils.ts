@@ -23,7 +23,7 @@ export const createSubMask = (
     opacity: 100,
     mode,
     name: formatMaskTypeName(type),
-    type,
+    type
   };
 
   switch (type) {
@@ -36,13 +36,13 @@ export const createSubMask = (
           radiusX: width / 4,
           radiusY: width / 4,
           rotation: 0,
-          feather: 0.5,
-        },
+          feather: 0.5
+        }
       };
     case Mask.Linear:
       return {
         ...common,
-        parameters: { startX: width * 0.25, startY: height / 2, endX: width * 0.75, endY: height / 2, range: 50 },
+        parameters: { startX: width * 0.25, startY: height / 2, endX: width * 0.75, endY: height / 2, range: 50 }
       };
     case Mask.Brush:
       return { ...common, parameters: { lines: [] } };
@@ -68,7 +68,7 @@ export const createSubMask = (
 export function deleteMaskSelection<T extends { id: string; subMasks: SubMask[] }>(
   masks: T[],
   layerId: string,
-  componentId: string | null,
+  componentId: string | null
 ): { masks: T[]; removed: 'component' | 'layer' | null } {
   const layer = masks.find((m) => m.id === layerId);
   if (!layer) return { masks, removed: null };
@@ -76,9 +76,9 @@ export function deleteMaskSelection<T extends { id: string; subMasks: SubMask[] 
   if (componentId && components.length > 1 && components.some((m) => m.id === componentId)) {
     return {
       masks: masks.map((m) =>
-        m.id === layerId ? { ...m, subMasks: m.subMasks.filter((s) => s.id !== componentId) } : m,
+        m.id === layerId ? { ...m, subMasks: m.subMasks.filter((s) => s.id !== componentId) } : m
       ),
-      removed: 'component',
+      removed: 'component'
     };
   }
   return { masks: masks.filter((m) => m.id !== layerId), removed: 'layer' };

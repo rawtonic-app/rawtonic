@@ -1,15 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Adjustments } from './adjustments';
-import {
-  acknowledgeParameters,
-  forgetParameterReferences,
-  withParameterReferences,
-} from './maskParameterRefs';
+import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from './maskParameterRefs';
 
 const stroke = (n: number, x0 = 0) => ({
   tool: 'brush',
   brushSize: 50,
-  points: Array.from({ length: n }, (_, i) => ({ x: x0 + i, y: i })),
+  points: Array.from({ length: n }, (_, i) => ({ x: x0 + i, y: i }))
 });
 
 type Line = ReturnType<typeof stroke>;
@@ -26,11 +22,11 @@ const recipe = (lines: Line[], extra: object = {}): Loose =>
         adjustments: { exposure: 1 },
         subMasks: [
           { id: 'brush-1', type: 'brush', parameters: { lines } },
-          { id: 'radial-1', type: 'radial', parameters: { centerX: 1 } },
+          { id: 'radial-1', type: 'radial', parameters: { centerX: 1 } }
         ],
-        ...extra,
-      },
-    ],
+        ...extra
+      }
+    ]
   }) as unknown as Adjustments;
 
 describe('withParameterReferences', () => {

@@ -26,7 +26,7 @@
 /* The frame: light grey around the primary (Capture One), orange around
    every cell while "Edit all selected" is on. */
 .studio-mv-cell::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: -5px;
   border: 1px solid transparent;
@@ -144,7 +144,7 @@
   color: var(--studio-muted);
 }
 .studio-mv-controls button:hover,
-.studio-mv-controls button[aria-pressed="true"] {
+.studio-mv-controls button[aria-pressed='true'] {
   color: var(--studio-text);
   background: #ffffff14;
 }
@@ -158,7 +158,7 @@
 .studio-mv-dots button {
   min-width: 14px;
 }
-.studio-mv-dots button[aria-pressed="true"] {
+.studio-mv-dots button[aria-pressed='true'] {
   color: #d7b34a;
   background: transparent;
 }

@@ -98,7 +98,7 @@ export function packGrid(count: number, width: number, height: number, aspect = 
     cells.push({
       cell: { x, y, width: photoW, height: photoH + caption },
       photo: { x, y, width: photoW, height: photoH },
-      level,
+      level
     });
   }
   return { columns, rows, cells };
@@ -117,11 +117,7 @@ export interface MultiViewCells {
  * {@link MAX_CELLS}; with more, the first ones and a last cell for the rest,
  * the primary always among those shown.
  */
-export function cellsFor(
-  selection: string[],
-  primary: string | null,
-  reference: string | null = null,
-): MultiViewCells {
+export function cellsFor(selection: string[], primary: string | null, reference: string | null = null): MultiViewCells {
   const rest = reference ? selection.filter((path) => path !== reference) : selection;
   const pinned = reference ? [reference] : [];
   const room = MAX_CELLS - pinned.length;
@@ -167,7 +163,7 @@ export function captureValues(exif: Record<string, string> | null | undefined): 
     iso: or(formatIso(exif.PhotographicSensitivity ?? exif.ISOSpeedRatings ?? exif.ISOSpeed ?? exif.ISO)),
     shutter: or(formatShutter(parseExposureTime(exif.ExposureTime))),
     aperture: or(formatAperture(exif.FNumber)),
-    focal: or(formatFocalLength(exif.FocalLength ?? exif.FocalLengthIn35mmFilm)),
+    focal: or(formatFocalLength(exif.FocalLength ?? exif.FocalLengthIn35mmFilm))
   };
 }
 
@@ -218,9 +214,16 @@ export interface SharedZoom {
  */
 export function sharedZoomOf(
   transform: { scale: number; positionX: number; positionY: number },
-  fit: { width: number; height: number; offsetX: number; offsetY: number; containerWidth: number; containerHeight: number },
+  fit: {
+    width: number;
+    height: number;
+    offsetX: number;
+    offsetY: number;
+    containerWidth: number;
+    containerHeight: number;
+  },
   shown: { width: number; height: number },
-  dpr: number,
+  dpr: number
 ): SharedZoom | null {
   if (transform.scale <= 1.01 || fit.width <= 0 || fit.height <= 0 || shown.width <= 0 || shown.height <= 0) {
     return null;
@@ -230,7 +233,7 @@ export function sharedZoomOf(
   const clamp = (v: number) => Math.min(1, Math.max(0, v));
   return {
     scale: (fit.width * transform.scale * dpr) / shown.width,
-    center: [clamp((visibleX - fit.offsetX) / fit.width), clamp((visibleY - fit.offsetY) / fit.height)],
+    center: [clamp((visibleX - fit.offsetX) / fit.width), clamp((visibleY - fit.offsetY) / fit.height)]
   };
 }
 
@@ -263,7 +266,7 @@ export function transformOfZoom(
   zoom: SharedZoom,
   fit: FitBox,
   shown: { width: number; height: number },
-  dpr: number,
+  dpr: number
 ): { scale: number; positionX: number; positionY: number } | null {
   if (fit.width <= 0 || fit.height <= 0 || shown.width <= 0 || shown.height <= 0) return null;
   const scale = (zoom.scale * shown.width) / (fit.width * dpr);
@@ -272,7 +275,7 @@ export function transformOfZoom(
   return {
     scale,
     positionX: fit.containerWidth / 2 - visibleX * scale,
-    positionY: fit.containerHeight / 2 - visibleY * scale,
+    positionY: fit.containerHeight / 2 - visibleY * scale
   };
 }
 
@@ -281,7 +284,7 @@ export function transformOfZoom(
 export function fitScaleOf(
   area: { width: number; height: number },
   shown: { width: number; height: number },
-  dpr: number,
+  dpr: number
 ): number {
   if (shown.width <= 0 || shown.height <= 0) return 0;
   return Math.min(area.width / shown.width, area.height / shown.height) * dpr;
@@ -297,7 +300,7 @@ export function clampCellZoom(
   zoom: SharedZoom,
   area: { width: number; height: number },
   shown: { width: number; height: number },
-  dpr: number,
+  dpr: number
 ): SharedZoom {
   const half = (cell: number, photo: number) => (cell * dpr) / (2 * zoom.scale * photo);
   const clamp = (center: number, h: number) => (h >= 0.5 ? 0.5 : Math.min(1 - h, Math.max(h, center)));
@@ -305,8 +308,8 @@ export function clampCellZoom(
     scale: zoom.scale,
     center: [
       clamp(zoom.center[0], half(area.width, shown.width)),
-      clamp(zoom.center[1], half(area.height, shown.height)),
-    ],
+      clamp(zoom.center[1], half(area.height, shown.height))
+    ]
   };
 }
 
@@ -321,7 +324,7 @@ export function zoomCell(
   pointer: [number, number],
   area: { width: number; height: number },
   shown: { width: number; height: number },
-  dpr: number,
+  dpr: number
 ): SharedZoom | null {
   const fit = fitScaleOf(area, shown, dpr);
   if (fit <= 0) return current;
@@ -334,11 +337,11 @@ export function zoomCell(
   return clampCellZoom(
     {
       scale,
-      center: [(px - (pointer[0] * dpr) / scale) / shown.width, (py - (pointer[1] * dpr) / scale) / shown.height],
+      center: [(px - (pointer[0] * dpr) / scale) / shown.width, (py - (pointer[1] * dpr) / scale) / shown.height]
     },
     area,
     shown,
-    dpr,
+    dpr
   );
 }
 
@@ -350,19 +353,19 @@ export function panCell(
   dy: number,
   area: { width: number; height: number },
   shown: { width: number; height: number },
-  dpr: number,
+  dpr: number
 ): SharedZoom {
   return clampCellZoom(
     {
       scale: zoom.scale,
       center: [
         zoom.center[0] - (dx * dpr) / (zoom.scale * shown.width),
-        zoom.center[1] - (dy * dpr) / (zoom.scale * shown.height),
-      ],
+        zoom.center[1] - (dy * dpr) / (zoom.scale * shown.height)
+      ]
     },
     area,
     shown,
-    dpr,
+    dpr
   );
 }
 
@@ -373,7 +376,7 @@ export function cycleCellZoom(
   pointer: [number, number],
   area: { width: number; height: number },
   shown: { width: number; height: number },
-  dpr: number,
+  dpr: number
 ): SharedZoom | null {
   if (current) return null;
   const fit = fitScaleOf(area, shown, dpr);

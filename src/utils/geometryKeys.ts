@@ -28,10 +28,13 @@ export const GEOMETRY_KEYS = [
   'autoCaVersion',
   'fringeVersion',
   'lensVignetteEnabled',
-  'guidedPerspective',
+  'guidedPerspective'
 ] as const satisfies ReadonlyArray<keyof Adjustments>;
 
 /** The photo's orientation, flips and straightening. */
-export const ORIENTATION_KEYS = ['orientationSteps', 'flipHorizontal', 'flipVertical', 'rotation'] as const satisfies ReadonlyArray<
-  keyof Adjustments
->;
+export const ORIENTATION_KEYS = [
+  'orientationSteps',
+  'flipHorizontal',
+  'flipVertical',
+  'rotation'
+] as const satisfies ReadonlyArray<keyof Adjustments>;

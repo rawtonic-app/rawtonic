@@ -51,7 +51,7 @@ interface TopMenu {
 
 const c = (command: string, extra: Omit<Extract<Entry, { command: string }>, 'command'> = {}): Entry => ({
   command,
-  ...extra,
+  ...extra
 });
 
 export const MENU_LAYOUT: TopMenu[] = [
@@ -69,8 +69,8 @@ export const MENU_LAYOUT: TopMenu[] = [
       { native: 'hideOthers' },
       { native: 'showAll' },
       'separator',
-      { native: 'quit' },
-    ],
+      { native: 'quit' }
+    ]
   },
   {
     menu: 'file',
@@ -87,8 +87,8 @@ export const MENU_LAYOUT: TopMenu[] = [
       { dynamic: 'recipes' },
       c('proof_sheet'),
       'separator',
-      { native: 'closeWindow' },
-    ],
+      { native: 'closeWindow' }
+    ]
   },
   {
     menu: 'edit',
@@ -109,15 +109,15 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('paste_from_previous'),
       c('sync_settings'),
       'separator',
-      c('copy_image_path'),
-    ],
+      c('copy_image_path')
+    ]
   },
   {
     menu: 'photo',
     items: [
       {
         submenu: 'rating',
-        items: [c('rate_0'), c('rate_1'), c('rate_2'), c('rate_3'), c('rate_4'), c('rate_5')],
+        items: [c('rate_0'), c('rate_1'), c('rate_2'), c('rate_3'), c('rate_4'), c('rate_5')]
       },
       c('toggle_auto_advance', { check: true }),
       { submenu: 'flag', items: [c('flag_pick'), c('flag_unflag'), c('flag_reject')] },
@@ -130,8 +130,8 @@ export const MENU_LAYOUT: TopMenu[] = [
           c('color_label_yellow'),
           c('color_label_green'),
           c('color_label_blue'),
-          c('color_label_purple'),
-        ],
+          c('color_label_purple')
+        ]
       },
       {
         submenu: 'stacking',
@@ -149,8 +149,8 @@ export const MENU_LAYOUT: TopMenu[] = [
           c('stack_collapse_all'),
           c('stack_expand_all'),
           'separator',
-          c('auto_stack'),
-        ],
+          c('auto_stack')
+        ]
       },
       'separator',
       c('rotate_left'),
@@ -168,8 +168,8 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('move_to_selects'),
       c('show_in_finder'),
       'separator',
-      c('delete_selected'),
-    ],
+      c('delete_selected')
+    ]
   },
   {
     menu: 'view',
@@ -202,15 +202,15 @@ export const MENU_LAYOUT: TopMenu[] = [
           'separator',
           c('toggle_left_panel'),
           c('toggle_right_panel'),
-          c('toggle_bottom_panel'),
-        ],
+          c('toggle_bottom_panel')
+        ]
       },
       'separator',
       c('zoom_in'),
       c('zoom_out'),
       c('zoom_fit'),
-      c('zoom_100'),
-    ],
+      c('zoom_100')
+    ]
   },
   {
     menu: 'window',
@@ -221,14 +221,14 @@ export const MENU_LAYOUT: TopMenu[] = [
       'separator',
       { native: 'fullscreen' },
       'separator',
-      { native: 'bringAllToFront' },
-    ],
+      { native: 'bringAllToFront' }
+    ]
   },
   {
     menu: 'help',
     role: 'help',
-    items: [c('keyboard_shortcuts'), c('website'), 'separator', c('report_problem')],
-  },
+    items: [c('keyboard_shortcuts'), c('website'), 'separator', c('report_problem')]
+  }
 ];
 
 /** The native items' keys, so a command never takes one of them. */
@@ -240,7 +240,7 @@ const NATIVE_COMBOS: Partial<Record<NativeRole, string>> = {
   copy: 'ctrl+KeyC',
   paste: 'ctrl+KeyV',
   minimize: 'ctrl+KeyM',
-  closeWindow: 'ctrl+KeyW',
+  closeWindow: 'ctrl+KeyW'
 };
 
 export type MenuNode =
@@ -272,9 +272,30 @@ const MODIFIER_NAMES: Record<string, string> = { ctrl: 'CmdOrCtrl', shift: 'Shif
 /** Keys a native key equivalent can name (app_menu.rs's `is_key_code`);
  * other keys keep their shortcut in the webview only. */
 const MENU_KEYS = new Set([
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Tab', 'Space', 'Backspace', 'Escape',
-  'Equal', 'Minus', 'Comma', 'Period', 'Slash', 'Backslash', 'BracketLeft', 'BracketRight', 'Semicolon',
-  'Quote', 'Backquote', 'Home', 'End', 'PageUp', 'PageDown',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Enter',
+  'Tab',
+  'Space',
+  'Backspace',
+  'Escape',
+  'Equal',
+  'Minus',
+  'Comma',
+  'Period',
+  'Slash',
+  'Backslash',
+  'BracketLeft',
+  'BracketRight',
+  'Semicolon',
+  'Quote',
+  'Backquote',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown'
 ]);
 const isMenuKey = (key: string) =>
   MENU_KEYS.has(key) || /^Key[A-Z]$/.test(key) || /^Digit[0-9]$/.test(key) || /^F([1-9]|1[0-9]|2[0-4])$/.test(key);
@@ -295,7 +316,7 @@ export function buildMenuSpec(
   keybinds?: Record<string, string[]> | null,
   enabled: (command: string) => boolean = appCommandEnabled,
   app = 'Rawtonic',
-  historyLabels: Partial<Record<'undo' | 'redo', string>> = {},
+  historyLabels: Partial<Record<'undo' | 'redo', string>> = {}
 ): BuiltMenu {
   const definitions = new Map(KEYBIND_DEFINITIONS.map((def) => [def.action, def]));
   const combos = new Map<string, string>();
@@ -304,12 +325,14 @@ export function buildMenuSpec(
 
   const item = (entry: Extract<Entry, { command: string }>): MenuNode => {
     const def = definitions.get(entry.command);
-    const label = t(def ? [`appMenu.items.${entry.command}`, def.description] : `appMenu.items.${entry.command}`, { app });
+    const label = t(def ? [`appMenu.items.${entry.command}`, def.description] : `appMenu.items.${entry.command}`, {
+      app
+    });
     const node: Extract<MenuNode, { kind: 'item' }> = {
       kind: 'item',
       id: `${MENU_ID_PREFIX}${entry.command}`,
-      label: (entry.command === 'undo' || entry.command === 'redo') ? (historyLabels[entry.command] ?? label) : label,
-      enabled: enabled(entry.command),
+      label: entry.command === 'undo' || entry.command === 'redo' ? (historyLabels[entry.command] ?? label) : label,
+      enabled: enabled(entry.command)
     };
     if (def) {
       const bound = effectiveCombos(def, keybinds);
@@ -333,32 +356,40 @@ export function buildMenuSpec(
   const nodes = (entries: Entry[]): MenuNode[] =>
     entries.map((entry): MenuNode => {
       if (entry === 'separator') return { kind: 'separator' };
-      if ('native' in entry) return { kind: 'native', role: entry.native, label: t(`appMenu.native.${entry.native}`, { app }) };
-      if ('dynamic' in entry) return {
-        kind: 'submenu', label: t(`appMenu.submenus.${entry.dynamic}`),
-        items: [
-          ...appMenuCommands(entry.dynamic).map(([command, handler]): MenuNode => ({
-            kind: 'item', id: `${MENU_ID_PREFIX}${command}`, label: handler.menu!.label, enabled: enabled(command),
-          })),
-          ...(entry.dynamic === 'recent' ? [{ kind: 'separator' } as MenuNode, item({ command: 'clear_recent' })] : []),
-        ],
-      };
-      if ('submenu' in entry) return { kind: 'submenu', label: t(`appMenu.submenus.${entry.submenu}`), items: nodes(entry.items) };
+      if ('native' in entry)
+        return { kind: 'native', role: entry.native, label: t(`appMenu.native.${entry.native}`, { app }) };
+      if ('dynamic' in entry)
+        return {
+          kind: 'submenu',
+          label: t(`appMenu.submenus.${entry.dynamic}`),
+          items: [
+            ...appMenuCommands(entry.dynamic).map(([command, handler]): MenuNode => ({
+              kind: 'item',
+              id: `${MENU_ID_PREFIX}${command}`,
+              label: handler.menu!.label,
+              enabled: enabled(command)
+            })),
+            ...(entry.dynamic === 'recent'
+              ? [{ kind: 'separator' } as MenuNode, item({ command: 'clear_recent' })]
+              : [])
+          ]
+        };
+      if ('submenu' in entry)
+        return { kind: 'submenu', label: t(`appMenu.submenus.${entry.submenu}`), items: nodes(entry.items) };
       return item(entry);
     });
-  const menus = MENU_LAYOUT.map(
-    (top): MenuNode => ({
-      kind: 'submenu',
-      label: t(`appMenu.menus.${top.menu}`, { app }),
-      ...(top.role ? { role: top.role } : {}),
-      items: nodes(top.items),
-    }),
-  );
+  const menus = MENU_LAYOUT.map((top): MenuNode => ({
+    kind: 'submenu',
+    label: t(`appMenu.menus.${top.menu}`, { app }),
+    ...(top.role ? { role: top.role } : {}),
+    items: nodes(top.items)
+  }));
   const commands: string[] = [];
-  const collect = (nodes: MenuNode[]) => nodes.forEach((node) => {
-    if (node.kind === 'item') commands.push(node.id.slice(MENU_ID_PREFIX.length));
-    if (node.kind === 'submenu') collect(node.items);
-  });
+  const collect = (nodes: MenuNode[]) =>
+    nodes.forEach((node) => {
+      if (node.kind === 'item') commands.push(node.id.slice(MENU_ID_PREFIX.length));
+      if (node.kind === 'submenu') collect(node.items);
+    });
   collect(menus);
   return { spec: { menus }, combos, checks, commands };
 }
@@ -369,8 +400,9 @@ export function menuCommands(): string[] {
   const walk = (entries: Entry[]) => {
     for (const entry of entries) {
       if (entry === 'separator' || 'native' in entry) continue;
-      if ('dynamic' in entry) { if (entry.dynamic === 'recent') out.push('clear_recent'); }
-      else if ('submenu' in entry) walk(entry.items);
+      if ('dynamic' in entry) {
+        if (entry.dynamic === 'recent') out.push('clear_recent');
+      } else if ('submenu' in entry) walk(entry.items);
       else out.push(entry.command);
     }
   };
@@ -389,7 +421,7 @@ export interface MenuItemState {
 export function menuItemStates(
   menu: BuiltMenu,
   enabled: (command: string) => boolean = appCommandEnabled,
-  historyLabels: Partial<Record<'undo' | 'redo', string>> = {},
+  historyLabels: Partial<Record<'undo' | 'redo', string>> = {}
 ): MenuItemState[] {
   return menu.commands.map((command) => {
     const state: MenuItemState = { id: `${MENU_ID_PREFIX}${command}`, enabled: enabled(command) };

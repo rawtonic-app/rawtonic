@@ -29,7 +29,7 @@ const file = (path: string, tags: string[] | null, group_id: string | null = nul
     is_edited: false,
     exif: null,
     is_virtual_copy: false,
-    is_cloud_placeholder: false,
+    is_cloud_placeholder: false
   }) as ImageFile;
 
 const menu = (
@@ -39,7 +39,7 @@ const menu = (
   initialTags: { tag: string; isUser: boolean }[] = [],
   // What the library does with a partly saved write; `null`: nothing, it is
   // spied on by the caller.
-  onTagSaved: ((savedPaths: string[], tag: string, change: 'add' | 'remove') => void) | null = null,
+  onTagSaved: ((savedPaths: string[], tag: string, change: 'add' | 'remove') => void) | null = null
 ) => {
   useSettingsStore.setState({ appSettings: settings });
   render(
@@ -49,7 +49,7 @@ const menu = (
       onTagSaved={onTagSaved ?? applyDelta}
       appSettings={settings}
       hideContextMenu={() => {}}
-    />,
+    />
   );
 };
 
@@ -77,7 +77,7 @@ const add = async (tag: string) => {
 
 const tagsOf = () => Object.fromEntries(useLibraryStore.getState().imageList.map((image) => [image.path, image.tags]));
 
-it("keeps the menu as it was when a keyword is not saved everywhere, so adding it again retries", async () => {
+it('keeps the menu as it was when a keyword is not saved everywhere, so adding it again retries', async () => {
   menu();
   // b.NEF fails: the library names it in SaveFailure.failed.
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
@@ -106,7 +106,7 @@ it('shows the keyword on the photographs that were saved when the batch partly f
   await add('client');
   expect(invoke.mock.calls).toEqual([
     ['add_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
-    ['add_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
+    ['add_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }]
   ]);
   // Both saved: every photo (and its variants) is told the one keyword.
   expect(onTagSaved.mock.calls[1]).toEqual([['/s/a.NEF', '/s/b.NEF'], 'user:client', 'add']);
@@ -116,12 +116,12 @@ it('shows the keyword on the photographs that were saved when the batch partly f
 it('keeps the automatic keyword of a saved photograph when the batch partly failed', async () => {
   // a.NEF has the automatic "dog" and the typed "user:beach"; b.NEF likewise.
   useLibraryStore.setState({
-    imageList: [file('/s/a.NEF', ['dog', 'user:beach']), file('/s/b.NEF', ['dog', 'user:beach'])],
+    imageList: [file('/s/a.NEF', ['dog', 'user:beach']), file('/s/b.NEF', ['dog', 'user:beach'])]
   });
   // The menu's common tags are "beach" and "dog"; a third one is added.
   menu(['/s/a.NEF', '/s/b.NEF'], null, [
     { tag: 'beach', isUser: true },
-    { tag: 'dog', isUser: false },
+    { tag: 'dog', isUser: false }
   ]);
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
   await add('client');
@@ -132,7 +132,7 @@ it('keeps the automatic keyword of a saved photograph when the batch partly fail
 
 it('shows a removed keyword gone from the photographs that were saved when the batch partly failed', async () => {
   useLibraryStore.setState({
-    imageList: [file('/s/a.NEF', ['dog', 'user:client']), file('/s/b.NEF', ['dog', 'user:client'])],
+    imageList: [file('/s/a.NEF', ['dog', 'user:client']), file('/s/b.NEF', ['dog', 'user:client'])]
   });
   useSettingsStore.setState({ appSettings: null });
   const onTagSaved = vi.fn();
@@ -141,12 +141,12 @@ it('shows a removed keyword gone from the photographs that were saved when the b
       paths={['/s/a.NEF', '/s/b.NEF']}
       initialTags={[
         { tag: 'client', isUser: true },
-        { tag: 'dog', isUser: false },
+        { tag: 'dog', isUser: false }
       ]}
       onTagSaved={onTagSaved}
       appSettings={null}
       hideContextMenu={() => {}}
-    />,
+    />
   );
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
   expect(invoke.mock.calls.length).toBe(0);
@@ -164,7 +164,7 @@ it('shows a removed keyword gone from the photographs that were saved when the b
   });
   expect(invoke.mock.calls).toEqual([
     ['remove_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
-    ['remove_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
+    ['remove_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }]
   ]);
   expect(onTagSaved).toHaveBeenLastCalledWith(['/s/a.NEF', '/s/b.NEF'], 'user:client', 'remove');
 });
@@ -175,12 +175,12 @@ it('keeps the other keywords of a saved photograph when a keyword is removed and
   useLibraryStore.setState({
     imageList: [
       file('/s/a.NEF', ['color:red', 'dog', 'user:archive', 'user:client']),
-      file('/s/b.NEF', ['color:red', 'dog', 'user:archive', 'user:client']),
-    ],
+      file('/s/b.NEF', ['color:red', 'dog', 'user:archive', 'user:client'])
+    ]
   });
   menu(['/s/a.NEF', '/s/b.NEF'], null, [
     { tag: 'client', isUser: true },
-    { tag: 'dog', isUser: false },
+    { tag: 'dog', isUser: false }
   ]);
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
   await act(async () => {
@@ -190,7 +190,7 @@ it('keeps the other keywords of a saved photograph when a keyword is removed and
   // the automatic "dog" or the label, which the menu does not list.
   expect(tagsOf()).toEqual({
     '/s/a.NEF': ['color:red', 'dog', 'user:archive'],
-    '/s/b.NEF': ['color:red', 'dog', 'user:archive', 'user:client'],
+    '/s/b.NEF': ['color:red', 'dog', 'user:archive', 'user:client']
   });
 });
 
@@ -200,20 +200,20 @@ it('changes the one saved tag on exactly the reported photographs, without a gro
   useLibraryStore.setState({
     imageList: [
       file('/s/a.NEF', ['color:red', 'dog', 'user:beach'], 'g1'),
-      file('/s/a.JPG', ['dog', 'user:beach'], 'g1', false),
-    ],
+      file('/s/a.JPG', ['dog', 'user:beach'], 'g1', false)
+    ]
   });
   // The library saved "user:client" for the JPEG, not for the RAW of its group.
   result.current.applyTagDelta(['/s/a.JPG'], 'user:client', 'add');
   expect(tagsOf()).toEqual({
     '/s/a.NEF': ['color:red', 'dog', 'user:beach'],
-    '/s/a.JPG': ['dog', 'user:beach', 'user:client'],
+    '/s/a.JPG': ['dog', 'user:beach', 'user:client']
   });
   // And took "user:beach" off it: every other tag stays.
   result.current.applyTagDelta(['/s/a.JPG'], 'user:beach', 'remove');
   expect(tagsOf()).toEqual({
     '/s/a.NEF': ['color:red', 'dog', 'user:beach'],
-    '/s/a.JPG': ['dog', 'user:client'],
+    '/s/a.JPG': ['dog', 'user:client']
   });
   // The menu's promise, when the whole selection saved, still replaces the
   // keywords as the write saved the menu's list (the tagged menu's own rule).
@@ -239,8 +239,8 @@ it('with grouping on, a saved photograph does not mark its failed variant', asyn
       file('/s/a.NEF', null, 'g1'),
       file('/s/a.JPG', ['dog'], 'g1', false),
       file('/s/c.NEF', null, 'g2'),
-      file('/s/c.JPG', null, 'g2', false),
-    ],
+      file('/s/c.JPG', null, 'g2', false)
+    ]
   });
   menu(['/s/a.JPG'], settings, [{ tag: 'dog', isUser: false }]);
   // The group adds its NEF, and only that one fails.
@@ -253,11 +253,11 @@ it('with grouping on, a saved photograph does not mark its failed variant', asyn
     '/s/a.NEF': null,
     '/s/a.JPG': ['dog', 'user:client'],
     '/s/c.NEF': null,
-    '/s/c.JPG': null,
+    '/s/c.JPG': null
   });
 });
 
-it('keeps each photo\'s other keywords when a keyword is added to all of them', async () => {
+it("keeps each photo's other keywords when a keyword is added to all of them", async () => {
   // Different keywords: the menu's common list is empty.
   useLibraryStore.setState({ imageList: [file('/s/a.NEF', ['user:beach']), file('/s/b.NEF', ['user:mountain'])] });
   menu(['/s/a.NEF', '/s/b.NEF'], null, []);
@@ -265,6 +265,6 @@ it('keeps each photo\'s other keywords when a keyword is added to all of them', 
   await add('client');
   expect(tagsOf()).toEqual({
     '/s/a.NEF': ['user:beach', 'user:client'],
-    '/s/b.NEF': ['user:client', 'user:mountain'],
+    '/s/b.NEF': ['user:client', 'user:mountain']
   });
 });

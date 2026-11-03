@@ -16,16 +16,18 @@ const next = JSON.stringify(
     app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '27.0', arch: 'aarch64' },
     gpuVendor: 'apple',
     cameras: [],
-    tools: {},
+    tools: {}
   },
   null,
-  2,
+  2
 );
 
 describe('usage statistics in Preferences', () => {
   it('is off by default; switching on shows what is sent before anything is', async () => {
     const saved = vi.fn();
-    const preview = vi.fn(() => Promise.resolve({ pending: [{ week: '2026-W43', body: next, current: true }], lastSent: null }));
+    const preview = vi.fn(() =>
+      Promise.resolve({ pending: [{ week: '2026-W43', body: next, current: true }], lastSent: null })
+    );
     function Host() {
       const [settings, setSettings] = useState({} as AppSettings);
       return (
@@ -53,14 +55,22 @@ describe('usage statistics in Preferences', () => {
   });
 
   it('shows the next send in plain words or as its exact body', async () => {
-    const preview = vi.fn(() => Promise.resolve({
+    const preview = vi.fn(() =>
+      Promise.resolve({
         pending: [
           { week: '2026-W42', body: next.replace('2026-W43', '2026-W42'), current: false },
-          { week: '2026-W43', body: next, current: true },
+          { week: '2026-W43', body: next, current: true }
         ],
-        lastSent: { week: '2026-W41', body: next },
-      }));
-    render(<UsageStatsSettings appSettings={{ usageStats: true } as AppSettings} onSettingsChange={() => {}} preview={preview} />);
+        lastSent: { week: '2026-W41', body: next }
+      })
+    );
+    render(
+      <UsageStatsSettings
+        appSettings={{ usageStats: true } as AppSettings}
+        onSettingsChange={() => {}}
+        preview={preview}
+      />
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Show what is sent' }));
     expect((await screen.findAllByText('Week 2026-W43')).length).toBe(2);
     expect(screen.getByText('Week 2026-W42')).toBeTruthy();
@@ -73,7 +83,9 @@ describe('usage statistics in Preferences', () => {
   });
 
   it('while off keeps and shows nothing for the next send', async () => {
-    const preview = vi.fn(() => Promise.resolve({ pending: [{ week: '2026-W43', body: next, current: true }], lastSent: null }));
+    const preview = vi.fn(() =>
+      Promise.resolve({ pending: [{ week: '2026-W43', body: next, current: true }], lastSent: null })
+    );
     render(<UsageStatsSettings appSettings={{} as AppSettings} onSettingsChange={() => {}} preview={preview} />);
     fireEvent.click(screen.getByRole('button', { name: 'Show what is sent' }));
     await screen.findByText('Statistics are off: nothing is kept or sent.');
@@ -89,12 +101,14 @@ describe('usage statistics in Preferences', () => {
         onSettingsChange={saved}
         preview={() => Promise.resolve({ pending: [], lastSent: null })}
         enable={enable}
-      />,
+      />
     );
     fireEvent.click(screen.getByRole('checkbox', { name: /anonymous usage statistics/ }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/could not be saved/);
     expect(enable).toHaveBeenCalledWith(false);
     expect(saved).not.toHaveBeenCalled();
-    expect((screen.getByRole('checkbox', { name: /anonymous usage statistics/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('checkbox', { name: /anonymous usage statistics/ }) as HTMLInputElement).checked).toBe(
+      true
+    );
   });
 });

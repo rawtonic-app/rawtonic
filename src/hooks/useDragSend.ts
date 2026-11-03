@@ -16,7 +16,7 @@ export function useDragSend<T>(send: (value: T) => void) {
   const state = useRef<{ pending: T | null; sentAt: number; frame: number | null }>({
     pending: null,
     sentAt: -Infinity,
-    frame: null,
+    frame: null
   });
   const api = useRef({
     flush() {
@@ -34,7 +34,7 @@ export function useDragSend<T>(send: (value: T) => void) {
       s.pending = value;
       if (performance.now() - s.sentAt >= MIN_SEND_INTERVAL_MS) api.current.flush();
       else if (s.frame === null) s.frame = requestAnimationFrame(api.current.flush);
-    },
+    }
   });
   useEffect(() => () => api.current.flush(), []);
   return api.current;

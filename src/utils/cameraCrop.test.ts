@@ -52,7 +52,7 @@ describe('the aspect ratio set in the camera as the crop new edits start with', 
     // A quarter turn: the centred frame on the turned photo (3000 × 4000).
     expect(cropResetValues(image, 1, 1)).toEqual({
       crop: { unit: 'px', x: 376, y: 0, width: 2248, height: 4000 },
-      aspectRatio: 2248 / 4000,
+      aspectRatio: 2248 / 4000
     });
     expect(cropResetValues(image, 1, 2).crop).toEqual(sixteenNine);
     expect(cropResetValues({ isRaw: false, cameraCrops: crops }, 1, 0)).toEqual({ crop: null, aspectRatio: null });

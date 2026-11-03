@@ -56,7 +56,7 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
       jsAdjustments: useEditorStore.getState().adjustments,
       width,
       height,
-      boxes: JSON.parse(boxesKey),
+      boxes: JSON.parse(boxesKey)
     })
       .then((outlines) => current && setShown({ key, outlines }))
       .catch((error) => console.error('Showing the face box failed:', error));
@@ -88,7 +88,7 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
         height: rect.height,
         overflow: 'hidden',
         pointerEvents: 'none',
-        zIndex: 4,
+        zIndex: 4
       }}
     >
       <svg width={rect.width} height={rect.height} style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
@@ -108,7 +108,7 @@ export default function FaceBoxOverlay({ rect, cropX, cropY, scale, zoom }: Prop
         style={{
           left: label.x,
           top: label.y,
-          transform: `scale(${1 / zoom}) translateY(${label.below ? '2px' : 'calc(-100% - 2px)'})`,
+          transform: `scale(${1 / zoom}) translateY(${label.below ? '2px' : 'calc(-100% - 2px)'})`
         }}
       >
         <Icon size={12} />

@@ -85,7 +85,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
       pad: null,
       stripGps: false,
       exportMasks: false,
-      watermark: null,
+      watermark: null
     };
 
     setIsFinishing(true);
@@ -94,7 +94,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
     useProcessStore.getState().setExportState({
       status: Status.Exporting,
       progress: { current: 0, total: 1 },
-      errorMessage: '',
+      errorMessage: ''
     });
 
     try {
@@ -107,14 +107,14 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
         exportSettings,
         outputFormat: session.format,
         ...edit,
-        library,
+        library
       });
       setFinishJob(job);
     } catch (error) {
       setIsFinishing(false);
       useProcessStore.getState().setExportState({
         status: Status.Error,
-        errorMessage: typeof error === 'string' ? error : 'Export failed',
+        errorMessage: typeof error === 'string' ? error : 'Export failed'
       });
     }
   }, []);

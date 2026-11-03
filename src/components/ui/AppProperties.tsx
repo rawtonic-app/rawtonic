@@ -31,7 +31,7 @@ export const GLOBAL_KEYS = [
   '3',
   '4',
   '5',
-  'Enter',
+  'Enter'
 ];
 export const OPTION_SEPARATOR = 'separator';
 /** A small group caption in a menu (`label`), not selectable. */
@@ -363,13 +363,13 @@ export enum Invokes {
   TetherNextCapture = 'tether_next_capture',
   TetherSetSetting = 'tether_set_setting',
   TetherSettings = 'tether_settings',
-  TetherStatus = 'tether_status',
+  TetherStatus = 'tether_status'
 }
 
 export enum ExifOverlay {
   Off = 'off',
   Hover = 'hover',
-  Always = 'always',
+  Always = 'always'
 }
 
 export enum Panel {
@@ -379,7 +379,7 @@ export enum Panel {
   Masks = 'masks',
   Metadata = 'metadata',
   Presets = 'presets',
-  FolderTree = 'folderTree',
+  FolderTree = 'folderTree'
 }
 
 export type PanelRegion = 'leftTop' | 'leftBottom' | 'rightTop' | 'rightBottom';
@@ -387,12 +387,12 @@ export type PanelRegion = 'leftTop' | 'leftBottom' | 'rightTop' | 'rightBottom';
 export enum RawStatus {
   All = 'all',
   NonRawOnly = 'nonRawOnly',
-  RawOnly = 'rawOnly',
+  RawOnly = 'rawOnly'
 }
 
 export enum SortDirection {
   Ascending = 'asc',
-  Descending = 'desc',
+  Descending = 'desc'
 }
 
 type FolderSortKey = 'name' | 'modified' | 'created' | 'imageCount';
@@ -405,7 +405,7 @@ export interface FolderTreeSort {
 export enum ThumbnailAspectRatio {
   Cover = 'cover',
   Contain = 'contain',
-  Justified = 'justified',
+  Justified = 'justified'
 }
 
 export interface WorkspaceState {
@@ -492,7 +492,7 @@ export interface AppSettings {
   /** Ids of the favourite presets and styles, in the order starred. */
   favoritePresets?: string[];
   /** The brush's last size, hardness, opacity and flow. */
-  brushDefaults?: Partial<Pick<BrushSettings, "size" | "hardness" | "opacity" | "flow">>;
+  brushDefaults?: Partial<Pick<BrushSettings, 'size' | 'hardness' | 'opacity' | 'flow'>>;
   enableAiTagging?: boolean;
   /** Read every face's eyes in the background for culling (turned on by
    * the first Check Eyes; `face_eyes`). */
@@ -605,13 +605,13 @@ export interface BrushSettings {
 
 export enum LibraryViewMode {
   Flat = 'flat',
-  Recursive = 'recursive',
+  Recursive = 'recursive'
 }
 
 export const EditedStatus = {
   All: 'all',
   EditedOnly: 'editedOnly',
-  UneditedOnly: 'uneditedOnly',
+  UneditedOnly: 'uneditedOnly'
 } as const;
 
 export type EditedStatus = (typeof EditedStatus)[keyof typeof EditedStatus];
@@ -711,7 +711,7 @@ export interface Option {
 
 export enum Orientation {
   Horizontal = 'horizontal',
-  Vertical = 'vertical',
+  Vertical = 'vertical'
 }
 
 export interface Preset {
@@ -805,7 +805,6 @@ export interface PreviewBuildProgress {
   failed: Array<{ path: string; reason: string }>;
 }
 
-
 export interface SelectedImage {
   exif: { [key: string]: string } | null;
   group_id?: string | null;
@@ -887,13 +886,13 @@ export interface SupportedTypes {
 export enum LibraryDisplayMode {
   Grid = 'grid',
   Cull = 'cull',
-  List = 'list',
+  List = 'list'
 }
 
 export enum ThumbnailSize {
   Large = 'large',
   Medium = 'medium',
-  Small = 'small',
+  Small = 'small'
 }
 
 export interface TransformState {

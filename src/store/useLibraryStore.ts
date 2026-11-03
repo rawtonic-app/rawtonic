@@ -7,7 +7,7 @@ import {
   RawStatus,
   SortCriteria,
   SortDirection,
-  AlbumItem,
+  AlbumItem
 } from '../components/ui/AppProperties';
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import type { FolderTree } from '../utils/folderTree';
@@ -132,19 +132,19 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   setFilterCriteria: (criteria) =>
     set((state) => ({
       filterCriteria:
-        typeof criteria === 'function' ? criteria(state.filterCriteria) : { ...state.filterCriteria, ...criteria },
+        typeof criteria === 'function' ? criteria(state.filterCriteria) : { ...state.filterCriteria, ...criteria }
     })),
 
   setSearchCriteria: (criteria) =>
     set((state) => ({
       searchCriteria:
-        typeof criteria === 'function' ? criteria(state.searchCriteria) : { ...state.searchCriteria, ...criteria },
+        typeof criteria === 'function' ? criteria(state.searchCriteria) : { ...state.searchCriteria, ...criteria }
     })),
 
   setSortCriteria: (criteria) =>
     set((state) => ({
       sortCriteria:
-        typeof criteria === 'function' ? criteria(state.sortCriteria) : { ...state.sortCriteria, ...criteria },
+        typeof criteria === 'function' ? criteria(state.sortCriteria) : { ...state.sortCriteria, ...criteria }
     })),
 
   pushNavHistory: (item) =>
@@ -155,7 +155,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
       const newHistory = state.navHistory.slice(0, state.navIndex + 1);
       newHistory.push(item);
       return { navHistory: newHistory, navIndex: newHistory.length - 1 };
-    }),
+    })
 }));
 
 /** Whether the library lists the photo at `path` as a RAW (its recipe then

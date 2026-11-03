@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { throttleAsync } from "./throttle";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { throttleAsync } from './throttle';
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-describe("throttleAsync", () => {
-  it("runs at most four times a second for a burst of calls, and once after the last call", async () => {
+describe('throttleAsync', () => {
+  it('runs at most four times a second for a burst of calls, and once after the last call', async () => {
     const runs: number[] = [];
     const run = vi.fn(() => void runs.push(Date.now()));
     const refresh = throttleAsync(run, 250);
@@ -27,14 +27,14 @@ describe("throttleAsync", () => {
     expect(runs[runs.length - 1]).toBeGreaterThanOrEqual(lastCall);
   });
 
-  it("runs the first call at once", async () => {
+  it('runs the first call at once', async () => {
     const run = vi.fn();
     throttleAsync(run, 250)();
     await vi.advanceTimersByTimeAsync(0);
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("never runs twice at once: a slow run delays the next", async () => {
+  it('never runs twice at once: a slow run delays the next', async () => {
     let active = 0;
     let most = 0;
     const run = vi.fn(async () => {
@@ -53,7 +53,7 @@ describe("throttleAsync", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
-  it("cancel drops a waiting run", async () => {
+  it('cancel drops a waiting run', async () => {
     const run = vi.fn();
     const refresh = throttleAsync(run, 250);
     refresh();

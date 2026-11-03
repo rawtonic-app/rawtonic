@@ -15,7 +15,7 @@ export interface GroupingResult {
 export function buildImageGroups(
   images: ImageFile[],
   preference: GroupPreference,
-  groupEditedFiles = true,
+  groupEditedFiles = true
 ): GroupingResult {
   const buckets = new Map<GroupId, ImageFile[]>();
 
@@ -47,7 +47,7 @@ export function buildImageGroups(
     const extensions = new Set(files.map((f) => getVariantLabel(f.path)));
     badges.set(groupId, {
       count: files.length,
-      label: Array.from(extensions).sort().join('+'),
+      label: Array.from(extensions).sort().join('+')
     });
   }
 

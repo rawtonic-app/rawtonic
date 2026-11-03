@@ -37,7 +37,7 @@ function canonical(value: unknown): unknown {
     return Object.fromEntries(
       Object.keys(value as Record<string, unknown>)
         .sort()
-        .map((key) => [key, canonical((value as Record<string, unknown>)[key])]),
+        .map((key) => [key, canonical((value as Record<string, unknown>)[key])])
     );
   return value;
 }
@@ -53,7 +53,7 @@ const CONTENT_STAYS: ReadonlySet<string> = new Set([
   'lensTcaEnabled',
   'autoChromaticAberration',
   'autoCaVersion',
-  'fringeVersion',
+  'fringeVersion'
 ]);
 
 /** The lens and transform warps of `adjustments` that move content, as the
@@ -62,8 +62,8 @@ function warpOf(adjustments: Frame) {
   return Object.fromEntries(
     GEOMETRY_KEYS.filter((key) => !CONTENT_STAYS.has(key) && adjustments[key] != null).map((key) => [
       key,
-      adjustments[key],
-    ]),
+      adjustments[key]
+    ])
   );
 }
 
@@ -76,8 +76,8 @@ export function promptFrameKey(adjustments: Frame): string {
       Boolean(adjustments.flipHorizontal),
       Boolean(adjustments.flipVertical),
       Number(adjustments.orientationSteps ?? 0),
-      warpOf(adjustments),
-    ]),
+      warpOf(adjustments)
+    ])
   );
 }
 
@@ -121,7 +121,11 @@ const includes = (prompts: ObjectPrompt[]) => prompts.some((p) => !p.exclude);
 
 /** The prompts after a press: null when it changes nothing (taking out of
  * an empty selection). */
-export function nextPrompts(current: ObjectPrompt[], prompt: ObjectPrompt, gesture: PromptGesture): ObjectPrompt[] | null {
+export function nextPrompts(
+  current: ObjectPrompt[],
+  prompt: ObjectPrompt,
+  gesture: PromptGesture
+): ObjectPrompt[] | null {
   const { exclude: _exclude, ...included } = prompt;
   if (gesture === 'replace') return [included as ObjectPrompt];
   if (gesture === 'add') return [...current, included as ObjectPrompt];

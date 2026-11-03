@@ -4,40 +4,40 @@
 // switched statistics on (Preferences, default off). The app keeps the
 // week's counters (crates/contribute/src/stats.rs) and sends each finished
 // week once at a later start; "Show what is sent" shows the exact body.
-import { invoke } from "@tauri-apps/api/core";
-import { Invokes } from "../ui/AppProperties";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import type { TFunction } from "i18next";
-import type { Adjustments } from "../../utils/adjustments";
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import type { TFunction } from 'i18next';
+import type { Adjustments } from '../../utils/adjustments';
 
 /** The relay's tool keys (services/relay/src/schema.ts `TOOLS`). */
 export const STATS_TOOLS = [
-  "basic",
-  "curves",
-  "color",
-  "colorGrading",
-  "sharpen",
-  "noiseReduction",
-  "aiDenoise",
-  "lensCorrection",
-  "transform",
-  "crop",
-  "masks",
-  "aiMasks",
-  "retouch",
-  "redEye",
-  "relight",
-  "generative",
-  "presets",
-  "copySettings",
-  "snapshots",
-  "merge",
-  "export",
-  "batchExport",
-  "tether",
-  "ingest",
-  "search",
-  "culling",
+  'basic',
+  'curves',
+  'color',
+  'colorGrading',
+  'sharpen',
+  'noiseReduction',
+  'aiDenoise',
+  'lensCorrection',
+  'transform',
+  'crop',
+  'masks',
+  'aiMasks',
+  'retouch',
+  'redEye',
+  'relight',
+  'generative',
+  'presets',
+  'copySettings',
+  'snapshots',
+  'merge',
+  'export',
+  'batchExport',
+  'tether',
+  'ingest',
+  'search',
+  'culling'
 ] as const;
 export type StatsTool = (typeof STATS_TOOLS)[number];
 
@@ -46,83 +46,90 @@ export type StatsTool = (typeof STATS_TOOLS)[number];
  * count for none. */
 export const KEY_TOOLS: Record<string, StatsTool> = {};
 const keysOf = (tool: StatsTool, keys: string[]) => keys.forEach((key) => (KEY_TOOLS[key] = tool));
-keysOf("basic", [
-  "exposure",
-  "toneMapper",
-  "baseCurve",
-  "cameraProfile",
-  "brightness",
-  "contrast",
-  "highlights",
-  "shadows",
-  "whites",
-  "blacks",
-  "temperature",
-  "tint",
-  "whiteBalance",
-  "wbTemperature",
-  "wbTint",
-  "saturation",
-  "vibrance",
+keysOf('basic', [
+  'exposure',
+  'toneMapper',
+  'baseCurve',
+  'cameraProfile',
+  'brightness',
+  'contrast',
+  'highlights',
+  'shadows',
+  'whites',
+  'blacks',
+  'temperature',
+  'tint',
+  'whiteBalance',
+  'wbTemperature',
+  'wbTint',
+  'saturation',
+  'vibrance'
 ]);
-keysOf("curves", ["curves", "pointCurves", "parametricCurve", "curveMode", "levels", "regionCurve"]);
-keysOf("color", ["hue", "hsl", "colorRanges", "colorCalibration", "blackAndWhite", "grayMixer"]);
-keysOf("colorGrading", ["colorGrading"]);
-keysOf("sharpen", ["sharpness", "sharpnessThreshold", "sharpnessFalloff", "sharpenRadius", "sharpenDetail", "sharpenMasking"]);
-keysOf("noiseReduction", [
-  "lumaNoiseReduction",
-  "colorNoiseReduction",
-  "lumaNoiseDetail",
-  "lumaNoiseContrast",
-  "colorNoiseDetail",
-  "colorNoiseSmoothness",
+keysOf('curves', ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve']);
+keysOf('color', ['hue', 'hsl', 'colorRanges', 'colorCalibration', 'blackAndWhite', 'grayMixer']);
+keysOf('colorGrading', ['colorGrading']);
+keysOf('sharpen', [
+  'sharpness',
+  'sharpnessThreshold',
+  'sharpnessFalloff',
+  'sharpenRadius',
+  'sharpenDetail',
+  'sharpenMasking'
 ]);
-keysOf("aiDenoise", ["aiDenoise"]);
-keysOf("lensCorrection", [
-  "lensCorrectionMode",
-  "lensMaker",
-  "lensModel",
-  "lensDistortionAmount",
-  "lensVignetteAmount",
-  "lensManualVignetteAmount",
-  "lensManualVignetteMidpoint",
-  "lensTcaAmount",
-  "lensDistortionEnabled",
-  "lensTcaEnabled",
-  "lensVignetteEnabled",
-  "diffractionCorrection",
-  "autoChromaticAberration",
-  "chromaticAberrationRedCyan",
-  "chromaticAberrationBlueYellow",
-  "defringePurpleAmount",
-  "defringePurpleHueLo",
-  "defringePurpleHueHi",
-  "defringeGreenAmount",
-  "defringeGreenHueLo",
-  "defringeGreenHueHi",
+keysOf('noiseReduction', [
+  'lumaNoiseReduction',
+  'colorNoiseReduction',
+  'lumaNoiseDetail',
+  'lumaNoiseContrast',
+  'colorNoiseDetail',
+  'colorNoiseSmoothness'
 ]);
-keysOf("transform", [
-  "rotation",
-  "flipHorizontal",
-  "flipVertical",
-  "orientationSteps",
-  "transformDistortion",
-  "transformVertical",
-  "transformHorizontal",
-  "transformRotate",
-  "transformAspect",
-  "transformScale",
-  "transformXOffset",
-  "transformYOffset",
-  "guidedPerspective",
+keysOf('aiDenoise', ['aiDenoise']);
+keysOf('lensCorrection', [
+  'lensCorrectionMode',
+  'lensMaker',
+  'lensModel',
+  'lensDistortionAmount',
+  'lensVignetteAmount',
+  'lensManualVignetteAmount',
+  'lensManualVignetteMidpoint',
+  'lensTcaAmount',
+  'lensDistortionEnabled',
+  'lensTcaEnabled',
+  'lensVignetteEnabled',
+  'diffractionCorrection',
+  'autoChromaticAberration',
+  'chromaticAberrationRedCyan',
+  'chromaticAberrationBlueYellow',
+  'defringePurpleAmount',
+  'defringePurpleHueLo',
+  'defringePurpleHueHi',
+  'defringeGreenAmount',
+  'defringeGreenHueLo',
+  'defringeGreenHueHi'
 ]);
-keysOf("crop", ["crop", "aspectRatio"]);
-keysOf("retouch", ["spots", "faceRetouch"]);
-keysOf("redEye", ["redEyes"]);
-keysOf("relight", ["relightLights", "relightDepthAmount", "relightSkinReflections", "relightOriginalLight"]);
-keysOf("generative", ["aiPatches"]);
+keysOf('transform', [
+  'rotation',
+  'flipHorizontal',
+  'flipVertical',
+  'orientationSteps',
+  'transformDistortion',
+  'transformVertical',
+  'transformHorizontal',
+  'transformRotate',
+  'transformAspect',
+  'transformScale',
+  'transformXOffset',
+  'transformYOffset',
+  'guidedPerspective'
+]);
+keysOf('crop', ['crop', 'aspectRatio']);
+keysOf('retouch', ['spots', 'faceRetouch']);
+keysOf('redEye', ['redEyes']);
+keysOf('relight', ['relightLights', 'relightDepthAmount', 'relightSkinReflections', 'relightOriginalLight']);
+keysOf('generative', ['aiPatches']);
 
-const RETOUCH_MASKS = new Set(["clone", "heal", "liquify", "retouch", "quick-eraser"]);
+const RETOUCH_MASKS = new Set(['clone', 'heal', 'liquify', 'retouch', 'quick-eraser']);
 
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
@@ -135,7 +142,7 @@ const changedMaskTypes = (before: unknown, after: unknown): string[] => {
   const old = new Map(layersOf(before).map((layer, i) => [layer.id ?? `#${i}`, layer]));
   return layersOf(after)
     .filter((layer, i) => !same(old.get(layer.id ?? `#${i}`), layer))
-    .flatMap((layer) => (layer.subMasks ?? []).map((s) => s.type ?? ""));
+    .flatMap((layer) => (layer.subMasks ?? []).map((s) => s.type ?? ''));
 };
 
 /** The tools an edit step used: the tools of the keys it changed; for masks
@@ -148,12 +155,12 @@ export const editedTools = (before: Partial<Adjustments>, after: Partial<Adjustm
   const a = after as Record<string, unknown>;
   for (const key of keys) {
     if (same(b[key], a[key])) continue;
-    if (key === "masks") {
+    if (key === 'masks') {
       const changed = changedMaskTypes(b.masks, a.masks);
-      if (changed.some((type) => type.startsWith("ai-"))) used.add("aiMasks");
-      if (changed.some((type) => RETOUCH_MASKS.has(type))) used.add("retouch");
-      if (changed.some((type) => !type.startsWith("ai-") && !RETOUCH_MASKS.has(type)) || changed.length === 0)
-        used.add("masks");
+      if (changed.some((type) => type.startsWith('ai-'))) used.add('aiMasks');
+      if (changed.some((type) => RETOUCH_MASKS.has(type))) used.add('retouch');
+      if (changed.some((type) => !type.startsWith('ai-') && !RETOUCH_MASKS.has(type)) || changed.length === 0)
+        used.add('masks');
       continue;
     }
     const tool = KEY_TOOLS[key];
@@ -198,32 +205,28 @@ interface StatsBody {
 
 /** A body in plain words: one line each for the week, the system, the
  * cameras and the tools (`toolName` names a tool key). */
-export const plainLines = (
-  body: string,
-  t: TFunction,
-  toolName: (tool: string) => string,
-): string[] => {
+export const plainLines = (body: string, t: TFunction, toolName: (tool: string) => string): string[] => {
   let p: StatsBody;
   try {
     p = JSON.parse(body) as StatsBody;
   } catch {
     return [];
   }
-  const os = { macos: "macOS", windows: "Windows", linux: "Linux" }[p.app?.os ?? ""] ?? p.app?.os ?? "";
-  const gpu = { apple: "Apple", amd: "AMD", intel: "Intel", nvidia: "NVIDIA", qualcomm: "Qualcomm" }[p.gpuVendor ?? ""];
-  const cameras = (p.cameras ?? []).map((c) => `${c.make ?? ""} ${c.model ?? ""}`.trim());
+  const os = { macos: 'macOS', windows: 'Windows', linux: 'Linux' }[p.app?.os ?? ''] ?? p.app?.os ?? '';
+  const gpu = { apple: 'Apple', amd: 'AMD', intel: 'Intel', nvidia: 'NVIDIA', qualcomm: 'Qualcomm' }[p.gpuVendor ?? ''];
+  const cameras = (p.cameras ?? []).map((c) => `${c.make ?? ''} ${c.model ?? ''}`.trim());
   const tools = Object.keys(p.tools ?? {}).map(toolName);
   return [
-    t("contribute.stats.lines.week", { week: p.week ?? "?" }),
-    t("contribute.stats.lines.system", {
-      version: p.app?.version ?? "?",
-      os: `${os} ${p.app?.osVersion ?? ""}`.trim(),
-      arch: p.app?.arch ?? "?",
-      gpu: gpu ?? t("contribute.stats.otherGpu"),
+    t('contribute.stats.lines.week', { week: p.week ?? '?' }),
+    t('contribute.stats.lines.system', {
+      version: p.app?.version ?? '?',
+      os: `${os} ${p.app?.osVersion ?? ''}`.trim(),
+      arch: p.app?.arch ?? '?',
+      gpu: gpu ?? t('contribute.stats.otherGpu')
     }),
-    t("contribute.stats.lines.cameras", {
-      cameras: cameras.length ? cameras.join(", ") : t("contribute.stats.none"),
+    t('contribute.stats.lines.cameras', {
+      cameras: cameras.length ? cameras.join(', ') : t('contribute.stats.none')
     }),
-    t("contribute.stats.lines.tools", { tools: tools.length ? tools.join(", ") : t("contribute.stats.none") }),
+    t('contribute.stats.lines.tools', { tools: tools.length ? tools.join(', ') : t('contribute.stats.none') })
   ];
 };

@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
-import { getTransformAdjustments } from "../../hooks/useAiMasking";
-import { Invokes } from "../ui/AppProperties";
-import type { SubMask } from "../panel/right/Masks";
-import { PEOPLE_PARTS, type PeoplePart } from "../../utils/maskKinds";
-import { aiErrorMessage } from "../../utils/aiErrors";
-import AdjustmentControl from "./AdjustmentControl";
+import { useEffect, useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
+import { useEditorStore } from '../../store/useEditorStore';
+import { getTransformAdjustments } from '../../hooks/useAiMasking';
+import { Invokes } from '../ui/AppProperties';
+import type { SubMask } from '../panel/right/Masks';
+import { PEOPLE_PARTS, type PeoplePart } from '../../utils/maskKinds';
+import { aiErrorMessage } from '../../utils/aiErrors';
+import AdjustmentControl from './AdjustmentControl';
 
 /** A person found in the photo (`detect_people`). */
 export interface PersonSummary {
@@ -21,7 +21,7 @@ export interface PersonSummary {
 }
 
 /** Parts drawn from the face's landmarks, which profile views lack. */
-const FEATURE_PARTS: PeoplePart[] = ["eyebrows", "sclera", "iris", "lips", "teeth"];
+const FEATURE_PARTS: PeoplePart[] = ['eyebrows', 'sclera', 'iris', 'lips', 'teeth'];
 
 interface Props {
   sub: SubMask;
@@ -67,21 +67,21 @@ export default function StudioPeopleMask({ sub, setParameters, onInteraction }: 
     choose({
       parts: parts.includes(part)
         ? parts.filter((p) => p !== part)
-        : part === "entirePerson"
+        : part === 'entirePerson'
           ? [part]
-          : [...parts.filter((p) => p !== "entirePerson"), part],
+          : [...parts.filter((p) => p !== 'entirePerson'), part]
     });
 
   return (
-    <div className="studio-people" role="group" aria-label={t("studio.people.aria")}>
-      <div className="studio-people-list" role="radiogroup" aria-label={t("studio.people.personAria")}>
+    <div className="studio-people" role="group" aria-label={t('studio.people.aria')}>
+      <div className="studio-people-list" role="radiogroup" aria-label={t('studio.people.personAria')}>
         <button
           role="radio"
           aria-checked={person === null}
           className="studio-people-everyone"
           onClick={() => choose({ person: null })}
         >
-          {t("studio.people.everyone")}
+          {t('studio.people.everyone')}
         </button>
         {people?.map((p) => (
           <button
@@ -90,19 +90,19 @@ export default function StudioPeopleMask({ sub, setParameters, onInteraction }: 
             aria-checked={person === p.index}
             title={
               p.hasFeatures
-                ? t("studio.people.person", { n: p.index + 1 })
-                : t("studio.people.personProfile", { n: p.index + 1 })
+                ? t('studio.people.person', { n: p.index + 1 })
+                : t('studio.people.personProfile', { n: p.index + 1 })
             }
             onClick={() => choose({ person: p.index })}
           >
-            <img src={p.thumbnail} alt={t("studio.people.person", { n: p.index + 1 })} />
+            <img src={p.thumbnail} alt={t('studio.people.person', { n: p.index + 1 })} />
           </button>
         ))}
       </div>
-      {people === null && !error && <p className="studio-hint">{t("studio.people.finding")}</p>}
+      {people === null && !error && <p className="studio-hint">{t('studio.people.finding')}</p>}
       {people?.length === 0 && (
         <p className="studio-hint" role="note">
-          {t("studio.people.noFaces")}
+          {t('studio.people.noFaces')}
         </p>
       )}
       {error && (
@@ -110,7 +110,7 @@ export default function StudioPeopleMask({ sub, setParameters, onInteraction }: 
           {error}
         </p>
       )}
-      <div className="studio-people-parts" role="group" aria-label={t("studio.people.partsAria")}>
+      <div className="studio-people-parts" role="group" aria-label={t('studio.people.partsAria')}>
         {PEOPLE_PARTS.map(({ part }) => (
           <label key={part} className="studio-check">
             <input
@@ -124,7 +124,7 @@ export default function StudioPeopleMask({ sub, setParameters, onInteraction }: 
         ))}
       </div>
       <AdjustmentControl
-        label={t("editor.masks.params.grow")}
+        label={t('editor.masks.params.grow')}
         min={-100}
         max={100}
         value={Number(sub.parameters.grow ?? 0)}
@@ -133,7 +133,7 @@ export default function StudioPeopleMask({ sub, setParameters, onInteraction }: 
         onChange={(grow) => setParameters({ grow })}
       />
       <AdjustmentControl
-        label={t("editor.masks.params.feather")}
+        label={t('editor.masks.params.feather')}
 
         min={0}
         max={100}

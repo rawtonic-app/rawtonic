@@ -127,7 +127,7 @@ export function unsettledPhotos(batch: PhotoBatch): string[] {
  * (`BATCH_WRITE_SETTLED`, src-tauri/src/file_management/edits.rs);
  * returns the unsubscribe. */
 export function onBatchWriteSettled(
-  handler: (settled: { tag: string; path: string; ok?: string; also: string[] }) => void,
+  handler: (settled: { tag: string; path: string; ok?: string; also: string[] }) => void
 ): () => void {
   const listener = (event: Event) => {
     const detail = (event as CustomEvent<{ tag?: unknown; path?: unknown; ok?: unknown; also?: unknown }>).detail;
@@ -136,7 +136,7 @@ export function onBatchWriteSettled(
       tag: detail.tag,
       path: detail.path,
       ok: typeof detail.ok === 'string' ? detail.ok : undefined,
-      also: Array.isArray(detail.also) ? detail.also.filter((path): path is string => typeof path === 'string') : [],
+      also: Array.isArray(detail.also) ? detail.also.filter((path): path is string => typeof path === 'string') : []
     });
   };
   window.addEventListener('rawtonic:batch-write-settled', listener);
@@ -198,7 +198,11 @@ function failedOfError(error: unknown, paths: string[]): string[] {
  * and resolves (or rejects) as it does. `run` must not wait for this
  * queue itself (`photoWritesSettled`): it would wait for itself.
  */
-export function submitPhotoWrite<T>(paths: string[], run: (id: number) => Promise<T>, write: PhotoWrite<T>): Promise<T> {
+export function submitPhotoWrite<T>(
+  paths: string[],
+  run: (id: number) => Promise<T>,
+  write: PhotoWrite<T>
+): Promise<T> {
   const id = nextId++;
   const batch: PhotoBatch | undefined = write.batch
     ? { id, kind: write.kind, total: paths.length, tag: `batch-${nextBatchTag++}`, paths: [...paths] }
@@ -218,28 +222,43 @@ export function submitPhotoWrite<T>(paths: string[], run: (id: number) => Promis
   if (batch) batchChanged(batch);
   const keys = [...new Set(paths.map(photoWriteKey))];
   const before = keys.map((key) => tails.get(key)).filter((tail): tail is Promise<void> => !!tail);
-  if (write.after) before.push(write.after.then(() => undefined, () => undefined));
+  if (write.after)
+    before.push(
+      write.after.then(
+        () => undefined,
+        () => undefined
+      )
+    );
   // Nothing to wait for: it starts at once, as a direct invoke would.
   const start = () => run(id);
   const result = before.length > 0 ? Promise.all(before).then(start) : new Promise<T>((resolve) => resolve(start()));
-  const settled = result.then(
-    (value) => (write.failedOf ? write.failedOf(value) : []),
-    (error: unknown) => failedOfError(error, paths),
-  ).catch((error: unknown) => {
-    console.error('Reading which photos a write failed for failed:', error);
-    return paths;
-  }).then((failed) => {
-    for (const key of keys) if (tails.get(key) === settled) tails.delete(key);
-    if (write.announce === false) return;
-    if (batch) {
-      batchPhotosReported(id, NOT_WRITTEN);
-      running.delete(id);
-      batchChanged(batch, true);
-    }
-    const detail: PhotoWritesSettled = { id, kind: write.kind, paths, failed, ...(write.step !== undefined ? { step: write.step } : {}) };
-    // (A listener that throws is reported by the browser; it stops nothing here.)
-    window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, { detail }));
-  });
+  const settled = result
+    .then(
+      (value) => (write.failedOf ? write.failedOf(value) : []),
+      (error: unknown) => failedOfError(error, paths)
+    )
+    .catch((error: unknown) => {
+      console.error('Reading which photos a write failed for failed:', error);
+      return paths;
+    })
+    .then((failed) => {
+      for (const key of keys) if (tails.get(key) === settled) tails.delete(key);
+      if (write.announce === false) return;
+      if (batch) {
+        batchPhotosReported(id, NOT_WRITTEN);
+        running.delete(id);
+        batchChanged(batch, true);
+      }
+      const detail: PhotoWritesSettled = {
+        id,
+        kind: write.kind,
+        paths,
+        failed,
+        ...(write.step !== undefined ? { step: write.step } : {})
+      };
+      // (A listener that throws is reported by the browser; it stops nothing here.)
+      window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, { detail }));
+    });
   for (const key of keys) tails.set(key, settled);
   return result;
 }
@@ -253,7 +272,10 @@ const reserved = new Map<string, Set<Promise<void>>>();
  * (`photoWritesSettled`) waits for them too. Writes submitted meanwhile do
  * not wait for it (it waits for earlier work, which may write first). */
 export function reservePhotoWrites(paths: string[], work: Promise<unknown>): void {
-  const settled = work.then(() => undefined, () => undefined);
+  const settled = work.then(
+    () => undefined,
+    () => undefined
+  );
   for (const key of new Set(paths.map(photoWriteKey))) {
     const set = reserved.get(key) ?? new Set();
     set.add(settled);
@@ -288,7 +310,10 @@ const steps = new Set<Promise<void>>();
  * (a catalog undo step), among what `photoWritesAndStepsSettled` waits for
  * from now on; returns it. Its writes still join the queue themselves. */
 export function photoWorkPending<T>(work: Promise<T>): Promise<T> {
-  const settled = work.then(() => undefined, () => undefined);
+  const settled = work.then(
+    () => undefined,
+    () => undefined
+  );
   steps.add(settled);
   void settled.then(() => steps.delete(settled));
   return work;

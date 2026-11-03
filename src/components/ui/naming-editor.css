@@ -37,7 +37,7 @@
   cursor: default;
 }
 .naming-editor button:hover:not(:disabled),
-.naming-editor button[aria-pressed="true"] {
+.naming-editor button[aria-pressed='true'] {
   border-color: currentColor;
 }
 .naming-editor :is(input, select, button, summary):focus-visible {
@@ -98,7 +98,7 @@
   flex: 1 1 140px;
   width: 0;
 }
-.studio-export-form .naming-editor input:not([type="checkbox"]) {
+.studio-export-form .naming-editor input:not([type='checkbox']) {
   max-width: none;
 }
 .studio-export-form .naming-editor > label {
@@ -108,7 +108,7 @@
   color: var(--app-error-color, #f5a5a5);
   font-size: 12px;
 }
-.naming-editor input[aria-invalid="true"] {
+.naming-editor input[aria-invalid='true'] {
   border-color: var(--app-error-color, #f5a5a5);
 }
 .naming-draggable {
@@ -125,7 +125,7 @@
   padding-left: 5px;
 }
 .naming-drop-slot.is-over::before {
-  content: "";
+  content: '';
   position: absolute;
   top: 0;
   bottom: 0;
@@ -161,7 +161,7 @@
   gap: 12px;
   font-weight: 400;
 }
-.naming-editor .naming-counter input[type="number"] {
+.naming-editor .naming-counter input[type='number'] {
   width: 120px;
 }
 

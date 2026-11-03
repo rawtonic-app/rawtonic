@@ -10,7 +10,11 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => new Promise(() => {
 const resetExposure = vi.fn(() => updateAdjustments((prev) => ({ ...prev, exposure: 0 })));
 function Reset() {
   const hold = useToolBeforeHold('Exposure', resetExposure);
-  return <button type="button" {...hold}>reset</button>;
+  return (
+    <button type="button" {...hold}>
+      reset
+    </button>
+  );
 }
 
 beforeEach(() => {
@@ -19,8 +23,13 @@ beforeEach(() => {
   const adjustments = { ...INITIAL_ADJUSTMENTS, exposure: 2 };
   useEditorStore.setState({
     selectedImage: { path: '/a.dng', isReady: true, width: 10, height: 10 } as never,
-    adjustments, history: [adjustments], historyIndex: 0,
-    showOriginal: false, toolBefore: null, previewOverride: null, isSliderDragging: false,
+    adjustments,
+    history: [adjustments],
+    historyIndex: 0,
+    showOriginal: false,
+    toolBefore: null,
+    previewOverride: null,
+    isSliderDragging: false
   });
 });
 afterEach(() => {

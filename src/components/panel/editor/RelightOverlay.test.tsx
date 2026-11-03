@@ -1,39 +1,29 @@
-import "../../../i18n";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import RelightOverlay from "./RelightOverlay";
-import { useEditorStore } from "../../../store/useEditorStore";
-import { INITIAL_ADJUSTMENTS } from "../../../utils/adjustments";
-import {
-  createRelightLight,
-  relightDragPatch,
-  matchesRelightGeometry,
-} from "../../../utils/relight";
-import { debouncedSetHistory } from "../../../hooks/useEditorActions";
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+import '../../../i18n';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import RelightOverlay from './RelightOverlay';
+import { useEditorStore } from '../../../store/useEditorStore';
+import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
+import { createRelightLight, relightDragPatch, matchesRelightGeometry } from '../../../utils/relight';
+import { debouncedSetHistory } from '../../../hooks/useEditorActions';
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 beforeEach(() => {
-  vi.stubGlobal("PointerEvent", MouseEvent);
-  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+  vi.stubGlobal('PointerEvent', MouseEvent);
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
     cb(0);
     return 1;
   });
-  vi.stubGlobal("cancelAnimationFrame", () => {});
+  vi.stubGlobal('cancelAnimationFrame', () => {});
   const adjustments = {
     ...structuredClone(INITIAL_ADJUSTMENTS),
-    relightLights: [createRelightLight()],
+    relightLights: [createRelightLight()]
   };
   useEditorStore.setState({
     ...useEditorStore.getInitialState(),
-    selectedImage: { path: "/qa/a.jpg", isReady: true } as never,
+    selectedImage: { path: '/qa/a.jpg', isReady: true } as never,
     adjustments,
     history: [adjustments],
-    historyIndex: 0,
+    historyIndex: 0
   });
 });
 afterEach(() => {
@@ -42,17 +32,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 function mount() {
-  const view = render(
-    <RelightOverlay
-      rect={{ left: 0, top: 0, width: 400, height: 200 }}
-      zoom={2}
-    />,
-  );
+  const view = render(<RelightOverlay rect={{ left: 0, top: 0, width: 400, height: 200 }} zoom={2} />);
   view.container.firstElementChild!.getBoundingClientRect = () =>
     ({ left: 50, top: 100, width: 800, height: 400 }) as DOMRect;
-  return screen.getByRole("button", { name: "Light 1: move source" });
+  return screen.getByRole('button', { name: 'Light 1: move source' });
 }
-it("moves a light in image coordinates at zoom, commits one undo step, and can undo it", () => {
+it('moves a light in image coordinates at zoom, commits one undo step, and can undo it', () => {
   const handle = mount();
   fireEvent.pointerDown(handle, { button: 0, clientX: 210, clientY: 180 });
   fireEvent.pointerMove(handle, { clientX: 290, clientY: 220 });
@@ -64,84 +49,67 @@ it("moves a light in image coordinates at zoom, commits one undo step, and can u
   expect(state.history).toHaveLength(2);
   expect(state.isSliderDragging).toBe(false);
   act(() => state.undo());
-  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(
-    20,
-  );
+  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(20);
 });
-it("Escape restores the light; a click only selects and does not add history", () => {
+it('Escape restores the light; a click only selects and does not add history', () => {
   const handle = mount();
   fireEvent.pointerDown(handle, { button: 0, clientX: 210, clientY: 180 });
   fireEvent.pointerMove(handle, { clientX: 290, clientY: 220 });
-  fireEvent.keyDown(handle, { key: "Escape" });
-  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(
-    20,
-  );
+  fireEvent.keyDown(handle, { key: 'Escape' });
+  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(20);
   expect(useEditorStore.getState().history).toHaveLength(1);
   fireEvent.pointerDown(handle, { button: 0, clientX: 210, clientY: 180 });
   fireEvent.pointerUp(handle, { clientX: 210, clientY: 180 });
   expect(useEditorStore.getState().history).toHaveLength(1);
 });
-it("never writes a late pointer event into another photo and releases interaction on unmount", () => {
+it('never writes a late pointer event into another photo and releases interaction on unmount', () => {
   const handle = mount();
   fireEvent.pointerDown(handle, { button: 0, clientX: 210, clientY: 180 });
   act(() =>
     useEditorStore.setState({
-      selectedImage: { path: "/qa/b.jpg", isReady: true } as never,
-    }),
+      selectedImage: { path: '/qa/b.jpg', isReady: true } as never
+    })
   );
   fireEvent.pointerUp(handle, { clientX: 290, clientY: 220 });
-  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(
-    20,
-  );
+  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(20);
   expect(useEditorStore.getState().isSliderDragging).toBe(false);
-  fireEvent.keyDown(handle, { key: "ArrowRight", shiftKey: true });
-  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(
-    25,
-  );
+  fireEvent.keyDown(handle, { key: 'ArrowRight', shiftKey: true });
+  expect(useEditorStore.getState().adjustments.relightLights![0].sourceX).toBe(25);
 });
-it("moves the pattern independently and rotates/scales using isotropic photo coordinates", () => {
+it('moves the pattern independently and rotates/scales using isotropic photo coordinates', () => {
   const l = createRelightLight();
-  expect(
-    relightDragPatch(l, "move", { x: 0, y: 0 }, { x: 10, y: -5 }, 400, 200),
-  ).toMatchObject({ x: 60, y: 45, sourceX: 20, sourceY: 20 });
-  expect(
-    relightDragPatch(l, "rotate", { x: 75, y: 50 }, { x: 50, y: 100 }, 400, 200)
-      .patternRotation,
-  ).toBeCloseTo(90);
-  expect(
-    relightDragPatch(l, "scale", { x: 75, y: 50 }, { x: 100, y: 50 }, 400, 200)
-      .scale,
-  ).toBe(100);
+  expect(relightDragPatch(l, 'move', { x: 0, y: 0 }, { x: 10, y: -5 }, 400, 200)).toMatchObject({
+    x: 60,
+    y: 45,
+    sourceX: 20,
+    sourceY: 20
+  });
+  expect(relightDragPatch(l, 'rotate', { x: 75, y: 50 }, { x: 50, y: 100 }, 400, 200).patternRotation).toBeCloseTo(90);
+  expect(relightDragPatch(l, 'scale', { x: 75, y: 50 }, { x: 100, y: 50 }, 400, 200).scale).toBe(100);
 });
 
-it("rejects legacy depth after crop or straightening and accepts matching displayed geometry", () => {
+it('rejects legacy depth after crop or straightening and accepts matching displayed geometry', () => {
   expect(matchesRelightGeometry({ rotation: 0, crop: null }, {})).toBe(true);
   expect(matchesRelightGeometry({ rotation: 10 }, {})).toBe(false);
   const crop = { x: 0.1, y: 0.2, width: 0.5, height: 0.6 };
   expect(matchesRelightGeometry({ crop }, {})).toBe(false);
-  expect(
-    matchesRelightGeometry({ crop, rotation: 10 }, { rotation: 10, crop }),
-  ).toBe(true);
-  expect(
-    matchesRelightGeometry({ crop: null, rotation: 0 }, { rotation: 10, crop }),
-  ).toBe(false);
+  expect(matchesRelightGeometry({ crop, rotation: 10 }, { rotation: 10, crop })).toBe(true);
+  expect(matchesRelightGeometry({ crop: null, rotation: 0 }, { rotation: 10, crop })).toBe(false);
 });
 
-it("Escape also restores absent source and pattern controls in legacy recipes", () => {
+it('Escape also restores absent source and pattern controls in legacy recipes', () => {
   const legacy = { ...createRelightLight() };
   delete legacy.sourceX;
   delete legacy.sourceY;
   delete legacy.patternRotation;
   useEditorStore.setState((s) => ({
-    adjustments: { ...s.adjustments, relightLights: [legacy] },
+    adjustments: { ...s.adjustments, relightLights: [legacy] }
   }));
   const handle = mount();
   fireEvent.pointerDown(handle, { button: 0, clientX: 210, clientY: 180 });
   fireEvent.pointerMove(handle, { clientX: 290, clientY: 220 });
-  fireEvent.keyDown(handle, { key: "Escape" });
-  expect(useEditorStore.getState().adjustments.relightLights![0]).toEqual(
-    legacy,
-  );
+  fireEvent.keyDown(handle, { key: 'Escape' });
+  expect(useEditorStore.getState().adjustments.relightLights![0]).toEqual(legacy);
 });
 
 it("Alt-drag on a sun's source changes only its elevation, in one undo step", () => {
@@ -154,24 +122,22 @@ it("Alt-drag on a sun's source changes only its elevation, in one undo step", ()
   expect(light.elevation).toBeCloseTo(original.elevation + 10);
   expect([light.sourceX, light.sourceY]).toEqual([original.sourceX, original.sourceY]);
   expect(useEditorStore.getState().history).toHaveLength(2);
-  fireEvent.keyDown(handle, { key: "ArrowUp", altKey: true });
+  fireEvent.keyDown(handle, { key: 'ArrowUp', altKey: true });
   expect(useEditorStore.getState().adjustments.relightLights![0].elevation).toBeCloseTo(original.elevation + 11);
 });
 
-it("returning to the starting point before release restores the original without a history step", () => {
+it('returning to the starting point before release restores the original without a history step', () => {
   const handle = mount();
   const original = useEditorStore.getState().adjustments.relightLights![0];
   fireEvent.pointerDown(handle, { button: 0, clientX: 210, clientY: 180 });
   fireEvent.pointerMove(handle, { clientX: 290, clientY: 220 });
   fireEvent.pointerUp(handle, { clientX: 210, clientY: 180 });
-  expect(useEditorStore.getState().adjustments.relightLights![0]).toEqual(
-    original,
-  );
+  expect(useEditorStore.getState().adjustments.relightLights![0]).toEqual(original);
   expect(useEditorStore.getState().history).toHaveLength(1);
 });
-it("aims a sun with the direction ball on the photo: drag, arrow keys, Esc cancels", () => {
+it('aims a sun with the direction ball on the photo: drag, arrow keys, Esc cancels', () => {
   mount();
-  const ball = screen.getByRole("button", { name: "Light 1: direction" });
+  const ball = screen.getByRole('button', { name: 'Light 1: direction' });
   const light = () => useEditorStore.getState().adjustments.relightLights![0];
   // The ring sits on the pattern centre (no face): (450, 300) on screen,
   // 64 px radius at zoom 2. Its left rim is grazing light from the left.
@@ -180,19 +146,19 @@ it("aims a sun with the direction ball on the photo: drag, arrow keys, Esc cance
   fireEvent.pointerUp(ball, { clientX: 386, clientY: 300 });
   expect(light()).toMatchObject({ rotation: 90, elevation: 5 });
   expect(useEditorStore.getState().history).toHaveLength(2);
-  fireEvent.keyDown(ball, { key: "ArrowRight", shiftKey: true });
+  fireEvent.keyDown(ball, { key: 'ArrowRight', shiftKey: true });
   expect(light().elevation).toBeGreaterThan(20);
   const before = light();
   fireEvent.pointerDown(ball, { button: 0, clientX: 420, clientY: 280 });
   fireEvent.pointerMove(ball, { clientX: 450, clientY: 236 });
   expect(light().rotation).toBe(180);
-  fireEvent.keyDown(ball, { key: "Escape" });
+  fireEvent.keyDown(ball, { key: 'Escape' });
   expect(light()).toEqual(before);
   // Spots aim from where they sit: no direction ball.
   act(() =>
     useEditorStore.setState((s) => ({
-      adjustments: { ...s.adjustments, relightLights: [{ ...light(), type: "spot" }] },
-    })),
+      adjustments: { ...s.adjustments, relightLights: [{ ...light(), type: 'spot' }] }
+    }))
   );
-  expect(screen.queryByRole("button", { name: "Light 1: direction" })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Light 1: direction' })).toBeNull();
 });

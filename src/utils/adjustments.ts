@@ -1,4 +1,4 @@
-import { normalizeRelight, type RelightLight, type RelightDepth } from "./relight";
+import { normalizeRelight, type RelightLight, type RelightDepth } from './relight';
 import { Crop } from 'react-image-crop';
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
@@ -8,7 +8,7 @@ export enum ActiveChannel {
   Blue = 'blue',
   Green = 'green',
   Luma = 'luma',
-  Red = 'red',
+  Red = 'red'
 }
 
 export enum DisplayMode {
@@ -16,12 +16,12 @@ export enum DisplayMode {
   Rgb = 'rgb',
   Parade = 'parade',
   Vectorscope = 'vectorscope',
-  Histogram = 'histogram',
+  Histogram = 'histogram'
 }
 
 export enum PasteMode {
   Merge = 'merge',
-  Replace = 'replace',
+  Replace = 'replace'
 }
 
 export interface CopyPasteSettings {
@@ -38,7 +38,7 @@ export enum BasicAdjustment {
   Exposure = 'exposure',
   Highlights = 'highlights',
   Shadows = 'shadows',
-  Whites = 'whites',
+  Whites = 'whites'
 }
 
 // Stored brightness uses the engine's exposure-like units, not percentages.
@@ -58,7 +58,7 @@ export enum ColorAdjustment {
   Saturation = 'saturation',
   Temperature = 'temperature',
   Tint = 'tint',
-  Vibrance = 'vibrance',
+  Vibrance = 'vibrance'
 }
 
 export enum ColorGrading {
@@ -67,7 +67,7 @@ export enum ColorGrading {
   Global = 'global',
   Highlights = 'highlights',
   Midtones = 'midtones',
-  Shadows = 'shadows',
+  Shadows = 'shadows'
 }
 
 export enum DetailsAdjustment {
@@ -83,7 +83,7 @@ export enum DetailsAdjustment {
   SharpenDetail = 'sharpenDetail',
   SharpenMasking = 'sharpenMasking',
   ChromaticAberrationRedCyan = 'chromaticAberrationRedCyan',
-  ChromaticAberrationBlueYellow = 'chromaticAberrationBlueYellow',
+  ChromaticAberrationBlueYellow = 'chromaticAberrationBlueYellow'
 }
 
 export enum Effect {
@@ -108,13 +108,13 @@ export enum Effect {
   LensBlurMinDepth = 'lensBlurMinDepth',
   LensBlurMaxDepth = 'lensBlurMaxDepth',
   LensBlurMinFade = 'lensBlurMinFade',
-  LensBlurMaxFade = 'lensBlurMaxFade',
+  LensBlurMaxFade = 'lensBlurMaxFade'
 }
 
 export enum CreativeAdjustment {
   GlowAmount = 'glowAmount',
   HalationAmount = 'halationAmount',
-  FlareAmount = 'flareAmount',
+  FlareAmount = 'flareAmount'
 }
 
 enum TransformAdjustment {
@@ -125,7 +125,7 @@ enum TransformAdjustment {
   TransformAspect = 'transformAspect',
   TransformScale = 'transformScale',
   TransformXOffset = 'transformXOffset',
-  TransformYOffset = 'transformYOffset',
+  TransformYOffset = 'transformYOffset'
 }
 
 export enum LensAdjustment {
@@ -137,7 +137,7 @@ export enum LensAdjustment {
   LensTcaAmount = 'lensTcaAmount',
   LensDistortionEnabled = 'lensDistortionEnabled',
   LensTcaEnabled = 'lensTcaEnabled',
-  LensVignetteEnabled = 'lensVignetteEnabled',
+  LensVignetteEnabled = 'lensVignetteEnabled'
 }
 
 export type GuideOrientation = 'vertical' | 'horizontal';
@@ -203,16 +203,7 @@ export interface GrayMixer {
   magenta: number;
 }
 
-export const GRAY_MIXER_CHANNELS = [
-  'red',
-  'orange',
-  'yellow',
-  'green',
-  'aqua',
-  'blue',
-  'purple',
-  'magenta',
-] as const;
+export const GRAY_MIXER_CHANNELS = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'] as const;
 
 /** One channel of Capture One's Levels: levels 0–255, gamma 0.1–10. */
 export interface Level {
@@ -237,7 +228,7 @@ export const INITIAL_LEVELS: Levels = {
   rgb: { ...IDENTITY_LEVEL },
   red: { ...IDENTITY_LEVEL },
   green: { ...IDENTITY_LEVEL },
-  blue: { ...IDENTITY_LEVEL },
+  blue: { ...IDENTITY_LEVEL }
 };
 
 /**
@@ -250,7 +241,7 @@ export interface ColorRange {
   /** "skin": the colour editor's skin tone range (at most one per recipe or
    * layer; shown in the Skin tone mode). The renderer treats it like any
    * other range. */
-  kind?: "skin";
+  kind?: 'skin';
   /** Sampled colour: Oklab hue (degrees), chroma and lightness. */
   hue: number;
   chroma: number;
@@ -280,12 +271,7 @@ export const MAX_COLOR_RANGES = 8;
 /** Ranges a mask layer can hold (the renderer keeps four per layer). */
 export const MAX_LAYER_COLOR_RANGES = 4;
 
-export function newColorRange(
-  hue: number,
-  chroma: number,
-  lightness: number,
-  kind?: "skin",
-): ColorRange {
+export function newColorRange(hue: number, chroma: number, lightness: number, kind?: 'skin'): ColorRange {
   return {
     id: uuidv4(),
     ...(kind ? { kind } : {}),
@@ -301,7 +287,7 @@ export function newColorRange(
     lightnessShift: 0,
     hueUniformity: 0,
     saturationUniformity: 0,
-    lightnessUniformity: 0,
+    lightnessUniformity: 0
   };
 }
 
@@ -323,19 +309,11 @@ export const INITIAL_REGION_CURVE: RegionCurve = {
   highlights: 0,
   shadowSplit: 25,
   midtoneSplit: 50,
-  highlightSplit: 75,
+  highlightSplit: 75
 };
 
 export type WhiteBalanceMode =
-  | 'asShot'
-  | 'auto'
-  | 'daylight'
-  | 'cloudy'
-  | 'shade'
-  | 'tungsten'
-  | 'fluorescent'
-  | 'flash'
-  | 'custom';
+  'asShot' | 'auto' | 'daylight' | 'cloudy' | 'shade' | 'tungsten' | 'fluorescent' | 'flash' | 'custom';
 
 /** Face retouch sliders (Capture One's Retouch Faces), 0–100; Texture
  * −100–100. A face's own values override those for all faces. */
@@ -456,7 +434,7 @@ export const withLegacyGrainVersion = <T extends Partial<Adjustments>>(adjustmen
  * amount above 0 and the current one for 0, which renders the same. */
 export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
   picked: T,
-  source?: Partial<Adjustments>,
+  source?: Partial<Adjustments>
 ): T & Pick<Partial<Adjustments>, 'aiDenoiseVersion'> => {
   if (picked.aiDenoise === undefined || (picked.aiDenoiseVersion !== undefined && picked.aiDenoiseVersion !== null)) {
     return picked;
@@ -474,9 +452,12 @@ export const DIFFRACTION_VERSION = 2;
  * for a correction that is on. */
 export const withDiffractionVersion = <T extends Partial<Adjustments>>(
   picked: T,
-  source?: Partial<Adjustments>,
+  source?: Partial<Adjustments>
 ): T & Pick<Partial<Adjustments>, 'diffractionVersion'> => {
-  if (picked.diffractionCorrection !== true || (picked.diffractionVersion !== undefined && picked.diffractionVersion !== null)) {
+  if (
+    picked.diffractionCorrection !== true ||
+    (picked.diffractionVersion !== undefined && picked.diffractionVersion !== null)
+  ) {
     return picked;
   }
   return { ...picked, diffractionVersion: source?.diffractionVersion ?? 1 };
@@ -775,11 +756,7 @@ export interface Adjustments {
   toneMapper: 'agx' | 'basic' | 'standard';
   // Capture One's curve choice (Base Characteristics) on top of the base
   // look, RAW only; the backend reads it as `baseCurve`.
-  baseCurve:
-    | 'standard'
-    | 'highContrast'
-    | 'extraShadow'
-    | 'linear';
+  baseCurve: 'standard' | 'highContrast' | 'extraShadow' | 'linear';
   /** A DCP camera profile the photographer chose (camera_profile.rs):
    * `profiles/Name.dcp` inside the session, an absolute path outside one;
    * unset = Rawtonic's own colour. */
@@ -1061,7 +1038,7 @@ export const COLOR_LABELS: Array<Color> = [
   { name: 'yellow', color: '#facc15' },
   { name: 'green', color: '#4ade80' },
   { name: 'blue', color: '#60a5fa' },
-  { name: 'purple', color: '#a78bfa' },
+  { name: 'purple', color: '#a78bfa' }
 ];
 
 const INITIAL_COLOR_GRADING: ColorGradingProps = {
@@ -1070,7 +1047,7 @@ const INITIAL_COLOR_GRADING: ColorGradingProps = {
   global: { hue: 0, saturation: 0, luminance: 0 },
   highlights: { hue: 0, saturation: 0, luminance: 0 },
   midtones: { hue: 0, saturation: 0, luminance: 0 },
-  shadows: { hue: 0, saturation: 0, luminance: 0 },
+  shadows: { hue: 0, saturation: 0, luminance: 0 }
 };
 
 const INITIAL_COLOR_CALIBRATION: ColorCalibration = {
@@ -1080,7 +1057,7 @@ const INITIAL_COLOR_CALIBRATION: ColorCalibration = {
   greenHue: 0,
   greenSaturation: 0,
   blueHue: 0,
-  blueSaturation: 0,
+  blueSaturation: 0
 };
 
 export const DEFAULT_PARAMETRIC_CURVE_SETTINGS: ParametricCurveSettings = {
@@ -1092,34 +1069,34 @@ export const DEFAULT_PARAMETRIC_CURVE_SETTINGS: ParametricCurveSettings = {
   blackLevel: 0,
   split1: 25,
   split2: 50,
-  split3: 75,
+  split3: 75
 };
 
 const getDefaultParametricCurve = (): ParametricCurve => ({
   luma: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS },
   red: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS },
   green: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS },
-  blue: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS },
+  blue: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS }
 });
 
 export const getDefaultCurves = (): Curves => ({
   blue: [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
   green: [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
   luma: [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
   red: [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
-  version: CURVE_VERSION,
+  version: CURVE_VERSION
 });
 
 export const DEFAULT_PARAMETRIC_CURVE = getDefaultParametricCurve();
@@ -1149,7 +1126,7 @@ export const INITIAL_MASK_ADJUSTMENTS: MaskAdjustments = {
     oranges: { hue: 0, saturation: 0, luminance: 0 },
     purples: { hue: 0, saturation: 0, luminance: 0 },
     reds: { hue: 0, saturation: 0, luminance: 0 },
-    yellows: { hue: 0, saturation: 0, luminance: 0 },
+    yellows: { hue: 0, saturation: 0, luminance: 0 }
   },
   hue: 0,
   lumaNoiseReduction: 0,
@@ -1161,7 +1138,7 @@ export const INITIAL_MASK_ADJUSTMENTS: MaskAdjustments = {
     curves: true,
     color: true,
     details: true,
-    effects: true,
+    effects: true
   },
   shadows: 0,
   sharpness: 0,
@@ -1170,7 +1147,7 @@ export const INITIAL_MASK_ADJUSTMENTS: MaskAdjustments = {
   temperature: 0,
   tint: 0,
   vibrance: 0,
-  whites: 0,
+  whites: 0
 };
 
 export const INITIAL_MASK_CONTAINER: Omit<MaskContainer, 'id'> = {
@@ -1179,7 +1156,7 @@ export const INITIAL_MASK_CONTAINER: Omit<MaskContainer, 'id'> = {
   name: 'New Mask',
   opacity: 100,
   subMasks: [],
-  visible: true,
+  visible: true
 };
 
 export const INITIAL_GRAY_MIXER: GrayMixer = {
@@ -1190,7 +1167,7 @@ export const INITIAL_GRAY_MIXER: GrayMixer = {
   aqua: 0,
   blue: 0,
   purple: 0,
-  magenta: 0,
+  magenta: 0
 };
 
 export const INITIAL_ADJUSTMENTS: Adjustments = {
@@ -1248,7 +1225,7 @@ export const INITIAL_ADJUSTMENTS: Adjustments = {
     oranges: { hue: 0, saturation: 0, luminance: 0 },
     purples: { hue: 0, saturation: 0, luminance: 0 },
     reds: { hue: 0, saturation: 0, luminance: 0 },
-    yellows: { hue: 0, saturation: 0, luminance: 0 },
+    yellows: { hue: 0, saturation: 0, luminance: 0 }
   },
   hue: 0,
   lensBlurAmount: 40,
@@ -1286,7 +1263,7 @@ export const INITIAL_ADJUSTMENTS: Adjustments = {
     curves: true,
     color: true,
     details: true,
-    effects: true,
+    effects: true
   },
   shadows: 0,
   sharpness: 0,
@@ -1316,28 +1293,28 @@ export const INITIAL_ADJUSTMENTS: Adjustments = {
   vignetteRoundness: 0,
   vignetteStyle: 'highlightPriority',
   vignetteHighlights: 0,
-  whites: 0,
+  whites: 0
 };
 
 const deepCloneCurves = (curves: Partial<Curves> | undefined): Curves => ({
   blue: curves?.blue?.map((p: Coord) => ({ ...p })) || [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
   green: curves?.green?.map((p: Coord) => ({ ...p })) || [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
   luma: curves?.luma?.map((p: Coord) => ({ ...p })) || [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
   red: curves?.red?.map((p: Coord) => ({ ...p })) || [
     { x: 0, y: 0 },
-    { x: 255, y: 255 },
+    { x: 255, y: 255 }
   ],
   ...(curves?.luminance ? { luminance: curves.luminance.map((p: Coord) => ({ ...p })) } : {}),
-  ...(curves?.version !== undefined ? { version: curves.version } : {}),
+  ...(curves?.version !== undefined ? { version: curves.version } : {})
 });
 
 /** A style's settings with its curves as loading fills them in (every
@@ -1351,7 +1328,7 @@ const deepCloneParametric = (pCurve: Partial<ParametricCurve> | undefined): Para
   luma: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.luma || {}) },
   red: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.red || {}) },
   green: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.green || {}) },
-  blue: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.blue || {}) },
+  blue: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.blue || {}) }
 });
 
 /** A saved object whose fields `K` may be missing in recipes written by older versions. */
@@ -1369,7 +1346,7 @@ export const RAW_DETAIL_DEFAULTS = {
   colorNoiseReduction: 25,
   // A light luminance noise reduction: about Camera Raw's and Capture One's
   // default noise (their pipelines are cleaner before any slider).
-  lumaNoiseReduction: 15,
+  lumaNoiseReduction: 15
 } as const;
 
 /** The colour noise reduction new edits start with (notes: reference/detail.md,
@@ -1485,7 +1462,8 @@ export const autoCaOn = (adjustments: Partial<Adjustments>): boolean => {
   const version = adjustments.autoCaVersion ?? 1;
   if (version < 2) return false;
   const params = adjustments.lensDistortionParams as Record<string, unknown> | null | undefined;
-  const value = (key: string, fallback: number) => (typeof params?.[key] === 'number' ? (params[key] as number) : fallback);
+  const value = (key: string, fallback: number) =>
+    typeof params?.[key] === 'number' ? (params[key] as number) : fallback;
   const ownTca =
     adjustments.lensTcaEnabled !== false &&
     (Math.abs(value('tca_vr', 1) - 1) > 1e-6 ||
@@ -1516,7 +1494,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         aiDenoiseVersion: AI_DENOISE_VERSION,
         renderVersion: RENDER_VERSION,
         sourceFrameVersion: SOURCE_FRAME_VERSION,
-        grainVersion: GRAIN_VERSION,
+        grainVersion: GRAIN_VERSION
       }
     : {
         ...INITIAL_ADJUSTMENTS,
@@ -1529,7 +1507,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
         sourceFrameVersion: SOURCE_FRAME_VERSION,
-        grainVersion: GRAIN_VERSION,
+        grainVersion: GRAIN_VERSION
       };
 
 /** Whether a saved recipe is new: empty (Library Reset saves `{}`, or only
@@ -1589,7 +1567,7 @@ const sharpensAlikeInEveryVersion = (values: Partial<Adjustments>, isRaw: boolea
   // RAW recipes without an amount sharpen at the RAW default (40).
   const amount = values.sharpness ?? (isRaw ? RAW_DETAIL_DEFAULTS.sharpness : 0);
   const layerSharpens = (values.masks ?? []).some(
-    (mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0,
+    (mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0
   );
   return amount <= 0 && !layerSharpens;
 };
@@ -1611,7 +1589,7 @@ const loadedSharpenVersion = (loaded: Partial<Adjustments>, isRaw: boolean): num
 export const pastedAdjustments = (
   copied: Partial<Adjustments>,
   includedAdjustments: string[],
-  mode: PasteMode,
+  mode: PasteMode
 ): Partial<Adjustments> => {
   const picked: Partial<Adjustments> = {};
   for (const key of includedAdjustments) {
@@ -1630,8 +1608,11 @@ export const pastedAdjustments = (
     (picked as Record<string, unknown>)[key] = value;
   }
   return withBwVersion(
-    withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied), copied),
-    copied,
+    withClarityVersion(
+      withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied),
+      copied
+    ),
+    copied
   );
 };
 
@@ -1642,7 +1623,7 @@ const SHARPEN_RESPONSE_KEYS = [
   'sharpenRadius',
   'sharpenDetail',
   'sharpenMasking',
-  'sharpnessFalloff',
+  'sharpnessFalloff'
 ] as const;
 
 /** Sharpening values mean what their response makes of them, so wherever they
@@ -1653,7 +1634,7 @@ const SHARPEN_RESPONSE_KEYS = [
  * Layers count when their sharpening amount is set. */
 export const withSharpenVersion = <T extends Partial<Adjustments>>(
   picked: T,
-  source?: Partial<Adjustments>,
+  source?: Partial<Adjustments>
 ): T & Pick<Partial<Adjustments>, 'sharpenVersion'> => {
   // A change back to a missing key (an undo to a recipe from before it) would
   // vanish in JSON too: it is response 1.
@@ -1679,7 +1660,7 @@ const loadedLumaNoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): n
   // RAW recipes without an amount reduce at the RAW default (15).
   const amount = loaded.lumaNoiseReduction ?? (isRaw ? RAW_DETAIL_DEFAULTS.lumaNoiseReduction : 0);
   const layerReduces = (loaded.masks ?? []).some(
-    (mask) => ((mask?.adjustments?.lumaNoiseReduction as number | undefined) ?? 0) !== 0,
+    (mask) => ((mask?.adjustments?.lumaNoiseReduction as number | undefined) ?? 0) !== 0
   );
   return amount <= 0 && !layerReduces ? LUMA_NOISE_VERSION : undefined;
 };
@@ -1694,7 +1675,7 @@ const LUMA_NOISE_KEYS = ['lumaNoiseReduction', 'lumaNoiseDetail', 'lumaNoiseCont
  * set. */
 export const withLumaNoiseVersion = <T extends Partial<Adjustments>>(
   picked: T,
-  source?: Partial<Adjustments>,
+  source?: Partial<Adjustments>
 ): T & Pick<Partial<Adjustments>, 'lumaNoiseVersion'> => {
   // A change back to a missing key (an undo to a recipe from before it)
   // would vanish in JSON too: it is version 1.
@@ -1718,7 +1699,7 @@ export const withLumaNoiseVersion = <T extends Partial<Adjustments>>(
  * the destination's response. */
 export const withClarityVersion = <T extends Partial<Adjustments>>(
   picked: T,
-  source?: Partial<Adjustments>,
+  source?: Partial<Adjustments>
 ): T & Pick<Partial<Adjustments>, 'clarityVersion'> => {
   // A change back to a missing key (an undo to a recipe from before it)
   // would vanish in JSON too: it is version 1.
@@ -1741,7 +1722,7 @@ export const withClarityVersion = <T extends Partial<Adjustments>>(
  * before the key) — so the copy renders the mix as the source does. */
 export const withBwVersion = <T extends Partial<Adjustments>>(
   picked: T,
-  source?: Partial<Adjustments>,
+  source?: Partial<Adjustments>
 ): T & Pick<Partial<Adjustments>, 'bwVersion'> => {
   // A change back to a missing key (an undo to a recipe from before it)
   // would vanish in JSON too: it is version 1.
@@ -1771,7 +1752,7 @@ const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructur
  * the newest for one without grain. */
 export const withGrainVersion = <T extends Partial<Adjustments>>(
   picked: T,
-  source?: Partial<Adjustments>,
+  source?: Partial<Adjustments>
 ): T & Pick<Partial<Adjustments>, 'grainVersion'> => {
   // A change back to a missing key (an undo to a recipe from before it)
   // would vanish in JSON too: it is version 1.
@@ -1819,8 +1800,7 @@ const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => 
   // change).
   const differs = (
     values:
-      | { shadows?: unknown; highlights?: unknown; whites?: unknown; blacks?: unknown; clarity?: unknown }
-      | undefined,
+      { shadows?: unknown; highlights?: unknown; whites?: unknown; blacks?: unknown; clarity?: unknown } | undefined
   ) =>
     ((values?.shadows as number | undefined) ?? 0) > 0 ||
     ((values?.highlights as number | undefined) ?? 0) < 0 ||
@@ -1856,7 +1836,7 @@ const loadedColorNoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): 
  * recipe is developed without the decode-time chroma clean-up. */
 export const colorNoiseMultiscale = (
   adjustments: Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction'>,
-  isRaw: boolean,
+  isRaw: boolean
 ): boolean =>
   adjustments.colorNoiseVersion !== undefined && adjustments.colorNoiseVersion !== null
     ? adjustments.colorNoiseVersion >= MULTISCALE_COLOR_NOISE_VERSION
@@ -1940,7 +1920,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       mode: SubMaskMode.Additive,
       invert: false,
       opacity: 100,
-      ...subMask,
+      ...subMask
     }));
   };
 
@@ -1971,127 +1951,131 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
         curveMode: containerAdjustments.curveMode || INITIAL_MASK_ADJUSTMENTS.curveMode,
         sectionVisibility: {
           ...INITIAL_MASK_ADJUSTMENTS.sectionVisibility,
-          ...(containerAdjustments.sectionVisibility || {}),
+          ...(containerAdjustments.sectionVisibility || {})
         },
-        sharpnessThreshold: containerAdjustments.sharpnessThreshold ?? INITIAL_MASK_ADJUSTMENTS.sharpnessThreshold,
+        sharpnessThreshold: containerAdjustments.sharpnessThreshold ?? INITIAL_MASK_ADJUSTMENTS.sharpnessThreshold
       },
-      subMasks: normalizedSubMasks,
+      subMasks: normalizedSubMasks
     };
   });
 
   const normalizedAiPatches = (loadedAdjustments.aiPatches || []).map((patch: Stored<AiPatch, 'visible'>) => ({
     visible: true,
     ...patch,
-    subMasks: normalizeSubMasks(patch.subMasks),
+    subMasks: normalizeSubMasks(patch.subMasks)
   }));
 
-  return withLegacyGrainVersion(withGrainStructure({
-    ...initialAdjustmentsFor(isRaw),
-    ...loadedAdjustments,
-    guidedPerspective: {
-      enabled: loadedAdjustments.guidedPerspective?.enabled ?? false,
-      lines: (() => {
-        const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
-        const raw = (loadedAdjustments.guidedPerspective?.lines || []).map((l: Partial<GuideLine>) => ({
-          id: l.id || uuidv4(),
-          type: (l.type === 'horizontal' ? 'horizontal' : 'vertical') as 'vertical' | 'horizontal',
-          p1: { x: clamp01(l.p1?.x ?? 0), y: clamp01(l.p1?.y ?? 0) },
-          p2: { x: clamp01(l.p2?.x ?? 1), y: clamp01(l.p2?.y ?? 1) },
-        }));
-        const verts = raw.filter((l) => l.type === 'vertical').slice(0, 2);
-        const hors = raw.filter((l) => l.type === 'horizontal').slice(0, 2);
-        return [...verts, ...hors];
-      })(),
-      autoCrop: loadedAdjustments.guidedPerspective?.autoCrop ?? true,
-      ...(loadedAdjustments.guidedPerspective?.upright ? { upright: loadedAdjustments.guidedPerspective.upright } : {}),
-    },
-    lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
-    colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
-    toneVersion: loadedToneVersion(loadedAdjustments),
-    clarityVersion: loadedClarityVersion(loadedAdjustments),
-    defringeVersion: loadedDefringeVersion(loadedAdjustments),
-    bwVersion: loadedBwVersion(loadedAdjustments),
-    sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
-    // A saved recipe's own grain; without the key 1 where it has grain, else
-    // the newest (a new edit's, as `initialAdjustmentsFor`).
-    grainVersion: loadedAdjustments.grainVersion ?? ((loadedAdjustments.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION),
-    lumaNoiseVersion: loadedLumaNoiseVersion(loadedAdjustments, isRaw),
-    aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
-    // Saved recipes keep rendering as they were made: no pass unless they
-    // carry the key (never-edited RAWs get it in useImageLoader).
-    fringeVersion: loadedAdjustments.fringeVersion,
-    cameraCaVersion: loadedAdjustments.cameraCaVersion,
-    cameraGeometryVersion: loadedAdjustments.cameraGeometryVersion,
-    autoCaVersion: loadedAdjustments.autoCaVersion,
-    renderVersion: loadedRenderVersion(loadedAdjustments),
-    sourceFrameVersion: loadedSourceFrameVersion(loadedAdjustments),
-    ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
-    relightDepthAmount: loadedAdjustments.relightDepthAmount,
-    relightSkinReflections: loadedAdjustments.relightSkinReflections,
-    flareAmount: loadedAdjustments.flareAmount ?? INITIAL_ADJUSTMENTS.flareAmount,
-    glowAmount: loadedAdjustments.glowAmount ?? INITIAL_ADJUSTMENTS.glowAmount,
-    halationAmount: loadedAdjustments.halationAmount ?? INITIAL_ADJUSTMENTS.halationAmount,
-    lensBlurAmount: loadedAdjustments.lensBlurAmount ?? INITIAL_ADJUSTMENTS.lensBlurAmount,
-    lensBlurDiffusion: loadedAdjustments.lensBlurDiffusion ?? INITIAL_ADJUSTMENTS.lensBlurDiffusion,
-    lensBlurShape: loadedAdjustments.lensBlurShape ?? INITIAL_ADJUSTMENTS.lensBlurShape,
-    lensBlurDepthMap: loadedAdjustments.lensBlurDepthMap ?? INITIAL_ADJUSTMENTS.lensBlurDepthMap,
-    lensBlurEnabled: loadedAdjustments.lensBlurEnabled ?? INITIAL_ADJUSTMENTS.lensBlurEnabled,
-    lensBlurMaxDepth: loadedAdjustments.lensBlurMaxDepth ?? INITIAL_ADJUSTMENTS.lensBlurMaxDepth,
-    lensBlurMaxFade: loadedAdjustments.lensBlurMaxFade ?? INITIAL_ADJUSTMENTS.lensBlurMaxFade,
-    lensBlurMinDepth: loadedAdjustments.lensBlurMinDepth ?? INITIAL_ADJUSTMENTS.lensBlurMinDepth,
-    lensBlurMinFade: loadedAdjustments.lensBlurMinFade ?? INITIAL_ADJUSTMENTS.lensBlurMinFade,
-    lensCorrectionMode: loadedAdjustments.lensCorrectionMode || 'manual',
-    lensMaker: loadedAdjustments.lensMaker ?? INITIAL_ADJUSTMENTS.lensMaker,
-    lensModel: loadedAdjustments.lensModel ?? INITIAL_ADJUSTMENTS.lensModel,
-    lensDistortionAmount: loadedAdjustments.lensDistortionAmount ?? INITIAL_ADJUSTMENTS.lensDistortionAmount,
-    lensVignetteAmount: loadedAdjustments.lensVignetteAmount ?? INITIAL_ADJUSTMENTS.lensVignetteAmount,
-    lensTcaAmount: loadedAdjustments.lensTcaAmount ?? INITIAL_ADJUSTMENTS.lensTcaAmount,
-    lensDistortionEnabled: loadedAdjustments.lensDistortionEnabled ?? INITIAL_ADJUSTMENTS.lensDistortionEnabled,
-    lensTcaEnabled: loadedAdjustments.lensTcaEnabled ?? INITIAL_ADJUSTMENTS.lensTcaEnabled,
-    lensVignetteEnabled: loadedAdjustments.lensVignetteEnabled ?? INITIAL_ADJUSTMENTS.lensVignetteEnabled,
-    lensDistortionParams: loadedAdjustments.lensDistortionParams ?? INITIAL_ADJUSTMENTS.lensDistortionParams,
-    transformDistortion: loadedAdjustments.transformDistortion ?? INITIAL_ADJUSTMENTS.transformDistortion,
-    transformVertical: loadedAdjustments.transformVertical ?? INITIAL_ADJUSTMENTS.transformVertical,
-    transformHorizontal: loadedAdjustments.transformHorizontal ?? INITIAL_ADJUSTMENTS.transformHorizontal,
-    transformRotate: loadedAdjustments.transformRotate ?? INITIAL_ADJUSTMENTS.transformRotate,
-    transformAspect: loadedAdjustments.transformAspect ?? INITIAL_ADJUSTMENTS.transformAspect,
-    transformScale: loadedAdjustments.transformScale ?? INITIAL_ADJUSTMENTS.transformScale,
-    transformXOffset: loadedAdjustments.transformXOffset ?? INITIAL_ADJUSTMENTS.transformXOffset,
-    transformYOffset: loadedAdjustments.transformYOffset ?? INITIAL_ADJUSTMENTS.transformYOffset,
-    colorCalibration: { ...INITIAL_ADJUSTMENTS.colorCalibration, ...(loadedAdjustments.colorCalibration || {}) },
-    colorGrading: { ...INITIAL_ADJUSTMENTS.colorGrading, ...(loadedAdjustments.colorGrading || {}) },
-    blackAndWhite: loadedAdjustments.blackAndWhite ?? false,
-    grayMixer: { ...INITIAL_GRAY_MIXER, ...(loadedAdjustments.grayMixer || {}) },
-    colorRanges: (loadedAdjustments.colorRanges || []).map((range: ColorRange) => ({ ...range })),
-    regionCurve: { ...INITIAL_REGION_CURVE, ...(loadedAdjustments.regionCurve || {}) },
-    levels: Object.fromEntries(
-      Object.entries(INITIAL_LEVELS).map(([channel, level]) => [
-        channel,
-        { ...level, ...(loadedAdjustments.levels?.[channel] || {}) },
-      ]),
-    ) as Levels,
-    hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...(loadedAdjustments.hsl || {}) },
-    curves: loadedAdjustments.curves ? deepCloneCurves(loadedAdjustments.curves) : getDefaultCurves(),
-    pointCurves: loadedAdjustments.pointCurves ? deepCloneCurves(loadedAdjustments.pointCurves) : getDefaultCurves(),
-    parametricCurve: loadedAdjustments.parametricCurve
-      ? deepCloneParametric(loadedAdjustments.parametricCurve)
-      : getDefaultParametricCurve(),
-    curveMode: loadedAdjustments.curveMode || INITIAL_ADJUSTMENTS.curveMode,
-    masks: normalizedMasks,
-    aiPatches: normalizedAiPatches,
-    spots: Array.isArray(loadedAdjustments.spots) ? loadedAdjustments.spots.map((spot: Spot) => ({ ...spot })) : [],
-    redEyes: Array.isArray(loadedAdjustments.redEyes)
-      ? loadedAdjustments.redEyes.map((eye: RedEye) => ({ ...eye }))
-      : [],
-    sectionVisibility: {
-      ...INITIAL_ADJUSTMENTS.sectionVisibility,
-      ...(loadedAdjustments.sectionVisibility || {}),
-    },
-    sharpnessThreshold: loadedAdjustments.sharpnessThreshold ?? INITIAL_ADJUSTMENTS.sharpnessThreshold,
-    sharpenRadius: loadedAdjustments.sharpenRadius ?? INITIAL_ADJUSTMENTS.sharpenRadius,
-    sharpenDetail: loadedAdjustments.sharpenDetail ?? INITIAL_ADJUSTMENTS.sharpenDetail,
-    sharpenMasking: loadedAdjustments.sharpenMasking ?? INITIAL_ADJUSTMENTS.sharpenMasking,
-  }));
+  return withLegacyGrainVersion(
+    withGrainStructure({
+      ...initialAdjustmentsFor(isRaw),
+      ...loadedAdjustments,
+      guidedPerspective: {
+        enabled: loadedAdjustments.guidedPerspective?.enabled ?? false,
+        lines: (() => {
+          const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+          const raw = (loadedAdjustments.guidedPerspective?.lines || []).map((l: Partial<GuideLine>) => ({
+            id: l.id || uuidv4(),
+            type: (l.type === 'horizontal' ? 'horizontal' : 'vertical') as 'vertical' | 'horizontal',
+            p1: { x: clamp01(l.p1?.x ?? 0), y: clamp01(l.p1?.y ?? 0) },
+            p2: { x: clamp01(l.p2?.x ?? 1), y: clamp01(l.p2?.y ?? 1) }
+          }));
+          const verts = raw.filter((l) => l.type === 'vertical').slice(0, 2);
+          const hors = raw.filter((l) => l.type === 'horizontal').slice(0, 2);
+          return [...verts, ...hors];
+        })(),
+        autoCrop: loadedAdjustments.guidedPerspective?.autoCrop ?? true,
+        ...(loadedAdjustments.guidedPerspective?.upright
+          ? { upright: loadedAdjustments.guidedPerspective.upright }
+          : {})
+      },
+      lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
+      colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
+      toneVersion: loadedToneVersion(loadedAdjustments),
+      clarityVersion: loadedClarityVersion(loadedAdjustments),
+      defringeVersion: loadedDefringeVersion(loadedAdjustments),
+      bwVersion: loadedBwVersion(loadedAdjustments),
+      sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
+      // A saved recipe's own grain; without the key 1 where it has grain, else
+      // the newest (a new edit's, as `initialAdjustmentsFor`).
+      grainVersion: loadedAdjustments.grainVersion ?? ((loadedAdjustments.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION),
+      lumaNoiseVersion: loadedLumaNoiseVersion(loadedAdjustments, isRaw),
+      aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
+      // Saved recipes keep rendering as they were made: no pass unless they
+      // carry the key (never-edited RAWs get it in useImageLoader).
+      fringeVersion: loadedAdjustments.fringeVersion,
+      cameraCaVersion: loadedAdjustments.cameraCaVersion,
+      cameraGeometryVersion: loadedAdjustments.cameraGeometryVersion,
+      autoCaVersion: loadedAdjustments.autoCaVersion,
+      renderVersion: loadedRenderVersion(loadedAdjustments),
+      sourceFrameVersion: loadedSourceFrameVersion(loadedAdjustments),
+      ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
+      relightDepthAmount: loadedAdjustments.relightDepthAmount,
+      relightSkinReflections: loadedAdjustments.relightSkinReflections,
+      flareAmount: loadedAdjustments.flareAmount ?? INITIAL_ADJUSTMENTS.flareAmount,
+      glowAmount: loadedAdjustments.glowAmount ?? INITIAL_ADJUSTMENTS.glowAmount,
+      halationAmount: loadedAdjustments.halationAmount ?? INITIAL_ADJUSTMENTS.halationAmount,
+      lensBlurAmount: loadedAdjustments.lensBlurAmount ?? INITIAL_ADJUSTMENTS.lensBlurAmount,
+      lensBlurDiffusion: loadedAdjustments.lensBlurDiffusion ?? INITIAL_ADJUSTMENTS.lensBlurDiffusion,
+      lensBlurShape: loadedAdjustments.lensBlurShape ?? INITIAL_ADJUSTMENTS.lensBlurShape,
+      lensBlurDepthMap: loadedAdjustments.lensBlurDepthMap ?? INITIAL_ADJUSTMENTS.lensBlurDepthMap,
+      lensBlurEnabled: loadedAdjustments.lensBlurEnabled ?? INITIAL_ADJUSTMENTS.lensBlurEnabled,
+      lensBlurMaxDepth: loadedAdjustments.lensBlurMaxDepth ?? INITIAL_ADJUSTMENTS.lensBlurMaxDepth,
+      lensBlurMaxFade: loadedAdjustments.lensBlurMaxFade ?? INITIAL_ADJUSTMENTS.lensBlurMaxFade,
+      lensBlurMinDepth: loadedAdjustments.lensBlurMinDepth ?? INITIAL_ADJUSTMENTS.lensBlurMinDepth,
+      lensBlurMinFade: loadedAdjustments.lensBlurMinFade ?? INITIAL_ADJUSTMENTS.lensBlurMinFade,
+      lensCorrectionMode: loadedAdjustments.lensCorrectionMode || 'manual',
+      lensMaker: loadedAdjustments.lensMaker ?? INITIAL_ADJUSTMENTS.lensMaker,
+      lensModel: loadedAdjustments.lensModel ?? INITIAL_ADJUSTMENTS.lensModel,
+      lensDistortionAmount: loadedAdjustments.lensDistortionAmount ?? INITIAL_ADJUSTMENTS.lensDistortionAmount,
+      lensVignetteAmount: loadedAdjustments.lensVignetteAmount ?? INITIAL_ADJUSTMENTS.lensVignetteAmount,
+      lensTcaAmount: loadedAdjustments.lensTcaAmount ?? INITIAL_ADJUSTMENTS.lensTcaAmount,
+      lensDistortionEnabled: loadedAdjustments.lensDistortionEnabled ?? INITIAL_ADJUSTMENTS.lensDistortionEnabled,
+      lensTcaEnabled: loadedAdjustments.lensTcaEnabled ?? INITIAL_ADJUSTMENTS.lensTcaEnabled,
+      lensVignetteEnabled: loadedAdjustments.lensVignetteEnabled ?? INITIAL_ADJUSTMENTS.lensVignetteEnabled,
+      lensDistortionParams: loadedAdjustments.lensDistortionParams ?? INITIAL_ADJUSTMENTS.lensDistortionParams,
+      transformDistortion: loadedAdjustments.transformDistortion ?? INITIAL_ADJUSTMENTS.transformDistortion,
+      transformVertical: loadedAdjustments.transformVertical ?? INITIAL_ADJUSTMENTS.transformVertical,
+      transformHorizontal: loadedAdjustments.transformHorizontal ?? INITIAL_ADJUSTMENTS.transformHorizontal,
+      transformRotate: loadedAdjustments.transformRotate ?? INITIAL_ADJUSTMENTS.transformRotate,
+      transformAspect: loadedAdjustments.transformAspect ?? INITIAL_ADJUSTMENTS.transformAspect,
+      transformScale: loadedAdjustments.transformScale ?? INITIAL_ADJUSTMENTS.transformScale,
+      transformXOffset: loadedAdjustments.transformXOffset ?? INITIAL_ADJUSTMENTS.transformXOffset,
+      transformYOffset: loadedAdjustments.transformYOffset ?? INITIAL_ADJUSTMENTS.transformYOffset,
+      colorCalibration: { ...INITIAL_ADJUSTMENTS.colorCalibration, ...(loadedAdjustments.colorCalibration || {}) },
+      colorGrading: { ...INITIAL_ADJUSTMENTS.colorGrading, ...(loadedAdjustments.colorGrading || {}) },
+      blackAndWhite: loadedAdjustments.blackAndWhite ?? false,
+      grayMixer: { ...INITIAL_GRAY_MIXER, ...(loadedAdjustments.grayMixer || {}) },
+      colorRanges: (loadedAdjustments.colorRanges || []).map((range: ColorRange) => ({ ...range })),
+      regionCurve: { ...INITIAL_REGION_CURVE, ...(loadedAdjustments.regionCurve || {}) },
+      levels: Object.fromEntries(
+        Object.entries(INITIAL_LEVELS).map(([channel, level]) => [
+          channel,
+          { ...level, ...(loadedAdjustments.levels?.[channel] || {}) }
+        ])
+      ) as Levels,
+      hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...(loadedAdjustments.hsl || {}) },
+      curves: loadedAdjustments.curves ? deepCloneCurves(loadedAdjustments.curves) : getDefaultCurves(),
+      pointCurves: loadedAdjustments.pointCurves ? deepCloneCurves(loadedAdjustments.pointCurves) : getDefaultCurves(),
+      parametricCurve: loadedAdjustments.parametricCurve
+        ? deepCloneParametric(loadedAdjustments.parametricCurve)
+        : getDefaultParametricCurve(),
+      curveMode: loadedAdjustments.curveMode || INITIAL_ADJUSTMENTS.curveMode,
+      masks: normalizedMasks,
+      aiPatches: normalizedAiPatches,
+      spots: Array.isArray(loadedAdjustments.spots) ? loadedAdjustments.spots.map((spot: Spot) => ({ ...spot })) : [],
+      redEyes: Array.isArray(loadedAdjustments.redEyes)
+        ? loadedAdjustments.redEyes.map((eye: RedEye) => ({ ...eye }))
+        : [],
+      sectionVisibility: {
+        ...INITIAL_ADJUSTMENTS.sectionVisibility,
+        ...(loadedAdjustments.sectionVisibility || {})
+      },
+      sharpnessThreshold: loadedAdjustments.sharpnessThreshold ?? INITIAL_ADJUSTMENTS.sharpnessThreshold,
+      sharpenRadius: loadedAdjustments.sharpenRadius ?? INITIAL_ADJUSTMENTS.sharpenRadius,
+      sharpenDetail: loadedAdjustments.sharpenDetail ?? INITIAL_ADJUSTMENTS.sharpenDetail,
+      sharpenMasking: loadedAdjustments.sharpenMasking ?? INITIAL_ADJUSTMENTS.sharpenMasking
+    })
+  );
 };
 
 export interface AdjustmentGroup {
@@ -2105,7 +2089,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
   basic: [
     {
       label: 'modals.copyPaste.groups.exposureToneMapper',
-      keys: [BasicAdjustment.Exposure, 'toneMapper', 'baseCurve', 'cameraProfile'],
+      keys: [BasicAdjustment.Exposure, 'toneMapper', 'baseCurve', 'cameraProfile']
     },
     {
       label: 'modals.copyPaste.groups.tone',
@@ -2116,28 +2100,32 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         BasicAdjustment.Shadows,
         BasicAdjustment.Whites,
         BasicAdjustment.Blacks,
-        'toneVersion',
-      ],
+        'toneVersion'
+      ]
     },
     {
       label: 'modals.copyPaste.groups.curves',
-      keys: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve'],
-    },
+      keys: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve']
+    }
   ],
   color: [
     {
       label: 'modals.copyPaste.groups.whiteBalance',
-      keys: [ColorAdjustment.Temperature, ColorAdjustment.Tint, 'whiteBalance', 'wbTemperature', 'wbTint'],
+      keys: [ColorAdjustment.Temperature, ColorAdjustment.Tint, 'whiteBalance', 'wbTemperature', 'wbTint']
     },
-    { label: 'modals.copyPaste.groups.presence', clipboardSection: 'basic', keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance] },
+    {
+      label: 'modals.copyPaste.groups.presence',
+      clipboardSection: 'basic',
+      keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance]
+    },
     {
       label: 'modals.copyPaste.groups.hueShift',
-      keys: [ColorAdjustment.Hue],
+      keys: [ColorAdjustment.Hue]
     },
     { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading] },
     { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges'] },
     { label: 'modals.copyPaste.groups.colorCalibration', keys: ['colorCalibration'] },
-    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion'] },
+    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion'] }
   ],
   details: [
     {
@@ -2148,8 +2136,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         DetailsAdjustment.Structure,
         DetailsAdjustment.Dehaze,
         DetailsAdjustment.Centré,
-        'clarityVersion',
-      ],
+        'clarityVersion'
+      ]
     },
     {
       label: 'modals.copyPaste.groups.sharpness',
@@ -2160,8 +2148,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'sharpenRadius',
         'sharpenDetail',
         'sharpenMasking',
-        'sharpenVersion',
-      ],
+        'sharpenVersion'
+      ]
     },
     {
       label: 'modals.copyPaste.groups.noiseReduction',
@@ -2175,12 +2163,19 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'colorNoiseVersion',
         'lumaNoiseVersion',
         'aiDenoise',
-        'aiDenoiseVersion',
-      ],
+        'aiDenoiseVersion'
+      ]
     },
     {
       label: 'modals.copyPaste.groups.grain',
-      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainColor', 'grainVersion'],
+      keys: [
+        Effect.GrainAmount,
+        Effect.GrainRoughness,
+        Effect.GrainSize,
+        'grainStructure',
+        'grainColor',
+        'grainVersion'
+      ]
     },
     {
       label: 'modals.copyPaste.groups.chromaticAberration',
@@ -2196,12 +2191,15 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'moireAmount',
         'moirePattern',
         'fringeVersion',
-        'defringeVersion',
-      ],
-    },
+        'defringeVersion'
+      ]
+    }
   ],
   effects: [
-    { label: 'studio.relight.title', keys: ['relightLights', 'relightDepthAmount', 'relightSkinReflections', 'relightOriginalLight'] },
+    {
+      label: 'studio.relight.title',
+      keys: ['relightLights', 'relightDepthAmount', 'relightSkinReflections', 'relightOriginalLight']
+    },
     {
       label: 'modals.copyPaste.groups.vignette',
       keys: [
@@ -2210,12 +2208,12 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         Effect.VignetteMidpoint,
         Effect.VignetteRoundness,
         'vignetteStyle',
-        'vignetteHighlights',
-      ],
+        'vignetteHighlights'
+      ]
     },
     {
       label: 'modals.copyPaste.groups.halationGlow',
-      keys: [CreativeAdjustment.GlowAmount, CreativeAdjustment.HalationAmount, CreativeAdjustment.FlareAmount],
+      keys: [CreativeAdjustment.GlowAmount, CreativeAdjustment.HalationAmount, CreativeAdjustment.FlareAmount]
     },
     {
       label: 'modals.copyPaste.groups.lut',
@@ -2225,9 +2223,9 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         Effect.LutPath,
         Effect.LutSize,
         Effect.LutData,
-        Effect.LutIsSceneReferred,
-      ],
-    },
+        Effect.LutIsSceneReferred
+      ]
+    }
   ],
   geometry: [
     { label: 'modals.copyPaste.groups.cropAspectRatio', keys: ['crop', 'aspectRatio'] },
@@ -2245,8 +2243,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         TransformAdjustment.TransformAspect,
         TransformAdjustment.TransformScale,
         TransformAdjustment.TransformXOffset,
-        TransformAdjustment.TransformYOffset,
-      ],
+        TransformAdjustment.TransformYOffset
+      ]
     },
     {
       label: 'modals.copyPaste.groups.lensCorrection',
@@ -2267,15 +2265,15 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'autoChromaticAberration',
         'cameraCaVersion',
         'cameraGeometryVersion',
-        'autoCaVersion',
-      ],
+        'autoCaVersion'
+      ]
     },
     {
       label: 'modals.copyPaste.groups.guidedPerspective',
-      keys: ['guidedPerspective'],
-    },
+      keys: ['guidedPerspective']
+    }
   ],
-  masks: [{ label: 'modals.copyPaste.groups.masks', keys: ['masks'] }],
+  masks: [{ label: 'modals.copyPaste.groups.masks', keys: ['masks'] }]
 };
 
 export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUPS)
@@ -2309,7 +2307,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'renderVersion',
   'sourceFrameVersion',
   'sectionVisibility',
-  'showClipping',
+  'showClipping'
 ];
 
 export const ADJUSTMENT_SECTIONS: Sections = {
@@ -2323,7 +2321,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     BasicAdjustment.Exposure,
     'toneMapper',
     'baseCurve',
-    'cameraProfile',
+    'cameraProfile'
   ],
   curves: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve'],
   color: [
@@ -2340,7 +2338,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     ColorAdjustment.Hue,
     'blackAndWhite',
     'grayMixer',
-    'colorRanges',
+    'colorRanges'
   ],
   details: [
     DetailsAdjustment.Clarity,
@@ -2361,7 +2359,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     'defringeGreenHueLo',
     'defringeGreenHueHi',
     'moireAmount',
-    'moirePattern',
+    'moirePattern'
   ],
   effects: [
     'relightLights',
@@ -2395,8 +2393,8 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     Effect.LensBlurMinDepth,
     Effect.LensBlurMaxDepth,
     Effect.LensBlurMinFade,
-    Effect.LensBlurMaxFade,
-  ],
+    Effect.LensBlurMaxFade
+  ]
 };
 
 const reconcileOrder = (defaultOrder: string[], order: string[] = []): string[] => {
@@ -2417,7 +2415,7 @@ export const getHiddenAdjustmentTools = (layout?: AdjustmentLayout): string[] =>
 
 export const withAdjustmentLayout = (settings: AppSettings, changes: Partial<AdjustmentLayout>): AppSettings => ({
   ...settings,
-  adjustmentLayout: { ...settings.adjustmentLayout, ...changes },
+  adjustmentLayout: { ...settings.adjustmentLayout, ...changes }
 });
 
 export interface AdjustmentSectionTool {
@@ -2432,21 +2430,21 @@ export const ADJUSTMENT_SECTION_TOOLS: Record<string, Array<AdjustmentSectionToo
     { id: 'hue', label: 'adjustments.color.hue' },
     { id: 'colorGrading', label: 'adjustments.color.colorGrading' },
     { id: 'colorMixer', label: 'adjustments.color.colorMixer' },
-    { id: 'colorCalibration', label: 'adjustments.color.calibration.title' },
+    { id: 'colorCalibration', label: 'adjustments.color.calibration.title' }
   ],
   details: [
     { id: 'sharpening', label: 'adjustments.details.sharpening' },
     { id: 'presence', label: 'adjustments.details.presence' },
     { id: 'noiseReduction', label: 'adjustments.details.noiseReduction' },
-    { id: 'chromaticAberration', label: 'adjustments.details.chromaticAberration' },
+    { id: 'chromaticAberration', label: 'adjustments.details.chromaticAberration' }
   ],
   effects: [
     { id: 'creative', label: 'adjustments.effects.creative' },
     { id: 'lensBlur', label: 'adjustments.effects.lensBlur' },
     { id: 'lut', label: 'adjustments.effects.lut' },
     { id: 'vignette', label: 'adjustments.effects.vignette' },
-    { id: 'grain', label: 'adjustments.effects.grain' },
-  ],
+    { id: 'grain', label: 'adjustments.effects.grain' }
+  ]
 };
 
 export const getAdjustmentSectionToolIds = (section: string): string[] =>

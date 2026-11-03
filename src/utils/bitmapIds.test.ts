@@ -3,7 +3,13 @@ import type { SubMask } from '../components/panel/right/Masks';
 import { CACHED_BITMAP, referToSentMaskBitmaps } from './bitmapIds';
 
 const sub = (id: string, maskDataBase64: string | null): SubMask =>
-  ({ id, type: 'ai-people', visible: true, mode: 'additive', parameters: { maskDataBase64, parts: [] } }) as unknown as SubMask;
+  ({
+    id,
+    type: 'ai-people',
+    visible: true,
+    mode: 'additive',
+    parameters: { maskDataBase64, parts: [] }
+  }) as unknown as SubMask;
 
 it('refers to a sent bitmap, sends a new one whole and keeps a component without one empty', () => {
   const sent = new Set(['lips']);

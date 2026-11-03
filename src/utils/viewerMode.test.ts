@@ -1,7 +1,11 @@
 import { expect, it } from 'vitest';
 import { flagTargets, libraryViewer, viewerOnly, viewerShown } from './viewerMode';
 
-const ui = (activeView: string, libraryLoupe = false, isFullScreen = false) => ({ activeView, libraryLoupe, isFullScreen });
+const ui = (activeView: string, libraryLoupe = false, isFullScreen = false) => ({
+  activeView,
+  libraryLoupe,
+  isFullScreen
+});
 
 it('shows the native viewer in Develop, the loupe and the full screen, not in the grid', () => {
   expect(viewerShown(ui('editor'))).toBe(true);

@@ -1,12 +1,18 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { useTranslation } from "react-i18next";
-import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
-import { isCurrentEditorImage, useEditorActions } from "../../hooks/useEditorActions";
-import { CAMERA_CA_VERSION, CAMERA_GEOMETRY_VERSION, INITIAL_ADJUSTMENTS, autoCaOn, type Adjustments } from "../../utils/adjustments";
-import { Invokes } from "../ui/AppProperties";
-import AdjustmentControl from "./AdjustmentControl";
-import { ToolGroup } from "./StudioDevelop";
+import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
+import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
+import { isCurrentEditorImage, useEditorActions } from '../../hooks/useEditorActions';
+import {
+  CAMERA_CA_VERSION,
+  CAMERA_GEOMETRY_VERSION,
+  INITIAL_ADJUSTMENTS,
+  autoCaOn,
+  type Adjustments
+} from '../../utils/adjustments';
+import { Invokes } from '../ui/AppProperties';
+import AdjustmentControl from './AdjustmentControl';
+import { ToolGroup } from './StudioDevelop';
 
 /** Every lens-profile setting back to "no profile". */
 export const LENS_PROFILE_OFF: Partial<Adjustments> = {
@@ -19,15 +25,15 @@ export const LENS_PROFILE_OFF: Partial<Adjustments> = {
   lensTcaAmount: INITIAL_ADJUSTMENTS.lensTcaAmount,
   lensDistortionEnabled: INITIAL_ADJUSTMENTS.lensDistortionEnabled,
   lensTcaEnabled: INITIAL_ADJUSTMENTS.lensTcaEnabled,
-  lensVignetteEnabled: INITIAL_ADJUSTMENTS.lensVignetteEnabled,
+  lensVignetteEnabled: INITIAL_ADJUSTMENTS.lensVignetteEnabled
 };
 
-type Status = "idle" | "detecting" | "not_found";
+type Status = 'idle' | 'detecting' | 'not_found';
 
 /** The camera's own correction data for a RAW (`get_camera_lens_profile`). */
 interface CameraLensProfile {
   maker: string;
-  params: Adjustments["lensDistortionParams"];
+  params: Adjustments['lensDistortionParams'];
   vignetting: boolean;
 }
 
@@ -43,9 +49,9 @@ export default function StudioLensCorrection() {
   const setEditor = useEditorStore((s) => s.setEditor);
   const [makers, setMakers] = useState<string[]>([]);
   const [lenses, setLenses] = useState<string[]>([]);
-  const [status, setStatus] = useState<Status>("idle");
+  const [status, setStatus] = useState<Status>('idle');
   const [camera, setCamera] = useState<CameraLensProfile | null>(null);
-  const cameraMode = adjustments.lensCorrectionMode === "camera";
+  const cameraMode = adjustments.lensCorrectionMode === 'camera';
   const enabled = cameraMode
     ? Boolean(adjustments.lensDistortionParams)
     : Boolean(adjustments.lensMaker && adjustments.lensModel);
@@ -62,7 +68,7 @@ export default function StudioLensCorrection() {
     if (!adjustments.lensMaker) return setLenses([]);
     let current = true;
     invoke<string[]>(Invokes.GetLensfunLensesForMaker, {
-      maker: adjustments.lensMaker,
+      maker: adjustments.lensMaker
     })
       .then((list) => current && setLenses(Array.isArray(list) ? list : []))
       .catch(() => current && setLenses([]));
@@ -70,7 +76,7 @@ export default function StudioLensCorrection() {
       current = false;
     };
   }, [adjustments.lensMaker]);
-  useEffect(() => setStatus("idle"), [selectedImage?.path]);
+  useEffect(() => setStatus('idle'), [selectedImage?.path]);
   // The frame the open photo develops (an edit from before the key: the
   // first), whose camera data apply to it.
   const frame = adjustments.sourceFrameVersion ?? 0;
@@ -92,49 +98,42 @@ export default function StudioLensCorrection() {
       lensMaker: null,
       lensModel: null,
       lensDistortionParams: profile.params,
-      lensCorrectionMode: "camera",
+      lensCorrectionMode: 'camera',
       cameraCaVersion: CAMERA_CA_VERSION,
-      cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
+      cameraGeometryVersion: CAMERA_GEOMETRY_VERSION
     }));
 
   const params = (maker: string, model: string) =>
-    invoke<Adjustments["lensDistortionParams"]>(
-      Invokes.GetLensDistortionParams,
-      {
-        maker,
-        model,
-        // The backend reads focal length, f-number, distance and crop factor
-        // from it, as a save does.
-        exif,
-      },
-    ).catch(() => null);
+    invoke<Adjustments['lensDistortionParams']>(Invokes.GetLensDistortionParams, {
+      maker,
+      model,
+      // The backend reads focal length, f-number, distance and crop factor
+      // from it, as a save does.
+      exif
+    }).catch(() => null);
 
   const enable = async () => {
     // The camera's own data first (Capture One, in-camera JPEGs), then the
     // lens database.
     if (camera) return applyCamera(camera);
-    if (!exif.Make || !(exif.LensModel || exif.Model))
-      return setStatus("not_found");
+    if (!exif.Make || !(exif.LensModel || exif.Model)) return setStatus('not_found');
     // The detected lens belongs to the photograph it was detected for.
     const path = selectedImage?.path;
     if (!path) return;
     const stillOpen = () => {
       if (isCurrentEditorImage(path)) return true;
-      setStatus("idle");
+      setStatus('idle');
       return false;
     };
-    setStatus("detecting");
+    setStatus('detecting');
     try {
-      const found = await invoke<[string, string] | null>(
-        Invokes.AutodetectLens,
-        {
-          maker: exif.Make,
-          model: exif.LensModel ?? "",
-          cameraModel: exif.Model ?? "",
-        },
-      );
+      const found = await invoke<[string, string] | null>(Invokes.AutodetectLens, {
+        maker: exif.Make,
+        model: exif.LensModel ?? '',
+        cameraModel: exif.Model ?? ''
+      });
       if (!stillOpen()) return;
-      if (!found) return setStatus("not_found");
+      if (!found) return setStatus('not_found');
       const [maker, model] = found;
       const distortion = await params(maker, model);
       if (!stillOpen()) return;
@@ -143,11 +142,11 @@ export default function StudioLensCorrection() {
         lensMaker: maker,
         lensModel: model,
         lensDistortionParams: distortion,
-        lensCorrectionMode: "auto",
+        lensCorrectionMode: 'auto'
       }));
-      setStatus("idle");
+      setStatus('idle');
     } catch {
-      if (stillOpen()) setStatus("not_found");
+      if (stillOpen()) setStatus('not_found');
     }
   };
   const chooseMaker = (maker: string) =>
@@ -156,7 +155,7 @@ export default function StudioLensCorrection() {
       lensMaker: maker || null,
       lensModel: null,
       lensDistortionParams: null,
-      lensCorrectionMode: "manual",
+      lensCorrectionMode: 'manual'
     }));
   const chooseModel = async (model: string) => {
     const maker = adjustments.lensMaker;
@@ -168,14 +167,14 @@ export default function StudioLensCorrection() {
       ...prev,
       lensModel: model || null,
       lensDistortionParams: distortion,
-      lensCorrectionMode: "manual",
+      lensCorrectionMode: 'manual'
     }));
   };
   const amount = (
     label: string,
-    key: "lensDistortionAmount" | "lensVignetteAmount" | "lensTcaAmount",
+    key: 'lensDistortionAmount' | 'lensVignetteAmount' | 'lensTcaAmount',
     // The camera's data has no curve for this correction.
-    unavailable = false,
+    unavailable = false
   ) => (
     <AdjustmentControl
       label={label}
@@ -186,9 +185,7 @@ export default function StudioLensCorrection() {
       defaultValue={100}
       unit="%"
       disabled={!ready || !enabled || unavailable}
-      onChange={(value) =>
-        setAdjustments((prev) => ({ ...prev, [key]: value }))
-      }
+      onChange={(value) => setAdjustments((prev) => ({ ...prev, [key]: value }))}
       onInteraction={(active) => setEditor({ isSliderDragging: active })}
     />
   );
@@ -196,7 +193,7 @@ export default function StudioLensCorrection() {
   return (
     <ToolGroup
       title="Lens correction"
-      label={t("studio.lens.title")}
+      label={t('studio.lens.title')}
       onReset={() =>
         setAdjustments((prev) => ({
           ...prev,
@@ -204,7 +201,7 @@ export default function StudioLensCorrection() {
           lensManualVignetteAmount: undefined,
           lensManualVignetteMidpoint: undefined,
           diffractionCorrection: undefined,
-          diffractionVersion: undefined,
+          diffractionVersion: undefined
         }))
       }
     >
@@ -212,52 +209,46 @@ export default function StudioLensCorrection() {
         <input
           type="checkbox"
           checked={enabled}
-          disabled={!ready || status === "detecting"}
+          disabled={!ready || status === 'detecting'}
           onChange={(e) =>
-            e.target.checked
-              ? void enable()
-              : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }))
+            e.target.checked ? void enable() : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }))
           }
         />
-        {t("studio.lens.enable")}
+        {t('studio.lens.enable')}
       </label>
-      {status === "detecting" && (
-        <p className="studio-metadata-note">{t("studio.lens.lookingUp")}</p>
-      )}
-      {status === "not_found" && (
+      {status === 'detecting' && <p className="studio-metadata-note">{t('studio.lens.lookingUp')}</p>}
+      {status === 'not_found' && (
         <p className="studio-metadata-note">
           {exif.LensModel || exif.Model
-            ? t("studio.lens.notFound", { lens: exif.LensModel || exif.Model })
-            : t("studio.lens.notFoundPhoto")}
+            ? t('studio.lens.notFound', { lens: exif.LensModel || exif.Model })
+            : t('studio.lens.notFoundPhoto')}
         </p>
       )}
       {cameraMode && enabled ? (
         <div className="studio-metadata-field">
-          <span>{t("studio.lens.profile")}</span>
+          <span>{t('studio.lens.profile')}</span>
           <span className="studio-lens-profile">
-            {camera
-              ? t("studio.lens.cameraDataOf", { maker: camera.maker })
-              : t("studio.lens.cameraData")}
+            {camera ? t('studio.lens.cameraDataOf', { maker: camera.maker }) : t('studio.lens.cameraData')}
             <button
               className="studio-text-button"
-              title={t("studio.lens.useDatabaseTitle")}
-              onClick={() => chooseMaker("")}
+              title={t('studio.lens.useDatabaseTitle')}
+              onClick={() => chooseMaker('')}
             >
-              {t("studio.lens.useDatabase")}
+              {t('studio.lens.useDatabase')}
             </button>
           </span>
         </div>
       ) : (
         <>
           <label className="studio-metadata-field">
-            <span>{t("studio.lens.make")}</span>
+            <span>{t('studio.lens.make')}</span>
             <select
-              aria-label={t("studio.lens.aria.make")}
-              value={adjustments.lensMaker ?? ""}
+              aria-label={t('studio.lens.aria.make')}
+              value={adjustments.lensMaker ?? ''}
               disabled={!ready}
               onChange={(e) => chooseMaker(e.target.value)}
             >
-              <option value="">{t("studio.lens.none")}</option>
+              <option value="">{t('studio.lens.none')}</option>
               {makers.map((maker) => (
                 <option key={maker} value={maker}>
                   {maker}
@@ -266,16 +257,14 @@ export default function StudioLensCorrection() {
             </select>
           </label>
           <label className="studio-metadata-field">
-            <span>{t("studio.lens.model")}</span>
+            <span>{t('studio.lens.model')}</span>
             <select
-              aria-label={t("studio.lens.aria.model")}
-              value={adjustments.lensModel ?? ""}
+              aria-label={t('studio.lens.aria.model')}
+              value={adjustments.lensModel ?? ''}
               disabled={!ready || !adjustments.lensMaker}
               onChange={(e) => void chooseModel(e.target.value)}
             >
-              <option value="">
-                {adjustments.lensMaker ? t("studio.lens.chooseLens") : "—"}
-              </option>
+              <option value="">{adjustments.lensMaker ? t('studio.lens.chooseLens') : '—'}</option>
               {lenses.map((lens) => (
                 <option key={lens} value={lens}>
                   {lens}
@@ -284,40 +273,31 @@ export default function StudioLensCorrection() {
             </select>
           </label>
           {camera && (
-            <button
-              className="studio-text-button"
-              onClick={() => applyCamera(camera)}
-            >
-              {t("studio.lens.useCameraData", { maker: camera.maker })}
+            <button className="studio-text-button" onClick={() => applyCamera(camera)}>
+              {t('studio.lens.useCameraData', { maker: camera.maker })}
             </button>
           )}
         </>
       )}
       {enabled && !adjustments.lensDistortionParams && (
-        <p className="studio-metadata-note">{t("studio.lens.noFocalData")}</p>
+        <p className="studio-metadata-note">{t('studio.lens.noFocalData')}</p>
       )}
-      {amount(t("studio.lens.distortion"), "lensDistortionAmount")}
-      {amount(
-        t("studio.lens.vignetting"),
-        "lensVignetteAmount",
-        cameraMode && !camera?.vignetting,
-      )}
-      {amount(t("studio.lens.chromaticShort"), "lensTcaAmount", cameraMode)}
+      {amount(t('studio.lens.distortion'), 'lensDistortionAmount')}
+      {amount(t('studio.lens.vignetting'), 'lensVignetteAmount', cameraMode && !camera?.vignetting)}
+      {amount(t('studio.lens.chromaticShort'), 'lensTcaAmount', cameraMode)}
       <AdjustmentControl
-        label={t("studio.lens.manualVignetting")}
+        label={t('studio.lens.manualVignetting')}
         value={adjustments.lensManualVignetteAmount ?? 0}
         min={-100}
         max={100}
         step={1}
         defaultValue={0}
         disabled={!ready}
-        onChange={(value) =>
-          setAdjustments((prev) => ({ ...prev, lensManualVignetteAmount: value || undefined }))
-        }
+        onChange={(value) => setAdjustments((prev) => ({ ...prev, lensManualVignetteAmount: value || undefined }))}
         onInteraction={(active) => setEditor({ isSliderDragging: active })}
       />
       <AdjustmentControl
-        label={t("studio.lens.manualVignettingMidpoint")}
+        label={t('studio.lens.manualVignettingMidpoint')}
         value={adjustments.lensManualVignetteMidpoint ?? 50}
         min={0}
         max={100}
@@ -327,15 +307,12 @@ export default function StudioLensCorrection() {
         onChange={(value) =>
           setAdjustments((prev) => ({
             ...prev,
-            lensManualVignetteMidpoint: value === 50 ? undefined : value,
+            lensManualVignetteMidpoint: value === 50 ? undefined : value
           }))
         }
         onInteraction={(active) => setEditor({ isSliderDragging: active })}
       />
-      <label
-        className="studio-check studio-lens-enable"
-        title={t("studio.lens.diffractionTitle")}
-      >
+      <label className="studio-check studio-lens-enable" title={t('studio.lens.diffractionTitle')}>
         <input
           type="checkbox"
           checked={!!adjustments.diffractionCorrection}
@@ -345,19 +322,16 @@ export default function StudioLensCorrection() {
               ...prev,
               diffractionCorrection: e.target.checked || undefined,
               // The current lookup (diffraction.rs VERSION) for a new request.
-              diffractionVersion: e.target.checked ? 2 : undefined,
+              diffractionVersion: e.target.checked ? 2 : undefined
             }))
           }
         />
-        {t("studio.lens.diffraction")}
+        {t('studio.lens.diffraction')}
       </label>
-      <label
-        className="studio-check studio-lens-enable"
-        title={t("studio.lens.removeCaTitle")}
-      >
+      <label className="studio-check studio-lens-enable" title={t('studio.lens.removeCaTitle')}>
         <input
           type="checkbox"
-          aria-label={t("studio.lens.removeCa")}
+          aria-label={t('studio.lens.removeCa')}
           checked={autoCaOn(adjustments)}
           disabled={!ready}
           onChange={(e) => {
@@ -370,7 +344,7 @@ export default function StudioLensCorrection() {
             });
           }}
         />
-        {t("studio.lens.removeCa")}
+        {t('studio.lens.removeCa')}
       </label>
     </ToolGroup>
   );

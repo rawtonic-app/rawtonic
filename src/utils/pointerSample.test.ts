@@ -10,7 +10,7 @@ import {
   pointerToNormalized,
   readoutColor,
   readoutValues,
-  type PreviewPatch,
+  type PreviewPatch
 } from './pointerSample';
 
 const patchOf = (overrides: Partial<PreviewPatch> = {}): PreviewPatch => ({
@@ -22,7 +22,7 @@ const patchOf = (overrides: Partial<PreviewPatch> = {}): PreviewPatch => ({
   center: [5, 5],
   mean: [10, 20, 30],
   frame: [400, 300],
-  ...overrides,
+  ...overrides
 });
 
 describe('pointerToNormalized', () => {
@@ -30,7 +30,10 @@ describe('pointerToNormalized', () => {
     // Fit: the photograph shown 600 × 400 at (100, 50).
     expect(pointerToNormalized(400, 250, { left: 100, top: 50, width: 600, height: 400 })).toEqual({ x: 0.5, y: 0.5 });
     // 400 %: the same photograph 2400 × 1600, panned so its origin is off screen.
-    expect(pointerToNormalized(400, 250, { left: -800, top: -550, width: 2400, height: 1600 })).toEqual({ x: 0.5, y: 0.5 });
+    expect(pointerToNormalized(400, 250, { left: -800, top: -550, width: 2400, height: 1600 })).toEqual({
+      x: 0.5,
+      y: 0.5
+    });
   });
 
   it('is independent of the screen pixel density', () => {
@@ -78,7 +81,13 @@ describe('readout values', () => {
 
   it('is the pickers’ mean, or the pointer’s own cell at a clipped edge', () => {
     expect(readoutColor(patchOf())).toEqual([10, 20, 30]);
-    const clipped = patchOf({ column: 3, width: 8, mean: null, center: [2, 5], pixels: Array.from({ length: 88 * 3 }, (_, i) => i) });
+    const clipped = patchOf({
+      column: 3,
+      width: 8,
+      mean: null,
+      center: [2, 5],
+      pixels: Array.from({ length: 88 * 3 }, (_, i) => i)
+    });
     // Cell (5, 5) of the block = (2, 5) of the patch = index 5 * 8 + 2.
     expect(readoutColor(clipped)).toEqual([126, 127, 128]);
     expect(patchCell(clipped, 2, 5)).toBeNull();
@@ -92,7 +101,13 @@ describe('loupePlacement', () => {
     p.x >= place.left && p.x <= place.left + loupe.width && p.y >= place.top && p.y <= place.top + loupe.height;
 
   it('never covers the sampled pixel, also at the edges', () => {
-    for (const p of [{ x: 10, y: 10 }, { x: 990, y: 10 }, { x: 10, y: 690 }, { x: 990, y: 690 }, { x: 500, y: 350 }]) {
+    for (const p of [
+      { x: 10, y: 10 },
+      { x: 990, y: 10 },
+      { x: 10, y: 690 },
+      { x: 990, y: 690 },
+      { x: 500, y: 350 }
+    ]) {
       const place = loupePlacement(p, loupe, viewer);
       expect(covers(place, p)).toBe(false);
       expect(place.left + loupe.width).toBeLessThanOrEqual(viewer.width);
@@ -141,7 +156,7 @@ describe('createPatchSampler', () => {
     const sampler = createPatchSampler(
       onSample,
       () => new Promise((resolve) => (answer = resolve)),
-      (run) => run(),
+      (run) => run()
     );
     sampler.request({ path: '/a.raw', x: 0.5, y: 0.5, clientX: 0, clientY: 0 });
     sampler.cancel();
@@ -155,7 +170,8 @@ describe('browser-rendered preview patches (no native display)', () => {
   // Pixel (x, y) of a 20 × 17 image is [x, y, x + y, 255].
   const image = (left: number, top: number, width: number, height: number) => {
     const data: number[] = [];
-    for (let y = top; y < top + height; y += 1) for (let x = left; x < left + width; x += 1) data.push(x, y, x + y, 255);
+    for (let y = top; y < top + height; y += 1)
+      for (let x = left; x < left + width; x += 1) data.push(x, y, x + y, 255);
     return data;
   };
 
@@ -193,7 +209,7 @@ describe('browser-rendered preview patches (no native display)', () => {
       getImageData(_x: number, _y: number, width: number, height: number) {
         const [left, top] = drawn[drawn.length - 1];
         return { data: image(left, top, width, height) };
-      },
+      }
     } as never);
     let url: string | null = 'blob:preview-1';
     const fetch = createImagePatchFetch(() => url);

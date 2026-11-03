@@ -57,12 +57,12 @@ export function previewsMenu(t: TFunction, paths: string[]): Option {
     submenu: [
       {
         label: withCount(t('previews.menu.buildStandard')),
-        onClick: run(() => buildPreviews(paths, false)),
+        onClick: run(() => buildPreviews(paths, false))
       },
       { label: withCount(t('previews.menu.buildFull')), onClick: run(() => buildPreviews(paths, true)) },
       { label: withCount(t('previews.menu.discardFull')), onClick: discard(true) },
-      { label: withCount(t('previews.menu.discardAll')), onClick: discard(false) },
-    ],
+      { label: withCount(t('previews.menu.discardAll')), onClick: discard(false) }
+    ]
   };
 }
 
@@ -82,7 +82,7 @@ export function previewTargetResolution({
   fullDpi,
   zoomMultiplier,
   original,
-  grain,
+  grain
 }: {
   display: { width: number; height: number };
   dpr: number;

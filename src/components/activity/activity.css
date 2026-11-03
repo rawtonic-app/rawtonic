@@ -24,7 +24,7 @@
   cursor: pointer;
 }
 .activity-slot-button:hover,
-.activity-slot-button[aria-expanded="true"] {
+.activity-slot-button[aria-expanded='true'] {
   color: var(--app-text-primary, #e8e8e8);
   background: rgb(255 255 255 / 0.08);
 }
@@ -62,10 +62,14 @@
   animation: activity-turn 1s steps(8) infinite;
 }
 @keyframes activity-turn {
-  to { transform: rotate(270deg); }
+  to {
+    transform: rotate(270deg);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .activity-ring.is-indeterminate .activity-ring-value { animation: none; }
+  .activity-ring.is-indeterminate .activity-ring-value {
+    animation: none;
+  }
 }
 .activity-dot {
   display: inline-block;
@@ -74,8 +78,12 @@
   height: 7px;
   border-radius: 50%;
 }
-.activity-dot.is-failure { background: #e06c66; }
-.activity-dot.is-warning { background: #e5bc72; }
+.activity-dot.is-failure {
+  background: #e06c66;
+}
+.activity-dot.is-warning {
+  background: #e5bc72;
+}
 
 .activity-panel {
   position: fixed;
@@ -92,7 +100,9 @@
   font-size: 12px;
   line-height: 1.45;
 }
-.activity-panel:focus { outline: none; }
+.activity-panel:focus {
+  outline: none;
+}
 .activity-panel-head,
 .activity-section-head {
   display: flex;
@@ -106,7 +116,9 @@
   font-size: 12px;
   font-weight: 600;
 }
-.activity-section { margin-top: 10px; }
+.activity-section {
+  margin-top: 10px;
+}
 .activity-section h3 {
   margin: 0 0 4px;
   color: #9a9ca0;
@@ -115,8 +127,15 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.activity-section ul { margin: 0; padding: 0; list-style: none; }
-.activity-empty { margin: 0; color: #7d7f83; }
+.activity-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.activity-empty {
+  margin: 0;
+  color: #7d7f83;
+}
 .activity-entry {
   display: flex;
   align-items: flex-start;
@@ -124,7 +143,9 @@
   padding: 6px 0;
   border-top: 1px solid #36373a;
 }
-.activity-entry:first-child { border-top: 0; }
+.activity-entry:first-child {
+  border-top: 0;
+}
 .activity-entry-mark {
   display: inline-flex;
   align-items: center;
@@ -134,7 +155,11 @@
   flex-shrink: 0;
   color: #9a9ca0;
 }
-.activity-entry-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.activity-entry-main {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 span.activity-entry-title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -142,7 +167,9 @@ span.activity-entry-title {
   overflow: hidden;
   color: #e0e1e3;
 }
-.activity-entry-title p { margin: 0; }
+.activity-entry-title p {
+  margin: 0;
+}
 .activity-entry-detail {
   /* A few lines; Copy details has all of it. */
   display: -webkit-box;
@@ -153,9 +180,21 @@ span.activity-entry-title {
   color: #9a9ca0;
   white-space: pre-line;
 }
-.activity-entry-progress { display: block; width: 100%; height: 4px; margin-top: 4px; }
-.activity-entry-actions { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; }
-.activity-entry-actions:empty { display: none; }
+.activity-entry-progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 4px;
+}
+.activity-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 3px;
+}
+.activity-entry-actions:empty {
+  display: none;
+}
 .activity-entry-actions button,
 .activity-entry-title button,
 .activity-clear {
@@ -177,7 +216,10 @@ span.activity-entry-title {
   color: #9a9ca0;
   cursor: pointer;
 }
-.activity-entry-dismiss:hover { color: #e0e1e3; background: rgb(255 255 255 / 0.08); }
+.activity-entry-dismiss:hover {
+  color: #e0e1e3;
+  background: rgb(255 255 255 / 0.08);
+}
 .activity-panel button:focus-visible {
   outline: 2px solid var(--app-accent, #a9bdcc);
   outline-offset: 1px;
@@ -186,15 +228,32 @@ span.activity-entry-title {
 /* Windows High Contrast and other forced colours: the dot keeps a shape
    (filled for a failure, a ring for a warning) instead of its colour. */
 @media (forced-colors: active) {
-  .activity-dot { forced-color-adjust: none; border: 1px solid CanvasText; }
-  .activity-dot.is-failure { background: Mark; }
-  .activity-dot.is-warning { background: Canvas; }
-  .activity-ring-track { stroke: GrayText; }
-  .activity-ring-value { stroke: CanvasText; }
-  .activity-panel { border-color: CanvasText; }
+  .activity-dot {
+    forced-color-adjust: none;
+    border: 1px solid CanvasText;
+  }
+  .activity-dot.is-failure {
+    background: Mark;
+  }
+  .activity-dot.is-warning {
+    background: Canvas;
+  }
+  .activity-ring-track {
+    stroke: GrayText;
+  }
+  .activity-ring-value {
+    stroke: CanvasText;
+  }
+  .activity-panel {
+    border-color: CanvasText;
+  }
   .activity-entry-actions button,
   .activity-entry-title button,
-  .activity-clear { color: LinkText; }
+  .activity-clear {
+    color: LinkText;
+  }
   .activity-slot-button:focus-visible,
-  .activity-panel button:focus-visible { outline-color: Highlight; }
+  .activity-panel button:focus-visible {
+    outline-color: Highlight;
+  }
 }

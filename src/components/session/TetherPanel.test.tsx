@@ -1,18 +1,18 @@
-import "../../i18n";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import TetherPanel, { ramOnly, type TetherStatus } from "./TetherPanel";
-import { TETHER_CAPTURE_EVENT, isTetherConnected, isTetherExperimental, notDeliveredToast } from "./tether";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useUIStore } from "../../store/useUIStore";
-import type { AppSettings } from "../ui/AppProperties";
+import '../../i18n';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import TetherPanel, { ramOnly, type TetherStatus } from './TetherPanel';
+import { TETHER_CAPTURE_EVENT, isTetherConnected, isTetherExperimental, notDeliveredToast } from './tether';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
+import type { AppSettings } from '../ui/AppProperties';
 
 type Callback = (event: { payload: unknown }) => void;
 // Every listener of an event hears it (the panel and its camera test).
 const callbacks = vi.hoisted(() => new Map<string, Callback>());
 const listeners = vi.hoisted(() => new Map<string, Set<Callback>>());
-vi.mock("@tauri-apps/api/event", () => ({
+vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((name: string, callback: Callback) => {
     const all = listeners.get(name) ?? new Set<Callback>();
     listeners.set(name, all.add(callback));
@@ -21,31 +21,38 @@ vi.mock("@tauri-apps/api/event", () => ({
       all.delete(callback);
       if (all.size === 0) callbacks.delete(name);
     });
-  }),
+  })
 }));
 const invoke = vi.hoisted(() => vi.fn());
-vi.mock("@tauri-apps/api/core", () => ({ invoke, isTauri: () => true }));
-vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke, isTauri: () => true }));
+vi.mock('../../activity/notify', () => ({ notify: { error: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
 
 const STATUS: TetherStatus = {
-  session: "/jobs/Acme",
-  camera: { model: "Sony ILCE-7M4", port: "usb:020,004", battery: "80%", captureTarget: null, canCapture: true, canPreview: true },
+  session: '/jobs/Acme',
+  camera: {
+    model: 'Sony ILCE-7M4',
+    port: 'usb:020,004',
+    battery: '80%',
+    captureTarget: null,
+    canCapture: true,
+    canPreview: true
+  }
 };
 const SETTINGS = [
-  { key: "iso", cameraKey: "iso", label: "ISO", value: "100", choices: ["100", "200"], readOnly: false },
-  { key: "aperture", cameraKey: "f-number", label: "Aperture", value: "f/8", choices: ["f/8"], readOnly: true },
+  { key: 'iso', cameraKey: 'iso', label: 'ISO', value: '100', choices: ['100', '200'], readOnly: false },
+  { key: 'aperture', cameraKey: 'f-number', label: 'Aperture', value: 'f/8', choices: ['f/8'], readOnly: true }
 ];
 
 beforeEach(() => {
   invoke.mockImplementation((command: string) => {
     switch (command) {
-      case "tether_cameras":
-        return Promise.resolve({ library: "2.5.34", cameras: [{ model: "Sony ILCE-7M4", port: "usb:020,004" }] });
-      case "tether_connect":
+      case 'tether_cameras':
+        return Promise.resolve({ library: '2.5.34', cameras: [{ model: 'Sony ILCE-7M4', port: 'usb:020,004' }] });
+      case 'tether_connect':
         return Promise.resolve(STATUS);
-      case "tether_settings":
+      case 'tether_settings':
         return Promise.resolve(SETTINGS);
-      case "load_presets":
+      case 'load_presets':
         return Promise.resolve([]);
       default:
         return Promise.resolve(null);
@@ -60,108 +67,129 @@ afterEach(() => {
 });
 
 function Harness({ initial = null as TetherStatus | null, onStatus = vi.fn(), hidden = false, onClose = vi.fn() }) {
-  return <TetherPanel hidden={hidden} directory="/jobs/Acme" jobName="Acme" status={initial} onStatus={onStatus} onClose={onClose} />;
+  return (
+    <TetherPanel
+      hidden={hidden}
+      directory="/jobs/Acme"
+      jobName="Acme"
+      status={initial}
+      onStatus={onStatus}
+      onClose={onClose}
+    />
+  );
 }
 
-it("connects the camera found on USB for this library, with the next-capture settings", async () => {
+it('connects the camera found on USB for this library, with the next-capture settings', async () => {
   const onStatus = vi.fn();
   render(<Harness onStatus={onStatus} />);
-  await waitFor(() => expect(screen.getByRole("option", { name: "Sony ILCE-7M4" })).toBeTruthy());
-  fireEvent.change(screen.getByLabelText("Next capture rating"), { target: { value: "3" } });
-  fireEvent.change(screen.getByLabelText("Next capture keywords"), { target: { value: "studio, Acme" } });
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  await waitFor(() => expect(screen.getByRole('option', { name: 'Sony ILCE-7M4' })).toBeTruthy());
+  fireEvent.change(screen.getByLabelText('Next capture rating'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Next capture keywords'), { target: { value: 'studio, Acme' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
   await waitFor(() => expect(onStatus).toHaveBeenCalledWith(STATUS));
-  expect(invoke).toHaveBeenCalledWith("tether_connect", {
-    directory: "/jobs/Acme",
-    port: "usb:020,004",
-    template: "{orig}",
-    nextCapture: { mode: "defaults" },
-    metadata: { rating: 3, keywords: ["studio", "Acme"] },
-    freeCameraCopies: true,
+  expect(invoke).toHaveBeenCalledWith('tether_connect', {
+    directory: '/jobs/Acme',
+    port: 'usb:020,004',
+    template: '{orig}',
+    nextCapture: { mode: 'defaults' },
+    metadata: { rating: 3, keywords: ['studio', 'Acme'] },
+    freeCameraCopies: true
   });
 });
 
-it("frees photos on a camera with a transfer queue unless the user turns it off", async () => {
-  localStorage.removeItem("rawtonic.tether.freeCameraCopies");
+it('frees photos on a camera with a transfer queue unless the user turns it off', async () => {
+  localStorage.removeItem('rawtonic.tether.freeCameraCopies');
   render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  expect(screen.queryByRole("checkbox", { name: /Free photos on the camera/ })).toBeNull();
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
+  expect(screen.queryByRole('checkbox', { name: /Free photos on the camera/ })).toBeNull();
   cleanup();
   render(<Harness initial={{ ...STATUS, camera: { ...STATUS.camera, transferQueue: true } }} />);
-  const box = await screen.findByRole("checkbox", { name: /Free photos on the camera/ });
+  const box = await screen.findByRole('checkbox', { name: /Free photos on the camera/ });
   expect((box as HTMLInputElement).checked).toBe(true);
   fireEvent.click(box);
   await waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith("tether_next_capture", expect.objectContaining({ freeCameraCopies: false })),
+    expect(invoke).toHaveBeenCalledWith('tether_next_capture', expect.objectContaining({ freeCameraCopies: false }))
   );
-  expect(localStorage.getItem("rawtonic.tether.freeCameraCopies")).toBe("0");
-  localStorage.removeItem("rawtonic.tether.freeCameraCopies");
+  expect(localStorage.getItem('rawtonic.tether.freeCameraCopies')).toBe('0');
+  localStorage.removeItem('rawtonic.tether.freeCameraCopies');
 });
 
-it("fires from the button and the Capture shortcut, shows settings set on the body as such", async () => {
+it('fires from the button and the Capture shortcut, shows settings set on the body as such', async () => {
   render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
   expect(isTetherConnected()).toBe(true);
   // Aperture is set on the body: shown, not offered.
-  expect(screen.queryByRole("combobox", { name: "Aperture" })).toBeNull();
-  expect(screen.getByText("f/8").tagName).toBe("OUTPUT");
-  fireEvent.change(screen.getByLabelText("ISO"), { target: { value: "200" } });
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith("tether_set_setting", { key: "iso", value: "200" }));
-  fireEvent.click(screen.getByRole("button", { name: "Capture" }));
+  expect(screen.queryByRole('combobox', { name: 'Aperture' })).toBeNull();
+  expect(screen.getByText('f/8').tagName).toBe('OUTPUT');
+  fireEvent.change(screen.getByLabelText('ISO'), { target: { value: '200' } });
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('tether_set_setting', { key: 'iso', value: '200' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Capture' }));
   act(() => {
     window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
   });
-  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === "tether_capture")).toHaveLength(2));
+  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === 'tether_capture')).toHaveLength(2));
   act(() =>
-    callbacks.get("tether-captured")!({
-      payload: { cameraName: "DSC00001.ARW", destination: "/jobs/Acme/Capture/DSC00001.ARW", assetId: "a", skipped: false, error: null, requested: true, msToEvent: 120, msToDownloaded: 480, msToIngested: 530 },
-    }),
+    callbacks.get('tether-captured')!({
+      payload: {
+        cameraName: 'DSC00001.ARW',
+        destination: '/jobs/Acme/Capture/DSC00001.ARW',
+        assetId: 'a',
+        skipped: false,
+        error: null,
+        requested: true,
+        msToEvent: 120,
+        msToDownloaded: 480,
+        msToIngested: 530
+      }
+    })
   );
   expect(screen.getByText(/DSC00001.ARW in the library 530 ms/)).toBeTruthy();
 });
 
-it("a closed panel of a connected camera still fires on the Capture shortcut", async () => {
+it('a closed panel of a connected camera still fires on the Capture shortcut', async () => {
   render(<Harness initial={STATUS} hidden />);
   await waitFor(() => expect(isTetherConnected()).toBe(true));
-  expect(screen.queryByRole("button", { name: "Capture" })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Capture' })).toBeNull();
   act(() => {
     window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
   });
-  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === "tether_capture")).toHaveLength(1));
+  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === 'tether_capture')).toHaveLength(1));
 });
 
-it("an unplugged camera is reported and the panel offers to connect again", async () => {
+it('an unplugged camera is reported and the panel offers to connect again', async () => {
   const onStatus = vi.fn();
   render(<Harness initial={STATUS} onStatus={onStatus} />);
-  await waitFor(() => expect(callbacks.has("tether-state")).toBe(true));
+  await waitFor(() => expect(callbacks.has('tether-state')).toBe(true));
   act(() =>
-    callbacks.get("tether-state")!({
-      payload: { connected: false, error: { kind: "disconnected", message: "The camera was disconnected." } },
-    }),
+    callbacks.get('tether-state')!({
+      payload: { connected: false, error: { kind: 'disconnected', message: 'The camera was disconnected.' } }
+    })
   );
   expect(onStatus).toHaveBeenCalledWith(null);
 });
 
-it("a camera plugged in while the panel is open shows up without a refresh", async () => {
+it('a camera plugged in while the panel is open shows up without a refresh', async () => {
   let cameras: { model: string; port: string }[] = [];
   invoke.mockImplementation((command: string) =>
-    Promise.resolve(command === "tether_cameras" ? { library: "2.5.34", cameras } : command === "load_presets" ? [] : null),
+    Promise.resolve(
+      command === 'tether_cameras' ? { library: '2.5.34', cameras } : command === 'load_presets' ? [] : null
+    )
   );
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
     render(<Harness />);
-    await waitFor(() => expect(screen.getByText("No camera found on USB")).toBeTruthy());
-    cameras = [{ model: "Sony ILCE-7M4", port: "usb:020,004" }];
+    await waitFor(() => expect(screen.getByText('No camera found on USB')).toBeTruthy());
+    cameras = [{ model: 'Sony ILCE-7M4', port: 'usb:020,004' }];
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2500);
     });
-    await waitFor(() => expect(screen.getByRole("option", { name: "Sony ILCE-7M4" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Sony ILCE-7M4' })).toBeTruthy());
   } finally {
     vi.useRealTimers();
   }
 });
 
-it("a camera that came back is shown as connected again, without an error", async () => {
+it('a camera that came back is shown as connected again, without an error', async () => {
   let setStatus: (status: TetherStatus | null) => void = () => undefined;
   function Stateful() {
     const [status, set] = useState<TetherStatus | null>(STATUS);
@@ -169,100 +197,100 @@ it("a camera that came back is shown as connected again, without an error", asyn
     return <TetherPanel directory="/jobs/Acme" jobName="Acme" status={status} onStatus={set} onClose={vi.fn()} />;
   }
   render(<Stateful />);
-  await waitFor(() => expect(callbacks.has("tether-state")).toBe(true));
+  await waitFor(() => expect(callbacks.has('tether-state')).toBe(true));
   act(() =>
-    callbacks.get("tether-state")!({
-      payload: { connected: false, error: { kind: "disconnected", message: "The camera was disconnected." } },
-    }),
+    callbacks.get('tether-state')!({
+      payload: { connected: false, error: { kind: 'disconnected', message: 'The camera was disconnected.' } }
+    })
   );
   expect(screen.getByText(/connects the camera again when it is back/)).toBeTruthy();
   // The workspace sets the status again; the panel clears its error.
   act(() => {
     setStatus(STATUS);
-    callbacks.get("tether-state")!({ payload: { connected: true, status: STATUS } });
+    callbacks.get('tether-state')!({ payload: { connected: true, status: STATUS } });
   });
-  await waitFor(() => expect(screen.queryByText("The camera was disconnected.")).toBeNull());
+  await waitFor(() => expect(screen.queryByText('The camera was disconnected.')).toBeNull());
   expect(screen.queryByText(/connects the camera again when it is back/)).toBeNull();
 });
 
-it("says when a camera keeps its photos only in its memory", () => {
-  expect(ramOnly([{ key: "capturetarget", value: "Internal RAM" }])).toBe(true);
-  expect(ramOnly([{ key: "capturetarget", value: "sdram" }])).toBe(true);
-  expect(ramOnly([{ key: "capturetarget", value: "card+sdram" }])).toBe(false);
-  expect(ramOnly([{ key: "capturetarget", value: "Memory card" }])).toBe(false);
-  expect(ramOnly([{ key: "iso", value: "100" }])).toBe(false);
+it('says when a camera keeps its photos only in its memory', () => {
+  expect(ramOnly([{ key: 'capturetarget', value: 'Internal RAM' }])).toBe(true);
+  expect(ramOnly([{ key: 'capturetarget', value: 'sdram' }])).toBe(true);
+  expect(ramOnly([{ key: 'capturetarget', value: 'card+sdram' }])).toBe(false);
+  expect(ramOnly([{ key: 'capturetarget', value: 'Memory card' }])).toBe(false);
+  expect(ramOnly([{ key: 'iso', value: '100' }])).toBe(false);
 });
 
-it("fires on the Capture shortcut with no panel mounted (fullscreen) and keeps the next-capture choice", async () => {
+it('fires on the Capture shortcut with no panel mounted (fullscreen) and keeps the next-capture choice', async () => {
   const { unmount } = render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  fireEvent.click(screen.getByText("Next capture"));
-  fireEvent.change(screen.getByLabelText("Next capture rating"), { target: { value: "4" } });
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
+  fireEvent.click(screen.getByText('Next capture'));
+  fireEvent.change(screen.getByLabelText('Next capture rating'), { target: { value: '4' } });
   unmount();
   expect(isTetherConnected()).toBe(true);
   act(() => {
     window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
   });
-  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === "tether_capture")).toHaveLength(1));
+  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === 'tether_capture')).toHaveLength(1));
   // Shown again: the choice the connection uses, not the defaults.
   render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  fireEvent.click(screen.getByText("Next capture"));
-  expect((screen.getByLabelText("Next capture rating") as HTMLSelectElement).value).toBe("4");
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
+  fireEvent.click(screen.getByText('Next capture'));
+  expect((screen.getByLabelText('Next capture rating') as HTMLSelectElement).value).toBe('4');
 });
 
 it("stops the camera's live view when the panel goes away", async () => {
   const { unmount } = render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  fireEvent.click(screen.getByRole("button", { name: "Live view" }));
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: true }));
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
+  fireEvent.click(screen.getByRole('button', { name: 'Live view' }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('tether_live_view', { on: true }));
   unmount();
-  expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: false });
+  expect(invoke).toHaveBeenCalledWith('tether_live_view', { on: false });
 });
 
-it("stops a live view whose start was still on its way when the panel went away", async () => {
+it('stops a live view whose start was still on its way when the panel went away', async () => {
   let answer: (value: null) => void = () => {};
   const base = invoke.getMockImplementation()!;
   invoke.mockImplementation((command: string, args?: unknown) =>
-    command === "tether_live_view" && (args as { on: boolean }).on
+    command === 'tether_live_view' && (args as { on: boolean }).on
       ? new Promise((resolve) => (answer = resolve))
-      : base(command, args),
+      : base(command, args)
   );
   const { unmount } = render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  fireEvent.click(screen.getByRole("button", { name: "Live view" }));
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: true }));
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
+  fireEvent.click(screen.getByRole('button', { name: 'Live view' }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('tether_live_view', { on: true }));
   unmount();
-  expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: false });
+  expect(invoke).toHaveBeenCalledWith('tether_live_view', { on: false });
   answer(null);
 });
 
-it("shows what the compatibility list says of the connected camera model", async () => {
+it('shows what the compatibility list says of the connected camera model', async () => {
   render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
   expect(screen.getByText(/Not tested with this camera model yet/)).toBeTruthy();
   cleanup();
-  render(<Harness initial={{ ...STATUS, camera: { ...STATUS.camera, model: "Fuji Fujifilm X-H2S" } }} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  render(<Harness initial={{ ...STATUS, camera: { ...STATUS.camera, model: 'Fuji Fujifilm X-H2S' } }} />);
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
   expect(screen.queryByText(/Not tested with this camera model yet/)).toBeNull();
   expect(screen.getByText(/Tested with this camera model on macOS 26 \(2026-10-19\)/)).toBeTruthy();
 });
 
-it("says before connecting a Canon that it is experimental and needs the opt-in in Preferences", async () => {
+it('says before connecting a Canon that it is experimental and needs the opt-in in Preferences', async () => {
   const base = invoke.getMockImplementation()!;
   invoke.mockImplementation((command: string, args?: unknown) =>
-    command === "tether_cameras"
-      ? Promise.resolve({ library: "2.5.34", cameras: [{ model: "Canon EOS R5", port: "usb:020,007" }] })
-      : base(command, args),
+    command === 'tether_cameras'
+      ? Promise.resolve({ library: '2.5.34', cameras: [{ model: 'Canon EOS R5', port: 'usb:020,007' }] })
+      : base(command, args)
   );
   useSettingsStore.setState({ appSettings: { lastRootPath: null } as AppSettings });
   const onClose = vi.fn();
   render(<Harness onClose={onClose} />);
   expect(await screen.findByText(/Experimental — testers wanted/)).toBeTruthy();
   expect(screen.getByText(/turn on “Experimental: Canon cameras” in Preferences > Tethering/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Open Tethering preferences" }));
+  fireEvent.click(screen.getByRole('button', { name: 'Open Tethering preferences' }));
   expect(useUIStore.getState().isSettingsOpen).toBe(true);
-  expect(useUIStore.getState().settingsCategory).toBe("tethering");
+  expect(useUIStore.getState().settingsCategory).toBe('tethering');
   // The floating panel goes, so it does not cover the Preferences page.
   expect(onClose).toHaveBeenCalled();
   cleanup();
@@ -270,63 +298,67 @@ it("says before connecting a Canon that it is experimental and needs the opt-in 
   useSettingsStore.setState({ appSettings: { lastRootPath: null, tetherExperimentalCanon: true } as AppSettings });
   render(<Harness />);
   expect(await screen.findByText(/Experimental — testers wanted/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Open Tethering preferences" })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Open Tethering preferences' })).toBeNull();
   useSettingsStore.setState({ appSettings: null });
   useUIStore.getState().setUI({ isSettingsOpen: false, settingsCategory: null });
 });
 
-it("marks a camera on the experimental path and says where a missing shot is", async () => {
-  const canon = { ...STATUS, camera: { ...STATUS.camera, model: "Canon EOS R6", experimental: true } };
+it('marks a camera on the experimental path and says where a missing shot is', async () => {
+  const canon = { ...STATUS, camera: { ...STATUS.camera, model: 'Canon EOS R6', experimental: true } };
   render(<Harness initial={canon} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  expect(screen.getByText("Experimental")).toBeTruthy();
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
+  expect(screen.getByText('Experimental')).toBeTruthy();
   expect(screen.getByText(/if a shot does not show up here, it is not lost — it is on the memory card/)).toBeTruthy();
   await waitFor(() => expect(isTetherExperimental()).toBe(true));
   // A shot with no photo in time: said in the user's words, kept on screen.
-  expect(notDeliveredToast({ kind: "timeout", message: "No photo came", request: 4 })).toEqual({
-    text: "Shot 4 was not received. If the camera took it, it is on the memory card.",
-    sticky: true,
+  expect(notDeliveredToast({ kind: 'timeout', message: 'No photo came', request: 4 })).toEqual({
+    text: 'Shot 4 was not received. If the camera took it, it is on the memory card.',
+    sticky: true
   });
-  expect(notDeliveredToast({ kind: "busy", message: "Busy", request: 5 }).sticky).toBe(false);
+  expect(notDeliveredToast({ kind: 'busy', message: 'Busy', request: 5 }).sticky).toBe(false);
   // A download that timed out names its exposure and keeps its own message.
-  expect(notDeliveredToast({ kind: "timeout", message: "Downloading IMG_4.CR3 timed out", request: 4, exposure: 4 })).toEqual({
-    text: "Capture failed: Downloading IMG_4.CR3 timed out",
-    sticky: false,
+  expect(
+    notDeliveredToast({ kind: 'timeout', message: 'Downloading IMG_4.CR3 timed out', request: 4, exposure: 4 })
+  ).toEqual({
+    text: 'Capture failed: Downloading IMG_4.CR3 timed out',
+    sticky: false
   });
   cleanup();
   render(<Harness initial={STATUS} />);
-  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  expect(screen.queryByText("Experimental")).toBeNull();
+  await waitFor(() => expect(screen.getByLabelText('ISO')).toBeTruthy());
+  expect(screen.queryByText('Experimental')).toBeNull();
   await waitFor(() => expect(isTetherExperimental()).toBe(false));
-  expect(notDeliveredToast({ kind: "timeout", message: "No photo came", request: 4 }).sticky).toBe(false);
+  expect(notDeliveredToast({ kind: 'timeout', message: 'No photo came', request: 4 }).sticky).toBe(false);
 });
 
-it("opens the camera test for the connected camera and keeps it through a cable pull", async () => {
+it('opens the camera test for the connected camera and keeps it through a cable pull', async () => {
   const onStatus = vi.fn();
   render(<Harness initial={STATUS} onStatus={onStatus} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Camera test…" }));
-  expect(screen.getByRole("region", { name: "Camera test" })).toBeTruthy();
-  act(() => callbacks.get("tether-state")?.({ payload: { connected: false, error: { kind: "disconnected", message: "gone" } } }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Camera test…' }));
+  expect(screen.getByRole('region', { name: 'Camera test' })).toBeTruthy();
+  act(() =>
+    callbacks.get('tether-state')?.({ payload: { connected: false, error: { kind: 'disconnected', message: 'gone' } } })
+  );
   expect(onStatus).toHaveBeenCalledWith(null);
-  expect(screen.getByRole("region", { name: "Camera test" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Close the camera test" }));
-  expect(screen.queryByRole("region", { name: "Camera test" })).toBeNull();
+  expect(screen.getByRole('region', { name: 'Camera test' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Close the camera test' }));
+  expect(screen.queryByRole('region', { name: 'Camera test' })).toBeNull();
 });
 
-it("a closed (hidden) panel ends its camera test", async () => {
+it('a closed (hidden) panel ends its camera test', async () => {
   const { rerender } = render(<Harness initial={STATUS} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Camera test…" }));
-  expect(screen.getByRole("region", { name: "Camera test" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole('button', { name: 'Camera test…' }));
+  expect(screen.getByRole('region', { name: 'Camera test' })).toBeTruthy();
   rerender(<Harness initial={STATUS} hidden />);
   rerender(<Harness initial={STATUS} />);
-  expect(screen.queryByRole("region", { name: "Camera test" })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Camera test' })).toBeNull();
 });
 
-it("says a failed shot from the shortcut while the panel is closed", async () => {
-  const { notify: toast } = await import("../../activity/notify");
+it('says a failed shot from the shortcut while the panel is closed', async () => {
+  const { notify: toast } = await import('../../activity/notify');
   const base = invoke.getMockImplementation()!;
   invoke.mockImplementation((command: string, args?: unknown) =>
-    command === "tether_capture" ? Promise.reject("The camera's transfer queue is full.") : base(command, args),
+    command === 'tether_capture' ? Promise.reject("The camera's transfer queue is full.") : base(command, args)
   );
   render(<Harness initial={STATUS} hidden />);
   await waitFor(() => expect(isTetherConnected()).toBe(true));

@@ -8,7 +8,12 @@ import { exportJobLabel, notifyExportOutputs, outputFolder } from './exportFeedb
 
 describe('export queue labels', () => {
   it('distinguishes recipes, size, format and destination', () => {
-    const label = exportJobLabel('Fast (Web)', { ...DEFAULT_RECIPE_DRAFT, resize: true, resizeMode: 'longEdge', resizeValue: 1600 }, 'jpg', '/delivery/web');
+    const label = exportJobLabel(
+      'Fast (Web)',
+      { ...DEFAULT_RECIPE_DRAFT, resize: true, resizeMode: 'longEdge', resizeValue: 1600 },
+      'jpg',
+      '/delivery/web'
+    );
     expect(label).toContain('Fast (Web)');
     expect(label).toContain('1600');
     expect(label).toContain('JPG');
@@ -32,10 +37,12 @@ describe('export queue labels', () => {
   });
 });
 
-
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../activity/notify', () => ({ notify: { success: vi.fn(), error: vi.fn() } }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 it('shows one notification for a run with a reveal action for each output folder', () => {
   notifyExportOutputs(['/delivery/web/a.jpg', '/delivery/web/b.jpg', '/delivery/print/a.tif']);

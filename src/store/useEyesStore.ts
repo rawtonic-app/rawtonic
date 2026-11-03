@@ -52,8 +52,7 @@ export interface FaceMark {
 }
 
 /** The index of the face whose box the photograph shows, if any. */
-export const markedFace = (mark: FaceMark | null): number | null =>
-  mark ? (mark.hovered ?? mark.pinned) : null;
+export const markedFace = (mark: FaceMark | null): number | null => (mark ? (mark.hovered ?? mark.pinned) : null);
 
 interface EyesState {
   /** By path as listed; a path without an entry is not read (yet). */
@@ -85,8 +84,8 @@ export const useEyesStore = create<EyesState>((set, get) => ({
         summaries,
         await invoke<Record<string, EyeSummary>>(Invokes.PhotoEyeSummaries, {
           directory,
-          paths: paths.slice(at, at + SUMMARY_BATCH),
-        }),
+          paths: paths.slice(at, at + SUMMARY_BATCH)
+        })
       );
     }
     // A change meanwhile asks again; this answer may predate it.
@@ -110,7 +109,7 @@ export const useEyesStore = create<EyesState>((set, get) => ({
   hoverFace: (path, index) =>
     set((s) => (s.faceMark?.path === path ? { faceMark: { ...s.faceMark, hovered: index } } : {})),
   pinFace: (path, index) =>
-    set((s) => (s.faceMark?.path === path ? { faceMark: { ...s.faceMark, pinned: index } } : {})),
+    set((s) => (s.faceMark?.path === path ? { faceMark: { ...s.faceMark, pinned: index } } : {}))
 }));
 
 /** Sets the photographer's call on one face (null: the reading counts again). */

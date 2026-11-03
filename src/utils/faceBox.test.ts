@@ -7,7 +7,7 @@ const square: [number, number][] = [
   [3000, 1000],
   [3400, 1000],
   [3400, 1400],
-  [3000, 1400],
+  [3000, 1400]
 ];
 
 /** Where the native view shows mask-frame pixel `p` on screen (CSS pixels):
@@ -18,12 +18,12 @@ function nativeScreen(
   p: [number, number],
   crop: { x: number; y: number; width: number; height: number },
   zoom: number,
-  pan: { x: number; y: number },
+  pan: { x: number; y: number }
 ) {
   const fit = fitInViewer(1200, 900, crop.width, crop.height);
   return {
     x: pan.x + zoom * (fit.offsetX + ((p[0] - crop.x) * fit.width) / crop.width),
-    y: pan.y + zoom * (fit.offsetY + ((p[1] - crop.y) * fit.height) / crop.height),
+    y: pan.y + zoom * (fit.offsetY + ((p[1] - crop.y) * fit.height) / crop.height)
   };
 }
 
@@ -33,7 +33,7 @@ function overlayScreen(
   q: { x: number; y: number },
   crop: { x: number; y: number; width: number; height: number },
   zoom: number,
-  pan: { x: number; y: number },
+  pan: { x: number; y: number }
 ) {
   const fit = fitInViewer(1200, 900, crop.width, crop.height);
   return { x: pan.x + zoom * (fit.offsetX + q.x), y: pan.y + zoom * (fit.offsetY + q.y) };
@@ -43,14 +43,14 @@ it('lands on the native photograph uncropped, cropped and at any zoom and pan', 
   for (const crop of [
     { x: 0, y: 0, width: 6000, height: 4000 },
     { x: 2500, y: 600, width: 1500, height: 1500 },
-    { x: 1200, y: 300, width: 4000, height: 2000 },
+    { x: 1200, y: 300, width: 4000, height: 2000 }
   ]) {
     const fit = fitInViewer(1200, 900, crop.width, crop.height);
     const points = outlineOnPhoto(square, crop.x, crop.y, fit.scale);
     for (const [zoom, pan] of [
       [1, { x: 0, y: 0 }],
       [2.5, { x: -800, y: -300 }],
-      [8, { x: -9000, y: -4000 }],
+      [8, { x: -9000, y: -4000 }]
     ] as const) {
       points.forEach((q, i) => {
         const a = overlayScreen(q, crop, zoom, pan);

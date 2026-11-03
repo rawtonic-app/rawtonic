@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { pointPressure, pressureChanged, pressureKeys, pressureMapping, usePenAvailable, withPressure } from './penPressure';
+import {
+  pointPressure,
+  pressureChanged,
+  pressureKeys,
+  pressureMapping,
+  usePenAvailable,
+  withPressure
+} from './penPressure';
 
 const both = { size: true, flow: true };
 

@@ -9,7 +9,7 @@ const photo = (index: number, state: ExportItem['state']): ExportItem => ({
   error: null,
   attempts: 0,
   startedMs: null,
-  finishedMs: null,
+  finishedMs: null
 });
 const event = (item: ExportItem) =>
   useProcessStore.getState().applyExportItemProgress({ job: 'j', item, stage: null, fraction: null });

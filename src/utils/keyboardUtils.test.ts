@@ -3,8 +3,12 @@ import { KEYBIND_DEFINITIONS, buildComboMap, conflictingActions, shortcutHint, s
 
 describe('keybinds', () => {
   it.each([
-    ['view_grid', ['KeyG']], ['view_loupe', ['KeyE']], ['view_develop', ['KeyD']],
-    ['flag_pick', ['KeyP']], ['flag_unflag', ['KeyU']], ['flag_reject', ['KeyX']],
+    ['view_grid', ['KeyG']],
+    ['view_loupe', ['KeyE']],
+    ['view_develop', ['KeyD']],
+    ['flag_pick', ['KeyP']],
+    ['flag_unflag', ['KeyU']],
+    ['flag_reject', ['KeyX']]
   ])('binds and rebinds %s through the shared table', (action, combo) => {
     expect(buildComboMap(null).get(combo.join('+'))).toContain(action);
     const rebound = buildComboMap({ [action as string]: ['ctrl', 'KeyF12'] });
@@ -14,7 +18,20 @@ describe('keybinds', () => {
   });
   it('binds the culling keys and keeps earlier aliases', () => {
     const map = buildComboMap(null);
-    for (const [key, action] of Object.entries({ KeyP: 'flag_pick', KeyX: 'flag_reject', 'shift+KeyX': 'flag_reject', KeyU: 'flag_unflag', Digit6: 'color_label_red', Digit7: 'color_label_yellow', Digit8: 'color_label_green', Digit9: 'color_label_blue', 'shift+Digit5': 'color_label_purple', CapsLock: 'toggle_auto_advance', 'alt+KeyX': 'toggle_proof_margin' })) expect(map.get(key)).toEqual([action]);
+    for (const [key, action] of Object.entries({
+      KeyP: 'flag_pick',
+      KeyX: 'flag_reject',
+      'shift+KeyX': 'flag_reject',
+      KeyU: 'flag_unflag',
+      Digit6: 'color_label_red',
+      Digit7: 'color_label_yellow',
+      Digit8: 'color_label_green',
+      Digit9: 'color_label_blue',
+      'shift+Digit5': 'color_label_purple',
+      CapsLock: 'toggle_auto_advance',
+      'alt+KeyX': 'toggle_proof_margin'
+    }))
+      expect(map.get(key)).toEqual([action]);
     for (let n = 0; n <= 5; n++) expect(map.get(`Digit${n}`)).toEqual([`rate_${n}`]);
   });
   it('bind Capture One keys with Lightroom aliases', () => {
@@ -60,7 +77,7 @@ describe('keybinds', () => {
 
   it('bind every default and alias combo of an action once', () => {
     const combos = KEYBIND_DEFINITIONS.flatMap((d) =>
-      [d.defaultCombo, ...(d.aliasCombos ?? [])].filter((c) => c.length > 0).map((c) => `${d.action}:${c.join('+')}`),
+      [d.defaultCombo, ...(d.aliasCombos ?? [])].filter((c) => c.length > 0).map((c) => `${d.action}:${c.join('+')}`)
     );
     expect(combos.length).toBe(new Set(combos).size);
     const actions = KEYBIND_DEFINITIONS.map((d) => d.action);

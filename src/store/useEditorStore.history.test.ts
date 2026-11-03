@@ -47,7 +47,8 @@ it('coalesces slider changes but settles only their latest value before undo', (
   expect(state().adjustments.relightSkinReflections).toBe(75);
 });
 it('flushes a branch edit before redo instead of resurrecting the discarded branch', () => {
-  edit(25); debouncedSetHistory.flush();
+  edit(25);
+  debouncedSetHistory.flush();
   state().undo();
   edit(80);
   state().redo();
@@ -62,7 +63,9 @@ it('cancels pending history on reset and when selecting another photo', () => {
   vi.advanceTimersByTime(1000);
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([30]);
   edit(70);
-  state().setEditor({ selectedImage: { path: '/fixture/another.jpg' } as NonNullable<ReturnType<typeof state>['selectedImage']> });
+  state().setEditor({
+    selectedImage: { path: '/fixture/another.jpg' } as NonNullable<ReturnType<typeof state>['selectedImage']>
+  });
   vi.advanceTimersByTime(1000);
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([30]);
   expect(state().historyPending).toBe(false);
@@ -129,7 +132,9 @@ it('settles a drag in progress on undo and drops it on a photo switch', () => {
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40]);
   expect(state().adjustments.relightSkinReflections).toBe(0);
   edit(50);
-  state().setEditor({ selectedImage: { path: '/fixture/other.jpg' } as NonNullable<ReturnType<typeof state>['selectedImage']> });
+  state().setEditor({
+    selectedImage: { path: '/fixture/other.jpg' } as NonNullable<ReturnType<typeof state>['selectedImage']>
+  });
   state().setEditor({ isSliderDragging: false });
   vi.advanceTimersByTime(1000);
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40]);

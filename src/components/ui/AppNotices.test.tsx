@@ -18,7 +18,7 @@ it('toasts and persistent notices share one column; toasts are polite and close 
   render(
     <AppNotices>
       <aside role="status">{UPDATE}</aside>
-    </AppNotices>,
+    </AppNotices>
   );
   const onClose = vi.fn();
   await act(async () => {
@@ -40,7 +40,11 @@ it('toasts and persistent notices share one column; toasts are polite and close 
 function Modal() {
   const ref = useRef<HTMLDivElement>(null);
   useModalFocus(ref, true);
-  return <div ref={ref} aria-modal="true" role="dialog"><button type="button">{OK}</button></div>;
+  return (
+    <div ref={ref} aria-modal="true" role="dialog">
+      <button type="button">{OK}</button>
+    </div>
+  );
 }
 const OK = 'ok';
 
@@ -52,9 +56,11 @@ it('a modal (Preferences) leaves the notices usable: a manual check shows its re
         <Modal />
       </main>
       <AppNotices>
-        <aside role="status"><button type="button">{UPDATE}</button></aside>
+        <aside role="status">
+          <button type="button">{UPDATE}</button>
+        </aside>
       </AppNotices>
-    </div>,
+    </div>
   );
   expect(screen.getByRole('button', { name: UPDATE }).closest('[inert]')).toBeNull();
 });

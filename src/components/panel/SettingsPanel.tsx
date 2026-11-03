@@ -11,7 +11,7 @@ import {
   Bookmark,
   Images,
   HardDrive,
-  Camera,
+  Camera
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -32,7 +32,7 @@ import {
   KeybindDefinition,
   KEYBIND_DEFINITIONS,
   KEYBIND_SECTIONS,
-  normalizeCombo,
+  normalizeCombo
 } from '../../utils/keyboardUtils';
 import Text from '../ui/Text';
 import AboutSettings from './AboutSettings';
@@ -52,7 +52,7 @@ import {
   DEFAULT_PROOF_MARGIN_PERCENT,
   PROOF_MARGIN_PERCENTS,
   VIEWER_BACKGROUNDS,
-  resolveViewerBackground,
+  resolveViewerBackground
 } from '../../utils/viewerDisplay';
 import { viewerBackgroundLabel } from './editor/viewerBackgroundMenu';
 import { catalogChanged } from '../../utils/catalogWrites';
@@ -126,7 +126,7 @@ const resolutions: OptionItem<number>[] = [
   { value: 1280, label: '1280px' },
   { value: 1920, label: '1920px' },
   { value: 2560, label: '2560px' },
-  { value: 3840, label: '3840px' },
+  { value: 3840, label: '3840px' }
 ];
 
 const smallThumbnailResolutions: OptionItem<number>[] = [
@@ -134,7 +134,7 @@ const smallThumbnailResolutions: OptionItem<number>[] = [
   { value: 360, label: '360px' },
   { value: 480, label: '480px' },
   { value: 640, label: '640px' },
-  { value: 720, label: '720px' },
+  { value: 720, label: '720px' }
 ];
 
 const mediumThumbnailResolutions: OptionItem<number>[] = [
@@ -142,14 +142,14 @@ const mediumThumbnailResolutions: OptionItem<number>[] = [
   { value: 1024, label: '1024px' },
   { value: 1280, label: '1280px' },
   { value: 1440, label: '1440px' },
-  { value: 1920, label: '1920px' },
+  { value: 1920, label: '1920px' }
 ];
 
 const zoomMultiplierOptions: OptionItem<number>[] = [
   { value: 1.0, label: '1.0x (Native)' },
   { value: 0.75, label: '0.75x' },
   { value: 0.5, label: '0.50x (Half)' },
-  { value: 0.25, label: '0.25x' },
+  { value: 0.25, label: '0.25x' }
 ];
 
 const KeybindRow = ({
@@ -159,7 +159,7 @@ const KeybindRow = ({
   onSave,
   recordingAction,
   onStartRecording,
-  isConflicting,
+  isConflicting
 }: KeybindRowProps) => {
   const { t } = useTranslation();
   const recording = recordingAction === def.action;
@@ -243,7 +243,7 @@ const DataActionItem = ({
   icon,
   isProcessing,
   message,
-  title,
+  title
 }: DataActionItemProps) => {
   const { t } = useTranslation();
 
@@ -269,7 +269,7 @@ export default function SettingsPanel({
   onBack,
   onLibraryRefresh,
   onSettingsChange,
-  rootPaths,
+  rootPaths
 }: SettingsPanelProps) {
   const { t } = useTranslation();
   const [isClearing, setIsClearing] = useState(false);
@@ -284,7 +284,7 @@ export default function SettingsPanel({
     isOpen: false,
     message: '',
     onConfirm: () => {},
-    title: '',
+    title: ''
   });
   const [hasInteractedWithLivePreview, setHasInteractedWithLivePreview] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
@@ -311,13 +311,12 @@ export default function SettingsPanel({
     aiGpu: appSettings?.aiGpu ?? true,
     highResZoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
     useFullDpiRendering: appSettings?.useFullDpiRendering ?? false,
-    useWgpuRenderer:
-      appSettings?.useWgpuRenderer ?? osPlatform !== 'linux',
+    useWgpuRenderer: appSettings?.useWgpuRenderer ?? osPlatform !== 'linux',
     thumbnailWorkerThreads: appSettings?.thumbnailWorkerThreads ?? 4,
     rawPreprocessingColorNr: appSettings?.rawPreprocessingColorNr ?? 0.5,
     rawPreprocessingSharpening: appSettings?.rawPreprocessingSharpening ?? 0.35,
     applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
-    useAppleRaw9: appSettings?.useAppleRaw9 ?? false,
+    useAppleRaw9: appSettings?.useAppleRaw9 ?? false
   });
   const [restartRequired, setRestartRequired] = useState(false);
   const [activeCategory, setActiveCategory] = useState('general');
@@ -343,18 +342,18 @@ export default function SettingsPanel({
       { id: 'storage', label: t('storage.title'), icon: HardDrive },
       { id: 'tethering', label: t('settings.tethering.title'), icon: Camera },
       { id: 'shortcuts', label: t('settings.categories.shortcuts'), icon: Keyboard },
-      { id: 'about', label: t('settings.categories.about'), icon: Info },
+      { id: 'about', label: t('settings.categories.about'), icon: Info }
     ],
-    [t],
+    [t]
   );
 
   const livePreviewQualityOptions = useMemo<OptionItem<string>[]>(
     () => [
       { value: 'full', label: t('settings.processing.qualities.full') },
       { value: 'high', label: t('settings.processing.qualities.high') },
-      { value: 'performance', label: t('settings.processing.qualities.performance') },
+      { value: 'performance', label: t('settings.processing.qualities.performance') }
     ],
-    [t],
+    [t]
   );
 
   const filteredBackendOptions = useMemo<OptionItem<string>[]>(() => {
@@ -363,7 +362,7 @@ export default function SettingsPanel({
       { value: 'vulkan', label: t('settings.processing.backends.vulkan') },
       { value: 'dx12', label: t('settings.processing.backends.dx12') },
       { value: 'metal', label: t('settings.processing.backends.metal') },
-      { value: 'gl', label: t('settings.processing.backends.gl') },
+      { value: 'gl', label: t('settings.processing.backends.gl') }
     ];
     return rawOptions.filter((opt) => {
       if (opt.value === 'metal' && osPlatform !== 'macos') return false;
@@ -377,18 +376,18 @@ export default function SettingsPanel({
       { value: 'auto', label: t('settings.processing.preprocessing.linearOptions.auto') },
       { value: 'gamma', label: t('settings.processing.preprocessing.linearOptions.gamma') },
       { value: 'skip_calib', label: t('settings.processing.preprocessing.linearOptions.skip_calib') },
-      { value: 'gamma_skip_calib', label: t('settings.processing.preprocessing.linearOptions.gamma_skip_calib') },
+      { value: 'gamma_skip_calib', label: t('settings.processing.preprocessing.linearOptions.gamma_skip_calib') }
     ],
-    [t],
+    [t]
   );
 
   const tonemapperOptions = useMemo<OptionItem<string>[]>(
     () => [
       { value: 'standard', label: t('settings.processing.preprocessing.tonemapperOptions.standard') },
       { value: 'agx', label: t('settings.processing.preprocessing.tonemapperOptions.agx') },
-      { value: 'basic', label: t('settings.processing.preprocessing.tonemapperOptions.basic') },
+      { value: 'basic', label: t('settings.processing.preprocessing.tonemapperOptions.basic') }
     ],
-    [t],
+    [t]
   );
 
   useEffect(() => {
@@ -426,7 +425,7 @@ export default function SettingsPanel({
       rawPreprocessingColorNr: appSettings?.rawPreprocessingColorNr ?? 0.5,
       rawPreprocessingSharpening: appSettings?.rawPreprocessingSharpening ?? 0.35,
       applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
-      useAppleRaw9: appSettings?.useAppleRaw9 ?? false,
+      useAppleRaw9: appSettings?.useAppleRaw9 ?? false
     });
     setRestartRequired(false);
   }, [appSettings]);
@@ -452,7 +451,7 @@ export default function SettingsPanel({
 
   const handleProcessingSettingChange = async <K extends keyof ProcessingSettings>(
     key: K,
-    value: ProcessingSettings[K],
+    value: ProcessingSettings[K]
   ) => {
     setProcessingSettings((prev) => ({ ...prev, [key]: value }));
 
@@ -481,7 +480,7 @@ export default function SettingsPanel({
   const handleSaveAndRelaunch = async () => {
     await onSettingsChange({
       ...appSettings,
-      ...processingSettings,
+      ...processingSettings
     });
     await relaunch();
   };
@@ -516,7 +515,7 @@ export default function SettingsPanel({
 
         onSettingsChange({
           ...appSettings,
-          myLenses: newLenses,
+          myLenses: newLenses
         });
         setTempLensMaker('');
         setTempLensModel('');
@@ -565,7 +564,7 @@ export default function SettingsPanel({
 
       await onSettingsChange({
         ...appSettings,
-        workspace: defaultWorkspace,
+        workspace: defaultWorkspace
       });
 
       setLayoutResetMessage(t('settings.data.statuses.layoutResetSuccess'));
@@ -587,7 +586,7 @@ export default function SettingsPanel({
       isOpen: true,
       message: t('settings.data.modals.resetLayoutMessage'),
       onConfirm: executeResetLayout,
-      title: t('settings.data.modals.confirmResetLayoutTitle'),
+      title: t('settings.data.modals.confirmResetLayoutTitle')
     });
   };
 
@@ -598,7 +597,7 @@ export default function SettingsPanel({
       isOpen: true,
       message: t('settings.data.modals.sidecarMessage'),
       onConfirm: executeClearSidecars,
-      title: t('settings.data.modals.confirmTitle'),
+      title: t('settings.data.modals.confirmTitle')
     });
   };
 
@@ -631,7 +630,7 @@ export default function SettingsPanel({
       isOpen: true,
       message: t('settings.data.modals.aiMessage'),
       onConfirm: executeClearAiTags,
-      title: t('settings.data.modals.confirmAiTitle'),
+      title: t('settings.data.modals.confirmAiTitle')
     });
   };
 
@@ -666,13 +665,13 @@ export default function SettingsPanel({
       isOpen: true,
       message: t('settings.data.modals.allMessage'),
       onConfirm: executeClearTags,
-      title: t('settings.data.modals.confirmAllTitle'),
+      title: t('settings.data.modals.confirmAllTitle')
     });
   };
 
   const shortcutTagVariants = {
     visible: { opacity: 1, scale: 1, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } },
-    exit: { opacity: 0, scale: 0.8, transition: { duration: 0.15 } },
+    exit: { opacity: 0, scale: 0.8, transition: { duration: 0.15 } }
   };
 
   const closeConfirmModal = () => {
@@ -765,10 +764,7 @@ export default function SettingsPanel({
           <div className="pref-content custom-scrollbar">
             <AnimatePresence mode="wait">
               {activeCategory === 'general' && (
-                <motion.div
-                  key="general"
-                  className="pref-page"
-                >
+                <motion.div key="general" className="pref-page">
                   <div className="pref-section">
                     <Text as="h2" variant={TextVariants.title} className="pref-section-title">
                       {t('settings.general.title')}
@@ -790,7 +786,7 @@ export default function SettingsPanel({
                             { value: 'ja', label: '日本語' },
                             { value: 'ko', label: '한국어' },
                             { value: 'zh-CN', label: '简体中文' },
-                            { value: 'zh-TW', label: '繁體中文' },
+                            { value: 'zh-TW', label: '繁體中文' }
                           ]}
                           value={appSettings?.language || 'en'}
                           triggerClassName="bg-bg-primary"
@@ -801,13 +797,16 @@ export default function SettingsPanel({
                       <CrashReportSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <UsageStatsSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
 
-                      <SettingItem label={t('settings.general.uiScale')} description={t('settings.general.uiScaleDesc')}>
+                      <SettingItem
+                        label={t('settings.general.uiScale')}
+                        description={t('settings.general.uiScaleDesc')}
+                      >
                         <Dropdown
                           onChange={(value) => onSettingsChange({ ...appSettings, uiScale: Number(value) })}
                           options={[
                             { value: '1', label: '100 %' },
                             { value: '1.12', label: '112 %' },
-                            { value: '1.25', label: '125 %' },
+                            { value: '1.25', label: '125 %' }
                           ]}
                           value={String(appSettings?.uiScale ?? 1)}
                           triggerClassName="bg-bg-primary"
@@ -877,7 +876,7 @@ export default function SettingsPanel({
                           onChange={(value) => onSettingsChange({ ...appSettings, viewerBackground: String(value) })}
                           options={VIEWER_BACKGROUNDS.map((background) => ({
                             value: background,
-                            label: viewerBackgroundLabel(background),
+                            label: viewerBackgroundLabel(background)
                           }))}
                           value={resolveViewerBackground(appSettings)}
                           triggerClassName="bg-bg-primary"
@@ -894,7 +893,7 @@ export default function SettingsPanel({
                           }
                           options={PROOF_MARGIN_PERCENTS.map((percent) => ({
                             value: String(percent),
-                            label: `${percent} %`,
+                            label: `${percent} %`
                           }))}
                           value={String(appSettings?.viewerProofMarginPercent ?? DEFAULT_PROOF_MARGIN_PERCENT)}
                           triggerClassName="bg-bg-primary"
@@ -1253,14 +1252,10 @@ export default function SettingsPanel({
                       </div>
                     </div>
                   </div>
-
                 </motion.div>
               )}
               {activeCategory === 'processing' && (
-                <motion.div
-                  key="processing"
-                  className="pref-page"
-                >
+                <motion.div key="processing" className="pref-page">
                   <div className="pref-section">
                     <Text as="h2" variant={TextVariants.title} className="pref-section-title">
                       {t('settings.processing.title')}
@@ -1272,7 +1267,7 @@ export default function SettingsPanel({
                             label={t('settings.processing.previewStrategy')}
                             options={[
                               { value: 'static', label: t('settings.processing.modes.static') },
-                              { value: 'dynamic', label: t('settings.processing.modes.dynamic') },
+                              { value: 'dynamic', label: t('settings.processing.modes.dynamic') }
                             ]}
                             value={appSettings?.enableZoomHifi ? 'dynamic' : 'static'}
                             onChange={handlePreviewModeChange}
@@ -1499,7 +1494,7 @@ export default function SettingsPanel({
                           options={filteredBackendOptions}
                           value={
                             filteredBackendOptions.some(
-                              (option) => option.value === processingSettings.processingBackend,
+                              (option) => option.value === processingSettings.processingBackend
                             )
                               ? processingSettings.processingBackend
                               : 'auto'
@@ -1609,7 +1604,10 @@ export default function SettingsPanel({
                           value={processingSettings.rawPreprocessingSharpening}
                           defaultValue={0.35}
                           onChange={(e) =>
-                            handleProcessingSettingChange('rawPreprocessingSharpening', parseFloat(String(e.target.value)))
+                            handleProcessingSettingChange(
+                              'rawPreprocessingSharpening',
+                              parseFloat(String(e.target.value))
+                            )
                           }
                           fillOrigin="min"
                         />
@@ -1779,7 +1777,12 @@ export default function SettingsPanel({
 
               {activeCategory === 'storage' && (
                 <motion.div key="storage" className="pref-page">
-                  <StorageSettings appSettings={appSettings} onSettingsChange={onSettingsChange} onLibraryRefresh={onLibraryRefresh} onOpenPreviews={() => setActiveCategory('previews')} />
+                  <StorageSettings
+                    appSettings={appSettings}
+                    onSettingsChange={onSettingsChange}
+                    onLibraryRefresh={onLibraryRefresh}
+                    onOpenPreviews={() => setActiveCategory('previews')}
+                  />
                 </motion.div>
               )}
 
@@ -1801,7 +1804,11 @@ export default function SettingsPanel({
                       {t('previews.settings.title')}
                     </Text>
                     <div className="space-y-8">
-                      <PreviewSettings appSettings={appSettings} onSettingsChange={onSettingsChange} onOpenStorage={() => setActiveCategory('storage')} />
+                      <PreviewSettings
+                        appSettings={appSettings}
+                        onSettingsChange={onSettingsChange}
+                        onOpenStorage={() => setActiveCategory('storage')}
+                      />
                     </div>
                   </div>
                 </motion.div>
@@ -1814,10 +1821,7 @@ export default function SettingsPanel({
               )}
 
               {activeCategory === 'shortcuts' && (
-                <motion.div
-                  key="shortcuts"
-                  className="pref-page"
-                >
+                <motion.div key="shortcuts" className="pref-page">
                   <div className="pref-section">
                     <Text as="h2" variant={TextVariants.title} className="pref-section-title">
                       {t('settings.controls.title')}
@@ -1831,7 +1835,7 @@ export default function SettingsPanel({
                           label={t('settings.controls.optimization')}
                           options={[
                             { value: 'mouse', label: t('settings.controls.modes.mouse') },
-                            { value: 'trackpad', label: t('settings.controls.modes.trackpad') },
+                            { value: 'trackpad', label: t('settings.controls.modes.trackpad') }
                           ]}
                           value={(appSettings?.canvasInputMode as 'mouse' | 'trackpad') || 'mouse'}
                           onChange={(value) => onSettingsChange({ ...appSettings, canvasInputMode: value })}
@@ -1847,7 +1851,10 @@ export default function SettingsPanel({
                           value={appSettings?.zoomSpeedMultiplier ?? 1.0}
                           defaultValue={1.0}
                           onChange={(e) =>
-                            onSettingsChange({ ...appSettings, zoomSpeedMultiplier: parseFloat(String(e.target.value)) })
+                            onSettingsChange({
+                              ...appSettings,
+                              zoomSpeedMultiplier: parseFloat(String(e.target.value))
+                            })
                           }
                           fillOrigin="min"
                         />

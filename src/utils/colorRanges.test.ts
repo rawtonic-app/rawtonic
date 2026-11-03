@@ -8,8 +8,14 @@ import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 const photo: SelectedImage = {
-  path: '/a.cr3', isReady: true, isRaw: true, width: 6000, height: 4000, exif: {},
-  thumbnailUrl: '', thumbnailSource: 'embedded',
+  path: '/a.cr3',
+  isReady: true,
+  isRaw: true,
+  width: 6000,
+  height: 4000,
+  exif: {},
+  thumbnailUrl: '',
+  thumbnailSource: 'embedded'
 };
 const layer = { id: 'L1', name: 'L', adjustments: { colorRanges: [] }, subMasks: [] } as unknown as MaskContainer;
 
@@ -19,7 +25,7 @@ beforeEach(() => {
     adjustments: { ...INITIAL_ADJUSTMENTS, masks: [layer] },
     colorPickerTarget: 'new',
     colorPickerLayer: null,
-    activeColorRangeId: null,
+    activeColorRangeId: null
   });
   vi.mocked(invoke).mockReset();
 });
@@ -27,7 +33,11 @@ beforeEach(() => {
 it('adds a range for the sampled display colour and ends the picker', async () => {
   vi.mocked(invoke).mockResolvedValue([255, 0, 0]);
   expect(await pickColorRange('/a.cr3', 'new', 0.5, 0.5)).toBe(true);
-  expect(invoke).toHaveBeenCalledWith(Invokes.SamplePreviewColor, { path: '/a.cr3', normalizedX: 0.5, normalizedY: 0.5 });
+  expect(invoke).toHaveBeenCalledWith(Invokes.SamplePreviewColor, {
+    path: '/a.cr3',
+    normalizedX: 0.5,
+    normalizedY: 0.5
+  });
   const state = useEditorStore.getState();
   const ranges = state.adjustments.colorRanges!;
   expect(ranges).toHaveLength(1);

@@ -7,7 +7,8 @@ export function interactivePreview(buffer: ArrayBuffer) {
   const offset = uri ? 11 : 0;
   if (buffer.byteLength < offset + 26) throw new Error('Incomplete preview packet');
   const view = new DataView(buffer, offset);
-  const fullW = view.getUint32(16, true), fullH = view.getUint32(20, true);
+  const fullW = view.getUint32(16, true),
+    fullH = view.getUint32(20, true);
   if (!fullW || !fullH) throw new Error('Invalid preview dimensions');
   let url: string;
   if (uri) {
@@ -21,6 +22,6 @@ export function interactivePreview(buffer: ArrayBuffer) {
     normX: view.getUint32(0, true) / fullW,
     normY: view.getUint32(4, true) / fullH,
     normW: view.getUint32(8, true) / fullW,
-    normH: view.getUint32(12, true) / fullH,
+    normH: view.getUint32(12, true) / fullH
   };
 }

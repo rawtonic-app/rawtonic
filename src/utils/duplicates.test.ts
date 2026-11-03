@@ -20,7 +20,7 @@ const member = (path: string, part: Partial<DuplicateMember> = {}): DuplicateMem
   ownFolder: true,
   edited: false,
   suggested: false,
-  ...part,
+  ...part
 });
 
 it('counts edits, culling, labels, keywords, albums and virtual copies as work of its own', () => {
@@ -34,7 +34,7 @@ it('counts edits, culling, labels, keywords, albums and virtual copies as work o
     { albums: 1 },
     { copies: 1 },
     { described: true },
-    { companion: '/a.JPG' },
+    { companion: '/a.JPG' }
   ])
     expect(hasOwnWork(member('a', part))).toBe(true);
 });

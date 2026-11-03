@@ -58,7 +58,7 @@ it('renders a grain preview at the display device pixels, other previews with he
     dpr: 2,
     fullDpi: false,
     zoomMultiplier: 1,
-    original: { width: 5796, height: 3870 },
+    original: { width: 5796, height: 3870 }
   };
   // Without grain: 1035 × 1.25 in 256 px steps (1536), or with full DPI 2070 × 1.25 (2816).
   expect(previewTargetResolution({ ...fit, grain: false })).toBe(1536);

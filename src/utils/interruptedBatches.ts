@@ -139,14 +139,14 @@ const offered = new Map<string, string | null>();
 export function offerInterruptedBatch(
   batch: InterruptedBatch,
   directory: string | null,
-  refresh: () => Promise<void> | void = () => {},
+  refresh: () => Promise<void> | void = () => {}
 ) {
   offered.set(batch.id, directory);
   const name = batchName(batch);
   const here = () => useLibraryStore.getState().sessionDirectory === directory;
   const forget = () =>
     invoke(Invokes.DismissInterruptedBatch, { id: batch.id }).catch((error) =>
-      console.warn('Could not forget the interrupted batch:', error),
+      console.warn('Could not forget the interrupted batch:', error)
     );
   const settle = (repair: (batch: InterruptedBatch) => Promise<void>) => async () => {
     if (!here()) {
@@ -179,10 +179,10 @@ export function offerInterruptedBatch(
       ...(batch.undo.length
         ? [{ label: i18n.t('activity.interrupted.undoApplied'), settles: true, run: settle(undoApplied) }]
         : []),
-      { label: i18n.t('activity.dismissShort'), settles: true, run: forget },
+      { label: i18n.t('activity.dismissShort'), settles: true, run: forget }
     ],
     // Its close button declines it as Dismiss does.
-    onDismiss: forget,
+    onDismiss: forget
   });
 }
 

@@ -21,10 +21,16 @@ const face = (index: number, state: 'open' | 'closed' | 'uncertain') => ({
   state,
   ear: 0.2,
   accessories: 0,
-  overrideState: null,
+  overrideState: null
 });
 let eyes: PhotoEyes = { faces: [face(0, 'open'), face(1, 'closed'), face(2, 'uncertain')], error: null };
-let shownCalls: { path: string; jsAdjustments: Record<string, unknown>; width: number; height: number; boxes: number[][] }[];
+let shownCalls: {
+  path: string;
+  jsAdjustments: Record<string, unknown>;
+  width: number;
+  height: number;
+  boxes: number[][];
+}[];
 
 beforeEach(() => {
   eyes = { faces: [face(0, 'open'), face(1, 'closed'), face(2, 'uncertain')], error: null };
@@ -32,7 +38,8 @@ beforeEach(() => {
   mockInvoke.mockReset();
   mockInvoke.mockImplementation(async (command, args) => {
     if (command === Invokes.PhotoEyes) return eyes;
-    if (command === Invokes.FaceEyeCrops) return (args as { boxes: unknown[] }).boxes.map(() => 'data:image/jpeg;base64,');
+    if (command === Invokes.FaceEyeCrops)
+      return (args as { boxes: unknown[] }).boxes.map(() => 'data:image/jpeg;base64,');
     if (command === Invokes.FaceBoxesShown) {
       const a = args as (typeof shownCalls)[number];
       shownCalls.push(a);
@@ -41,7 +48,7 @@ beforeEach(() => {
         [x * a.width, y * a.height],
         [(x + w) * a.width, y * a.height],
         [(x + w) * a.width, (y + h) * a.height],
-        [x * a.width, (y + h) * a.height],
+        [x * a.width, (y + h) * a.height]
       ]);
     }
     return null;
@@ -51,7 +58,7 @@ beforeEach(() => {
   useEyesStore.setState({ summaries: {}, generation: 0, faceMark: null });
   useEditorStore.setState({
     selectedImage: { path: PATH, width: 1000, height: 500, isReady: true } as never,
-    adjustments: { ...useEditorStore.getState().adjustments, rotation: 4, orientationSteps: 0 },
+    adjustments: { ...useEditorStore.getState().adjustments, rotation: 4, orientationSteps: 0 }
   });
 });
 afterEach(cleanup);
@@ -63,10 +70,16 @@ function renderLoupe() {
   return render(
     <>
       <div style={{ position: 'relative' }}>
-        <FaceBoxOverlay rect={{ left: 10, top: 20, width: 500, height: 250 }} cropX={100} cropY={50} scale={0.5} zoom={2} />
+        <FaceBoxOverlay
+          rect={{ left: 10, top: 20, width: 500, height: 250 }}
+          cropX={100}
+          cropY={50}
+          scale={0.5}
+          zoom={2}
+        />
       </div>
       <LoupeFaces path={PATH} />
-    </>,
+    </>
   );
 }
 
@@ -167,14 +180,20 @@ it('asks again when the geometry changes and drops the box with the strip', asyn
   expect(shownCalls[1].jsAdjustments.rotation).toBe(-2);
   // The crop is not geometry: no new question.
   useEditorStore.setState({
-    adjustments: { ...useEditorStore.getState().adjustments, crop: { x: 1, y: 1, width: 10, height: 10, unit: 'px' } },
+    adjustments: { ...useEditorStore.getState().adjustments, crop: { x: 1, y: 1, width: 10, height: 10, unit: 'px' } }
   });
   view.rerender(
     <>
       <div style={{ position: 'relative' }}>
-        <FaceBoxOverlay rect={{ left: 10, top: 20, width: 500, height: 250 }} cropX={100} cropY={50} scale={0.5} zoom={2} />
+        <FaceBoxOverlay
+          rect={{ left: 10, top: 20, width: 500, height: 250 }}
+          cropX={100}
+          cropY={50}
+          scale={0.5}
+          zoom={2}
+        />
       </div>
-    </>,
+    </>
   );
   expect(shownCalls).toHaveLength(2);
   expect(useEyesStore.getState().faceMark).toBeNull();

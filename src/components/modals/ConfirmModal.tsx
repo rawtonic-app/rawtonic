@@ -33,7 +33,7 @@ export default function ConfirmModal({
   onSecondary,
   secondaryText,
   secondaryVariant = 'secondary',
-  title,
+  title
 }: ConfirmModalProps) {
   const { t } = useTranslation();
   const [isMounted, setIsMounted] = useState(false);
@@ -101,7 +101,7 @@ export default function ConfirmModal({
         handleCancel();
       }
     },
-    [destructive, handleConfirm, handleCancel, handleSecondary],
+    [destructive, handleConfirm, handleCancel, handleSecondary]
   );
 
   if (!isMounted) {

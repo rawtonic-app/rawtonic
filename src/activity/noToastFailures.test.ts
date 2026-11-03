@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 const sources = import.meta.glob<string>(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}'], {
   eager: true,
   query: '?raw',
-  import: 'default',
+  import: 'default'
 });
 /** The two modules allowed to use react-toastify itself. */
 const ALLOWED = ['../components/ui/AppNotices.tsx', './notify.ts'];

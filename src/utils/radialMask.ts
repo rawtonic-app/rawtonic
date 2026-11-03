@@ -56,7 +56,7 @@ export function toImage(params: RadialParams, point: LocalPoint): LocalPoint {
   const t = angle(params);
   return {
     x: params.centerX + point.x * Math.cos(t) - point.y * Math.sin(t),
-    y: params.centerY + point.x * Math.sin(t) + point.y * Math.cos(t),
+    y: params.centerY + point.x * Math.sin(t) + point.y * Math.cos(t)
   };
 }
 
@@ -67,7 +67,7 @@ export function radialHandlePositions(params: RadialParams): Record<RadialHandle
     right: toImage(params, { x: central.x, y: 0 }),
     left: toImage(params, { x: -central.x, y: 0 }),
     bottom: toImage(params, { x: 0, y: central.y }),
-    top: toImage(params, { x: 0, y: -central.y }),
+    top: toImage(params, { x: 0, y: -central.y })
   };
 }
 
@@ -81,7 +81,7 @@ function withRadii(params: RadialParams, outerX: number, outerY: number, feather
     ...params,
     radiusX: Math.max(MIN_RADIUS, outerX),
     radiusY: Math.max(MIN_RADIUS, outerY),
-    feather: clamp(feather, 0, MAX_FEATHER),
+    feather: clamp(feather, 0, MAX_FEATHER)
   };
 }
 
@@ -95,7 +95,7 @@ export function dragRadialLine(
   params: RadialParams,
   line: RadialLine,
   point: LocalPoint,
-  symmetric = false,
+  symmetric = false
 ): RadialParams {
   const feather = featherOf(params);
   const { inner, central, outer } = radialLines(params);
@@ -131,7 +131,7 @@ export function dragRadialHandle(
   params: RadialParams,
   handle: RadialHandle,
   point: LocalPoint,
-  options: { uniform?: boolean; lockOpposite?: boolean } = {},
+  options: { uniform?: boolean; lockOpposite?: boolean } = {}
 ): RadialParams {
   const feather = featherOf(params);
   const { central } = radialLines(params);

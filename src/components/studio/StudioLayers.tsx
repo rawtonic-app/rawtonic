@@ -1,6 +1,6 @@
 import { swallowDragClick } from '../../utils/swallowClick';
-import { Fragment, useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { useTranslation } from "react-i18next";
+import { Fragment, useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowDown,
   ArrowUp,
@@ -14,33 +14,38 @@ import {
   PenLine,
   Plus,
   Sparkles,
-  Trash2,
-} from "lucide-react";
-import { useEditorStore } from "../../store/useEditorStore";
-import { useProcessStore } from "../../store/useProcessStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
-import { openMaskingTools } from "../../hooks/useAiMasking";
-import { useContextMenu } from "../../context/ContextMenuContext";
-import { formatKeyCode, shortcutHint } from "../../utils/keyboardUtils";
-import { OPTION_SEPARATOR, Panel } from "../ui/AppProperties";
-import type { MaskContainer } from "../../utils/adjustments";
-import type { MaskKind } from "../../utils/maskKinds";
-import StudioLayerControls from "./StudioLayerControls";
-import StudioMaskComponents, { StudioMaskComponentSettings, maskComponentLabel } from "./StudioMaskComponents";
-import { MASK_KIND_GROUPS, MASK_KIND_ICONS, componentIcon, maskKindMenu } from "./maskKindMenu";
-import { useStudioTools } from "./useStudioTools";
-import { createDragGhost } from "./dragGhost";
-import MaskThumb from "./MaskThumb";
-import { useMaskThumbnailStore, useMaskThumbnailUpdates } from "../../hooks/useMaskThumbnails";
-import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
-import { AUTO_MASK_VERSION, canUpgradeAutoMask, layerAutoMaskVersions, upgradeLayerAutoMask } from "../../utils/autoMaskUpgrade";
-import { MAX_RENDERED_LAYERS, keepWithinLayerLimit, unrenderedLayerIds } from "../../utils/layerLimit";
-import { warnIfCopyRenders, warnIfShowingRenders } from "./layerLimitToast";
+  Trash2
+} from 'lucide-react';
+import { useEditorStore } from '../../store/useEditorStore';
+import { useProcessStore } from '../../store/useProcessStore';
+import { useUIStore } from '../../store/useUIStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useEditorActions } from '../../hooks/useEditorActions';
+import { openMaskingTools } from '../../hooks/useAiMasking';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { formatKeyCode, shortcutHint } from '../../utils/keyboardUtils';
+import { OPTION_SEPARATOR, Panel } from '../ui/AppProperties';
+import type { MaskContainer } from '../../utils/adjustments';
+import type { MaskKind } from '../../utils/maskKinds';
+import StudioLayerControls from './StudioLayerControls';
+import StudioMaskComponents, { StudioMaskComponentSettings, maskComponentLabel } from './StudioMaskComponents';
+import { MASK_KIND_GROUPS, MASK_KIND_ICONS, componentIcon, maskKindMenu } from './maskKindMenu';
+import { useStudioTools } from './useStudioTools';
+import { createDragGhost } from './dragGhost';
+import MaskThumb from './MaskThumb';
+import { useMaskThumbnailStore, useMaskThumbnailUpdates } from '../../hooks/useMaskThumbnails';
+import { soloAfterSelect, toggleLayerSolo } from '../../utils/layerSolo';
+import {
+  AUTO_MASK_VERSION,
+  canUpgradeAutoMask,
+  layerAutoMaskVersions,
+  upgradeLayerAutoMask
+} from '../../utils/autoMaskUpgrade';
+import { MAX_RENDERED_LAYERS, keepWithinLayerLimit, unrenderedLayerIds } from '../../utils/layerLimit';
+import { warnIfCopyRenders, warnIfShowingRenders } from './layerLimitToast';
 
 /** Drop target id of the Background row in the layer list. */
-const BACKGROUND_ROW = "background";
+const BACKGROUND_ROW = 'background';
 
 /** The radial's option (Capture One's Draw Mask Inside): which side a new
  * radial covers, kept in the settings. */
@@ -62,10 +67,10 @@ export function useRadialOptionsMenu() {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
       {
-        label: t("studio.develop.layers.drawMaskInside"),
+        label: t('studio.develop.layers.drawMaskInside'),
         icon: inside ? Check : undefined,
-        onClick: toggle,
-      },
+        onClick: toggle
+      }
     ]);
   };
 }
@@ -80,9 +85,9 @@ export function NewLayerButton() {
     <button
       type="button"
       className="studio-layer-new"
-      aria-label={t("studio.develop.layers.new")}
+      aria-label={t('studio.develop.layers.new')}
       aria-haspopup="menu"
-      title={t("studio.develop.layers.newTitle")}
+      title={t('studio.develop.layers.newTitle')}
       disabled={!ready}
       // Pointing at it starts Subject and Sky in the background, so the
       // automatic selections are ready when picked.
@@ -91,7 +96,11 @@ export function NewLayerButton() {
         e.preventDefault();
         openMaskingTools();
         const rect = e.currentTarget.getBoundingClientRect();
-        showContextMenu(rect.left, rect.bottom + 2, maskKindMenu(t, (kind) => addLayer(kind)));
+        showContextMenu(
+          rect.left,
+          rect.bottom + 2,
+          maskKindMenu(t, (kind) => addLayer(kind))
+        );
       }}
     >
       <Plus size={13} />
@@ -111,19 +120,19 @@ function useNewLayerButtons() {
   const osPlatform = useSettingsStore((s) => s.osPlatform);
   // Subject and Background have keys of their own (mask_subject, mask_background).
   const titleOf = (kind: MaskKind) => {
-    if (kind === "radial")
-      return inside ? t("studio.develop.layers.newRadialInside") : t("studio.develop.layers.newRadialOutside");
+    if (kind === 'radial')
+      return inside ? t('studio.develop.layers.newRadialInside') : t('studio.develop.layers.newRadialOutside');
     const title = t(`studio.develop.layers.newKind.${kind}`);
-    const key = kind === "subject" || kind === "background" ? shortcutHint(`mask_${kind}`, keybinds, osPlatform) : null;
+    const key = kind === 'subject' || kind === 'background' ? shortcutHint(`mask_${kind}`, keybinds, osPlatform) : null;
     return key ? `${title} (${key})` : title;
   };
   return (kind: MaskKind) => ({
-    type: "button" as const,
+    type: 'button' as const,
     disabled: !ready,
-    "aria-label": t(`studio.develop.layers.newKind.${kind}`),
+    'aria-label': t(`studio.develop.layers.newKind.${kind}`),
     title: titleOf(kind),
     onClick: () => addLayer(kind),
-    onContextMenu: kind === "radial" ? radialMenu : undefined,
+    onContextMenu: kind === 'radial' ? radialMenu : undefined
   });
 }
 
@@ -137,7 +146,7 @@ function QuickLayerBar() {
   const { t } = useTranslation();
   const buttonProps = useNewLayerButtons();
   return (
-    <div className="studio-layer-quick" role="toolbar" aria-label={t("studio.develop.layers.quickAria")}>
+    <div className="studio-layer-quick" role="toolbar" aria-label={t('studio.develop.layers.quickAria')}>
       {MASK_KIND_GROUPS.map(({ group, kinds }, index) => (
         <Fragment key={group}>
           {index > 0 && <span className="studio-layer-quick-separator" aria-hidden="true" />}
@@ -145,8 +154,8 @@ function QuickLayerBar() {
             className="studio-layer-quick-group"
             // Pointing at the selections starts Subject and Sky in the
             // background, as the grid and the "+" do.
-            onPointerEnter={group === "select" ? () => openMaskingTools() : undefined}
-            onFocus={group === "select" ? () => openMaskingTools() : undefined}
+            onPointerEnter={group === 'select' ? () => openMaskingTools() : undefined}
+            onFocus={group === 'select' ? () => openMaskingTools() : undefined}
           >
             {kinds.map((kind) => {
               const Icon = MASK_KIND_ICONS[kind];
@@ -171,7 +180,7 @@ function NewLayerGrid() {
   // Short names: the group caption says "Range".
   const label = (kind: MaskKind) => t(`studio.develop.layers.kindButtons.${kind}`);
   return (
-    <div className="studio-layer-grid" role="group" aria-label={t("studio.develop.layers.new")}>
+    <div className="studio-layer-grid" role="group" aria-label={t('studio.develop.layers.new')}>
       {MASK_KIND_GROUPS.map(({ group, kinds }) => (
         <div
           key={group}
@@ -180,8 +189,8 @@ function NewLayerGrid() {
           aria-labelledby={`studio-layer-grid-${group}`}
           // Pointing at the selections starts Subject and Sky in the
           // background (instant Subject/Background/Sky).
-          onPointerEnter={group === "select" ? () => openMaskingTools() : undefined}
-          onFocus={group === "select" ? () => openMaskingTools() : undefined}
+          onPointerEnter={group === 'select' ? () => openMaskingTools() : undefined}
+          onFocus={group === 'select' ? () => openMaskingTools() : undefined}
         >
           <p className="studio-layer-grid-caption" id={`studio-layer-grid-${group}`}>
             {t(`studio.develop.layers.groups.${group}`)}
@@ -218,7 +227,7 @@ export function layerListEdgeStep(list: { top: number; bottom: number }, y: numb
 }
 
 export default function StudioLayers({
-  compact = false,
+  compact = false
 }: {
   /** Among the other tools (the Adjust tab): no layers yet shows one line
    * instead of the New layer grid, which the header's + still opens. */
@@ -233,8 +242,8 @@ export default function StudioLayers({
   const { setAdjustments } = useEditorActions();
   const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
   const osPlatform = useSettingsStore((s) => s.osPlatform);
-  const soloKey = shortcutHint("toggle_layer_solo", keybinds, osPlatform);
-  const altKey = formatKeyCode("alt", osPlatform);
+  const soloKey = shortcutHint('toggle_layer_solo', keybinds, osPlatform);
+  const altKey = formatKeyCode('alt', osPlatform);
   const { showContextMenu } = useContextMenu();
   const { layer, paintOnLayer, toggleInvert } = useStudioTools();
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -253,8 +262,8 @@ export default function StudioLayers({
   const selectedId = layer?.id ?? null;
   useEffect(() => {
     if (!selectedId) return;
-    const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-layer-row]") ?? [];
-    [...rows].find((row) => row.dataset.layerRow === selectedId)?.scrollIntoView?.({ block: "nearest" });
+    const rows = listRef.current?.querySelectorAll<HTMLElement>('[data-layer-row]') ?? [];
+    [...rows].find((row) => row.dataset.layerRow === selectedId)?.scrollIntoView?.({ block: 'nearest' });
   }, [selectedId]);
 
   const selectLayer = (mask: MaskContainer) => {
@@ -263,7 +272,7 @@ export default function StudioLayers({
       activeMaskId: mask.subMasks[0]?.id || null,
       focusedMaskComponentId: null,
       isWbPickerActive: false,
-      layerSolo: soloAfterSelect(layerSolo, mask.id),
+      layerSolo: soloAfterSelect(layerSolo, mask.id)
     });
     useUIStore.getState().setPanel(Panel.Masks);
   };
@@ -276,8 +285,8 @@ export default function StudioLayers({
     const copy = {
       ...structuredClone(target),
       id: crypto.randomUUID(),
-      name: t("studio.develop.layers.copyName", { name: target.name }),
-      invert: invert ? !target.invert : target.invert,
+      name: t('studio.develop.layers.copyName', { name: target.name }),
+      invert: invert ? !target.invert : target.invert
     };
     copy.subMasks = copy.subMasks.map((sub) => ({ ...sub, id: crypto.randomUUID() }));
     setAdjustments((prev) => {
@@ -285,13 +294,13 @@ export default function StudioLayers({
       if (at < 0) return prev;
       return keepWithinLayerLimit(prev, {
         ...prev,
-        masks: [...prev.masks.slice(0, at + 1), copy, ...prev.masks.slice(at + 1)],
+        masks: [...prev.masks.slice(0, at + 1), copy, ...prev.masks.slice(at + 1)]
       });
     });
     setEditor({
       activeMaskContainerId: copy.id,
       activeMaskId: copy.subMasks[0]?.id ?? null,
-      focusedMaskComponentId: null,
+      focusedMaskComponentId: null
     });
     useUIStore.getState().setPanel(Panel.Masks);
   };
@@ -301,12 +310,16 @@ export default function StudioLayers({
     if (!trimmed) return;
     setAdjustments((prev) => ({
       ...prev,
-      masks: prev.masks.map((m) => (m.id === id ? { ...m, name: trimmed } : m)),
+      masks: prev.masks.map((m) => (m.id === id ? { ...m, name: trimmed } : m))
     }));
   };
   const deleteLayer = (id: string) => {
     setAdjustments((prev) => ({ ...prev, masks: prev.masks.filter((m) => m.id !== id) }));
-    setEditor({ activeMaskContainerId: null, activeMaskId: null, ...(layerSolo?.layerId === id ? { layerSolo: null } : {}) });
+    setEditor({
+      activeMaskContainerId: null,
+      activeMaskId: null,
+      ...(layerSolo?.layerId === id ? { layerSolo: null } : {})
+    });
   };
   // Solo is a view (never in the recipe): the eye's Option/Alt-click, the
   // menu or H shows the layer alone; the same again shows every layer.
@@ -316,7 +329,7 @@ export default function StudioLayers({
   const upgradeAutoMask = (target: MaskContainer) =>
     setAdjustments((prev) => ({
       ...prev,
-      masks: prev.masks.map((m) => (m.id === target.id ? upgradeLayerAutoMask(m) : m)),
+      masks: prev.masks.map((m) => (m.id === target.id ? upgradeLayerAutoMask(m) : m))
     }));
   // Layers apply in list order from the bottom (Background) up, as in
   // Photoshop: the top row is applied last. `masks` is in application order.
@@ -340,92 +353,92 @@ export default function StudioLayers({
     const autoMaskVersions = layerAutoMaskVersions(target);
     showContextMenu(e.clientX, e.clientY, [
       {
-        label: soloKey ? `${t("studio.develop.layers.menu.solo")} (${soloKey})` : t("studio.develop.layers.menu.solo"),
+        label: soloKey ? `${t('studio.develop.layers.menu.solo')} (${soloKey})` : t('studio.develop.layers.menu.solo'),
         icon: layerSolo?.layerId === target.id && !layerSolo.componentId ? Check : Eye,
-        onClick: () => soloLayer(target),
+        onClick: () => soloLayer(target)
       },
       { type: OPTION_SEPARATOR },
       {
-        label: t("editor.masks.settings.invertMask"),
+        label: t('editor.masks.settings.invertMask'),
         icon: target.invert ? Check : FlipHorizontal2,
-        onClick: () => toggleInvert(target),
+        onClick: () => toggleInvert(target)
       },
       {
-        label: t("studio.develop.layers.menu.drawMask"),
+        label: t('studio.develop.layers.menu.drawMask'),
         icon: PenLine,
-        onClick: () => paintOnLayer(target, true),
+        onClick: () => paintOnLayer(target, true)
       },
       {
-        label: t("studio.develop.layers.menu.eraseMask"),
+        label: t('studio.develop.layers.menu.eraseMask'),
         icon: Eraser,
-        onClick: () => paintOnLayer(target, false),
+        onClick: () => paintOnLayer(target, false)
       },
       { type: OPTION_SEPARATOR },
       {
-        label: t("studio.develop.layers.menu.rename"),
+        label: t('studio.develop.layers.menu.rename'),
         icon: PenLine,
-        onClick: () => setRenaming(target.id),
+        onClick: () => setRenaming(target.id)
       },
       {
-        label: t("studio.develop.layers.menu.duplicate"),
+        label: t('studio.develop.layers.menu.duplicate'),
         icon: Copy,
-        onClick: () => duplicateLayer(target, false),
+        onClick: () => duplicateLayer(target, false)
       },
       {
-        label: t("studio.develop.layers.menu.duplicateInvert"),
+        label: t('studio.develop.layers.menu.duplicateInvert'),
         icon: FlipHorizontal2,
-        onClick: () => duplicateLayer(target, true),
+        onClick: () => duplicateLayer(target, true)
       },
       // Only on layers with older Auto Mask strokes, naming their versions.
       ...(canUpgradeAutoMask(target)
         ? [
             {
-              label: t("studio.develop.layers.menu.upgradeAutoMask", {
-                from: autoMaskVersions.filter((v) => v < AUTO_MASK_VERSION).join(", "),
-                to: AUTO_MASK_VERSION,
+              label: t('studio.develop.layers.menu.upgradeAutoMask', {
+                from: autoMaskVersions.filter((v) => v < AUTO_MASK_VERSION).join(', '),
+                to: AUTO_MASK_VERSION
               }),
               icon: Sparkles,
-              onClick: () => upgradeAutoMask(target),
-            },
+              onClick: () => upgradeAutoMask(target)
+            }
           ]
         : []),
       { type: OPTION_SEPARATOR },
       {
-        label: t("studio.develop.layers.menu.moveUp"),
+        label: t('studio.develop.layers.menu.moveUp'),
         icon: ArrowUp,
         disabled: masks.at(-1)?.id === target.id,
-        onClick: () => moveLayer(target.id, 1),
+        onClick: () => moveLayer(target.id, 1)
       },
       {
-        label: t("studio.develop.layers.menu.moveDown"),
+        label: t('studio.develop.layers.menu.moveDown'),
         icon: ArrowDown,
         disabled: masks[0]?.id === target.id,
-        onClick: () => moveLayer(target.id, -1),
+        onClick: () => moveLayer(target.id, -1)
       },
       { type: OPTION_SEPARATOR },
       {
-        label: t("studio.develop.layers.delete", { name: target.name }),
+        label: t('studio.develop.layers.delete', { name: target.name }),
         icon: Trash2,
         isDestructive: true,
-        onClick: () => deleteLayer(target.id),
-      },
+        onClick: () => deleteLayer(target.id)
+      }
     ]);
   };
   const pressLayer = (e: ReactPointerEvent<HTMLElement>, mask: MaskContainer) => {
-    if (e.button !== 0 || (e.target as Element).closest("button:not(:first-child), input")) return;
+    if (e.button !== 0 || (e.target as Element).closest('button:not(:first-child), input')) return;
     const start = { x: e.clientX, y: e.clientY };
     let ghost: ReturnType<typeof createDragGhost> | null = null;
     let drop: { target: string | null; above: boolean } = {
       target: null,
-      above: true,
+      above: true
     };
     const rowAt = (x: number, y: number) => {
-      const row = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-layer-row]");
+      const row = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-layer-row]');
       if (!row?.dataset.layerRow) return { target: null, above: true };
       const rect = row.getBoundingClientRect();
       return {
         target: row.dataset.layerRow,
-        above: !rect.height || y < rect.top + rect.height / 2,
+        above: !rect.height || y < rect.top + rect.height / 2
       };
     };
     // Held near the list's ends, the drag scrolls it to rows out of view,
@@ -446,7 +459,7 @@ export default function StudioLayers({
     const move = (ev: PointerEvent) => {
       if (!ghost) {
         if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
-        ghost = createDragGhost({ label: mask.name, kind: "layer" });
+        ghost = createDragGhost({ label: mask.name, kind: 'layer' });
       }
       pointer = { x: ev.clientX, y: ev.clientY };
       ghost.move(ev.clientX, ev.clientY);
@@ -455,9 +468,9 @@ export default function StudioLayers({
       if (!scrollFrame) scrollFrame = requestAnimationFrame(edgeScroll);
     };
     const end = (ev: PointerEvent) => {
-      document.removeEventListener("pointermove", move, true);
-      document.removeEventListener("pointerup", end, true);
-      document.removeEventListener("pointercancel", end, true);
+      document.removeEventListener('pointermove', move, true);
+      document.removeEventListener('pointerup', end, true);
+      document.removeEventListener('pointercancel', end, true);
       cancelAnimationFrame(scrollFrame);
       scrollFrame = 0;
       if (!ghost) return;
@@ -465,7 +478,7 @@ export default function StudioLayers({
       setLayerDrag(null);
       // The press ended a drag, not a click that selects the layer.
       swallowDragClick();
-      if (ev.type !== "pointerup" || !drop.target || drop.target === mask.id) return;
+      if (ev.type !== 'pointerup' || !drop.target || drop.target === mask.id) return;
       // Rows show the top layer first: work in display order.
       const shown = masks
         .map((m) => m.id)
@@ -478,16 +491,16 @@ export default function StudioLayers({
       }
       reorderLayers(shown.reverse());
     };
-    document.addEventListener("pointermove", move, true);
-    document.addEventListener("pointerup", end, true);
-    document.addEventListener("pointercancel", end, true);
+    document.addEventListener('pointermove', move, true);
+    document.addEventListener('pointerup', end, true);
+    document.addEventListener('pointercancel', end, true);
   };
 
   if (masks.length === 0)
     return compact ? (
       <>
         <QuickLayerBar />
-        <p className="studio-help">{t("studio.develop.layers.noneYet")}</p>
+        <p className="studio-help">{t('studio.develop.layers.noneYet')}</p>
       </>
     ) : (
       <NewLayerGrid />
@@ -499,7 +512,7 @@ export default function StudioLayers({
     ? soloedComponent
       ? `${soloed.name} · ${maskComponentLabel(t, soloedComponent, Boolean(soloed.invert))}`
       : soloed.name
-    : "";
+    : '';
   return (
     <>
       <QuickLayerBar />
@@ -507,15 +520,15 @@ export default function StudioLayers({
         <button
           type="button"
           className="studio-layer-solo-note"
-          title={soloKey ? `${t("studio.develop.layers.soloEnd")} (${soloKey})` : t("studio.develop.layers.soloEnd")}
+          title={soloKey ? `${t('studio.develop.layers.soloEnd')} (${soloKey})` : t('studio.develop.layers.soloEnd')}
           onClick={() => setEditor({ layerSolo: null })}
         >
           <Eye size={12} aria-hidden="true" />
-          <span>{t("studio.develop.layers.soloShowing", { name: soloName })}</span>
-          <span className="studio-layer-solo-end">{t("studio.develop.layers.soloEnd")}</span>
+          <span>{t('studio.develop.layers.soloShowing', { name: soloName })}</span>
+          <span className="studio-layer-solo-end">{t('studio.develop.layers.soloEnd')}</span>
         </button>
       )}
-      <div ref={listRef} className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
+      <div ref={listRef} className="studio-layer-list" role="list" aria-label={t('studio.develop.layers.listAria')}>
         {[...masks].reverse().map((mask) => {
           const selected = layer?.id === mask.id;
           const unrendered = unrenderedIds.has(mask.id);
@@ -525,25 +538,23 @@ export default function StudioLayers({
               <div
                 role="listitem"
                 data-layer-row={mask.id}
-                className={`studio-layer ${selected ? "is-selected" : ""} ${mask.visible ? "" : "is-hidden"} ${
-                  layerSolo ? (layerSolo.layerId === mask.id ? "is-solo" : "is-solo-muted") : ""
-                } ${
-                  layerDrag?.id === mask.id ? "is-dragged" : ""
-                } ${
+                className={`studio-layer ${selected ? 'is-selected' : ''} ${mask.visible ? '' : 'is-hidden'} ${
+                  layerSolo ? (layerSolo.layerId === mask.id ? 'is-solo' : 'is-solo-muted') : ''
+                } ${layerDrag?.id === mask.id ? 'is-dragged' : ''} ${
                   layerDrag?.target === mask.id && layerDrag.id !== mask.id
                     ? layerDrag.above
-                      ? "is-drop-before"
-                      : "is-drop-after"
-                    : ""
+                      ? 'is-drop-before'
+                      : 'is-drop-after'
+                    : ''
                 }`}
-                title={t("studio.develop.layers.dragOrder")}
+                title={t('studio.develop.layers.dragOrder')}
                 onContextMenu={(e) => layerMenu(e, mask)}
                 onPointerDown={(e) => pressLayer(e, mask)}
               >
                 <button
                   className="studio-layer-name"
-                  aria-label={t("studio.develop.layers.select", { name: mask.name })}
-                  aria-current={selected ? "true" : undefined}
+                  aria-label={t('studio.develop.layers.select', { name: mask.name })}
+                  aria-current={selected ? 'true' : undefined}
                   onClick={() => selectLayer(mask)}
                   onDoubleClick={() => setRenaming(mask.id)}
                 >
@@ -557,30 +568,30 @@ export default function StudioLayers({
                   {unrendered && (
                     <span
                       className="studio-layer-unrendered"
-                      title={t("studio.develop.layers.notRenderedTitle", { limit: MAX_RENDERED_LAYERS })}
+                      title={t('studio.develop.layers.notRenderedTitle', { limit: MAX_RENDERED_LAYERS })}
                     >
-                      {t("studio.develop.layers.notRendered")}
+                      {t('studio.develop.layers.notRendered')}
                     </span>
                   )}
                 </button>
                 {renaming === mask.id && (
                   <input
                     autoFocus
-                    aria-label={t("studio.develop.layers.nameOf", { name: mask.name })}
+                    aria-label={t('studio.develop.layers.nameOf', { name: mask.name })}
                     defaultValue={mask.name}
                     onPointerDown={(e) => e.stopPropagation()}
                     onBlur={(e) => renameLayer(mask.id, e.currentTarget.value)}
                     onKeyDown={(e) => {
                       e.stopPropagation();
-                      if (e.key === "Enter") renameLayer(mask.id, e.currentTarget.value);
-                      if (e.key === "Escape") setRenaming(null);
+                      if (e.key === 'Enter') renameLayer(mask.id, e.currentTarget.value);
+                      if (e.key === 'Escape') setRenaming(null);
                     }}
                   />
                 )}
                 <button
                   className="studio-row-icon studio-layer-eye"
-                  aria-label={t("studio.develop.layers.toggle", { name: mask.name })}
-                  title={t("studio.develop.layers.eyeTitle", { alt: altKey })}
+                  aria-label={t('studio.develop.layers.toggle', { name: mask.name })}
+                  title={t('studio.develop.layers.eyeTitle', { alt: altKey })}
                   onClick={(e) => {
                     if (e.altKey) {
                       soloLayer(mask);
@@ -591,8 +602,8 @@ export default function StudioLayers({
                     setAdjustments((prev) =>
                       keepWithinLayerLimit(prev, {
                         ...prev,
-                        masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),
-                      }),
+                        masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m))
+                      })
                     );
                   }}
                 >
@@ -600,7 +611,7 @@ export default function StudioLayers({
                 </button>
                 <button
                   className="studio-row-icon studio-row-delete"
-                  aria-label={t("studio.develop.layers.delete", { name: mask.name })}
+                  aria-label={t('studio.develop.layers.delete', { name: mask.name })}
                   onClick={() => deleteLayer(mask.id)}
                 >
                   <Trash2 size={12} />
@@ -612,18 +623,18 @@ export default function StudioLayers({
         })}
         <div role="listitem" className="studio-layer-background-item">
           <button
-            className={`studio-layer studio-layer-background ${!layer ? "is-selected" : ""} ${
-              layerDrag && layerDrag.target === BACKGROUND_ROW ? "is-drop-before" : ""
+            className={`studio-layer studio-layer-background ${!layer ? 'is-selected' : ''} ${
+              layerDrag && layerDrag.target === BACKGROUND_ROW ? 'is-drop-before' : ''
             }`}
             data-layer-row={BACKGROUND_ROW}
-            aria-current={!layer ? "true" : undefined}
+            aria-current={!layer ? 'true' : undefined}
             onClick={() => setEditor({ activeMaskContainerId: null, activeMaskId: null, layerSolo: null })}
           >
             <span className="studio-mask-thumb is-layer is-plain" aria-hidden="true">
               <Layers size={13} />
             </span>
-            <span className="studio-layer-label">{t("studio.develop.layers.background")}</span>
-            <span className="studio-layer-note">{t("studio.develop.layers.image")}</span>
+            <span className="studio-layer-label">{t('studio.develop.layers.background')}</span>
+            <span className="studio-layer-note">{t('studio.develop.layers.image')}</span>
           </button>
         </div>
       </div>

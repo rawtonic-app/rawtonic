@@ -1,23 +1,28 @@
-import "../../i18n";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { invoke } from "@tauri-apps/api/core";
-import StudioLensCorrection from "./StudioLensCorrection";
-import { useEditorStore } from "../../store/useEditorStore";
-import { CAMERA_CA_VERSION, CAMERA_GEOMETRY_VERSION, INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
+import '../../i18n';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
+import StudioLensCorrection from './StudioLensCorrection';
+import { useEditorStore } from '../../store/useEditorStore';
+import {
+  CAMERA_CA_VERSION,
+  CAMERA_GEOMETRY_VERSION,
+  INITIAL_ADJUSTMENTS,
+  type Adjustments
+} from '../../utils/adjustments';
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 let current: Adjustments;
 const setAdjustments = vi.fn((update: Adjustments | ((prev: Adjustments) => Adjustments)) => {
-  current = typeof update === "function" ? update(current) : update;
+  current = typeof update === 'function' ? update(current) : update;
   useEditorStore.setState({ adjustments: current });
 });
-vi.mock("../../hooks/useEditorActions", () => ({
+vi.mock('../../hooks/useEditorActions', () => ({
   useEditorActions: () => ({ setAdjustments }),
   isCurrentEditorImage: (path: string) => {
     const image = useEditorStore.getState().selectedImage;
     return image?.path === path && image.isReady;
-  },
+  }
 }));
 const mockInvoke = vi.mocked(invoke);
 const distortion = { k1: 0.01, k2: 0, k3: 0 };
@@ -29,21 +34,21 @@ beforeEach(() => {
   mockInvoke.mockReset();
   mockInvoke.mockImplementation(async (command, args) => {
     const a = args as Record<string, unknown>;
-    if (command === "get_lensfun_makers") return ["Sony", "Fujifilm"];
-    if (command === "get_lensfun_lenses_for_maker") return a.maker === "Sony" ? ["FE 85mm F1.8"] : ["XF 23mm"];
-    if (command === "autodetect_lens") return a.model === "FE 85mm F1.8" ? ["Sony", "FE 85mm F1.8"] : null;
-    if (command === "get_lens_distortion_params") return distortion;
-    if (command === "get_camera_lens_profile")
-      return a.path === "/job/x.raf" ? { maker: "Fujifilm", params: cameraParams, vignetting: true } : null;
+    if (command === 'get_lensfun_makers') return ['Sony', 'Fujifilm'];
+    if (command === 'get_lensfun_lenses_for_maker') return a.maker === 'Sony' ? ['FE 85mm F1.8'] : ['XF 23mm'];
+    if (command === 'autodetect_lens') return a.model === 'FE 85mm F1.8' ? ['Sony', 'FE 85mm F1.8'] : null;
+    if (command === 'get_lens_distortion_params') return distortion;
+    if (command === 'get_camera_lens_profile')
+      return a.path === '/job/x.raf' ? { maker: 'Fujifilm', params: cameraParams, vignetting: true } : null;
     return undefined;
   });
   useEditorStore.setState({
     adjustments: current,
     selectedImage: {
-      path: "/job/a.arw",
+      path: '/job/a.arw',
       isReady: true,
-      exif: { Make: "SONY", Model: "ILCE-7M3", LensModel: "FE 85mm F1.8", FocalLength: "85.0 mm", FNumber: "2.5" },
-    } as never,
+      exif: { Make: 'SONY', Model: 'ILCE-7M3', LensModel: 'FE 85mm F1.8', FocalLength: '85.0 mm', FNumber: '2.5' }
+    } as never
   });
 });
 afterEach(cleanup);
@@ -53,84 +58,88 @@ const renderTool = async () => {
   await act(async () => {});
 };
 
-describe("Lens correction tool", () => {
+describe('Lens correction tool', () => {
   it("enables the detected profile looked up with the photo's EXIF", async () => {
     await renderTool();
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Enable profile corrections"));
+      fireEvent.click(screen.getByLabelText('Enable profile corrections'));
     });
-    expect(mockInvoke).toHaveBeenCalledWith("autodetect_lens", {
-      maker: "SONY",
-      model: "FE 85mm F1.8",
-      cameraModel: "ILCE-7M3",
+    expect(mockInvoke).toHaveBeenCalledWith('autodetect_lens', {
+      maker: 'SONY',
+      model: 'FE 85mm F1.8',
+      cameraModel: 'ILCE-7M3'
     });
-    expect(mockInvoke).toHaveBeenCalledWith("get_lens_distortion_params", {
-      maker: "Sony",
-      model: "FE 85mm F1.8",
-      exif: { Make: "SONY", Model: "ILCE-7M3", LensModel: "FE 85mm F1.8", FocalLength: "85.0 mm", FNumber: "2.5" },
+    expect(mockInvoke).toHaveBeenCalledWith('get_lens_distortion_params', {
+      maker: 'Sony',
+      model: 'FE 85mm F1.8',
+      exif: { Make: 'SONY', Model: 'ILCE-7M3', LensModel: 'FE 85mm F1.8', FocalLength: '85.0 mm', FNumber: '2.5' }
     });
     expect(current).toMatchObject({
-      lensMaker: "Sony",
-      lensModel: "FE 85mm F1.8",
+      lensMaker: 'Sony',
+      lensModel: 'FE 85mm F1.8',
       lensDistortionParams: distortion,
-      lensCorrectionMode: "auto",
+      lensCorrectionMode: 'auto'
     });
-    expect((screen.getByLabelText("Enable profile corrections") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('Enable profile corrections') as HTMLInputElement).checked).toBe(true);
     // Turning it off removes the profile and its amounts.
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Enable profile corrections"));
+      fireEvent.click(screen.getByLabelText('Enable profile corrections'));
     });
     expect(current).toMatchObject({ lensMaker: null, lensModel: null, lensDistortionParams: null });
   });
 
-  it("says when no profile is found and lets the lens be chosen", async () => {
+  it('says when no profile is found and lets the lens be chosen', async () => {
     useEditorStore.setState({
-      selectedImage: { path: "/job/b.raf", isReady: true, exif: { Make: "FUJIFILM", Model: "X-H2S", LensModel: "Unknown" } } as never,
+      selectedImage: {
+        path: '/job/b.raf',
+        isReady: true,
+        exif: { Make: 'FUJIFILM', Model: 'X-H2S', LensModel: 'Unknown' }
+      } as never
     });
     await renderTool();
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Enable profile corrections"));
+      fireEvent.click(screen.getByLabelText('Enable profile corrections'));
     });
     expect(screen.getByText(/No profile found for Unknown/)).toBeTruthy();
     expect(current.lensMaker).toBeNull();
     await act(async () => {
-      fireEvent.change(screen.getByLabelText("Lens make"), { target: { value: "Fujifilm" } });
+      fireEvent.change(screen.getByLabelText('Lens make'), { target: { value: 'Fujifilm' } });
     });
     await act(async () => {
-      fireEvent.change(screen.getByLabelText("Lens model"), { target: { value: "XF 23mm" } });
+      fireEvent.change(screen.getByLabelText('Lens model'), { target: { value: 'XF 23mm' } });
     });
-    expect(current).toMatchObject({ lensMaker: "Fujifilm", lensModel: "XF 23mm", lensCorrectionMode: "manual" });
+    expect(current).toMatchObject({ lensMaker: 'Fujifilm', lensModel: 'XF 23mm', lensCorrectionMode: 'manual' });
   });
 
-  it("disables the amounts without a profile", async () => {
+  it('disables the amounts without a profile', async () => {
     await renderTool();
-    const sliders = screen.getAllByRole("slider") as HTMLInputElement[];
+    const sliders = screen.getAllByRole('slider') as HTMLInputElement[];
     expect(sliders.length).toBe(5);
     // The profile's three; manual lens vignetting works without one (its
     // midpoint once there is an amount).
     expect(sliders.map((s) => s.disabled)).toEqual([true, true, true, false, true]);
   });
 
-  it("sets manual lens vignetting without a profile, the default midpoint left out", async () => {
+  it('sets manual lens vignetting without a profile, the default midpoint left out', async () => {
     await renderTool();
-    const sliders = screen.getAllByRole("slider") as HTMLInputElement[];
+    const sliders = screen.getAllByRole('slider') as HTMLInputElement[];
     await act(async () => {
-      fireEvent.change(sliders[3], { target: { value: "20" } });
+      fireEvent.change(sliders[3], { target: { value: '20' } });
     });
     expect(current.lensManualVignetteAmount).toBe(20);
     expect(current.lensManualVignetteMidpoint).toBeUndefined();
   });
 
-  it("turns on the measured chromatic aberration removal, with or without a profile", async () => {
+  it('turns on the measured chromatic aberration removal, with or without a profile', async () => {
     await renderTool();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Remove chromatic aberration" }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Remove chromatic aberration' }));
     expect(current.autoChromaticAberration).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Remove chromatic aberration" }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Remove chromatic aberration' }));
     expect(current.autoChromaticAberration).toBeUndefined();
   });
-  it("writes the current diffraction version when the correction is switched on", async () => {
+  it('writes the current diffraction version when the correction is switched on', async () => {
     await renderTool();
-    const diffraction = () => screen.getByRole("checkbox", { name: "Diffraction correction" });
+    const diffraction = () => screen.getByRole('checkbox', { name: 'Diffraction correction' });
     fireEvent.click(diffraction());
     expect(current.diffractionCorrection).toBe(true);
     expect(current.diffractionVersion).toBe(2);
@@ -139,11 +148,11 @@ describe("Lens correction tool", () => {
     expect(current.diffractionVersion).toBeUndefined();
   });
 
-  it("shows the automatic default of new RAW edits and stores only a change from it", async () => {
+  it('shows the automatic default of new RAW edits and stores only a change from it', async () => {
     current = { ...INITIAL_ADJUSTMENTS, autoCaVersion: 2 };
     useEditorStore.setState({ adjustments: current });
     await renderTool();
-    const box = () => screen.getByRole("checkbox", { name: "Remove chromatic aberration" }) as HTMLInputElement;
+    const box = () => screen.getByRole('checkbox', { name: 'Remove chromatic aberration' }) as HTMLInputElement;
     expect(box().checked).toBe(true);
     fireEvent.click(box());
     expect(current.autoChromaticAberration).toBe(false);
@@ -154,12 +163,12 @@ describe("Lens correction tool", () => {
     current = {
       ...INITIAL_ADJUSTMENTS,
       autoCaVersion: 2,
-      lensCorrectionMode: "camera",
-      lensDistortionParams: { ...cameraParams, tca_vr: 1.0012, tca_vb: 0.9991 },
+      lensCorrectionMode: 'camera',
+      lensDistortionParams: { ...cameraParams, tca_vr: 1.0012, tca_vb: 0.9991 }
     } as Adjustments;
     useEditorStore.setState({ adjustments: current });
     await renderTool();
-    const box = screen.getByRole("checkbox", { name: "Remove chromatic aberration" }) as HTMLInputElement;
+    const box = screen.getByRole('checkbox', { name: 'Remove chromatic aberration' }) as HTMLInputElement;
     expect(box.checked).toBe(false);
     fireEvent.click(box);
     expect(current.autoChromaticAberration).toBe(true);
@@ -168,77 +177,84 @@ describe("Lens correction tool", () => {
     current = {
       ...INITIAL_ADJUSTMENTS,
       autoCaVersion: 3,
-      lensCorrectionMode: "camera",
-      lensDistortionParams: { ...cameraParams, tca_vr: 1.0012, tca_vb: 0.9991 },
+      lensCorrectionMode: 'camera',
+      lensDistortionParams: { ...cameraParams, tca_vr: 1.0012, tca_vb: 0.9991 }
     } as Adjustments;
     useEditorStore.setState({ adjustments: current });
     await renderTool();
-    const box = () => screen.getByRole("checkbox", { name: "Remove chromatic aberration" }) as HTMLInputElement;
+    const box = () => screen.getByRole('checkbox', { name: 'Remove chromatic aberration' }) as HTMLInputElement;
     expect(box().checked).toBe(true);
     fireEvent.click(box());
     expect(current.autoChromaticAberration).toBe(false);
     fireEvent.click(box());
     expect(current.autoChromaticAberration).toBeUndefined();
   });
-  it("drops a detected lens that arrives after another photograph opened", async () => {
+  it('drops a detected lens that arrives after another photograph opened', async () => {
     await renderTool();
     let finish!: (value: unknown) => void;
-    mockInvoke.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    fireEvent.click(screen.getByLabelText("Enable profile corrections"));
+    mockInvoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    fireEvent.click(screen.getByLabelText('Enable profile corrections'));
     const next = { ...INITIAL_ADJUSTMENTS };
-    act(() => useEditorStore.setState({
-      selectedImage: { path: "/job/b.arw", isReady: true, exif: {} } as never,
-      adjustments: next,
-    }));
-    await act(async () => finish(["Sony", "FE 85mm F1.8"]));
+    act(() =>
+      useEditorStore.setState({
+        selectedImage: { path: '/job/b.arw', isReady: true, exif: {} } as never,
+        adjustments: next
+      })
+    );
+    await act(async () => finish(['Sony', 'FE 85mm F1.8']));
     expect(setAdjustments).not.toHaveBeenCalled();
     expect(useEditorStore.getState().adjustments).toBe(next);
   });
 });
 
-describe("camera lens data", () => {
+describe('camera lens data', () => {
   beforeEach(() => {
     useEditorStore.setState({
       selectedImage: {
-        path: "/job/x.raf",
+        path: '/job/x.raf',
         isReady: true,
-        exif: { Make: "FUJIFILM", Model: "X-H2S", LensModel: "XF8-16mmF2.8 R LM WR" },
-      } as never,
+        exif: { Make: 'FUJIFILM', Model: 'X-H2S', LensModel: 'XF8-16mmF2.8 R LM WR' }
+      } as never
     });
   });
 
-  it("is preferred over the lens database and can be swapped for it", async () => {
+  it('is preferred over the lens database and can be swapped for it', async () => {
     await renderTool();
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Enable profile corrections"));
+      fireEvent.click(screen.getByLabelText('Enable profile corrections'));
     });
     expect(current).toMatchObject({
-      lensCorrectionMode: "camera",
+      lensCorrectionMode: 'camera',
       lensDistortionParams: cameraParams,
       lensMaker: null,
       cameraCaVersion: CAMERA_CA_VERSION,
-      cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
+      cameraGeometryVersion: CAMERA_GEOMETRY_VERSION
     });
-    expect(mockInvoke).not.toHaveBeenCalledWith("autodetect_lens", expect.anything());
+    expect(mockInvoke).not.toHaveBeenCalledWith('autodetect_lens', expect.anything());
     expect(screen.getByText(/Camera data \(Fujifilm\)/)).toBeTruthy();
     // Without a TCA curve in the camera data, its amount is not offered.
-    const sliders = screen.getAllByRole("slider") as HTMLInputElement[];
+    const sliders = screen.getAllByRole('slider') as HTMLInputElement[];
     expect(sliders.map((s) => s.disabled)).toEqual([false, false, true, false, true]);
     await act(async () => {
-      fireEvent.click(screen.getByText("Use lens database…"));
+      fireEvent.click(screen.getByText('Use lens database…'));
     });
-    expect(current).toMatchObject({ lensCorrectionMode: "manual", lensDistortionParams: null });
-    expect(screen.getByLabelText("Lens make")).toBeTruthy();
+    expect(current).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: null });
+    expect(screen.getByLabelText('Lens make')).toBeTruthy();
   });
-  it("is read for the frame the open photo develops", async () => {
+  it('is read for the frame the open photo develops', async () => {
     // An edit from before the frame key develops the first frame.
     await renderTool();
-    expect(mockInvoke).toHaveBeenCalledWith("get_camera_lens_profile", { path: "/job/x.raf", frame: 0 });
+    expect(mockInvoke).toHaveBeenCalledWith('get_camera_lens_profile', { path: '/job/x.raf', frame: 0 });
     cleanup();
     mockInvoke.mockClear();
     current = { ...INITIAL_ADJUSTMENTS, sourceFrameVersion: 2 };
     useEditorStore.setState({ adjustments: current });
     await renderTool();
-    expect(mockInvoke).toHaveBeenCalledWith("get_camera_lens_profile", { path: "/job/x.raf", frame: 2 });
+    expect(mockInvoke).toHaveBeenCalledWith('get_camera_lens_profile', { path: '/job/x.raf', frame: 2 });
   });
 });

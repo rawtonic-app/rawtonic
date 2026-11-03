@@ -13,25 +13,37 @@ vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn().mockResolvedValue('0
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en' }, t: (key: string, args?: Record<string, unknown>) => key === 'updates.available' ? `Rawtonic ${args?.version} is available` : key === 'updates.fileWithSize' ? `${args?.file} (${args?.size} MB)` : key }) }));
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    i18n: { language: 'en' },
+    t: (key: string, args?: Record<string, unknown>) =>
+      key === 'updates.available'
+        ? `Rawtonic ${args?.version} is available`
+        : key === 'updates.fileWithSize'
+          ? `${args?.file} (${args?.size} MB)`
+          : key
+  })
+}));
 const release = {
   version: '0.1.0-alpha.4',
   releaseUrl: 'https://github.com/rawtonic-app/rawtonic/releases/tag/v0.1.0-alpha.4',
   appImage: false,
-  downloadUrl: 'https://github.com/rawtonic-app/rawtonic/releases/download/v0.1.0-alpha.4/Rawtonic_0.1.0-alpha.4_aarch64.dmg',
+  downloadUrl:
+    'https://github.com/rawtonic-app/rawtonic/releases/download/v0.1.0-alpha.4/Rawtonic_0.1.0-alpha.4_aarch64.dmg',
   assetName: 'Rawtonic_0.1.0-alpha.4_aarch64.dmg',
   assetSize: 412_345_678,
-  notes: '## Fixed\n\n- **Masks** show. ![x](https://example.com/t.png) [More](https://github.com/rawtonic-app/rawtonic)',
+  notes:
+    '## Fixed\n\n- **Masks** show. ![x](https://example.com/t.png) [More](https://github.com/rawtonic-app/rawtonic)'
 };
 beforeEach(() => {
   vi.clearAllMocks();
   useUpdateStore.setState({ update: null, checking: false, checked: false, failed: false, started: false });
   useSettingsStore.setState({ appSettings: {} as AppSettings });
-  vi.mocked(invoke).mockImplementation(async (cmd) => cmd === Invokes.CheckUpdates ? release : undefined);
+  vi.mocked(invoke).mockImplementation(async (cmd) => (cmd === Invokes.CheckUpdates ? release : undefined));
 });
 afterEach(cleanup);
 
-it('checks startup once across remounts and Download opens this computer\'s installer in the browser', async () => {
+it("checks startup once across remounts and Download opens this computer's installer in the browser", async () => {
   const view = render(<UpdateNotice />);
   await act(async () => {});
   expect(screen.getByText('Rawtonic 0.1.0-alpha.4 is available')).toBeTruthy();
@@ -42,7 +54,9 @@ it('checks startup once across remounts and Download opens this computer\'s inst
   view.unmount();
   render(<UpdateNotice />);
   await act(async () => {});
-  expect(vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === Invokes.CheckUpdates)).toEqual([[Invokes.CheckUpdates, { manual: false }]]);
+  expect(vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === Invokes.CheckUpdates)).toEqual([
+    [Invokes.CheckUpdates, { manual: false }]
+  ]);
 });
 it('dismisses the notice and persists exactly that version', async () => {
   render(<UpdateNotice />);
@@ -71,7 +85,9 @@ it('defaults the preference on, saves opt-out, and permits a manual check while 
   expect((toggle as HTMLInputElement).checked).toBe(true);
   fireEvent.click(toggle);
   expect(onSettingsChange).toHaveBeenCalledWith({ checkForUpdates: false });
-  view.rerender(<UpdateSettings appSettings={{ checkForUpdates: false } as AppSettings} onSettingsChange={onSettingsChange} />);
+  view.rerender(
+    <UpdateSettings appSettings={{ checkForUpdates: false } as AppSettings} onSettingsChange={onSettingsChange} />
+  );
   fireEvent.click(screen.getByText('updates.checkNow'));
   await act(async () => {});
   expect(invoke).toHaveBeenCalledWith(Invokes.CheckUpdates, { manual: true });
@@ -97,7 +113,12 @@ it('a failed manual check never claims there is no newer release', async () => {
 });
 
 it('dismissing a known newer release never claims there is no newer release', async () => {
-  render(<><UpdateNotice /><UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} /></>);
+  render(
+    <>
+      <UpdateNotice />
+      <UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} />
+    </>
+  );
   await act(async () => {});
   fireEvent.click(screen.getByText('updates.checkNow'));
   await act(async () => {});
@@ -120,7 +141,9 @@ it('waits for settings before offering a dismissal that must be persisted', asyn
   render(<UpdateNotice />);
   await act(async () => {});
   expect(screen.queryByText('updates.notNow')).toBeNull();
-  await act(async () => { useSettingsStore.setState({ appSettings: {} as AppSettings }); });
+  await act(async () => {
+    useSettingsStore.setState({ appSettings: {} as AppSettings });
+  });
   fireEvent.click(screen.getByText('updates.notNow'));
   await act(async () => {});
   expect(invoke).toHaveBeenCalledWith(Invokes.SaveSettings, { settings: { dismissedUpdateVersion: release.version } });

@@ -16,7 +16,13 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { isAnyModalOpen, useUIStore } from '../store/useUIStore';
 import { useProcessStore } from '../store/useProcessStore';
-import { endBeforePeek, startBeforePeek, toggleBeforeView, updateAdjustments, useEditorActions } from './useEditorActions';
+import {
+  endBeforePeek,
+  startBeforePeek,
+  toggleBeforeView,
+  updateAdjustments,
+  useEditorActions
+} from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
@@ -27,12 +33,20 @@ import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/vi
 import { canUndo, canRedo, undo, redo, catalogUndoAvailable, useCatalogUndoStore } from '../utils/appUndo';
 import { pointerHeld } from '../utils/heldPointer';
 import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
-import { cameraPreviewShown, cameraPreviewTarget, hideCameraPreview, toggleCameraPreview } from '../utils/cameraPreview';
+import {
+  cameraPreviewShown,
+  cameraPreviewTarget,
+  hideCameraPreview,
+  toggleCameraPreview
+} from '../utils/cameraPreview';
 
 function showMaskDisplayNotice(mode: ReturnType<typeof maskDisplayOf>): void {
-  notify.info(i18n.t('studio.develop.maskOverlay.currentMode', {
-    mode: i18n.t(`studio.develop.maskOverlay.modes.${mode}`),
-  }), { autoClose: 1800 });
+  notify.info(
+    i18n.t('studio.develop.maskOverlay.currentMode', {
+      mode: i18n.t(`studio.develop.maskOverlay.modes.${mode}`)
+    }),
+    { autoClose: 1800 }
+  );
 }
 
 /** The photograph an arrow key moves to in the Library, from `index` of
@@ -65,7 +79,7 @@ export const RECIPE_ACTIONS = new Set([
   'undo',
   'redo',
   'toggle_crop',
-  'toggle_masks',
+  'toggle_masks'
 ]);
 
 /** No shortcut reaches the app behind Preferences, a dialog or a modal. */
@@ -110,7 +124,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_camera_preview: () => cameraPreviewShown(),
   toggle_auto_advance: (s) => !!s.settings.appSettings?.autoAdvance,
   toggle_proof_margin: (s) => !!s.settings.appSettings?.viewerProofMargin,
-  toggle_pointer_readout: (s) => !!s.settings.appSettings?.pointerReadout,
+  toggle_pointer_readout: (s) => !!s.settings.appSettings?.pointerReadout
 };
 
 interface KeyboardShortcutsProps {
@@ -150,7 +164,7 @@ export const useKeyboardShortcuts = ({
   handleMoveToSelects,
   handleImageSelect,
   handlePasteFiles,
-  handleZoomChange,
+  handleZoomChange
 }: KeyboardShortcutsProps) => {
   const {
     handleRotate,
@@ -162,7 +176,7 @@ export const useKeyboardShortcuts = ({
     cycleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
-    handleAutoStraighten,
+    handleAutoStraighten
   } = useEditorActions();
   const { handleRate, handleSetColorLabel } = useLibraryActions();
 
@@ -180,8 +194,8 @@ export const useKeyboardShortcuts = ({
                 crop: adjustments.crop,
                 aspectRatio: adjustments.aspectRatio,
                 rotation: adjustments.rotation,
-                orientationSteps: adjustments.orientationSteps,
-              },
+                orientationSteps: adjustments.orientationSteps
+              }
             }
           : null;
     };
@@ -246,11 +260,13 @@ export const useKeyboardShortcuts = ({
   const showInViewer = useCallback(
     (path: string) => {
       if (libraryViewer(useUIStore.getState())) {
-        useLibraryStore.getState().setLibrary({ libraryActivePath: path, multiSelectedPaths: [path], selectionAnchorPath: path });
+        useLibraryStore
+          .getState()
+          .setLibrary({ libraryActivePath: path, multiSelectedPaths: [path], selectionAnchorPath: path });
         handleImageSelect(path, false);
       } else handleImageSelect(path, true);
     },
-    [handleImageSelect],
+    [handleImageSelect]
   );
   useEffect(() => {
     const advance = (event: Event) => {
@@ -263,8 +279,8 @@ export const useKeyboardShortcuts = ({
       if (grid && (library.multiSelectedPaths.length !== 1 || library.multiSelectedPaths[0] !== rated)) return;
       const next = autoAdvanceTarget(
         sortedListRef.current.map((image) => image.path),
-        grid ? library.libraryActivePath : useEditorStore.getState().selectedImage?.path ?? null,
-        rated,
+        grid ? library.libraryActivePath : (useEditorStore.getState().selectedImage?.path ?? null),
+        rated
       );
       if (next && grid) {
         library.setLibrary({ libraryActivePath: next, multiSelectedPaths: [next], selectionAnchorPath: next });
@@ -294,9 +310,8 @@ export const useKeyboardShortcuts = ({
       library: useLibraryStore.getState(),
       ui: useUIStore.getState(),
       settings: useSettingsStore.getState(),
-      process: useProcessStore.getState(),
+      process: useProcessStore.getState()
     });
-
 
     const getImagePathsForCopy = (s: ShortcutState): Array<string> => {
       if (s.editor.selectedImage) {
@@ -307,7 +322,7 @@ export const useKeyboardShortcuts = ({
         const listOrder = new Map(sortedListRef.current.map((image: ImageFile, index: number) => [image.path, index]));
         return [...multiSelectedPaths].sort(
           (a: string, b: string) =>
-            (listOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (listOrder.get(b) ?? Number.MAX_SAFE_INTEGER),
+            (listOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (listOrder.get(b) ?? Number.MAX_SAFE_INTEGER)
         );
       }
       return libraryActivePath ? [libraryActivePath] : [];
@@ -320,7 +335,7 @@ export const useKeyboardShortcuts = ({
     const stepMultiView = (s: ShortcutState, step: number) => {
       const selection = orderedSelection(
         sortedListRef.current.map((image) => image.path),
-        s.library.multiSelectedPaths,
+        s.library.multiSelectedPaths
       );
       const next = stepPrimary(selection, s.editor.selectedImage?.path ?? null, step);
       if (next && next !== s.editor.selectedImage?.path) handleImageSelect(next, s.ui.activeView === 'editor');
@@ -344,7 +359,7 @@ export const useKeyboardShortcuts = ({
       shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
     const rateAndAdvance = (rating: number, s: ShortcutState) => {
       handleRate(rating, ratedPaths(s));
-      requestAutoAdvance(viewerShown(s.ui) ? s.editor.selectedImage?.path : s.library.libraryActivePath ?? undefined);
+      requestAutoAdvance(viewerShown(s.ui) ? s.editor.selectedImage?.path : (s.library.libraryActivePath ?? undefined));
     };
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
@@ -356,7 +371,7 @@ export const useKeyboardShortcuts = ({
         e.preventDefault();
         if (useMultiViewStore.getState().active && useMultiViewStore.getState().zoomHoveredCell?.(kind)) return;
         zoom(s);
-      },
+      }
     });
 
     const actions: Record<string, ShortcutAction> = {
@@ -365,63 +380,64 @@ export const useKeyboardShortcuts = ({
         execute: (e, s) => {
           e.preventDefault();
           handleImageSelect(s.library.libraryActivePath!, true);
-        },
+        }
       },
       copy_adjustments: {
         shouldFire: () => true,
         execute: (e) => {
           e.preventDefault();
           handleCopyAdjustments();
-        },
+        }
       },
       paste_adjustments: {
         shouldFire: () => true,
         execute: (e) => {
           e.preventDefault();
           handlePasteAdjustments();
-        },
+        }
       },
       paste_from_previous: {
         shouldFire: (s) => !!s.editor.previousPhoto,
         execute: (e) => {
           e.preventDefault();
           void handlePasteFromPrevious();
-        },
+        }
       },
       sync_settings: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady && s.library.multiSelectedPaths.length > 1,
+        shouldFire: (s) =>
+          s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady && s.library.multiSelectedPaths.length > 1,
         execute: (e) => {
           e.preventDefault();
           void handleSyncSettings();
-        },
+        }
       },
       copy_image_path: {
         shouldFire: (s) => getImagePathsForCopy(s).length > 0,
         execute: (e, s) => {
           e.preventDefault();
           handleCopyImagePaths(getImagePathsForCopy(s));
-        },
+        }
       },
       move_to_selects: {
         shouldFire: (s) => !!handleMoveToSelects && !!s.library.sessionDirectory,
         execute: (e) => {
           e.preventDefault();
           handleMoveToSelects?.();
-        },
+        }
       },
       copy_files: {
         shouldFire: (s) => s.library.multiSelectedPaths.length > 0,
         execute: (e, s) => {
           e.preventDefault();
           s.process.setProcess({ copiedFilePaths: s.library.multiSelectedPaths });
-        },
+        }
       },
       paste_files: {
         shouldFire: () => true,
         execute: (e) => {
           e.preventDefault();
           handlePasteFiles('copy');
-        },
+        }
       },
       select_all: {
         shouldFire: () => sortedListRef.current.length > 0,
@@ -433,14 +449,14 @@ export const useKeyboardShortcuts = ({
             s.library.setLibrary({ libraryActivePath: lastPath });
             handleImageSelect(lastPath, false);
           }
-        },
+        }
       },
       delete_selected: {
         shouldFire: (s) => !s.editor.activeMaskContainerId,
         execute: (e) => {
           e.preventDefault();
           handleDeleteSelected();
-        },
+        }
       },
       preview_prev: {
         shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
@@ -458,7 +474,7 @@ export const useKeyboardShortcuts = ({
           if (currentIndex === -1) return;
           const nextIndex = currentIndex - 1 < 0 ? sortedListRef.current.length - 1 : currentIndex - 1;
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
-        },
+        }
       },
       preview_next: {
         shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
@@ -476,7 +492,7 @@ export const useKeyboardShortcuts = ({
           if (currentIndex === -1) return;
           const nextIndex = currentIndex + 1 >= sortedListRef.current.length ? 0 : currentIndex + 1;
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
-        },
+        }
       },
       zoom_in_step: zoomAction('stepIn', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
@@ -546,10 +562,11 @@ export const useKeyboardShortcuts = ({
           e.preventDefault();
           const multi = useMultiViewStore.getState();
           multi.setZoomLock(!multi.zoomLock);
-        },
+        }
       },
       toggle_multi_view: {
-        shouldFire: (s) => (s.ui.activeView === 'editor' && !!s.editor.selectedImage) ||
+        shouldFire: (s) =>
+          (s.ui.activeView === 'editor' && !!s.editor.selectedImage) ||
           (s.ui.activeView === 'library' && !!s.library.libraryActivePath && s.library.multiSelectedPaths.length > 1),
         execute: (e, s) => {
           e.preventDefault();
@@ -563,7 +580,7 @@ export const useKeyboardShortcuts = ({
             multi.setLibraryEnabled(true);
           } else if (s.ui.activeView === 'library') multi.setLibraryEnabled(!multi.libraryEnabled);
           else multi.toggle();
-        },
+        }
       },
       pin_reference: {
         // Capture One's ⇧Return: the primary becomes the reference, shown
@@ -574,49 +591,59 @@ export const useKeyboardShortcuts = ({
           const primary = s.editor.selectedImage!.path;
           const selection = orderedSelection(
             sortedListRef.current.map((image) => image.path),
-            s.library.multiSelectedPaths,
+            s.library.multiSelectedPaths
           );
           const next = stepPrimary(selection, primary, 1);
           useMultiViewStore.getState().setReference(primary);
           if (!next || next === primary) return;
           s.library.setLibrary({ multiSelectedPaths: selection.filter((path) => path !== primary) });
           handleImageSelect(next, true);
-        },
+        }
       },
       clear_reference: {
         shouldFire: () => useMultiViewStore.getState().reference !== null,
         execute: (e) => {
           e.preventDefault();
           useMultiViewStore.getState().setReference(null);
-        },
+        }
       },
       rotate_left: {
         shouldFire: (s) => !!s.editor.selectedImage || !!s.library.libraryActivePath,
         execute: (e) => {
           e.preventDefault();
           handleRotate(-90);
-        },
+        }
       },
       rotate_right: {
         shouldFire: (s) => !!s.editor.selectedImage || !!s.library.libraryActivePath,
         execute: (e) => {
           e.preventDefault();
           handleRotate(90);
-        },
+        }
       },
       undo: {
-        shouldFire: (s) => canUndo() || (s.ui.activeView !== 'editor' && !!handleUndoFileOperation && !useCatalogUndoStore.getState().busy && !useCatalogUndoStore.getState().fileUndoEmpty),
+        shouldFire: (s) =>
+          canUndo() ||
+          (s.ui.activeView !== 'editor' &&
+            !!handleUndoFileOperation &&
+            !useCatalogUndoStore.getState().busy &&
+            !useCatalogUndoStore.getState().fileUndoEmpty),
         execute: (e, s) => {
           e.preventDefault();
           void undo(s.ui.activeView !== 'editor' ? handleUndoFileOperation : undefined);
-        },
+        }
       },
       redo: {
-        shouldFire: (s) => canRedo() || (s.ui.activeView !== 'editor' && !!handleRedoFileOperation && !useCatalogUndoStore.getState().busy && !useCatalogUndoStore.getState().fileRedoBlocked),
+        shouldFire: (s) =>
+          canRedo() ||
+          (s.ui.activeView !== 'editor' &&
+            !!handleRedoFileOperation &&
+            !useCatalogUndoStore.getState().busy &&
+            !useCatalogUndoStore.getState().fileRedoBlocked),
         execute: (e, s) => {
           e.preventDefault();
           void redo(s.ui.activeView !== 'editor' ? handleRedoFileOperation : undefined);
-        },
+        }
       },
       auto_adjust: {
         // Background only, like the Auto button.
@@ -627,7 +654,7 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           handleAutoAdjustments();
-        },
+        }
       },
       auto_white_balance: {
         // Background only, like the Auto button.
@@ -638,7 +665,7 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           void handleAutoWhiteBalance();
-        },
+        }
       },
       auto_straighten: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady,
@@ -647,7 +674,7 @@ export const useKeyboardShortcuts = ({
           // Held down: one request, not one per key repeat.
           if (e.repeat) return;
           void runAutoStraighten(handleAutoStraighten);
-        },
+        }
       },
       toggle_fullscreen: {
         // The photograph alone (Lightroom's F), from the Library and Develop.
@@ -668,7 +695,7 @@ export const useKeyboardShortcuts = ({
             handleImageSelect(active, false);
           }
           useUIStore.getState().toggleFullScreen();
-        },
+        }
       },
       toggle_window_fullscreen: {
         // The window's full screen with the interface as it is.
@@ -676,7 +703,7 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           void toggleWindowFullScreen();
-        },
+        }
       },
       show_original: {
         // Held, not toggled: the key's release (or the window losing the
@@ -686,7 +713,7 @@ export const useKeyboardShortcuts = ({
           e.preventDefault();
           if (e.repeat || peekKeyRef.current) return;
           if (startBeforePeek()) peekKeyRef.current = e.code;
-        },
+        }
       },
       toggle_original: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
@@ -696,30 +723,33 @@ export const useKeyboardShortcuts = ({
           // A held \ under way is no longer ended by its key's release.
           peekKeyRef.current = null;
           toggleBeforeView();
-        },
+        }
       },
       toggle_split_view: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e) => {
           e.preventDefault();
           toggleSplitView();
-        },
+        }
       },
       cycle_compare_mode: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e) => {
           e.preventDefault();
           if (!e.repeat) cycleCompareMode();
-        },
+        }
       },
       toggle_clipping: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
           // Both on unless one is on already: then both off.
-          const { highlights, shadows } = nextClipSides({ highlights: s.editor.clipHighlights, shadows: s.editor.clipShadows });
+          const { highlights, shadows } = nextClipSides({
+            highlights: s.editor.clipHighlights,
+            shadows: s.editor.clipShadows
+          });
           s.editor.setEditor({ clipHighlights: highlights, clipShadows: shadows });
-        },
+        }
       },
       toggle_auto_advance: {
         shouldFire: (s) => !!s.settings.appSettings,
@@ -728,7 +758,7 @@ export const useKeyboardShortcuts = ({
           if (e.repeat) return;
           const appSettings = s.settings.appSettings!;
           void s.settings.handleSettingsChange({ ...appSettings, autoAdvance: !appSettings.autoAdvance });
-        },
+        }
       },
       toggle_proof_margin: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage && !!s.settings.appSettings,
@@ -736,7 +766,7 @@ export const useKeyboardShortcuts = ({
           e.preventDefault();
           const appSettings = s.settings.appSettings!;
           void s.settings.handleSettingsChange({ ...appSettings, viewerProofMargin: !appSettings.viewerProofMargin });
-        },
+        }
       },
       toggle_pointer_readout: {
         shouldFire: (s) => !!s.settings.appSettings,
@@ -745,14 +775,14 @@ export const useKeyboardShortcuts = ({
           if (e.repeat) return;
           const appSettings = s.settings.appSettings!;
           void s.settings.handleSettingsChange({ ...appSettings, pointerReadout: !appSettings.pointerReadout });
-        },
+        }
       },
       toggle_soft_proof: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
           s.editor.setEditor({ softProof: !s.editor.softProof });
-        },
+        }
       },
       toggle_camera_preview: {
         // A view that never edits, in Develop (the full screen too). With
@@ -762,7 +792,7 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           toggleCameraPreview();
-        },
+        }
       },
       toggle_mask_overlay: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
@@ -777,7 +807,9 @@ export const useKeyboardShortcuts = ({
           // hides that layer's mask; mask tools keep the display setting's M.
           if (s.ui.activePanel === Panel.Masks && s.editor.activeMaskContainerId && !s.editor.activeMaskId) {
             const show = autoHidden || !s.editor.showMaskWithSelectTool;
-            s.editor.setEditor(show ? { showMaskWithSelectTool: true, maskOverlayAuto: 'pinned' } : { showMaskWithSelectTool: false });
+            s.editor.setEditor(
+              show ? { showMaskWithSelectTool: true, maskOverlayAuto: 'pinned' } : { showMaskWithSelectTool: false }
+            );
             if (show && settings && maskDisplayOf(settings) === 'never') {
               const next = toggleMaskDisplay(settings);
               s.settings.handleSettingsChange({ ...settings, ...next });
@@ -795,7 +827,7 @@ export const useKeyboardShortcuts = ({
           s.settings.handleSettingsChange({ ...settings, ...next });
           if (next.maskDisplay !== 'never') s.editor.setEditor({ maskOverlayAuto: 'pinned' });
           showMaskDisplayNotice(maskDisplayOf(next));
-        },
+        }
       },
       toggle_mask_grayscale: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
@@ -809,7 +841,7 @@ export const useKeyboardShortcuts = ({
           s.settings.handleSettingsChange({ ...settings, ...next });
           showMaskDisplayNotice(maskDisplayOf(next));
           s.editor.setEditor({ maskOverlayAuto: 'pinned' });
-        },
+        }
       },
       toggle_layer_solo: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.activeMaskContainerId,
@@ -820,23 +852,23 @@ export const useKeyboardShortcuts = ({
           // A component picked in the list solos that component.
           const componentId = s.editor.focusedMaskComponentId;
           s.editor.setEditor({
-            layerSolo: s.editor.layerSolo ? null : { layerId, componentId: componentId ?? null },
+            layerSolo: s.editor.layerSolo ? null : { layerId, componentId: componentId ?? null }
           });
-        },
+        }
       },
       toggle_adjustments: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.setPanel(Panel.Adjustments);
-        },
+        }
       },
       toggle_masks: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.setPanel(Panel.Masks);
-        },
+        }
       },
       // The library column's Metadata and Folders tools, where it is shown
       // (the Library's grid and loupe). In Develop and the full screen, I
@@ -851,14 +883,14 @@ export const useKeyboardShortcuts = ({
           if ((s.ui.activeView === 'editor' || s.ui.isFullScreen) && s.editor.selectedImage) {
             s.ui.setUI({ infoOverlay: !s.ui.infoOverlay });
           } else revealLibraryTool('Metadata');
-        },
+        }
       },
       toggle_folder_tree: {
         shouldFire: () => !!libraryTool('Folders'),
         execute: (e) => {
           e.preventDefault();
           revealLibraryTool('Folders');
-        },
+        }
       },
       toggle_analytics: {
         shouldFire: (s) => !!s.editor.selectedImage,
@@ -880,72 +912,72 @@ export const useKeyboardShortcuts = ({
           // Treated as loaded settings; a null value is spread unchanged, as before.
           s.settings.handleSettingsChange({
             ...s.settings.appSettings!,
-            isWaveformVisible: nextVisibility,
+            isWaveformVisible: nextVisibility
           });
-        },
+        }
       },
       toggle_export: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.setPanel(Panel.Export);
-        },
+        }
       },
       toggle_side_panels: {
         shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('sides');
-        },
+        }
       },
       toggle_all_panels: {
         shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('all');
-        },
+        }
       },
       toggle_left_panel: {
         shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('left');
-        },
+        }
       },
       toggle_right_panel: {
         shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('right');
-        },
+        }
       },
       toggle_bottom_panel: {
         shouldFire: (s) => s.ui.activeView !== 'library' && !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('filmstrip');
-        },
+        }
       },
       open_settings: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.setUI({ isSettingsOpen: true });
-        },
+        }
       },
       tether_capture: {
         shouldFire: () => isTetherConnected(),
         execute: (e) => {
           e.preventDefault();
           window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
-        },
+        }
       },
       focus_search: {
         shouldFire: (s) => s.ui.activeView === 'library',
         execute: (e, s) => {
           e.preventDefault();
           s.ui.requestSearchFocus();
-        },
+        }
       },
       toggle_crop: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
@@ -957,122 +989,116 @@ export const useKeyboardShortcuts = ({
             s.ui.setPanel(Panel.Crop);
             s.editor.setEditor({ isStraightenActive: true });
           }
-        },
+        }
       },
       rate_0: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           rateAndAdvance(0, s);
-        },
+        }
       },
       rate_1: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           rateAndAdvance(1, s);
-        },
+        }
       },
       rate_2: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           rateAndAdvance(2, s);
-        },
+        }
       },
       rate_3: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           rateAndAdvance(3, s);
-        },
+        }
       },
       rate_4: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           rateAndAdvance(4, s);
-        },
+        }
       },
       rate_5: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           rateAndAdvance(5, s);
-        },
+        }
       },
       color_label_none: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           handleSetColorLabel(null, shownOnly(s));
-        },
+        }
       },
       color_label_red: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           handleSetColorLabel('red', shownOnly(s));
-        },
+        }
       },
       color_label_yellow: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           handleSetColorLabel('yellow', shownOnly(s));
-        },
+        }
       },
       color_label_green: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           handleSetColorLabel('green', shownOnly(s));
-        },
+        }
       },
       color_label_blue: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           handleSetColorLabel('blue', shownOnly(s));
-        },
+        }
       },
       color_label_purple: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           handleSetColorLabel('purple', shownOnly(s));
-        },
+        }
       },
       brush_size_up: {
-        shouldFire: (s) =>
-          s.ui.activeView === 'editor' &&
-          !!s.editor.selectedImage &&
-          s.ui.activePanel === Panel.Masks,
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage && s.ui.activePanel === Panel.Masks,
         execute: (e, s) => {
           e.preventDefault();
           // Without brush settings yet, only a size is stored (pre-existing behaviour).
           const currentSettings = s.editor.brushSettings || ({ size: DEFAULT_BRUSH_SIZE } as BrushSettings);
           const newSize = stepBrushSize(currentSettings.size || DEFAULT_BRUSH_SIZE, 1);
           s.editor.setEditor({
-            brushSettings: { ...currentSettings, size: newSize },
+            brushSettings: { ...currentSettings, size: newSize }
           });
-        },
+        }
       },
       brush_size_down: {
-        shouldFire: (s) =>
-          s.ui.activeView === 'editor' &&
-          !!s.editor.selectedImage &&
-          s.ui.activePanel === Panel.Masks,
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage && s.ui.activePanel === Panel.Masks,
         execute: (e, s) => {
           e.preventDefault();
           // Without brush settings yet, only a size is stored (pre-existing behaviour).
           const currentSettings = s.editor.brushSettings || ({ size: DEFAULT_BRUSH_SIZE } as BrushSettings);
           const newSize = stepBrushSize(currentSettings.size || DEFAULT_BRUSH_SIZE, -1);
           s.editor.setEditor({
-            brushSettings: { ...currentSettings, size: newSize },
+            brushSettings: { ...currentSettings, size: newSize }
           });
-        },
-      },
+        }
+      }
     };
 
     const builtinShortcuts = [
@@ -1087,7 +1113,7 @@ export const useKeyboardShortcuts = ({
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
           stepMultiView(s, e.code === 'ArrowRight' ? 1 : -1);
-        },
+        }
       },
       {
         match: (e: KeyboardEvent) => e.code === 'Escape',
@@ -1112,20 +1138,19 @@ export const useKeyboardShortcuts = ({
             if (entry && entry.path === s.editor.selectedImage?.path) {
               const now = s.editor.adjustments as unknown as Record<string, unknown>;
               const changed = Object.entries(entry.values).some(
-                ([key, value]) => JSON.stringify(now[key]) !== JSON.stringify(value),
+                ([key, value]) => JSON.stringify(now[key]) !== JSON.stringify(value)
               );
               if (changed) updateAdjustments((prev) => ({ ...prev, ...entry.values }));
             }
             // A pending Auto straighten answer is for the cancelled edit.
             cropEditCancelled();
             s.ui.setPanel(Panel.Adjustments);
-          }
-          else if (s.ui.activeView === 'editor') handleBackToLibrary();
+          } else if (s.ui.activeView === 'editor') handleBackToLibrary();
           // The Library's loupe goes back to the grid.
           else if (s.ui.libraryLoupe) s.ui.setUI({ libraryLoupe: false });
           // In the Library, Escape does nothing further (Lightroom, Capture One):
           // RapidRAW's step back to its start screen emptied the session's view.
-        },
+        }
       },
       {
         // Enter applies the crop and leaves the crop tool, as in Lightroom and
@@ -1142,7 +1167,7 @@ export const useKeyboardShortcuts = ({
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
           s.ui.setPanel(Panel.Adjustments);
-        },
+        }
       },
       {
         match: (e: KeyboardEvent, s: ShortcutState) => {
@@ -1160,10 +1185,10 @@ export const useKeyboardShortcuts = ({
               adjustments: { ...state.adjustments, masks },
               activeMaskContainerId: removed === 'component' ? activeMaskContainerId : null,
               activeMaskId: null,
-              focusedMaskComponentId: null,
+              focusedMaskComponentId: null
             };
           });
-        },
+        }
       },
       {
         // Space in the Library's grid opens the loupe on the active
@@ -1184,7 +1209,7 @@ export const useKeyboardShortcuts = ({
           const path = s.library.libraryActivePath!;
           if (s.editor.selectedImage?.path !== path) handleImageSelect(path, false);
           s.ui.setUI({ libraryLoupe: true });
-        },
+        }
       },
       {
         // The grid's arrows; the loupe and full screen use preview_prev/next
@@ -1206,8 +1231,8 @@ export const useKeyboardShortcuts = ({
             s.library.setLibrary({ libraryActivePath: nextImage.path, multiSelectedPaths: [nextImage.path] });
             handleImageSelect(nextImage.path, false);
           }
-        },
-      },
+        }
+      }
     ];
 
     // The same actions for the menu bar (useAppMenu): its items run these
@@ -1227,7 +1252,7 @@ export const useKeyboardShortcuts = ({
           );
         },
         run: () => handler.execute(new KeyboardEvent('keydown'), getStoreState()),
-        ...(checked ? { checked: () => checked(getStoreState()) } : {}),
+        ...(checked ? { checked: () => checked(getStoreState()) } : {})
       };
     }
     const unregisterCommands = registerAppCommands(menuCommands);
@@ -1235,19 +1260,35 @@ export const useKeyboardShortcuts = ({
     // On macOS WebKit may report Caps Lock locking as keydown and unlocking
     // as keyup. Follow the lock state on both transitions, not the event count.
     const syncMacCapsLock = (event: KeyboardEvent, state: ShortcutState) => {
-      if (state.settings.osPlatform !== 'macos' || event.code !== 'CapsLock' || event.repeat ||
-          event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !state.settings.appSettings ||
-          !(buildComboMap(state.settings.appSettings.keybinds).get('CapsLock') ?? []).includes('toggle_auto_advance')) return false;
+      if (
+        state.settings.osPlatform !== 'macos' ||
+        event.code !== 'CapsLock' ||
+        event.repeat ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey ||
+        !state.settings.appSettings ||
+        !(buildComboMap(state.settings.appSettings.keybinds).get('CapsLock') ?? []).includes('toggle_auto_advance')
+      )
+        return false;
       event.preventDefault();
       const appSettings = state.settings.appSettings;
       const autoAdvance = event.getModifierState('CapsLock');
-      if (appSettings.autoAdvance !== autoAdvance) void state.settings.handleSettingsChange({ ...appSettings, autoAdvance });
+      if (appSettings.autoAdvance !== autoAdvance)
+        void state.settings.handleSettingsChange({ ...appSettings, autoAdvance });
       return true;
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
       const state = getStoreState();
-      if (event.defaultPrevented || state.ui.isSettingsOpen || shortcutsHeld(state) || fieldOwnsKey(document.activeElement, event.code)) return;
+      if (
+        event.defaultPrevented ||
+        state.ui.isSettingsOpen ||
+        shortcutsHeld(state) ||
+        fieldOwnsKey(document.activeElement, event.code)
+      )
+        return;
       syncMacCapsLock(event, state);
     };
 
@@ -1267,7 +1308,8 @@ export const useKeyboardShortcuts = ({
 
       // A select's arrows, Enter and type-to-find belong to it, as a text
       // field's keys do; a slider keeps only the keys that move it.
-      const rangeFocused = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
+      const rangeFocused =
+        document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
       const rangeOwnsKey = rangeFocused && fieldOwnsKey(document.activeElement, event.code);
       if (!rangeFocused && fieldOwnsKey(document.activeElement, event.code)) return;
       // Tab moves the focus between fields and controls; it hides panels only
@@ -1334,6 +1376,6 @@ export const useKeyboardShortcuts = ({
     cycleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
-    handleAutoStraighten,
+    handleAutoStraighten
   ]);
 };

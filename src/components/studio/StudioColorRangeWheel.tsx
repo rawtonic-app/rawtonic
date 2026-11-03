@@ -1,14 +1,7 @@
-import {
-  memo,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-} from "react";
-import { useTranslation } from "react-i18next";
-import type { ColorRange } from "../../utils/adjustments";
-import { oklchCss } from "../../utils/oklab";
+import { memo, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { ColorRange } from '../../utils/adjustments';
+import { oklchCss } from '../../utils/oklab';
 
 /**
  * Geometry of the range wheel: Oklab hue around (0 at the right, increasing
@@ -19,15 +12,12 @@ import { oklchCss } from "../../utils/oklab";
 export const RIM_CHROMA = 0.32;
 const VIEW = 1.12;
 
-const clampTo = (v: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, v));
+const clampTo = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 /** Signed hue difference a − b in degrees, −180…180. */
 const hueDelta = (a: number, b: number) => ((a - b + 540) % 360) - 180;
 
-export const radiusOf = (chroma: number) =>
-  Math.sqrt(clampTo(chroma, 0, RIM_CHROMA) / RIM_CHROMA);
-export const chromaOf = (radius: number) =>
-  clampTo(radius, 0, 1) ** 2 * RIM_CHROMA;
+export const radiusOf = (chroma: number) => Math.sqrt(clampTo(chroma, 0, RIM_CHROMA) / RIM_CHROMA);
+export const chromaOf = (radius: number) => clampTo(radius, 0, 1) ** 2 * RIM_CHROMA;
 
 export function wheelPoint(hue: number, chroma: number) {
   const a = (hue * Math.PI) / 180;
@@ -38,7 +28,7 @@ export function wheelPoint(hue: number, chroma: number) {
 export function wheelColor(x: number, y: number) {
   return {
     hue: ((Math.atan2(-y, x) * 180) / Math.PI + 360) % 360,
-    chroma: chromaOf(Math.hypot(x, y)),
+    chroma: chromaOf(Math.hypot(x, y))
   };
 }
 
@@ -68,21 +58,20 @@ export function rangeBand(range: ColorRange) {
     hueLo: range.hue - half + hueFeather,
     hueHi: range.hue + half - hueFeather,
     chromaLo: Math.max(lo + chromaFeather, GREY_FULL),
-    chromaHi: hi - chromaFeather,
+    chromaHi: hi - chromaFeather
   };
   return {
     hueLo: range.hue - half,
     hueHi: range.hue + half,
     chromaLo: lo,
     chromaHi: hi,
-    core:
-      core.hueHi > core.hueLo && core.chromaHi > core.chromaLo ? core : null,
+    core: core.hueHi > core.hueLo && core.chromaHi > core.chromaLo ? core : null,
     outer: {
       hueLo: range.hue - half - hueFeather,
       hueHi: range.hue + half + hueFeather,
       chromaLo: Math.max(lo - chromaFeather, GREY_NONE),
-      chromaHi: hi + chromaFeather,
-    },
+      chromaHi: hi + chromaFeather
+    }
   };
 }
 
@@ -93,20 +82,12 @@ export const hueRangeForEdge = (range: ColorRange, edgeHue: number) =>
 /** Saturation range (0–100) that puts the band's inner edge at `chroma`
  * (the inverse of `rangeBand`; a grey sample's band does not depend on it). */
 export const chromaRangeForInner = (range: ColorRange, chroma: number) =>
-  range.chroma > 0
-    ? Math.round(clampTo((1 - chroma / range.chroma) * 100, 0, 100))
-    : range.chromaRange;
+  range.chroma > 0 ? Math.round(clampTo((1 - chroma / range.chroma) * 100, 0, 100)) : range.chromaRange;
 
 /** Saturation range (0–100) that puts the band's outer edge at `chroma`. */
 export const chromaRangeForOuter = (range: ColorRange, chroma: number) =>
   range.chroma > 0
-    ? Math.round(
-        clampTo(
-          ((chroma - 0.01 - range.chroma) / (2 * range.chroma)) * 100,
-          0,
-          100,
-        ),
-      )
+    ? Math.round(clampTo(((chroma - 0.01 - range.chroma) / (2 * range.chroma)) * 100, 0, 100))
     : range.chromaRange;
 
 /** Annular sector from hue a to b (a < b) between two chroma radii. */
@@ -124,12 +105,12 @@ function sectorPath(a: number, b: number, chromaLo: number, chromaHi: number) {
     `M ${at(a, r1)}`,
     `A ${r1} ${r1} 0 ${large} 0 ${at(a + span, r1)}`,
     `L ${at(a + span, r0)}`,
-    r0 > 0 ? `A ${r0} ${r0} 0 ${large} 1 ${at(a, r0)}` : "",
-    "Z",
-  ].join(" ");
+    r0 > 0 ? `A ${r0} ${r0} 0 ${large} 1 ${at(a, r0)}` : '',
+    'Z'
+  ].join(' ');
 }
 
-type Handle = "colour" | "hueLo" | "hueHi" | "chromaLo" | "chromaHi";
+type Handle = 'colour' | 'hueLo' | 'hueHi' | 'chromaLo' | 'chromaHi';
 
 interface Props {
   /** All ranges shown (the active one editable, the others faint). */
@@ -156,7 +137,7 @@ export default memo(function StudioColorRangeWheel({
   disabled = false,
   onChange,
   onPick,
-  onInteraction,
+  onInteraction
 }: Props) {
   const { t } = useTranslation();
   const [local, setLocal] = useState(active);
@@ -192,7 +173,7 @@ export default memo(function StudioColorRangeWheel({
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       if (drag.current) interaction.current?.(false);
     },
-    [],
+    []
   );
   const flush = () => {
     frame.current = null;
@@ -201,13 +182,7 @@ export default memo(function StudioColorRangeWheel({
     if (Object.keys(patch).length) callback.current(patch);
   };
   const update = (patch: Partial<ColorRange>) => {
-    if (
-      local &&
-      Object.entries(patch).every(
-        ([k, v]) => local[k as keyof ColorRange] === v,
-      )
-    )
-      return;
+    if (local && Object.entries(patch).every(([k, v]) => local[k as keyof ColorRange] === v)) return;
     pending.current = { ...pending.current, ...patch };
     setLocal((r) => r && { ...r, ...patch });
     if (frame.current === null) frame.current = requestAnimationFrame(flush);
@@ -223,14 +198,12 @@ export default memo(function StudioColorRangeWheel({
   };
   const pointAt = (e: PointerEvent<SVGElement>) => {
     const svg =
-      e.currentTarget instanceof SVGSVGElement
-        ? e.currentTarget
-        : (e.currentTarget as SVGElement).ownerSVGElement;
+      e.currentTarget instanceof SVGSVGElement ? e.currentTarget : (e.currentTarget as SVGElement).ownerSVGElement;
     const box = (svg ?? e.currentTarget).getBoundingClientRect();
     if (!box.width || !box.height) return { x: 0, y: 0 };
     return {
       x: (((e.clientX - box.left) / box.width) * 2 - 1) * VIEW,
-      y: (((e.clientY - box.top) / box.height) * 2 - 1) * VIEW,
+      y: (((e.clientY - box.top) / box.height) * 2 - 1) * VIEW
     };
   };
   /** The pointer's chroma along the slice's centre line, not clipped at
@@ -240,12 +213,7 @@ export default memo(function StudioColorRangeWheel({
     const r = Math.max(0, x * Math.cos(t) - y * Math.sin(t));
     return r * r * RIM_CHROMA;
   };
-  const patchFor = (
-    handle: Handle,
-    range: ColorRange,
-    x: number,
-    y: number,
-  ): Partial<ColorRange> => {
+  const patchFor = (handle: Handle, range: ColorRange, x: number, y: number): Partial<ColorRange> => {
     const { hue, chroma } = wheelColor(x, y);
     const d = drag.current;
     // A chroma edge moves by the pointer's way along the slice's centre
@@ -253,17 +221,17 @@ export default memo(function StudioColorRangeWheel({
     // beyond it); a hue edge follows the pointer's angle.
     const edge = d ? d.edge + alongChroma(range, x, y) - d.along : 0;
     switch (handle) {
-      case "colour":
+      case 'colour':
         return {
           hue: Math.round(hue * 10) / 10,
-          chroma: Math.round(chroma * 1000) / 1000,
+          chroma: Math.round(chroma * 1000) / 1000
         };
-      case "hueLo":
-      case "hueHi":
+      case 'hueLo':
+      case 'hueHi':
         return { hueRange: hueRangeForEdge(range, hue) };
-      case "chromaLo":
+      case 'chromaLo':
         return { chromaRange: chromaRangeForInner(range, edge) };
-      case "chromaHi":
+      case 'chromaHi':
         return { chromaRange: chromaRangeForOuter(range, edge) };
     }
   };
@@ -281,12 +249,12 @@ export default memo(function StudioColorRangeWheel({
     // A press beside the handles moves the range there (and drags it on).
     const band = rangeBand(local);
     drag.current = {
-      handle: handle ?? "colour",
+      handle: handle ?? 'colour',
       along: alongChroma(local, p.x, p.y),
-      edge: handle === "chromaLo" ? band.chromaLo : band.chromaHi,
+      edge: handle === 'chromaLo' ? band.chromaLo : band.chromaHi
     };
     onInteraction?.(true);
-    if (!handle) update(patchFor("colour", local, p.x, p.y));
+    if (!handle) update(patchFor('colour', local, p.x, p.y));
   };
   const move = (e: PointerEvent<SVGElement>) => {
     const d = drag.current;
@@ -306,24 +274,20 @@ export default memo(function StudioColorRangeWheel({
   const keys = (handle: Handle) => (e: KeyboardEvent<SVGElement>) => {
     if (disabled || !local) return;
     const step = e.shiftKey ? 10 : 1;
-    const up = e.key === "ArrowUp" || e.key === "ArrowRight";
-    const down = e.key === "ArrowDown" || e.key === "ArrowLeft";
+    const up = e.key === 'ArrowUp' || e.key === 'ArrowRight';
+    const down = e.key === 'ArrowDown' || e.key === 'ArrowLeft';
     if (!up && !down) return;
     e.preventDefault();
     e.stopPropagation();
     const sign = up ? 1 : -1;
-    if (handle === "colour") {
+    if (handle === 'colour') {
       // Left/right turn the hue, up/down change the chroma.
-      if (e.key === "ArrowLeft" || e.key === "ArrowRight")
-        commit({ hue: (local.hue + sign * step + 360) % 360 });
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') commit({ hue: (local.hue + sign * step + 360) % 360 });
       else
         commit({
-          chroma:
-            Math.round(
-              clampTo(local.chroma + sign * step * 0.002, 0, RIM_CHROMA) * 1000,
-            ) / 1000,
+          chroma: Math.round(clampTo(local.chroma + sign * step * 0.002, 0, RIM_CHROMA) * 1000) / 1000
         });
-    } else if (handle === "hueLo" || handle === "hueHi") {
+    } else if (handle === 'hueLo' || handle === 'hueHi') {
       commit({ hueRange: clampTo(local.hueRange + sign * step, 5, 90) });
     } else {
       commit({ chromaRange: clampTo(local.chromaRange + sign * step, 0, 100) });
@@ -331,13 +295,13 @@ export default memo(function StudioColorRangeWheel({
   };
   const handleProps = (handle: Handle) => ({
     tabIndex: disabled ? -1 : 0,
-    role: "slider",
-    "aria-disabled": disabled || undefined,
+    role: 'slider',
+    'aria-disabled': disabled || undefined,
     onPointerDown: start(handle),
     onPointerMove: move,
     onPointerUp: end,
     onPointerCancel: end,
-    onKeyDown: keys(handle),
+    onKeyDown: keys(handle)
   });
   const band = local && rangeBand(local);
   const mid = band && (radiusOf(band.chromaLo) + radiusOf(band.chromaHi)) / 2;
@@ -347,8 +311,8 @@ export default memo(function StudioColorRangeWheel({
   };
   return (
     <div
-      className={`studio-range-wheel ${disabled ? "is-disabled" : ""}`}
-      aria-label={t("studio.color.editor.wheel.aria")}
+      className={`studio-range-wheel ${disabled ? 'is-disabled' : ''}`}
+      aria-label={t('studio.color.editor.wheel.aria')}
       role="group"
     >
       <svg
@@ -358,7 +322,7 @@ export default memo(function StudioColorRangeWheel({
         onPointerUp={end}
         onPointerCancel={end}
       >
-        <title>{t("studio.color.editor.wheel.title")}</title>
+        <title>{t('studio.color.editor.wheel.title')}</title>
         <circle className="studio-range-wheel-rim" r={1} />
         {ranges
           .filter((r) => r.id !== local?.id)
@@ -376,22 +340,12 @@ export default memo(function StudioColorRangeWheel({
           <>
             <path
               className="studio-range-wheel-feather"
-              d={sectorPath(
-                band.outer.hueLo,
-                band.outer.hueHi,
-                band.outer.chromaLo,
-                band.outer.chromaHi,
-              )}
+              d={sectorPath(band.outer.hueLo, band.outer.hueHi, band.outer.chromaLo, band.outer.chromaHi)}
             />
             {band.core && (
               <path
                 className="studio-range-wheel-slice"
-                d={sectorPath(
-                  band.core.hueLo,
-                  band.core.hueHi,
-                  band.core.chromaLo,
-                  band.core.chromaHi,
-                )}
+                d={sectorPath(band.core.hueLo, band.core.hueHi, band.core.chromaLo, band.core.chromaHi)}
               />
             )}
             {/* The colour first, so the edge handles (drawn later) stay
@@ -402,19 +356,19 @@ export default memo(function StudioColorRangeWheel({
               r={0.07}
               {...polar(local.hue, radiusOf(local.chroma))}
               style={{
-                fill: oklchCss(local.lightness, local.chroma, local.hue),
+                fill: oklchCss(local.lightness, local.chroma, local.hue)
               }}
-              {...handleProps("colour")}
-              aria-label={t("studio.color.editor.wheel.colour")}
+              {...handleProps('colour')}
+              aria-label={t('studio.color.editor.wheel.colour')}
               aria-valuemin={0}
               aria-valuemax={360}
               aria-valuenow={Math.round(local.hue)}
-              aria-valuetext={t("studio.color.editor.wheel.colourText", {
+              aria-valuetext={t('studio.color.editor.wheel.colourText', {
                 hue: Math.round(local.hue),
-                chroma: Math.round(local.chroma * 1000) / 10,
+                chroma: Math.round(local.chroma * 1000) / 10
               })}
             />
-            {(["hueLo", "hueHi"] as const).map((h) => (
+            {(['hueLo', 'hueHi'] as const).map((h) => (
               <circle
                 key={h}
                 className="studio-range-wheel-edge"
@@ -427,7 +381,7 @@ export default memo(function StudioColorRangeWheel({
                 aria-valuenow={local.hueRange}
               />
             ))}
-            {(["chromaLo", "chromaHi"] as const).map((h) => (
+            {(['chromaLo', 'chromaHi'] as const).map((h) => (
               <circle
                 key={h}
                 className="studio-range-wheel-edge is-chroma"

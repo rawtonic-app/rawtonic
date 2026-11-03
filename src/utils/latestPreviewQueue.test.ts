@@ -1,11 +1,9 @@
-import { expect, it, vi } from "vitest";
-import { LatestPreviewQueue } from "./latestPreviewQueue";
+import { expect, it, vi } from 'vitest';
+import { LatestPreviewQueue } from './latestPreviewQueue';
 
-it("bounds work and dispatches only the newest slider value immediately after completion", async () => {
+it('bounds work and dispatches only the newest slider value immediately after completion', async () => {
   const resolves: (() => void)[] = [];
-  const render = vi.fn(
-    () => new Promise<void>((resolve) => resolves.push(resolve)),
-  );
+  const render = vi.fn(() => new Promise<void>((resolve) => resolves.push(resolve)));
   const queue = new LatestPreviewQueue<number>(render);
   queue.submit(1);
   for (let value = 2; value <= 100; value++) queue.submit(value);
@@ -16,56 +14,54 @@ it("bounds work and dispatches only the newest slider value immediately after co
   resolves.shift()!();
 });
 
-it("replaces a queued drag with the final value and never replays the drag afterward", async () => {
+it('replaces a queued drag with the final value and never replays the drag afterward', async () => {
   let finish!: () => void;
   const render = vi.fn(
     () =>
       new Promise<void>((resolve) => {
         finish = resolve;
-      }),
+      })
   );
-  const queue = new LatestPreviewQueue<{ value: number; dragging: boolean }>(
-    render,
-  );
+  const queue = new LatestPreviewQueue<{ value: number; dragging: boolean }>(render);
   queue.submit({ value: 1, dragging: true });
   queue.submit({ value: 2, dragging: true });
   queue.submit({ value: 3, dragging: false });
   finish();
   await Promise.resolve();
-  expect(render.mock.calls).toEqual([
-    [{ value: 1, dragging: true }],
-    [{ value: 3, dragging: false }],
-  ]);
+  expect(render.mock.calls).toEqual([[{ value: 1, dragging: true }], [{ value: 3, dragging: false }]]);
   finish();
   await Promise.resolve();
   expect(render).toHaveBeenCalledTimes(2);
 });
 
-it("discards a previous photograph’s pending work and recovers after a failed frame", async () => {
+it('discards a previous photograph’s pending work and recovers after a failed frame', async () => {
   let fail!: (error: Error) => void;
   const render = vi.fn(
     () =>
       new Promise<void>((_, reject) => {
         fail = reject;
-      }),
+      })
   );
   const queue = new LatestPreviewQueue<string>(render);
-  queue.submit("old-active");
-  queue.submit("old-pending");
+  queue.submit('old-active');
+  queue.submit('old-pending');
   queue.clear();
-  queue.submit("new-photo");
-  fail(new Error("render failed"));
+  queue.submit('new-photo');
+  fail(new Error('render failed'));
   await Promise.resolve();
-  expect(render.mock.calls).toEqual([["old-active"], ["new-photo"]]);
+  expect(render.mock.calls).toEqual([['old-active'], ['new-photo']]);
   queue.clear();
-  fail(new Error("render failed"));
+  fail(new Error('render failed'));
   await Promise.resolve();
 });
 
-it("counts submitted, superseded and dispatched values", async () => {
+it('counts submitted, superseded and dispatched values', async () => {
   let finish!: () => void;
   const queue = new LatestPreviewQueue<number>(
-    () => new Promise<void>((resolve) => { finish = resolve; }),
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      })
   );
   for (let value = 1; value <= 5; value++) queue.submit(value);
   expect(queue.stats).toEqual({ submitted: 5, superseded: 3, dispatched: 1 });
@@ -75,7 +71,7 @@ it("counts submitted, superseded and dispatched values", async () => {
   finish();
 });
 
-it("keeps a second render in flight and still replaces later pending values", async () => {
+it('keeps a second render in flight and still replaces later pending values', async () => {
   const resolves: (() => void)[] = [];
   const render = vi.fn(() => new Promise<void>((resolve) => resolves.push(resolve)));
   const queue = new LatestPreviewQueue<number>(render, 2);
@@ -95,7 +91,7 @@ it("keeps a second render in flight and still replaces later pending values", as
 // when a newer one arrives) with renders far slower than the slider moves:
 // every render starts from the newest move, frames never go back, and the
 // release value renders right after the render in progress.
-it("with a slow renderer every frame starts from the newest move and the last move renders last", async () => {
+it('with a slow renderer every frame starts from the newest move and the last move renders last', async () => {
   vi.useFakeTimers();
   try {
     const RENDER_MS = 100;
@@ -129,7 +125,7 @@ it("with a slow renderer every frame starts from the newest move and the last mo
             work();
           }, 1);
         }),
-      4,
+      4
     );
     const t0 = Date.now();
     for (let move = 1; move <= MOVES; move++) {

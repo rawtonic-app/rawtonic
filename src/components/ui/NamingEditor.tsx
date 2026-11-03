@@ -1,15 +1,8 @@
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  pointerWithin,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { NamingDragButton, NamingDropSlot, type NamingDragData } from "./NamingDrag";
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { useTranslation } from "react-i18next";
-import { X } from "lucide-react";
+import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core';
+import { NamingDragButton, NamingDropSlot, type NamingDragData } from './NamingDrag';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { X } from 'lucide-react';
 import {
   COUNTER_DIGITS,
   DATE_FORMATS,
@@ -37,9 +30,9 @@ import {
   type NamingKind,
   type NamingMode,
   type NamingPreview,
-  type SavedNaming,
-} from "../../utils/namingTemplates";
-import "./naming-editor.css";
+  type SavedNaming
+} from '../../utils/namingTemplates';
+import './naming-editor.css';
 
 /**
  * The one naming editor of import, rename and export (Capture One's format
@@ -55,15 +48,15 @@ export default function NamingEditor({
   onChange,
   mode,
   label,
-  kind = "file",
-  original = "DSC01234.RAF",
-  extension = "jpg",
+  kind = 'file',
+  original = 'DSC01234.RAF',
+  extension = 'jpg',
   job,
   total = 1,
   sequenceStart = 1,
   onSequenceStartChange,
   preview,
-  invalidMessage,
+  invalidMessage
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -91,13 +84,13 @@ export default function NamingEditor({
   // Where a token goes: free text `slot` at `offset` (the last caret).
   const caret = useRef<{ slot: number; offset: number } | null>(null);
   const [saved, setSaved] = useState<SavedNaming[]>(() => readNamingPresets());
-  const [name, setName] = useState("");
+  const [name, setName] = useState('');
   const [storageError, setStorageError] = useState(false);
-  const folder = kind === "folder";
+  const folder = kind === 'folder';
   const valid = validNamingTemplate(value, mode, kind) && !invalidMessage;
   const code = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    code.current?.setCustomValidity(valid ? "" : invalidMessage || t("naming.invalid"));
+    code.current?.setCustomValidity(valid ? '' : invalidMessage || t('naming.invalid'));
   }, [valid, invalidMessage, t]);
   const { text, tokens } = templateSegments(value);
   const vocabulary = namingTokens(mode);
@@ -105,13 +98,13 @@ export default function NamingEditor({
     const { name } = parseToken(part);
     const token = vocabulary.find((item) => item.name === name);
     if (!token) return part;
-    return token.name === "job" && mode === "export" ? t("naming.tokens.jobName") : t(`naming.tokens.${token.label}`);
+    return token.name === 'job' && mode === 'export' ? t('naming.tokens.jobName') : t(`naming.tokens.${token.label}`);
   };
   const presets = folder ? [] : namingPresets(mode);
   const usable = saved.map((p, index) => ({ ...p, index })).filter((p) => validNamingTemplate(p.template, mode));
   const selected = presets.findIndex((p) => p.template === value);
   const custom = usable.find(
-    (p) => p.template === value && (!onSequenceStartChange || (p.sequenceStart ?? 1) === sequenceStart),
+    (p) => p.template === value && (!onSequenceStartChange || (p.sequenceStart ?? 1) === sequenceStart)
   );
   const persist = (next: SavedNaming[]) => {
     try {
@@ -122,19 +115,19 @@ export default function NamingEditor({
       setStorageError(true);
     }
   };
-  const focusText = (slot: number, offset: number | "end") =>
+  const focusText = (slot: number, offset: number | 'end') =>
     requestAnimationFrame(() => {
       const input = texts.current[slot];
       if (!input) return;
       input.focus();
-      const at = offset === "end" ? input.value.length : offset;
+      const at = offset === 'end' ? input.value.length : offset;
       input.setSelectionRange(at, at);
       caret.current = { slot, offset: at };
     });
   const add = (token: string) => {
     const at = caret.current ?? { slot: text.length - 1, offset: text[text.length - 1].length };
     // Free text (separators) joins the text; a token becomes a chip.
-    if (!token.startsWith("{")) {
+    if (!token.startsWith('{')) {
       const next = [...text];
       next[at.slot] = next[at.slot].slice(0, at.offset) + token + next[at.slot].slice(at.offset);
       onChange(joinSegments(next, tokens));
@@ -162,40 +155,40 @@ export default function NamingEditor({
     const input = event.currentTarget;
     const collapsed = input.selectionStart === input.selectionEnd;
     const start = input.selectionStart ?? 0;
-    if (event.key === "Backspace" && collapsed && start === 0 && slot > 0) {
+    if (event.key === 'Backspace' && collapsed && start === 0 && slot > 0) {
       event.preventDefault();
       removeChip(slot - 1);
-    } else if (event.key === "Delete" && collapsed && start === input.value.length && slot < tokens.length) {
+    } else if (event.key === 'Delete' && collapsed && start === input.value.length && slot < tokens.length) {
       event.preventDefault();
       onChange(removeToken(value, slot));
       focusText(slot, start);
-    } else if (event.key === "ArrowLeft" && collapsed && start === 0 && slot > 0) {
+    } else if (event.key === 'ArrowLeft' && collapsed && start === 0 && slot > 0) {
       event.preventDefault();
       chips.current[slot - 1]?.focus();
-    } else if (event.key === "ArrowRight" && collapsed && start === input.value.length && slot < tokens.length) {
+    } else if (event.key === 'ArrowRight' && collapsed && start === input.value.length && slot < tokens.length) {
       event.preventDefault();
       chips.current[slot]?.focus();
     }
   };
   const chipKeys = (index: number) => (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "Backspace" || event.key === "Delete") {
+    if (event.key === 'Backspace' || event.key === 'Delete') {
       event.preventDefault();
       removeChip(index);
-    } else if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    } else if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
       event.preventDefault();
-      const direction = event.key === "ArrowLeft" ? -1 : 1;
+      const direction = event.key === 'ArrowLeft' ? -1 : 1;
       onChange(swapTokens(value, index, direction));
       requestAnimationFrame(() => chips.current[index + direction]?.focus());
-    } else if (event.key === "ArrowLeft") {
+    } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      focusText(index, "end");
-    } else if (event.key === "ArrowRight") {
+      focusText(index, 'end');
+    } else if (event.key === 'ArrowRight') {
       event.preventDefault();
       focusText(index + 1, 0);
     }
   };
   const listKeys = (token: string) => (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
+    if (event.key === 'Enter' || event.key === ' ') {
       // Not the dialog's Enter (Rename saves on it).
       event.preventDefault();
       event.stopPropagation();
@@ -203,41 +196,44 @@ export default function NamingEditor({
     }
   };
   const digits = counterDigits(value);
-  const separators = folder ? ["/", "_", "-", " "] : ["_", "-", " ", "."];
-  const example = preview && valid
-    ? [preview.folder, preview.name].filter(Boolean).join("/")
-    : namingExample(
-        value,
-        mode,
-        original,
-        extension,
-        job,
-        validSequenceStart(sequenceStart) ? sequenceStart : 1,
-        total,
-        kind,
-      );
+  const separators = folder ? ['/', '_', '-', ' '] : ['_', '-', ' ', '.'];
+  const example =
+    preview && valid
+      ? [preview.folder, preview.name].filter(Boolean).join('/')
+      : namingExample(
+          value,
+          mode,
+          original,
+          extension,
+          job,
+          validSequenceStart(sequenceStart) ? sequenceStart : 1,
+          total,
+          kind
+        );
 
   return (
     <div className="naming-editor">
-      <span className="naming-label" id={`${id}-label`}>{label}</span>
+      <span className="naming-label" id={`${id}-label`}>
+        {label}
+      </span>
       {!folder && (
         <div className="naming-preset-row">
           <select
-            aria-label={t("naming.preset")}
-            value={selected >= 0 ? `builtin:${selected}` : custom ? `saved:${custom.index}` : ""}
+            aria-label={t('naming.preset')}
+            value={selected >= 0 ? `builtin:${selected}` : custom ? `saved:${custom.index}` : ''}
             onChange={(e) => {
-              const [where, index] = e.target.value.split(":");
-              const preset = where === "builtin" ? presets[Number(index)] : saved[Number(index)];
+              const [where, index] = e.target.value.split(':');
+              const preset = where === 'builtin' ? presets[Number(index)] : saved[Number(index)];
               if (!preset) return;
               onChange(preset.template);
-              if (where === "saved" && onSequenceStartChange) {
+              if (where === 'saved' && onSequenceStartChange) {
                 const start = (preset as SavedNaming).sequenceStart ?? 1;
                 onSequenceStartChange(validSequenceStart(start) ? start : 1);
               }
               caret.current = null;
             }}
           >
-            <option value="">{t("naming.custom")}</option>
+            <option value="">{t('naming.custom')}</option>
             {presets.map((p, i) => (
               <option key={p.name} value={`builtin:${i}`}>
                 {t(`naming.presets.${p.name}`)}
@@ -253,7 +249,7 @@ export default function NamingEditor({
       )}
       <DndContext
         sensors={sensors}
-        accessibility={{ screenReaderInstructions: { draggable: t("naming.keyboardHint") } }}
+        accessibility={{ screenReaderInstructions: { draggable: t('naming.keyboardHint') } }}
         collisionDetection={pointerWithin}
         onDragStart={({ active }) => {
           dragTemplate.current = value;
@@ -265,14 +261,14 @@ export default function NamingEditor({
             const data = active.data.current as NamingDragData;
             const slot = over.data.current?.index as number;
             onChange(
-              data.kind === "chip"
+              data.kind === 'chip'
                 ? moveToken(value, data.index, slot)
-                : data.text.startsWith("{")
+                : data.text.startsWith('{')
                   ? insertToken(value, slot, text[slot]?.length ?? 0, data.text)
                   : joinSegments(
                       text.map((part, i) => (i === slot ? part + data.text : part)),
-                      tokens,
-                    ),
+                      tokens
+                    )
             );
             caret.current = null;
           }
@@ -280,10 +276,10 @@ export default function NamingEditor({
         }}
       >
         <div
-          className={`naming-field${valid ? "" : " is-invalid"}`}
+          className={`naming-field${valid ? '' : ' is-invalid'}`}
           role="group"
-          aria-label={t("naming.parts")}
-          aria-describedby={`${id}-field-hint ${id}-example${valid ? "" : ` ${id}-error`}`}
+          aria-label={t('naming.parts')}
+          aria-describedby={`${id}-field-hint ${id}-example${valid ? '' : ` ${id}-error`}`}
         >
           {text.map((part, slot) => (
             <NamingDropSlot key={`slot-${slot}`} index={slot}>
@@ -292,7 +288,7 @@ export default function NamingEditor({
                   texts.current[slot] = node;
                 }}
                 className="naming-text"
-                aria-label={t("naming.textAt", { n: slot + 1 })}
+                aria-label={t('naming.textAt', { n: slot + 1 })}
                 value={part}
                 size={Math.max(1, part.length)}
                 spellCheck={false}
@@ -315,10 +311,10 @@ export default function NamingEditor({
                 onKeyDown={textKeys(slot)}
               />
               {slot < tokens.length && (
-                <span className={`naming-chip${validNamingTemplate(tokens[slot], mode, kind) ? "" : " is-invalid"}`}>
+                <span className={`naming-chip${validNamingTemplate(tokens[slot], mode, kind) ? '' : ' is-invalid'}`}>
                   <NamingDragButton
                     id={`chip-${slot}`}
-                    data={{ kind: "chip", index: slot, text: tokens[slot] }}
+                    data={{ kind: 'chip', index: slot, text: tokens[slot] }}
                     className="naming-chip-label"
                     title={tokens[slot]}
                     buttonRef={(node) => {
@@ -332,7 +328,7 @@ export default function NamingEditor({
                   <button
                     type="button"
                     className="naming-chip-remove"
-                    aria-label={t("naming.removeToken", { name: tokenName(tokens[slot]) })}
+                    aria-label={t('naming.removeToken', { name: tokenName(tokens[slot]) })}
                     onClick={() => removeChip(slot)}
                   >
                     <X size={11} />
@@ -343,41 +339,41 @@ export default function NamingEditor({
           ))}
         </div>
         <small className="naming-hint" id={`${id}-field-hint`}>
-          {t("naming.fieldHint")}
+          {t('naming.fieldHint')}
         </small>
         {!valid && (
           <p className="naming-error" id={`${id}-error`} role="alert">
-            {invalidMessage || t("naming.invalid")}
+            {invalidMessage || t('naming.invalid')}
           </p>
         )}
         {!folder && (
           <div className="naming-counter-row">
             {onSequenceStartChange && (
               <label className="naming-counter">
-                <span>{t("naming.counterStart")}</span>
+                <span>{t('naming.counterStart')}</span>
                 <input
                   type="number"
                   min={0}
                   max={MAX_SEQUENCE_START}
                   step={1}
                   required
-                  value={Number.isFinite(sequenceStart) ? sequenceStart : ""}
+                  value={Number.isFinite(sequenceStart) ? sequenceStart : ''}
                   aria-invalid={!validSequenceStart(sequenceStart)}
                   onChange={(e) => onSequenceStartChange(e.target.valueAsNumber)}
                 />
               </label>
             )}
             <label className="naming-counter">
-              <span>{t("naming.digits")}</span>
+              <span>{t('naming.digits')}</span>
               <select
-                value={digits ?? ""}
+                value={digits ?? ''}
                 disabled={digits === null}
                 onChange={(e) => onChange(withCounterDigits(value, e.target.value))}
               >
-                <option value="">{t("naming.digitsNone")}</option>
+                <option value="">{t('naming.digitsNone')}</option>
                 {COUNTER_DIGITS.map((d) => (
                   <option key={d} value={d}>
-                    {d === "auto" ? t("naming.digitsAuto") : d}
+                    {d === 'auto' ? t('naming.digitsAuto') : d}
                   </option>
                 ))}
               </select>
@@ -385,18 +381,18 @@ export default function NamingEditor({
           </div>
         )}
         <div className="naming-example" id={`${id}-example`} aria-live="polite">
-          <span>{t(folder ? "naming.exampleFolder" : "naming.example")}</span>
-          <code>{example || t("naming.noFolder")}</code>
+          <span>{t(folder ? 'naming.exampleFolder' : 'naming.example')}</span>
+          <code>{example || t('naming.noFolder')}</code>
           {preview?.dateSource && valid && (
             <small className="naming-date-source">
               {t(`naming.dateSources.${preview.dateSource}`)}
-              {preview.sidecar ? ` · ${t("naming.sidecarCopied")}` : ""}
+              {preview.sidecar ? ` · ${t('naming.sidecarCopied')}` : ''}
             </small>
           )}
         </div>
         <details className="naming-builder">
-          <summary>{t(folder ? "naming.editFolder" : "naming.edit")}</summary>
-          <p>{t("naming.hint")}</p>
+          <summary>{t(folder ? 'naming.editFolder' : 'naming.edit')}</summary>
+          <p>{t('naming.hint')}</p>
           {NAMING_GROUPS.map((group) => {
             const items = vocabulary.filter((token) => token.group === group);
             if (!items.length) return null;
@@ -408,8 +404,8 @@ export default function NamingEditor({
                     <NamingDragButton
                       key={token.value}
                       id={`token-${token.value}`}
-                      data={{ kind: "token", text: token.value }}
-                      title={`${token.value} · ${t("naming.addHint")}`}
+                      data={{ kind: 'token', text: token.value }}
+                      title={`${token.value} · ${t('naming.addHint')}`}
                       onDoubleClick={() => add(token.value)}
                       onKeyDown={listKeys(token.value)}
                     >
@@ -421,18 +417,18 @@ export default function NamingEditor({
             );
           })}
           <fieldset className="naming-group">
-            <legend>{t("naming.groups.text")}</legend>
+            <legend>{t('naming.groups.text')}</legend>
             <div className="naming-tokens">
               {separators.map((separator) => (
                 <NamingDragButton
                   key={separator}
                   id={`separator-${separator}`}
-                  data={{ kind: "token", text: separator }}
-                  title={t("naming.addHint")}
+                  data={{ kind: 'token', text: separator }}
+                  title={t('naming.addHint')}
                   onDoubleClick={() => add(separator)}
                   onKeyDown={listKeys(separator)}
                 >
-                  {separator === " " ? t("naming.space") : separator === "/" ? t("naming.folderLevel") : separator}
+                  {separator === ' ' ? t('naming.space') : separator === '/' ? t('naming.folderLevel') : separator}
                 </NamingDragButton>
               ))}
             </div>
@@ -454,12 +450,12 @@ export default function NamingEditor({
               }}
             />
           </label>
-          {!folder && <small>{t("naming.dateNote")}</small>}
+          {!folder && <small>{t('naming.dateNote')}</small>}
           {!folder && (
             <div className="naming-save">
               <input
-                aria-label={t("naming.presetName")}
-                placeholder={t("naming.presetName")}
+                aria-label={t('naming.presetName')}
+                placeholder={t('naming.presetName')}
                 value={name}
                 maxLength={80}
                 onChange={(e) => setName(e.target.value)}
@@ -473,13 +469,13 @@ export default function NamingEditor({
                     {
                       name: name.trim(),
                       template: value,
-                      ...(onSequenceStartChange ? { sequenceStart } : {}),
-                    },
+                      ...(onSequenceStartChange ? { sequenceStart } : {})
+                    }
                   ]);
-                  setName("");
+                  setName('');
                 }}
               >
-                {t("naming.save")}
+                {t('naming.save')}
               </button>
               {custom && (
                 <button
@@ -487,20 +483,20 @@ export default function NamingEditor({
                   disabled={!name.trim() || name.trim() === custom.name || saved.some((p) => p.name === name.trim())}
                   onClick={() => {
                     persist(saved.map((p, i) => (i === custom.index ? { ...p, name: name.trim() } : p)));
-                    setName("");
+                    setName('');
                   }}
                 >
-                  {t("naming.renamePreset")}
+                  {t('naming.renamePreset')}
                 </button>
               )}
               {custom && (
                 <button type="button" onClick={() => persist(saved.filter((_, i) => i !== custom.index))}>
-                  {t("naming.deletePreset")}
+                  {t('naming.deletePreset')}
                 </button>
               )}
             </div>
           )}
-          {storageError && <p role="alert">{t("naming.saveError")}</p>}
+          {storageError && <p role="alert">{t('naming.saveError')}</p>}
         </details>
         <DragOverlay dropAnimation={null}>
           {dragging && <span className="naming-drag-preview">{tokenName(dragging.text)}</span>}
@@ -515,29 +511,29 @@ export default function NamingEditor({
 function ChipOption({ part, onOption }: { part: string; onOption: (option: string | undefined) => void }) {
   const { t } = useTranslation();
   const { name, option } = parseToken(part);
-  if (name === "seq")
+  if (name === 'seq')
     return (
       <select
         className="naming-chip-option"
-        aria-label={t("naming.digits")}
-        value={option ?? ""}
+        aria-label={t('naming.digits')}
+        value={option ?? ''}
         onChange={(e) => onOption(e.target.value || undefined)}
       >
-        <option value="">{t("naming.digitsNone")}</option>
+        <option value="">{t('naming.digitsNone')}</option>
         {COUNTER_DIGITS.map((d) => (
           <option key={d} value={d}>
-            {d === "auto" ? t("naming.digitsAuto") : d}
+            {d === 'auto' ? t('naming.digitsAuto') : d}
           </option>
         ))}
         {option && !(COUNTER_DIGITS as readonly string[]).includes(option) && <option value={option}>{option}</option>}
       </select>
     );
-  if (name === "date" || name === "time") {
-    const formats: readonly string[] = name === "date" ? DATE_FORMATS : TIME_FORMATS;
+  if (name === 'date' || name === 'time') {
+    const formats: readonly string[] = name === 'date' ? DATE_FORMATS : TIME_FORMATS;
     return (
       <select
         className="naming-chip-option"
-        aria-label={t(name === "date" ? "naming.dateFormat" : "naming.timeFormat")}
+        aria-label={t(name === 'date' ? 'naming.dateFormat' : 'naming.timeFormat')}
         value={option ?? formats[0]}
         onChange={(e) => onOption(e.target.value === formats[0] ? undefined : e.target.value)}
       >

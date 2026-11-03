@@ -7,7 +7,7 @@ import {
   promptOf,
   promptsFrameChanged,
   storedPrompts,
-  type ObjectPrompt,
+  type ObjectPrompt
 } from './objectPrompts';
 
 const at = (x: number, y: number) => ({ x, y });
@@ -32,7 +32,7 @@ describe('Object selection prompts', () => {
       startY: 6,
       endX: 50,
       endY: 60,
-      exclude: true,
+      exclude: true
     });
   });
 
@@ -45,7 +45,7 @@ describe('Object selection prompts', () => {
     expect(prompts).toEqual([
       { type: 'point', x: 10, y: 10 },
       { type: 'box', startX: 100, startY: 100, endX: 200, endY: 180 },
-      { type: 'point', x: 150, y: 150, exclude: true },
+      { type: 'point', x: 150, y: 150, exclude: true }
     ]);
     expect(nextPrompts(prompts, promptOf(at(1, 2), at(1, 2)), 'replace')).toEqual([{ type: 'point', x: 1, y: 2 }]);
   });
@@ -59,8 +59,8 @@ describe('Object selection prompts', () => {
       promptBounds([
         { type: 'point', x: 3, y: 3, exclude: true },
         { type: 'box', startX: 1, startY: 2, endX: 3, endY: 4 },
-        { type: 'point', x: 9, y: 9 },
-      ]),
+        { type: 'point', x: 9, y: 9 }
+      ])
     ).toEqual({ start: at(1, 2), end: at(3, 4) });
     expect(promptBounds([{ type: 'point', x: 7, y: 8 }])).toEqual({ start: at(7, 8), end: at(7, 8) });
   });
@@ -99,7 +99,7 @@ describe('Object selection prompts', () => {
 
   it('gives the same frame key for the same frame whatever the key order, another for a changed warp', () => {
     expect(promptFrameKey({ ...upright, guidedPerspective: { a: 1, b: [2, 3] } })).toBe(
-      promptFrameKey({ guidedPerspective: { b: [2, 3], a: 1 }, ...upright }),
+      promptFrameKey({ guidedPerspective: { b: [2, 3], a: 1 }, ...upright })
     );
     expect(promptFrameKey(shown)).not.toBe(promptFrameKey({ ...shown, transformXOffset: 5 }));
   });

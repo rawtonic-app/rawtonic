@@ -6,16 +6,29 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { exportSettingsFromDraft, subfolderName, type RecipeDraft } from './exportRecipes';
 
 /** A durable description of the settings chosen when the job was queued. */
-export function exportJobLabel(name: string, draft: RecipeDraft, format: string, destination: string, paths: string[] = []): string {
+export function exportJobLabel(
+  name: string,
+  draft: RecipeDraft,
+  format: string,
+  destination: string,
+  paths: string[] = []
+): string {
   const resize = exportSettingsFromDraft(draft).settings.resize;
   const size = resize
     ? `${i18n.t(`studio.export.sizing.modes.${draft.resizeMode}`)} ${resize.value}${resize.mode === 'dimensions' ? ` × ${resize.secondValue}` : ''} ${resize.mode === 'percentage' ? '%' : resize.mode === 'megapixels' ? 'MP' : 'px'}`
     : i18n.t('studio.export.queue.fullResolution');
   const folder = draft.where === 'original' ? i18n.t('studio.export.queue.originalFolder') : destination;
   const sourcePath = paths[0]?.split('?vc=')[0];
-  const source = paths.length === 1 ? sourcePath?.split(/[\\/]/).pop() : paths.length ? i18n.t('studio.export.queue.photos', { count: paths.length }) : null;
+  const source =
+    paths.length === 1
+      ? sourcePath?.split(/[\\/]/).pop()
+      : paths.length
+        ? i18n.t('studio.export.queue.photos', { count: paths.length })
+        : null;
   const subfolder = subfolderName(draft.subfolder);
-  return [source, name, format.toUpperCase(), size, subfolder ? `${folder} / ${subfolder}` : folder].filter(Boolean).join(' · ');
+  return [source, name, format.toUpperCase(), size, subfolder ? `${folder} / ${subfolder}` : folder]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** The containing folder, accepting both native path separators. */
@@ -39,12 +52,21 @@ export function notifyExportOutputs(outputs: string[]) {
       {[...folders].map(([folder, output]) => (
         <div key={folder}>
           <span>{folder}</span>{' '}
-          <button type="button" onClick={() => void invoke(Invokes.ShowInFinder, { path: output }).catch((error) => notify.error(String(error)))}>
-            {i18n.t(useSettingsStore.getState().osPlatform === 'macos' ? 'studio.library.folders.menu.showInFinder' : 'studio.library.folders.menu.showInFileManager')}
+          <button
+            type="button"
+            onClick={() =>
+              void invoke(Invokes.ShowInFinder, { path: output }).catch((error) => notify.error(String(error)))
+            }
+          >
+            {i18n.t(
+              useSettingsStore.getState().osPlatform === 'macos'
+                ? 'studio.library.folders.menu.showInFinder'
+                : 'studio.library.folders.menu.showInFileManager'
+            )}
           </button>
         </div>
       ))}
     </div>,
-    { closeOnClick: false },
+    { closeOnClick: false }
   );
 }

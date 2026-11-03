@@ -1,71 +1,49 @@
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 
-import TargetedAdjustmentOverlay from "./TargetedAdjustmentOverlay";
-import {
-  debouncedSetHistory,
-  useEditorStore,
-} from "../../../store/useEditorStore";
-import { INITIAL_ADJUSTMENTS } from "../../../utils/adjustments";
-import { linearFromSrgb } from "../../../utils/targetedAdjustment";
+import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
+import { debouncedSetHistory, useEditorStore } from '../../../store/useEditorStore';
+import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
+import { linearFromSrgb } from '../../../utils/targetedAdjustment';
 
 beforeAll(() => {
   // jsdom has no pointer capture.
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.hasPointerCapture = () => false;
   Element.prototype.releasePointerCapture = () => {};
-  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
     cb(0);
     return 1;
   });
-  vi.stubGlobal("cancelAnimationFrame", () => {});
+  vi.stubGlobal('cancelAnimationFrame', () => {});
 });
 
 beforeEach(() => {
   useEditorStore.setState({
-    selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+    selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
     adjustments: structuredClone(INITIAL_ADJUSTMENTS),
-    tatTarget: "saturation",
+    tatTarget: 'saturation',
     tatFocus: null,
-    curveChannel: "luma",
+    curveChannel: 'luma',
     tatCurveMarker: null,
-    isSliderDragging: false,
+    isSliderDragging: false
   });
   invoke.mockReset();
 });
 afterEach(cleanup);
 
 const surface = () => {
-  render(
-    <TargetedAdjustmentOverlay
-      rect={{ left: 0, top: 0, width: 400, height: 300 }}
-    />,
-  );
-  const el = screen.getByTestId("targeted-adjustment");
-  el.getBoundingClientRect = () =>
-    ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
+  render(<TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} />);
+  const el = screen.getByTestId('targeted-adjustment');
+  el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
   return el;
 };
 
-describe("targeted adjustment surface", () => {
-  it("samples the photo colour under the pointer and moves its mixer channels with the drag", async () => {
+describe('targeted adjustment surface', () => {
+  it('samples the photo colour under the pointer and moves its mixer channels with the drag', async () => {
     invoke.mockResolvedValue(linearFromSrgb([90, 140, 220]));
     const el = surface();
     await act(async () => {
@@ -73,16 +51,16 @@ describe("targeted adjustment surface", () => {
         button: 0,
         clientX: 100,
         clientY: 200,
-        pointerId: 1,
+        pointerId: 1
       });
     });
-    expect(invoke).toHaveBeenCalledWith("sample_preview_white_balance", {
-      path: "/s/a.NEF",
+    expect(invoke).toHaveBeenCalledWith('sample_preview_white_balance', {
+      path: '/s/a.NEF',
       normalizedX: 0.25,
-      normalizedY: 200 / 300,
+      normalizedY: 200 / 300
     });
     expect(useEditorStore.getState().isSliderDragging).toBe(true);
-    expect(useEditorStore.getState().tatFocus).toBe("blues");
+    expect(useEditorStore.getState().tatFocus).toBe('blues');
     fireEvent.pointerMove(el, { clientX: 100, clientY: 160, pointerId: 1 });
     fireEvent.pointerUp(el, { clientX: 100, clientY: 160, pointerId: 1 });
     const { adjustments, isSliderDragging } = useEditorStore.getState();
@@ -90,7 +68,7 @@ describe("targeted adjustment surface", () => {
     expect(isSliderDragging).toBe(false);
   });
 
-  it("applies a flick that ends before the colour sample arrives", async () => {
+  it('applies a flick that ends before the colour sample arrives', async () => {
     let resolve!: (value: unknown) => void;
     invoke.mockImplementation(() => new Promise((r) => (resolve = r)));
     const el = surface();
@@ -98,7 +76,7 @@ describe("targeted adjustment surface", () => {
       button: 0,
       clientX: 100,
       clientY: 200,
-      pointerId: 1,
+      pointerId: 1
     });
     fireEvent.pointerMove(el, { clientX: 100, clientY: 180, pointerId: 1 });
     fireEvent.pointerUp(el, { clientX: 100, clientY: 180, pointerId: 1 });
@@ -106,7 +84,7 @@ describe("targeted adjustment surface", () => {
     expect(useEditorStore.getState().adjustments.hsl.blues.saturation).toBe(10);
   });
 
-  it("leaves the photo alone when grey is pressed", async () => {
+  it('leaves the photo alone when grey is pressed', async () => {
     invoke.mockResolvedValue(linearFromSrgb([120, 120, 120]));
     const el = surface();
     await act(async () => {
@@ -114,18 +92,16 @@ describe("targeted adjustment surface", () => {
         button: 0,
         clientX: 10,
         clientY: 10,
-        pointerId: 1,
+        pointerId: 1
       });
     });
     fireEvent.pointerMove(el, { clientX: 10, clientY: -90, pointerId: 1 });
     fireEvent.pointerUp(el, { pointerId: 1 });
-    expect(useEditorStore.getState().adjustments.hsl).toEqual(
-      INITIAL_ADJUSTMENTS.hsl,
-    );
+    expect(useEditorStore.getState().adjustments.hsl).toEqual(INITIAL_ADJUSTMENTS.hsl);
   });
 
-  it("reads the level the tone curve receives", async () => {
-    useEditorStore.setState({ tatTarget: "curve" });
+  it('reads the level the tone curve receives', async () => {
+    useEditorStore.setState({ tatTarget: 'curve' });
     invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await act(async () => {
@@ -133,28 +109,28 @@ describe("targeted adjustment surface", () => {
         button: 0,
         clientX: 10,
         clientY: 100,
-        pointerId: 1,
+        pointerId: 1
       });
     });
-    expect(invoke).toHaveBeenCalledWith("sample_curve_input", {
-      path: "/s/a.NEF",
+    expect(invoke).toHaveBeenCalledWith('sample_curve_input', {
+      path: '/s/a.NEF',
       normalizedX: 10 / 400,
       normalizedY: 100 / 300,
-      adjustments: useEditorStore.getState().adjustments,
+      adjustments: useEditorStore.getState().adjustments
     });
     fireEvent.pointerMove(el, { clientX: 10, clientY: 80, pointerId: 1 });
     fireEvent.pointerUp(el, { pointerId: 1 });
     expect(useEditorStore.getState().adjustments.curves.luma).toContainEqual({
       x: 100,
-      y: 110,
+      y: 110
     });
   });
 
-  it("reads tones under view overlays from the recipe", async () => {
+  it('reads tones under view overlays from the recipe', async () => {
     useEditorStore.setState({
-      tatTarget: "regionCurve",
+      tatTarget: 'regionCurve',
       clipHighlights: true,
-      clipShadows: true,
+      clipShadows: true
     });
     invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
@@ -163,7 +139,7 @@ describe("targeted adjustment surface", () => {
         button: 0,
         clientX: 10,
         clientY: 100,
-        pointerId: 1,
+        pointerId: 1
       });
     });
     fireEvent.pointerMove(el, { clientX: 10, clientY: 90, pointerId: 1 });
@@ -180,13 +156,13 @@ describe("targeted adjustment surface", () => {
         button: 0,
         clientX: 10,
         clientY: y,
-        pointerId: 1,
+        pointerId: 1
       });
     });
   };
 
-  it("moves the point curve of the channel the curve panel shows", async () => {
-    useEditorStore.setState({ tatTarget: "curve", curveChannel: "green" });
+  it('moves the point curve of the channel the curve panel shows', async () => {
+    useEditorStore.setState({ tatTarget: 'curve', curveChannel: 'green' });
     invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await press(el);
@@ -199,8 +175,8 @@ describe("targeted adjustment surface", () => {
     expect(curves.luma).toEqual(INITIAL_ADJUSTMENTS.curves.luma);
   });
 
-  it("sets an anchor point on a click, also one that shakes a pixel", async () => {
-    useEditorStore.setState({ tatTarget: "curve" });
+  it('sets an anchor point on a click, also one that shakes a pixel', async () => {
+    useEditorStore.setState({ tatTarget: 'curve' });
     invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await press(el);
@@ -210,19 +186,18 @@ describe("targeted adjustment surface", () => {
     expect(useEditorStore.getState().adjustments.curves.luma).toEqual([
       { x: 0, y: 0 },
       { x: 100, y: 100 },
-      { x: 255, y: 255 },
+      { x: 255, y: 255 }
     ]);
   });
 
-  it("makes one undo step of a whole drag", async () => {
-    useEditorStore.setState({ tatTarget: "curve" });
+  it('makes one undo step of a whole drag', async () => {
+    useEditorStore.setState({ tatTarget: 'curve' });
     const before = useEditorStore.getState().adjustments;
     useEditorStore.getState().resetHistory(before);
     invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await press(el, 200);
-    for (const y of [190, 170, 150, 160, 140])
-      fireEvent.pointerMove(el, { clientX: 10, clientY: y, pointerId: 1 });
+    for (const y of [190, 170, 150, 160, 140]) fireEvent.pointerMove(el, { clientX: 10, clientY: y, pointerId: 1 });
     fireEvent.pointerUp(el, { pointerId: 1 });
     debouncedSetHistory.flush();
     const { history, historyIndex, adjustments } = useEditorStore.getState();
@@ -234,7 +209,7 @@ describe("targeted adjustment surface", () => {
   });
 
   it("keeps the finished press's marker when its hover sample arrives late", async () => {
-    useEditorStore.setState({ tatTarget: "curve" });
+    useEditorStore.setState({ tatTarget: 'curve' });
     // Distinct levels: the hover point reads 100, the pressed point 200.
     const pending: { level: number; resolve: (v: unknown) => void }[] = [];
     invoke.mockImplementation((_cmd: string, args: { normalizedX: number }) => {
@@ -249,7 +224,7 @@ describe("targeted adjustment surface", () => {
         button: 0,
         clientX: 10,
         clientY: 100,
-        pointerId: 1,
+        pointerId: 1
       });
     });
     expect(pending.map((p) => p.level)).toEqual([100, 200]);
@@ -263,7 +238,7 @@ describe("targeted adjustment surface", () => {
     expect(useEditorStore.getState().tatCurveMarker).toBe(200);
     expect(useEditorStore.getState().adjustments.curves.luma).toContainEqual({
       x: 200,
-      y: 200,
+      y: 200
     });
     // The next pointer move marks its own level.
     useEditorStore.getState().setEditor({ tatCurveMarker: null });
@@ -271,19 +246,17 @@ describe("targeted adjustment surface", () => {
       fireEvent.pointerMove(el, { clientX: 300, clientY: 150, pointerId: 1 });
     });
     expect(pending).toHaveLength(3);
-    await act(async () =>
-      pending[2].resolve([linearFromSrgb([100, 100, 100])]),
-    );
+    await act(async () => pending[2].resolve([linearFromSrgb([100, 100, 100])]));
     expect(useEditorStore.getState().tatCurveMarker).toBe(100);
   });
 
-  it("marks the input level under the hovering pointer", async () => {
-    useEditorStore.setState({ tatTarget: "curve", curveChannel: "red" });
+  it('marks the input level under the hovering pointer', async () => {
+    useEditorStore.setState({ tatTarget: 'curve', curveChannel: 'red' });
     const lifted = structuredClone(INITIAL_ADJUSTMENTS);
     lifted.curves.luma = [
       { x: 0, y: 0 },
       { x: 100, y: 120 },
-      { x: 255, y: 255 },
+      { x: 255, y: 255 }
     ];
     useEditorStore.setState({ adjustments: lifted });
     invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
@@ -291,11 +264,11 @@ describe("targeted adjustment surface", () => {
     await act(async () => {
       fireEvent.pointerMove(el, { clientX: 200, clientY: 150, pointerId: 1 });
     });
-    expect(invoke).toHaveBeenCalledWith("sample_curve_input", {
-      path: "/s/a.NEF",
+    expect(invoke).toHaveBeenCalledWith('sample_curve_input', {
+      path: '/s/a.NEF',
       normalizedX: 0.5,
       normalizedY: 0.5,
-      adjustments: lifted,
+      adjustments: lifted
     });
     // The red curve's input: the RGB curve's output.
     expect(useEditorStore.getState().tatCurveMarker).toBe(120);
@@ -315,7 +288,7 @@ describe("targeted adjustment surface", () => {
       button: 0,
       clientX: 10,
       clientY: 100,
-      pointerId: 1,
+      pointerId: 1
     });
     fireEvent.pointerUp(el, { pointerId: 1 });
     fireEvent.pointerLeave(el);
@@ -324,7 +297,7 @@ describe("targeted adjustment surface", () => {
     expect(useEditorStore.getState().adjustments.curves.red).toHaveLength(3);
     // Other targets do not sample on hover.
     invoke.mockClear();
-    useEditorStore.setState({ tatTarget: "regionCurve" });
+    useEditorStore.setState({ tatTarget: 'regionCurve' });
     fireEvent.pointerMove(el, { clientX: 20, clientY: 20, pointerId: 1 });
     expect(invoke).not.toHaveBeenCalled();
   });

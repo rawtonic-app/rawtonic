@@ -27,7 +27,7 @@ export function withCameraCrop<T extends Partial<Adjustments>>(
   recipe: T,
   crops: CameraCrops | undefined,
   width: number,
-  height: number,
+  height: number
 ): T {
   const crop = cameraCropFor(crops, recipe.sourceFrameVersion);
   if (crop) return { ...recipe, crop: { ...crop }, aspectRatio: crop.width / crop.height };
@@ -42,7 +42,7 @@ export function withCameraCrop<T extends Partial<Adjustments>>(
 export function cropResetValues(
   image: { isRaw?: boolean; cameraCrops?: CameraCrops } | null | undefined,
   frameVersion: number | null | undefined,
-  orientationSteps: number | null | undefined,
+  orientationSteps: number | null | undefined
 ): Pick<Adjustments, 'crop' | 'aspectRatio'> {
   const crop = image?.isRaw ? cameraCropFor(image.cameraCrops, frameVersion) : null;
   if (!crop) return { crop: null, aspectRatio: null };

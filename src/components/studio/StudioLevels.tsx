@@ -1,15 +1,9 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-} from "react";
-import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
-import { Pipette, Sparkles } from "lucide-react";
-import { useEditorStore } from "../../store/useEditorStore";
-import { INITIAL_LEVELS, type Adjustments, type Level, type Levels } from "../../utils/adjustments";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { Pipette, Sparkles } from 'lucide-react';
+import { useEditorStore } from '../../store/useEditorStore';
+import { INITIAL_LEVELS, type Adjustments, type Level, type Levels } from '../../utils/adjustments';
 import {
   LEVEL_CHANNELS,
   LEVEL_DEFAULTS,
@@ -24,14 +18,14 @@ import {
   withHandleAt,
   withLevelValue,
   type LevelChannel,
-  type LevelValue,
-} from "../../utils/levels";
-import type { LevelsPicker } from "../../utils/targetedAdjustment";
-import { selectOnFocus } from "../../utils/selectOnFocus";
-import { ToolGroup } from "./StudioDevelop";
-import { histogramBins } from "./StudioHistogram";
-import type { ToolParams } from "./StudioToolCopy";
-import { Invokes } from "../ui/AppProperties";
+  type LevelValue
+} from '../../utils/levels';
+import type { LevelsPicker } from '../../utils/targetedAdjustment';
+import { selectOnFocus } from '../../utils/selectOnFocus';
+import { ToolGroup } from './StudioDevelop';
+import { histogramBins } from './StudioHistogram';
+import type { ToolParams } from './StudioToolCopy';
+import { Invokes } from '../ui/AppProperties';
 
 interface LevelsProps {
   values: Partial<Adjustments>;
@@ -43,20 +37,20 @@ interface LevelsProps {
 }
 
 const TAB_LABELS: Record<LevelChannel, string> = {
-  rgb: "RGB",
-  red: "R",
-  green: "G",
-  blue: "B",
+  rgb: 'RGB',
+  red: 'R',
+  green: 'G',
+  blue: 'B'
 };
-const COLOURS = ["red", "green", "blue"] as const;
-const INPUT_HANDLES: LevelValue[] = ["inBlack", "midtone", "inWhite"];
-const OUTPUT_HANDLES: LevelValue[] = ["outBlack", "outWhite"];
+const COLOURS = ['red', 'green', 'blue'] as const;
+const INPUT_HANDLES: LevelValue[] = ['inBlack', 'midtone', 'inWhite'];
+const OUTPUT_HANDLES: LevelValue[] = ['outBlack', 'outWhite'];
 const RANGES: Record<LevelValue, [number, number]> = {
   inBlack: [0, 254],
   midtone: [-100, 100],
   inWhite: [1, 255],
   outBlack: [0, 255],
-  outWhite: [0, 255],
+  outWhite: [0, 255]
 };
 
 /** A numeric field of one value: Enter or leaving commits, Escape cancels,
@@ -67,7 +61,7 @@ function LevelField({
   disabled,
   onCommit,
   onNudge,
-  onReset,
+  onReset
 }: {
   name: string;
   value: number;
@@ -86,7 +80,7 @@ function LevelField({
   return (
     <input
       className="studio-levels-field"
-      aria-label={t("studio.tone.levels.fieldAria", { name })}
+      aria-label={t('studio.tone.levels.fieldAria', { name })}
       title={name}
       inputMode="numeric"
       type="text"
@@ -106,8 +100,7 @@ function LevelField({
       onBlur={() => {
         editing.current = false;
         const typed = Number(text);
-        if (!canceled.current && text.trim() && Number.isFinite(typed) && typed !== value)
-          onCommit(typed);
+        if (!canceled.current && text.trim() && Number.isFinite(typed) && typed !== value) onCommit(typed);
         canceled.current = false;
         setText(String(value));
       }}
@@ -120,11 +113,11 @@ function LevelField({
       }}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (e.key === "Enter") e.currentTarget.blur();
-        else if (e.key === "Escape") {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        else if (e.key === 'Escape') {
           canceled.current = true;
           e.currentTarget.blur();
-        } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
           onNudge(e);
           editing.current = false;
@@ -156,7 +149,7 @@ function useLevelsInputCounts(open: boolean): number[][] | null {
   useEffect(() => {
     // The tool folded (or left the panel): its work stops.
     let gone = false;
-    let key = "";
+    let key = '';
     let answered = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let request = 0;
@@ -179,15 +172,15 @@ function useLevelsInputCounts(open: boolean): number[][] | null {
         .then(() =>
           invoke<number[][] | null>(Invokes.LevelsInputHistogram, {
             path: selectedImage.path,
-            adjustments,
-          }),
+            adjustments
+          })
         )
         .then((result) => {
           if (gone || id !== request || asked !== source || !result) return;
           // The recipe or photo changed since the ask (the next ask waits
           // out its rest): the counts are for the previous one.
           const now = useEditorStore.getState();
-          const current = `${source}:${levelsInputKey(now.selectedImage?.path ?? "", now.adjustments)}`;
+          const current = `${source}:${levelsInputKey(now.selectedImage?.path ?? '', now.adjustments)}`;
           if (askedKey !== key || current !== key) return;
           answered = true;
           setCounts(result);
@@ -230,14 +223,7 @@ function useLevelsInputCounts(open: boolean): number[][] | null {
  * channel; applied to display values before the curve. Auto sets the input
  * points from the histogram. One undo step per drag.
  */
-export function StudioLevels({
-  values,
-  disabled,
-  change,
-  onInteraction,
-  toggle,
-  copy,
-}: LevelsProps) {
+export function StudioLevels({ values, disabled, change, onInteraction, toggle, copy }: LevelsProps) {
   const { t } = useTranslation();
   const channel = useEditorStore((s) => s.levelsChannel);
   const tatTarget = useEditorStore((s) => s.tatTarget);
@@ -258,8 +244,7 @@ export function StudioLevels({
     setDraft({ channel, level });
     change({ levels: { ...levels, [channel]: level } });
   };
-  const setValue = (key: LevelValue, value: number) =>
-    set(withLevelValue(latest.current, key, value));
+  const setValue = (key: LevelValue, value: number) => set(withLevelValue(latest.current, key, value));
   const reset = (key: LevelValue) => {
     if (!disabled) setValue(key, LEVEL_DEFAULTS[key]);
   };
@@ -272,11 +257,11 @@ export function StudioLevels({
     return true;
   };
   const names: Record<LevelValue, string> = {
-    inBlack: t("studio.tone.levels.inBlack"),
-    midtone: t("studio.tone.levels.midtone"),
-    inWhite: t("studio.tone.levels.inWhite"),
-    outBlack: t("studio.tone.levels.outBlack"),
-    outWhite: t("studio.tone.levels.outWhite"),
+    inBlack: t('studio.tone.levels.inBlack'),
+    midtone: t('studio.tone.levels.midtone'),
+    inWhite: t('studio.tone.levels.inWhite'),
+    outBlack: t('studio.tone.levels.outBlack'),
+    outWhite: t('studio.tone.levels.outWhite')
   };
   const drag = useRef<{ key: LevelValue; strip: DOMRect } | null>(null);
   // Outside a drag the recipe's values win again once they arrive.
@@ -344,13 +329,11 @@ export function StudioLevels({
       onReset={() => reset(key)}
     />
   );
-  const shown = channel === "rgb" ? COLOURS : ([channel] as const);
+  const shown = channel === 'rgb' ? COLOURS : ([channel] as const);
   // What the channel's Levels receive, so the handles sit on the tones
   // they move.
   const bins = shown.map((c) =>
-    inputCounts
-      ? smoothedHistogram(channelInputCounts(inputCounts[COLOURS.indexOf(c)] ?? [], levels, channel))
-      : [],
+    inputCounts ? smoothedHistogram(channelInputCounts(inputCounts[COLOURS.indexOf(c)] ?? [], levels, channel)) : []
   );
   const max = Math.max(1, ...bins.flat());
   const auto = () => {
@@ -380,7 +363,7 @@ export function StudioLevels({
   return (
     <ToolGroup
       title="Levels"
-      label={t("studio.tone.levels.title")}
+      label={t('studio.tone.levels.title')}
       toggle={toggle}
       copy={copy}
       open={false}
@@ -389,23 +372,23 @@ export function StudioLevels({
         <button
           type="button"
           className="studio-tool-auto"
-          aria-label={t("studio.tone.levels.autoAria")}
+          aria-label={t('studio.tone.levels.autoAria')}
           disabled={disabled || !histogram}
-          title={t("studio.tone.levels.autoTitle")}
+          title={t('studio.tone.levels.autoTitle')}
           onClick={(e) => {
             e.preventDefault();
             auto();
           }}
         >
           <Sparkles size={12} />
-          {t("studio.tone.levels.auto")}
+          {t('studio.tone.levels.auto')}
         </button>
       }
       onReset={() => change({ levels: structuredClone(INITIAL_LEVELS) })}
     >
       <div className="studio-levels-top">
-        {picker("levelsBlack", t("studio.tone.levels.pickBlack"), t("studio.tone.levels.pickBlackTitle"))}
-        <div className="studio-segments" aria-label={t("studio.tone.levels.channelAria")}>
+        {picker('levelsBlack', t('studio.tone.levels.pickBlack'), t('studio.tone.levels.pickBlackTitle'))}
+        <div className="studio-segments" aria-label={t('studio.tone.levels.channelAria')}>
           {LEVEL_CHANNELS.map((key) => (
             <button
               key={key}
@@ -417,42 +400,33 @@ export function StudioLevels({
             </button>
           ))}
         </div>
-        {picker("levelsWhite", t("studio.tone.levels.pickWhite"), t("studio.tone.levels.pickWhiteTitle"))}
+        {picker('levelsWhite', t('studio.tone.levels.pickWhite'), t('studio.tone.levels.pickWhiteTitle'))}
       </div>
-      <div className={`studio-levels ${disabled ? "is-disabled" : ""}`}>
+      <div className={`studio-levels ${disabled ? 'is-disabled' : ''}`}>
         <svg
           className="studio-levels-histogram"
           viewBox="0 0 256 64"
           preserveAspectRatio="none"
           role="img"
-          aria-label={t("studio.tone.levels.histogramAria")}
+          aria-label={t('studio.tone.levels.histogramAria')}
         >
           {bins.map((values, i) =>
             values.length ? (
               <path
                 key={shown[i]}
                 className={`histogram-${shown[i]}`}
-                d={`M0 64 ${values.map((v, k) => `L${(k * 256) / Math.max(1, values.length - 1)} ${64 - Math.sqrt(v / max) * 62}`).join(" ")} L256 64 Z`}
+                d={`M0 64 ${values.map((v, k) => `L${(k * 256) / Math.max(1, values.length - 1)} ${64 - Math.sqrt(v / max) * 62}`).join(' ')} L256 64 Z`}
               />
-            ) : null,
+            ) : null
           )}
           {INPUT_HANDLES.map((key) => {
             const x = handlePosition(current, key) * 256;
-            return (
-              <line
-                key={key}
-                className={`studio-levels-guide is-${key}`}
-                x1={x}
-                x2={x}
-                y1="0"
-                y2="64"
-              />
-            );
+            return <line key={key} className={`studio-levels-guide is-${key}`} x1={x} x2={x} y1="0" y2="64" />;
           })}
         </svg>
         <div className="studio-levels-strip">{INPUT_HANDLES.map(handle)}</div>
         <div className="studio-levels-fields">{INPUT_HANDLES.map(field)}</div>
-        <div className="studio-subheading">{t("studio.tone.levels.output")}</div>
+        <div className="studio-subheading">{t('studio.tone.levels.output')}</div>
         <div className={`studio-levels-ramp is-${channel}`} />
         <div className="studio-levels-strip">{OUTPUT_HANDLES.map(handle)}</div>
         <div className="studio-levels-fields">{OUTPUT_HANDLES.map(field)}</div>

@@ -1,66 +1,75 @@
-import "../../i18n";
-import { invoke } from "@tauri-apps/api/core";
-import { useProcessStore } from "../../store/useProcessStore";
-import { useEffect } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, renderHook } from "@testing-library/react";
-import MultiViewStage from "./MultiViewStage";
-import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
-import { useMultiViewStore } from "../../store/useMultiViewStore";
-import { useSettingsStore } from "../../store/useSettingsStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useAppNavigation, type AppNavigationProps } from "../../hooks/useAppNavigation";
-import { globalImageCache } from "../../utils/ImageLRUCache";
-import { INITIAL_ADJUSTMENTS } from "../../utils/adjustments";
-import type { AppSettings, HistogramData, ImageFile, SelectedImage } from "../ui/AppProperties";
+import '../../i18n';
+import { invoke } from '@tauri-apps/api/core';
+import { useProcessStore } from '../../store/useProcessStore';
+import { useEffect } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render, renderHook } from '@testing-library/react';
+import MultiViewStage from './MultiViewStage';
+import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { useMultiViewStore } from '../../store/useMultiViewStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
+import { useAppNavigation, type AppNavigationProps } from '../../hooks/useAppNavigation';
+import { globalImageCache } from '../../utils/ImageLRUCache';
+import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
+import type { AppSettings, HistogramData, ImageFile, SelectedImage } from '../ui/AppProperties';
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
-vi.mock("@tauri-apps/api/path", () => ({ homeDir: vi.fn() }));
-vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
-vi.mock("../../hooks/useEditorActions", () => ({
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
+vi.mock('@tauri-apps/api/path', () => ({ homeDir: vi.fn() }));
+vi.mock('../../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('../../hooks/useEditorActions', () => ({
   debouncedSave: { flush: vi.fn() },
   debouncedSetHistory: { cancel: vi.fn(), flush: vi.fn() },
   onRecipeWritten: vi.fn(),
   registerRecipeFlush: vi.fn(),
-  useEditorActions: () => ({ applyAdjustmentsToPaths: vi.fn() }),
+  useEditorActions: () => ({ applyAdjustmentsToPaths: vi.fn() })
 }));
 
 // Portrait photographs: a fallback to a landscape shape while the next one
 // loads would pack the cells differently for a moment.
 const W = 4000;
 const H = 6000;
-const paths = ["/s/a.CR3", "/s/b.CR3", "/s/c.CR3", "/s/d.CR3"];
+const paths = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3', '/s/d.CR3'];
 const file = (path: string): ImageFile => ({
   path,
   is_edited: false,
   modified: 0,
   rating: 0,
   tags: null,
-  exif: { PhotographicSensitivity: "200" },
+  exif: { PhotographicSensitivity: '200' },
   is_virtual_copy: false,
   is_cloud_placeholder: false,
   is_raw: true,
-  group_id: null,
+  group_id: null
 });
 const files = paths.map(file);
 const histogram = { red: [1], green: [1], blue: [1], luma: [1] } as unknown as HistogramData;
 const ready = (path: string): SelectedImage =>
-  ({ path, isReady: true, isDecoded: true, width: W, height: H, exif: {}, isRaw: true, thumbnailUrl: "" }) as SelectedImage;
+  ({
+    path,
+    isReady: true,
+    isDecoded: true,
+    width: W,
+    height: H,
+    exif: {},
+    isRaw: true,
+    thumbnailUrl: ''
+  }) as SelectedImage;
 const refs = () =>
   Object.fromEntries(
     [
-      "transformWrapperRef",
-      "cachedEditStateRef",
-      "selectedImagePathRef",
-      "isBackendReadyRef",
-      "latestRenderedJobIdRef",
-      "previewJobIdRef",
-      "currentResRef",
-      "prevAdjustmentsRef",
-    ].map((key) => [key, { current: null }]),
-  ) as unknown as AppNavigationProps["refs"];
+      'transformWrapperRef',
+      'cachedEditStateRef',
+      'selectedImagePathRef',
+      'isBackendReadyRef',
+      'latestRenderedJobIdRef',
+      'previewJobIdRef',
+      'currentResRef',
+      'prevAdjustmentsRef'
+    ].map((key) => [key, { current: null }])
+  ) as unknown as AppNavigationProps['refs'];
 
 let mounts = 0;
 let unmounts = 0;
@@ -89,14 +98,14 @@ const frame = (): Frame => {
     panelsReady: panelsShowReady(editor),
     open: editor.selectedImage !== null,
     histogram: editor.histogram !== null,
-    selection: useLibraryStore.getState().multiSelectedPaths.join(","),
-    active: useMultiViewStore.getState().active,
+    selection: useLibraryStore.getState().multiSelectedPaths.join(','),
+    active: useMultiViewStore.getState().active
   };
 };
 
 const layout = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>(".studio-mv-cell")].map(
-    (el) => `${el.dataset.path ?? "more"}@${el.style.left},${el.style.top},${el.style.width},${el.style.height}`,
+  [...container.querySelectorAll<HTMLElement>('.studio-mv-cell')].map(
+    (el) => `${el.dataset.path ?? 'more'}@${el.style.left},${el.style.top},${el.style.width},${el.style.height}`
   );
 
 /** What the image loader publishes once the photograph's source is in. */
@@ -105,25 +114,25 @@ const publish = (path: string) =>
     useEditorStore.setState((state) => ({
       selectedImage: { ...state.selectedImage!, ...ready(path) },
       adjustments: { ...INITIAL_ADJUSTMENTS },
-      panelsHeld: false,
+      panelsHeld: false
     }));
   });
 
 let unsubscribe: (() => void)[] = [];
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   mounts = 0;
   unmounts = 0;
   frames = [];
   globalImageCache.clear();
   vi.stubGlobal(
-    "ResizeObserver",
+    'ResizeObserver',
     class {
       observe() {}
       disconnect() {}
-    },
+    }
   );
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     left: 0,
     top: 0,
     width: 1600,
@@ -132,30 +141,30 @@ beforeEach(() => {
     bottom: 900,
     x: 0,
     y: 0,
-    toJSON: () => ({}),
+    toJSON: () => ({})
   });
   useSettingsStore.setState({
     appSettings: { keybinds: {}, useWgpuRenderer: true } as unknown as AppSettings,
-    osPlatform: "macos",
+    osPlatform: 'macos'
   });
-  useUIStore.setState({ activeView: "editor" });
+  useUIStore.setState({ activeView: 'editor' });
   useMultiViewStore.setState({ enabled: true, editAll: false, unavailable: false, active: false });
   useLibraryStore.setState({
     imageList: files,
     multiSelectedPaths: [...paths],
     libraryActivePath: paths[0],
     imageRatings: {},
-    imageFlags: {},
+    imageFlags: {}
   });
   useEditorStore.setState({
     selectedImage: ready(paths[0]),
     adjustments: { ...INITIAL_ADJUSTMENTS },
     histogram,
     hasRenderedFirstFrame: true,
-    panelsHeld: false,
+    panelsHeld: false
   });
   unsubscribe = [useEditorStore, useLibraryStore, useMultiViewStore].map((store) =>
-    (store as { subscribe(listener: () => void): () => void }).subscribe(() => frames.push(frame())),
+    (store as { subscribe(listener: () => void): () => void }).subscribe(() => frames.push(frame()))
   );
 });
 afterEach(() => {
@@ -170,7 +179,7 @@ function setup() {
   const view = render(
     <MultiViewStage files={files} onOpen={vi.fn()} onRate={vi.fn()}>
       <EditorProbe />
-    </MultiViewStage>,
+    </MultiViewStage>
   );
   const navigation = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
   return { ...view, select: (path: string) => act(() => void navigation.result.current.handleImageSelect(path, true)) };
@@ -180,12 +189,12 @@ function setup() {
 function expectSteadyFrames() {
   expect(frames.length).toBeGreaterThan(0);
   for (const f of frames) {
-    expect(f).toEqual({ panelsReady: true, open: true, histogram: true, selection: paths.join(","), active: true });
+    expect(f).toEqual({ panelsReady: true, open: true, histogram: true, selection: paths.join(','), active: true });
   }
 }
 
-describe("stepping the primary in the multi view", () => {
-  it("keeps the panels, the selection and the cells steady while the next photograph loads", () => {
+describe('stepping the primary in the multi view', () => {
+  it('keeps the panels, the selection and the cells steady while the next photograph loads', () => {
     const { container, select } = setup();
     expect(useMultiViewStore.getState().active).toBe(true);
     const before = layout(container);
@@ -200,7 +209,7 @@ describe("stepping the primary in the multi view", () => {
     publish(paths[1]);
     expect(useEditorStore.getState().panelsHeld).toBe(false);
     expect(layout(container)).toEqual(before);
-    expect(container.querySelector(".is-primary")?.getAttribute("data-path")).toBe(paths[1]);
+    expect(container.querySelector('.is-primary')?.getAttribute('data-path')).toBe(paths[1]);
 
     select(paths[2]);
     publish(paths[2]);
@@ -212,7 +221,7 @@ describe("stepping the primary in the multi view", () => {
     expect(unmounts).toBe(0);
   });
 
-  it("keeps them steady for a photograph opened before (cached recipe)", () => {
+  it('keeps them steady for a photograph opened before (cached recipe)', () => {
     globalImageCache.set(paths[3], {
       selectedImage: ready(paths[3]),
       adjustments: { ...INITIAL_ADJUSTMENTS },
@@ -221,7 +230,7 @@ describe("stepping the primary in the multi view", () => {
       finalPreviewUrl: null,
       uncroppedPreviewUrl: null,
       originalSize: { width: W, height: H },
-      previewSize: { width: W, height: H },
+      previewSize: { width: W, height: H }
     } as never);
     const { container, select } = setup();
     const before = layout(container);
@@ -235,18 +244,18 @@ describe("stepping the primary in the multi view", () => {
     expect(mounts).toBe(1);
   });
 
-  it("re-packs the cells when the primary itself is reshaped", () => {
+  it('re-packs the cells when the primary itself is reshaped', () => {
     const { container } = setup();
     const before = layout(container);
     act(() =>
       useEditorStore.setState((s) => ({
-        adjustments: { ...s.adjustments, crop: { x: 0, y: 0, width: 6000, height: 2000, unit: "px" } as never },
-      })),
+        adjustments: { ...s.adjustments, crop: { x: 0, y: 0, width: 6000, height: 2000, unit: 'px' } as never }
+      }))
     );
     expect(layout(container)).not.toEqual(before);
   });
 
-  it("shows the panels as not ready when the next photograph takes too long", () => {
+  it('shows the panels as not ready when the next photograph takes too long', () => {
     const { select } = setup();
     select(paths[1]);
     expect(panelsShowReady(useEditorStore.getState())).toBe(true);
@@ -254,7 +263,7 @@ describe("stepping the primary in the multi view", () => {
     expect(panelsShowReady(useEditorStore.getState())).toBe(false);
   });
 
-  it("does not hold the panels when no photograph was ready before", () => {
+  it('does not hold the panels when no photograph was ready before', () => {
     useEditorStore.setState({ selectedImage: { ...ready(paths[0]), isReady: false } });
     const { select } = setup();
     select(paths[1]);
@@ -263,14 +272,18 @@ describe("stepping the primary in the multi view", () => {
   });
 });
 
-it("does not re-render native multi-view cells for an asset recovery query alone", async () => {
-  useProcessStore.setState({ thumbnails: { [paths[0]]: "asset:///cache/pixels.jpg" } });
+it('does not re-render native multi-view cells for an asset recovery query alone', async () => {
+  useProcessStore.setState({ thumbnails: { [paths[0]]: 'asset:///cache/pixels.jpg' } });
   setup();
   await act(async () => {});
-  const before = vi.mocked(invoke).mock.calls.filter(([command]) => command === "set_multi_view").length;
+  const before = vi.mocked(invoke).mock.calls.filter(([command]) => command === 'set_multi_view').length;
   expect(before).toBeGreaterThan(0);
-  act(() => useProcessStore.getState().setProcess({ thumbnails: { [paths[0]]: "asset:///cache/pixels.jpg?recovered=1" } }));
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "set_multi_view")).toHaveLength(before);
-  act(() => useProcessStore.getState().setProcess({ thumbnails: { [paths[0]]: "asset:///cache/new-recipe.jpg" } }));
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "set_multi_view").length).toBeGreaterThan(before);
+  act(() =>
+    useProcessStore.getState().setProcess({ thumbnails: { [paths[0]]: 'asset:///cache/pixels.jpg?recovered=1' } })
+  );
+  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'set_multi_view')).toHaveLength(before);
+  act(() => useProcessStore.getState().setProcess({ thumbnails: { [paths[0]]: 'asset:///cache/new-recipe.jpg' } }));
+  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'set_multi_view').length).toBeGreaterThan(
+    before
+  );
 });

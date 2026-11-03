@@ -13,7 +13,7 @@ export default function ImageProcessingManager(props: Props) {
   useImageProcessing(props.transformWrapperRef, props.prevAdjustmentsRef, {
     previewJobIdRef: props.previewJobIdRef,
     latestRenderedJobIdRef: props.latestRenderedJobIdRef,
-    currentResRef: props.currentResRef,
+    currentResRef: props.currentResRef
   });
 
   return null;

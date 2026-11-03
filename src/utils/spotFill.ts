@@ -62,12 +62,12 @@ export function removalPatch(points: Point[], radius: number, fromHeal?: HealLoo
               brushSize: radius * 2,
               feather: Math.max(REMOVE_FEATHER, (fromHeal?.feather ?? 0) / 100),
               tool: ToolType.Brush,
-              ...(frame && { frame }),
-            },
-          ],
-        },
-      },
-    ],
+              ...(frame && { frame })
+            }
+          ]
+        }
+      }
+    ]
   };
 }
 
@@ -97,7 +97,7 @@ export async function fillRemoval(patch: AiPatch, adjustments: object, taskId: s
   const json = await invoke<string>(Invokes.InvokeGenerativeReplaseWithMaskDef, {
     currentAdjustments: adjustments,
     patchDefinition: patch,
-    taskId,
+    taskId
   });
   if (useEditorStore.getState().selectedImage?.path !== path) return null;
   return { ...patch, patchData: JSON.parse(json) as AiPatchData, isLoading: false };
@@ -128,7 +128,7 @@ export async function flipSpotItem(id: string): Promise<void> {
       updateAdjustments((prev) =>
         prev.spots?.some((s) => s.id === id)
           ? { ...prev, spots: prev.spots.filter((s) => s.id !== id), aiPatches: [...(prev.aiPatches ?? []), done] }
-          : prev,
+          : prev
       );
       if (useEditorStore.getState().activeSpotId === id) useEditorStore.getState().setEditor({ activeSpotId: done.id });
       return;
@@ -144,7 +144,7 @@ export async function flipSpotItem(id: string): Promise<void> {
       radius: area.radius,
       points: area.points.length >= 2 ? area.points : null,
       jsAdjustments: without,
-      fillAcrossEdges: false,
+      fillAcrossEdges: false
     });
     if (useEditorStore.getState().selectedImage?.path !== path || !plan.source) return;
     const healed: Spot = {
@@ -157,12 +157,12 @@ export async function flipSpotItem(id: string): Promise<void> {
       sourceY: plan.source[1],
       ...(fill!.fromHeal ? healLookOf(fill!) : { feather: settings.feather, opacity: settings.opacity }),
       visible: fill!.visible !== false,
-      ...(area.points.length >= 2 && { points: area.points }),
+      ...(area.points.length >= 2 && { points: area.points })
     };
     updateAdjustments((prev) =>
       prev.aiPatches?.some((p) => p.id === id)
         ? { ...prev, aiPatches: prev.aiPatches.filter((p) => p.id !== id), spots: [...(prev.spots ?? []), healed] }
-        : prev,
+        : prev
     );
     if (useEditorStore.getState().activeSpotId === id) useEditorStore.getState().setEditor({ activeSpotId: healed.id });
   } catch (error) {

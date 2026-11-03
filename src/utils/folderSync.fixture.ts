@@ -7,7 +7,7 @@ const move = (asset: string, from: string, to: string, verified: boolean): SyncM
   from,
   to,
   identity: identity(1),
-  verified,
+  verified
 });
 
 export function samplePlan(): SyncPlan {
@@ -23,12 +23,11 @@ export function samplePlan(): SyncPlan {
         path: '/lib/Capture/X.ARW',
         identity: identity(4),
         moves: [move('x', '/lib/Capture/old/X.ARW', '/lib/Capture/X.ARW', true)],
-        copyOf: ['/lib/Capture/Y.ARW'],
-      },
+        copyOf: ['/lib/Capture/Y.ARW']
+      }
     ],
     removed: [{ assetId: 'r', path: '/lib/Capture/R.ARW', volume: null }],
     unavailable: [{ assetId: 'u', path: '/Volumes/Photos/U.ARW', volume: 'Photos' }],
-    errors: [],
+    errors: []
   };
 }
-

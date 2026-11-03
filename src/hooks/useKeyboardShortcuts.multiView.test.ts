@@ -12,16 +12,14 @@ import { Invokes, type AppSettings, type ImageFile } from '../components/ui/AppP
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 
-const list = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3', '/s/d.CR3', '/s/e.CR3'].map(
-  (path) => ({ path }) as ImageFile,
-);
+const list = ['/s/a.CR3', '/s/b.CR3', '/s/c.CR3', '/s/d.CR3', '/s/e.CR3'].map((path) => ({ path }) as ImageFile);
 const props = {
   sortedImageList: list,
   handleBackToLibrary: vi.fn(),
   handleDeleteSelected: vi.fn(),
   handleImageSelect: vi.fn(),
   handlePasteFiles: vi.fn(),
-  handleZoomChange: vi.fn(),
+  handleZoomChange: vi.fn()
 };
 const press = (code: string, init: KeyboardEventInit = {}) =>
   window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true, ...init }));
@@ -36,7 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useSettingsStore.setState({
     appSettings: { keybinds: {} } as unknown as AppSettings,
-    osPlatform: 'macos',
+    osPlatform: 'macos'
   });
   useUIStore.setState({ activeView: 'editor', isSettingsOpen: false });
   renderHook(() => useKeyboardShortcuts(props));
@@ -136,8 +134,8 @@ describe('multi view keys', () => {
     await vi.waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.SetRatingForPaths, {
         paths: ['/s/b.CR3'],
-        rating: 3,
-      }),
+        rating: 3
+      })
     );
   });
 

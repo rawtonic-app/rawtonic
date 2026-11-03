@@ -12,10 +12,16 @@ import {
   locateFolderOf,
   MISSING_VIEW_ID,
   openMissingView,
-  relinkedPaths,
+  relinkedPaths
 } from './utils/offline';
 import i18n from 'i18next';
-import { epochOf, PerfProfiler, reportForcedLayout, reportPerformance, usePerformanceDiagnostics } from './hooks/usePerformanceDiagnostics';
+import {
+  epochOf,
+  PerfProfiler,
+  reportForcedLayout,
+  reportPerformance,
+  usePerformanceDiagnostics
+} from './hooks/usePerformanceDiagnostics';
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { refocusWebview } from './utils/photoFullScreen';
@@ -25,7 +31,7 @@ import {
   ACTIVITY_PHOTOS_VIEW_ID,
   SHOW_ACTIVITY_PHOTOS_EVENT,
   shownActivityPhotos,
-  type ShowActivityPhotos,
+  type ShowActivityPhotos
 } from './activity/showPhotos';
 import clsx from 'clsx';
 
@@ -83,7 +89,7 @@ import {
   Panel,
   type RelinkReport,
   ThumbnailSize,
-  ThumbnailAspectRatio,
+  ThumbnailAspectRatio
 } from './components/ui/AppProperties';
 import type { Adjustments } from './utils/adjustments';
 import type { globalImageCache } from './utils/ImageLRUCache';
@@ -107,56 +113,42 @@ function App() {
     useShallow((state) => ({
       appSettings: state.appSettings,
       osPlatform: state.osPlatform,
-      handleSettingsChange: state.handleSettingsChange,
-    })),
+      handleSettingsChange: state.handleSettingsChange
+    }))
   );
 
-  const {
-    activeView,
-    isFullScreen,
-    isWindowFullScreen,
-    isInstantTransition,
-    activePanel,
-    setUI,
-  } = useUIStore(
+  const { activeView, isFullScreen, isWindowFullScreen, isInstantTransition, activePanel, setUI } = useUIStore(
     useShallow((state) => ({
       activeView: state.activeView,
       isFullScreen: state.isFullScreen,
       isWindowFullScreen: state.isWindowFullScreen,
       isInstantTransition: state.isInstantTransition,
       activePanel: state.activePanel,
-      setUI: state.setUI,
-    })),
+      setUI: state.setUI
+    }))
   );
   // Develop, the Library's loupe or the full screen: the native viewer shows.
   const viewerOn = useUIStore(viewerShown);
   // Shift+Tab also hides the top bar (Lightroom); the workspace shows a strip instead.
   const barsHidden = useUIStore(
-    (state) => !readModuleLayout(state.uiVisibility.modules, moduleOf(state.activeView)).bars,
+    (state) => !readModuleLayout(state.uiVisibility.modules, moduleOf(state.activeView)).bars
   );
 
   const { rootPaths } = useLibraryStore(
     useShallow((state) => ({
-      rootPaths: state.rootPaths,
-    })),
+      rootPaths: state.rootPaths
+    }))
   );
 
-  const {
-    selectedImage,
-    activeMaskContainerId,
-    hasRenderedFirstFrame,
-    holdingNativeFrame,
-    setEditor,
-  } =
-    useEditorStore(
-      useShallow((state) => ({
-        selectedImage: state.selectedImage,
-        activeMaskContainerId: state.activeMaskContainerId,
-        hasRenderedFirstFrame: state.hasRenderedFirstFrame,
-        holdingNativeFrame: state.holdingNativeFrame,
-        setEditor: state.setEditor,
-      })),
-    );
+  const { selectedImage, activeMaskContainerId, hasRenderedFirstFrame, holdingNativeFrame, setEditor } = useEditorStore(
+    useShallow((state) => ({
+      selectedImage: state.selectedImage,
+      activeMaskContainerId: state.activeMaskContainerId,
+      hasRenderedFirstFrame: state.hasRenderedFirstFrame,
+      holdingNativeFrame: state.holdingNativeFrame,
+      setEditor: state.setEditor
+    }))
+  );
 
   const exportState = useProcessStore((state) => state.exportState);
 
@@ -197,7 +189,7 @@ function App() {
     thumbnailAspectRatio,
     setThumbnailAspectRatio,
     libraryViewMode,
-    setLibraryViewMode,
+    setLibraryViewMode
   });
 
   const { handleCopyAdjustments, handlePasteAdjustments, handleResetAdjustments, handleZoomChange } =
@@ -211,24 +203,19 @@ function App() {
     latestRenderedJobIdRef,
     previewJobIdRef,
     currentResRef,
-    prevAdjustmentsRef,
+    prevAdjustmentsRef
   };
 
-  const {
-    handleBackToLibrary,
-    handleImageSelect,
-    handleSelectSubfolder,
-    handleSelectAlbum,
-    handleOpenFolder,
-  } = useAppNavigation({
-    clearThumbnailQueue,
-    refs: navigationRefs,
-  });
+  const { handleBackToLibrary, handleImageSelect, handleSelectSubfolder, handleSelectAlbum, handleOpenFolder } =
+    useAppNavigation({
+      clearThumbnailQueue,
+      refs: navigationRefs
+    });
 
   const {
     externalEditSession,
     isFinishing: isExternalEditFinishing,
-    finishExternalEdit,
+    finishExternalEdit
   } = useExternalEditSession(handleImageSelect);
 
   const {
@@ -237,7 +224,7 @@ function App() {
     handleImageClick,
     handleSetColorLabel,
     refreshAllFolderTrees,
-    handleRemoveRootFolder,
+    handleRemoveRootFolder
   } = useLibraryActions(handleImageSelect);
 
   useCatalogSearch();
@@ -258,21 +245,21 @@ function App() {
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,
-            true,
+            true
           ).catch((e) => notify.error(String(e)));
         } else if (activeAlbumId === MISSING_VIEW_ID && sessionDirectory) {
           await openMissingView(
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,
-            true,
+            true
           ).catch((e) => notify.error(String(e)));
         } else if (activeAlbumId === PENDING_XMP_VIEW_ID && sessionDirectory) {
           await openPendingXmpView(
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,
-            true,
+            true
           ).catch((e) => notify.error(String(e)));
         } else if (activeAlbumId === ACTIVITY_PHOTOS_VIEW_ID) {
           // An activity entry's photographs, at their current places.
@@ -283,7 +270,7 @@ function App() {
             sessionDirectory,
             { id: activeAlbumId.slice(SESSION_ALBUM_PREFIX.length), name: currentFolderPath.slice('Album: '.length) },
             handleSelectAlbum,
-            true,
+            true
           ).catch((e) => notify.error(`The album could not be refreshed: ${e}`));
         } else if (activeAlbumId) {
           const findObj = (nodes: AlbumItem[]): Album | null => {
@@ -352,7 +339,7 @@ function App() {
       // A refresh after Try again keeps an open photograph in Develop.
       const refresh = Boolean((event as CustomEvent<{ refresh?: boolean } | null>).detail?.refresh);
       void openPendingXmpView(sessionDirectory, i18n.t('session.xmp.view'), handleSelectAlbum, refresh).catch((e) =>
-        notify.error(String(e)),
+        notify.error(String(e))
       );
     };
     window.addEventListener(SHOW_PENDING_XMP_EVENT, show);
@@ -402,10 +389,10 @@ function App() {
       const keep = selection.filter((path) => shown.some((image) => image.path === path));
       useLibraryStore.getState().setLibrary({
         multiSelectedPaths: keep,
-        libraryActivePath: active && keep.includes(active) ? active : (keep[0] ?? null),
+        libraryActivePath: active && keep.includes(active) ? active : (keep[0] ?? null)
       });
     },
-    [refreshAllFolderTrees, handleLibraryRefresh, handleSelectSubfolder, handleImageSelect],
+    [refreshAllFolderTrees, handleLibraryRefresh, handleSelectSubfolder, handleImageSelect]
   );
 
   // Synchronize Folder applied: moved photographs are followed as after a
@@ -435,27 +422,20 @@ function App() {
     handleRenameFolder,
     handleSaveRename,
     handleRenameFiles,
-    handlePasteFiles,
+    handlePasteFiles
   } = useFileOperations(
     handleLibraryRefresh,
     refreshAllFolderTrees,
     handleImageSelect,
     handleBackToLibrary,
-    sortedImageList,
+    sortedImageList
   );
 
-  const {
-    handleRunMerge,
-    handleRefinishMerge,
-    handleSaveMerge,
-    handleSaveCollage,
-  } = useProductivityActions(handleLibraryRefresh);
+  const { handleRunMerge, handleRefinishMerge, handleSaveMerge, handleSaveCollage } =
+    useProductivityActions(handleLibraryRefresh);
   useVirtualCopyCommand(handleLibraryRefresh);
 
-  const {
-    handleEditorContextMenu,
-    handleThumbnailContextMenu,
-  } = useAppContextMenus({
+  const { handleEditorContextMenu, handleThumbnailContextMenu } = useAppContextMenus({
     handleImageSelect,
     handleBackToLibrary,
     handleLibraryRefresh,
@@ -467,10 +447,10 @@ function App() {
       const { sessionDirectory } = useLibraryStore.getState();
       if (!sessionDirectory) return;
       void openMissingView(sessionDirectory, i18n.t('offline.missingView'), handleSelectAlbum).catch((e) =>
-        notify.error(String(e)),
+        notify.error(String(e))
       );
     },
-    handleRelinked,
+    handleRelinked
   });
 
   useTauriListeners({
@@ -478,9 +458,8 @@ function App() {
     handleSelectSubfolder,
     refreshImageList: handleLibraryRefresh,
     markGenerated,
-    handleImageSelect,
+    handleImageSelect
   });
-
 
   useAppLevelCommands();
   useAppMenu();
@@ -493,7 +472,7 @@ function App() {
     handleMoveToSelects,
     handleImageSelect,
     handlePasteFiles,
-    handleZoomChange,
+    handleZoomChange
   });
 
   useEffect(() => {
@@ -521,7 +500,7 @@ function App() {
       isWbPickerActive: editing && activePanel === Panel.Adjustments && current.isWbPickerActive,
       isStraightenActive: false,
       isGuidedPerspectiveActive: false,
-      activeMaskId: editing && activePanel === Panel.Masks ? current.activeMaskId : null,
+      activeMaskId: editing && activePanel === Panel.Masks ? current.activeMaskId : null
     });
   }, [activePanel, activeView, setEditor]);
 
@@ -581,7 +560,7 @@ function App() {
           hasNativeMacTitlebar && !isWindowFullScreen && 'macos-windowed',
           barsHidden && 'bars-hidden',
           isFullScreen && 'is-image-fullscreen',
-          isWgpuActive ? 'bg-transparent' : 'bg-bg-primary',
+          isWgpuActive ? 'bg-transparent' : 'bg-bg-primary'
         )}
       >
         {!hasUnifiedTitlebar && (
@@ -589,7 +568,7 @@ function App() {
             className={clsx(
               'shrink-0 overflow-hidden z-50',
               !isInstantTransition && 'transition-all duration-300 ease-in-out',
-              isFullScreen ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-15 opacity-100',
+              isFullScreen ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-15 opacity-100'
             )}
           >
             {appSettings?.decorations || (!isWindowFullScreen && <TitleBar />)}
@@ -605,73 +584,85 @@ function App() {
           />
         </PerfProfiler>
         <PerfProfiler id="workspace">
-        <StudioWorkspace
-          files={sortedImageList}
-          flagCounts={flagCounts}
-          stackMarks={stackMarks}
-          transformWrapperRef={transformWrapperRef}
-          onSelect={handleLibraryImageSingleClick}
-          onFilmSelect={handleImageClick}
-          onOpen={handleImageSelect}
-          onShow={(path) => handleImageSelect(path, false)}
-          onNavigate={handleSelectSubfolder}
-          onSelectAlbum={(id, name, paths, preserveEditor) => handleSelectAlbum(id, name, paths, preserveEditor)}
-          onBack={handleBackToLibrary}
-          onRate={handleRate}
-          onContextMenu={handleThumbnailContextMenu}
-          onEditorContextMenu={handleEditorContextMenu}
-          onCopy={handleCopyAdjustments}
-          onPaste={handlePasteAdjustments}
-          onReset={handleResetAdjustments}
-          onZoom={handleZoomChange}
-          requestThumbnails={requestThumbnails}
-          externalEditBar={selectedImage && externalEditSession && <ExternalEditBar session={externalEditSession} isFinishing={isExternalEditFinishing} errorMessage={exportState.status === Status.Error ? exportState.errorMessage : ''} onDone={finishExternalEdit} />}
-          onSettings={() => setUI({ isSettingsOpen: true })}
-          folderActions={{
-            moveHere: handleMoveToFolder,
-            moveFolder: (path) => void handleMoveFolder(path),
-            trash: handleTrashFolder,
-            emptyTrash: () => void handleEmptySessionTrash(),
-            addFolder: handleOpenFolder,
-            removeFromLibrary: (path) => handleRemoveRootFolder(path, handleBackToLibrary),
-            paste: (mode, path) => void handlePasteFiles(mode, path),
-            locateFolder: (folder) => {
-              const { sessionDirectory } = useLibraryStore.getState();
-              if (!sessionDirectory) return;
-              locateFolderOf(i18n.t, sessionDirectory, folder)
-                .then((report) => (report ? handleRelinked(report) : undefined))
-                .catch((err) => notify.error(i18n.t('offline.toasts.failed', { err: String(err) }), { autoClose: false }));
-            },
-            setRoleFolder: (role, folder) => requestSetRoleFolder({ role, folder }),
-          }}
-          settings={
-            appSettings && (
-              <SettingsPanel
-                appSettings={appSettings}
-                onBack={() => setUI({ isSettingsOpen: false })}
-                onLibraryRefresh={handleLibraryRefresh}
-                onSettingsChange={handleSettingsChange}
-                rootPaths={rootPaths}
-              />
-            )
-          }
-        />
+          <StudioWorkspace
+            files={sortedImageList}
+            flagCounts={flagCounts}
+            stackMarks={stackMarks}
+            transformWrapperRef={transformWrapperRef}
+            onSelect={handleLibraryImageSingleClick}
+            onFilmSelect={handleImageClick}
+            onOpen={handleImageSelect}
+            onShow={(path) => handleImageSelect(path, false)}
+            onNavigate={handleSelectSubfolder}
+            onSelectAlbum={(id, name, paths, preserveEditor) => handleSelectAlbum(id, name, paths, preserveEditor)}
+            onBack={handleBackToLibrary}
+            onRate={handleRate}
+            onContextMenu={handleThumbnailContextMenu}
+            onEditorContextMenu={handleEditorContextMenu}
+            onCopy={handleCopyAdjustments}
+            onPaste={handlePasteAdjustments}
+            onReset={handleResetAdjustments}
+            onZoom={handleZoomChange}
+            requestThumbnails={requestThumbnails}
+            externalEditBar={
+              selectedImage &&
+              externalEditSession && (
+                <ExternalEditBar
+                  session={externalEditSession}
+                  isFinishing={isExternalEditFinishing}
+                  errorMessage={exportState.status === Status.Error ? exportState.errorMessage : ''}
+                  onDone={finishExternalEdit}
+                />
+              )
+            }
+            onSettings={() => setUI({ isSettingsOpen: true })}
+            folderActions={{
+              moveHere: handleMoveToFolder,
+              moveFolder: (path) => void handleMoveFolder(path),
+              trash: handleTrashFolder,
+              emptyTrash: () => void handleEmptySessionTrash(),
+              addFolder: handleOpenFolder,
+              removeFromLibrary: (path) => handleRemoveRootFolder(path, handleBackToLibrary),
+              paste: (mode, path) => void handlePasteFiles(mode, path),
+              locateFolder: (folder) => {
+                const { sessionDirectory } = useLibraryStore.getState();
+                if (!sessionDirectory) return;
+                locateFolderOf(i18n.t, sessionDirectory, folder)
+                  .then((report) => (report ? handleRelinked(report) : undefined))
+                  .catch((err) =>
+                    notify.error(i18n.t('offline.toasts.failed', { err: String(err) }), { autoClose: false })
+                  );
+              },
+              setRoleFolder: (role, folder) => requestSetRoleFolder({ role, folder })
+            }}
+            settings={
+              appSettings && (
+                <SettingsPanel
+                  appSettings={appSettings}
+                  onBack={() => setUI({ isSettingsOpen: false })}
+                  onLibraryRefresh={handleLibraryRefresh}
+                  onSettingsChange={handleSettingsChange}
+                  rootPaths={rootPaths}
+                />
+              )
+            }
+          />
         </PerfProfiler>
         <PerfProfiler id="modals">
-        <AppModals
-          handleImageSelect={handleImageSelect}
-          handleRunMerge={handleRunMerge}
-          handleSaveMerge={handleSaveMerge}
-          handleRefinishMerge={handleRefinishMerge}
-          refreshImageList={handleLibraryRefresh}
-          handleCreateFolder={handleCreateFolder}
-          handleRenameFolder={handleRenameFolder}
-          handleSaveRename={handleSaveRename}
-          handleSetColorLabel={handleSetColorLabel}
-          handleRate={handleRate}
-          executeDelete={executeDelete}
-          handleSaveCollage={handleSaveCollage}
-        />
+          <AppModals
+            handleImageSelect={handleImageSelect}
+            handleRunMerge={handleRunMerge}
+            handleSaveMerge={handleSaveMerge}
+            handleRefinishMerge={handleRefinishMerge}
+            refreshImageList={handleLibraryRefresh}
+            handleCreateFolder={handleCreateFolder}
+            handleRenameFolder={handleRenameFolder}
+            handleSaveRename={handleSaveRename}
+            handleSetColorLabel={handleSetColorLabel}
+            handleRate={handleRate}
+            executeDelete={executeDelete}
+            handleSaveCollage={handleSaveCollage}
+          />
         </PerfProfiler>
         <AppNotices>
           <UpdateNotice />

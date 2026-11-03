@@ -10,10 +10,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
-import { historyOrders,
-  setHistoryOrders,
-  inheritHistoryOrders,
-  newEditOrder } from '../utils/undoOrder';
+import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
 
 export interface InteractivePatch {
@@ -365,7 +362,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTatTarget: (target) =>
     set((state) =>
-      state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 },
+      state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 }
     ),
 
   pushHistory: (newAdj, batchOrder) => {
@@ -377,10 +374,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);
-      const orders = [
-        ...historyOrders(state.history).slice(0, state.historyIndex + 1),
-        order,
-      ];
+      const orders = [...historyOrders(state.history).slice(0, state.historyIndex + 1), order];
       if (newHistory.length > 50) {
         newHistory.shift();
         orders.shift();
@@ -420,7 +414,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       history: [initialState],
       historyIndex: 0,
       historyPending: false,
-      adjustments: initialState,
+      adjustments: initialState
     });
   },
 
@@ -438,13 +432,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // Record returning to it, retaining the just-committed edit for Undo.
       const order = newEditOrder();
       const history = [...state.history, target].slice(-50);
-      setHistoryOrders(
-        history,
-        [...historyOrders(state.history), order].slice(-50),
-      );
+      setHistoryOrders(history, [...historyOrders(state.history), order].slice(-50));
       return { history, historyIndex: history.length - 1, adjustments: target };
     });
-  },
+  }
 }));
 
 // The store owns pending history so every navigation path can settle it.
@@ -465,8 +456,7 @@ export const debouncedSetHistory = Object.assign(
       heldHistory = null;
       scheduledHistory(adjustments);
     }
-    if (!useEditorStore.getState().historyPending)
-      useEditorStore.setState({ historyPending: true });
+    if (!useEditorStore.getState().historyPending) useEditorStore.setState({ historyPending: true });
   },
   {
     flush: () => {
@@ -476,10 +466,9 @@ export const debouncedSetHistory = Object.assign(
     cancel: () => {
       scheduledHistory.cancel();
       heldHistory = null;
-      if (useEditorStore.getState().historyPending)
-        useEditorStore.setState({ historyPending: false });
-    },
-  },
+      if (useEditorStore.getState().historyPending) useEditorStore.setState({ historyPending: false });
+    }
+  }
 );
 
 /** The photograph open last (`previousPhoto`) and its size. */
@@ -489,11 +478,7 @@ let lastOpened: { path: string; size: { width: number; height: number } | null }
 // layer counts: sliders, typed values, presets, undo).
 useEditorStore.subscribe((state, previous) => {
   if (state.history !== previous.history)
-    inheritHistoryOrders(
-      previous.history,
-      state.history,
-      state.selectedImage?.path === previous.selectedImage?.path,
-    );
+    inheritHistoryOrders(previous.history, state.history, state.selectedImage?.path === previous.selectedImage?.path);
   const patch: Partial<EditorState> = {};
   if (state.selectedImage?.path !== previous.selectedImage?.path) {
     debouncedSetHistory.cancel();
@@ -532,7 +517,7 @@ useEditorStore.subscribe((state, previous) => {
           state.maskOverlayAuto,
           previous.adjustments.masks,
           state.adjustments.masks,
-          state.activeMaskContainerId,
+          state.activeMaskContainerId
         );
   if (overlay !== state.maskOverlayAuto) patch.maskOverlayAuto = overlay;
   // The luma range eyedropper belongs to the layer and component it was

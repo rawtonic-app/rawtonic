@@ -17,7 +17,16 @@ import { referToSentMaskBitmaps } from '../utils/bitmapIds';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
 import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
+import {
+  epochOf,
+  latestPointerDispatchTime,
+  latestPointerInputTime,
+  performanceDiagnosticsEnabled,
+  reportPerformance,
+  notePointerSessionFrame,
+  registerDiagnosticQueue,
+  noteBrowserPreview
+} from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { sourceDevelopToApply } from '../utils/aiDenoise';
 import { beforeAdjustments, beforeSnapshot } from '../utils/beforeSnapshot';
@@ -31,7 +40,7 @@ import {
   liveStrokeFrame,
   registerLiveMaskRenderer,
   type LiveStroke,
-  type LiveStrokeArgs,
+  type LiveStrokeArgs
 } from '../utils/liveMaskRender';
 import { registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -44,7 +53,7 @@ import {
   MASK_PARAMETERS_MISSING,
   acknowledgeParameters,
   forgetParameterReferences,
-  withParameterReferences,
+  withParameterReferences
 } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 import { viewerShown } from '../utils/viewerMode';
@@ -103,7 +112,7 @@ export function useImageProcessing(
     previewJobIdRef: React.RefObject<number>;
     latestRenderedJobIdRef: React.RefObject<number>;
     currentResRef: React.RefObject<number>;
-  },
+  }
 ) {
   const { previewJobIdRef, latestRenderedJobIdRef, currentResRef } = renderRefs;
   const os = useOsPlatform();
@@ -205,7 +214,7 @@ export function useImageProcessing(
       live = false,
       inputAt = 0,
       dispatchAt = 0,
-      liveStroke?: LiveStroke,
+      liveStroke?: LiveStroke
     ) => {
       const enteredAt = performanceDiagnosticsEnabled ? performance.now() : 0;
       const currentPath = selectedImage?.path;
@@ -255,23 +264,27 @@ export function useImageProcessing(
       const performanceStart = performanceDiagnosticsEnabled ? performance.now() : 0;
 
       try {
-        const buffer: ArrayBuffer = await previewBuffer(Invokes.ApplyAdjustments, {
-          jsAdjustments: payload,
-          liveStroke: strokeArgs,
-          isInteractive: dragging,
-          targetResolution: targetRes || null,
-          roi: roi || null,
-          requestAnalytics: shouldRequestAnalytics,
-          computeWaveform: !!isWaveformVisible,
-          activeWaveformChannel: activeWaveformChannelRef.current || null,
-          sequence: PREVIEW_SEQUENCE_BASE + jobId,
-          // Drawn by the native display over this frame (mask layers only).
-          maskOverlay: cropEdit ? null : useEditorStore.getState().nativeMaskOverlay,
-          cropEdit,
-          // Large Linux patches go directly to the image loader. Small
-          // frames, final previews and other platforms retain binary replies.
-          browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0',
-        }, os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0');
+        const buffer: ArrayBuffer = await previewBuffer(
+          Invokes.ApplyAdjustments,
+          {
+            jsAdjustments: payload,
+            liveStroke: strokeArgs,
+            isInteractive: dragging,
+            targetResolution: targetRes || null,
+            roi: roi || null,
+            requestAnalytics: shouldRequestAnalytics,
+            computeWaveform: !!isWaveformVisible,
+            activeWaveformChannel: activeWaveformChannelRef.current || null,
+            sequence: PREVIEW_SEQUENCE_BASE + jobId,
+            // Drawn by the native display over this frame (mask layers only).
+            maskOverlay: cropEdit ? null : useEditorStore.getState().nativeMaskOverlay,
+            cropEdit,
+            // Large Linux patches go directly to the image loader. Small
+            // frames, final previews and other platforms retain binary replies.
+            browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
+          },
+          os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
+        );
         const returnedAt = performanceDiagnosticsEnabled ? performance.now() : 0;
         if (performanceDiagnosticsEnabled) {
           const performanceEnd = performance.now();
@@ -300,9 +313,9 @@ export function useImageProcessing(
               ? {
                   dispatch_ms: dispatchAt - inputAt,
                   handler_ms: enteredAt - dispatchAt,
-                  prep_ms: performanceStart - enteredAt,
+                  prep_ms: performanceStart - enteredAt
                 }
-              : {}),
+              : {})
           });
           if ((live || dragging) && inputAt > 0) notePointerSessionFrame('preview', performanceEnd - inputAt);
         }
@@ -326,7 +339,7 @@ export function useImageProcessing(
               return {
                 interactivePatch: null,
                 nativeCropFrame: cropEdit,
-                ...(dragging ? {} : { previewFrames: state.previewFrames + 1 }),
+                ...(dragging ? {} : { previewFrames: state.previewFrames + 1 })
               };
             });
             // A finished frame may have a new framing, resolution or source
@@ -402,7 +415,16 @@ export function useImageProcessing(
         }
       }
     },
-    [os, selectedImage?.path, calculateROI, isWaveformVisible, setEditor, previewJobIdRef, latestRenderedJobIdRef, currentResRef],
+    [
+      os,
+      selectedImage?.path,
+      calculateROI,
+      isWaveformVisible,
+      setEditor,
+      previewJobIdRef,
+      latestRenderedJobIdRef,
+      currentResRef
+    ]
   );
 
   const executeRef = useRef(executeApplyAdjustments);
@@ -414,20 +436,21 @@ export function useImageProcessing(
   // even when a render outlasts several moves; sequence numbers keep it in
   // submission order. Four in flight bound the backlog if the GPU stalls.
   const previewQueue = useMemo(
-    () => new LatestPreviewQueue<PreviewRequest>(async (request) => {
-      const image = useEditorStore.getState().selectedImage;
-      if (!canRenderSource(image) || image.path !== request.path) return;
-      await executeRef.current(
-        request.adjustments,
-        request.dragging,
-        request.targetRes,
-        request.live,
-        request.inputAt,
-        request.dispatchAt,
-        request.liveStroke,
-      );
-    }, 4),
-    [],
+    () =>
+      new LatestPreviewQueue<PreviewRequest>(async (request) => {
+        const image = useEditorStore.getState().selectedImage;
+        if (!canRenderSource(image) || image.path !== request.path) return;
+        await executeRef.current(
+          request.adjustments,
+          request.dragging,
+          request.targetRes,
+          request.live,
+          request.inputAt,
+          request.dispatchAt,
+          request.liveStroke
+        );
+      }, 4),
+    []
   );
   useLayoutEffect(() => () => previewQueue.clear(), [previewQueue, selectedImage?.path]);
   useEffect(() => registerDiagnosticQueue('preview', previewQueue), [previewQueue]);
@@ -465,10 +488,10 @@ export function useImageProcessing(
           live: true,
           inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
           dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
-          liveStroke,
+          liveStroke
         });
       }),
-    [previewQueue, currentResRef],
+    [previewQueue, currentResRef]
   );
 
   // View options change the rendered pixels without changing the recipe,
@@ -495,13 +518,13 @@ export function useImageProcessing(
           adjustments: state.previewOverride ?? state.adjustments,
           dragging: false,
           targetRes,
-          live: native,
+          live: native
         });
         // Live frames leave the split's before alone: it shows the view
         // states too (clipping, soft proof, colour range), so it follows here.
         if (viewChanged && native) requestSplitBefore(targetRes);
       }),
-    [previewQueue, currentResRef],
+    [previewQueue, currentResRef]
   );
   useEffect(
     () =>
@@ -516,10 +539,10 @@ export function useImageProcessing(
           adjustments: state.previewOverride ?? state.adjustments,
           dragging: false,
           targetRes,
-          live: nativeDisplayRef.current,
+          live: nativeDisplayRef.current
         });
       }),
-    [previewQueue, currentResRef],
+    [previewQueue, currentResRef]
   );
 
   // AI Denoise, the colour noise filter's base, the dead-photosite test, the
@@ -569,7 +592,7 @@ export function useImageProcessing(
       deadPixelAdjacent,
       unbiasedBlack,
       borderBlack,
-      highlightRatios,
+      highlightRatios
     })
       .then((applied) => {
         const editor = useEditorStore.getState();
@@ -586,8 +609,8 @@ export function useImageProcessing(
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
             ...(borderBlack === undefined ? {} : { borderBlack }),
-            ...(highlightRatios === undefined ? {} : { highlightRatios }),
-          },
+            ...(highlightRatios === undefined ? {} : { highlightRatios })
+          }
         });
         const targetRes = currentResRef.current;
         if (targetRes) {
@@ -595,7 +618,7 @@ export function useImageProcessing(
             path,
             adjustments: editor.previewOverride ?? editor.adjustments,
             dragging: false,
-            targetRes,
+            targetRes
           });
         }
       })
@@ -615,10 +638,10 @@ export function useImageProcessing(
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
                   ...(!changesAiDenoise && changesBlack ? { unbiasedBlackFailed: unbiasedBlack } : {}),
                   ...(!changesAiDenoise && changesBorderBlack ? { borderBlackFailed: borderBlack } : {}),
-                  ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {}),
-                },
+                  ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {})
+                }
               }
-            : {}),
+            : {})
         });
         if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${err}`);
         else console.error('Developing the source again failed:', err);
@@ -633,19 +656,22 @@ export function useImageProcessing(
     developHighlightRatios,
     setEditor,
     previewQueue,
-    currentResRef,
+    currentResRef
   ]);
 
   const applyAdjustments = useCallback(
     (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number) => {
       if (!canRenderSource(selectedImage)) return;
       previewQueue.submit({
-        path: selectedImage!.path, adjustments: currentAdjustments, dragging, targetRes,
+        path: selectedImage!.path,
+        adjustments: currentAdjustments,
+        dragging,
+        targetRes,
         inputAt: dragging && performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
-        dispatchAt: dragging && performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+        dispatchAt: dragging && performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0
       });
     },
-    [selectedImage, previewQueue],
+    [selectedImage, previewQueue]
   );
 
   const throttledUncroppedPreview = useMemo(
@@ -664,16 +690,16 @@ export function useImageProcessing(
             .catch(console.error);
         },
         30,
-        { leading: true, trailing: true },
+        { leading: true, trailing: true }
       ),
-    [],
+    []
   );
 
   const generateUncroppedPreview = useCallback(
     (currentAdjustments: Adjustments) => {
       throttledUncroppedPreview(currentAdjustments);
     },
-    [throttledUncroppedPreview],
+    [throttledUncroppedPreview]
   );
 
   useEffect(() => {
@@ -694,7 +720,7 @@ export function useImageProcessing(
       fullDpi: !!appSettings?.useFullDpiRendering,
       zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
       original: originalSize,
-      grain: hasGrain,
+      grain: hasGrain
     });
   }, [
     appSettings?.enableZoomHifi,
@@ -704,7 +730,7 @@ export function useImageProcessing(
     displaySize.width,
     displaySize.height,
     originalSize,
-    hasGrain,
+    hasGrain
   ]);
 
   // A slider drag's moves between store commits (utils/sliderDraft.ts), as
@@ -736,13 +762,12 @@ export function useImageProcessing(
           dragging: true,
           targetRes: calculateTargetResRef.current(),
           inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
-          dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+          dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0
         });
         return true;
       }),
-    [previewQueue],
+    [previewQueue]
   );
-
 
   const requestHiFiZoom = useMemo(
     () =>
@@ -754,7 +779,7 @@ export function useImageProcessing(
           applyAdjustments(renderAdjustments, false, targetRes);
         }
       }, 50),
-    [applyAdjustments, currentResRef],
+    [applyAdjustments, currentResRef]
   );
 
   useEffect(() => {
@@ -786,7 +811,7 @@ export function useImageProcessing(
     requestHiFiZoom,
     originalSize,
     currentResRef,
-    hasGrain,
+    hasGrain
   ]);
 
   useLayoutEffect(() => {
@@ -838,7 +863,7 @@ export function useImageProcessing(
     selectedImage?.isDecoded,
     isSliderDragging,
     appSettings?.enableLivePreviews,
-    isWaveformVisible,
+    isWaveformVisible
   ]);
 
   // Turning the split on or comparing with another snapshot (or one
@@ -866,7 +891,7 @@ export function useImageProcessing(
 
   return {
     applyAdjustments,
-    executeApplyAdjustments,
+    executeApplyAdjustments
   };
 }
 
@@ -958,7 +983,7 @@ export function requestSplitBefore(targetRes: number) {
   invoke<boolean>(Invokes.RenderSplitBefore, {
     path: image.path,
     jsAdjustments: payload,
-    targetResolution: targetRes || null,
+    targetResolution: targetRes || null
   })
     .then((placed) => {
       if (!placed) return;

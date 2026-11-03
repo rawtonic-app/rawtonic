@@ -16,7 +16,7 @@ it('writes ratings in the order they were given, also after a failure', async ()
       new Promise((resolve, reject) => {
         answers.push(resolve);
         fails.push(reject);
-      }),
+      })
   );
   const first = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 1 });
   const second = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 2 });
@@ -76,7 +76,11 @@ it('waits for every metadata write given before, and those they start meanwhile'
   const rating = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 5 });
   let exifWritten: () => void = () => {};
   // An EXIF write that fails still settles.
-  const exif = submitPhotoWrite(['/b'], () => new Promise<void>((_, reject) => (exifWritten = () => reject('locked'))), { kind: 'exif' });
+  const exif = submitPhotoWrite(
+    ['/b'],
+    () => new Promise<void>((_, reject) => (exifWritten = () => reject('locked'))),
+    { kind: 'exif' }
+  );
   exif.catch(() => {});
   let settled = false;
   const waiting = photoWritesAndStepsSettled().then(() => (settled = true));
@@ -104,7 +108,9 @@ it('announces a keyword batch that settled, also one that failed, so the XMP cou
     // The library saved the keyword for one photograph and not the other.
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockRejectedValueOnce({ message: 'Could not save 1 of 2 photos', failed: ['/b'] });
-    await expect(invokeInOrder('add_tag_for_paths', { paths: ['/a', '/b'], tag: 'user:beach' }, 'keyword')).rejects.toMatchObject({ failed: ['/b'] });
+    await expect(
+      invokeInOrder('add_tag_for_paths', { paths: ['/a', '/b'], tag: 'user:beach' }, 'keyword')
+    ).rejects.toMatchObject({ failed: ['/b'] });
     await vi.waitFor(() => expect(announced).toHaveLength(1));
     // A failed write changed nothing, but it still announces, as every
     // settled write does: the bar counts the sidecars again after it.
@@ -129,7 +135,7 @@ it('announces only the photographs a keyword batch could not save, the others as
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockRejectedValueOnce({ message: 'Could not save 1 of 3 photos', failed: ['/b'] });
     await expect(
-      invokeInOrder('add_tag_for_paths', { paths: ['/a', '/b', '/c'], tag: 'user:beach' }, 'keyword'),
+      invokeInOrder('add_tag_for_paths', { paths: ['/a', '/b', '/c'], tag: 'user:beach' }, 'keyword')
     ).rejects.toMatchObject({ failed: ['/b'] });
     await vi.waitFor(() => expect(announced).toHaveLength(1));
     expect(announced[0]).toMatchObject({ kind: 'keyword', paths: ['/a', '/b', '/c'], failed: ['/b'] });
@@ -137,7 +143,7 @@ it('announces only the photographs a keyword batch could not save, the others as
     // written, so the XMP status does not announce them as failed.
     vi.mocked(invoke).mockRejectedValueOnce({ message: 'Could not save 1 of 2 photos', failed: ['/y'] });
     await expect(
-      invokeInOrder('remove_tag_for_paths', { paths: ['/x', '/y'], tag: 'user:beach' }, 'keyword'),
+      invokeInOrder('remove_tag_for_paths', { paths: ['/x', '/y'], tag: 'user:beach' }, 'keyword')
     ).rejects.toMatchObject({ failed: ['/y'] });
     await vi.waitFor(() => expect(announced).toHaveLength(2));
     expect(announced[1]).toMatchObject({ kind: 'keyword', paths: ['/x', '/y'], failed: ['/y'] });

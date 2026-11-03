@@ -14,7 +14,7 @@ const setFullscreen = vi.fn(async (value: boolean) => {
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (command: string, args: { on: boolean }) => {
     if (command === 'set_window_full_screen') await setFullscreen(args.on);
-  }),
+  })
 }));
 const isFullscreen = vi.fn(async () => native);
 const windowFocus = vi.fn(async () => {});

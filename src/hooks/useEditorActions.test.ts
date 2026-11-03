@@ -19,7 +19,7 @@ import {
   updateAdjustments,
   useEditorActions,
   waitForPendingMetadataSave,
-  writeRecipeRepair,
+  writeRecipeRepair
 } from './useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -39,12 +39,27 @@ vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 type Pending = { command: string; resolve(value: unknown): void; settled?: boolean };
 let pending: Pending[];
 const photo = (path: string, isReady = true) => ({
-  path, isReady, isRaw: true, width: 4000, height: 3000, exif: {}, thumbnailUrl: '',
+  path,
+  isReady,
+  isRaw: true,
+  width: 4000,
+  height: 3000,
+  exif: {},
+  thumbnailUrl: ''
 });
 const select = (path: string, isReady = true) => {
   const adjustments = { ...INITIAL_ADJUSTMENTS, exposure: -2 };
-  useEditorStore.setState({ selectedImage: photo(path, isReady), adjustments, history: [adjustments], historyIndex: 0 });
-  useLibraryStore.setState({ libraryActivePath: path, multiSelectedPaths: [path], libraryActiveAdjustments: adjustments });
+  useEditorStore.setState({
+    selectedImage: photo(path, isReady),
+    adjustments,
+    history: [adjustments],
+    historyIndex: 0
+  });
+  useLibraryStore.setState({
+    libraryActivePath: path,
+    multiSelectedPaths: [path],
+    libraryActiveAdjustments: adjustments
+  });
 };
 const finish = async (command: string, value: unknown) => {
   await act(async () => {});
@@ -58,9 +73,11 @@ beforeEach(() => {
   vi.mocked(invoke).mockImplementation((command) => new Promise((resolve) => pending.push({ command, resolve })));
   select('/first.dng');
   useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, exposure: 3 } });
-  useSettingsStore.setState({ appSettings: {
-    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['exposure'] },
-  } as AppSettings });
+  useSettingsStore.setState({
+    appSettings: {
+      copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['exposure'] }
+    } as AppSettings
+  });
 });
 afterEach(async () => {
   // Batch writes are queued per photo (appUndo): a test's unanswered one
@@ -82,7 +99,7 @@ afterEach(async () => {
 it.each([
   ['auto', Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 }],
   ['lut', 'load_and_parse_lut', { size: 32 }],
-  ['reset', Invokes.ResetAdjustmentsForPaths, { changes: [] }],
+  ['reset', Invokes.ResetAdjustmentsForPaths, { changes: [] }]
 ] as const)('ignores a completed %s edit after switching photographs', async (kind, command, payload) => {
   const { result } = renderHook(useEditorActions);
   act(() => {
@@ -100,67 +117,95 @@ it.each([
 
 it('does not apply auto results to the same path while its source is loading', async () => {
   const { result } = renderHook(useEditorActions);
-  act(() => { void result.current.handleAutoAdjustments(); });
+  act(() => {
+    void result.current.handleAutoAdjustments();
+  });
   act(() => select('/first.dng', false));
   const recipe = useEditorStore.getState().adjustments;
   await finish(Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 });
   expect(useEditorStore.getState().adjustments).toBe(recipe);
 });
 
-it.each(['lens', 'paste'] as const)('ignores delayed %s metadata when the user switches during its reload', async (kind) => {
-  const { result } = renderHook(useEditorActions);
-  act(() => {
-    if (kind === 'lens') result.current.handleAutoLensCorrection(['/first.dng']);
-    else result.current.handlePasteAdjustments(['/first.dng']);
-  });
-  await finish(kind === 'lens' ? 'apply_auto_lens_correction_to_paths' : Invokes.ApplyAdjustmentsToPaths, { changes: [] });
-  expect(pending.at(-1)?.command).toBe(Invokes.LoadMetadata);
-  act(() => select('/second.dng'));
-  const recipe = useEditorStore.getState().adjustments;
-  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 4, lensMaker: 'old camera' } });
-  expect(useEditorStore.getState().adjustments).toBe(recipe);
-  expect(useEditorStore.getState().history).toEqual([recipe]);
-  expect(useLibraryStore.getState().libraryActiveAdjustments).toBe(recipe);
-});
+it.each(['lens', 'paste'] as const)(
+  'ignores delayed %s metadata when the user switches during its reload',
+  async (kind) => {
+    const { result } = renderHook(useEditorActions);
+    act(() => {
+      if (kind === 'lens') result.current.handleAutoLensCorrection(['/first.dng']);
+      else result.current.handlePasteAdjustments(['/first.dng']);
+    });
+    await finish(kind === 'lens' ? 'apply_auto_lens_correction_to_paths' : Invokes.ApplyAdjustmentsToPaths, {
+      changes: []
+    });
+    expect(pending.at(-1)?.command).toBe(Invokes.LoadMetadata);
+    act(() => select('/second.dng'));
+    const recipe = useEditorStore.getState().adjustments;
+    await finish(Invokes.LoadMetadata, {
+      adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 4, lensMaker: 'old camera' }
+    });
+    expect(useEditorStore.getState().adjustments).toBe(recipe);
+    expect(useEditorStore.getState().history).toEqual([recipe]);
+    expect(useLibraryStore.getState().libraryActiveAdjustments).toBe(recipe);
+  }
+);
 
 it('still applies an auto result when its photograph remains current and ready', async () => {
   const { result } = renderHook(useEditorActions);
-  act(() => { void result.current.handleAutoAdjustments(); });
+  act(() => {
+    void result.current.handleAutoAdjustments();
+  });
   await finish(Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 });
   expect(useEditorStore.getState().adjustments.exposure).toBe(4);
 });
 
-it('asks for the auto method of the edit\'s base look', async () => {
+it("asks for the auto method of the edit's base look", async () => {
   const { result } = renderHook(useEditorActions);
-  act(() => { void result.current.handleAutoAdjustments(); });
+  act(() => {
+    void result.current.handleAutoAdjustments();
+  });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.5 });
   expect(invoke).toHaveBeenCalledWith(Invokes.CalculateAutoAdjustments, {
     toneMapper: 'standard',
     baseCurve: 'standard',
-    renderVersion: INITIAL_ADJUSTMENTS.renderVersion ?? 1,
+    renderVersion: INITIAL_ADJUSTMENTS.renderVersion ?? 1
   });
   useEditorStore.setState({
-    adjustments: { ...INITIAL_ADJUSTMENTS, toneMapper: 'basic', baseCurve: 'linear', renderVersion: 8 },
+    adjustments: { ...INITIAL_ADJUSTMENTS, toneMapper: 'basic', baseCurve: 'linear', renderVersion: 8 }
   });
-  act(() => { void result.current.handleAutoAdjustments(); });
+  act(() => {
+    void result.current.handleAutoAdjustments();
+  });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.5 });
   expect(invoke).toHaveBeenLastCalledWith(Invokes.CalculateAutoAdjustments, {
     toneMapper: 'basic',
     baseCurve: 'linear',
-    renderVersion: 8,
+    renderVersion: 8
   });
 });
 
 it('puts the auto black point into an untouched luma curve only', async () => {
   const { result } = renderHook(useEditorActions);
-  act(() => { void result.current.handleAutoAdjustments(); });
+  act(() => {
+    void result.current.handleAutoAdjustments();
+  });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.4, autoBlackPoint: 6.5 });
   const state = useEditorStore.getState().adjustments;
-  expect(state.curves.luma).toEqual([{ x: 6.5, y: 0 }, { x: 255, y: 255 }]);
+  expect(state.curves.luma).toEqual([
+    { x: 6.5, y: 0 },
+    { x: 255, y: 255 }
+  ]);
   expect(state.autoBlackPoint).toBeUndefined();
-  const userLuma = [{ x: 0, y: 10 }, { x: 128, y: 140 }, { x: 255, y: 255 }];
-  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, curves: { ...INITIAL_ADJUSTMENTS.curves, luma: userLuma } } });
-  act(() => { void result.current.handleAutoAdjustments(); });
+  const userLuma = [
+    { x: 0, y: 10 },
+    { x: 128, y: 140 },
+    { x: 255, y: 255 }
+  ];
+  useEditorStore.setState({
+    adjustments: { ...INITIAL_ADJUSTMENTS, curves: { ...INITIAL_ADJUSTMENTS.curves, luma: userLuma } }
+  });
+  act(() => {
+    void result.current.handleAutoAdjustments();
+  });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.4, autoBlackPoint: 6.5 });
   expect(useEditorStore.getState().adjustments.curves.luma).toEqual(userLuma);
 });
@@ -170,7 +215,9 @@ it('clears a failed-save overlay after an explicit successful reset from Library
   vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
   const unsaved = { ...INITIAL_ADJUSTMENTS, exposure: 3.5 };
   debouncedSave('/failed-reset.dng', unsaved);
-  await act(async () => { await debouncedSave.flush(); });
+  await act(async () => {
+    await debouncedSave.flush();
+  });
   expect(await waitForPendingMetadataSave('/failed-reset.dng')).toBe(unsaved);
   const { result } = renderHook(useEditorActions);
   act(() => result.current.handleResetAdjustments(['/failed-reset.dng']));
@@ -186,7 +233,9 @@ it('persists unrelated unsaved adjustments before applying a partial Library pas
   vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
   const unsaved = { ...INITIAL_ADJUSTMENTS, temperature: 42 };
   debouncedSave('/failed-paste.dng', unsaved);
-  await act(async () => { await debouncedSave.flush(); });
+  await act(async () => {
+    await debouncedSave.flush();
+  });
   const { result } = renderHook(useEditorActions);
   await act(async () => result.current.handlePasteAdjustments(['/failed-paste.dng']));
   expect(pending.map(({ command }) => command)).toEqual([Invokes.SaveMetadataAndUpdateThumbnail]);
@@ -203,8 +252,12 @@ it('writes a failed autosave before a long batch command changes that photograph
   vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
   const unsaved = { ...INITIAL_ADJUSTMENTS, exposure: 2 };
   debouncedSave('/failed-auto.dng', unsaved);
-  await act(async () => { await debouncedSave.flush(); });
-  const command = vi.fn((tag: string) => invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: ['/failed-auto.dng'], batch: tag }));
+  await act(async () => {
+    await debouncedSave.flush();
+  });
+  const command = vi.fn((tag: string) =>
+    invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: ['/failed-auto.dng'], batch: tag })
+  );
   const written = recipeWrite(['/failed-auto.dng'], command, { kind: 'auto', failedOf: () => [], batch: true });
   await act(async () => {});
   // The whole recipe first: the batch then changes it, and no later flush
@@ -231,7 +284,7 @@ describe('the session bar recounts the XMP sidecars after a batch recipe write',
 
   it.each([
     ['paste', Invokes.ApplyAdjustmentsToPaths],
-    ['reset', Invokes.ResetAdjustmentsForPaths],
+    ['reset', Invokes.ResetAdjustmentsForPaths]
   ] as const)('after a %s onto closed photographs', async (kind, command) => {
     const { result } = renderHook(useEditorActions);
     act(() => {
@@ -257,7 +310,7 @@ describe('the session bar recounts the XMP sidecars after a batch recipe write',
 
 it.each([
   ['the open photograph', ['/first.dng'], -2],
-  ['another photograph', ['/other.dng'], 0],
+  ['another photograph', ['/other.dng'], 0]
 ] as const)('reports a reset that %s did not save and resets only the saved ones', async (_, failed, exposure) => {
   const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
   const message = `Could not save 1 of 2 photos: ${failed[0]}: disk full`;
@@ -289,7 +342,7 @@ it('names the open photograph to a paste batch it is part of (offered whole afte
   expect(call?.[1]).toMatchObject({ paths: ['/second.dng'], open: '/first.dng' });
 });
 
-it('writes the open photograph\'s waiting save before a paste batch that includes it', async () => {
+it("writes the open photograph's waiting save before a paste batch that includes it", async () => {
   useEditorStore.setState({ copiedFrom: '/source.dng' });
   debouncedSave('/first.dng', { ...INITIAL_ADJUSTMENTS, exposure: -2 });
   const { result } = renderHook(useEditorActions);
@@ -338,13 +391,19 @@ it('undoing a batch back to a never-edited recipe shows the never-edited editor 
   renderHook(useEditorActions);
   let step!: Promise<string[]>;
   act(() => {
-    step = recipeBatchAction('paste', async () => ({
-      failed: [],
-      changes: [{ path: '/first.dng', before: null, after: { exposure: -2 } }],
-    }), ['/first.dng']);
+    step = recipeBatchAction(
+      'paste',
+      async () => ({
+        failed: [],
+        changes: [{ path: '/first.dng', before: null, after: { exposure: -2 } }]
+      }),
+      ['/first.dng']
+    );
   });
   await act(() => step);
-  act(() => { void undo(); });
+  act(() => {
+    void undo();
+  });
   await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: null, after: null }] });
   await finish(Invokes.LoadMetadata, { adjustments: null });
   await finish(Invokes.GetCameraLensProfile, null);
@@ -366,13 +425,19 @@ it('an undone batch step on a photograph opened after it goes under its current 
   // Written while another photograph was open; this one opened after it.
   let step!: Promise<string[]>;
   act(() => {
-    step = recipeBatchAction('sync', async () => ({
-      failed: [],
-      changes: [{ path: '/first.dng', before: { exposure: 1 }, after: { exposure: -2 } }],
-    }), ['/first.dng']);
+    step = recipeBatchAction(
+      'sync',
+      async () => ({
+        failed: [],
+        changes: [{ path: '/first.dng', before: { exposure: 1 }, after: { exposure: -2 } }]
+      }),
+      ['/first.dng']
+    );
   });
   await act(() => step);
-  act(() => { void undo(); });
+  act(() => {
+    void undo();
+  });
   await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: null, after: { exposure: 1 } }] });
   await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
   // (The Library's active photograph shows it too.)
@@ -384,7 +449,9 @@ it('an undone batch step on a photograph opened after it goes under its current 
   expect(history[1]).toBe(synced);
   // Nothing older to undo here: Undo does not re-apply the step.
   expect(canUndo()).toBe(false);
-  act(() => { void redo(); });
+  act(() => {
+    void redo();
+  });
   expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
   await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: null, after: { exposure: -2 } }] });
 });
@@ -403,7 +470,7 @@ describe('canvas edits (crop, straighten, drawn masks) in the history', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('never land in the next photograph\'s history', () => {
+  it("never land in the next photograph's history", () => {
     act(() => updateAdjustments((prev) => ({ ...prev, rotation: 3 })));
     expect(useEditorStore.getState().historyPending).toBe(true);
     act(() => select('/second.dng'));
@@ -484,7 +551,7 @@ it('saves the recipe of a slider still being dragged when quitting, never a half
   }
 });
 
-it('saves a drag\'s uncommitted draft before files move or the app quits', async () => {
+it("saves a drag's uncommitted draft before files move or the app quits", async () => {
   const taken = useEditorStore.getState().adjustments;
   const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: taken }));
   const stopDrafts = registerSliderDraftRenderer(() => true);
@@ -571,7 +638,7 @@ describe('before/after split', () => {
 
   it('shows the peek framed like the edit', () => {
     useEditorStore.setState({
-      adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2, rotation: 3 },
+      adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2, rotation: 3 }
     });
     startBeforePeek();
     const override = useEditorStore.getState().previewOverride!;
@@ -609,7 +676,7 @@ it('never zooms out below fit from the keys, the zoom menu or the 100 % button',
   useEditorStore.setState({
     originalSize: { width: 6000, height: 4000 },
     baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
-    zoom: 2,
+    zoom: 2
   });
   const { result } = renderHook(useEditorActions);
   act(() => result.current.handleZoomChange(0.1));
@@ -627,7 +694,7 @@ it('fits a large photograph in a small view (a multi view cell) without zooming 
   useEditorStore.setState({
     originalSize: { width: 8192, height: 5464 },
     baseRenderSize: { width: 268.4, height: 179, offsetX: 0.3, offsetY: 0, containerWidth: 269, containerHeight: 179 },
-    zoom: 1.53,
+    zoom: 1.53
   });
   const { result } = renderHook(useEditorActions);
   act(() => result.current.handleZoomChange(0, true));
@@ -725,7 +792,11 @@ describe('Auto straighten', () => {
   it('applies the rotation and crop it was asked for', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;
-    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => {
+        outcome = o;
+      });
+    });
     await finish(Invokes.CalculateAutoStraighten, answer);
     expect(outcome).toBe('done');
     expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -2.4, crop: answer.crop });
@@ -738,12 +809,21 @@ describe('Auto straighten', () => {
   it('drops the answer when the crop changed meanwhile or the photograph is another', async () => {
     const { result } = renderHook(useEditorActions);
     const outcomes: string[] = [];
-    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
-    act(() => useEditorStore.setState({
-      adjustments: { ...useEditorStore.getState().adjustments, crop: { unit: 'px', x: 0, y: 0, width: 100, height: 100 } },
-    }));
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => outcomes.push(o));
+    });
+    act(() =>
+      useEditorStore.setState({
+        adjustments: {
+          ...useEditorStore.getState().adjustments,
+          crop: { unit: 'px', x: 0, y: 0, width: 100, height: 100 }
+        }
+      })
+    );
     await finish(Invokes.CalculateAutoStraighten, answer);
-    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => outcomes.push(o));
+    });
     act(() => select('/second.dng'));
     await finish(Invokes.CalculateAutoStraighten, answer);
     expect(outcomes).toEqual(['stale', 'stale']);
@@ -753,7 +833,11 @@ describe('Auto straighten', () => {
   it('asks for the open photograph and drops an answer about another', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;
-    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => {
+        outcome = o;
+      });
+    });
     await act(async () => {});
     expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ path: '/first.dng' });
     const request = pending.find((r) => r.command === Invokes.CalculateAutoStraighten)!;
@@ -769,7 +853,11 @@ describe('Auto straighten', () => {
     try {
       const { result } = renderHook(useEditorActions);
       let outcome: string | undefined;
-      act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+      act(() => {
+        void result.current.handleAutoStraighten().then((o) => {
+          outcome = o;
+        });
+      });
       // Scale dragged to 80 while Auto runs: a draft, not committed yet.
       act(() => useEditorStore.setState({ isSliderDragging: true }));
       act(() => updateAdjustments({ transformScale: 80 }));
@@ -786,7 +874,11 @@ describe('Auto straighten', () => {
   it('drops the answer when the crop is being rotated by hand meanwhile', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;
-    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => {
+        outcome = o;
+      });
+    });
     // A rotation gesture: its angle is live, not in the recipe, until release.
     act(() => useEditorStore.setState({ isRotationActive: true, liveRotation: 4 }));
     await finish(Invokes.CalculateAutoStraighten, answer);
@@ -798,7 +890,11 @@ describe('Auto straighten', () => {
   it('drops the answer when the crop was dragged meanwhile (its frame commits on release)', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;
-    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => {
+        outcome = o;
+      });
+    });
     // A side-handle drag starts and ends before the answer.
     cropGestureStarted();
     cropGestureEnded();
@@ -807,7 +903,9 @@ describe('Auto straighten', () => {
     // During a drag nothing is asked.
     cropGestureStarted();
     let during: string | undefined;
-    await act(async () => { during = await result.current.handleAutoStraighten(); });
+    await act(async () => {
+      during = await result.current.handleAutoStraighten();
+    });
     expect(during).toBe('stale');
     cropGestureEnded();
   });
@@ -815,7 +913,11 @@ describe('Auto straighten', () => {
   it('drops the answer when the crop edit was cancelled meanwhile (Escape)', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;
-    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => {
+        outcome = o;
+      });
+    });
     cropEditCancelled();
     await finish(Invokes.CalculateAutoStraighten, answer);
     expect(outcome).toBe('stale');
@@ -824,8 +926,12 @@ describe('Auto straighten', () => {
   it('runs one analysis for requests made while one is running', async () => {
     const { result } = renderHook(useEditorActions);
     const outcomes: string[] = [];
-    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
-    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => outcomes.push(o));
+    });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => outcomes.push(o));
+    });
     expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.CalculateAutoStraighten)).toHaveLength(1);
     await finish(Invokes.CalculateAutoStraighten, answer);
     expect(outcomes).toEqual(['done', 'done']);
@@ -834,69 +940,127 @@ describe('Auto straighten', () => {
   it('reports a photograph without straight lines', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;
-    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    act(() => {
+      void result.current.handleAutoStraighten().then((o) => {
+        outcome = o;
+      });
+    });
     await finish(Invokes.CalculateAutoStraighten, null);
     expect(outcome).toBe('none');
   });
 });
 
 describe('AI preset layers', () => {
-  it.each(['ai-sky', 'ai-foreground', 'ai-depth', 'ai-people', 'ai-subject'])('applies a legacy %s preset to the open photo as a fresh pending detection', async (type) => {
-    const { result } = renderHook(useEditorActions);
-    const parameters = {
-      maskDataBase64: 'data:source', grow: 10,
-      ...(type === 'ai-people' ? { parts: ['hair'], person: null } : {}),
-      ...(type === 'ai-depth' ? { minDepth: 0.2, maxDepth: 0.6 } : {}),
-      ...(type === 'ai-subject' ? { prompts: [{ type: 'point', x: 100, y: 200 }] } : {}),
-    };
-    const masks = [{ id: 'sky-layer', visible: true, subMasks: [{
-      id: 'source-sky', type, parameters,
-    }] }] as never;
-    act(() => { void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng', '/second.dng']); });
-    const sub = useEditorStore.getState().adjustments.masks[0].subMasks[0];
-    expect(sub.id).not.toBe('source-sky');
-    expect(sub.parameters).toEqual({ ...parameters, maskDataBase64: null, detectPending: true });
-    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
-    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({ paths: ['/second.dng'] }));
-    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)).toHaveLength(1);
-    expect(masks).toMatchObject([{ subMasks: [{ parameters: { maskDataBase64: 'data:source' } }] }]);
-  });
+  it.each(['ai-sky', 'ai-foreground', 'ai-depth', 'ai-people', 'ai-subject'])(
+    'applies a legacy %s preset to the open photo as a fresh pending detection',
+    async (type) => {
+      const { result } = renderHook(useEditorActions);
+      const parameters = {
+        maskDataBase64: 'data:source',
+        grow: 10,
+        ...(type === 'ai-people' ? { parts: ['hair'], person: null } : {}),
+        ...(type === 'ai-depth' ? { minDepth: 0.2, maxDepth: 0.6 } : {}),
+        ...(type === 'ai-subject' ? { prompts: [{ type: 'point', x: 100, y: 200 }] } : {})
+      };
+      const masks = [
+        {
+          id: 'sky-layer',
+          visible: true,
+          subMasks: [
+            {
+              id: 'source-sky',
+              type,
+              parameters
+            }
+          ]
+        }
+      ] as never;
+      act(() => {
+        void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng', '/second.dng']);
+      });
+      const sub = useEditorStore.getState().adjustments.masks[0].subMasks[0];
+      expect(sub.id).not.toBe('source-sky');
+      expect(sub.parameters).toEqual({ ...parameters, maskDataBase64: null, detectPending: true });
+      await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+      expect(invoke).toHaveBeenCalledWith(
+        Invokes.ApplyAdjustmentsToPaths,
+        expect.objectContaining({ paths: ['/second.dng'] })
+      );
+      expect(
+        vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)
+      ).toHaveLength(1);
+      expect(masks).toMatchObject([{ subMasks: [{ parameters: { maskDataBase64: 'data:source' } }] }]);
+    }
+  );
 
   it('keeps explicit preset nulls on the open photo as on the closed targets', async () => {
     const { result } = renderHook(useEditorActions);
-    act(() => useEditorStore.setState({ adjustments: {
-      ...useEditorStore.getState().adjustments, lutPath: 'previous.cube',
-    } }));
-    const masks = [{ id: 'sky', visible: true, subMasks: [{
-      id: 'source', type: 'ai-sky', parameters: { maskDataBase64: 'data:source' },
-    }] }] as never;
+    act(() =>
+      useEditorStore.setState({
+        adjustments: {
+          ...useEditorStore.getState().adjustments,
+          lutPath: 'previous.cube'
+        }
+      })
+    );
+    const masks = [
+      {
+        id: 'sky',
+        visible: true,
+        subMasks: [
+          {
+            id: 'source',
+            type: 'ai-sky',
+            parameters: { maskDataBase64: 'data:source' }
+          }
+        ]
+      }
+    ] as never;
     const partial = { masks, lutPath: null, lutData: null, crop: null };
-    act(() => { void result.current.applyAdjustmentsToPaths(partial, ['/first.dng', '/second.dng']); });
+    act(() => {
+      void result.current.applyAdjustmentsToPaths(partial, ['/first.dng', '/second.dng']);
+    });
     expect(useEditorStore.getState().adjustments).toMatchObject({ lutPath: null, lutData: null, crop: null });
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
-    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
-      paths: ['/second.dng'], adjustments: expect.objectContaining({ lutPath: null, lutData: null, crop: null }),
-    }));
+    expect(invoke).toHaveBeenCalledWith(
+      Invokes.ApplyAdjustmentsToPaths,
+      expect.objectContaining({
+        paths: ['/second.dng'],
+        adjustments: expect.objectContaining({ lutPath: null, lutData: null, crop: null })
+      })
+    );
   });
 });
 
 describe('styles', () => {
   const recipe = () => useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
-  const applyStyle = (result: { current: ReturnType<typeof useEditorActions> }, values: object, id: string, remove = false) =>
+  const applyStyle = (
+    result: { current: ReturnType<typeof useEditorActions> },
+    values: object,
+    id: string,
+    remove = false
+  ) =>
     act(() => {
-      void result.current.applyAdjustmentsToPaths(values as never, ['/first.dng', '/second.dng'], { style: { id, remove } });
+      void result.current.applyAdjustmentsToPaths(values as never, ['/first.dng', '/second.dng'], {
+        style: { id, remove }
+      });
     });
 
-  it('replaces the last applied style, keeping the user\'s own changes, one undo step per click', async () => {
+  it("replaces the last applied style, keeping the user's own changes, one undo step per click", async () => {
     const { result } = renderHook(useEditorActions);
     applyStyle(result, { exposure: 1, saturation: 20 }, 'a');
     expect(recipe()).toMatchObject({ exposure: 1, saturation: 20, appliedStyle: { id: 'a', amount: 100 } });
     // The open photo is taken back by its editor; the others by the backend
     // (queued with the photographs' undo steps).
     await act(async () => {});
-    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
-      paths: ['/second.dng'], adjustments: expect.objectContaining({ exposure: 1, saturation: 20 }), style: { id: 'a', remove: false },
-    }));
+    expect(invoke).toHaveBeenCalledWith(
+      Invokes.ApplyAdjustmentsToPaths,
+      expect.objectContaining({
+        paths: ['/second.dng'],
+        adjustments: expect.objectContaining({ exposure: 1, saturation: 20 }),
+        style: { id: 'a', remove: false }
+      })
+    );
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     // The user changes saturation (a setting of A) and contrast after A.
     act(() => result.current.setAdjustments((current) => ({ ...current, saturation: 35, contrast: 12 })));
@@ -916,7 +1080,7 @@ describe('styles', () => {
     expect(recipe()).toMatchObject({ contrast: 30, appliedStyle: { id: 'b' } });
   });
 
-  it('applies a style to a never-edited open photo on its editor recipe, with a new edit\'s versions', async () => {
+  it("applies a style to a never-edited open photo on its editor recipe, with a new edit's versions", async () => {
     const { result } = renderHook(useEditorActions);
     const shown = { ...useEditorStore.getState().adjustments, sharpenVersion: 6 };
     useEditorStore.setState({ adjustments: shown, history: [shown], historyIndex: 0 });
@@ -926,24 +1090,51 @@ describe('styles', () => {
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 
-  it('leaves the lens a style set when it is taken back (the photo\'s own), without looking it up again', async () => {
+  it("leaves the lens a style set when it is taken back (the photo's own), without looking it up again", async () => {
     const { result } = renderHook(useEditorActions);
-    const own = { ...useEditorStore.getState().adjustments, lensCorrectionMode: 'manual', lensMaker: 'Mine', lensModel: 'Own lens' };
+    const own = {
+      ...useEditorStore.getState().adjustments,
+      lensCorrectionMode: 'manual',
+      lensMaker: 'Mine',
+      lensModel: 'Own lens'
+    };
     useEditorStore.setState({ adjustments: own as never, history: [own as never], historyIndex: 0 });
     applyStyle(result, { lensCorrectionMode: 'auto', exposure: 1 }, 'lens');
     expect(recipe()).toMatchObject({ lensCorrectionMode: 'auto', exposure: 1, lensProfileFor: 'unresolved' });
-    await finish(Invokes.ResolvePastedLens, { lensMaker: 'Detected', lensModel: 'Its lens', lensDistortionParams: { k1: 0.1 }, lensProfileFor: 'stamp' });
+    await finish(Invokes.ResolvePastedLens, {
+      lensMaker: 'Detected',
+      lensModel: 'Its lens',
+      lensDistortionParams: { k1: 0.1 },
+      lensProfileFor: 'stamp'
+    });
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     applyStyle(result, {}, 'lens', true);
-    expect(recipe()).toMatchObject({ exposure: -2, lensCorrectionMode: 'auto', lensMaker: 'Detected', lensProfileFor: 'stamp' });
+    expect(recipe()).toMatchObject({
+      exposure: -2,
+      lensCorrectionMode: 'auto',
+      lensMaker: 'Detected',
+      lensProfileFor: 'stamp'
+    });
     await act(async () => {});
     expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.ResolvePastedLens)).toHaveLength(1);
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 
-  it('applies a partial curve with every channel, so it is still the style\'s after reopening', async () => {
+  it("applies a partial curve with every channel, so it is still the style's after reopening", async () => {
     const { result } = renderHook(useEditorActions);
-    applyStyle(result, { curves: { luma: [{ x: 0, y: 0 }, { x: 128, y: 150 }, { x: 255, y: 255 }] } }, 'curve');
+    applyStyle(
+      result,
+      {
+        curves: {
+          luma: [
+            { x: 0, y: 0 },
+            { x: 128, y: 150 },
+            { x: 255, y: 255 }
+          ]
+        }
+      },
+      'curve'
+    );
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     const reopened = normalizeLoadedAdjustments(JSON.parse(JSON.stringify(recipe())));
     expect(revertStyle(reopened).kept).toEqual([]);
@@ -956,9 +1147,13 @@ describe('styles', () => {
     applyStyle(result, {}, 'a', true);
     expect(useEditorStore.getState().adjustments).toBe(before);
     await act(async () => {});
-    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
-      paths: ['/second.dng'], style: { id: 'a', remove: true },
-    }));
+    expect(invoke).toHaveBeenCalledWith(
+      Invokes.ApplyAdjustmentsToPaths,
+      expect.objectContaining({
+        paths: ['/second.dng'],
+        style: { id: 'a', remove: true }
+      })
+    );
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 });
@@ -986,12 +1181,19 @@ describe('the frame of the RAW (ADR 0020, "new photos only")', () => {
   it.each([0, 1, undefined])('a paste and a preset keep it (%s)', async (version) => {
     open(version);
     const { result } = renderHook(useEditorActions);
-    act(() => useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, exposure: 3, sourceFrameVersion: 1 } }));
+    act(() =>
+      useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, exposure: 3, sourceFrameVersion: 1 } })
+    );
     act(() => result.current.handlePasteAdjustments(['/first.dng']));
     await act(async () => {});
     expect(useEditorStore.getState().adjustments.exposure).toBe(3);
     expect(frame()).toBe(version);
-    act(() => { void result.current.applyAdjustmentsToPaths({ exposure: 1, sourceFrameVersion: 1 }, ['/first.dng', '/second.dng']); });
+    act(() => {
+      void result.current.applyAdjustmentsToPaths({ exposure: 1, sourceFrameVersion: 1 }, [
+        '/first.dng',
+        '/second.dng'
+      ]);
+    });
     expect(useEditorStore.getState().adjustments.exposure).toBe(1);
     expect(frame()).toBe(version);
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
@@ -1020,7 +1222,7 @@ it('closes a photograph a recipe repair writes, so no editor holds its old recip
     ['/first.dng'],
     Invokes.ReplaceRecipes,
     { changes: [{ path: '/first.dng', adjustments: { exposure: 1.5 } }] },
-    { whole: true },
+    { whole: true }
   );
   expect(useEditorStore.getState().selectedImage).toBeNull();
   expect(useUIStore.getState().activeView).toBe('library');
@@ -1034,8 +1236,15 @@ it('writes a failed earlier save before a partial repair applies onto it', async
   const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
   debouncedSave('/kept.dng', { ...INITIAL_ADJUSTMENTS, temperature: 42 });
-  await act(async () => { await debouncedSave.flush(); });
-  const repaired = writeRecipeRepair(['/kept.dng'], Invokes.ApplyAdjustmentsToPaths, { paths: ['/kept.dng'], adjustments: { exposure: 1 } }, { whole: false });
+  await act(async () => {
+    await debouncedSave.flush();
+  });
+  const repaired = writeRecipeRepair(
+    ['/kept.dng'],
+    Invokes.ApplyAdjustmentsToPaths,
+    { paths: ['/kept.dng'], adjustments: { exposure: 1 } },
+    { whole: false }
+  );
   await act(async () => {});
   expect(pending.at(-1)?.command).toBe(Invokes.SaveMetadataAndUpdateThumbnail);
   expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ adjustments: { temperature: 42 } });
@@ -1069,10 +1278,20 @@ describe('per-tool before and the whole-photo toggle', () => {
   });
 
   it('applies the tool reset to the recipe it is given (a layer reset changes that layer only)', () => {
-    const layered = { ...INITIAL_ADJUSTMENTS, exposure: 1, masks: [{ id: 'a', adjustments: { exposure: 2 } }, { id: 'b', adjustments: { exposure: 3 } }] } as never;
+    const layered = {
+      ...INITIAL_ADJUSTMENTS,
+      exposure: 1,
+      masks: [
+        { id: 'a', adjustments: { exposure: 2 } },
+        { id: 'b', adjustments: { exposure: 3 } }
+      ]
+    } as never;
     useEditorStore.setState({ adjustments: layered });
     const without = adjustmentsAfter(() =>
-      updateAdjustments((prev) => ({ ...prev, masks: prev.masks.map((m) => (m.id === 'a' ? { ...m, adjustments: { ...m.adjustments, exposure: 0 } } : m)) })),
+      updateAdjustments((prev) => ({
+        ...prev,
+        masks: prev.masks.map((m) => (m.id === 'a' ? { ...m, adjustments: { ...m.adjustments, exposure: 0 } } : m))
+      }))
     )!;
     expect(without.exposure).toBe(1);
     expect(without.masks.map((m) => m.adjustments.exposure)).toEqual([0, 3]);
@@ -1093,7 +1312,7 @@ describe('per-tool before and the whole-photo toggle', () => {
   it('is not offered for a tool that lives in the RAW decode (AI Denoise): it would need a new develop', () => {
     useEditorStore.setState({
       selectedImage: { ...photo('/denoised.dng'), isDecoded: true, aiDenoise: 50 } as never,
-      adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 50 },
+      adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 50 }
     });
     expect(startToolBefore('Noise reduction', () => updateAdjustments({ aiDenoise: 0 }))).toBe(false);
     expect(useEditorStore.getState()).toMatchObject({ toolBefore: null, previewOverride: null });

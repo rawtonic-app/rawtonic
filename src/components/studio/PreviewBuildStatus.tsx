@@ -1,14 +1,14 @@
-import { useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import i18n from "i18next";
-import { Invokes, type PreviewBuildProgress } from "../ui/AppProperties";
-import { useActivityStore } from "../../store/useActivityStore";
-import { useLibraryStore } from "../../store/useLibraryStore";
+import { useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import i18n from 'i18next';
+import { Invokes, type PreviewBuildProgress } from '../ui/AppProperties';
+import { useActivityStore } from '../../store/useActivityStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
 
-export const PREVIEW_BUILD_EVENT = "preview-build-progress";
+export const PREVIEW_BUILD_EVENT = 'preview-build-progress';
 
-const PREVIEW_ACTIVITY = "previews:build";
+const PREVIEW_ACTIVITY = 'previews:build';
 
 /** Reports a preview build to the activity centre: progress and Cancel
  * (Stop) while it runs, then what could not be built under Needs attention
@@ -18,21 +18,21 @@ export function reportPreviewBuild(progress: PreviewBuildProgress) {
   if (progress.running) {
     activity.start({
       id: PREVIEW_ACTIVITY,
-      source: "app",
-      title: i18n.t("previews.status.building", { done: progress.done, total: progress.total }),
+      source: 'app',
+      title: i18n.t('previews.status.building', { done: progress.done, total: progress.total }),
       progress: { done: progress.done, total: Math.max(progress.total, 1) },
-      cancel: () => invoke(Invokes.StopPreviewBuild).catch(() => {}),
+      cancel: () => invoke(Invokes.StopPreviewBuild).catch(() => {})
     });
   } else if (progress.failedCount > 0) {
-    activity.report("warning", {
+    activity.report('warning', {
       id: PREVIEW_ACTIVITY,
-      source: "app",
-      title: i18n.t("previews.status.notBuilt", { failed: progress.failedCount }),
-      detail: progress.failed.map((failure) => `${failure.path.split(/[\\/]/).pop()}: ${failure.reason}`).join("\n"),
-      paths: progress.failed.map((failure) => failure.path),
+      source: 'app',
+      title: i18n.t('previews.status.notBuilt', { failed: progress.failedCount }),
+      detail: progress.failed.map((failure) => `${failure.path.split(/[\\/]/).pop()}: ${failure.reason}`).join('\n'),
+      paths: progress.failed.map((failure) => failure.path)
     });
   } else if (progress.stopped) {
-    activity.finish(PREVIEW_ACTIVITY, { title: i18n.t("previews.status.stopped", { done: progress.done }) });
+    activity.finish(PREVIEW_ACTIVITY, { title: i18n.t('previews.status.stopped', { done: progress.done }) });
   } else {
     activity.finish(PREVIEW_ACTIVITY);
   }
@@ -62,7 +62,7 @@ export default function PreviewBuildStatus() {
         listen<PreviewBuildProgress>(PREVIEW_BUILD_EVENT, (event) => {
           heard = true;
           reportPreviewBuild(event.payload);
-        }),
+        })
       )
       .catch(() => () => {});
     void Promise.resolve()

@@ -160,10 +160,10 @@
 .tether-test-step > span:last-child {
   color: var(--app-text-secondary, #aab0b5);
 }
-.tether-test-steps li[data-state="failed"] .tether-test-step > span:last-child {
+.tether-test-steps li[data-state='failed'] .tether-test-step > span:last-child {
   color: #f1abab;
 }
-.tether-test-steps li[data-state="pending"] strong {
+.tether-test-steps li[data-state='pending'] strong {
   color: var(--app-text-secondary, #aab0b5);
   font-weight: 450;
 }

@@ -2,9 +2,7 @@
  * closed a menu or panel (the browser sends them even when the pointer down
  * was stopped), so the press does not also zoom or act on the photograph.
  * Ends at the click or after half a second. */
-export function swallowNextClick(
-  events: readonly string[] = ['mousedown', 'mouseup', 'click', 'dblclick'],
-) {
+export function swallowNextClick(events: readonly string[] = ['mousedown', 'mouseup', 'click', 'dblclick']) {
   const stop = (event: Event) => {
     event.preventDefault();
     event.stopPropagation();

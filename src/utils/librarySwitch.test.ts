@@ -105,7 +105,9 @@ it('drops a debounced save made during the switch instead of writing it to the n
 
 it('makes the app inert from the first save, but not while asking', async () => {
   let saved: () => void = () => {};
-  vi.mocked(invoke).mockImplementationOnce(() => new Promise<undefined>((resolve) => (saved = () => resolve(undefined))));
+  vi.mocked(invoke).mockImplementationOnce(
+    () => new Promise<undefined>((resolve) => (saved = () => resolve(undefined)))
+  );
   debouncedSave(PHOTO, edit(3));
   const asked: boolean[] = [];
   const switched = switchLibraryAfterSaves(open('B'), async () => {
@@ -113,7 +115,9 @@ it('makes the app inert from the first save, but not while asking', async () => 
     return 'retry';
   });
   // The save is being written: nothing can be edited meanwhile.
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(Invokes.SaveMetadataAndUpdateThumbnail, expect.anything()));
+  await vi.waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(Invokes.SaveMetadataAndUpdateThumbnail, expect.anything())
+  );
   expect(useUIStore.getState().switchingLibrary).toBe(true);
   saved();
   expect(await switched).toBe('B');
@@ -141,8 +145,10 @@ it('makes the app inert while the next library opens, and only then', async () =
   expect(during).toEqual([true]);
   expect(useUIStore.getState().switchingLibrary).toBe(false);
   // Also when opening fails.
-  await expect(switchLibraryAfterSaves(async () => {
-    throw new Error('gone');
-  })).rejects.toThrow('gone');
+  await expect(
+    switchLibraryAfterSaves(async () => {
+      throw new Error('gone');
+    })
+  ).rejects.toThrow('gone');
   expect(useUIStore.getState().switchingLibrary).toBe(false);
 });

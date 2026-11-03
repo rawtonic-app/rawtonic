@@ -13,7 +13,7 @@ import {
   Shuffle,
   RectangleHorizontal,
   RectangleVertical,
-  Palette,
+  Palette
 } from 'lucide-react';
 import { ImageFile, ImageMetadata, Invokes } from '../ui/AppProperties';
 import Button from '../ui/Button';
@@ -72,7 +72,7 @@ export function collagePlacements(
   canvasHeight: number,
   spacing: number,
   scale: number,
-  keepOriginalRatio: boolean,
+  keepOriginalRatio: boolean
 ): Placement[] {
   const placements: Placement[] = [];
   images.forEach((img, index) => {
@@ -136,9 +136,9 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
       { id: '5_4', name: '5:4', value: 5 / 4 },
       { id: '4_3', name: '4:3', value: 4 / 3 },
       { id: '3_2', name: '3:2', value: 3 / 2 },
-      { id: '16_9', name: '16:9', value: 16 / 9 },
+      { id: '16_9', name: '16:9', value: 16 / 9 }
     ],
-    [],
+    []
   );
 
   const [isMounted, setIsMounted] = useState(false);
@@ -161,7 +161,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
   const [exportWidth, setExportWidth] = useState(DEFAULT_EXPORT_WIDTH);
   const [outputFormat, setOutputFormat] = useState<'jpeg' | 'tiff'>('jpeg');
   const [exportHeight, setExportHeight] = useState(
-    Math.round(DEFAULT_EXPORT_WIDTH / (ASPECT_RATIO_PRESETS[0].value || 1)),
+    Math.round(DEFAULT_EXPORT_WIDTH / (ASPECT_RATIO_PRESETS[0].value || 1))
   );
 
   const [loadedImages, setLoadedImages] = useState<LoadedImage[]>([]);
@@ -224,7 +224,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
 
           const imageData: Uint8Array = await invoke(Invokes.GeneratePreviewForPath, {
             path: imageFile.path,
-            jsAdjustments: adjustments,
+            jsAdjustments: adjustments
           });
           const blob = new Blob([new Uint8Array(imageData)], { type: 'image/jpeg' });
           const url = URL.createObjectURL(blob);
@@ -354,7 +354,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
         canvasHeight,
         spacing * exportScale,
         exportScale,
-        keepOriginalRatio,
+        keepOriginalRatio
       );
       placements.forEach(({ path, cell, draw }) => {
         const img = imageElementsRef.current[path];
@@ -377,8 +377,8 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
       exportWidth,
       exportHeight,
       backgroundColor,
-      keepOriginalRatio,
-    ],
+      keepOriginalRatio
+    ]
   );
 
   useEffect(() => {
@@ -448,7 +448,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
         exportHeight,
         spacing * scale,
         scale,
-        keepOriginalRatio,
+        keepOriginalRatio
       );
       const adjustmentsOf = Object.fromEntries(loadedImages.map((img) => [img.path, img.adjustments]));
       const path = await onSave({
@@ -457,7 +457,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
         background: backgroundColor,
         radius: borderRadius * scale,
         format: outputFormat,
-        cells: placements.map((p) => ({ ...p, adjustments: adjustmentsOf[p.path] ?? {} })),
+        cells: placements.map((p) => ({ ...p, adjustments: adjustmentsOf[p.path] ?? {} }))
       });
       setSavedPath(path);
     } catch (err) {
@@ -527,7 +527,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
 
     setImageStates((prev) => ({
       ...prev,
-      [path]: { ...currentState, scale: newScale, offsetX: newOffsetX, offsetY: newOffsetY },
+      [path]: { ...currentState, scale: newScale, offsetX: newOffsetX, offsetY: newOffsetY }
     }));
   };
 
@@ -579,7 +579,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
 
         setImageStates((prev) => ({
           ...prev,
-          [imagePath]: { ...prev[imagePath], offsetX: newOffsetX, offsetY: newOffsetY },
+          [imagePath]: { ...prev[imagePath], offsetX: newOffsetX, offsetY: newOffsetY }
         }));
         setPanningImage({ ...panningImage, startX: e.clientX, startY: e.clientY });
       }
@@ -618,13 +618,13 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
             const newImages = [...currentImages];
             [newImages[sourceIndex], newImages[hoveredCellIndex]] = [
               newImages[hoveredCellIndex],
-              newImages[sourceIndex],
+              newImages[sourceIndex]
             ];
 
             setImageStates((prev) => ({
               ...prev,
               [newImages[sourceIndex].path]: { offsetX: 0, offsetY: 0, scale: 1 },
-              [newImages[hoveredCellIndex].path]: { offsetX: 0, offsetY: 0, scale: 1 },
+              [newImages[hoveredCellIndex].path]: { offsetX: 0, offsetY: 0, scale: 1 }
             }));
             return newImages;
           });
@@ -670,7 +670,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
                       resetImageOffsets();
                     }}
                     className={clsx('p-2 rounded-md bg-surface hover:bg-card-active', {
-                      'ring-2 ring-accent': item.layout === activeLayout,
+                      'ring-2 ring-accent': item.layout === activeLayout
                     })}
                   >
                     <div className="w-full h-8">{item.icon}</div>
@@ -705,7 +705,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
               onClick={() => handleAspectRatioChange(preset)}
               className={clsx(
                 'px-2 py-1.5 text-sm rounded-md transition-colors',
-                activeAspectRatio.id === preset.id ? 'bg-accent text-button-text' : 'bg-surface hover:bg-card-active',
+                activeAspectRatio.id === preset.id ? 'bg-accent text-button-text' : 'bg-surface hover:bg-card-active'
               )}
             >
               {preset.name}
@@ -716,7 +716,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
               onClick={handleOriginalAspectRatio}
               className={clsx(
                 'px-2 py-1.5 text-sm rounded-md transition-colors',
-                activeAspectRatio.id === 'original' ? 'bg-accent text-button-text' : 'bg-surface hover:bg-card-active',
+                activeAspectRatio.id === 'original' ? 'bg-accent text-button-text' : 'bg-surface hover:bg-card-active'
               )}
             >
               {t('modals.collage.original')}
@@ -849,7 +849,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
                 width: '80px',
                 height: '80px',
                 x: '-50%',
-                y: '-50%',
+                y: '-50%'
               }}
             >
               <img src={thumbnailDrag.url} className="w-full h-full object-cover" alt="" />
@@ -881,13 +881,13 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
                           ? 'cursor-grabbing'
                           : !keepOriginalRatio
                             ? 'cursor-grab'
-                            : 'cursor-default',
+                            : 'cursor-default'
                       )}
                       style={{
                         left: `${cell.x * 100}%`,
                         top: `${cell.y * 100}%`,
                         width: `${cell.width * 100}%`,
-                        height: `${cell.height * 100}%`,
+                        height: `${cell.height * 100}%`
                       }}
                     >
                       <AnimatePresence>
@@ -903,7 +903,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
                               left: cell.x === 0 ? spacing : spacing / 2,
                               right: cell.x + cell.width >= 0.99 ? spacing : spacing / 2,
                               bottom: cell.y + cell.height >= 0.99 ? spacing : spacing / 2,
-                              borderRadius: borderRadius,
+                              borderRadius: borderRadius
                             }}
                           />
                         )}

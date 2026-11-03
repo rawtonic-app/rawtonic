@@ -21,7 +21,7 @@ vi.mock('@tauri-apps/api/path', () => ({ homeDir: vi.fn() }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), warn: vi.fn(), success: vi.fn() } }));
 vi.mock('../utils/photoFullScreen', () => ({
   followPhotoFullScreen: vi.fn(() => Promise.resolve()),
-  toggleWindowFullScreen: vi.fn(() => Promise.resolve()),
+  toggleWindowFullScreen: vi.fn(() => Promise.resolve())
 }));
 
 const files = ['/s/a.dng', '/s/b.dng'].map((path) => ({ path }) as ImageFile);
@@ -29,9 +29,15 @@ let autoAnswer: ((value: unknown) => void) | null;
 const refs = () =>
   Object.fromEntries(
     [
-      'transformWrapperRef', 'cachedEditStateRef', 'selectedImagePathRef', 'isBackendReadyRef',
-      'latestRenderedJobIdRef', 'previewJobIdRef', 'currentResRef', 'prevAdjustmentsRef',
-    ].map((key) => [key, { current: null }]),
+      'transformWrapperRef',
+      'cachedEditStateRef',
+      'selectedImagePathRef',
+      'isBackendReadyRef',
+      'latestRenderedJobIdRef',
+      'previewJobIdRef',
+      'currentResRef',
+      'prevAdjustmentsRef'
+    ].map((key) => [key, { current: null }])
   ) as unknown as AppNavigationProps['refs'];
 const press = (code: string, key = code) =>
   act(() => {
@@ -45,17 +51,25 @@ beforeEach(() => {
   vi.mocked(invoke).mockImplementation((command) =>
     command === Invokes.CalculateAutoAdjustments
       ? new Promise((resolve) => (autoAnswer = resolve))
-      : Promise.resolve(undefined as never),
+      : Promise.resolve(undefined as never)
   );
   useSettingsStore.setState({ appSettings: { keybinds: {} } as unknown as AppSettings, osPlatform: 'macos' });
   useLibraryStore.setState({ imageList: files, multiSelectedPaths: ['/s/a.dng'], libraryActivePath: '/s/a.dng' });
   useUIStore.setState({ activeView: 'editor', isFullScreen: false, libraryLoupe: false, isSettingsOpen: false });
   const adjustments = { ...INITIAL_ADJUSTMENTS, exposure: -2 };
   useEditorStore.setState({
-    selectedImage: { path: '/s/a.dng', isReady: true, isRaw: true, width: 40, height: 30, exif: {}, thumbnailUrl: '' } as never,
+    selectedImage: {
+      path: '/s/a.dng',
+      isReady: true,
+      isRaw: true,
+      width: 40,
+      height: 30,
+      exif: {},
+      thumbnailUrl: ''
+    } as never,
     adjustments,
     history: [adjustments],
-    historyIndex: 0,
+    historyIndex: 0
   });
 });
 afterEach(() => {
@@ -77,7 +91,7 @@ function mount() {
       handleUndoFileOperation: vi.fn(),
       handleDeleteSelected: vi.fn(),
       handlePasteFiles: vi.fn(),
-      handleZoomChange: vi.fn(),
+      handleZoomChange: vi.fn()
     } as never);
     return actions;
   });
@@ -93,7 +107,10 @@ it('saves the edit made before F to its own photograph when the full screen step
   await act(async () => {});
   expect(useEditorStore.getState().selectedImage?.path).toBe('/s/b.dng');
   expect(saves()).toEqual([
-    [Invokes.SaveMetadataAndUpdateThumbnail, { path: '/s/a.dng', adjustments: expect.objectContaining({ exposure: 1 }) }],
+    [
+      Invokes.SaveMetadataAndUpdateThumbnail,
+      { path: '/s/a.dng', adjustments: expect.objectContaining({ exposure: 1 }) }
+    ]
   ]);
 });
 
@@ -109,7 +126,7 @@ it('never puts an answer asked for the previous photograph on the one the full s
   // The next photograph has loaded before the answer comes back.
   const before = { ...INITIAL_ADJUSTMENTS, exposure: 0.5 };
   act(() =>
-    useEditorStore.setState((s) => ({ selectedImage: { ...s.selectedImage!, isReady: true }, adjustments: before })),
+    useEditorStore.setState((s) => ({ selectedImage: { ...s.selectedImage!, isReady: true }, adjustments: before }))
   );
   await act(async () => autoAnswer!({ ...INITIAL_ADJUSTMENTS, exposure: 4 }));
   expect(useEditorStore.getState().adjustments).toBe(before);

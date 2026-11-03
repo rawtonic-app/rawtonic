@@ -1,15 +1,7 @@
-import {
-  memo,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-} from "react";
-import { useTranslation } from "react-i18next";
-import { selectOnFocus } from "../../utils/selectOnFocus";
-import { MIN_SEND_INTERVAL_MS } from "../../hooks/useDragSend";
+import { memo, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { selectOnFocus } from '../../utils/selectOnFocus';
+import { MIN_SEND_INTERVAL_MS } from '../../hooks/useDragSend';
 
 export interface AdjustmentControlProps {
   label: string;
@@ -21,7 +13,7 @@ export interface AdjustmentControlProps {
   step?: number;
   defaultValue?: number;
   unit?: string;
-  track?: "temperature" | "tint" | "hue";
+  track?: 'temperature' | 'tint' | 'hue';
   /** Non-linear track: maps a value to its slider position and back
    * (e.g. Kelvin in mireds). Keys and the text field stay in value units. */
   scale?: {
@@ -51,12 +43,7 @@ export function dragPrecision(distance: number) {
   return distance <= near ? 1 : Math.max(0.1, near / distance);
 }
 
-export function boundedValue(
-  value: number,
-  min: number,
-  max: number,
-  step: number,
-) {
+export function boundedValue(value: number, min: number, max: number, step: number) {
   const digits = Math.min(6, Math.max(0, -Math.floor(Math.log10(step))));
   return Number(Math.max(min, Math.min(max, value)).toFixed(digits));
 }
@@ -78,12 +65,12 @@ export default memo(function AdjustmentControl({
   max = 100,
   step = 1,
   defaultValue = 0,
-  unit = "",
+  unit = '',
   track,
   scale,
   disabled = false,
   onChange,
-  onInteraction,
+  onInteraction
 }: AdjustmentControlProps) {
   const { t } = useTranslation();
   const id = useId();
@@ -128,12 +115,11 @@ export default memo(function AdjustmentControl({
     () => () => {
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       if (active.current) {
-        if (lastSent.current !== pending.current)
-          callback.current(pending.current);
+        if (lastSent.current !== pending.current) callback.current(pending.current);
         interactionCallback.current?.(false);
       }
     },
-    [],
+    []
   );
   const flush = () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -175,28 +161,17 @@ export default memo(function AdjustmentControl({
     end();
   };
   const keys = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (
-      ![
-        "ArrowLeft",
-        "ArrowRight",
-        "ArrowUp",
-        "ArrowDown",
-        "Home",
-        "End",
-      ].includes(event.key)
-    )
-      return;
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
     const delta = step * (event.shiftKey ? 10 : event.altKey ? 0.1 : 1);
     update(
-      event.key === "Home"
+      event.key === 'Home'
         ? min
-        : event.key === "End"
+        : event.key === 'End'
           ? max
-          : local +
-            (["ArrowRight", "ArrowUp"].includes(event.key) ? delta : -delta),
-      event.altKey ? step / 10 : step,
+          : local + (['ArrowRight', 'ArrowUp'].includes(event.key) ? delta : -delta),
+      event.altKey ? step / 10 : step
     );
     flush();
   };
@@ -229,23 +204,19 @@ export default memo(function AdjustmentControl({
     end();
   };
   return (
-    <div
-      className={`adjustment-control ${disabled ? "is-disabled" : ""} ${dragging ? "is-active" : ""}`}
-    >
+    <div className={`adjustment-control ${disabled ? 'is-disabled' : ''} ${dragging ? 'is-active' : ''}`}>
       <label
         htmlFor={id}
-        title={t("studio.adjustment.scrubHint")}
+        title={t('studio.adjustment.scrubHint')}
         onPointerDown={scrubStart}
         onPointerMove={(e) => {
           if (scrub.current)
             update(
               fromTrack(
                 toTrack(scrub.current.value) +
-                  (e.clientX - scrub.current.x) *
-                    trackStep *
-                    (e.shiftKey ? 10 : e.altKey ? 0.1 : 1),
+                  (e.clientX - scrub.current.x) * trackStep * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1)
               ),
-              e.altKey ? step / 10 : step,
+              e.altKey ? step / 10 : step
             );
         }}
         onPointerUp={end}
@@ -256,11 +227,11 @@ export default memo(function AdjustmentControl({
       </label>
       <input
         id={id}
-        className={`adjustment-track ${track || ""}`}
+        className={`adjustment-track ${track || ''}`}
         type="range"
         min={trackMin}
         max={trackMax}
-        step={scale ? "any" : step}
+        step={scale ? 'any' : step}
         value={toTrack(local)}
         disabled={disabled}
         onChange={(e) => update(fromTrack(Number(e.target.value)))}
@@ -295,7 +266,7 @@ export default memo(function AdjustmentControl({
               x: e.clientX,
               centreY: (box.top || 0) + box.height / 2,
               value: start,
-              perPixel: (trackMax - trackMin) / travel,
+              perPixel: (trackMax - trackMin) / travel
             };
           } else begin();
         }}
@@ -307,7 +278,7 @@ export default memo(function AdjustmentControl({
           // moving away from the track never makes the value jump.
           drag.value = Math.max(
             trackMin,
-            Math.min(trackMax, drag.value + (e.clientX - drag.x) * drag.perPixel * factor),
+            Math.min(trackMax, drag.value + (e.clientX - drag.x) * drag.perPixel * factor)
           );
           drag.x = e.clientX;
           update(fromTrack(drag.value), factor < 1 ? step / 10 : step);
@@ -320,14 +291,14 @@ export default memo(function AdjustmentControl({
         onKeyDown={keys}
         onDoubleClick={reset}
         aria-label={ariaLabel ?? label}
-        title={t("studio.adjustment.trackHint")}
+        title={t('studio.adjustment.trackHint')}
       />
       <input
         className="adjustment-value"
         aria-label={
           unit
-            ? t("studio.adjustment.valueWithUnit", { name: ariaLabel ?? label, unit })
-            : t("studio.adjustment.value", { name: ariaLabel ?? label })
+            ? t('studio.adjustment.valueWithUnit', { name: ariaLabel ?? label, unit })
+            : t('studio.adjustment.value', { name: ariaLabel ?? label })
         }
         inputMode="decimal"
         type="text"
@@ -343,8 +314,8 @@ export default memo(function AdjustmentControl({
         onBlur={commitText}
         onKeyDown={(e) => {
           e.stopPropagation();
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
             canceled.current = true;
             e.currentTarget.blur();
           }
