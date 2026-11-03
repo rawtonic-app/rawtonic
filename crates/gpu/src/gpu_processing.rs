@@ -3497,7 +3497,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 1024;
+const PREVIEW_PIPELINE_COUNT: usize = 2048;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3508,7 +3508,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Display variant bits (see `create_preview_pipeline`): sharpen 1,
 /// highlights 2, curves 4, masks 8, noise reduction 16, tone sliders 32,
 /// relight 64, refined noise reduction 128, range-2 relight lights 256,
-/// range-3 relight lights 512 (always with 256).
+/// range-3 relight lights 512 (always with 256), range-4 relight lights 1024
+/// (always with 512).
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3530,6 +3531,9 @@ const RELIGHT_RANGE2_FEATURE: usize = 256;
 /// A light of Relight's range version 3 (`RELIGHT_RANGE3`), compiled only
 /// for recipes with one for the same reason.
 const RELIGHT_RANGE3_FEATURE: usize = 512;
+/// A light of Relight's range version 4 (`RELIGHT_RANGE4`), compiled only
+/// for recipes with one for the same reason.
+const RELIGHT_RANGE4_FEATURE: usize = 1024;
 
 /// One slot per display variant, on the heap: the processor holds several
 /// such tables, together too large for a render thread's stack.
@@ -4805,6 +4809,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         g.relight.chunks(5).any(|light| light[0][3] > 0.0) || g.relight_depth[..2] != [0, 0];
     let relight_range2 = relight_range2(adjustments);
     let relight_range3 = relight_range3(adjustments);
+    let relight_range4 = relight_range4(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -4831,6 +4836,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if relight { RELIGHT_PREVIEW_FEATURE } else { 0 }
         | if relight_range2 { RELIGHT_RANGE2_FEATURE } else { 0 }
         | if relight_range3 { RELIGHT_RANGE3_FEATURE } else { 0 }
+        | if relight_range4 { RELIGHT_RANGE4_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -4858,6 +4864,21 @@ fn relight_range3(adjustments: &AllAdjustments) -> bool {
     })
 }
 
+/// Whether a lit light of the recipe has Relight's range version 4
+/// (`relight::gpu_lights` flag bit 9; such a light has bits 7 and 8 too).
+fn relight_range4(adjustments: &AllAdjustments) -> bool {
+    adjustments.global.relight.chunks(5).any(|light| {
+        light[0][3] > 0.0 && (light[3][1] as u32) & rawtonic_engine::relight::RANGE_4_FLAG != 0
+    })
+}
+
+/// The newest range version above 2 among the recipe's lit lights, as the
+/// index of `GpuProcessor::range2_pipelines`' second dimension: 0 (range
+/// 2), 1 (range 3) or 2 (range 4).
+fn relight_range_level(adjustments: &AllAdjustments) -> usize {
+    usize::from(relight_range3(adjustments)) + usize::from(relight_range4(adjustments))
+}
+
 /// The noise refinements with which the shader takes its default noise
 /// reduction (`apply_noise_reduction`).
 const DEFAULT_NOISE_DETAIL: [f32; 4] = [0.5, 0.0, 0.5, 0.5];
@@ -4875,7 +4896,7 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 
 /// `GpuProcessor::range2_pipelines`.
 type Range2Pipelines =
-    [[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 2]; MAIN_OUTPUTS];
+    [[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 3]; MAIN_OUTPUTS];
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -5232,6 +5253,7 @@ fn create_preview_pipeline(
         ("NR_REFINED", ((features >> 7) & 1) as f64),
         ("RELIGHT_RANGE2", ((features >> 8) & 1) as f64),
         ("RELIGHT_RANGE3", ((features >> 9) & 1) as f64),
+        ("RELIGHT_RANGE4", ((features >> 10) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -7329,7 +7351,7 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         if relight_range2(adjustments) {
             let long = adjustments.global.region_curve_active[1] != 0;
-            return match self.range2_pipelines[0][usize::from(relight_range3(adjustments))]
+            return match self.range2_pipelines[0][relight_range_level(adjustments)]
                 [usize::from(long)][usize::from(profile)][usize::from(edge)]
             .get()
             {
@@ -7680,10 +7702,10 @@ impl GpuProcessor {
         let edge = edge_noise_reduction(adjustments);
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         let long = adjustments.global.region_curve_active[1] != 0;
-        let range3 = relight_range3(adjustments);
+        let level = relight_range_level(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        match self.range2_pipelines[output.index()][usize::from(range3)][usize::from(long)]
-            [usize::from(profile)][usize::from(edge)]
+        match self.range2_pipelines[output.index()][level][usize::from(long)][usize::from(profile)]
+            [usize::from(edge)]
         .get_or_init(|| {
             self.compile_general(
                 "Compute Pipeline (relight range 2)",
@@ -7693,7 +7715,8 @@ impl GpuProcessor {
                     ("LUMA_PROFILE", on(profile)),
                     ("LONG_CURVES", on(long)),
                     ("RELIGHT_RANGE2", 1.0),
-                    ("RELIGHT_RANGE3", on(range3)),
+                    ("RELIGHT_RANGE3", on(level >= 1)),
+                    ("RELIGHT_RANGE4", on(level >= 2)),
                 ],
             )
             .inspect_err(|error| log::error!("Relight range 2 pipeline unavailable: {error}"))

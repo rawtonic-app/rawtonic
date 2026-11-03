@@ -372,6 +372,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE3_FEATURE != 0 && expected & RELIGHT_RANGE2_FEATURE == 0 {
             continue;
         }
+        // A range-4 light is a range-3 light too.
+        if expected & RELIGHT_RANGE4_FEATURE != 0 && expected & RELIGHT_RANGE3_FEATURE == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -403,6 +407,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE3_FEATURE != 0 {
             profile["relightLights"][0]["rangeVersion"] = json!(3);
         }
+        if expected & RELIGHT_RANGE4_FEATURE != 0 {
+            profile["relightLights"][0]["rangeVersion"] = json!(4);
+        }
         if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
             profile["lumaNoiseDetail"] = json!(70);
         }
@@ -414,7 +421,10 @@ fn preview_features_preserve_global_and_local_effects() {
             assert_eq!(
                 preview_features(&adjustments),
                 expected
-                    & (RELIGHT_PREVIEW_FEATURE | RELIGHT_RANGE2_FEATURE | RELIGHT_RANGE3_FEATURE)
+                    & (RELIGHT_PREVIEW_FEATURE
+                        | RELIGHT_RANGE2_FEATURE
+                        | RELIGHT_RANGE3_FEATURE
+                        | RELIGHT_RANGE4_FEATURE)
             );
             continue;
         }
@@ -7496,6 +7506,7 @@ fn pipeline_compilation_probe() {
         (f & REFINED_NR_PREVIEW_FEATURE == 0 || f & 16 != 0)
             && (f & RELIGHT_RANGE2_FEATURE == 0 || f & RELIGHT_PREVIEW_FEATURE != 0)
             && (f & RELIGHT_RANGE3_FEATURE == 0 || f & RELIGHT_RANGE2_FEATURE != 0)
+            && (f & RELIGHT_RANGE4_FEATURE == 0 || f & RELIGHT_RANGE3_FEATURE != 0)
     }) {
         let start = Instant::now();
         create_preview_pipeline(
@@ -7626,11 +7637,13 @@ fn fallback_variant_matches_specialized_display() {
         json!({"sharpness":53,"vibrance":72,"saturation":27,"brightness":0.25,
             "masks":(0..4).map(|i| local_mask(&format!("m{i}"), json!({"curves":custom_curve(),"highlights":30})))
                 .collect::<Vec<_>>()}),
-        // A version-five portrait with range-2 and range-3 lights: the
-        // all-features fallback compiles the range-3 code, which must leave
-        // the older light's backdrop, shading and edges as they are.
+        // A version-five portrait with range-2, range-3 and range-4 lights:
+        // the all-features fallback compiles the range-3 and range-4 code,
+        // which must leave the older lights' backdrop, shading and edges as
+        // they are.
         relight_portrait_profile(2),
         relight_portrait_profile(3),
+        relight_portrait_profile(4),
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         prepare_preview_pipeline(&processor, preview_features(&adjustments));
@@ -7687,7 +7700,7 @@ fn fallback_variant_matches_specialized_display() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 8);
+    assert_eq!(checked, 9);
 }
 
 /// A version-five Relight recipe (subject matte with people normals, the
