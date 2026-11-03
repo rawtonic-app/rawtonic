@@ -8,6 +8,7 @@ use crate::exif_processing;
 use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
 use crate::image_processing::ImageMetadata;
+use crate::ipc::CommandError;
 use anyhow::{Result, anyhow};
 use image::{DynamicImage, GenericImageView};
 use serde_json::Value;
@@ -727,6 +728,10 @@ fn clear_derived_caches(state: &AppState) {
     *state.merge_result.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
+/// The error of a load or develop a newer one (or another photograph)
+/// replaced.
+const LOAD_CANCELLED: &str = "Load cancelled";
+
 /// Develops the open photograph again with AI Denoise at `amount` (0 … 100)
 /// of `version` (`aiDenoiseVersion`, None: 1), for the colour noise filter
 /// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
@@ -755,11 +760,11 @@ pub async fn apply_ai_denoise(
     highlight_ratios: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<f32, String> {
+) -> Result<f32, CommandError> {
     let (source_path, _) = parse_virtual_path(&path);
     let source = source_path.to_string_lossy().to_string();
     if !is_raw_file(&source) {
-        return Err("AI Denoise works on RAW files only".to_string());
+        return Err("AI Denoise works on RAW files only".into());
     }
     let stored = stored_decode_variant(&path);
     let open = state
@@ -833,7 +838,13 @@ pub async fn apply_ai_denoise(
                 Ok::<_, String>((image, exif))
             })
             .await
-            .map_err(|e| e.to_string())??;
+            .map_err(|e| e.to_string())?
+            // A newer load or another photograph stopped the decode.
+            .map_err(|e| {
+                CommandError::from(e).or_cancelled(
+                    state.load_image_generation.load(Ordering::SeqCst) != my_generation,
+                )
+            })?;
             let image = Arc::new(image);
             state
                 .decoded_image_cache
@@ -849,7 +860,7 @@ pub async fn apply_ai_denoise(
         .unwrap_or_else(|e| e.into_inner())
         != path
     {
-        return Err("Load cancelled".to_string());
+        return Err(CommandError::cancelled(LOAD_CANCELLED));
     }
     // Developed again in the same frame: the same size as the source it
     // replaces.
@@ -860,7 +871,8 @@ pub async fn apply_ai_denoise(
             "Developed again at {:?} instead of the open {:?}: the photograph has to be opened again",
             image.dimensions(),
             size
-        ));
+        )
+        .into());
     }
     publish_loaded_image(
         &state.original_image,
@@ -1036,7 +1048,7 @@ pub async fn load_image(
     let (denoise, mut ai_denoise_error) = if is_raw_file(&source_path_str) {
         match crate::ai_denoise::option_for(&app_handle, &metadata.adjustments).await {
             Ok(denoise) => (denoise, None),
-            Err(e) => (None, Some(e)),
+            Err(e) => (None, Some(e.message)),
         }
     } else {
         (None, None)

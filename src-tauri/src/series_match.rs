@@ -229,7 +229,7 @@ pub async fn analyze_series_match(
     let (models, face_models) = if use_faces {
         match crate::ai_faces::models(&app_handle, download_face_models).await {
             Ok(models) => (Some(models), "used"),
-            Err(e) if e == crate::ai_faces::FACE_MODELS_MISSING => (None, "missing"),
+            Err(e) if e.code == crate::ipc::ErrorCode::ModelsMissing => (None, "missing"),
             Err(e) => {
                 log::warn!("Series match without faces: {e}");
                 (None, "missing")

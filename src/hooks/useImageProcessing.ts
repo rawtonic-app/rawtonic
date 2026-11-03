@@ -31,6 +31,7 @@ import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { sourceDevelopToApply } from '../utils/aiDenoise';
 import { beforeAdjustments, beforeSnapshot } from '../utils/beforeSnapshot';
 import { toastAiError } from '../utils/aiErrors';
+import { errorCode, errorMessage } from '../shared/ipc/errors';
 
 // Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
 const PREVIEW_RENDER_FAILED = 'Preview rendering failed';
@@ -626,7 +627,7 @@ export function useImageProcessing(
         const editor = useEditorStore.getState();
         settleBusy();
         // A newer request or another photograph replaced this one.
-        if (String(err).includes('Load cancelled')) return;
+        if (errorCode(err) === 'cancelled') return;
         editor.setEditor({
           ...(editor.selectedImage?.path === path
             ? {
@@ -643,7 +644,7 @@ export function useImageProcessing(
               }
             : {})
         });
-        if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${err}`);
+        if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${errorMessage(err)}`);
         else console.error('Developing the source again failed:', err);
       });
   }, [

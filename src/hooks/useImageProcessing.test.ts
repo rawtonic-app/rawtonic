@@ -391,7 +391,7 @@ describe('AI Denoise busy note', () => {
 
   it('clears when the request is cancelled', async () => {
     const request = startDenoise();
-    await act(async () => request.reject('Load cancelled'));
+    await act(async () => request.reject({ code: 'cancelled', message: 'Load cancelled' }));
     expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
     expect(toast.error).not.toHaveBeenCalled();
   });
@@ -409,7 +409,7 @@ describe('AI Denoise busy note', () => {
   it('stays while a newer request runs', async () => {
     const first = startDenoise();
     act(() => useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiDenoise: 70 } }));
-    await act(async () => first.reject('Load cancelled'));
+    await act(async () => first.reject({ code: 'cancelled', message: 'Load cancelled' }));
     expect(useEditorStore.getState().aiDenoiseBusy).toBe(true);
   });
 });

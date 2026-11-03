@@ -17,6 +17,7 @@ use crate::ai_processing::AiPeopleMaskParameters;
 use crate::app_state::{AiTaskGuard, AppState};
 use crate::editor_preview::get_cached_full_warped_image;
 use crate::file_management::SaveFailure;
+use crate::ipc::{CommandError, ErrorCode};
 
 /// Files of the model pack (docs/MODELS.md) and their SHA-256.
 const MODEL_FILES: [(&str, &str); 3] = [
@@ -88,7 +89,7 @@ pub(crate) const FACE_MODELS_MISSING: &str = "face-models-missing";
 pub(crate) async fn models(
     app_handle: &tauri::AppHandle,
     download: bool,
-) -> Result<Arc<FaceModels>, String> {
+) -> Result<Arc<FaceModels>, CommandError> {
     let state = app_handle.state::<AppState>();
     if let Some(models) = state.faces.lock().unwrap().models.clone() {
         return Ok(models);
@@ -98,7 +99,7 @@ pub(crate) async fn models(
         return Ok(models);
     }
     let generation = crate::ai_lifecycle::LIFECYCLE.generation();
-    crate::ai_processing::ensure_runtime().map_err(|e| e.to_string())?;
+    crate::ai_processing::ensure_runtime()?;
     let dir = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
     for (file, sha) in MODEL_FILES {
         if !download {
@@ -107,7 +108,10 @@ pub(crate) async fn models(
             {
                 continue;
             }
-            return Err(FACE_MODELS_MISSING.to_string());
+            return Err(CommandError::new(
+                ErrorCode::ModelsMissing,
+                FACE_MODELS_MISSING,
+            ));
         }
         crate::ai_processing::download_verified(app_handle, &dir, file, sha, "Face models")
             .await
@@ -132,7 +136,7 @@ async fn analysis(
     state: &tauri::State<'_, AppState>,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
-) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), String> {
+) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), CommandError> {
     // Keyed by the photo actually loaded, taken before the models load: a
     // photo switch meanwhile cannot file one photo's faces under another.
     let loaded = crate::image_loader::original_image(state).await?;
@@ -176,7 +180,7 @@ pub async fn detect_people(
     js_adjustments: serde_json::Value,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<Vec<PersonSummary>, String> {
+) -> Result<Vec<PersonSummary>, CommandError> {
     crate::ai_lifecycle::LIFECYCLE.touch();
     let _running = crate::ai_lifecycle::LIFECYCLE.run();
     let (image, analysis) = analysis(&state, &app_handle, &js_adjustments).await?;
@@ -221,7 +225,7 @@ pub async fn generate_ai_people_mask(
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<AiPeopleMaskParameters, String> {
+) -> Result<AiPeopleMaskParameters, CommandError> {
     let guard = task_id
         .as_ref()
         .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
@@ -230,16 +234,16 @@ pub async fn generate_ai_people_mask(
     let _running = crate::ai_lifecycle::LIFECYCLE.run();
     let selected: Vec<Part> = parts.iter().filter_map(|p| Part::from_name(p)).collect();
     if selected.is_empty() {
-        return Err("No person parts selected".to_string());
+        return Err("No person parts selected".into());
     }
     let (image, analysis) = analysis(&state, &app_handle, &js_adjustments).await?;
     if cancelled() {
-        return Err("Task cancelled".to_string());
+        return Err(crate::ai_commands::task_cancelled());
     }
     if let Some(i) = person
         && i >= analysis.faces.len()
     {
-        return Err(format!("There is no person {} in this photo", i + 1));
+        return Err(format!("There is no person {} in this photo", i + 1).into());
     }
     let png = tokio::task::spawn_blocking(move || {
         let mask = rawtonic_faces::part_mask(&image, &analysis, &selected, person);
@@ -251,7 +255,7 @@ pub async fn generate_ai_people_mask(
     .await
     .map_err(|e| e.to_string())??;
     if cancelled() {
-        return Err("Task cancelled".to_string());
+        return Err(crate::ai_commands::task_cancelled());
     }
     Ok(AiPeopleMaskParameters {
         parts,
@@ -276,7 +280,7 @@ pub async fn analyze_face_retouch(
     download: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CommandError> {
     // Opening the Retouch tab analyses with installed models only; the
     // download needs the user's click (`download`).
     let models = models(&app_handle, download.unwrap_or(false)).await?;
@@ -360,7 +364,9 @@ pub async fn apply_face_retouch_to_paths(
         failed: paths.clone(),
         culling: Vec::new(),
     };
-    let models = models(&app_handle, true).await.map_err(fail)?;
+    let models = models(&app_handle, true)
+        .await
+        .map_err(|e| fail(e.message))?;
     let app_settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
     let face_settings = Arc::new(face_settings);
     let mut done = 0;

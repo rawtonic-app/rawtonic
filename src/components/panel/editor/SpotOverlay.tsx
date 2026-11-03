@@ -9,6 +9,7 @@ import { Invokes } from '../../ui/AppProperties';
 import { Mask, SubMaskMode } from '../right/Masks';
 import { useProcessStore } from '../../../store/useProcessStore';
 import { isAiTaskCancelled, toastAiError } from '../../../utils/aiErrors';
+import { errorMessage } from '../../../shared/ipc/errors';
 import { notify } from '../../../activity/notify';
 import { getTransformAdjustments } from '../../../hooks/useAiMasking';
 import { createSubMask } from '../../../utils/maskUtils';
@@ -296,7 +297,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       // A cancel is the user's choice, not a failure.
       if (isAiTaskCancelled(error)) console.info('Remove cancelled');
       else console.error('Remove failed:', error);
-      toastAiError(error, `Remove failed: ${error}`);
+      toastAiError(error, `Remove failed: ${errorMessage(error)}`);
     } finally {
       unregisterAiTask(patch.id);
       filling.current = filling.current.filter((id) => id !== patch.id);

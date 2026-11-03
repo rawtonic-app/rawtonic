@@ -17,6 +17,7 @@ use crate::ai_processing::{
 };
 use crate::app_state::{AiTaskGuard, AiTaskToken, AppState};
 use crate::cache_utils::GEOMETRY_KEYS;
+use crate::ipc::{CommandError, ErrorCode};
 
 #[tauri::command]
 pub fn cancel_ai_task(task_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -30,14 +31,21 @@ pub fn cancel_ai_task(task_id: String, state: tauri::State<'_, AppState>) -> Res
 /// The error of a mask asked for one photo while another is loaded (the
 /// editor switched photos meanwhile); the editor asks again once its photo
 /// is open (`useAiMasking.ts`).
+/// The message of an AI task its token stopped (`cancel_ai_task`).
+pub(crate) const TASK_CANCELLED: &str = "Task cancelled";
+
+pub(crate) fn task_cancelled() -> CommandError {
+    CommandError::cancelled(TASK_CANCELLED)
+}
+
 pub(crate) const PHOTO_CHANGED: &str = "The photo changed while its mask was asked for";
 
 /// Whether `loaded` (the photo the backend holds) is the photo `asked` for.
-fn ensure_photo(loaded: &str, asked: &str) -> Result<(), String> {
+fn ensure_photo(loaded: &str, asked: &str) -> Result<(), CommandError> {
     if loaded == asked {
         Ok(())
     } else {
-        Err(PHOTO_CHANGED.to_string())
+        Err(CommandError::new(ErrorCode::Stale, PHOTO_CHANGED))
     }
 }
 
@@ -58,14 +66,14 @@ pub async fn generate_ai_foreground_mask(
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<AiForegroundMaskParameters, String> {
+) -> Result<AiForegroundMaskParameters, CommandError> {
     let _guard = task_id
         .as_ref()
         .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     LIFECYCLE.touch();
@@ -110,14 +118,14 @@ pub async fn generate_ai_sky_mask(
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<AiSkyMaskParameters, String> {
+) -> Result<AiSkyMaskParameters, CommandError> {
     let _guard = task_id
         .as_ref()
         .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     LIFECYCLE.touch();
@@ -158,14 +166,14 @@ pub async fn generate_ai_depth_mask(
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<AiDepthMaskParameters, String> {
+) -> Result<AiDepthMaskParameters, CommandError> {
     let _guard = task_id
         .as_ref()
         .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     LIFECYCLE.touch();
@@ -177,10 +185,10 @@ pub async fn generate_ai_depth_mask(
     let path_hash = geometry_key(&loaded, &js_adjustments);
     let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     let cached = state
@@ -202,7 +210,7 @@ pub async fn generate_ai_depth_mask(
             .await?;
 
             if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-                return Err("Task cancelled".to_string());
+                return Err(task_cancelled());
             }
 
             let is_raw = loaded.is_raw;
@@ -231,7 +239,7 @@ pub async fn generate_ai_depth_mask(
     };
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     let base64_data = tokio::task::spawn_blocking(move || {
@@ -301,14 +309,14 @@ pub async fn generate_ai_subject_mask(
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<AiSubjectMaskParameters, String> {
+) -> Result<AiSubjectMaskParameters, CommandError> {
     let _guard = task_id
         .as_ref()
         .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     LIFECYCLE.touch();
@@ -317,10 +325,10 @@ pub async fn generate_ai_subject_mask(
     let started = std::time::Instant::now();
     let models = get_or_init_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     let (embeddings, warped_image, source_is_raw) = sam_embeddings(
@@ -336,7 +344,7 @@ pub async fn generate_ai_subject_mask(
     let ready = started.elapsed().as_millis();
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     let (img_w, img_h) = embeddings.original_size;
@@ -444,7 +452,7 @@ pub async fn generate_ai_subject_mask(
     let mask_ms = decode_start.elapsed().as_millis();
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
 
     let png_start = std::time::Instant::now();
@@ -500,10 +508,10 @@ static SAM_ENCODE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new((
 async fn wait_turn<'a>(
     lock: &'a tokio::sync::Mutex<()>,
     cancel: Option<&Arc<AiTaskToken>>,
-) -> Result<tokio::sync::MutexGuard<'a, ()>, String> {
+) -> Result<tokio::sync::MutexGuard<'a, ()>, CommandError> {
     let turn = lock.lock().await;
     if cancel.is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
     Ok(turn)
 }
@@ -522,7 +530,7 @@ async fn sam_embeddings(
     generation: u64,
     cancel: Option<&Arc<AiTaskToken>>,
     asked: Option<&str>,
-) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), String> {
+) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), CommandError> {
     let _encode = wait_turn(&SAM_ENCODE_LOCK, cancel).await?;
     // Keyed by the photo actually loaded, not the caller's path: a
     // background encode that outlives a photo switch cannot file the new
@@ -554,7 +562,7 @@ async fn sam_embeddings(
         return Ok((embeddings, warped_image, source_is_raw));
     }
     if cancel.is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
     let options = Arc::new(ort::session::RunOptions::new().map_err(|e| e.to_string())?);
     let watcher = cancel.map(|token| {
@@ -580,7 +588,7 @@ async fn sam_embeddings(
         watcher.abort();
     }
     if cancel.is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
     let mut embeddings = result
         .map_err(|e| e.to_string())?
@@ -603,7 +611,7 @@ pub async fn precompute_ai_subject_mask(
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let _running = LIFECYCLE.run();
     let generation = LIFECYCLE.generation();
     // `task_id` cancels it (a photo switch, the Library, memory pressure).
@@ -637,7 +645,7 @@ pub async fn precompute_ai_subject_mask(
     }
     let models = get_or_init_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
     // A request for a photo that is no longer open is dropped.
     let current = crate::image_loader::original_image(&state)
         .await
@@ -774,17 +782,17 @@ async fn network(
     app_handle: &tauri::AppHandle,
     kind: AutoMask,
     download: bool,
-) -> Result<Option<Network>, String> {
+) -> Result<Option<Network>, CommandError> {
     Ok(match kind {
         AutoMask::Subject => {
             get_or_init_subject_model(app_handle, &state.ai_state, &state.ai_init_lock, download)
                 .await
-                .map_err(|e| e.to_string())?
+                .map_err(CommandError::from)?
                 .map(Network::Subject)
         }
         AutoMask::Sky => get_or_init_sky_model(app_handle, &state.ai_state, download)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(CommandError::from)?
             .map(Network::Sky),
     })
 }
@@ -804,7 +812,7 @@ async fn auto_mask(
     subject_version: u32,
     asked: Option<&str>,
     cancel: Option<&Arc<AiTaskToken>>,
-) -> Result<Option<Arc<String>>, String> {
+) -> Result<Option<Arc<String>>, CommandError> {
     let download = asked.is_some();
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
@@ -825,7 +833,7 @@ async fn auto_mask(
         return Ok(Some(mask));
     }
     if cancelled() {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
     // The photo's warped image is made while a model that is not loaded yet
     // loads (Core ML loads on a worker thread): a first click waits for the
@@ -859,7 +867,7 @@ async fn auto_mask(
         return Ok(None);
     };
     if cancelled() {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
     let start = std::time::Instant::now();
     let (warped_image, warped_ms) = match warped {
@@ -920,7 +928,7 @@ async fn auto_mask(
         watcher.abort();
     }
     if cancelled() {
-        return Err("Task cancelled".to_string());
+        return Err(task_cancelled());
     }
     let (data, model_ms, backend) = result.map_err(|e| e.to_string())??;
     log::info!(
@@ -992,7 +1000,7 @@ async fn subject_mask(
     version: u32,
     asked: &str,
     cancel: Option<&Arc<AiTaskToken>>,
-) -> Result<Option<Arc<String>>, String> {
+) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
         state,
         app_handle,
@@ -1011,7 +1019,7 @@ async fn sky_mask(
     js_adjustments: &serde_json::Value,
     asked: &str,
     cancel: Option<&Arc<AiTaskToken>>,
-) -> Result<Option<Arc<String>>, String> {
+) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
         state,
         app_handle,
@@ -1088,7 +1096,7 @@ async fn precompute(
             );
             Ok(())
         }
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -1215,7 +1223,11 @@ pub async fn warm_up_ai_mask_models(
         }
         let _running = LIFECYCLE.run();
         let outcome = warm_up_model(
-            network(&state, &app_handle, kind, false),
+            async {
+                network(&state, &app_handle, kind, false)
+                    .await
+                    .map_err(String::from)
+            },
             stop,
             async |network: Network| {
                 tauri::async_runtime::spawn_blocking(move || {
@@ -1656,7 +1668,8 @@ mod tests {
             token.cancel();
             drop(running);
         });
-        assert_eq!(queued, Err("Task cancelled".to_string()));
+        assert_eq!(queued, Err(task_cancelled()));
+        assert_eq!(task_cancelled().code, ErrorCode::Cancelled);
         assert_eq!(kept, Ok(()));
     }
 
@@ -1705,7 +1718,7 @@ mod tests {
         assert_eq!(ensure_photo("/a.raf", "/a.raf"), Ok(()));
         assert_eq!(
             ensure_photo("/b.raf", "/a.raf"),
-            Err(PHOTO_CHANGED.to_string())
+            Err(CommandError::new(ErrorCode::Stale, PHOTO_CHANGED))
         );
         // A virtual copy is another photo of the same file.
         assert!(ensure_photo("/a.raf?vc=1", "/a.raf").is_err());

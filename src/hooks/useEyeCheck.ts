@@ -9,9 +9,8 @@ import { useEyesStore } from '../store/useEyesStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { EYES_CHANGED } from './useCatalogSearch';
+import { errorCode, errorMessage } from '../shared/ipc/errors';
 
-/** The face models are not installed (`ai_faces::FACE_MODELS_MISSING`). */
-const MODELS_MISSING = 'face-models-missing';
 /** How long list changes settle before the summaries are read again. */
 const SUMMARY_DELAY_MS = 300;
 /** How long list changes settle before the pass is asked to start again. */
@@ -28,7 +27,7 @@ export async function checkEyes(directory: string) {
   try {
     await invoke(Invokes.StartEyeCheck, { directory, download: true, resume: true });
   } catch (error) {
-    notify.error(i18n.t('studio.eyes.startFailed', { error: String(error) }));
+    notify.error(i18n.t('studio.eyes.startFailed', { error: errorMessage(error) }));
   }
 }
 
@@ -51,11 +50,12 @@ export function useEyeCheck() {
   useEffect(() => {
     if (!directory || !enabled) return;
     invoke(Invokes.StartEyeCheck, { directory, download: false, resume: true }).catch((error) => {
-      if (String(error) === MODELS_MISSING)
+      // The face models are not installed (`ai_faces::FACE_MODELS_MISSING`).
+      if (errorCode(error) === 'models_missing')
         notify.warn(i18n.t('studio.eyes.modelsMissing'), {
           actions: [{ label: i18n.t('studio.eyes.download'), run: () => checkEyes(directory), settles: true }]
         });
-      else notify.warn(i18n.t('studio.eyes.startFailed', { error: String(error) }));
+      else notify.warn(i18n.t('studio.eyes.startFailed', { error: errorMessage(error) }));
     });
     return () => {
       // This library's pass only: the next library's may have started.

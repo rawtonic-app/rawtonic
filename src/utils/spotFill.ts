@@ -6,6 +6,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { Mask, SubMaskMode, ToolType } from '../components/panel/right/Masks';
 import type { AiPatch, AiPatchData, Spot } from './adjustments';
 import { isAiTaskCancelled, toastAiError } from './aiErrors';
+import { errorMessage } from '../shared/ipc/errors';
 import { shapeAsShown, shapeFrame, type SizedFrame } from './maskGeometry';
 
 type Point = { x: number; y: number };
@@ -168,7 +169,7 @@ export async function flipSpotItem(id: string): Promise<void> {
   } catch (error) {
     if (isAiTaskCancelled(error)) return;
     console.error('Spot: switching heal and fill failed', error);
-    toastAiError(error, `Switching heal and fill failed: ${error}`);
+    toastAiError(error, `Switching heal and fill failed: ${errorMessage(error)}`);
   } finally {
     unregisterAiTask(id);
   }

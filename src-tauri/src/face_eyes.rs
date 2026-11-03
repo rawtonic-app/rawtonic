@@ -254,7 +254,7 @@ pub async fn start_eye_check(
     download: bool,
     resume: bool,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), crate::ipc::CommandError> {
     if !download {
         let settings = crate::app_settings::load_settings(app_handle.clone())?;
         if !settings.eye_check.unwrap_or(false) {

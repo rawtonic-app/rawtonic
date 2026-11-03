@@ -294,7 +294,9 @@ describe('automatic AI masks from imported presets', () => {
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(asked[0].path).toBe('/s/a.NEF');
     // Meanwhile B was opened and A again; the backend computed on B.
-    await act(async () => asked[0].reject('The photo changed while its mask was asked for'));
+    await act(async () =>
+      asked[0].reject({ code: 'stale', message: 'The photo changed while its mask was asked for' })
+    );
     await waitFor(() => expect(asked).toHaveLength(2));
     expect(toast.error).not.toHaveBeenCalled();
     await act(async () => asked[1].resolve({ maskDataBase64: 'data:image/png;base64,DDDD' }));
@@ -592,6 +594,28 @@ describe('automatic AI masks from imported presets', () => {
     expect(useEditorStore.getState().history).toEqual([older, now]);
   });
 
+  it("shows another failure's message after the tool's name", async () => {
+    toast.error.mockReset();
+    useProcessStore.setState({ activeAiTasks: {} });
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer('ai-sky', { maskDataBase64: null, grow: 0, feather: 0 })] as never
+      }
+    });
+    invoke.mockImplementation((command: string) =>
+      command.startsWith('generate_')
+        ? Promise.reject({ code: 'internal', message: 'The sky model is not available' })
+        : new Promise(() => {})
+    );
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(toast.error).toHaveBeenCalledWith('AI Sky Mask Failed: The sky model is not available', {
+      source: 'ai'
+    });
+  });
+
   it('clears the busy state and says so in a toast when the AI runtime cannot be loaded', async () => {
     toast.error.mockReset();
     useProcessStore.setState({ activeAiTasks: {} });
@@ -605,7 +629,7 @@ describe('automatic AI masks from imported presets', () => {
         ] as never
       }
     });
-    const failures: ((error: string) => void)[] = [];
+    const failures: ((error: unknown) => void)[] = [];
     invoke.mockImplementation(
       (command: string) =>
         new Promise((_, reject) => {
@@ -617,7 +641,10 @@ describe('automatic AI masks from imported presets', () => {
     await waitFor(() => expect(failures).toHaveLength(2));
     expect(Object.keys(useProcessStore.getState().activeAiTasks).sort()).toEqual(['sub-ai-foreground', 'sub-ai-sky']);
     // The backend's error for a missing or broken ONNX Runtime.
-    const error = 'AI runtime unavailable: /app/resources/libonnxruntime.dylib could not be loaded: not a library';
+    const error = {
+      code: 'ai_runtime_unavailable',
+      message: 'AI runtime unavailable: /app/resources/libonnxruntime.dylib could not be loaded: not a library'
+    };
     act(() => failures.forEach((reject) => reject(error)));
     await waitFor(() => expect(useProcessStore.getState().activeAiTasks).toEqual({}));
     expect(toast.error).toHaveBeenCalledTimes(2);

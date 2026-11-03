@@ -8,6 +8,7 @@
 //! cached by content in `<app data>/ai-denoise-cache`, which the
 //! `rawtonic` CLI uses too.
 
+use crate::ipc::CommandError;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -86,7 +87,7 @@ pub fn slot(model: usize) -> usize {
 pub async fn denoiser(
     app_handle: &tauri::AppHandle,
     model: usize,
-) -> Result<Arc<dyn MosaicDenoiser>, String> {
+) -> Result<Arc<dyn MosaicDenoiser>, CommandError> {
     let slot = slot(model);
     let state = app_handle.state::<AppState>();
     if let Some(denoiser) = state.ai_denoiser.lock().unwrap()[slot].clone() {
@@ -181,8 +182,8 @@ async fn load(
     app_handle: &tauri::AppHandle,
     models: &Path,
     cache: PathBuf,
-) -> Result<rawtonic_denoise::MatchFilter, String> {
-    crate::ai_processing::ensure_runtime().map_err(|e| e.to_string())?;
+) -> Result<rawtonic_denoise::MatchFilter, CommandError> {
+    crate::ai_processing::ensure_runtime()?;
     let file = rawtonic_denoise::ONNX_MODEL;
     crate::ai_processing::download_verified(
         app_handle,
@@ -205,13 +206,14 @@ async fn load(
     })
     .await
     .map_err(|e| e.to_string())?
+    .map_err(CommandError::from)
 }
 
 /// The decoder option for a recipe: `None` without AI Denoise.
 pub async fn option_for(
     app_handle: &tauri::AppHandle,
     adjustments: &serde_json::Value,
-) -> Result<Option<MosaicDenoise>, String> {
+) -> Result<Option<MosaicDenoise>, CommandError> {
     let Some(ai) = rawtonic_engine::image_loader::ai_denoise_settings(adjustments) else {
         return Ok(None);
     };
