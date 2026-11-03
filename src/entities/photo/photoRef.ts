@@ -46,7 +46,8 @@ export function isCopy(text: string): boolean {
 
 /** Whether the stored path `text` names a virtual copy of `source`. */
 export function isCopyOf(text: string, source: string): boolean {
-  return text.startsWith(source + COPY_MARKER);
+  const ref = parsePhotoRef(text);
+  return ref.copy !== null && ref.source === source;
 }
 
 /** The same photo (same copy) of another source file, e.g. after a move. */

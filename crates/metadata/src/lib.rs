@@ -1,4 +1,5 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
+pub mod culling;
 pub mod labels;
 pub mod no_clobber;
 pub mod photo_ref;
@@ -187,8 +188,8 @@ pub struct Metadata {
 
 impl Metadata {
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.rating <= 5, "Rating must be 0–5");
-        ensure!((-1..=1).contains(&self.flag), "Flag must be -1, 0 or 1");
+        culling::Rating::try_from(self.rating)?;
+        culling::Flag::try_from(self.flag)?;
         ensure!(self.keywords.len() <= MAX_KEYWORDS, "Too many keywords");
         for value in [
             &self.label,

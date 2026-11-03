@@ -183,8 +183,7 @@ pub fn is_copy(text: &str) -> bool {
 
 /// Whether the stored path `text` names a virtual copy of `source`.
 pub fn is_copy_of(text: &str, source: &str) -> bool {
-    text.strip_prefix(source)
-        .is_some_and(|rest| rest.starts_with(COPY_MARKER))
+    matches!(split(text), (s, Some(_)) if s == source)
 }
 
 #[cfg(test)]
@@ -257,6 +256,12 @@ mod tests {
         assert!(!is_copy_of("/p/a.raf", "/p/a.raf"));
         assert!(!is_copy_of("/p/a.raf.jpg?vc=1", "/p/a.raf"));
         assert!(!is_copy_of("/p/b.raf?vc=1", "/p/a.raf"));
+        // The source is what precedes the last marker.
+        assert!(!is_copy_of("/p/a.raf?vc=b.raf?vc=abc123", "/p/a.raf"));
+        assert!(is_copy_of(
+            "/p/a.raf?vc=b.raf?vc=abc123",
+            "/p/a.raf?vc=b.raf"
+        ));
     }
 
     #[test]

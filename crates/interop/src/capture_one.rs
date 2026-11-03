@@ -14,6 +14,8 @@
 use crate::{Album, Develop, Library, NotRead, Photo, open_copy};
 use anyhow::{Context, Result};
 use rawtonic_metadata::Metadata;
+use rawtonic_metadata::culling::Rating;
+use rawtonic_metadata::labels::ColorLabel;
 use rusqlite::types::ValueRef;
 use std::{
     collections::HashMap,
@@ -84,11 +86,11 @@ const IPTC_COLUMNS: &[(&str, &str)] = &[
 /// 6 pink, 7 purple. Orange and pink have no Rawtonic label.
 fn label_from_tag(tag: i64) -> String {
     match tag {
-        1 => "Red",
-        3 => "Yellow",
-        4 => "Green",
-        5 => "Blue",
-        7 => "Purple",
+        1 => ColorLabel::Red.name(),
+        3 => ColorLabel::Yellow.name(),
+        4 => ColorLabel::Green.name(),
+        5 => ColorLabel::Blue.name(),
+        7 => ColorLabel::Purple.name(),
         _ => "",
     }
     .to_string()
@@ -188,7 +190,10 @@ pub fn read(session_db: &Path) -> Result<Library> {
             .map(str::to_string)
             .collect();
         let metadata = Metadata {
-            rating: r.get::<_, Option<i64>>(5)?.unwrap_or(0).clamp(0, 5) as u8,
+            rating: r
+                .get::<_, Option<i64>>(5)?
+                .unwrap_or(0)
+                .clamp(0, i64::from(Rating::MAX)) as u8,
             label: label_from_tag(r.get::<_, Option<i64>>(6)?.unwrap_or(0)),
             flag: 0,
             keywords,

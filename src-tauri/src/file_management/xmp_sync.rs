@@ -1,7 +1,7 @@
 //! Ratings, labels and keywords exchanged with XMP sidecars.
 //! Part of `file_management`, split by concern (ADR 0009).
 use crate::image_processing::ImageMetadata;
-use crate::tagging::COLOR_TAG_PREFIX;
+use rawtonic_metadata::labels;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -104,9 +104,9 @@ pub fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) 
         }
 
         if let Some(label) = xmp_label {
-            let label_tag = format!("{}{}", COLOR_TAG_PREFIX, label.to_lowercase());
+            let label_tag = labels::editor_tag(&label);
             if !current_tags.contains(&label_tag) {
-                current_tags.retain(|t| !t.starts_with(COLOR_TAG_PREFIX));
+                current_tags.retain(|t| !labels::is_editor_tag(t));
                 current_tags.push(label_tag);
             }
         }
@@ -144,12 +144,8 @@ pub fn sync_metadata_to_xmp(source_path: &Path, metadata: &ImageMetadata, create
         meta.label.clear();
         meta.keywords.clear();
         for tag in metadata.tags.as_deref().unwrap_or_default() {
-            if let Some(color) = tag.strip_prefix(COLOR_TAG_PREFIX) {
-                let mut chars = color.chars();
-                meta.label = chars
-                    .next()
-                    .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
-                    .unwrap_or_default();
+            if let Some(label) = labels::from_editor_tag(tag) {
+                meta.label = label;
             } else {
                 // XMP keywords without the editor's marker for typed keywords.
                 let keyword = tag

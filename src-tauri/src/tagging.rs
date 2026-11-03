@@ -18,8 +18,8 @@ use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
 use crate::tagging_utils::candidates::TAG_CANDIDATES;
 use crate::tagging_utils::hierarchy::TAG_HIERARCHY;
+use rawtonic_metadata::labels;
 
-pub const COLOR_TAG_PREFIX: &str = "color:";
 pub const USER_TAG_PREFIX: &str = "user:";
 
 /// SigLIP 2 input: the photo squashed to 224 x 224, `(v / 255 - 0.5) / 0.5`.
@@ -336,9 +336,9 @@ pub async fn start_background_indexing(
 
             let should_generate_tags = match &metadata.tags {
                 None => true,
-                Some(tags) => !tags.iter().any(|tag| {
-                    !tag.starts_with(COLOR_TAG_PREFIX) && !tag.starts_with(USER_TAG_PREFIX)
-                }),
+                Some(tags) => !tags
+                    .iter()
+                    .any(|tag| !labels::is_editor_tag(tag) && !tag.starts_with(USER_TAG_PREFIX)),
             };
 
             if should_generate_tags {
@@ -625,7 +625,7 @@ pub async fn clear_ai_tags(root_path: String, app_handle: AppHandle) -> Result<u
     crate::file_management::blocking(move || {
         // Keep color tags and user tags, remove others (AI tags)
         clear_tags_blocking(&root_path, &app_handle, |tag| {
-            tag.starts_with(COLOR_TAG_PREFIX) || tag.starts_with(USER_TAG_PREFIX)
+            labels::is_editor_tag(tag) || tag.starts_with(USER_TAG_PREFIX)
         })
     })
     .await?
@@ -635,9 +635,7 @@ pub async fn clear_ai_tags(root_path: String, app_handle: AppHandle) -> Result<u
 pub async fn clear_all_tags(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
     crate::file_management::blocking(move || {
         // Keep only color tags, remove AI and user tags
-        clear_tags_blocking(&root_path, &app_handle, |tag| {
-            tag.starts_with(COLOR_TAG_PREFIX)
-        })
+        clear_tags_blocking(&root_path, &app_handle, labels::is_editor_tag)
     })
     .await?
 }
@@ -831,8 +829,7 @@ mod tests {
             r#"{"version":1,"rating":3,"tags":["color:red","dog","user:trip"],"adjustments":{}}"#,
         )
         .unwrap();
-        let ai_only =
-            |tag: &str| tag.starts_with(COLOR_TAG_PREFIX) || tag.starts_with(USER_TAG_PREFIX);
+        let ai_only = |tag: &str| labels::is_editor_tag(tag) || tag.starts_with(USER_TAG_PREFIX);
         assert_eq!(
             clear_tags_under(&lib.directory, ai_only, false, false),
             Ok(1)
@@ -846,7 +843,7 @@ mod tests {
             clear_tags_under(&lib.directory, ai_only, false, false),
             Ok(0)
         );
-        let colour_only = |tag: &str| tag.starts_with(COLOR_TAG_PREFIX);
+        let colour_only = |tag: &str| labels::is_editor_tag(tag);
         assert_eq!(
             clear_tags_under(&lib.directory, colour_only, false, false),
             Ok(1)
