@@ -930,6 +930,7 @@ fn render(
         image_cache: cache,
         tonemapper_override: &tm,
         load_lut: &lut,
+        render_inputs: None,
     };
     let src = ExportSource {
         pristine: Arc::new(DynamicImage::ImageRgb32F(img.clone())),

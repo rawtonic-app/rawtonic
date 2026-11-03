@@ -1071,6 +1071,9 @@ pub struct RenderEnv<'a> {
     pub tonemapper_override: &'a dyn Fn(bool) -> Option<u32>,
     /// Loads the recipe's `lutPath`; `None` renders without the LUT.
     pub load_lut: &'a dyn Fn(&str) -> Option<Arc<Lut>>,
+    /// Records the render's inputs (QA, [`crate::render_inputs`]); `None`
+    /// in ordinary exports.
+    pub render_inputs: Option<&'a crate::render_inputs::RenderInputs>,
 }
 
 /// EXIF tag names and display values, as the app caches them per source.
@@ -1353,6 +1356,28 @@ enum PreparedTarget {
     },
 }
 
+/// The adjustments an export of `js_adjustments` renders, before the output
+/// colour space: the recipe's uniforms with the photo's base look (from the
+/// decode's `measures`), never showing clipping.
+pub fn export_adjustments(
+    path: &str,
+    js_adjustments: &Value,
+    is_raw: bool,
+    tonemapper_override: Option<u32>,
+    mask_definitions: &[MaskDefinition],
+    measures: Option<&DecodeMeasures>,
+) -> PreparedAdjustments {
+    let mut all_adjustments = get_all_adjustments_with_masks(
+        js_adjustments,
+        is_raw,
+        tonemapper_override,
+        mask_definitions,
+    );
+    crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path, measures);
+    all_adjustments.global.show_clipping = 0;
+    all_adjustments
+}
+
 /// Prepares `source` with `js_adjustments` for [`render_prepared_export`].
 pub fn prepare_export_render(
     path: &str,
@@ -1364,14 +1389,14 @@ pub fn prepare_export_render(
     let context = env.context;
     let mask_definitions = mask_definitions_from_json(js_adjustments);
     let tm_override = (env.tonemapper_override)(is_raw);
-    let mut all_adjustments =
-        get_all_adjustments_with_masks(js_adjustments, is_raw, tm_override, &mask_definitions);
-    crate::baseline_exposure::apply_base_look(
-        &mut all_adjustments.global,
+    let all_adjustments = export_adjustments(
         path,
+        js_adjustments,
+        is_raw,
+        tm_override,
+        &mask_definitions,
         source.measures.as_ref(),
     );
-    all_adjustments.global.show_clipping = 0;
 
     let lut_path = js_adjustments["lutPath"].as_str();
     let lut = lut_path.and_then(|p| (env.load_lut)(p));
@@ -1401,6 +1426,7 @@ pub fn prepare_export_render(
     // BX7, GW). The warp keeps the frame's size.
     let (source_w, source_h) = source.base().dimensions();
     let after_fringe = crop_after_fringe(js_adjustments, source_w, source_h);
+    let mut transform_path = "gpu_warp";
     let on_gpu = after_fringe
         .map(|(window, offset)| {
             upload_warped_render_source(
@@ -1419,6 +1445,7 @@ pub fn prepare_export_render(
     let (warped, fringed) = match on_gpu {
         Some(uploaded) => (None, Some(uploaded)),
         None => {
+            transform_path = "gpu_fringe";
             let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments, is_raw)?;
             let fringed = after_fringe
                 .map(|(window, offset)| {
@@ -1443,6 +1470,7 @@ pub fn prepare_export_render(
             (None, Some(uploaded), (width, height), offset)
         }
         None => {
+            transform_path = "cpu";
             let warped = warped.expect("warped on the CPU unless uploaded");
             let (transformed, offset) = apply_transformations_after_warp(warped, js_adjustments)?;
             let size = transformed.dimensions();
@@ -1460,6 +1488,19 @@ pub fn prepare_export_render(
     let (photo_w, photo_h) = source.pristine.dimensions();
     let mask_geometry =
         PhotoGeometry::from_adjustments(js_adjustments).with_decoded_size(photo_w, photo_h);
+    if let Some(inputs) = env.render_inputs {
+        inputs.geometry(
+            transform_path,
+            js_adjustments,
+            is_raw,
+            after_fringe,
+            (img_w, img_h),
+            unscaled_crop_offset,
+            color_noise.map(|tuning| format!("{tuning:?}")),
+            &mask_geometry,
+            transformed_image.as_deref(),
+        );
+    }
     // The layers a render uses, in order.
     let layers: Vec<&MaskDefinition> = mask_definitions
         .iter()
@@ -1478,6 +1519,12 @@ pub fn prepare_export_render(
         )
         .ok_or_else(|| "A mask layer produced no bitmap.".to_string())
     };
+    let render_inputs = env.render_inputs;
+    let record_mask = |index: usize, mask: &MaskBitmap| {
+        if let Some(inputs) = render_inputs {
+            inputs.mask_bitmap(index, mask);
+        }
+    };
 
     let uploaded = match (uploaded, &transformed_image) {
         (Some(uploaded), _) => Some(uploaded),
@@ -1491,8 +1538,13 @@ pub fn prepare_export_render(
         let masks_stage = crate::performance::PerformanceStage::new("export_masks");
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = layers
             .par_iter()
-            .map(|def| generate(def).map(Arc::new))
-            .collect::<Result<_, _>>()?;
+            .enumerate()
+            .map(|(index, def)| {
+                let mask = generate(def)?;
+                record_mask(index, &mask);
+                Ok(Arc::new(mask))
+            })
+            .collect::<Result<_, String>>()?;
         drop(warped_image);
         #[cfg(feature = "performance-profiling")]
         drop(masks_stage);
@@ -1538,6 +1590,7 @@ pub fn prepare_export_render(
                                 return Ok(());
                             };
                             let mask = generate(def)?;
+                            record_mask(index, &mask);
                             uploader
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())
@@ -1580,6 +1633,15 @@ pub fn render_prepared_export(
 ) -> Result<DynamicImage, String> {
     let mut adjustments = prepared.adjustments.clone();
     set_output_color_space(&mut adjustments, color_space);
+    if let Some(inputs) = env.render_inputs {
+        inputs.render(
+            &adjustments,
+            prepared.lut.as_deref(),
+            prepared.size(),
+            output_precision,
+            color_space,
+        );
+    }
     let (source, mask_bitmaps) = match &prepared.target {
         PreparedTarget::Gpu(kept) => (RenderSource::Kept(kept), &[][..]),
         PreparedTarget::Windows {

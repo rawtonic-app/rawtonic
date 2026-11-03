@@ -12,6 +12,7 @@ pub mod output;
 pub mod output_sharpening;
 pub mod proof_sheet;
 pub mod queue;
+pub mod render_inputs;
 pub mod sidecars;
 pub mod text_watermark;
 pub mod tiff_exif;

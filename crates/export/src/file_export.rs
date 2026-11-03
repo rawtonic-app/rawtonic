@@ -18,6 +18,7 @@ use crate::export_processing::{
 };
 use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot};
 use crate::output::write_new_output;
+use crate::render_inputs::RenderInputs;
 use rawtonic_engine::ai_selections::{SelectionDetector, detect_missing};
 use rawtonic_engine::file_io::read_file_mapped;
 use rawtonic_engine::formats::is_raw_file;
@@ -110,6 +111,8 @@ pub struct FileExporter {
     /// Computes the Sky and Subject selections a recipe holds without their
     /// bitmap (a never-opened import); without it such exports fail.
     selections: Option<Arc<dyn SelectionDetector>>,
+    /// Records each export's render inputs (QA, [`crate::render_inputs`]).
+    render_inputs: Option<Arc<RenderInputs>>,
 }
 
 impl FileExporter {
@@ -132,6 +135,7 @@ impl FileExporter {
             image_cache: Mutex::new(None),
             mosaic_denoisers: [None, None],
             selections: None,
+            render_inputs: None,
         })
     }
 
@@ -147,6 +151,13 @@ impl FileExporter {
     /// The networks for Sky and Subject selections still to compute.
     pub fn with_selection_detector(mut self, detector: Arc<dyn SelectionDetector>) -> Self {
         self.selections = Some(detector);
+        self
+    }
+
+    /// Records the render inputs of the exports into `inputs` (QA): each
+    /// export replaces the previous one's entries.
+    pub fn with_render_inputs(mut self, inputs: Arc<RenderInputs>) -> Self {
+        self.render_inputs = Some(inputs);
         self
     }
 
@@ -174,6 +185,13 @@ impl FileExporter {
             base.mosaic_denoise =
                 Some(MosaicDenoise::new(denoiser, ai.blend).with_noise_scale(ai.noise_scale));
         }
+        if let Some(inputs) = &self.render_inputs {
+            inputs.decode(
+                is_raw,
+                &base,
+                ai_denoise_settings(&js_adjustments).filter(|_| is_raw),
+            );
+        }
         let (pristine_source, measures) = match read_file_mapped(job.source) {
             Ok(mmap) => load_base_image_measured(&mmap, &source_path_str, false, &base, None)
                 .map_err(|e| format!("Failed to load from mmap: {}", e))?,
@@ -196,6 +214,9 @@ impl FileExporter {
         .map_err(|e| format!("{}: not exported, {e}", job.source.display()))?;
         let source =
             prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?;
+        if let Some(inputs) = &self.render_inputs {
+            inputs.source(&source);
+        }
 
         // The app's default preferences: no forced tone mapper.
         let tonemapper_override = |_is_raw: bool| None;
@@ -210,6 +231,7 @@ impl FileExporter {
             image_cache: &self.image_cache,
             tonemapper_override: &tonemapper_override,
             load_lut: &load_lut,
+            render_inputs: self.render_inputs.as_deref(),
         };
         // The app reads the EXIF map its loader cached for the source; it is
         // extracted the same way here.

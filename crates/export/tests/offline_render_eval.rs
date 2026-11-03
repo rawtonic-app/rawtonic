@@ -148,6 +148,7 @@ fn render(
         image_cache: cache,
         tonemapper_override: &tonemapper,
         load_lut: &lut,
+        render_inputs: None,
     };
     let source = ExportSource {
         pristine: Arc::clone(image),

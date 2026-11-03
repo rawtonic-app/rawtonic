@@ -1567,6 +1567,7 @@ fn export_photo(
         image_cache: &state.gpu_image_cache,
         tonemapper_override: &tonemapper_override,
         load_lut: &load_lut,
+        render_inputs: None,
     };
     // The develop of each kind of main file the recipes want: with its
     // mask layers, or without them when they go to separate files.

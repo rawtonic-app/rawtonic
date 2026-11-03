@@ -1,0 +1,148 @@
+{
+  "null": null,
+  "empty": {},
+  "frame-only": {
+    "sourceFrameVersion": 3
+  },
+  "lens-profile-for-only": {
+    "lensProfileFor": "{\"lensCorrectionMode\":\"manual\",\"lensDistortionParams\":null,\"lensMaker\":null,\"lensModel\":null}"
+  },
+  "frame-and-lens-profile-for": {
+    "sourceFrameVersion": 0,
+    "lensProfileFor": "unresolved"
+  },
+  "old-no-version-keys": {
+    "exposure": 0.7,
+    "contrast": 20,
+    "saturation": 10
+  },
+  "partial-render-v1": {
+    "renderVersion": 1,
+    "exposure": -0.3,
+    "toneVersion": 1
+  },
+  "partial-render-v2": {
+    "renderVersion": 2,
+    "toneVersion": 3,
+    "clarity": 15,
+    "sharpness": 40,
+    "sharpenVersion": 2
+  },
+  "partial-render-v7": {
+    "renderVersion": 7,
+    "toneVersion": 8,
+    "colorNoiseVersion": 9,
+    "sharpenVersion": 6,
+    "crop": {
+      "unit": "px",
+      "x": 10,
+      "y": 20,
+      "width": 300,
+      "height": 200
+    },
+    "rotation": 1.5
+  },
+  "explicit-nulls": {
+    "renderVersion": 11,
+    "crop": null,
+    "lutPath": null,
+    "exposure": null,
+    "masks": null,
+    "faceRetouch": null,
+    "aspectRatio": null,
+    "lensMaker": null
+  },
+  "nested-unknown": {
+    "renderVersion": 11,
+    "toneVersion": 10,
+    "hsl": {
+      "reds": {
+        "hue": 5,
+        "saturation": 0,
+        "luminance": 0,
+        "futureChannel": 2
+      }
+    },
+    "masks": [
+      {
+        "id": "m1",
+        "name": "Mask",
+        "visible": true,
+        "invert": false,
+        "opacity": 100,
+        "adjustments": {
+          "exposure": 0.5,
+          "futureMaskSlider": 7,
+          "nested": {
+            "deeper": [
+              1,
+              null,
+              {
+                "z": "x"
+              }
+            ]
+          }
+        },
+        "futureMaskField": {
+          "a": [
+            1,
+            null
+          ]
+        },
+        "subMasks": [
+          {
+            "id": "s1",
+            "type": "radial",
+            "visible": true,
+            "invert": false,
+            "opacity": 100,
+            "mode": "additive",
+            "parameters": {
+              "centerX": 100,
+              "centerY": 80,
+              "radiusX": 50,
+              "radiusY": 40,
+              "rotation": 0,
+              "feather": 0.5,
+              "unknownParam": 3
+            },
+            "futureSubField": null
+          }
+        ]
+      }
+    ],
+    "colorGrading": {
+      "balance": 0,
+      "blending": 50,
+      "global": {
+        "hue": 0,
+        "saturation": 0,
+        "luminance": 0,
+        "extra": true
+      }
+    }
+  },
+  "future-version": {
+    "renderVersion": 999,
+    "toneVersion": 999,
+    "exposure": 1,
+    "brandNewTool": {
+      "x": 1,
+      "y": [
+        2,
+        3
+      ]
+    },
+    "unknownTopLevel": "keep me"
+  },
+  "number-forms": {
+    "exposure": 1.0,
+    "contrast": 1,
+    "highlights": -0.0,
+    "shadows": 1e-07,
+    "whites": 123456.789,
+    "blacks": -5,
+    "centré": 20,
+    "renderVersion": 11
+  }
+}
