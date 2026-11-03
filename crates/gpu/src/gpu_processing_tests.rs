@@ -10705,6 +10705,281 @@ fn tone_version_9_blacks_drag_render_time() {
     }
 }
 
+/// A ramp of scene luminance from 2^-9 to 2^1 across the columns, with a
+/// texture of ±0.4 EV (periods of 17 and 27 pixels) when `textured`.
+fn whites_v10_levels(width: u32, height: u32, textured: bool) -> Vec<f32> {
+    (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 10.0 * x as f32 / (width - 1) as f32;
+            let texture = if textured {
+                0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos())
+            } else {
+                0.0
+            };
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect()
+}
+
+fn lstar_of_codes(p: &[u16; 3]) -> f64 {
+    let y = 0.2126 * srgb_code_to_linear(p[0])
+        + 0.7152 * srgb_code_to_linear(p[1])
+        + 0.0722 * srgb_code_to_linear(p[2]);
+    if y > 0.008856 {
+        116.0 * y.cbrt() - 16.0
+    } else {
+        903.3 * y
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Whites of tone version 10 keeps the bright areas' texture"]
+fn tone_version_10_whites_keeps_bright_texture() {
+    let context = context();
+    // 1080 rows: the blurs and the base's ring at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let textured = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let smooth = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, false),
+    );
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without lowered Whites version 10 renders as version 9, also through a
+    // file's own curve, and so does lowered Whites under the other looks.
+    for look in [(3, 2.0), (3, 1.0)] {
+        for recipe in [
+            json!({}),
+            json!({ "whites": 100 }),
+            json!({ "blacks": -60, "shadows": 50, "highlights": -80, "contrast": 30 }),
+            json!({ "whites": 40, "blacks": 40 }),
+        ] {
+            assert!(
+                render_raw_look(
+                    &processor,
+                    &textured,
+                    (width, height),
+                    &with(&recipe, 9),
+                    look
+                ) == render_raw_look(
+                    &processor,
+                    &textured,
+                    (width, height),
+                    &with(&recipe, 10),
+                    look
+                ),
+                "{recipe} under {look:?} differs"
+            );
+        }
+    }
+    for look in [(2, 2.0), (0, 2.0)] {
+        let recipe = json!({ "whites": -80 });
+        assert!(
+            render_raw_look(
+                &processor,
+                &textured,
+                (width, height),
+                &with(&recipe, 9),
+                look
+            ) == render_raw_look(
+                &processor,
+                &textured,
+                (width, height),
+                &with(&recipe, 10),
+                look
+            ),
+            "{recipe} under {look:?} differs"
+        );
+    }
+    let look = (3, 2.0);
+    let render = |view: &wgpu::TextureView, recipe: serde_json::Value| {
+        render_raw_look(&processor, view, (width, height), &recipe, look)
+    };
+    let neutral = render(&textured, with(&json!({}), 10));
+    let rows = (64..(height - 64) as usize).step_by(4);
+    let columns = 32..(width - 32) as usize;
+    for amount in [50, 100] {
+        let ninth = render(&textured, with(&json!({ "whites": -amount }), 9));
+        let tenth = render(&textured, with(&json!({ "whites": -amount }), 10));
+        // In the bright quarter (neutral L* 75–95) the texture keeps more of
+        // its L* contrast (std of L* minus the row's 9-pixel mean), and the
+        // area darkens about as much as with version 9.
+        let (mut det, mut dark) = ([0.0f64; 3], [0.0f64; 2]);
+        let mut n = 0.0;
+        for y in rows.clone() {
+            for x in columns.clone() {
+                let i = y * width as usize + x;
+                let l0 = lstar_of_codes(&neutral[i]);
+                if !(75.0..95.0).contains(&l0) {
+                    continue;
+                }
+                let local = |img: &[[u16; 3]]| {
+                    let mean = (x - 4..=x + 4)
+                        .map(|k| lstar_of_codes(&img[y * width as usize + k]))
+                        .sum::<f64>()
+                        / 9.0;
+                    (lstar_of_codes(&img[i]) - mean).powi(2)
+                };
+                det[0] += local(&neutral);
+                det[1] += local(&ninth);
+                det[2] += local(&tenth);
+                dark[0] += lstar_of_codes(&ninth[i]) - l0;
+                dark[1] += lstar_of_codes(&tenth[i]) - l0;
+                n += 1.0;
+            }
+        }
+        let (kept_9, kept_10) = ((det[1] / det[0]).sqrt(), (det[2] / det[0]).sqrt());
+        let (dark_9, dark_10) = (dark[0] / n, dark[1] / n);
+        eprintln!(
+            "Whites −{amount}: bright texture kept {kept_9:.3} → {kept_10:.3}, darkened {dark_9:.2} → {dark_10:.2} L*"
+        );
+        // Metal: −50 0.949 → 1.145, −100 0.820 → 1.210.
+        assert!(
+            kept_10 >= kept_9 + 0.1 && kept_10 >= 1.0,
+            "Whites −{amount}: texture kept {kept_10:.3} (version 9 {kept_9:.3})"
+        );
+        assert!(
+            (dark_10 - dark_9).abs() <= 0.25 * dark_9.abs().max(1.0),
+            "Whites −{amount}: darkened {dark_10:.2} L* (version 9 {dark_9:.2})"
+        );
+        // On a smooth ramp brighter tones stay brighter (by 0.01 L* or two
+        // codes) and nothing turns lighter than the neutral render.
+        let flat_neutral = render(&smooth, with(&json!({}), 10));
+        let flat = render(&smooth, with(&json!({ "whites": -amount }), 10));
+        let row = (height / 2 * width) as usize;
+        for x in columns.clone() {
+            let (a, b) = (&flat[row + x - 1], &flat[row + x]);
+            let codes = (0..3).map(|c| a[c] as i32 - b[c] as i32).max().unwrap();
+            assert!(
+                lstar_of_codes(b) >= lstar_of_codes(a) - 0.01 || codes <= 2,
+                "Whites −{amount}: column {x} below column {}",
+                x - 1
+            );
+            assert!(
+                lstar_of_codes(&flat[row + x]) <= lstar_of_codes(&flat_neutral[row + x]) + 0.02,
+                "Whites −{amount}: column {x} turned lighter"
+            );
+        }
+    }
+}
+
+/// Lowered Whites of tone version 10 reads the small blur up to 30 pixels
+/// beyond a pixel (`whites_v10_offset`): within the tiles' 128-pixel
+/// overlap, so rows next to a tile seam render as the same content inside a
+/// tile.
+#[test]
+#[ignore = "requires a native GPU; lowered Whites of tone version 10 at tile seams"]
+fn tone_version_10_whites_joins_tiles_exactly() {
+    let context = context();
+    let width = 5400;
+    let content = |y: i64, x: u32| {
+        let mut h = (y.div_euclid(16) as u32).wrapping_mul(0x9e37_79b9);
+        h ^= h >> 15;
+        let band = 0.3 + 0.7 * (h % 1000) as f32 / 1000.0;
+        // Narrow dark columns as well, for the base's sideways samples.
+        let v = if x % 97 < 3 {
+            0.02
+        } else {
+            band + 0.05 * (x as f32 / width as f32)
+        };
+        image::Rgb([v, v * 0.9, v * 0.8])
+    };
+    let photo = |height: u32, shift: i64| {
+        DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+            content(y as i64 - shift, x)
+        }))
+    };
+    let seam = 2048;
+    let rows = |shift: u32| Roi {
+        x: 0,
+        y: seam - 150 + shift,
+        width,
+        height: 300,
+    };
+    let profile = json!({"whites": -100, "toneVersion": 10, "renderVersion": 11,
+        "testTonemapperMode": 3});
+    let render = |source: &DynamicImage, roi: Roi| {
+        chunk_test_render(
+            &context,
+            source,
+            &profile,
+            true,
+            RenderOutputPrecision::SixteenBit,
+            Some(roi),
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    let at_seam = render(&photo(6000, 0), rows(0));
+    let inside = render(&photo(7024, 1024), rows(1024));
+    let diff = at_seam
+        .as_raw()
+        .iter()
+        .zip(inside.as_raw())
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert!(diff <= 1, "a seam row renders as a tile's inside: {diff}");
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Whites of tone version 10 against version 9: GPU time of a preview render per drag step"]
+fn tone_version_10_whites_drag_render_time() {
+    // As `tone_version_9_blacks_drag_render_time`, with Whites stepped down.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 9 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "whites": -20 - 6 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 9) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            9 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
 #[test]
 #[ignore = "requires a native GPU; lowered Highlights of tone version 7 against version 6 on a night key: GPU time of a preview render per drag step"]
 fn tone_version_7_highlights_drag_render_time() {
@@ -13185,6 +13460,10 @@ fn chunk_test_render(
     // A measured noise level as the photo's (not a recipe key).
     if let Some(level) = profile["testNoiseLevel"].as_f64() {
         adjustments.uniforms.global.noise_level = level as f32;
+    }
+    // A base look by its shader mode (3: the Camera Raw look), not a recipe key.
+    if let Some(mode) = profile["testTonemapperMode"].as_u64() {
+        adjustments.uniforms.global.tonemapper_mode = mode as u32;
     }
     let mask = masked(ImageBuffer::from_fn(width, height, |x, y| {
         Luma([((x * 3 + y * 7) % 256) as u8])
