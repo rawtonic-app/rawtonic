@@ -3151,9 +3151,7 @@ fn finish_texture_readback_with<R>(
     let _copy_stage = crate::performance::PerformanceStage::new("gpu_readback_copy");
 
     let buffer_slice = buffer.slice(..);
-    let mapped = buffer_slice
-        .get_mapped_range()
-        .map_err(|e| e.to_string())?;
+    let mapped = buffer_slice.get_mapped_range().map_err(|e| e.to_string())?;
     let rows = (padded_bytes_per_row * height) as usize;
     let pixels = consume(
         &mapped[..rows],
