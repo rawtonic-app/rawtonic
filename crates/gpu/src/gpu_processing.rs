@@ -4610,7 +4610,10 @@ impl DetailKey {
         // (shader.wgsl `sharpen_v7_tone_weight`): its baseline exposure and
         // the profile's curve.
         key[36] = global.baseline_exposure.to_bits();
-        for (slot, value) in key[37..].iter_mut().zip(global.profile_curve.iter().flatten()) {
+        for (slot, value) in key[37..]
+            .iter_mut()
+            .zip(global.profile_curve.iter().flatten())
+        {
             *slot = value.to_bits();
         }
         key[..36].copy_from_slice(&[

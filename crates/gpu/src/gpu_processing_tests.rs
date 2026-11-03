@@ -2047,10 +2047,15 @@ fn sharpen_version_7_masks_bright_flat_noise() {
     let pixels: Vec<f16> = (0..width * height)
         .flat_map(|i| {
             let (x, y) = (i % width, i / width);
-            let hash = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)).wrapping_mul(2_654_435_761);
+            let hash = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663))
+                .wrapping_mul(2_654_435_761);
             let noise = (hash >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0;
             let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
-            let base = if x < width / 2 { 0.85f32 } else { 0.4 * (1.0 + 0.2 * phase(x) * phase(y)) };
+            let base = if x < width / 2 {
+                0.85f32
+            } else {
+                0.4 * (1.0 + 0.2 * phase(x) * phase(y))
+            };
             // Uniform noise of σ 0.02 in the square-root encoding.
             let p = base.sqrt() + noise * noise_level * 3f32.sqrt();
             let v = f16::from_f32(p * p);
@@ -2068,7 +2073,12 @@ fn sharpen_version_7_masks_bright_flat_noise() {
                 &view,
                 width,
                 height,
-                RenderRequest { adjustments, mask_bitmaps: &[], lut: None, roi: None },
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
                 false,
                 RenderOutputPrecision::SixteenBit,
             )
@@ -2084,9 +2094,15 @@ fn sharpen_version_7_masks_bright_flat_noise() {
     };
     // Without Masking, and on non-RAW photos, response 6 bit for bit.
     assert_eq!(render(recipe(0.0, 7), true), render(recipe(0.0, 6), true));
-    assert_eq!(render(recipe(50.0, 7), false), render(recipe(50.0, 6), false));
+    assert_eq!(
+        render(recipe(50.0, 7), false),
+        render(recipe(50.0, 6), false)
+    );
     // Sharpening change per half against the unsharpened render.
-    let flat = render(json!({"sharpness": 0, "lumaNoiseReduction": 0, "colorNoiseReduction": 0}), true);
+    let flat = render(
+        json!({"sharpness": 0, "lumaNoiseReduction": 0, "colorNoiseReduction": 0}),
+        true,
+    );
     let change = |version: u64| {
         let pixels = render(recipe(50.0, version), true);
         let mut sums = [0.0f64; 2];
@@ -2102,8 +2118,16 @@ fn sharpen_version_7_masks_bright_flat_noise() {
     // Masking 50 tells the texture from the bright flat noise far better:
     // the texture keeps more of its sharpening relative to the noise.
     let (r6, r7) = (v6[1] / v6[0], v7[1] / v7[0]);
-    eprintln!("flat {} / {}, texture {} / {}, texture per noise {r6:.2} / {r7:.2}", v6[0], v7[0], v6[1], v7[1]);
-    assert!(v7[0] < 0.5 * v6[0], "bright flat noise: {} against {}", v7[0], v6[0]);
+    eprintln!(
+        "flat {} / {}, texture {} / {}, texture per noise {r6:.2} / {r7:.2}",
+        v6[0], v7[0], v6[1], v7[1]
+    );
+    assert!(
+        v7[0] < 0.5 * v6[0],
+        "bright flat noise: {} against {}",
+        v7[0],
+        v6[0]
+    );
     assert!(r7 > 2.0 * r6, "texture per flat noise: {r7} against {r6}");
 }
 
