@@ -19,6 +19,13 @@
 //! sensor before they crop: on the frame alone the warp lacked the pixels
 //! beyond it (HX95, RX0 II, ZV-E10 16:9 against the camera's JPEG: 11.9,
 //! 3.4, 2.0 → 0.35, 0.45, 0.38 JPEG px; notes: parity-gaps/G71, ssz).
+//!
+//! 3 (2026-11-03): a compressed RAF of the X-T2, X-Pro2, X-E3 and X-T20
+//! keeps the active area of the camera's `compressed` mode (rawler 0.8.0's
+//! mode selection). Below version 3 the uncompressed files' active area
+//! (a 128 px right border of a 6160 px buffer) cut the 6048 px compressed
+//! buffer, so the frame developed 5904 × 4000 instead of the 6000 × 4000
+//! the camera records and its JPEG shows (notes: parity-gaps/G71, rwf).
 
 use rawler::RawImage;
 use rawler::decoders::{FormatHint, RawDecodeParams};
@@ -26,13 +33,16 @@ use rawler::imgop::{Point, Rect};
 use rawler::rawsource::RawSource;
 
 /// The newest frame version: new edits start with it.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// Version 1's fix: a CR3's active area holds its recorded crop.
 const CR3_RECORDED_CROP: u32 = 1;
 
 /// Version 2's fix: a Sony ARW keeps the sensor around its aspect frame.
 const ARW_WHOLE_SENSOR: u32 = 2;
+
+/// Version 3's fix: a compressed RAF keeps its compressed mode's active area.
+const RAF_COMPRESSED_AREA: u32 = 3;
 
 /// Whether some frame version can change the frame of a file with this
 /// extension (any case, no dot): only those files are read to find out.
@@ -48,6 +58,7 @@ pub fn changes(version: u32, extension: &str) -> bool {
     match version {
         CR3_RECORDED_CROP => extension.eq_ignore_ascii_case("cr3"),
         ARW_WHOLE_SENSOR => extension.eq_ignore_ascii_case("arw"),
+        RAF_COMPRESSED_AREA => extension.eq_ignore_ascii_case("raf"),
         _ => false,
     }
 }
@@ -102,6 +113,32 @@ pub(crate) fn apply(raw_image: &mut RawImage, format: FormatHint, version: u32) 
             raw_image.height,
         ));
     }
+    if version < RAF_COMPRESSED_AREA && format == FormatHint::RAF {
+        restore_uncompressed_area(raw_image);
+    }
+}
+
+/// Before version 3 a RAF decoded in the camera's `compressed` mode gets
+/// the active area of the camera's base mode back, as the decoder gave it
+/// before it selected the mode.
+fn restore_uncompressed_area(raw_image: &mut RawImage) {
+    if raw_image.camera.mode != "compressed" {
+        return;
+    }
+    let key = (
+        raw_image.camera.make.clone(),
+        raw_image.camera.model.clone(),
+        String::new(),
+    );
+    let Some(base) = rawler::global_loader().get_cameras().get(&key) else {
+        return;
+    };
+    raw_image.active_area = base.active_area.map(|borders| {
+        Rect::new_with_borders(
+            rawler::imgop::Dim2::new(raw_image.width, raw_image.height),
+            &borders,
+        )
+    });
 }
 
 /// The active area grown to hold the recorded `crop` (within the `width` ×
@@ -347,5 +384,47 @@ mod fixture_tests {
             }
         }
         println!("frame changed on {changed:?}");
+    }
+
+    /// Compressed RAFs (X-T2, X-Pro2, X-E3, X-T20) develop the crop the
+    /// camera records from version 3 on and the old, narrower frame below
+    /// it; uncompressed RAFs develop alike in every version.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
+    fn compressed_rafs_develop_the_recorded_crop_from_version_3() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let mut compressed = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if !path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("raf"))
+            {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let source = RawSource::new(&path).unwrap();
+            let raw_image = rawler::get_decoder(&source)
+                .unwrap()
+                .raw_image(&source, &RawDecodeParams::default(), true)
+                .unwrap();
+            let (old, new) = (
+                frame(&source, RAF_COMPRESSED_AREA - 1),
+                frame(&source, VERSION),
+            );
+            if raw_image.camera.mode == "compressed" {
+                let crop = raw_image.crop_area.unwrap();
+                let new = new.unwrap();
+                assert_eq!(new.rect, [crop.p.x, crop.p.y, crop.d.w, crop.d.h], "{name}");
+                assert!(old.unwrap().rect[2] < new.rect[2], "{name}");
+                assert_eq!(old, frame(&source, 0), "{name}");
+                assert_eq!(effective(&source, VERSION), RAF_COMPRESSED_AREA, "{name}");
+                println!("{name}: {:?} -> {:?}", old.unwrap().rect, new.rect);
+                compressed += 1;
+            } else {
+                assert_eq!(old, new, "{name}");
+            }
+        }
+        assert!(compressed > 0, "no compressed RAF in the fixture folder");
     }
 }
