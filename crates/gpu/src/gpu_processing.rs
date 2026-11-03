@@ -4689,6 +4689,18 @@ fn shadows_v6_used(adjustments: &AllAdjustments) -> bool {
                 .any(|m| m.shadows > 0.0))
 }
 
+/// Whether lowered Whites of tone version 10 reads the small blur's mean log
+/// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
+fn whites_v10_used(adjustments: &AllAdjustments) -> bool {
+    adjustments.global.tone_version > 9.5
+        && (adjustments.global.whites < 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.whites < 0.0))
+}
+
 fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
     let g = &adjustments.global;
     let used = g.clarity != 0.0
@@ -4736,6 +4748,9 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
     // Raised Shadows of tone version 6 takes its level from the small blur
     // too (shader.wgsl shadows_v6_wide).
     let shadows_v6 = g.tone_version > 5.5;
+    // Lowered Whites of tone version 10 takes its base from it as well
+    // (shader.wgsl whites_v10_offset).
+    let whites_v10 = g.tone_version > 9.5;
     let mut required = [
         g.sharpness != 0.0 || g.color_noise_reduction != 0.0 || luma_nr,
         g.sharpness != 0.0
@@ -4747,7 +4762,8 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || g.centré != 0.0
             || g.halation_amount > 0.0
             || (clarity_v2 && g.clarity != 0.0)
-            || (shadows_v6 && g.shadows > 0.0),
+            || (shadows_v6 && g.shadows > 0.0)
+            || (whites_v10 && g.whites < 0.0),
         g.clarity != 0.0 || g.dehaze != 0.0 || g.glow_amount > 0.0,
         luma_nr,
     ];
@@ -4765,7 +4781,8 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
         required[2] |= m.structure != 0.0
             || m.halation_amount > 0.0
             || (clarity_v2 && m.clarity != 0.0)
-            || (shadows_v6 && m.shadows > 0.0);
+            || (shadows_v6 && m.shadows > 0.0)
+            || (whites_v10 && m.whites < 0.0);
         required[3] |= m.clarity != 0.0 || m.dehaze != 0.0 || m.glow_amount > 0.0;
         if m.luma_noise_reduction != 0.0 {
             required[1] = true;
@@ -8516,12 +8533,13 @@ impl GpuProcessor {
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
         let mut tall_ping_pong: Option<wgpu::TextureView> = None;
-        // Only Clarity version 2 and raised Shadows of tone version 6 read the
-        // blurs' mean log luminance (alpha); only Clarity the large blur
+        // Only Clarity version 2, raised Shadows of tone version 6 and
+        // lowered Whites of tone version 10 read the blurs' mean log
+        // luminance (alpha); only Clarity the large blur
         // beyond the tile; its rows there are exact on
         // every render version (older ones read no blur beyond the tile).
         let reach = clarity_reach(&adjustments, scale);
-        let log_alpha = reach > 0 || shadows_v6_used(&adjustments);
+        let log_alpha = reach > 0 || shadows_v6_used(&adjustments) || whites_v10_used(&adjustments);
         // Tone version 6 stores the small blur's mean log luminance against
         // the log luminance of its colour (blur.wgsl, flag bit 2): in deep
         // shadows the absolute value kept only 0.008 EV in 16 bits, which
