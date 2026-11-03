@@ -29,6 +29,7 @@ import { notDeliveredToast } from '../components/session/tether';
 import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '../utils/photoWrites';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave } from './useEditorActions';
+import { sourceOf } from '../entities/photo/photoRef';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -445,7 +446,7 @@ export function useTauriListeners({
         // replaced by the kept one once the photograph is ready again.
         const reload = () => {
           const shown = useEditorStore.getState().selectedImage;
-          if (!shown?.isDecoded || shown.path.split('?vc=')[0] !== path) return;
+          if (!shown?.isDecoded || sourceOf(shown.path) !== path) return;
           // An undo step still waiting for its debounce goes into the
           // history kept, not into the loader's new one.
           debouncedSetHistory.flush();

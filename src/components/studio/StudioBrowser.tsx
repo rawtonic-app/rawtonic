@@ -20,6 +20,7 @@ import { offlineTitle } from '../../utils/offline';
 import { PhotoEyesBadge } from './StudioEyes';
 import type { StackMark } from '../../store/useStackStore';
 import { toggleStacks } from '../../utils/stacks';
+import { copyOf, sourceFileName } from '../../entities/photo/photoRef';
 
 export function visibleRange(count: number, offset: number, viewport: number, extent: number, columns = 1) {
   const start = Math.max(0, (Math.floor(offset / extent) - 1) * columns);
@@ -77,8 +78,8 @@ const Tile = memo(function Tile({
     .toLowerCase();
   // A virtual copy's path carries "?vc=<id>"; show the file name and say it is a copy.
   // Library paths use either separator (Windows listings mix them).
-  const fileName = file.path.split('?vc=')[0].split(/[\\/]/).pop() ?? '';
-  const copyId = file.path.split('?vc=')[1];
+  const fileName = sourceFileName(file.path);
+  const copyId = copyOf(file.path);
   const label = copyId ? t('studio.library.browser.virtualCopyName', { name: fileName }) : fileName;
   const colorLabels = {
     red: t('studio.library.colorLabels.red'),

@@ -16,6 +16,7 @@ import { submitPhotoWrite } from '../utils/photoWrites';
 import { catalogAction, showCullingChanges, type CullingChange } from '../utils/appUndo';
 import type { FolderTree } from '../utils/folderTree';
 import { noteTool } from '../components/contribute/usageStats';
+import { sourceOf } from '../entities/photo/photoRef';
 
 /** Modifier keys read from a selection click (React or DOM mouse event). */
 type SelectionModifiers = Pick<MouseEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>;
@@ -243,7 +244,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
             : [];
     if (pathsToUpdate.length === 0) return;
 
-    const physicalPathsSet = new Set(pathsToUpdate.map((p) => p.split('?vc=')[0]));
+    const physicalPathsSet = new Set(pathsToUpdate.map((p) => sourceOf(p)));
     const physicalPathsArray = Array.from(physicalPathsSet);
 
     try {
@@ -256,13 +257,13 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       );
 
       setEditor((state) => {
-        if (!state.selectedImage || !physicalPathsSet.has(state.selectedImage.path.split('?vc=')[0])) return state;
+        if (!state.selectedImage || !physicalPathsSet.has(sourceOf(state.selectedImage.path))) return state;
         return { selectedImage: { ...state.selectedImage, exif: { ...(state.selectedImage.exif || {}), ...updates } } };
       });
 
       setLibrary((state) => ({
         imageList: state.imageList.map((img) => {
-          if (physicalPathsSet.has(img.path.split('?vc=')[0])) {
+          if (physicalPathsSet.has(sourceOf(img.path))) {
             return { ...img, exif: { ...(img.exif || {}), ...updates } };
           }
           return img;

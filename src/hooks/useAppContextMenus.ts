@@ -106,6 +106,7 @@ import {
   unstack,
   useAutoStackDialog
 } from '../utils/stacks';
+import { isCopy, isCopyOf, sourceOf } from '../entities/photo/photoRef';
 
 const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
 
@@ -672,13 +673,13 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
       const selectionHasVirtualCopies =
         isSingleSelection &&
-        !finalSelection[0].includes('?vc=') &&
-        imageList.some((image) => image.path.startsWith(`${finalSelection[0]}?vc=`));
+        !isCopy(finalSelection[0]) &&
+        imageList.some((image) => isCopyOf(image.path, finalSelection[0]));
 
       const hasAssociatedFiles = finalSelection.some((selectedPath) => {
         // A virtual copy is only its own edit: its original and the other copies
         // are not "associated files" to delete with it.
-        if (selectedPath.includes('?vc=')) return false;
+        if (isCopy(selectedPath)) return false;
         const image = imageList.find((img) => img.path === selectedPath);
         if (image?.group_id != null) return true;
 
@@ -1101,7 +1102,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               {
                 icon: FolderInput,
                 label: t('settings.keybinds.actions.move_to_selects'),
-                disabled: finalSelection.every((p) => p.split('?vc=')[0].startsWith(`${sessionSelects}/`)),
+                disabled: finalSelection.every((p) => sourceOf(p).startsWith(`${sessionSelects}/`)),
                 onClick: () =>
                   // A Selects folder outside the session whose drive is away
                   // refuses the move, naming it (G38).

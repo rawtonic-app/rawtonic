@@ -5,6 +5,7 @@
  */
 import { COPYABLE_ADJUSTMENT_KEYS, sameAdjustmentValue, type Adjustments } from './adjustments';
 import { formatAperture, formatFocalLength, formatIso, formatShutter, parseExposureTime } from './captureInfo';
+import { isCopy, sourceFileName } from '../entities/photo/photoRef';
 
 /** At most this many cells; with more photographs selected the last cell
  * says how many more there are (Capture One shows 12). */
@@ -179,8 +180,8 @@ export function captureLine(level: CaptionLevel, values: CaptureValues): string 
 }
 
 export function fileName(path: string): string {
-  const name = path.split('?vc=')[0].split(/[\\/]/).pop() ?? path;
-  return path.includes('?vc=') ? `${name} ⧉` : name;
+  const name = sourceFileName(path);
+  return isCopy(path) ? `${name} ⧉` : name;
 }
 
 /**

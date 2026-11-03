@@ -14,6 +14,7 @@ import { writeCaptureTimes, type PlannedChange } from './captureTime';
 import { editUndoOrder, nextUndoOrder, onNewEdit } from './undoOrder';
 import { registerWrittenSteps, travelKeptHistory } from './photoHistory';
 import { refreshStacks, type StackChange } from '../store/useStackStore';
+import { copyOf, sourceFileName, sourceOf } from '../entities/photo/photoRef';
 
 export type CullingValue = { kind: 'rating' | 'flag'; value: number } | { kind: 'color'; value: string | null };
 export interface CullingChange {
@@ -150,7 +151,7 @@ interface PendingWork {
 const pendingWork = new Set<PendingWork>();
 function overlaps(left?: readonly string[], right?: readonly string[]) {
   if (!left || !right) return true; // Unknown journal targets require serialization.
-  const physical = (path: string) => path.split('?vc=')[0].replaceAll('\\', '/').replace(/\/$/, '');
+  const physical = (path: string) => sourceOf(path).replaceAll('\\', '/').replace(/\/$/, '');
   return left.some((a) =>
     right.some((b) => {
       const x = physical(a),
@@ -170,8 +171,8 @@ function recordMoves(moves: PathMove[]) {
   if (!moves.length) return;
   const mapped = new Map<string, string>();
   for (const { from, to } of moves) {
-    const source = from.split('?vc=')[0];
-    const destination = to.split('?vc=')[0];
+    const source = sourceOf(from);
+    const destination = sourceOf(to);
     if (source !== destination) mapped.set(source, destination);
   }
   if (!mapped.size) return;
@@ -875,7 +876,7 @@ export function getRedoLabel(): string {
 function noticeText(action: string, changes: CullingChange[], limit = 1) {
   const name = changes
     .slice(0, limit)
-    .map(({ path }) => path.split('?vc=')[0].split(/[\\/]/).pop())
+    .map(({ path }) => sourceFileName(path))
     .join(', ');
   return changes.length > limit
     ? i18n.t('undoHistory.noticeMany', {
@@ -899,7 +900,10 @@ function notifyOtherPhotos(action: string, changes: CullingChange[]) {
   const offscreen = changes.filter(
     ({ path, after }) =>
       !shown.has(path) &&
-      !(after.kind === 'flag' && [...shown].some((visible) => visible?.split('?vc=')[0] === path.split('?vc=')[0]))
+      !(
+        after.kind === 'flag' &&
+        [...shown].some((visible) => visible !== undefined && visible !== null && sourceOf(visible) === sourceOf(path))
+      )
   );
   if (offscreen.length) notify.info(noticeText(action, offscreen), { autoClose: 3000 });
 }
@@ -907,9 +911,7 @@ function sameCullingTarget(left: CullingChange, right: CullingChange) {
   if (left.before.kind !== right.before.kind) return false;
   if (left.assetId && right.assetId)
     return (
-      left.assetId === right.assetId &&
-      left.directory === right.directory &&
-      left.path.split('?vc=')[1] === right.path.split('?vc=')[1]
+      left.assetId === right.assetId && left.directory === right.directory && copyOf(left.path) === copyOf(right.path)
     );
   return left.path === right.path;
 }

@@ -103,6 +103,7 @@ import { LoupeFaces } from './StudioEyes';
 import { useIdleCursor } from './useIdleCursor';
 import { followPhotoFullScreen } from '../../utils/photoFullScreen';
 import { ProgressRing } from '../activity/ProgressRing';
+import { sourceFileName } from '../../entities/photo/photoRef';
 
 interface Props {
   files: ImageFile[];
@@ -1383,7 +1384,7 @@ export default function StudioWorkspace(props: Props) {
                       <ArrowRight size={14} />
                     </button>
                     <span className="studio-viewer-filename" title={selectedImage?.path}>
-                      {selectedImage?.path.split('?vc=')[0].split(/[\\/]/).pop() ||
+                      {(selectedImage && sourceFileName(selectedImage.path)) ||
                         t('studio.workspace.footer.noPhotograph')}
                       {selectedImage?.width ? (
                         <span className="studio-muted">{` · ${selectedImage.width} × ${selectedImage.height}`}</span>
@@ -1531,7 +1532,7 @@ export default function StudioWorkspace(props: Props) {
                     <ArrowRight size={14} />
                   </button>
                   <span className="studio-viewer-filename" title={selectedImage?.path}>
-                    {selectedImage?.path.split('?vc=')[0].split(/[\\/]/).pop()}
+                    {selectedImage && sourceFileName(selectedImage.path)}
                     {selectedImage?.width ? (
                       <span className="studio-muted">{` · ${selectedImage.width} × ${selectedImage.height}`}</span>
                     ) : null}

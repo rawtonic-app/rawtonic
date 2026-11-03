@@ -12,6 +12,7 @@ import {
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import type { FolderTree } from '../utils/folderTree';
 import type { CatalogFoldersView } from '../utils/catalogFolders';
+import { sourceOf } from '../entities/photo/photoRef';
 
 export interface NavHistoryItem {
   type: 'folder' | 'album';
@@ -168,6 +169,6 @@ export const isRawInLibrary = (path: string): boolean =>
 export const isRawPhoto = (path: string): boolean => {
   const listed = useLibraryStore.getState().imageList.find((image) => image.path === path);
   if (listed) return listed.is_raw;
-  const extension = path.split('?vc=')[0].split('.').pop()?.toLowerCase() ?? '';
+  const extension = sourceOf(path).split('.').pop()?.toLowerCase() ?? '';
   return (useSettingsStore.getState().supportedTypes?.raw ?? []).some((raw) => raw.toLowerCase() === extension);
 };

@@ -14,6 +14,7 @@ import {
   type PlanRequest,
   type ShiftParts
 } from '../../utils/captureTime';
+import { sourceFileName } from '../../entities/photo/photoRef';
 
 interface CaptureTimeDialogState {
   paths: string[] | null;
@@ -26,7 +27,7 @@ export const useCaptureTimeDialog = create<CaptureTimeDialogState>((set) => ({
   close: () => set({ paths: null })
 }));
 
-const fileName = (path: string) => path.split('?vc=')[0].split(/[\\/]/).pop() ?? path;
+const fileName = (path: string) => sourceFileName(path);
 
 export function CaptureTimeDialogHost() {
   const paths = useCaptureTimeDialog((s) => s.paths);

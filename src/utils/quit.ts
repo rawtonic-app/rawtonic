@@ -12,6 +12,7 @@ import {
   photoBatches,
   photoWritesAndStepsSettled
 } from './photoWrites';
+import { sourceFileName } from '../entities/photo/photoRef';
 
 /** A write that must reach disk before the app quits (a debounced save):
  * resolves with what it could not save, empty when everything is saved. */
@@ -55,7 +56,7 @@ const WRITE_NAMES: Record<string, string> = {
   keepLibraryXmp: 'Keep library (XMP)'
 };
 
-const fileName = (path: string) => path.split('?vc=')[0].split(/[\\/]/).pop() ?? path;
+const fileName = (path: string) => sourceFileName(path);
 
 /** `what` of `file` (`Edits of a.dng`). */
 function describe(kind: string, path: string): string {

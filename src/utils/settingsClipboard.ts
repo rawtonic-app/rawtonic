@@ -10,6 +10,7 @@ import {
 } from './adjustments';
 import { MAX_RENDERED_LAYERS, isRenderedLayer } from './layerLimit';
 import type { SubMask } from '../components/panel/right/Masks';
+import { sourceOf } from '../entities/photo/photoRef';
 
 /** Mask component types the AI detects on each photograph (Subject, Sky,
  * depth range, People, again when the photograph is opened; an Object
@@ -112,7 +113,7 @@ export function newEditResponses(): { raw: Record<string, unknown>; other: Recor
 
 /** Whether two photograph paths are one file (virtual copies share it). */
 export function samePhotograph(a: string, b: string): boolean {
-  const file = (path: string) => path.split('?vc=')[0];
+  const file = (path: string) => sourceOf(path);
   return file(a) === file(b);
 }
 

@@ -1,6 +1,7 @@
 import type { Adjustments } from './adjustments';
 import type { SelectedImage } from '../components/ui/AppProperties';
 import type { useEditorStore } from '../store/useEditorStore';
+import { isCopyOf } from '../entities/photo/photoRef';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -80,7 +81,7 @@ class ImageLRUCache {
 
   deleteByPrefix(prefix: string): void {
     for (const key of [...this.cache.keys()]) {
-      if (key === prefix || key.startsWith(prefix + '?vc=')) {
+      if (key === prefix || isCopyOf(key, prefix)) {
         this.delete(key);
       }
     }

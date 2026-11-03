@@ -71,6 +71,7 @@ import {
   type CatalogFoldersView,
   type VolumeFolders
 } from '../../utils/catalogFolders';
+import { sourceFileName, sourceOf } from '../../entities/photo/photoRef';
 
 /** File operations on folders: journaled and undoable where they move or
  * trash (useFileOperations); the library list itself never touches disk. */
@@ -213,7 +214,7 @@ function FolderRow({
     const { multiSelectedPaths, rootPaths, sessionFolders } = useLibraryStore.getState();
     const { copiedFilePaths } = useProcessStore.getState();
     const parentOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')));
-    const toMove = multiSelectedPaths.filter((p) => parentOf(p.split('?vc=')[0]) !== path);
+    const toMove = multiSelectedPaths.filter((p) => parentOf(sourceOf(p)) !== path);
     const isRoot = rootPaths.includes(path);
     // The session itself, its standard folders and library roots stay.
     const fixed =
@@ -222,7 +223,7 @@ function FolderRow({
       (!!sessionRoot && parent === sessionRoot && SESSION_FOLDERS.has(node.name)) ||
       // The session's Capture, Selects and Output, wherever they are set (G38).
       sessionFolders.some((folder) => folder.path === path);
-    const copied = new Set(copiedFilePaths.map((p) => p.split('?vc=')[0])).size;
+    const copied = new Set(copiedFilePaths.map((p) => sourceOf(p))).size;
     const { setUI } = useUIStore.getState();
     const fileItems: Option[] = actions
       ? [
@@ -793,13 +794,13 @@ export default function StudioNavigation({
             <CachedThumbnail
               sourcePath={image!.path}
               src={preview}
-              alt={image?.path.split('?vc=')[0].split(/[\\/]/).pop()}
+              alt={image ? sourceFileName(image.path) : undefined}
             />
           ) : (
             <span>{t('studio.library.navigator.empty')}</span>
           )}
         </div>
-        {image && <div className="studio-nav-caption">{image.path.split('?vc=')[0].split(/[\\/]/).pop()}</div>}
+        {image && <div className="studio-nav-caption">{sourceFileName(image.path)}</div>}
       </ToolGroup>
       <StudioFolders key="folders" onNavigate={onNavigate} actions={folderActions} />
       {onSelectAlbum && <StudioAlbums key="albums" onSelectAlbum={onSelectAlbum} />}

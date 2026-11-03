@@ -23,9 +23,10 @@ import {
   type DuplicatesFinished,
   type DuplicatesProgress
 } from '../utils/duplicates';
+import { sourceOf } from '../entities/photo/photoRef';
 
 const fileName = (path: string) => {
-  const file = path.split('?vc=')[0];
+  const file = sourceOf(path);
   return file.slice(Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) + 1);
 };
 

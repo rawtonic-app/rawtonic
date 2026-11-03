@@ -9,8 +9,9 @@ import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import type { AppSettings } from '../components/ui/AppProperties';
 
-const VIRTUAL_COPY = '?vc=';
-const basePath = (path: string) => path.split(VIRTUAL_COPY)[0];
+import { COPY_MARKER, parsePhotoRef, sourceOf } from '../entities/photo/photoRef';
+
+const basePath = sourceOf;
 
 /** A photograph or folder now at another place (`PathMove` in
  * src-tauri/src/file_operations.rs). */
@@ -23,9 +24,9 @@ export interface PathMove {
  * moved photograph's virtual copies (`?vc=`) move with it, everything in a
  * moved folder moves with the folder; others stay. */
 export function movedPath(path: string, moves: Map<string, string>): string {
-  const at = path.indexOf(VIRTUAL_COPY);
-  const base = at < 0 ? path : path.slice(0, at);
-  const copy = at < 0 ? '' : path.slice(at);
+  const ref = parsePhotoRef(path);
+  const base = ref.source;
+  const copy = ref.copy === null ? '' : COPY_MARKER + ref.copy;
   const to = moves.get(base);
   if (to !== undefined) return to + copy;
   // A folder above it moved.
