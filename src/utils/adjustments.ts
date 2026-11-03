@@ -677,7 +677,8 @@ export interface Adjustments {
    * sets the white point (brightest tones to white, midtones barely
    * lifted); 9 = and lowered Blacks sets a black point on the display
    * lightness (the darks keep their texture, tones above L* 30 stay);
-   * 1 or missing on
+   * 10 = and lowered Whites keeps the bright areas' texture (gain at an
+   * edge-aware local base level); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1380,7 +1381,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 9;
+export const TONE_VERSION = 10;
 
 /** The response a recipe without `toneVersion` takes when nothing in it
  * renders differently: 5, the last that leaves Whites, Blacks and Clarity
@@ -1814,7 +1815,7 @@ const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => 
     return loaded.toneVersion;
   }
   // Versions 2 to 7 change raised Shadows and lowered Highlights, 8 raised
-  // Whites, 9 lowered Blacks; 6 also reads Clarity's base more precisely (a rounding-level
+  // Whites, 9 lowered Blacks, 10 lowered Whites; 6 also reads Clarity's base more precisely (a rounding-level
   // change).
   const differs = (
     values:

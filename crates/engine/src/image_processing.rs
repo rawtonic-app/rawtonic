@@ -7342,10 +7342,14 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// 9 (2026-11-03) lowers Blacks with a black point on the display L*
 /// (a shift with slope 1 in the darks, faded out by L* 30, under a soft toe)
 /// instead of Lightroom's scene gain, which darkened up to L* 40 and lost
-/// the darks' texture (notes: G02, benchmark-results/blk-blacks-2026-11-03).
+/// the darks' texture (notes: G02, benchmark-results/blk-blacks-2026-11-03);
+/// 10 (2026-11-03) lowers Whites at an edge-aware local base level and
+/// passes the pixel's offset from it through, so bright areas keep their
+/// texture as in Capture One (notes: G02,
+/// benchmark-results/whb-whites-ring-2026-11-03).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 9;
+pub const TONE_VERSION: u64 = 10;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -7839,7 +7843,7 @@ mod tone_version_tests {
         assert_eq!(version(json!({"highlights": -60, "toneVersion": 4})), 4.0);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(
-            version(json!({"shadows": 20, "toneVersion": 9})),
+            version(json!({"shadows": 20, "toneVersion": TONE_VERSION + 1})),
             TONE_VERSION as f32
         );
         // Version 6 (raised Shadows keeps lifted texture) is known.
@@ -7850,6 +7854,8 @@ mod tone_version_tests {
         assert_eq!(version(json!({"whites": 60, "toneVersion": 8})), 8.0);
         // Version 9 (lowered Blacks sets a display black point) is known.
         assert_eq!(version(json!({"blacks": -60, "toneVersion": 9})), 9.0);
+        // Version 10 (lowered Whites at a local base) is known.
+        assert_eq!(version(json!({"whites": -60, "toneVersion": 10})), 10.0);
     }
 }
 

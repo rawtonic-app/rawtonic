@@ -2011,6 +2011,64 @@ fn blacks_v9_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
 }
 
+// Tone version 10: lowered Whites keeps the bright areas' texture, as
+// Capture One's White does. Version 9 applied the whites gain per pixel,
+// which flattened texture in clouds, snow and fabric (detail 0.87 of the
+// neutral render's at −100; Capture One 1.02, Camera Raw 0.88). Version 10
+// takes the gain at a local base level and passes the pixel's offset from
+// it through: gain(x) = cr_whites(x / r) · r, raised to WHITES_V10_POWER (so
+// the broad bright areas darken as much as before), with r the pixel's
+// luminance over the base's. The base is an edge-aware ring of the small
+// Clarity blur's mean log luminance (the centre and eight samples
+// WHITES_V10_RING × short side / 1080 px away, at most 30 px), each sample
+// weighted by a Gaussian of its distance in log luminance to the pixel
+// (WHITES_V10_RANGE EV), so a dark neighbour across a strong edge hardly
+// pulls the base: light rims at such edges stay about Capture One's own
+// (+1.4 L* median against its +1.0…+1.2), where a plain blur base rimmed
+// +1.8. Two rings (4 and 8 px) kept the same detail and rims at twice the
+// samples (+1.6 ms per preview step instead of +0.7)
+// (notes: benchmark-results/whl-whites-minus-2026-11-03,
+// whb-whites-ring-2026-11-03).
+const WHITES_V10_RING: f32 = 6.0;
+const WHITES_V10_RANGE: f32 = 0.6;
+const WHITES_V10_POWER: f32 = 1.07;
+// The offset is clamped to this many EV.
+const WHITES_V10_SPAN: f32 = 4.0;
+
+// The log2 luminance offset of the pixel (input space) from its base. The
+// ring stays within 30 px of the pixel, inside the 128 px the blur
+// tiles extend beyond their tile (gpu_processing.rs TILE_OVERLAP) less the
+// small blur's radius, so tiles join exactly.
+fn whites_v10_offset(coords: vec2<i32>, initial_linear: vec3<f32>, scale: f32) -> f32 {
+    let own_log = log2(max(get_luma(max(initial_linear, vec3<f32>(0.0))), 0.0001));
+    let dims = vec2<i32>(textureDimensions(clarity_blur_texture)) - vec2<i32>(1);
+    let d = clamp(WHITES_V10_RING * scale, 1.0, 30.0);
+    let dd = i32(round(d));
+    let dg = i32(round(d * 0.7071));
+    let offsets = array<vec2<i32>, 9>(
+        vec2<i32>(0, 0), vec2<i32>(dd, 0), vec2<i32>(-dd, 0), vec2<i32>(0, dd), vec2<i32>(0, -dd),
+        vec2<i32>(dg, dg), vec2<i32>(-dg, dg), vec2<i32>(dg, -dg), vec2<i32>(-dg, -dg));
+    var sum = 0.0;
+    var wsum = 0.0;
+    for (var k = 0u; k < 9u; k = k + 1u) {
+        let g = small_blur_mean_log(clamp(coords + offsets[k], vec2<i32>(0), dims));
+        let t = (g - own_log) / WHITES_V10_RANGE;
+        let w = exp(-0.5 * t * t) + 1e-4;
+        sum += w * g;
+        wsum += w;
+    }
+    return clamp(own_log - sum / wsum, -WHITES_V10_SPAN, WHITES_V10_SPAN);
+}
+
+// Lowered Whites (amount < 0) of version 10 on a colour without negative
+// channels, at the base level `offset_log` EV below the pixel.
+fn whites_v10_lower(rgb: vec3<f32>, amount: f32, offset_log: f32) -> vec3<f32> {
+    let r = exp2(offset_log);
+    let base = max(rgb / r, vec3<f32>(1e-6));
+    let gain = max(cr_whites(base, amount), vec3<f32>(1e-9)) / base;
+    return rgb * exp2(WHITES_V10_POWER * log2(gain));
+}
+
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
@@ -2252,6 +2310,7 @@ fn apply_tonal_adjustments(
     color: vec3<f32>,
     blurred_color_input_space: vec3<f32>,
     wide_luma_input_space: f32,
+    whites_offset_log: f32,
     is_raw: u32,
     con: f32,
     sh: f32,
@@ -2275,7 +2334,12 @@ fn apply_tonal_adjustments(
         let amount = clamp(wh * 0.3, -1.0, 1.0);
         let negative = any(rgb < vec3<f32>(0.0));
         let floored = max(rgb, vec3<f32>(0.0));
-        var whitened = cr_whites(select(rgb, floored, negative), amount);
+        var whitened: vec3<f32>;
+        if (amount < 0.0 && adjustments.global.tone_version > 9.5) {
+            whitened = whites_v10_lower(select(rgb, floored, negative), amount, whites_offset_log);
+        } else {
+            whitened = cr_whites(select(rgb, floored, negative), amount);
+        }
         if (negative) {
             whitened = carry_scene(rgb, floored, whitened);
         }
@@ -6996,7 +7060,7 @@ fn apply_glow_bloom(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -7872,7 +7936,7 @@ fn apply_halation(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -8413,7 +8477,11 @@ fn main(
         if (t_shadows > 0.0 && adjustments.global.tone_version > 5.5) {
             wide_luma = shadows_v6_level(id.xy);
         }
-        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+        var whites_offset = 0.0;
+        if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {
+            whites_offset = whites_v10_offset(vec2<i32>(id.xy), initial_linear_rgb, scale);
+        }
+        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
     }
     if (ENABLE_HIGHLIGHTS) {
         composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
