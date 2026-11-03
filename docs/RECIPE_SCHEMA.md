@@ -215,9 +215,11 @@ missed a lit cheek cut a hard edge through the face), the lights' gain over
 the photo's own light rolls off towards 2 (`1 + (1 − e^−(g−1))`, one scale
 for all channels) and an already-rendered photo's added light rolls off
 towards 0.96 per channel instead of 1, so no channel clips (Strength 100
-burnt JPEG skin to flat orange and clipped RAW skin). *Use the current
-ranges* moves a light to range 4 at the same gain; a recipe with a range-4
-light compiles `RELIGHT_RANGE4` (notes:
+burnt JPEG skin to flat orange and clipped RAW skin). These act on the
+range-4 lights' share of a pixel's added light: beside older lights a range-4
+light changes nothing where it does not reach. *Use the current ranges* moves
+a light to range 4 at the same gain; a recipe with a range-4 light compiles
+`RELIGHT_RANGE4` (notes:
 benchmark-results/rls-relight-side-2026-11-03).
 
 An analysis stays valid when a geometry key added later (2026-11-01:

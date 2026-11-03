@@ -7703,6 +7703,67 @@ fn fallback_variant_matches_specialized_display() {
     assert_eq!(checked, 9);
 }
 
+#[test]
+#[ignore = "requires a native GPU; a range-4 light must not change an older light where it does not reach"]
+fn range_four_light_leaves_older_lights_where_it_does_not_reach() {
+    let context = context();
+    let (width, height) = (517, 389);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 31);
+    let older = relight_portrait_profile(3);
+    // The same recipe with a strong range-4 spot whose cone lies off the
+    // frame: it reaches no pixel.
+    let mut mixed = older.clone();
+    mixed["relightLights"][0]["intensity"] = json!(100);
+    let mut older = older;
+    older["relightLights"][0]["intensity"] = json!(100);
+    mixed["relightLights"].as_array_mut().unwrap().push(
+        json!({"type":"spot","intensity":100,"size":5,"x":-90,"y":-90,
+            "sourceX":-95,"sourceY":-95,"distance":5,"rangeVersion":4}),
+    );
+    let render = |profile: &serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    let (a, b) = (render(&older), render(&mixed));
+    let max_delta = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
+    // The same tolerance as between pipeline variants.
+    assert!(max_delta <= 1, "older light changed by {max_delta}");
+    // The same range-3 light at Strength 100 as a range-4 light does change
+    // (its gain rolls off): the comparison above can see range 4's code.
+    let mut newer = older.clone();
+    newer["relightLights"][0]["rangeVersion"] = json!(4);
+    let c = render(&newer);
+    assert!(a.iter().zip(&c).any(|(x, y)| x.abs_diff(*y) > 1));
+}
+
 /// A version-five Relight recipe (subject matte with people normals, the
 /// photo's own light, a backdrop behind) with one sun of `range_version`
 /// and Original light below 100.

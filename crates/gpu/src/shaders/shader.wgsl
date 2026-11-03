@@ -6871,6 +6871,9 @@ struct RelightEnergy {
     reflected: vec3<f32>,
     shadow_ev: f32,
     has_light: bool,
+    // The range-4 lights' share of `diffuse` and `reflected` (summed over
+    // channels); 1 where no light reaches and every lit light is range 4.
+    range4: f32,
 }
 
 // The version-five subject atlas (relight_source.rs encode_subject): part 0
@@ -6968,17 +6971,27 @@ const RELIGHT_RANGE4_MAX_GAIN: f32 = 2.0;
 // skin's red channel into clipping first (flat orange highlights).
 const RELIGHT_RANGE4_WHITE: f32 = 0.96;
 
-// Whether a lit light of the recipe has range version 4 (relight.rs
-// RANGE_4_FLAG), as `relight_range3_scene` for range 3.
-fn relight_range4_scene() -> bool {
+// Whether every lit light of the recipe has range version 4.
+fn relight_range4_only() -> bool {
     if (!RELIGHT_RANGE4) { return false; }
+    var any = false;
     for (var i = 0u; i < 4u; i++) {
-        if (adjustments.global.relight[i * 5u].w > 0.0
-            && (u32(adjustments.global.relight[i * 5u + 3u].y + 0.5) & 512u) != 0u) {
-            return true;
+        if (adjustments.global.relight[i * 5u].w > 0.0) {
+            if ((u32(adjustments.global.relight[i * 5u + 3u].y + 0.5) & 512u) == 0u) { return false; }
+            any = true;
         }
     }
-    return false;
+    return any;
+}
+
+// Range version 4's roll-off of a gain above the photo's own light towards
+// RELIGHT_RANGE4_MAX_GAIN, one scale for all channels so the light keeps
+// its hue.
+fn relight_range4_rolloff(gain: vec3<f32>) -> vec3<f32> {
+    let peak = max(gain.x, max(gain.y, gain.z));
+    let room = RELIGHT_RANGE4_MAX_GAIN - 1.0;
+    if (peak <= 1.0) { return gain; }
+    return gain * (1.0 + room * (1.0 - exp(-(peak - 1.0) / room))) / peak;
 }
 
 // Whether a lit light of the recipe has range version 3 (relight.rs
@@ -7061,6 +7074,7 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
     var reflected_light = vec3<f32>(0.0);
     var shadow_ev = 0.0;
     var has_light = false;
+    var range4_energy = 0.0;
     for (var i = 0u; i < 4u; i++) {
         let color = adjustments.global.relight[i * 5u];
         if (color.w <= 0.0) { continue; }
@@ -7235,11 +7249,19 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
         let illumination = transmission * footprint * response * attenuation;
         light_gain += color.rgb * color.w * illumination;
         reflected_light += color.rgb * color.w * transmission * footprint * attenuation * specular;
+        if (RELIGHT_RANGE4 && (flags & 512u) != 0u) {
+            range4_energy += dot(color.rgb * color.w * transmission * footprint * attenuation * (response + specular), vec3<f32>(1.0));
+        }
         if (!surface_lighting) {
             shadow_ev += (1.0 - mask) * footprint * settings.z * color.w * (1.0 - shape.w);
         }
     }
-    return RelightEnergy(light_gain, reflected_light, shadow_ev, has_light);
+    var range4 = 0.0;
+    if (RELIGHT_RANGE4) {
+        let total = dot(light_gain + reflected_light, vec3<f32>(1.0));
+        range4 = select(select(0.0, 1.0, relight_range4_only()), clamp(range4_energy / total, 0.0, 1.0), total > 0.0);
+    }
+    return RelightEnergy(light_gain, reflected_light, shadow_ev, has_light, range4);
 }
 
 fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gain: f32) -> vec3<f32> {
@@ -7264,11 +7286,6 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         people = relight_subject_sample(uv, 0.0);
         let intrinsic = relight_subject_sample(uv, 1.0);
         shine = intrinsic.x;
-        // Range version 4: the photo keeps its own skin shine. On side-lit
-        // faces the analysis takes the lit cheek for shine (brighter than
-        // its fitted light explains); removing it left a grey, hard-edged
-        // mask there.
-        if (relight_range4_scene()) { shine = 0.0; }
         background_reach = intrinsic.y;
         // Soft matte edges mix the person with the background (hair against
         // sky): only confidently covered pixels take the person's normal and
@@ -7318,12 +7335,16 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     }
     let energy = relight_energy(surface, uv, coord, dims, false, people, background_reach);
     var light_gain = energy.diffuse;
+    // Range version 4's changes act on the range-4 lights' share of the
+    // light here, so an older light keeps its look where a range-4 light
+    // added to its recipe does not reach.
+    let range4 = energy.range4;
     // Range version 3: a pixel on the matte's edge is part subject, part
     // background; the subject's light alone lit its background share as a
     // bright, hard rim. Its own light is the coverage-weighted mix.
     let mixed_edge = range3_scene && camera_mode && has_depth && energy.has_light
         && adjustments.global.relight_source[3].x > 0.0 && people.z > 0.0 && people.z < 1.0;
-    var background_light = RelightEnergy(vec3<f32>(0.0), vec3<f32>(0.0), 0.0, false);
+    var background_light = RelightEnergy(vec3<f32>(0.0), vec3<f32>(0.0), 0.0, false, 0.0);
     if (mixed_edge) {
         background_light = relight_energy(surface, uv, coord, dims, false, vec4<f32>(0.0), background_reach);
     }
@@ -7354,8 +7375,8 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         // Range version 4: a new light's skin sheen only where the photo's
         // own light shows the skin. In its deep shadows the photo holds no
         // surface detail, and the sheen alone painted a grey, smooth mask.
-        if (relight_range4_scene()) {
-            reflected_light *= mix(1.0, smoothstep(RELIGHT_MIN_SHADING, RELIGHT_RANGE3_MIN_SHADING, shading), people.w);
+        if (RELIGHT_RANGE4) {
+            reflected_light *= mix(1.0, mix(1.0, smoothstep(RELIGHT_MIN_SHADING, RELIGHT_RANGE3_MIN_SHADING, shading), people.w), range4);
         }
         if (range3_scene) { shading = max(shading, RELIGHT_RANGE3_MIN_SHADING); }
         light_gain /= mix(1.0, shading, people.w);
@@ -7384,29 +7405,29 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         // Range version 4: the face mesh is the person too. A matte that
         // missed a brightly lit cheek kept its light there and cut a hard
         // edge through the face.
-        if (relight_range4_scene()) { subject = max(subject, smoothstep(0.0, 0.2, surface.a)); }
+        if (RELIGHT_RANGE4) { subject = mix(subject, max(subject, smoothstep(0.0, 0.2, surface.a)), range4); }
         original = mix(1.0, original, subject);
     }
     var gain = (vec3<f32>(original) + light_gain) * exp2(-shadow_ev);
-    if (relight_range4_scene()) {
-        // Range version 4: above the photo's own light the gain rolls off
-        // towards RELIGHT_RANGE4_MAX_GAIN, one scale for all channels so the
-        // light keeps its hue.
-        let peak = max(gain.x, max(gain.y, gain.z));
-        let room = RELIGHT_RANGE4_MAX_GAIN - 1.0;
-        if (peak > 1.0) {
-            gain *= (1.0 + room * (1.0 - exp(-(peak - 1.0) / room))) / peak;
-        }
+    if (RELIGHT_RANGE4 && range4 > 0.0) {
+        // Range version 4: the range-4 lights' gain above the photo's own
+        // light rolls off (on top of the older lights' gain, which stays).
+        let older = (vec3<f32>(original) + light_gain * (1.0 - range4)) * exp2(-shadow_ev);
+        gain = older + relight_range4_rolloff(gain) - relight_range4_rolloff(older);
     }
-    // The original light's skin shine goes with the original light.
-    let photo = rgb * (1.0 - shine * people.z * (1.0 - original));
+    // The original light's skin shine goes with the original light. Range
+    // version 4 keeps it: on side-lit faces the analysis takes the lit cheek
+    // for shine (brighter than its fitted light explains), and removing it
+    // left a grey, hard-edged mask there.
+    let kept = select(0.0, range4, RELIGHT_RANGE4);
+    let photo = rgb * (1.0 - shine * (1.0 - kept) * people.z * (1.0 - original));
     if (adjustments.global.is_raw_image == 0u && has_light) {
         // Already-rendered photos have no scene highlight headroom. Roll off
         // added light continuously, preserving texture instead of clipping it.
         let base = photo * min(gain, vec3<f32>(1.0));
         let extra = photo * max(gain - vec3<f32>(1.0), vec3<f32>(0.0)) + reflected_light;
         // Range version 4: short of white, so no channel clips.
-        let white = select(1.0, RELIGHT_RANGE4_WHITE, relight_range4_scene());
+        let white = select(1.0, mix(1.0, RELIGHT_RANGE4_WHITE, range4), RELIGHT_RANGE4);
         let room = max(vec3<f32>(white) - base, vec3<f32>(0.00001));
         if (surface_lighting) {
             // One scale for the added RGB energy: per-channel rolloff would
