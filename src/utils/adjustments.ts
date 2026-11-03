@@ -671,7 +671,8 @@ export interface Adjustments {
    * frames); 4 = and lowers less on frames of bright key (snow, overcast
    * skies, white rooms); 5 = and keeps the detail of lowered bright areas
    * (clouds, lit walls); 6 = and raised Shadows keeps the local contrast of
-   * the shadows it lifts; 1 or missing on
+   * the shadows it lifts; 7 = and lowered Highlights stays between Capture
+   * One's and Camera Raw's reach on night frames; 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1366,7 +1367,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 6;
+export const TONE_VERSION = 7;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
@@ -1748,7 +1749,7 @@ const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => 
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
-  // Versions 2 to 6 change raised Shadows and lowered Highlights; 6 also
+  // Versions 2 to 7 change raised Shadows and lowered Highlights; 6 also
   // reads Clarity's base more precisely (a rounding-level change).
   const differs = (values: { shadows?: unknown; highlights?: unknown; clarity?: unknown } | undefined) =>
     ((values?.shadows as number | undefined) ?? 0) > 0 ||
