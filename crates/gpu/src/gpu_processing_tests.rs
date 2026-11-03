@@ -9039,14 +9039,20 @@ fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Valu
 /// bright frame's key and without one. (Not on the night key: there raised
 /// Shadows' key adaptation already turns tones over by up to 0.008 EV with
 /// Exposure −2 at Shadows +100 in `toneVersion` 2 to 5, which 6 keeps;
-/// notes: G05.)
+/// notes: G05.) For raised Whites also `toneVersion` 8 (its white point).
 fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
     let differs = |recipe: &&serde_json::Value| {
         recipe["shadows"].as_f64().unwrap_or(0.0) > 0.0
             || recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0
+            || recipe["whites"].as_f64().unwrap_or(0.0) > 0.0
     };
     let mut versioned: Vec<serde_json::Value> = Vec::new();
     for recipe in recipes.iter().filter(differs) {
+        if recipe["whites"].as_f64().unwrap_or(0.0) > 0.0 {
+            let mut eighth = recipe.clone();
+            eighth["toneVersion"] = json!(8);
+            versioned.push(eighth);
+        }
         if recipe["shadows"].as_f64().unwrap_or(0.0) > 0.0 {
             let mut sixth = recipe.clone();
             sixth["toneVersion"] = json!(6);
@@ -9888,6 +9894,238 @@ fn tone_version_6_shadows_drag_render_time() {
         eprintln!(
             "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
             5 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Whites of tone version 8 against version 7 on a grey ramp"]
+fn tone_version_8_whites_sets_the_white_point() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-14 to 2^2, evenly in EV across the columns.
+    let (low_ev, span_ev) = (-14.0f32, 16.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without raised Whites version 8 renders as version 7, also through a
+    // file's own curve.
+    for look in [(3, 2.0), (3, 1.0)] {
+        for recipe in [
+            json!({}),
+            json!({ "whites": -100 }),
+            json!({ "whites": -50, "blacks": 40, "contrast": 30 }),
+            json!({ "highlights": -100, "shadows": 60 }),
+        ] {
+            assert!(
+                render_raw_look(&processor, &view, (width, height), &with(&recipe, 7), look)
+                    == render_raw_look(&processor, &view, (width, height), &with(&recipe, 8), look),
+                "{recipe} under {look:?} differs"
+            );
+        }
+    }
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, look)
+    };
+    let row = (height / 2 * width) as usize;
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    let white = |p: &[u16; 3]| p.iter().all(|&c| c >= 65534);
+    let neutral = render(with(&json!({}), 8));
+    for (amount, white_from, grey_below) in [(100, 0.9, 0.75), (50, 0.975, 0.9)] {
+        let seventh = render(with(&json!({ "whites": amount }), 7));
+        let eighth = render(with(&json!({ "whites": amount }), 8));
+        let (mut lift_7, mut lift_8) = (Vec::new(), Vec::new());
+        for x in 64..(width - 64) as usize {
+            let base = luma(&neutral[row + x]);
+            let display = base.max(1e-12).log2();
+            // The midtones (display −3.5 … −1.5 EV) are lifted, far less
+            // than by version 7's Lightroom-ramp tables.
+            if (-3.5..-1.5).contains(&display) {
+                lift_7.push((luma(&seventh[row + x]) / base).log2());
+                lift_8.push((luma(&eighth[row + x]) / base).log2());
+            }
+            // The top reaches white from the white point on, and tones
+            // well below it keep their grey.
+            if base >= white_from {
+                assert!(
+                    white(&eighth[row + x]),
+                    "Whites {amount}: display {base:.3} is {:?}",
+                    eighth[row + x]
+                );
+            } else if base < grey_below {
+                assert!(
+                    !white(&eighth[row + x]),
+                    "Whites {amount}: display {base:.3} turned white"
+                );
+            }
+        }
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        let (seven, eight) = (mean(&lift_7), mean(&lift_8));
+        assert!(
+            eight > 0.0 && eight < 0.3 * seven,
+            "Whites {amount}: midtones lifted {eight:.3} EV against version 7's {seven:.3}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Whites of tone version 8 on saturated colour ramps"]
+fn tone_version_8_whites_keeps_colour_ramps_smooth() {
+    let context = context();
+    // Four saturated hues (orange, sky blue, red, green), four rows each,
+    // scene level from 2^-10 to 2^2 across the columns.
+    let hues = [
+        [1.0f32, 0.45, 0.12],
+        [0.25, 0.55, 1.0],
+        [1.0, 0.15, 0.1],
+        [0.3, 1.0, 0.2],
+    ];
+    let (width, height) = (2048u32, 4 * hues.len() as u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let level = (2.0f32).powf(-10.0 + 12.0 * x as f32 / (width - 1) as f32);
+            let hue = hues[(y / 4) as usize];
+            [
+                f16::from_f32(level * hue[0]),
+                f16::from_f32(level * hue[1]),
+                f16::from_f32(level * hue[2]),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Colour ramps"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |whites: i32| {
+        render_raw_look(
+            &processor,
+            &view,
+            (width, height),
+            &json!({ "whites": whites, "toneVersion": 8 }),
+            (3, 2.0),
+        )
+    };
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    let neutral = render(0);
+    let barely = render(1);
+    let columns = 64..(width - 64) as usize;
+    for (band, hue) in hues.iter().enumerate() {
+        let row = ((band as u32 * 4 + 2) * width) as usize;
+        // Whites +1 changes no colour by more than 64 codes (0.1 %): the
+        // white point and its chroma roll-off start from nothing, so a
+        // feathered Whites mask leaves no edge.
+        let jump = columns
+            .clone()
+            .flat_map(|x| (0..3).map(move |c| (x, c)))
+            .map(|(x, c)| (barely[row + x][c] as i32 - neutral[row + x][c] as i32).abs())
+            .max()
+            .unwrap();
+        assert!(
+            jump <= 64,
+            "{hue:?}: Whites +1 moved a channel by {jump} codes"
+        );
+        // Along the ramp a brighter scene tone never ends darker (by more
+        // than 0.01 EV or two 16-bit codes, as the tone-order sweep).
+        for whites in [50, 100] {
+            let toned = render(whites);
+            for x in columns.clone().skip(24) {
+                for k in 1..=24 {
+                    let (a, b) = (&toned[row + x - k], &toned[row + x]);
+                    let codes = (0..3).map(|c| a[c] as i32 - b[c] as i32).max().unwrap();
+                    assert!(
+                        luma(b) >= luma(a) * (2.0f64).powf(-0.01) || codes <= 2,
+                        "{hue:?} Whites {whites}: column {x} {b:?} below column {} {a:?}",
+                        x - k
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Whites of tone version 8 against version 7: GPU time of a preview render per drag step"]
+fn tone_version_8_whites_drag_render_time() {
+    // As `tone_version_7_highlights_drag_render_time`, with Whites stepped up.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 10.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 7 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "whites": 20 + 6 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 7) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            7 + k,
             t[t.len() / 2],
             t[t.len() * 9 / 10],
             t.len()
