@@ -104,6 +104,7 @@ run "legal: notices shipped with the app" legal
 # `Changelog: none` (scripts/changelog_gate.py); empty on main, so CI passes.
 run "changelog: entry for user-facing changes" python3 scripts/changelog_gate.py
 if [ "$FRONTEND" = 1 ]; then
+  run "frontend: formatting" npm run -s format:check
   run "frontend: typecheck" npm run -s typecheck
   run "frontend: lint (errors only)" npm run -s lint -- --quiet
   run "frontend: tests" npm test --silent

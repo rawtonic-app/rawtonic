@@ -1,0 +1,13 @@
+# Dependencies, build output and generated files
+node_modules/
+dist/
+target/
+src-tauri/gen/
+src-tauri/resources/
+artifacts/
+refs/
+.scratch/
+scripts/bench/out/
+coverage/
+# Translation updates stay focused on changed messages.
+src/i18n/locales/**
