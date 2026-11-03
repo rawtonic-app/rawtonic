@@ -51,6 +51,11 @@ finish() {
 }
 trap finish EXIT
 cd "$RAWTONIC_SHIP_REPO"
+# The branch of this copy for scripts/ship_test.sh (no effect otherwise): it
+# and the npm ci call under these paths run elsewhere, never in this worktree.
+RAWTONIC_SHIP_JS_REPO=${RAWTONIC_SHIP_JS_REPO:-$PWD}
+RAWTONIC_SHIP_NPM=${RAWTONIC_SHIP_NPM:-env -u NODE_ENV npm ci --silent}
+export RAWTONIC_SHIP_JS_REPO RAWTONIC_SHIP_NPM
 
 TITLE=''; BODY_FILE=''; MERGE=1; KEEP=0; DRY=0; NO_REVIEW=''
 while [ $# -gt 0 ]; do
@@ -89,7 +94,6 @@ esac
 [ -z "${ORCA_WORKTREE_ID:-}" ] || KEEP_WHY="running in an Orca worktree"
 [ "$KEEP" = 0 ] || KEEP_WHY="--keep-worktree"
 REMOVE_CMD="git -C '$MAIN_DIR' worktree remove '$WORKTREE' && git -C '$MAIN_DIR' branch -d '$BRANCH'"
-
 STEP=check
 HEAD_SHA=$(git rev-parse HEAD)
 STAMP="$(git rev-parse --git-dir)/rawtonic-check-passed"
@@ -200,8 +204,50 @@ fi
 if ! git merge-base --is-ancestor "$MAIN_BEFORE" "$HEAD_SHA"; then
   STEP="check of the merge with main"
   say "main moved since the branch was checked: scripts/check.sh --brief --quick on the merge"
-  if ! (cd "$MAIN_DIR" && scripts/check.sh --brief --quick); then
+  # The main checkout's node_modules are its own, from main's locks: a branch
+  # that changes a lock (#576) with this block merging would leave check.sh
+  # against the old tree (or fail it as `npm error invalid`). So install them
+  # from the merged locks first, and after an undone merge from main's again.
+  # Each install follows check.sh: the app's lock, and the relay's only when
+  # its lock is newer than its install (as in services/relay); both without
+  # NODE_ENV, since services/relay/.npmrc omits dev packages.
+  locks_pointing_to() { # B: the install's lock files in which B differs
+    # from the merge; package-lock.json is app/package-lock.json here.
+    git -C "$MAIN_DIR" diff --name-only "$1" -- app/package-lock.json \
+      services/relay/package-lock.json | sed 's|^app/||'
+  }
+  install_from() { # LOCK...: npm ci in the directory of each lock, or ""
+    [ $# -gt 0 ] || return 0
+    for lock in "$@"; do
+      dir=$(dirname "$lock")
+      # check.sh's relay rule: an install newer than its lock is current.
+      stale=1
+      if [ "$lock" = services/relay/package-lock.json ]; then
+        stale=0
+        (cd "$MAIN_DIR/$dir" && [ ! -f node_modules/.package-lock.json ] ||
+          [ package-lock.json -nt node_modules/.package-lock.json ]) && stale=1
+      fi
+      [ "$stale" = 0 ] && continue
+      say "npm ci in $MAIN_DIR/$dir"
+      # shellcheck disable=SC2086  # the install command's words
+      (cd "$MAIN_DIR/$dir" && $RAWTONIC_SHIP_NPM) || return 1
+    done
+  }
+  # shellcheck disable=SC2046  # the lock names are paths, no spaces
+  if [ -n "$(locks_pointing_to "$MAIN_BEFORE")" ] &&
+    ! install_from $(locks_pointing_to "$MAIN_BEFORE"); then
+    die "npm ci with the merged locks fails; scripts/check.sh would fail too"
+  fi
+  # Not via scripts/check.sh: main's is committed 100644 (and the stand-ins
+  # other branches ship are not executable either), so the merged tree's
+  # script runs by sh, like every other check.sh call in this test tree.
+  if ! (cd "$MAIN_DIR" && sh scripts/check.sh --brief --quick); then
     git -C "$MAIN_DIR" reset -q --keep "$MAIN_BEFORE" || warn "local merge not undone: git -C '$MAIN_DIR' reset --keep $MAIN_BEFORE"
+    # shellcheck disable=SC2046  # the lock names are paths, no spaces
+    if [ -n "$(locks_pointing_to "$MAIN_BEFORE")" ] &&
+      ! install_from $(locks_pointing_to "$MAIN_BEFORE"); then
+      warn "main's node_modules not restored: run npm ci in $MAIN_DIR"
+    fi
     die "the merge with current main fails the check; rebase $BRANCH onto origin/main, fix and ship again"
   fi
 fi
@@ -209,6 +255,11 @@ STEP="push main"
 if ! git -C "$MAIN_DIR" push -q origin main; then
   # Leave main as it was, so the next ship does not push this merge along.
   git -C "$MAIN_DIR" reset -q --keep "$MAIN_BEFORE" || warn "local merge not undone: git -C '$MAIN_DIR' reset --keep $MAIN_BEFORE"
+  # shellcheck disable=SC2046  # the lock names are paths, no spaces
+  if [ -n "$(locks_pointing_to "$MAIN_BEFORE")" ] &&
+    ! install_from $(locks_pointing_to "$MAIN_BEFORE"); then
+    warn "main's node_modules not restored: run npm ci in $MAIN_DIR"
+  fi
   die "push of main failed (did origin/main move?); the local merge was undone; ship again"
 fi
 MERGED=$(git -C "$MAIN_DIR" rev-parse --short HEAD)
