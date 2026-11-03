@@ -342,7 +342,8 @@ pub(crate) fn import_preset_file_into_library(
     Ok(current_presets)
 }
 
-pub fn handle_import_presets_from_file_blocking(
+#[tauri::command]
+pub fn handle_import_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
@@ -350,18 +351,7 @@ pub fn handle_import_presets_from_file_blocking(
 }
 
 #[tauri::command]
-pub async fn handle_import_presets_from_file(
-    file_path: String,
-    app_handle: AppHandle,
-) -> Result<Vec<PresetItem>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        handle_import_presets_from_file_blocking(file_path, app_handle)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-pub fn handle_import_legacy_presets_from_file_blocking(
+pub fn handle_import_legacy_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
@@ -369,18 +359,7 @@ pub fn handle_import_legacy_presets_from_file_blocking(
 }
 
 #[tauri::command]
-pub async fn handle_import_legacy_presets_from_file(
-    file_path: String,
-    app_handle: AppHandle,
-) -> Result<Vec<PresetItem>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        handle_import_legacy_presets_from_file_blocking(file_path, app_handle)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-pub fn handle_import_presets_from_files_blocking(
+pub fn handle_import_presets_from_files(
     file_paths: Vec<String>,
     app_handle: AppHandle,
 ) -> Result<PresetImportResult, String> {
@@ -414,18 +393,6 @@ pub fn handle_import_presets_from_files_blocking(
         failures,
         untranslated,
     })
-}
-
-#[tauri::command]
-pub async fn handle_import_presets_from_files(
-    file_paths: Vec<String>,
-    app_handle: AppHandle,
-) -> Result<PresetImportResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        handle_import_presets_from_files_blocking(file_paths, app_handle)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 pub fn handle_export_presets_to_file_blocking(

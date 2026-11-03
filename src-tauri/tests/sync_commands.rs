@@ -12,6 +12,18 @@ use std::path::Path;
 /// (command, why it may run on the main thread)
 const SYNC_COMMANDS: &[(&str, &str)] = &[
     (
+        "handle_import_presets_from_files",
+        "read-modify-write of the whole preset library: stays ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
+    ),
+    (
+        "handle_import_legacy_presets_from_file",
+        "read-modify-write of the whole preset library: stays ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
+    ),
+    (
+        "handle_import_presets_from_file",
+        "read-modify-write of the whole preset library: stays ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
+    ),
+    (
         "app_menu_text_action",
         "main-thread-only API: menu, window, quit or webview",
     ),
