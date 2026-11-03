@@ -334,6 +334,12 @@ struct ExportArgs {
     /// `ORT_DYLIB_PATH`) and replace the recipe's own face retouch.
     #[arg(long)]
     face_retouch: Option<String>,
+    /// QA: also write every input the export's GPU render consumes (uniform
+    /// blocks, flags, resource, mask and source hashes, decode and geometry
+    /// decisions) to this new JSON file, recorded on the export's own path
+    /// (docs/DEVELOPMENT.md "Render-input snapshots"). A single photo only.
+    #[arg(long)]
+    render_inputs: Option<PathBuf>,
 }
 
 fn parse_color_space(
@@ -1039,7 +1045,19 @@ fn export(args: ExportArgs) -> Result<()> {
         models,
         output_sharpening,
         face_retouch,
+        render_inputs,
     } = args;
+    if let Some(path) = &render_inputs {
+        anyhow::ensure!(
+            source.is_file(),
+            "--render-inputs records one export: give a single photo"
+        );
+        anyhow::ensure!(
+            !path.exists(),
+            "Render-input file exists; Rawtonic never overwrites: {}",
+            path.display()
+        );
+    }
     let lensfun_db = lensfun_folder(lensfun_db)?;
     let recipe = adjustments
         .as_deref()
@@ -1185,6 +1203,13 @@ fn export(args: ExportArgs) -> Result<()> {
         None => recipes,
     };
     let exporter = with_recipe_models(exporter, models, &recipes);
+    let inputs = render_inputs
+        .as_ref()
+        .map(|_| rawtonic_export::render_inputs::RenderInputs::new());
+    let exporter = match &inputs {
+        Some(inputs) => exporter.with_render_inputs(inputs.clone()),
+        None => exporter,
+    };
     let mut written = Vec::new();
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
@@ -1212,6 +1237,14 @@ fn export(args: ExportArgs) -> Result<()> {
             Ok(()) => written.push(output.clone()),
             Err(error) => failed.push(serde_json::json!({"source": photo, "error": error})),
         }
+    }
+    if let (Some(path), Some(inputs), true) = (&render_inputs, &inputs, failed.is_empty()) {
+        let snapshot = inputs.snapshot();
+        let mut text = serde_json::to_string_pretty(&snapshot)?;
+        text.push('\n');
+        rawtonic_export::output::write_new_output(path, text.as_bytes())
+            .with_context(|| format!("Write {}", path.display()))?;
+        written.push(path.clone());
     }
     print(serde_json::json!({
         "written": written,

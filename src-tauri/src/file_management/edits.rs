@@ -3272,4 +3272,116 @@ mod tests {
         assert!(resolved["lensMaker"].is_null() && resolved["lensModel"].is_null());
         rawtonic_engine::source_facts::forget(&source.to_string_lossy());
     }
+
+    /// Recipe codec fixtures (notes: plans/architecture-cleanup-2026-11.md,
+    /// step 0.3b): `crates/engine/tests/fixtures/recipe-codec.json` and the
+    /// editor's new-edit recipe.
+    fn codec_fixtures() -> Vec<(String, Value)> {
+        let read = |name: &str| -> Value {
+            let path = format!(
+                "{}/../crates/engine/tests/fixtures/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+        };
+        let mut out: Vec<(String, Value)> = read("recipe-codec.json")
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(name, recipe)| (name.clone(), recipe.clone()))
+            .collect();
+        out.push(("new-edit".into(), read("new-edit-recipe.raw.json")));
+        out
+    }
+
+    /// The app's load and save of a sidecar without an edit (`edit_sidecars`
+    /// with `load_sidecar`, as every batch edit reads and writes) and the
+    /// pass-through of `replace_recipes` keep each recipe's JSON value: key
+    /// presence, explicit nulls, unknown and future keys. Outside a library
+    /// (plain sidecar files), in a session (the database is authoritative,
+    /// the sidecar derived) and for a session photograph's virtual copy.
+    #[test]
+    fn a_recipe_loaded_and_saved_without_an_edit_keeps_its_json_value() {
+        let temp = tempfile::tempdir().unwrap();
+        let plain = temp.path().join("Plain");
+        fs::create_dir_all(&plain).unwrap();
+        let lib = rawtonic_catalog::Library::create(
+            &temp.path().join("Session"),
+            "Codec",
+            rawtonic_catalog::Mode::Session,
+        )
+        .unwrap();
+        for (index, (name, recipe)) in codec_fixtures().into_iter().enumerate() {
+            let state = serde_json::json!({
+                "version": 1, "rating": 2, "tags": ["kept"], "adjustments": recipe,
+            });
+            let plain_photo = plain.join(format!("photo{index}.jpg"));
+            let session_photo = lib.directory.join(format!("Capture/photo{index}.jpg"));
+            let photos = [
+                ("plain", plain_photo.to_string_lossy().into_owned()),
+                ("session", session_photo.to_string_lossy().into_owned()),
+                (
+                    "session copy",
+                    format!("{}?vc=0a0b0c", session_photo.to_string_lossy()),
+                ),
+            ];
+            for (_, path) in &photos {
+                let (source, sidecar) = parse_virtual_path(path);
+                fs::write(&source, format!("synthetic original {index}")).unwrap();
+                crate::session_bridge::write_editor_sidecar(&sidecar, state.to_string()).unwrap();
+            }
+            for (place, path) in &photos {
+                let (_, sidecar) = parse_virtual_path(path);
+                // FINDING: a session photograph's recipe is read from the
+                // library with its colour label written into the recipe
+                // (`colorLabel`, `""` without one; crates/catalog
+                // `apply_editor_metadata`), so it is not the recipe saved,
+                // and `{}` (Library Reset), frame-only and
+                // `lensProfileFor`-only recipes stop being new
+                // (`is_new_recipe`): they then render with render version 1
+                // instead of the new-edit default. Recorded, not changed
+                // (plan step 0.3b). Plain sidecars and a present virtual
+                // copy's sidecar keep the recipe as saved.
+                let read = match (*place, recipe.as_object()) {
+                    ("session", Some(map)) => {
+                        let mut map = map.clone();
+                        map.insert("colorLabel".into(), serde_json::json!(""));
+                        Value::Object(map)
+                    }
+                    _ => recipe.clone(),
+                };
+                if *place == "session" && recipe.is_object() {
+                    assert!(
+                        !rawtonic_engine::image_processing::is_new_recipe(&read),
+                        "{name}: read from the library, never new"
+                    );
+                }
+                let failures = edit_sidecars(std::slice::from_ref(path), None, |_, _, sidecar| {
+                    Ok(crate::exif_processing::load_sidecar(sidecar))
+                });
+                assert!(failures.is_empty(), "{name} {place}: {failures:?}");
+                let loaded = crate::exif_processing::load_sidecar(&sidecar);
+                assert_eq!(loaded.adjustments, read, "{name} {place}: loaded");
+                let file: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+                assert_eq!(file["adjustments"], read, "{name} {place}: sidecar file");
+
+                // `replace_recipes` (undo/redo of a batch edit) writing the
+                // recipe it read.
+                let (changes, failures) =
+                    edit_sidecars_recorded(std::slice::from_ref(path), None, |_, _, sidecar| {
+                        let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+                        metadata.adjustments = recipe.clone();
+                        Ok(metadata)
+                    });
+                assert!(failures.is_empty(), "{name} {place}: {failures:?}");
+                assert_eq!(changes[0].before, read, "{name} {place}: before");
+                assert_eq!(changes[0].after, recipe, "{name} {place}: after");
+                assert_eq!(
+                    crate::exif_processing::load_sidecar(&sidecar).adjustments,
+                    read,
+                    "{name} {place}: replaced"
+                );
+            }
+        }
+    }
 }

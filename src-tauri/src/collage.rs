@@ -162,6 +162,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             image_cache: &state.gpu_image_cache,
             tonemapper_override: &tonemapper_override,
             load_lut: &load_lut,
+            render_inputs: None,
         };
         let rendered = process_image_for_export(
             &source,
