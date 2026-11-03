@@ -244,33 +244,65 @@ pub fn fuji_tabulated(data: EmbeddedLensData, aspect: f64) -> Option<EmbeddedLen
     })
 }
 
-/// How far a Fujifilm crop mode's frame (Sports Finder, the electronic
-/// shutter's 1.25× crop: `capture_info::fujifilm_crop_mode`) reaches into
-/// the radius the camera's knots refer to: the RAF's readout width
+/// How far the developed frame reaches into the radius Fujifilm's
+/// distortion knots refer to where they refer to the sensor's readout
+/// (`fuji_knots_on_readout`): the RAF's readout width
 /// (`capture_info::raf_raw_size`, the sensor's whole width with its
 /// margins, which a crop mode still reads out) over the developed frame's
-/// width, both along the sensor's rows. The knots refer to the whole
-/// sensor: on the X-T5's Sports Finder frame (6000 of 7872 columns, 1.312)
-/// read on the frame alone the correction overshot the camera's JPEG by
-/// 1.2 % of the framing (13.7 JPEG px median), read this way it matches to
-/// 0.22 px; the sensor's own 7728 columns (1.288) left 0.46 px (notes:
-/// parity-gaps/G71, g71l). None where the frame is not narrower.
-fn fuji_crop_reach(sensor_width: usize, frame_width: usize) -> Option<f64> {
-    let reach = sensor_width as f64 / frame_width as f64;
+/// width, both along the sensor's rows. On the X-T5's Sports Finder frame
+/// (6000 of 7872 columns, 1.312) read on the frame alone the correction
+/// overshot the camera's JPEG by 1.2 % of the framing (13.7 JPEG px
+/// median), read this way it matches to 0.22 px; the sensor's own 7728
+/// columns (1.288) left 0.46 px (notes: parity-gaps/G71, g71l). None where
+/// the frame is not narrower.
+fn fuji_readout_reach(readout_width: usize, frame_width: usize) -> Option<f64> {
+    let reach = readout_width as f64 / frame_width as f64;
     (reach.is_finite() && reach > 1.0 && reach < 4.0).then_some(reach)
 }
 
-/// Fujifilm's distortion, whose knots refer to the whole sensor, on a crop
-/// mode's frame that reaches `1 / reach` of it (`fuji_crop_reach`): each
-/// knot's radius times `reach` in the frame's own radii, so the frame's
-/// corners take the sensor's distortion at their place, not its corners'.
-/// The vignetting and lateral CA keep their knots on the frame: the
-/// camera's JPEG of the X-T5 Sports Finder file shows its corners as
+/// Whether a Fujifilm distortion curve's knots reach past the developed
+/// frame's corner (the last knot beyond 1, the frame's half diagonal):
+/// current bodies store nine knots at √(i / 8), the last at 1.061, and on
+/// them the knots refer to the readout's width, also on normal frames
+/// (camera geometry version 10). The older layouts end at the frame's
+/// corner, eleven knots from the centre (X-Trans I–III, the Bayer X-A / X-T
+/// 100–200 bodies, the compacts) and the GFX 50S / 50R's eight, and refer
+/// to the frame. Measured against the cameras' JPEGs on 150 raw.pixls.us
+/// RAFs, bodies split in halves (rule chosen on one, held-out half): the
+/// readout reading on the knots past the corner improves the held-out
+/// median 0.88 → 0.77 JPEG px (23 files better, 2 worse by ≤ 0.13 px);
+/// on the older layouts it makes files worse by up to 22 px (XF1), the GFX
+/// 50S / 50R by 0.4–0.5 px (notes: parity-gaps/G71, g71f-fuji-readout).
+fn fuji_knots_on_readout(distortion: &[(f64, f64)]) -> bool {
+    distortion.last().is_some_and(|&(r, _)| r > 1.01)
+}
+
+/// Whether camera geometry version `geometry_version` reads a Fujifilm
+/// distortion curve on the sensor's readout (`fuji_on_readout`, applied
+/// once): from version 9 in a crop mode (`crop_mode`, the maker note's
+/// CropMode, read only when needed), from version 10 also on normal frames
+/// where the knots reach past the frame's corner (`fuji_knots_on_readout`).
+fn fuji_reads_on_readout(
+    geometry_version: u64,
+    distortion: &[(f64, f64)],
+    crop_mode: impl FnOnce() -> Option<u16>,
+) -> bool {
+    (geometry_version >= FUJIFILM_READOUT_KNOTS_GEOMETRY && fuji_knots_on_readout(distortion))
+        || (geometry_version >= FUJIFILM_SENSOR_KNOTS_GEOMETRY
+            && crop_mode().is_some_and(|mode| mode != 0))
+}
+
+/// Fujifilm's distortion, whose knots refer to the sensor's readout
+/// width, on a developed frame that reaches `1 / reach` of it
+/// (`fuji_readout_reach`): each knot's radius times `reach` in the frame's
+/// own radii, so the frame's corners take the distortion at their place on
+/// the sensor. The vignetting and lateral CA keep their knots on the frame:
+/// the camera's JPEG of the X-T5 Sports Finder file shows its corners as
 /// bright as the vignetting read on the frame gives them (log₂ ratio of the
 /// encoded corners to the centre against the JPEG +0.03), read on the sensor
 /// they came out darker (−0.18; notes: parity-gaps/G71, g71l); the CA is
 /// not measured there.
-fn fuji_on_crop(data: EmbeddedLensData, reach: f64) -> EmbeddedLensData {
+fn fuji_on_readout(data: EmbeddedLensData, reach: f64) -> EmbeddedLensData {
     EmbeddedLensData {
         distortion: data
             .distortion
@@ -1201,9 +1233,16 @@ pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// (2026-10-26) Fujifilm's (`fuji_tabulated`); 8 (2026-11-01) corrects
 /// Nikon Z data about the shot's own optical centre (`nikon_centre`); 9
 /// (2026-11-02) reads Fujifilm's distortion knots on the whole sensor in a
-/// crop mode (`fuji_on_crop`). Recipes without the key
+/// crop mode (`fuji_on_readout`); 10 (2026-11-03) also on normal frames
+/// where the knots reach past the frame's corner (`fuji_knots_on_readout`).
+/// Recipes without the key
 /// keep their parameters; saving them again fills in the same as before.
-pub const GEOMETRY_VERSION: u64 = 9;
+pub const GEOMETRY_VERSION: u64 = 10;
+
+/// The camera geometry version that reads Fujifilm's distortion knots on
+/// the sensor's readout width also on normal frames, where they reach past
+/// the frame's corner.
+const FUJIFILM_READOUT_KNOTS_GEOMETRY: u64 = 10;
 
 /// The camera geometry version that reads Fujifilm's distortion knots on
 /// the whole sensor for a crop mode's frame.
@@ -1291,17 +1330,17 @@ pub fn read_version(
                 return Some(data);
             }
             let frame = crate::raw_processing::sensor_and_frame(&source, 0).map(|(_, frame)| frame);
-            if geometry_version >= FUJIFILM_SENSOR_KNOTS_GEOMETRY
-                && path
-                    .to_str()
+            let on_readout = fuji_reads_on_readout(geometry_version, &data.distortion, || {
+                path.to_str()
                     .and_then(crate::capture_info::fujifilm_crop_mode)
-                    .is_some_and(|mode| mode != 0)
+            });
+            if on_readout
                 && let Some(reach) = frame.and_then(|[w, _]| {
-                    let (_, sensor) = crate::capture_info::raf_raw_size(source.buf())?;
-                    fuji_crop_reach(sensor, w)
+                    let (_, readout) = crate::capture_info::raf_raw_size(source.buf())?;
+                    fuji_readout_reach(readout, w)
                 })
             {
-                data = fuji_on_crop(data, reach);
+                data = fuji_on_readout(data, reach);
             }
             let aspect = frame
                 .map(|[w, h]| w as f64 / h as f64)
@@ -1724,14 +1763,15 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 13, 17, 19];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 13, 17, 19, 20];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
 /// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader),
 /// 3 Canon's (CR3), 4 Samsung's (SRW), 5 Panasonic's and Fujifilm's (RW2,
 /// RWL, RAF), 6 Sony's again, 7 Fujifilm's again, 8 Nikon's again, 9
-/// Fujifilm's again (crop modes).
+/// Fujifilm's again (crop modes), 10 Fujifilm's again (knots past the
+/// frame's corner on normal frames).
 const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["arw", "dng"],
     &["nef", "nrw"],
@@ -1741,6 +1781,7 @@ const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["arw", "dng"],
     &["raf"],
     &["nef", "nrw"],
+    &["raf"],
     &["raf"],
 ];
 
@@ -2823,7 +2864,8 @@ mod tests {
         // has Sony's (1), 8 also Nikon's framing (2), 9 Canon's
         // distortion (3), 10 Samsung's data (4), 11 Panasonic's and Fujifilm's
         // framing (5), 12 Sony's knot table (6), 13 Fujifilm's (7), 17
-        // Nikon's optical centre (8), 19 Fujifilm's crop modes (9).
+        // Nikon's optical centre (8), 19 Fujifilm's crop modes (9), 20 its knots
+        // past the frame's corner (10).
         assert_eq!(facts_geometry_version(6), 0);
         assert_eq!(facts_geometry_version(7), 1);
         assert_eq!(facts_geometry_version(8), 2);
@@ -2836,6 +2878,7 @@ mod tests {
         assert_eq!(facts_geometry_version(17), 8);
         assert_eq!(facts_geometry_version(18), 8);
         assert_eq!(facts_geometry_version(19), 9);
+        assert_eq!(facts_geometry_version(20), 10);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
@@ -2846,20 +2889,21 @@ mod tests {
         // or DNG's version 7 to 11 facts Sony's knot table, a RAF's version
         // 11 and 12 facts Fujifilm's, a NEF's version 8 to 16 facts Nikon's
         // optical centre, a RAF's version 13 to 18 facts Fujifilm's crop
-        // modes; an ORF's hold.
+        // modes, a RAF's version 19 facts its knots on normal frames; an
+        // ORF's hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 5);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 11), 5);
         assert_eq!(known_geometry_version(Path::new("a.DNG"), 11), 5);
-        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 9);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 10);
         assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 7);
         assert_eq!(known_geometry_version(Path::new("a.nef"), 16), 7);
-        assert_eq!(known_geometry_version(Path::new("a.nef"), 17), 9);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 17), 10);
         assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
-        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 9);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 10);
         assert_eq!(known_geometry_version(Path::new("a.srw"), 9), 3);
-        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 9);
+        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 10);
         assert_eq!(known_geometry_version(Path::new("a.RW2"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.RAF"), 11), 6);
@@ -2867,9 +2911,10 @@ mod tests {
         assert_eq!(known_geometry_version(Path::new("a.raf"), 13), 8);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 18), 8);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 19), 9);
-        assert_eq!(known_geometry_version(Path::new("a.rw2"), 12), 9);
-        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 9);
-        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 9);
+        assert_eq!(known_geometry_version(Path::new("a.raf"), 20), 10);
+        assert_eq!(known_geometry_version(Path::new("a.rw2"), 12), 10);
+        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 10);
+        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 10);
     }
 
     #[test]
@@ -3917,10 +3962,10 @@ mod tests {
     #[test]
     fn fuji_crop_mode_frames_read_the_distortion_on_the_whole_sensor() {
         // X-T5 Sports Finder (raw.pixls.us 7271): 6000 of 7872 columns.
-        let reach = fuji_crop_reach(7872, 6000).unwrap();
+        let reach = fuji_readout_reach(7872, 6000).unwrap();
         assert!((reach - 1.312).abs() < 1e-12);
-        assert_eq!(fuji_crop_reach(6000, 6000), None);
-        assert_eq!(fuji_crop_reach(5000, 6000), None);
+        assert_eq!(fuji_readout_reach(6000, 6000), None);
+        assert_eq!(fuji_readout_reach(5000, 6000), None);
         // The file's vignetting (percent of the centre) at the same knots.
         let vignetting: Vec<f64> = X_T5_XF18[..10]
             .iter()
@@ -3930,7 +3975,7 @@ mod tests {
             ])
             .collect();
         let data = fuji_curves(&X_T5_XF18, Some(&vignetting)).unwrap();
-        let cropped = fuji_on_crop(data.clone(), reach);
+        let cropped = fuji_on_readout(data.clone(), reach);
         // A radius u of the frame lies at u / reach of the sensor's.
         for i in 0..=20 {
             let u = i as f64 / 20.0;
@@ -3942,6 +3987,44 @@ mod tests {
         }
         // The vignetting stays on the frame's radii.
         assert_eq!(cropped.vignetting, data.vignetting);
+    }
+
+    #[test]
+    fn fuji_knots_past_the_frame_corner_refer_to_the_readout() {
+        // Nine knots at √(i / 8) reach 1.061 of the frame's half diagonal
+        // (X-T5 + XF18mm F2): read on the readout.
+        let nine = fuji_curves(&X_T5_XF18, None).unwrap();
+        assert!(fuji_knots_on_readout(&nine.distortion));
+        // The GFX 50S / 50R's eight end at the corner, as do the older
+        // bodies' eleven from the centre: read on the frame.
+        let mut eight = vec![645.0];
+        eight.extend((1..=8).map(|i| (i as f64 / 8.0).sqrt()));
+        eight.extend([-0.1, -0.3, -0.5, -0.8, -1.2, -1.7, -2.3, -3.0]);
+        let eight = fuji_curves(&eight, None).unwrap();
+        assert!((eight.distortion.last().unwrap().0 - 1.0).abs() < 1e-12);
+        assert!(!fuji_knots_on_readout(&eight.distortion));
+        let mut eleven = vec![267.4545];
+        eleven.extend((0..=10).map(|i| i as f64 / 10.0));
+        eleven.extend((0..=10).map(|i| -0.05 * i as f64));
+        let eleven = fuji_curves(&eleven, None).unwrap();
+        assert!(!fuji_knots_on_readout(&eleven.distortion));
+        // Which versions read them so: nine knots on a normal frame from 10
+        // on (not at 9, which leaves normal frames alone); the older
+        // layouts only in a crop mode (from 9); a crop mode never asks the
+        // maker note when the knots decide already.
+        let (normal, sports) = (|| Some(0), || Some(2));
+        let unasked = || -> Option<u16> { panic!("crop mode read") };
+        assert!(fuji_reads_on_readout(10, &nine.distortion, unasked));
+        assert!(!fuji_reads_on_readout(9, &nine.distortion, normal));
+        assert!(fuji_reads_on_readout(9, &nine.distortion, sports));
+        for older in [&eight.distortion, &eleven.distortion] {
+            assert!(!fuji_reads_on_readout(10, older, normal));
+            assert!(!fuji_reads_on_readout(10, older, || None));
+            assert!(fuji_reads_on_readout(10, older, sports));
+            assert!(fuji_reads_on_readout(9, older, sports));
+            assert!(!fuji_reads_on_readout(8, older, sports));
+        }
+        assert!(!fuji_reads_on_readout(8, &nine.distortion, sports));
     }
 
     #[test]
