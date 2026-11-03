@@ -55,8 +55,7 @@ describe('settings', () => {
       onlyInRust: difference(rustFields, tsFields),
       onlyInTypeScript: difference(tsFields, rustFields)
     }).toEqual({
-      // Known drift on aa8e7f3c (plan step 0.2b removes these entries).
-      onlyInRust: ['groupAssociatedFiles', 'lastUpdateCheck', 'linuxGpuOptimizationMigratedV1', 'taggingThreadCount'],
+      onlyInRust: [],
       onlyInTypeScript: []
     });
   });
