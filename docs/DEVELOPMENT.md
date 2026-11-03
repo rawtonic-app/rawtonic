@@ -237,3 +237,6 @@ Checked on 2026-10-26 on Apple Silicon under Rosetta 2 (M5 Pro, macOS 27.0.1, Me
 ## Architecture and implementation
 
 [Architecture](ARCHITECTURE.md) · [Recipe schema](RECIPE_SCHEMA.md) · [AI models](MODELS.md) · [Contributing](../CONTRIBUTING.md)
+
+To skip the one-time frontend formatting commit in blame, run
+`git config blame.ignoreRevsFile .git-blame-ignore-revs`.
