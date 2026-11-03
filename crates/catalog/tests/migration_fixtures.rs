@@ -20,32 +20,11 @@ use rusqlite::{Connection, types::Value as Sql};
 use serde_json::json;
 use std::{fmt::Write as _, fs, path::Path, path::PathBuf};
 
-const SCRIPTS: [&str; 24] = [
-    include_str!("../migrations/0001.sql"),
-    include_str!("../migrations/0002.sql"),
-    include_str!("../migrations/0003.sql"),
-    include_str!("../migrations/0004.sql"),
-    include_str!("../migrations/0005.sql"),
-    include_str!("../migrations/0006.sql"),
-    include_str!("../migrations/0007.sql"),
-    include_str!("../migrations/0008.sql"),
-    include_str!("../migrations/0009.sql"),
-    include_str!("../migrations/0010.sql"),
-    include_str!("../migrations/0011.sql"),
-    include_str!("../migrations/0012.sql"),
-    include_str!("../migrations/0013.sql"),
-    include_str!("../migrations/0014.sql"),
-    include_str!("../migrations/0015.sql"),
-    include_str!("../migrations/0016.sql"),
-    include_str!("../migrations/0017.sql"),
-    include_str!("../migrations/0018.sql"),
-    include_str!("../migrations/0019.sql"),
-    include_str!("../migrations/0020.sql"),
-    include_str!("../migrations/0021.sql"),
-    include_str!("../migrations/0022.sql"),
-    include_str!("../migrations/0023.sql"),
-    include_str!("../migrations/0024.sql"),
-];
+/// Migration script `version` as the library ships it.
+fn script(version: usize) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("migrations/{version:04}.sql"));
+    fs::read_to_string(path).unwrap()
+}
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/migrations")
@@ -90,8 +69,8 @@ fn register_functions(conn: &Connection) {
 fn schema_at(version: usize) -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     register_functions(&conn);
-    for (index, script) in SCRIPTS[..version].iter().enumerate() {
-        match index + 1 {
+    for step in 1..=version {
+        match step {
             22 => conn
                 .execute_batch(
                     "ALTER TABLE assets ADD COLUMN exposure_mode INTEGER;
@@ -104,7 +83,7 @@ fn schema_at(version: usize) -> Connection {
                 .unwrap(),
             _ => {}
         }
-        conn.execute_batch(script).unwrap();
+        conn.execute_batch(&script(step)).unwrap();
     }
     conn
 }
