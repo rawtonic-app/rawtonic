@@ -4591,13 +4591,22 @@ struct BlurTile {
 
 /// Everything the cached detail stage depends on besides the input and the
 /// tile: the global noise-reduction and sharpening settings, the preview
-/// scale of the sharpening radius and the chromatic aberration correction.
+/// scale of the sharpening radius, the chromatic aberration correction and
+/// the photo's base tone curve.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct DetailKey([u32; 36]);
+struct DetailKey([u32; 101]);
 
 impl DetailKey {
     fn of(global: &crate::image_processing::GlobalAdjustments) -> Self {
-        Self([
+        let mut key = [0u32; 101];
+        // Masking of sharpening response 7 reads the photo's base tone curve
+        // (shader.wgsl `sharpen_v7_tone_weight`): its baseline exposure and
+        // the profile's curve.
+        key[36] = global.baseline_exposure.to_bits();
+        for (slot, value) in key[37..].iter_mut().zip(global.profile_curve.iter().flatten()) {
+            *slot = value.to_bits();
+        }
+        key[..36].copy_from_slice(&[
             global.luma_noise_reduction.to_bits(),
             global.color_noise_reduction.to_bits(),
             global.sharpness.to_bits(),
@@ -4638,7 +4647,8 @@ impl DetailKey {
             global.luma_noise_profile[1][3].to_bits(),
             // The isolated-speck step (`lumaNoiseVersion`).
             global.luma_speck.to_bits(),
-        ])
+        ]);
+        Self(key)
     }
 
     /// Whether there is a detail stage to cache at all.
