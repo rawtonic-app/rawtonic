@@ -7,6 +7,7 @@ import type { TFunction } from 'i18next';
 import { notify } from '../../activity/notify';
 import { Invokes, OPTION_HEADER, OPTION_SEPARATOR, type Option } from '../ui/AppProperties';
 import type { ExportPreset } from '../ui/ExportImportProperties';
+import { errorCode, errorMessage } from '../../shared/ipc/errors';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import {
   chosenRecipe,
@@ -31,8 +32,6 @@ async function pickApplication(title: string): Promise<string | null> {
   return typeof chosen === 'string' ? chosen : null;
 }
 
-const errorText = (e: unknown) => (typeof e === 'string' ? e : e instanceof Error ? e.message : String(e));
-
 /** Opens the originals of `paths` in `program`, once their pending edits
  * and metadata (and XMP sidecars) are written. */
 async function openPhotosWith(program: string, paths: string[], t: TFunction) {
@@ -40,7 +39,7 @@ async function openPhotosWith(program: string, paths: string[], t: TFunction) {
     await photoWritesWritten();
     await invoke(Invokes.OpenWithOpen, { program, paths });
   } catch (e) {
-    notify.error(t('contextMenus.openWith.failed', { error: errorText(e) }));
+    notify.error(t('contextMenus.openWith.failed', { error: errorMessage(e) }));
   }
 }
 
@@ -71,11 +70,11 @@ async function editPhotosWith(
       notify.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
   } catch (e) {
     notify.dismiss(progress);
-    const error = errorText(e);
-    // `open_with::GENERATED_AREAS`: photographs with generated areas.
-    const generated = error.match(/^generated-areas: (.*)$/s);
-    if (generated) notify.error(t('contextMenus.editWith.generatedAreas', { names: generated[1] }));
-    else notify.error(t('contextMenus.editWith.failed', { error }));
+    // `open_with::GENERATED_AREAS`: photographs with generated areas, named.
+    if (errorCode(e) === 'generated_areas') {
+      const { names } = e as { names?: string[] };
+      notify.error(t('contextMenus.editWith.generatedAreas', { names: (names ?? []).join(', ') }));
+    } else notify.error(t('contextMenus.editWith.failed', { error: errorMessage(e) }));
   }
 }
 

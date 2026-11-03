@@ -14,6 +14,7 @@
 //! The programs offered for a file come from LaunchServices on macOS. Other
 //! systems report `supported: false` and the menus show the entries disabled.
 use crate::export_queue::ExportRequest;
+use crate::ipc::{CommandError, ErrorCode};
 use rawtonic_catalog::Library;
 use rawtonic_export::sidecars::parse_virtual_path;
 use serde::{Deserialize, Serialize};
@@ -548,7 +549,7 @@ pub async fn edit_with_start(
     mut recipe: ExportRequest,
     program: String,
     app: AppHandle,
-) -> Result<EditWithStart, String> {
+) -> Result<EditWithStart, CommandError> {
     // Kept with each job: a quit ends them, and the next start offers this
     // Edit With again (`export_queue::take_interrupted_edits`).
     recipe.edit_with = Some(crate::export_queue::EditWithRun {
@@ -609,7 +610,7 @@ fn plan_edits(
     recipe: ExportRequest,
     queue: &Mutex<Option<rawtonic_export::queue::ExportQueue>>,
     generated: &dyn Fn(&serde_json::Value) -> bool,
-) -> Result<(Vec<EditTarget>, Vec<String>), String> {
+) -> Result<(Vec<EditTarget>, Vec<String>), CommandError> {
     let submitted = recipe.library.directory().map(Path::to_path_buf);
     let mut targets = plan_targets(paths, &recipe.output_format, &|original| {
         crate::session_bridge::culling_library_for(original, submitted.as_deref())
@@ -632,6 +633,8 @@ fn plan_edits(
                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
         })
         .collect();
+    // The photographs with generated areas, when they refused the request.
+    let refused_for_generated = std::cell::RefCell::new(None::<Vec<String>>);
     let (jobs, snapshots) = crate::export_queue::queue_inspected(
         queue,
         requests,
@@ -650,10 +653,17 @@ fn plan_edits(
             if refused.is_empty() {
                 Ok(())
             } else {
+                *refused_for_generated.borrow_mut() =
+                    Some(refused.iter().map(|name| name.to_string()).collect());
                 Err(format!("{GENERATED_AREAS}: {}", refused.join(", ")))
             }
         },
-    )?;
+    )
+    .map_err(|message| match refused_for_generated.take() {
+        Some(names) => CommandError::new(ErrorCode::GeneratedAreas, message)
+            .with_detail("names", serde_json::json!(names)),
+        None => CommandError::from(message),
+    })?;
     for (target, photos) in targets.iter_mut().zip(snapshots) {
         if let Some(photo) = photos.into_iter().next() {
             target.library = photo.owner;
@@ -1368,7 +1378,12 @@ mod tests {
             &generated,
         )
         .unwrap_err();
-        assert_eq!(error, format!("{GENERATED_AREAS}: B.jpg"));
+        assert_eq!(error.message, format!("{GENERATED_AREAS}: B.jpg"));
+        assert_eq!(error.code, crate::ipc::ErrorCode::GeneratedAreas);
+        assert_eq!(
+            serde_json::to_value(&error).unwrap()["names"],
+            serde_json::json!(["B.jpg"])
+        );
         // The open photograph is checked with the editor's recipe, which
         // its render takes, not with the one saved last.
         let error = plan_edits(
@@ -1378,7 +1393,8 @@ mod tests {
             &generated,
         )
         .unwrap_err();
-        assert_eq!(error, format!("{GENERATED_AREAS}: A.jpg"));
+        assert_eq!(error.message, format!("{GENERATED_AREAS}: A.jpg"));
+        assert_eq!(error.code, crate::ipc::ErrorCode::GeneratedAreas);
         // Nothing queued or written.
         assert_eq!(queue.jobs(), 0);
         assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 3);

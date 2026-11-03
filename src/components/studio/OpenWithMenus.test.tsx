@@ -123,7 +123,11 @@ it('edits the selection with the remembered recipe in the chosen program', async
 
 it('says Edit With is not available for photographs with generated areas', async () => {
   const { notify } = await import('../../activity/notify');
-  vi.mocked(runEditWith).mockRejectedValueOnce('generated-areas: B.jpg, C.jpg');
+  vi.mocked(runEditWith).mockRejectedValueOnce({
+    code: 'generated_areas',
+    message: 'generated-areas: B.jpg, C.jpg',
+    names: ['B.jpg', 'C.jpg']
+  });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
     if (command === 'edit_with_apps') return apps;
@@ -135,6 +139,21 @@ it('says Edit With is not available for photographs with generated areas', async
       'Edit With is not available for photos with generated areas yet: B.jpg, C.jpg'
     )
   );
+});
+
+it("shows another Edit With failure's message, also one that starts like the generated areas'", async () => {
+  const { notify } = await import('../../activity/notify');
+  vi.mocked(runEditWith).mockRejectedValueOnce({ code: 'internal', message: 'generated-areas: not the code' });
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps') return apps;
+  });
+  render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
+  await vi.waitFor(() => expect(notify.error).toHaveBeenCalled());
+  const [text] = vi.mocked(notify.error).mock.lastCall!;
+  expect(text).toContain('generated-areas: not the code');
+  expect(text).not.toContain('not available for photos with generated areas');
 });
 
 it('offers an Edit With a quit cut short again: Try again renders its photos for its program', async () => {

@@ -80,6 +80,15 @@ impl CommandError {
         Self::new(ErrorCode::Internal, message)
     }
 
+    /// The same error with `key: value` beside code and message (data the
+    /// frontend uses, such as the names of the photographs refused).
+    pub fn with_detail(mut self, key: &str, value: serde_json::Value) -> Self {
+        self.details
+            .get_or_insert_with(Default::default)
+            .insert(key.to_string(), value);
+        self
+    }
+
     /// `error` with its whole cause chain in the message (`{error:#}`), as
     /// commands that formatted it so before show it.
     pub fn chain(error: anyhow::Error) -> Self {
@@ -279,6 +288,16 @@ mod tests {
         assert_eq!(
             (stopped.code, stopped.message.as_str()),
             (ErrorCode::Cancelled, "Disk full")
+        );
+    }
+
+    #[test]
+    fn details_go_beside_code_and_message() {
+        let error = CommandError::new(ErrorCode::GeneratedAreas, "generated-areas: B.jpg")
+            .with_detail("names", json!(["B.jpg"]));
+        assert_eq!(
+            serde_json::to_value(&error).unwrap(),
+            json!({ "code": "generated_areas", "message": "generated-areas: B.jpg", "names": ["B.jpg"] })
         );
     }
 
