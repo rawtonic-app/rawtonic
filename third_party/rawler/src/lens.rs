@@ -408,4 +408,25 @@ mod tests {
     assert_eq!(lens.expect("No lens").lens_name, "Canon RF 15-35mm F2.8L IS USM");
     Ok(())
   }
+
+  /// Rawtonic patch (data from rawler 0.8.0): the RF 200-800mm with an
+  /// extender resolves by its CR3 lens name and carries the extended range.
+  #[test]
+  fn resolve_rf_200_800_with_extenders() {
+    for (key, focal, aperture) in [
+      ("RF200-800mm F6.3-9 IS USM + EXTENDER RF1.4x", [280, 1120], [(9, 1), (13, 1)]),
+      ("RF200-800mm F6.3-9 IS USM + EXTENDER RF2x", [400, 1600], [(13, 1), (18, 1)]),
+    ] {
+      let lens = LensResolver::new()
+        .with_lens_keyname(Some(key))
+        .with_mounts(&["rf-mount".into()])
+        .resolve()
+        .expect("extender lens resolves by its name");
+      assert_eq!(lens.focal_range, [Rational::new(focal[0], 1), Rational::new(focal[1], 1)]);
+      assert_eq!(
+        lens.aperture_range,
+        [Rational::new(aperture[0].0, aperture[0].1), Rational::new(aperture[1].0, aperture[1].1)]
+      );
+    }
+  }
 }

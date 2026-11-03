@@ -4313,7 +4313,8 @@ pub struct GlobalAdjustments {
     /// 1 when `grading_lut` holds Lightroom-style colour grading
     /// (color_grading.rs); the legacy fields above are then zero.
     pub grading_active: u32,
-    /// 1 when the photo is converted to black and white (`bw_mix`).
+    /// The B&W mix response (`bw_version`) when the photo is converted to
+    /// black and white (`bw_mix`), 0 in colour.
     pub bw_enabled: u32,
 
     pub color_calibration: ColorCalibrationSettings,
@@ -4389,7 +4390,7 @@ pub struct GlobalAdjustments {
     /// x: Capture One's Sharpness Falloff (0–1): extra sharpening towards
     /// the corners, up to twice the amount there. y, z: diffraction
     /// correction radius (original pixels) and amount (diffraction.rs).
-    /// w: the recipe's sharpening response (`sharpenVersion`, 1 to 6).
+    /// w: the recipe's sharpening response (`sharpenVersion`, 1 to 7).
     pub sharpen_falloff: [f32; 4],
     /// Camera profile (camera_profile.rs). Before the base look: x = key of
     /// the recipe's `cameraProfile`. After it: x = 1 when applied, y = key
@@ -5404,9 +5405,13 @@ fn get_global_adjustments_from_json(
             0.0
         },
         grading_active: 0,
-        bw_enabled: u32::from(
-            is_visible("color") && js_adjustments["blackAndWhite"].as_bool().unwrap_or(false),
-        ),
+        bw_enabled: if is_visible("color")
+            && js_adjustments["blackAndWhite"].as_bool().unwrap_or(false)
+        {
+            bw_version(js_adjustments) as u32
+        } else {
+            0
+        },
 
         color_calibration: color_cal_settings,
 
@@ -5905,7 +5910,14 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
 
 /// The recipe key naming the sharpening response a recipe was made with.
 pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
-/// The newest response: 6 (2026-10-24) is 5, and for JPEGs and other
+/// The newest response: 7 (2026-11-03) is 6 with Masking reading the
+/// neighbourhood as it shows on RAW photos: the photo's measured noise is
+/// taken out of the spread and the rest weighted by the slope of its tone
+/// curve, so bright flat noise (skies, walls) no longer passes as texture
+/// and mid-tone texture on low-contrast photos keeps more sharpening
+/// (notes: reference/detail.md "Sharpening response 7"); without Masking,
+/// and on non-RAW photos, it renders as 6.
+/// 6 (2026-10-24) is 5, and for JPEGs and other
 /// non-RAW sources above Amount 40 the sharpening change grows by
 /// (amount / 40)^0.15 (on JPEGs response 5 gave 9–31 % less fine detail
 /// than Camera Raw from Amount 80 to 150, with less halo; 6 narrows that
@@ -5937,7 +5949,7 @@ pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
 /// at Amount 40 with Radius, Detail and Masking at their defaults it renders
 /// as 1. Photo-wide: layers' sharpening amounts follow it. Recipes without
 /// the key keep version 1.
-pub const SHARPEN_VERSION: u64 = 6;
+pub const SHARPEN_VERSION: u64 = 7;
 
 /// The recipe's sharpening response, 1 when missing, never newer than this
 /// renderer knows.
@@ -6121,6 +6133,28 @@ pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1)
         .clamp(1, DEFRINGE_VERSION)
+}
+
+/// The recipe key naming the B&W mix response a recipe was made with.
+pub const BW_VERSION_KEY: &str = "bwVersion";
+/// The newest B&W mix response: 2 (2026-11-03) lowers more strongly the
+/// further a slider is pulled, as Lightroom's and Capture One's mixes do
+/// (−100 darkens about 2.3 times as much as −50, against 1.8 times in
+/// version 1), with channel windows and gains fitted to Camera Raw on 15
+/// photographs (gains × 1.1 to match Lightroom's own B&W on Rawtonic's
+/// colour); the conversion with all sliders at 0 is version 1's (notes:
+/// benchmark-results/bw2-black-white-2026-11-03). Recipes that converted
+/// to black and white without the key keep version 1.
+pub const BW_VERSION: u64 = 2;
+
+/// The recipe's B&W mix response, 1 when missing, never newer than this
+/// renderer knows.
+pub fn bw_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(BW_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, BW_VERSION)
 }
 
 /// Lightroom's B&W mix (`grayMixer`, −100…100 per channel) as slider / 100
@@ -7303,10 +7337,33 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// 4 (2026-11-01) lets it lower less on frames of bright key (snow,
 /// overcast or bright skies, white rooms), where Camera Raw's lowers broad
 /// bright areas 0.2–0.7 times as far (notes: G05,
-/// benchmark-results/hl-highlights-2026-11-01).
+/// benchmark-results/hl-highlights-2026-11-01);
+/// 5 (2026-11-02) keeps the detail of lowered bright areas (cloud and wall
+/// structure) as Camera Raw and Capture One do, through a wider local base
+/// (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02);
+/// 6 (2026-11-03) keeps the local contrast of shadows lifted by raised
+/// Shadows through a wider base for its level (notes: G05,
+/// benchmark-results/hls-shadow-detail-2026-11-03);
+/// 7 (2026-11-03) lowers Highlights on night frames between Capture One's
+/// and Camera Raw's reach instead of beyond both: version 3's dark-frame
+/// shift is capped by the frame's 90th percentile and median (notes: G05,
+/// benchmark-results/hln-night-highlights-2026-11-03);
+/// 8 (2026-11-03) lets raised Whites set the white point: it keeps 15 % of
+/// the midtone lift of the tables measured on a Lightroom ramp and stretches
+/// the display luminance's top so that it reaches white, where version 7
+/// lifted L* 40–70 by up to 19 and squeezed the brightest tones into the
+/// roll-off (notes: G02, benchmark-results/wh-whites-2026-11-03);
+/// 9 (2026-11-03) lowers Blacks with a black point on the display L*
+/// (a shift with slope 1 in the darks, faded out by L* 30, under a soft toe)
+/// instead of Lightroom's scene gain, which darkened up to L* 40 and lost
+/// the darks' texture (notes: G02, benchmark-results/blk-blacks-2026-11-03);
+/// 10 (2026-11-03) lowers Whites at an edge-aware local base level and
+/// passes the pixel's offset from it through, so bright areas keep their
+/// texture as in Capture One (notes: G02,
+/// benchmark-results/whb-whites-ring-2026-11-03).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 4;
+pub const TONE_VERSION: u64 = 10;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -7799,7 +7856,20 @@ mod tone_version_tests {
         // Version 4 (also adapted to bright frames) is known.
         assert_eq!(version(json!({"highlights": -60, "toneVersion": 4})), 4.0);
         // A newer version than this renderer knows renders with its newest.
-        assert_eq!(version(json!({"toneVersion": 9})), TONE_VERSION as f32);
+        assert_eq!(
+            version(json!({"shadows": 20, "toneVersion": TONE_VERSION + 1})),
+            TONE_VERSION as f32
+        );
+        // Version 6 (raised Shadows keeps lifted texture) is known.
+        assert_eq!(version(json!({"shadows": 20, "toneVersion": 6})), 6.0);
+        // Version 7 (night frames' lowered Highlights capped) is known.
+        assert_eq!(version(json!({"highlights": -60, "toneVersion": 7})), 7.0);
+        // Version 8 (raised Whites sets the white point) is known.
+        assert_eq!(version(json!({"whites": 60, "toneVersion": 8})), 8.0);
+        // Version 9 (lowered Blacks sets a display black point) is known.
+        assert_eq!(version(json!({"blacks": -60, "toneVersion": 9})), 9.0);
+        // Version 10 (lowered Whites at a local base) is known.
+        assert_eq!(version(json!({"whites": -60, "toneVersion": 10})), 10.0);
     }
 }
 
@@ -7991,6 +8061,7 @@ mod editing_tool_tests {
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 4})), 4.0);
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 5})), 5.0);
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 6})), 6.0);
+        assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 7})), 7.0);
         assert_eq!(
             version(json!({"sharpenVersion": 9})),
             SHARPEN_VERSION as f32
@@ -8057,6 +8128,28 @@ mod editing_tool_tests {
         let colour =
             get_global_adjustments_from_json(&json!({"grayMixer": {"red": 20}}), true, None);
         assert_eq!(colour.bw_enabled, 0);
+    }
+
+    #[test]
+    fn black_and_white_carries_its_mix_response() {
+        let enabled = |recipe: serde_json::Value| {
+            get_global_adjustments_from_json(&recipe, true, None).bw_enabled
+        };
+        // Recipes without the key keep the first response.
+        assert_eq!(enabled(json!({"blackAndWhite": true})), 1);
+        assert_eq!(enabled(json!({"blackAndWhite": true, "bwVersion": 2})), 2);
+        // Never newer than the renderer knows.
+        assert_eq!(
+            enabled(json!({"blackAndWhite": true, "bwVersion": 9})),
+            BW_VERSION as u32
+        );
+        assert_eq!(enabled(json!({"blackAndWhite": false, "bwVersion": 2})), 0);
+        assert_eq!(
+            enabled(
+                json!({"blackAndWhite": true, "bwVersion": 2, "sectionVisibility": {"color": false}})
+            ),
+            0
+        );
     }
 
     #[test]

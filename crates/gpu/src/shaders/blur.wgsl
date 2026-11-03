@@ -15,7 +15,10 @@ struct BlurParams {
     rows_above: u32,
     blurred_rows: u32,
     // Bit 0: carry the mean log2 luminance in alpha (else 1). Bit 1: the input
-    // is sRGB-encoded (not a RAW).
+    // is sRGB-encoded (not a RAW). Bit 2: store that mean minus the log2
+    // luminance of the blurred colour (`log_luma` of it), a small number that
+    // keeps its precision in 16 bits where the absolute value is large (deep
+    // shadows: 0.008 EV); readers add `log_luma` of the colour back.
     flags: u32,
 }
 
@@ -79,8 +82,16 @@ fn horizontal_blur(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 
     let final_color = total_color / total_weight;
-    let alpha = select(1.0, total_log / total_weight, (params.flags & 1u) != 0u);
+    let alpha = select(1.0, stored_log(total_log / total_weight, final_color), (params.flags & 1u) != 0u);
     textureStore(output_texture, id.xy, vec4<f32>(final_color, alpha));
+}
+
+// The mean log luminance as stored in alpha (absolute or relative, bit 2).
+fn stored_log(mean_log: f32, color: vec3<f32>) -> f32 {
+    if ((params.flags & 4u) != 0u) {
+        return mean_log - log_luma(sample_range(color));
+    }
+    return mean_log;
 }
 
 // 16 × 16 groups: neighbouring pixels share the rows they read (a one-pixel
@@ -111,12 +122,16 @@ fn vertical_blur(@builtin(global_invocation_id) id: vec3<u32>) {
 
         total_color += sample_color * weight;
         if ((params.flags & 1u) != 0u) {
-            total_log += sample.a * weight;
+            var mean_log = sample.a;
+            if ((params.flags & 4u) != 0u) {
+                mean_log += log_luma(sample_color);
+            }
+            total_log += mean_log * weight;
         }
         total_weight += weight;
     }
 
     let final_color = total_color / total_weight;
-    let alpha = select(1.0, total_log / total_weight, (params.flags & 1u) != 0u);
+    let alpha = select(1.0, stored_log(total_log / total_weight, final_color), (params.flags & 1u) != 0u);
     textureStore(output_texture, id.xy, vec4<f32>(final_color, alpha));
 }

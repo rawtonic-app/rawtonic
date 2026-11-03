@@ -73,9 +73,11 @@ export interface RelightLight {
 /**
  * Ranges new lights get: Intensity 100 % is a clearly visible key light (2);
  * no sheen on the eyes, a bounded lift of the photo's shadow side, clean
- * silhouettes and flat backdrops for patterns (3, same gain as 2).
+ * silhouettes and flat backdrops for patterns (3, same gain as 2); side-lit
+ * faces without grey masks, and strong lights that roll off instead of
+ * burning skin (4).
  */
-export const RELIGHT_RANGE_VERSION = 3;
+export const RELIGHT_RANGE_VERSION = 4;
 // Intensity's gain in range 2 (crates/engine/src/relight.rs RANGE_2_*).
 const RANGE_2_MAX_GAIN = 4;
 const RANGE_2_EXPONENT = 1.5;

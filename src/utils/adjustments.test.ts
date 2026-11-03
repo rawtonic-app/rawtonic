@@ -11,10 +11,12 @@ import {
   NON_COPYABLE_ADJUSTMENT_KEYS,
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
+  KEYLESS_TONE_VERSION,
   CLARITY_VERSION,
   FRINGE_VERSION,
   RENDER_VERSION,
   DEFRINGE_VERSION,
+  BW_VERSION,
   SHARPEN_VERSION,
   LUMA_NOISE_VERSION,
   AI_DENOISE_VERSION,
@@ -137,9 +139,11 @@ describe('RAW detail defaults', () => {
     expect('fringeVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
     const versioned = { ...INITIAL_ADJUSTMENTS, fringeVersion: 1 } as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).fringeVersion).toBe(1);
-    // Version 5 is version 4 on the GPU: new edits take it, edits saved with
-    // version 4 keep the CPU pass.
-    expect(FRINGE_VERSION).toBe(5);
+    // Version 5 is version 4 on the GPU, version 6 keeps 7 × 7 windows on
+    // moderately noisy photos: new edits take 6, saved edits keep theirs.
+    expect(FRINGE_VERSION).toBe(6);
+    const fifth = { ...INITIAL_ADJUSTMENTS, fringeVersion: 5 } as Adjustments;
+    expect(normalizeLoadedAdjustments(fifth, true).fringeVersion).toBe(5);
     const fourth = { ...INITIAL_ADJUSTMENTS, fringeVersion: 4 } as Adjustments;
     expect(normalizeLoadedAdjustments(fourth, true).fringeVersion).toBe(4);
   });
@@ -160,6 +164,27 @@ describe('RAW detail defaults', () => {
     } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layer, true).defringeVersion).toBeUndefined();
     expect(normalizeLoadedAdjustments({ ...purple, defringeVersion: 2 }, true).defringeVersion).toBe(2);
+  });
+
+  it('keep the B&W mix response a saved recipe rendered with', () => {
+    expect(BW_VERSION).toBe(2);
+    expect(initialAdjustmentsFor(true).bwVersion).toBe(BW_VERSION);
+    expect(initialAdjustmentsFor(false).bwVersion).toBe(BW_VERSION);
+    // A recipe in colour, or converted with every slider at 0, renders the
+    // same with either response.
+    const colour = { ...INITIAL_ADJUSTMENTS, grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer, blue: -40 } } as Adjustments;
+    expect(normalizeLoadedAdjustments(colour, true).bwVersion).toBe(BW_VERSION);
+    const neutral = { ...INITIAL_ADJUSTMENTS, blackAndWhite: true } as Adjustments;
+    expect(normalizeLoadedAdjustments(neutral, true).bwVersion).toBe(BW_VERSION);
+    // A converted recipe with a mix keeps the first response (missing key).
+    const mixed = { ...colour, blackAndWhite: true } as Adjustments;
+    expect(normalizeLoadedAdjustments(mixed, true).bwVersion).toBeUndefined();
+    expect('bwVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(mixed, true)))).toBe(false);
+    expect(normalizeLoadedAdjustments({ ...mixed, bwVersion: 2 }, true).bwVersion).toBe(2);
+    // A paste of the mix states the source's response (1 for the older edit).
+    const pasted = pastedAdjustments(normalizeLoadedAdjustments(mixed, true), ['blackAndWhite', 'grayMixer', 'bwVersion'], PasteMode.Replace);
+    expect(JSON.parse(JSON.stringify(pasted)).bwVersion).toBe(1);
+    expect(pastedAdjustments({ ...mixed, bwVersion: 2 }, ['grayMixer', 'bwVersion'], PasteMode.Merge).bwVersion).toBe(2);
   });
 
   it('carry the AI Denoise version with a copied amount', () => {
@@ -245,13 +270,33 @@ describe('RAW detail defaults', () => {
     expect('toneVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(strong, true)))).toBe(false);
     const layered = { shadows: 0, masks: [{ adjustments: { shadows: 100 }, subMasks: [] }] } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layered, true).toneVersion).toBeUndefined();
-    // Nothing that renders differently: the current response.
+    // Nothing that renders differently: version 5 (the engine's own phone
+    // Whites, Blacks and Clarity keep their response); a new recipe the
+    // current one.
     const lowered = { highlights: -60 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(lowered, true).toneVersion).toBeUndefined();
     const layerLowered = { masks: [{ adjustments: { highlights: -10 }, subMasks: [] }] } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layerLowered, true).toneVersion).toBeUndefined();
-    const mild = { shadows: 50, highlights: 40, exposure: 1 } as unknown as Adjustments;
-    expect(normalizeLoadedAdjustments(mild, true).toneVersion).toBe(TONE_VERSION);
+    const mild = { shadows: -50, highlights: 40, whites: -30, blacks: 20, exposure: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(mild, true).toneVersion).toBe(KEYLESS_TONE_VERSION);
+    expect(KEYLESS_TONE_VERSION).toBe(5);
+    expect(normalizeLoadedAdjustments({} as Adjustments, true).toneVersion).toBe(TONE_VERSION);
+    // Version 8 changes raised Whites, on the photo or a layer.
+    const whiter = { whites: 30 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(whiter, true).toneVersion).toBeUndefined();
+    const layerWhiter = { masks: [{ adjustments: { whites: 10 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layerWhiter, true).toneVersion).toBeUndefined();
+    // Version 9 changes lowered Blacks, on the photo or a layer.
+    const blacker = { blacks: -30 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(blacker, true).toneVersion).toBeUndefined();
+    const layerBlacker = { masks: [{ adjustments: { blacks: -10 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layerBlacker, true).toneVersion).toBeUndefined();
+    // Any raised Shadows renders differently from version 6 on.
+    const raised = { shadows: 20 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(raised, true).toneVersion).toBeUndefined();
+    // Version 6 reads Clarity's base more precisely: keep the saved response.
+    const clarity = { masks: [{ adjustments: { clarity: -20 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(clarity, true).toneVersion).toBeUndefined();
     const versioned = { shadows: 80, toneVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).toneVersion).toBe(2);
     const old = { shadows: 80, toneVersion: 1 } as unknown as Adjustments;

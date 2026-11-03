@@ -2717,14 +2717,14 @@ mod tests {
     /// The tests of the shared measures store run one at a time.
     static MEASURES_TESTS: Mutex<()> = Mutex::new(());
 
-    /// A session with photograph `A.RAF` (`content`) in a temporary folder.
+    /// A session with photograph `A.NEF` (`content`) in a temporary folder.
     fn session_photo(name: &str, content: &[u8]) -> (std::path::PathBuf, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("rt-mv-{name}-{}", std::process::id()));
         let session = dir.join("Job");
         std::fs::create_dir_all(session.join("Capture")).unwrap();
         std::fs::write(session.join("session.json"), "{}").unwrap();
         std::fs::write(session.join("session.sqlite"), "").unwrap();
-        let photo = session.join("Capture").join("A.RAF");
+        let photo = session.join("Capture").join("A.NEF");
         std::fs::write(&photo, content).unwrap();
         (dir, photo)
     }

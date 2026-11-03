@@ -24,38 +24,38 @@
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
-    "@tauri-apps/api": "^2.12.1",
-    "@tauri-apps/plugin-dialog": "^2.7.2",
-    "@tauri-apps/plugin-os": "^2.3.2",
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-os": "^2.4.0",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-shell": "^2.6.0",
     "@uiw/color-convert": "^2.10.3",
     "@uiw/react-color-wheel": "^2.10.3",
     "clsx": "^2.1.1",
-    "framer-motion": "^13.1.1",
-    "i18next": "^26.4.0",
-    "konva": "^10.3.1",
+    "framer-motion": "^13.5.1",
+    "i18next": "^26.7.1",
+    "konva": "^10.9.1",
     "lodash.debounce": "^4.0.8",
     "lodash.throttle": "^4.1.1",
-    "lucide-react": "^1.33.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-i18next": "^17.0.12",
+    "lucide-react": "^1.67.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-i18next": "^17.1.11",
     "react-image-crop": "^11.1.2",
-    "react-konva": "^19.2.5",
-    "react-toastify": "^11.1.0",
-    "uuid": "^14.0.2",
-    "zustand": "^5.0.15"
+    "react-konva": "^19.3.2",
+    "react-toastify": "^11.2.0",
+    "uuid": "^14.0.3",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/cli": "^2.12.1",
+    "@tauri-apps/cli": "^2.12.4",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/lodash.debounce": "^4.0.9",
     "@types/lodash.throttle": "^4.1.9",
-    "@types/react": "^19.2.18",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "esbuild": "^0.28.2",
@@ -72,9 +72,12 @@
     "vitest": "^5.0.3"
   },
   "allowScripts": {
-    "@swc/core@1.16.1": true,
+    "@swc/core@1.16.21": true,
     "esbuild@0.28.2": true
   },
   "version": "0.1.0-alpha.11.1",
-  "license": "AGPL-3.0-or-later"
+  "license": "AGPL-3.0-or-later",
+  "overrides": {
+    "minimatch": "^11.0.4"
+  }
 }

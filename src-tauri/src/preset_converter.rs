@@ -753,6 +753,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     }
     if !gray_mixer.is_empty() {
         adjustments.insert("grayMixer".to_string(), Value::Object(gray_mixer));
+        // Lightroom's mix values: the response fitted to it.
+        adjustments.insert(
+            rawtonic_engine::image_processing::BW_VERSION_KEY.to_string(),
+            json!(rawtonic_engine::image_processing::BW_VERSION),
+        );
     }
 
     let curve_mappings = [
@@ -1965,6 +1970,10 @@ mod tests {
         assert_eq!(adjustments["grayMixer"]["red"], -20.0);
         assert_eq!(adjustments["grayMixer"]["blue"], 35.0);
         assert!(adjustments["grayMixer"].get("green").is_none());
+        assert_eq!(
+            adjustments["bwVersion"],
+            rawtonic_engine::image_processing::BW_VERSION
+        );
         assert_eq!(adjustments["defringePurpleAmount"], 5);
         assert_eq!(adjustments["defringePurpleHueLo"], 25);
     }

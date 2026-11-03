@@ -581,7 +581,9 @@ export interface Adjustments {
    * Panasonic's and Fujifilm's framing as the cameras frame it; 6 = also
    * Sony's knot table warped as it is (lens model 2); 7 = also
    * Fujifilm's (lens model 3); 8 = also Nikon Z corrected about the
-   * shot's own optical centre (`centre_x`, `centre_y`); missing = as before (saving such recipes again keeps their parameters). */
+   * shot's own optical centre (`centre_x`, `centre_y`); 9 = also
+   * Fujifilm's distortion knots on the whole sensor in a crop mode (Sports Finder); 10 = also
+   * on normal frames where Fujifilm's knots reach past the frame's corner; missing = as before (saving such recipes again keeps their parameters). */
   cameraGeometryVersion?: number;
   lensDistortionAmount: number;
   lensVignetteAmount: number;
@@ -668,7 +670,15 @@ export interface Adjustments {
    * quarter-tones and lowered Highlights is refitted; 3 = lowered
    * Highlights also adapts to the image key (reaches further in dark
    * frames); 4 = and lowers less on frames of bright key (snow, overcast
-   * skies, white rooms); 1 or missing on
+   * skies, white rooms); 5 = and keeps the detail of lowered bright areas
+   * (clouds, lit walls); 6 = and raised Shadows keeps the local contrast of
+   * the shadows it lifts; 7 = and lowered Highlights stays between Capture
+   * One's and Camera Raw's reach on night frames; 8 = and raised Whites
+   * sets the white point (brightest tones to white, midtones barely
+   * lifted); 9 = and lowered Blacks sets a black point on the display
+   * lightness (the darks keep their texture, tones above L* 30 stay);
+   * 10 = and lowered Whites keeps the bright areas' texture (gain at an
+   * edge-aware local base level); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -689,8 +699,16 @@ export interface Adjustments {
    * the layers' Defringe; 1 or missing on recipes that used Defringe before
    * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
+  /** B&W mix response (crates/engine/src/image_processing.rs
+   * `BW_VERSION`): 2 = each channel lowers more strongly the further it is
+   * pulled, windows and gains fitted to Camera Raw on 15 photographs; the
+   * conversion at 0 is version 1's. 1 or missing on recipes that converted
+   * to black and white before it. */
+  bwVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
-   * `SHARPEN_VERSION`): 6 = 5, and for JPEGs and other non-RAW photos
+   * `SHARPEN_VERSION`): 7 = 6 with Masking reading the neighbourhood as it shows on RAW photos (the photo's noise
+   * taken out, bright flat noise no longer kept as texture; renders as 6 without Masking and on non-RAW photos);
+   * 6 = 5, and for JPEGs and other non-RAW photos
    * stronger above Amount 40 (closer to Camera Raw's; RAW photos render as 5); 5 = 4 with Masking's ramp after Camera Raw's (wider:
    * more moderate texture, no more flat noise; renders as 4 without Masking); 4 = 3 with Radius and Masking after Camera Raw's
    * (renders as 3 from Radius 1 up without Masking); 3 = 2 weighted by lightness (little sharpening in
@@ -1363,20 +1381,33 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 4;
+export const TONE_VERSION = 10;
+
+/** The response a recipe without `toneVersion` takes when nothing in it
+ * renders differently: 5, the last that leaves Whites, Blacks and Clarity
+ * as they were. The engine adds Whites, Blacks and Clarity of its own to
+ * some phone DNGs (Camera Raw's phone defaults, `baseline_exposure.rs`),
+ * which the recipe does not show; version 6 reads Clarity's base more
+ * precisely, 8 and 9 change raised Whites and lowered Blacks (versions 6 and
+ * 7 otherwise change only raised Shadows and lowered Highlights). */
+export const KEYLESS_TONE_VERSION = 5;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
- * 5 = version 4's pass computed on the GPU. */
-export const FRINGE_VERSION = 5;
+ * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */
+export const FRINGE_VERSION = 6;
 
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;
 
+/** The B&W mix response new edits start with (notes:
+ * benchmark-results/bw2-black-white-2026-11-03). */
+export const BW_VERSION = 2;
+
 /** The sharpening response new edits start with (notes: reference/detail.md). */
-export const SHARPEN_VERSION = 6;
+export const SHARPEN_VERSION = 7;
 
 /** The luminance noise reduction new edits start with (notes: reference/luma-noise-reference.md). */
 export const LUMA_NOISE_VERSION = 2;
@@ -1386,7 +1417,7 @@ export const RENDER_VERSION = 11;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
-export const SOURCE_FRAME_VERSION = 2;
+export const SOURCE_FRAME_VERSION = 3;
 
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs
@@ -1437,7 +1468,7 @@ export const AI_DENOISE_VERSION = 3;
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** How new edits read the camera data's geometry in camera lens mode (notes: parity-gaps/G71). */
-export const CAMERA_GEOMETRY_VERSION = 8;
+export const CAMERA_GEOMETRY_VERSION = 10;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
 export const AUTO_CA_VERSION = 3;
 
@@ -1479,6 +1510,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        bwVersion: BW_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
@@ -1492,6 +1524,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        bwVersion: BW_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
@@ -1539,6 +1572,17 @@ const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined
   return used ? undefined : DEFRINGE_VERSION;
 };
 
+/** The B&W mix response of a saved recipe: its own; else the current one
+ * when the recipe does not use the mix (not converted, every slider at 0:
+ * both responses render it alike), the first one otherwise (missing key). */
+const loadedBwVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.bwVersion !== undefined && loaded.bwVersion !== null) {
+    return loaded.bwVersion;
+  }
+  const mixed = Object.values(loaded.grayMixer ?? {}).some((v) => (v ?? 0) !== 0);
+  return loaded.blackAndWhite && mixed ? undefined : BW_VERSION;
+};
+
 /** Whether a recipe renders the same with every sharpening response: no
  * sharpening (photo or layer); response 3 differs from 1 at every amount. */
 const sharpensAlikeInEveryVersion = (values: Partial<Adjustments>, isRaw: boolean): boolean => {
@@ -1576,6 +1620,7 @@ export const pastedAdjustments = (
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
+      key === 'bwVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
       continue;
@@ -1584,7 +1629,10 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied), copied);
+  return withBwVersion(
+    withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied), copied),
+    copied,
+  );
 };
 
 /** Keys whose values mean what the sharpening response makes of them. */
@@ -1687,11 +1735,31 @@ export const withClarityVersion = <T extends Partial<Adjustments>>(
   return { ...picked, clarityVersion: source?.clarityVersion ?? 1 };
 };
 
-/** A preset's settings with its Clarity response stated: the preset is its
- * own source, so Clarity on its layers alone (a preset from before the key)
- * renders with version 1 wherever it is previewed or applied. */
-export const withPresetClarityVersion = <T extends Partial<Adjustments>>(preset: T) =>
-  withClarityVersion(preset, preset);
+/** As `withSharpenVersion` for the black & white mix: wherever mix values
+ * are copied (paste, tool copy, Edit all selected, presets) the mix response
+ * goes along explicitly — the source's, else 1 (a source or preset from
+ * before the key) — so the copy renders the mix as the source does. */
+export const withBwVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'bwVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'bwVersion') && picked.bwVersion == null) {
+    return { ...picked, bwVersion: 1 };
+  }
+  if (picked.grayMixer === undefined || picked.bwVersion != null) {
+    return picked;
+  }
+  return { ...picked, bwVersion: source?.bwVersion ?? 1 };
+};
+
+/** A preset's settings with its Clarity and B&W mix responses stated: the
+ * preset is its own source, so Clarity on its layers alone or a mix from
+ * before the keys renders with version 1 wherever it is previewed or
+ * applied. */
+export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
+  withBwVersion(withClarityVersion(preset, preset), preset);
 
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
@@ -1738,18 +1806,30 @@ const loadedAiDenoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): n
 };
 
 /** The tone-slider response of a saved recipe: its own; else the current
- * one when nothing in it renders differently with it (no Shadows above +50
- * and no lowered Highlights on the photo or a layer), the earlier one
+ * one for a new recipe (`isNewRecipe`); else `KEYLESS_TONE_VERSION` when nothing in it renders differently
+ * with it (no raised Shadows, no lowered Highlights, no raised Whites, no
+ * lowered Blacks and no Clarity on the photo or a layer), the earlier one
  * otherwise (missing key). */
 const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => {
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
-  // Versions 2 to 4 change Shadows above +50 and lowered Highlights only.
-  const differs = (values: { shadows?: unknown; highlights?: unknown } | undefined) =>
-    ((values?.shadows as number | undefined) ?? 0) > 50 || ((values?.highlights as number | undefined) ?? 0) < 0;
+  // Versions 2 to 7 change raised Shadows and lowered Highlights, 8 raised
+  // Whites, 9 lowered Blacks, 10 lowered Whites; 6 also reads Clarity's base more precisely (a rounding-level
+  // change).
+  const differs = (
+    values:
+      | { shadows?: unknown; highlights?: unknown; whites?: unknown; blacks?: unknown; clarity?: unknown }
+      | undefined,
+  ) =>
+    ((values?.shadows as number | undefined) ?? 0) > 0 ||
+    ((values?.highlights as number | undefined) ?? 0) < 0 ||
+    ((values?.whites as number | undefined) ?? 0) > 0 ||
+    ((values?.blacks as number | undefined) ?? 0) < 0 ||
+    ((values?.clarity as number | undefined) ?? 0) !== 0;
   const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
-  return rendersDifferently ? undefined : TONE_VERSION;
+  if (isNewRecipe(loaded)) return TONE_VERSION;
+  return rendersDifferently ? undefined : KEYLESS_TONE_VERSION;
 };
 
 /** The Clarity response of a saved recipe: its own; else the current one
@@ -1930,6 +2010,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     toneVersion: loadedToneVersion(loadedAdjustments),
     clarityVersion: loadedClarityVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
+    bwVersion: loadedBwVersion(loadedAdjustments),
     sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
     // A saved recipe's own grain; without the key 1 where it has grain, else
     // the newest (a new edit's, as `initialAdjustmentsFor`).
@@ -2056,7 +2137,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading] },
     { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges'] },
     { label: 'modals.copyPaste.groups.colorCalibration', keys: ['colorCalibration'] },
-    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer'] },
+    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion'] },
   ],
   details: [
     {

@@ -16,6 +16,8 @@ override RELIGHT_RANGE2: bool = false;
 // Range-3 lights (relight.rs RANGE_3_FLAG), compiled likewise only into
 // pipelines for recipes with such a light.
 override RELIGHT_RANGE3: bool = false;
+// Range-4 lights (relight.rs RANGE_4_FLAG), likewise.
+override RELIGHT_RANGE4: bool = false;
 // The luminance noise reduction's edge-preserving pass (LUMA_NR_EDGE_NOISE);
 // exports of quieter photos use pipelines without it (gpu_processing.rs
 // `LUMA_NR_EDGE_NOISE_START`).
@@ -42,6 +44,10 @@ override LONG_CURVES: bool = false;
 // Display frames whose layer slider sums come from one pass (layer_sums.wgsl)
 // instead of the per-layer loop (gpu_processing.rs `layer_sums_buffer`).
 override LAYER_SUMS: bool = false;
+// Masking of sharpening response 7 (`apply_sharpen_v7`): compiled only into
+// pipelines for recipes that use it, so other recipes' exports keep their
+// bits (gpu_processing.rs `SHARPEN_V7_FEATURE`).
+override SHARPEN_V7: bool = false;
 
 struct CurveSegment {
     endpoints: vec4<f32>,
@@ -1364,6 +1370,28 @@ const HL_V3_BLACK_K0: f32 = 0.0;
 const HL_V3_BLACK_K1: f32 = 2.0;
 const HL_V3_BLEND: f32 = 2.0;
 const HL_V3_RANGE: f32 = 2.0;
+// Tone version 5: the range of the local base lowered Highlights
+// compresses, as a share of the pixel's luminance (version 4: 0.22), and how
+// fast it narrows back to version 4's as version 3's dark-frame shift grows
+// (per EV of shift). Chosen on 42 frames against Camera Raw and Capture One
+// (notes: G05, benchmark-results/hlc-c1-highlights-2026-11-02).
+const HL_V5_RANGE: f32 = 1.0;
+const HL_V5_DARK: f32 = 4.0;
+// Tone version 7: version 3's dark-frame shift went 1.5–3.7 times as far
+// as Capture One's −100 and up to 1.9 times Camera Raw's on night frames
+// (murky night photos: the lights and the upper midtones darkened). The
+// shift is now at most HL_V7_SHIFT0 − HL_V7_KEY_SLOPE · 90th percentile −
+// HL_V7_MEDIAN_SLOPE · median (EV over the black point with the baseline):
+// a dark frame whose lights fill a good part of it (high 90th percentile)
+// keeps version 2's response, which already lowers them between Capture
+// One's and Camera Raw's; a night frame of small lights keeps part of the
+// shift. The local base's range still narrows by the uncapped shift
+// (tone order). Chosen on 8 dark frames against Camera Raw and Capture
+// One, checked on 11 held out (notes: G05,
+// benchmark-results/hln-night-highlights-2026-11-03).
+const HL_V7_SHIFT0: f32 = 3.8;
+const HL_V7_KEY_SLOPE: f32 = 0.65;
+const HL_V7_MEDIAN_SLOPE: f32 = 0.35;
 // Tone version 4: lowering Highlights adapts to bright frames too, as
 // Camera Raw's does. On frames of bright key (snow, overcast or bright
 // skies, white rooms) Camera Raw's −100 lowers broad bright areas only
@@ -1487,7 +1515,12 @@ fn camera_raw_curve_segment_slope(segment: i32, own_curve: bool) -> f32 {
 // Shadows +100, ×80 per channel at Contrast −100) and lifted near-black
 // shadows into grey blobs and speckles.
 fn camera_raw_level_slope(luma: f32) -> vec2<f32> {
-    let black = camera_raw_black();
+    return camera_raw_level_slope_black(luma, camera_raw_black());
+}
+
+// `camera_raw_level_slope` with the black level given (the sharpening's
+// Masking reads the look without the Exposure slider, `sharpen_v7_tone_weight`).
+fn camera_raw_level_slope_black(luma: f32, black: f32) -> vec2<f32> {
     let x_in = max(luma, 0.0) * exp2(adjustments.global.baseline_exposure);
     let ramp_slope = 1.0 / (1.0 - black);
     let radius = min(0.5 * black, 0.0625 / ramp_slope);
@@ -1730,9 +1763,13 @@ fn cr_two_point(half: f32, full: f32, amount: f32) -> f32 {
 fn cr_whites_delta(amount: f32, g: vec2<f32>) -> f32 {
     let i = u32(g.x);
     if (amount > 0.0) {
-        return cr_two_point(
+        let raise = cr_two_point(
             mix(CR_WHITES_RAISE_50[i], CR_WHITES_RAISE_50[i + 1u], g.y),
             mix(CR_WHITES_RAISE_100[i], CR_WHITES_RAISE_100[i + 1u], g.y), amount);
+        if (adjustments.global.tone_version > 7.5) {
+            return raise * WHITES_V8_TABLE_SCALE;
+        }
+        return raise;
     }
     return cr_two_point(
         mix(CR_WHITES_LOWER_50[i], CR_WHITES_LOWER_50[i + 1u], g.y),
@@ -1846,6 +1883,190 @@ fn cr_whites_gain(x: f32, amount: f32) -> f32 {
         return gain;
     }
     return max(gain, cr_order_gain(x, knee, cr_whites_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
+}
+
+// Tone version 8: raised Whites sets the white point. The tables above were
+// measured on a Lightroom grey-ramp sweep, where its image-adaptive Whites
+// lifts the midtones by about 1 EV at +100; applied before the highlight
+// roll-off they lifted L* 40–70 by +15…+19 on photos (Camera Raw +11…+16,
+// adaptive; Capture One +2…+9), squeezed the top into the roll-off (bright
+// detail 0.85 of the neutral render's; Capture One 1.11) and never reached
+// white (notes: benchmark-results/wh-whites-2026-11-03). Version 8 keeps
+// 15 % of the tables' lift and stretches the display luminance above
+// WHITES_V8_KNEE so that WHITES_V8_WHITE_POINT reaches white at +100
+// (1 − amount² of the way there, so +50 clips about as little as both
+// editors): near-white tones go to white as in both editors, while the
+// share of the room to white that the stretch adds to a bright saturated
+// colour's largest channel rolls off above WHITES_V8_CHROMA_KNEE, so such
+// colours keep their gradation.
+const WHITES_V8_TABLE_SCALE: f32 = 0.15;
+const WHITES_V8_WHITE_POINT: f32 = 0.9;
+const WHITES_V8_KNEE: f32 = 0.4;
+const WHITES_V8_CHROMA_KNEE: f32 = 0.8;
+
+// The chroma share's roll-off above WHITES_V8_CHROMA_KNEE, towards 1.
+fn whites_v8_chroma_roll(share: f32) -> f32 {
+    if (share <= WHITES_V8_CHROMA_KNEE) {
+        return share;
+    }
+    let room = 1.0 - WHITES_V8_CHROMA_KNEE;
+    return WHITES_V8_CHROMA_KNEE + room * (1.0 - exp(-(share - WHITES_V8_CHROMA_KNEE) / room));
+}
+
+// Version 8's white point on the tone-mapped (display linear) colour;
+// `amount` is Whites / 100, above 0.
+fn whites_v8_white_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let white_point = 1.0 - amount * amount * (1.0 - WHITES_V8_WHITE_POINT);
+    let y = get_luma(max(rgb, vec3<f32>(0.0)));
+    if (y <= WHITES_V8_KNEE) {
+        return rgb;
+    }
+    // Quadratic from the knee (slope 1 there) to white at the white point.
+    let k = (1.0 - white_point) / ((white_point - WHITES_V8_KNEE) * (white_point - WHITES_V8_KNEE));
+    let target_y = y + (y - WHITES_V8_KNEE) * (y - WHITES_V8_KNEE) * k;
+    if (target_y >= 1.0) {
+        return vec3<f32>(1.0);
+    }
+    let out = rgb * (target_y / y);
+    // The largest channel's distance from the luminance, as a share of the
+    // room up to white, before and after the stretch: only the share the
+    // stretch adds rolls off (above the chroma knee, towards 1; the
+    // saturation falls, the luminance stays), so a colour is unchanged
+    // where nothing is stretched (Whites near 0, at the knee) and already
+    // saturated bright colours do not jump when Whites leaves 0.
+    let share_before = (max(rgb.r, max(rgb.g, rgb.b)) - y) / (1.0 - y);
+    let share = (max(out.r, max(out.g, out.b)) - target_y) / (1.0 - target_y);
+    if (share <= WHITES_V8_CHROMA_KNEE || share <= share_before) {
+        return out;
+    }
+    let limited = share_before + whites_v8_chroma_roll(share) - whites_v8_chroma_roll(share_before);
+    return vec3<f32>(target_y) + (out - vec3<f32>(target_y)) * (limited / share);
+}
+
+// Lowered Blacks, tone version 9 (RAW look): a black point on the
+// tone-mapped (display) luminance instead of Lightroom's scene gain.
+// The scene gain darkened by display level and kept the log contrast, so
+// in L* the dark areas lost texture (detail 0.79 of the neutral render's at
+// −100, as Camera Raw; Capture One 1.02) and it reached up to L* 30–40
+// (−25.6 there; Capture One −6.6). Version 9 moves L* down by
+// BLACKS_V9_SHIFT × amount below BLACKS_V9_FULL, fading out (smoothstep)
+// up to BLACKS_V9_TOP, so texture in the darks keeps its L* contrast
+// (slope 1; steeper in the fade) at about the same darkening of the broad
+// dark areas, and tones above L* 30 stay; under an exponential toe
+// BLACKS_V9_TOE × √amount wide the tones that would fall below black are
+// compressed towards it rather than clipped, and black stays black; its
+// width BLACKS_V9_TOE × √amount keeps −50 from pressing the deepest tones
+// to black (crushed pixels +0.02 % at −50, +0.3 % at −100; Capture One
+// 0.0 / 5.7 %, Camera Raw 4.5 / 19.9 %)
+// (notes: benchmark-results/blk-blacks-2026-11-03).
+const BLACKS_V9_SHIFT: f32 = 21.0;
+const BLACKS_V9_FULL: f32 = 10.0;
+const BLACKS_V9_TOP: f32 = 30.0;
+const BLACKS_V9_TOE: f32 = 8.0;
+
+// Whether lowered Blacks takes version 9's display black point (and not
+// the scene gain) for a pixel whose Blacks is `bl` (renderer value).
+fn blacks_v9_active(bl: f32, is_raw: u32) -> bool {
+    return bl < 0.0 && adjustments.global.tone_version > 8.5 && base_look_is_camera_raw() && is_raw == 1u;
+}
+
+fn lstar_of_luma(y: f32) -> f32 {
+    if (y > 0.008856) {
+        return 116.0 * pow(y, 1.0 / 3.0) - 16.0;
+    }
+    return 903.3 * y;
+}
+
+fn luma_of_lstar(l: f32) -> f32 {
+    if (l > 8.0) {
+        let f = (l + 16.0) / 116.0;
+        return f * f * f;
+    }
+    return max(l, 0.0) / 903.3;
+}
+
+// Version 9's black point on the tone-mapped (sRGB-encoded) colour, which
+// it scales in linear light; `amount` is −Blacks / 100, above 0.
+fn blacks_v9_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let lin = decode_signed(rgb);
+    let y = get_luma(max(lin, vec3<f32>(0.0)));
+    if (amount <= 0.0 || y <= 0.0) {
+        return rgb;
+    }
+    let l = lstar_of_luma(y);
+    if (l >= BLACKS_V9_TOP) {
+        return rgb;
+    }
+    let shift = BLACKS_V9_SHIFT * amount;
+    let toe = BLACKS_V9_TOE * sqrt(amount);
+    let u = clamp((BLACKS_V9_TOP - l) / (BLACKS_V9_TOP - BLACKS_V9_FULL), 0.0, 1.0);
+    let v = l - shift * u * u * (3.0 - 2.0 * u);
+    var out_l = v;
+    if (v < toe) {
+        // Slope 1 at the toe; the small rest the exponential leaves at the
+        // lowest level (−shift) is taken off linearly, so black maps to black.
+        let rest = toe * exp(-shift / toe - 1.0);
+        out_l = toe * exp(v / toe - 1.0) - rest * (1.0 - (v + shift) / (toe + shift));
+    }
+    return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
+}
+
+// Tone version 10: lowered Whites keeps the bright areas' texture, as
+// Capture One's White does. Version 9 applied the whites gain per pixel,
+// which flattened texture in clouds, snow and fabric (detail 0.87 of the
+// neutral render's at −100; Capture One 1.02, Camera Raw 0.88). Version 10
+// takes the gain at a local base level and passes the pixel's offset from
+// it through: gain(x) = cr_whites(x / r) · r, raised to WHITES_V10_POWER (so
+// the broad bright areas darken as much as before), with r the pixel's
+// luminance over the base's. The base is an edge-aware ring of the small
+// Clarity blur's mean log luminance (the centre and eight samples
+// WHITES_V10_RING × short side / 1080 px away, at most 30 px), each sample
+// weighted by a Gaussian of its distance in log luminance to the pixel
+// (WHITES_V10_RANGE EV), so a dark neighbour across a strong edge hardly
+// pulls the base: light rims at such edges stay about Capture One's own
+// (+1.4 L* median against its +1.0…+1.2), where a plain blur base rimmed
+// +1.8. Two rings (4 and 8 px) kept the same detail and rims at twice the
+// samples (+1.6 ms per preview step instead of +0.7)
+// (notes: benchmark-results/whl-whites-minus-2026-11-03,
+// whb-whites-ring-2026-11-03).
+const WHITES_V10_RING: f32 = 6.0;
+const WHITES_V10_RANGE: f32 = 0.6;
+const WHITES_V10_POWER: f32 = 1.07;
+// The offset is clamped to this many EV.
+const WHITES_V10_SPAN: f32 = 4.0;
+
+// The log2 luminance offset of the pixel (input space) from its base. The
+// ring stays within 30 px of the pixel, inside the 128 px the blur
+// tiles extend beyond their tile (gpu_processing.rs TILE_OVERLAP) less the
+// small blur's radius, so tiles join exactly.
+fn whites_v10_offset(coords: vec2<i32>, initial_linear: vec3<f32>, scale: f32) -> f32 {
+    let own_log = log2(max(get_luma(max(initial_linear, vec3<f32>(0.0))), 0.0001));
+    let dims = vec2<i32>(textureDimensions(clarity_blur_texture)) - vec2<i32>(1);
+    let d = clamp(WHITES_V10_RING * scale, 1.0, 30.0);
+    let dd = i32(round(d));
+    let dg = i32(round(d * 0.7071));
+    let offsets = array<vec2<i32>, 9>(
+        vec2<i32>(0, 0), vec2<i32>(dd, 0), vec2<i32>(-dd, 0), vec2<i32>(0, dd), vec2<i32>(0, -dd),
+        vec2<i32>(dg, dg), vec2<i32>(-dg, dg), vec2<i32>(dg, -dg), vec2<i32>(-dg, -dg));
+    var sum = 0.0;
+    var wsum = 0.0;
+    for (var k = 0u; k < 9u; k = k + 1u) {
+        let g = small_blur_mean_log(clamp(coords + offsets[k], vec2<i32>(0), dims));
+        let t = (g - own_log) / WHITES_V10_RANGE;
+        let w = exp(-0.5 * t * t) + 1e-4;
+        sum += w * g;
+        wsum += w;
+    }
+    return clamp(own_log - sum / wsum, -WHITES_V10_SPAN, WHITES_V10_SPAN);
+}
+
+// Lowered Whites (amount < 0) of version 10 on a colour without negative
+// channels, at the base level `offset_log` EV below the pixel.
+fn whites_v10_lower(rgb: vec3<f32>, amount: f32, offset_log: f32) -> vec3<f32> {
+    let r = exp2(offset_log);
+    let base = max(rgb / r, vec3<f32>(1e-6));
+    let gain = max(cr_whites(base, amount), vec3<f32>(1e-9)) / base;
+    return rgb * exp2(WHITES_V10_POWER * log2(gain));
 }
 
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
@@ -2049,14 +2270,52 @@ const WHITES_REACH_LOWER: f32 = 2.5;
 const SHADOWS_RAISE: f32 = 1.8;
 const SHADOWS_LOWER: f32 = 1.2;
 
+// Tone version 6: raised Shadows keeps the local contrast of the shadows
+// it lifts, as Camera Raw and Capture One do (notes: G05, benchmark-results/
+// hls-shadow-detail-2026-11-03). Its level comes from the small Clarity
+// blur's mean log luminance (sigma 4 px per 1080 px of the short side,
+// about twice the tonal blur's; a mean of log luminance, so bright
+// neighbours do not pull the level up and the lift down), so texture up to
+// that scale is lifted by one gain. And that texture keeps the display
+// contrast it had: the look's curve is flatter where the lift takes it
+// (display EV per scene EV), so the texture's scene contrast (the tonal
+// blur against the wide level, at most SH_V6_SPAN EV) is raised by the
+// slope ratio, at most SH_V6_CAP. Finer detail (the pixel against the tonal
+// blur, mostly noise in lifted shadows) is lifted as before. Offsets below
+// SH_V6_FLOOR EV are smooth gradients, not texture (the two blurs differ
+// there by their sizes and 16-bit rounding): raising those reordered tones
+// on smooth ramps by up to 0.01 EV.
+const SH_V6_CAP: f32 = 2.0;
+const SH_V6_SPAN: f32 = 1.0;
+const SH_V6_FLOOR: f32 = 0.01;
+// Renderer value (slider / 100) by which version 6 is fully faded in.
+const SH_V6_FADE: f32 = 0.1;
+
+// The wide level: luminance in input space (before exposure).
+fn shadows_v6_level(coords: vec2<u32>) -> f32 {
+    return exp2(small_blur_mean_log(vec2<i32>(coords)));
+}
+
+// The texture gain on top of the wide level's lift `gain`.
+fn shadows_v6_texture(tonal_level: f32, wide_level: f32, gain: f32, exposure_gain: f32) -> f32 {
+    let before = camera_raw_level_slope(wide_level * exposure_gain).y;
+    let after = camera_raw_level_slope(wide_level * exposure_gain * gain).y;
+    let ratio = clamp(before / max(after, 1e-3), 1.0, SH_V6_CAP);
+    let offset = log2(max(tonal_level, 0.0001) / wide_level);
+    let texture = sign(offset) * clamp(abs(offset) - SH_V6_FLOOR, 0.0, SH_V6_SPAN);
+    return exp2(texture * (ratio - 1.0));
+}
+
 fn apply_tonal_adjustments(
     color: vec3<f32>,
     blurred_color_input_space: vec3<f32>,
+    wide_luma_input_space: f32,
+    whites_offset_log: f32,
     is_raw: u32,
     con: f32,
     sh: f32,
     wh: f32,
-    bl: f32,
+    bl_in: f32,
     exposure_gain: f32
 ) -> vec3<f32> {
     var rgb = color;
@@ -2068,12 +2327,19 @@ fn apply_tonal_adjustments(
         blurred_linear = srgb_to_linear(blurred_color_input_space);
     }
 
+    // Whites' luminance ratio at the pixel, which the blurred levels follow.
+    var whites_ratio = 1.0;
     if (wh != 0.0 && base_look_is_camera_raw()) {
         // Renderer value is slider / 30.
         let amount = clamp(wh * 0.3, -1.0, 1.0);
         let negative = any(rgb < vec3<f32>(0.0));
         let floored = max(rgb, vec3<f32>(0.0));
-        var whitened = cr_whites(select(rgb, floored, negative), amount);
+        var whitened: vec3<f32>;
+        if (amount < 0.0 && adjustments.global.tone_version > 9.5) {
+            whitened = whites_v10_lower(select(rgb, floored, negative), amount, whites_offset_log);
+        } else {
+            whitened = cr_whites(select(rgb, floored, negative), amount);
+        }
         if (negative) {
             whitened = carry_scene(rgb, floored, whitened);
         }
@@ -2081,6 +2347,7 @@ fn apply_tonal_adjustments(
         let ratio = max(get_luma(max(whitened, vec3<f32>(0.0))), 0.0) / luma_before;
         rgb = whitened;
         blurred_linear *= ratio;
+        whites_ratio = ratio;
     } else if (wh != 0.0) {
         // Whites moves the upper tones, as Capture One's and Lightroom's White
         // sliders do (it used to scale every tone like a white-point gain).
@@ -2106,8 +2373,11 @@ fn apply_tonal_adjustments(
         let ratio = pow(max(1.0 + k * pow(t_gain, reach), 0.05), 2.2);
         rgb *= ratio;
         blurred_linear *= ratio;
+        whites_ratio = ratio;
     }
 
+    // Version 9 lowers Blacks after the tone map (blacks_v9_black_point).
+    let bl = select(bl_in, 0.0, blacks_v9_active(bl_in, is_raw));
     let pixel_luma = get_luma(max(rgb, vec3<f32>(0.0)));
     let blurred_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -2124,9 +2394,23 @@ fn apply_tonal_adjustments(
         // 0.013 EV at display −6.6 EV). Detail keeps the blurred level.
         let level_ratio = safe_blurred_luma / safe_pixel_luma;
         let level_snap = smoothstep(0.001, 0.004, abs(log(level_ratio)));
-        let level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        var level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        let v6 = sh > 0.0 && adjustments.global.tone_version > 5.5;
+        let tonal_level = level_luma;
+        // Faded in (quadratically) over Shadows 0 … +SH_V6_FADE, so raising
+        // Shadows from 0 does not switch the level of Blacks' (shared) gain
+        // at once.
+        let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
+        let fade = ramp * ramp;
+        if (v6) {
+            let wide = max(wide_luma_input_space * whites_ratio, 0.0001);
+            level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));
+        }
         let gain = camera_raw_shadows_blacks_gain(level_luma * exposure_gain, sh, bl);
         rgb *= gain;
+        if (v6) {
+            rgb *= pow(shadows_v6_texture(tonal_level, level_luma, gain, exposure_gain), fade);
+        }
     } else if (sh != 0.0 || bl != 0.0) {
         let t_pixel = pow(safe_pixel_luma, 0.4545);
         let t_blurred = pow(safe_blurred_luma, 0.4545);
@@ -2221,7 +2505,9 @@ fn apply_tonal_adjustments(
 // at most HL_V3_SHIFT_MAX; faded out as the 90th percentile falls from 2 EV
 // over the black point to it (none at or below it). Tone version 4 adds a
 // negative shift on frames of bright key (at most HL_V4_BRIGHT_MAX EV).
-fn hl_v3_shift() -> f32 {
+// Version 7 caps the dark shift (HL_V7_*) where `capped`; the local base's
+// range keeps following the uncapped one (see apply_highlights_adjustment).
+fn hl_v3_shift(capped: bool) -> f32 {
     let key = adjustments.global.image_key;
     let median = adjustments.global.image_key_median;
     if (key <= 0.0 || median <= 0.0) {
@@ -2232,7 +2518,11 @@ fn hl_v3_shift() -> f32 {
     let km = log2(max(median, CR_RANGE_FLOOR)) + offset;
     let kl = log2(max(adjustments.global.image_key_low, CR_RANGE_FLOOR)) + offset;
     let d = HL_V3_SHIFT0 - HL_V3_MEDIAN_SLOPE * km - HL_V3_KEY_SLOPE * k - HL_V3_LOW_SLOPE * kl;
-    let dark = clamp(d, 0.0, HL_V3_SHIFT_MAX) * smoothstep(HL_V3_BLACK_K0, HL_V3_BLACK_K1, k);
+    var dark = clamp(d, 0.0, HL_V3_SHIFT_MAX) * smoothstep(HL_V3_BLACK_K0, HL_V3_BLACK_K1, k);
+    if (capped && adjustments.global.tone_version > 6.5) {
+        let cap = HL_V7_SHIFT0 - HL_V7_KEY_SLOPE * k - HL_V7_MEDIAN_SLOPE * km;
+        dark = min(dark, clamp(cap, 0.0, HL_V3_SHIFT_MAX));
+    }
     if (adjustments.global.tone_version < 3.5) {
         return dark;
     }
@@ -2269,10 +2559,17 @@ fn apply_highlights_adjustment(
     // blend width (`pivot_unit`), so the upper midtones still darken a
     // little, as in Camera Raw.
     var key_shift = 0.0;
+    // Version 7 caps how far version 3 compresses dark frames, but the
+    // local base's range narrows as version 6's did (by the uncapped
+    // shift): with the wide range back, broad lights of a lit night frame
+    // ended up to 4.6 L* darker than the tones just below them.
+    var range_shift = 0.0;
     var pivot_unit = 1.0;
     if (v2) {
         if (adjustments.global.tone_version > 2.5) {
-            key_shift = hl_v3_shift() * pow(min(-highlights_adj / HL_K100, 1.0), HL_V3_AMOUNT_EXPONENT);
+            let fade = pow(min(-highlights_adj / HL_K100, 1.0), HL_V3_AMOUNT_EXPONENT);
+            key_shift = hl_v3_shift(true) * fade;
+            range_shift = hl_v3_shift(false) * fade;
         }
         hl_unit = exp2(adjustments.global.baseline_exposure + key_shift);
         pivot_unit = exp2(adjustments.global.baseline_exposure + max(key_shift, 0.0));
@@ -2320,7 +2617,13 @@ fn apply_highlights_adjustment(
     // bright plateau otherwise took a base pulled down by the rim, and the
     // detail lift on that turned tones over across the edge (a light rim
     // inside a darker band, 0.1 EV on a clipped disc).
-    let range_tol = max(pixel_luma * 0.22, 0.03) * exp2(-HL_V3_RANGE * max(key_shift, 0.0));
+    let v5 = v2 && adjustments.global.tone_version > 4.5;
+    // Version 5: a wider range lets the base carry mid-scale structure
+    // (clouds, lit walls), so lowering it keeps their detail as Camera Raw
+    // and Capture One do; faded back to the narrow range as version 3
+    // compresses harder on dark frames, where a wide base turned rim tones over.
+    let range_factor = select(0.22, mix(0.22, HL_V5_RANGE, exp2(-HL_V5_DARK * max(range_shift, 0.0))), v5);
+    let range_tol = max(pixel_luma * range_factor, 0.03) * exp2(-HL_V3_RANGE * max(range_shift, 0.0));
     let inv_two_range_sq = 1.0 / (2.0 * range_tol * range_tol);
 
     var sum_luma: f32 = pixel_luma;
@@ -2748,6 +3051,39 @@ fn apply_black_and_white(display: vec3<f32>) -> vec3<f32> {
         let distance_deg = abs(((hue - BW_CENTRES[i]) % 360.0 + 540.0) % 360.0 - 180.0);
         let w = 0.5 + 0.5 * cos(clamp(distance_deg / BW_REACH[i], 0.0, 1.0) * 3.14159265);
         k += w * m * select(BW_LOWER[i], BW_RAISE[i], m > 0.0);
+    }
+    let lightness = lab.x * exp(k * pow(chroma, BW_CHROMA_POWER) / max(lab.x, BW_MIN_LIGHTNESS));
+    let grey = clamp(lightness * lightness * lightness, 0.0, 1.0);
+    return linear_to_srgb(vec3<f32>(grey));
+}
+
+// `bwVersion` 2: the same conversion at 0 (BW_BASE), each channel lowering
+// more strongly the further it is pulled (gain + q · |slider|), as Lightroom's
+// and Capture One's mixes do; windows and gains fitted to Camera Raw on 15
+// photographs, gains then × 1.1 to match Lightroom's own B&W (its Adobe
+// Monochrome profile) on Rawtonic's colour (notes:
+// benchmark-results/bw2-black-white-2026-11-03).
+const BW2_CENTRES = array<f32, 8>(17.8, 52.4, 93.3, 135.0, 182.9, 247.0, 310.9, 350.5);
+const BW2_REACH = array<f32, 8>(28.6, 39.4, 41.9, 38.1, 45.4, 77.4, 51.7, 25.3);
+const BW2_RAISE = array<f32, 8>(2.386, 3.153, 3.062, 2.108, 1.883, 3.223, 2.463, 1.852);
+const BW2_RAISE_Q = array<f32, 8>(-0.53, -0.326, 0.446, -0.096, 0.184, 0.378, -0.083, 0.07);
+const BW2_LOWER = array<f32, 8>(2.512, 4.448, 3.21, 2.751, 2.096, 3.468, 2.206, 1.747);
+const BW2_LOWER_Q = array<f32, 8>(1.442, 2.665, 5.972, 2.618, 2.0, 3.241, 1.35, 1.056);
+
+fn apply_black_and_white_v2(display: vec3<f32>) -> vec3<f32> {
+    let lab = linear_srgb_to_oklab(display_to_linear(display));
+    let chroma = length(lab.yz);
+    let hue = (degrees(atan2(lab.z, lab.y)) + 360.0) % 360.0;
+    let position = hue / 15.0;
+    let index = u32(position) % 24u;
+    var k = mix(BW_BASE[index], BW_BASE[(index + 1u) % 24u], fract(position));
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        let m = adjustments.global.bw_mix[i / 4u][i % 4u];
+        if (m == 0.0) { continue; }
+        let distance_deg = abs(((hue - BW2_CENTRES[i]) % 360.0 + 540.0) % 360.0 - 180.0);
+        let w = 0.5 + 0.5 * cos(clamp(distance_deg / BW2_REACH[i], 0.0, 1.0) * 3.14159265);
+        let gain = select(BW2_LOWER[i] + BW2_LOWER_Q[i] * abs(m), BW2_RAISE[i] + BW2_RAISE_Q[i] * abs(m), m > 0.0);
+        k += w * m * gain;
     }
     let lightness = lab.x * exp(k * pow(chroma, BW_CHROMA_POWER) / max(lab.x, BW_MIN_LIGHTNESS));
     let grey = clamp(lightness * lightness * lightness, 0.0, 1.0);
@@ -3346,6 +3682,27 @@ const CLARITY_FINE_PRIOR: f32 = 0.12;
 // the base of its darker surroundings up (the dark halo of a plain blur).
 // The outer ring stays within the 128 px the blur tiles extend beyond their
 // tile (gpu_processing.rs TILE_OVERLAP), so tiles join exactly.
+// log2 luminance of a blur's colour as blur.wgsl's `log_luma` takes it.
+fn blur_log_luma(c: vec3<f32>) -> f32 {
+    var lin = clamp(c, vec3<f32>(-65504.0), vec3<f32>(65504.0));
+    if (adjustments.global.is_raw_image != 1u) {
+        let s = max(lin, vec3<f32>(0.0));
+        lin = select(pow((s + 0.055) / 1.055, vec3<f32>(2.4)), s / 12.92, s <= vec3<f32>(0.04045));
+    }
+    return log2(max(dot(lin, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0001));
+}
+
+// The small blur's mean log2 luminance at `coords`: tone version 6 stores it
+// against the log luminance of the blur's colour (blur.wgsl flag bit 2),
+// for its precision in deep shadows.
+fn small_blur_mean_log(coords: vec2<i32>) -> f32 {
+    let s = textureLoad(clarity_blur_texture, coords, 0);
+    if (adjustments.global.tone_version > 5.5) {
+        return s.a + blur_log_luma(s.rgb);
+    }
+    return s.a;
+}
+
 fn clarity_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
     let dims = vec2<i32>(textureDimensions(structure_blur_texture)) - vec2<i32>(1);
     let d = clamp(CLARITY_SIDE * 20.0 * scale, 1.0, 60.0);
@@ -3365,7 +3722,7 @@ fn clarity_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
             wsum += w;
         }
     }
-    let fine = textureLoad(clarity_blur_texture, coords, 0).a;
+    let fine = small_blur_mean_log(coords);
     let tf = (fine - own_log) / CLARITY_RANGE;
     let wf = CLARITY_FINE_PRIOR * exp(-0.5 * tf * tf);
     return (sum + wf * fine) / (wsum + wf);
@@ -3504,6 +3861,10 @@ fn apply_sharpen(
     let response = adjustments.global.sharpen_falloff.w;
     // Response 4 differs from 3 only below Radius 1 or with Masking.
     // Response 5 differs from 4 only with Masking.
+    // Response 7 differs from 6 only with Masking, on RAW photos.
+    if (SHARPEN_V7 && response >= 7.0 && adjustments.global.sharpen_masking > 0.0 && is_raw == 1u) {
+        return apply_sharpen_v7(color, coords_i, amount, threshold, is_raw);
+    }
     if (response >= 5.0 && adjustments.global.sharpen_masking > 0.0) {
         return apply_sharpen_v5(color, coords_i, amount, threshold, is_raw);
     }
@@ -4160,6 +4521,212 @@ fn apply_sharpen_v5(
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE * SHARPEN_V4_MASK_SCALE;
         // The floor keeps q³ finite for Masking near 0 (below about 0.1).
         let q = mask_spread / max(SHARPEN_V5_MASK_HALF * t_mask, 1e-6);
+        let q3 = q * q * q;
+        gate *= q3 / (1.0 + q3);
+    }
+    if (detail > 0.0) {
+        let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
+        gate /= 1.0 + SHARPEN_EDGE_DAMP * detail / 3.0 * pow(r, SHARPEN_V2_EDGE_AMOUNT) * excess;
+    }
+    let progression = select(
+        SHARPEN_V2_GAIN_PROGRESSION + SHARPEN_V2_GAIN_PROGRESSION_LOW * detail,
+        SHARPEN_V2_GAIN_PROGRESSION,
+        detail > 0.0,
+    );
+    let detail_gain = select(
+        exp2(SHARPEN_DETAIL_GAIN_LOW * detail),
+        pow(1.0 + detail, SHARPEN_DETAIL_GAIN_HIGH * (1.0 - SHARPEN_V2_DETAIL_CONCAVE * (1.0 - detail_up))),
+        detail > 0.0,
+    );
+    let scale = detail_gain * radius_gain * pow(1.0 + max(detail, 0.0), SHARPEN_DETAIL_FINE);
+    var gain = SHARPEN_V2_GAIN_40 * pow(r, progression) * scale;
+    // Below Radius 1 the gain rises to keep the fine band; the halo
+    // ceiling does not.
+    let ceiling = SHARPEN_V2_HALO_40 * pow(r, SHARPEN_V2_HALO_AMOUNT) * scale / max(radius_gain, 1.0)
+        * exp2(select(0.0, SHARPEN_DETAIL_HALO_HIGH, detail > 0.0) * detail);
+    gain *= pow(kernel_ratio, SHARPEN_V4_GAIN_KERNEL);
+    let knee = 1.0 + (SHARPEN_DETAIL_KNEE - 1.0) * detail_up;
+    let x = gain * d;
+    let delta = x / pow(1.0 + pow(abs(x) / ceiling, knee), 1.0 / knee);
+    var weighted = delta * gate;
+    weighted *= smoothstep(SHARPEN_V3_SHADOW_LO, SHARPEN_V3_SHADOW_HI, l)
+        * (1.0 + SHARPEN_V3_HIGHLIGHT_LIFT * smoothstep(SHARPEN_V3_HIGHLIGHT_LO, SHARPEN_V3_HIGHLIGHT_HI, l));
+    let l_sharp = max(l + weighted, l * 0.4);
+    let shadow_floor_lr = select(0.03, 0.10, is_raw == 1u);
+    let protect = smoothstep(0.0, shadow_floor_lr, l) * (1.0 - smoothstep(0.92, 1.0, l));
+    let l_out = max(mix(l, l_sharp, protect), 0.0);
+    let ratio_lr = l_out / max(l, 1e-4);
+    if (is_raw == 1u) {
+        return color * (ratio_lr * ratio_lr);
+    }
+    return srgb_to_linear(max(color_enc * ratio_lr, vec3<f32>(0.0)));
+}
+
+// Response 7 (`sharpenVersion` 7, notes: reference/detail.md "Sharpening
+// response 7"): response 6 with Masking reading the neighbourhood as it
+// shows. Response 5's spread was taken on the input's square-root
+// luminance, where noise is about equally strong at every brightness; the
+// photo's tone curve compresses bright tones, so on noisy photos bright flat
+// areas (skies, walls) passed as texture (EOS 77D ISO 3200 at Masking 50:
+// half of the flat-area sharpening kept against Camera Raw's 6 %) while
+// mid-tone texture on low-contrast photos was cut. Response 7 takes the
+// photo's measured noise out of the spread (variance minus twice the noise
+// variance) and weights the rest by the slope of the photo's tone curve
+// (output lightness per input unit, `sharpen_v7_tone_weight`). RAW photos
+// only (a JPEG's values are already as they show); without Masking it
+// renders as 6.
+const SHARPEN_V7_NOISE_FLOOR: f32 = 2.0;
+const SHARPEN_V7_MASK_HALF: f32 = 0.842;
+const SHARPEN_V7_MASK_EXPONENT: f32 = 0.7;
+const SHARPEN_V7_TONE_WEIGHT_MAX: f32 = 4.0;
+
+// Output lightness (Oklab-like, the cube root of display luminance) per unit
+// of the input's square-root luminance `p`, under the photo's base tone
+// curve and baseline exposure. Independent of the Exposure slider (the black
+// level as at Exposure 0), so the detail stage stays cached while Exposure
+// moves. Capped where the black ramp crushes the shadows (infinite slope).
+fn sharpen_v7_tone_weight(p_in: f32) -> f32 {
+    let p = max(p_in, 1e-3);
+    var black = CAMERA_RAW_BLACK;
+    if (adjustments.global.profile_curve[15].z > 0.5) {
+        black = 0.0;
+    } else if (adjustments.global.profile_curve[15].w > 1.5) {
+        black = CAMERA_RAW_BLACK_NEUTRAL;
+    }
+    let ls = camera_raw_level_slope_black(p * p, black);
+    // L = 2^(EV / 3): dL/dp = (2 / 3) · L · slope / p.
+    return min((2.0 / 3.0) * exp2(ls.x / 3.0) * max(ls.y, 0.0) / p, SHARPEN_V7_TONE_WEIGHT_MAX);
+}
+
+// In its own function, as responses 4 and 5 (shared code compiles differently).
+fn apply_sharpen_v7(
+    color: vec3<f32>,
+    coords_i: vec2<i32>,
+    amount: f32,
+    threshold: f32,
+    is_raw: u32
+) -> vec3<f32> {
+    var color_enc = color;
+    if (is_raw == 0u) {
+        color_enc = linear_to_srgb_extended(color);
+    }
+    let l = select(get_luma(color_enc), sqrt(max(get_luma(color), 0.0)), is_raw == 1u);
+
+    let radius = 1.0 + adjustments.global.sharpen_radius_offset;
+    let detail = adjustments.global.sharpen_detail_offset / 25.0;
+    let masking = adjustments.global.sharpen_masking;
+    let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
+    let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
+    let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
+    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let r = amount / 0.8;
+    let detail_up = clamp(detail / 3.0, 0.0, 1.0);
+    // Below Radius 1 the σ blur is nearly the pixel itself and the band
+    // outweighs the signal: the tilts towards the fine band fall to half by
+    // Radius 0.5.
+    let tilt_radius = 0.5 + 0.5 * clamp(2.0 * radius - 1.0, 0.0, 1.0);
+    let tilt = select(
+        SHARPEN_DETAIL_TILT_LOW * detail,
+        SHARPEN_DETAIL_TILT * pow(max(detail, 1e-6), SHARPEN_DETAIL_TILT_EXPONENT)
+            * pow(min(r, SHARPEN_V2_TILT_AMOUNT_CAP), SHARPEN_DETAIL_TILT_AMOUNT) * tilt_radius,
+        detail > 0.0,
+    ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
+    let reach = select(
+        select(2, 3, tilt != 0.0),
+        min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
+        radius > 1.0,
+    );
+
+    let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
+    var blur_sum = 0.0;
+    var blur_sq = 0.0;
+    var blur_w = 0.0;
+    var wide_sum = 0.0;
+    var wide_w = 0.0;
+    // Masking's neighbourhood: every pixel of the loop below, and beyond
+    // it a sparse grid (see the masking step).
+    let mask_sigma = max(SHARPEN_V4_MASK_SIGMA * detail_scale, 0.5);
+    var m_sum = 0.0;
+    var m_sq = 0.0;
+    var m_w = 0.0;
+    for (var sy = -reach; sy <= reach; sy = sy + 1) {
+        for (var sx = -reach; sx <= reach; sx = sx + 1) {
+            let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
+            let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
+            let p = sharpen_perc(load_input(c).rgb, is_raw);
+            blur_sum += p * w;
+            blur_sq += p * p * w;
+            blur_w += w;
+            if (tilt != 0.0) {
+                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                wide_sum += p * w2;
+                wide_w += w2;
+            }
+            if (masking > 0.0) {
+                let wm = exp(-f32(sx * sx + sy * sy) / (2.0 * mask_sigma * mask_sigma));
+                m_sum += p * wm;
+                m_sq += p * p * wm;
+                m_w += wm;
+            }
+        }
+    }
+    let mean = blur_sum / blur_w;
+    var d = sharpen_detail(l, mean, is_raw);
+    if (tilt != 0.0) {
+        let band = (mean - wide_sum / wide_w) * select(1.0, nr_fine_keep, nr_active);
+        d -= tilt * band;
+    }
+    // Response 4: Radius 1's kernel high-pass share over this one's (1 at
+    // and above Radius 1).
+    var kernel_ratio = 1.0;
+    if (radius < 1.0) {
+        let sigma_1 = max(SHARPEN_RADIUS * detail_scale, 0.25);
+        var w_1 = 0.0;
+        for (var ky = -2; ky <= 2; ky = ky + 1) {
+            for (var kx = -2; kx <= 2; kx = kx + 1) {
+                w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
+            }
+        }
+        kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
+    }
+    let t_gate = max(threshold * SHARPEN_THRESHOLD_SCALE, 1e-4) / kernel_ratio;
+    var gate = smoothstep(t_gate * 0.2, t_gate, abs(d));
+    let spread = sqrt(max(blur_sq / blur_w - mean * mean, 0.0));
+    if (masking > 0.0) {
+        // Outside the dense core, from σ 2 px on: every other point of the
+        // even grid (alternating by row), each weighted for the 8 pixels it
+        // stands for. The dense core keeps patterns at the grid's own
+        // period (2 or 4 px) from vanishing in the samples.
+        let step = select(1, 2, mask_sigma >= 2.0);
+        let mask_reach = min(i32(ceil(2.0 * mask_sigma / f32(step))) * step, 6);
+        let stride = select(1, 2 * step, step > 1);
+        let area = f32(stride * step);
+        for (var my = -mask_reach; my <= mask_reach; my = my + step) {
+            let shift = select(0, step, step > 1 && ((my / step) & 1) != 0);
+            for (var mx = -mask_reach + shift; mx <= mask_reach; mx = mx + stride) {
+                if (max(abs(mx), abs(my)) <= reach) {
+                    continue;
+                }
+                let w = area * exp(-f32(mx * mx + my * my) / (2.0 * mask_sigma * mask_sigma));
+                let c = clamp(coords_i + vec2<i32>(mx, my), vec2<i32>(0), dims_s);
+                let p = sharpen_perc(load_input(c).rgb, is_raw);
+                m_sum += p * w;
+                m_sq += p * p * w;
+                m_w += w;
+            }
+        }
+        let m_mean = m_sum / m_w;
+        let mask_spread = sqrt(max(m_sq / m_w - m_mean * m_mean, 0.0));
+        let t_mask = masking * pow(masking / 50.0, SHARPEN_V7_MASK_EXPONENT) * SHARPEN_MASK_SCALE * SHARPEN_V4_MASK_SCALE;
+        // The photo's own noise leaves its spread out (`noise_level`, the
+        // full-resolution noise in this square-root encoding; fewer pixels
+        // per preview pixel average it down), and the rest is read as it
+        // shows after the photo's tone curve.
+        let noise = adjustments.global.noise_level * min(detail_scale, 1.0);
+        let texture = sqrt(max(mask_spread * mask_spread - SHARPEN_V7_NOISE_FLOOR * noise * noise, 0.0));
+        let shown = texture * sharpen_v7_tone_weight(m_mean);
+        // The floor keeps q³ finite for Masking near 0 (below about 0.1).
+        let q = shown / max(SHARPEN_V7_MASK_HALF * t_mask, 1e-6);
         let q3 = q * q * q;
         gate *= q3 / (1.0 + q3);
     }
@@ -6493,7 +7060,7 @@ fn apply_glow_bloom(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -6780,6 +7347,9 @@ struct RelightEnergy {
     reflected: vec3<f32>,
     shadow_ev: f32,
     has_light: bool,
+    // The range-4 lights' share of `diffuse` and `reflected` (summed over
+    // channels); 1 where no light reaches and every lit light is range 4.
+    range4: f32,
 }
 
 // The version-five subject atlas (relight_source.rs encode_subject): part 0
@@ -6866,6 +7436,40 @@ const RELIGHT_RANGE3_RIM_FLATTEN: f32 = 0.65;
 // The share of the subject's relief a pattern follows.
 const RELIGHT_RANGE3_PATTERN_RELIEF: f32 = 0.6;
 
+// Range version 4 (notes: benchmark-results/rls-relight-side-2026-11-03):
+// the most a recipe's lights multiply the photo's own light by, as a soft
+// limit. Gains up to 4 (Strength 100) on a face already lit burnt JPEG skin
+// to flat orange and clipped RAW skin; the photo's light doubled is a strong
+// key that keeps skin texture.
+const RELIGHT_RANGE4_MAX_GAIN: f32 = 2.0;
+// Range version 4: the level an already-rendered photo's added light rolls
+// off towards in each channel, short of white: rolling off towards 1 ran
+// skin's red channel into clipping first (flat orange highlights).
+const RELIGHT_RANGE4_WHITE: f32 = 0.96;
+
+// Whether every lit light of the recipe has range version 4.
+fn relight_range4_only() -> bool {
+    if (!RELIGHT_RANGE4) { return false; }
+    var any = false;
+    for (var i = 0u; i < 4u; i++) {
+        if (adjustments.global.relight[i * 5u].w > 0.0) {
+            if ((u32(adjustments.global.relight[i * 5u + 3u].y + 0.5) & 512u) == 0u) { return false; }
+            any = true;
+        }
+    }
+    return any;
+}
+
+// Range version 4's roll-off of a gain above the photo's own light towards
+// RELIGHT_RANGE4_MAX_GAIN, one scale for all channels so the light keeps
+// its hue.
+fn relight_range4_rolloff(gain: vec3<f32>) -> vec3<f32> {
+    let peak = max(gain.x, max(gain.y, gain.z));
+    let room = RELIGHT_RANGE4_MAX_GAIN - 1.0;
+    if (peak <= 1.0) { return gain; }
+    return gain * (1.0 + room * (1.0 - exp(-(peak - 1.0) / room))) / peak;
+}
+
 // Whether a lit light of the recipe has range version 3 (relight.rs
 // RANGE_3_FLAG). The scene-wide range-3 changes follow the lights, not only
 // the pipeline: a display variant compiled with RELIGHT_RANGE3 also renders
@@ -6946,6 +7550,7 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
     var reflected_light = vec3<f32>(0.0);
     var shadow_ev = 0.0;
     var has_light = false;
+    var range4_energy = 0.0;
     for (var i = 0u; i < 4u; i++) {
         let color = adjustments.global.relight[i * 5u];
         if (color.w <= 0.0) { continue; }
@@ -7120,11 +7725,19 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
         let illumination = transmission * footprint * response * attenuation;
         light_gain += color.rgb * color.w * illumination;
         reflected_light += color.rgb * color.w * transmission * footprint * attenuation * specular;
+        if (RELIGHT_RANGE4 && (flags & 512u) != 0u) {
+            range4_energy += dot(color.rgb * color.w * transmission * footprint * attenuation * (response + specular), vec3<f32>(1.0));
+        }
         if (!surface_lighting) {
             shadow_ev += (1.0 - mask) * footprint * settings.z * color.w * (1.0 - shape.w);
         }
     }
-    return RelightEnergy(light_gain, reflected_light, shadow_ev, has_light);
+    var range4 = 0.0;
+    if (RELIGHT_RANGE4) {
+        let total = dot(light_gain + reflected_light, vec3<f32>(1.0));
+        range4 = select(select(0.0, 1.0, relight_range4_only()), clamp(range4_energy / total, 0.0, 1.0), total > 0.0);
+    }
+    return RelightEnergy(light_gain, reflected_light, shadow_ev, has_light, range4);
 }
 
 fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gain: f32) -> vec3<f32> {
@@ -7198,12 +7811,16 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     }
     let energy = relight_energy(surface, uv, coord, dims, false, people, background_reach);
     var light_gain = energy.diffuse;
+    // Range version 4's changes act on the range-4 lights' share of the
+    // light here, so an older light keeps its look where a range-4 light
+    // added to its recipe does not reach.
+    let range4 = energy.range4;
     // Range version 3: a pixel on the matte's edge is part subject, part
     // background; the subject's light alone lit its background share as a
     // bright, hard rim. Its own light is the coverage-weighted mix.
     let mixed_edge = range3_scene && camera_mode && has_depth && energy.has_light
         && adjustments.global.relight_source[3].x > 0.0 && people.z > 0.0 && people.z < 1.0;
-    var background_light = RelightEnergy(vec3<f32>(0.0), vec3<f32>(0.0), 0.0, false);
+    var background_light = RelightEnergy(vec3<f32>(0.0), vec3<f32>(0.0), 0.0, false, 0.0);
     if (mixed_edge) {
         background_light = relight_energy(surface, uv, coord, dims, false, vec4<f32>(0.0), background_reach);
     }
@@ -7231,6 +7848,12 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // the photo's own shading where it is known (I·L/S = A·L).
     if (people.w > 0.0 && adjustments.global.relight_source[2].z > 0.5) {
         var shading = relight_source_shading(relight_people_normal(people));
+        // Range version 4: a new light's skin sheen only where the photo's
+        // own light shows the skin. In its deep shadows the photo holds no
+        // surface detail, and the sheen alone painted a grey, smooth mask.
+        if (RELIGHT_RANGE4) {
+            reflected_light *= mix(1.0, mix(1.0, smoothstep(RELIGHT_MIN_SHADING, RELIGHT_RANGE3_MIN_SHADING, shading), people.w), range4);
+        }
         if (range3_scene) { shading = max(shading, RELIGHT_RANGE3_MIN_SHADING); }
         light_gain /= mix(1.0, shading, people.w);
     }
@@ -7254,17 +7877,34 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // its own lights and spill; dimming it cut the subject out as if under a
     // spot) and gets the new light by its reach.
     if (range3_scene && camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
-        original = mix(1.0, original, people.z);
+        var subject = people.z;
+        // Range version 4: the face mesh is the person too. A matte that
+        // missed a brightly lit cheek kept its light there and cut a hard
+        // edge through the face.
+        if (RELIGHT_RANGE4) { subject = mix(subject, max(subject, smoothstep(0.0, 0.2, surface.a)), range4); }
+        original = mix(1.0, original, subject);
     }
-    let gain = (vec3<f32>(original) + light_gain) * exp2(-shadow_ev);
-    // The original light's skin shine goes with the original light.
-    let photo = rgb * (1.0 - shine * people.z * (1.0 - original));
+    var gain = (vec3<f32>(original) + light_gain) * exp2(-shadow_ev);
+    if (RELIGHT_RANGE4 && range4 > 0.0) {
+        // Range version 4: the range-4 lights' gain above the photo's own
+        // light rolls off (on top of the older lights' gain, which stays).
+        let older = (vec3<f32>(original) + light_gain * (1.0 - range4)) * exp2(-shadow_ev);
+        gain = older + relight_range4_rolloff(gain) - relight_range4_rolloff(older);
+    }
+    // The original light's skin shine goes with the original light. Range
+    // version 4 keeps it: on side-lit faces the analysis takes the lit cheek
+    // for shine (brighter than its fitted light explains), and removing it
+    // left a grey, hard-edged mask there.
+    let kept = select(0.0, range4, RELIGHT_RANGE4);
+    let photo = rgb * (1.0 - shine * (1.0 - kept) * people.z * (1.0 - original));
     if (adjustments.global.is_raw_image == 0u && has_light) {
         // Already-rendered photos have no scene highlight headroom. Roll off
         // added light continuously, preserving texture instead of clipping it.
         let base = photo * min(gain, vec3<f32>(1.0));
         let extra = photo * max(gain - vec3<f32>(1.0), vec3<f32>(0.0)) + reflected_light;
-        let room = max(vec3<f32>(1.0) - base, vec3<f32>(0.00001));
+        // Range version 4: short of white, so no channel clips.
+        let white = select(1.0, mix(1.0, RELIGHT_RANGE4_WHITE, range4), RELIGHT_RANGE4);
+        let room = max(vec3<f32>(white) - base, vec3<f32>(0.00001));
         if (surface_lighting) {
             // One scale for the added RGB energy: per-channel rolloff would
             // change the light's hue as intensity increases.
@@ -7296,7 +7936,7 @@ fn apply_halation(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -7833,7 +8473,15 @@ fn main(
     composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
     composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);
     if (ENABLE_TONE) {
-        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+        var wide_luma = 0.0;
+        if (t_shadows > 0.0 && adjustments.global.tone_version > 5.5) {
+            wide_luma = shadows_v6_level(id.xy);
+        }
+        var whites_offset = 0.0;
+        if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {
+            whites_offset = whites_v10_offset(vec2<i32>(id.xy), initial_linear_rgb, scale);
+        }
+        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
     }
     if (ENABLE_HIGHLIGHTS) {
         composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
@@ -7901,6 +8549,14 @@ fn main(
         default_tonemapped = agx_full_transform(composite_rgb_linear);
     } else if (adjustments.global.tonemapper_mode >= 2u && is_raw == 1u) {
         default_tonemapped = camera_raw_tonemap(composite_rgb_linear * exp2(adjustments.global.baseline_exposure));
+        if (ENABLE_TONE && t_whites > 0.0 && adjustments.global.tone_version > 7.5 && base_look_is_camera_raw()) {
+            // Renderer value is slider / 30.
+            default_tonemapped = whites_v8_white_point(default_tonemapped, clamp(t_whites * 0.3, 0.0, 1.0));
+        }
+        if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
+            // Renderer value is slider / 40.
+            default_tonemapped = blacks_v9_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
+        }
     } else if (is_raw == 1u) {
         var srgb_emulated = linear_to_srgb(composite_rgb_linear);
         const BRIGHTNESS_GAMMA: f32 = 1.1;
@@ -7943,8 +8599,10 @@ fn main(
             default_tonemapped = mix(default_tonemapped, apply_color_ranges(default_tonemapped, i + 1u, count), influence);
         }
     }
-    if (adjustments.global.bw_enabled != 0u) {
+    if (adjustments.global.bw_enabled == 1u) {
         default_tonemapped = apply_black_and_white(default_tonemapped);
+    } else if (adjustments.global.bw_enabled != 0u) {
+        default_tonemapped = apply_black_and_white_v2(default_tonemapped);
     }
     if (adjustments.global.grading_active != 0u) {
         default_tonemapped = apply_grading(default_tonemapped, 0u);
@@ -7965,7 +8623,12 @@ fn main(
 
     if (is_scene_lut) {
         let vlog_encoded = linear_to_vlog(composite_rgb_linear);
-        let lut_color = sample_lut_tetrahedral(lut_table_input(vlog_encoded));
+        var lut_color = sample_lut_tetrahedral(lut_table_input(vlog_encoded));
+        // The LUT reads the scene colour, which version 9's lowered Blacks
+        // no longer darkens: its black point acts on the LUT's colour too.
+        if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
+            lut_color = blacks_v9_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+        }
         base_srgb = lut_amount(default_tonemapped, lut_color, adjustments.global.lut_intensity);
     } else {
         base_srgb = default_tonemapped;

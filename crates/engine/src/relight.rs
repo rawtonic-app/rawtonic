@@ -91,6 +91,12 @@ const RANGE_2_FLAG: u32 = 128;
 /// the photo's own light, softened silhouettes and a flat background for
 /// patterns (notes: benchmark-results/rr-relight-realism-2026-11-01).
 pub const RANGE_3_FLAG: u32 = 256;
+/// Bit of a light's GPU flags: range version 4 (lights since 2026-11-03,
+/// shader `RELIGHT_RANGE4`, with bits 7 and 8): the photo's own skin shine
+/// stays, the new light's sheen only where the photo's light shows the skin,
+/// and the light's gain over the photo's own light rolls off instead of
+/// burning skin (notes: benchmark-results/rls-relight-side-2026-11-03).
+pub const RANGE_4_FLAG: u32 = 512;
 
 /// The ranges a light's values mean; absent = 1 (lights before 2026-10-31).
 fn range_version(light: &Value) -> u64 {
@@ -174,7 +180,8 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
             n("diffusion", DEFAULT_DIFFUSION, 0., 100.) / 100.,
         ];
         // Flags: bit 0 inverts the pattern, bits 1–6 hold the mask slot, bit 7
-        // marks range version 2, bit 8 range version 3 (with bit 7).
+        // marks range version 2, bit 8 range version 3 (with bit 7), bit 9 range
+        // version 4 (with bits 7 and 8).
         let flags = u32::from(light["invert"].as_bool() == Some(true))
             | (mask << 1)
             | if range_version(light) >= 2 {
@@ -184,6 +191,11 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
             }
             | if range_version(light) >= 3 {
                 RANGE_3_FLAG
+            } else {
+                0
+            }
+            | if range_version(light) >= 4 {
+                RANGE_4_FLAG
             } else {
                 0
             };
@@ -1038,6 +1050,24 @@ mod tests {
         assert!(gain(25.) < 25. / 100. * 3.);
         // The mask slot keeps its bits below the flag.
         assert!(crate::image_processing::MAX_MASKS << 1 < RANGE_2_FLAG as usize);
+    }
+
+    #[test]
+    fn range_version_four_sets_its_flag_with_the_earlier_ones() {
+        let flags = |version: u64| {
+            gpu_lights(&json!({"relightLights": [{"intensity": 50, "rangeVersion": version}]}))[3]
+                [1] as u32
+        };
+        assert_eq!(flags(3), RANGE_2_FLAG | RANGE_3_FLAG);
+        assert_eq!(flags(4), RANGE_2_FLAG | RANGE_3_FLAG | RANGE_4_FLAG);
+        // Range 4 keeps range 2's gain.
+        let gain = |version: u64| {
+            gpu_lights(&json!({"relightLights": [{"intensity": 50, "rangeVersion": version}]}))[0]
+                [3]
+        };
+        assert_eq!(gain(4), gain(2));
+        // The flags stay exact in the f32 the GPU reads.
+        assert!(((RANGE_4_FLAG << 1) as f32) < (1u32 << f32::MANTISSA_DIGITS) as f32);
     }
 
     #[test]

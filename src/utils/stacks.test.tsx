@@ -146,6 +146,30 @@ describe("splitting and moving inside a stack", () => {
     expect(invoke).toHaveBeenCalledWith("stacks_restore", { library: "/job", change: { before: [1], after: [2] }, undo: true });
   });
 
+  it("splits at the last member of a three-member stack as one undo step", async () => {
+    // c is the last member: backend splits A B | c, c's one-member stack
+    // dissolves, and the whole split is one undo step that puts A B c back.
+    setStacks("/job", [stack("s", ["a", "b", "c"], false)]);
+    const before = stack("s", ["a", "b", "c"], false);
+    const after = stack("t", ["a", "b"], false);
+    vi.mocked(invoke).mockImplementation(async (name) =>
+      name === Invokes.StacksSplit
+        ? { library: "/job", change: { before: [{ ...before, id: 1 }], after: [{ ...after, id: 2 }] }, done: true }
+        : [],
+    );
+    useLibraryStore.setState({ multiSelectedPaths: [files[2].path], libraryActivePath: files[2].path });
+    await splitStack();
+    expect(invoke).toHaveBeenCalledWith("stacks_split", { paths: [files[2].path] });
+    expect(getUndoLabel()).toBe("Undo Stacking");
+    await undo();
+    expect(invoke).toHaveBeenCalledWith("stacks_restore", {
+      library: "/job",
+      change: { before: [{ ...before, id: 1 }], after: [{ ...after, id: 2 }] },
+      undo: true,
+    });
+    expect(canUndo()).toBe(false);
+  });
+
   it("moves the active member up or down as one undo step each", async () => {
     run(Invokes.StacksMove);
     useLibraryStore.setState({ multiSelectedPaths: [files[1].path], libraryActivePath: files[1].path });

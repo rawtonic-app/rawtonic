@@ -13,7 +13,7 @@ import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from "../../utils/builtinPresets";
-import { initialAdjustmentsFor, normalizeLoadedAdjustments, withPresetClarityVersion } from "../../utils/adjustments";
+import { initialAdjustmentsFor, normalizeLoadedAdjustments, withPresetVersions } from "../../utils/adjustments";
 import { appliedStyleOf, revertStyle, withStyleAmount } from "../../utils/appliedStyle";
 import { presetPreview, presetValues, toolPresetToSave } from "./toolPresets";
 import { noteTool } from "../contribute/usageStats";
@@ -269,7 +269,7 @@ export default function StudioPresets() {
     const targets = applyTargets();
     if (!targets.length || !ready) return;
     const open = selectedImage?.path;
-    const values = withPresetClarityVersion(structuredClone(preset.adjustments));
+    const values = withPresetVersions(structuredClone(preset.adjustments));
     if (isStyle(preset)) {
       // The open photo decides, as its list shows: the applied style comes
       // off every photo it is the last applied style of; another style

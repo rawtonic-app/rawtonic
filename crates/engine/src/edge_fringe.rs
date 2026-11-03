@@ -52,9 +52,10 @@ pub const VERSION_KEY: &str = "fringeVersion";
 /// adds the colour-line stage; 4 (2026-10-20) first corrects chromatic
 /// aberration across strong edges, noisy photos included (`axial`); 5
 /// (2026-10-25) is version 4 computed on the GPU (`gpu`; the same stages,
-/// equal within float rounding). Recipes without the key keep rendering
-/// without it, recipes with 1–4 as before.
-pub const VERSION: u64 = 5;
+/// equal within float rounding); 6 (2026-11-03) keeps the 7 × 7 windows on
+/// photos of moderate noise too (`radius_for`). Recipes without the key
+/// keep rendering without it, recipes with 1–5 as before.
+pub const VERSION: u64 = 6;
 
 /// Window radius at full resolution: version 1's 5 × 5 spans a fringe on
 /// both sides of a thin line. A lateral-CA rest of 1–2 px beside an edge
@@ -68,11 +69,30 @@ pub const VERSION: u64 = 5;
 /// alone passes the edge test, the 7 × 7 model evens out the fine chroma
 /// noise unevenly and the colour noise reduction leaves blotches (EOS R10
 /// ISO 32000: 14 → 1560 isolated specks per Mpx), so version 2 keeps 5 × 5
-/// there and renders as version 1. `noise` is the full-resolution
-/// luminance noise (`luminance_noise`).
+/// there and renders as version 1. Version 6 keeps 7 × 7 up to
+/// `WIDE_NOISE` (about ISO 1600–6400 bodies: EOS M50 II, EOS M3, Z6 II,
+/// GM1S): there the wider window lowers the bright-edge excess on all four
+/// and the isolated colour specks on three (Z6 II 0.38 → 0.18 %, specks
+/// 355 → 232 per Mpx; M50 II 0.83 → 0.63 %, specks about equal, 2.3 →
+/// 2.5), while from a noise of
+/// 0.031 (K-7, D5600, EOS R50/R10, Z fc) specks rose 1.4–4.6× (notes:
+/// reference/edge-fringes.md "Version 6"). The colour lines stay on
+/// version 2's low-noise photos: on GM1S (noise 0.017) they raised the
+/// specks 176 → 402 per Mpx. `noise` is the full-resolution luminance
+/// noise (`luminance_noise`).
 fn radius_for(version: u64, noise: f32) -> f32 {
-    if low_noise(version, noise) { 3.0 } else { 2.0 }
+    let wide = if version >= 6 {
+        noise < WIDE_NOISE
+    } else {
+        low_noise(version, noise)
+    };
+    if wide { 3.0 } else { 2.0 }
 }
+
+/// Version 6's luminance noise below which the windows are 7 × 7: between
+/// the noisiest photo the wider window helped (0.023) and the least noisy
+/// one it hurt (0.031) of the fitting half of the fringe set.
+const WIDE_NOISE: f32 = 0.9 * EDGE_LOW;
 
 /// Whether version 2's wider windows and version 3's colour lines apply.
 fn low_noise(version: u64, noise: f32) -> bool {
@@ -140,6 +160,13 @@ fn plan_for(version: u64, noise: f32, scale: f32) -> Plan {
 #[cfg(feature = "test-support")]
 pub fn plan_of(version: u64, noise: f32, scale: f32) -> Plan {
     plan_for(version.min(VERSION), noise, scale)
+}
+
+/// The full-resolution luminance noise the plan of `data` is made with
+/// (the GPU crate's equivalence tests).
+#[cfg(feature = "test-support")]
+pub fn noise_of(data: &[f32], w: usize, h: usize, stride: usize) -> f32 {
+    luminance_noise(data, w, h, stride)
 }
 
 /// [`apply`] of a GPU plan in tiles of `tile × tile` pixels.
@@ -1883,6 +1910,33 @@ mod tests {
             apply_for_recipe(Cow::Borrowed(&eight), &recipe, 1.0),
             Ok(Cow::Borrowed(_))
         ));
+    }
+
+    #[test]
+    fn version_6_keeps_wide_windows_on_moderately_noisy_photos() {
+        // Between version 2's low-noise gate and `WIDE_NOISE`: 7 × 7 without
+        // the colour lines; versions 2–5 keep 5 × 5 there.
+        for noise in [0.0, 0.01, 0.016, 0.023, 0.0269] {
+            let plan = plan_for(6, noise, 1.0);
+            assert_eq!(plan.radius, 3, "noise {noise}");
+            assert_eq!(plan.colour_lines, noise < 0.5 * EDGE_LOW, "noise {noise}");
+            assert_eq!(
+                Plan {
+                    radius: 3,
+                    ..plan_for(5, noise, 1.0)
+                },
+                plan,
+                "version 6 otherwise plans version 5's stages (noise {noise})"
+            );
+        }
+        for noise in [0.016, 0.023] {
+            assert_eq!(plan_for(5, noise, 1.0).radius, 2);
+        }
+        for noise in [0.0271, 0.031, 0.05] {
+            assert_eq!(plan_for(6, noise, 1.0), plan_for(5, noise, 1.0));
+        }
+        // Reduced previews scale the radius as before.
+        assert_eq!(plan_for(6, 0.02, 0.5).radius, 2);
     }
 
     #[test]

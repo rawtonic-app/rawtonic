@@ -174,7 +174,7 @@ mod tests {
         // set too (the crop alone would make it an edit without them).
         for new in [json!({}), Value::Null] {
             let mut recipe = new;
-            start_new_edit(&mut recipe, &[Some(crop), Some(crop), Some(crop)]);
+            start_new_edit(&mut recipe, &[Some(crop); 4]);
             assert_eq!(
                 recipe["renderVersion"],
                 json!(crate::image_processing::RENDER_VERSION)
@@ -189,7 +189,7 @@ mod tests {
         }
         // A Reset's recipe keeps its frame and takes that frame's crop.
         let mut reset = json!({crate::source_frame::KEY: 0});
-        start_new_edit(&mut reset, &[None, Some(crop), Some(crop)]);
+        start_new_edit(&mut reset, &[None, Some(crop), Some(crop), Some(crop)]);
         assert_eq!(reset[crate::source_frame::KEY], json!(0));
         assert!(reset.get("crop").is_none());
         assert_eq!(
@@ -198,7 +198,7 @@ mod tests {
         );
         // An edit keeps its own crop (none) and versions.
         let mut edited = json!({"exposure": 1.0});
-        start_new_edit(&mut edited, &[Some(crop), Some(crop), Some(crop)]);
+        start_new_edit(&mut edited, &[Some(crop); 4]);
         assert_eq!(edited, json!({"exposure": 1.0}));
         // Not a RAW: only the versions, the file is never read.
         let mut other = json!({});
@@ -231,19 +231,19 @@ mod tests {
         // Frame 0 differs from the newest: its crop is not known (facts
         // from before frame version 2 list two frames; the newest reads as
         // their last).
-        assert_eq!(offline(&facts, "CR3"), vec![None, crop, crop]);
+        assert_eq!(offline(&facts, "CR3"), vec![None, crop, crop, crop]);
         // An ARW's list from before version 2 does not tell its newest
         // frame: only that frame gets the crop.
         facts.frames = Some(vec![0, 0]);
-        assert_eq!(offline(&facts, "ARW"), vec![None, None, crop]);
+        assert_eq!(offline(&facts, "ARW"), vec![None, None, None, crop]);
         facts.frames = Some(vec![0, 1]);
         facts.frames = Some(vec![0, 0, 0]);
-        assert_eq!(offline(&facts, "CR3"), vec![crop, crop, crop]);
+        assert_eq!(offline(&facts, "CR3"), vec![crop; 4]);
         facts.frames = Some(vec![0, 0, 2]);
-        assert_eq!(offline(&facts, "CR3"), vec![None, None, crop]);
+        assert_eq!(offline(&facts, "CR3"), vec![None, None, crop, crop]);
         // Kept as none: none for every frame.
         facts.camera_crop = Some(Vec::new());
-        assert_eq!(offline(&facts, "CR3"), vec![None, None, None]);
+        assert_eq!(offline(&facts, "CR3"), vec![None; 4]);
         // Facts from before the crop was kept tell nothing.
         facts.camera_crop = None;
         assert_eq!(offline(&facts, "CR3"), Vec::new());

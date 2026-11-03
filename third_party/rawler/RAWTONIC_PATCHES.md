@@ -394,3 +394,30 @@ Converter 18.7 (white/black levels from the DNG's raw IFD, AsShotNeutral):
   and thousands of entries each claiming the whole file each allocated it
   (both can exhaust memory, which aborts the process). Valid files are read
   as before.
+
+## Pieces of rawler 0.8.0 (2026-11-03)
+
+rawler 0.8.0 (crates.io, dnglab, LGPL-2.1, same AUTHORS) was assessed and
+not adopted as a whole (notes: benchmark-results/rwl-rawler-08-2026-11-03).
+Three pieces were taken over, each from rawler 0.8.0's sources:
+
+- `src/decoders/raf.rs` (`camera_compressed`): a compressed (lossless or
+  lossy) RAF uses the camera's `compressed` mode, whose active area the
+  tomls already held (X-T2, X-Pro2, X-E3, X-T20: `[0, 5, 16, 1]`). The
+  base mode's 128 px right border, meant for the 6160 px uncompressed
+  buffer, cut the 6048 px compressed buffer, so the recorded 6000 × 4000
+  crop developed 5904 × 4000. Raw samples are unchanged; on the
+  raw.pixls.us mirror exactly these four bodies' compressed files change
+  (active area and mode). Rawtonic keeps the old frame for edits made
+  before it (recipe `sourceFrameVersion` 3, `rawtonic-rawdecode`
+  `source_frame.rs`). Unit test `rawtonic_tests` in the same file.
+- `data/cameras/canon/c50.toml`: Canon EOS C50 (CR3 stills), rawler 0.8.0's
+  entry unchanged (colour matrices from upstream). No C50 file was
+  available to test it (none in the raw.pixls.us mirror on 2026-11-03).
+  Test `canon_eos_c50_is_known` in `src/decoders/raf.rs`.
+- `data/lenses/rf_mount/canon.toml`: the RF 200-800mm F6.3-9 IS USM with
+  the RF1.4x and RF2x extenders carries its CR3 lens name (`key`) and the
+  extended focal and aperture ranges (280-1120 mm f/9-13, 400-1600 mm
+  f/13-18), as in rawler 0.8.0; they listed the bare lens's 200-800 mm
+  f/6.3-9. Only lens metadata change (an export's LensSpecification), no
+  pixels. Test `resolve_rf_200_800_with_extenders` in `src/lens.rs`.

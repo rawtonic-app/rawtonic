@@ -172,6 +172,12 @@ mod tests {
         assert_eq!(effective_in(&[0, 0, 2], 2, "ARW"), 2);
         assert_eq!(effective_in(&[0, 0, 0], 2, "arw"), 0);
         assert_eq!(effective_in(&[], 1, "CR3"), 1);
+        // Version 3 changes only (compressed) RAFs: a RAF's list from
+        // before it does not tell its frame at 3, a CR3's does.
+        assert_eq!(effective_in(&[0, 0, 0], 3, "RAF"), 3);
+        assert_eq!(effective_in(&[0, 0, 0, 3], 3, "raf"), 3);
+        assert_eq!(effective_in(&[0, 0, 0, 0], 3, "RAF"), 0);
+        assert_eq!(effective_in(&[0, 1, 1], 3, "CR3"), 1);
     }
 
     /// A Reset keeps the frame of an edited photograph (decision

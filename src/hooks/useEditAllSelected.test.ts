@@ -241,6 +241,16 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { clarity: 30, clarityVersion: 2 } }]);
   });
 
+  it('sends the primary\'s B&W mix response with mix edits', async () => {
+    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, bwVersion: 2 } as Adjustments }));
+    renderHook(() => useEditAllSelected(true, selection));
+    const mix = { red: 0, orange: 0, yellow: 0, green: 0, aqua: 0, blue: -30, purple: 0, magenta: 0 };
+    edit({ grayMixer: mix });
+    expect(live()).toEqual([{ grayMixer: mix, bwVersion: 2 }]);
+    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { grayMixer: mix, bwVersion: 2 } }]);
+  });
+
   it('does not send a sharpening response live for a mask-only edit', () => {
     renderHook(() => useEditAllSelected(true, selection));
     edit({ masks: [{ id: 'm', adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>);
