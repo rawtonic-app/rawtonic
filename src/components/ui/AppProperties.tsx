@@ -451,6 +451,8 @@ export type CropGrid = 'always' | 'drag' | 'off';
 
 export interface AppSettings {
   checkForUpdates?: boolean;
+  /** Backend-owned Unix timestamp in seconds throttling automatic update checks. */
+  lastUpdateCheck?: number | null;
   /** Rawtonic's own presets and styles in the Styles panel and the tools' preset menus (missing: shown). */
   showBuiltinPresets?: boolean;
   favoriteProfiles?: string[];
@@ -494,6 +496,8 @@ export interface AppSettings {
   /** The brush's last size, hardness, opacity and flow. */
   brushDefaults?: Partial<Pick<BrushSettings, 'size' | 'hardness' | 'opacity' | 'flow'>>;
   enableAiTagging?: boolean;
+  /** Maximum concurrent tagging tasks (missing: 3; at least 1 when used). */
+  taggingThreadCount?: number | null;
   /** Read every face's eyes in the background for culling (turned on by
    * the first Check Eyes; `face_eyes`). */
   eyeCheck?: boolean;
@@ -518,6 +522,8 @@ export interface AppSettings {
   processingBackend?: string;
   aiGpu?: boolean;
   linuxGpuOptimization?: boolean;
+  /** Records the one-time migration disabling the old Linux GPU optimization default. */
+  linuxGpuOptimizationMigratedV1?: boolean | null;
   exportPresets?: ExportPreset[];
   importMetadataPresets?: ImportMetadataPreset[];
   myLenses?: MyLens[];
@@ -573,6 +579,8 @@ export interface AppSettings {
   grouping?: GroupingMode;
   requireMatchingExif?: boolean;
   groupEditedFiles?: boolean;
+  /** Legacy setting accepted on read; Rust deliberately omits it when saving. */
+  groupAssociatedFiles?: boolean | null;
   groupPreferredType?: GroupPreference; // legacy
   alwaysDecodeRawThumbnails?: boolean;
   /** Long edge of Standard previews at least (px); unset or 0: sized to the Develop view. */
@@ -756,7 +764,7 @@ export interface LoadImageResult {
   exif: { [key: string]: string };
   is_raw: boolean;
   /** AI Denoise amount the source was developed with (0 … 100). */
-  ai_denoise?: number;
+  ai_denoise: number;
   /** Its `aiDenoiseVersion` (1 when off). */
   ai_denoise_version?: number;
   /** Why the recipe's AI Denoise could not be applied. */
