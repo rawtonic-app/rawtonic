@@ -73,7 +73,7 @@ pub fn load_and_composite(
     adjustments: &Value,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
 ) -> Result<DynamicImage> {
     let base_image = load_base_image_for_recipe(
         base_image,
@@ -95,7 +95,7 @@ pub fn load_base_image_from_bytes(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
 ) -> Result<DynamicImage> {
     load_base_image_from_bytes_with(
         bytes,
@@ -114,7 +114,7 @@ pub fn load_base_image_from_bytes_with(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
 ) -> Result<DynamicImage> {
     load_base_image_from_bytes_with_draft(
@@ -135,7 +135,7 @@ pub fn load_base_image_from_bytes_with_draft(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
 ) -> Result<DynamicImage> {
@@ -159,7 +159,7 @@ pub fn load_base_image_for_recipe(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     adjustments: &Value,
 ) -> Result<DynamicImage> {
@@ -182,7 +182,7 @@ pub fn load_base_image_for_recipe_measured(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     adjustments: &Value,
 ) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
@@ -234,7 +234,7 @@ pub fn load_base_image_from_bytes_for(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
     variant: Option<DecodeVariant>,
@@ -261,7 +261,7 @@ pub fn load_base_image_measured_for(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     settings: &AppSettings,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
     variant: Option<DecodeVariant>,
@@ -291,8 +291,9 @@ pub fn load_base_image_measured_for(
         && settings.use_apple_raw9.unwrap_or(false)
         && options.mosaic_denoise.is_none()
     {
-        if let Some((tracker, generation)) = &cancel_token
-            && tracker.load(Ordering::SeqCst) != *generation
+        if cancel_token
+            .as_ref()
+            .is_some_and(rawtonic_runtime::CancelToken::is_cancelled)
         {
             return Err(anyhow!("Load cancelled"));
         }
@@ -787,7 +788,7 @@ pub async fn apply_ai_denoise(
         Some((image, _, measures)) => (image, measures),
         None => {
             let settings = crate::state::settings::current(&app_handle);
-            let cancel_token = Some((tracker, my_generation));
+            let cancel_token = Some(rawtonic_runtime::CancelToken::new(tracker, my_generation));
             let decode_source = source.clone();
             let ((image, measures), exif) = tokio::task::spawn_blocking(move || {
                 let bytes = fs::read(&decode_source).map_err(|e| e.to_string())?;
@@ -968,7 +969,10 @@ pub async fn load_image(
     );
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let generation_tracker = state.load_image_generation.clone();
-    let cancel_token = Some((generation_tracker.clone(), my_generation));
+    let cancel_token = Some(rawtonic_runtime::CancelToken::new(
+        generation_tracker.clone(),
+        my_generation,
+    ));
     open_source(&state, &develop, &path);
     crate::editor_preview::release_still_for(&state, &path);
     *state

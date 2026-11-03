@@ -8,56 +8,74 @@ use rawler::{
     rawsource::RawSource,
 };
 use rayon::prelude::*;
+#[cfg(test)]
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
-pub fn develop_raw_image(
-    file_bytes: &[u8],
-    fast_demosaic: bool,
-    highlight_compression: f32,
-    linear_mode: String,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
-) -> Result<DynamicImage> {
-    develop_raw_image_with(
-        file_bytes,
-        fast_demosaic,
-        highlight_compression,
-        linear_mode,
-        cancel_token,
-        None,
-    )
+/// How to interpret linear RAW colour channels. Unknown external strings retain
+/// the historical automatic behaviour.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LinearMode {
+    #[default]
+    Auto,
+    Gamma,
+    SkipCalibration,
+    GammaSkipCalibration,
 }
 
-/// `develop_raw_image` with an optional mosaic denoiser
-/// (mosaic_denoise.rs), which full developments of Bayer mosaics run
-/// before highlight reconstruction and demosaicing. Colours outside sRGB
-/// keep their negative channels out to the ProPhoto gamut (gamut.rs).
-pub fn develop_raw_image_with(
-    file_bytes: &[u8],
-    fast_demosaic: bool,
-    highlight_compression: f32,
-    linear_mode: String,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
-    denoise: Option<&crate::mosaic_denoise::MosaicDenoise>,
-) -> Result<DynamicImage> {
-    develop_raw_image_with_draft(
-        file_bytes,
-        fast_demosaic,
-        highlight_compression,
-        linear_mode,
-        cancel_token,
-        denoise,
-        None,
-        crate::hot_pixels::DeadTest::default(),
-        0,
-        crate::black_bias::BlackLevels::default(),
-        crate::highlight_reconstruction::HighlightRebuild::default(),
-    )
+impl From<&str> for LinearMode {
+    fn from(value: &str) -> Self {
+        match value {
+            "gamma" => Self::Gamma,
+            "skip_calib" => Self::SkipCalibration,
+            "gamma_skip_calib" => Self::GammaSkipCalibration,
+            _ => Self::Auto,
+        }
+    }
 }
 
-/// Receives the draft of a full development (`develop_raw_image_with_draft`):
+impl From<String> for LinearMode {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Optional controls for a RAW development, with the legacy full-development
+/// defaults. Borrowed hooks live only for the duration of the decode.
+pub struct DecodeOptions<'a> {
+    pub fast_demosaic: bool,
+    /// Retained for callers; the legacy decoder also ignored this value.
+    pub highlight_compression: f32,
+    pub linear_mode: LinearMode,
+    pub cancel_token: Option<rawtonic_runtime::CancelToken>,
+    pub denoise: Option<&'a crate::mosaic_denoise::MosaicDenoise>,
+    pub draft: Option<&'a DraftSink>,
+    pub dead_test: crate::hot_pixels::DeadTest,
+    pub frame_version: u32,
+    pub black: crate::black_bias::BlackLevels,
+    pub highlights: crate::highlight_reconstruction::HighlightRebuild,
+}
+
+impl Default for DecodeOptions<'_> {
+    fn default() -> Self {
+        Self {
+            fast_demosaic: false,
+            highlight_compression: 2.5,
+            linear_mode: LinearMode::default(),
+            cancel_token: None,
+            denoise: None,
+            draft: None,
+            dead_test: Default::default(),
+            frame_version: 0,
+            black: Default::default(),
+            highlights: Default::default(),
+        }
+    }
+}
+
+/// Receives the draft of a full development (`develop_raw_image`):
 /// the oriented image and the size the full development will have. The full
 /// development starts when it returns.
 pub struct DraftSink(pub Box<dyn Fn(DynamicImage, (u32, u32)) + Send + Sync>);
@@ -68,7 +86,7 @@ impl std::fmt::Debug for DraftSink {
     }
 }
 
-/// `develop_raw_image_with`; a full development of an RGB mosaic with a
+/// Develop RAW bytes into oriented linear RGB. A full RGB mosaic decode with a
 /// `draft` sink first hands it a draft made from the same prepared mosaic
 /// (Bayer half-size superpixels, X-Trans 3 x 3 bins), as soon as the
 /// mosaic is decoded and its highlights rebuilt, then demosaics. One decode
@@ -80,33 +98,8 @@ impl std::fmt::Debug for DraftSink {
 /// colours are rebuilt (highlight_reconstruction.rs; the recipe's
 /// `renderVersion` decides all three), `frame_version` the frame
 /// (source_frame.rs; the recipe's `sourceFrameVersion`).
-#[allow(clippy::too_many_arguments)]
-pub fn develop_raw_image_with_draft(
-    file_bytes: &[u8],
-    fast_demosaic: bool,
-    highlight_compression: f32,
-    linear_mode: String,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
-    denoise: Option<&crate::mosaic_denoise::MosaicDenoise>,
-    draft: Option<&DraftSink>,
-    dead_test: crate::hot_pixels::DeadTest,
-    frame_version: u32,
-    black: crate::black_bias::BlackLevels,
-    highlights: crate::highlight_reconstruction::HighlightRebuild,
-) -> Result<DynamicImage> {
-    let (developed_image, orientation) = develop_internal(
-        file_bytes,
-        fast_demosaic,
-        highlight_compression,
-        linear_mode,
-        cancel_token,
-        denoise,
-        draft,
-        dead_test,
-        frame_version,
-        black,
-        highlights,
-    )?;
+pub fn develop_raw_image(file_bytes: &[u8], options: &DecodeOptions<'_>) -> Result<DynamicImage> {
+    let (developed_image, orientation) = develop_internal(file_bytes, options)?;
     #[cfg(feature = "performance-profiling")]
     let _orientation_stage = crate::performance::PerformanceStage::new("raw_orientation");
     Ok(apply_orientation(developed_image, orientation))
@@ -189,23 +182,26 @@ fn recover_clipped_pixel(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     (cur_r, cur_g, cur_b)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn develop_internal(
     file_bytes: &[u8],
-    fast_demosaic: bool,
-    _highlight_compression: f32,
-    linear_mode: String,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
-    denoise: Option<&crate::mosaic_denoise::MosaicDenoise>,
-    draft: Option<&DraftSink>,
-    dead_test: crate::hot_pixels::DeadTest,
-    frame_version: u32,
-    black: crate::black_bias::BlackLevels,
-    highlights: crate::highlight_reconstruction::HighlightRebuild,
+    options: &DecodeOptions<'_>,
 ) -> Result<(DynamicImage, Orientation)> {
+    let DecodeOptions {
+        fast_demosaic,
+        linear_mode,
+        denoise,
+        draft,
+        dead_test,
+        frame_version,
+        black,
+        highlights,
+        ..
+    } = *options;
+    let cancel_token = &options.cancel_token;
     let check_cancel = || -> Result<()> {
-        if let Some((tracker, generation)) = &cancel_token
-            && tracker.load(Ordering::SeqCst) != *generation
+        if cancel_token
+            .as_ref()
+            .is_some_and(rawtonic_runtime::CancelToken::is_cancelled)
         {
             return Err(anyhow!("Load cancelled"));
         }
@@ -290,11 +286,11 @@ fn develop_internal(
         .as_deref()
         .and_then(crate::dng_opcodes::parse_gain_table_map);
 
-    let (apply_ungamma, apply_calibration) = match linear_mode.as_str() {
-        "gamma" => (true, true),
-        "skip_calib" => (false, false),
-        "gamma_skip_calib" => (true, false),
-        _ => (false, true),
+    let (apply_ungamma, apply_calibration) = match linear_mode {
+        LinearMode::Gamma => (true, true),
+        LinearMode::SkipCalibration => (false, false),
+        LinearMode::GammaSkipCalibration => (true, false),
+        LinearMode::Auto => (false, true),
     };
 
     if let Some(margin) = black.border_margin() {
@@ -2226,18 +2222,12 @@ mod frame_tests {
     #[test]
     fn unbiased_blacks_keep_the_dark_means_and_leave_bright_rows_alone() {
         let develop = |bytes: &[u8], black| {
-            develop_raw_image_with_draft(
+            develop_raw_image(
                 bytes,
-                false,
-                2.5,
-                "auto".into(),
-                None,
-                None,
-                None,
-                crate::hot_pixels::DeadTest::default(),
-                0,
-                black,
-                crate::highlight_reconstruction::HighlightRebuild::default(),
+                &crate::raw_processing::DecodeOptions {
+                    black,
+                    ..Default::default()
+                },
             )
             .unwrap()
             .to_rgb32f()
@@ -2290,7 +2280,8 @@ mod frame_tests {
     #[test]
     fn developed_frame_is_read_without_decoding_and_turned() {
         let dng = crate::fingerprint::synthetic::synthetic_dng();
-        let developed = develop_raw_image(&dng, false, 2.5, "auto".into(), None).unwrap();
+        let developed =
+            develop_raw_image(&dng, &crate::raw_processing::DecodeOptions::default()).unwrap();
         let frame = developed_frame(&RawSource::new_from_slice(&dng), 0).unwrap();
         // Orientation 6: the 64 × 48 mosaic develops 48 × 64.
         assert_eq!(frame.orientation, 6);
@@ -2313,7 +2304,9 @@ mod frame_tests {
             let Ok(bytes) = std::fs::read(&path) else {
                 continue;
             };
-            let Ok(developed) = develop_raw_image(&bytes, false, 2.5, "auto".into(), None) else {
+            let Ok(developed) =
+                develop_raw_image(&bytes, &crate::raw_processing::DecodeOptions::default())
+            else {
                 continue;
             };
             checked += 1;
@@ -2514,7 +2507,9 @@ mod draft_tests {
                 continue;
             };
             let started = std::time::Instant::now();
-            let Ok(plain) = develop_raw_image(&bytes, false, 2.5, "auto".into(), None) else {
+            let Ok(plain) =
+                develop_raw_image(&bytes, &crate::raw_processing::DecodeOptions::default())
+            else {
                 continue;
             };
             let plain_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -2531,18 +2526,12 @@ mod draft_tests {
                     started.elapsed().as_secs_f64() * 1000.0,
                 ));
             }));
-            let with_draft = develop_raw_image_with_draft(
+            let with_draft = develop_raw_image(
                 &bytes,
-                false,
-                2.5,
-                "auto".into(),
-                None,
-                None,
-                Some(&sink),
-                crate::hot_pixels::DeadTest::default(),
-                0,
-                crate::black_bias::BlackLevels::default(),
-                crate::highlight_reconstruction::HighlightRebuild::default(),
+                &crate::raw_processing::DecodeOptions {
+                    draft: Some(&sink),
+                    ..Default::default()
+                },
             )
             .unwrap();
             let full_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -2591,7 +2580,8 @@ mod draft_tests {
             let Ok(bytes) = std::fs::read(&path) else {
                 continue;
             };
-            if develop_raw_image(&bytes, false, 2.5, "auto".into(), None).is_err() {
+            if develop_raw_image(&bytes, &crate::raw_processing::DecodeOptions::default()).is_err()
+            {
                 continue;
             }
             let generation = Arc::new(AtomicUsize::new(1));
@@ -2600,18 +2590,16 @@ mod draft_tests {
                 cancel.store(2, Ordering::SeqCst);
             }));
             let before = FULL_DEVELOPMENTS.with(std::cell::Cell::get);
-            let result = develop_raw_image_with_draft(
+            let result = develop_raw_image(
                 &bytes,
-                false,
-                2.5,
-                "auto".into(),
-                Some((Arc::clone(&generation), 1)),
-                None,
-                Some(&sink),
-                crate::hot_pixels::DeadTest::default(),
-                0,
-                crate::black_bias::BlackLevels::default(),
-                crate::highlight_reconstruction::HighlightRebuild::default(),
+                &crate::raw_processing::DecodeOptions {
+                    cancel_token: Some(rawtonic_runtime::CancelToken::new(
+                        Arc::clone(&generation),
+                        1,
+                    )),
+                    draft: Some(&sink),
+                    ..Default::default()
+                },
             );
             let full = FULL_DEVELOPMENTS.with(std::cell::Cell::get) - before;
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
@@ -2627,5 +2615,41 @@ mod draft_tests {
             count += 1;
         }
         assert!(count > 0);
+    }
+}
+
+#[cfg(test)]
+mod decode_options_tests {
+    use super::*;
+
+    #[test]
+    fn linear_modes_keep_existing_strings_and_unknown_fallback() {
+        for (text, expected) in [
+            ("auto", LinearMode::Auto),
+            ("gamma", LinearMode::Gamma),
+            ("skip_calib", LinearMode::SkipCalibration),
+            ("gamma_skip_calib", LinearMode::GammaSkipCalibration),
+            ("", LinearMode::Auto),
+            ("Gamma", LinearMode::Auto),
+            ("future-mode", LinearMode::Auto),
+        ] {
+            assert_eq!(LinearMode::from(text), expected);
+            assert_eq!(LinearMode::from(text.to_owned()), expected);
+        }
+    }
+
+    #[test]
+    fn stale_generation_cancels_before_reading_the_raw() {
+        let options = DecodeOptions {
+            cancel_token: Some(rawtonic_runtime::CancelToken::new(
+                Arc::new(AtomicUsize::new(2)),
+                1,
+            )),
+            ..Default::default()
+        };
+        assert_eq!(
+            develop_raw_image(&[], &options).unwrap_err().to_string(),
+            "Load cancelled"
+        );
     }
 }

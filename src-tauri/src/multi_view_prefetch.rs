@@ -966,8 +966,13 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
             Step::Decode(path, generation) => {
                 let token = worker.cancel.load(Ordering::SeqCst);
                 worker.decoding.store(true, Ordering::SeqCst);
-                let outcome = decode_pool
-                    .install(|| decode(app_handle, &path, (Arc::clone(&worker.cancel), token)));
+                let outcome = decode_pool.install(|| {
+                    decode(
+                        app_handle,
+                        &path,
+                        rawtonic_runtime::CancelToken::new(Arc::clone(&worker.cancel), token),
+                    )
+                });
                 worker.decoding.store(false, Ordering::SeqCst);
                 let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
                 let (decoded, under_way, decoded_ms) = match outcome {
@@ -1099,7 +1104,11 @@ fn standard_needed(
 
 /// Decodes `path` and holds the decode for its previews, unless it has a
 /// current 1:1 preview (and Standard preview).
-fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, usize)) -> Outcome {
+fn decode(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    cancel: rawtonic_runtime::CancelToken,
+) -> Outcome {
     let (source, _): (PathBuf, _) = parse_virtual_path(path);
     if !is_raw_file(&source)
         || preview_proxy::proxy_path_of(&source, preview_proxy::ProxyKind::Full).is_none()
@@ -1137,7 +1146,6 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
     let Ok(bytes) = read_file_mapped(&source) else {
         return Outcome::Skipped;
     };
-    let (tracker, token) = (&cancel.0, cancel.1);
     // Decoded here, not taken from Develop's cache: a decode held carries
     // the settings it was made with.
     let (image, measures) = match crate::image_loader::load_base_image_measured_for(
@@ -1151,13 +1159,13 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
         Some(variant),
     ) {
         Ok((image, measures)) => (Arc::new(image), measures),
-        Err(_) if tracker.load(Ordering::SeqCst) != token => return Outcome::Cancelled,
+        Err(_) if cancel.is_cancelled() => return Outcome::Cancelled,
         Err(e) => {
             log::warn!("[multi_view] 1:1 preview of {path}: decode failed: {e}");
             return Outcome::Skipped;
         }
     };
-    if cancel.0.load(Ordering::SeqCst) != cancel.1 {
+    if cancel.is_cancelled() {
         return Outcome::Cancelled;
     }
     let decoded_ms = start.elapsed().as_secs_f64() * 1e3;

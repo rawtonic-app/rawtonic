@@ -19,11 +19,8 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::panic;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
 use std::time::Instant;
 
 #[derive(Deserialize)]
@@ -150,7 +147,7 @@ pub struct BaseImageOptions {
     /// photo by the caller.
     pub mosaic_denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     /// Receives a draft of a full RAW development before demosaicing
-    /// (raw_processing::develop_raw_image_with_draft); set per photo by the
+    /// (raw_processing::develop_raw_image); set per photo by the
     /// editor for a photograph without a stored preview.
     pub draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
     /// The test for dead photosites (`DecodeVariant::dead_test`).
@@ -366,7 +363,7 @@ pub fn load_base_image(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     options: &BaseImageOptions,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
 ) -> Result<DynamicImage> {
     load_base_image_measured(
         bytes,
@@ -385,7 +382,7 @@ pub fn load_base_image_measured(
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
     options: &BaseImageOptions,
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
 ) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
     let BaseImageOptions {
         highlight_compression,
@@ -403,21 +400,23 @@ pub fn load_base_image_measured(
     if is_raw_file(path_for_ext_check) {
         let cancelled = cancel_token
             .clone()
-            .map(|(tracker, generation)| move || tracker.load(Ordering::SeqCst) != generation);
+            .map(|token| move || token.is_cancelled());
         // The denoiser is only read; a panic leaves nothing half-updated.
         match panic::catch_unwind(panic::AssertUnwindSafe(move || {
-            crate::raw_processing::develop_raw_image_with_draft(
+            crate::raw_processing::develop_raw_image(
                 bytes,
-                use_fast_raw_dev,
-                highlight_compression,
-                linear_mode,
-                cancel_token,
-                mosaic_denoise.as_ref().filter(|_| !use_fast_raw_dev),
-                draft.as_deref(),
-                dead_test,
-                frame,
-                black,
-                highlights,
+                &rawtonic_rawdecode::raw_processing::DecodeOptions {
+                    fast_demosaic: use_fast_raw_dev,
+                    highlight_compression,
+                    linear_mode: linear_mode.into(),
+                    cancel_token,
+                    denoise: mosaic_denoise.as_ref().filter(|_| !use_fast_raw_dev),
+                    draft: draft.as_deref(),
+                    dead_test,
+                    frame_version: frame,
+                    black,
+                    highlights,
+                },
             )
         })) {
             Ok(Ok(mut image)) => {
@@ -884,11 +883,12 @@ fn encode_linear(image: DynamicImage) -> DynamicImage {
 
 pub fn load_image_with_orientation(
     bytes: &[u8],
-    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    cancel_token: Option<rawtonic_runtime::CancelToken>,
 ) -> Result<DynamicImage> {
     let check_cancel = || -> Result<()> {
-        if let Some((tracker, generation)) = &cancel_token
-            && tracker.load(Ordering::SeqCst) != *generation
+        if cancel_token
+            .as_ref()
+            .is_some_and(rawtonic_runtime::CancelToken::is_cancelled)
         {
             return Err(anyhow!("Load cancelled"));
         }

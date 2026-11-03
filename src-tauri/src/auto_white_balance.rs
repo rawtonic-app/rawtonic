@@ -144,9 +144,13 @@ mod tests {
     fn print_auto_white_balance() {
         for path in std::env::var("AWB_FILES").unwrap().split(';') {
             let bytes = std::fs::read(path).unwrap();
-            let Ok(decode) =
-                crate::raw_processing::develop_raw_image(&bytes, true, 2.5, "auto".into(), None)
-            else {
+            let Ok(decode) = crate::raw_processing::develop_raw_image(
+                &bytes,
+                &rawtonic_rawdecode::raw_processing::DecodeOptions {
+                    fast_demosaic: true,
+                    ..Default::default()
+                },
+            ) else {
                 println!("{{\"source\":{path:?},\"error\":\"decode\"}}");
                 continue;
             };
@@ -185,7 +189,13 @@ mod tests {
         for (i, path) in std::env::var("AWB_FILES").unwrap().split(';').enumerate() {
             let bytes = std::fs::read(path).unwrap();
             let (Ok(decode), Some(colour)) = (
-                crate::raw_processing::develop_raw_image(&bytes, true, 2.5, "auto".into(), None),
+                crate::raw_processing::develop_raw_image(
+                    &bytes,
+                    &rawtonic_rawdecode::raw_processing::DecodeOptions {
+                        fast_demosaic: true,
+                        ..Default::default()
+                    },
+                ),
                 crate::camera_profile::image_colour(path, None),
             ) else {
                 println!("{i}: decode failed");
