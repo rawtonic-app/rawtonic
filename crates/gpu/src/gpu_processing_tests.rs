@@ -9103,15 +9103,22 @@ fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Valu
 /// bright frame's key and without one. (Not on the night key: there raised
 /// Shadows' key adaptation already turns tones over by up to 0.008 EV with
 /// Exposure −2 at Shadows +100 in `toneVersion` 2 to 5, which 6 keeps;
-/// notes: G05.) For raised Whites also `toneVersion` 8 (its white point).
+/// notes: G05.) For raised Whites also `toneVersion` 8 (its white point),
+/// for lowered Blacks `toneVersion` 9 (its black point).
 fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
     let differs = |recipe: &&serde_json::Value| {
         recipe["shadows"].as_f64().unwrap_or(0.0) > 0.0
             || recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0
             || recipe["whites"].as_f64().unwrap_or(0.0) > 0.0
+            || recipe["blacks"].as_f64().unwrap_or(0.0) < 0.0
     };
     let mut versioned: Vec<serde_json::Value> = Vec::new();
     for recipe in recipes.iter().filter(differs) {
+        if recipe["blacks"].as_f64().unwrap_or(0.0) < 0.0 {
+            let mut ninth = recipe.clone();
+            ninth["toneVersion"] = json!(9);
+            versioned.push(ninth);
+        }
         if recipe["whites"].as_f64().unwrap_or(0.0) > 0.0 {
             let mut eighth = recipe.clone();
             eighth["toneVersion"] = json!(8);
@@ -9280,6 +9287,24 @@ fn worst_tone_reversal(
     columns: std::ops::Range<usize>,
     reach: usize,
 ) -> Option<(f64, usize, usize, usize, f64)> {
+    worst_tone_reversal_beyond(row, None, columns, reach)
+}
+
+/// `worst_tone_reversal`, where `before_stage` (the same ramp rendered
+/// without a later, monotone stage) already falls over the same columns and
+/// channel with `BEFORE_STAGE_ALLOWANCE` times the limit: such a stage keeps
+/// the order it is given but may magnify a fall in EV.
+/// Measured: version 9's toe turns the scene stage's ±23-code wobble near
+/// L* 19 (Contrast and Shadows +100 at Exposure −2) into falls of up to 2.0
+/// times the limit (0.020 EV).
+const BEFORE_STAGE_ALLOWANCE: f64 = 2.5;
+
+fn worst_tone_reversal_beyond(
+    row: &[[u16; 3]],
+    before_stage: Option<&[[u16; 3]]>,
+    columns: std::ops::Range<usize>,
+    reach: usize,
+) -> Option<(f64, usize, usize, usize, f64)> {
     let mut worst: Option<(f64, usize, usize, usize, f64)> = None;
     for x in columns.clone().skip(reach) {
         for k in 1..=reach {
@@ -9289,7 +9314,10 @@ fn worst_tone_reversal(
                 }
                 let ev =
                     (srgb_code_to_linear(before) / srgb_code_to_linear(after).max(1e-12)).log2();
-                let excess = (ev / 0.01).min((before - after) as f64 / 2.0);
+                let mut excess = (ev / 0.01).min((before - after) as f64 / 2.0);
+                if before_stage.is_some_and(|b| b[x][c] < b[x - k][c]) {
+                    excess /= BEFORE_STAGE_ALLOWANCE;
+                }
                 if excess > 1.0 && worst.is_none_or(|w| excess > w.0) {
                     worst = Some((excess, x, k, c, ev));
                 }
@@ -9344,7 +9372,32 @@ fn tone_sliders_keep_tones_in_order_at_every_step() {
         for recipe in &recipes {
             let pixels = render_raw_look(&processor, &view, (width, height), recipe, (mode, flag));
             let toned = &pixels[row..row + width as usize];
-            if let Some((excess, x, k, c, ev)) = worst_tone_reversal(toned, columns.clone(), 24) {
+            // Version 9's black point acts after the tone curve and keeps the
+            // order it is given, but under its toe it magnifies (in EV) the
+            // scene stage's f16 wobble (Contrast and Shadows +100 at Exposure
+            // −2: ±23 codes near L* 19, which version 8's Blacks crushed to
+            // black): the recipe without Blacks must keep the limit, and with
+            // them only that render's falls may grow, to
+            // BEFORE_STAGE_ALLOWANCE times the limit.
+            let lowered_blacks = recipe["toneVersion"].as_u64() == Some(9)
+                && recipe["blacks"].as_f64().unwrap_or(0.0) < 0.0;
+            let before_stage = lowered_blacks.then(|| {
+                let mut without = recipe.clone();
+                without["blacks"] = json!(0);
+                render_raw_look(&processor, &view, (width, height), &without, (mode, flag))
+            });
+            let before_stage = before_stage.as_ref().map(|p| &p[row..row + width as usize]);
+            if let Some(before) = before_stage
+                && let Some((excess, x, k, c, ev)) =
+                    worst_tone_reversal(before, columns.clone(), 24)
+            {
+                failures.push(format!(
+                    "{look} {recipe} without Blacks: channel {c} falls {ev:.3} EV over {k} steps at column {x} ({excess:.1}× the limit)"
+                ));
+            }
+            if let Some((excess, x, k, c, ev)) =
+                worst_tone_reversal_beyond(toned, before_stage, columns.clone(), 24)
+            {
                 let scene = low_ev + span_ev * x as f32 / (width - 1) as f32;
                 let line = format!(
                     "{look} {recipe}: channel {c} falls {ev:.3} EV ({} → {}) over {k} steps to scene {scene:.2} EV ({excess:.1}× the limit)",
@@ -10190,6 +10243,179 @@ fn tone_version_8_whites_drag_render_time() {
         eprintln!(
             "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
             7 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Blacks of tone version 9 against version 8 on a grey ramp"]
+fn tone_version_9_blacks_sets_the_black_point() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-14 to 2^2, evenly in EV across the columns.
+    let (low_ev, span_ev) = (-14.0f32, 16.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without lowered Blacks version 9 renders as version 8, also through a
+    // file's own curve, and so does lowered Blacks under the other looks.
+    for look in [(3, 2.0), (3, 1.0)] {
+        for recipe in [
+            json!({}),
+            json!({ "blacks": 100 }),
+            json!({ "whites": -100, "blacks": 40, "contrast": 30 }),
+            json!({ "whites": 100, "shadows": 60, "highlights": -100 }),
+        ] {
+            assert!(
+                render_raw_look(&processor, &view, (width, height), &with(&recipe, 8), look)
+                    == render_raw_look(&processor, &view, (width, height), &with(&recipe, 9), look),
+                "{recipe} under {look:?} differs"
+            );
+        }
+    }
+    for look in [(2, 2.0), (0, 2.0)] {
+        let recipe = json!({ "blacks": -80 });
+        assert!(
+            render_raw_look(&processor, &view, (width, height), &with(&recipe, 8), look)
+                == render_raw_look(&processor, &view, (width, height), &with(&recipe, 9), look),
+            "{recipe} under {look:?} differs"
+        );
+    }
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, look)
+    };
+    let row = (height / 2 * width) as usize;
+    let lstar = |p: &[u16; 3]| {
+        let y = 0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2]);
+        if y > 0.008856 {
+            116.0 * y.cbrt() - 16.0
+        } else {
+            903.3 * y
+        }
+    };
+    let neutral = render(with(&json!({}), 9));
+    let columns = 64..(width - 64) as usize;
+    // Blacks −1 moves no tone by more than 0.3 L*: the black point starts
+    // from nothing, so a feathered Blacks mask leaves no edge.
+    let barely = render(with(&json!({ "blacks": -1 }), 9));
+    for x in columns.clone() {
+        let moved = (lstar(&barely[row + x]) - lstar(&neutral[row + x])).abs();
+        assert!(
+            moved <= 0.3,
+            "Blacks −1: L* {:.2} moved {moved:.2}",
+            lstar(&neutral[row + x])
+        );
+    }
+    for amount in [50, 100] {
+        let eighth = render(with(&json!({ "blacks": -amount }), 8));
+        let ninth = render(with(&json!({ "blacks": -amount }), 9));
+        let mut slopes = Vec::new();
+        for x in columns.clone() {
+            let base = lstar(&neutral[row + x]);
+            // Tones from L* 30 on stay as they are; version 8 darkened them.
+            if base >= 30.0 {
+                assert_eq!(
+                    ninth[row + x],
+                    neutral[row + x],
+                    "Blacks −{amount}: L* {base:.2} moved"
+                );
+            }
+            // Black stays black and nothing turns lighter.
+            assert!(
+                lstar(&ninth[row + x]) <= base + 0.02,
+                "Blacks −{amount}: L* {base:.2} became {:.2}",
+                lstar(&ninth[row + x])
+            );
+            // Brighter tones stay brighter (by 0.01 L* or two codes).
+            for k in 1..=24 {
+                let (a, b) = (&ninth[row + x - k], &ninth[row + x]);
+                let codes = (0..3).map(|c| a[c] as i32 - b[c] as i32).max().unwrap();
+                assert!(
+                    lstar(b) >= lstar(a) - 0.01 || codes <= 2,
+                    "Blacks −{amount}: column {x} below column {}",
+                    x - k
+                );
+            }
+            // Above the toe (L* 22 to 29) texture keeps at least its L*
+            // contrast: the shift has slope 1, steeper where it fades out.
+            let next = lstar(&neutral[row + x + 8]);
+            if base >= 22.0 && next < 29.0 && next > base + 0.05 {
+                slopes.push((lstar(&ninth[row + x + 8]) - lstar(&ninth[row + x])) / (next - base));
+            }
+        }
+        assert!(
+            !slopes.is_empty() && slopes.iter().all(|&s| s >= 0.99),
+            "Blacks −{amount}: L* slope at L* 22–29 down to {:.3}",
+            slopes.iter().cloned().fold(f64::INFINITY, f64::min)
+        );
+        // The darkest column ends darker than version 8 leaves it.
+        let (first_8, first_9) = (
+            lstar(&eighth[row + columns.start]),
+            lstar(&ninth[row + columns.start]),
+        );
+        assert!(
+            first_9 <= first_8 + 0.02,
+            "Blacks −{amount}: darkest column at L* {first_9:.3} (version 8 {first_8:.3})"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Blacks of tone version 9 against version 8: GPU time of a preview render per drag step"]
+fn tone_version_9_blacks_drag_render_time() {
+    // As `tone_version_8_whites_drag_render_time`, with Blacks stepped down.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 10.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 8 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "blacks": -20 - 6 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 8) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            8 + k,
             t[t.len() / 2],
             t[t.len() * 9 / 10],
             t.len()

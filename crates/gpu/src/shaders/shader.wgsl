@@ -1934,6 +1934,74 @@ fn whites_v8_white_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     return vec3<f32>(target_y) + (out - vec3<f32>(target_y)) * (limited / share);
 }
 
+// Lowered Blacks, tone version 9 (RAW look): a black point on the
+// tone-mapped (display) luminance instead of Lightroom's scene gain.
+// The scene gain darkened by display level and kept the log contrast, so
+// in L* the dark areas lost texture (detail 0.79 of the neutral render's at
+// −100, as Camera Raw; Capture One 1.02) and it reached up to L* 30–40
+// (−25.6 there; Capture One −6.6). Version 9 moves L* down by
+// BLACKS_V9_SHIFT × amount below BLACKS_V9_FULL, fading out (smoothstep)
+// up to BLACKS_V9_TOP, so texture in the darks keeps its L* contrast
+// (slope 1; steeper in the fade) at about the same darkening of the broad
+// dark areas, and tones above L* 30 stay; under an exponential toe
+// BLACKS_V9_TOE × √amount wide the tones that would fall below black are
+// compressed towards it rather than clipped, and black stays black; its
+// width BLACKS_V9_TOE × √amount keeps −50 from pressing the deepest tones
+// to black (crushed pixels +0.02 % at −50, +0.3 % at −100; Capture One
+// 0.0 / 5.7 %, Camera Raw 4.5 / 19.9 %)
+// (notes: benchmark-results/blk-blacks-2026-11-03).
+const BLACKS_V9_SHIFT: f32 = 21.0;
+const BLACKS_V9_FULL: f32 = 10.0;
+const BLACKS_V9_TOP: f32 = 30.0;
+const BLACKS_V9_TOE: f32 = 8.0;
+
+// Whether lowered Blacks takes version 9's display black point (and not
+// the scene gain) for a pixel whose Blacks is `bl` (renderer value).
+fn blacks_v9_active(bl: f32, is_raw: u32) -> bool {
+    return bl < 0.0 && adjustments.global.tone_version > 8.5 && base_look_is_camera_raw() && is_raw == 1u;
+}
+
+fn lstar_of_luma(y: f32) -> f32 {
+    if (y > 0.008856) {
+        return 116.0 * pow(y, 1.0 / 3.0) - 16.0;
+    }
+    return 903.3 * y;
+}
+
+fn luma_of_lstar(l: f32) -> f32 {
+    if (l > 8.0) {
+        let f = (l + 16.0) / 116.0;
+        return f * f * f;
+    }
+    return max(l, 0.0) / 903.3;
+}
+
+// Version 9's black point on the tone-mapped (sRGB-encoded) colour, which
+// it scales in linear light; `amount` is −Blacks / 100, above 0.
+fn blacks_v9_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let lin = decode_signed(rgb);
+    let y = get_luma(max(lin, vec3<f32>(0.0)));
+    if (amount <= 0.0 || y <= 0.0) {
+        return rgb;
+    }
+    let l = lstar_of_luma(y);
+    if (l >= BLACKS_V9_TOP) {
+        return rgb;
+    }
+    let shift = BLACKS_V9_SHIFT * amount;
+    let toe = BLACKS_V9_TOE * sqrt(amount);
+    let u = clamp((BLACKS_V9_TOP - l) / (BLACKS_V9_TOP - BLACKS_V9_FULL), 0.0, 1.0);
+    let v = l - shift * u * u * (3.0 - 2.0 * u);
+    var out_l = v;
+    if (v < toe) {
+        // Slope 1 at the toe; the small rest the exponential leaves at the
+        // lowest level (−shift) is taken off linearly, so black maps to black.
+        let rest = toe * exp(-shift / toe - 1.0);
+        out_l = toe * exp(v / toe - 1.0) - rest * (1.0 - (v + shift) / (toe + shift));
+    }
+    return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
+}
+
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
@@ -2179,7 +2247,7 @@ fn apply_tonal_adjustments(
     con: f32,
     sh: f32,
     wh: f32,
-    bl: f32,
+    bl_in: f32,
     exposure_gain: f32
 ) -> vec3<f32> {
     var rgb = color;
@@ -2235,6 +2303,8 @@ fn apply_tonal_adjustments(
         whites_ratio = ratio;
     }
 
+    // Version 9 lowers Blacks after the tone map (blacks_v9_black_point).
+    let bl = select(bl_in, 0.0, blacks_v9_active(bl_in, is_raw));
     let pixel_luma = get_luma(max(rgb, vec3<f32>(0.0)));
     let blurred_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -8195,6 +8265,10 @@ fn main(
         if (ENABLE_TONE && t_whites > 0.0 && adjustments.global.tone_version > 7.5 && base_look_is_camera_raw()) {
             // Renderer value is slider / 30.
             default_tonemapped = whites_v8_white_point(default_tonemapped, clamp(t_whites * 0.3, 0.0, 1.0));
+        }
+        if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
+            // Renderer value is slider / 40.
+            default_tonemapped = blacks_v9_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
         }
     } else if (is_raw == 1u) {
         var srgb_emulated = linear_to_srgb(composite_rgb_linear);

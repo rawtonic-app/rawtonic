@@ -11,6 +11,7 @@ import {
   NON_COPYABLE_ADJUSTMENT_KEYS,
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
+  KEYLESS_TONE_VERSION,
   CLARITY_VERSION,
   FRINGE_VERSION,
   RENDER_VERSION,
@@ -267,18 +268,26 @@ describe('RAW detail defaults', () => {
     expect('toneVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(strong, true)))).toBe(false);
     const layered = { shadows: 0, masks: [{ adjustments: { shadows: 100 }, subMasks: [] }] } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layered, true).toneVersion).toBeUndefined();
-    // Nothing that renders differently: the current response.
+    // Nothing that renders differently: version 7 (the engine's own phone
+    // Whites and Blacks keep their response); a new recipe the current one.
     const lowered = { highlights: -60 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(lowered, true).toneVersion).toBeUndefined();
     const layerLowered = { masks: [{ adjustments: { highlights: -10 }, subMasks: [] }] } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layerLowered, true).toneVersion).toBeUndefined();
-    const mild = { shadows: -50, highlights: 40, whites: -30, exposure: 1 } as unknown as Adjustments;
-    expect(normalizeLoadedAdjustments(mild, true).toneVersion).toBe(TONE_VERSION);
+    const mild = { shadows: -50, highlights: 40, whites: -30, blacks: 20, exposure: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(mild, true).toneVersion).toBe(KEYLESS_TONE_VERSION);
+    expect(KEYLESS_TONE_VERSION).toBe(7);
+    expect(normalizeLoadedAdjustments({} as Adjustments, true).toneVersion).toBe(TONE_VERSION);
     // Version 8 changes raised Whites, on the photo or a layer.
     const whiter = { whites: 30 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(whiter, true).toneVersion).toBeUndefined();
     const layerWhiter = { masks: [{ adjustments: { whites: 10 }, subMasks: [] }] } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layerWhiter, true).toneVersion).toBeUndefined();
+    // Version 9 changes lowered Blacks, on the photo or a layer.
+    const blacker = { blacks: -30 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(blacker, true).toneVersion).toBeUndefined();
+    const layerBlacker = { masks: [{ adjustments: { blacks: -10 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layerBlacker, true).toneVersion).toBeUndefined();
     // Any raised Shadows renders differently from version 6 on.
     const raised = { shadows: 20 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(raised, true).toneVersion).toBeUndefined();
