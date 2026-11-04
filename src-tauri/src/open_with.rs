@@ -563,7 +563,7 @@ pub async fn edit_with_start(
         plan_edits(
             paths,
             recipe,
-            crate::export_queue::app_queue(),
+            crate::export_queue::app_queue(&state.state::<crate::state::export::ExportState>()),
             &|adjustments| {
                 let mut adjustments = adjustments.clone();
                 crate::adjustment_utils::normalize_editor_recipe(&develop, &mut adjustments);
@@ -580,8 +580,10 @@ pub async fn edit_with_start(
 /// The Edit With runs the last quit or crash cut short, each handed out
 /// once: the frontend offers "Try again" for them.
 #[tauri::command]
-pub fn edit_with_interrupted() -> Vec<crate::export_queue::EditWithRun> {
-    crate::export_queue::take_interrupted_edits()
+pub fn edit_with_interrupted(
+    exports: tauri::State<'_, crate::state::export::ExportState>,
+) -> Vec<crate::export_queue::EditWithRun> {
+    crate::export_queue::take_interrupted_edits(&exports)
 }
 
 /// The error `plan_edits` starts with when a photograph has areas a

@@ -7,6 +7,7 @@
 //! after the copy was verified).
 use crate::file_operations::OperationSummary;
 use crate::ipc::{CommandError, ErrorCode};
+use crate::state::export::ExportState;
 use rawtonic_catalog::session_move::{check_session_move, plan_session_move};
 use rawtonic_fileops::{Operation, State, Step, Target};
 use serde::Serialize;
@@ -14,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// The kind the journal records a whole-session move under.
 pub const KIND: &str = "moveSession";
@@ -56,7 +57,7 @@ pub struct SessionMoveOffer {
 /// The offer to move the session `session` into `destination`, with why it
 /// cannot be done when it cannot. Whether the database is open in another
 /// program is asked when the move runs, since this one may hold it now.
-pub(crate) fn offer(session: &Path, destination: &Path) -> SessionMoveOffer {
+pub(crate) fn offer(exports: &ExportState, session: &Path, destination: &Path) -> SessionMoveOffer {
     let mut offer = SessionMoveOffer {
         session: session.to_string_lossy().into_owned(),
         name: session
@@ -65,7 +66,7 @@ pub(crate) fn offer(session: &Path, destination: &Path) -> SessionMoveOffer {
             .to_string_lossy()
             .into_owned(),
         destination: destination.to_string_lossy().into_owned(),
-        exports_pending: crate::export_queue::has_unfinished_job_in(session),
+        exports_pending: crate::export_queue::has_unfinished_job_in(exports, session),
         ..SessionMoveOffer::default()
     };
     let planned = match check_session_move(session, destination) {
@@ -103,7 +104,7 @@ pub const EXPORTS_PENDING: &str =
 /// Why nothing may move the session at `session` now: a watched folder or
 /// a tethered camera writes into the open session, or an export of it is
 /// waiting, running or paused.
-fn busy(session: &Path) -> Option<CommandError> {
+fn busy(exports: &ExportState, session: &Path) -> Option<CommandError> {
     if crate::hot_folder::hot_folder_status().is_some() {
         Some(CommandError::new(
             ErrorCode::Busy,
@@ -114,7 +115,7 @@ fn busy(session: &Path) -> Option<CommandError> {
             ErrorCode::Busy,
             "Disconnect the tethered camera before moving the session; nothing was moved.",
         ))
-    } else if crate::export_queue::has_unfinished_job_in(session) {
+    } else if crate::export_queue::has_unfinished_job_in(exports, session) {
         Some(CommandError::new(
             ErrorCode::ExportsPending,
             EXPORTS_PENDING,
@@ -182,7 +183,7 @@ pub async fn move_session(
     app: AppHandle,
 ) -> Result<OperationSummary, CommandError> {
     crate::file_management::blocking(move || {
-        if let Some(refusal) = busy(Path::new(&session)) {
+        if let Some(refusal) = busy(&app.state::<ExportState>(), Path::new(&session)) {
             return Err(refusal);
         }
         crate::session_bridge::holding_import_gate(IMPORT_BUSY, || {
@@ -242,6 +243,7 @@ fn places(op: &Operation) -> Option<(PathBuf, PathBuf)> {
 /// `op`: the session must not be open anywhere, as for the move itself.
 /// Keep what it returns until the undo or redo is done.
 pub(crate) fn before_reversal(
+    exports: &ExportState,
     op: &Operation,
     forward: bool,
 ) -> Result<Option<ResumePasses>, String> {
@@ -255,7 +257,7 @@ pub(crate) fn before_reversal(
         return Ok(None);
     };
     let now = if forward { &step.from } else { target };
-    if let Some(refusal) = busy(now) {
+    if let Some(refusal) = busy(exports, now) {
         return Err(refusal.message);
     }
     let resume = ResumePasses;

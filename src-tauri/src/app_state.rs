@@ -388,7 +388,6 @@ pub struct AppState {
     /// Develop view's frames instead of holding up the processor those use
     /// for a whole photo (notes: parity-gaps/G44).
     pub export_gpu_processor: GpuProcessorSlot,
-    pub export_task_token: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     /// A finished merge waiting for `save_merge` (merges.rs).
     pub merge_result: Arc<Mutex<Option<crate::merges::MergeOutcome>>>,
     pub lut_cache: Mutex<LutCache>,
@@ -436,7 +435,6 @@ impl Default for AppState {
             gpu_adapter: Mutex::new(None),
             gpu_processor: GpuProcessorSlot::new(None),
             export_gpu_processor: GpuProcessorSlot::background(None),
-            export_task_token: Arc::new(Mutex::new(None)),
             merge_result: Arc::new(Mutex::new(None)),
             lut_cache: Mutex::new(Default::default()),
             initial_file_path: Mutex::new(None),

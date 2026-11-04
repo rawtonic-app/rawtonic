@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use tauri::AppHandle;
+use tauri::Manager;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -478,14 +479,20 @@ pub struct MovePlan {
 pub async fn plan_move_files(
     source_paths: Vec<String>,
     destination_folder: String,
+    app: tauri::AppHandle,
 ) -> Result<MovePlan, String> {
     crate::file_management::blocking(move || {
-        plan_move_files_blocking(&source_paths, &destination_folder)
+        plan_move_files_blocking(
+            &app.state::<crate::state::export::ExportState>(),
+            &source_paths,
+            &destination_folder,
+        )
     })
     .await?
 }
 
 fn plan_move_files_blocking(
+    exports: &crate::state::export::ExportState,
     source_paths: &[String],
     destination_folder: &str,
 ) -> Result<MovePlan, String> {
@@ -498,7 +505,7 @@ fn plan_move_files_blocking(
         && let Some(session) = session_left(&images, destination)?
     {
         return Ok(MovePlan {
-            session_move: Some(crate::session_move::offer(&session, destination)),
+            session_move: Some(crate::session_move::offer(exports, &session, destination)),
             ..MovePlan::default()
         });
     }
@@ -590,12 +597,28 @@ pub async fn move_folder(
 pub async fn plan_move_folder(
     path: String,
     destination_folder: String,
+    app: tauri::AppHandle,
 ) -> Result<MovePlan, String> {
     crate::file_management::blocking(move || {
+        plan_move_folder_blocking(
+            &app.state::<crate::state::export::ExportState>(),
+            &path,
+            &destination_folder,
+        )
+    })
+    .await?
+}
+
+fn plan_move_folder_blocking(
+    exports: &crate::state::export::ExportState,
+    path: &str,
+    destination_folder: &str,
+) -> Result<MovePlan, String> {
+    {
         let (folder, destination) = (Path::new(&path), Path::new(&destination_folder));
         if let Some(session) = folder_leaves_session(folder, destination)? {
             return Ok(MovePlan {
-                session_move: Some(crate::session_move::offer(&session, destination)),
+                session_move: Some(crate::session_move::offer(exports, &session, destination)),
                 ..MovePlan::default()
             });
         }
@@ -604,7 +627,7 @@ pub async fn plan_move_folder(
         if !matches!(steps[0].to, rawtonic_fileops::Target::OtherVolume { .. }) {
             return Ok(MovePlan::default());
         }
-        let photos = WalkDir::new(&path)
+        let photos = WalkDir::new(path)
             .follow_links(false)
             .into_iter()
             .flatten()
@@ -612,9 +635,8 @@ pub async fn plan_move_folder(
                 e.file_type().is_file() && crate::formats::is_supported_image_file(e.path())
             })
             .count();
-        Ok(other_drive_plan(&steps, photos, &destination_folder))
-    })
-    .await?
+        Ok(other_drive_plan(&steps, photos, destination_folder))
+    }
 }
 
 /// The step and label of moving the folder `folder`, with everything in
@@ -1217,7 +1239,12 @@ mod tests {
         fs::create_dir_all(&drive).unwrap();
         let source = [photo.to_string_lossy().into_owned()];
 
-        let plan = plan_move_files_blocking(&source, &drive.to_string_lossy()).unwrap();
+        let plan = plan_move_files_blocking(
+            &crate::state::export::ExportState::default(),
+            &source,
+            &drive.to_string_lossy(),
+        )
+        .unwrap();
         let offer = plan.session_move.expect("offered");
         assert_eq!(offer.session, job.to_string_lossy());
         assert_eq!(offer.name, "Job");
@@ -1227,10 +1254,11 @@ mod tests {
         assert!(!plan.cross_volume);
         // A folder of the session moved out offers the same.
         let folder = job.join("Capture");
-        let plan = tauri::async_runtime::block_on(plan_move_folder(
-            folder.to_string_lossy().into_owned(),
-            drive.to_string_lossy().into_owned(),
-        ))
+        let plan = plan_move_folder_blocking(
+            &crate::state::export::ExportState::default(),
+            &folder.to_string_lossy(),
+            &drive.to_string_lossy(),
+        )
         .unwrap();
         assert_eq!(
             plan.session_move.expect("offered").session,
@@ -1238,12 +1266,21 @@ mod tests {
         );
         // Within the session nothing is offered.
         fs::create_dir_all(job.join("Selects")).unwrap();
-        let plan =
-            plan_move_files_blocking(&source, &job.join("Selects").to_string_lossy()).unwrap();
+        let plan = plan_move_files_blocking(
+            &crate::state::export::ExportState::default(),
+            &source,
+            &job.join("Selects").to_string_lossy(),
+        )
+        .unwrap();
         assert!(plan.session_move.is_none());
         // A name clash: offered, with why it cannot go there.
         fs::create_dir_all(drive.join("Job")).unwrap();
-        let plan = plan_move_files_blocking(&source, &drive.to_string_lossy()).unwrap();
+        let plan = plan_move_files_blocking(
+            &crate::state::export::ExportState::default(),
+            &source,
+            &drive.to_string_lossy(),
+        )
+        .unwrap();
         let refusal = plan.session_move.unwrap().refusal.expect("refused");
         assert!(
             refusal.contains("already holds something named Job"),

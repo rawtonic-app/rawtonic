@@ -509,7 +509,11 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(last) = with_journal(app, |journal| journal.last_undoable())? else {
         return Ok(None);
     };
-    let _resume = crate::session_move::before_reversal(&last, false)?;
+    let _resume = crate::session_move::before_reversal(
+        &app.state::<crate::state::export::ExportState>(),
+        &last,
+        false,
+    )?;
     let progress = ProgressEvents::new(app, &last.label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -530,7 +534,11 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(next) = with_journal(app, |journal| journal.last_redoable())? else {
         return Ok(None);
     };
-    let _resume = crate::session_move::before_reversal(&next, true)?;
+    let _resume = crate::session_move::before_reversal(
+        &app.state::<crate::state::export::ExportState>(),
+        &next,
+        true,
+    )?;
     let progress = ProgressEvents::new(app, &next.label);
     let op = with_journal(app, |journal| {
         progress.start();
