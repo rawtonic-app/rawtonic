@@ -75,9 +75,10 @@ pub fn with_original(mut sidecars: Vec<Option<String>>) -> Vec<Option<String>> {
     sidecars
 }
 
-/// A `.rrdata` sidecar's metadata (defaults when it is missing or invalid)
-/// and whether over-long EXIF values were shortened, which the app writes
-/// back.
+/// A `.rrdata` sidecar's metadata (defaults when it is missing or not JSON;
+/// a field of another type or a missing one alone takes its default,
+/// `metadata_fields`) and whether over-long EXIF values were shortened,
+/// which the app writes back.
 pub fn read_sidecar_file(sidecar_path: &Path) -> (ImageMetadata, bool) {
     if !sidecar_path.exists() {
         return (ImageMetadata::default(), false);
@@ -91,7 +92,8 @@ pub fn read_sidecar_file(sidecar_path: &Path) -> (ImageMetadata, bool) {
     if let Some(root) = rawtonic_engine::session_layout::library_root(sidecar_path) {
         rawtonic_metadata::resources::resolve(&mut value, &root);
     }
-    let mut meta = serde_json::from_value::<ImageMetadata>(value).unwrap_or_default();
+    let mut meta = <ImageMetadata as serde::Deserialize>::deserialize(&value)
+        .unwrap_or_else(|_| metadata_fields(&value));
     let mut healed = false;
 
     if let Some(ref mut exif_map) = meta.exif {
@@ -103,6 +105,52 @@ pub fn read_sidecar_file(sidecar_path: &Path) -> (ImageMetadata, bool) {
         }
     }
     (meta, healed)
+}
+
+/// The metadata of a sidecar the typed reader does not take whole (one
+/// written by hand or by another program: no `adjustments`, a keyword that
+/// is no string, a number in the EXIF): each field read on its own, so a
+/// later write (a rating, a label, a recipe) keeps what the others hold
+/// instead of writing every field's default. Keywords and EXIF values keep
+/// their strings.
+fn metadata_fields(value: &serde_json::Value) -> ImageMetadata {
+    use serde_json::Value;
+    let field = |key: &str| value.get(key).filter(|v| !v.is_null());
+    let strings = |key: &str| {
+        field(key).and_then(Value::as_array).map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+    };
+    let default = ImageMetadata::default();
+    ImageMetadata {
+        version: field("version")
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(default.version),
+        rating: field("rating")
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok())
+            .unwrap_or(default.rating),
+        adjustments: value.get("adjustments").cloned().unwrap_or(Value::Null),
+        tags: strings("tags"),
+        exif: field("exif").and_then(Value::as_object).map(|map| {
+            map.iter()
+                .filter_map(|(key, v)| Some((key.clone(), v.as_str()?.to_string())))
+                .collect()
+        }),
+        snapshots: field("snapshots")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        snapshot_strings: field("snapshotStrings")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default(),
+    }
 }
 
 /// The export queue's items: (index, photo path, how often its source has
