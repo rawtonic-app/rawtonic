@@ -10,8 +10,10 @@ workspace = true
 
 [dependencies]
 rawtonic-fs = { path = "../fs", version = "0.1.0" }
+rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rusqlite = { workspace = true, features = ["bundled"] }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }

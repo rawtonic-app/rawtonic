@@ -18,7 +18,9 @@ use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
 #[cfg(any(not(windows), test))]
 use rawtonic_fileops::SystemTrash;
-use rawtonic_fileops::{CopyObserver, Journal, KeptCopy, Operation, State, Step, Target};
+use rawtonic_fileops::{
+    CopyObserver, FileOpsError, Journal, KeptCopy, Operation, State, Step, Target,
+};
 use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use serde::Serialize;
 use std::{
@@ -229,7 +231,7 @@ pub fn stop_file_operation(run: u64) {
 
 fn with_journal<T>(
     app: &AppHandle,
-    f: impl FnOnce(&Journal) -> anyhow::Result<T>,
+    f: impl FnOnce(&Journal) -> Result<T, FileOpsError>,
 ) -> Result<T, String> {
     let mut guard = JOURNAL.lock().map_err(|e| e.to_string())?;
     if guard.is_none() {

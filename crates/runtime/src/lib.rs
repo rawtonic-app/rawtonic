@@ -4,3 +4,6 @@
 pub mod allocator;
 #[cfg(feature = "performance-profiling")]
 pub mod performance;
+
+mod cancelled;
+pub use cancelled::Cancelled;
