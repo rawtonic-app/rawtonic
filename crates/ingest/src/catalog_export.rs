@@ -20,8 +20,10 @@
 //! that holds them (matched by identity, else SHA-256). Edit resources
 //! (LUTs, profiles, mask images) are always copied into the catalog's
 //! `resources/`.
+use crate::IngestError;
+use crate::error::ensure;
 use crate::transfer::{ResourceCopier, check, copy_file, flush_staged, walk};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use rawtonic_catalog::{Library, portable::ResourceUse};
 use serde::Serialize;
 use std::{
@@ -96,7 +98,10 @@ pub struct OwnedElsewhere {
 
 /// The photographs `ids` of `source` that another library owns. They are
 /// never exported: their latest edit is not in `source`.
-pub fn owned_elsewhere(source: &Library, ids: &[String]) -> Result<Vec<OwnedElsewhere>> {
+pub fn owned_elsewhere(
+    source: &Library,
+    ids: &[String],
+) -> Result<Vec<OwnedElsewhere>, IngestError> {
     let mut out = Vec::new();
     for id in ids {
         let path = source.asset(id)?.path;
@@ -114,7 +119,10 @@ pub fn owned_elsewhere(source: &Library, ids: &[String]) -> Result<Vec<OwnedElse
 
 /// Checks the destination: a new folder (or an empty existing one) whose
 /// name is valid, outside the source library. Returns (parent, folder).
-pub fn check_destination(source: &Path, destination: &Path) -> Result<(PathBuf, PathBuf)> {
+pub fn check_destination(
+    source: &Path,
+    destination: &Path,
+) -> Result<(PathBuf, PathBuf), IngestError> {
     let source = source.canonicalize()?;
     let parent = destination
         .parent()
@@ -158,7 +166,7 @@ pub fn export_catalog(
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
     stage: impl FnOnce(&Path, &[Exported], &AtomicBool) -> Result<usize>,
-) -> Result<Receipt> {
+) -> Result<Receipt, IngestError> {
     let (parent, destination) = check_destination(source, destination)?;
     let source = source.canonicalize()?;
     let unique: HashSet<&String> = ids.iter().collect();

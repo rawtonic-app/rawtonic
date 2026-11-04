@@ -161,7 +161,20 @@ fn cause_code(cause: &(dyn std::error::Error + 'static)) -> Option<ErrorCode> {
     if let Some(error) = cause.downcast_ref::<rawtonic_catalog::CatalogError>() {
         return catalog_code(error);
     }
+    if let Some(error) = cause.downcast_ref::<rawtonic_ingest::IngestError>() {
+        return ingest_code(error);
+    }
     None
+}
+
+fn ingest_code(error: &rawtonic_ingest::IngestError) -> Option<ErrorCode> {
+    use rawtonic_ingest::IngestError as E;
+    match error {
+        E::Cancelled(_) => Some(ErrorCode::Cancelled),
+        E::Catalog(error) => catalog_code(error),
+        E::Io(io) => Some(io_code(io.kind())),
+        E::Other(cause) => cause.chain().find_map(cause_code),
+    }
 }
 
 fn catalog_code(error: &rawtonic_catalog::CatalogError) -> Option<ErrorCode> {
@@ -226,6 +239,13 @@ impl From<rawtonic_fileops::FileOpsError> for CommandError {
 impl From<rawtonic_catalog::CatalogError> for CommandError {
     fn from(error: rawtonic_catalog::CatalogError) -> Self {
         let code = catalog_code(&error).unwrap_or(ErrorCode::Internal);
+        Self::new(code, error.to_string())
+    }
+}
+
+impl From<rawtonic_ingest::IngestError> for CommandError {
+    fn from(error: rawtonic_ingest::IngestError) -> Self {
+        let code = ingest_code(&error).unwrap_or(ErrorCode::Internal);
         Self::new(code, error.to_string())
     }
 }
@@ -446,6 +466,31 @@ mod tests {
         assert_eq!(
             (error.code, error.message.as_str()),
             (ErrorCode::Cancelled, "Scanning: Synchronization cancelled")
+        );
+    }
+
+    #[test]
+    fn ingest_errors_keep_their_text_and_map_their_condition() {
+        use rawtonic_ingest::IngestError;
+        let stopped = IngestError::from(rawtonic_runtime::Cancelled::new("Ingest cancelled"));
+        let error = CommandError::from(stopped);
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (ErrorCode::Cancelled, "Ingest cancelled")
+        );
+        let album = CommandError::from(IngestError::from(
+            rawtonic_catalog::CatalogError::UnknownAlbum,
+        ));
+        assert_eq!(
+            (album.code, album.message.as_str()),
+            (ErrorCode::NotFound, "Unknown album")
+        );
+        let copy =
+            anyhow::Error::new(rawtonic_runtime::Cancelled::new("Copy cancelled")).context("a.raf");
+        let error = CommandError::chain(anyhow::Error::from(IngestError::from(copy)));
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (ErrorCode::Cancelled, "a.raf: Copy cancelled")
         );
     }
 

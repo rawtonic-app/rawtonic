@@ -4,6 +4,7 @@
 //! and numbers they would have had, none twice and none left out. Copies
 //! are made as by `import_batch` (verified, never replacing a file, the
 //! card's files only read).
+use crate::IngestError;
 use crate::{
     ImportOptions, ImportResult,
     batch::{BatchOptions, FileDone, pair_sources},
@@ -41,7 +42,7 @@ pub struct JobOptions {
 }
 
 impl JobOptions {
-    pub fn new(library: &Library, options: &BatchOptions<'_>) -> Result<Self> {
+    pub fn new(library: &Library, options: &BatchOptions<'_>) -> Result<Self, IngestError> {
         Ok(Self {
             template: options.template.into(),
             sequence_start: options.sequence_start,
@@ -63,7 +64,7 @@ pub fn create_job(
     library: &Library,
     sources: &[PathBuf],
     options: &BatchOptions<'_>,
-) -> Result<String> {
+) -> Result<String, IngestError> {
     if let Some(metadata) = options.metadata {
         metadata.validate()?;
     }
@@ -124,7 +125,7 @@ pub fn run_job(
     id: &str,
     cancel: &AtomicBool,
     on_file: impl FnMut(FileDone<'_>),
-) -> Result<Vec<ImportResult>> {
+) -> Result<Vec<ImportResult>, IngestError> {
     run_job_in_turn(library, id, cancel, &crate::metadata::no_turn, on_file)
 }
 
@@ -138,7 +139,7 @@ pub fn run_job_in_turn(
     cancel: &AtomicBool,
     turn: crate::metadata::WriteTurn<'_>,
     mut on_file: impl FnMut(FileDone<'_>),
-) -> Result<Vec<ImportResult>> {
+) -> Result<Vec<ImportResult>, IngestError> {
     let _sidecars = crate::capture::SidecarScope::new();
     let job = library.ingest_job(id)?;
     let options: JobOptions = serde_json::from_value(job.options.clone())?;
