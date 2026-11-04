@@ -15,6 +15,7 @@ use crate::formats::is_raw_file;
 use crate::gpu_processing;
 use crate::image_loader;
 use crate::image_processing::ImageMetadata;
+use crate::state::thumbnails::ThumbnailState;
 use image::DynamicImage;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::labels::EDITOR_TAG_PREFIX;
@@ -124,10 +125,9 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let app_handle_clone = app_handle.clone();
     let path_clone = path.clone();
 
-    add_to_thumbnail_queue(&state, 1, &app_handle);
+    add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
     thread::spawn(move || {
-        let state = app_handle_clone.state::<AppState>();
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {
@@ -139,7 +139,10 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
                     e
                 );
                 emit_thumbnail_cache_setup_error(&app_handle_clone, &path_clone, &e);
-                increment_thumbnail_progress(&state, &app_handle_clone);
+                increment_thumbnail_progress(
+                    &app_handle_clone.state::<ThumbnailState>(),
+                    &app_handle_clone,
+                );
                 return;
             }
         };
@@ -165,7 +168,10 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
             );
         }
 
-        increment_thumbnail_progress(&state, &app_handle_clone);
+        increment_thumbnail_progress(
+            &app_handle_clone.state::<ThumbnailState>(),
+            &app_handle_clone,
+        );
     });
 
     Ok(())
@@ -185,7 +191,10 @@ fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
                     emit_thumbnail_cache_setup_error(&app_handle, path, &e);
                 }
                 for _ in 0..paths.len() {
-                    increment_thumbnail_progress(&state, &app_handle);
+                    increment_thumbnail_progress(
+                        &app_handle.state::<ThumbnailState>(),
+                        &app_handle,
+                    );
                 }
                 return;
             }
@@ -215,7 +224,7 @@ fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
                 );
             }
 
-            increment_thumbnail_progress(&state, &app_handle);
+            increment_thumbnail_progress(&app_handle.state::<ThumbnailState>(), &app_handle);
         });
     });
 }
@@ -267,8 +276,11 @@ async fn save_then_regenerate(
     paths: Vec<String>,
     work: impl FnOnce(&AppHandle, &[String]) -> Vec<(String, String)> + Send + 'static,
 ) -> Result<(), SaveFailure> {
-    let state = app_handle.state::<AppState>();
-    add_to_thumbnail_queue(&state, paths.len(), &app_handle);
+    add_to_thumbnail_queue(
+        &app_handle.state::<ThumbnailState>(),
+        paths.len(),
+        &app_handle,
+    );
     let (app, batch) = (app_handle.clone(), paths.clone());
     let failures = tauri::async_runtime::spawn_blocking(move || work(&app, &batch))
         .await
@@ -929,8 +941,11 @@ pub async fn apply_auto_adjustments_to_paths(
     batch: Option<String>,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
-    let state = app_handle.state::<AppState>();
-    add_to_thumbnail_queue(&state, paths.len(), &app_handle);
+    add_to_thumbnail_queue(
+        &app_handle.state::<ThumbnailState>(),
+        paths.len(),
+        &app_handle,
+    );
     let total = paths.len();
     let all = paths.clone();
     let failures = tauri::async_runtime::spawn_blocking(move || {
@@ -1050,7 +1065,7 @@ pub async fn apply_auto_adjustments_to_paths(
                     }
                     Err(e) => emit_thumbnail_cache_setup_error(&app_handle, path, e),
                 }
-                increment_thumbnail_progress(&state, &app_handle);
+                increment_thumbnail_progress(&app_handle.state::<ThumbnailState>(), &app_handle);
                 // Its recipe is on disk, or failed: after the thumbnail.
                 settle(path, applied.as_ref().err().map(String::as_str));
 

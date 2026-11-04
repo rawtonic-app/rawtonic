@@ -4,10 +4,10 @@ use super::read_file_mapped;
 use super::resolve_xmp_path;
 use super::sync_metadata_from_xmp;
 use crate::AppSettings;
-use crate::app_state::AppState;
 use crate::app_state::PendingMetadata;
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
+use crate::state::thumbnails::ThumbnailState;
 use rawtonic_metadata::photo_ref::{self, CopyId, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -361,12 +361,9 @@ pub use rawtonic_export::sidecars::parse_virtual_path;
 #[tauri::command]
 pub async fn read_exif_for_paths(
     paths: Vec<String>,
-    state: tauri::State<'_, AppState>,
+    thumbnails: tauri::State<'_, ThumbnailState>,
 ) -> Result<HashMap<String, HashMap<String, String>>, String> {
-    let is_hdd = state
-        .thumbnail_manager
-        .rotational_disk
-        .load(Ordering::Relaxed);
+    let is_hdd = thumbnails.manager.rotational_disk.load(Ordering::Relaxed);
 
     tauri::async_runtime::spawn_blocking(move || {
         let process_path = |virtual_path: &String| {
@@ -509,8 +506,9 @@ pub(crate) fn update_rotational_disk_flag(path: &str, app_handle: &AppHandle) {
 
     match cached_match {
         Some(is_hdd) => {
-            state
-                .thumbnail_manager
+            app_handle
+                .state::<ThumbnailState>()
+                .manager
                 .rotational_disk
                 .store(is_hdd, Ordering::Relaxed);
         }

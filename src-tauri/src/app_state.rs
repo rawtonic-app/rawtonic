@@ -17,9 +17,6 @@ pub use crate::gpu_processing::{
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
 use crate::lut_processing::LutCache;
-use crate::state::thumbnails::{
-    ThumbnailGeometryEntry, ThumbnailManager, ThumbnailProgressTracker,
-};
 
 pub struct AiTaskToken {
     cancelled: AtomicBool,
@@ -481,8 +478,6 @@ pub struct AppState {
     pub lut_cache: Mutex<LutCache>,
     pub initial_file_path: Mutex<Option<String>>,
     pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
-    pub thumbnail_cancellation_token: Arc<AtomicBool>,
-    pub thumbnail_progress: Mutex<ThumbnailProgressTracker>,
     /// The preview worker's next job (preview_slot.rs): a newer request
     /// replaces the waiting one on arrival.
     pub preview_jobs: crate::preview_slot::LatestSlot<PreviewJob>,
@@ -500,10 +495,8 @@ pub struct AppState {
         Mutex<Option<LatestJobSender<crate::scope_analytics::ScopeAnalyticsJob>>>,
     pub scope_proxy: Mutex<Option<crate::scope_analytics::ScopeProxy>>,
     pub scope_gpu_cache: Mutex<Option<GpuImageCache>>,
-    pub thumbnail_geometry_cache: Mutex<HashMap<String, ThumbnailGeometryEntry>>,
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
-    pub thumbnail_manager: Arc<ThumbnailManager>,
     pub metadata_manager: Arc<MetadataManager>,
     pub disks_cache: Mutex<Option<Disks>>,
     pub disks_cache_refreshing: AtomicBool,
@@ -538,11 +531,6 @@ impl Default for AppState {
             lut_cache: Mutex::new(Default::default()),
             initial_file_path: Mutex::new(None),
             pending_edit_session: Mutex::new(None),
-            thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),
-            thumbnail_progress: Mutex::new(ThumbnailProgressTracker {
-                total: 0,
-                completed: 0,
-            }),
             preview_jobs: Default::default(),
             live_stroke: Default::default(),
             analytics_worker_tx: Mutex::new(None),
@@ -551,10 +539,8 @@ impl Default for AppState {
             scope_analytics_tx: Mutex::new(None),
             scope_proxy: Mutex::new(None),
             scope_gpu_cache: Mutex::new(None),
-            thumbnail_geometry_cache: Mutex::new(HashMap::new()),
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),
-            thumbnail_manager: ThumbnailManager::new(),
             metadata_manager: MetadataManager::new(),
             disks_cache: Mutex::new(None),
             disks_cache_refreshing: AtomicBool::new(false),

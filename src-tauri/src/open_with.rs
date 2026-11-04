@@ -941,10 +941,11 @@ fn watch(app: &AppHandle, renders: &[EditTarget]) {
                     if !saved.is_empty() {
                         // Decodes and thumbnail bases are kept by path (and
                         // recipe) alone: drop the stale ones.
-                        let state = app.state::<crate::app_state::AppState>();
-                        if let Ok(mut bases) = state.thumbnail_geometry_cache.lock() {
-                            bases.clear();
-                        }
+                        crate::state::lock::lock_recover(
+                            &app.state::<crate::state::thumbnails::ThumbnailState>()
+                                .geometry_cache,
+                        )
+                        .clear();
                         app.state::<DevelopSession>().invalidate(Scope::Decoder);
                     }
                     for (path, library) in &saved {
