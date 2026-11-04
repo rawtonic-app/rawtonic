@@ -710,7 +710,7 @@ impl AutoMask {
         }
     }
 
-    fn cache(self, ai: &mut crate::ai_processing::AiState) -> &mut Vec<CachedMask> {
+    fn cache(self, ai: &mut crate::ai_processing::AiModels) -> &mut Vec<CachedMask> {
         match self {
             Self::Subject => &mut ai.subject_masks,
             Self::Sky => &mut ai.sky_masks,
@@ -1324,7 +1324,7 @@ where
 }
 
 /// Drops `network` from the state when it is the loaded one.
-fn release_network(ai: &mut crate::ai_processing::AiState, network: &Network) {
+fn release_network(ai: &mut crate::ai_processing::AiModels, network: &Network) {
     match network {
         Network::Subject(model) => {
             if ai

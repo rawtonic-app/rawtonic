@@ -10,7 +10,7 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
-use crate::ai_processing::AiState;
+use crate::ai_processing::AiModels;
 pub use crate::gpu_processing::{
     AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorSlot, GpuProcessorState,
 };
@@ -462,7 +462,7 @@ pub struct AppState {
     /// Develop view's frames instead of holding up the processor those use
     /// for a whole photo (notes: parity-gaps/G44).
     pub export_gpu_processor: GpuProcessorSlot,
-    pub ai_state: Mutex<Option<AiState>>,
+    pub ai_state: Mutex<Option<AiModels>>,
     pub ai_init_lock: TokioMutex<()>,
     /// AI Denoise (ai_denoise.rs) by `aiDenoiseVersion` (index 0: version
     /// 1), each loaded on first use.

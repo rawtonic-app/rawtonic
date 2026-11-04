@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
-use crate::ai_processing::AiState;
+use crate::ai_processing::AiModels;
 use crate::app_state::AppState;
 
 /// Models unused this long are dropped.
@@ -186,7 +186,7 @@ impl Lifecycle {
 /// Takes from `ai` what `reason` unloads; the rest stays. Finished Subject
 /// and Sky masks (a few MB, they answer a click without a model) and the
 /// tagging models (used in the Library) go only under memory pressure.
-fn take_unloaded(ai: &mut AiState, reason: UnloadReason) -> AiState {
+fn take_unloaded(ai: &mut AiModels, reason: UnloadReason) -> AiModels {
     let mut taken = std::mem::take(ai);
     if reason != UnloadReason::MemoryPressure {
         ai.subject_masks = std::mem::take(&mut taken.subject_masks);
@@ -197,7 +197,7 @@ fn take_unloaded(ai: &mut AiState, reason: UnloadReason) -> AiState {
 }
 
 /// Names of the models and caches in `taken`, for the log.
-fn names(taken: &AiState) -> Vec<&'static str> {
+fn names(taken: &AiModels) -> Vec<&'static str> {
     [
         ("subject", taken.subject_model.is_some()),
         ("sky", taken.sky_model.is_some()),
@@ -381,9 +381,9 @@ pub fn unload_ai_models(reason: UnloadReason, app_handle: tauri::AppHandle) -> V
 /// model in memory (user decision 2026-10-11); `true` when dropped.
 pub fn release_after_warm_up(
     lifecycle: &Lifecycle,
-    ai: &mut Option<AiState>,
+    ai: &mut Option<AiModels>,
     uses_before: u64,
-    take: impl FnOnce(&mut AiState),
+    take: impl FnOnce(&mut AiModels),
 ) -> bool {
     if lifecycle.uses() != uses_before {
         return false;
@@ -413,9 +413,9 @@ mod tests {
         }
     }
 
-    fn filled_state() -> AiState {
+    fn filled_state() -> AiModels {
         let zeros = |shape: &[usize]| ndarray::Array::zeros(ndarray::IxDyn(shape));
-        AiState {
+        AiModels {
             embeddings: Some(ImageEmbeddings {
                 path_hash: "a".into(),
                 embeddings: zeros(&[1, 4]),

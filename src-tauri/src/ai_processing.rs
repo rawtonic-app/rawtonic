@@ -136,7 +136,7 @@ pub struct CachedDepthMap {
 }
 
 #[derive(Default)]
-pub struct AiState {
+pub struct AiModels {
     /// UperNet for Sky masks, loaded on its own (119 MB): Sky does not wait
     /// for the depth model.
     pub sky_model: Option<Arc<SkyModel>>,
@@ -162,13 +162,13 @@ pub struct AiState {
 /// models were unloaded since its load began (`generation`): then its caller
 /// uses it once and the next use loads again (`ai_lifecycle`).
 fn keep_model(
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     generation: u64,
-    store: impl FnOnce(&mut AiState),
+    store: impl FnOnce(&mut AiModels),
 ) {
     let mut ai = ai_state_mutex.lock().unwrap();
     if crate::ai_lifecycle::LIFECYCLE.keep(generation) {
-        store(ai.get_or_insert_with(AiState::default));
+        store(ai.get_or_insert_with(AiModels::default));
     } else {
         log::info!("AI: a model loaded during an unload is not kept");
     }
@@ -680,7 +680,7 @@ static SKY_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
 /// is not installed or the runtime is missing.
 pub async fn get_or_init_sky_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     download: bool,
 ) -> Result<Option<Arc<SkyModel>>> {
     let loaded = || {
@@ -758,7 +758,7 @@ pub async fn get_or_init_sky_model(
 /// Depth Anything V2 for depth masks, downloaded and loaded on first use.
 pub async fn get_or_init_depth_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
@@ -803,7 +803,7 @@ pub async fn get_or_init_depth_model(
 /// installed (never downloads).
 pub async fn preload_sam_models(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<()> {
     let already = ai_state_mutex
@@ -828,7 +828,7 @@ pub async fn preload_sam_models(
 /// first use.
 pub async fn get_or_init_sam_models(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<SamModels>> {
     ensure_local_runtime()?;
@@ -909,7 +909,7 @@ pub fn mask_model_installed(app_handle: &tauri::AppHandle, sky: bool) -> bool {
 /// is not installed.
 pub async fn get_or_init_subject_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     ai_init_lock: &TokioMutex<()>,
     download: bool,
 ) -> Result<Option<Arc<SubjectModel>>> {
@@ -1271,7 +1271,7 @@ fn link_into_package(source: &Path, target: &Path, sha: &str) -> Result<bool> {
 /// user's own tags (a 1.1 GB download, only then).
 pub async fn get_or_init_tag_models(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     ai_init_lock: &TokioMutex<()>,
     with_text: bool,
 ) -> Result<Arc<TagModels>> {
@@ -1353,7 +1353,7 @@ pub async fn get_or_init_tag_models(
     // overlapped such an unload is used once and not kept.
     let mut ai = ai_state_mutex.lock().unwrap();
     if crate::ai_lifecycle::LIFECYCLE.keep_tag_models(pressure_generation) {
-        ai.get_or_insert_with(AiState::default).tag_models = Some(models.clone());
+        ai.get_or_insert_with(AiModels::default).tag_models = Some(models.clone());
     } else {
         log::info!("AI: tagging models loaded during a memory-pressure unload are not kept");
     }
@@ -1379,7 +1379,7 @@ pub(crate) fn read_tag_embeddings(bytes: &[u8], tags: usize) -> Result<Vec<f32>>
 
 pub async fn get_or_init_inpaint_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     ai_init_lock: &TokioMutex<()>,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
@@ -1435,7 +1435,7 @@ static MOEBIUS_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
 /// Moebius (`moebius`), downloaded on first use.
 pub async fn get_or_init_moebius(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_state_mutex: &Mutex<Option<AiModels>>,
     preparing: &(dyn Fn() + Send + Sync),
 ) -> Result<Arc<crate::moebius::Moebius>> {
     let loaded = || {

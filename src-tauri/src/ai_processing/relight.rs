@@ -9,7 +9,7 @@ type DepthImage = image::ImageBuffer<image::Luma<u16>, Vec<u16>>;
 
 pub async fn get_or_init_relight_model(
     app: &tauri::AppHandle,
-    state: &Mutex<Option<AiState>>,
+    state: &Mutex<Option<AiModels>>,
     init: &TokioMutex<()>,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
@@ -52,7 +52,7 @@ const SUBJECT_SIDE: u32 = 1024;
 
 pub async fn get_or_init_people_normals_model(
     app: &tauri::AppHandle,
-    state: &Mutex<Option<AiState>>,
+    state: &Mutex<Option<AiModels>>,
     init: &TokioMutex<()>,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
