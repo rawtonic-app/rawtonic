@@ -1266,7 +1266,7 @@ pub fn carry_over(from: &Path, to: &Path) -> usize {
         .filter(|(old, new)| {
             new.parent()
                 .is_some_and(|dir| fs::create_dir_all(dir).is_ok())
-                && rawtonic_fileops::rename_no_clobber(old, new).is_ok()
+                && rawtonic_fs::rename_no_clobber(old, new).is_ok()
         })
         .inspect(|(_, new)| {
             if let Err(e) = relabel(new, &source_label(to)) {

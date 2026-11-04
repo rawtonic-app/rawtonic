@@ -1,4 +1,5 @@
-use rawtonic_fileops::{Journal, State, Step, SystemTrash, Target, rename_no_clobber};
+use rawtonic_fileops::{Journal, State, Step, SystemTrash, Target};
+use rawtonic_fs::rename_no_clobber;
 use std::{
     cell::Cell,
     fs,
@@ -35,7 +36,7 @@ impl SystemTrash for FolderTrash {
         Ok(item.to_string_lossy().into_owned())
     }
     fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
-        Ok(rename_no_clobber(Path::new(item), original)?)
+        Ok(rename_no_clobber(Path::new(item), original).map(drop)?)
     }
     fn contains(&self, item: &str) -> bool {
         Path::new(item).exists()

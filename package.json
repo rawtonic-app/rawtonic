@@ -20,7 +20,7 @@
     "i18n:runtime-check": "node src/i18n/check-runtime.mjs",
     "i18n:lint": "i18next-cli lint",
     "test": "vitest run",
-    "core:test": "cargo test -p rawtonic-catalog -p rawtonic-naming -p rawtonic-ingest -p rawtonic-metadata -p rawtonic-fileops"
+    "core:test": "cargo test -p rawtonic-catalog -p rawtonic-naming -p rawtonic-ingest -p rawtonic-fs -p rawtonic-metadata -p rawtonic-fileops"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -358,80 +358,6 @@ fn free_bytes(path: &Path) -> Result<u64> {
     )
 }
 
-/// Renames `from` to `to` only if `to` does not exist, atomically, or fails:
-/// `AlreadyExists` when the name is taken, `Unsupported` (or the system's
-/// own error) where the volume or system cannot rename exclusively. Never
-/// falls back to a check followed by a rename.
-pub fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
-    #[cfg(target_vendor = "apple")]
-    {
-        let (f, t) = (c_path(from)?, c_path(to)?);
-        // SAFETY: both are valid NUL-terminated paths for the call's duration.
-        if unsafe { libc::renamex_np(f.as_ptr(), t.as_ptr(), libc::RENAME_EXCL) } == 0 {
-            return Ok(());
-        }
-        Err(io::Error::last_os_error())
-    }
-    #[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "musl")))]
-    {
-        let (f, t) = (c_path(from)?, c_path(to)?);
-        // SAFETY: both are valid NUL-terminated paths for the call's duration.
-        let result = unsafe {
-            libc::renameat2(
-                libc::AT_FDCWD,
-                f.as_ptr(),
-                libc::AT_FDCWD,
-                t.as_ptr(),
-                libc::RENAME_NOREPLACE,
-            )
-        };
-        if result == 0 {
-            return Ok(());
-        }
-        Err(io::Error::last_os_error())
-    }
-    // `MoveFileExW` with no flags: no `MOVEFILE_REPLACE_EXISTING` (a taken
-    // name is refused), no `MOVEFILE_COPY_ALLOWED` (the system never copies
-    // and deletes in place of a rename, which would not be atomic).
-    #[cfg(windows)]
-    {
-        #[link(name = "kernel32")]
-        unsafe extern "system" {
-            fn MoveFileExW(from: *const u16, to: *const u16, flags: u32) -> i32;
-        }
-        // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS.
-        const ERROR_FILE_EXISTS: i32 = 80;
-        const ERROR_ALREADY_EXISTS: i32 = 183;
-        let as_io = |path: &Path| {
-            wide_path(path).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
-        };
-        let (f, t) = (as_io(from)?, as_io(to)?);
-        // SAFETY: both are NUL-terminated wide strings that outlive the call.
-        if unsafe { MoveFileExW(f.as_ptr(), t.as_ptr(), 0) } != 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        Err(match error.raw_os_error() {
-            Some(ERROR_FILE_EXISTS | ERROR_ALREADY_EXISTS) => {
-                io::Error::new(io::ErrorKind::AlreadyExists, error)
-            }
-            _ => error,
-        })
-    }
-    #[cfg(not(any(
-        target_vendor = "apple",
-        all(target_os = "linux", any(target_env = "gnu", target_env = "musl")),
-        windows
-    )))]
-    {
-        let _ = (from, to);
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "this system has no exclusive rename",
-        ))
-    }
-}
-
 const PROBE_A: &str = ".rawtonic-probe-a";
 const PROBE_B: &str = ".rawtonic-probe-b";
 
@@ -448,12 +374,19 @@ pub fn probe_exclusive_rename(folder: &Path) -> Result<()> {
 fn probe_rename(folder: &Path) -> io::Result<()> {
     let (a, b) = (folder.join(PROBE_A), folder.join(PROBE_B));
     File::create_new(&a)?;
-    rename_exclusive(&a, &b)?;
+    // Only the system's own exclusive rename counts: on a volume without
+    // one, copies are created in place under their final names instead.
+    if rawtonic_fs::rename_no_clobber(&a, &b)? != rawtonic_fs::Renamed::Exclusive {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "the volume has no exclusive rename",
+        ));
+    }
     File::create_new(&a)?;
-    match rename_exclusive(&a, &b) {
+    match rawtonic_fs::rename_no_clobber(&a, &b) {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(e),
-        Ok(()) => Err(io::Error::other("it replaced an existing file")),
+        Ok(_) => Err(io::Error::other("it replaced an existing file")),
     }
 }
 
@@ -983,14 +916,14 @@ mod tests {
         fs::write(&b, "b").unwrap();
         fs::write(&c, "c").unwrap();
         // A free name: the file moves, nothing else appears.
-        rename_exclusive(&c, &folder.join("d")).unwrap();
+        rawtonic_fs::rename_no_clobber(&c, &folder.join("d")).unwrap();
         assert_eq!(fs::read(folder.join("d")).unwrap(), b"c");
         assert!(!c.exists());
-        rename_exclusive(&folder.join("d"), &c).unwrap();
+        rawtonic_fs::rename_no_clobber(&folder.join("d"), &c).unwrap();
         // A taken one: refused as taken, the file to move stays where it
         // is and the target keeps its bytes (never replaced, also by the
         // system's own semantics).
-        let error = rename_exclusive(&a, &b).unwrap_err();
+        let error = rawtonic_fs::rename_no_clobber(&a, &b).unwrap_err();
         assert!(
             error.kind() == io::ErrorKind::AlreadyExists
                 || error.kind() == io::ErrorKind::PermissionDenied,
@@ -1043,7 +976,8 @@ mod tests {
         );
         fs::write(tmp.path().join("a"), "a").unwrap();
         fs::write(tmp.path().join("b"), "b").unwrap();
-        let error = rename_exclusive(&tmp.path().join("a"), &tmp.path().join("b")).unwrap_err();
+        let error = rawtonic_fs::rename_no_clobber(&tmp.path().join("a"), &tmp.path().join("b"))
+            .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(fs::read(tmp.path().join("b")).unwrap(), b"b");
     }

@@ -504,7 +504,7 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
     }
     let stage = Stage::open(receipt, true)?;
     restore_to_stage(receipt, &stage)?;
-    rawtonic_fileops::rename_no_clobber(&stage.payload(), original).context(
+    rawtonic_fs::rename_no_clobber(&stage.payload(), original).context(
         "Restore destination became occupied; item remains in its recoverable staging directory",
     )?;
     // The original has been restored at this point. A cleanup failure must
@@ -613,7 +613,7 @@ mod tests {
             original,
         };
         let stage = Stage::open(&receipt, true).unwrap();
-        rawtonic_fileops::rename_no_clobber(&receipt.original, &stage.payload()).unwrap();
+        rawtonic_fs::rename_no_clobber(&receipt.original, &stage.payload()).unwrap();
         (temp, receipt)
     }
 
@@ -621,7 +621,7 @@ mod tests {
     fn empty_markerless_stage_can_resume_but_unmarked_payload_is_refused() {
         let (_temp, receipt) = staged_fixture();
         let path = receipt.stage().unwrap();
-        rawtonic_fileops::rename_no_clobber(&path.join("payload"), &receipt.original).unwrap();
+        rawtonic_fs::rename_no_clobber(&path.join("payload"), &receipt.original).unwrap();
         fs::remove_file(path.join("receipt.json")).unwrap();
         fs::remove_dir(&path).unwrap();
         fs::create_dir(&path).unwrap(); // Simulated crash immediately after mkdir.
@@ -804,7 +804,7 @@ mod tests {
     fn restore_is_idempotent_after_final_rename_before_journal_commit() {
         let _apartment = Apartment::new().unwrap();
         let (_temp, receipt) = staged_fixture();
-        rawtonic_fileops::rename_no_clobber(
+        rawtonic_fs::rename_no_clobber(
             &receipt.stage().unwrap().join("payload"),
             &receipt.original,
         )

@@ -553,7 +553,7 @@ impl Placed {
 
     fn take_back(&mut self) {
         for (staged, placed) in self.moves.drain(..).rev() {
-            if let Err(error) = rawtonic_fileops::rename_no_clobber(&placed, &staged) {
+            if let Err(error) = rawtonic_fs::rename_no_clobber(&placed, &staged) {
                 log::warn!(
                     "Could not take back {} after a failed import: {error}",
                     placed.display()
@@ -678,7 +678,7 @@ fn copy_originals(
         }
         let from = stage_root.join(name);
         let to = folder.join(&candidate);
-        rawtonic_fileops::rename_no_clobber(&from, &to)
+        rawtonic_fs::rename_no_clobber(&from, &to)
             .with_context(|| format!("Cannot put the copies in {}", to.display()))?;
         placed.moves.push((from, to.clone()));
         place_of.insert(name.clone(), to);

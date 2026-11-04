@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Renames on cards and drives without an exclusive rename never replace a file that is already there.** On volumes where the system cannot rename without replacing (exFAT and FAT on macOS, FAT on Linux, some network mounts), a rename or move checked that the new name was free and then renamed, so a file another program created under that name in between would have been replaced. Renames there now claim the new name first (with a hard link where the volume has one, else an empty placeholder file Rawtonic creates exclusively) and are refused if it is taken. The one window left is another program itself replacing that just-created empty placeholder in the instant before Rawtonic renames over it. Renames on exFAT cards keep working.
 - **A preference changed right before quitting is kept**: quitting (Quit, closing the window, ⌘Q, macOS log out) and *Save & Relaunch* now wait for the preferences still being saved, up to 10 seconds. One that cannot be written is listed in the quit prompt like unsaved edits, and *Save & Relaunch* then stays open with a message instead of restarting without it.
 - **Cancelling thumbnail generation now stops it**: the cancel button used to leave the queued thumbnails running; the queue is now dropped at the next photo, and a later generation starts normally.
 - **Canon RF 200-800mm with the RF1.4x or RF2x extender named with its real range**: exports' lens specification now says 280-1120 mm f/9-13 or 400-1600 mm f/13-18 instead of the bare lens's 200-800 mm f/6.3-9 (lens data from rawler 0.8.0).

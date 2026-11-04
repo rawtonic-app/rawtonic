@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Forced system-call answers for other crates' tests (`test_hooks`).
+test-support = []
+
 [lints]
 workspace = true
 

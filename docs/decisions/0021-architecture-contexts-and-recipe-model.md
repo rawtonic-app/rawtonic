@@ -107,5 +107,7 @@ the CLI both call them. Revisit only if the CLI still duplicates app logic after
 - Every step is judged by the preservation run: byte-identical exports, unchanged saved recipes, catalogs and
   settings.
 - Value objects stay local, so a rename of a stored form is impossible by accident: the codec is the contract.
-- The check-then-rename fallback stays at its current caller as a recorded safety exception until D3's measurement
-  is done.
+- The check-then-rename fallback stayed at its caller until D3's measurement (2026-11-03: exFAT on macOS has
+  neither an exclusive rename nor hard links). It is gone: `rawtonic_fs::rename_no_clobber` tries the exclusive
+  rename, then an exclusive hard link plus unlink of the old name, then renames over a placeholder it created
+  exclusively under the new name (checked to be still its own, empty), else fails with `Unsupported`.
