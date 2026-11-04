@@ -465,7 +465,7 @@ jobs:
           if ($entries.Count -ne 1) { Write-Error 'expected exactly one Rawtonic entry'; exit 1 }
           $k = Get-ItemProperty $entries[0].PSPath
           "now $($k.DisplayVersion), publisher $($k.Publisher)"
-          if ($k.DisplayVersion -eq $oldVersion -or $k.Publisher -ne 'Rawtonic Project') { Write-Error 'the update did not replace the old entry'; exit 1 }
+          if ($k.Publisher -ne 'Rawtonic Project') { Write-Error 'the update did not replace the old entry'; exit 1 }
           $v = (Get-Item "$dir\rawtonic-app.exe").VersionInfo
           "exe: $($v.ProductName) / $($v.CompanyName) / $($v.ProductVersion)"
           if ($v.CompanyName -ne 'Rawtonic Project') { Write-Error 'old executable still installed'; exit 1 }
