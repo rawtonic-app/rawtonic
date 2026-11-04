@@ -1110,7 +1110,7 @@ impl Library {
             self.manifest.mode == crate::Mode::Catalog,
             "Import from Catalog brings photographs into a catalog; sessions stay self-contained"
         );
-        let database = other.directory.join("catalog.sqlite");
+        let database = other.directory.join(crate::layout::CATALOG_DATABASE);
         ensure!(database.is_file(), "No snapshot database");
         self.conn.execute(
             "ATTACH DATABASE ? AS other",

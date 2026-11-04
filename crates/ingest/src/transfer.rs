@@ -6,7 +6,7 @@
 use crate::IngestError;
 use crate::error::ensure;
 use anyhow::{Context, Result};
-use rawtonic_catalog::{Library, portable::ResourceUse};
+use rawtonic_catalog::{Library, Mode, layout, portable::ResourceUse};
 use rawtonic_metadata::resources;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -83,20 +83,9 @@ pub(crate) fn walk(root: &Path, out: &mut Vec<PathBuf>, skip_cache: bool) -> Res
 }
 fn excluded(relative: &Path) -> bool {
     relative.components().count() == 1
-        && matches!(
-            relative.to_str(),
-            Some(
-                "session.json"
-                    | "catalog.json"
-                    | "session.sqlite"
-                    | "catalog.sqlite"
-                    | "session.sqlite-wal"
-                    | "session.sqlite-shm"
-                    | "catalog.sqlite-wal"
-                    | "catalog.sqlite-shm"
-                    | RECEIPT
-            )
-        )
+        && relative
+            .to_str()
+            .is_some_and(|name| name == RECEIPT || layout::is_library_file(name))
 }
 pub(crate) fn copy_file(source: &Path, to: &Path, cancel: &AtomicBool) -> Result<()> {
     check(cancel)?;
@@ -162,11 +151,12 @@ pub fn verify(
             path: relative.clone(),
         });
     }
-    for needed in if folder.join("catalog.json").exists() {
-        ["catalog.json", "catalog.sqlite"]
+    let mode = if folder.join(layout::CATALOG_MANIFEST).exists() {
+        Mode::Catalog
     } else {
-        ["session.json", "session.sqlite"]
-    } {
+        Mode::Session
+    };
+    for needed in [layout::manifest_name(mode), layout::database_name(mode)] {
         ensure!(
             receipt.files.contains_key(needed),
             "Backup is missing {needed}"

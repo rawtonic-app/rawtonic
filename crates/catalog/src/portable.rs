@@ -3,7 +3,10 @@
 //! the destination database, never the live source.
 use crate::CatalogError;
 use crate::error::ensure;
-use crate::{Library, Manifest, SCHEMA_VERSION, db_name, manifest_name, portable_relative};
+use crate::{
+    Library, Manifest, SCHEMA_VERSION, layout::database_name, layout::manifest_name,
+    portable_relative,
+};
 use anyhow::Result;
 use rusqlite::params;
 use serde_json::Value;
@@ -25,18 +28,16 @@ pub struct ResourceUse<'a> {
 
 impl Library {
     pub fn snapshot_from(source: &Path, folder: &Path) -> Result<Library, CatalogError> {
-        let manifest_path = source.join(if source.join("session.json").exists() {
-            "session.json"
-        } else {
-            "catalog.json"
-        });
+        let manifest_path = crate::layout::LibraryLayout::at(source)
+            .map(|layout| layout.manifest())
+            .unwrap_or_else(|| source.join(crate::layout::CATALOG_MANIFEST));
         let manifest: Manifest = serde_json::from_slice(&fs::read(manifest_path)?)?;
         ensure!(
             manifest.schema_version == SCHEMA_VERSION,
             "Unsupported manifest version"
         );
         crate::session_folders::validate_manifest(&manifest)?;
-        let source_db = source.join(db_name(manifest.mode));
+        let source_db = source.join(database_name(manifest.mode));
         ensure!(
             !fs::symlink_metadata(&source_db)?.file_type().is_symlink(),
             "Library database cannot be a symlink"
@@ -47,7 +48,7 @@ impl Library {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        let database = folder.join(db_name(manifest.mode));
+        let database = folder.join(database_name(manifest.mode));
         ensure!(!database.exists(), "Snapshot destination already exists");
         // VACUUM INTO takes a consistent SQLite read snapshot, including WAL.
         conn.execute("VACUUM INTO ?", [database.to_string_lossy().as_ref()])?;
