@@ -374,13 +374,7 @@ fn verified_copy_with(
 /// that failed before, or a folder another import made a moment ago, is
 /// made durable here too.
 fn create_dir_all_durable(folder: &Path, base: &Path) -> std::io::Result<()> {
-    create_dir_all_syncing(folder, base, |dir| {
-        #[cfg(unix)]
-        fs::File::open(dir)?.sync_all()?;
-        #[cfg(not(unix))]
-        let _ = dir;
-        Ok(())
-    })
+    create_dir_all_syncing(folder, base, rawtonic_fs::sync_dir)
 }
 
 /// `create_dir_all_durable`, durable once `barrier` is flushed.

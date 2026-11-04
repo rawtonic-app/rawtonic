@@ -34,14 +34,6 @@ fn safe_name(name: &str, fallback: &str) -> String {
     if ok { name.into() } else { fallback.into() }
 }
 
-fn sync_dir(dir: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    fs::File::open(dir)?.sync_all()?;
-    #[cfg(not(unix))]
-    let _ = dir;
-    Ok(())
-}
-
 /// `dir` as a real folder (created when missing), never a symbolic link.
 fn real_dir(dir: &Path) -> io::Result<()> {
     match fs::symlink_metadata(dir) {
@@ -129,7 +121,7 @@ impl Partial {
         // The slot is this download's own (`new_slot`), so a volume without
         // an exclusive rename still gets an atomic one: a complete file only.
         rawtonic_fs::no_clobber::persist_in_own_folder(self.temp, &self.path)?;
-        sync_dir(self.path.parent().unwrap())?;
+        rawtonic_fs::sync_dir(self.path.parent().unwrap())?;
         Ok(self.path)
     }
 }
@@ -219,7 +211,7 @@ pub fn write_record(root: &Path, path: &Path, record: &serde_json::Value) -> io:
     temp.as_file().sync_all()?;
     // The slot's only writer is the session's one ingest.
     match rawtonic_fs::no_clobber::persist_in_own_folder(temp, &slot.join(RECORD)) {
-        Ok(_) => sync_dir(slot),
+        Ok(_) => rawtonic_fs::sync_dir(slot),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(e),
     }

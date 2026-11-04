@@ -216,8 +216,7 @@ pub fn media_info(path: &Path) -> MediaInfo {
 pub fn space(path: &Path) -> Option<(u64, u64)> {
     #[cfg(unix)]
     {
-        use std::os::unix::ffi::OsStrExt;
-        let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+        let c = rawtonic_fs::c_path(path).ok()?;
         // SAFETY: an all-zero statvfs is valid; statvfs fills it.
         let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
         // SAFETY: valid path and out pointer.
@@ -338,7 +337,7 @@ mod imp {
     use std::path::{Path, PathBuf};
 
     fn c_path(path: &Path) -> Option<CString> {
-        CString::new(path.as_os_str().as_bytes()).ok()
+        rawtonic_fs::c_path(path).ok()
     }
 
     fn c_text(bytes: &[libc::c_char]) -> PathBuf {

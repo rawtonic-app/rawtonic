@@ -15,6 +15,7 @@
 //! cache is flushed by [`Barrier::flush`], once per volume for everything
 //! synced since, before a caller records a copy. See ADR 0019.
 use anyhow::{Context, Result, ensure};
+use rawtonic_fs::hex;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -676,20 +677,7 @@ fn same_bytes(reader: &mut impl Read, expected: &[u8]) -> std::io::Result<bool> 
 }
 
 pub(crate) fn sha256_of(f: &mut impl Read) -> Result<String> {
-    let mut h = Sha256::new();
-    let mut buffer = vec![0; CHUNK];
-    loop {
-        let n = f.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buffer[..n]);
-    }
-    Ok(hex(h.finalize()))
-}
-
-fn hex(digest: impl AsRef<[u8]>) -> String {
-    digest.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+    Ok(rawtonic_fs::sha256_hex_read(f)?)
 }
 
 #[cfg(test)]

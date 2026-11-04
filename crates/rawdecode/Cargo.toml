@@ -15,6 +15,7 @@ test-support = []
 workspace = true
 
 [dependencies]
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawler = { workspace = true }
 image = { workspace = true }

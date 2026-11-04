@@ -3,8 +3,9 @@
 //! the user's review, one attempt per call: no retries, no queue, no
 //! redirects followed, and nothing at all in a build without a relay URL.
 
-use crate::payload::{Prepared, Slot, Unapproved, approve, sha256_hex};
+use crate::payload::{Prepared, Slot, Unapproved, approve};
 use crate::scrub::Scrubber;
+use rawtonic_fs::sha256_hex;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

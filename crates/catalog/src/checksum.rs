@@ -8,10 +8,8 @@
 use crate::Library;
 use anyhow::Result;
 use rusqlite::params;
-use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::Read,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, UNIX_EPOCH},
@@ -21,21 +19,9 @@ use std::{
 /// `cancel` was set meanwhile.
 pub fn sha256_file(path: &Path, cancel: &AtomicBool) -> Result<Option<String>> {
     let mut file = fs::File::open(path)?;
-    let mut hash = Sha256::new();
-    let mut buffer = vec![0; 1024 * 1024];
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(None);
-        }
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        hash.update(&buffer[..n]);
-    }
-    Ok(Some(
-        hash.finalize().iter().map(|b| format!("{b:02x}")).collect(),
-    ))
+    Ok(rawtonic_fs::sha256_hex_read_while(&mut file, || {
+        !cancel.load(Ordering::Relaxed)
+    })?)
 }
 
 /// A regular file's size and modification time (seconds), as assets record

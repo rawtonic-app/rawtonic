@@ -34,8 +34,7 @@ pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::
     temp.write_all(bytes.as_ref())?;
     temp.as_file().sync_all()?;
     rawtonic_fs::no_clobber::persist(temp, path)?;
-    #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
+    rawtonic_fs::sync_dir(parent)?;
     Ok(())
 }
 

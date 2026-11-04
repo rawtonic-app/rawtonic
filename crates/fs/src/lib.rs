@@ -7,7 +7,72 @@ pub mod staging;
 pub mod temp;
 
 use anyhow::{Context, Result, ensure};
-use std::{fs, io::Write, path::Path};
+use sha2::{Digest, Sha256};
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::Path,
+};
+
+/// Lowercase hex of `bytes` (a digest), two digits per byte.
+pub fn hex(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write as _;
+    let bytes = bytes.as_ref();
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(text, "{byte:02x}");
+    }
+    text
+}
+
+/// Lowercase hex SHA-256 of `bytes`.
+pub fn sha256_hex(bytes: impl AsRef<[u8]>) -> String {
+    hex(Sha256::digest(bytes.as_ref()))
+}
+
+/// Lowercase hex SHA-256 of everything `reader` holds, read in 1 MiB
+/// pieces.
+pub fn sha256_hex_read(reader: &mut impl Read) -> io::Result<String> {
+    sha256_hex_read_while(reader, || true).map(|hex| hex.unwrap_or_default())
+}
+
+/// [`sha256_hex_read`], asking `keep_going` before each piece; when it says
+/// no, the read stops and the result is `None`.
+pub fn sha256_hex_read_while(
+    reader: &mut impl Read,
+    mut keep_going: impl FnMut() -> bool,
+) -> io::Result<Option<String>> {
+    let mut hash = Sha256::new();
+    let mut buffer = vec![0; 1024 * 1024];
+    loop {
+        if !keep_going() {
+            return Ok(None);
+        }
+        let n = reader.read(&mut buffer)?;
+        if n == 0 {
+            return Ok(Some(hex(hash.finalize())));
+        }
+        hash.update(&buffer[..n]);
+    }
+}
+
+/// Syncs a folder's entries (a new, renamed or removed name in it) to the
+/// drive, where folders can be synced (Unix); elsewhere nothing to do.
+pub fn sync_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    fs::File::open(dir)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
+}
+
+/// `path` as a NUL-terminated string for a system call.
+#[cfg(unix)]
+pub fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+    std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Path contains a NUL byte"))
+}
 
 /// Same-directory temporary file, fsync, atomic replace. Reject symlink targets.
 /// A replaced file keeps its permissions (the temporary file's are private).
@@ -27,14 +92,49 @@ pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
         file.as_file().set_permissions(meta.permissions())?;
     }
     file.persist(path).map_err(|e| e.error)?;
-    #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
+    sync_dir(parent)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The digests stored in catalogs, sidecars and manifests are this
+    /// lowercase form (FIPS 180-2 test vector).
+    #[test]
+    fn sha256_is_lowercase_hex() {
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(sha256_hex(b"abc"), abc);
+        assert_eq!(hex([0x00, 0x0a, 0xff]), "000aff");
+        assert_eq!(sha256_hex_read(&mut &b"abc"[..]).unwrap(), abc);
+        let big = vec![7u8; 3 * 1024 * 1024 + 5];
+        assert_eq!(sha256_hex_read(&mut &big[..]).unwrap(), sha256_hex(&big));
+        let mut pieces = 0;
+        let stopped = sha256_hex_read_while(&mut &big[..], || {
+            pieces += 1;
+            pieces < 3
+        });
+        assert_eq!(stopped.unwrap(), None);
+        assert_eq!(
+            sha256_hex_read_while(&mut &b"abc"[..], || true)
+                .unwrap()
+                .as_deref(),
+            Some(abc)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_with_a_nul_byte_is_refused() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = Path::new(std::ffi::OsStr::from_bytes(b"a\0b"));
+        assert_eq!(
+            c_path(path).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(c_path(Path::new("/a")).unwrap().as_bytes(), b"/a");
+    }
 
     #[cfg(unix)]
     #[test]

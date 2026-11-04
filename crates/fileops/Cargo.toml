@@ -9,6 +9,7 @@ description = "Journaled, undoable file operations (rename, move, trash) for Raw
 workspace = true
 
 [dependencies]
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 rusqlite = { workspace = true, features = ["bundled"] }
 anyhow = { workspace = true }
 serde = { workspace = true }

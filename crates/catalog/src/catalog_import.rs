@@ -431,14 +431,8 @@ impl Library {
         root: &Path,
         digests: &mut Digests,
     ) -> Result<BTreeMap<String, String>> {
-        use sha2::{Digest, Sha256};
         let facts = self.import_facts(asset, root, digests)?;
-        let hash = |value: String| -> String {
-            Sha256::digest(value.as_bytes())
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect()
-        };
+        let hash = |value: String| -> String { rawtonic_fs::sha256_hex(value.as_bytes()) };
         let mut out = BTreeMap::new();
         out.insert("edit".into(), hash(serde_json::to_string(&facts.edit)?));
         out.insert("copies".into(), hash(serde_json::to_string(&facts.copies)?));

@@ -2028,8 +2028,7 @@ pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Resul
     image.write_to(temp.as_file_mut(), image::ImageFormat::from_path(path)?)?;
     temp.as_file().sync_all()?;
     rawtonic_fs::no_clobber::persist(temp, path)?;
-    #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
+    rawtonic_fs::sync_dir(parent)?;
     Ok(())
 }
 

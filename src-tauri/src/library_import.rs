@@ -476,8 +476,7 @@ fn stack_id(source_name: &str, key: &str) -> String {
     } else {
         format!("key\0{source_name}\0{key}")
     };
-    let digest = sha2::Sha256::digest(origin);
-    digest.iter().take(16).map(|b| format!("{b:02x}")).collect()
+    rawtonic_fs::hex(&sha2::Sha256::digest(origin)[..16])
 }
 
 /// Whether the translated edit holds AI masks whose data a model computes
@@ -793,7 +792,7 @@ fn import_snapshots(
 fn copy_id(asset: &str, origin: &str, attempt: u32) -> String {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(format!("imported-copy\0{asset}\0{origin}\0{attempt}"));
-    digest.iter().take(3).map(|b| format!("{b:02x}")).collect()
+    rawtonic_fs::hex(&digest[..3])
 }
 
 /// A copy's source identity for [`copy_id`].
@@ -880,9 +879,8 @@ fn publish_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     file.write_all(bytes)?;
     file.as_file().sync_all()?;
     rawtonic_fs::no_clobber::persist(file, path)?;
-    #[cfg(unix)]
     if let Some(parent) = path.parent() {
-        std::fs::File::open(parent)?.sync_all()?;
+        rawtonic_fs::sync_dir(parent)?;
     }
     Ok(())
 }

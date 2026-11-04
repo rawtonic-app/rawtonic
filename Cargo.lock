@@ -5471,6 +5471,7 @@ dependencies = [
  "rawtonic-engine",
  "rawtonic-export",
  "rawtonic-faces",
+ "rawtonic-fs",
  "rawtonic-ingest",
  "rawtonic-merge",
  "rawtonic-metadata",
@@ -5596,7 +5597,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "skrifa",
  "tempfile",
  "turbojpeg",
@@ -5629,6 +5629,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "libc",
+ "rawtonic-fs",
  "rusqlite",
  "serde",
  "serde_json",
@@ -5643,6 +5644,7 @@ dependencies = [
  "anyhow",
  "libc",
  "serde",
+ "sha2 0.11.0",
  "tempfile",
 ]
 
@@ -5734,7 +5736,6 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "tempfile",
 ]
 
@@ -5770,6 +5771,7 @@ dependencies = [
  "log",
  "pollster",
  "rawler",
+ "rawtonic-fs",
  "rawtonic-runtime",
  "rayon",
  "serde",
@@ -5798,9 +5800,9 @@ dependencies = [
  "ndarray",
  "ort",
  "rawtonic-denoise",
+ "rawtonic-fs",
  "rawtonic-onnx",
  "rayon",
- "sha2 0.11.0",
 ]
 
 [[package]]

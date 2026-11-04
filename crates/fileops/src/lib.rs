@@ -18,6 +18,8 @@
 //! system Trash; its staging copies are the only other files this crate
 //! removes.
 use anyhow::{Context, Result, bail, ensure};
+#[cfg(unix)]
+use rawtonic_fs::c_path;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -2735,13 +2737,6 @@ pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
         }
         fs::rename(from, to)
     }
-}
-
-#[cfg(unix)]
-fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
-    use std::os::unix::ffi::OsStrExt;
-    std::ffi::CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Path contains a NUL byte"))
 }
 
 /// Simulated crashes for the tests: an armed point panics, leaving the

@@ -14,6 +14,7 @@ use rawler::{
     rawimage::{RawImage, RawPhotometricInterpretation},
     rawsource::RawSource,
 };
+use rawtonic_fs::hex;
 use serde::Serialize;
 use sha2::Digest;
 use std::collections::BTreeMap;
@@ -145,14 +146,6 @@ pub struct Developed {
     pub sha256: String,
     /// Mean linear R, G, B, rounded to 1e-6, to tell the size of a change.
     pub mean: [f64; 3],
-}
-
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    hex(&sha2::Sha256::digest(bytes))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The fingerprint of a RAW file's bytes; `develop` also develops it at
@@ -332,7 +325,7 @@ fn data_hash(raw_image: &RawImage) -> String {
             }
         }
     }
-    hex(&hash.finalize())
+    hex(hash.finalize())
 }
 
 fn develop_hash(file_bytes: &[u8]) -> anyhow::Result<Developed> {
@@ -353,7 +346,7 @@ fn develop_hash(file_bytes: &[u8]) -> anyhow::Result<Developed> {
     let count = (image.width() as f64 * image.height() as f64).max(1.0);
     Ok(Developed {
         size: [image.width(), image.height()],
-        sha256: hex(&hash.finalize()),
+        sha256: hex(hash.finalize()),
         mean: sums.map(|s| (s / count * 1e6).round() / 1e6),
     })
 }
@@ -526,6 +519,7 @@ mod known_camera_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rawtonic_fs::sha256_hex;
 
     use super::synthetic::*;
 

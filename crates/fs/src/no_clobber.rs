@@ -150,12 +150,11 @@ fn fill(input: &mut impl Read, len: u64, mut output: File, path: &Path) -> io::R
 fn ensure_space(path: &Path, len: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::ffi::OsStrExt;
         let folder = match path.parent() {
             Some(parent) if !parent.as_os_str().is_empty() => parent,
             _ => Path::new("."),
         };
-        let Ok(folder) = std::ffi::CString::new(folder.as_os_str().as_bytes()) else {
+        let Ok(folder) = crate::c_path(folder) else {
             return Ok(());
         };
         // SAFETY: a zeroed statvfs is a valid out value; the path is a

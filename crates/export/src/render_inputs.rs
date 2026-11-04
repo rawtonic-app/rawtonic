@@ -15,8 +15,8 @@
 use std::sync::{Arc, Mutex};
 
 use image::{DynamicImage, GenericImageView};
+use rawtonic_fs::sha256_hex;
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::export_processing::ExportSource;
 use crate::gpu_processing::RenderOutputPrecision;
@@ -25,14 +25,6 @@ use crate::lut::Lut;
 use crate::mask_generation::MaskBitmap;
 use crate::output_color_space::OutputColorSpace;
 use rawtonic_engine::image_loader::{AiDenoiseSettings, BaseImageOptions};
-
-/// Hex SHA-256 of `bytes`.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
 
 /// `value` with the keys of every object sorted.
 pub fn sorted(value: &Value) -> Value {

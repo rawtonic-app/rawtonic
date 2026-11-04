@@ -1045,7 +1045,7 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
         Err(error) => error,
     };
     // Named by its content: loading the same file again finds it kept.
-    let digest = rawtonic_metadata::digest(&content);
+    let digest = rawtonic_fs::sha256_hex(&content);
     let kept = path.with_file_name(format!("settings.unreadable-{}.json", &digest[..16]));
     let already_kept = fs::read(&kept).is_ok_and(|existing| existing == content);
     if !already_kept && let Err(e) = crate::session_bridge::write_new_output(&kept, &content) {

@@ -12,7 +12,6 @@ use rawtonic_ingest::{
 };
 use rawtonic_metadata::Metadata;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs,
@@ -25,10 +24,7 @@ fn go() -> AtomicBool {
 }
 
 fn sha(path: &Path) -> String {
-    Sha256::digest(fs::read(path).unwrap())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    rawtonic_fs::sha256_hex(fs::read(path).unwrap())
 }
 
 fn edit(exposure: f64) -> Value {

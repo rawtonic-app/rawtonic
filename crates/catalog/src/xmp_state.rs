@@ -143,7 +143,7 @@ impl Library {
             // The one it wrote last, or the one it was publishing when a
             // crash cut the write short (taken over by `sync_xmp`).
             Ok(bytes) => {
-                let here = Some(rawtonic_metadata::digest(&bytes));
+                let here = Some(rawtonic_fs::sha256_hex(&bytes));
                 Ok(here != hash && here != publishing)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(hash.is_some()),
@@ -234,7 +234,7 @@ impl Library {
                         check.read += 1;
                         match fs::read(&sidecar) {
                             Ok(bytes) => {
-                                let digest = rawtonic_metadata::digest(&bytes);
+                                let digest = rawtonic_fs::sha256_hex(&bytes);
                                 if hash.as_deref() == Some(digest.as_str()) {
                                     seen.0.insert(id.clone(), stamp(digest));
                                     false

@@ -5,7 +5,6 @@ use rawtonic_catalog::{Library, Mode};
 use rawtonic_ingest::catalog_export::{Options, export_catalog};
 use rawtonic_metadata::Metadata;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -17,10 +16,7 @@ fn go() -> AtomicBool {
 }
 
 fn sha(path: &Path) -> String {
-    Sha256::digest(fs::read(path).unwrap())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    rawtonic_fs::sha256_hex(fs::read(path).unwrap())
 }
 
 fn options(include_originals: bool) -> Options {

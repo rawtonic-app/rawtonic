@@ -7,7 +7,6 @@ pub mod resources;
 use anyhow::{Context, Result, ensure};
 use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fs, path::Path};
 
 pub const XMP: &str = "http://ns.adobe.com/xap/1.0/";
@@ -235,13 +234,6 @@ pub fn sidecar_path(photo: &Path) -> std::path::PathBuf {
     } else {
         lower
     }
-}
-
-pub fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 fn escape(text: &str) -> String {
@@ -1014,7 +1006,7 @@ pub fn write_xmp_announced(
     if let Some(expected) = expected_hash
         && !existing
             .as_ref()
-            .is_some_and(|s| digest(s.as_bytes()) == expected)
+            .is_some_and(|s| rawtonic_fs::sha256_hex(s.as_bytes()) == expected)
     {
         return Err(XmpConflict.into());
     }
@@ -1025,7 +1017,7 @@ pub fn write_xmp_announced(
         );
     }
     let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
-    let hash = digest(merged.as_bytes());
+    let hash = rawtonic_fs::sha256_hex(merged.as_bytes());
     announce(&hash)?;
     atomic_write(path, merged.as_bytes())?;
     Ok(hash)

@@ -1845,13 +1845,12 @@ pub async fn export_images_batch(
 pub(crate) fn ensure_writable_folder(folder: &std::path::Path) -> Result<(), String> {
     #[cfg(unix)]
     {
-        use std::os::unix::ffi::OsStrExt;
         let folder = if folder.as_os_str().is_empty() {
             std::path::Path::new(".")
         } else {
             folder
         };
-        let path = std::ffi::CString::new(folder.as_os_str().as_bytes())
+        let path = rawtonic_fs::c_path(folder)
             .map_err(|_| format!("Invalid output folder: {}", folder.display()))?;
         // access() also reports a read-only file system (EROFS).
         if unsafe { libc::access(path.as_ptr(), libc::W_OK | libc::X_OK) } != 0 {

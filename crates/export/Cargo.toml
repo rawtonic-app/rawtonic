@@ -32,7 +32,6 @@ chrono = { workspace = true }
 crc32fast = "1.5"
 blake3 = { workspace = true }
 bytemuck = { workspace = true }
-sha2 = { workspace = true }
 filetime = "0.2"
 walkdir = { workspace = true }
 serde = { workspace = true }
