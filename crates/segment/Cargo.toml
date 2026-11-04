@@ -14,10 +14,10 @@ image = { workspace = true }
 log = { workspace = true }
 ndarray = { workspace = true }
 ort = { workspace = true, features = ["std", "ndarray", "load-dynamic", "api-22"] }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
 rayon = { workspace = true }
 anyhow = { workspace = true }
-sha2 = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rawtonic-denoise = { path = "../denoise", version = "0.1.0" }

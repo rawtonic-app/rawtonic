@@ -562,8 +562,7 @@ mod tests {
     }
 
     fn sha256(path: &Path) -> String {
-        use sha2::Digest;
-        hex::encode(sha2::Sha256::digest(std::fs::read(path).unwrap()))
+        rawtonic_fs::sha256_hex(std::fs::read(path).unwrap())
     }
 
     #[test]

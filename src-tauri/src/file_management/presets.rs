@@ -201,7 +201,7 @@ pub async fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPr
 pub fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(), String> {
     let path = get_presets_path(&app_handle)?;
     let json_string = serde_json::to_string_pretty(&presets).map_err(|e| e.to_string())?;
-    rawtonic_metadata::atomic_write(&path, json_string).map_err(|e| e.to_string())
+    rawtonic_fs::atomic_write(&path, json_string).map_err(|e| e.to_string())
 }
 
 pub(crate) fn preset_file_display_name(file_path: &str) -> String {
@@ -397,7 +397,7 @@ pub fn handle_export_presets_to_file_blocking(
 
     let json_string = serde_json::to_string_pretty(&preset_file)
         .map_err(|e| format!("Failed to serialize presets: {}", e))?;
-    rawtonic_metadata::atomic_write(Path::new(&file_path), json_string)
+    rawtonic_fs::atomic_write(Path::new(&file_path), json_string)
         .map_err(|e| format!("Failed to write preset file: {}", e))
 }
 

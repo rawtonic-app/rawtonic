@@ -140,5 +140,5 @@ fn dumps_faces_of_real_photos() {
         writeln!(lines, "{line}").unwrap();
     }
     lines.as_file().sync_all().unwrap();
-    rawtonic_metadata::no_clobber::persist(lines, &out).unwrap();
+    rawtonic_fs::no_clobber::persist(lines, &out).unwrap();
 }

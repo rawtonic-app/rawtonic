@@ -474,7 +474,7 @@ impl ExportQueue {
 
     /// After a restart: running jobs become interrupted; photos whose
     /// planned output exists are finished; the temporary files of the photos
-    /// that were being written are removed (`rawtonic_metadata::temp`; the
+    /// that were being written are removed (`rawtonic_fs::temp`; the
     /// resumed job writes them anew). Returns the interrupted jobs.
     pub fn recover(&self) -> Result<Vec<Job>> {
         // Jobs a quit or crash cut short while they were being queued.
@@ -490,7 +490,7 @@ impl ExportQueue {
                 if let Some(output) = item.output.as_deref() {
                     // Only this output's temporary files go (`prefix_for`),
                     // never a file in the folder.
-                    let removed = rawtonic_metadata::temp::remove_leftovers_of(output);
+                    let removed = rawtonic_fs::temp::remove_leftovers_of(output);
                     if removed.files > 0 {
                         log::info!(
                             "Export resume removed {} bytes of unfinished output for {}",
@@ -885,14 +885,14 @@ mod tests {
         q.start_next().unwrap();
         q.item_started(&job, 0, &out.join("0.jpg")).unwrap();
         // What `write_new_output` leaves when the app is killed before publishing.
-        let left = rawtonic_metadata::temp::file_for(&out.join("0.jpg"))
+        let left = rawtonic_fs::temp::file_for(&out.join("0.jpg"))
             .unwrap()
             .keep()
             .unwrap()
             .1;
         let other = out.join("someone-else.jpg");
         std::fs::write(&other, "jpeg").unwrap();
-        let others_temp = rawtonic_metadata::temp::file_for(&other)
+        let others_temp = rawtonic_fs::temp::file_for(&other)
             .unwrap()
             .keep()
             .unwrap()

@@ -22,6 +22,7 @@ rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawtonic-gpu = { path = "../gpu", version = "0.1.0" }
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 rawtonic-naming = { path = "../naming", version = "0.1.0" }
 rawler = { workspace = true }
@@ -31,7 +32,6 @@ chrono = { workspace = true }
 crc32fast = "1.5"
 blake3 = { workspace = true }
 bytemuck = { workspace = true }
-sha2 = { workspace = true }
 filetime = "0.2"
 walkdir = { workspace = true }
 serde = { workspace = true }

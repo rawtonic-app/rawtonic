@@ -16,7 +16,7 @@ workspace = true
 
 [dependencies]
 log = { workspace = true }
-rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

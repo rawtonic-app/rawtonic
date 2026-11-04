@@ -20,5 +20,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 tempfile = { workspace = true }

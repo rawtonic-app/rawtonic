@@ -265,7 +265,7 @@ fn schedule_model_removal(marker: &Path, confirmed: bool) -> Result<(), String> 
         return Err("Model removal requires confirmation".into());
     }
     std::fs::create_dir_all(marker.parent().ok_or("No cache root")?).map_err(|e| e.to_string())?;
-    rawtonic_metadata::atomic_write(marker, b"remove at next startup").map_err(|e| e.to_string())
+    rawtonic_fs::atomic_write(marker, b"remove at next startup").map_err(|e| e.to_string())
 }
 
 fn remove_pending_models(marker: &Path, owned: &OwnedDirectory) -> Result<(), String> {

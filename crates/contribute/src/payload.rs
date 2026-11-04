@@ -8,6 +8,7 @@
 
 use crate::scrub::Scrubber;
 use base64::Engine as _;
+use rawtonic_fs::sha256_hex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -153,13 +154,6 @@ impl std::fmt::Display for PrepareError {
 
 impl std::error::Error for PrepareError {}
 
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 fn check_shape(channel: Channel, value: &Value) -> Result<(), PrepareError> {
     match value {
         Value::Object(fields) if fields.get("schema") == Some(&Value::from(channel.schema())) => {
@@ -188,12 +182,7 @@ fn hash_file(path: &Path, max: u64) -> Result<(u64, String), PrepareError> {
         }
         hasher.update(&buf[..n]);
     }
-    let digest = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    Ok((size, digest))
+    Ok((size, rawtonic_fs::hex(hasher.finalize())))
 }
 
 /// Takes a report's files out of the payload: `screenshot: {mime, data}`

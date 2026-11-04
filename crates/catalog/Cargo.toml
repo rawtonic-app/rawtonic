@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 rusqlite = { workspace = true, features = ["bundled", "serde_json", "functions"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 log = { workspace = true }
 anyhow = { workspace = true }

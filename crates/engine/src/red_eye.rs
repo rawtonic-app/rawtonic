@@ -1489,7 +1489,7 @@ mod tests {
             let mut temp = tempfile::Builder::new().tempfile_in(out).unwrap();
             std::io::Write::write_all(&mut temp, png.get_ref()).unwrap();
             temp.as_file().sync_all().unwrap();
-            rawtonic_metadata::no_clobber::persist(temp, &path)
+            rawtonic_fs::no_clobber::persist(temp, &path)
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         }
         assert_eq!(wrong, 0, "{wrong} photos found wrongly");

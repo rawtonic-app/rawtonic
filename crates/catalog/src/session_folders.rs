@@ -12,7 +12,7 @@
 //! the drive is away.
 use crate::{Library, Manifest, Mode, manifest_name, portable_relative, validate_relative};
 use anyhow::{Context, Result, bail, ensure};
-use rawtonic_metadata::atomic_write;
+use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};

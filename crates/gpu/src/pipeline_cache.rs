@@ -150,7 +150,7 @@ impl PipelineCache {
 /// Replaces the file atomically: a reader sees the old file or the new one,
 /// never a torn one.
 fn write(path: &Path, data: &[u8]) -> Result<(), String> {
-    rawtonic_metadata::atomic_write(path, encode(data)).map_err(|e| format!("{e:#}"))
+    rawtonic_fs::atomic_write(path, encode(data)).map_err(|e| format!("{e:#}"))
 }
 
 /// `wgpu-pipelines-<backend/vendor/device>-<driver and build hash>.bin`, or

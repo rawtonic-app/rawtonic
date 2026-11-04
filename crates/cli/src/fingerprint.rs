@@ -135,7 +135,7 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
                 continue;
             }
         };
-        let key = rawtonic_rawdecode::fingerprint::sha256_hex(&bytes);
+        let key = rawtonic_fs::sha256_hex(&bytes);
         if entries.contains_key(&key) {
             continue;
         }
@@ -393,7 +393,7 @@ mod tests {
         let report: Value = serde_json::from_str(&text).unwrap();
         let files = report["files"].as_object().unwrap();
         assert_eq!(files.len(), 1);
-        let entry = &files[&rawtonic_rawdecode::fingerprint::sha256_hex(&bytes)];
+        let entry = &files[&rawtonic_fs::sha256_hex(&bytes)];
         assert_eq!(entry["clean_model"], "Synthetic Mosaic");
         assert_eq!(entry["extension"], "dng");
         assert_eq!(entry["developed"]["size"], json!([48, 64]));

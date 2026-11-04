@@ -8,15 +8,11 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 roxmltree = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tempfile = { workspace = true }
-sha2 = { workspace = true }
-
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

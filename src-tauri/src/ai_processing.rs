@@ -17,7 +17,6 @@ use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, Rgba, 
 use ndarray::{Array, IxDyn};
 use ort::value::Tensor;
 use rayon::prelude::*;
-use sha2::{Digest, Sha256};
 use tauri::Emitter;
 use tauri::Manager;
 use tokenizers::Tokenizer;
@@ -313,7 +312,7 @@ fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
         )
     })?;
     fs::create_dir_all(parent)?;
-    rawtonic_metadata::atomic_write(dest, bytes)
+    rawtonic_fs::atomic_write(dest, bytes)
 }
 
 /// The download URL of a file of the model pack.
@@ -355,7 +354,7 @@ async fn download_verified_model(
 }
 
 fn persist_verified_asset(dest: &Path, bytes: &[u8], expected_hash: &str) -> Result<()> {
-    let hash = hex::encode(Sha256::digest(bytes));
+    let hash = rawtonic_fs::sha256_hex(bytes);
     if hash != expected_hash {
         return Err(anyhow::anyhow!(
             "download has SHA-256 {hash}, expected {expected_hash}"
@@ -504,7 +503,7 @@ mod verified_files {
             .collect();
         lines.sort();
         let text = lines.join("\n") + "\n";
-        if let Err(e) = rawtonic_metadata::atomic_write(&dir.join(FILE_NAME), text) {
+        if let Err(e) = rawtonic_fs::atomic_write(&dir.join(FILE_NAME), text) {
             log::warn!("AI: {FILE_NAME} not saved in {}: {e}", dir.display());
         }
     }
@@ -2566,11 +2565,10 @@ mod tool_tests {
 
     #[test]
     fn a_download_with_the_wrong_hash_leaves_the_existing_model() {
-        use sha2::Digest;
         let dir = tempfile::tempdir().unwrap();
         let model = dir.path().join("model.onnx");
         std::fs::write(&model, b"old model").unwrap();
-        let good = hex::encode(sha2::Sha256::digest(b"new model"));
+        let good = rawtonic_fs::sha256_hex(b"new model");
         assert!(super::persist_verified_asset(&model, b"corrupt", &good).is_err());
         assert_eq!(std::fs::read(&model).unwrap(), b"old model");
         super::persist_verified_asset(&model, b"new model", &good).unwrap();
@@ -2582,11 +2580,10 @@ mod tool_tests {
     /// trust it while it looks the same, and a changed file is hashed again.
     #[test]
     fn a_verified_model_file_is_hashed_again_only_after_it_changed() {
-        use sha2::Digest;
         let dir = tempfile::tempdir().unwrap();
         let model = dir.path().join("model.onnx");
         std::fs::write(&model, b"model bytes").unwrap();
-        let good = hex::encode(sha2::Sha256::digest(b"model bytes"));
+        let good = rawtonic_fs::sha256_hex(b"model bytes");
         assert!(super::verify_sha256(&model, &good).unwrap());
         let list = dir.path().join(super::verified_files::FILE_NAME);
         let text = std::fs::read_to_string(&list).unwrap();
@@ -2594,7 +2591,7 @@ mod tool_tests {
 
         // A relaunch reads the list: the recorded result stands without
         // hashing (shown by a list entry whose hash only the list knows).
-        let other = hex::encode(sha2::Sha256::digest(b"something else"));
+        let other = rawtonic_fs::sha256_hex(b"something else");
         std::fs::write(&list, text.replacen(&good, &other, 1)).unwrap();
         super::verified_files::reset_memory();
         assert!(super::verify_sha256(&model, &other).unwrap());
@@ -2620,11 +2617,10 @@ mod tool_tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn linking_a_checked_file_into_its_package_keeps_the_check() {
-        use sha2::Digest;
         let dir = tempfile::tempdir().unwrap();
         let model = dir.path().join("x_coreml_weight.bin");
         std::fs::write(&model, b"weights").unwrap();
-        let good = hex::encode(sha2::Sha256::digest(b"weights"));
+        let good = rawtonic_fs::sha256_hex(b"weights");
         assert!(super::verify_sha256(&model, &good).unwrap());
         let target = dir.path().join("x.mlpackage/Data/weights/weight.bin");
         assert!(super::link_into_package(&model, &target, &good).unwrap());
@@ -2633,7 +2629,7 @@ mod tool_tests {
 
         // A relaunch trusts the list (an entry whose hash only the list knows).
         let list = dir.path().join(super::verified_files::FILE_NAME);
-        let other = hex::encode(sha2::Sha256::digest(b"something else"));
+        let other = rawtonic_fs::sha256_hex(b"something else");
         let text = std::fs::read_to_string(&list).unwrap();
         std::fs::write(&list, text.replacen(&good, &other, 1)).unwrap();
         super::verified_files::reset_memory();
@@ -2646,11 +2642,10 @@ mod tool_tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_package_file_of_the_same_size_but_other_content_is_replaced() {
-        use sha2::Digest;
         let dir = tempfile::tempdir().unwrap();
         let model = dir.path().join("x_coreml_weight.bin");
         std::fs::write(&model, b"weights").unwrap();
-        let good = hex::encode(sha2::Sha256::digest(b"weights"));
+        let good = rawtonic_fs::sha256_hex(b"weights");
         let target = dir.path().join("x.mlpackage/Data/weights/weight.bin");
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(&target, b"stale!!").unwrap();
@@ -2667,12 +2662,11 @@ mod tool_tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_copied_package_file_becomes_a_link_and_keeps_the_compiled_model() {
-        use sha2::Digest;
         use std::os::unix::fs::MetadataExt;
         let dir = tempfile::tempdir().unwrap();
         let model = dir.path().join("x_coreml_weight.bin");
         std::fs::write(&model, b"weights").unwrap();
-        let good = hex::encode(sha2::Sha256::digest(b"weights"));
+        let good = rawtonic_fs::sha256_hex(b"weights");
         let target = dir.path().join("x.mlpackage/Data/weights/weight.bin");
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(&target, b"weights").unwrap();
@@ -2981,7 +2975,7 @@ mod tool_tests {
             std::io::Write::write_all(&mut temp, &png).unwrap();
             temp.as_file().sync_all().unwrap();
             let target = out.join(format!("step{}.png", step + 1));
-            rawtonic_metadata::no_clobber::persist(temp, &target)
+            rawtonic_fs::no_clobber::persist(temp, &target)
                 .unwrap_or_else(|e| panic!("{}: {e}", target.display()));
         }
     }

@@ -6,6 +6,7 @@ default-members = [
     "crates/catalog",
     "crates/naming",
     "crates/metadata",
+    "crates/fs",
     "crates/ingest",
     "crates/fileops",
     "crates/interop",

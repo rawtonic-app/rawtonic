@@ -92,7 +92,7 @@ impl Library {
         // The edit the photograph shows is what the sidecar gets.
         self.adopt_editor_sidecar(asset)?;
         let current = match fs::read(&path) {
-            Ok(bytes) => Some(rawtonic_metadata::digest(&bytes)),
+            Ok(bytes) => Some(rawtonic_fs::sha256_hex(&bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
         };
@@ -142,7 +142,7 @@ impl Library {
         crate::write_metadata(&tx, asset, &metadata)?;
         tx.execute(
             "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL WHERE asset_id=?",
-            params![rawtonic_metadata::digest(text.as_bytes()), asset],
+            params![rawtonic_fs::sha256_hex(text.as_bytes()), asset],
         )?;
         tx.commit()?;
         Ok(XmpUndo {
@@ -298,7 +298,7 @@ impl Library {
         let Ok(bytes) = fs::read(sidecar) else {
             return Ok(());
         };
-        if rawtonic_metadata::digest(&bytes) == publishing {
+        if rawtonic_fs::sha256_hex(&bytes) == publishing {
             self.conn.execute(
                 "UPDATE metadata SET xmp_hash=xmp_publishing, xmp_publishing=NULL
                  WHERE asset_id=? AND xmp_publishing=?",

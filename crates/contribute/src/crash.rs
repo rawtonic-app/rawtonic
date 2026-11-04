@@ -372,7 +372,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(std::io::Error::other)?;
-    rawtonic_metadata::atomic_write(path, bytes).map_err(std::io::Error::other)
+    rawtonic_fs::atomic_write(path, bytes).map_err(std::io::Error::other)
 }
 
 fn remove(path: &Path) {

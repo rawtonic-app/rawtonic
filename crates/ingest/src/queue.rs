@@ -172,7 +172,7 @@ pub fn run_job_in_turn(
     let mut bytes = 0u64;
     let mut left = false;
     // The temporary copies of a cut-off run each photograph removes (G66).
-    let leftovers_taken = std::sync::Mutex::new(rawtonic_metadata::temp::Removed::default());
+    let leftovers_taken = std::sync::Mutex::new(rawtonic_fs::temp::Removed::default());
     for item in &items {
         if cancel.load(Ordering::Acquire) {
             break;
@@ -958,7 +958,7 @@ mod tests {
         )
         .unwrap();
         for folder in [&capture, &backup] {
-            let (mut file, _) = rawtonic_metadata::temp::file_for(&folder.join("C1.ARW"))
+            let (mut file, _) = rawtonic_fs::temp::file_for(&folder.join("C1.ARW"))
                 .unwrap()
                 .keep()
                 .unwrap();
@@ -996,10 +996,7 @@ mod tests {
         )
         .unwrap();
         let partial = |path: PathBuf| {
-            let (mut file, path) = rawtonic_metadata::temp::file_for(&path)
-                .unwrap()
-                .keep()
-                .unwrap();
+            let (mut file, path) = rawtonic_fs::temp::file_for(&path).unwrap().keep().unwrap();
             std::io::Write::write_all(&mut file, b"half").unwrap();
             path
         };
@@ -1048,10 +1045,7 @@ mod tests {
         )
         .unwrap();
         let partial = |path: PathBuf, bytes: usize| {
-            let (mut file, path) = rawtonic_metadata::temp::file_for(&path)
-                .unwrap()
-                .keep()
-                .unwrap();
+            let (mut file, path) = rawtonic_fs::temp::file_for(&path).unwrap().keep().unwrap();
             std::io::Write::write_all(&mut file, &vec![7; bytes]).unwrap();
             path
         };
@@ -1069,7 +1063,7 @@ mod tests {
         let swept = lib
             .sweep_leftovers(
                 std::time::SystemTime::now()
-                    + rawtonic_metadata::temp::STALE_AGE
+                    + rawtonic_fs::temp::STALE_AGE
                     + std::time::Duration::from_secs(1),
                 &AtomicBool::new(false),
             )

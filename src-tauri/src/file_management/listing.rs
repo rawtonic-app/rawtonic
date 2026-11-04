@@ -806,10 +806,9 @@ pub fn list_images_recursive(
 /// Checks if the given path exists and is an iCloud placeholder file on macOS.
 #[cfg(target_os = "macos")]
 pub fn is_cloud_placeholder(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
     const SF_DATALESS: u32 = 0x4000_0000;
 
-    let c_path = match std::ffi::CString::new(path.as_os_str().as_bytes()) {
+    let c_path = match rawtonic_fs::c_path(path) {
         Ok(p) => p,
         Err(_) => return false,
     };

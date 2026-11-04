@@ -133,10 +133,7 @@ pub fn for_sidecar(snapshots: &[Snapshot]) -> Result<Option<(Value, Value)>> {
     let mut strings = serde_json::Map::new();
     visit_strings(&mut list, &mut |text| {
         if text.len() >= BLOB_MIN_LEN {
-            let hash: String = <sha2::Sha256 as sha2::Digest>::digest(text.as_bytes())
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
+            let hash = rawtonic_fs::sha256_hex(text.as_bytes());
             let full = std::mem::replace(text, format!("{STRING_PREFIX}{hash}"));
             strings.entry(hash).or_insert(Value::String(full));
         }

@@ -25,14 +25,15 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 
 | Crate | Owns | Depends on | Key modules | Tests/hooks |
 |---|---|---|---|---|
-| `catalog` | SQLite schema, sessions/catalogs, recipes, search | `metadata` | `lib`, `query`, `add` | `core:test` |
-| `metadata` | atomic XMP, no-clobber publish, provenance, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | none | `no_clobber`, `provenance`, `labels`, `photo_ref` | `core:test` |
+| `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
+| `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files | none | `lib`, `no_clobber`, `temp`, `staging` | `core:test` |
+| `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | none | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
-| `ingest` | verified no-clobber copy, queue | catalog, fileops, metadata, naming | `copy`, `queue` | `core:test` |
+| `ingest` | verified no-clobber copy, queue | catalog, fileops, fs, metadata, naming | `copy`, `queue` | `core:test` |
 | `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one` | `-p rawtonic-interop` |
-| `tether` | camera tethering helper (ADR 0012) | `metadata` | `protocol`, `staging`, `client` | `--mock` camera |
-| `contribute` | scrubbing, relay client (ADR 0017) | `metadata` | `scrub`, `payload`, `crash` | panic/abort tests |
+| `tether` | camera tethering helper (ADR 0012) | `fs` | `protocol`, `staging`, `client` | `--mock` camera |
+| `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash` | panic/abort tests |
 | `merge` | HDR, panorama, focus stack, DNG | `engine`, `rawdecode`, `rawler` | `hdr`, `panorama`, `dng` | `examples/` |
 | `cli` | `rawtonic` binary, benchmarks | most core, engine, AI crates | `main`, `search_bench` | `crates/cli/tests` |
 
@@ -42,9 +43,9 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `runtime` | stage timing, allocator release | none | `performance`, `allocator` | none special |
 | `rawdecode` | RAW bytes → oriented linear RGB | `rawler`, `runtime` | `raw_processing`, `demosaic` | fixtures |
-| `engine` | develop model, masks, looks, lens | metadata, rawdecode, runtime | `image_processing` | `-p engine` |
-| `gpu` | wgpu pipeline, shaders, display | engine, metadata, rawdecode, runtime | `gpu_processing` | `--ignored` GPU |
-| `export` | render, encoders, queue | engine, gpu, metadata, naming, rawdecode, runtime | `file_export` | exports |
+| `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, runtime | `image_processing` | `-p engine` |
+| `gpu` | wgpu pipeline, shaders, display | engine, fs, rawdecode, runtime | `gpu_processing` | `--ignored` GPU |
+| `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, runtime | `file_export` | exports |
 
 ### AI crates
 
@@ -195,16 +196,19 @@ New Rust workspace crates isolate data and file safety.
   state the library hands out and so by the derived `.rrdata`, adopted from sidecars; app glue
   `src-tauri/src/snapshots.rs`, UI `StudioSnapshots`).
 
+#### `fs`
+
+`fs` — the file-safety kernel every crate that writes beside the user's files uses (`rawtonic_fs`): `atomic_write`
+(same-folder temporary file, sync, atomic replace, never through a symlink); `no_clobber::persist` publishes a finished
+temporary file under a new name, never replacing one (export outputs, ingest copies, generated images; tether transfer
+slots use `persist_in_own_folder`), with an O_EXCL copy where the volume has no exclusive rename or hard links
+(exFAT/FAT; the copy's short non-atomic window is documented there); `temp` (recognisable `.rawtonic-tmp-` names and
+their sweep) and `staging` (locked staging folders of jobs, removed only when abandoned).
+
 #### `metadata`
 
-`metadata`: atomic sidecar IO and shared recipe provenance predicates (`provenance`, consumed by the renderer, export
-and catalog).
-
-`metadata` — atomic XMP sidecar IO; `no_clobber::persist` publishes a finished temporary file under a new name, never
-replacing one (export outputs, ingest copies, generated images; tether transfer slots use `persist_in_own_folder`), with
-an O_EXCL copy where the volume has no exclusive rename or hard links (exFAT/FAT; the copy's short non-atomic window is
-documented there).
-
+`metadata`: XMP sidecar IO (written through `rawtonic_fs::atomic_write`) and shared recipe provenance predicates
+(`provenance`, consumed by the renderer, export and catalog).
 
 #### `naming`
 

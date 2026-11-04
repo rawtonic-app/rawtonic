@@ -1,8 +1,9 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
 pub mod portable;
 use anyhow::{Context, Result, bail, ensure};
+use rawtonic_fs::atomic_write;
 use rawtonic_metadata::culling::{Flag, Rating, RatingOutOfRange};
-use rawtonic_metadata::{Metadata, atomic_write, labels};
+use rawtonic_metadata::{Metadata, labels};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1292,7 +1293,7 @@ impl Library {
         self.set_metadata(asset, &metadata)?;
         self.conn.execute(
             "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL,xmp_status='synced' WHERE asset_id=?",
-            params![rawtonic_metadata::digest(text.as_bytes()), asset],
+            params![rawtonic_fs::sha256_hex(text.as_bytes()), asset],
         )?;
         Ok(metadata)
     }
@@ -2212,7 +2213,7 @@ fn forget_xmp_left_behind(tx: &Connection, id: &str, path: &Path) -> Result<()> 
     }
     let here = fs::read(rawtonic_metadata::sidecar_path(path))
         .ok()
-        .map(|bytes| rawtonic_metadata::digest(&bytes));
+        .map(|bytes| rawtonic_fs::sha256_hex(&bytes));
     if here.is_some() && here == publishing {
         // A publish a crash cut off, moved along: the library's own.
         tx.execute(
@@ -2270,10 +2271,7 @@ fn store_blobs(tx: &Connection, value: &mut Value) -> Result<Vec<String>> {
         if text.len() < BLOB_MIN_LEN || error.is_some() {
             return;
         }
-        let hash: String = <sha2::Sha256 as sha2::Digest>::digest(text.as_bytes())
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let hash = rawtonic_fs::sha256_hex(text.as_bytes());
         match tx.execute(
             "INSERT OR IGNORE INTO recipe_blobs(hash,data) VALUES(?,?)",
             params![hash, text.as_str()],

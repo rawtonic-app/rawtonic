@@ -7,8 +7,6 @@ use anyhow::{Context, Result, ensure};
 use rawtonic_catalog::{Library, portable::ResourceUse};
 use rawtonic_metadata::resources;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::io::Read;
 use std::{
     collections::BTreeMap,
     fs,
@@ -51,17 +49,8 @@ pub(crate) fn check(cancel: &AtomicBool) -> Result<()> {
 }
 pub(crate) fn digest(path: &Path, cancel: &AtomicBool) -> Result<String> {
     let mut file = fs::File::open(path)?;
-    let mut hash = Sha256::new();
-    let mut buffer = vec![0; 1024 * 1024];
-    loop {
-        check(cancel)?;
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hash.update(&buffer[..count]);
-    }
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    let digest = rawtonic_fs::sha256_hex_read_while(&mut file, || !cancel.load(Ordering::Acquire))?;
+    digest.ok_or_else(|| anyhow::anyhow!("Copy cancelled"))
 }
 pub(crate) fn walk(root: &Path, out: &mut Vec<PathBuf>, skip_cache: bool) -> Result<()> {
     for entry in fs::read_dir(root)? {

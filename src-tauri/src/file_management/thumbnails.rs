@@ -971,7 +971,7 @@ pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Resul
 }
 
 fn cache_thumbnail(path: &Path, bytes: &[u8]) -> Result<()> {
-    rawtonic_metadata::atomic_write(path, bytes)
+    rawtonic_fs::atomic_write(path, bytes)
 }
 
 pub(crate) fn generate_single_thumbnail_and_cache(

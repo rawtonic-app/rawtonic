@@ -98,7 +98,7 @@ pub fn image_hash(path: &Path, cancel: &AtomicBool) -> Result<Option<String>> {
     if cancel.load(Ordering::Relaxed) {
         return Ok(None);
     }
-    let hex: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let hex = rawtonic_fs::hex(hash.finalize());
     Ok(Some(format!("{SCHEME}:{}:{hex}", container.name())))
 }
 

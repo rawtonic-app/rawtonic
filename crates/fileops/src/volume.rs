@@ -5,6 +5,8 @@
 //! and compared byte for byte with its source.
 use crate::xattr;
 use anyhow::{Context, Result, bail, ensure};
+#[cfg(unix)]
+use rawtonic_fs::c_path;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -807,13 +809,8 @@ pub(crate) fn holds_only_source(copy: &Path, source: &Path) -> Result<bool> {
 
 /// Syncs a folder's entries (a new or renamed name in it) to the drive.
 pub(crate) fn sync_folder(folder: &Path) -> Result<()> {
-    #[cfg(unix)]
-    File::open(folder)
-        .and_then(|f| f.sync_all())
-        .with_context(|| format!("Cannot sync the folder {}", folder.display()))?;
-    #[cfg(not(unix))]
-    let _ = folder;
-    Ok(())
+    rawtonic_fs::sync_dir(folder)
+        .with_context(|| format!("Cannot sync the folder {}", folder.display()))
 }
 
 /// Whether two files hold the same bytes. With `from_drive`, `b`'s cached
@@ -880,13 +877,6 @@ fn uncached(file: &File) {
             libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
         }
     }
-}
-
-#[cfg(unix)]
-pub(crate) fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
-    use std::os::unix::ffi::OsStrExt;
-    std::ffi::CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Path contains a NUL byte"))
 }
 
 #[cfg(test)]

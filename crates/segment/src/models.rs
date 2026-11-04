@@ -5,12 +5,10 @@
 //! is an error that says so.
 
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, bail};
-use sha2::{Digest, Sha256};
 
 use crate::{
     SKYSEG_FILENAME, SKYSEG_SHA256, SUBJECT_FILENAME, SUBJECT_SHA256, SkyModel, SubjectModel,
@@ -19,21 +17,7 @@ use crate::{
 /// Whether the file at `path` has the SHA-256 `expected_hash` (lower-case hex).
 pub fn file_has_sha256(path: &Path, expected_hash: &str) -> Result<bool> {
     let mut file = fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0; 1 << 20];
-    loop {
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buffer[..n]);
-    }
-    let hex: String = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    Ok(hex == expected_hash)
+    Ok(rawtonic_fs::sha256_hex_read(&mut file)? == expected_hash)
 }
 
 fn verified(path: &Path, sha: &str) -> bool {

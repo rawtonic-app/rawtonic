@@ -174,8 +174,8 @@ pub struct LeftoversReport {
 /// the webview.
 pub fn report_leftovers(
     app: &tauri::AppHandle,
-    temp: rawtonic_metadata::temp::Removed,
-    staging: &rawtonic_metadata::staging::Removed,
+    temp: rawtonic_fs::temp::Removed,
+    staging: &rawtonic_fs::staging::Removed,
 ) {
     let temp_files = temp.files;
     use tauri::Emitter;
@@ -214,7 +214,7 @@ pub fn start_leftover_sweep(app: tauri::AppHandle, directory: PathBuf) {
             match lib.sweep_leftovers(std::time::SystemTime::now(), &AtomicBool::new(false)) {
                 Ok(swept) => report_leftovers(
                     &app,
-                    rawtonic_metadata::temp::Removed {
+                    rawtonic_fs::temp::Removed {
                         files: swept.temp_files,
                         bytes: swept.temp_bytes,
                     },

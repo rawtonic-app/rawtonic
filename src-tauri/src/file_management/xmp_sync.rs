@@ -158,7 +158,7 @@ pub fn sync_metadata_to_xmp(source_path: &Path, metadata: &ImageMetadata, create
         }
         let expected = existing
             .as_ref()
-            .map(|s| rawtonic_metadata::digest(s.as_bytes()));
+            .map(|s| rawtonic_fs::sha256_hex(s.as_bytes()));
         rawtonic_metadata::write_xmp(&path, &meta, recipe.as_ref(), expected.as_deref())?;
         Ok(())
     })();

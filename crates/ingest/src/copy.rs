@@ -9,12 +9,13 @@
 //! each chunk goes to every copy and the hash, and the copies and the
 //! source read again are checked against that hash. Nothing is published
 //! before every copy and the source passed; each copy is published without
-//! replacing a file (`rawtonic_metadata::no_clobber`).
+//! replacing a file (`rawtonic_fs::no_clobber`).
 //!
 //! Durability: files and folders are synced as they are written; the drive
 //! cache is flushed by [`Barrier::flush`], once per volume for everything
 //! synced since, before a caller records a copy. See ADR 0019.
 use anyhow::{Context, Result, ensure};
+use rawtonic_fs::hex;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -364,8 +365,8 @@ impl Verified {
             .parent()
             .context("Destination has no parent")?
             .to_path_buf();
-        if let rawtonic_metadata::no_clobber::Persisted::Copied(mut copy) =
-            rawtonic_metadata::no_clobber::persist(temp, &destination)?
+        if let rawtonic_fs::no_clobber::Persisted::Copied(mut copy) =
+            rawtonic_fs::no_clobber::persist(temp, &destination)?
         {
             // The volume had no exclusive rename: check the copy through its
             // handle (the name may already be another file's, so a bad copy
@@ -445,7 +446,7 @@ fn copy_verified_from(
     for destination in destinations {
         ensure!(destination.parent().is_some(), "Destination has no parent");
         temps.push((
-            rawtonic_metadata::temp::file_for(destination)?,
+            rawtonic_fs::temp::file_for(destination)?,
             destination.to_path_buf(),
         ));
     }
@@ -676,20 +677,7 @@ fn same_bytes(reader: &mut impl Read, expected: &[u8]) -> std::io::Result<bool> 
 }
 
 pub(crate) fn sha256_of(f: &mut impl Read) -> Result<String> {
-    let mut h = Sha256::new();
-    let mut buffer = vec![0; CHUNK];
-    loop {
-        let n = f.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buffer[..n]);
-    }
-    Ok(hex(h.finalize()))
-}
-
-fn hex(digest: impl AsRef<[u8]>) -> String {
-    digest.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+    Ok(rawtonic_fs::sha256_hex_read(f)?)
 }
 
 #[cfg(test)]

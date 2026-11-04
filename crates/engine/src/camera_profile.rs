@@ -940,7 +940,7 @@ pub fn import(
                 counter += 1;
             }
             Err(_) => {
-                rawtonic_metadata::atomic_write(&target, &bytes).map_err(|e| e.to_string())?;
+                rawtonic_fs::atomic_write(&target, &bytes).map_err(|e| e.to_string())?;
                 break;
             }
         }

@@ -20,6 +20,7 @@ rawtonic-faces = { path = "../faces", version = "0.1.0" }
 rawtonic-segment = { path = "../segment", version = "0.1.0" }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
 image = { workspace = true }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 rawtonic-merge = { path = "../merge", version = "0.1.0" }
 # search-bench: a library as an older Rawtonic left it.

@@ -91,7 +91,7 @@ pub fn save_albums(mut tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<()
     let path = get_albums_path(&app_handle)?;
     sort_album_tree(&mut tree);
     let json_string = serde_json::to_string_pretty(&tree).map_err(|e| e.to_string())?;
-    rawtonic_metadata::atomic_write(&path, json_string).map_err(|e| e.to_string())
+    rawtonic_fs::atomic_write(&path, json_string).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

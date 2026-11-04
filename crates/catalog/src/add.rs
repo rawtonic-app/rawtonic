@@ -122,7 +122,7 @@ impl Contents {
                 editor_state: Some(
                     json!({"version":1,"rating":metadata.rating,"tags":tags,"adjustments":{}}),
                 ),
-                xmp_digest: Some(rawtonic_metadata::digest(text.as_bytes())),
+                xmp_digest: Some(rawtonic_fs::sha256_hex(text.as_bytes())),
                 metadata: Some(metadata),
             });
         }

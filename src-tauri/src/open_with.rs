@@ -255,7 +255,7 @@ fn update_prefs(app: &AppHandle, change: impl FnOnce(&mut OpenWithPrefs)) -> Res
         fs::create_dir_all(folder).map_err(|e| e.to_string())?;
     }
     let bytes = serde_json::to_vec_pretty(&prefs).map_err(|e| e.to_string())?;
-    rawtonic_metadata::atomic_write(&path, &bytes).map_err(|e| e.to_string())
+    rawtonic_fs::atomic_write(&path, &bytes).map_err(|e| e.to_string())
 }
 
 /// A file of `extension` to ask the system about before any exists: an
@@ -276,7 +276,7 @@ fn probe_file(app: &AppHandle, extension: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let path = folder.join(format!("probe.{extension}"));
     if !path.exists() {
-        rawtonic_metadata::atomic_write(&path, b"").map_err(|e| e.to_string())?;
+        rawtonic_fs::atomic_write(&path, b"").map_err(|e| e.to_string())?;
     }
     Ok(path)
 }
