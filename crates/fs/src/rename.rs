@@ -15,10 +15,17 @@
 //!
 //! No step checks a name and then renames onto it: a file that had the new
 //! name before the call is never replaced. The one window left is in step
-//! 3, between the check of our placeholder and the rename over it: what
-//! another program writes into that freshly created, empty placeholder in
-//! between is replaced (a folder placeholder that gained an entry is
-//! refused by the system instead).
+//! 3, between the check of our placeholder and the rename over it: a file
+//! another program puts there in that instant by itself replacing our
+//! freshly created, empty placeholder (or what it writes into it) is
+//! replaced (a folder placeholder that gained an entry is refused by the
+//! system instead). No volume measured for D3 offers anything atomic here:
+//! exFAT on macOS answers the exclusive rename, `RENAME_SWAP` and `link`
+//! with ENOTSUP.
+//!
+//! A crash inside step 2 or 3 can leave a second hard link of the file, or
+//! an empty placeholder, under the new name (never a lost file); the
+//! journal does not record their identity, so recovery leaves them.
 use std::{fs, io, path::Path};
 
 /// How [`rename_no_clobber`] put the file under its new name.
