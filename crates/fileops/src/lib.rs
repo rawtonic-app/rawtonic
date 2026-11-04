@@ -1351,7 +1351,7 @@ impl Journal {
             }
             payload.note = None;
             let mut problems = Vec::new();
-            release_claims(&mut payload, &mut problems);
+            let claimed_from = report_claims(&mut payload, &mut problems);
             let mut receipt_restore_failed = false;
             if state == State::Undoing && payload.has_copies() {
                 // An undo copying back is rolled back: the move stays done.
@@ -1364,8 +1364,8 @@ impl Journal {
                 problems.extend(keep_in_place(&mut payload, Direction::Back));
                 note_unjournaled_in_place(&payload.steps, Direction::Back, &mut problems);
             } else {
-                for step in payload.steps.iter().rev() {
-                    if let Err(e) = restore_if_moved(step, trash) {
+                for (step, &claimed) in payload.steps.iter().zip(&claimed_from).rev() {
+                    if let Err(e) = restore_if_moved(step, trash, claimed) {
                         receipt_restore_failed |=
                             matches!(step.to, Target::SystemTrash { item: Some(_) })
                                 && !e.is::<UnavailableTrashItem>();
@@ -1999,34 +1999,38 @@ fn reverse_steps(steps: &[Step], trash: &dyn SystemTrash) -> Result<()> {
     first_error.map_or(Ok(()), Err)
 }
 
-/// Recovery: removes what interrupted renames claimed and left (a second
-/// link, an empty placeholder), while it is still that entry, and says so.
-fn release_claims(payload: &mut Payload, problems: &mut Vec<String>) {
-    for step in &mut payload.steps {
+/// Recovery: names what interrupted renames claimed and left (a second
+/// link, an empty placeholder) while it is still that entry; it is never
+/// removed (by then the name may hold another program's file). Returns, per
+/// step, whether such a leftover occupies the step's original name (an
+/// interrupted undo's claim): that name then does not hold the file.
+fn report_claims(payload: &mut Payload, problems: &mut Vec<String>) -> Vec<bool> {
+    let mut at_from = vec![false; payload.steps.len()];
+    for (index, step) in payload.steps.iter_mut().enumerate() {
         let Some(claimed) = step.claim.take() else {
             continue;
         };
-        let what = match claimed.claim.kind {
-            rawtonic_fs::ClaimKind::Link => "second link of the file",
-            rawtonic_fs::ClaimKind::Placeholder => "empty placeholder file",
-            rawtonic_fs::ClaimKind::PlaceholderFolder => "empty placeholder folder",
-        };
-        match rawtonic_fs::release_claim(&claimed.from, &claimed.to, &claimed.claim) {
-            Ok(true) => problems.push(format!(
-                "removed the {what} an interrupted rename left at {}",
-                claimed.to.display()
-            )),
-            Ok(false) => {}
-            Err(e) => problems.push(format!(
-                "could not remove the {what} an interrupted rename left at {} ({e})",
-                claimed.to.display()
-            )),
+        if rawtonic_fs::claim_left(&claimed.from, &claimed.to, &claimed.claim) {
+            at_from[index] = claimed.to == step.from;
+            let what = match claimed.claim.kind {
+                rawtonic_fs::ClaimKind::Link => "a second link of the file",
+                rawtonic_fs::ClaimKind::Placeholder => "an empty placeholder file",
+                rawtonic_fs::ClaimKind::PlaceholderFolder => "an empty placeholder folder",
+            };
+            problems.push(format!(
+                "{} is {what} an interrupted rename of {} left; it was not removed",
+                claimed.to.display(),
+                claimed.from.display()
+            ));
         }
     }
+    at_from
 }
 
 /// Recovery: reverses a step only where the file system shows it applied.
-fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
+/// `claimed_from`: what is at the original name is a leftover of an
+/// interrupted rename back, not the file.
+fn restore_if_moved(step: &Step, trash: &dyn SystemTrash, claimed_from: bool) -> Result<()> {
     if let Target::OtherVolume { .. } = step.to {
         // The source stays until the operation finishes; only a published
         // copy is taken back.
@@ -2038,7 +2042,7 @@ fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
         }
         return trash.restore_for_recovery(item, &step.from);
     }
-    if exists(&step.from) {
+    if exists(&step.from) && !claimed_from {
         return Ok(());
     }
     match &step.to {
@@ -2878,11 +2882,11 @@ mod tests {
     }
 
     /// A crash after a rename claimed its new name (a second link, or an
-    /// empty placeholder) but before it renamed: recovery removes exactly
-    /// that claim and says so; the photo keeps its old name.
+    /// empty placeholder) but before it renamed: recovery names exactly that
+    /// claim and leaves it; the photo keeps its old name.
     #[cfg(unix)]
     #[test]
-    fn a_crash_after_a_claim_leaves_nothing_behind_after_recovery() {
+    fn a_crash_after_a_claim_is_named_by_recovery_and_kept() {
         for links in [true, false] {
             let tmp = tempfile::tempdir().unwrap();
             let root = tmp.path();
@@ -2906,27 +2910,30 @@ mod tests {
             let recovered = journal.history(1).unwrap();
             assert_eq!(recovered[0].state, State::RolledBack);
             let note = recovered[0].note.clone().unwrap_or_default();
-            assert!(note.contains("interrupted rename left at"), "{note}");
-            assert_eq!(names(root), ["DSC0001.ARW"], "links: {links}");
+            let what = if links {
+                "a second link"
+            } else {
+                "an empty placeholder"
+            };
+            assert!(
+                note.contains(what) && note.contains("not removed"),
+                "{note}"
+            );
+            assert_eq!(
+                names(root),
+                ["DSC0001.ARW", "Shoot_0001.ARW"],
+                "links: {links}"
+            );
             assert_eq!(fs::read(&a).unwrap(), b"raw");
-            // A retry renames.
-            journal
-                .execute(
-                    "rename",
-                    "Rename",
-                    vec![Step::rename(&a, &b)],
-                    &NoSystemTrash,
-                )
-                .unwrap();
-            assert_eq!(names(root), ["Shoot_0001.ARW"]);
         }
     }
 
-    /// The same during an undo: recovery removes the claim and finishes the
-    /// undo as it does for any interrupted one.
+    /// The same during an undo: recovery names the claim and leaves it; the
+    /// photo stays under its renamed name, and the note says the move back
+    /// could not finish (its name is taken), as for any occupied original.
     #[cfg(unix)]
     #[test]
-    fn a_crash_after_an_undos_claim_leaves_nothing_behind_after_recovery() {
+    fn a_crash_after_an_undos_claim_is_named_by_recovery_and_kept() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let (a, b) = (root.join("DSC0001.ARW"), root.join("Shoot_0001.ARW"));
@@ -2950,9 +2957,14 @@ mod tests {
         journal.recover(&NoSystemTrash).unwrap();
         let recovered = journal.history(1).unwrap();
         let note = recovered[0].note.clone().unwrap_or_default();
-        assert!(note.contains("empty placeholder file"), "{note}");
-        assert_eq!(names(root), ["DSC0001.ARW"]);
-        assert_eq!(fs::read(&a).unwrap(), b"raw");
+        assert!(note.contains("an empty placeholder file"), "{note}");
+        assert!(
+            note.contains("Cannot move"),
+            "the undo could not finish: {note}"
+        );
+        assert_eq!(names(root), ["DSC0001.ARW", "Shoot_0001.ARW"]);
+        assert_eq!(fs::read(&b).unwrap(), b"raw");
+        assert_eq!(fs::read(&a).unwrap(), b"");
     }
 
     fn journal_with(root: &Path, state: State, steps: Vec<Step>) -> (Journal, String) {

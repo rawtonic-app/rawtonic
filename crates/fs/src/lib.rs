@@ -11,7 +11,7 @@ pub mod temp;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use rename::test_hooks;
 pub use rename::{
-    Claim, ClaimKind, Renamed, release_claim, rename_no_clobber, rename_no_clobber_noting,
+    Claim, ClaimKind, Renamed, claim_left, rename_no_clobber, rename_no_clobber_noting,
 };
 
 use anyhow::{Context, Result, ensure};
