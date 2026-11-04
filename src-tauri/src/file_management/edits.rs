@@ -3328,16 +3328,15 @@ mod tests {
             }
             for (place, path) in &photos {
                 let (_, sidecar) = parse_virtual_path(path);
-                // FINDING: a session photograph's recipe is read from the
-                // library with its colour label written into the recipe
+                // A session photograph's recipe is read from the library
+                // with its colour label written into the recipe
                 // (`colorLabel`, `""` without one; crates/catalog
-                // `apply_editor_metadata`), so it is not the recipe saved,
-                // and `{}` (Library Reset), frame-only and
-                // `lensProfileFor`-only recipes stop being new
-                // (`is_new_recipe`): they then render with render version 1
-                // instead of the new-edit default. Recorded, not changed
-                // (plan step 0.3b). Plain sidecars and a present virtual
-                // copy's sidecar keep the recipe as saved.
+                // `apply_editor_metadata`). Not a develop setting: a recipe
+                // new as saved (`{}` of a Library Reset, frame-only,
+                // `lensProfileFor`-only) stays new as read
+                // (`is_new_recipe`), so it renders as a never-edited photo.
+                // Plain sidecars and a present virtual copy's sidecar keep
+                // the recipe as saved.
                 let read = match (*place, recipe.as_object()) {
                     ("session", Some(map)) => {
                         let mut map = map.clone();
@@ -3346,12 +3345,11 @@ mod tests {
                     }
                     _ => recipe.clone(),
                 };
-                if *place == "session" && recipe.is_object() {
-                    assert!(
-                        !rawtonic_engine::image_processing::is_new_recipe(&read),
-                        "{name}: read from the library, never new"
-                    );
-                }
+                assert_eq!(
+                    rawtonic_engine::image_processing::is_new_recipe(&read),
+                    rawtonic_engine::image_processing::is_new_recipe(&recipe),
+                    "{name} {place}: as new as saved"
+                );
                 let failures = edit_sidecars(std::slice::from_ref(path), None, |_, _, sidecar| {
                     Ok(crate::exif_processing::load_sidecar(sidecar))
                 });

@@ -33,14 +33,14 @@ fn fixtures() -> Vec<(String, Value)> {
     out
 }
 
-/// FINDING: `editor_state` and `visit_editor_states` write the library's
-/// colour label into every recipe object (`apply_editor_metadata`:
-/// `adjustments.colorLabel`, `""` without a label). A recipe read from a
-/// library is therefore not the one saved: `{}` (Library Reset) and the
-/// frame-only and `lensProfileFor`-only recipes come back as
-/// `{"colorLabel": ""}`…, which `is_new_recipe` no longer counts as new
-/// (pinned in `src-tauri/src/file_management/edits.rs`). Recorded, not
-/// changed (plan step 0.3b).
+/// `editor_state` and `visit_editor_states` write the library's colour
+/// label into every recipe object (`apply_editor_metadata`:
+/// `adjustments.colorLabel`, `""` without a label), so a recipe read from a
+/// library is the one saved plus that key. `is_new_recipe` ignores it
+/// (`image_processing::LIBRARY_LABEL_KEY`): `{}` (Library Reset) and the
+/// frame-only and `lensProfileFor`-only recipes stay new as read (pinned in
+/// `crates/export/tests/recipe_round_trip.rs` and
+/// `src-tauri/src/file_management/edits.rs`).
 fn as_read_from_the_library(recipe: &Value, label: &str) -> Value {
     let mut read = recipe.clone();
     if let Some(map) = read.as_object_mut() {

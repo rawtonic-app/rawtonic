@@ -11,7 +11,7 @@
 //! their round-trip tests in `src-tauri/src/file_management/edits.rs` and
 //! `crates/catalog/tests/recipe_round_trip.rs`.
 
-use rawtonic_engine::image_processing::{is_new_recipe, render_version};
+use rawtonic_engine::image_processing::{LIBRARY_LABEL_KEY, is_new_recipe, render_version};
 use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, stamp_loaded_lens_profile};
 use rawtonic_export::sidecars::read_sidecar_file;
 use serde_json::{Value, json};
@@ -79,6 +79,22 @@ fn is_new_recipe_decides_each_fixture_as_on_the_baseline() {
         );
         if recipe.get(LENS_PROFILE_FOR).is_some() {
             assert_eq!(&loaded, recipe, "{name}: an existing stamp is kept");
+        }
+        // A library read writes the photograph's colour label into the
+        // recipe (`LIBRARY_LABEL_KEY`, `""` without one); that alone never
+        // makes a new recipe saved: a Library Reset in a session renders as
+        // a never-edited photograph.
+        for label in ["", "Red"] {
+            let mut read = recipe.clone();
+            if let Some(map) = read.as_object_mut() {
+                map.insert(LIBRARY_LABEL_KEY.into(), json!(label));
+            }
+            assert_eq!(is_new_recipe(&read), new, "{name}: read from a library");
+            assert_eq!(
+                render_version(&read),
+                version,
+                "{name}: read from a library"
+            );
         }
     }
 }
