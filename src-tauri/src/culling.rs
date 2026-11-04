@@ -1,4 +1,3 @@
-use crate::app_settings::load_settings;
 use image::{GenericImageView, GrayImage, imageops};
 use image_hasher::{HashAlg, HasherConfig};
 use rayon::prelude::*;
@@ -189,7 +188,7 @@ pub async fn cull_images(
         return Ok(CullingSuggestions::default());
     }
 
-    let app_settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let app_settings = crate::state::settings::current(&app_handle);
 
     let total_count = paths.len();
     let completed_count = Arc::new(AtomicUsize::new(0));

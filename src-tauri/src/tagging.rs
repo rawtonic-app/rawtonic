@@ -247,7 +247,7 @@ pub async fn start_background_indexing(
         handle.abort();
     }
 
-    let settings = crate::app_settings::load_settings(app_handle.clone())?;
+    let settings = crate::state::settings::try_current(&app_handle)?;
     if !settings.enable_ai_tagging.unwrap_or(false) {
         return Ok(());
     }
@@ -451,7 +451,7 @@ fn modify_tags_for_path(
     )
     .map_err(|e| e.to_string())?;
 
-    if let Ok(settings) = crate::app_settings::load_settings(app_handle.clone())
+    if let Ok(settings) = crate::state::settings::try_current(&app_handle)
         && settings.enable_xmp_sync.unwrap_or(false)
     {
         let create_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -646,7 +646,7 @@ fn clear_tags_blocking(
     app_handle: &AppHandle,
     keep: impl Fn(&str) -> bool,
 ) -> Result<usize, String> {
-    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     clear_tags_under(
         Path::new(root_path),
         keep,

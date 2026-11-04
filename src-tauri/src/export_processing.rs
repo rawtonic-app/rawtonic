@@ -34,7 +34,6 @@ use crate::mask_generation::{
 };
 
 use crate::adjustment_utils::{apply_all_transformations, hydrate_adjustments};
-use crate::app_settings::load_settings;
 use crate::cache_utils::{calculate_full_job_hash, calculate_transform_hash};
 use crate::editor_preview::generate_transformed_preview;
 use crate::export_queue::Stage;
@@ -957,7 +956,7 @@ pub(crate) async fn export_images_impl(
     let _export_task = tokio::spawn(async move {
         let _task_guard = task_guard;
         load_denoise_models(&app_handle, photos.denoise_models.clone()).await;
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app_handle);
         let targets = Arc::new(targets);
 
         let export_items = rawtonic_export::sidecars::plan_export_items(paths);
@@ -2119,7 +2118,7 @@ fn estimate_sizes(
     let context = get_or_init_gpu_context(&state, &app_handle)?;
     let is_current_edit = is_open_edit(first_path, current_edit_path.as_deref());
     let is_raw = is_raw_file(&source_path_str);
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
 
     let single_image_extrapolated_size: usize = if is_current_edit
         && current_edit_adjustments.is_some()

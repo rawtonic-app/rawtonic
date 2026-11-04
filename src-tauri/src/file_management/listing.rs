@@ -8,7 +8,6 @@ use crate::app_state::AppState;
 use crate::app_state::PendingMetadata;
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
-use crate::load_settings;
 use rawtonic_metadata::photo_ref::{self, CopyId, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -143,7 +142,7 @@ pub fn start_metadata_workers(app_handle: tauri::AppHandle) {
                     queue.pop_front().unwrap()
                 };
 
-                let settings = load_settings(app_clone.clone()).unwrap_or_default();
+                let settings = crate::state::settings::current(&app_clone);
                 let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
                 let metadata = resolve_image_metadata(
@@ -532,7 +531,7 @@ pub(crate) fn update_rotational_disk_flag(path: &str, app_handle: &AppHandle) {
 pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<ImageFile>, String> {
     #[cfg(feature = "performance-profiling")]
     let performance_start = std::time::Instant::now();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     update_rotational_disk_flag(&path, &app_handle);
@@ -688,7 +687,7 @@ pub fn list_images_recursive(
 ) -> Result<Vec<ImageFile>, String> {
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("list_images_recursive");
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     update_rotational_disk_flag(&path, &app_handle);

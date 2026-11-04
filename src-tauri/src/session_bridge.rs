@@ -975,7 +975,7 @@ pub async fn session_ingest(
         let sources: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
         // The folder list's top-level folders: below them a catalog's
         // photographs may be copied too (`ingest::destination_folder`).
-        let roots: Vec<PathBuf> = crate::app_settings::load_settings(app.clone())
+        let roots: Vec<PathBuf> = crate::state::settings::try_current(&app)
             .map(|settings| settings.root_folders.iter().map(PathBuf::from).collect())
             .unwrap_or_default();
         let options = rawtonic_ingest::batch::BatchOptions {

@@ -240,7 +240,7 @@ pub async fn analyze_series_match(
     };
     let app = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let settings = crate::load_settings(app.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app);
         let total = paths.len();
         let done = AtomicUsize::new(0);
         let photos: Vec<Option<SeriesPhoto>> = paths

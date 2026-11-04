@@ -1,7 +1,6 @@
 //! Photo merges (HDR, panorama, focus stack). The merges
 //! live in rawtonic-merge; this module runs them for the merge dialog and
 //! writes the result as a linear DNG beside the reference photo.
-use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use base64::Engine as _;
@@ -74,7 +73,7 @@ impl MergeOutcome {
 }
 
 fn base_options(app_handle: &tauri::AppHandle) -> BaseImageOptions {
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     BaseImageOptions::from_preferences(
         settings.raw_highlight_compression,
         settings.linear_raw_mode.clone(),

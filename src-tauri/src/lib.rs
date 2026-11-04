@@ -98,6 +98,7 @@ mod snapshots;
 mod spot_removal;
 mod stacks;
 mod startup;
+mod state;
 mod storage;
 mod storage_fs;
 mod tagging;
@@ -119,7 +120,7 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
-use crate::app_settings::{AppSettings, load_settings};
+use crate::app_settings::AppSettings;
 use crate::app_state::{AppState, WindowState};
 use crate::launch_request::{LaunchRequest, emit_launch_request, parse_launch_args};
 use crate::window_customizer::PinchZoomDisablePlugin;
@@ -295,7 +296,8 @@ pub fn run() {
                 *state.gpu_crash_flag_path.lock().unwrap() = Some(crash_flag_path.clone());
             }
 
-            let mut settings: AppSettings = load_settings(app_handle.clone()).unwrap_or_default();
+            // The settings are read and migrated here, once per run (`state::settings`).
+            let mut settings: AppSettings = (*crate::state::settings::current(&app_handle)).clone();
 
             {
                 let state = app.state::<AppState>();
@@ -315,7 +317,10 @@ pub fn run() {
                             "GPU Driver crash detected on last run! Falling back to OpenGL backend."
                         );
                         settings.processing_backend = Some("gl".to_string());
-                        let _ = crate::app_settings::save_settings(settings.clone(), app_handle.clone());
+                        let _ = crate::state::settings::update(&app_handle, |saved| {
+                            saved.processing_backend = Some("gl".to_string());
+                            Ok(())
+                        });
                     } else {
                         log::warn!(
                             "GPU initialisation did not finish on the last run; OpenGL is not available in this build, keeping the backend."
@@ -329,7 +334,10 @@ pub fn run() {
             if !startup::GL_BACKEND_COMPILED && settings.processing_backend.as_deref() == Some("gl") {
                 log::warn!("Processing backend 'gl' is not available in this build; using auto.");
                 settings.processing_backend = Some("auto".to_string());
-                let _ = crate::app_settings::save_settings(settings.clone(), app_handle.clone());
+                let _ = crate::state::settings::update(&app_handle, |saved| {
+                    saved.processing_backend = Some("auto".to_string());
+                    Ok(())
+                });
             }
 
             // Parsed off the start-up path; users of the database wait for it
@@ -654,6 +662,7 @@ pub fn run() {
             Ok(())
         })
         .manage(AppState::default())
+        .manage(state::settings::SettingsStore::default())
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
             session_bridge::session_create,

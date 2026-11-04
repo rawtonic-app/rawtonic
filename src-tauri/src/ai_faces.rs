@@ -367,7 +367,7 @@ pub async fn apply_face_retouch_to_paths(
     let models = models(&app_handle, true)
         .await
         .map_err(|e| fail(e.message))?;
-    let app_settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
+    let app_settings = crate::state::settings::current(&app_handle);
     let face_settings = Arc::new(face_settings);
     let mut done = 0;
     let mut failures = Vec::new();

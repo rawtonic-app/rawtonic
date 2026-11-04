@@ -376,7 +376,7 @@ pub async fn storage_clear(
 }
 
 pub(crate) fn apply_limits(app: &tauri::AppHandle) -> Result<(), String> {
-    let settings = crate::app_settings::load_settings(app.clone())?;
+    let settings = crate::state::settings::try_current(&app)?;
     let _guard = MAINTENANCE.lock().unwrap_or_else(|e| e.into_inner());
     for (category, gb, extension) in [
         (

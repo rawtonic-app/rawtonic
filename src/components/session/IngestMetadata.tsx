@@ -1,8 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
-import { Invokes } from '../ui/AppProperties';
 import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSettingsStore } from '../../store/useSettingsStore';
+import { saveSettings, useSettingsStore } from '../../store/useSettingsStore';
 
 /** Mirrors ingest::metadata::ImportMetadata; IPTC keys are shared with the Metadata tool. */
 export interface ImportMetadata {
@@ -73,7 +71,7 @@ export default function IngestMetadata({
     setError(null);
     try {
       const settings = { ...useSettingsStore.getState().appSettings!, importMetadataPresets: next };
-      await invoke(Invokes.SaveSettings, { settings });
+      await saveSettings(settings);
       useSettingsStore.getState().setAppSettings(settings);
       return true;
     } catch (e) {

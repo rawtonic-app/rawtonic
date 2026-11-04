@@ -36,7 +36,6 @@ use std::time::{Duration, Instant};
 
 use tauri::Manager;
 
-use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
@@ -148,7 +147,7 @@ struct HeldDecode {
     /// The settings it was decoded with: its previews are labelled with
     /// them, and written only while the decoder's settings are still those
     /// (`proxy_key`, what its previews would carry).
-    settings: crate::app_settings::AppSettings,
+    settings: std::sync::Arc<crate::app_settings::AppSettings>,
     proxy_key: Option<preview_proxy::ProxyKey>,
 }
 
@@ -159,7 +158,7 @@ struct Written {
     measures: Option<DecodeMeasures>,
     variant: DecodeVariant,
     generation: usize,
-    settings: crate::app_settings::AppSettings,
+    settings: std::sync::Arc<crate::app_settings::AppSettings>,
     proxy_key: Option<preview_proxy::ProxyKey>,
 }
 
@@ -351,7 +350,7 @@ pub(crate) fn offer_decode(
                 written: false,
                 rank: usize::MAX,
                 generation,
-                settings: settings.clone(),
+                settings: Arc::new(settings.clone()),
                 proxy_key,
             },
             hold_budget(),
@@ -669,7 +668,7 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
         return;
     }
     let worker = worker(app_handle);
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
     // Decodes held for photographs no longer shown are let go (the
     // primary's too, once its cell is gone; all when the multi view ends).
@@ -1063,7 +1062,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 // only the whole preview tells (lateral CA estimate, fringe
                 // radius).
                 write_pool.install(|| {
-                    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+                    let settings = crate::state::settings::current(&app_handle);
                     crate::multi_view::measure_preview(
                         &path,
                         &crate::multi_view::stored_recipe(&path),
@@ -1110,7 +1109,7 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
     }
     // Before the settings are read: a change after makes this decode stale.
     let generation = decodes_generation();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     // The Standard preview too, when missing (cheap from the decode): the
     // cell is then developed from it when the multi view is shown again,
     // without a decode.
@@ -1197,7 +1196,7 @@ fn write(app_handle: &tauri::AppHandle, held: &Written) {
     let path = held.path.as_str();
     let (source, _): (PathBuf, _) = parse_virtual_path(path);
     let settings = &held.settings;
-    let now = load_settings(app_handle.clone()).unwrap_or_default();
+    let now = crate::state::settings::current(&app_handle);
     if !labels_hold(
         held,
         preview_proxy::current_key(&source, &now, held.variant).as_ref(),
@@ -1412,7 +1411,7 @@ mod tests {
             written: true,
             rank: 1,
             generation: decodes_generation(),
-            settings: before.clone(),
+            settings: Arc::new(before.clone()),
             proxy_key: preview_proxy::current_key(&raw, &before, DecodeVariant::default()),
         });
         assert!(held_decode(key, &before).is_some());

@@ -15,7 +15,6 @@ use crate::formats::is_raw_file;
 use crate::gpu_processing;
 use crate::image_loader;
 use crate::image_processing::ImageMetadata;
-use crate::load_settings;
 use image::DynamicImage;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::labels::EDITOR_TAG_PREFIX;
@@ -91,7 +90,7 @@ fn save_metadata_blocking(
         .map_err(|e| e.to_string())?;
     drop(turn);
 
-    if let Ok(settings) = load_settings(app_handle.clone())
+    if let Ok(settings) = crate::state::settings::try_current(&app_handle)
         && settings.enable_xmp_sync.unwrap_or(false)
     {
         let create_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -129,7 +128,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 
     thread::spawn(move || {
         let state = app_handle_clone.state::<AppState>();
-        let settings = load_settings(app_handle_clone.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {
             Ok(dir) => dir,
@@ -176,7 +175,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 /// recipes were written (the thumbnail queue already counts them).
 fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
     tauri::async_runtime::spawn_blocking(move || {
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app_handle);
         let state = app_handle.state::<AppState>();
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle) {
             Ok(dir) => dir,
@@ -223,7 +222,7 @@ fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
 
 /// `Some(create if missing)` when edits are synced to XMP sidecars.
 pub(crate) fn xmp_sync(app_handle: &AppHandle) -> Option<bool> {
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     settings
         .enable_xmp_sync
         .unwrap_or(false)
@@ -423,7 +422,7 @@ pub async fn apply_adjustments_to_paths(
             &members,
             batch_journal::current,
         );
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app_handle);
         let lens_db = crate::lens_correction::global_lens_db();
 
         // Lightroom geometry (gradients, brushes) from an imported preset is placed in each
@@ -940,7 +939,7 @@ pub async fn apply_auto_adjustments_to_paths(
                 emit_batch_write_settled(&app_handle, batch, path, why, &[]);
             }
         };
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app_handle);
         let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
         let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
 
@@ -1536,7 +1535,7 @@ pub(crate) fn load_metadata_blocking(
     path: String,
     app_handle: AppHandle,
 ) -> Result<ImageMetadata, String> {
-    let settings = load_settings(app_handle).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);

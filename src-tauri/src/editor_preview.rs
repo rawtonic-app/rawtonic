@@ -3,7 +3,6 @@
 //! presentation) and the commands that drive it. Moved out of `lib.rs`.
 use crate::adjustment_utils::apply_all_transformations;
 use crate::adjustment_utils::hydrate_adjustments;
-use crate::app_settings::load_settings;
 use crate::app_state::AnalyticsJob;
 use crate::app_state::AppState;
 use crate::app_state::CachedPreview;
@@ -1508,7 +1507,7 @@ pub(crate) fn process_preview_job(
     };
 
     let new_transform_hash = calculate_transform_hash(&adjustments_clone);
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let live_quality = settings.live_preview_quality.as_deref().unwrap_or("high");
 
     let default_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
@@ -2295,7 +2294,7 @@ pub(crate) async fn activate_photo(
     let proxy = match remembered {
         Some(proxy) => proxy,
         None => {
-            let settings = load_settings(app_handle.clone()).unwrap_or_default();
+            let settings = crate::state::settings::current(&app_handle);
             let read_source = source_path.clone();
             let Some(proxy) = tokio::task::spawn_blocking(move || {
                 crate::preview_proxy::read(&read_source, &settings)
@@ -2475,7 +2474,7 @@ async fn develop_kept_decode(
     if rawtonic_engine::image_loader::ai_denoise_amount(&saved) > 0.0 {
         return None;
     }
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let key = crate::image_loader::decoded_cache_key(&source, None, variant);
     let now = crate::preview_proxy::current_key(&source_path, &settings, variant);
     let never_edited = crate::embedded_still::never_edited(&saved);
@@ -2792,7 +2791,7 @@ fn render_split_before_blocking(
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("split_before");
     let state = app_handle.state::<AppState>();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     #[cfg(not(target_os = "linux"))]
     let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
     #[cfg(target_os = "linux")]
@@ -3125,7 +3124,7 @@ pub(crate) async fn generate_uncropped_preview(
                 let blurred_image =
                     crate::lens_blur::apply_lens_blur(patched_image, &adjustments_clone);
 
-                let settings = load_settings(app_handle.clone()).unwrap_or_default();
+                let settings = crate::state::settings::current(&app_handle);
                 let target_dim = (settings.editor_preview_resolution.unwrap_or(1920) as f32) as u32;
 
                 let downscaled = downscale_f32_image(&blurred_image, target_dim, target_dim);
@@ -3275,7 +3274,7 @@ pub(crate) async fn generate_preview_for_path(
         let (source_path, _) = parse_virtual_path(&path);
         let source_path_str = source_path.to_string_lossy().to_string();
         let is_raw = is_raw_file(&source_path_str);
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app_handle);
 
         let (pristine_source, measures) = match read_file_mapped(&source_path) {
             Ok(mmap) => crate::image_loader::load_base_image_for_recipe_measured(
