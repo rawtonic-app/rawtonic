@@ -300,9 +300,9 @@ pub fn run() {
             let mut settings: AppSettings = (*crate::state::settings::current(&app_handle)).clone();
 
             {
-                let state = app.state::<AppState>();
+                let develop = app.state::<state::develop::DevelopSession>();
                 let cache_size = settings.image_cache_size.unwrap_or(5) as usize;
-                state.decoded_image_cache.lock().unwrap().set_capacity(cache_size);
+                state::lock::lock_recover(&develop.decoded_image_cache).set_capacity(cache_size);
             }
 
             match startup::gpu_crash_check(&crash_flag_path, settings.processing_backend.as_deref()) {
@@ -663,6 +663,7 @@ pub fn run() {
         })
         .manage(AppState::default())
         .manage(state::settings::SettingsStore::default())
+        .manage(state::develop::DevelopSession::default())
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
             session_bridge::session_create,

@@ -28,6 +28,7 @@ use crate::gpu_processing::{self, LatestJobSender, RenderRequest};
 use crate::image_processing::get_or_init_gpu_context;
 use crate::lut_processing::Lut;
 use crate::mask_generation::MaskDefinition;
+use crate::state::develop::DevelopSession;
 use rawtonic_engine::image_processing::downscale_f32_image_signed;
 
 /// Long edge of the scope render's copy of the frame's input: 512 pixels
@@ -122,6 +123,7 @@ pub(crate) fn sender(state: &AppState) -> Option<LatestJobSender<ScopeAnalyticsJ
 
 fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     // A frame that carried its own analytics came since (the release).
     if state.full_frame_analytics_generation.load(Ordering::SeqCst) > job.analytics.generation {
         return Ok(());
@@ -135,6 +137,7 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
     let (loaded_image, source_scale, full_dims) = &job.photo;
     let mask_bitmaps = crate::editor_preview::preview_mask_bitmaps(
         &state,
+        &develop,
         &job.recipe,
         &job.masks,
         (loaded_image, *source_scale, *full_dims),

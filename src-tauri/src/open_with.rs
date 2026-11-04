@@ -15,6 +15,7 @@
 //! systems report `supported: false` and the menus show the entries disabled.
 use crate::export_queue::ExportRequest;
 use crate::ipc::{CommandError, ErrorCode};
+use crate::state::develop::{DevelopSession, Scope};
 use rawtonic_catalog::Library;
 use rawtonic_export::sidecars::parse_virtual_path;
 use serde::{Deserialize, Serialize};
@@ -558,14 +559,14 @@ pub async fn edit_with_start(
     });
     let state = app.clone();
     let (targets, jobs) = tauri::async_runtime::spawn_blocking(move || {
-        let state = state.state::<crate::app_state::AppState>();
+        let develop = state.state::<DevelopSession>();
         plan_edits(
             paths,
             recipe,
             crate::export_queue::app_queue(),
             &|adjustments| {
                 let mut adjustments = adjustments.clone();
-                crate::adjustment_utils::hydrate_adjustments(&state, &mut adjustments);
+                crate::adjustment_utils::hydrate_adjustments(&develop, &mut adjustments);
                 rawtonic_engine::image_loader::has_generated_areas(&adjustments)
             },
         )
@@ -944,7 +945,7 @@ fn watch(app: &AppHandle, renders: &[EditTarget]) {
                         if let Ok(mut bases) = state.thumbnail_geometry_cache.lock() {
                             bases.clear();
                         }
-                        crate::cache_utils::clear_image_caches(state);
+                        app.state::<DevelopSession>().invalidate(Scope::Decoder);
                     }
                     for (path, library) in &saved {
                         if let Some(library) = library {

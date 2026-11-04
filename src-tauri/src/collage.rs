@@ -7,6 +7,7 @@ use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
 use crate::gpu_processing::get_or_init_gpu_context;
+use crate::state::develop::DevelopSession;
 use rawtonic_export::export_processing::{
     ExportSettings, RenderEnv, encode_with_metadata, parse_hex_color, prepare_export_source,
     process_image_for_export,
@@ -98,6 +99,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         return Err("The collage is too large.".to_string());
     }
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let context = get_or_init_gpu_context(&state, app_handle)?;
     let settings = crate::state::settings::current(app_handle);
     let tiff = spec.format == "tiff";
@@ -126,7 +128,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         let source = source_path.to_string_lossy().to_string();
         let is_raw = is_raw_file(&source);
         let mut adjustments = cell.adjustments.clone();
-        crate::adjustment_utils::hydrate_adjustments(&state, &mut adjustments);
+        crate::adjustment_utils::hydrate_adjustments(&develop, &mut adjustments);
         // A written image: never with a lens correction that could not be
         // resolved (as the single-photo export).
         rawtonic_export::exif_processing::prepare_recipe_lens(&mut adjustments, &source_path)?;
@@ -159,7 +161,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         let env = RenderEnv {
             context: &context,
             processor: &state.gpu_processor,
-            image_cache: &state.gpu_image_cache,
+            image_cache: &develop.gpu_image_cache,
             tonemapper_override: &tonemapper_override,
             load_lut: &load_lut,
             render_inputs: None,

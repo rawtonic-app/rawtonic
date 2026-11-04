@@ -36,6 +36,7 @@ use crate::mask_generation::{
     prepare_parametric_mask_source,
 };
 use crate::preview_cache::PreviewBase;
+use crate::state::develop::DevelopSession;
 
 /// Photographs whose bases are prepared at the same time (decode or proxy
 /// read, warp, resample); the GPU renders them one after another.
@@ -453,7 +454,7 @@ fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
 /// Develop's decode cache, else the one the multi view's background work
 /// holds while it writes its 1:1 preview.
 fn decode_in_memory(
-    state: &AppState,
+    develop: &DevelopSession,
     path: &str,
     recipe: &serde_json::Value,
     settings: &crate::app_settings::AppSettings,
@@ -462,7 +463,7 @@ fn decode_in_memory(
     Option<crate::image_loader::DecodeMeasures>,
 )> {
     let key = decoded_key(path, recipe);
-    let cached = state
+    let cached = develop
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -638,10 +639,11 @@ fn load_source(
     recipe: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, f32, Facts, &'static str), String> {
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
-    if let Some((image, _, measures)) = state
+    if let Some((image, _, measures)) = develop
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -756,10 +758,10 @@ fn current_key(context: &GpuContext, path: &str) -> Option<u64> {
 /// (geometry, retouch) and the source it was made from (a full decode
 /// arriving after a proxy invalidates it).
 fn base_key(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::Value) -> u64 {
-    let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let mut hash = DefaultHasher::new();
     crate::preview_cache::preparation_key(recipe).hash(&mut hash);
-    if let Some((image, _)) = state
+    if let Some((image, _)) = develop
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -926,6 +928,7 @@ fn develop_rgba(
     input: DevelopInput,
 ) -> Result<image::RgbaImage, String> {
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let settings = crate::state::settings::current(app_handle);
     let recipe = input.recipe;
     let (width, height) = input.image.dimensions();
@@ -973,7 +976,7 @@ fn develop_rgba(
     let developed = gpu_processing::process_and_get_dynamic_image_inner(
         context,
         &state.gpu_processor,
-        &state.gpu_image_cache,
+        &develop.gpu_image_cache,
         RenderSource::Image {
             image: input.image,
             transform_hash: input.key,
@@ -1431,12 +1434,12 @@ fn load_full_source(
     settings: &crate::app_settings::AppSettings,
     generation: usize,
 ) -> Result<FullSource, String> {
-    let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
     let key = decoded_key(path, recipe);
-    let in_memory = decode_in_memory(&state, path, recipe, settings).or_else(|| {
+    let in_memory = decode_in_memory(&develop, path, recipe, settings).or_else(|| {
         crate::multi_view_prefetch::held_or_pending_decode(&key, settings, PENDING_DECODE_WAIT)
     });
     if let Some((image, measures)) = in_memory {
@@ -1692,12 +1695,12 @@ fn prepare_region_from_rows(
     }
     let known = known_facts(path).ok_or("size not known yet")?;
     let start = Instant::now();
-    let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let (source_path, _) = parse_virtual_path(path);
     let settings = crate::state::settings::current(app_handle);
     // The source and its true size (the cells' facts may come from a fast
     // decode, whose size is rounded).
-    let decoded = decode_in_memory(&state, path, recipe, &settings)
+    let decoded = decode_in_memory(&develop, path, recipe, &settings)
         .filter(|(image, _)| image.as_rgb32f().is_some());
     let decoded_measures = decoded.as_ref().and_then(|(_, measures)| *measures);
     let decoded = decoded.map(|(image, _)| image);
@@ -1907,10 +1910,10 @@ fn region_source_ready(
     zoom: CellZoom,
     recipe: &serde_json::Value,
 ) -> bool {
-    let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let (source_path, _) = parse_virtual_path(path);
     let settings = crate::state::settings::current(app_handle);
-    let in_memory = decode_in_memory(&state, path, recipe, &settings).is_some();
+    let in_memory = decode_in_memory(&develop, path, recipe, &settings).is_some();
     in_memory
         || (zoom.scale >= 1.0
             && crate::preview_proxy::stands_for(&source_path, recipe)

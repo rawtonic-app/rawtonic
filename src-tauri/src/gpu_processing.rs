@@ -9,6 +9,7 @@ use image::DynamicImage;
 use tauri::Manager;
 
 use crate::app_state::AppState;
+use crate::state::develop::DevelopSession;
 
 /// The processing context, created on first use. It is made without the
 /// window (the device and the first display variant start before the window
@@ -445,6 +446,7 @@ fn prewarm_gpu_processor_if(
 pub fn process_and_get_dynamic_image(
     context: &GpuContext,
     state: &tauri::State<AppState>,
+    develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
     request: RenderRequest,
@@ -453,7 +455,7 @@ pub fn process_and_get_dynamic_image(
     process_and_get_dynamic_image_inner(
         context,
         &state.gpu_processor,
-        &state.gpu_image_cache,
+        &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
             transform_hash,
@@ -472,6 +474,7 @@ pub fn process_and_get_dynamic_image(
 pub fn process_and_get_dynamic_image_with_display_shader(
     context: &GpuContext,
     state: &AppState,
+    develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
     request: RenderRequest,
@@ -480,7 +483,7 @@ pub fn process_and_get_dynamic_image_with_display_shader(
     process_and_get_dynamic_image_inner(
         context,
         &state.gpu_processor,
-        &state.gpu_image_cache,
+        &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
             transform_hash,
@@ -501,6 +504,7 @@ pub fn process_and_get_dynamic_image_with_display_shader(
 pub fn process_and_get_dynamic_image_with_preview_shader(
     context: &GpuContext,
     state: &tauri::State<AppState>,
+    develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
     request: RenderRequest,
@@ -509,7 +513,7 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
     process_and_get_dynamic_image_inner(
         context,
         &state.gpu_processor,
-        &state.gpu_image_cache,
+        &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
             transform_hash,
@@ -524,9 +528,11 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_with_precision(
     context: &GpuContext,
     state: &tauri::State<AppState>,
+    develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
     request: RenderRequest,
@@ -536,7 +542,7 @@ pub fn process_and_get_dynamic_image_with_precision(
     process_and_get_dynamic_image_inner(
         context,
         &state.gpu_processor,
-        &state.gpu_image_cache,
+        &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
             transform_hash,
@@ -555,6 +561,7 @@ pub fn process_and_get_dynamic_image_with_precision(
 pub fn process_and_get_dynamic_image_with_analytics(
     context: &GpuContext,
     state: &tauri::State<AppState>,
+    develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
     request: RenderRequest,
@@ -571,7 +578,7 @@ pub fn process_and_get_dynamic_image_with_analytics(
     process_and_get_dynamic_image_inner(
         context,
         &state.gpu_processor,
-        &state.gpu_image_cache,
+        &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
             transform_hash,
@@ -627,7 +634,11 @@ fn linear_mean(image: &DynamicImage, is_raw: bool) -> Option<[f64; 3]> {
 
 /// The cached preview base of `path` (and whether it is a RAW), or `None`
 /// when no current preview exists.
-fn current_preview_base(state: &AppState, path: &str) -> Option<(Arc<DynamicImage>, bool)> {
+fn current_preview_base(
+    state: &AppState,
+    develop: &DevelopSession,
+    path: &str,
+) -> Option<(Arc<DynamicImage>, bool)> {
     let (source, is_raw) = {
         let original = state
             .original_image
@@ -636,7 +647,7 @@ fn current_preview_base(state: &AppState, path: &str) -> Option<(Arc<DynamicImag
         let image = original.as_ref().filter(|image| image.path == path)?;
         (Arc::clone(&image.image), image.is_raw)
     };
-    state
+    develop
         .cached_preview
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -656,8 +667,9 @@ pub async fn sample_preview_white_balance(
 ) -> Result<Option<[f64; 3]>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
         Ok(
-            current_preview_base(&state, &path).and_then(|(image, is_raw)| {
+            current_preview_base(&state, &develop, &path).and_then(|(image, is_raw)| {
                 mean_linear_rgb(&image, is_raw, normalized_x, normalized_y)
             }),
         )
@@ -675,7 +687,8 @@ pub async fn sample_preview_grey_world(
 ) -> Result<Option<[f64; 3]>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        Ok(current_preview_base(&state, &path)
+        let develop = app_handle.state::<DevelopSession>();
+        Ok(current_preview_base(&state, &develop, &path)
             .and_then(|(image, is_raw)| grey_world_rgb(&image, is_raw)))
     })
     .await

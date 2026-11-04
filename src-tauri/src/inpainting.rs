@@ -13,6 +13,7 @@ use crate::mask_generation::resolve_warped_image_for_masks;
 use crate::mask_generation::{
     AiPatchDefinition, MaskDefinition, PhotoGeometry, generate_mask_bitmap,
 };
+use crate::state::develop::DevelopSession;
 
 fn prepare_source_image(
     patch_id: &str,
@@ -650,6 +651,7 @@ pub async fn invoke_generative_replace_with_mask_def(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, CommandError> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let _guard = task_id
         .as_ref()
         .map(|id| crate::app_state::AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
@@ -694,6 +696,7 @@ pub async fn invoke_generative_replace_with_mask_def(
     let (mask_source, source_is_raw) = crate::editor_preview::original_source(&state).await?;
     let warped_image = resolve_warped_image_for_masks(
         &state,
+        &develop,
         &mask_source,
         source_is_raw,
         1.0,

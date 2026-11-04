@@ -2,6 +2,7 @@
 //! and app-state access stay here, the logic lives in the engine crate.
 pub use rawtonic_engine::spot_removal::*;
 
+use crate::state::develop::DevelopSession;
 use serde_json::Value;
 
 /// What a new spot on the open photo becomes (`find_spot_source`).
@@ -74,6 +75,7 @@ pub async fn visualize_spots(
     max_edge: u32,
     js_adjustments: Value,
     state: tauri::State<'_, crate::app_state::AppState>,
+    develop: tauri::State<'_, DevelopSession>,
 ) -> Result<tauri::ipc::Response, String> {
     let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     let key = {
@@ -96,6 +98,7 @@ pub async fn visualize_spots(
         None => {
             let warped = crate::editor_preview::get_cached_full_warped_image(
                 &state,
+                &develop,
                 &source,
                 is_raw,
                 &js_adjustments,

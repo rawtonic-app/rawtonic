@@ -11,14 +11,12 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use crate::ai_processing::AiState;
-use crate::cache_utils::DecodedImageCache;
 pub use crate::gpu_processing::{
     AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorSlot, GpuProcessorState,
 };
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
 use crate::lut_processing::LutCache;
-use crate::mask_generation::{FullWarpedMaskCache, MaskBitmapCache};
 
 pub struct AiTaskToken {
     cancelled: AtomicBool,
@@ -488,14 +486,11 @@ pub struct AppState {
     pub current_source: Mutex<String>,
     /// Long edge of the viewer's last full preview, for the proxy size.
     pub last_preview_dim: std::sync::atomic::AtomicU32,
-    pub cached_preview: Mutex<Option<CachedPreview>>,
-    pub(crate) reusable_previews: Mutex<crate::preview_cache::PreviewBaseCache>,
     pub gpu_context: Mutex<Option<GpuContext>>,
     /// The instance and adapter `gpu_context` was made from: the window's
     /// surface is attached to it after the window exists
     /// (`gpu_processing::attach_display`).
     pub gpu_adapter: Mutex<Option<(wgpu::Instance, wgpu::Adapter)>>,
-    pub gpu_image_cache: Mutex<Option<GpuImageCache>>,
     pub gpu_processor: GpuProcessorSlot,
     /// Exports' own processor: their renders pause between tiles for the
     /// Develop view's frames instead of holding up the processor those use
@@ -536,29 +531,9 @@ pub struct AppState {
         Mutex<Option<LatestJobSender<crate::scope_analytics::ScopeAnalyticsJob>>>,
     pub scope_proxy: Mutex<Option<crate::scope_analytics::ScopeProxy>>,
     pub scope_gpu_cache: Mutex<Option<GpuImageCache>>,
-    pub mask_cache: Mutex<MaskBitmapCache>,
-    /// Masks drawn for the layer list's thumbnails, apart from the
-    /// preview's so they never evict its full-size masks.
-    pub mask_thumbnail_cache: Mutex<MaskBitmapCache>,
-    pub patch_cache: Mutex<HashMap<String, serde_json::Value>>,
-    pub geometry_cache: Mutex<HashMap<u64, DynamicImage>>,
     pub thumbnail_geometry_cache: Mutex<HashMap<String, ThumbnailGeometryEntry>>,
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
-    pub full_warped_cache: Mutex<Option<FullWarpedMaskCache>>,
-    /// The editor photo's `full_warped_cache` builds in progress, so a stroke
-    /// arriving during a prewarm of the same warp waits for it instead of
-    /// building twice.
-    pub full_warped_build: crate::editor_preview::BuildSlot<crate::editor_preview::WarpBuildKey>,
-    /// The photo whose full-resolution mask source the editor wants built
-    /// ahead of the first Auto Mask stroke (`prewarm_mask_source`).
-    pub mask_source_wanted: Mutex<Option<String>>,
-    /// The last final preview's photo and hydrated recipe, which the mask
-    /// source prewarm builds from.
-    pub mask_source_recipe: Mutex<Option<(String, Arc<serde_json::Value>)>>,
-    pub patched_warped_cache: Mutex<Option<(u64, Arc<DynamicImage>)>>,
-    pub full_transformed_cache: Mutex<Option<TransformedImageCache>>,
-    pub decoded_image_cache: Mutex<DecodedImageCache>,
     pub thumbnail_manager: Arc<ThumbnailManager>,
     pub metadata_manager: Arc<MetadataManager>,
     pub disks_cache: Mutex<Option<Disks>>,
@@ -579,11 +554,8 @@ impl Default for AppState {
             rendered_source: Default::default(),
             current_source: Mutex::new(String::new()),
             last_preview_dim: std::sync::atomic::AtomicU32::new(0),
-            cached_preview: Mutex::new(None),
-            reusable_previews: Mutex::new(Default::default()),
             gpu_context: Mutex::new(None),
             gpu_adapter: Mutex::new(None),
-            gpu_image_cache: Mutex::new(None),
             gpu_processor: GpuProcessorSlot::new(None),
             export_gpu_processor: GpuProcessorSlot::background(None),
             ai_state: Mutex::new(None),
@@ -610,20 +582,9 @@ impl Default for AppState {
             scope_analytics_tx: Mutex::new(None),
             scope_proxy: Mutex::new(None),
             scope_gpu_cache: Mutex::new(None),
-            mask_cache: Mutex::new(Default::default()),
-            mask_thumbnail_cache: Mutex::new(Default::default()),
-            patch_cache: Mutex::new(HashMap::new()),
-            geometry_cache: Mutex::new(HashMap::new()),
             thumbnail_geometry_cache: Mutex::new(HashMap::new()),
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),
-            full_warped_cache: Mutex::new(None),
-            full_warped_build: Default::default(),
-            mask_source_wanted: Mutex::new(None),
-            mask_source_recipe: Mutex::new(None),
-            patched_warped_cache: Mutex::new(None),
-            full_transformed_cache: Mutex::new(None),
-            decoded_image_cache: Mutex::new(DecodedImageCache::new(5)),
             thumbnail_manager: ThumbnailManager::new(),
             metadata_manager: MetadataManager::new(),
             disks_cache: Mutex::new(None),

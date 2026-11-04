@@ -2,11 +2,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::state::develop::DevelopSession;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
-
-use crate::app_state::AppState;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1158,8 +1157,8 @@ fn save_settings_snapshot(settings: AppSettings, app_handle: &AppHandle) -> Resu
         take_frontend_snapshot(saved, settings);
         Ok(saved.image_cache_size.unwrap_or(5) as usize)
     })?;
-    let state = app_handle.state::<AppState>();
-    crate::state::lock::lock_recover(&state.decoded_image_cache).set_capacity(cache_size);
+    let develop = app_handle.state::<DevelopSession>();
+    crate::state::lock::lock_recover(&develop.decoded_image_cache).set_capacity(cache_size);
     Ok(())
 }
 

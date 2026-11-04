@@ -15,6 +15,7 @@ use tauri::AppHandle;
 
 use crate::app_state::AppState;
 use crate::image_processing::downscale_f32_image;
+use crate::state::develop::DevelopSession;
 use tauri::Emitter;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -185,6 +186,7 @@ pub async fn preview_negative_conversion(
     state: tauri::State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let (source_path, _) = parse_virtual_path(&path);
     let source_path_str = source_path.to_string_lossy().to_string();
 
@@ -194,7 +196,7 @@ pub async fn preview_negative_conversion(
     let cache_key = hasher.finish();
 
     let base_image_for_processing = {
-        let mut cache = state.geometry_cache.lock().unwrap();
+        let mut cache = develop.geometry_cache.lock().unwrap();
 
         if let Some(cached_img) = cache.get(&cache_key) {
             cached_img.clone()

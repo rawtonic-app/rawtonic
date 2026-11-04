@@ -43,6 +43,7 @@ use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
 use crate::preview_proxy::{self, ProxyKind};
+use crate::state::develop::DevelopSession;
 
 /// Event with the build's `BuildProgress`.
 pub const PROGRESS_EVENT: &str = "preview-build-progress";
@@ -863,10 +864,11 @@ fn decode(
     Option<crate::image_loader::DecodeMeasures>,
 )> {
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let source_str = source.to_string_lossy();
     let variant = crate::image_loader::stored_decode_variant(&source_str);
     let key = crate::image_loader::decoded_cache_key(&source_str, None, variant);
-    let cached = state
+    let cached = develop
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -939,7 +941,7 @@ fn decode(
         // decode starts sooner (before that frame holds it back).
         let wanted = under_way.lock().unwrap_or_else(|e| e.into_inner()).wanted;
         if !wanted && let Some(image) = kept {
-            crate::editor_preview::prepare_base_ahead(&state, &source_str, &image);
+            crate::editor_preview::prepare_base_ahead(&state, &develop, &source_str, &image);
         }
         under_way.lock().unwrap_or_else(|e| e.into_inner()).end(
             decoded

@@ -9,6 +9,7 @@ use tauri::Manager;
 
 use crate::app_state::AppState;
 use crate::editor_preview::get_cached_full_warped_image;
+use crate::state::develop::DevelopSession;
 use rawtonic_engine::luma_levels::luma_levels;
 
 #[allow(clippy::too_many_arguments)]
@@ -35,6 +36,7 @@ pub async fn generate_mask_overlay(
     };
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
         generate_mask_overlay_bytes(
             mask_def,
             width,
@@ -44,6 +46,7 @@ pub async fn generate_mask_overlay(
             js_adjustments,
             style,
             state,
+            develop,
         )
         .map(tauri::ipc::Response::new)
     })
@@ -75,10 +78,11 @@ pub async fn sample_luma_range(
 ) -> Result<Option<LumaSampleReply>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        crate::adjustment_utils::hydrate_adjustments(&state, &mut js_adjustments);
+        let develop = app_handle.state::<DevelopSession>();
+        crate::adjustment_utils::hydrate_adjustments(&develop, &mut js_adjustments);
         let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
         let mask_source = ParametricMaskSource::new(
-            get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments)?,
+            get_cached_full_warped_image(&state, &develop, &source, is_raw, &js_adjustments)?,
             (source.width() as f64, source.height() as f64),
         )?
         .with_geometry(&js_adjustments)
@@ -104,15 +108,16 @@ fn generate_mask_overlay_bytes(
     mut js_adjustments: Option<serde_json::Value>,
     style: OverlayStyle,
     state: tauri::State<'_, AppState>,
+    develop: tauri::State<'_, DevelopSession>,
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("mask_overlay");
     if let Some(ref mut adj) = js_adjustments {
-        crate::adjustment_utils::hydrate_adjustments(&state, adj);
+        crate::adjustment_utils::hydrate_adjustments(&develop, adj);
     }
 
     if let Some(sub_masks) = mask_def.get_mut("subMasks").and_then(|v| v.as_array_mut()) {
-        let mut cache = state.patch_cache.lock().unwrap();
+        let mut cache = develop.patch_cache.lock().unwrap();
         crate::adjustment_utils::hydrate_sub_masks(sub_masks, &mut cache);
     }
 
@@ -126,6 +131,7 @@ fn generate_mask_overlay_bytes(
             let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
             resolve_warped_image_for_masks(
                 &state,
+                &develop,
                 &source,
                 is_raw,
                 1.0,
@@ -180,8 +186,10 @@ pub async fn generate_mask_thumbnails(
 ) -> Result<MaskThumbnails, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
         mask_thumbnails(
             &state,
+            &develop,
             js_adjustments,
             &layer_ids,
             &component_ids,
@@ -195,6 +203,7 @@ pub async fn generate_mask_thumbnails(
 
 fn mask_thumbnails(
     state: &tauri::State<'_, AppState>,
+    develop: &DevelopSession,
     mut adjustments: serde_json::Value,
     layer_ids: &[String],
     component_ids: &[String],
@@ -215,7 +224,7 @@ fn mask_thumbnails(
         )
     };
     let (layer_size, component_size) = (clamp(layer_size), clamp(component_size));
-    crate::adjustment_utils::hydrate_adjustments(state, &mut adjustments);
+    crate::adjustment_utils::hydrate_adjustments(develop, &mut adjustments);
     let masks: Vec<MaskDefinition> = adjustments
         .get("masks")
         .and_then(|m| serde_json::from_value(m.clone()).ok())
@@ -246,6 +255,7 @@ fn mask_thumbnails(
         .collect();
     let warped = resolve_warped_image_for_masks(
         state,
+        develop,
         &loaded.image,
         loaded.is_raw,
         source_scale,
@@ -254,7 +264,7 @@ fn mask_thumbnails(
     )?;
     // The preview's frame, while it shows these adjustments' geometry: its
     // masks are cached under it.
-    let preview = state
+    let preview = develop
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -285,9 +295,9 @@ fn mask_thumbnails(
         full_dims,
     );
     let sources = ThumbnailSources {
-        preview: preview.map(|frame| (frame, &state.mask_cache)),
+        preview: preview.map(|frame| (frame, &develop.mask_cache)),
         small,
-        small_cache: &state.mask_thumbnail_cache,
+        small_cache: &develop.mask_thumbnail_cache,
         warped: warped.as_ref(),
         geometry: &geometry,
     };
@@ -312,6 +322,7 @@ fn mask_thumbnails(
 
 pub fn resolve_warped_image_for_masks(
     state: &AppState,
+    develop: &DevelopSession,
     source: &Arc<DynamicImage>,
     is_raw: bool,
     source_scale: f32,
@@ -325,7 +336,7 @@ pub fn resolve_warped_image_for_masks(
         validate_source_scale(source_scale)?;
         Ok(Some(
             ParametricMaskSource::new(
-                get_cached_full_warped_image(state, source, is_raw, adjustments)?,
+                get_cached_full_warped_image(state, develop, source, is_raw, adjustments)?,
                 (
                     source.width() as f64 / source_scale as f64,
                     source.height() as f64 / source_scale as f64,
@@ -341,7 +352,7 @@ pub fn resolve_warped_image_for_masks(
 
 #[allow(clippy::too_many_arguments)]
 pub fn get_cached_or_generate_mask(
-    state: &AppState,
+    develop: &DevelopSession,
     def: &MaskDefinition,
     width: u32,
     height: u32,
@@ -351,7 +362,7 @@ pub fn get_cached_or_generate_mask(
     warped_image: Option<&ParametricMaskSource>,
 ) -> Result<Option<Arc<MaskBitmap>>, String> {
     cached_or_generated_mask(
-        &state.mask_cache,
+        &develop.mask_cache,
         def,
         width,
         height,

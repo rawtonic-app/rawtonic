@@ -39,6 +39,7 @@ use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::resolve_warped_image_for_masks;
 use crate::mask_generation::{MaskBitmap, PhotoGeometry, generate_layer_mask};
 use crate::preview_cache;
+use crate::state::develop::{DevelopSession, Scope};
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use image::DynamicImage;
@@ -162,13 +163,13 @@ pub(crate) fn split_frame_key(path: &str, adjustments: &serde_json::Value) -> u6
 }
 
 pub fn generate_transformed_preview(
-    state: &tauri::State<AppState>,
+    develop: &DevelopSession,
     loaded_image: &LoadedImage,
     adjustments: &serde_json::Value,
     preview_dim: u32,
 ) -> Result<(DynamicImage, f32, (f32, f32)), String> {
     let preview = generate_shared_transformed_preview(
-        state,
+        develop,
         loaded_image,
         adjustments,
         preview_dim,
@@ -256,7 +257,12 @@ fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &s
 /// benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md). Only where the
 /// fit view's base is built reduced (no full-resolution retouching or lens
 /// blur); none before the first frame.
-pub(crate) fn prepare_base_ahead(state: &AppState, source: &str, full: &Arc<DynamicImage>) {
+pub(crate) fn prepare_base_ahead(
+    state: &AppState,
+    develop: &DevelopSession,
+    source: &str,
+    full: &Arc<DynamicImage>,
+) {
     let preview_dim = state.last_preview_dim.load(Ordering::Relaxed);
     if preview_dim == 0 {
         return;
@@ -285,7 +291,7 @@ pub(crate) fn prepare_base_ahead(state: &AppState, source: &str, full: &Arc<Dyna
         preview_dim,
         scale,
     ) {
-        Ok(base) => state
+        Ok(base) => develop
             .reusable_previews
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -456,7 +462,7 @@ fn build_reduced_preview_base(
 }
 
 pub(crate) fn generate_shared_transformed_preview(
-    state: &AppState,
+    develop: &DevelopSession,
     loaded_image: &LoadedImage,
     adjustments: &serde_json::Value,
     preview_dim: u32,
@@ -487,7 +493,7 @@ pub(crate) fn generate_shared_transformed_preview(
     let source_hash = source_transform_hash(&loaded_image.image, preparation_key);
 
     let (transformed_full_res, unscaled_crop_offset) = {
-        let mut cache_lock = state
+        let mut cache_lock = develop
             .full_transformed_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -496,12 +502,13 @@ pub(crate) fn generate_shared_transformed_preview(
                 (Arc::clone(img), *offset)
             } else {
                 let (arc_img, offset) =
-                    compute_full_transformed_res(state, loaded_image, adjustments)?;
+                    compute_full_transformed_res(develop, loaded_image, adjustments)?;
                 *cache_lock = Some((source_hash, Arc::clone(&arc_img), offset));
                 (arc_img, offset)
             }
         } else {
-            let (arc_img, offset) = compute_full_transformed_res(state, loaded_image, adjustments)?;
+            let (arc_img, offset) =
+                compute_full_transformed_res(develop, loaded_image, adjustments)?;
             *cache_lock = Some((source_hash, Arc::clone(&arc_img), offset));
             (arc_img, offset)
         }
@@ -590,14 +597,14 @@ fn patched_warped_key(adjustments: &serde_json::Value) -> u64 {
 }
 
 pub(crate) fn compute_full_transformed_res(
-    state: &AppState,
+    develop: &DevelopSession,
     loaded_image: &LoadedImage,
     adjustments: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, (f32, f32)), String> {
     let geo_hash = source_transform_hash(&loaded_image.image, patched_warped_key(adjustments));
 
     let warped_arc = {
-        let mut cache_lock = state
+        let mut cache_lock = develop
             .patched_warped_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -683,11 +690,12 @@ pub(crate) fn cancel_thumbnail_generation(
 /// and the GPU fails.
 pub fn get_cached_full_warped_image(
     state: &AppState,
+    develop: &DevelopSession,
     source: &Arc<DynamicImage>,
     is_raw: bool,
     js_adjustments: &serde_json::Value,
 ) -> Result<Arc<DynamicImage>, String> {
-    full_warped_image(state, source, is_raw, js_adjustments, false)
+    full_warped_image(state, develop, source, is_raw, js_adjustments, false)
         .expect("only a prewarm skips the build")
 }
 
@@ -702,7 +710,8 @@ pub async fn cached_full_warped_image(
     let app_handle = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments)
+        let develop = app_handle.state::<DevelopSession>();
+        get_cached_full_warped_image(&state, &develop, &source, is_raw, &js_adjustments)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -712,6 +721,7 @@ pub async fn cached_full_warped_image(
 /// is not (or no longer) the editor photo and returns `None` then.
 fn full_warped_image(
     state: &AppState,
+    develop: &DevelopSession,
     source: &Arc<DynamicImage>,
     is_raw: bool,
     js_adjustments: &serde_json::Value,
@@ -733,7 +743,7 @@ fn full_warped_image(
         {
             return (false, None);
         }
-        let cache = state
+        let cache = develop
             .full_warped_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -746,7 +756,7 @@ fn full_warped_image(
         )
     };
     let key = (Arc::as_ptr(source) as usize, is_raw, geo_hash);
-    cached_or_built(&state.full_warped_build, key, lookup, prewarm, |ticket| {
+    cached_or_built(&develop.full_warped_build, key, lookup, prewarm, |ticket| {
         let warped = crate::mask_generation::prepare_shared_warped_mask_image(
             source,
             is_raw,
@@ -761,7 +771,7 @@ fn full_warped_image(
             .as_ref()
             .is_some_and(|loaded| Arc::ptr_eq(&loaded.image, source))
         {
-            let mut cache = state
+            let mut cache = develop
                 .full_warped_cache
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
@@ -775,7 +785,7 @@ fn full_warped_image(
             }
             // A build for an older geometry that ends last keeps its result
             // to itself instead of replacing the newer one.
-            if state.full_warped_build.may_publish(ticket) {
+            if develop.full_warped_build.may_publish(ticket) {
                 *cache = Some(crate::mask_generation::FullWarpedMaskCache::new(
                     source,
                     is_raw,
@@ -881,12 +891,12 @@ pub(crate) async fn prewarm_mask_source(
     path: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let state = app_handle.state::<AppState>();
-    *state
+    let develop = app_handle.state::<DevelopSession>();
+    *develop
         .mask_source_wanted
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
-    let recipe = state
+    let recipe = develop
         .mask_source_recipe
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -906,6 +916,7 @@ pub(crate) async fn prewarm_mask_source(
 /// same image and key the stroke would build.
 fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::Value) {
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let Some(loaded) = state
         .original_image
         .lock()
@@ -917,7 +928,7 @@ fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::V
     };
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("mask_source_prewarm");
-    full_warped_image(&state, &loaded.image, loaded.is_raw, recipe, true);
+    full_warped_image(&state, &develop, &loaded.image, loaded.is_raw, recipe, true);
 }
 
 /// After a final preview: keeps its recipe for `prewarm_mask_source`, and
@@ -927,15 +938,16 @@ fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::V
 fn rewarm_mask_source(
     app_handle: &tauri::AppHandle,
     state: &AppState,
+    develop: &DevelopSession,
     loaded: &LoadedImage,
     recipe: serde_json::Value,
 ) {
     let recipe = Arc::new(recipe);
-    *state
+    *develop
         .mask_source_recipe
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some((loaded.path.clone(), Arc::clone(&recipe)));
-    let wanted = state
+    let wanted = develop
         .mask_source_wanted
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -951,7 +963,7 @@ fn rewarm_mask_source(
         return;
     }
     let geo_hash = calculate_geometry_hash(&recipe);
-    let cached = state
+    let cached = develop
         .full_warped_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -959,7 +971,7 @@ fn rewarm_mask_source(
         .is_some_and(|cache| cache.get(&loaded.image, loaded.is_raw, geo_hash).is_some());
     // The same build already running (a prewarm or a stroke) serves it.
     let key = (Arc::as_ptr(&loaded.image) as usize, loaded.is_raw, geo_hash);
-    if cached || state.full_warped_build.is_building(&key) {
+    if cached || develop.full_warped_build.is_building(&key) {
         return;
     }
     let (app_handle, path) = (app_handle.clone(), loaded.path.clone());
@@ -1139,6 +1151,7 @@ pub(crate) fn interim_source(
 #[allow(clippy::too_many_arguments)]
 fn preview_base(
     state: &AppState,
+    develop: &DevelopSession,
     loaded_image: &LoadedImage,
     source_scale: f32,
     full_dims: (u32, u32),
@@ -1156,7 +1169,7 @@ fn preview_base(
     } else {
         preparation_key
     };
-    let reusable = state
+    let reusable = develop
         .reusable_previews
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1191,14 +1204,14 @@ fn preview_base(
         )?
     } else {
         generate_shared_transformed_preview(
-            state,
+            develop,
             loaded_image,
             base_adjustments,
             build_dim,
             preparation_key,
         )?
     };
-    state
+    develop
         .reusable_previews
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1330,14 +1343,15 @@ fn render_probe(
     caller_id: &str,
 ) -> Result<Option<image::DynamicImage>, String> {
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    hydrate_adjustments(&state, &mut recipe);
+    hydrate_adjustments(&develop, &mut recipe);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
         return Ok(None);
     }
     let transform_hash = calculate_transform_hash(&recipe);
-    let Some((base, scale, unscaled_crop_offset)) = state
+    let Some((base, scale, unscaled_crop_offset)) = develop
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1362,6 +1376,7 @@ fn render_probe(
     let mask_definitions = mask_definitions_from_json(&recipe);
     let mask_bitmaps = preview_mask_bitmaps(
         &state,
+        &develop,
         &recipe,
         &mask_definitions,
         (&loaded_image, source_scale, full_dims),
@@ -1398,6 +1413,7 @@ fn render_probe(
     gpu_processing::process_and_get_dynamic_image_with_preview_shader(
         &context,
         &state,
+        &develop,
         &base,
         transform_hash,
         RenderRequest {
@@ -1415,8 +1431,10 @@ fn render_probe(
 /// `scale` whose crop starts at `unscaled_crop_offset`, from the photograph
 /// (`source`: image, proxy pixels per full-resolution pixel, full size), as
 /// the preview frame draws them.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn preview_mask_bitmaps(
     state: &AppState,
+    develop: &DevelopSession,
     recipe: &serde_json::Value,
     masks: &[MaskDefinition],
     (loaded_image, source_scale, full_dims): (&LoadedImage, f32, (u32, u32)),
@@ -1426,6 +1444,7 @@ pub(crate) fn preview_mask_bitmaps(
 ) -> Result<Vec<Arc<MaskBitmap>>, String> {
     let warped_image = resolve_warped_image_for_masks(
         state,
+        develop,
         &loaded_image.image,
         loaded_image.is_raw,
         source_scale,
@@ -1445,7 +1464,7 @@ pub(crate) fn preview_mask_bitmaps(
         .iter()
         .filter_map(|def| {
             get_cached_or_generate_mask(
-                state,
+                develop,
                 def,
                 width,
                 height,
@@ -1480,6 +1499,7 @@ fn prophoto_to_linear_srgb(rgb: [f64; 3]) -> [f64; 3] {
 pub(crate) fn process_preview_job(
     app_handle: &tauri::AppHandle,
     state: tauri::State<AppState>,
+    develop: tauri::State<DevelopSession>,
     mut adjustments_json: serde_json::Value,
     is_interactive: bool,
     target_resolution: Option<u32>,
@@ -1495,7 +1515,7 @@ pub(crate) fn process_preview_job(
     #[cfg(feature = "performance-profiling")]
     let setup_stage = crate::performance::PerformanceStage::new("preview_setup");
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    hydrate_adjustments(&state, &mut adjustments_json);
+    hydrate_adjustments(&develop, &mut adjustments_json);
     let adjustments_clone = adjustments_json;
 
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
@@ -1534,7 +1554,7 @@ pub(crate) fn process_preview_job(
     let interactive_divisor =
         browser_interactive_divisor(preview_dim, live_quality, interactive_divisor);
 
-    let mut cached_preview_lock = state
+    let mut cached_preview_lock = develop
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -1589,10 +1609,7 @@ pub(crate) fn process_preview_job(
             cached.preparation_key,
         )
     } else {
-        *state
-            .gpu_image_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
+        develop.invalidate(Scope::PreviewUpload);
 
         let preparation_key = preview_cache::preparation_key(&adjustments_clone);
         let preparation_key = if fringe_draft {
@@ -1618,6 +1635,7 @@ pub(crate) fn process_preview_job(
         };
         let preview = preview_base(
             &state,
+            &develop,
             &loaded_image,
             source_scale,
             full_dims,
@@ -1700,6 +1718,7 @@ pub(crate) fn process_preview_job(
 
     let warped_image = resolve_warped_image_for_masks(
         &state,
+        &develop,
         &loaded_image.image,
         loaded_image.is_raw,
         source_scale,
@@ -1725,7 +1744,7 @@ pub(crate) fn process_preview_job(
             Some(def) => {
                 let opacity = std::mem::replace(&mut def.opacity, 100.0);
                 let overlay = get_cached_or_generate_mask(
-                    &state,
+                    &develop,
                     def,
                     preview_width,
                     preview_height,
@@ -1766,7 +1785,7 @@ pub(crate) fn process_preview_job(
         .iter()
         .filter_map(|def| {
             get_cached_or_generate_mask(
-                &state,
+                &develop,
                 def,
                 preview_width,
                 preview_height,
@@ -1856,6 +1875,7 @@ pub(crate) fn process_preview_job(
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             &context,
             &state,
+            &develop,
             &processing_image,
             new_transform_hash,
             RenderRequest {
@@ -1887,7 +1907,13 @@ pub(crate) fn process_preview_job(
         job.masks = mask_definitions;
         sender.send(job);
     } else if !is_interactive {
-        rewarm_mask_source(app_handle, &state, &loaded_image, adjustments_clone);
+        rewarm_mask_source(
+            app_handle,
+            &state,
+            &develop,
+            &loaded_image,
+            adjustments_clone,
+        );
     }
     if use_wgpu_renderer {
         {
@@ -2075,6 +2101,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             newest_sequence = job.sequence.or(newest_sequence);
 
             let state = app_handle.state::<AppState>();
+            let develop = app_handle.state::<DevelopSession>();
             let warm = draft_warmup_of(&job);
             let interactive = job.is_interactive;
             let responder = job.responder;
@@ -2098,7 +2125,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             }
             let result = process_preview_job(
                 &app_handle,
-                state,
+                state, develop,
                 job.adjustments,
                 job.is_interactive,
                 job.target_resolution,
@@ -2175,7 +2202,8 @@ fn draft_warmup_of(job: &PreviewJob) -> Option<DraftWarmup> {
 
 fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     let state = app_handle.state::<AppState>();
-    let prepared = state
+    let develop = app_handle.state::<DevelopSession>();
+    let prepared = develop
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -2188,6 +2216,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     let result = process_preview_job(
         app_handle,
         state,
+        develop,
         warm.adjustments,
         true,
         warm.target_resolution,
@@ -2233,6 +2262,7 @@ pub(crate) async fn activate_photo(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<Activation, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let received = crate::performance::epoch_ms();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
@@ -2278,7 +2308,7 @@ pub(crate) async fn activate_photo(
         );
         return Ok(Activation::None);
     }
-    crate::image_loader::open_source(&state, &path);
+    crate::image_loader::open_source(&state, &develop, &path);
     release_still_for(&state, &path);
     // Its decode kept ahead: developed from it at once (not its proxy).
     if let Some(shown) =
@@ -2465,6 +2495,7 @@ async fn develop_kept_decode(
     adjustments: Option<serde_json::Value>,
 ) -> Option<Activation> {
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let source = source_path.to_string_lossy().to_string();
     let saved = adjustments
@@ -2504,7 +2535,8 @@ async fn develop_kept_decode(
         }
         true
     };
-    let Some(opened) = crate::image_loader::open_kept_decode(&state, path, variant, &settings)
+    let Some(opened) =
+        crate::image_loader::open_kept_decode(&state, &develop, path, variant, &settings)
     else {
         // Let go meanwhile, or another photograph was asked for: its load
         // decodes it; a still shown stays until that frame.
@@ -2518,7 +2550,7 @@ async fn develop_kept_decode(
     submit_activation_frame(&state, recipe, opened.size(), viewport);
     let (app, opened_path) = (app_handle.clone(), path.to_string());
     tokio::task::spawn_blocking(move || {
-        opened.remember(&app.state::<AppState>(), &opened_path);
+        opened.remember(&app.state::<DevelopSession>(), &opened_path);
     });
     #[cfg(feature = "performance-profiling")]
     log::info!(
@@ -2791,6 +2823,7 @@ fn render_split_before_blocking(
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("split_before");
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let settings = crate::state::settings::current(app_handle);
     #[cfg(not(target_os = "linux"))]
     let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
@@ -2811,7 +2844,7 @@ fn render_split_before_blocking(
     let Some(current_key) = display_key(&context) else {
         return Ok(false);
     };
-    hydrate_adjustments(&state, &mut adjustments);
+    hydrate_adjustments(&develop, &mut adjustments);
     let load_generation = state.load_image_generation.load(Ordering::SeqCst);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
@@ -2838,6 +2871,7 @@ fn render_split_before_blocking(
     let tm_override = resolve_tonemapper_override(&settings, loaded_image.is_raw);
     let rendered = develop_split_before(
         &state,
+        &develop,
         &context,
         (&loaded_image, source_scale, full_dims),
         &adjustments,
@@ -2879,6 +2913,7 @@ fn render_split_before_blocking(
 #[allow(clippy::too_many_arguments)]
 fn develop_split_before(
     state: &AppState,
+    develop: &DevelopSession,
     context: &gpu_processing::GpuContext,
     (loaded_image, source_scale, full_dims): (&LoadedImage, f32, (u32, u32)),
     adjustments: &serde_json::Value,
@@ -2890,7 +2925,7 @@ fn develop_split_before(
     // retouch); else its own, without touching the edit's caches.
     let transform_hash = calculate_transform_hash(adjustments);
     let preparation_key = preview_cache::preparation_key(adjustments);
-    let cached = state
+    let cached = develop
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -2908,6 +2943,7 @@ fn develop_split_before(
         None => {
             let preview = preview_base(
                 state,
+                develop,
                 loaded_image,
                 source_scale,
                 full_dims,
@@ -2923,6 +2959,7 @@ fn develop_split_before(
     let mask_definitions = mask_definitions_from_json(adjustments);
     let mask_bitmaps = preview_mask_bitmaps(
         state,
+        develop,
         adjustments,
         &mask_definitions,
         (loaded_image, source_scale, full_dims),
@@ -2951,6 +2988,7 @@ fn develop_split_before(
     let rendered = gpu_processing::process_and_get_dynamic_image_with_display_shader(
         context,
         state,
+        develop,
         &base,
         transform_hash,
         RenderRequest {
@@ -3087,20 +3125,22 @@ pub(crate) async fn generate_uncropped_preview(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let context = get_or_init_gpu_context(&state, &app_handle)?;
     let mut adjustments_clone = js_adjustments.clone();
-    hydrate_adjustments(&state, &mut adjustments_clone);
+    hydrate_adjustments(&develop, &mut adjustments_clone);
 
     let loaded_image = crate::image_loader::original_image(&state).await?;
 
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
         let path = loaded_image.path.clone();
         let is_raw = loaded_image.is_raw;
         let visual_hash = calculate_visual_hash(&path, &adjustments_clone);
 
         let pre_geometry_base = {
-            let mut cache = state.geometry_cache.lock().unwrap();
+            let mut cache = develop.geometry_cache.lock().unwrap();
             // The visual hash leaves the geometry out, so a hit may lack the
             // full-resolution lateral CA estimate the export uses.
             let full_dims = loaded_image.image.dimensions();
@@ -3173,6 +3213,7 @@ pub(crate) async fn generate_uncropped_preview(
 
         let warped_mask_source = resolve_warped_image_for_masks(
             &state,
+            &develop,
             &loaded_image.image,
             is_raw,
             1.0,
@@ -3187,7 +3228,7 @@ pub(crate) async fn generate_uncropped_preview(
             .iter()
             .filter_map(|def| {
                 get_cached_or_generate_mask(
-                    &state,
+                    &develop,
                     def,
                     preview_width,
                     preview_height,
@@ -3218,6 +3259,7 @@ pub(crate) async fn generate_uncropped_preview(
         if let Ok(processed_image) = process_and_get_dynamic_image(
             &context,
             &state,
+            &develop,
             &flipped_image,
             full_hash,
             RenderRequest {
@@ -3270,6 +3312,7 @@ pub(crate) async fn generate_preview_for_path(
 ) -> Result<Response, String> {
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
         let context = get_or_init_gpu_context(&state, &app_handle)?;
         let (source_path, _) = parse_virtual_path(&path);
         let source_path_str = source_path.to_string_lossy().to_string();
@@ -3358,6 +3401,7 @@ pub(crate) async fn generate_preview_for_path(
         let final_image = process_and_get_dynamic_image(
             &context,
             &state,
+            &develop,
             transformed_image.as_ref(),
             unique_hash,
             RenderRequest {
@@ -3429,6 +3473,7 @@ mod split_view_tests {
 
         let context = GpuContext::headless().expect("a GPU");
         let state = AppState::default();
+        let develop = crate::state::develop::DevelopSession::default();
         let (width, height) = (384, 256);
         let loaded = LoadedImage {
             path: "/split-before.tif".into(),
@@ -3449,6 +3494,7 @@ mod split_view_tests {
         let render = |recipe: &serde_json::Value| {
             super::develop_split_before(
                 &state,
+                &develop,
                 &context,
                 (&loaded, 1.0, (width, height)),
                 recipe,

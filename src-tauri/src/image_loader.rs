@@ -9,6 +9,7 @@ use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
 use crate::image_processing::ImageMetadata;
 use crate::ipc::CommandError;
+use crate::state::develop::{DevelopSession, Scope};
 use anyhow::{Result, anyhow};
 use image::{DynamicImage, GenericImageView};
 use serde_json::Value;
@@ -468,6 +469,7 @@ pub async fn load_image_proxy(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<Option<ProxyInfo>, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
     let (source_path, _) = parse_virtual_path(&path);
@@ -475,12 +477,12 @@ pub async fn load_image_proxy(
     if !is_raw_file(&source_path_str) {
         return Ok(None);
     }
-    open_source(&state, &path);
+    open_source(&state, &develop, &path);
     crate::editor_preview::release_still_for(&state, &path);
     let settings = crate::state::settings::current(&app_handle);
     let variant = stored_decode_variant(&path);
     let decoded_key = decoded_cache_key(&source_path_str, None, variant);
-    if state
+    if develop
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -557,7 +559,7 @@ pub async fn load_image_proxy(
         .as_ref()
         .is_some_and(|o| o.path != path)
     {
-        clear_source_caches(&state);
+        clear_source_caches(&state, &develop);
     }
     *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(loaded);
     #[cfg(feature = "performance-profiling")]
@@ -656,12 +658,12 @@ pub fn decoded_cache_key(
 }
 
 /// Drops the open photograph's source and everything derived from it.
-fn clear_source_caches(state: &AppState) {
+pub(crate) fn clear_source_caches(state: &AppState, develop: &DevelopSession) {
     *state
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
-    clear_derived_caches(state);
+    clear_derived_caches(state, develop);
 }
 
 /// Makes `path` the open photograph (`current_source`). The bitmaps the
@@ -670,61 +672,21 @@ fn clear_source_caches(state: &AppState) {
 /// they do not depend on its decode, and the editor sends each just once
 /// per photograph it opens (`patchesSentToBackend`), also when a stored
 /// proxy's frame carried them before `load_image` decodes it.
-pub(crate) fn open_source(state: &AppState, path: &str) {
+pub(crate) fn open_source(state: &AppState, develop: &DevelopSession, path: &str) {
     let mut current = state
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     if *current != path {
-        state
-            .patch_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        develop.invalidate(Scope::OtherPhoto);
         *current = path.to_string();
     }
 }
 
 /// Drops what was computed from the open photograph's source (previews,
-/// warps, masks, tool results).
-fn clear_derived_caches(state: &AppState) {
-    *state
-        .cached_preview
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
-    *state
-        .gpu_image_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
-    *state
-        .full_warped_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
-    *state
-        .full_transformed_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
-    *state
-        .patched_warped_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
-
-    state
-        .mask_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
-    state
-        .mask_thumbnail_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
-    state
-        .geometry_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
-
+/// warps, masks, tool results) and a merge result waiting to be saved.
+fn clear_derived_caches(state: &AppState, develop: &DevelopSession) {
+    develop.invalidate(Scope::Source);
     *state.merge_result.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
@@ -761,6 +723,8 @@ pub async fn apply_ai_denoise(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<f32, CommandError> {
+    // Not a command argument (`src/contracts/commandErrors.test.ts` pins them).
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let (source_path, _) = parse_virtual_path(&path);
     let source = source_path.to_string_lossy().to_string();
     if !is_raw_file(&source) {
@@ -807,7 +771,7 @@ pub async fn apply_ai_denoise(
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let tracker = state.load_image_generation.clone();
     let key = decoded_cache_key(&source, denoise.as_ref(), variant);
-    let cached = state
+    let cached = develop
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -846,7 +810,7 @@ pub async fn apply_ai_denoise(
                 )
             })?;
             let image = Arc::new(image);
-            state
+            develop
                 .decoded_image_cache
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -887,7 +851,7 @@ pub async fn apply_ai_denoise(
             measures,
         },
     )?;
-    clear_derived_caches(&state);
+    clear_derived_caches(&state, &develop);
     Ok(applied)
 }
 
@@ -986,6 +950,7 @@ pub async fn load_image(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<LoadImageResult, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
     #[cfg(feature = "performance-profiling")]
@@ -996,7 +961,7 @@ pub async fn load_image(
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let generation_tracker = state.load_image_generation.clone();
     let cancel_token = Some((generation_tracker.clone(), my_generation));
-    open_source(&state, &path);
+    open_source(&state, &develop, &path);
     crate::editor_preview::release_still_for(&state, &path);
     *state
         .offline_source
@@ -1022,7 +987,7 @@ pub async fn load_image(
         .filter(|o| o.path == path)
         .map(|o| Arc::clone(&o.image));
     if opened_already.is_none() {
-        clear_source_caches(&state);
+        clear_source_caches(&state, &develop);
     }
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
@@ -1079,7 +1044,7 @@ pub async fn load_image(
     let decode_denoise = denoise.clone();
 
     let cached_data = {
-        let mut cache = state
+        let mut cache = develop
             .decoded_image_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -1235,7 +1200,7 @@ pub async fn load_image(
             cache_key = decoded_cache_key(&source_path_str, None, variant);
         }
 
-        state
+        develop
             .decoded_image_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1258,7 +1223,7 @@ pub async fn load_image(
         .as_ref()
         .is_some_and(|opened| !Arc::ptr_eq(&pristine_arc, opened))
     {
-        clear_source_caches(&state);
+        clear_source_caches(&state, &develop);
     }
 
     let is_raw = is_raw_file(&source_path_str);
@@ -1399,6 +1364,7 @@ pub async fn load_image(
 /// decode is kept for it or another photograph was asked for meanwhile.
 pub(crate) fn open_kept_decode(
     state: &AppState,
+    develop: &DevelopSession,
     path: &str,
     variant: DecodeVariant,
     settings: &AppSettings,
@@ -1439,7 +1405,7 @@ pub(crate) fn open_kept_decode(
         measures,
     });
     drop(original);
-    clear_derived_caches(state);
+    clear_derived_caches(state, develop);
     {
         let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
         if proxy.as_ref().is_some_and(|p| p.path != path) {
@@ -1466,13 +1432,13 @@ impl OpenedDecode {
     /// photograph's `load_image` finds it (a cache hit that keeps the source
     /// and what was computed from it). Its load takes the same decode from
     /// the kept slot when it comes first.
-    pub(crate) fn remember(self, state: &AppState, path: &str) {
+    pub(crate) fn remember(self, develop: &DevelopSession, path: &str) {
         let (source_path, _) = parse_virtual_path(path);
         let Ok(mmap) = read_file_mapped(&source_path) else {
             return;
         };
         let exif = exif_processing::read_exif_data(&source_path.to_string_lossy(), &mmap);
-        state
+        develop
             .decoded_image_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1949,21 +1915,179 @@ mod patch_cache_tests {
     #[test]
     fn bitmaps_sent_with_the_proxy_frame_outlive_the_decode() {
         let state = AppState::default();
-        let sent = |state: &AppState| state.patch_cache.lock().unwrap().contains_key("subject");
+        let develop = DevelopSession::default();
+        let sent =
+            |develop: &DevelopSession| develop.patch_cache.lock().unwrap().contains_key("subject");
         // load_image_proxy, then the proxy frame carrying the bitmap.
-        open_source(&state, "a.ARW");
-        state.patch_cache.lock().unwrap().insert(
+        open_source(&state, &develop, "a.ARW");
+        develop.patch_cache.lock().unwrap().insert(
             "subject".into(),
             serde_json::json!("data:image/png;base64,AA"),
         );
         // What load_image (and apply_ai_denoise) do on arrival.
-        open_source(&state, "a.ARW");
-        clear_source_caches(&state);
-        assert!(sent(&state));
+        open_source(&state, &develop, "a.ARW");
+        clear_source_caches(&state, &develop);
+        assert!(sent(&develop));
         // Another photograph: its masks may share ids (pasted layers).
-        open_source(&state, "b.ARW");
-        assert!(!sent(&state));
+        open_source(&state, &develop, "b.ARW");
+        assert!(!sent(&develop));
         assert_eq!(*state.current_source.lock().unwrap(), "b.ARW");
+    }
+}
+
+#[cfg(test)]
+mod develop_cache_scenarios {
+    //! What each develop event costs in decodes and preview bases, with the
+    //! loader's cache decisions: opening a photograph decodes it when the
+    //! decoded cache lacks it (`load_image`), and its preview builds a base
+    //! when the reusable bases lack it (`editor_preview`). The counts pin
+    //! which caches each event's invalidation keeps (plan step 3.3).
+    use super::*;
+    use crate::preview_cache::PreviewBase;
+
+    const DIM: u32 = 1920;
+
+    #[derive(Debug, Default, PartialEq)]
+    pub(crate) struct Counts {
+        pub decodes: usize,
+        pub bases: usize,
+    }
+
+    pub(crate) struct Editor<'a> {
+        pub state: &'a AppState,
+        pub develop: &'a DevelopSession,
+        pub counts: Counts,
+    }
+
+    impl Editor<'_> {
+        /// Opens `path` as the editor does: another photograph's source and
+        /// what was built from it are dropped, then its decode is taken from
+        /// the cache or made, and its preview shown.
+        pub fn open(&mut self, path: &str) {
+            open_source(self.state, self.develop, path);
+            let other = self
+                .state
+                .original_image
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|o| o.path != path);
+            if other {
+                clear_source_caches(self.state, self.develop);
+            }
+            let key = decoded_cache_key(path, None, DecodeVariant::default());
+            let cached = self.develop.decoded_image_cache.lock().unwrap().get(&key);
+            let image = match cached {
+                Some((image, _)) => image,
+                None => {
+                    self.counts.decodes += 1;
+                    let image = Arc::new(DynamicImage::new_rgb32f(4, 4));
+                    self.develop.decoded_image_cache.lock().unwrap().insert(
+                        key,
+                        Arc::clone(&image),
+                        HashMap::new(),
+                        None,
+                    );
+                    image
+                }
+            };
+            *self.state.original_image.lock().unwrap() = Some(LoadedImage {
+                path: path.to_string(),
+                image,
+                is_raw: true,
+                decode: Some(DecodeVariant::default()),
+                measures: None,
+            });
+            self.preview(1);
+        }
+
+        /// Renders the open photograph's preview for a recipe whose
+        /// geometry has `preparation_key`.
+        pub fn preview(&mut self, preparation_key: u64) {
+            let image = Arc::clone(
+                &self
+                    .state
+                    .original_image
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .image,
+            );
+            let mut bases = self.develop.reusable_previews.lock().unwrap();
+            if bases.get(&image, preparation_key, DIM).is_none() {
+                self.counts.bases += 1;
+                let base = PreviewBase {
+                    image: Arc::new(DynamicImage::new_rgb32f(2, 2)),
+                    scale: 1.0,
+                    unscaled_crop_offset: (0.0, 0.0),
+                };
+                bases.insert(&image, preparation_key, DIM, base);
+            }
+        }
+
+        pub fn take_counts(&mut self) -> Counts {
+            std::mem::take(&mut self.counts)
+        }
+    }
+
+    #[test]
+    fn decodes_and_preview_bases_per_develop_event() {
+        let state = AppState::default();
+        let develop = DevelopSession::default();
+        develop.decoded_image_cache.lock().unwrap().set_capacity(5);
+        let mut editor = Editor {
+            state: &state,
+            develop: &develop,
+            counts: Counts::default(),
+        };
+        editor.open("a.ARW");
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 1,
+                bases: 1
+            }
+        );
+        // Photo switch and back: the first photograph's decode and preview
+        // base are kept.
+        editor.open("b.ARW");
+        editor.open("a.ARW");
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 1,
+                bases: 1
+            }
+        );
+        // Recipe edit: a tone change keeps the base, a geometry change
+        // builds one, neither decodes; going back to the first geometry
+        // reuses its base.
+        editor.preview(1);
+        editor.preview(2);
+        editor.preview(1);
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 0,
+                bases: 1
+            }
+        );
+        // The decoder's settings change: decoded again, base built again.
+        {
+            let _statics = crate::multi_view_prefetch::tests::STATICS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            develop.invalidate(Scope::Decoder);
+        }
+        editor.open("a.ARW");
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 1,
+                bases: 1
+            }
+        );
     }
 }
 
