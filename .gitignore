@@ -27,3 +27,6 @@ src-tauri/resources/licenses/onnxruntime-*.txt
 
 # Local results of scripts/bench/replay.js
 scripts/bench/out/
+
+# rustc crash dumps (-Ztreat-err-as-bug and ICEs)
+rustc-ice-*.txt
